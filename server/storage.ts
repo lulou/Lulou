@@ -23,6 +23,7 @@ export interface IStorage {
   incrementMessageCount(matchId: string, userId: string): Promise<void>;
   startCall(matchId: string, userId: string): Promise<Match | undefined>;
   completeCall(matchId: string, userId: string): Promise<Match | undefined>;
+  getPopularProfiles(limit?: number): Promise<Profile[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -191,6 +192,61 @@ export class DatabaseStorage implements IStorage {
       .where(eq(matches.id, matchId))
       .returning();
     return updated;
+  }
+
+  async getPopularProfiles(limit: number = 10): Promise<Profile[]> {
+    const popularUserIds = db
+      .select({
+        userId: interactions.toUserId,
+        openCount: sql<number>`count(*)::int`.as("open_count"),
+      })
+      .from(interactions)
+      .where(eq(interactions.type, "open"))
+      .groupBy(interactions.toUserId)
+      .orderBy(sql`count(*) DESC`)
+      .limit(limit);
+
+    const subquery = await popularUserIds;
+
+    if (subquery.length === 0) {
+      const fallback = await db
+        .select()
+        .from(profiles)
+        .where(eq(profiles.onboardingComplete, true))
+        .limit(limit);
+      return fallback;
+    }
+
+    const userIds = subquery.map((r) => r.userId);
+    const result = await db
+      .select()
+      .from(profiles)
+      .where(
+        and(
+          sql`${profiles.userId} IN (${sql.join(userIds.map(id => sql`${id}`), sql`, `)})`,
+          eq(profiles.onboardingComplete, true)
+        )
+      );
+
+    const orderMap = new Map(userIds.map((id, i) => [id, i]));
+    result.sort((a, b) => (orderMap.get(a.userId) ?? 99) - (orderMap.get(b.userId) ?? 99));
+
+    if (result.length < limit) {
+      const existingIds = result.map(r => r.userId);
+      const extra = await db
+        .select()
+        .from(profiles)
+        .where(
+          and(
+            eq(profiles.onboardingComplete, true),
+            sql`${profiles.userId} NOT IN (${sql.join(existingIds.map(id => sql`${id}`), sql`, `)})`
+          )
+        )
+        .limit(limit - result.length);
+      result.push(...extra);
+    }
+
+    return result;
   }
 }
 

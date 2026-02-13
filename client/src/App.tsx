@@ -11,6 +11,7 @@ import Discover from "@/pages/discover";
 import Matches from "@/pages/matches";
 import Messaging from "@/pages/messaging";
 import ProfilePage from "@/pages/profile";
+import IntentPage from "@/pages/intent";
 import AppLayout from "@/components/app-layout";
 import type { Profile } from "@shared/schema";
 import { Flower2 } from "lucide-react";
@@ -67,6 +68,7 @@ function AppContent() {
       <Switch>
         <Route path="/" component={Discover} />
         <Route path="/discover" component={Discover} />
+        <Route path="/intent" component={IntentPage} />
         <Route path="/matches" component={Matches} />
         <Route path="/messages/:matchId" component={Messaging} />
         <Route path="/profile" component={ProfilePage} />

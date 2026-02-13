@@ -221,6 +221,16 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/popular", isAuthenticated, async (req: any, res) => {
+    try {
+      const popular = await storage.getPopularProfiles(10);
+      res.json(popular);
+    } catch (error) {
+      console.error("Error fetching popular profiles:", error);
+      res.status(500).json({ message: "Failed to fetch popular profiles" });
+    }
+  });
+
   await seedDatabase();
 
   return httpServer;

@@ -1,11 +1,12 @@
 import { useLocation, Link } from "wouter";
-import { Flower2, Compass, Heart, User } from "lucide-react";
+import { Flower2, Compass, Heart, User, CircleDot } from "lucide-react";
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();
 
   const navItems = [
     { path: "/discover", icon: Compass, label: "Discover" },
+    { path: "/intent", icon: CircleDot, label: "Intent" },
     { path: "/matches", icon: Heart, label: "Connections" },
     { path: "/profile", icon: User, label: "Profile" },
   ];

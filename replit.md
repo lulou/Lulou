@@ -17,6 +17,11 @@ Bloom is a calm, premium dating app focused on helping people move from matching
   - Photo bubbles with dynamic focus (centered photo grows, side photos shrink)
   - Open button (heart + "Open" label) overlaid on focused photo
   - Close button (moon) fixed at bottom-right of screen
+- Intention Wheel (Intent tab) - horizontal spinning wheel of top 10 most popular profiles
+  - Spin button triggers animated wheel spin with eased deceleration
+  - Lands on a random profile, shows their details (photo, name, age, location, signals, starters)
+  - Popularity ranked by number of "opens" received
+  - Manual drag scrolling with momentum physics
 - Mutual matching system
 - Matches page with expandable inline chatrooms per match card
 - Limited messaging (15 messages per person, 500 chars max)
@@ -33,7 +38,7 @@ Bloom is a calm, premium dating app focused on helping people move from matching
 - No gamification, no casino mechanics
 
 ## Project Structure
-- `client/src/pages/` - Landing, Onboarding, Discover, Matches, Messaging, Profile
+- `client/src/pages/` - Landing, Onboarding, Discover, Intent, Matches, Messaging, Profile
 - `client/src/components/` - AppLayout (bottom nav), UI components
 - `server/routes.ts` - API endpoints
 - `server/storage.ts` - Database operations
@@ -56,3 +61,4 @@ Bloom is a calm, premium dating app focused on helping people move from matching
 - `GET /api/matches` - Get user's matches
 - `GET /api/matches/:id` - Get match details with messages
 - `POST /api/matches/:id/messages` - Send message
+- `GET /api/popular` - Get top 10 most popular profiles (by opens received)
