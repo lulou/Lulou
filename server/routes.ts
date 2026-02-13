@@ -89,7 +89,7 @@ export async function registerRoutes(
       if (!myProfile) {
         return res.json([]);
       }
-      const discovered = await storage.getDiscoverProfiles(userId, myProfile.gender, myProfile.datingPreference);
+      const discovered = await storage.getDiscoverProfiles(userId, myProfile.gender, myProfile.datingPreference, myProfile.preferredAgeMin || 18, myProfile.preferredAgeMax || 45);
       res.json(discovered);
     } catch (error) {
       console.error("Error discovering profiles:", error);

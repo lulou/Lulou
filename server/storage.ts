@@ -11,7 +11,7 @@ export interface IStorage {
   getProfile(userId: string): Promise<Profile | undefined>;
   createProfile(data: InsertProfile): Promise<Profile>;
   updateProfile(userId: string, data: Partial<InsertProfile>): Promise<Profile | undefined>;
-  getDiscoverProfiles(userId: string, gender: string, preference: string): Promise<Profile[]>;
+  getDiscoverProfiles(userId: string, gender: string, preference: string, ageMin?: number, ageMax?: number): Promise<Profile[]>;
   createInteraction(data: InsertInteraction): Promise<Interaction>;
   getInteraction(fromUserId: string, toUserId: string): Promise<Interaction | undefined>;
   getMutualOpen(user1Id: string, user2Id: string): Promise<boolean>;
@@ -41,7 +41,7 @@ export class DatabaseStorage implements IStorage {
     return profile || undefined;
   }
 
-  async getDiscoverProfiles(userId: string, gender: string, preference: string): Promise<Profile[]> {
+  async getDiscoverProfiles(userId: string, gender: string, preference: string, ageMin: number = 18, ageMax: number = 45): Promise<Profile[]> {
     const interactedUserIds = db
       .select({ id: interactions.toUserId })
       .from(interactions)
@@ -64,7 +64,9 @@ export class DatabaseStorage implements IStorage {
           sql`${profiles.userId} != ${userId}`,
           sql`${profiles.userId} NOT IN (${interactedUserIds})`,
           eq(profiles.onboardingComplete, true),
-          genderFilter
+          genderFilter,
+          sql`${profiles.age} >= ${ageMin}`,
+          sql`${profiles.age} <= ${ageMax}`
         )
       )
       .limit(5);

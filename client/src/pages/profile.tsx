@@ -25,6 +25,7 @@ import {
   HelpCircle,
   Lightbulb,
   ChevronRight,
+  ChevronDown,
   BadgeCheck,
   Settings,
   CreditCard,
@@ -78,8 +79,11 @@ export default function ProfilePage() {
     },
   });
 
+  const [localRadius, setLocalRadius] = useState<number | null>(null);
+  const [localAgeRange, setLocalAgeRange] = useState<[number, number] | null>(null);
   const [editingPhotos, setEditingPhotos] = useState(false);
   const [editPhotos, setEditPhotos] = useState<string[]>([]);
+  const [showPhotos, setShowPhotos] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const startEditingPhotos = () => {
@@ -322,11 +326,15 @@ export default function ProfilePage() {
               <Radar className="w-4 h-4 text-primary shrink-0" />
               <span className="truncate">Distance</span>
             </div>
-            <span className="text-sm text-muted-foreground shrink-0" data-testid="text-radius-value">{profile.locationRadius || 25} mi</span>
+            <span className="text-sm text-muted-foreground shrink-0" data-testid="text-radius-value">{localRadius ?? profile.locationRadius ?? 25} mi</span>
           </div>
           <Slider
-            value={[profile.locationRadius || 25]}
-            onValueChange={([v]) => updateProfileField.mutate({ locationRadius: v })}
+            value={[localRadius ?? profile.locationRadius ?? 25]}
+            onValueChange={([v]) => setLocalRadius(v)}
+            onValueCommit={([v]) => {
+              updateProfileField.mutate({ locationRadius: v });
+              setLocalRadius(null);
+            }}
             min={5}
             max={100}
             step={5}
@@ -340,11 +348,15 @@ export default function ProfilePage() {
               <Calendar className="w-4 h-4 text-primary shrink-0" />
               <span className="truncate">Age</span>
             </div>
-            <span className="text-sm text-muted-foreground shrink-0" data-testid="text-age-range-value">{profile.preferredAgeMin || 18}-{profile.preferredAgeMax || 45}</span>
+            <span className="text-sm text-muted-foreground shrink-0" data-testid="text-age-range-value">{localAgeRange?.[0] ?? profile.preferredAgeMin ?? 18}-{localAgeRange?.[1] ?? profile.preferredAgeMax ?? 45}</span>
           </div>
           <Slider
-            value={[profile.preferredAgeMin || 18, profile.preferredAgeMax || 45]}
-            onValueChange={([min, max]) => updateProfileField.mutate({ preferredAgeMin: min, preferredAgeMax: max })}
+            value={[localAgeRange?.[0] ?? profile.preferredAgeMin ?? 18, localAgeRange?.[1] ?? profile.preferredAgeMax ?? 45]}
+            onValueChange={([min, max]) => setLocalAgeRange([min, max])}
+            onValueCommit={([min, max]) => {
+              updateProfileField.mutate({ preferredAgeMin: min, preferredAgeMax: max });
+              setLocalAgeRange(null);
+            }}
             min={18}
             max={65}
             step={1}
@@ -356,12 +368,26 @@ export default function ProfilePage() {
 
       <div className="space-y-2">
         <div className="flex items-center justify-between gap-2">
-          <p className="text-xs font-medium tracking-wider uppercase text-muted-foreground">Photos</p>
-          {!editingPhotos ? (
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => setShowPhotos(!showPhotos)}
+            className="flex items-center gap-1.5"
+            data-testid="button-toggle-photos"
+          >
+            <Camera className="w-4 h-4 text-primary" />
+            <span className="text-xs font-medium tracking-wider uppercase text-muted-foreground">Photos</span>
+            {profile.photos && profile.photos.length > 0 && (
+              <span className="text-xs text-muted-foreground">({profile.photos.length})</span>
+            )}
+            <ChevronDown className={`w-3.5 h-3.5 text-muted-foreground transition-transform ${showPhotos ? 'rotate-180' : ''}`} />
+          </Button>
+          {showPhotos && !editingPhotos && (
             <Button size="sm" variant="ghost" onClick={startEditingPhotos} data-testid="button-edit-photos">
               <Pencil className="w-3.5 h-3.5 mr-1.5" /> Edit Photos
             </Button>
-          ) : (
+          )}
+          {showPhotos && editingPhotos && (
             <div className="flex items-center gap-2">
               <Button size="sm" variant="ghost" onClick={cancelEditingPhotos} data-testid="button-cancel-photos">
                 Cancel
@@ -378,7 +404,7 @@ export default function ProfilePage() {
           )}
         </div>
 
-        {editingPhotos ? (
+        {showPhotos && (editingPhotos ? (
           <div className="grid grid-cols-3 gap-2">
             {editPhotos.map((photo, i) => (
               <div key={i} className="aspect-[3/4] rounded-md overflow-hidden relative group">
@@ -429,7 +455,7 @@ export default function ProfilePage() {
             <ImagePlus className="w-8 h-8 text-muted-foreground/50" />
             <span className="text-xs text-muted-foreground/50">Add photos</span>
           </button>
-        )}
+        ))}
       </div>
 
       <Card className="p-5 space-y-4">
