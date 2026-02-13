@@ -83,9 +83,9 @@ export default {
         },
       },
       fontFamily: {
-        sans: ["var(--font-sans)"],
-        serif: ["var(--font-serif)"],
-        mono: ["var(--font-mono)"],
+        sans: ["Plus Jakarta Sans", "var(--font-sans)", "sans-serif"],
+        serif: ["Playfair Display", "var(--font-serif)", "serif"],
+        mono: ["JetBrains Mono", "var(--font-mono)", "monospace"],
       },
       keyframes: {
         "accordion-down": {
