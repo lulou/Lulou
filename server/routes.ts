@@ -20,6 +20,8 @@ const profileBodySchema = z.object({
   conversationStarters: z.array(z.string().max(200)).min(2).max(3).optional(),
   questions: z.array(z.string().max(200)).min(2).max(3).optional(),
   locationRadius: z.number().int().min(5).max(100).optional(),
+  preferredAgeMin: z.number().int().min(18).max(65).optional(),
+  preferredAgeMax: z.number().int().min(18).max(65).optional(),
   photoVerified: z.boolean().optional(),
   onboardingComplete: z.boolean().optional(),
 });
