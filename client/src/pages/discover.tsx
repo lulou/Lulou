@@ -9,101 +9,12 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { DragScrollRow } from "@/components/drag-scroll-row";
 import type { Profile } from "@shared/schema";
-import { MapPin, Sparkles, Ruler, MessageCircle, HelpCircle, Send, X, ChevronLeft, ChevronRight } from "lucide-react";
+import { MapPin, Sparkles, Ruler, MessageCircle, HelpCircle, Send } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
-
-function PhotoLightbox({ photos, name, initialIndex, onClose }: { photos: string[]; name: string; initialIndex: number; onClose: () => void }) {
-  const [currentIndex, setCurrentIndex] = useState(initialIndex);
-
-  useEffect(() => {
-    const handleKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-      if (e.key === "ArrowLeft" && currentIndex > 0) setCurrentIndex(i => i - 1);
-      if (e.key === "ArrowRight" && currentIndex < photos.length - 1) setCurrentIndex(i => i + 1);
-    };
-    window.addEventListener("keydown", handleKey);
-    return () => window.removeEventListener("keydown", handleKey);
-  }, [currentIndex, photos.length, onClose]);
-
-  return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      transition={{ duration: 0.2 }}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80"
-      onClick={onClose}
-      data-testid="photo-lightbox-overlay"
-    >
-      <div
-        className="relative max-w-lg w-full mx-4"
-        onClick={e => e.stopPropagation()}
-      >
-        <Button
-          size="icon"
-          variant="ghost"
-          className="absolute -top-12 right-0 text-white/80 rounded-full"
-          onClick={onClose}
-          data-testid="button-lightbox-close"
-        >
-          <X className="w-5 h-5" />
-        </Button>
-
-        <motion.img
-          key={currentIndex}
-          initial={{ opacity: 0, scale: 0.95 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ duration: 0.2 }}
-          src={photos[currentIndex]}
-          alt={`${name} photo ${currentIndex + 1}`}
-          className="w-full rounded-xl object-contain max-h-[80vh]"
-          draggable={false}
-          data-testid={`img-lightbox-photo-${currentIndex}`}
-        />
-
-        {photos.length > 1 && (
-          <div className="flex items-center justify-between mt-3">
-            <Button
-              size="icon"
-              variant="ghost"
-              className="text-white/80 rounded-full"
-              disabled={currentIndex === 0}
-              onClick={() => setCurrentIndex(i => i - 1)}
-              data-testid="button-lightbox-prev"
-            >
-              <ChevronLeft className="w-5 h-5" />
-            </Button>
-            <div className="flex gap-1.5">
-              {photos.map((_, i) => (
-                <div
-                  key={i}
-                  className={`w-2 h-2 rounded-full transition-colors ${
-                    i === currentIndex ? "bg-white" : "bg-white/30"
-                  }`}
-                />
-              ))}
-            </div>
-            <Button
-              size="icon"
-              variant="ghost"
-              className="text-white/80 rounded-full"
-              disabled={currentIndex === photos.length - 1}
-              onClick={() => setCurrentIndex(i => i + 1)}
-              data-testid="button-lightbox-next"
-            >
-              <ChevronRight className="w-5 h-5" />
-            </Button>
-          </div>
-        )}
-      </div>
-    </motion.div>
-  );
-}
 
 function PhotoBubbles({ photos, name }: { photos: string[]; name: string }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const isDragging = useRef(false);
-  const didDrag = useRef(false);
   const startX = useRef(0);
   const scrollLeftStart = useRef(0);
   const lastX = useRef(0);
@@ -111,7 +22,6 @@ function PhotoBubbles({ photos, name }: { photos: string[]; name: string }) {
   const velocity = useRef(0);
   const animFrame = useRef<number>(0);
   const [focusedIndex, setFocusedIndex] = useState(0);
-  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const itemRefs = useRef<(HTMLDivElement | null)[]>([]);
 
   const updateFocused = useCallback(() => {
@@ -152,7 +62,6 @@ function PhotoBubbles({ photos, name }: { photos: string[]; name: string }) {
     cancelAnimationFrame(animFrame.current);
     velocity.current = 0;
     isDragging.current = true;
-    didDrag.current = false;
     startX.current = e.clientX;
     lastX.current = e.clientX;
     lastTime.current = Date.now();
@@ -172,7 +81,6 @@ function PhotoBubbles({ photos, name }: { photos: string[]; name: string }) {
     lastX.current = e.clientX;
     lastTime.current = now;
     const totalDx = e.clientX - startX.current;
-    if (Math.abs(totalDx) > 5) didDrag.current = true;
     scrollRef.current.scrollLeft = scrollLeftStart.current - totalDx;
     updateFocused();
   };
@@ -204,24 +112,17 @@ function PhotoBubbles({ photos, name }: { photos: string[]; name: string }) {
 
   if (photos.length === 1) {
     return (
-      <>
-        <div className="flex justify-center py-4 px-4 cursor-pointer" data-testid="photo-bubbles" onClick={() => setLightboxIndex(0)}>
-          <div className="w-56 h-72 rounded-2xl overflow-hidden shadow-md ring-2 ring-primary/15">
-            <img
-              src={photos[0]}
-              alt={`${name} photo 1`}
-              className="w-full h-full object-cover pointer-events-none"
-              draggable={false}
-              data-testid="img-profile-photo-0"
-            />
-          </div>
+      <div className="flex justify-center py-4 px-4" data-testid="photo-bubbles">
+        <div className="w-56 h-72 rounded-2xl overflow-hidden shadow-md ring-2 ring-primary/15">
+          <img
+            src={photos[0]}
+            alt={`${name} photo 1`}
+            className="w-full h-full object-cover pointer-events-none"
+            draggable={false}
+            data-testid="img-profile-photo-0"
+          />
         </div>
-        <AnimatePresence>
-          {lightboxIndex !== null && (
-            <PhotoLightbox photos={photos} name={name} initialIndex={lightboxIndex} onClose={() => setLightboxIndex(null)} />
-          )}
-        </AnimatePresence>
-      </>
+      </div>
     );
   }
 
@@ -252,12 +153,11 @@ function PhotoBubbles({ photos, name }: { photos: string[]; name: string }) {
               <div
                 key={i}
                 ref={(el) => { itemRefs.current[i] = el; }}
-                className={`rounded-2xl overflow-hidden flex-shrink-0 transition-all duration-300 ease-out cursor-pointer ${
+                className={`rounded-2xl overflow-hidden flex-shrink-0 transition-all duration-300 ease-out ${
                   isFocused
                     ? "w-56 h-72 shadow-lg ring-2 ring-primary/20"
                     : "w-40 h-56 shadow-md opacity-70"
                 }`}
-                onClick={() => { if (!didDrag.current) setLightboxIndex(i); }}
                 data-testid={`photo-bubble-${i}`}
               >
                 <img
@@ -287,72 +187,149 @@ function PhotoBubbles({ photos, name }: { photos: string[]; name: string }) {
           ))}
         </div>
       )}
-
-      <AnimatePresence>
-        {lightboxIndex !== null && (
-          <PhotoLightbox photos={photos} name={name} initialIndex={lightboxIndex} onClose={() => setLightboxIndex(null)} />
-        )}
-      </AnimatePresence>
     </div>
   );
 }
 
-function ReplyCard({ text, icon, index, onSend }: { text: string; icon: "starter" | "question"; index: number; onSend: (reply: string) => void }) {
-  const [expanded, setExpanded] = useState(false);
+function SlideCards({ items, type, onReply }: { items: string[]; type: "starter" | "question"; onReply: (text: string, reply: string) => void }) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const isDragging = useRef(false);
+  const didDrag = useRef(false);
+  const startX = useRef(0);
+  const scrollLeftStart = useRef(0);
+  const lastX = useRef(0);
+  const lastTime = useRef(0);
+  const velocity = useRef(0);
+  const animFrame = useRef<number>(0);
+  const [activeIndex, setActiveIndex] = useState<number | null>(null);
   const [reply, setReply] = useState("");
-  const testIdPrefix = icon === "starter" ? "text-starter" : "text-question";
+
+  const glide = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    if (Math.abs(velocity.current) < 0.5) {
+      velocity.current = 0;
+      return;
+    }
+    el.scrollLeft -= velocity.current;
+    velocity.current *= 0.93;
+    animFrame.current = requestAnimationFrame(glide);
+  }, []);
+
+  const handlePointerDown = (e: React.PointerEvent) => {
+    const el = scrollRef.current;
+    if (!el) return;
+    cancelAnimationFrame(animFrame.current);
+    velocity.current = 0;
+    isDragging.current = true;
+    didDrag.current = false;
+    startX.current = e.clientX;
+    lastX.current = e.clientX;
+    lastTime.current = Date.now();
+    scrollLeftStart.current = el.scrollLeft;
+  };
+
+  const handlePointerMove = (e: React.PointerEvent) => {
+    if (!isDragging.current || !scrollRef.current) return;
+    const now = Date.now();
+    const dt = now - lastTime.current;
+    const dx = e.clientX - lastX.current;
+    if (dt > 0) velocity.current = dx / dt * 16;
+    lastX.current = e.clientX;
+    lastTime.current = now;
+    const totalDx = e.clientX - startX.current;
+    if (Math.abs(totalDx) > 5) didDrag.current = true;
+    scrollRef.current.scrollLeft = scrollLeftStart.current - totalDx;
+  };
+
+  const handlePointerUp = () => {
+    isDragging.current = false;
+    if (Math.abs(velocity.current) > 1) {
+      animFrame.current = requestAnimationFrame(glide);
+    }
+  };
+
+  useEffect(() => {
+    return () => cancelAnimationFrame(animFrame.current);
+  }, []);
+
+  const handleCardClick = (i: number) => {
+    if (didDrag.current) return;
+    setActiveIndex(activeIndex === i ? null : i);
+    setReply("");
+  };
+
+  const handleSend = (text: string) => {
+    if (!reply.trim()) return;
+    onReply(text, reply.trim());
+    setReply("");
+    setActiveIndex(null);
+  };
+
+  const isStarter = type === "starter";
 
   return (
-    <div>
+    <div className="space-y-2">
       <div
-        className={`rounded-md px-4 py-3 text-sm leading-relaxed cursor-pointer transition-colors ${
-          icon === "starter" ? "bg-muted/50 hover-elevate" : "border hover-elevate"
-        }`}
-        onClick={() => setExpanded(!expanded)}
-        data-testid={`${testIdPrefix}-${index}`}
+        ref={scrollRef}
+        className="overflow-x-auto scrollbar-hide select-none touch-pan-y cursor-grab"
+        style={{ WebkitOverflowScrolling: "touch" }}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerLeave={handlePointerUp}
+        data-testid={isStarter ? "slide-starters" : "slide-questions"}
       >
-        {text}
-      </div>
-      {expanded && (
-        <motion.div
-          initial={{ height: 0, opacity: 0 }}
-          animate={{ height: "auto", opacity: 1 }}
-          exit={{ height: 0, opacity: 0 }}
-          transition={{ duration: 0.2 }}
-          className="mt-2"
-        >
-          <div className="flex gap-2 items-end">
-            <Input
-              value={reply}
-              onChange={e => setReply(e.target.value.slice(0, 200))}
-              placeholder={icon === "starter" ? "Reply to this..." : "Share your answer..."}
-              className="text-sm"
-              onKeyDown={e => {
-                if (e.key === "Enter" && reply.trim()) {
-                  onSend(reply.trim());
-                  setReply("");
-                  setExpanded(false);
-                }
-              }}
-              data-testid={`input-reply-${icon}`}
-            />
-            <Button
-              size="icon"
-              disabled={!reply.trim()}
-              onClick={() => {
-                if (reply.trim()) {
-                  onSend(reply.trim());
-                  setReply("");
-                  setExpanded(false);
-                }
-              }}
-              data-testid={`button-reply-send-${icon}`}
+        <div className="flex gap-3 px-1" style={{ width: "max-content" }}>
+          {items.map((item, i) => (
+            <div
+              key={i}
+              className={`rounded-md px-4 py-3 text-sm leading-relaxed flex-shrink-0 cursor-pointer transition-all ${
+                isStarter
+                  ? "bg-muted/50 hover-elevate"
+                  : "border hover-elevate"
+              } ${activeIndex === i ? "ring-2 ring-primary/40" : ""}`}
+              style={{ maxWidth: "260px", minWidth: "200px" }}
+              onClick={() => handleCardClick(i)}
+              data-testid={isStarter ? `text-starter-${i}` : `text-question-${i}`}
             >
-              <Send className="w-4 h-4" />
-            </Button>
-          </div>
-        </motion.div>
-      )}
+              {item}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <AnimatePresence>
+        {activeIndex !== null && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.2 }}
+          >
+            <div className="flex gap-2 items-end px-1">
+              <Input
+                value={reply}
+                onChange={e => setReply(e.target.value.slice(0, 200))}
+                placeholder={isStarter ? "Reply to this..." : "Share your answer..."}
+                className="text-sm"
+                onKeyDown={e => {
+                  if (e.key === "Enter" && reply.trim()) handleSend(items[activeIndex]);
+                }}
+                data-testid={`input-reply-${type}`}
+              />
+              <Button
+                size="icon"
+                disabled={!reply.trim()}
+                onClick={() => handleSend(items[activeIndex!])}
+                data-testid={`button-reply-send-${type}`}
+              >
+                <Send className="w-4 h-4" />
+              </Button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
@@ -450,17 +427,7 @@ export default function Discover() {
                       <MessageCircle className="w-3.5 h-3.5 text-primary" />
                       <p className="text-xs font-medium tracking-wider uppercase text-primary">Conversation Starters</p>
                     </div>
-                    <div className="space-y-2">
-                      {conversationStarters.map((starter, i) => (
-                        <ReplyCard
-                          key={i}
-                          text={starter}
-                          icon="starter"
-                          index={i}
-                          onSend={(reply) => handleReply(starter, reply)}
-                        />
-                      ))}
-                    </div>
+                    <SlideCards items={conversationStarters} type="starter" onReply={handleReply} />
                   </div>
                 )}
 
@@ -470,17 +437,7 @@ export default function Discover() {
                       <HelpCircle className="w-3.5 h-3.5 text-primary" />
                       <p className="text-xs font-medium tracking-wider uppercase text-primary">Ask Me</p>
                     </div>
-                    <div className="space-y-2">
-                      {questions.map((question, i) => (
-                        <ReplyCard
-                          key={i}
-                          text={question}
-                          icon="question"
-                          index={i}
-                          onSend={(reply) => handleReply(question, reply)}
-                        />
-                      ))}
-                    </div>
+                    <SlideCards items={questions} type="question" onReply={handleReply} />
                   </div>
                 )}
 
