@@ -21,6 +21,8 @@ export interface IStorage {
   createMessage(data: InsertMessage): Promise<Message>;
   getUserMessageCount(matchId: string, userId: string): Promise<number>;
   incrementMessageCount(matchId: string, userId: string): Promise<void>;
+  startCall(matchId: string, userId: string): Promise<Match | undefined>;
+  completeCall(matchId: string, userId: string): Promise<Match | undefined>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -164,6 +166,29 @@ export class DatabaseStorage implements IStorage {
     } else {
       await db.update(matches).set({ messageCount2: (match.messageCount2 || 0) + 1 }).where(eq(matches.id, matchId));
     }
+  }
+  async startCall(matchId: string, userId: string): Promise<Match | undefined> {
+    const [match] = await db.select().from(matches).where(eq(matches.id, matchId));
+    if (!match) return undefined;
+    if (match.user1Id !== userId && match.user2Id !== userId) return undefined;
+    const [updated] = await db
+      .update(matches)
+      .set({ callStartedAt: new Date() })
+      .where(eq(matches.id, matchId))
+      .returning();
+    return updated;
+  }
+
+  async completeCall(matchId: string, userId: string): Promise<Match | undefined> {
+    const [match] = await db.select().from(matches).where(eq(matches.id, matchId));
+    if (!match) return undefined;
+    if (match.user1Id !== userId && match.user2Id !== userId) return undefined;
+    const [updated] = await db
+      .update(matches)
+      .set({ callCompleted: true })
+      .where(eq(matches.id, matchId))
+      .returning();
+    return updated;
   }
 }
 

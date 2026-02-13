@@ -9,14 +9,106 @@ import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
-import { MessageCircle, Sparkles, Send, Phone, ChevronDown, ChevronUp } from "lucide-react";
+import { MessageCircle, Sparkles, Send, Phone, ChevronDown, ChevronUp, PhoneOff, Clock } from "lucide-react";
 import type { Profile, Match, Message } from "@shared/schema";
 
 const MAX_MESSAGES_PER_USER = 15;
 const MAX_CHARS = 500;
+const CALL_DURATION_SECONDS = 10 * 60;
 
 type MatchWithProfile = Match & { profile: Profile };
 type MatchDetail = Match & { profile: Profile; messages: Message[] };
+
+function formatTime(seconds: number): string {
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return `${m}:${s.toString().padStart(2, "0")}`;
+}
+
+function CallTimer({ match, onComplete }: { match: MatchDetail; onComplete: () => void }) {
+  const [remaining, setRemaining] = useState(() => {
+    if (!match.callStartedAt) return CALL_DURATION_SECONDS;
+    const elapsed = Math.floor((Date.now() - new Date(match.callStartedAt).getTime()) / 1000);
+    return Math.max(0, CALL_DURATION_SECONDS - elapsed);
+  });
+
+  useEffect(() => {
+    if (remaining <= 0) return;
+    const interval = setInterval(() => {
+      setRemaining(prev => {
+        if (prev <= 1) {
+          clearInterval(interval);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [remaining]);
+
+  const progress = remaining / CALL_DURATION_SECONDS;
+  const isLow = remaining <= 60;
+
+  return (
+    <div className="p-5 border-t" data-testid={`call-timer-${match.id}`}>
+      <div className="text-center space-y-4">
+        <div className="relative w-28 h-28 mx-auto">
+          <svg className="w-28 h-28 -rotate-90" viewBox="0 0 112 112">
+            <circle cx="56" cy="56" r="50" fill="none" stroke="currentColor" strokeWidth="4" className="text-muted/30" />
+            <circle
+              cx="56" cy="56" r="50" fill="none"
+              strokeWidth="4"
+              strokeLinecap="round"
+              strokeDasharray={`${2 * Math.PI * 50}`}
+              strokeDashoffset={`${2 * Math.PI * 50 * (1 - progress)}`}
+              className={`transition-all duration-1000 ${isLow ? "text-destructive" : "text-primary"}`}
+              stroke="currentColor"
+            />
+          </svg>
+          <div className="absolute inset-0 flex flex-col items-center justify-center">
+            <Phone className={`w-5 h-5 mb-1 ${isLow ? "text-destructive" : "text-primary"}`} />
+            <span className={`text-xl font-bold tabular-nums ${isLow ? "text-destructive" : ""}`} data-testid={`text-timer-${match.id}`}>
+              {formatTime(remaining)}
+            </span>
+          </div>
+        </div>
+
+        {remaining > 0 ? (
+          <div className="space-y-2">
+            <p className="font-medium text-sm">Call in progress</p>
+            <p className="text-xs text-muted-foreground">
+              {remaining <= 60
+                ? "Less than a minute remaining"
+                : `${Math.ceil(remaining / 60)} minutes remaining`}
+            </p>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={onComplete}
+              data-testid={`button-end-call-${match.id}`}
+            >
+              <PhoneOff className="w-4 h-4 mr-2" /> End Call
+            </Button>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            <p className="font-medium text-sm">Time's up!</p>
+            <p className="text-xs text-muted-foreground">
+              How was the conversation? Ready to meet in person?
+            </p>
+            <Button
+              size="sm"
+              onClick={onComplete}
+              data-testid={`button-finish-call-${match.id}`}
+            >
+              Complete Call
+            </Button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 
 function MatchChat({ match }: { match: MatchWithProfile }) {
   const { user } = useAuth();
@@ -29,6 +121,7 @@ function MatchChat({ match }: { match: MatchWithProfile }) {
   const { data: matchDetail } = useQuery<MatchDetail>({
     queryKey: ["/api/matches", match.id],
     enabled: expanded,
+    refetchInterval: expanded && match.callStartedAt && !match.callCompleted ? 5000 : false,
   });
 
   const sendMessage = useMutation({
@@ -47,16 +140,42 @@ function MatchChat({ match }: { match: MatchWithProfile }) {
     },
   });
 
+  const startCall = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", `/api/matches/${match.id}/call/start`, {});
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/matches", match.id] });
+      queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
+    },
+  });
+
+  const completeCall = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", `/api/matches/${match.id}/call/complete`, {});
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/matches", match.id] });
+      queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
+      toast({ title: "Call completed", description: "Great conversation! Consider meeting in person." });
+    },
+  });
+
   useEffect(() => {
     if (expanded) {
       messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     }
   }, [matchDetail?.messages, expanded]);
 
+  const detail = matchDetail || match as unknown as MatchDetail;
   const myMessages = matchDetail?.messages?.filter(m => m.senderId === user?.id) || [];
   const messagesRemaining = MAX_MESSAGES_PER_USER - myMessages.length;
   const isLimitReached = messagesRemaining <= 0;
   const allMessages = matchDetail?.messages || [];
+  const isCallActive = detail.callStartedAt && !detail.callCompleted;
+  const isCallDone = detail.callCompleted;
 
   return (
     <Card className="overflow-hidden" data-testid={`card-match-${match.id}`}>
@@ -82,6 +201,11 @@ function MatchChat({ match }: { match: MatchWithProfile }) {
                   {match.profile.signals[0]}
                 </Badge>
               )}
+              {isCallActive && (
+                <Badge variant="default" className="text-xs" data-testid={`badge-call-active-${match.id}`}>
+                  <Clock className="w-3 h-3 mr-1" /> On Call
+                </Badge>
+              )}
             </div>
             <p className="text-sm text-muted-foreground mt-0.5">{match.profile.datingIntent}</p>
           </div>
@@ -101,7 +225,7 @@ function MatchChat({ match }: { match: MatchWithProfile }) {
           <div className="flex items-center justify-between gap-2 px-4 py-2 bg-muted/30">
             <p className="text-xs text-muted-foreground font-medium">Chat</p>
             <Badge variant="outline" className="text-xs" data-testid={`badge-messages-remaining-${match.id}`}>
-              {messagesRemaining > 0 ? `${messagesRemaining} left` : "Limit reached"}
+              {isCallDone ? "Call completed" : messagesRemaining > 0 ? `${messagesRemaining} left` : "Limit reached"}
             </Badge>
           </div>
 
@@ -135,13 +259,29 @@ function MatchChat({ match }: { match: MatchWithProfile }) {
             <div ref={messagesEndRef} />
           </div>
 
-          {isLimitReached ? (
+          {isCallActive && matchDetail ? (
+            <CallTimer match={matchDetail} onComplete={() => completeCall.mutate()} />
+          ) : isCallDone ? (
             <div className="p-4 border-t">
               <Card className="p-4 text-center space-y-2 bg-primary/5 border-primary/20">
                 <Phone className="w-5 h-5 text-primary mx-auto" />
-                <p className="font-medium text-sm">Ready to hear each other's voice?</p>
-                <Button size="sm" data-testid={`button-call-${match.id}`}>
-                  <Phone className="w-4 h-4 mr-2" /> Start a Call
+                <p className="font-medium text-sm">Call completed</p>
+                <p className="text-xs text-muted-foreground">Great conversation! Ready to meet in real life?</p>
+              </Card>
+            </div>
+          ) : isLimitReached ? (
+            <div className="p-4 border-t">
+              <Card className="p-4 text-center space-y-3 bg-primary/5 border-primary/20">
+                <Phone className="w-5 h-5 text-primary mx-auto" />
+                <p className="font-medium text-sm">You've both shared a lot — ready to hear each other's voice?</p>
+                <p className="text-xs text-muted-foreground">Your first call is free. We suggest 10 minutes to keep it meaningful.</p>
+                <Button
+                  size="sm"
+                  onClick={() => startCall.mutate()}
+                  disabled={startCall.isPending}
+                  data-testid={`button-call-${match.id}`}
+                >
+                  <Phone className="w-4 h-4 mr-2" /> {startCall.isPending ? "Starting..." : "Start a Call"}
                 </Button>
               </Card>
             </div>

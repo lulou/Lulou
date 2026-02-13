@@ -191,6 +191,34 @@ export async function registerRoutes(
     }
   });
 
+  app.post("/api/matches/:matchId/call/start", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const match = await storage.startCall(req.params.matchId, userId);
+      if (!match) {
+        return res.status(404).json({ message: "Match not found" });
+      }
+      res.json(match);
+    } catch (error) {
+      console.error("Error starting call:", error);
+      res.status(500).json({ message: "Failed to start call" });
+    }
+  });
+
+  app.post("/api/matches/:matchId/call/complete", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const match = await storage.completeCall(req.params.matchId, userId);
+      if (!match) {
+        return res.status(404).json({ message: "Match not found" });
+      }
+      res.json(match);
+    } catch (error) {
+      console.error("Error completing call:", error);
+      res.status(500).json({ message: "Failed to complete call" });
+    }
+  });
+
   await seedDatabase();
 
   return httpServer;
