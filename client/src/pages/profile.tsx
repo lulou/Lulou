@@ -209,27 +209,63 @@ export default function ProfilePage() {
             <Crown className="w-5 h-5 text-primary" />
             <div className="text-left">
               <p className="font-medium text-sm">Bloom Extras</p>
-              <p className="text-xs text-muted-foreground">Subscriptions & premium features</p>
+              <p className="text-xs text-muted-foreground">Individual extras & membership</p>
             </div>
           </div>
           <ChevronRight className={`w-4 h-4 text-muted-foreground transition-transform ${expandedSection === "extras" ? "rotate-90" : ""}`} />
         </button>
         {expandedSection === "extras" && (
           <Card className="p-4 space-y-4" data-testid="section-bloom-extras">
-            <div className="space-y-3">
+            <div className="space-y-1 pb-2">
+              <p className="font-medium text-sm">Bloom Membership</p>
+              <p className="text-xs text-muted-foreground">Everything you need for deeper connections</p>
+            </div>
+            <div className="rounded-md border p-3 space-y-2">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <p className="font-medium text-sm">$19.99/month</p>
+                <Button size="sm" data-testid="button-subscribe-membership">Join</Button>
+              </div>
+              <ul className="text-xs text-muted-foreground space-y-1">
+                <li>2 conversation extensions per month</li>
+                <li>1 extra call</li>
+                <li>1 video call</li>
+                <li>2 extra spins per week</li>
+                <li>Undo last close</li>
+              </ul>
+            </div>
+
+            <div className="pt-2 space-y-1">
+              <p className="font-medium text-sm">Solo Extras</p>
+              <p className="text-xs text-muted-foreground">One-time purchases</p>
+            </div>
+            <div className="space-y-2">
               <div className="flex items-center justify-between gap-2 flex-wrap">
                 <div>
-                  <p className="font-medium text-sm">Bloom+</p>
-                  <p className="text-xs text-muted-foreground">See who opened to you, rewind profiles, priority visibility</p>
+                  <p className="text-sm">+5 Messages</p>
+                  <p className="text-xs text-muted-foreground">Give a conversation more room</p>
                 </div>
-                <Button size="sm" data-testid="button-subscribe-plus">Subscribe</Button>
+                <Button size="sm" variant="outline" data-testid="button-buy-messages">$4.99</Button>
               </div>
-              <div className="border-t pt-3 flex items-center justify-between gap-2 flex-wrap">
+              <div className="border-t pt-2 flex items-center justify-between gap-2 flex-wrap">
                 <div>
-                  <p className="font-medium text-sm">Bloom Premium</p>
-                  <p className="text-xs text-muted-foreground">Unlimited opens, advanced filters, read receipts, profile boosts</p>
+                  <p className="text-sm">Undo Last Close</p>
+                  <p className="text-xs text-muted-foreground">Changed your mind? Reopen that profile</p>
                 </div>
-                <Button size="sm" data-testid="button-subscribe-premium">Subscribe</Button>
+                <Button size="sm" variant="outline" data-testid="button-buy-undo">$2.99</Button>
+              </div>
+              <div className="border-t pt-2 flex items-center justify-between gap-2 flex-wrap">
+                <div>
+                  <p className="text-sm">Extra Call</p>
+                  <p className="text-xs text-muted-foreground">One more voice call with a match</p>
+                </div>
+                <Button size="sm" variant="outline" data-testid="button-buy-call">$4.99</Button>
+              </div>
+              <div className="border-t pt-2 flex items-center justify-between gap-2 flex-wrap">
+                <div>
+                  <p className="text-sm">Video Call</p>
+                  <p className="text-xs text-muted-foreground">See each other face to face</p>
+                </div>
+                <Button size="sm" variant="outline" data-testid="button-buy-video">$6.99</Button>
               </div>
             </div>
           </Card>
