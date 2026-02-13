@@ -1,14 +1,15 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { DragScrollRow } from "@/components/drag-scroll-row";
 import type { Profile } from "@shared/schema";
-import { MapPin, Sparkles, Heart, X, Ruler, MessageCircle, HelpCircle } from "lucide-react";
+import { MapPin, Sparkles, Ruler, MessageCircle, HelpCircle, Send } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 
 function PhotoBubbles({ photos, name }: { photos: string[]; name: string }) {
@@ -16,10 +17,14 @@ function PhotoBubbles({ photos, name }: { photos: string[]; name: string }) {
   const isDragging = useRef(false);
   const startX = useRef(0);
   const scrollLeftStart = useRef(0);
+  const lastX = useRef(0);
+  const lastTime = useRef(0);
+  const velocity = useRef(0);
+  const animFrame = useRef<number>(0);
   const [focusedIndex, setFocusedIndex] = useState(0);
   const itemRefs = useRef<(HTMLDivElement | null)[]>([]);
 
-  const updateFocused = () => {
+  const updateFocused = useCallback(() => {
     const container = scrollRef.current;
     if (!container) return;
     const containerCenter = container.scrollLeft + container.offsetWidth / 2;
@@ -35,13 +40,31 @@ function PhotoBubbles({ photos, name }: { photos: string[]; name: string }) {
       }
     });
     setFocusedIndex(closest);
-  };
+  }, []);
+
+  const glide = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    if (Math.abs(velocity.current) < 0.5) {
+      velocity.current = 0;
+      updateFocused();
+      return;
+    }
+    el.scrollLeft -= velocity.current;
+    velocity.current *= 0.94;
+    updateFocused();
+    animFrame.current = requestAnimationFrame(glide);
+  }, [updateFocused]);
 
   const handlePointerDown = (e: React.PointerEvent) => {
     const el = scrollRef.current;
     if (!el) return;
+    cancelAnimationFrame(animFrame.current);
+    velocity.current = 0;
     isDragging.current = true;
     startX.current = e.clientX;
+    lastX.current = e.clientX;
+    lastTime.current = Date.now();
     scrollLeftStart.current = el.scrollLeft;
     el.style.cursor = "grabbing";
     el.setPointerCapture(e.pointerId);
@@ -49,8 +72,16 @@ function PhotoBubbles({ photos, name }: { photos: string[]; name: string }) {
 
   const handlePointerMove = (e: React.PointerEvent) => {
     if (!isDragging.current || !scrollRef.current) return;
-    const dx = e.clientX - startX.current;
-    scrollRef.current.scrollLeft = scrollLeftStart.current - dx;
+    const now = Date.now();
+    const dt = now - lastTime.current;
+    const dx = e.clientX - lastX.current;
+    if (dt > 0) {
+      velocity.current = dx / dt * 16;
+    }
+    lastX.current = e.clientX;
+    lastTime.current = now;
+    const totalDx = e.clientX - startX.current;
+    scrollRef.current.scrollLeft = scrollLeftStart.current - totalDx;
     updateFocused();
   };
 
@@ -60,8 +91,16 @@ function PhotoBubbles({ photos, name }: { photos: string[]; name: string }) {
       scrollRef.current.style.cursor = "grab";
       scrollRef.current.releasePointerCapture(e.pointerId);
     }
-    updateFocused();
+    if (Math.abs(velocity.current) > 1) {
+      animFrame.current = requestAnimationFrame(glide);
+    } else {
+      updateFocused();
+    }
   };
+
+  useEffect(() => {
+    return () => cancelAnimationFrame(animFrame.current);
+  }, []);
 
   if (photos.length === 0) {
     return (
@@ -152,6 +191,66 @@ function PhotoBubbles({ photos, name }: { photos: string[]; name: string }) {
   );
 }
 
+function ReplyCard({ text, icon, index, onSend }: { text: string; icon: "starter" | "question"; index: number; onSend: (reply: string) => void }) {
+  const [expanded, setExpanded] = useState(false);
+  const [reply, setReply] = useState("");
+  const testIdPrefix = icon === "starter" ? "text-starter" : "text-question";
+
+  return (
+    <div>
+      <div
+        className={`rounded-md px-4 py-3 text-sm leading-relaxed cursor-pointer transition-colors ${
+          icon === "starter" ? "bg-muted/50 hover-elevate" : "border hover-elevate"
+        }`}
+        onClick={() => setExpanded(!expanded)}
+        data-testid={`${testIdPrefix}-${index}`}
+      >
+        {text}
+      </div>
+      {expanded && (
+        <motion.div
+          initial={{ height: 0, opacity: 0 }}
+          animate={{ height: "auto", opacity: 1 }}
+          exit={{ height: 0, opacity: 0 }}
+          transition={{ duration: 0.2 }}
+          className="mt-2"
+        >
+          <div className="flex gap-2 items-end">
+            <Input
+              value={reply}
+              onChange={e => setReply(e.target.value.slice(0, 200))}
+              placeholder={icon === "starter" ? "Reply to this..." : "Share your answer..."}
+              className="text-sm"
+              onKeyDown={e => {
+                if (e.key === "Enter" && reply.trim()) {
+                  onSend(reply.trim());
+                  setReply("");
+                  setExpanded(false);
+                }
+              }}
+              data-testid={`input-reply-${icon}`}
+            />
+            <Button
+              size="icon"
+              disabled={!reply.trim()}
+              onClick={() => {
+                if (reply.trim()) {
+                  onSend(reply.trim());
+                  setReply("");
+                  setExpanded(false);
+                }
+              }}
+              data-testid={`button-reply-send-${icon}`}
+            >
+              <Send className="w-4 h-4" />
+            </Button>
+          </div>
+        </motion.div>
+      )}
+    </div>
+  );
+}
+
 export default function Discover() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -181,6 +280,13 @@ export default function Discover() {
       queryClient.invalidateQueries({ queryKey: ["/api/discover"] });
     },
   });
+
+  const handleReply = (promptText: string, reply: string) => {
+    toast({
+      title: "Reply noted",
+      description: `When you match with ${currentProfile?.firstName}, your reply will be sent as your first message.`,
+    });
+  };
 
   if (isLoading) {
     return (
@@ -240,13 +346,13 @@ export default function Discover() {
                     </div>
                     <div className="space-y-2">
                       {conversationStarters.map((starter, i) => (
-                        <div
+                        <ReplyCard
                           key={i}
-                          className="bg-muted/50 rounded-md px-4 py-3 text-sm leading-relaxed"
-                          data-testid={`text-starter-${i}`}
-                        >
-                          {starter}
-                        </div>
+                          text={starter}
+                          icon="starter"
+                          index={i}
+                          onSend={(reply) => handleReply(starter, reply)}
+                        />
                       ))}
                     </div>
                   </div>
@@ -260,13 +366,13 @@ export default function Discover() {
                     </div>
                     <div className="space-y-2">
                       {questions.map((question, i) => (
-                        <div
+                        <ReplyCard
                           key={i}
-                          className="border rounded-md px-4 py-3 text-sm leading-relaxed"
-                          data-testid={`text-question-${i}`}
-                        >
-                          {question}
-                        </div>
+                          text={question}
+                          icon="question"
+                          index={i}
+                          onSend={(reply) => handleReply(question, reply)}
+                        />
                       ))}
                     </div>
                   </div>
@@ -324,29 +430,31 @@ export default function Discover() {
               </div>
             </Card>
 
-            <div className="flex items-center justify-center gap-5 mt-6">
+            <div className="flex items-center justify-center gap-6 mt-6">
               <div className="text-center">
                 <Button
                   variant="outline"
-                  className="w-14 h-14 rounded-full p-0"
+                  size="icon"
+                  className="rounded-full text-2xl"
                   onClick={() => interact.mutate("close")}
                   disabled={interact.isPending}
                   data-testid="button-close"
                 >
-                  <X className="w-5 h-5" />
+                  <span role="img" aria-label="Close">&#127769;</span>
                 </Button>
-                <p className="text-[11px] text-muted-foreground mt-1.5">Not for me</p>
+                <p className="text-[11px] text-muted-foreground mt-1.5">Close</p>
               </div>
               <div className="text-center">
                 <Button
-                  className="w-16 h-16 rounded-full p-0"
+                  size="icon"
+                  className="rounded-full text-3xl"
                   onClick={() => interact.mutate("open")}
                   disabled={interact.isPending}
                   data-testid="button-open"
                 >
-                  <Heart className="w-6 h-6" />
+                  <span role="img" aria-label="Open">&#10084;&#65039;</span>
                 </Button>
-                <p className="text-[11px] text-muted-foreground mt-1.5">I'm curious</p>
+                <p className="text-[11px] text-muted-foreground mt-1.5">Open</p>
               </div>
             </div>
           </motion.div>
