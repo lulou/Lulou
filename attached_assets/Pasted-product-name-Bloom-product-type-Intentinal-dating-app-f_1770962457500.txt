@@ -1,0 +1,294 @@
+product name: Bloom
+
+product type:
+Intentinal dating app focussed on helping people move from matching > coversation > call > real life meeting quickly and safely.
+Bloom is designed to reduce endless texting, ghosting and casual dating culture.
+
+the app should feel:
+Calm
+premium
+emotionally mature
+hopeful
+human
+not gamified
+avoid casino like features
+
+Core product philosophy
+Design the app to encourage:
+emotional courage
+clarity
+mutual effort
+real-world dates
+
+not:
+endless messaging
+validation seeking
+swipe addiction
+popularity contests
+
+Every feature should support real connection progression.
+
+Primary flow
+Users should move through this journey
+
+Sign up:
+Create profile
+show intentions
+enter discovery
+
+discover people:
+view one profile at a time
+choose to open up or close
+
+Mutual open:
+Match created
+messaging unlocked (limited messages)
+
+Message limit reached:
+Users prompted to call
+
+Call stage:
+
+voice call first
+optional video call
+decide to meet
+
+Real life meeting
+App has suceded
+
+Bloom optimizes for meeting, messaging.
+
+Sign up flow:
+keep this simple and premium
+Required steps:
+phone verification
+Users must verify phone number.
+
+Basic information:
+first name
+age
+gender
+who they want to date
+location
+
+Photos
+minimum: 2 photos
+maximum: 6 photos
+encourage clear face photos
+optional later: photo verification badge.
+
+Identity signals (replace prompts)
+Users selct up to 5 personality signals such as:
+emotionally availavable 
+playful
+calm communicator
+affectionate
+growth minded
+romantic
+
+Do NOT use traditional dating prompts.
+signals should allow fast emotional recognition.
+
+Ready for (dating intent)
+User chooses ONE:
+meaningful relationship
+intentional dating
+open but serious
+
+avoid casual framing.
+
+Green flags:
+User selects 3-4 traits people appreciate about them:
+communicates clearly
+emotionally consistent
+keeps their word
+kind/caring
+
+this sets a positive culture.
+
+Connection style
+User chooses preferred pace:
+slow and intentional
+steady with momentum
+ready to meet soon
+
+this prevents mismatched expectations.
+
+discovery > Homepage
+show ONE profile at a time.
+not endless swiping.
+
+slow the experience slightly to encourage thoughtful decsions.
+
+PROFILE CARD MUST SHOW:
+large photos
+name + age
+location
+signals
+ready for
+shared compatibilty indicators
+example:
+You both value emotional availabilty.
+User must be able to drag photos and signals, right > left seperately.
+example: 
+photos drag seperately to signals drag.
+
+Interaction Buttons
+Use:
+Open
+close
+meaning:
+open > i am curious
+close > not for me.
+Avoid language rejection.
+
+no swipe heavy mechanics.
+
+tapping should feel nintentional.
+
+Matching 
+when two users tap open:
+create match.
+
+celebrate softly - not with loud animations.
+Bloom should feel mature.
+
+Messaging system (core differentiator)
+limit messages.
+recommended:
+15 messages per person
+500 charcters per message
+
+after limit:
+conversation pauses.
+prompy users toward call.
+example message:
+"youve both shared a lot-ready to hear eachothers voice?"
+
+Bloom nudges progression.
+
+Conversation extention (paid feastuire)
+Users may extend ONCE per match.
+Extension gives:
++5 messages each
+price recommendation:
+$4.99
+
+IMPORTANT:
+both users recieve messages.
+never allow one-sided paid messaging.
+
+Frame as:
+"Give this conversation more room?"
+
+Call system
+First voice call:
+Free.
+never charge for the first call.
+it is essential for trust and chemistry.
+
+After first call:
+Users decide:meet
+another call
+not a fit
+
+Extra call unlock:
+Allow One additional call.
+
+price:
+$4.99
+
+Video call unlock:
+optional upgrade.
+
+price:
+$5.99
+position as comfort/safety support.
+
+"spin" Feature (curated discovery)
+purpose:
+show standout profiles intentionally - NOT randomly.
+
+avoid gambling language.
+treat as curated introduction.
+spin feature must:
+have the same set up as the user profiles and spin right > left
+NOT A SPINNING CIRCLE.
+
+Users earn spins by:
+sending 10 opens (likes) per day.
+if not used:
+give 1 free weekly spin.
+
+Extra spin price:
+$2.99
+Do NOT sell bundles.
+avoid casino energy.
+
+Subscription model
+Name suggestion:
+Bloom membership
+Avoid "bundle".
+
+Price:
+$19.99/month
+premium but accessible.
+signals serious users.
+
+include:
+2 conversation extentions
+1 extra call
+1 video call
+2 extra spins per week
+undo last close
+
+keep benefits clear and minimal
+
+Blooms  solo extras:
++5 messages $4.99
+undo last close $2.99
+extra call $4.99
+video call $6.99
+
+Profile design priciples
+profiles should prioritize:
+recognition over information.
+top of profile:
+name
+photos 
+signals
+age/height/location
+dating intent
+
+lower priority :
+job 
+education
+stats
+ prevent checklist dating.
+ ALL MUST drag right > left
+
+ Culture rules
+ the app must NEVER feel like:
+ a game
+ social media
+ popularity contest
+
+ avoid:
+ super likes
+ streaks
+ flames
+ leaderboards
+
+ Bloom is calm and intentional.
+
+ UI/emotional tone
+ design laguage:
+ soft colors
+ spacious layout
+ minimal clutter
+ elegant typography
+ 
+ think:
+ luxury boutique hotel
+ NOT
+ loud nightclub.
