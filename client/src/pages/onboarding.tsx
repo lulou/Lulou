@@ -26,6 +26,7 @@ export default function Onboarding() {
     gender: "",
     datingPreference: "",
     location: "",
+    height: "",
     photos: [] as string[],
     signals: [] as string[],
     datingIntent: "",
@@ -173,6 +174,16 @@ export default function Onboarding() {
                     onChange={e => update("location", e.target.value)}
                     placeholder="City, State"
                     data-testid="input-location"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="height">Height (optional)</Label>
+                  <Input
+                    id="height"
+                    value={formData.height}
+                    onChange={e => update("height", e.target.value)}
+                    placeholder="e.g. 5'8&quot;"
+                    data-testid="input-height"
                   />
                 </div>
               </div>

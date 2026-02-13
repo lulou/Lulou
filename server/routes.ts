@@ -11,6 +11,7 @@ const profileBodySchema = z.object({
   gender: z.enum(["woman", "man", "non-binary"]),
   datingPreference: z.enum(["women", "men", "everyone"]),
   location: z.string().min(1).max(100),
+  height: z.string().max(10).optional(),
   photos: z.array(z.string()).min(1).max(6),
   signals: z.array(z.string()).min(1).max(5),
   datingIntent: z.string().min(1),

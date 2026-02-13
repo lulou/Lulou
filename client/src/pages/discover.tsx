@@ -8,7 +8,7 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { DragScrollRow } from "@/components/drag-scroll-row";
 import type { Profile } from "@shared/schema";
-import { MapPin, Sparkles, Heart, X } from "lucide-react";
+import { MapPin, Sparkles, Heart, X, Ruler } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 
 function PhotoBubbles({ photos, name }: { photos: string[]; name: string }) {
@@ -155,7 +155,6 @@ function PhotoBubbles({ photos, name }: { photos: string[]; name: string }) {
 export default function Discover() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const [activeTab, setActiveTab] = useState<"photos" | "about">("photos");
 
   const { data: profiles, isLoading } = useQuery<Profile[]>({
     queryKey: ["/api/discover"],
@@ -179,7 +178,6 @@ export default function Discover() {
           description: `You and ${currentProfile?.firstName} both opened up.`,
         });
       }
-      setActiveTab("photos");
       queryClient.invalidateQueries({ queryKey: ["/api/discover"] });
     },
   });
@@ -229,90 +227,59 @@ export default function Discover() {
             data-testid="profile-container"
           >
             <Card className="overflow-hidden" data-testid="card-profile">
-              <div className="flex border-b">
-                <button
-                  className={`flex-1 py-2.5 text-sm font-medium transition-colors ${
-                    activeTab === "photos"
-                      ? "text-primary border-b-2 border-primary"
-                      : "text-muted-foreground"
-                  }`}
-                  onClick={() => setActiveTab("photos")}
-                  data-testid="tab-photos"
-                >
-                  Photos
-                </button>
-                <button
-                  className={`flex-1 py-2.5 text-sm font-medium transition-colors ${
-                    activeTab === "about"
-                      ? "text-primary border-b-2 border-primary"
-                      : "text-muted-foreground"
-                  }`}
-                  onClick={() => setActiveTab("about")}
-                  data-testid="tab-about"
-                >
-                  About
-                </button>
-              </div>
+              <PhotoBubbles photos={photos} name={currentProfile.firstName} />
 
-              {activeTab === "photos" ? (
-                <div data-testid="profile-photos-section">
-                  <PhotoBubbles photos={photos} name={currentProfile.firstName} />
+              <div className="px-5 pb-5 pt-3 space-y-5" data-testid="profile-about-section">
+                <div className="space-y-2">
+                  <p className="text-xs font-medium tracking-wider uppercase text-primary">Personality</p>
+                  <DragScrollRow>
+                    {signals.map(signal => (
+                      <Badge key={signal} variant="secondary" className="text-sm py-1.5 px-3 shrink-0 no-default-active-elevate" data-testid={`badge-signal-${signal}`}>
+                        {signal}
+                      </Badge>
+                    ))}
+                  </DragScrollRow>
+                </div>
 
-                  <div className="px-5 pb-5 pt-2">
-                    <h2 className="font-serif text-2xl font-bold" data-testid="text-profile-name">
-                      {currentProfile.firstName}, {currentProfile.age}
-                    </h2>
-                    <div className="flex items-center gap-1 mt-1 text-muted-foreground text-sm">
+                <div className="space-y-2">
+                  <p className="text-xs font-medium tracking-wider uppercase text-primary">Looking for</p>
+                  <p className="font-medium" data-testid="text-profile-intent">{currentProfile.datingIntent}</p>
+                </div>
+
+                <div className="space-y-2">
+                  <p className="text-xs font-medium tracking-wider uppercase text-primary">Green Flags</p>
+                  <DragScrollRow>
+                    {greenFlags.map(flag => (
+                      <Badge key={flag} variant="outline" className="text-sm py-1.5 px-3 shrink-0 no-default-active-elevate" data-testid={`badge-flag-${flag}`}>
+                        {flag}
+                      </Badge>
+                    ))}
+                  </DragScrollRow>
+                </div>
+
+                <div className="space-y-2">
+                  <p className="text-xs font-medium tracking-wider uppercase text-primary">Pace</p>
+                  <p className="font-medium" data-testid="text-profile-style">{currentProfile.connectionStyle}</p>
+                </div>
+
+                <div className="border-t pt-4 mt-4">
+                  <h2 className="font-serif text-2xl font-bold" data-testid="text-profile-name">
+                    {currentProfile.firstName}, {currentProfile.age}
+                  </h2>
+                  <div className="flex items-center gap-3 mt-1.5 text-muted-foreground text-sm flex-wrap">
+                    <div className="flex items-center gap-1">
                       <MapPin className="w-3.5 h-3.5" />
                       <span data-testid="text-profile-location">{currentProfile.location}</span>
                     </div>
+                    {currentProfile.height && (
+                      <div className="flex items-center gap-1">
+                        <Ruler className="w-3.5 h-3.5" />
+                        <span data-testid="text-profile-height">{currentProfile.height}</span>
+                      </div>
+                    )}
                   </div>
                 </div>
-              ) : (
-                <div className="p-6 space-y-6 min-h-[300px]" data-testid="profile-about-section">
-                  <div className="space-y-1">
-                    <h2 className="font-serif text-2xl font-bold" data-testid="text-about-name">
-                      {currentProfile.firstName}, {currentProfile.age}
-                    </h2>
-                    <div className="flex items-center gap-1 text-muted-foreground text-sm">
-                      <MapPin className="w-3.5 h-3.5" />
-                      <span>{currentProfile.location}</span>
-                    </div>
-                  </div>
-
-                  <div className="space-y-2">
-                    <p className="text-xs font-medium tracking-wider uppercase text-primary">Personality</p>
-                    <DragScrollRow>
-                      {signals.map(signal => (
-                        <Badge key={signal} variant="secondary" className="text-sm py-1.5 px-3 shrink-0 no-default-active-elevate" data-testid={`badge-signal-${signal}`}>
-                          {signal}
-                        </Badge>
-                      ))}
-                    </DragScrollRow>
-                  </div>
-
-                  <div className="space-y-2">
-                    <p className="text-xs font-medium tracking-wider uppercase text-primary">Looking for</p>
-                    <p className="font-medium" data-testid="text-profile-intent">{currentProfile.datingIntent}</p>
-                  </div>
-
-                  <div className="space-y-2">
-                    <p className="text-xs font-medium tracking-wider uppercase text-primary">Green Flags</p>
-                    <DragScrollRow>
-                      {greenFlags.map(flag => (
-                        <Badge key={flag} variant="outline" className="text-sm py-1.5 px-3 shrink-0 no-default-active-elevate" data-testid={`badge-flag-${flag}`}>
-                          {flag}
-                        </Badge>
-                      ))}
-                    </DragScrollRow>
-                  </div>
-
-                  <div className="space-y-2">
-                    <p className="text-xs font-medium tracking-wider uppercase text-primary">Pace</p>
-                    <p className="font-medium" data-testid="text-profile-style">{currentProfile.connectionStyle}</p>
-                  </div>
-                </div>
-              )}
+              </div>
             </Card>
 
             <div className="flex items-center justify-center gap-5 mt-6">

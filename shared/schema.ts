@@ -13,6 +13,7 @@ export const profiles = pgTable("profiles", {
   gender: text("gender").notNull(),
   datingPreference: text("dating_preference").notNull(),
   location: text("location").notNull(),
+  height: text("height"),
   photos: text("photos").array().notNull(),
   signals: text("signals").array().notNull(),
   datingIntent: text("dating_intent").notNull(),
