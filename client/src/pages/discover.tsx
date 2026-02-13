@@ -9,12 +9,101 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { DragScrollRow } from "@/components/drag-scroll-row";
 import type { Profile } from "@shared/schema";
-import { MapPin, Sparkles, Ruler, MessageCircle, HelpCircle, Send } from "lucide-react";
+import { MapPin, Sparkles, Ruler, MessageCircle, HelpCircle, Send, X, ChevronLeft, ChevronRight } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
+
+function PhotoLightbox({ photos, name, initialIndex, onClose }: { photos: string[]; name: string; initialIndex: number; onClose: () => void }) {
+  const [currentIndex, setCurrentIndex] = useState(initialIndex);
+
+  useEffect(() => {
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+      if (e.key === "ArrowLeft" && currentIndex > 0) setCurrentIndex(i => i - 1);
+      if (e.key === "ArrowRight" && currentIndex < photos.length - 1) setCurrentIndex(i => i + 1);
+    };
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  }, [currentIndex, photos.length, onClose]);
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.2 }}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80"
+      onClick={onClose}
+      data-testid="photo-lightbox-overlay"
+    >
+      <div
+        className="relative max-w-lg w-full mx-4"
+        onClick={e => e.stopPropagation()}
+      >
+        <Button
+          size="icon"
+          variant="ghost"
+          className="absolute -top-12 right-0 text-white/80 rounded-full"
+          onClick={onClose}
+          data-testid="button-lightbox-close"
+        >
+          <X className="w-5 h-5" />
+        </Button>
+
+        <motion.img
+          key={currentIndex}
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ duration: 0.2 }}
+          src={photos[currentIndex]}
+          alt={`${name} photo ${currentIndex + 1}`}
+          className="w-full rounded-xl object-contain max-h-[80vh]"
+          draggable={false}
+          data-testid={`img-lightbox-photo-${currentIndex}`}
+        />
+
+        {photos.length > 1 && (
+          <div className="flex items-center justify-between mt-3">
+            <Button
+              size="icon"
+              variant="ghost"
+              className="text-white/80 rounded-full"
+              disabled={currentIndex === 0}
+              onClick={() => setCurrentIndex(i => i - 1)}
+              data-testid="button-lightbox-prev"
+            >
+              <ChevronLeft className="w-5 h-5" />
+            </Button>
+            <div className="flex gap-1.5">
+              {photos.map((_, i) => (
+                <div
+                  key={i}
+                  className={`w-2 h-2 rounded-full transition-colors ${
+                    i === currentIndex ? "bg-white" : "bg-white/30"
+                  }`}
+                />
+              ))}
+            </div>
+            <Button
+              size="icon"
+              variant="ghost"
+              className="text-white/80 rounded-full"
+              disabled={currentIndex === photos.length - 1}
+              onClick={() => setCurrentIndex(i => i + 1)}
+              data-testid="button-lightbox-next"
+            >
+              <ChevronRight className="w-5 h-5" />
+            </Button>
+          </div>
+        )}
+      </div>
+    </motion.div>
+  );
+}
 
 function PhotoBubbles({ photos, name }: { photos: string[]; name: string }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const isDragging = useRef(false);
+  const didDrag = useRef(false);
   const startX = useRef(0);
   const scrollLeftStart = useRef(0);
   const lastX = useRef(0);
@@ -22,6 +111,7 @@ function PhotoBubbles({ photos, name }: { photos: string[]; name: string }) {
   const velocity = useRef(0);
   const animFrame = useRef<number>(0);
   const [focusedIndex, setFocusedIndex] = useState(0);
+  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const itemRefs = useRef<(HTMLDivElement | null)[]>([]);
 
   const updateFocused = useCallback(() => {
@@ -62,6 +152,7 @@ function PhotoBubbles({ photos, name }: { photos: string[]; name: string }) {
     cancelAnimationFrame(animFrame.current);
     velocity.current = 0;
     isDragging.current = true;
+    didDrag.current = false;
     startX.current = e.clientX;
     lastX.current = e.clientX;
     lastTime.current = Date.now();
@@ -81,6 +172,7 @@ function PhotoBubbles({ photos, name }: { photos: string[]; name: string }) {
     lastX.current = e.clientX;
     lastTime.current = now;
     const totalDx = e.clientX - startX.current;
+    if (Math.abs(totalDx) > 5) didDrag.current = true;
     scrollRef.current.scrollLeft = scrollLeftStart.current - totalDx;
     updateFocused();
   };
@@ -112,17 +204,24 @@ function PhotoBubbles({ photos, name }: { photos: string[]; name: string }) {
 
   if (photos.length === 1) {
     return (
-      <div className="flex justify-center py-4 px-4" data-testid="photo-bubbles">
-        <div className="w-56 h-72 rounded-2xl overflow-hidden shadow-md ring-2 ring-primary/15">
-          <img
-            src={photos[0]}
-            alt={`${name} photo 1`}
-            className="w-full h-full object-cover pointer-events-none"
-            draggable={false}
-            data-testid="img-profile-photo-0"
-          />
+      <>
+        <div className="flex justify-center py-4 px-4 cursor-pointer" data-testid="photo-bubbles" onClick={() => setLightboxIndex(0)}>
+          <div className="w-56 h-72 rounded-2xl overflow-hidden shadow-md ring-2 ring-primary/15">
+            <img
+              src={photos[0]}
+              alt={`${name} photo 1`}
+              className="w-full h-full object-cover pointer-events-none"
+              draggable={false}
+              data-testid="img-profile-photo-0"
+            />
+          </div>
         </div>
-      </div>
+        <AnimatePresence>
+          {lightboxIndex !== null && (
+            <PhotoLightbox photos={photos} name={name} initialIndex={lightboxIndex} onClose={() => setLightboxIndex(null)} />
+          )}
+        </AnimatePresence>
+      </>
     );
   }
 
@@ -153,11 +252,12 @@ function PhotoBubbles({ photos, name }: { photos: string[]; name: string }) {
               <div
                 key={i}
                 ref={(el) => { itemRefs.current[i] = el; }}
-                className={`rounded-2xl overflow-hidden flex-shrink-0 transition-all duration-300 ease-out ${
+                className={`rounded-2xl overflow-hidden flex-shrink-0 transition-all duration-300 ease-out cursor-pointer ${
                   isFocused
                     ? "w-56 h-72 shadow-lg ring-2 ring-primary/20"
                     : "w-40 h-56 shadow-md opacity-70"
                 }`}
+                onClick={() => { if (!didDrag.current) setLightboxIndex(i); }}
                 data-testid={`photo-bubble-${i}`}
               >
                 <img
@@ -187,6 +287,12 @@ function PhotoBubbles({ photos, name }: { photos: string[]; name: string }) {
           ))}
         </div>
       )}
+
+      <AnimatePresence>
+        {lightboxIndex !== null && (
+          <PhotoLightbox photos={photos} name={name} initialIndex={lightboxIndex} onClose={() => setLightboxIndex(null)} />
+        )}
+      </AnimatePresence>
     </div>
   );
 }
