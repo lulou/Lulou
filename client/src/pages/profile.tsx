@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
@@ -29,6 +29,10 @@ import {
   Settings,
   CreditCard,
   ArrowLeft,
+  Pencil,
+  Plus,
+  X,
+  ImagePlus,
 } from "lucide-react";
 import { DragScrollRow } from "@/components/drag-scroll-row";
 import type { Profile } from "@shared/schema";
@@ -71,6 +75,55 @@ export default function ProfilePage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/profile"] });
       toast({ title: "Verified!", description: "Your profile now has a verification badge." });
+    },
+  });
+
+  const [editingPhotos, setEditingPhotos] = useState(false);
+  const [editPhotos, setEditPhotos] = useState<string[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const startEditingPhotos = () => {
+    setEditPhotos([...(profile?.photos || [])]);
+    setEditingPhotos(true);
+  };
+
+  const cancelEditingPhotos = () => {
+    setEditingPhotos(false);
+    setEditPhotos([]);
+  };
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files) return;
+    Array.from(files).forEach(file => {
+      if (editPhotos.length >= 6) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        const result = reader.result as string;
+        setEditPhotos(prev => prev.length < 6 ? [...prev, result] : prev);
+      };
+      reader.readAsDataURL(file);
+    });
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  const removeEditPhoto = (index: number) => {
+    setEditPhotos(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const savePhotos = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/profile", { photos: editPhotos });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/profile"] });
+      toast({ title: "Photos updated" });
+      setEditingPhotos(false);
+      setEditPhotos([]);
+    },
+    onError: () => {
+      toast({ title: "Could not save photos", variant: "destructive" });
     },
   });
 
@@ -281,15 +334,83 @@ export default function ProfilePage() {
         />
       </Card>
 
-      {profile.photos && profile.photos.length > 0 && (
-        <div className="grid grid-cols-3 gap-2">
-          {profile.photos.map((photo, i) => (
-            <div key={i} className="aspect-[3/4] rounded-md overflow-hidden">
-              <img src={photo} alt={`Photo ${i + 1}`} className="w-full h-full object-cover" data-testid={`img-my-photo-${i}`} />
+      <div className="space-y-2">
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-xs font-medium tracking-wider uppercase text-muted-foreground">Photos</p>
+          {!editingPhotos ? (
+            <Button size="sm" variant="ghost" onClick={startEditingPhotos} data-testid="button-edit-photos">
+              <Pencil className="w-3.5 h-3.5 mr-1.5" /> Edit Photos
+            </Button>
+          ) : (
+            <div className="flex items-center gap-2">
+              <Button size="sm" variant="ghost" onClick={cancelEditingPhotos} data-testid="button-cancel-photos">
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => savePhotos.mutate()}
+                disabled={savePhotos.isPending || editPhotos.length === 0}
+                data-testid="button-save-photos"
+              >
+                {savePhotos.isPending ? "Saving..." : "Save"}
+              </Button>
             </div>
-          ))}
+          )}
         </div>
-      )}
+
+        {editingPhotos ? (
+          <div className="grid grid-cols-3 gap-2">
+            {editPhotos.map((photo, i) => (
+              <div key={i} className="aspect-[3/4] rounded-md overflow-hidden relative group">
+                <img src={photo} alt={`Photo ${i + 1}`} className="w-full h-full object-cover" data-testid={`img-edit-photo-${i}`} />
+                <button
+                  onClick={() => removeEditPhoto(i)}
+                  className="absolute top-1 right-1 w-6 h-6 rounded-full bg-destructive text-destructive-foreground flex items-center justify-center invisible group-hover:visible"
+                  data-testid={`button-remove-photo-${i}`}
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            ))}
+            {editPhotos.length < 6 && (
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className="aspect-[3/4] rounded-md border-2 border-dashed border-muted-foreground/30 flex flex-col items-center justify-center gap-1 hover-elevate transition-colors"
+                data-testid="button-add-photo"
+              >
+                <ImagePlus className="w-6 h-6 text-muted-foreground/50" />
+                <span className="text-xs text-muted-foreground/50">Add</span>
+              </button>
+            )}
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              multiple
+              className="hidden"
+              onChange={handleFileSelect}
+              data-testid="input-photo-file"
+            />
+          </div>
+        ) : profile.photos && profile.photos.length > 0 ? (
+          <div className="grid grid-cols-3 gap-2">
+            {profile.photos.map((photo, i) => (
+              <div key={i} className="aspect-[3/4] rounded-md overflow-hidden">
+                <img src={photo} alt={`Photo ${i + 1}`} className="w-full h-full object-cover" data-testid={`img-my-photo-${i}`} />
+              </div>
+            ))}
+          </div>
+        ) : (
+          <button
+            onClick={startEditingPhotos}
+            className="w-full aspect-[3/4] max-w-[140px] rounded-md border-2 border-dashed border-muted-foreground/30 flex flex-col items-center justify-center gap-1 hover-elevate"
+            data-testid="button-add-first-photo"
+          >
+            <ImagePlus className="w-8 h-8 text-muted-foreground/50" />
+            <span className="text-xs text-muted-foreground/50">Add photos</span>
+          </button>
+        )}
+      </div>
 
       <Card className="p-5 space-y-4">
         <div className="space-y-2">
