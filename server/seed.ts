@@ -16,6 +16,8 @@ const SEED_PROFILES = [
     datingIntent: "Meaningful Relationship",
     greenFlags: ["Communicates Clearly", "Emotionally Consistent", "Kind & Caring"],
     connectionStyle: "Steady with Momentum",
+    conversationStarters: ["The way to my heart is... a spontaneous road trip", "A perfect Sunday looks like... farmers market then cooking together", "I light up when I talk about... design and creativity"],
+    questions: ["What's a small thing that makes your day better?", "What does a meaningful relationship look like to you?", "How do you recharge after a long week?"],
     onboardingComplete: true,
   },
   {
@@ -31,6 +33,8 @@ const SEED_PROFILES = [
     datingIntent: "Meaningful Relationship",
     greenFlags: ["Keeps Their Word", "Great Listener", "Shows Up Fully"],
     connectionStyle: "Slow & Intentional",
+    conversationStarters: ["I'm proudest of... learning to cook my grandmother's recipes", "Something most people don't know about me... I play jazz piano", "My love language is... quality time"],
+    questions: ["What's one thing you're learning right now?", "What kind of conversations do you enjoy most?", "What's a goal you're working toward?"],
     onboardingComplete: true,
   },
   {
@@ -46,6 +50,8 @@ const SEED_PROFILES = [
     datingIntent: "Intentional Dating",
     greenFlags: ["Communicates Clearly", "Genuinely Curious", "Respects Boundaries"],
     connectionStyle: "Ready to Meet Soon",
+    conversationStarters: ["A perfect Sunday looks like... hiking with a good podcast", "The way to my heart is... making me laugh until I cry", "I light up when I talk about... travel stories"],
+    questions: ["How do you recharge after a long week?", "What's a small thing that makes your day better?", "What kind of conversations do you enjoy most?"],
     onboardingComplete: true,
   },
   {
@@ -61,6 +67,8 @@ const SEED_PROFILES = [
     datingIntent: "Open but Serious",
     greenFlags: ["Emotionally Consistent", "Kind & Caring", "Shows Up Fully"],
     connectionStyle: "Steady with Momentum",
+    conversationStarters: ["Something most people don't know about me... I restore vintage furniture", "My love language is... acts of service", "I'm proudest of... building my own business"],
+    questions: ["What's one thing you're learning right now?", "What does a meaningful relationship look like to you?", "What's a goal you're working toward?"],
     onboardingComplete: true,
   },
   {
@@ -76,6 +84,8 @@ const SEED_PROFILES = [
     datingIntent: "Meaningful Relationship",
     greenFlags: ["Great Listener", "Communicates Clearly", "Keeps Their Word", "Kind & Caring"],
     connectionStyle: "Slow & Intentional",
+    conversationStarters: ["The way to my heart is... thoughtful handwritten notes", "A perfect Sunday looks like... bookshop browsing and cozy cafes", "I light up when I talk about... psychology and human connection"],
+    questions: ["What does a meaningful relationship look like to you?", "What's a small thing that makes your day better?", "What's one thing you're learning right now?"],
     onboardingComplete: true,
   },
 ];

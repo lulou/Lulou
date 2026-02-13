@@ -9,10 +9,10 @@ import { Card } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
-import { SIGNALS, GREEN_FLAGS, DATING_INTENTS, CONNECTION_STYLES } from "@shared/schema";
+import { SIGNALS, GREEN_FLAGS, DATING_INTENTS, CONNECTION_STYLES, CONVERSATION_STARTERS, PROFILE_QUESTIONS } from "@shared/schema";
 import { Flower2, ArrowRight, ArrowLeft, Check } from "lucide-react";
 
-const STEPS = ["Basics", "Photos", "Signals", "Intent", "Green Flags", "Pace"];
+const STEPS = ["Basics", "Photos", "Starters", "Questions", "Signals", "Intent", "Green Flags", "Pace"];
 
 export default function Onboarding() {
   const [step, setStep] = useState(0);
@@ -32,12 +32,20 @@ export default function Onboarding() {
     datingIntent: "",
     greenFlags: [] as string[],
     connectionStyle: "",
+    conversationStarters: [] as string[],
+    starterAnswers: {} as Record<string, string>,
+    questions: [] as string[],
   });
 
   const createProfile = useMutation({
     mutationFn: async () => {
+      const fullStarters = formData.conversationStarters
+        .filter(s => formData.starterAnswers[s])
+        .map(s => `${s} ${formData.starterAnswers[s]}`);
+      const { starterAnswers, ...rest } = formData;
       const res = await apiRequest("POST", "/api/profile", {
-        ...formData,
+        ...rest,
+        conversationStarters: fullStarters,
         onboardingComplete: true,
       });
       return res.json();
@@ -68,10 +76,12 @@ export default function Onboarding() {
     switch (step) {
       case 0: return formData.firstName && formData.age >= 18 && formData.gender && formData.datingPreference && formData.location;
       case 1: return formData.photos.length >= 2;
-      case 2: return formData.signals.length >= 1 && formData.signals.length <= 5;
-      case 3: return formData.datingIntent !== "";
-      case 4: return formData.greenFlags.length >= 3;
-      case 5: return formData.connectionStyle !== "";
+      case 2: return formData.conversationStarters.length === 3 && formData.conversationStarters.every(s => formData.starterAnswers[s]?.trim());
+      case 3: return formData.questions.length === 3;
+      case 4: return formData.signals.length >= 1 && formData.signals.length <= 5;
+      case 5: return formData.datingIntent !== "";
+      case 6: return formData.greenFlags.length >= 3;
+      case 7: return formData.connectionStyle !== "";
       default: return false;
     }
   };
@@ -104,18 +114,22 @@ export default function Onboarding() {
             <h2 className="font-serif text-2xl font-bold" data-testid="text-step-title">
               {step === 0 && "Tell us about yourself"}
               {step === 1 && "Show who you are"}
-              {step === 2 && "Your personality signals"}
-              {step === 3 && "What are you looking for?"}
-              {step === 4 && "Your green flags"}
-              {step === 5 && "Your connection pace"}
+              {step === 2 && "Conversation starters"}
+              {step === 3 && "Questions for visitors"}
+              {step === 4 && "Your personality signals"}
+              {step === 5 && "What are you looking for?"}
+              {step === 6 && "Your green flags"}
+              {step === 7 && "Your connection pace"}
             </h2>
             <p className="text-sm text-muted-foreground">
               {step === 0 && "Just the essentials to get started."}
               {step === 1 && "Add at least 2 photos. Clear face photos work best."}
-              {step === 2 && "Select up to 5 signals that describe your personality."}
-              {step === 3 && "Choose one that reflects your current intentions."}
-              {step === 4 && "Pick 3-4 traits that people appreciate about you."}
-              {step === 5 && "How do you like to move toward meeting someone?"}
+              {step === 2 && "Pick 3 prompts and fill in your answers. These help people start a conversation with you."}
+              {step === 3 && "Choose 3 questions you'd like visitors to think about or answer."}
+              {step === 4 && "Select up to 5 signals that describe your personality."}
+              {step === 5 && "Choose one that reflects your current intentions."}
+              {step === 6 && "Pick 3-4 traits that people appreciate about you."}
+              {step === 7 && "How do you like to move toward meeting someone?"}
             </p>
           </div>
 
@@ -219,6 +233,78 @@ export default function Onboarding() {
             )}
 
             {step === 2 && (
+              <div className="space-y-4">
+                <div className="flex flex-wrap gap-2">
+                  {CONVERSATION_STARTERS.map(starter => {
+                    const selected = formData.conversationStarters.includes(starter);
+                    return (
+                      <Badge
+                        key={starter}
+                        variant={selected ? "default" : "outline"}
+                        className={`cursor-pointer text-sm py-2 px-4 transition-all ${
+                          selected ? "bg-primary text-primary-foreground" : ""
+                        }`}
+                        onClick={() => toggleArrayItem("conversationStarters", starter, 3)}
+                        data-testid={`badge-starter-${starter.slice(0, 20).toLowerCase().replace(/\s+/g, "-")}`}
+                      >
+                        {selected && <Check className="w-3 h-3 mr-1" />}
+                        {starter}
+                      </Badge>
+                    );
+                  })}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {formData.conversationStarters.length}/3 selected
+                </p>
+                {formData.conversationStarters.map(starter => (
+                  <div key={starter} className="space-y-1.5">
+                    <p className="text-sm font-medium text-primary">{starter}</p>
+                    <Input
+                      value={formData.starterAnswers[starter] || ""}
+                      onChange={e => setFormData(prev => ({
+                        ...prev,
+                        starterAnswers: { ...prev.starterAnswers, [starter]: e.target.value }
+                      }))}
+                      placeholder="Your answer..."
+                      maxLength={200}
+                      data-testid={`input-starter-answer-${starter.slice(0, 20).toLowerCase().replace(/\s+/g, "-")}`}
+                    />
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {step === 3 && (
+              <div className="space-y-3">
+                {PROFILE_QUESTIONS.map(question => {
+                  const selected = formData.questions.includes(question);
+                  return (
+                    <Card
+                      key={question}
+                      className={`p-4 cursor-pointer transition-all hover-elevate ${
+                        selected ? "border-primary bg-primary/5" : ""
+                      }`}
+                      onClick={() => toggleArrayItem("questions", question, 3)}
+                      data-testid={`card-question-${question.slice(0, 25).toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-sm">{question}</span>
+                        {selected && (
+                          <div className="w-5 h-5 rounded-full bg-primary flex items-center justify-center shrink-0">
+                            <Check className="w-3 h-3 text-primary-foreground" />
+                          </div>
+                        )}
+                      </div>
+                    </Card>
+                  );
+                })}
+                <p className="text-xs text-muted-foreground">
+                  {formData.questions.length}/3 selected
+                </p>
+              </div>
+            )}
+
+            {step === 4 && (
               <div className="flex flex-wrap gap-2">
                 {SIGNALS.map(signal => (
                   <Badge
@@ -240,7 +326,7 @@ export default function Onboarding() {
               </div>
             )}
 
-            {step === 3 && (
+            {step === 5 && (
               <div className="space-y-3">
                 {DATING_INTENTS.map(intent => (
                   <Card
@@ -264,7 +350,7 @@ export default function Onboarding() {
               </div>
             )}
 
-            {step === 4 && (
+            {step === 6 && (
               <div className="flex flex-wrap gap-2">
                 {GREEN_FLAGS.map(flag => (
                   <Badge
@@ -286,7 +372,7 @@ export default function Onboarding() {
               </div>
             )}
 
-            {step === 5 && (
+            {step === 7 && (
               <div className="space-y-3">
                 {CONNECTION_STYLES.map(style => (
                   <Card

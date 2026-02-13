@@ -17,6 +17,8 @@ const profileBodySchema = z.object({
   datingIntent: z.string().min(1),
   greenFlags: z.array(z.string()).min(3).max(4),
   connectionStyle: z.string().min(1),
+  conversationStarters: z.array(z.string().max(200)).max(3).optional(),
+  questions: z.array(z.string().max(200)).max(3).optional(),
   onboardingComplete: z.boolean().optional(),
 });
 

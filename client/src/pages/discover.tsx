@@ -8,7 +8,7 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { DragScrollRow } from "@/components/drag-scroll-row";
 import type { Profile } from "@shared/schema";
-import { MapPin, Sparkles, Heart, X, Ruler } from "lucide-react";
+import { MapPin, Sparkles, Heart, X, Ruler, MessageCircle, HelpCircle } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 
 function PhotoBubbles({ photos, name }: { photos: string[]; name: string }) {
@@ -213,6 +213,8 @@ export default function Discover() {
   const photos = currentProfile.photos || [];
   const signals = currentProfile.signals || [];
   const greenFlags = currentProfile.greenFlags || [];
+  const conversationStarters = currentProfile.conversationStarters || [];
+  const questions = currentProfile.questions || [];
 
   return (
     <div className="flex-1 overflow-y-auto">
@@ -230,6 +232,46 @@ export default function Discover() {
               <PhotoBubbles photos={photos} name={currentProfile.firstName} />
 
               <div className="px-5 pb-5 pt-3 space-y-5" data-testid="profile-about-section">
+                {conversationStarters.length > 0 && (
+                  <div className="space-y-3" data-testid="section-conversation-starters">
+                    <div className="flex items-center gap-1.5">
+                      <MessageCircle className="w-3.5 h-3.5 text-primary" />
+                      <p className="text-xs font-medium tracking-wider uppercase text-primary">Conversation Starters</p>
+                    </div>
+                    <div className="space-y-2">
+                      {conversationStarters.map((starter, i) => (
+                        <div
+                          key={i}
+                          className="bg-muted/50 rounded-md px-4 py-3 text-sm leading-relaxed"
+                          data-testid={`text-starter-${i}`}
+                        >
+                          {starter}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {questions.length > 0 && (
+                  <div className="space-y-3" data-testid="section-questions">
+                    <div className="flex items-center gap-1.5">
+                      <HelpCircle className="w-3.5 h-3.5 text-primary" />
+                      <p className="text-xs font-medium tracking-wider uppercase text-primary">Ask Me</p>
+                    </div>
+                    <div className="space-y-2">
+                      {questions.map((question, i) => (
+                        <div
+                          key={i}
+                          className="border rounded-md px-4 py-3 text-sm leading-relaxed"
+                          data-testid={`text-question-${i}`}
+                        >
+                          {question}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 <div className="space-y-2">
                   <p className="text-xs font-medium tracking-wider uppercase text-primary">Personality</p>
                   <DragScrollRow>

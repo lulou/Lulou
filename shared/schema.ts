@@ -19,6 +19,8 @@ export const profiles = pgTable("profiles", {
   datingIntent: text("dating_intent").notNull(),
   greenFlags: text("green_flags").array().notNull(),
   connectionStyle: text("connection_style").notNull(),
+  conversationStarters: text("conversation_starters").array(),
+  questions: text("questions").array(),
   onboardingComplete: boolean("onboarding_complete").default(false),
   createdAt: timestamp("created_at").defaultNow(),
 });
@@ -114,4 +116,22 @@ export const CONNECTION_STYLES = [
   "Slow & Intentional",
   "Steady with Momentum",
   "Ready to Meet Soon",
+] as const;
+
+export const CONVERSATION_STARTERS = [
+  "The way to my heart is...",
+  "A perfect Sunday looks like...",
+  "I'm proudest of...",
+  "Something most people don't know about me...",
+  "I light up when I talk about...",
+  "My love language is...",
+] as const;
+
+export const PROFILE_QUESTIONS = [
+  "What's one thing you're learning right now?",
+  "What does a meaningful relationship look like to you?",
+  "What's a small thing that makes your day better?",
+  "How do you recharge after a long week?",
+  "What's a goal you're working toward?",
+  "What kind of conversations do you enjoy most?",
 ] as const;
