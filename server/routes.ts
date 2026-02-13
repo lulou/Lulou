@@ -19,8 +19,12 @@ const profileBodySchema = z.object({
   connectionStyle: z.string().min(1),
   conversationStarters: z.array(z.string().max(200)).max(3).optional(),
   questions: z.array(z.string().max(200)).max(3).optional(),
+  locationRadius: z.number().int().min(5).max(100).optional(),
+  photoVerified: z.boolean().optional(),
   onboardingComplete: z.boolean().optional(),
 });
+
+const profileUpdateSchema = profileBodySchema.partial();
 
 const interactionBodySchema = z.object({
   toUserId: z.string().min(1),
@@ -55,15 +59,20 @@ export async function registerRoutes(
   app.post("/api/profile", isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
+      const existing = await storage.getProfile(userId);
+
+      if (existing) {
+        const parsed = profileUpdateSchema.safeParse(req.body);
+        if (!parsed.success) {
+          return res.status(400).json({ message: "Invalid profile data", errors: parsed.error.flatten() });
+        }
+        const updated = await storage.updateProfile(userId, { ...parsed.data, userId });
+        return res.json(updated);
+      }
+
       const parsed = profileBodySchema.safeParse(req.body);
       if (!parsed.success) {
         return res.status(400).json({ message: "Invalid profile data", errors: parsed.error.flatten() });
-      }
-
-      const existing = await storage.getProfile(userId);
-      if (existing) {
-        const updated = await storage.updateProfile(userId, { ...parsed.data, userId });
-        return res.json(updated);
       }
       const profile = await storage.createProfile({ ...parsed.data, userId });
       res.json(profile);

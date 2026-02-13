@@ -15,10 +15,16 @@ Bloom is a calm, premium dating app focused on helping people move from matching
   - Single scrollable card: photos at top, about section below, name/age/location/height at bottom
   - No tabs - all info visible in one scroll
   - Photo bubbles with dynamic focus (centered photo grows, side photos shrink)
+  - Open button (heart + "Open" label) overlaid on focused photo
+  - Close button (moon) fixed at bottom-right of screen
 - Mutual matching system
 - Matches page with expandable inline chatrooms per match card
 - Limited messaging (15 messages per person, 500 chars max)
 - Call prompt after message limit
+- Profile page shows age, height, location, adjustable search radius
+- Profile sections: Bloom Extras (subscriptions), Safety, Bloom Me (photo verification badge), Help Centre, What Works (dating tips)
+- Location radius (5-100 miles) configurable in onboarding and profile
+- Photo verification (Bloom Me) gives profiles a verified badge
 
 ## Design Language
 - Color scheme: Sage green primary (#4d8b7a), warm cream backgrounds

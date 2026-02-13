@@ -4,6 +4,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Slider } from "@/components/ui/slider";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -27,6 +28,7 @@ export default function Onboarding() {
     datingPreference: "",
     location: "",
     height: "",
+    locationRadius: 25,
     photos: [] as string[],
     signals: [] as string[],
     datingIntent: "",
@@ -199,6 +201,19 @@ export default function Onboarding() {
                     placeholder="e.g. 5'8&quot;"
                     data-testid="input-height"
                   />
+                </div>
+                <div className="space-y-2">
+                  <Label>Search Radius: {formData.locationRadius} miles</Label>
+                  <Slider
+                    value={[formData.locationRadius]}
+                    onValueChange={([v]) => update("locationRadius", v)}
+                    min={5}
+                    max={100}
+                    step={5}
+                    className="py-2"
+                    data-testid="slider-radius"
+                  />
+                  <p className="text-xs text-muted-foreground">People within {formData.locationRadius} miles of your location</p>
                 </div>
               </div>
             )}

@@ -21,6 +21,8 @@ export const profiles = pgTable("profiles", {
   connectionStyle: text("connection_style").notNull(),
   conversationStarters: text("conversation_starters").array(),
   questions: text("questions").array(),
+  locationRadius: integer("location_radius").default(25),
+  photoVerified: boolean("photo_verified").default(false),
   onboardingComplete: boolean("onboarding_complete").default(false),
   createdAt: timestamp("created_at").defaultNow(),
 });

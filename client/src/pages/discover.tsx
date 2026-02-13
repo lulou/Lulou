@@ -122,12 +122,13 @@ function PhotoBubbles({ photos, name, onOpen, isOpenPending }: { photos: string[
             data-testid="img-profile-photo-0"
           />
           <button
-            className="absolute bottom-2 right-2 w-10 h-10 rounded-full bg-white/80 backdrop-blur-sm flex items-center justify-center text-xl shadow-md transition-transform active:scale-90"
+            className="absolute bottom-2 right-2 flex items-center gap-1.5 rounded-full bg-white/80 backdrop-blur-sm px-3 py-2 text-sm font-medium shadow-md transition-transform active:scale-95"
             onClick={onOpen}
             disabled={isOpenPending}
             data-testid="button-open"
           >
-            <span role="img" aria-label="Open">&#10084;&#65039;</span>
+            <span role="img" aria-label="Open" className="text-base">&#10084;&#65039;</span>
+            Open
           </button>
         </div>
       </div>
@@ -177,12 +178,13 @@ function PhotoBubbles({ photos, name, onOpen, isOpenPending }: { photos: string[
                 />
                 {isFocused && (
                   <button
-                    className="absolute bottom-2 right-2 w-10 h-10 rounded-full bg-white/80 backdrop-blur-sm flex items-center justify-center text-xl shadow-md transition-transform active:scale-90"
+                    className="absolute bottom-2 right-2 flex items-center gap-1.5 rounded-full bg-white/80 backdrop-blur-sm px-3 py-2 text-sm font-medium shadow-md transition-transform active:scale-95"
                     onClick={(e) => { e.stopPropagation(); onOpen(); }}
                     disabled={isOpenPending}
                     data-testid="button-open"
                   >
-                    <span role="img" aria-label="Open">&#10084;&#65039;</span>
+                    <span role="img" aria-label="Open" className="text-base">&#10084;&#65039;</span>
+                    Open
                   </button>
                 )}
               </div>
