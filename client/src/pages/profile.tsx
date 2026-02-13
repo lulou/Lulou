@@ -38,6 +38,56 @@ import {
 import { DragScrollRow } from "@/components/drag-scroll-row";
 import type { Profile } from "@shared/schema";
 
+function RadiusSlider({ initial, onCommit }: { initial: number; onCommit: (v: number) => void }) {
+  const [value, setValue] = useState(initial);
+  return (
+    <Card className="p-4 space-y-2" data-testid="card-radius">
+      <div className="flex items-center justify-between gap-1">
+        <div className="flex items-center gap-1.5 text-sm font-medium">
+          <Radar className="w-4 h-4 text-primary shrink-0" />
+          <span className="truncate">Distance</span>
+        </div>
+        <span className="text-sm text-muted-foreground shrink-0" data-testid="text-radius-value">{value} mi</span>
+      </div>
+      <Slider
+        value={[value]}
+        onValueChange={([v]) => setValue(v)}
+        onValueCommit={([v]) => onCommit(v)}
+        min={5}
+        max={100}
+        step={5}
+        className="py-1"
+        data-testid="slider-profile-radius"
+      />
+    </Card>
+  );
+}
+
+function AgeRangeSlider({ initialMin, initialMax, onCommit }: { initialMin: number; initialMax: number; onCommit: (min: number, max: number) => void }) {
+  const [range, setRange] = useState<[number, number]>([initialMin, initialMax]);
+  return (
+    <Card className="p-4 space-y-2" data-testid="card-age-range">
+      <div className="flex items-center justify-between gap-1">
+        <div className="flex items-center gap-1.5 text-sm font-medium">
+          <Calendar className="w-4 h-4 text-primary shrink-0" />
+          <span className="truncate">Age</span>
+        </div>
+        <span className="text-sm text-muted-foreground shrink-0" data-testid="text-age-range-value">{range[0]}-{range[1]}</span>
+      </div>
+      <Slider
+        value={range}
+        onValueChange={([min, max]) => setRange([min, max])}
+        onValueCommit={([min, max]) => onCommit(min, max)}
+        min={18}
+        max={65}
+        step={1}
+        className="py-1"
+        data-testid="slider-age-range"
+      />
+    </Card>
+  );
+}
+
 const DATING_TIPS = [
   { title: "Be Specific in Your Profile", body: "Instead of saying you love travel, mention the trip that changed your perspective. Specificity invites deeper conversation." },
   { title: "Ask Questions That Matter", body: "Skip 'how was your day' and try 'what made you smile today?' Thoughtful questions show genuine interest." },
@@ -79,8 +129,6 @@ export default function ProfilePage() {
     },
   });
 
-  const [localRadius, setLocalRadius] = useState<number | null>(null);
-  const [localAgeRange, setLocalAgeRange] = useState<[number, number] | null>(null);
   const [editingPhotos, setEditingPhotos] = useState(false);
   const [editPhotos, setEditPhotos] = useState<string[]>([]);
   const [showPhotos, setShowPhotos] = useState(false);
@@ -320,50 +368,17 @@ export default function ProfilePage() {
       )}
 
       <div className="grid grid-cols-2 gap-3">
-        <Card className="p-4 space-y-2" data-testid="card-radius">
-          <div className="flex items-center justify-between gap-1">
-            <div className="flex items-center gap-1.5 text-sm font-medium">
-              <Radar className="w-4 h-4 text-primary shrink-0" />
-              <span className="truncate">Distance</span>
-            </div>
-            <span className="text-sm text-muted-foreground shrink-0" data-testid="text-radius-value">{localRadius ?? profile.locationRadius ?? 25} mi</span>
-          </div>
-          <Slider
-            value={[localRadius ?? profile.locationRadius ?? 25]}
-            onValueChange={([v]) => setLocalRadius(v)}
-            onValueCommit={([v]) => {
-              updateProfileField.mutate({ locationRadius: v });
-              setLocalRadius(null);
-            }}
-            min={5}
-            max={100}
-            step={5}
-            className="py-1"
-            data-testid="slider-profile-radius"
-          />
-        </Card>
-        <Card className="p-4 space-y-2" data-testid="card-age-range">
-          <div className="flex items-center justify-between gap-1">
-            <div className="flex items-center gap-1.5 text-sm font-medium">
-              <Calendar className="w-4 h-4 text-primary shrink-0" />
-              <span className="truncate">Age</span>
-            </div>
-            <span className="text-sm text-muted-foreground shrink-0" data-testid="text-age-range-value">{localAgeRange?.[0] ?? profile.preferredAgeMin ?? 18}-{localAgeRange?.[1] ?? profile.preferredAgeMax ?? 45}</span>
-          </div>
-          <Slider
-            value={[localAgeRange?.[0] ?? profile.preferredAgeMin ?? 18, localAgeRange?.[1] ?? profile.preferredAgeMax ?? 45]}
-            onValueChange={([min, max]) => setLocalAgeRange([min, max])}
-            onValueCommit={([min, max]) => {
-              updateProfileField.mutate({ preferredAgeMin: min, preferredAgeMax: max });
-              setLocalAgeRange(null);
-            }}
-            min={18}
-            max={65}
-            step={1}
-            className="py-1"
-            data-testid="slider-age-range"
-          />
-        </Card>
+        <RadiusSlider
+          key={`radius-${profile.locationRadius}`}
+          initial={profile.locationRadius ?? 25}
+          onCommit={(v) => updateProfileField.mutate({ locationRadius: v })}
+        />
+        <AgeRangeSlider
+          key={`age-${profile.preferredAgeMin}-${profile.preferredAgeMax}`}
+          initialMin={profile.preferredAgeMin ?? 18}
+          initialMax={profile.preferredAgeMax ?? 45}
+          onCommit={(min, max) => updateProfileField.mutate({ preferredAgeMin: min, preferredAgeMax: max })}
+        />
       </div>
 
       <div className="space-y-2">
