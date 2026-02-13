@@ -9,6 +9,9 @@ import { Slider } from "@/components/ui/slider";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   MapPin,
   LogOut,
@@ -23,6 +26,7 @@ import {
   Lightbulb,
   ChevronRight,
   BadgeCheck,
+  Settings,
 } from "lucide-react";
 import { DragScrollRow } from "@/components/drag-scroll-row";
 import type { Profile } from "@shared/schema";
@@ -67,7 +71,36 @@ export default function ProfilePage() {
     },
   });
 
+  const [settingsForm, setSettingsForm] = useState<Record<string, string | undefined>>({});
+
+  const initSettings = () => {
+    if (profile) {
+      setSettingsForm({
+        location: profile.location,
+        height: profile.height || "",
+        datingPreference: profile.datingPreference,
+        datingIntent: profile.datingIntent,
+        connectionStyle: profile.connectionStyle,
+      });
+    }
+  };
+
+  const saveSettings = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/profile", settingsForm);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/profile"] });
+      toast({ title: "Settings saved" });
+      setExpandedSection(null);
+    },
+  });
+
   const toggle = (section: string) => {
+    if (section === "settings" && expandedSection !== "settings") {
+      initSettings();
+    }
     setExpandedSection(prev => prev === section ? null : section);
   };
 
@@ -113,10 +146,15 @@ export default function ProfilePage() {
             </div>
           )}
         </div>
-        <div>
-          <h1 className="font-serif text-2xl font-bold" data-testid="text-profile-name">
-            {profile.firstName}
-          </h1>
+        <div className="flex-1">
+          <div className="flex items-center justify-between gap-2">
+            <h1 className="font-serif text-2xl font-bold" data-testid="text-profile-name">
+              {profile.firstName}
+            </h1>
+            <Button size="icon" variant="ghost" onClick={() => toggle("settings")} data-testid="button-settings-icon">
+              <Settings className="w-5 h-5" />
+            </Button>
+          </div>
           <div className="flex items-center gap-3 text-muted-foreground text-sm mt-1 flex-wrap">
             <span className="flex items-center gap-1" data-testid="text-profile-age">
               <Calendar className="w-3.5 h-3.5" />
@@ -135,6 +173,90 @@ export default function ProfilePage() {
           </div>
         </div>
       </div>
+
+      {expandedSection === "settings" && (
+        <Card className="p-5 space-y-4" data-testid="section-settings">
+          <p className="font-medium text-sm">Settings</p>
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="settings-location" className="text-xs">Location</Label>
+              <Input
+                id="settings-location"
+                value={settingsForm.location || ""}
+                onChange={e => setSettingsForm(prev => ({ ...prev, location: e.target.value }))}
+                placeholder="City, State"
+                data-testid="input-settings-location"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="settings-height" className="text-xs">Height</Label>
+              <Input
+                id="settings-height"
+                value={settingsForm.height || ""}
+                onChange={e => setSettingsForm(prev => ({ ...prev, height: e.target.value }))}
+                placeholder="e.g. 5'8&quot;"
+                data-testid="input-settings-height"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Who you want to date</Label>
+              <Select
+                value={settingsForm.datingPreference || ""}
+                onValueChange={v => setSettingsForm(prev => ({ ...prev, datingPreference: v }))}
+              >
+                <SelectTrigger data-testid="select-settings-preference">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="women">Women</SelectItem>
+                  <SelectItem value="men">Men</SelectItem>
+                  <SelectItem value="everyone">Everyone</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Dating intent</Label>
+              <Select
+                value={settingsForm.datingIntent || ""}
+                onValueChange={v => setSettingsForm(prev => ({ ...prev, datingIntent: v }))}
+              >
+                <SelectTrigger data-testid="select-settings-intent">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Meaningful Relationship">Meaningful Relationship</SelectItem>
+                  <SelectItem value="Intentional Dating">Intentional Dating</SelectItem>
+                  <SelectItem value="Open but Serious">Open but Serious</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Connection style</Label>
+              <Select
+                value={settingsForm.connectionStyle || ""}
+                onValueChange={v => setSettingsForm(prev => ({ ...prev, connectionStyle: v }))}
+              >
+                <SelectTrigger data-testid="select-settings-style">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Slow & Intentional">Slow & Intentional</SelectItem>
+                  <SelectItem value="Steady with Momentum">Steady with Momentum</SelectItem>
+                  <SelectItem value="Ready to Meet Soon">Ready to Meet Soon</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <Button
+            onClick={() => saveSettings.mutate()}
+            disabled={saveSettings.isPending}
+            className="w-full"
+            data-testid="button-save-settings"
+          >
+            {saveSettings.isPending ? "Saving..." : "Save Changes"}
+          </Button>
+        </Card>
+      )}
 
       <Card className="p-4 space-y-2" data-testid="card-radius">
         <div className="flex items-center justify-between gap-2">
