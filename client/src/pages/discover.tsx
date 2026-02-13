@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -6,15 +6,23 @@ import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
+import { DragScrollRow } from "@/components/drag-scroll-row";
 import type { Profile } from "@shared/schema";
 import { MapPin, Sparkles, ChevronLeft, ChevronRight, Heart, X } from "lucide-react";
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, motion, useMotionValue, useTransform, type PanInfo } from "framer-motion";
 
 export default function Discover() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
   const [activeTab, setActiveTab] = useState<"photos" | "about">("photos");
+  const [exitDirection, setExitDirection] = useState<number>(-300);
+
+  const dragX = useMotionValue(0);
+  const cardRotate = useTransform(dragX, [-200, 0, 200], [-6, 0, 6]);
+  const cardOpacity = useTransform(dragX, [-200, -100, 0, 100, 200], [0.5, 0.85, 1, 0.85, 0.5]);
+  const closeIndicatorOpacity = useTransform(dragX, [-150, -60, 0], [1, 0, 0]);
+  const openIndicatorOpacity = useTransform(dragX, [0, 60, 150], [0, 0, 1]);
 
   const { data: profiles, isLoading } = useQuery<Profile[]>({
     queryKey: ["/api/discover"],
@@ -43,6 +51,21 @@ export default function Discover() {
       queryClient.invalidateQueries({ queryKey: ["/api/discover"] });
     },
   });
+
+  const handleDragEnd = useCallback((_: any, info: PanInfo) => {
+    const threshold = 120;
+    const velocityThreshold = 500;
+    const shouldClose = info.offset.x < -threshold || info.velocity.x < -velocityThreshold;
+    const shouldOpen = info.offset.x > threshold || info.velocity.x > velocityThreshold;
+
+    if (shouldClose) {
+      setExitDirection(-400);
+      interact.mutate("close");
+    } else if (shouldOpen) {
+      setExitDirection(400);
+      interact.mutate("open");
+    }
+  }, [interact]);
 
   if (isLoading) {
     return (
@@ -82,13 +105,34 @@ export default function Discover() {
         <AnimatePresence mode="wait">
           <motion.div
             key={currentProfile.id}
-            initial={{ opacity: 0, y: 12 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -12 }}
-            transition={{ duration: 0.35, ease: "easeOut" }}
+            drag="x"
+            dragConstraints={{ left: 0, right: 0 }}
+            dragElastic={0.7}
+            dragDirectionLock
+            onDragEnd={handleDragEnd}
+            style={{ x: dragX, rotate: cardRotate, opacity: cardOpacity }}
+            initial={{ opacity: 0, scale: 0.96 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, x: exitDirection }}
+            transition={{ duration: 0.3, ease: "easeOut" }}
+            className="relative touch-pan-y"
+            data-testid="draggable-profile"
           >
-            <Card className="overflow-hidden" data-testid="card-profile">
-              <div className="flex border-b">
+            <motion.div
+              className="absolute -left-2 top-1/3 z-10 bg-destructive text-destructive-foreground rounded-full w-12 h-12 flex items-center justify-center shadow-lg pointer-events-none"
+              style={{ opacity: closeIndicatorOpacity }}
+            >
+              <X className="w-6 h-6" />
+            </motion.div>
+            <motion.div
+              className="absolute -right-2 top-1/3 z-10 bg-primary text-primary-foreground rounded-full w-12 h-12 flex items-center justify-center shadow-lg pointer-events-none"
+              style={{ opacity: openIndicatorOpacity }}
+            >
+              <Heart className="w-6 h-6" />
+            </motion.div>
+
+            <Card className="overflow-visible" data-testid="card-profile">
+              <div className="flex border-b relative z-10">
                 <button
                   className={`flex-1 py-2.5 text-sm font-medium transition-colors ${
                     activeTab === "photos"
@@ -96,6 +140,7 @@ export default function Discover() {
                       : "text-muted-foreground"
                   }`}
                   onClick={() => setActiveTab("photos")}
+                  onPointerDownCapture={(e) => e.stopPropagation()}
                   data-testid="tab-photos"
                 >
                   Photos
@@ -107,6 +152,7 @@ export default function Discover() {
                       : "text-muted-foreground"
                   }`}
                   onClick={() => setActiveTab("about")}
+                  onPointerDownCapture={(e) => e.stopPropagation()}
                   data-testid="tab-about"
                 >
                   About
@@ -114,13 +160,14 @@ export default function Discover() {
               </div>
 
               {activeTab === "photos" ? (
-                <div className="relative aspect-[3/4]" data-testid="profile-photos-section">
+                <div className="relative aspect-[3/4] overflow-hidden rounded-b-md" data-testid="profile-photos-section">
                   {photos[currentPhotoIndex] && (
                     <img
                       src={photos[currentPhotoIndex]}
                       alt={currentProfile.firstName}
-                      className="w-full h-full object-cover"
+                      className="w-full h-full object-cover pointer-events-none"
                       data-testid="img-profile-photo"
+                      draggable={false}
                     />
                   )}
                   <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent" />
@@ -138,8 +185,9 @@ export default function Discover() {
 
                   {currentPhotoIndex > 0 && (
                     <button
-                      className="absolute left-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-black/20 flex items-center justify-center text-white"
+                      className="absolute left-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-black/20 flex items-center justify-center text-white relative z-10"
                       onClick={() => setCurrentPhotoIndex(i => i - 1)}
+                      onPointerDownCapture={(e) => e.stopPropagation()}
                       data-testid="button-photo-prev"
                     >
                       <ChevronLeft className="w-4 h-4" />
@@ -147,8 +195,9 @@ export default function Discover() {
                   )}
                   {currentPhotoIndex < photos.length - 1 && (
                     <button
-                      className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-black/20 flex items-center justify-center text-white"
+                      className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-black/20 flex items-center justify-center text-white relative z-10"
                       onClick={() => setCurrentPhotoIndex(i => i + 1)}
+                      onPointerDownCapture={(e) => e.stopPropagation()}
                       data-testid="button-photo-next"
                     >
                       <ChevronRight className="w-4 h-4" />
@@ -177,15 +226,15 @@ export default function Discover() {
                     </div>
                   </div>
 
-                  <div className="space-y-2">
+                  <div className="space-y-2" onPointerDownCapture={(e) => e.stopPropagation()}>
                     <p className="text-xs font-medium tracking-wider uppercase text-primary">Personality</p>
-                    <div className="flex flex-wrap gap-2">
+                    <DragScrollRow>
                       {signals.map(signal => (
-                        <Badge key={signal} variant="secondary" className="text-sm py-1.5 px-3">
+                        <Badge key={signal} variant="secondary" className="text-sm py-1.5 px-3 shrink-0 no-default-active-elevate" data-testid={`badge-signal-${signal}`}>
                           {signal}
                         </Badge>
                       ))}
-                    </div>
+                    </DragScrollRow>
                   </div>
 
                   <div className="space-y-2">
@@ -193,15 +242,15 @@ export default function Discover() {
                     <p className="font-medium" data-testid="text-profile-intent">{currentProfile.datingIntent}</p>
                   </div>
 
-                  <div className="space-y-2">
+                  <div className="space-y-2" onPointerDownCapture={(e) => e.stopPropagation()}>
                     <p className="text-xs font-medium tracking-wider uppercase text-primary">Green Flags</p>
-                    <div className="flex flex-wrap gap-2">
+                    <DragScrollRow>
                       {greenFlags.map(flag => (
-                        <Badge key={flag} variant="outline" className="text-sm py-1.5 px-3">
+                        <Badge key={flag} variant="outline" className="text-sm py-1.5 px-3 shrink-0 no-default-active-elevate" data-testid={`badge-flag-${flag}`}>
                           {flag}
                         </Badge>
                       ))}
-                    </div>
+                    </DragScrollRow>
                   </div>
 
                   <div className="space-y-2">
@@ -212,12 +261,12 @@ export default function Discover() {
               )}
             </Card>
 
-            <div className="flex items-center justify-center gap-5 mt-6">
+            <div className="flex items-center justify-center gap-5 mt-6" onPointerDownCapture={(e) => e.stopPropagation()}>
               <div className="text-center">
                 <Button
                   variant="outline"
                   className="w-14 h-14 rounded-full p-0"
-                  onClick={() => interact.mutate("close")}
+                  onClick={() => { setExitDirection(-400); interact.mutate("close"); }}
                   disabled={interact.isPending}
                   data-testid="button-close"
                 >
@@ -228,7 +277,7 @@ export default function Discover() {
               <div className="text-center">
                 <Button
                   className="w-16 h-16 rounded-full p-0"
-                  onClick={() => interact.mutate("open")}
+                  onClick={() => { setExitDirection(400); interact.mutate("open"); }}
                   disabled={interact.isPending}
                   data-testid="button-open"
                 >
@@ -239,6 +288,10 @@ export default function Discover() {
             </div>
           </motion.div>
         </AnimatePresence>
+
+        <p className="text-center text-xs text-muted-foreground/60 pt-2">
+          Drag the card left or right, or use the buttons below
+        </p>
       </div>
     </div>
   );

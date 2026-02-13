@@ -6,6 +6,7 @@ import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { MapPin, LogOut, Flower2 } from "lucide-react";
+import { DragScrollRow } from "@/components/drag-scroll-row";
 import type { Profile } from "@shared/schema";
 
 export default function ProfilePage() {
@@ -74,13 +75,13 @@ export default function ProfilePage() {
       <Card className="p-5 space-y-4">
         <div className="space-y-2">
           <p className="text-xs font-medium tracking-wider uppercase text-primary">Personality Signals</p>
-          <div className="flex flex-wrap gap-2">
+          <DragScrollRow>
             {profile.signals?.map(signal => (
-              <Badge key={signal} variant="secondary" className="text-sm py-1.5 px-3" data-testid={`badge-my-signal-${signal}`}>
+              <Badge key={signal} variant="secondary" className="text-sm py-1.5 px-3 shrink-0 no-default-active-elevate" data-testid={`badge-my-signal-${signal}`}>
                 {signal}
               </Badge>
             ))}
-          </div>
+          </DragScrollRow>
         </div>
 
         <div className="space-y-2">
@@ -90,13 +91,13 @@ export default function ProfilePage() {
 
         <div className="space-y-2">
           <p className="text-xs font-medium tracking-wider uppercase text-primary">Green Flags</p>
-          <div className="flex flex-wrap gap-2">
+          <DragScrollRow>
             {profile.greenFlags?.map(flag => (
-              <Badge key={flag} variant="outline" className="text-sm py-1.5 px-3" data-testid={`badge-my-flag-${flag}`}>
+              <Badge key={flag} variant="outline" className="text-sm py-1.5 px-3 shrink-0 no-default-active-elevate" data-testid={`badge-my-flag-${flag}`}>
                 {flag}
               </Badge>
             ))}
-          </div>
+          </DragScrollRow>
         </div>
 
         <div className="space-y-2">
