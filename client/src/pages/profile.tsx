@@ -27,6 +27,8 @@ import {
   ChevronRight,
   BadgeCheck,
   Settings,
+  CreditCard,
+  ArrowLeft,
 } from "lucide-react";
 import { DragScrollRow } from "@/components/drag-scroll-row";
 import type { Profile } from "@shared/schema";
@@ -45,6 +47,7 @@ export default function ProfilePage() {
   const queryClient = useQueryClient();
   const [expandedSection, setExpandedSection] = useState<string | null>(null);
   const [tipIndex, setTipIndex] = useState(0);
+  const [purchaseItem, setPurchaseItem] = useState<{ name: string; price: string; type: "subscription" | "one-time" } | null>(null);
 
   const { data: profile, isLoading } = useQuery<Profile>({
     queryKey: ["/api/profile"],
@@ -101,6 +104,7 @@ export default function ProfilePage() {
     if (section === "settings" && expandedSection !== "settings") {
       initSettings();
     }
+    setPurchaseItem(null);
     setExpandedSection(prev => prev === section ? null : section);
   };
 
@@ -336,7 +340,7 @@ export default function ProfilePage() {
           </div>
           <ChevronRight className={`w-4 h-4 text-muted-foreground transition-transform ${expandedSection === "extras" ? "rotate-90" : ""}`} />
         </button>
-        {expandedSection === "extras" && (
+        {expandedSection === "extras" && !purchaseItem && (
           <Card className="p-4 space-y-4" data-testid="section-bloom-extras">
             <div className="space-y-1 pb-2">
               <p className="font-medium text-sm">Bloom Membership</p>
@@ -345,7 +349,7 @@ export default function ProfilePage() {
             <div className="rounded-md border p-3 space-y-2">
               <div className="flex items-center justify-between gap-2 flex-wrap">
                 <p className="font-medium text-sm">$19.99/month</p>
-                <Button size="sm" data-testid="button-subscribe-membership">Join</Button>
+                <Button size="sm" onClick={() => setPurchaseItem({ name: "Bloom Membership", price: "$19.99/month", type: "subscription" })} data-testid="button-subscribe-membership">Join</Button>
               </div>
               <ul className="text-xs text-muted-foreground space-y-1">
                 <li>2 conversation extensions per month</li>
@@ -366,30 +370,90 @@ export default function ProfilePage() {
                   <p className="text-sm">+5 Messages</p>
                   <p className="text-xs text-muted-foreground">Give a conversation more room</p>
                 </div>
-                <Button size="sm" variant="outline" data-testid="button-buy-messages">$4.99</Button>
+                <Button size="sm" variant="outline" onClick={() => setPurchaseItem({ name: "+5 Messages", price: "$4.99", type: "one-time" })} data-testid="button-buy-messages">$4.99</Button>
               </div>
               <div className="border-t pt-2 flex items-center justify-between gap-2 flex-wrap">
                 <div>
                   <p className="text-sm">Undo Last Close</p>
                   <p className="text-xs text-muted-foreground">Changed your mind? Reopen that profile</p>
                 </div>
-                <Button size="sm" variant="outline" data-testid="button-buy-undo">$2.99</Button>
+                <Button size="sm" variant="outline" onClick={() => setPurchaseItem({ name: "Undo Last Close", price: "$2.99", type: "one-time" })} data-testid="button-buy-undo">$2.99</Button>
               </div>
               <div className="border-t pt-2 flex items-center justify-between gap-2 flex-wrap">
                 <div>
                   <p className="text-sm">Extra Call</p>
                   <p className="text-xs text-muted-foreground">One more voice call with a match</p>
                 </div>
-                <Button size="sm" variant="outline" data-testid="button-buy-call">$4.99</Button>
+                <Button size="sm" variant="outline" onClick={() => setPurchaseItem({ name: "Extra Call", price: "$4.99", type: "one-time" })} data-testid="button-buy-call">$4.99</Button>
               </div>
               <div className="border-t pt-2 flex items-center justify-between gap-2 flex-wrap">
                 <div>
                   <p className="text-sm">Video Call</p>
                   <p className="text-xs text-muted-foreground">See each other face to face</p>
                 </div>
-                <Button size="sm" variant="outline" data-testid="button-buy-video">$6.99</Button>
+                <Button size="sm" variant="outline" onClick={() => setPurchaseItem({ name: "Video Call", price: "$6.99", type: "one-time" })} data-testid="button-buy-video">$6.99</Button>
               </div>
             </div>
+          </Card>
+        )}
+
+        {expandedSection === "extras" && purchaseItem && (
+          <Card className="p-5 space-y-5" data-testid="section-payment">
+            <div className="flex items-center gap-2">
+              <Button size="icon" variant="ghost" onClick={() => setPurchaseItem(null)} data-testid="button-payment-back">
+                <ArrowLeft className="w-4 h-4" />
+              </Button>
+              <p className="font-medium text-sm">Payment</p>
+            </div>
+
+            <div className="rounded-md border p-4 space-y-1">
+              <p className="font-medium text-sm" data-testid="text-payment-item">{purchaseItem.name}</p>
+              <p className="text-lg font-bold text-primary" data-testid="text-payment-price">{purchaseItem.price}</p>
+              <p className="text-xs text-muted-foreground">
+                {purchaseItem.type === "subscription" ? "Billed monthly. Cancel anytime." : "One-time purchase."}
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <p className="text-xs font-medium tracking-wider uppercase text-muted-foreground">Payment Method</p>
+              <div className="space-y-2">
+                <button
+                  className="w-full flex items-center gap-3 p-3 rounded-md border hover-elevate text-left"
+                  data-testid="button-pay-card"
+                  onClick={() => toast({ title: "Payment processing coming soon", description: "Card payments will be available shortly." })}
+                >
+                  <CreditCard className="w-5 h-5 text-muted-foreground" />
+                  <div>
+                    <p className="text-sm font-medium">Credit or Debit Card</p>
+                    <p className="text-xs text-muted-foreground">Visa, Mastercard, Amex</p>
+                  </div>
+                </button>
+                <button
+                  className="w-full flex items-center gap-3 p-3 rounded-md border hover-elevate text-left"
+                  data-testid="button-pay-apple"
+                  onClick={() => toast({ title: "Payment processing coming soon", description: "Apple Pay will be available shortly." })}
+                >
+                  <div className="w-5 h-5 flex items-center justify-center text-muted-foreground font-bold text-sm">A</div>
+                  <div>
+                    <p className="text-sm font-medium">Apple Pay</p>
+                    <p className="text-xs text-muted-foreground">Fast and secure checkout</p>
+                  </div>
+                </button>
+                <button
+                  className="w-full flex items-center gap-3 p-3 rounded-md border hover-elevate text-left"
+                  data-testid="button-pay-google"
+                  onClick={() => toast({ title: "Payment processing coming soon", description: "Google Pay will be available shortly." })}
+                >
+                  <div className="w-5 h-5 flex items-center justify-center text-muted-foreground font-bold text-sm">G</div>
+                  <div>
+                    <p className="text-sm font-medium">Google Pay</p>
+                    <p className="text-xs text-muted-foreground">Fast and secure checkout</p>
+                  </div>
+                </button>
+              </div>
+            </div>
+
+            <p className="text-xs text-center text-muted-foreground">Payments are secure and encrypted. You can cancel subscriptions at any time from your profile.</p>
           </Card>
         )}
       </div>
