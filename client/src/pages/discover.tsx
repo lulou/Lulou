@@ -45,13 +45,13 @@ function PhotoBubbles({ photos, name, onOpen, isOpenPending }: { photos: string[
   const glide = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;
-    if (Math.abs(velocity.current) < 0.5) {
+    velocity.current *= 0.93;
+    if (Math.abs(velocity.current) < 0.3) {
       velocity.current = 0;
       updateFocused();
       return;
     }
     el.scrollLeft -= velocity.current;
-    velocity.current *= 0.94;
     updateFocused();
     animFrame.current = requestAnimationFrame(glide);
   }, [updateFocused]);
@@ -227,12 +227,12 @@ function SlideCards({ items, type, onReply }: { items: string[]; type: "starter"
   const glide = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;
-    if (Math.abs(velocity.current) < 0.5) {
+    velocity.current *= 0.92;
+    if (Math.abs(velocity.current) < 0.3) {
       velocity.current = 0;
       return;
     }
     el.scrollLeft -= velocity.current;
-    velocity.current *= 0.93;
     animFrame.current = requestAnimationFrame(glide);
   }, []);
 
@@ -247,6 +247,8 @@ function SlideCards({ items, type, onReply }: { items: string[]; type: "starter"
     lastX.current = e.clientX;
     lastTime.current = Date.now();
     scrollLeftStart.current = el.scrollLeft;
+    el.style.cursor = "grabbing";
+    el.setPointerCapture(e.pointerId);
   };
 
   const handlePointerMove = (e: React.PointerEvent) => {
@@ -254,7 +256,7 @@ function SlideCards({ items, type, onReply }: { items: string[]; type: "starter"
     const now = Date.now();
     const dt = now - lastTime.current;
     const dx = e.clientX - lastX.current;
-    if (dt > 0) velocity.current = dx / dt * 16;
+    if (dt > 0) velocity.current = (dx / dt) * 16;
     lastX.current = e.clientX;
     lastTime.current = now;
     const totalDx = e.clientX - startX.current;
@@ -262,8 +264,12 @@ function SlideCards({ items, type, onReply }: { items: string[]; type: "starter"
     scrollRef.current.scrollLeft = scrollLeftStart.current - totalDx;
   };
 
-  const handlePointerUp = () => {
+  const handlePointerUp = (e: React.PointerEvent) => {
     isDragging.current = false;
+    if (scrollRef.current) {
+      scrollRef.current.style.cursor = "grab";
+      scrollRef.current.releasePointerCapture(e.pointerId);
+    }
     if (Math.abs(velocity.current) > 1) {
       animFrame.current = requestAnimationFrame(glide);
     }
