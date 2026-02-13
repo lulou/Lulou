@@ -78,8 +78,8 @@ export default function Onboarding() {
     switch (step) {
       case 0: return formData.firstName && formData.age >= 18 && formData.gender && formData.datingPreference && formData.location;
       case 1: return formData.photos.length >= 2;
-      case 2: return formData.conversationStarters.length === 3 && formData.conversationStarters.every(s => formData.starterAnswers[s]?.trim());
-      case 3: return formData.questions.length === 3;
+      case 2: return formData.conversationStarters.length >= 2 && formData.conversationStarters.length <= 3 && formData.conversationStarters.every(s => formData.starterAnswers[s]?.trim());
+      case 3: return formData.questions.length >= 2 && formData.questions.length <= 3;
       case 4: return formData.signals.length >= 1 && formData.signals.length <= 5;
       case 5: return formData.datingIntent !== "";
       case 6: return formData.greenFlags.length >= 3;
@@ -269,7 +269,7 @@ export default function Onboarding() {
                   })}
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  {formData.conversationStarters.length}/3 selected
+                  {formData.conversationStarters.length}/3 selected (min 2)
                 </p>
                 {formData.conversationStarters.map(starter => (
                   <div key={starter} className="space-y-1.5">
@@ -314,7 +314,7 @@ export default function Onboarding() {
                   );
                 })}
                 <p className="text-xs text-muted-foreground">
-                  {formData.questions.length}/3 selected
+                  {formData.questions.length}/3 selected (min 2)
                 </p>
               </div>
             )}
