@@ -441,6 +441,22 @@ export default function Discover() {
                   </div>
                 )}
 
+                <div className="flex items-baseline gap-2 flex-wrap">
+                  <h2 className="font-serif text-2xl font-bold" data-testid="text-profile-name">
+                    {currentProfile.firstName}, {currentProfile.age}
+                  </h2>
+                  {currentProfile.height && (
+                    <div className="flex items-center gap-1 text-muted-foreground text-sm">
+                      <Ruler className="w-3.5 h-3.5" />
+                      <span data-testid="text-profile-height">{currentProfile.height}</span>
+                    </div>
+                  )}
+                  <div className="flex items-center gap-1 text-muted-foreground text-sm">
+                    <MapPin className="w-3.5 h-3.5" />
+                    <span data-testid="text-profile-location">{currentProfile.location}</span>
+                  </div>
+                </div>
+
                 <div className="space-y-2">
                   <p className="text-xs font-medium tracking-wider uppercase text-primary">Personality</p>
                   <DragScrollRow>
@@ -471,24 +487,6 @@ export default function Discover() {
                 <div className="space-y-2">
                   <p className="text-xs font-medium tracking-wider uppercase text-primary">Pace</p>
                   <p className="font-medium" data-testid="text-profile-style">{currentProfile.connectionStyle}</p>
-                </div>
-
-                <div className="border-t pt-4 mt-4">
-                  <h2 className="font-serif text-2xl font-bold" data-testid="text-profile-name">
-                    {currentProfile.firstName}, {currentProfile.age}
-                  </h2>
-                  <div className="flex items-center gap-3 mt-1.5 text-muted-foreground text-sm flex-wrap">
-                    <div className="flex items-center gap-1">
-                      <MapPin className="w-3.5 h-3.5" />
-                      <span data-testid="text-profile-location">{currentProfile.location}</span>
-                    </div>
-                    {currentProfile.height && (
-                      <div className="flex items-center gap-1">
-                        <Ruler className="w-3.5 h-3.5" />
-                        <span data-testid="text-profile-height">{currentProfile.height}</span>
-                      </div>
-                    )}
-                  </div>
                 </div>
               </div>
             </Card>
