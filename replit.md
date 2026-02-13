@@ -10,9 +10,13 @@ Bloom is a calm, premium dating app focused on helping people move from matching
 - **Auth**: Replit Auth (OpenID Connect)
 
 ## Key Features
-- Profile creation with personality signals, green flags, dating intent, connection style
-- Discovery page showing one profile at a time (Open/Close interactions)
+- Profile creation with personality signals, green flags, dating intent, connection style, optional height
+- Discovery page showing one profile at a time with bubble-style photo layout
+  - Single scrollable card: photos at top, about section below, name/age/location/height at bottom
+  - No tabs - all info visible in one scroll
+  - Photo bubbles with dynamic focus (centered photo grows, side photos shrink)
 - Mutual matching system
+- Matches page with expandable inline chatrooms per match card
 - Limited messaging (15 messages per person, 500 chars max)
 - Call prompt after message limit
 
