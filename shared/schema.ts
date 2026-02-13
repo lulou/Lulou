@@ -22,6 +22,8 @@ export const profiles = pgTable("profiles", {
   conversationStarters: text("conversation_starters").array(),
   questions: text("questions").array(),
   locationRadius: integer("location_radius").default(25),
+  preferredAgeMin: integer("preferred_age_min").default(18),
+  preferredAgeMax: integer("preferred_age_max").default(45),
   photoVerified: boolean("photo_verified").default(false),
   onboardingComplete: boolean("onboarding_complete").default(false),
   createdAt: timestamp("created_at").defaultNow(),

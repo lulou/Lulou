@@ -57,9 +57,9 @@ export default function ProfilePage() {
     queryKey: ["/api/profile"],
   });
 
-  const updateRadius = useMutation({
-    mutationFn: async (radius: number) => {
-      const res = await apiRequest("POST", "/api/profile", { locationRadius: radius });
+  const updateProfileField = useMutation({
+    mutationFn: async (data: Record<string, unknown>) => {
+      const res = await apiRequest("POST", "/api/profile", data);
       return res.json();
     },
     onSuccess: () => {
@@ -315,24 +315,44 @@ export default function ProfilePage() {
         </Card>
       )}
 
-      <Card className="p-4 space-y-2" data-testid="card-radius">
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2 text-sm font-medium">
-            <Radar className="w-4 h-4 text-primary" />
-            Search Radius
+      <div className="grid grid-cols-2 gap-3">
+        <Card className="p-4 space-y-2" data-testid="card-radius">
+          <div className="flex items-center justify-between gap-1">
+            <div className="flex items-center gap-1.5 text-sm font-medium">
+              <Radar className="w-4 h-4 text-primary shrink-0" />
+              <span className="truncate">Distance</span>
+            </div>
+            <span className="text-sm text-muted-foreground shrink-0" data-testid="text-radius-value">{profile.locationRadius || 25} mi</span>
           </div>
-          <span className="text-sm text-muted-foreground" data-testid="text-radius-value">{profile.locationRadius || 25} miles</span>
-        </div>
-        <Slider
-          value={[profile.locationRadius || 25]}
-          onValueChange={([v]) => updateRadius.mutate(v)}
-          min={5}
-          max={100}
-          step={5}
-          className="py-1"
-          data-testid="slider-profile-radius"
-        />
-      </Card>
+          <Slider
+            value={[profile.locationRadius || 25]}
+            onValueChange={([v]) => updateProfileField.mutate({ locationRadius: v })}
+            min={5}
+            max={100}
+            step={5}
+            className="py-1"
+            data-testid="slider-profile-radius"
+          />
+        </Card>
+        <Card className="p-4 space-y-2" data-testid="card-age-range">
+          <div className="flex items-center justify-between gap-1">
+            <div className="flex items-center gap-1.5 text-sm font-medium">
+              <Calendar className="w-4 h-4 text-primary shrink-0" />
+              <span className="truncate">Age</span>
+            </div>
+            <span className="text-sm text-muted-foreground shrink-0" data-testid="text-age-range-value">{profile.preferredAgeMin || 18}-{profile.preferredAgeMax || 45}</span>
+          </div>
+          <Slider
+            value={[profile.preferredAgeMin || 18, profile.preferredAgeMax || 45]}
+            onValueChange={([min, max]) => updateProfileField.mutate({ preferredAgeMin: min, preferredAgeMax: max })}
+            min={18}
+            max={65}
+            step={1}
+            className="py-1"
+            data-testid="slider-age-range"
+          />
+        </Card>
+      </div>
 
       <div className="space-y-2">
         <div className="flex items-center justify-between gap-2">
