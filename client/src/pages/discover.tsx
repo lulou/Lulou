@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -11,99 +11,142 @@ import type { Profile } from "@shared/schema";
 import { MapPin, Sparkles, Heart, X } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 
-function PhotoCarousel({
-  photos,
-  name,
-}: {
-  photos: string[];
-  name: string;
-}) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [currentIndex, setCurrentIndex] = useState(0);
-  const dragStartX = useRef(0);
+function PhotoBubbles({ photos, name }: { photos: string[]; name: string }) {
+  const scrollRef = useRef<HTMLDivElement>(null);
   const isDragging = useRef(false);
-  const dragDelta = useRef(0);
+  const startX = useRef(0);
+  const scrollLeftStart = useRef(0);
+  const [focusedIndex, setFocusedIndex] = useState(0);
+  const itemRefs = useRef<(HTMLDivElement | null)[]>([]);
+
+  const updateFocused = () => {
+    const container = scrollRef.current;
+    if (!container) return;
+    const containerCenter = container.scrollLeft + container.offsetWidth / 2;
+    let closest = 0;
+    let minDist = Infinity;
+    itemRefs.current.forEach((el, i) => {
+      if (!el) return;
+      const itemCenter = el.offsetLeft + el.offsetWidth / 2;
+      const dist = Math.abs(containerCenter - itemCenter);
+      if (dist < minDist) {
+        minDist = dist;
+        closest = i;
+      }
+    });
+    setFocusedIndex(closest);
+  };
 
   const handlePointerDown = (e: React.PointerEvent) => {
+    const el = scrollRef.current;
+    if (!el) return;
     isDragging.current = true;
-    dragStartX.current = e.clientX;
-    dragDelta.current = 0;
-    containerRef.current?.setPointerCapture(e.pointerId);
+    startX.current = e.clientX;
+    scrollLeftStart.current = el.scrollLeft;
+    el.style.cursor = "grabbing";
+    el.setPointerCapture(e.pointerId);
   };
 
   const handlePointerMove = (e: React.PointerEvent) => {
-    if (!isDragging.current) return;
-    dragDelta.current = e.clientX - dragStartX.current;
+    if (!isDragging.current || !scrollRef.current) return;
+    const dx = e.clientX - startX.current;
+    scrollRef.current.scrollLeft = scrollLeftStart.current - dx;
+    updateFocused();
   };
 
   const handlePointerUp = (e: React.PointerEvent) => {
-    if (!isDragging.current) return;
     isDragging.current = false;
-    containerRef.current?.releasePointerCapture(e.pointerId);
-
-    const threshold = 50;
-    if (dragDelta.current < -threshold && currentIndex < photos.length - 1) {
-      setCurrentIndex((i) => i + 1);
-    } else if (dragDelta.current > threshold && currentIndex > 0) {
-      setCurrentIndex((i) => i - 1);
+    if (scrollRef.current) {
+      scrollRef.current.style.cursor = "grab";
+      scrollRef.current.releasePointerCapture(e.pointerId);
     }
-    dragDelta.current = 0;
+    updateFocused();
   };
 
   if (photos.length === 0) {
     return (
-      <div className="aspect-[3/4] bg-muted rounded-b-md flex items-center justify-center">
+      <div className="h-80 bg-muted rounded-md flex items-center justify-center">
         <p className="text-muted-foreground text-sm">No photos</p>
       </div>
     );
   }
 
-  return (
-    <div
-      ref={containerRef}
-      className="relative aspect-[3/4] overflow-hidden rounded-b-md cursor-grab active:cursor-grabbing select-none touch-pan-y"
-      onPointerDown={handlePointerDown}
-      onPointerMove={handlePointerMove}
-      onPointerUp={handlePointerUp}
-      onPointerLeave={handlePointerUp}
-      data-testid="photo-carousel"
-    >
-      <div
-        className="flex h-full transition-transform duration-300 ease-out"
-        style={{ transform: `translateX(-${currentIndex * 100}%)` }}
-      >
-        {photos.map((photo, i) => (
-          <div key={i} className="w-full h-full flex-shrink-0">
-            <img
-              src={photo}
-              alt={`${name} photo ${i + 1}`}
-              className="w-full h-full object-cover pointer-events-none"
-              draggable={false}
-              data-testid={`img-profile-photo-${i}`}
-            />
-          </div>
-        ))}
+  if (photos.length === 1) {
+    return (
+      <div className="flex justify-center py-4 px-4" data-testid="photo-bubbles">
+        <div className="w-56 h-72 rounded-2xl overflow-hidden shadow-md ring-2 ring-primary/15">
+          <img
+            src={photos[0]}
+            alt={`${name} photo 1`}
+            className="w-full h-full object-cover pointer-events-none"
+            draggable={false}
+            data-testid="img-profile-photo-0"
+          />
+        </div>
       </div>
+    );
+  }
 
-      <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent pointer-events-none" />
+  return (
+    <div className="relative" data-testid="photo-bubbles-wrapper">
+      <div
+        ref={scrollRef}
+        className="overflow-x-auto scrollbar-hide cursor-grab select-none touch-pan-y"
+        style={{ WebkitOverflowScrolling: "touch" }}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerLeave={handlePointerUp}
+        onScroll={updateFocused}
+        data-testid="photo-bubbles"
+      >
+        <div
+          className="flex items-end gap-3 py-4"
+          style={{
+            paddingLeft: "calc(50% - 112px)",
+            paddingRight: "calc(50% - 112px)",
+            width: "max-content",
+          }}
+        >
+          {photos.map((photo, i) => {
+            const isFocused = i === focusedIndex;
+            return (
+              <div
+                key={i}
+                ref={(el) => { itemRefs.current[i] = el; }}
+                className={`rounded-2xl overflow-hidden flex-shrink-0 transition-all duration-300 ease-out ${
+                  isFocused
+                    ? "w-56 h-72 shadow-lg ring-2 ring-primary/20"
+                    : "w-40 h-56 shadow-md opacity-70"
+                }`}
+                data-testid={`photo-bubble-${i}`}
+              >
+                <img
+                  src={photo}
+                  alt={`${name} photo ${i + 1}`}
+                  className="w-full h-full object-cover pointer-events-none"
+                  draggable={false}
+                  data-testid={`img-profile-photo-${i}`}
+                />
+              </div>
+            );
+          })}
+        </div>
+      </div>
+      <div className="absolute inset-y-0 left-0 w-8 bg-gradient-to-r from-card to-transparent pointer-events-none" />
+      <div className="absolute inset-y-0 right-0 w-8 bg-gradient-to-l from-card to-transparent pointer-events-none" />
 
       {photos.length > 1 && (
-        <div className="absolute top-3 left-3 right-3 flex gap-1 pointer-events-none">
+        <div className="flex justify-center gap-1.5 pt-1 pb-1">
           {photos.map((_, i) => (
             <div
               key={i}
-              className={`h-0.5 flex-1 rounded-full transition-colors duration-300 ${
-                i === currentIndex ? "bg-white" : "bg-white/30"
+              className={`w-1.5 h-1.5 rounded-full transition-colors duration-300 ${
+                i === focusedIndex ? "bg-primary" : "bg-muted-foreground/25"
               }`}
             />
           ))}
         </div>
-      )}
-
-      {photos.length > 1 && (
-        <p className="absolute bottom-2 right-3 text-[10px] text-white/50 pointer-events-none">
-          {currentIndex + 1} / {photos.length}
-        </p>
       )}
     </div>
   );
@@ -145,7 +188,7 @@ export default function Discover() {
     return (
       <div className="flex-1 flex items-center justify-center p-6">
         <div className="w-full max-w-md space-y-4">
-          <Skeleton className="aspect-[3/4] w-full rounded-md" />
+          <Skeleton className="h-72 w-full rounded-md" />
           <Skeleton className="h-8 w-2/3" />
           <Skeleton className="h-4 w-1/2" />
         </div>
@@ -212,13 +255,14 @@ export default function Discover() {
               </div>
 
               {activeTab === "photos" ? (
-                <div className="relative" data-testid="profile-photos-section">
-                  <PhotoCarousel photos={photos} name={currentProfile.firstName} />
-                  <div className="absolute bottom-0 left-0 right-0 p-5 text-white pointer-events-none">
+                <div data-testid="profile-photos-section">
+                  <PhotoBubbles photos={photos} name={currentProfile.firstName} />
+
+                  <div className="px-5 pb-5 pt-2">
                     <h2 className="font-serif text-2xl font-bold" data-testid="text-profile-name">
                       {currentProfile.firstName}, {currentProfile.age}
                     </h2>
-                    <div className="flex items-center gap-1 mt-1 text-white/80 text-sm">
+                    <div className="flex items-center gap-1 mt-1 text-muted-foreground text-sm">
                       <MapPin className="w-3.5 h-3.5" />
                       <span data-testid="text-profile-location">{currentProfile.location}</span>
                     </div>
