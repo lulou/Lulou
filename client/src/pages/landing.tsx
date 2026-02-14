@@ -1,5 +1,5 @@
 import { Button } from "@/components/ui/button";
-import { Flower2, Heart, MessageCircle, Phone, Shield, Sparkles } from "lucide-react";
+import { Heart, MessageCircle, Phone, Shield, Sparkles } from "lucide-react";
 
 export default function Landing() {
   return (
@@ -7,7 +7,7 @@ export default function Landing() {
       <nav className="fixed top-0 left-0 right-0 z-50 backdrop-blur-md bg-background/80 border-b">
         <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between gap-4 flex-wrap">
           <div className="flex items-center gap-2">
-            <Flower2 className="w-6 h-6 text-primary" />
+            <Sparkles className="w-6 h-6 text-primary" />
             <span className="font-serif text-xl font-semibold tracking-tight" data-testid="text-logo">Bloom</span>
           </div>
           <div className="flex items-center gap-3">
@@ -23,7 +23,7 @@ export default function Landing() {
 
       <section className="relative pt-32 pb-20 px-6 overflow-hidden">
         <div className="absolute inset-0 opacity-[0.03]" style={{
-          backgroundImage: 'radial-gradient(circle at 20% 50%, hsl(158 35% 38%) 0%, transparent 50%), radial-gradient(circle at 80% 50%, hsl(345 30% 55%) 0%, transparent 50%)'
+          backgroundImage: 'radial-gradient(circle at 20% 50%, hsl(310 32% 40%) 0%, transparent 50%), radial-gradient(circle at 80% 50%, hsl(280 30% 55%) 0%, transparent 50%)'
         }} />
         <div className="max-w-6xl mx-auto grid lg:grid-cols-2 gap-16 items-center">
           <div className="space-y-8">
@@ -118,7 +118,7 @@ export default function Landing() {
       <footer className="border-t py-8 px-6">
         <div className="max-w-6xl mx-auto flex items-center justify-between gap-4 flex-wrap text-sm text-muted-foreground">
           <div className="flex items-center gap-2">
-            <Flower2 className="w-4 h-4 text-primary" />
+            <Sparkles className="w-4 h-4 text-primary" />
             <span className="font-serif font-medium text-foreground">Bloom</span>
           </div>
           <p>Designed for real connection.</p>

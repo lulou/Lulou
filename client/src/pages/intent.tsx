@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Flower2, RotateCw } from "lucide-react";
+import { Loader2, RotateCw, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
@@ -133,7 +133,7 @@ export default function IntentPage() {
     return (
       <div className="flex-1 flex items-center justify-center">
         <div className="flex flex-col items-center gap-3">
-          <Flower2 className="w-8 h-8 text-primary animate-pulse" />
+          <Loader2 className="w-8 h-8 text-primary animate-spin" />
           <p className="text-sm text-muted-foreground">Loading...</p>
         </div>
       </div>
@@ -144,7 +144,7 @@ export default function IntentPage() {
     return (
       <div className="flex-1 flex items-center justify-center p-6">
         <div className="text-center space-y-2">
-          <Flower2 className="w-10 h-10 text-muted-foreground mx-auto opacity-60" />
+          <Sparkles className="w-10 h-10 text-muted-foreground mx-auto opacity-60" />
           <p className="text-muted-foreground text-sm">Unable to load profiles right now</p>
         </div>
       </div>
@@ -155,7 +155,7 @@ export default function IntentPage() {
     return (
       <div className="flex-1 flex items-center justify-center p-6">
         <div className="text-center space-y-2">
-          <Flower2 className="w-10 h-10 text-primary mx-auto opacity-60" />
+          <Sparkles className="w-10 h-10 text-primary mx-auto opacity-60" />
           <p className="text-muted-foreground text-sm">No profiles to show yet</p>
         </div>
       </div>
@@ -239,7 +239,7 @@ export default function IntentPage() {
                     />
                   ) : (
                     <div className="w-full h-full bg-muted flex items-center justify-center">
-                      <Flower2 className="w-8 h-8 text-muted-foreground" />
+                      <Sparkles className="w-8 h-8 text-muted-foreground" />
                     </div>
                   )}
                   <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-2">

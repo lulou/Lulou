@@ -15,7 +15,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import {
   MapPin,
   LogOut,
-  Flower2,
+  Sparkles,
   Ruler,
   Calendar,
   Radar,
@@ -232,7 +232,7 @@ export default function ProfilePage() {
     return (
       <div className="flex-1 flex items-center justify-center p-6">
         <div className="text-center space-y-4">
-          <Flower2 className="w-12 h-12 text-primary mx-auto" />
+          <Sparkles className="w-12 h-12 text-primary mx-auto" />
           <p className="text-muted-foreground">Profile not found. Complete your onboarding to get started.</p>
         </div>
       </div>

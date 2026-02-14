@@ -14,7 +14,7 @@ import ProfilePage from "@/pages/profile";
 import IntentPage from "@/pages/intent";
 import AppLayout from "@/components/app-layout";
 import type { Profile } from "@shared/schema";
-import { Flower2 } from "lucide-react";
+import { Loader2 } from "lucide-react";
 
 async function fetchProfileSafe(): Promise<Profile | null> {
   const res = await fetch("/api/profile", { credentials: "include" });
@@ -37,7 +37,7 @@ function AppContent() {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-3">
-          <Flower2 className="w-8 h-8 text-primary animate-pulse" />
+          <Loader2 className="w-8 h-8 text-primary animate-spin" />
           <p className="text-sm text-muted-foreground">Loading...</p>
         </div>
       </div>
@@ -52,7 +52,7 @@ function AppContent() {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-3">
-          <Flower2 className="w-8 h-8 text-primary animate-pulse" />
+          <Loader2 className="w-8 h-8 text-primary animate-spin" />
           <p className="text-sm text-muted-foreground">Setting up your experience...</p>
         </div>
       </div>
