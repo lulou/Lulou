@@ -1,5 +1,6 @@
 import { Button } from "@/components/ui/button";
-import { Heart, MessageCircle, Phone, Shield, Sparkles } from "lucide-react";
+import { Heart, MessageCircle, Phone, Shield } from "lucide-react";
+import { BloomFlowerIcon } from "@/components/app-layout";
 
 export default function Landing() {
   return (
@@ -7,7 +8,7 @@ export default function Landing() {
       <nav className="fixed top-0 left-0 right-0 z-50 backdrop-blur-md bg-background/80 border-b">
         <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between gap-4 flex-wrap">
           <div className="flex items-center gap-2">
-            <Sparkles className="w-6 h-6 text-primary" />
+            <BloomFlowerIcon className="w-6 h-6 text-primary" />
             <span className="font-serif text-xl font-semibold tracking-tight" data-testid="text-logo">Bloom</span>
           </div>
           <div className="flex items-center gap-3">
@@ -80,7 +81,7 @@ export default function Landing() {
 
           <div className="grid md:grid-cols-3 gap-8">
             <FeatureCard
-              icon={<Sparkles className="w-5 h-5" />}
+              icon={<BloomFlowerIcon className="w-5 h-5" />}
               title="Discover with intention"
               description="View one profile at a time. No swiping, no rush. Decide thoughtfully who you want to open up to."
               testId="card-feature-discover"
@@ -118,7 +119,7 @@ export default function Landing() {
       <footer className="border-t py-8 px-6">
         <div className="max-w-6xl mx-auto flex items-center justify-between gap-4 flex-wrap text-sm text-muted-foreground">
           <div className="flex items-center gap-2">
-            <Sparkles className="w-4 h-4 text-primary" />
+            <BloomFlowerIcon className="w-5 h-5 text-primary" />
             <span className="font-serif font-medium text-foreground">Bloom</span>
           </div>
           <p>Designed for real connection.</p>

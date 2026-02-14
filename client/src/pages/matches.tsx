@@ -9,7 +9,8 @@ import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
-import { MessageCircle, Sparkles, Send, Phone, ChevronDown, ChevronUp, PhoneOff, Clock } from "lucide-react";
+import { MessageCircle, Send, Phone, ChevronDown, ChevronUp, PhoneOff, Clock } from "lucide-react";
+import { BloomFlowerIcon } from "@/components/app-layout";
 import type { Profile, Match, Message } from "@shared/schema";
 
 const MAX_MESSAGES_PER_USER = 15;
@@ -387,7 +388,7 @@ export default function Matches() {
       <div className="flex-1 flex items-center justify-center p-6">
         <div className="text-center space-y-4 max-w-sm">
           <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center mx-auto">
-            <Sparkles className="w-7 h-7 text-primary" />
+            <BloomFlowerIcon className="w-8 h-8 text-primary" />
           </div>
           <h2 className="font-serif text-2xl font-bold" data-testid="text-no-matches">No matches yet</h2>
           <p className="text-muted-foreground text-sm">

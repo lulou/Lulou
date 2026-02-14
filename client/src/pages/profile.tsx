@@ -1,6 +1,7 @@
 import { useState, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
+import { BloomFlowerIcon } from "@/components/app-layout";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
@@ -15,7 +16,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import {
   MapPin,
   LogOut,
-  Sparkles,
   Ruler,
   Calendar,
   Radar,
@@ -232,7 +232,7 @@ export default function ProfilePage() {
     return (
       <div className="flex-1 flex items-center justify-center p-6">
         <div className="text-center space-y-4">
-          <Sparkles className="w-12 h-12 text-primary mx-auto" />
+          <BloomFlowerIcon className="w-12 h-12 text-primary mx-auto" />
           <p className="text-muted-foreground">Profile not found. Complete your onboarding to get started.</p>
         </div>
       </div>

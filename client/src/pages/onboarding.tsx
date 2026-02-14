@@ -11,7 +11,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { SIGNALS, GREEN_FLAGS, DATING_INTENTS, CONNECTION_STYLES, CONVERSATION_STARTERS, PROFILE_QUESTIONS } from "@shared/schema";
-import { Loader2, ArrowRight, ArrowLeft, Check, Sparkles } from "lucide-react";
+import { Loader2, ArrowRight, ArrowLeft, Check } from "lucide-react";
+import { BloomFlowerIcon } from "@/components/app-layout";
 
 const STEPS = ["Basics", "Photos", "Starters", "Questions", "Signals", "Intent", "Green Flags", "Pace"];
 
@@ -96,7 +97,7 @@ export default function Onboarding() {
   return (
     <div className="min-h-screen bg-background flex flex-col">
       <div className="px-6 py-5 flex items-center gap-2">
-        <Sparkles className="w-5 h-5 text-primary" />
+        <BloomFlowerIcon className="w-6 h-6 text-primary" />
         <span className="font-serif text-lg font-semibold">Bloom</span>
       </div>
 
