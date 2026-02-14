@@ -1,5 +1,5 @@
 import { useLocation, Link } from "wouter";
-import { Flower2, Compass, Heart, User, CircleDot } from "lucide-react";
+import { Leaf, Compass, Heart, User, CircleDot } from "lucide-react";
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();
@@ -16,7 +16,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       <header className="flex items-center justify-between gap-4 px-5 py-3 border-b bg-background/80 backdrop-blur-md z-30 flex-wrap">
         <Link href="/discover">
           <div className="flex items-center gap-2 cursor-pointer">
-            <Flower2 className="w-5 h-5 text-primary" />
+            <Leaf className="w-5 h-5 text-primary" />
             <span className="font-serif text-lg font-semibold tracking-tight" data-testid="text-app-logo">Bloom</span>
           </div>
         </Link>
