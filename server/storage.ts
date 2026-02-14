@@ -3,6 +3,7 @@ import {
   type Interaction, type InsertInteraction,
   type Match, type Message, type InsertMessage,
   profiles, interactions, matches, messages,
+  spinStandouts, spinUsage,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, or, notInArray, sql, desc } from "drizzle-orm";
@@ -26,6 +27,12 @@ export interface IStorage {
   cancelCall(matchId: string, userId: string): Promise<Match | undefined>;
   completeCall(matchId: string, userId: string): Promise<Match | undefined>;
   getPopularProfiles(limit?: number, preference?: string): Promise<Profile[]>;
+  getSpinStandouts(userId: string): Promise<string[]>;
+  addSpinStandout(userId: string, standoutUserId: string): Promise<void>;
+  getSpinsToday(userId: string): Promise<number>;
+  getSpinsThisWeek(userId: string): Promise<number>;
+  recordSpin(userId: string): Promise<void>;
+  getDailyLikeCount(userId: string): Promise<number>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -296,6 +303,60 @@ export class DatabaseStorage implements IStorage {
     }
 
     return result;
+  }
+
+  async getSpinStandouts(userId: string): Promise<string[]> {
+    const rows = await db
+      .select({ standoutUserId: spinStandouts.standoutUserId })
+      .from(spinStandouts)
+      .where(eq(spinStandouts.userId, userId));
+    return rows.map(r => r.standoutUserId);
+  }
+
+  async addSpinStandout(userId: string, standoutUserId: string): Promise<void> {
+    await db.insert(spinStandouts).values({ userId, standoutUserId });
+  }
+
+  async getSpinsToday(userId: string): Promise<number> {
+    const today = new Date().toISOString().slice(0, 10);
+    const result = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(spinUsage)
+      .where(and(eq(spinUsage.userId, userId), eq(spinUsage.spinDate, today)));
+    return result[0]?.count || 0;
+  }
+
+  async getSpinsThisWeek(userId: string): Promise<number> {
+    const now = new Date();
+    const dayOfWeek = now.getDay();
+    const monday = new Date(now);
+    monday.setDate(now.getDate() - ((dayOfWeek + 6) % 7));
+    const weekStart = monday.toISOString().slice(0, 10);
+    const result = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(spinUsage)
+      .where(and(eq(spinUsage.userId, userId), sql`${spinUsage.spinDate} >= ${weekStart}`));
+    return result[0]?.count || 0;
+  }
+
+  async recordSpin(userId: string): Promise<void> {
+    const today = new Date().toISOString().slice(0, 10);
+    await db.insert(spinUsage).values({ userId, spinDate: today });
+  }
+
+  async getDailyLikeCount(userId: string): Promise<number> {
+    const today = new Date().toISOString().slice(0, 10);
+    const result = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(interactions)
+      .where(
+        and(
+          eq(interactions.fromUserId, userId),
+          eq(interactions.type, "open"),
+          sql`${interactions.createdAt}::date = ${today}::date`
+        )
+      );
+    return result[0]?.count || 0;
   }
 }
 

@@ -52,6 +52,15 @@ Bloom is a calm, premium dating app focused on helping people move from matching
 - `interactions` - Open/Close actions between users
 - `matches` - Mutual connections
 - `messages` - Conversation messages
+- `spin_standouts` - Tracks which profiles a user has already seen via Intention Wheel spin (prevents repeats)
+- `spin_usage` - Tracks spins per user per date for daily/weekly limits
+
+## Spin Economy
+- 1 free spin per day if user sends 10+ likes ("opens") that day
+- Otherwise 1 free spin per week (Monday-Sunday)
+- Purchase options: 3 spins/$2.99, 10 spins/$7.99 (coming soon)
+- Users never see the same standout profile twice
+- Server-side eligibility enforcement on POST /api/spin
 
 ## API Routes
 - `GET /api/profile` - Get current user's profile
@@ -62,3 +71,5 @@ Bloom is a calm, premium dating app focused on helping people move from matching
 - `GET /api/matches/:id` - Get match details with messages
 - `POST /api/matches/:id/messages` - Send message
 - `GET /api/popular` - Get top 10 most popular profiles (by opens received)
+- `GET /api/spin-status` - Get spin eligibility (spins today/week, daily likes, canSpin)
+- `POST /api/spin` - Record a spin and standout (server-side eligibility enforced)

@@ -74,6 +74,24 @@ export const insertInteractionSchema = createInsertSchema(interactions).omit({
   createdAt: true,
 });
 
+export const spinStandouts = pgTable("spin_standouts", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull(),
+  standoutUserId: varchar("standout_user_id").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_spin_standouts_user").on(table.userId),
+]);
+
+export const spinUsage = pgTable("spin_usage", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull(),
+  spinDate: text("spin_date").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_spin_usage_user").on(table.userId),
+]);
+
 export const insertMessageSchema = createInsertSchema(messages).omit({
   id: true,
   createdAt: true,

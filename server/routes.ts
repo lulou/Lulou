@@ -314,10 +314,75 @@ export async function registerRoutes(
       const myProfile = await storage.getProfile(userId);
       const preference = myProfile?.datingPreference;
       const popular = await storage.getPopularProfiles(10, preference);
-      res.json(popular);
+
+      const standouts = await storage.getSpinStandouts(userId);
+      const filtered = popular.filter(p => p.userId !== userId && !standouts.includes(p.userId));
+      res.json(filtered);
     } catch (error) {
       console.error("Error fetching popular profiles:", error);
       res.status(500).json({ message: "Failed to fetch popular profiles" });
+    }
+  });
+
+  app.get("/api/spin-status", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const spinsToday = await storage.getSpinsToday(userId);
+      const spinsThisWeek = await storage.getSpinsThisWeek(userId);
+      const dailyLikes = await storage.getDailyLikeCount(userId);
+      const hasMetLikeGoal = dailyLikes >= 10;
+
+      let canSpin = false;
+      if (hasMetLikeGoal && spinsToday === 0) {
+        canSpin = true;
+      } else if (!hasMetLikeGoal && spinsThisWeek === 0) {
+        canSpin = true;
+      }
+
+      res.json({
+        spinsToday,
+        spinsThisWeek,
+        dailyLikes,
+        hasMetLikeGoal,
+        canSpin,
+      });
+    } catch (error) {
+      console.error("Error fetching spin status:", error);
+      res.status(500).json({ message: "Failed to fetch spin status" });
+    }
+  });
+
+  app.post("/api/spin", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const { standoutUserId } = req.body;
+
+      const spinsToday = await storage.getSpinsToday(userId);
+      const spinsThisWeek = await storage.getSpinsThisWeek(userId);
+      const dailyLikes = await storage.getDailyLikeCount(userId);
+      const hasMetLikeGoal = dailyLikes >= 10;
+
+      let canSpin = false;
+      if (hasMetLikeGoal && spinsToday === 0) {
+        canSpin = true;
+      } else if (!hasMetLikeGoal && spinsThisWeek === 0) {
+        canSpin = true;
+      }
+
+      if (!canSpin) {
+        return res.status(403).json({ message: "No spins available" });
+      }
+
+      await storage.recordSpin(userId);
+
+      if (standoutUserId) {
+        await storage.addSpinStandout(userId, standoutUserId);
+      }
+
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error recording spin:", error);
+      res.status(500).json({ message: "Failed to record spin" });
     }
   });
 

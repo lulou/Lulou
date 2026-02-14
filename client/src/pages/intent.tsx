@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Loader2, RotateCw, Heart, X, MapPin, Send, MessageCircle } from "lucide-react";
+import { Loader2, RotateCw, Heart, X, MapPin, Send, Lock, Star, Crown } from "lucide-react";
 import { BloomFlowerIcon } from "@/components/app-layout";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -12,6 +12,15 @@ import type { Profile } from "@shared/schema";
 
 const ITEM_WIDTH = 130;
 const ITEM_HEIGHT = 170;
+const DAILY_LIKE_GOAL = 10;
+
+type SpinStatus = {
+  spinsToday: number;
+  spinsThisWeek: number;
+  dailyLikes: number;
+  hasMetLikeGoal: boolean;
+  canSpin: boolean;
+};
 
 export default function IntentPage() {
   const { toast } = useToast();
@@ -19,6 +28,11 @@ export default function IntentPage() {
 
   const { data: profiles, isLoading, isError } = useQuery<Profile[]>({
     queryKey: ["/api/popular"],
+  });
+
+  const { data: spinStatus } = useQuery<SpinStatus>({
+    queryKey: ["/api/spin-status"],
+    refetchInterval: 10000,
   });
 
   const animFrame = useRef(0);
@@ -33,6 +47,7 @@ export default function IntentPage() {
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
   const [dispersed, setDispersed] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
+  const [showPurchase, setShowPurchase] = useState(false);
   const [angle, setAngle] = useState(0);
   const [message, setMessage] = useState("");
 
@@ -40,6 +55,8 @@ export default function IntentPage() {
   const count = items.length;
   const angleStep = count > 0 ? 360 / count : 0;
   const radius = count > 4 ? Math.max(200, count * 28) : 180;
+
+  const canSpin = spinStatus?.canSpin ?? false;
 
   const getFocusedIndex = useCallback((currentAngle: number) => {
     if (count === 0) return 0;
@@ -90,12 +107,22 @@ export default function IntentPage() {
     }
   };
 
+  const recordSpin = useMutation({
+    mutationFn: async (standoutUserId: string) => {
+      await apiRequest("POST", "/api/spin", { standoutUserId });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/spin-status"] });
+    },
+  });
+
   const spinWheel = () => {
-    if (isSpinning || count === 0) return;
+    if (isSpinning || count === 0 || !canSpin) return;
     setIsSpinning(true);
     setSelectedIndex(null);
     setDispersed(false);
     setShowProfile(false);
+    setShowPurchase(false);
     setMessage("");
 
     const targetIndex = Math.floor(Math.random() * count);
@@ -130,6 +157,11 @@ export default function IntentPage() {
         setSelectedIndex(targetIndex);
         setIsSpinning(false);
 
+        const landedProfile = items[targetIndex];
+        if (landedProfile) {
+          recordSpin.mutate(landedProfile.userId);
+        }
+
         setTimeout(() => setDispersed(true), 300);
         setTimeout(() => setShowProfile(true), 700);
       }
@@ -144,6 +176,9 @@ export default function IntentPage() {
     setDispersed(false);
     setSelectedIndex(null);
     setMessage("");
+    queryClient.invalidateQueries({ queryKey: ["/api/popular"] });
+
+    setTimeout(() => setShowPurchase(true), 300);
   };
 
   const interact = useMutation({
@@ -169,6 +204,7 @@ export default function IntentPage() {
         });
       }
       queryClient.invalidateQueries({ queryKey: ["/api/discover"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/spin-status"] });
       closeProfile();
     },
   });
@@ -211,16 +247,44 @@ export default function IntentPage() {
   }
 
   const selectedProfile = selectedIndex !== null ? items[selectedIndex] : null;
+  const dailyLikes = spinStatus?.dailyLikes ?? 0;
+  const likeProgress = Math.min(dailyLikes / DAILY_LIKE_GOAL, 1);
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden relative" data-testid="intent-page">
       <div className="px-5 pt-6 pb-2">
-        <h1 className="font-serif text-2xl font-semibold tracking-tight" data-testid="text-intent-title">
-          Intention Wheel
-        </h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Spin to discover someone special
-        </p>
+        <div className="flex items-center justify-between gap-4 flex-wrap">
+          <div>
+            <h1 className="font-serif text-2xl font-semibold tracking-tight" data-testid="text-intent-title">
+              Intention Wheel
+            </h1>
+            <p className="text-sm text-muted-foreground mt-1">
+              Spin to discover someone special
+            </p>
+          </div>
+        </div>
+
+        <div className="mt-3 space-y-1.5">
+          <div className="flex items-center justify-between gap-2 text-xs">
+            <span className="text-muted-foreground">Daily likes: {dailyLikes}/{DAILY_LIKE_GOAL}</span>
+            {spinStatus?.hasMetLikeGoal ? (
+              <Badge variant="secondary" className="text-xs" data-testid="badge-goal-met">
+                <Star className="w-3 h-3 mr-1" /> Goal met - daily spin unlocked
+              </Badge>
+            ) : (
+              <span className="text-muted-foreground" data-testid="text-goal-progress">
+                {DAILY_LIKE_GOAL - dailyLikes} more to unlock daily spin
+              </span>
+            )}
+          </div>
+          <div className="w-full h-1.5 bg-muted rounded-full overflow-hidden">
+            <div
+              className="h-full bg-primary rounded-full transition-all duration-500"
+              style={{ width: `${likeProgress * 100}%` }}
+              data-testid="progress-likes"
+            />
+          </div>
+        </div>
       </div>
 
       <div className="flex-1 flex flex-col items-center justify-start gap-4 overflow-y-auto pt-4">
@@ -314,17 +378,115 @@ export default function IntentPage() {
           </div>
         </div>
 
-        {!dispersed && (
-          <Button
-            onClick={spinWheel}
-            disabled={isSpinning || items.length === 0}
-            className="rounded-full px-8 gap-2"
-            size="lg"
-            data-testid="button-spin"
-          >
-            <RotateCw className={`w-5 h-5 ${isSpinning ? "animate-spin" : ""}`} />
-            {isSpinning ? "Spinning..." : "Spin"}
-          </Button>
+        {!dispersed && !showPurchase && (
+          <div className="flex flex-col items-center gap-3">
+            {canSpin ? (
+              <Button
+                onClick={spinWheel}
+                disabled={isSpinning || items.length === 0}
+                className="rounded-full px-8 gap-2"
+                size="lg"
+                data-testid="button-spin"
+              >
+                <RotateCw className={`w-5 h-5 ${isSpinning ? "animate-spin" : ""}`} />
+                {isSpinning ? "Spinning..." : "Spin"}
+              </Button>
+            ) : (
+              <Button
+                onClick={() => setShowPurchase(true)}
+                variant="outline"
+                className="rounded-full px-8 gap-2"
+                size="lg"
+                data-testid="button-spin-locked"
+              >
+                <Lock className="w-4 h-4" />
+                Spin used
+              </Button>
+            )}
+            {!canSpin && (spinStatus?.spinsToday ?? 0) > 0 && (
+              <p className="text-xs text-muted-foreground text-center max-w-xs" data-testid="text-spin-limit">
+                {spinStatus?.hasMetLikeGoal
+                  ? "You've used your daily spin. Come back tomorrow or buy more."
+                  : `Send ${DAILY_LIKE_GOAL - dailyLikes} more likes today to unlock daily spins. Otherwise you get 1 free spin per week.`}
+              </p>
+            )}
+          </div>
+        )}
+
+        {showPurchase && !showProfile && (
+          <div className="px-5 w-full max-w-sm mx-auto animate-in fade-in slide-in-from-bottom-4 duration-500" data-testid="purchase-spins-popup">
+            <Card className="p-6 space-y-5">
+              <div className="text-center space-y-2">
+                <div className="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center mx-auto">
+                  <Crown className="w-7 h-7 text-primary" />
+                </div>
+                <h3 className="font-serif text-xl font-bold">Want more spins?</h3>
+                <p className="text-sm text-muted-foreground leading-relaxed">
+                  {spinStatus?.hasMetLikeGoal
+                    ? "You've reached your daily like goal! Buy extra spins to keep discovering."
+                    : `Send ${DAILY_LIKE_GOAL - dailyLikes} more likes today to earn a daily spin, or purchase extra spins.`}
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <Button
+                  className="w-full gap-2"
+                  onClick={() => {
+                    toast({
+                      title: "Coming soon",
+                      description: "Spin packs will be available shortly.",
+                    });
+                  }}
+                  data-testid="button-buy-3-spins"
+                >
+                  <RotateCw className="w-4 h-4" />
+                  3 Spins - $2.99
+                </Button>
+                <Button
+                  className="w-full gap-2"
+                  variant="outline"
+                  onClick={() => {
+                    toast({
+                      title: "Coming soon",
+                      description: "Spin packs will be available shortly.",
+                    });
+                  }}
+                  data-testid="button-buy-10-spins"
+                >
+                  <RotateCw className="w-4 h-4" />
+                  10 Spins - $7.99
+                </Button>
+              </div>
+
+              {!spinStatus?.hasMetLikeGoal && (
+                <div className="border-t pt-4 space-y-2">
+                  <p className="text-xs font-medium text-center text-muted-foreground">Or earn your daily spin</p>
+                  <div className="flex items-center gap-3">
+                    <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-primary rounded-full transition-all"
+                        style={{ width: `${likeProgress * 100}%` }}
+                      />
+                    </div>
+                    <span className="text-xs font-medium whitespace-nowrap">{dailyLikes}/{DAILY_LIKE_GOAL}</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground text-center">
+                    Send {DAILY_LIKE_GOAL - dailyLikes} more likes on Discover to unlock a daily spin
+                  </p>
+                </div>
+              )}
+
+              <Button
+                variant="ghost"
+                size="sm"
+                className="w-full"
+                onClick={() => setShowPurchase(false)}
+                data-testid="button-dismiss-purchase"
+              >
+                Maybe later
+              </Button>
+            </Card>
+          </div>
         )}
       </div>
 
