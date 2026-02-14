@@ -1,16 +1,22 @@
 import { useState, useRef, useCallback, useEffect } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { Loader2, RotateCw } from "lucide-react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { Loader2, RotateCw, Heart, X, MapPin, Send, MessageCircle } from "lucide-react";
 import { BloomFlowerIcon } from "@/components/app-layout";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { useToast } from "@/hooks/use-toast";
+import { apiRequest } from "@/lib/queryClient";
 import type { Profile } from "@shared/schema";
 
 const ITEM_WIDTH = 130;
 const ITEM_HEIGHT = 170;
 
 export default function IntentPage() {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+
   const { data: profiles, isLoading, isError } = useQuery<Profile[]>({
     queryKey: ["/api/popular"],
   });
@@ -25,7 +31,10 @@ export default function IntentPage() {
 
   const [isSpinning, setIsSpinning] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
+  const [dispersed, setDispersed] = useState(false);
+  const [showProfile, setShowProfile] = useState(false);
   const [angle, setAngle] = useState(0);
+  const [message, setMessage] = useState("");
 
   const items = profiles || [];
   const count = items.length;
@@ -51,7 +60,7 @@ export default function IntentPage() {
   }, []);
 
   const handlePointerDown = (e: React.PointerEvent) => {
-    if (isSpinning) return;
+    if (isSpinning || dispersed) return;
     cancelAnimationFrame(animFrame.current);
     velocity.current = 0;
     isDragging.current = true;
@@ -69,8 +78,6 @@ export default function IntentPage() {
     if (dt > 0) velocity.current = (dx / dt) * 0.8;
     lastX.current = e.clientX;
     lastTime.current = now;
-    const totalDx = e.clientX - startX.current;
-    const angleDelta = (totalDx / 3);
     angleRef.current += dx * 0.3;
     setAngle(angleRef.current);
   };
@@ -87,6 +94,9 @@ export default function IntentPage() {
     if (isSpinning || count === 0) return;
     setIsSpinning(true);
     setSelectedIndex(null);
+    setDispersed(false);
+    setShowProfile(false);
+    setMessage("");
 
     const targetIndex = Math.floor(Math.random() * count);
     const targetAngle = targetIndex * angleStep;
@@ -119,12 +129,49 @@ export default function IntentPage() {
         setAngle(angleRef.current);
         setSelectedIndex(targetIndex);
         setIsSpinning(false);
+
+        setTimeout(() => setDispersed(true), 300);
+        setTimeout(() => setShowProfile(true), 700);
       }
     };
 
     cancelAnimationFrame(animFrame.current);
     animFrame.current = requestAnimationFrame(animate);
   };
+
+  const closeProfile = () => {
+    setShowProfile(false);
+    setDispersed(false);
+    setSelectedIndex(null);
+    setMessage("");
+  };
+
+  const interact = useMutation({
+    mutationFn: async (toUserId: string) => {
+      const res = await apiRequest("POST", "/api/interactions", {
+        toUserId,
+        type: "open",
+      });
+      return res.json();
+    },
+    onSuccess: (data) => {
+      const selectedProfile = selectedIndex !== null ? items[selectedIndex] : null;
+      if (data?.matched) {
+        toast({
+          title: "It's mutual",
+          description: `You and ${selectedProfile?.firstName} both opened up.`,
+        });
+        queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
+      } else {
+        toast({
+          title: "Heart sent",
+          description: `You opened up to ${selectedProfile?.firstName}.`,
+        });
+      }
+      queryClient.invalidateQueries({ queryKey: ["/api/discover"] });
+      closeProfile();
+    },
+  });
 
   useEffect(() => {
     return () => cancelAnimationFrame(animFrame.current);
@@ -163,11 +210,10 @@ export default function IntentPage() {
     );
   }
 
-  const focusedIndex = getFocusedIndex(angle);
   const selectedProfile = selectedIndex !== null ? items[selectedIndex] : null;
 
   return (
-    <div className="flex-1 flex flex-col overflow-hidden" data-testid="intent-page">
+    <div className="flex-1 flex flex-col overflow-hidden relative" data-testid="intent-page">
       <div className="px-5 pt-6 pb-2">
         <h1 className="font-serif text-2xl font-semibold tracking-tight" data-testid="text-intent-title">
           Intention Wheel
@@ -184,6 +230,9 @@ export default function IntentPage() {
             width: "100%",
             height: ITEM_HEIGHT + 120,
             perspective: "800px",
+            transition: dispersed ? "opacity 0.5s ease" : undefined,
+            opacity: dispersed ? 0 : 1,
+            pointerEvents: dispersed ? "none" : "auto",
           }}
           onPointerDown={handlePointerDown}
           onPointerMove={handlePointerMove}
@@ -208,26 +257,31 @@ export default function IntentPage() {
 
               const relativeAngle = ((((-angle + itemAngle) % 360) + 360) % 360);
               const cosVal = Math.cos((relativeAngle * Math.PI) / 180);
-              const isFront = cosVal > 0.7;
               const depthFactor = (cosVal + 1) / 2;
               const shadowOpacity = 1 - depthFactor;
               const cardScale = 0.7 + depthFactor * 0.3;
+
+              const disperseX = dispersed && !isSelected ? (Math.random() - 0.5) * 800 : 0;
+              const disperseY = dispersed && !isSelected ? (Math.random() - 0.5) * 600 : 0;
+              const disperseScale = dispersed && !isSelected ? 0 : cardScale;
+              const disperseOpacity = dispersed && !isSelected ? 0 : (0.4 + depthFactor * 0.6);
 
               return (
                 <div
                   key={profile.id}
                   className={`absolute left-0 top-0 rounded-md overflow-hidden ${
-                    isSelected
-                      ? "ring-2 ring-primary"
-                      : ""
+                    isSelected && !dispersed ? "ring-2 ring-primary" : ""
                   }`}
                   style={{
                     width: ITEM_WIDTH,
                     height: ITEM_HEIGHT,
-                    transform: `rotateY(${itemAngle}deg) translateZ(${radius}px) scale(${cardScale})`,
-                    opacity: 0.4 + depthFactor * 0.6,
+                    transform: dispersed && !isSelected
+                      ? `rotateY(${itemAngle}deg) translateZ(${radius}px) translate(${disperseX}px, ${disperseY}px) scale(${disperseScale})`
+                      : `rotateY(${itemAngle}deg) translateZ(${radius}px) scale(${cardScale})`,
+                    opacity: disperseOpacity,
                     filter: `brightness(${0.4 + depthFactor * 0.6})`,
                     zIndex: Math.round(depthFactor * 100),
+                    transition: dispersed ? "all 0.6s cubic-bezier(0.4, 0, 0.2, 1)" : undefined,
                   }}
                   data-testid={`intent-profile-${i}`}
                 >
@@ -260,76 +314,188 @@ export default function IntentPage() {
           </div>
         </div>
 
-        <Button
-          onClick={spinWheel}
-          disabled={isSpinning || items.length === 0}
-          className="rounded-full px-8 gap-2"
-          size="lg"
-          data-testid="button-spin"
-        >
-          <RotateCw className={`w-5 h-5 ${isSpinning ? "animate-spin" : ""}`} />
-          {isSpinning ? "Spinning..." : "Spin"}
-        </Button>
-
-        {selectedProfile && !isSpinning && (
-          <Card
-            className="mx-5 p-5 space-y-3 animate-in fade-in slide-in-from-bottom-4 duration-500 mb-4"
-            data-testid="intent-result"
+        {!dispersed && (
+          <Button
+            onClick={spinWheel}
+            disabled={isSpinning || items.length === 0}
+            className="rounded-full px-8 gap-2"
+            size="lg"
+            data-testid="button-spin"
           >
-            <div className="flex items-center gap-3 flex-wrap">
-              {selectedProfile.photos?.[0] && (
+            <RotateCw className={`w-5 h-5 ${isSpinning ? "animate-spin" : ""}`} />
+            {isSpinning ? "Spinning..." : "Spin"}
+          </Button>
+        )}
+      </div>
+
+      {showProfile && selectedProfile && (
+        <div
+          className="absolute inset-0 z-50 bg-background flex flex-col"
+          style={{ animation: "slideUpProfile 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards" }}
+          data-testid="intent-profile-detail"
+        >
+          <style>{`
+            @keyframes slideUpProfile {
+              from { transform: translateY(100%); opacity: 0; }
+              to { transform: translateY(0); opacity: 1; }
+            }
+          `}</style>
+
+          <div className="flex-1 overflow-y-auto">
+            <div className="relative">
+              {selectedProfile.photos?.[0] ? (
                 <img
                   src={selectedProfile.photos[0]}
                   alt={selectedProfile.firstName}
-                  className="w-14 h-14 rounded-full object-cover ring-2 ring-primary/20"
-                  data-testid="img-intent-result"
+                  className="w-full aspect-[3/4] max-h-[50vh] object-cover"
+                  data-testid="img-intent-detail-photo"
                 />
+              ) : (
+                <div className="w-full aspect-[3/4] max-h-[50vh] bg-muted flex items-center justify-center">
+                  <BloomFlowerIcon className="w-16 h-16 text-muted-foreground" />
+                </div>
               )}
+              <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-background via-background/80 to-transparent h-24" />
+
+              <Button
+                size="icon"
+                variant="ghost"
+                className="absolute top-3 right-3 bg-black/30 text-white backdrop-blur-sm rounded-full"
+                onClick={closeProfile}
+                data-testid="button-close-profile"
+              >
+                <X className="w-5 h-5" />
+              </Button>
+            </div>
+
+            <div className="px-5 -mt-10 relative space-y-4 pb-32">
               <div>
-                <h3 className="font-serif text-lg font-semibold" data-testid="text-intent-result-name">
+                <h2 className="font-serif text-3xl font-bold" data-testid="text-detail-name">
                   {selectedProfile.firstName}{selectedProfile.age ? `, ${selectedProfile.age}` : ""}
-                </h3>
+                </h2>
                 {selectedProfile.location && (
-                  <p className="text-xs text-muted-foreground" data-testid="text-intent-result-location">
-                    {selectedProfile.location}
+                  <div className="flex items-center gap-1.5 mt-1 text-muted-foreground text-sm">
+                    <MapPin className="w-3.5 h-3.5" />
+                    <span data-testid="text-detail-location">{selectedProfile.location}</span>
+                  </div>
+                )}
+                {selectedProfile.height && (
+                  <p className="text-sm text-muted-foreground mt-0.5" data-testid="text-detail-height">
+                    {selectedProfile.height}
                   </p>
                 )}
               </div>
-            </div>
 
-            {selectedProfile.datingIntent && (
-              <div className="flex items-center gap-2 flex-wrap">
-                <Badge variant="secondary" data-testid="text-intent-result-intent">
+              {selectedProfile.datingIntent && (
+                <Badge variant="secondary" data-testid="text-detail-intent">
                   {selectedProfile.datingIntent}
                 </Badge>
-              </div>
-            )}
+              )}
 
-            {selectedProfile.signals && selectedProfile.signals.length > 0 && (
-              <div className="flex flex-wrap gap-1.5">
-                {selectedProfile.signals.map((signal, i) => (
-                  <Badge
-                    key={i}
-                    variant="outline"
-                    data-testid={`text-intent-signal-${i}`}
-                  >
-                    {signal}
-                  </Badge>
-                ))}
-              </div>
-            )}
+              {selectedProfile.signals && selectedProfile.signals.length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Signals</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {selectedProfile.signals.map((signal, i) => (
+                      <Badge key={i} variant="outline" data-testid={`badge-detail-signal-${i}`}>
+                        {signal}
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+              )}
 
-            {selectedProfile.conversationStarters && selectedProfile.conversationStarters.length > 0 && (
-              <div className="space-y-1.5">
-                <p className="text-xs font-medium text-muted-foreground">Conversation Starter</p>
-                <p className="text-sm leading-relaxed" data-testid="text-intent-starter">
-                  {selectedProfile.conversationStarters[0]}
-                </p>
-              </div>
-            )}
-          </Card>
-        )}
-      </div>
+              {selectedProfile.greenFlags && selectedProfile.greenFlags.length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Green Flags</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {selectedProfile.greenFlags.map((flag, i) => (
+                      <Badge key={i} variant="outline" data-testid={`badge-detail-flag-${i}`}>
+                        {flag}
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {selectedProfile.conversationStarters && selectedProfile.conversationStarters.length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Conversation Starters</p>
+                  <div className="space-y-2">
+                    {selectedProfile.conversationStarters.map((starter, i) => (
+                      <Card key={i} className="p-3">
+                        <p className="text-sm italic" data-testid={`text-detail-starter-${i}`}>"{starter}"</p>
+                      </Card>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {selectedProfile.photos && selectedProfile.photos.length > 1 && (
+                <div className="space-y-2">
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Photos</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    {selectedProfile.photos.slice(1).map((photo, i) => (
+                      <img
+                        key={i}
+                        src={photo}
+                        alt={`${selectedProfile.firstName} photo ${i + 2}`}
+                        className="w-full aspect-square object-cover rounded-md"
+                        data-testid={`img-detail-photo-${i + 1}`}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="absolute bottom-0 left-0 right-0 bg-background/95 backdrop-blur-md border-t p-4 space-y-3">
+            <div className="flex items-center gap-2">
+              <Input
+                placeholder={`Message ${selectedProfile.firstName}...`}
+                value={message}
+                onChange={e => setMessage(e.target.value.slice(0, 500))}
+                onKeyDown={e => {
+                  if (e.key === "Enter" && message.trim()) {
+                    toast({
+                      title: "Message ready",
+                      description: `Your message will be sent when you match with ${selectedProfile.firstName}.`,
+                    });
+                    interact.mutate(selectedProfile.userId);
+                  }
+                }}
+                className="flex-1"
+                data-testid="input-intent-message"
+              />
+              <Button
+                size="icon"
+                disabled={interact.isPending}
+                onClick={() => {
+                  if (message.trim()) {
+                    toast({
+                      title: "Message ready",
+                      description: `Your message will be sent when you match with ${selectedProfile.firstName}.`,
+                    });
+                  }
+                  interact.mutate(selectedProfile.userId);
+                }}
+                data-testid="button-intent-open"
+              >
+                {message.trim() ? <Send className="w-4 h-4" /> : <Heart className="w-4 h-4" />}
+              </Button>
+            </div>
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-xs text-muted-foreground">
+                {message.trim() ? "Send with a message" : "Open your heart"}
+              </p>
+              <Button variant="ghost" size="sm" onClick={closeProfile} data-testid="button-intent-pass">
+                Not now
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
