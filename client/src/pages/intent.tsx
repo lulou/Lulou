@@ -206,25 +206,27 @@ export default function IntentPage() {
               const isSelected = i === selectedIndex;
 
               const relativeAngle = ((((-angle + itemAngle) % 360) + 360) % 360);
-              const isFront = relativeAngle < 40 || relativeAngle > 320;
-              const isBack = relativeAngle > 120 && relativeAngle < 240;
+              const cosVal = Math.cos((relativeAngle * Math.PI) / 180);
+              const isFront = cosVal > 0.7;
+              const depthFactor = (cosVal + 1) / 2;
+              const shadowOpacity = 1 - depthFactor;
+              const cardScale = 0.7 + depthFactor * 0.3;
 
               return (
                 <div
                   key={profile.id}
-                  className={`absolute left-0 top-0 rounded-md overflow-hidden transition-opacity duration-200 ${
+                  className={`absolute left-0 top-0 rounded-md overflow-hidden ${
                     isSelected
-                      ? "ring-2 ring-primary shadow-lg"
-                      : isFront
-                        ? "shadow-md"
-                        : "shadow-sm"
+                      ? "ring-2 ring-primary"
+                      : ""
                   }`}
                   style={{
                     width: ITEM_WIDTH,
                     height: ITEM_HEIGHT,
-                    transform: `rotateY(${itemAngle}deg) translateZ(${radius}px)`,
-                    backfaceVisibility: "hidden",
-                    opacity: isBack ? 0.3 : isFront ? 1 : 0.6,
+                    transform: `rotateY(${itemAngle}deg) translateZ(${radius}px) scale(${cardScale})`,
+                    opacity: 0.4 + depthFactor * 0.6,
+                    filter: `brightness(${0.4 + depthFactor * 0.6})`,
+                    zIndex: Math.round(depthFactor * 100),
                   }}
                   data-testid={`intent-profile-${i}`}
                 >
@@ -245,6 +247,12 @@ export default function IntentPage() {
                       {profile.firstName}{profile.age ? `, ${profile.age}` : ""}
                     </p>
                   </div>
+                  <div
+                    className="absolute inset-0 rounded-md pointer-events-none"
+                    style={{
+                      background: `radial-gradient(ellipse at center, rgba(0,0,0,${shadowOpacity * 0.5}) 0%, rgba(0,0,0,${shadowOpacity * 0.7}) 100%)`,
+                    }}
+                  />
                 </div>
               );
             })}
