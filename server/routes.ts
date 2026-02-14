@@ -4,6 +4,7 @@ import { storage } from "./storage";
 import { setupAuth, registerAuthRoutes, isAuthenticated } from "./replit_integrations/auth";
 import { seedDatabase } from "./seed";
 import { z } from "zod";
+import type { Profile } from "@shared/schema";
 
 const profileBodySchema = z.object({
   firstName: z.string().min(1).max(50),
@@ -36,6 +37,31 @@ const interactionBodySchema = z.object({
 const messageBodySchema = z.object({
   content: z.string().min(1).max(500),
 });
+
+const AUTO_REPLIES = [
+  "That's really interesting! I love hearing about that.",
+  "I feel the same way. What made you realize that?",
+  "That's such a thoughtful perspective. Tell me more?",
+  "I really appreciate you sharing that with me.",
+  "You know, I was just thinking about something similar recently.",
+  "That made me smile. I like how you see things.",
+  "I'd love to hear more about that over coffee sometime.",
+  "That resonates with me. We seem to value similar things.",
+  "You have such a genuine way of expressing yourself.",
+  "I love that about you. What else are you passionate about?",
+  "This conversation is really flowing. I'm enjoying getting to know you.",
+  "That's beautiful. I think we'd have great conversations in person.",
+  "I feel like we really connect on this. It's refreshing.",
+  "I appreciate your honesty. That means a lot to me.",
+  "Wow, we have more in common than I expected!",
+];
+
+function generateAutoReply(profile: Profile | undefined, msgIndex: number): string {
+  if (profile?.conversationStarters && profile.conversationStarters.length > 0 && msgIndex === 0) {
+    return profile.conversationStarters[0];
+  }
+  return AUTO_REPLIES[msgIndex % AUTO_REPLIES.length];
+}
 
 export async function registerRoutes(
   httpServer: Server,
@@ -186,6 +212,27 @@ export async function registerRoutes(
 
       await storage.incrementMessageCount(matchId, userId);
 
+      const otherUserId = match.user1Id === userId ? match.user2Id : match.user1Id;
+      if (otherUserId.startsWith("seed-")) {
+        const otherProfile = await storage.getProfile(otherUserId);
+        const otherCount = await storage.getUserMessageCount(matchId, otherUserId);
+        if (otherCount < 15) {
+          setTimeout(async () => {
+            try {
+              const reply = generateAutoReply(otherProfile, otherCount);
+              await storage.createMessage({
+                matchId,
+                senderId: otherUserId,
+                content: reply,
+              });
+              await storage.incrementMessageCount(matchId, otherUserId);
+            } catch (err) {
+              console.error("Auto-reply error:", err);
+            }
+          }, 1500 + Math.random() * 2000);
+        }
+      }
+
       res.json(message);
     } catch (error) {
       console.error("Error sending message:", error);
@@ -223,7 +270,10 @@ export async function registerRoutes(
 
   app.get("/api/popular", isAuthenticated, async (req: any, res) => {
     try {
-      const popular = await storage.getPopularProfiles(10);
+      const userId = req.user.claims.sub;
+      const myProfile = await storage.getProfile(userId);
+      const preference = myProfile?.datingPreference;
+      const popular = await storage.getPopularProfiles(10, preference);
       res.json(popular);
     } catch (error) {
       console.error("Error fetching popular profiles:", error);

@@ -121,7 +121,7 @@ function MatchChat({ match }: { match: MatchWithProfile }) {
   const { data: matchDetail } = useQuery<MatchDetail>({
     queryKey: ["/api/matches", match.id],
     enabled: expanded,
-    refetchInterval: expanded && match.callStartedAt && !match.callCompleted ? 5000 : false,
+    refetchInterval: expanded ? 3000 : false,
   });
 
   const sendMessage = useMutation({

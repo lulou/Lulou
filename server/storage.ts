@@ -23,7 +23,7 @@ export interface IStorage {
   incrementMessageCount(matchId: string, userId: string): Promise<void>;
   startCall(matchId: string, userId: string): Promise<Match | undefined>;
   completeCall(matchId: string, userId: string): Promise<Match | undefined>;
-  getPopularProfiles(limit?: number): Promise<Profile[]>;
+  getPopularProfiles(limit?: number, preference?: string): Promise<Profile[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -194,7 +194,16 @@ export class DatabaseStorage implements IStorage {
     return updated;
   }
 
-  async getPopularProfiles(limit: number = 10): Promise<Profile[]> {
+  async getPopularProfiles(limit: number = 10, preference?: string): Promise<Profile[]> {
+    let genderFilter;
+    if (preference === "women") {
+      genderFilter = eq(profiles.gender, "woman");
+    } else if (preference === "men") {
+      genderFilter = eq(profiles.gender, "man");
+    } else {
+      genderFilter = sql`true`;
+    }
+
     const popularUserIds = db
       .select({
         userId: interactions.toUserId,
@@ -212,7 +221,7 @@ export class DatabaseStorage implements IStorage {
       const fallback = await db
         .select()
         .from(profiles)
-        .where(eq(profiles.onboardingComplete, true))
+        .where(and(eq(profiles.onboardingComplete, true), genderFilter))
         .limit(limit);
       return fallback;
     }
@@ -224,7 +233,8 @@ export class DatabaseStorage implements IStorage {
       .where(
         and(
           sql`${profiles.userId} IN (${sql.join(userIds.map(id => sql`${id}`), sql`, `)})`,
-          eq(profiles.onboardingComplete, true)
+          eq(profiles.onboardingComplete, true),
+          genderFilter
         )
       );
 
@@ -233,13 +243,17 @@ export class DatabaseStorage implements IStorage {
 
     if (result.length < limit) {
       const existingIds = result.map(r => r.userId);
+      const extraFilter = existingIds.length > 0
+        ? sql`${profiles.userId} NOT IN (${sql.join(existingIds.map(id => sql`${id}`), sql`, `)})`
+        : sql`true`;
       const extra = await db
         .select()
         .from(profiles)
         .where(
           and(
             eq(profiles.onboardingComplete, true),
-            sql`${profiles.userId} NOT IN (${sql.join(existingIds.map(id => sql`${id}`), sql`, `)})`
+            genderFilter,
+            extraFilter
           )
         )
         .limit(limit - result.length);

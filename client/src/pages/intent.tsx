@@ -6,128 +6,99 @@ import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import type { Profile } from "@shared/schema";
 
-const ITEM_WIDTH = 160;
-const ITEM_GAP = 12;
-const SLOT_SIZE = ITEM_WIDTH + ITEM_GAP;
+const ITEM_WIDTH = 130;
+const ITEM_HEIGHT = 170;
 
 export default function IntentPage() {
   const { data: profiles, isLoading, isError } = useQuery<Profile[]>({
     queryKey: ["/api/popular"],
   });
 
-  const scrollRef = useRef<HTMLDivElement>(null);
   const animFrame = useRef(0);
-  const velocity = useRef(0);
   const isDragging = useRef(false);
   const startX = useRef(0);
   const lastX = useRef(0);
   const lastTime = useRef(0);
-  const scrollLeftStart = useRef(0);
+  const velocity = useRef(0);
+  const angleRef = useRef(0);
 
   const [isSpinning, setIsSpinning] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
-  const [focusedIndex, setFocusedIndex] = useState(0);
+  const [angle, setAngle] = useState(0);
 
   const items = profiles || [];
+  const count = items.length;
+  const angleStep = count > 0 ? 360 / count : 0;
+  const radius = count > 4 ? Math.max(200, count * 28) : 180;
 
-  const getTargetScroll = useCallback((index: number) => {
-    const el = scrollRef.current;
-    if (!el) return 0;
-    return index * SLOT_SIZE;
-  }, []);
-
-  const updateFocused = useCallback(() => {
-    const el = scrollRef.current;
-    if (!el || items.length === 0) return;
-    const center = el.scrollLeft + el.clientWidth / 2;
-    let closest = 0;
-    let minDist = Infinity;
-    const paddingLeft = el.clientWidth / 2 - ITEM_WIDTH / 2;
-    items.forEach((_, i) => {
-      const itemCenter = paddingLeft + i * SLOT_SIZE + ITEM_WIDTH / 2;
-      const dist = Math.abs(center - itemCenter);
-      if (dist < minDist) {
-        minDist = dist;
-        closest = i;
-      }
-    });
-    setFocusedIndex(closest);
-  }, [items]);
+  const getFocusedIndex = useCallback((currentAngle: number) => {
+    if (count === 0) return 0;
+    const normalized = ((currentAngle % 360) + 360) % 360;
+    const idx = Math.round(normalized / angleStep) % count;
+    return idx;
+  }, [count, angleStep]);
 
   const glide = useCallback(() => {
-    const el = scrollRef.current;
-    if (!el) return;
-    velocity.current *= 0.93;
-    if (Math.abs(velocity.current) < 0.3) {
+    velocity.current *= 0.95;
+    if (Math.abs(velocity.current) < 0.05) {
       velocity.current = 0;
-      updateFocused();
       return;
     }
-    el.scrollLeft -= velocity.current;
-    updateFocused();
+    angleRef.current += velocity.current;
+    setAngle(angleRef.current);
     animFrame.current = requestAnimationFrame(glide);
-  }, [updateFocused]);
+  }, []);
 
   const handlePointerDown = (e: React.PointerEvent) => {
     if (isSpinning) return;
-    const el = scrollRef.current;
-    if (!el) return;
     cancelAnimationFrame(animFrame.current);
     velocity.current = 0;
     isDragging.current = true;
     startX.current = e.clientX;
     lastX.current = e.clientX;
     lastTime.current = Date.now();
-    scrollLeftStart.current = el.scrollLeft;
-    el.style.cursor = "grabbing";
-    el.setPointerCapture(e.pointerId);
+    (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
   };
 
   const handlePointerMove = (e: React.PointerEvent) => {
-    if (!isDragging.current || !scrollRef.current) return;
+    if (!isDragging.current) return;
     const now = Date.now();
     const dt = now - lastTime.current;
     const dx = e.clientX - lastX.current;
-    if (dt > 0) velocity.current = (dx / dt) * 16;
+    if (dt > 0) velocity.current = (dx / dt) * 0.8;
     lastX.current = e.clientX;
     lastTime.current = now;
     const totalDx = e.clientX - startX.current;
-    scrollRef.current.scrollLeft = scrollLeftStart.current - totalDx;
-    updateFocused();
+    const angleDelta = (totalDx / 3);
+    angleRef.current += dx * 0.3;
+    setAngle(angleRef.current);
   };
 
   const handlePointerUp = (e: React.PointerEvent) => {
     isDragging.current = false;
-    if (scrollRef.current) {
-      scrollRef.current.style.cursor = "grab";
-      scrollRef.current.releasePointerCapture(e.pointerId);
-    }
-    if (Math.abs(velocity.current) > 1) {
+    (e.target as HTMLElement).releasePointerCapture?.(e.pointerId);
+    if (Math.abs(velocity.current) > 0.2) {
       animFrame.current = requestAnimationFrame(glide);
-    } else {
-      updateFocused();
     }
   };
 
   const spinWheel = () => {
-    if (isSpinning || items.length === 0) return;
+    if (isSpinning || count === 0) return;
     setIsSpinning(true);
     setSelectedIndex(null);
 
-    const el = scrollRef.current;
-    if (!el) return;
+    const targetIndex = Math.floor(Math.random() * count);
+    const targetAngle = targetIndex * angleStep;
 
-    const targetIndex = Math.floor(Math.random() * items.length);
-    const paddingLeft = el.clientWidth / 2 - ITEM_WIDTH / 2;
-    const targetScroll = paddingLeft + targetIndex * SLOT_SIZE + ITEM_WIDTH / 2 - el.clientWidth / 2;
+    const currentAngle = angleRef.current;
+    const fullSpins = (3 + Math.floor(Math.random() * 2)) * 360;
+    const normalizedCurrent = ((currentAngle % 360) + 360) % 360;
+    const diff = targetAngle - normalizedCurrent;
+    const totalRotation = fullSpins + diff;
 
-    const currentScroll = el.scrollLeft;
-
-    const passDistance = items.length * SLOT_SIZE;
-    const forwardDistance = passDistance * 2 + (targetScroll - currentScroll);
-
-    const duration = 2500 + Math.random() * 800;
+    const duration = 3000 + Math.random() * 1000;
     const startTime = Date.now();
+    const startAngle = currentAngle;
 
     const easeOutQuart = (t: number) => 1 - Math.pow(1 - t, 4);
 
@@ -136,17 +107,15 @@ export default function IntentPage() {
       const progress = Math.min(elapsed / duration, 1);
       const eased = easeOutQuart(progress);
 
-      const maxScroll = el.scrollWidth - el.clientWidth;
-      const rawScroll = currentScroll + forwardDistance * eased;
-      const wrappedScroll = rawScroll % (maxScroll + el.clientWidth);
-      el.scrollLeft = Math.min(Math.max(0, wrappedScroll), maxScroll);
-      updateFocused();
+      const newAngle = startAngle + totalRotation * eased;
+      angleRef.current = newAngle;
+      setAngle(newAngle);
 
       if (progress < 1) {
         animFrame.current = requestAnimationFrame(animate);
       } else {
-        el.scrollLeft = Math.min(Math.max(0, targetScroll), maxScroll);
-        setFocusedIndex(targetIndex);
+        angleRef.current = startAngle + totalRotation;
+        setAngle(angleRef.current);
         setSelectedIndex(targetIndex);
         setIsSpinning(false);
       }
@@ -159,14 +128,6 @@ export default function IntentPage() {
   useEffect(() => {
     return () => cancelAnimationFrame(animFrame.current);
   }, []);
-
-  useEffect(() => {
-    if (items.length > 0 && scrollRef.current) {
-      const paddingLeft = scrollRef.current.clientWidth / 2 - ITEM_WIDTH / 2;
-      scrollRef.current.scrollLeft = paddingLeft;
-      updateFocused();
-    }
-  }, [items, updateFocused]);
 
   if (isLoading) {
     return (
@@ -201,6 +162,7 @@ export default function IntentPage() {
     );
   }
 
+  const focusedIndex = getFocusedIndex(angle);
   const selectedProfile = selectedIndex !== null ? items[selectedIndex] : null;
 
   return (
@@ -214,70 +176,78 @@ export default function IntentPage() {
         </p>
       </div>
 
-      <div className="flex-1 flex flex-col items-center justify-center gap-6 overflow-y-auto">
-        <div className="relative w-full">
+      <div className="flex-1 flex flex-col items-center justify-start gap-4 overflow-y-auto pt-4">
+        <div
+          className="relative select-none touch-none"
+          style={{
+            width: "100%",
+            height: ITEM_HEIGHT + 80,
+            perspective: "800px",
+          }}
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerUp}
+          onPointerLeave={handlePointerUp}
+          data-testid="intent-wheel"
+        >
           <div
-            ref={scrollRef}
-            className="overflow-x-auto scrollbar-hide cursor-grab select-none touch-pan-y"
-            style={{ WebkitOverflowScrolling: "touch" }}
-            onPointerDown={handlePointerDown}
-            onPointerMove={handlePointerMove}
-            onPointerUp={handlePointerUp}
-            onPointerLeave={handlePointerUp}
-            onScroll={updateFocused}
-            data-testid="intent-wheel"
+            className="absolute left-1/2 top-1/2"
+            style={{
+              transformStyle: "preserve-3d",
+              transform: `translateX(-50%) translateY(-50%) rotateY(${-angle}deg)`,
+              width: ITEM_WIDTH,
+              height: ITEM_HEIGHT,
+              transition: isDragging.current ? "none" : undefined,
+            }}
           >
-            <div
-              className="flex items-center"
-              style={{
-                paddingLeft: `calc(50% - ${ITEM_WIDTH / 2}px)`,
-                paddingRight: `calc(50% - ${ITEM_WIDTH / 2}px)`,
-                gap: `${ITEM_GAP}px`,
-                width: "max-content",
-              }}
-            >
-              {items.map((profile, i) => {
-                const isFocused = i === focusedIndex;
-                const isSelected = i === selectedIndex;
-                const photo = profile.photos?.[0];
+            {items.map((profile, i) => {
+              const itemAngle = i * angleStep;
+              const photo = profile.photos?.[0];
+              const isSelected = i === selectedIndex;
 
-                return (
-                  <div
-                    key={profile.id}
-                    className={`relative rounded-md overflow-hidden flex-shrink-0 transition-all duration-300 ease-out ${
-                      isSelected
-                        ? "ring-2 ring-primary shadow-lg"
-                        : isFocused
-                          ? "ring-2 ring-primary/30 shadow-md"
-                          : "opacity-50 shadow-sm"
-                    }`}
-                    style={{
-                      width: ITEM_WIDTH,
-                      height: 200,
-                    }}
-                    data-testid={`intent-profile-${i}`}
-                  >
-                    {photo ? (
-                      <img
-                        src={photo}
-                        alt={profile.firstName}
-                        className="w-full h-full object-cover pointer-events-none"
-                        draggable={false}
-                      />
-                    ) : (
-                      <div className="w-full h-full bg-muted flex items-center justify-center">
-                        <Flower2 className="w-8 h-8 text-muted-foreground" />
-                      </div>
-                    )}
-                    <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/60 to-transparent p-3">
-                      <p className="text-white text-sm font-medium truncate">
-                        {profile.firstName}{profile.age ? `, ${profile.age}` : ""}
-                      </p>
+              const relativeAngle = ((((-angle + itemAngle) % 360) + 360) % 360);
+              const isFront = relativeAngle < 40 || relativeAngle > 320;
+              const isBack = relativeAngle > 120 && relativeAngle < 240;
+
+              return (
+                <div
+                  key={profile.id}
+                  className={`absolute left-0 top-0 rounded-md overflow-hidden transition-opacity duration-200 ${
+                    isSelected
+                      ? "ring-2 ring-primary shadow-lg"
+                      : isFront
+                        ? "shadow-md"
+                        : "shadow-sm"
+                  }`}
+                  style={{
+                    width: ITEM_WIDTH,
+                    height: ITEM_HEIGHT,
+                    transform: `rotateY(${itemAngle}deg) translateZ(${radius}px)`,
+                    backfaceVisibility: "hidden",
+                    opacity: isBack ? 0.3 : isFront ? 1 : 0.6,
+                  }}
+                  data-testid={`intent-profile-${i}`}
+                >
+                  {photo ? (
+                    <img
+                      src={photo}
+                      alt={profile.firstName}
+                      className="w-full h-full object-cover pointer-events-none"
+                      draggable={false}
+                    />
+                  ) : (
+                    <div className="w-full h-full bg-muted flex items-center justify-center">
+                      <Flower2 className="w-8 h-8 text-muted-foreground" />
                     </div>
+                  )}
+                  <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-2">
+                    <p className="text-white text-xs font-medium truncate">
+                      {profile.firstName}{profile.age ? `, ${profile.age}` : ""}
+                    </p>
                   </div>
-                );
-              })}
-            </div>
+                </div>
+              );
+            })}
           </div>
         </div>
 
