@@ -216,10 +216,6 @@ export default function IntentPage() {
 
       <div className="flex-1 flex flex-col items-center justify-center gap-6 overflow-y-auto">
         <div className="relative w-full">
-          <div className="absolute left-1/2 top-0 -translate-x-1/2 -translate-y-2 z-10">
-            <div className="w-0 h-0 border-l-[10px] border-r-[10px] border-t-[14px] border-l-transparent border-r-transparent border-t-primary" />
-          </div>
-
           <div
             ref={scrollRef}
             className="overflow-x-auto scrollbar-hide cursor-grab select-none touch-pan-y"
