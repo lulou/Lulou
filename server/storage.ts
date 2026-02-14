@@ -22,6 +22,8 @@ export interface IStorage {
   getUserMessageCount(matchId: string, userId: string): Promise<number>;
   incrementMessageCount(matchId: string, userId: string): Promise<void>;
   startCall(matchId: string, userId: string): Promise<Match | undefined>;
+  answerCall(matchId: string, userId: string): Promise<Match | undefined>;
+  cancelCall(matchId: string, userId: string): Promise<Match | undefined>;
   completeCall(matchId: string, userId: string): Promise<Match | undefined>;
   getPopularProfiles(limit?: number, preference?: string): Promise<Profile[]>;
 }
@@ -176,7 +178,32 @@ export class DatabaseStorage implements IStorage {
     if (match.user1Id !== userId && match.user2Id !== userId) return undefined;
     const [updated] = await db
       .update(matches)
-      .set({ callStartedAt: new Date() })
+      .set({ callStartedAt: new Date(), callInitiatorId: userId, callAnswered: false, callCompleted: false })
+      .where(eq(matches.id, matchId))
+      .returning();
+    return updated;
+  }
+
+  async answerCall(matchId: string, userId: string): Promise<Match | undefined> {
+    const [match] = await db.select().from(matches).where(eq(matches.id, matchId));
+    if (!match) return undefined;
+    if (match.user1Id !== userId && match.user2Id !== userId) return undefined;
+    if (match.callInitiatorId === userId) return undefined;
+    const [updated] = await db
+      .update(matches)
+      .set({ callAnswered: true, callStartedAt: new Date() })
+      .where(eq(matches.id, matchId))
+      .returning();
+    return updated;
+  }
+
+  async cancelCall(matchId: string, userId: string): Promise<Match | undefined> {
+    const [match] = await db.select().from(matches).where(eq(matches.id, matchId));
+    if (!match) return undefined;
+    if (match.user1Id !== userId && match.user2Id !== userId) return undefined;
+    const [updated] = await db
+      .update(matches)
+      .set({ callStartedAt: null, callInitiatorId: null, callAnswered: false, callCompleted: false })
       .where(eq(matches.id, matchId))
       .returning();
     return updated;
@@ -186,6 +213,14 @@ export class DatabaseStorage implements IStorage {
     const [match] = await db.select().from(matches).where(eq(matches.id, matchId));
     if (!match) return undefined;
     if (match.user1Id !== userId && match.user2Id !== userId) return undefined;
+    if (!match.callAnswered) {
+      const [updated] = await db
+        .update(matches)
+        .set({ callStartedAt: null, callInitiatorId: null, callAnswered: false, callCompleted: false })
+        .where(eq(matches.id, matchId))
+        .returning();
+      return updated;
+    }
     const [updated] = await db
       .update(matches)
       .set({ callCompleted: true })

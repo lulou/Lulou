@@ -151,6 +151,18 @@ function MatchChat({ match }: { match: MatchWithProfile }) {
     },
   });
 
+  const cancelCall = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", `/api/matches/${match.id}/call/cancel`, {});
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/matches", match.id] });
+      queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
+      toast({ title: "Call cancelled", description: "No worries — the call wasn't connected so it doesn't count." });
+    },
+  });
+
   const completeCall = useMutation({
     mutationFn: async () => {
       const res = await apiRequest("POST", `/api/matches/${match.id}/call/complete`, {});
@@ -174,7 +186,8 @@ function MatchChat({ match }: { match: MatchWithProfile }) {
   const messagesRemaining = MAX_MESSAGES_PER_USER - myMessages.length;
   const isLimitReached = messagesRemaining <= 0;
   const allMessages = matchDetail?.messages || [];
-  const isCallActive = detail.callStartedAt && !detail.callCompleted;
+  const isCallRinging = detail.callStartedAt && !detail.callAnswered && !detail.callCompleted;
+  const isCallActive = detail.callStartedAt && detail.callAnswered && !detail.callCompleted;
   const isCallDone = detail.callCompleted;
 
   return (
@@ -199,6 +212,11 @@ function MatchChat({ match }: { match: MatchWithProfile }) {
               {match.profile.signals?.[0] && (
                 <Badge variant="secondary" className="text-xs">
                   {match.profile.signals[0]}
+                </Badge>
+              )}
+              {isCallRinging && (
+                <Badge variant="secondary" className="text-xs" data-testid={`badge-call-ringing-${match.id}`}>
+                  <Phone className="w-3 h-3 mr-1 animate-pulse" /> Ringing
                 </Badge>
               )}
               {isCallActive && (
@@ -259,7 +277,34 @@ function MatchChat({ match }: { match: MatchWithProfile }) {
             <div ref={messagesEndRef} />
           </div>
 
-          {isCallActive && matchDetail ? (
+          {isCallRinging ? (
+            <div className="p-5 border-t" data-testid={`call-ringing-${match.id}`}>
+              <div className="text-center space-y-4">
+                <div className="relative w-20 h-20 mx-auto">
+                  <div className="absolute inset-0 rounded-full bg-primary/10 animate-ping" />
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <div className="w-16 h-16 rounded-full bg-primary/15 flex items-center justify-center">
+                      <Phone className="w-6 h-6 text-primary animate-pulse" />
+                    </div>
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  <p className="font-medium text-sm">Calling {match.profile.firstName}...</p>
+                  <p className="text-xs text-muted-foreground">Waiting for them to pick up</p>
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => cancelCall.mutate()}
+                  disabled={cancelCall.isPending}
+                  data-testid={`button-cancel-call-${match.id}`}
+                >
+                  <PhoneOff className="w-4 h-4 mr-2" /> Cancel Call
+                </Button>
+                <p className="text-xs text-muted-foreground">If they don't pick up, it won't count as your call</p>
+              </div>
+            </div>
+          ) : isCallActive && matchDetail ? (
             <CallTimer match={matchDetail} onComplete={() => completeCall.mutate()} />
           ) : isCallDone ? (
             <div className="p-4 border-t">

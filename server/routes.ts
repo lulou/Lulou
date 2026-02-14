@@ -247,10 +247,50 @@ export async function registerRoutes(
       if (!match) {
         return res.status(404).json({ message: "Match not found" });
       }
+
+      const otherUserId = match.user1Id === userId ? match.user2Id : match.user1Id;
+      if (otherUserId.startsWith("seed-")) {
+        setTimeout(async () => {
+          try {
+            await storage.answerCall(req.params.matchId, otherUserId);
+          } catch (err) {
+            console.error("Auto-answer error:", err);
+          }
+        }, 2000 + Math.random() * 2000);
+      }
+
       res.json(match);
     } catch (error) {
       console.error("Error starting call:", error);
       res.status(500).json({ message: "Failed to start call" });
+    }
+  });
+
+  app.post("/api/matches/:matchId/call/answer", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const match = await storage.answerCall(req.params.matchId, userId);
+      if (!match) {
+        return res.status(404).json({ message: "Match not found or you cannot answer your own call" });
+      }
+      res.json(match);
+    } catch (error) {
+      console.error("Error answering call:", error);
+      res.status(500).json({ message: "Failed to answer call" });
+    }
+  });
+
+  app.post("/api/matches/:matchId/call/cancel", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const match = await storage.cancelCall(req.params.matchId, userId);
+      if (!match) {
+        return res.status(404).json({ message: "Match not found" });
+      }
+      res.json(match);
+    } catch (error) {
+      console.error("Error cancelling call:", error);
+      res.status(500).json({ message: "Failed to cancel call" });
     }
   });
 

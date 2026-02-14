@@ -48,6 +48,8 @@ export const matches = pgTable("matches", {
   messageCount2: integer("message_count_2").default(0),
   callCompleted: boolean("call_completed").default(false),
   callStartedAt: timestamp("call_started_at"),
+  callAnswered: boolean("call_answered").default(false),
+  callInitiatorId: varchar("call_initiator_id"),
   status: text("status").default("active"),
   createdAt: timestamp("created_at").defaultNow(),
 });
