@@ -329,23 +329,24 @@ export async function registerRoutes(
   app.get("/api/spin-status", isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
-      const spinsToday = await storage.getSpinsToday(userId);
       const spinsThisWeek = await storage.getSpinsThisWeek(userId);
       const dailyLikes = await storage.getDailyLikeCount(userId);
-      const hasMetLikeGoal = dailyLikes >= 10;
+      const consecutiveDays = await storage.getConsecutiveLikeDays(userId, 10);
+      const streakComplete = consecutiveDays >= 3;
+      const hasUnusedStreak = await storage.hasUnusedStreakSpin(userId);
 
       let canSpin = false;
-      if (hasMetLikeGoal && spinsToday === 0) {
+      if (streakComplete && hasUnusedStreak) {
         canSpin = true;
-      } else if (!hasMetLikeGoal && spinsThisWeek === 0) {
+      } else if (!streakComplete && spinsThisWeek === 0) {
         canSpin = true;
       }
 
       res.json({
-        spinsToday,
         spinsThisWeek,
         dailyLikes,
-        hasMetLikeGoal,
+        consecutiveDays,
+        streakComplete,
         canSpin,
       });
     } catch (error) {
@@ -359,15 +360,15 @@ export async function registerRoutes(
       const userId = req.user.claims.sub;
       const { standoutUserId } = req.body;
 
-      const spinsToday = await storage.getSpinsToday(userId);
       const spinsThisWeek = await storage.getSpinsThisWeek(userId);
-      const dailyLikes = await storage.getDailyLikeCount(userId);
-      const hasMetLikeGoal = dailyLikes >= 10;
+      const consecutiveDays = await storage.getConsecutiveLikeDays(userId, 10);
+      const streakComplete = consecutiveDays >= 3;
+      const hasUnusedStreak = await storage.hasUnusedStreakSpin(userId);
 
       let canSpin = false;
-      if (hasMetLikeGoal && spinsToday === 0) {
+      if (streakComplete && hasUnusedStreak) {
         canSpin = true;
-      } else if (!hasMetLikeGoal && spinsThisWeek === 0) {
+      } else if (!streakComplete && spinsThisWeek === 0) {
         canSpin = true;
       }
 

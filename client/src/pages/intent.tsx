@@ -13,12 +13,13 @@ import type { Profile } from "@shared/schema";
 const ITEM_WIDTH = 130;
 const ITEM_HEIGHT = 170;
 const DAILY_LIKE_GOAL = 10;
+const STREAK_GOAL = 3;
 
 type SpinStatus = {
-  spinsToday: number;
   spinsThisWeek: number;
   dailyLikes: number;
-  hasMetLikeGoal: boolean;
+  consecutiveDays: number;
+  streakComplete: boolean;
   canSpin: boolean;
 };
 
@@ -249,7 +250,9 @@ export default function IntentPage() {
 
   const selectedProfile = selectedIndex !== null ? items[selectedIndex] : null;
   const dailyLikes = spinStatus?.dailyLikes ?? 0;
-  const likeProgress = Math.min(dailyLikes / DAILY_LIKE_GOAL, 1);
+  const consecutiveDays = spinStatus?.consecutiveDays ?? 0;
+  const streakComplete = spinStatus?.streakComplete ?? false;
+  const todayProgress = Math.min(dailyLikes / DAILY_LIKE_GOAL, 1);
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden relative" data-testid="intent-page">
@@ -265,23 +268,44 @@ export default function IntentPage() {
           </div>
         </div>
 
-        <div className="mt-3 space-y-1.5">
+        <div className="mt-3 space-y-2">
           <div className="flex items-center justify-between gap-2 text-xs">
-            <span className="text-muted-foreground">Daily likes: {dailyLikes}/{DAILY_LIKE_GOAL}</span>
-            {spinStatus?.hasMetLikeGoal ? (
-              <Badge variant="secondary" className="text-xs" data-testid="badge-goal-met">
-                <Star className="w-3 h-3 mr-1" /> Goal met - daily spin unlocked
+            <span className="text-muted-foreground">3-day streak: {consecutiveDays}/{STREAK_GOAL} days</span>
+            {streakComplete ? (
+              <Badge variant="secondary" className="text-xs" data-testid="badge-streak-complete">
+                <Star className="w-3 h-3 mr-1" /> Streak spin unlocked
               </Badge>
             ) : (
-              <span className="text-muted-foreground" data-testid="text-goal-progress">
-                {DAILY_LIKE_GOAL - dailyLikes} more to unlock daily spin
+              <span className="text-muted-foreground" data-testid="text-streak-progress">
+                {STREAK_GOAL - consecutiveDays} more {STREAK_GOAL - consecutiveDays === 1 ? "day" : "days"} to go
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-1.5">
+            {Array.from({ length: STREAK_GOAL }).map((_, i) => (
+              <div
+                key={i}
+                className={`flex-1 h-2 rounded-full transition-all duration-500 ${
+                  i < consecutiveDays ? "bg-primary" : "bg-muted"
+                }`}
+                data-testid={`streak-day-${i}`}
+              />
+            ))}
+          </div>
+          <div className="flex items-center justify-between gap-2 text-xs">
+            <span className="text-muted-foreground">Today: {dailyLikes}/{DAILY_LIKE_GOAL} likes</span>
+            {dailyLikes >= DAILY_LIKE_GOAL ? (
+              <span className="text-primary font-medium" data-testid="text-today-done">Today complete</span>
+            ) : (
+              <span className="text-muted-foreground" data-testid="text-today-progress">
+                {DAILY_LIKE_GOAL - dailyLikes} more today
               </span>
             )}
           </div>
           <div className="w-full h-1.5 bg-muted rounded-full overflow-hidden">
             <div
-              className="h-full bg-primary rounded-full transition-all duration-500"
-              style={{ width: `${likeProgress * 100}%` }}
+              className="h-full bg-primary/60 rounded-full transition-all duration-500"
+              style={{ width: `${todayProgress * 100}%` }}
               data-testid="progress-likes"
             />
           </div>
@@ -404,11 +428,13 @@ export default function IntentPage() {
                 Spin used
               </Button>
             )}
-            {!canSpin && (spinStatus?.spinsToday ?? 0) > 0 && (
+            {!canSpin && (
               <p className="text-xs text-muted-foreground text-center max-w-xs" data-testid="text-spin-limit">
-                {spinStatus?.hasMetLikeGoal
-                  ? "You've used your daily spin. Come back tomorrow or buy more."
-                  : `Send ${DAILY_LIKE_GOAL - dailyLikes} more likes today to unlock daily spins. Otherwise you get 1 free spin per week.`}
+                {streakComplete
+                  ? "You've used your spin. Come back tomorrow or buy more."
+                  : consecutiveDays > 0
+                    ? `Keep your ${consecutiveDays}-day streak going! Send ${DAILY_LIKE_GOAL} likes for ${STREAK_GOAL - consecutiveDays} more ${STREAK_GOAL - consecutiveDays === 1 ? "day" : "days"} to earn a spin.`
+                    : `Send ${DAILY_LIKE_GOAL} likes daily for ${STREAK_GOAL} consecutive days to earn a free spin. You also get 1 free spin per week.`}
               </p>
             )}
           </div>
@@ -423,9 +449,9 @@ export default function IntentPage() {
                 </div>
                 <h3 className="font-serif text-xl font-bold">Want more spins?</h3>
                 <p className="text-sm text-muted-foreground leading-relaxed">
-                  {spinStatus?.hasMetLikeGoal
-                    ? "You've reached your daily like goal! Buy extra spins to keep discovering."
-                    : `Send ${DAILY_LIKE_GOAL - dailyLikes} more likes today to earn a daily spin, or purchase extra spins.`}
+                  {streakComplete
+                    ? "Your 3-day streak earned you a spin! Purchase extra spins to keep discovering."
+                    : `Build a ${STREAK_GOAL}-day like streak to earn a free spin, or purchase extra spins.`}
                 </p>
               </div>
 
@@ -459,20 +485,22 @@ export default function IntentPage() {
                 </Button>
               </div>
 
-              {!spinStatus?.hasMetLikeGoal && (
+              {!streakComplete && (
                 <div className="border-t pt-4 space-y-2">
-                  <p className="text-xs font-medium text-center text-muted-foreground">Or earn your daily spin</p>
+                  <p className="text-xs font-medium text-center text-muted-foreground">Or earn a free spin</p>
                   <div className="flex items-center gap-3">
-                    <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
+                    {Array.from({ length: STREAK_GOAL }).map((_, i) => (
                       <div
-                        className="h-full bg-primary rounded-full transition-all"
-                        style={{ width: `${likeProgress * 100}%` }}
+                        key={i}
+                        className={`flex-1 h-2 rounded-full ${
+                          i < consecutiveDays ? "bg-primary" : "bg-muted"
+                        }`}
                       />
-                    </div>
-                    <span className="text-xs font-medium whitespace-nowrap">{dailyLikes}/{DAILY_LIKE_GOAL}</span>
+                    ))}
+                    <span className="text-xs font-medium whitespace-nowrap">{consecutiveDays}/{STREAK_GOAL}</span>
                   </div>
                   <p className="text-xs text-muted-foreground text-center">
-                    Send {DAILY_LIKE_GOAL - dailyLikes} more likes on Discover to unlock a daily spin
+                    Send {DAILY_LIKE_GOAL} likes daily for {STREAK_GOAL} days in a row to earn a free spin
                   </p>
                 </div>
               )}

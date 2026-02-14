@@ -34,6 +34,8 @@ export interface IStorage {
   getSpinsThisWeek(userId: string): Promise<number>;
   recordSpin(userId: string): Promise<void>;
   getDailyLikeCount(userId: string): Promise<number>;
+  getConsecutiveLikeDays(userId: string, goal: number): Promise<number>;
+  hasUnusedStreakSpin(userId: string): Promise<boolean>;
   createSpinRequest(fromUserId: string, toUserId: string, message: string): Promise<SpinRequest>;
   getIncomingSpinRequests(userId: string): Promise<(SpinRequest & { profile: Profile })[]>;
   getOutgoingSpinRequests(userId: string): Promise<(SpinRequest & { profile: Profile })[]>;
@@ -364,6 +366,59 @@ export class DatabaseStorage implements IStorage {
       );
     return result[0]?.count || 0;
   }
+  async getConsecutiveLikeDays(userId: string, goal: number): Promise<number> {
+    const today = new Date();
+    let bestStreak = 0;
+
+    for (let startOffset = 0; startOffset <= 1; startOffset++) {
+      let streak = 0;
+      for (let i = 0; i < 3; i++) {
+        const checkDate = new Date(today);
+        checkDate.setDate(today.getDate() - startOffset - i);
+        const dateStr = checkDate.toISOString().slice(0, 10);
+
+        const result = await db
+          .select({ count: sql<number>`count(*)::int` })
+          .from(interactions)
+          .where(
+            and(
+              eq(interactions.fromUserId, userId),
+              eq(interactions.type, "open"),
+              sql`${interactions.createdAt}::date = ${dateStr}::date`
+            )
+          );
+
+        const count = result[0]?.count || 0;
+        if (count >= goal) {
+          streak++;
+        } else {
+          break;
+        }
+      }
+      bestStreak = Math.max(bestStreak, streak);
+    }
+
+    return bestStreak;
+  }
+
+  async hasUnusedStreakSpin(userId: string): Promise<boolean> {
+    const today = new Date();
+    const threeDaysAgo = new Date(today);
+    threeDaysAgo.setDate(today.getDate() - 3);
+    const cutoffDate = threeDaysAgo.toISOString().slice(0, 10);
+
+    const result = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(spinUsage)
+      .where(
+        and(
+          eq(spinUsage.userId, userId),
+          sql`${spinUsage.spinDate} >= ${cutoffDate}`
+        )
+      );
+    return (result[0]?.count || 0) === 0;
+  }
+
   async createSpinRequest(fromUserId: string, toUserId: string, message: string): Promise<SpinRequest> {
     const [request] = await db
       .insert(spinRequests)
