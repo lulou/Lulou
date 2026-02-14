@@ -3,31 +3,22 @@ import { Compass, Heart, User, CircleDot } from "lucide-react";
 
 export function BloomFlowerIcon({ className }: { className?: string }) {
   return (
-    <svg viewBox="0 0 24 32" fill="none" className={className} xmlns="http://www.w3.org/2000/svg">
-      <path d="M12 17 Q11.6 20, 11.2 25 Q11.8 26.5, 12 26.5 Q12.2 26.5, 12.8 25 Q12.4 20, 12 17Z" fill="currentColor" opacity="0.4" />
-      <path d="M11.6 21 Q10 20.2, 7.5 20.8" stroke="currentColor" strokeWidth="0.45" opacity="0.25" fill="none" strokeLinecap="round" />
-      <path d="M12.4 23 Q14 22.2, 16 22.8" stroke="currentColor" strokeWidth="0.45" opacity="0.25" fill="none" strokeLinecap="round" />
+    <svg viewBox="0 0 40 48" fill="none" className={className} xmlns="http://www.w3.org/2000/svg">
+      <path d="M20 30 Q19.4 34, 18.8 40 Q19.5 42, 20 42 Q20.5 42, 21.2 40 Q20.6 34, 20 30Z" fill="hsl(150 25% 42%)" opacity="0.7" />
 
-      <path d="M12 3.5 Q13.8 5.5, 13.5 9 Q12.2 10.5, 12 10.5 Q11.8 10.5, 10.5 9 Q10.2 5.5, 12 3.5Z" fill="currentColor" opacity="0.18" />
-      <path d="M5.8 7 Q8 7.2, 10 9.5 Q10.2 11, 10 11.2 Q9.6 11.2, 8 10.2 Q5.5 8.8, 5.8 7Z" fill="currentColor" opacity="0.18" />
-      <path d="M18.2 7 Q16 7.2, 14 9.5 Q13.8 11, 14 11.2 Q14.4 11.2, 16 10.2 Q18.5 8.8, 18.2 7Z" fill="currentColor" opacity="0.18" />
-      <path d="M7 14.5 Q8 12.5, 10.2 11.5 Q11 11.8, 11 12 Q10.8 12.5, 9.5 14 Q7.8 15.8, 7 14.5Z" fill="currentColor" opacity="0.18" />
-      <path d="M17 14.5 Q16 12.5, 13.8 11.5 Q13 11.8, 13 12 Q13.2 12.5, 14.5 14 Q16.2 15.8, 17 14.5Z" fill="currentColor" opacity="0.18" />
+      <path d="M20 32 Q16 30, 8 33 Q7 34, 8 35 Q12 34, 20 32Z" fill="hsl(150 30% 48%)" opacity="0.65" />
+      <path d="M20 32 Q24 30, 32 33 Q33 34, 32 35 Q28 34, 20 32Z" fill="hsl(150 25% 42%)" opacity="0.65" />
 
-      <path d="M12 5 Q13.2 6.8, 13 9.5 Q12.2 10.8, 12 10.8 Q11.8 10.8, 11 9.5 Q10.8 6.8, 12 5Z" fill="currentColor" opacity="0.35" />
-      <path d="M7.2 8 Q8.8 8, 10.3 10 Q10.3 11, 10.1 11.2 Q9.8 11.1, 8.6 10 Q6.8 9.2, 7.2 8Z" fill="currentColor" opacity="0.35" />
-      <path d="M16.8 8 Q15.2 8, 13.7 10 Q13.7 11, 13.9 11.2 Q14.2 11.1, 15.4 10 Q17.2 9.2, 16.8 8Z" fill="currentColor" opacity="0.35" />
-      <path d="M8 13.5 Q9 12, 10.5 11.5 Q11 11.8, 10.9 12 Q10.6 12.6, 9.8 13.5 Q8.5 14.8, 8 13.5Z" fill="currentColor" opacity="0.35" />
-      <path d="M16 13.5 Q15 12, 13.5 11.5 Q13 11.8, 13.1 12 Q13.4 12.6, 14.2 13.5 Q15.5 14.8, 16 13.5Z" fill="currentColor" opacity="0.35" />
+      <path d="M20 26 Q14 23, 6 24 Q4 25.5, 5 27 Q6 28, 12 27 Q17 26, 20 26Z" fill="hsl(150 30% 48%)" opacity="0.8" />
+      <path d="M20 26 Q26 23, 34 24 Q36 25.5, 35 27 Q34 28, 28 27 Q23 26, 20 26Z" fill="hsl(150 25% 38%)" opacity="0.8" />
 
-      <path d="M12 6.5 Q12.8 8, 12.6 9.8 Q12.1 10.5, 12 10.5 Q11.9 10.5, 11.4 9.8 Q11.2 8, 12 6.5Z" fill="currentColor" opacity="0.6" />
-      <path d="M8.5 9 Q9.5 9, 10.5 10.2 Q10.5 10.8, 10.4 11 Q10.2 10.9, 9.4 10.2 Q8.2 9.6, 8.5 9Z" fill="currentColor" opacity="0.6" />
-      <path d="M15.5 9 Q14.5 9, 13.5 10.2 Q13.5 10.8, 13.6 11 Q13.8 10.9, 14.6 10.2 Q15.8 9.6, 15.5 9Z" fill="currentColor" opacity="0.6" />
-      <path d="M9.2 12.8 Q9.8 12, 10.8 11.5 Q11 11.7, 11 11.8 Q10.8 12.2, 10.2 12.8 Q9.5 13.6, 9.2 12.8Z" fill="currentColor" opacity="0.6" />
-      <path d="M14.8 12.8 Q14.2 12, 13.2 11.5 Q13 11.7, 13 11.8 Q13.2 12.2, 13.8 12.8 Q14.5 13.6, 14.8 12.8Z" fill="currentColor" opacity="0.6" />
+      <path d="M13 11 Q12 6, 15 4 Q18 2.5, 20 5 Q20 8, 18 12 Q16 16, 15 18 Q13 16, 13 11Z" fill="hsl(350 45% 78%)" opacity="0.7" />
+      <path d="M27 11 Q28 6, 25 4 Q22 2.5, 20 5 Q20 8, 22 12 Q24 16, 25 18 Q27 16, 27 11Z" fill="hsl(350 40% 72%)" opacity="0.6" />
 
-      <circle cx="12" cy="10.8" r="1.6" fill="currentColor" opacity="0.85" />
-      <circle cx="12" cy="10.8" r="0.7" fill="currentColor" opacity="0.15" />
+      <path d="M15.5 12 Q14.5 7.5, 17 5.5 Q19 4, 20 6.5 Q20 9, 18.5 13 Q17 17, 16 19 Q14.5 17, 15.5 12Z" fill="hsl(350 50% 82%)" opacity="0.55" />
+      <path d="M24.5 12 Q25.5 7.5, 23 5.5 Q21 4, 20 6.5 Q20 9, 21.5 13 Q23 17, 24 19 Q25.5 17, 24.5 12Z" fill="hsl(350 45% 76%)" opacity="0.45" />
+
+      <circle cx="20" cy="4" r="2.2" fill="hsl(40 55% 62%)" opacity="0.85" />
     </svg>
   );
 }
