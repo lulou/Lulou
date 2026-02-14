@@ -313,11 +313,13 @@ export async function registerRoutes(
       const userId = req.user.claims.sub;
       const myProfile = await storage.getProfile(userId);
       const preference = myProfile?.datingPreference;
-      const popular = await storage.getPopularProfiles(10, preference);
+      const popular = await storage.getPopularProfiles(30, preference);
 
-      const standouts = await storage.getSpinStandouts(userId);
-      const filtered = popular.filter(p => p.userId !== userId && !standouts.includes(p.userId));
-      res.json(filtered);
+      const selfFiltered = popular.filter(p => p.userId !== userId);
+
+      const shuffled = selfFiltered.sort(() => Math.random() - 0.5);
+      const result = shuffled.slice(0, 10);
+      res.json(result);
     } catch (error) {
       console.error("Error fetching popular profiles:", error);
       res.status(500).json({ message: "Failed to fetch popular profiles" });

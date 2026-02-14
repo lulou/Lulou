@@ -58,8 +58,9 @@ Bloom is a calm, premium dating app focused on helping people move from matching
 ## Spin Economy
 - 1 free spin per day if user sends 10+ likes ("opens") that day
 - Otherwise 1 free spin per week (Monday-Sunday)
-- Purchase options: 3 spins/$2.99, 10 spins/$7.99 (coming soon)
-- Users never see the same standout profile twice
+- Purchase options: 1 spin/$1.49, 2 spins/$2.49 (coming soon)
+- Wheel always shows 10 profiles, shuffled fresh each time
+- Profiles reset after every spin (new random set of 10)
 - Server-side eligibility enforcement on POST /api/spin
 
 ## API Routes

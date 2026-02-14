@@ -164,6 +164,9 @@ export default function IntentPage() {
 
         setTimeout(() => setDispersed(true), 300);
         setTimeout(() => setShowProfile(true), 700);
+        setTimeout(() => {
+          queryClient.invalidateQueries({ queryKey: ["/api/popular"] });
+        }, 1200);
       }
     };
 
@@ -435,10 +438,10 @@ export default function IntentPage() {
                       description: "Spin packs will be available shortly.",
                     });
                   }}
-                  data-testid="button-buy-3-spins"
+                  data-testid="button-buy-1-spin"
                 >
                   <RotateCw className="w-4 h-4" />
-                  3 Spins - $2.99
+                  1 Spin - $1.49
                 </Button>
                 <Button
                   className="w-full gap-2"
@@ -449,10 +452,10 @@ export default function IntentPage() {
                       description: "Spin packs will be available shortly.",
                     });
                   }}
-                  data-testid="button-buy-10-spins"
+                  data-testid="button-buy-2-spins"
                 >
                   <RotateCw className="w-4 h-4" />
-                  10 Spins - $7.99
+                  2 Spins - $2.49
                 </Button>
               </div>
 
