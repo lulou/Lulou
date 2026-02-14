@@ -181,7 +181,7 @@ export default function IntentPage() {
           className="relative select-none touch-none"
           style={{
             width: "100%",
-            height: ITEM_HEIGHT + 80,
+            height: ITEM_HEIGHT + 120,
             perspective: "800px",
           }}
           onPointerDown={handlePointerDown}
@@ -194,7 +194,7 @@ export default function IntentPage() {
             className="absolute left-1/2 top-1/2"
             style={{
               transformStyle: "preserve-3d",
-              transform: `translateX(-50%) translateY(-50%) rotateY(${-angle}deg)`,
+              transform: `translateX(-50%) translateY(-50%) rotateX(25deg) rotateY(${-angle}deg)`,
               width: ITEM_WIDTH,
               height: ITEM_HEIGHT,
               transition: isDragging.current ? "none" : undefined,
