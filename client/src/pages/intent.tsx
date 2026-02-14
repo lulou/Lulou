@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Loader2, RotateCw, Heart, X, MapPin, Send, Lock, Star, Crown } from "lucide-react";
+import { Loader2, RotateCw, X, MapPin, Send, Lock, Star, Crown } from "lucide-react";
 import { BloomFlowerIcon } from "@/components/app-layout";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -181,31 +181,29 @@ export default function IntentPage() {
     setTimeout(() => setShowPurchase(true), 300);
   };
 
-  const interact = useMutation({
-    mutationFn: async (toUserId: string) => {
-      const res = await apiRequest("POST", "/api/interactions", {
+  const sendSpinRequest = useMutation({
+    mutationFn: async ({ toUserId, msg }: { toUserId: string; msg: string }) => {
+      const res = await apiRequest("POST", "/api/spin-requests", {
         toUserId,
-        type: "open",
+        message: msg,
       });
       return res.json();
     },
-    onSuccess: (data) => {
+    onSuccess: () => {
       const selectedProfile = selectedIndex !== null ? items[selectedIndex] : null;
-      if (data?.matched) {
-        toast({
-          title: "It's mutual",
-          description: `You and ${selectedProfile?.firstName} both opened up.`,
-        });
-        queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
-      } else {
-        toast({
-          title: "Heart sent",
-          description: `You opened up to ${selectedProfile?.firstName}.`,
-        });
-      }
-      queryClient.invalidateQueries({ queryKey: ["/api/discover"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/spin-status"] });
+      toast({
+        title: "Message sent",
+        description: `Your message to ${selectedProfile?.firstName} is waiting for their response.`,
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/spin-requests"] });
       closeProfile();
+    },
+    onError: () => {
+      toast({
+        title: "Could not send",
+        description: "Something went wrong. Please try again.",
+        variant: "destructive",
+      });
     },
   });
 
@@ -613,18 +611,17 @@ export default function IntentPage() {
           </div>
 
           <div className="absolute bottom-0 left-0 right-0 bg-background/95 backdrop-blur-md border-t p-4 space-y-3">
+            <p className="text-xs text-muted-foreground">
+              Write a message to {selectedProfile.firstName}. They'll decide whether to connect with you.
+            </p>
             <div className="flex items-center gap-2">
               <Input
-                placeholder={`Message ${selectedProfile.firstName}...`}
+                placeholder={`Say something meaningful to ${selectedProfile.firstName}...`}
                 value={message}
                 onChange={e => setMessage(e.target.value.slice(0, 500))}
                 onKeyDown={e => {
                   if (e.key === "Enter" && message.trim()) {
-                    toast({
-                      title: "Message ready",
-                      description: `Your message will be sent when you match with ${selectedProfile.firstName}.`,
-                    });
-                    interact.mutate(selectedProfile.userId);
+                    sendSpinRequest.mutate({ toUserId: selectedProfile.userId, msg: message.trim() });
                   }
                 }}
                 className="flex-1"
@@ -632,24 +629,20 @@ export default function IntentPage() {
               />
               <Button
                 size="icon"
-                disabled={interact.isPending}
+                disabled={!message.trim() || sendSpinRequest.isPending}
                 onClick={() => {
                   if (message.trim()) {
-                    toast({
-                      title: "Message ready",
-                      description: `Your message will be sent when you match with ${selectedProfile.firstName}.`,
-                    });
+                    sendSpinRequest.mutate({ toUserId: selectedProfile.userId, msg: message.trim() });
                   }
-                  interact.mutate(selectedProfile.userId);
                 }}
-                data-testid="button-intent-open"
+                data-testid="button-intent-send"
               >
-                {message.trim() ? <Send className="w-4 h-4" /> : <Heart className="w-4 h-4" />}
+                <Send className="w-4 h-4" />
               </Button>
             </div>
             <div className="flex items-center justify-between gap-2">
               <p className="text-xs text-muted-foreground">
-                {message.trim() ? "Send with a message" : "Open your heart"}
+                {message.length}/500
               </p>
               <Button variant="ghost" size="sm" onClick={closeProfile} data-testid="button-intent-pass">
                 Not now

@@ -9,9 +9,9 @@ import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
-import { MessageCircle, Send, Phone, ChevronDown, ChevronUp, PhoneOff, Clock } from "lucide-react";
+import { MessageCircle, Send, Phone, ChevronDown, ChevronUp, PhoneOff, Clock, Check, X, Sparkles } from "lucide-react";
 import { BloomFlowerIcon } from "@/components/app-layout";
-import type { Profile, Match, Message } from "@shared/schema";
+import type { Profile, Match, Message, SpinRequest } from "@shared/schema";
 
 const MAX_MESSAGES_PER_USER = 15;
 const MAX_CHARS = 500;
@@ -19,6 +19,11 @@ const CALL_DURATION_SECONDS = 10 * 60;
 
 type MatchWithProfile = Match & { profile: Profile };
 type MatchDetail = Match & { profile: Profile; messages: Message[] };
+type SpinRequestWithProfile = SpinRequest & { profile: Profile };
+type SpinRequestsData = {
+  incoming: SpinRequestWithProfile[];
+  outgoing: SpinRequestWithProfile[];
+};
 
 function formatTime(seconds: number): string {
   const m = Math.floor(seconds / 60);
@@ -111,6 +116,118 @@ function CallTimer({ match, onComplete }: { match: MatchDetail; onComplete: () =
   );
 }
 
+function SpinRequestCard({ request, type }: { request: SpinRequestWithProfile; type: "incoming" | "outgoing" }) {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+
+  const respond = useMutation({
+    mutationFn: async (accept: boolean) => {
+      const res = await apiRequest("POST", `/api/spin-requests/${request.id}/respond`, { accept });
+      return res.json();
+    },
+    onSuccess: (data: any) => {
+      if (data.matchCreated) {
+        toast({
+          title: "Connected",
+          description: `You and ${request.profile.firstName} are now matched! Check your connections.`,
+        });
+      } else if (data.status === "declined") {
+        toast({
+          title: "Declined",
+          description: `You passed on ${request.profile.firstName}'s request.`,
+        });
+      }
+      queryClient.invalidateQueries({ queryKey: ["/api/spin-requests"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
+    },
+    onError: () => {
+      toast({
+        title: "Something went wrong",
+        description: "Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const timeAgo = request.createdAt
+    ? (() => {
+        const diff = Date.now() - new Date(request.createdAt).getTime();
+        const mins = Math.floor(diff / 60000);
+        if (mins < 1) return "Just now";
+        if (mins < 60) return `${mins}m ago`;
+        const hrs = Math.floor(mins / 60);
+        if (hrs < 24) return `${hrs}h ago`;
+        return `${Math.floor(hrs / 24)}d ago`;
+      })()
+    : "";
+
+  return (
+    <Card className="overflow-hidden" data-testid={`spin-request-${request.id}`}>
+      <div className="p-4">
+        <div className="flex items-start gap-3">
+          <Avatar className="w-12 h-12 flex-shrink-0">
+            <AvatarImage src={request.profile.photos?.[0]} alt={request.profile.firstName} />
+            <AvatarFallback className="bg-primary/10 text-primary font-semibold">
+              {request.profile.firstName?.[0]}
+            </AvatarFallback>
+          </Avatar>
+          <div className="flex-1 min-w-0 space-y-1">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h3 className="font-semibold text-sm" data-testid={`text-request-name-${request.id}`}>
+                {request.profile.firstName}, {request.profile.age}
+              </h3>
+              <Badge variant="outline" className="text-xs">
+                <Sparkles className="w-3 h-3 mr-1" /> Via Intention Wheel
+              </Badge>
+            </div>
+            {request.profile.location && (
+              <p className="text-xs text-muted-foreground">{request.profile.location}</p>
+            )}
+            <p className="text-xs text-muted-foreground">{timeAgo}</p>
+          </div>
+        </div>
+
+        <div className="mt-3 bg-muted/50 rounded-md p-3">
+          <p className="text-sm leading-relaxed" data-testid={`text-request-message-${request.id}`}>
+            "{request.message}"
+          </p>
+        </div>
+
+        {type === "incoming" && (
+          <div className="flex items-center gap-2 mt-3">
+            <Button
+              className="flex-1 gap-1.5"
+              onClick={() => respond.mutate(true)}
+              disabled={respond.isPending}
+              data-testid={`button-accept-request-${request.id}`}
+            >
+              <Check className="w-4 h-4" /> Accept
+            </Button>
+            <Button
+              variant="outline"
+              className="flex-1 gap-1.5"
+              onClick={() => respond.mutate(false)}
+              disabled={respond.isPending}
+              data-testid={`button-decline-request-${request.id}`}
+            >
+              <X className="w-4 h-4" /> Decline
+            </Button>
+          </div>
+        )}
+
+        {type === "outgoing" && (
+          <div className="mt-3">
+            <Badge variant="secondary" className="text-xs" data-testid={`badge-request-status-${request.id}`}>
+              {request.status === "pending" ? "Waiting for response" :
+               request.status === "accepted" ? "Accepted" : "Declined"}
+            </Badge>
+          </div>
+        )}
+      </div>
+    </Card>
+  );
+}
+
 function MatchChat({ match }: { match: MatchWithProfile }) {
   const { user } = useAuth();
   const { toast } = useToast();
@@ -160,7 +277,7 @@ function MatchChat({ match }: { match: MatchWithProfile }) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/matches", match.id] });
       queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
-      toast({ title: "Call cancelled", description: "No worries — the call wasn't connected so it doesn't count." });
+      toast({ title: "Call cancelled", description: "No worries - the call wasn't connected so it doesn't count." });
     },
   });
 
@@ -319,7 +436,7 @@ function MatchChat({ match }: { match: MatchWithProfile }) {
             <div className="p-4 border-t">
               <Card className="p-4 text-center space-y-3 bg-primary/5 border-primary/20">
                 <Phone className="w-5 h-5 text-primary mx-auto" />
-                <p className="font-medium text-sm">You've both shared a lot — ready to hear each other's voice?</p>
+                <p className="font-medium text-sm">You've both shared a lot - ready to hear each other's voice?</p>
                 <p className="text-xs text-muted-foreground">Your first call is free. We suggest 10 minutes to keep it meaningful.</p>
                 <Button
                   size="sm"
@@ -368,9 +485,19 @@ function MatchChat({ match }: { match: MatchWithProfile }) {
 }
 
 export default function Matches() {
-  const { data: matches, isLoading } = useQuery<MatchWithProfile[]>({
+  const { data: matches, isLoading: matchesLoading } = useQuery<MatchWithProfile[]>({
     queryKey: ["/api/matches"],
   });
+
+  const { data: spinRequestsData, isLoading: requestsLoading } = useQuery<SpinRequestsData>({
+    queryKey: ["/api/spin-requests"],
+    refetchInterval: 10000,
+  });
+
+  const isLoading = matchesLoading || requestsLoading;
+  const incomingRequests = spinRequestsData?.incoming || [];
+  const outgoingPending = spinRequestsData?.outgoing?.filter(r => r.status === "pending") || [];
+  const hasContent = (matches && matches.length > 0) || incomingRequests.length > 0 || outgoingPending.length > 0;
 
   if (isLoading) {
     return (
@@ -383,16 +510,16 @@ export default function Matches() {
     );
   }
 
-  if (!matches || matches.length === 0) {
+  if (!hasContent) {
     return (
       <div className="flex-1 flex items-center justify-center p-6">
         <div className="text-center space-y-4 max-w-sm">
           <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center mx-auto">
             <BloomFlowerIcon className="w-8 h-8 text-primary" />
           </div>
-          <h2 className="font-serif text-2xl font-bold" data-testid="text-no-matches">No matches yet</h2>
+          <h2 className="font-serif text-2xl font-bold" data-testid="text-no-matches">No connections yet</h2>
           <p className="text-muted-foreground text-sm">
-            When you and someone both open up, you'll see them here. Keep discovering.
+            When someone sends you a message through the Intention Wheel, or you match on Discover, you'll see them here.
           </p>
         </div>
       </div>
@@ -403,14 +530,56 @@ export default function Matches() {
     <div className="flex-1 overflow-y-auto p-6 space-y-6 max-w-lg mx-auto w-full">
       <div className="space-y-1">
         <h1 className="font-serif text-2xl font-bold" data-testid="text-matches-title">Your Connections</h1>
-        <p className="text-sm text-muted-foreground">{matches.length} mutual {matches.length === 1 ? "connection" : "connections"}</p>
+        <p className="text-sm text-muted-foreground">
+          {incomingRequests.length > 0 && `${incomingRequests.length} pending ${incomingRequests.length === 1 ? "request" : "requests"}`}
+          {incomingRequests.length > 0 && matches && matches.length > 0 && " · "}
+          {matches && matches.length > 0 && `${matches.length} ${matches.length === 1 ? "connection" : "connections"}`}
+        </p>
       </div>
 
-      <div className="space-y-3">
-        {matches.map(match => (
-          <MatchChat key={match.id} match={match} />
-        ))}
-      </div>
+      {incomingRequests.length > 0 && (
+        <div className="space-y-3" data-testid="section-incoming-requests">
+          <div className="flex items-center gap-2">
+            <Sparkles className="w-4 h-4 text-primary" />
+            <h2 className="font-semibold text-sm">Incoming Requests</h2>
+            <Badge variant="secondary" className="text-xs">{incomingRequests.length}</Badge>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            These people found you through the Intention Wheel and sent you a message. Accept to start a conversation.
+          </p>
+          {incomingRequests.map(req => (
+            <SpinRequestCard key={req.id} request={req} type="incoming" />
+          ))}
+        </div>
+      )}
+
+      {outgoingPending.length > 0 && (
+        <div className="space-y-3" data-testid="section-outgoing-requests">
+          <div className="flex items-center gap-2">
+            <Send className="w-4 h-4 text-muted-foreground" />
+            <h2 className="font-semibold text-sm text-muted-foreground">Sent Requests</h2>
+            <Badge variant="outline" className="text-xs">{outgoingPending.length}</Badge>
+          </div>
+          {outgoingPending.map(req => (
+            <SpinRequestCard key={req.id} request={req} type="outgoing" />
+          ))}
+        </div>
+      )}
+
+      {matches && matches.length > 0 && (
+        <div className="space-y-3">
+          {(incomingRequests.length > 0 || outgoingPending.length > 0) && (
+            <div className="flex items-center gap-2">
+              <MessageCircle className="w-4 h-4 text-primary" />
+              <h2 className="font-semibold text-sm">Active Connections</h2>
+              <Badge variant="secondary" className="text-xs">{matches.length}</Badge>
+            </div>
+          )}
+          {matches.map(match => (
+            <MatchChat key={match.id} match={match} />
+          ))}
+        </div>
+      )}
     </div>
   );
 }

@@ -386,6 +386,82 @@ export async function registerRoutes(
     }
   });
 
+  app.post("/api/spin-requests", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const { toUserId, message } = req.body;
+
+      if (!toUserId || !message?.trim()) {
+        return res.status(400).json({ message: "Recipient and message are required" });
+      }
+
+      if (message.length > 500) {
+        return res.status(400).json({ message: "Message too long (500 char max)" });
+      }
+
+      const request = await storage.createSpinRequest(userId, toUserId, message.trim());
+      res.json(request);
+    } catch (error) {
+      console.error("Error creating spin request:", error);
+      res.status(500).json({ message: "Failed to send spin request" });
+    }
+  });
+
+  app.get("/api/spin-requests", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const incoming = await storage.getIncomingSpinRequests(userId);
+      const outgoing = await storage.getOutgoingSpinRequests(userId);
+      res.json({ incoming, outgoing });
+    } catch (error) {
+      console.error("Error fetching spin requests:", error);
+      res.status(500).json({ message: "Failed to fetch spin requests" });
+    }
+  });
+
+  app.post("/api/spin-requests/:id/respond", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const { id } = req.params;
+      const { accept } = req.body;
+
+      if (typeof accept !== "boolean") {
+        return res.status(400).json({ message: "accept must be true or false" });
+      }
+
+      const updated = await storage.respondToSpinRequest(id, userId, accept);
+      if (!updated) {
+        return res.status(404).json({ message: "Request not found or already handled" });
+      }
+
+      let matchCreated = false;
+      if (accept) {
+        const existingMatches = await storage.getMatchesForUser(userId);
+        const alreadyMatched = existingMatches.some(
+          m => m.user1Id === updated.fromUserId || m.user2Id === updated.fromUserId
+        );
+
+        if (!alreadyMatched) {
+          const match = await storage.createMatch(updated.fromUserId, updated.toUserId);
+
+          await storage.createMessage({
+            matchId: match.id,
+            senderId: updated.fromUserId,
+            content: updated.message,
+          });
+          await storage.incrementMessageCount(match.id, updated.fromUserId);
+
+          matchCreated = true;
+        }
+      }
+
+      res.json({ ...updated, matchCreated });
+    } catch (error) {
+      console.error("Error responding to spin request:", error);
+      res.status(500).json({ message: "Failed to respond to spin request" });
+    }
+  });
+
   await seedDatabase();
 
   return httpServer;

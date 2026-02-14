@@ -92,6 +92,18 @@ export const spinUsage = pgTable("spin_usage", {
   index("idx_spin_usage_user").on(table.userId),
 ]);
 
+export const spinRequests = pgTable("spin_requests", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  fromUserId: varchar("from_user_id").notNull(),
+  toUserId: varchar("to_user_id").notNull(),
+  message: text("message").notNull(),
+  status: text("status").notNull().default("pending"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_spin_requests_from").on(table.fromUserId),
+  index("idx_spin_requests_to").on(table.toUserId),
+]);
+
 export const insertMessageSchema = createInsertSchema(messages).omit({
   id: true,
   createdAt: true,
@@ -104,6 +116,7 @@ export type InsertInteraction = z.infer<typeof insertInteractionSchema>;
 export type Match = typeof matches.$inferSelect;
 export type Message = typeof messages.$inferSelect;
 export type InsertMessage = z.infer<typeof insertMessageSchema>;
+export type SpinRequest = typeof spinRequests.$inferSelect;
 
 export const SIGNALS = [
   "Emotionally Available",

@@ -2,8 +2,9 @@ import {
   type Profile, type InsertProfile,
   type Interaction, type InsertInteraction,
   type Match, type Message, type InsertMessage,
+  type SpinRequest,
   profiles, interactions, matches, messages,
-  spinStandouts, spinUsage,
+  spinStandouts, spinUsage, spinRequests,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, or, notInArray, sql, desc } from "drizzle-orm";
@@ -33,6 +34,11 @@ export interface IStorage {
   getSpinsThisWeek(userId: string): Promise<number>;
   recordSpin(userId: string): Promise<void>;
   getDailyLikeCount(userId: string): Promise<number>;
+  createSpinRequest(fromUserId: string, toUserId: string, message: string): Promise<SpinRequest>;
+  getIncomingSpinRequests(userId: string): Promise<(SpinRequest & { profile: Profile })[]>;
+  getOutgoingSpinRequests(userId: string): Promise<(SpinRequest & { profile: Profile })[]>;
+  respondToSpinRequest(requestId: string, userId: string, accept: boolean): Promise<SpinRequest | undefined>;
+  getSpinRequest(id: string): Promise<SpinRequest | undefined>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -357,6 +363,70 @@ export class DatabaseStorage implements IStorage {
         )
       );
     return result[0]?.count || 0;
+  }
+  async createSpinRequest(fromUserId: string, toUserId: string, message: string): Promise<SpinRequest> {
+    const [request] = await db
+      .insert(spinRequests)
+      .values({ fromUserId, toUserId, message, status: "pending" })
+      .returning();
+    return request;
+  }
+
+  async getIncomingSpinRequests(userId: string): Promise<(SpinRequest & { profile: Profile })[]> {
+    const requests = await db
+      .select()
+      .from(spinRequests)
+      .where(and(eq(spinRequests.toUserId, userId), eq(spinRequests.status, "pending")))
+      .orderBy(desc(spinRequests.createdAt));
+
+    const results: (SpinRequest & { profile: Profile })[] = [];
+    for (const req of requests) {
+      const [profile] = await db.select().from(profiles).where(eq(profiles.userId, req.fromUserId));
+      if (profile) {
+        results.push({ ...req, profile });
+      }
+    }
+    return results;
+  }
+
+  async getOutgoingSpinRequests(userId: string): Promise<(SpinRequest & { profile: Profile })[]> {
+    const requests = await db
+      .select()
+      .from(spinRequests)
+      .where(eq(spinRequests.fromUserId, userId))
+      .orderBy(desc(spinRequests.createdAt));
+
+    const results: (SpinRequest & { profile: Profile })[] = [];
+    for (const req of requests) {
+      const [profile] = await db.select().from(profiles).where(eq(profiles.userId, req.toUserId));
+      if (profile) {
+        results.push({ ...req, profile });
+      }
+    }
+    return results;
+  }
+
+  async respondToSpinRequest(requestId: string, userId: string, accept: boolean): Promise<SpinRequest | undefined> {
+    const [request] = await db
+      .select()
+      .from(spinRequests)
+      .where(and(eq(spinRequests.id, requestId), eq(spinRequests.toUserId, userId)));
+
+    if (!request || request.status !== "pending") return undefined;
+
+    const newStatus = accept ? "accepted" : "declined";
+    const [updated] = await db
+      .update(spinRequests)
+      .set({ status: newStatus })
+      .where(eq(spinRequests.id, requestId))
+      .returning();
+
+    return updated;
+  }
+
+  async getSpinRequest(id: string): Promise<SpinRequest | undefined> {
+    const [request] = await db.select().from(spinRequests).where(eq(spinRequests.id, id));
+    return request;
   }
 }
 
