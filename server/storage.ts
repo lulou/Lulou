@@ -193,6 +193,9 @@ export class DatabaseStorage implements IStorage {
     const [match] = await db.select().from(matches).where(eq(matches.id, matchId));
     if (!match) return undefined;
     if (match.user1Id !== userId && match.user2Id !== userId) return undefined;
+    const stage = match.callStage || 0;
+    if (stage >= 3) return undefined;
+    if (stage === 2 && !(match.faceCallUser1Accepted && match.faceCallUser2Accepted)) return undefined;
     const [updated] = await db
       .update(matches)
       .set({ callStartedAt: new Date(), callInitiatorId: userId, callAnswered: false, callCompleted: false })
@@ -238,7 +241,9 @@ export class DatabaseStorage implements IStorage {
         .returning();
       return updated;
     }
-    const nextStage = (match.callStage || 0) + 1;
+    const currentStage = match.callStage || 0;
+    if (currentStage >= 3) return undefined;
+    const nextStage = Math.min(currentStage + 1, 3);
     const [updated] = await db
       .update(matches)
       .set({
@@ -257,7 +262,7 @@ export class DatabaseStorage implements IStorage {
     const [match] = await db.select().from(matches).where(eq(matches.id, matchId));
     if (!match) return undefined;
     if (match.user1Id !== userId && match.user2Id !== userId) return undefined;
-    if ((match.callStage || 0) < 2) return undefined;
+    if ((match.callStage || 0) !== 2) return undefined;
 
     const updates: Record<string, any> = {};
     if (match.user1Id === userId) {
@@ -278,6 +283,7 @@ export class DatabaseStorage implements IStorage {
     const [match] = await db.select().from(matches).where(eq(matches.id, matchId));
     if (!match) return undefined;
     if (match.user1Id !== userId && match.user2Id !== userId) return undefined;
+    if ((match.callStage || 0) !== 2) return undefined;
 
     const [updated] = await db
       .update(matches)
