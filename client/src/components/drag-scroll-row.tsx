@@ -2,8 +2,10 @@ import { useRef, useEffect, useCallback } from "react";
 
 export function DragScrollRow({ children, className = "" }: { children: React.ReactNode; className?: string }) {
   const ref = useRef<HTMLDivElement>(null);
-  const isDragging = useRef(false);
+  const isPointerDown = useRef(false);
+  const committed = useRef(false);
   const startX = useRef(0);
+  const startY = useRef(0);
   const scrollLeftStart = useRef(0);
   const lastX = useRef(0);
   const lastTime = useRef(0);
@@ -23,39 +25,44 @@ export function DragScrollRow({ children, className = "" }: { children: React.Re
   }, []);
 
   const handlePointerDown = (e: React.PointerEvent) => {
+    if (e.pointerType === "touch") return;
     const el = ref.current;
     if (!el) return;
     cancelAnimationFrame(animFrame.current);
     velocity.current = 0;
-    isDragging.current = true;
+    isPointerDown.current = true;
+    committed.current = false;
     startX.current = e.clientX;
+    startY.current = e.clientY;
     lastX.current = e.clientX;
     lastTime.current = Date.now();
     scrollLeftStart.current = el.scrollLeft;
     el.style.cursor = "grabbing";
-    el.setPointerCapture(e.pointerId);
   };
 
   const handlePointerMove = (e: React.PointerEvent) => {
-    if (!isDragging.current || !ref.current) return;
+    if (!isPointerDown.current || !ref.current || e.pointerType === "touch") return;
+    if (!committed.current) {
+      const dx = Math.abs(e.clientX - startX.current);
+      const dy = Math.abs(e.clientY - startY.current);
+      if (dy > dx) { isPointerDown.current = false; return; }
+      if (dx < 5) return;
+      committed.current = true;
+    }
     const now = Date.now();
     const dt = now - lastTime.current;
     const dx = e.clientX - lastX.current;
-    if (dt > 0) {
-      velocity.current = (dx / dt) * 16;
-    }
+    if (dt > 0) velocity.current = (dx / dt) * 16;
     lastX.current = e.clientX;
     lastTime.current = now;
     const totalDx = e.clientX - startX.current;
     ref.current.scrollLeft = scrollLeftStart.current - totalDx;
   };
 
-  const handlePointerUp = (e: React.PointerEvent) => {
-    isDragging.current = false;
-    if (ref.current) {
-      ref.current.style.cursor = "grab";
-      ref.current.releasePointerCapture(e.pointerId);
-    }
+  const handlePointerUp = () => {
+    isPointerDown.current = false;
+    committed.current = false;
+    if (ref.current) ref.current.style.cursor = "grab";
     if (Math.abs(velocity.current) > 1) {
       animFrame.current = requestAnimationFrame(glide);
     }
@@ -68,8 +75,7 @@ export function DragScrollRow({ children, className = "" }: { children: React.Re
   return (
     <div
       ref={ref}
-      className={`flex gap-2 overflow-x-auto scrollbar-hide cursor-grab select-none ${className}`}
-      style={{ WebkitOverflowScrolling: "touch" }}
+      className={`flex gap-2 overflow-x-auto scrollbar-hide cursor-grab select-none touch-pan-y ${className}`}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}

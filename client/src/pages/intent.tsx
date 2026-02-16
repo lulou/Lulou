@@ -79,19 +79,33 @@ export default function IntentPage() {
     animFrame.current = requestAnimationFrame(glide);
   }, []);
 
+  const committedDrag = useRef(false);
+  const startY = useRef(0);
+
   const handlePointerDown = (e: React.PointerEvent) => {
     if (isSpinning || dispersed) return;
     cancelAnimationFrame(animFrame.current);
     velocity.current = 0;
     isDragging.current = true;
+    committedDrag.current = false;
     startX.current = e.clientX;
+    startY.current = e.clientY;
     lastX.current = e.clientX;
     lastTime.current = Date.now();
-    (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
   };
 
   const handlePointerMove = (e: React.PointerEvent) => {
     if (!isDragging.current) return;
+    if (!committedDrag.current) {
+      const adx = Math.abs(e.clientX - startX.current);
+      const ady = Math.abs(e.clientY - startY.current);
+      if (ady > adx) { isDragging.current = false; return; }
+      if (adx < 8) return;
+      committedDrag.current = true;
+      if (e.pointerType === "touch") {
+        e.preventDefault();
+      }
+    }
     const now = Date.now();
     const dt = now - lastTime.current;
     const dx = e.clientX - lastX.current;
@@ -102,9 +116,9 @@ export default function IntentPage() {
     setAngle(angleRef.current);
   };
 
-  const handlePointerUp = (e: React.PointerEvent) => {
+  const handlePointerUp = () => {
     isDragging.current = false;
-    (e.target as HTMLElement).releasePointerCapture?.(e.pointerId);
+    committedDrag.current = false;
     if (Math.abs(velocity.current) > 0.2) {
       animFrame.current = requestAnimationFrame(glide);
     }
@@ -292,7 +306,7 @@ export default function IntentPage() {
 
       <div className="flex-1 flex flex-col items-center justify-center gap-4 overflow-hidden">
         <div
-          className="relative select-none touch-none"
+          className="relative select-none touch-manipulation"
           style={{
             width: "100%",
             height: ITEM_HEIGHT + 140,

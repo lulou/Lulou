@@ -57,30 +57,40 @@ function PhotoBubbles({ photos, name, onOpen, isOpenPending }: { photos: string[
     animFrame.current = requestAnimationFrame(glide);
   }, [updateFocused]);
 
+  const committed = useRef(false);
+  const startY = useRef(0);
+
   const handlePointerDown = (e: React.PointerEvent) => {
     const target = e.target as HTMLElement;
     if (target.closest("[data-testid='button-open']")) return;
+    if (e.pointerType === "touch") return;
     const el = scrollRef.current;
     if (!el) return;
     cancelAnimationFrame(animFrame.current);
     velocity.current = 0;
     isDragging.current = true;
+    committed.current = false;
     startX.current = e.clientX;
+    startY.current = e.clientY;
     lastX.current = e.clientX;
     lastTime.current = Date.now();
     scrollLeftStart.current = el.scrollLeft;
     el.style.cursor = "grabbing";
-    el.setPointerCapture(e.pointerId);
   };
 
   const handlePointerMove = (e: React.PointerEvent) => {
-    if (!isDragging.current || !scrollRef.current) return;
+    if (!isDragging.current || !scrollRef.current || e.pointerType === "touch") return;
+    if (!committed.current) {
+      const adx = Math.abs(e.clientX - startX.current);
+      const ady = Math.abs(e.clientY - startY.current);
+      if (ady > adx) { isDragging.current = false; return; }
+      if (adx < 5) return;
+      committed.current = true;
+    }
     const now = Date.now();
     const dt = now - lastTime.current;
     const dx = e.clientX - lastX.current;
-    if (dt > 0) {
-      velocity.current = dx / dt * 16;
-    }
+    if (dt > 0) velocity.current = dx / dt * 16;
     lastX.current = e.clientX;
     lastTime.current = now;
     const totalDx = e.clientX - startX.current;
@@ -88,12 +98,10 @@ function PhotoBubbles({ photos, name, onOpen, isOpenPending }: { photos: string[
     updateFocused();
   };
 
-  const handlePointerUp = (e: React.PointerEvent) => {
+  const handlePointerUp = () => {
     isDragging.current = false;
-    if (scrollRef.current) {
-      scrollRef.current.style.cursor = "grab";
-      scrollRef.current.releasePointerCapture(e.pointerId);
-    }
+    committed.current = false;
+    if (scrollRef.current) scrollRef.current.style.cursor = "grab";
     if (Math.abs(velocity.current) > 1) {
       animFrame.current = requestAnimationFrame(glide);
     } else {
@@ -143,7 +151,6 @@ function PhotoBubbles({ photos, name, onOpen, isOpenPending }: { photos: string[
       <div
         ref={scrollRef}
         className="overflow-x-auto scrollbar-hide cursor-grab select-none touch-pan-y"
-        style={{ WebkitOverflowScrolling: "touch" }}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
@@ -227,6 +234,9 @@ function SlideCards({ items, type, onReply }: { items: string[]; type: "starter"
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
   const [reply, setReply] = useState("");
 
+  const startY = useRef(0);
+  const committed = useRef(false);
+
   const glide = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;
@@ -240,22 +250,32 @@ function SlideCards({ items, type, onReply }: { items: string[]; type: "starter"
   }, []);
 
   const handlePointerDown = (e: React.PointerEvent) => {
+    if (e.pointerType === "touch") return;
     const el = scrollRef.current;
     if (!el) return;
     cancelAnimationFrame(animFrame.current);
     velocity.current = 0;
     isDragging.current = true;
     didDrag.current = false;
+    committed.current = false;
     startX.current = e.clientX;
+    startY.current = e.clientY;
     lastX.current = e.clientX;
     lastTime.current = Date.now();
     scrollLeftStart.current = el.scrollLeft;
     el.style.cursor = "grabbing";
-    el.setPointerCapture(e.pointerId);
   };
 
   const handlePointerMove = (e: React.PointerEvent) => {
-    if (!isDragging.current || !scrollRef.current) return;
+    if (!isDragging.current || !scrollRef.current || e.pointerType === "touch") return;
+    if (!committed.current) {
+      const adx = Math.abs(e.clientX - startX.current);
+      const ady = Math.abs(e.clientY - startY.current);
+      if (ady > adx) { isDragging.current = false; return; }
+      if (adx < 5) return;
+      committed.current = true;
+    }
+    didDrag.current = true;
     const now = Date.now();
     const dt = now - lastTime.current;
     const dx = e.clientX - lastX.current;
@@ -263,16 +283,13 @@ function SlideCards({ items, type, onReply }: { items: string[]; type: "starter"
     lastX.current = e.clientX;
     lastTime.current = now;
     const totalDx = e.clientX - startX.current;
-    if (Math.abs(totalDx) > 5) didDrag.current = true;
     scrollRef.current.scrollLeft = scrollLeftStart.current - totalDx;
   };
 
-  const handlePointerUp = (e: React.PointerEvent) => {
+  const handlePointerUp = () => {
     isDragging.current = false;
-    if (scrollRef.current) {
-      scrollRef.current.style.cursor = "grab";
-      scrollRef.current.releasePointerCapture(e.pointerId);
-    }
+    committed.current = false;
+    if (scrollRef.current) scrollRef.current.style.cursor = "grab";
     if (Math.abs(velocity.current) > 1) {
       animFrame.current = requestAnimationFrame(glide);
     }
@@ -302,7 +319,6 @@ function SlideCards({ items, type, onReply }: { items: string[]; type: "starter"
       <div
         ref={scrollRef}
         className="overflow-x-auto scrollbar-hide select-none touch-pan-y cursor-grab"
-        style={{ WebkitOverflowScrolling: "touch" }}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
