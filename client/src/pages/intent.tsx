@@ -606,18 +606,49 @@ export default function IntentPage() {
                   </div>
                   <div className="space-y-2">
                     {selectedProfile.conversationStarters.map((starter, i) => (
-                      <div
-                        key={i}
-                        className={`rounded-md p-3 text-sm cursor-pointer transition-all bg-muted/50 hover-elevate ${replyingTo === starter ? "ring-2 ring-primary/40" : ""}`}
-                        onClick={() => {
-                          setReplyingTo(replyingTo === starter ? null : starter);
-                          setMessage("");
-                          setTimeout(() => messageInputRef.current?.focus(), 100);
-                        }}
-                        data-testid={`text-detail-starter-${i}`}
-                      >
-                        <p className="italic">"{starter}"</p>
-                        <p className="text-xs text-primary mt-1.5 font-medium">Tap to reply</p>
+                      <div key={i} className="space-y-2">
+                        <div
+                          className={`rounded-md p-3 text-sm cursor-pointer transition-all bg-muted/50 hover-elevate ${replyingTo === `starter-${i}` ? "ring-2 ring-primary/40" : ""}`}
+                          onClick={() => {
+                            setReplyingTo(replyingTo === `starter-${i}` ? null : `starter-${i}`);
+                            setMessage("");
+                          }}
+                          data-testid={`text-detail-starter-${i}`}
+                        >
+                          <p className="italic">"{starter}"</p>
+                          <p className="text-xs text-primary mt-1.5 font-medium">Tap to reply</p>
+                        </div>
+                        {replyingTo === `starter-${i}` && (
+                          <div className="flex gap-2 items-end">
+                            <Input
+                              autoFocus
+                              value={message}
+                              onChange={e => setMessage(e.target.value.slice(0, 500))}
+                              placeholder="Reply to this..."
+                              className="text-sm"
+                              onKeyDown={e => {
+                                if (e.key === "Enter" && message.trim()) {
+                                  const fullMsg = `Re: "${starter}"\n\n${message.trim()}`;
+                                  sendSpinRequest.mutate({ toUserId: selectedProfile.userId, msg: fullMsg });
+                                }
+                              }}
+                              data-testid={`input-reply-starter-${i}`}
+                            />
+                            <Button
+                              size="icon"
+                              disabled={!message.trim() || sendSpinRequest.isPending}
+                              onClick={() => {
+                                if (message.trim()) {
+                                  const fullMsg = `Re: "${starter}"\n\n${message.trim()}`;
+                                  sendSpinRequest.mutate({ toUserId: selectedProfile.userId, msg: fullMsg });
+                                }
+                              }}
+                              data-testid={`button-reply-starter-${i}`}
+                            >
+                              <Send className="w-4 h-4" />
+                            </Button>
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -632,18 +663,49 @@ export default function IntentPage() {
                   </div>
                   <div className="space-y-2">
                     {selectedProfile.questions.map((question, i) => (
-                      <div
-                        key={i}
-                        className={`rounded-md p-3 text-sm cursor-pointer transition-all border hover-elevate ${replyingTo === question ? "ring-2 ring-primary/40" : ""}`}
-                        onClick={() => {
-                          setReplyingTo(replyingTo === question ? null : question);
-                          setMessage("");
-                          setTimeout(() => messageInputRef.current?.focus(), 100);
-                        }}
-                        data-testid={`text-detail-question-${i}`}
-                      >
-                        <p>{question}</p>
-                        <p className="text-xs text-primary mt-1.5 font-medium">Tap to answer</p>
+                      <div key={i} className="space-y-2">
+                        <div
+                          className={`rounded-md p-3 text-sm cursor-pointer transition-all border hover-elevate ${replyingTo === `question-${i}` ? "ring-2 ring-primary/40" : ""}`}
+                          onClick={() => {
+                            setReplyingTo(replyingTo === `question-${i}` ? null : `question-${i}`);
+                            setMessage("");
+                          }}
+                          data-testid={`text-detail-question-${i}`}
+                        >
+                          <p>{question}</p>
+                          <p className="text-xs text-primary mt-1.5 font-medium">Tap to answer</p>
+                        </div>
+                        {replyingTo === `question-${i}` && (
+                          <div className="flex gap-2 items-end">
+                            <Input
+                              autoFocus
+                              value={message}
+                              onChange={e => setMessage(e.target.value.slice(0, 500))}
+                              placeholder="Share your answer..."
+                              className="text-sm"
+                              onKeyDown={e => {
+                                if (e.key === "Enter" && message.trim()) {
+                                  const fullMsg = `Re: "${question}"\n\n${message.trim()}`;
+                                  sendSpinRequest.mutate({ toUserId: selectedProfile.userId, msg: fullMsg });
+                                }
+                              }}
+                              data-testid={`input-reply-question-${i}`}
+                            />
+                            <Button
+                              size="icon"
+                              disabled={!message.trim() || sendSpinRequest.isPending}
+                              onClick={() => {
+                                if (message.trim()) {
+                                  const fullMsg = `Re: "${question}"\n\n${message.trim()}`;
+                                  sendSpinRequest.mutate({ toUserId: selectedProfile.userId, msg: fullMsg });
+                                }
+                              }}
+                              data-testid={`button-reply-question-${i}`}
+                            >
+                              <Send className="w-4 h-4" />
+                            </Button>
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -670,37 +732,18 @@ export default function IntentPage() {
           </div>
 
           <div className="absolute bottom-0 left-0 right-0 bg-background/95 backdrop-blur-md border-t p-4 space-y-2">
-            {replyingTo ? (
-              <div className="flex items-start gap-2">
-                <div className="flex-1 min-w-0 bg-muted/60 rounded-md px-3 py-1.5">
-                  <p className="text-[10px] text-primary font-medium uppercase tracking-wider">Replying to</p>
-                  <p className="text-xs text-muted-foreground truncate">{replyingTo}</p>
-                </div>
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  className="flex-shrink-0"
-                  onClick={() => { setReplyingTo(null); setMessage(""); }}
-                  data-testid="button-clear-reply"
-                >
-                  <X className="w-3.5 h-3.5" />
-                </Button>
-              </div>
-            ) : (
-              <p className="text-xs text-muted-foreground">
-                Write a message to {selectedProfile.firstName} or tap a prompt above
-              </p>
-            )}
+            <p className="text-xs text-muted-foreground">
+              Send a message or tap a prompt above to reply
+            </p>
             <div className="flex items-center gap-2">
               <Input
                 ref={messageInputRef}
-                placeholder={replyingTo ? `Your reply...` : `Say something meaningful to ${selectedProfile.firstName}...`}
+                placeholder={`Say something meaningful to ${selectedProfile.firstName}...`}
                 value={message}
                 onChange={e => setMessage(e.target.value.slice(0, 500))}
                 onKeyDown={e => {
                   if (e.key === "Enter" && message.trim()) {
-                    const fullMsg = replyingTo ? `Re: "${replyingTo}"\n\n${message.trim()}` : message.trim();
-                    sendSpinRequest.mutate({ toUserId: selectedProfile.userId, msg: fullMsg });
+                    sendSpinRequest.mutate({ toUserId: selectedProfile.userId, msg: message.trim() });
                   }
                 }}
                 className="flex-1"
@@ -711,8 +754,7 @@ export default function IntentPage() {
                 disabled={!message.trim() || sendSpinRequest.isPending}
                 onClick={() => {
                   if (message.trim()) {
-                    const fullMsg = replyingTo ? `Re: "${replyingTo}"\n\n${message.trim()}` : message.trim();
-                    sendSpinRequest.mutate({ toUserId: selectedProfile.userId, msg: fullMsg });
+                    sendSpinRequest.mutate({ toUserId: selectedProfile.userId, msg: message.trim() });
                   }
                 }}
                 data-testid="button-intent-send"
