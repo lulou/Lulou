@@ -25,7 +25,12 @@ Bloom is a calm, premium dating app focused on helping people move from matching
 - Mutual matching system
 - Matches page with expandable inline chatrooms per match card
 - Limited messaging (15 messages per person, 500 chars max)
-- Call prompt after message limit
+- Multi-call progression after message limit:
+  1. First voice call (10 minutes) - prompted after 15 messages
+  2. Second voice call (15 minutes) - prompted after first call
+  3. Optional face/video call (10 minutes) - both users must accept; either can skip
+- Call stages tracked via `callStage` (0=pre-call, 1=first done, 2=second done, 3=face done/skipped)
+- Face call requires mutual acceptance (`faceCallUser1Accepted`, `faceCallUser2Accepted`)
 - Profile page shows age, height, location, adjustable search radius
 - Profile sections: Bloom Extras (subscriptions), Safety, Bloom Me (photo verification badge), Help Centre, What Works (dating tips)
 - Location radius (5-100 miles) configurable in onboarding and profile
@@ -75,3 +80,9 @@ Bloom is a calm, premium dating app focused on helping people move from matching
 - `GET /api/popular` - Get top 10 most popular profiles (by opens received)
 - `GET /api/spin-status` - Get spin eligibility (spins today/week, daily likes, canSpin)
 - `POST /api/spin` - Record a spin and standout (server-side eligibility enforced)
+- `POST /api/matches/:id/call/start` - Start a call (voice or face)
+- `POST /api/matches/:id/call/answer` - Answer an incoming call
+- `POST /api/matches/:id/call/cancel` - Cancel a ringing call
+- `POST /api/matches/:id/call/complete` - Complete call and advance callStage
+- `POST /api/matches/:id/face-call/accept` - Accept optional face call (after 2nd voice call)
+- `POST /api/matches/:id/face-call/decline` - Decline/skip face call (advances to stage 3)

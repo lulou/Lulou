@@ -27,6 +27,8 @@ export interface IStorage {
   answerCall(matchId: string, userId: string): Promise<Match | undefined>;
   cancelCall(matchId: string, userId: string): Promise<Match | undefined>;
   completeCall(matchId: string, userId: string): Promise<Match | undefined>;
+  acceptFaceCall(matchId: string, userId: string): Promise<Match | undefined>;
+  declineFaceCall(matchId: string, userId: string): Promise<Match | undefined>;
   getPopularProfiles(limit?: number, preference?: string): Promise<Profile[]>;
   getSpinStandouts(userId: string): Promise<string[]>;
   addSpinStandout(userId: string, standoutUserId: string): Promise<void>;
@@ -236,9 +238,54 @@ export class DatabaseStorage implements IStorage {
         .returning();
       return updated;
     }
+    const nextStage = (match.callStage || 0) + 1;
     const [updated] = await db
       .update(matches)
-      .set({ callCompleted: true })
+      .set({
+        callCompleted: false,
+        callStartedAt: null,
+        callInitiatorId: null,
+        callAnswered: false,
+        callStage: nextStage,
+      })
+      .where(eq(matches.id, matchId))
+      .returning();
+    return updated;
+  }
+
+  async acceptFaceCall(matchId: string, userId: string): Promise<Match | undefined> {
+    const [match] = await db.select().from(matches).where(eq(matches.id, matchId));
+    if (!match) return undefined;
+    if (match.user1Id !== userId && match.user2Id !== userId) return undefined;
+    if ((match.callStage || 0) < 2) return undefined;
+
+    const updates: Record<string, any> = {};
+    if (match.user1Id === userId) {
+      updates.faceCallUser1Accepted = true;
+    } else {
+      updates.faceCallUser2Accepted = true;
+    }
+
+    const [updated] = await db
+      .update(matches)
+      .set(updates)
+      .where(eq(matches.id, matchId))
+      .returning();
+    return updated;
+  }
+
+  async declineFaceCall(matchId: string, userId: string): Promise<Match | undefined> {
+    const [match] = await db.select().from(matches).where(eq(matches.id, matchId));
+    if (!match) return undefined;
+    if (match.user1Id !== userId && match.user2Id !== userId) return undefined;
+
+    const [updated] = await db
+      .update(matches)
+      .set({
+        callStage: 3,
+        faceCallUser1Accepted: false,
+        faceCallUser2Accepted: false,
+      })
       .where(eq(matches.id, matchId))
       .returning();
     return updated;

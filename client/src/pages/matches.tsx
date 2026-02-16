@@ -9,13 +9,18 @@ import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
-import { MessageCircle, Send, Phone, ChevronDown, ChevronUp, PhoneOff, Clock, Check, X, Sparkles } from "lucide-react";
+import { MessageCircle, Send, Phone, Video, ChevronDown, ChevronUp, PhoneOff, Clock, Check, X, Sparkles } from "lucide-react";
 import { BloomFlowerIcon } from "@/components/app-layout";
 import type { Profile, Match, Message, SpinRequest } from "@shared/schema";
 
 const MAX_MESSAGES_PER_USER = 15;
 const MAX_CHARS = 500;
-const CALL_DURATION_SECONDS = 10 * 60;
+
+const CALL_DURATIONS = [10 * 60, 15 * 60, 10 * 60];
+
+function getCallDuration(stage: number): number {
+  return CALL_DURATIONS[stage] || CALL_DURATIONS[0];
+}
 
 type MatchWithProfile = Match & { profile: Profile };
 type MatchDetail = Match & { profile: Profile; messages: Message[] };
@@ -31,11 +36,15 @@ function formatTime(seconds: number): string {
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
-function CallTimer({ match, onComplete }: { match: MatchDetail; onComplete: () => void }) {
+function CallTimer({ match, onComplete, isFaceCall }: { match: MatchDetail; onComplete: () => void; isFaceCall?: boolean }) {
+  const callStage = match.callStage || 0;
+  const duration = getCallDuration(callStage);
+  const CallIcon = isFaceCall ? Video : Phone;
+
   const [remaining, setRemaining] = useState(() => {
-    if (!match.callStartedAt) return CALL_DURATION_SECONDS;
+    if (!match.callStartedAt) return duration;
     const elapsed = Math.floor((Date.now() - new Date(match.callStartedAt).getTime()) / 1000);
-    return Math.max(0, CALL_DURATION_SECONDS - elapsed);
+    return Math.max(0, duration - elapsed);
   });
 
   useEffect(() => {
@@ -52,8 +61,15 @@ function CallTimer({ match, onComplete }: { match: MatchDetail; onComplete: () =
     return () => clearInterval(interval);
   }, [remaining]);
 
-  const progress = remaining / CALL_DURATION_SECONDS;
+  const progress = remaining / duration;
   const isLow = remaining <= 60;
+
+  const stageLabel = isFaceCall ? "Face call" : callStage === 0 ? "First call" : "Second call";
+  const completeMessage = callStage === 0
+    ? "Great first call! Ready for a longer conversation?"
+    : callStage === 1
+    ? "Wonderful second call! Would you like to see each other face-to-face?"
+    : "Amazing face call! Ready to meet in real life?";
 
   return (
     <div className="p-5 border-t" data-testid={`call-timer-${match.id}`}>
@@ -72,7 +88,7 @@ function CallTimer({ match, onComplete }: { match: MatchDetail; onComplete: () =
             />
           </svg>
           <div className="absolute inset-0 flex flex-col items-center justify-center">
-            <Phone className={`w-5 h-5 mb-1 ${isLow ? "text-destructive" : "text-primary"}`} />
+            <CallIcon className={`w-5 h-5 mb-1 ${isLow ? "text-destructive" : "text-primary"}`} />
             <span className={`text-xl font-bold tabular-nums ${isLow ? "text-destructive" : ""}`} data-testid={`text-timer-${match.id}`}>
               {formatTime(remaining)}
             </span>
@@ -81,7 +97,7 @@ function CallTimer({ match, onComplete }: { match: MatchDetail; onComplete: () =
 
         {remaining > 0 ? (
           <div className="space-y-2">
-            <p className="font-medium text-sm">Call in progress</p>
+            <p className="font-medium text-sm">{stageLabel} in progress</p>
             <p className="text-xs text-muted-foreground">
               {remaining <= 60
                 ? "Less than a minute remaining"
@@ -99,9 +115,7 @@ function CallTimer({ match, onComplete }: { match: MatchDetail; onComplete: () =
         ) : (
           <div className="space-y-2">
             <p className="font-medium text-sm">Time's up!</p>
-            <p className="text-xs text-muted-foreground">
-              How was the conversation? Ready to meet in person?
-            </p>
+            <p className="text-xs text-muted-foreground">{completeMessage}</p>
             <Button
               size="sm"
               onClick={onComplete}
@@ -286,10 +300,41 @@ function MatchChat({ match }: { match: MatchWithProfile }) {
       const res = await apiRequest("POST", `/api/matches/${match.id}/call/complete`, {});
       return res.json();
     },
+    onSuccess: (data: any) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/matches", match.id] });
+      queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
+      const stage = data.callStage || 0;
+      if (stage === 1) {
+        toast({ title: "First call completed", description: "Ready for a longer 15-minute call?" });
+      } else if (stage === 2) {
+        toast({ title: "Second call completed", description: "Would you like a face-to-face call?" });
+      } else {
+        toast({ title: "Call completed", description: "Great conversation! Ready to meet in person?" });
+      }
+    },
+  });
+
+  const acceptFaceCall = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", `/api/matches/${match.id}/face-call/accept`, {});
+      return res.json();
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/matches", match.id] });
       queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
-      toast({ title: "Call completed", description: "Great conversation! Consider meeting in person." });
+      toast({ title: "Face call accepted", description: "Waiting for them to accept too..." });
+    },
+  });
+
+  const declineFaceCall = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", `/api/matches/${match.id}/face-call/decline`, {});
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/matches", match.id] });
+      queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
+      toast({ title: "Face call skipped", description: "No worries - you can always meet in person instead." });
     },
   });
 
@@ -304,9 +349,14 @@ function MatchChat({ match }: { match: MatchWithProfile }) {
   const messagesRemaining = MAX_MESSAGES_PER_USER - myMessages.length;
   const isLimitReached = messagesRemaining <= 0;
   const allMessages = matchDetail?.messages || [];
+  const callStage = detail.callStage || 0;
   const isCallRinging = detail.callStartedAt && !detail.callAnswered && !detail.callCompleted;
   const isCallActive = detail.callStartedAt && detail.callAnswered && !detail.callCompleted;
-  const isCallDone = detail.callCompleted;
+  const allCallsDone = callStage >= 3;
+  const isFaceCallStage = callStage === 2;
+  const myFaceCallAccepted = detail.user1Id === user?.id ? detail.faceCallUser1Accepted : detail.faceCallUser2Accepted;
+  const theirFaceCallAccepted = detail.user1Id === user?.id ? detail.faceCallUser2Accepted : detail.faceCallUser1Accepted;
+  const bothAcceptedFaceCall = detail.faceCallUser1Accepted && detail.faceCallUser2Accepted;
 
   return (
     <Card className="overflow-hidden" data-testid={`card-match-${match.id}`}>
@@ -361,7 +411,7 @@ function MatchChat({ match }: { match: MatchWithProfile }) {
           <div className="flex items-center justify-between gap-2 px-4 py-2 bg-muted/30">
             <p className="text-xs text-muted-foreground font-medium">Chat</p>
             <Badge variant="outline" className="text-xs" data-testid={`badge-messages-remaining-${match.id}`}>
-              {isCallDone ? "Call completed" : messagesRemaining > 0 ? `${messagesRemaining} left` : "Limit reached"}
+              {allCallsDone ? "All calls done" : callStage === 2 ? "Face call stage" : callStage === 1 ? "2nd call ready" : messagesRemaining > 0 ? `${messagesRemaining} left` : "Call time"}
             </Badge>
           </div>
 
@@ -402,7 +452,11 @@ function MatchChat({ match }: { match: MatchWithProfile }) {
                   <div className="absolute inset-0 rounded-full bg-primary/10 animate-ping" />
                   <div className="absolute inset-0 flex items-center justify-center">
                     <div className="w-16 h-16 rounded-full bg-primary/15 flex items-center justify-center">
-                      <Phone className="w-6 h-6 text-primary animate-pulse" />
+                      {isFaceCallStage && bothAcceptedFaceCall ? (
+                        <Video className="w-6 h-6 text-primary animate-pulse" />
+                      ) : (
+                        <Phone className="w-6 h-6 text-primary animate-pulse" />
+                      )}
                     </div>
                   </div>
                 </div>
@@ -423,13 +477,93 @@ function MatchChat({ match }: { match: MatchWithProfile }) {
               </div>
             </div>
           ) : isCallActive && matchDetail ? (
-            <CallTimer match={matchDetail} onComplete={() => completeCall.mutate()} />
-          ) : isCallDone ? (
+            <CallTimer match={matchDetail} onComplete={() => completeCall.mutate()} isFaceCall={isFaceCallStage && !!bothAcceptedFaceCall} />
+          ) : allCallsDone ? (
             <div className="p-4 border-t">
               <Card className="p-4 text-center space-y-2 bg-primary/5 border-primary/20">
+                <Check className="w-5 h-5 text-primary mx-auto" />
+                <p className="font-medium text-sm">All calls completed</p>
+                <p className="text-xs text-muted-foreground">You've had wonderful conversations. Ready to meet in real life?</p>
+              </Card>
+            </div>
+          ) : isFaceCallStage && !bothAcceptedFaceCall ? (
+            <div className="p-4 border-t">
+              <Card className="p-4 text-center space-y-3 bg-primary/5 border-primary/20">
+                <Video className="w-5 h-5 text-primary mx-auto" />
+                {myFaceCallAccepted ? (
+                  <>
+                    <p className="font-medium text-sm">You're in for a face call</p>
+                    <p className="text-xs text-muted-foreground">
+                      Waiting for {match.profile.firstName} to accept the face call...
+                    </p>
+                    <Badge variant="secondary" className="text-xs mx-auto" data-testid={`badge-face-call-waiting-${match.id}`}>
+                      <Clock className="w-3 h-3 mr-1" /> Waiting for response
+                    </Badge>
+                  </>
+                ) : (
+                  <>
+                    <p className="font-medium text-sm">Ready to see each other?</p>
+                    <p className="text-xs text-muted-foreground">
+                      After two great calls, you can opt into a 10-minute face-to-face video call. Both of you need to accept.
+                    </p>
+                    {theirFaceCallAccepted && (
+                      <Badge variant="secondary" className="text-xs mx-auto">
+                        {match.profile.firstName} has accepted
+                      </Badge>
+                    )}
+                    <div className="flex items-center gap-2 justify-center">
+                      <Button
+                        size="sm"
+                        onClick={() => acceptFaceCall.mutate()}
+                        disabled={acceptFaceCall.isPending}
+                        data-testid={`button-accept-face-call-${match.id}`}
+                      >
+                        <Video className="w-4 h-4 mr-2" /> {acceptFaceCall.isPending ? "Accepting..." : "Accept Face Call"}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => declineFaceCall.mutate()}
+                        disabled={declineFaceCall.isPending}
+                        data-testid={`button-decline-face-call-${match.id}`}
+                      >
+                        Skip
+                      </Button>
+                    </div>
+                  </>
+                )}
+              </Card>
+            </div>
+          ) : isFaceCallStage && bothAcceptedFaceCall ? (
+            <div className="p-4 border-t">
+              <Card className="p-4 text-center space-y-3 bg-primary/5 border-primary/20">
+                <Video className="w-5 h-5 text-primary mx-auto" />
+                <p className="font-medium text-sm">You both accepted the face call</p>
+                <p className="text-xs text-muted-foreground">Start your 10-minute face-to-face video call whenever you're ready.</p>
+                <Button
+                  size="sm"
+                  onClick={() => startCall.mutate()}
+                  disabled={startCall.isPending}
+                  data-testid={`button-start-face-call-${match.id}`}
+                >
+                  <Video className="w-4 h-4 mr-2" /> {startCall.isPending ? "Starting..." : "Start Face Call"}
+                </Button>
+              </Card>
+            </div>
+          ) : callStage === 1 ? (
+            <div className="p-4 border-t">
+              <Card className="p-4 text-center space-y-3 bg-primary/5 border-primary/20">
                 <Phone className="w-5 h-5 text-primary mx-auto" />
-                <p className="font-medium text-sm">Call completed</p>
-                <p className="text-xs text-muted-foreground">Great conversation! Ready to meet in real life?</p>
+                <p className="font-medium text-sm">First call went great!</p>
+                <p className="text-xs text-muted-foreground">Ready for a longer 15-minute call to go deeper?</p>
+                <Button
+                  size="sm"
+                  onClick={() => startCall.mutate()}
+                  disabled={startCall.isPending}
+                  data-testid={`button-second-call-${match.id}`}
+                >
+                  <Phone className="w-4 h-4 mr-2" /> {startCall.isPending ? "Starting..." : "Start Second Call"}
+                </Button>
               </Card>
             </div>
           ) : isLimitReached ? (
@@ -437,14 +571,14 @@ function MatchChat({ match }: { match: MatchWithProfile }) {
               <Card className="p-4 text-center space-y-3 bg-primary/5 border-primary/20">
                 <Phone className="w-5 h-5 text-primary mx-auto" />
                 <p className="font-medium text-sm">You've both shared a lot - ready to hear each other's voice?</p>
-                <p className="text-xs text-muted-foreground">Your first call is free. We suggest 10 minutes to keep it meaningful.</p>
+                <p className="text-xs text-muted-foreground">Your first call is 10 minutes to keep it meaningful.</p>
                 <Button
                   size="sm"
                   onClick={() => startCall.mutate()}
                   disabled={startCall.isPending}
                   data-testid={`button-call-${match.id}`}
                 >
-                  <Phone className="w-4 h-4 mr-2" /> {startCall.isPending ? "Starting..." : "Start a Call"}
+                  <Phone className="w-4 h-4 mr-2" /> {startCall.isPending ? "Starting..." : "Start First Call"}
                 </Button>
               </Card>
             </div>

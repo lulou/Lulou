@@ -10,11 +10,13 @@ import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
-import { ArrowLeft, Send, Phone } from "lucide-react";
+import { ArrowLeft, Send, Phone, Video, Check, Clock } from "lucide-react";
 import type { Message, Match, Profile } from "@shared/schema";
 
 const MAX_MESSAGES_PER_USER = 15;
 const MAX_CHARS = 500;
+
+const CALL_DURATIONS = [10 * 60, 15 * 60, 10 * 60];
 
 type MatchDetail = Match & { profile: Profile; messages: Message[] };
 
@@ -80,6 +82,22 @@ export default function Messaging() {
   const myMessages = matchDetail.messages?.filter(m => m.senderId === user?.id) || [];
   const messagesRemaining = MAX_MESSAGES_PER_USER - myMessages.length;
   const isLimitReached = messagesRemaining <= 0;
+  const callStage = matchDetail.callStage || 0;
+  const allCallsDone = callStage >= 3;
+
+  const statusLabel = allCallsDone ? "All calls done"
+    : callStage === 2 ? "Face call stage"
+    : callStage === 1 ? "2nd call ready"
+    : messagesRemaining > 0 ? `${messagesRemaining} left`
+    : "Call time";
+
+  const callPrompt = callStage === 0
+    ? { icon: Phone, title: "You've both shared a lot", desc: "Ready to hear each other's voice? Your first call is 10 minutes.", button: "Start First Call" }
+    : callStage === 1
+    ? { icon: Phone, title: "First call went great!", desc: "Ready for a longer 15-minute call?", button: "Start Second Call" }
+    : callStage === 2
+    ? { icon: Video, title: "Ready to see each other?", desc: "Both of you need to accept for a 10-minute face call.", button: "View on Connections" }
+    : { icon: Check, title: "All calls completed", desc: "You've had wonderful conversations. Ready to meet in real life?", button: "" };
 
   return (
     <div className="flex-1 flex flex-col h-full">
@@ -98,7 +116,7 @@ export default function Messaging() {
           <p className="text-xs text-muted-foreground">{matchDetail.profile.datingIntent}</p>
         </div>
         <Badge variant="outline" className="text-xs" data-testid="badge-messages-remaining">
-          {messagesRemaining > 0 ? `${messagesRemaining} left` : "Limit reached"}
+          {statusLabel}
         </Badge>
       </div>
 
@@ -132,15 +150,29 @@ export default function Messaging() {
         <div ref={messagesEndRef} />
       </div>
 
-      {isLimitReached ? (
+      {(isLimitReached || callStage > 0) && !allCallsDone ? (
         <div className="p-4 border-t">
           <Card className="p-5 text-center space-y-3 bg-primary/5 border-primary/20">
-            <Phone className="w-6 h-6 text-primary mx-auto" />
-            <p className="font-medium text-sm">You've both shared a lot</p>
-            <p className="text-xs text-muted-foreground">Ready to hear each other's voice? Your first call is free.</p>
-            <Button size="sm" data-testid="button-call-prompt">
-              <Phone className="w-4 h-4 mr-2" /> Start a Call
-            </Button>
+            <callPrompt.icon className="w-6 h-6 text-primary mx-auto" />
+            <p className="font-medium text-sm">{callPrompt.title}</p>
+            <p className="text-xs text-muted-foreground">{callPrompt.desc}</p>
+            {callStage === 2 ? (
+              <Button size="sm" onClick={() => navigate("/matches")} data-testid="button-go-to-connections">
+                <Video className="w-4 h-4 mr-2" /> Go to Connections
+              </Button>
+            ) : callPrompt.button ? (
+              <Button size="sm" onClick={() => navigate("/matches")} data-testid="button-call-prompt">
+                <Phone className="w-4 h-4 mr-2" /> {callPrompt.button}
+              </Button>
+            ) : null}
+          </Card>
+        </div>
+      ) : allCallsDone ? (
+        <div className="p-4 border-t">
+          <Card className="p-5 text-center space-y-2 bg-primary/5 border-primary/20">
+            <Check className="w-6 h-6 text-primary mx-auto" />
+            <p className="font-medium text-sm">All calls completed</p>
+            <p className="text-xs text-muted-foreground">You've had wonderful conversations. Ready to meet in real life?</p>
           </Card>
         </div>
       ) : (

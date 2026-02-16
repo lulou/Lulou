@@ -308,6 +308,46 @@ export async function registerRoutes(
     }
   });
 
+  app.post("/api/matches/:matchId/face-call/accept", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const match = await storage.acceptFaceCall(req.params.matchId, userId);
+      if (!match) {
+        return res.status(404).json({ message: "Match not found or not eligible for face call" });
+      }
+
+      const otherUserId = match.user1Id === userId ? match.user2Id : match.user1Id;
+      if (otherUserId.startsWith("seed-")) {
+        setTimeout(async () => {
+          try {
+            await storage.acceptFaceCall(req.params.matchId, otherUserId);
+          } catch (err) {
+            console.error("Auto face-call accept error:", err);
+          }
+        }, 1500 + Math.random() * 2000);
+      }
+
+      res.json(match);
+    } catch (error) {
+      console.error("Error accepting face call:", error);
+      res.status(500).json({ message: "Failed to accept face call" });
+    }
+  });
+
+  app.post("/api/matches/:matchId/face-call/decline", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const match = await storage.declineFaceCall(req.params.matchId, userId);
+      if (!match) {
+        return res.status(404).json({ message: "Match not found" });
+      }
+      res.json(match);
+    } catch (error) {
+      console.error("Error declining face call:", error);
+      res.status(500).json({ message: "Failed to decline face call" });
+    }
+  });
+
   app.get("/api/popular", isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
