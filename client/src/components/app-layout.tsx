@@ -3,22 +3,24 @@ import { Compass, Heart, User, CircleDot } from "lucide-react";
 
 export function BloomFlowerIcon({ className }: { className?: string }) {
   return (
-    <svg viewBox="0 0 40 48" fill="none" className={className} xmlns="http://www.w3.org/2000/svg">
-      <path d="M20 30 Q19.4 34, 18.8 40 Q19.5 42, 20 42 Q20.5 42, 21.2 40 Q20.6 34, 20 30Z" fill="hsl(150 25% 42%)" opacity="0.7" />
+    <svg viewBox="0 0 40 44" fill="none" className={className} xmlns="http://www.w3.org/2000/svg">
+      <path d="M20 28 Q19.6 32, 19.2 38 Q19.6 40, 20 40 Q20.4 40, 20.8 38 Q20.4 32, 20 28Z" fill="hsl(155 30% 40%)" opacity="0.75" />
+      <path d="M20 30 Q17 28.5, 12 31 Q11.2 31.8, 12 32.5 Q15 31.5, 20 30Z" fill="hsl(155 35% 45%)" opacity="0.7" />
+      <path d="M20 30 Q23 28.5, 28 31 Q28.8 31.8, 28 32.5 Q25 31.5, 20 30Z" fill="hsl(155 28% 38%)" opacity="0.7" />
 
-      <path d="M20 32 Q16 30, 8 33 Q7 34, 8 35 Q12 34, 20 32Z" fill="hsl(150 30% 48%)" opacity="0.65" />
-      <path d="M20 32 Q24 30, 32 33 Q33 34, 32 35 Q28 34, 20 32Z" fill="hsl(150 25% 42%)" opacity="0.65" />
+      <path d="M20 8 Q14 5, 10 8 Q8 11, 12 15 Q15 18, 20 20 Q18 14, 20 8Z" fill="hsl(350 45% 72%)" opacity="0.5" />
+      <path d="M20 8 Q26 5, 30 8 Q32 11, 28 15 Q25 18, 20 20 Q22 14, 20 8Z" fill="hsl(350 42% 70%)" opacity="0.45" />
+      <path d="M20 6 Q16 2, 12 4 Q9 7, 11 11 Q14 16, 20 19 Q17 12, 20 6Z" fill="hsl(350 48% 68%)" opacity="0.6" />
+      <path d="M20 6 Q24 2, 28 4 Q31 7, 29 11 Q26 16, 20 19 Q23 12, 20 6Z" fill="hsl(350 44% 66%)" opacity="0.55" />
 
-      <path d="M20 26 Q14 23, 6 24 Q4 25.5, 5 27 Q6 28, 12 27 Q17 26, 20 26Z" fill="hsl(150 30% 48%)" opacity="0.8" />
-      <path d="M20 26 Q26 23, 34 24 Q36 25.5, 35 27 Q34 28, 28 27 Q23 26, 20 26Z" fill="hsl(150 25% 38%)" opacity="0.8" />
+      <path d="M20 4 Q17 1, 14 3 Q12 6, 14 10 Q16 14, 20 18 Q18 10, 20 4Z" fill="hsl(350 50% 76%)" opacity="0.7" />
+      <path d="M20 4 Q23 1, 26 3 Q28 6, 26 10 Q24 14, 20 18 Q22 10, 20 4Z" fill="hsl(350 46% 74%)" opacity="0.65" />
 
-      <path d="M13 11 Q12 6, 15 4 Q18 2.5, 20 5 Q20 8, 18 12 Q16 16, 15 18 Q13 16, 13 11Z" fill="hsl(350 45% 78%)" opacity="0.7" />
-      <path d="M27 11 Q28 6, 25 4 Q22 2.5, 20 5 Q20 8, 22 12 Q24 16, 25 18 Q27 16, 27 11Z" fill="hsl(350 40% 72%)" opacity="0.6" />
+      <path d="M20 5 Q18.5 3, 17 5 Q16 8, 18 12 Q19 15, 20 17 Q19 10, 20 5Z" fill="hsl(350 52% 82%)" opacity="0.8" />
+      <path d="M20 5 Q21.5 3, 23 5 Q24 8, 22 12 Q21 15, 20 17 Q21 10, 20 5Z" fill="hsl(350 48% 80%)" opacity="0.75" />
 
-      <path d="M15.5 12 Q14.5 7.5, 17 5.5 Q19 4, 20 6.5 Q20 9, 18.5 13 Q17 17, 16 19 Q14.5 17, 15.5 12Z" fill="hsl(350 50% 82%)" opacity="0.55" />
-      <path d="M24.5 12 Q25.5 7.5, 23 5.5 Q21 4, 20 6.5 Q20 9, 21.5 13 Q23 17, 24 19 Q25.5 17, 24.5 12Z" fill="hsl(350 45% 76%)" opacity="0.45" />
-
-      <circle cx="20" cy="4" r="2.2" fill="hsl(40 55% 62%)" opacity="0.85" />
+      <circle cx="20" cy="12" r="3" fill="hsl(40 55% 65%)" opacity="0.9" />
+      <circle cx="20" cy="12" r="1.5" fill="hsl(40 60% 72%)" opacity="0.7" />
     </svg>
   );
 }
