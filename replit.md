@@ -32,7 +32,7 @@ Bloom is a calm, premium dating app focused on helping people move from matching
 - Photo verification (Bloom Me) gives profiles a verified badge
 
 ## Design Language
-- Color scheme: Sage green primary (#4d8b7a), warm cream backgrounds
+- Color scheme: Warm rose-blush primary (HSL 350 45% 52%), sage green accents (HSL 155 25%), warm cream backgrounds
 - Fonts: Playfair Display (serif headings), Plus Jakarta Sans (body)
 - Calm, spacious, minimal - "luxury boutique hotel" feel
 - No gamification, no casino mechanics
