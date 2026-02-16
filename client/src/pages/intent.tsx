@@ -370,7 +370,7 @@ export default function IntentPage() {
         </div>
 
         {!dispersed && !showPurchase && (
-          <div className="flex flex-col items-center gap-3">
+          <div className="flex flex-col items-center gap-2 px-6 w-full max-w-xs mx-auto">
             {canSpin ? (
               <Button
                 onClick={spinWheel}
@@ -394,14 +394,33 @@ export default function IntentPage() {
                 Spin used
               </Button>
             )}
-            {!canSpin && (
-              <p className="text-xs text-muted-foreground text-center max-w-xs" data-testid="text-spin-limit">
-                {streakComplete
-                  ? "You've used your spin. Come back tomorrow or buy more."
-                  : consecutiveDays > 0
-                    ? `Keep your ${consecutiveDays}-day streak going! Send ${DAILY_LIKE_GOAL} likes for ${STREAK_GOAL - consecutiveDays} more ${STREAK_GOAL - consecutiveDays === 1 ? "day" : "days"} to earn a spin.`
-                    : `Send ${DAILY_LIKE_GOAL} likes daily for ${STREAK_GOAL} consecutive days to earn a free spin. You also get 1 free spin per week.`}
-              </p>
+
+            {!streakComplete && (
+              <div className="w-full mt-1">
+                <div className="flex items-center gap-1.5">
+                  {Array.from({ length: STREAK_GOAL }).map((_, i) => {
+                    const isCurrentDay = i === consecutiveDays;
+                    const isDone = i < consecutiveDays;
+                    return (
+                      <div key={i} className="flex-1 flex flex-col items-center gap-1">
+                        <div className="w-full h-1.5 rounded-full overflow-hidden bg-muted">
+                          {isDone ? (
+                            <div className="w-full h-full bg-primary rounded-full" />
+                          ) : isCurrentDay ? (
+                            <div
+                              className="h-full bg-primary/50 rounded-full transition-all duration-500"
+                              style={{ width: `${Math.min(dailyLikes / DAILY_LIKE_GOAL, 1) * 100}%` }}
+                            />
+                          ) : null}
+                        </div>
+                        <span className="text-[10px] text-muted-foreground">
+                          {isDone ? "Done" : isCurrentDay ? `${dailyLikes}/${DAILY_LIKE_GOAL}` : `Day ${i + 1}`}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
             )}
           </div>
         )}
