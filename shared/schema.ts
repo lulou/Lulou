@@ -50,6 +50,9 @@ export const matches = pgTable("matches", {
   callStartedAt: timestamp("call_started_at"),
   callAnswered: boolean("call_answered").default(false),
   callInitiatorId: varchar("call_initiator_id"),
+  callStage: integer("call_stage").default(0),
+  faceCallUser1Accepted: boolean("face_call_user1_accepted").default(false),
+  faceCallUser2Accepted: boolean("face_call_user2_accepted").default(false),
   status: text("status").default("active"),
   createdAt: timestamp("created_at").defaultNow(),
 });
