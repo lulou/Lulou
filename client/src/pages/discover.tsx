@@ -58,6 +58,8 @@ function PhotoBubbles({ photos, name, onOpen, isOpenPending }: { photos: string[
   }, [updateFocused]);
 
   const handlePointerDown = (e: React.PointerEvent) => {
+    const target = e.target as HTMLElement;
+    if (target.closest("[data-testid='button-open']")) return;
     const el = scrollRef.current;
     if (!el) return;
     cancelAnimationFrame(animFrame.current);
