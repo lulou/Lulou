@@ -252,72 +252,46 @@ export default function IntentPage() {
   const dailyLikes = spinStatus?.dailyLikes ?? 0;
   const consecutiveDays = spinStatus?.consecutiveDays ?? 0;
   const streakComplete = spinStatus?.streakComplete ?? false;
-  const todayProgress = Math.min(dailyLikes / DAILY_LIKE_GOAL, 1);
-
   return (
     <div className="flex-1 flex flex-col overflow-hidden relative" data-testid="intent-page">
-      <div className="px-5 pt-6 pb-2">
+      <div className="px-5 pt-5 pb-1">
         <div className="flex items-center justify-between gap-4 flex-wrap">
           <div>
             <h1 className="font-serif text-2xl font-semibold tracking-tight" data-testid="text-intent-title">
               Intention Wheel
             </h1>
-            <p className="text-sm text-muted-foreground mt-1">
-              Spin to discover someone special
-            </p>
           </div>
-        </div>
-
-        <div className="mt-3 space-y-2">
-          <div className="flex items-center justify-between gap-2 text-xs">
-            <span className="text-muted-foreground">3-day streak: {consecutiveDays}/{STREAK_GOAL} days</span>
+          <div className="flex items-center gap-2" data-testid="streak-indicator">
             {streakComplete ? (
               <Badge variant="secondary" className="text-xs" data-testid="badge-streak-complete">
-                <Star className="w-3 h-3 mr-1" /> Streak spin unlocked
+                <Star className="w-3 h-3 mr-1" /> Spin earned
               </Badge>
             ) : (
-              <span className="text-muted-foreground" data-testid="text-streak-progress">
-                {STREAK_GOAL - consecutiveDays} more {STREAK_GOAL - consecutiveDays === 1 ? "day" : "days"} to go
-              </span>
+              <div className="flex items-center gap-1.5">
+                {Array.from({ length: STREAK_GOAL }).map((_, i) => (
+                  <div
+                    key={i}
+                    className={`w-2 h-2 rounded-full transition-colors ${
+                      i < consecutiveDays ? "bg-primary" : "bg-muted-foreground/30"
+                    }`}
+                    data-testid={`streak-dot-${i}`}
+                  />
+                ))}
+                <span className="text-xs text-muted-foreground ml-1" data-testid="text-likes-today">
+                  {dailyLikes}/{DAILY_LIKE_GOAL}
+                </span>
+              </div>
             )}
-          </div>
-          <div className="flex items-center gap-1.5">
-            {Array.from({ length: STREAK_GOAL }).map((_, i) => (
-              <div
-                key={i}
-                className={`flex-1 h-2 rounded-full transition-all duration-500 ${
-                  i < consecutiveDays ? "bg-primary" : "bg-muted"
-                }`}
-                data-testid={`streak-day-${i}`}
-              />
-            ))}
-          </div>
-          <div className="flex items-center justify-between gap-2 text-xs">
-            <span className="text-muted-foreground">Today: {dailyLikes}/{DAILY_LIKE_GOAL} likes</span>
-            {dailyLikes >= DAILY_LIKE_GOAL ? (
-              <span className="text-primary font-medium" data-testid="text-today-done">Today complete</span>
-            ) : (
-              <span className="text-muted-foreground" data-testid="text-today-progress">
-                {DAILY_LIKE_GOAL - dailyLikes} more today
-              </span>
-            )}
-          </div>
-          <div className="w-full h-1.5 bg-muted rounded-full overflow-hidden">
-            <div
-              className="h-full bg-primary/60 rounded-full transition-all duration-500"
-              style={{ width: `${todayProgress * 100}%` }}
-              data-testid="progress-likes"
-            />
           </div>
         </div>
       </div>
 
-      <div className="flex-1 flex flex-col items-center justify-start gap-4 overflow-y-auto pt-4">
+      <div className="flex-1 flex flex-col items-center justify-center gap-4 overflow-hidden">
         <div
           className="relative select-none touch-none"
           style={{
             width: "100%",
-            height: ITEM_HEIGHT + 120,
+            height: ITEM_HEIGHT + 140,
             perspective: "800px",
             transition: dispersed ? "opacity 0.5s ease" : undefined,
             opacity: dispersed ? 0 : 1,
@@ -347,7 +321,6 @@ export default function IntentPage() {
               const relativeAngle = ((((-angle + itemAngle) % 360) + 360) % 360);
               const cosVal = Math.cos((relativeAngle * Math.PI) / 180);
               const depthFactor = (cosVal + 1) / 2;
-              const shadowOpacity = 1 - depthFactor;
               const cardScale = 0.7 + depthFactor * 0.3;
 
               const disperseX = dispersed && !isSelected ? (Math.random() - 0.5) * 800 : 0;
@@ -368,7 +341,6 @@ export default function IntentPage() {
                       ? `rotateY(${itemAngle}deg) translateZ(${radius}px) translate(${disperseX}px, ${disperseY}px) scale(${disperseScale})`
                       : `rotateY(${itemAngle}deg) translateZ(${radius}px) scale(${cardScale})`,
                     opacity: disperseOpacity,
-                    filter: `brightness(${0.4 + depthFactor * 0.6})`,
                     zIndex: Math.round(depthFactor * 100),
                     transition: dispersed ? "all 0.6s cubic-bezier(0.4, 0, 0.2, 1)" : undefined,
                   }}
@@ -391,12 +363,6 @@ export default function IntentPage() {
                       {profile.firstName}{profile.age ? `, ${profile.age}` : ""}
                     </p>
                   </div>
-                  <div
-                    className="absolute inset-0 rounded-md pointer-events-none"
-                    style={{
-                      background: `radial-gradient(ellipse at center, rgba(0,0,0,${shadowOpacity * 0.5}) 0%, rgba(0,0,0,${shadowOpacity * 0.7}) 100%)`,
-                    }}
-                  />
                 </div>
               );
             })}
