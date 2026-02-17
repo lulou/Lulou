@@ -64,8 +64,8 @@ function containsContactInfo(text: string): boolean {
 const profileBodySchema = z.object({
   firstName: z.string().min(1).max(50),
   age: z.number().int().min(18).max(99),
-  gender: z.enum(["woman", "man", "non-binary"]),
-  datingPreference: z.enum(["women", "men", "everyone"]),
+  gender: z.enum(["woman", "man", "non-binary", "trans woman", "trans man", "genderqueer", "genderfluid", "agender", "two-spirit", "other"]),
+  datingPreference: z.enum(["women", "men", "non-binary people", "trans women", "trans men", "everyone"]),
   location: z.string().min(1).max(100),
   height: z.string().max(10).optional(),
   photos: z.array(z.string()).min(1).max(6),
@@ -418,7 +418,7 @@ export async function registerRoutes(
       const userId = req.user.claims.sub;
       const myProfile = await storage.getProfile(userId);
       const preference = myProfile?.datingPreference;
-      const popular = await storage.getPopularProfiles(30, preference);
+      const popular = await storage.getPopularProfiles(30, preference, myProfile?.gender);
 
       const selfFiltered = popular.filter(p => p.userId !== userId);
 

@@ -171,6 +171,13 @@ export default function Onboarding() {
                       <SelectItem value="woman">Woman</SelectItem>
                       <SelectItem value="man">Man</SelectItem>
                       <SelectItem value="non-binary">Non-binary</SelectItem>
+                      <SelectItem value="trans woman">Trans Woman</SelectItem>
+                      <SelectItem value="trans man">Trans Man</SelectItem>
+                      <SelectItem value="genderqueer">Genderqueer</SelectItem>
+                      <SelectItem value="genderfluid">Genderfluid</SelectItem>
+                      <SelectItem value="agender">Agender</SelectItem>
+                      <SelectItem value="two-spirit">Two-Spirit</SelectItem>
+                      <SelectItem value="other">Other</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -181,6 +188,9 @@ export default function Onboarding() {
                     <SelectContent>
                       <SelectItem value="women">Women</SelectItem>
                       <SelectItem value="men">Men</SelectItem>
+                      <SelectItem value="non-binary people">Non-binary People</SelectItem>
+                      <SelectItem value="trans women">Trans Women</SelectItem>
+                      <SelectItem value="trans men">Trans Men</SelectItem>
                       <SelectItem value="everyone">Everyone</SelectItem>
                     </SelectContent>
                   </Select>

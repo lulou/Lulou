@@ -7,7 +7,48 @@ import {
   spinStandouts, spinUsage, spinRequests,
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, and, or, notInArray, sql, desc } from "drizzle-orm";
+import { eq, and, or, inArray, notInArray, sql, desc } from "drizzle-orm";
+
+function getGendersForPreference(preference: string): string[] | null {
+  switch (preference) {
+    case "women": return ["woman", "trans woman"];
+    case "men": return ["man", "trans man"];
+    case "non-binary people": return ["non-binary", "genderqueer", "genderfluid", "agender", "two-spirit", "other"];
+    case "trans women": return ["trans woman"];
+    case "trans men": return ["trans man"];
+    case "everyone": return null;
+    default: return null;
+  }
+}
+
+function getPreferencesThatIncludeGender(gender: string): string[] {
+  const prefs = ["everyone"];
+  switch (gender) {
+    case "woman": prefs.push("women"); break;
+    case "man": prefs.push("men"); break;
+    case "trans woman": prefs.push("women", "trans women"); break;
+    case "trans man": prefs.push("men", "trans men"); break;
+    case "non-binary":
+    case "genderqueer":
+    case "genderfluid":
+    case "agender":
+    case "two-spirit":
+    case "other":
+      prefs.push("non-binary people"); break;
+  }
+  return prefs;
+}
+
+function buildGenderFilter(preference: string) {
+  const genders = getGendersForPreference(preference);
+  if (!genders) return sql`true`;
+  return inArray(profiles.gender, genders);
+}
+
+function buildReciprocityFilter(myGender: string) {
+  const validPrefs = getPreferencesThatIncludeGender(myGender);
+  return inArray(profiles.datingPreference, validPrefs);
+}
 
 export interface IStorage {
   getProfile(userId: string): Promise<Profile | undefined>;
@@ -29,7 +70,7 @@ export interface IStorage {
   completeCall(matchId: string, userId: string): Promise<Match | undefined>;
   acceptFaceCall(matchId: string, userId: string): Promise<Match | undefined>;
   declineFaceCall(matchId: string, userId: string): Promise<Match | undefined>;
-  getPopularProfiles(limit?: number, preference?: string): Promise<Profile[]>;
+  getPopularProfiles(limit?: number, preference?: string, myGender?: string): Promise<Profile[]>;
   getSpinStandouts(userId: string): Promise<string[]>;
   addSpinStandout(userId: string, standoutUserId: string): Promise<void>;
   getSpinsToday(userId: string): Promise<number>;
@@ -72,14 +113,8 @@ export class DatabaseStorage implements IStorage {
       .from(interactions)
       .where(eq(interactions.fromUserId, userId));
 
-    let genderFilter;
-    if (preference === "women") {
-      genderFilter = eq(profiles.gender, "woman");
-    } else if (preference === "men") {
-      genderFilter = eq(profiles.gender, "man");
-    } else {
-      genderFilter = sql`true`;
-    }
+    const genderFilter = buildGenderFilter(preference);
+    const reciprocityFilter = buildReciprocityFilter(gender);
 
     const result = await db
       .select()
@@ -90,6 +125,7 @@ export class DatabaseStorage implements IStorage {
           sql`${profiles.userId} NOT IN (${interactedUserIds})`,
           eq(profiles.onboardingComplete, true),
           genderFilter,
+          reciprocityFilter,
           sql`${profiles.age} >= ${ageMin}`,
           sql`${profiles.age} <= ${ageMax}`
         )
@@ -302,15 +338,9 @@ export class DatabaseStorage implements IStorage {
     return updated;
   }
 
-  async getPopularProfiles(limit: number = 10, preference?: string): Promise<Profile[]> {
-    let genderFilter;
-    if (preference === "women") {
-      genderFilter = eq(profiles.gender, "woman");
-    } else if (preference === "men") {
-      genderFilter = eq(profiles.gender, "man");
-    } else {
-      genderFilter = sql`true`;
-    }
+  async getPopularProfiles(limit: number = 10, preference?: string, myGender?: string): Promise<Profile[]> {
+    const genderFilter = preference ? buildGenderFilter(preference) : sql`true`;
+    const reciprocityFilter = myGender ? buildReciprocityFilter(myGender) : sql`true`;
 
     const popularUserIds = db
       .select({
@@ -329,7 +359,7 @@ export class DatabaseStorage implements IStorage {
       const fallback = await db
         .select()
         .from(profiles)
-        .where(and(eq(profiles.onboardingComplete, true), genderFilter))
+        .where(and(eq(profiles.onboardingComplete, true), genderFilter, reciprocityFilter))
         .limit(limit);
       return fallback;
     }
@@ -342,7 +372,8 @@ export class DatabaseStorage implements IStorage {
         and(
           sql`${profiles.userId} IN (${sql.join(userIds.map(id => sql`${id}`), sql`, `)})`,
           eq(profiles.onboardingComplete, true),
-          genderFilter
+          genderFilter,
+          reciprocityFilter
         )
       );
 
@@ -361,6 +392,7 @@ export class DatabaseStorage implements IStorage {
           and(
             eq(profiles.onboardingComplete, true),
             genderFilter,
+            reciprocityFilter,
             extraFilter
           )
         )

@@ -422,6 +422,9 @@ export default function ProfilePage() {
                 <SelectContent>
                   <SelectItem value="women">Women</SelectItem>
                   <SelectItem value="men">Men</SelectItem>
+                  <SelectItem value="non-binary people">Non-binary People</SelectItem>
+                  <SelectItem value="trans women">Trans Women</SelectItem>
+                  <SelectItem value="trans men">Trans Men</SelectItem>
                   <SelectItem value="everyone">Everyone</SelectItem>
                 </SelectContent>
               </Select>
