@@ -24,6 +24,7 @@ export const profiles = pgTable("profiles", {
   locationRadius: integer("location_radius").default(25),
   preferredAgeMin: integer("preferred_age_min").default(18),
   preferredAgeMax: integer("preferred_age_max").default(45),
+  email: text("email"),
   phoneNumber: text("phone_number"),
   photoVerified: boolean("photo_verified").default(false),
   onboardingComplete: boolean("onboarding_complete").default(false),
