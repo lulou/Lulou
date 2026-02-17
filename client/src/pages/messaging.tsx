@@ -436,7 +436,7 @@ export default function Messaging() {
               disabled={closeConnection.isPending}
               data-testid="button-confirm-close"
             >
-              {closeConnection.isPending ? "Closing..." : "Close"}
+              {closeConnection.isPending ? "Closing..." : "Close Connection"}
             </Button>
             <Button size="sm" variant="outline" onClick={() => setShowCloseConfirm(false)} data-testid="button-cancel-close">
               Keep
