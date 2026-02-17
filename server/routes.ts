@@ -46,6 +46,7 @@ const profileBodySchema = z.object({
   conversationStarters: z.array(z.string().max(200)).min(2).max(3).optional(),
   questions: z.array(z.string().max(200)).min(2).max(3).optional(),
   email: z.string().email().max(100).optional(),
+  phoneNumber: z.string().max(20).optional(),
   locationRadius: z.number().int().min(5).max(100).optional(),
   preferredAgeMin: z.number().int().min(18).max(65).optional(),
   preferredAgeMax: z.number().int().min(18).max(65).optional(),
@@ -555,6 +556,34 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error setting meet availability:", error);
       res.status(500).json({ message: "Failed to set availability" });
+    }
+  });
+
+  app.post("/api/matches/:matchId/exchange-number", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const { matchId } = req.params;
+
+      const profile = await storage.getProfile(userId);
+      if (!profile?.phoneNumber) {
+        return res.status(400).json({ message: "Please add your phone number first" });
+      }
+
+      const match = await storage.exchangeNumber(matchId, userId);
+      if (!match) {
+        return res.status(404).json({ message: "Match not found, calls not completed, or no matching dates yet" });
+      }
+
+      await storage.createMessage({
+        matchId,
+        senderId: userId,
+        content: `My number is ${profile.phoneNumber}`,
+      });
+
+      res.json(match);
+    } catch (error) {
+      console.error("Error exchanging number:", error);
+      res.status(500).json({ message: "Failed to exchange number" });
     }
   });
 

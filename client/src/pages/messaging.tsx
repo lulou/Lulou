@@ -10,8 +10,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
-import { ArrowLeft, Send, Phone, Video, Check, Clock, Calendar, Heart } from "lucide-react";
-import type { Message, Match } from "@shared/schema";
+import { ArrowLeft, Send, Phone, Video, Check, Clock, Calendar, Heart, PhoneForwarded } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import type { Message, Match, Profile } from "@shared/schema";
 
 const MAX_MESSAGES_PER_USER = 15;
 const MAX_CHARS = 500;
@@ -50,14 +51,21 @@ function ReadyToMeetSection({ matchDetail, matchId }: { matchDetail: MatchDetail
   const queryClient = useQueryClient();
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [selectedSlots, setSelectedSlots] = useState<string[]>([]);
+  const [showPhoneInput, setShowPhoneInput] = useState(false);
+  const [phoneNumber, setPhoneNumber] = useState("");
   const dateSlots = generateDateSlots();
 
   const isUser1 = matchDetail.user1Id === user?.id;
   const myAvailability = isUser1 ? matchDetail.meetAvailability1 : matchDetail.meetAvailability2;
   const theirAvailability = isUser1 ? matchDetail.meetAvailability2 : matchDetail.meetAvailability1;
+  const myNumberExchanged = isUser1 ? matchDetail.numberExchanged1 : matchDetail.numberExchanged2;
+  const theirNumberExchanged = isUser1 ? matchDetail.numberExchanged2 : matchDetail.numberExchanged1;
 
   const mySlots: string[] = myAvailability ? JSON.parse(myAvailability) : [];
   const theirSlots: string[] = theirAvailability ? JSON.parse(theirAvailability) : [];
+  const matchingSlots = mySlots.filter(s => theirSlots.includes(s));
+
+  const { data: myProfile } = useQuery<Profile>({ queryKey: ["/api/profile"] });
 
   const saveAvailability = useMutation({
     mutationFn: async () => {
@@ -74,6 +82,25 @@ function ReadyToMeetSection({ matchDetail, matchId }: { matchDetail: MatchDetail
     },
   });
 
+  const savePhoneAndExchange = useMutation({
+    mutationFn: async () => {
+      if (phoneNumber.trim()) {
+        await apiRequest("POST", "/api/profile", { phoneNumber: phoneNumber.trim() });
+      }
+      const res = await apiRequest("POST", `/api/matches/${matchId}/exchange-number`, {});
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/matches", matchId] });
+      queryClient.invalidateQueries({ queryKey: ["/api/profile"] });
+      toast({ title: "Number shared", description: `Your number has been sent to ${matchDetail.profile.firstName}.` });
+      setShowPhoneInput(false);
+    },
+    onError: (error: Error) => {
+      toast({ title: "Could not share number", description: error.message, variant: "destructive" });
+    },
+  });
+
   const toggleSlot = (value: string) => {
     setSelectedSlots(prev => {
       if (prev.includes(value)) return prev.filter(s => s !== value);
@@ -81,6 +108,49 @@ function ReadyToMeetSection({ matchDetail, matchId }: { matchDetail: MatchDetail
       return [...prev, value];
     });
   };
+
+  const handleExchangeNumber = () => {
+    if (myProfile?.phoneNumber) {
+      savePhoneAndExchange.mutate();
+    } else {
+      setShowPhoneInput(true);
+    }
+  };
+
+  if (showPhoneInput) {
+    return (
+      <div className="p-4 border-t">
+        <Card className="p-5 space-y-4 bg-primary/5 border-primary/20">
+          <div className="text-center space-y-2">
+            <PhoneForwarded className="w-6 h-6 text-primary mx-auto" />
+            <p className="font-medium text-sm">Add your phone number</p>
+            <p className="text-xs text-muted-foreground">Your number will be sent as a message to {matchDetail.profile.firstName}</p>
+          </div>
+          <Input
+            type="tel"
+            value={phoneNumber}
+            onChange={e => setPhoneNumber(e.target.value)}
+            placeholder="Your phone number"
+            maxLength={20}
+            data-testid="input-phone-number"
+          />
+          <div className="flex items-center gap-2 justify-center">
+            <Button
+              size="sm"
+              onClick={() => savePhoneAndExchange.mutate()}
+              disabled={!phoneNumber.trim() || savePhoneAndExchange.isPending}
+              data-testid="button-confirm-exchange"
+            >
+              {savePhoneAndExchange.isPending ? "Sending..." : "Share My Number"}
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => setShowPhoneInput(false)} data-testid="button-cancel-phone">
+              Cancel
+            </Button>
+          </div>
+        </Card>
+      </div>
+    );
+  }
 
   if (showDatePicker) {
     return (
@@ -132,6 +202,33 @@ function ReadyToMeetSection({ matchDetail, matchId }: { matchDetail: MatchDetail
     );
   }
 
+  if (myNumberExchanged) {
+    return (
+      <div className="p-4 border-t">
+        <Card className="p-5 text-center space-y-3 bg-primary/5 border-primary/20">
+          <Heart className="w-6 h-6 text-primary mx-auto" />
+          <p className="font-medium text-sm">Number shared</p>
+          <p className="text-xs text-muted-foreground">
+            {theirNumberExchanged
+              ? `You've both exchanged numbers. Time to plan something special!`
+              : `Your number has been sent. Waiting for ${matchDetail.profile.firstName} to share theirs.`}
+          </p>
+          {matchingSlots.length > 0 && (
+            <div className="space-y-1 pt-2">
+              <p className="text-xs font-medium text-muted-foreground">Your matching date times:</p>
+              <div className="flex flex-wrap gap-1 justify-center">
+                {matchingSlots.map((s: string) => {
+                  const matched = dateSlots.find(d => d.value === s);
+                  return <Badge key={s} variant="secondary" className="text-xs">{matched?.label || s}</Badge>;
+                })}
+              </div>
+            </div>
+          )}
+        </Card>
+      </div>
+    );
+  }
+
   return (
     <div className="p-4 border-t">
       <Card className="p-5 text-center space-y-4 bg-primary/5 border-primary/20">
@@ -139,60 +236,74 @@ function ReadyToMeetSection({ matchDetail, matchId }: { matchDetail: MatchDetail
         <p className="font-medium text-sm">All calls completed</p>
         <p className="text-xs text-muted-foreground">You've had wonderful conversations. Ready to meet in real life?</p>
 
-        {mySlots.length > 0 && (
-          <div className="space-y-1.5">
-            <p className="text-xs font-medium text-muted-foreground">Your availability:</p>
-            <div className="flex flex-wrap gap-1 justify-center">
-              {mySlots.map((s: string) => {
-                const matched = dateSlots.find(d => d.value === s);
-                return (
-                  <Badge key={s} variant="secondary" className="text-xs">
-                    {matched?.label || s}
-                  </Badge>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
-        {theirSlots.length > 0 && (
-          <div className="space-y-1.5">
-            <p className="text-xs font-medium text-muted-foreground">{matchDetail.profile.firstName}'s availability:</p>
-            <div className="flex flex-wrap gap-1 justify-center">
-              {theirSlots.map((s: string) => {
-                const matched = dateSlots.find(d => d.value === s);
-                return (
-                  <Badge key={s} variant="outline" className="text-xs">
-                    {matched?.label || s}
-                  </Badge>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
-        {mySlots.length > 0 && theirSlots.length > 0 && (
-          <div className="space-y-2 pt-2">
+        {mySlots.length > 0 && theirSlots.length > 0 && matchingSlots.length > 0 ? (
+          <div className="space-y-3 pt-2">
             <div className="flex items-center gap-2 justify-center">
               <Heart className="w-4 h-4 text-primary" />
               <p className="font-medium text-sm text-primary">Your date is on the cards!</p>
               <Heart className="w-4 h-4 text-primary" />
             </div>
-            <p className="text-xs text-muted-foreground">Keep the conversation going right here on Bloom</p>
+            <div className="space-y-1.5">
+              <p className="text-xs font-medium text-muted-foreground">You both matched on:</p>
+              <div className="flex flex-wrap gap-1 justify-center">
+                {matchingSlots.map((s: string) => {
+                  const matched = dateSlots.find(d => d.value === s);
+                  return <Badge key={s} className="text-xs bg-primary/15 text-primary border-primary/30">{matched?.label || s}</Badge>;
+                })}
+              </div>
+            </div>
+            <div className="flex flex-col gap-2 items-center pt-1">
+              <Button size="sm" onClick={handleExchangeNumber} data-testid="button-exchange-number">
+                <PhoneForwarded className="w-4 h-4 mr-2" /> Exchange Number
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => { setSelectedSlots([...mySlots]); setShowDatePicker(true); }} data-testid="button-update-availability">
+                <Calendar className="w-4 h-4 mr-2" /> Update Availability
+              </Button>
+            </div>
           </div>
-        )}
+        ) : (
+          <>
+            {mySlots.length > 0 && (
+              <div className="space-y-1.5">
+                <p className="text-xs font-medium text-muted-foreground">Your availability:</p>
+                <div className="flex flex-wrap gap-1 justify-center">
+                  {mySlots.map((s: string) => {
+                    const matched = dateSlots.find(d => d.value === s);
+                    return <Badge key={s} variant="secondary" className="text-xs">{matched?.label || s}</Badge>;
+                  })}
+                </div>
+              </div>
+            )}
 
-        <div className="flex flex-col gap-2 items-center">
-          {mySlots.length === 0 ? (
-            <Button size="sm" onClick={() => setShowDatePicker(true)} data-testid="button-ready-to-meet">
-              <Calendar className="w-4 h-4 mr-2" /> Ready to Meet
-            </Button>
-          ) : (
-            <Button size="sm" variant="outline" onClick={() => { setSelectedSlots([...mySlots]); setShowDatePicker(true); }} data-testid="button-update-availability">
-              <Calendar className="w-4 h-4 mr-2" /> Update Availability
-            </Button>
-          )}
-        </div>
+            {theirSlots.length > 0 && (
+              <div className="space-y-1.5">
+                <p className="text-xs font-medium text-muted-foreground">{matchDetail.profile.firstName}'s availability:</p>
+                <div className="flex flex-wrap gap-1 justify-center">
+                  {theirSlots.map((s: string) => {
+                    const matched = dateSlots.find(d => d.value === s);
+                    return <Badge key={s} variant="outline" className="text-xs">{matched?.label || s}</Badge>;
+                  })}
+                </div>
+              </div>
+            )}
+
+            {mySlots.length > 0 && theirSlots.length > 0 && matchingSlots.length === 0 && (
+              <p className="text-xs text-muted-foreground">No matching times yet. Try updating your availability!</p>
+            )}
+
+            <div className="flex flex-col gap-2 items-center">
+              {mySlots.length === 0 ? (
+                <Button size="sm" onClick={() => setShowDatePicker(true)} data-testid="button-ready-to-meet">
+                  <Calendar className="w-4 h-4 mr-2" /> Ready to Meet
+                </Button>
+              ) : (
+                <Button size="sm" variant="outline" onClick={() => { setSelectedSlots([...mySlots]); setShowDatePicker(true); }} data-testid="button-update-availability">
+                  <Calendar className="w-4 h-4 mr-2" /> Update Availability
+                </Button>
+              )}
+            </div>
+          </>
+        )}
       </Card>
     </div>
   );

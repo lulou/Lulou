@@ -33,8 +33,9 @@ Bloom is a calm, premium dating app focused on helping people move from matching
 - Face call requires mutual acceptance (`faceCallUser1Accepted`, `faceCallUser2Accepted`)
 - After all calls: "Ready to Meet" button shows date/time picker (next 7 days, 4 time slots each)
 - Meet availability tracked per user (`meetAvailability1`, `meetAvailability2` as JSON)
-- No phone number or social media exchange allowed - all communication stays within Bloom
-- Message content filtered server-side to block phone numbers, emails, and social media handles
+- Phone number exchange only unlocked after both users confirm matching date/time availability
+- Message content filtered server-side to block phone numbers, emails, and social media handles in regular messages
+- Exchange number auto-sends phone as message via dedicated route (bypasses content filter)
 - Profile page shows age, height, location, adjustable search radius
 - Profile sections: Bloom Extras (subscriptions), Safety, Bloom Me (photo verification badge), Help Centre, What Works (dating tips)
 - Location radius (5-100 miles) configurable in onboarding and profile
