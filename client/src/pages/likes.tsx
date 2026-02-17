@@ -7,7 +7,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
-import { Heart, X, Eye, MapPin } from "lucide-react";
+import { Heart, X, Eye, MapPin, Lock } from "lucide-react";
 import { BloomFlowerIcon } from "@/components/app-layout";
 import type { Profile, Interaction } from "@shared/schema";
 
@@ -17,6 +17,8 @@ type MatchCelebration = {
   firstName: string;
   photo?: string;
 };
+
+type MatchCountData = { count: number };
 
 function MatchOverlay({ celebration, onClose }: { celebration: MatchCelebration; onClose: () => void }) {
   const [phase, setPhase] = useState<"enter" | "visible" | "exit">("enter");
@@ -159,7 +161,7 @@ function MatchOverlay({ celebration, onClose }: { celebration: MatchCelebration;
   );
 }
 
-function LikeCard({ open, onMatch }: { open: IncomingOpen; onMatch: (c: MatchCelebration) => void }) {
+function LikeCard({ open, onMatch, onConnectionFull }: { open: IncomingOpen; onMatch: (c: MatchCelebration) => void; onConnectionFull: () => void }) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -174,17 +176,14 @@ function LikeCard({ open, onMatch }: { open: IncomingOpen; onMatch: (c: MatchCel
     onSuccess: (data: any) => {
       queryClient.invalidateQueries({ queryKey: ["/api/who-liked-you"] });
       queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/match-count"] });
       if (data.matched) {
         onMatch({
           firstName: open.profile.firstName,
           photo: open.profile.photos?.[0],
         });
       } else if (data.connectionLimitReached) {
-        toast({
-          title: "Connection limit reached",
-          description: "You have 8 connections. Remove a chat to make room for new ones.",
-          variant: "destructive",
-        });
+        onConnectionFull();
       } else {
         toast({ title: "Passed", description: `You passed on ${open.profile.firstName}.` });
       }
@@ -253,11 +252,22 @@ function LikeCard({ open, onMatch }: { open: IncomingOpen; onMatch: (c: MatchCel
 
 export default function LikesPage() {
   const [celebration, setCelebration] = useState<MatchCelebration | null>(null);
+  const [showFullMessage, setShowFullMessage] = useState(false);
 
   const { data: likes, isLoading } = useQuery<IncomingOpen[]>({
     queryKey: ["/api/who-liked-you"],
     refetchInterval: 15000,
   });
+
+  const { data: matchCountData } = useQuery<MatchCountData>({
+    queryKey: ["/api/match-count"],
+  });
+
+  const connectionsFull = (matchCountData?.count ?? 0) >= 8;
+
+  useEffect(() => {
+    if (!connectionsFull) setShowFullMessage(false);
+  }, [connectionsFull]);
 
   if (isLoading) {
     return (
@@ -307,9 +317,26 @@ export default function LikesPage() {
         </p>
       </div>
 
+      {(connectionsFull || showFullMessage) && (
+        <div
+          className="flex flex-col items-center gap-3 py-6 px-4 text-center"
+          data-testid="banner-connections-full"
+        >
+          <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center">
+            <Lock className="w-6 h-6 text-primary" />
+          </div>
+          <p className="font-serif text-base font-semibold text-foreground">
+            Connections room is full
+          </p>
+          <p className="text-sm text-muted-foreground">
+            Close a connection to free up space
+          </p>
+        </div>
+      )}
+
       <div className="space-y-3">
         {likesList.map(open => (
-          <LikeCard key={open.id} open={open} onMatch={setCelebration} />
+          <LikeCard key={open.id} open={open} onMatch={setCelebration} onConnectionFull={() => setShowFullMessage(true)} />
         ))}
       </div>
 

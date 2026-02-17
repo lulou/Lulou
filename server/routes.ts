@@ -197,18 +197,27 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Already interacted" });
       }
 
+      if (type === "open") {
+        const isMutual = await storage.getMutualOpen(fromUserId, toUserId);
+        if (isMutual) {
+          const matchCount = await storage.getMatchCount(fromUserId);
+          if (matchCount >= 8) {
+            return res.json({ matched: false, connectionLimitReached: true });
+          }
+        }
+      }
+
       const interaction = await storage.createInteraction({ fromUserId, toUserId, type });
 
       let matched = false;
       if (type === "open") {
         const isMutual = await storage.getMutualOpen(fromUserId, toUserId);
         if (isMutual) {
-          const matchCount = await storage.getMatchCount(fromUserId);
-          if (matchCount >= 8) {
-            return res.json({ interaction, matched: false, connectionLimitReached: true });
+          const recheck = await storage.getMatchCount(fromUserId);
+          if (recheck < 8) {
+            await storage.createMatch(fromUserId, toUserId);
+            matched = true;
           }
-          await storage.createMatch(fromUserId, toUserId);
-          matched = true;
         }
       }
 
@@ -546,7 +555,7 @@ export async function registerRoutes(
       if (accept) {
         const matchCount = await storage.getMatchCount(userId);
         if (matchCount >= 8) {
-          return res.status(400).json({ message: "You've reached the 8-connection limit. Remove a chat to accept new connections." });
+          return res.status(400).json({ message: "Connections room is full. Close a connection to free up space." });
         }
 
         const existingMatches = await storage.getMatchesForUser(userId);
@@ -587,6 +596,17 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error removing match:", error);
       res.status(500).json({ message: "Failed to remove connection" });
+    }
+  });
+
+  app.get("/api/match-count", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const count = await storage.getMatchCount(userId);
+      res.json({ count });
+    } catch (error) {
+      console.error("Error fetching match count:", error);
+      res.status(500).json({ message: "Failed to fetch match count" });
     }
   });
 
