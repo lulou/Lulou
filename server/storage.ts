@@ -45,6 +45,9 @@ export interface IStorage {
   getSpinRequest(id: string): Promise<SpinRequest | undefined>;
   setMeetAvailability(matchId: string, userId: string, availability: string): Promise<Match | undefined>;
   exchangeNumber(matchId: string, userId: string): Promise<Match | undefined>;
+  removeMatch(matchId: string, userId: string): Promise<boolean>;
+  getMatchCount(userId: string): Promise<number>;
+  getIncomingOpens(userId: string): Promise<(Interaction & { profile: Profile })[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -576,6 +579,67 @@ export class DatabaseStorage implements IStorage {
 
     const [updated] = await db.update(matches).set(updates).where(eq(matches.id, matchId)).returning();
     return updated;
+  }
+
+  async removeMatch(matchId: string, userId: string): Promise<boolean> {
+    const [match] = await db.select().from(matches).where(eq(matches.id, matchId));
+    if (!match) return false;
+    if (match.user1Id !== userId && match.user2Id !== userId) return false;
+    await db.update(matches).set({ status: "removed" }).where(eq(matches.id, matchId));
+    return true;
+  }
+
+  async getMatchCount(userId: string): Promise<number> {
+    const result = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(matches)
+      .where(
+        and(
+          or(eq(matches.user1Id, userId), eq(matches.user2Id, userId)),
+          eq(matches.status, "active")
+        )
+      );
+    return result[0]?.count || 0;
+  }
+
+  async getIncomingOpens(userId: string): Promise<(Interaction & { profile: Profile })[]> {
+    const userInteractedBack = db
+      .select({ id: interactions.toUserId })
+      .from(interactions)
+      .where(eq(interactions.fromUserId, userId));
+
+    const matchedUserIds = db
+      .select({ id: matches.user1Id })
+      .from(matches)
+      .where(and(eq(matches.user2Id, userId), eq(matches.status, "active")));
+
+    const matchedUserIds2 = db
+      .select({ id: matches.user2Id })
+      .from(matches)
+      .where(and(eq(matches.user1Id, userId), eq(matches.status, "active")));
+
+    const incomingOpens = await db
+      .select()
+      .from(interactions)
+      .where(
+        and(
+          eq(interactions.toUserId, userId),
+          eq(interactions.type, "open"),
+          sql`${interactions.fromUserId} NOT IN (${userInteractedBack})`,
+          sql`${interactions.fromUserId} NOT IN (${matchedUserIds})`,
+          sql`${interactions.fromUserId} NOT IN (${matchedUserIds2})`
+        )
+      )
+      .orderBy(desc(interactions.createdAt));
+
+    const result: (Interaction & { profile: Profile })[] = [];
+    for (const open of incomingOpens) {
+      const [profile] = await db.select().from(profiles).where(eq(profiles.userId, open.fromUserId));
+      if (profile) {
+        result.push({ ...open, profile });
+      }
+    }
+    return result;
   }
 }
 

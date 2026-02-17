@@ -173,6 +173,10 @@ export async function registerRoutes(
       if (type === "open") {
         const isMutual = await storage.getMutualOpen(fromUserId, toUserId);
         if (isMutual) {
+          const matchCount = await storage.getMatchCount(fromUserId);
+          if (matchCount >= 8) {
+            return res.json({ interaction, matched: false, connectionLimitReached: true });
+          }
           await storage.createMatch(fromUserId, toUserId);
           matched = true;
         }
@@ -510,6 +514,11 @@ export async function registerRoutes(
 
       let matchCreated = false;
       if (accept) {
+        const matchCount = await storage.getMatchCount(userId);
+        if (matchCount >= 8) {
+          return res.status(400).json({ message: "You've reached the 8-connection limit. Remove a chat to accept new connections." });
+        }
+
         const existingMatches = await storage.getMatchesForUser(userId);
         const alreadyMatched = existingMatches.some(
           m => m.user1Id === updated.fromUserId || m.user2Id === updated.fromUserId
@@ -533,6 +542,32 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error responding to spin request:", error);
       res.status(500).json({ message: "Failed to respond to spin request" });
+    }
+  });
+
+  app.delete("/api/matches/:matchId", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const { matchId } = req.params;
+      const removed = await storage.removeMatch(matchId, userId);
+      if (!removed) {
+        return res.status(404).json({ message: "Match not found" });
+      }
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error removing match:", error);
+      res.status(500).json({ message: "Failed to remove connection" });
+    }
+  });
+
+  app.get("/api/who-liked-you", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const incomingOpens = await storage.getIncomingOpens(userId);
+      res.json(incomingOpens);
+    } catch (error) {
+      console.error("Error fetching who liked you:", error);
+      res.status(500).json({ message: "Failed to fetch likes" });
     }
   });
 

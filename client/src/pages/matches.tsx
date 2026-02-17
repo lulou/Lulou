@@ -10,9 +10,9 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
 import { Input } from "@/components/ui/input";
-import { MessageCircle, Send, Phone, Video, ChevronDown, ChevronUp, PhoneOff, Clock, Check, X, Sparkles, Calendar, Heart, PhoneForwarded } from "lucide-react";
+import { MessageCircle, Send, Phone, Video, ChevronDown, ChevronUp, PhoneOff, Clock, Check, X, Sparkles, Calendar, Heart, PhoneForwarded, Trash2, Eye } from "lucide-react";
 import { BloomFlowerIcon } from "@/components/app-layout";
-import type { Profile, Match, Message, SpinRequest } from "@shared/schema";
+import type { Profile, Match, Message, SpinRequest, Interaction } from "@shared/schema";
 
 const MAX_MESSAGES_PER_USER = 15;
 const MAX_CHARS = 500;
@@ -30,6 +30,9 @@ type SpinRequestsData = {
   incoming: SpinRequestWithProfile[];
   outgoing: SpinRequestWithProfile[];
 };
+type IncomingOpen = Interaction & { profile: Profile };
+
+const MAX_CONNECTIONS = 8;
 
 function formatTime(seconds: number): string {
   const m = Math.floor(seconds / 60);
@@ -573,6 +576,22 @@ function MatchChat({ match }: { match: MatchWithProfile }) {
     },
   });
 
+  const removeMatch = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("DELETE", `/api/matches/${match.id}`);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
+      toast({ title: "Connection removed", description: `${match.profile.firstName} has been removed from your connections.` });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const [showRemoveConfirm, setShowRemoveConfirm] = useState(false);
+
   useEffect(() => {
     if (expanded) {
       messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -645,9 +664,42 @@ function MatchChat({ match }: { match: MatchWithProfile }) {
         <div className="border-t" data-testid={`chat-section-${match.id}`}>
           <div className="flex items-center justify-between gap-2 px-4 py-2 bg-muted/30">
             <p className="text-xs text-muted-foreground font-medium">Chat</p>
-            <Badge variant="outline" className="text-xs" data-testid={`badge-messages-remaining-${match.id}`}>
-              {allCallsDone ? "All calls done" : callStage === 2 ? "Face call stage" : callStage === 1 ? "2nd call ready" : messagesRemaining > 0 ? `${messagesRemaining} left` : "Call time"}
-            </Badge>
+            <div className="flex items-center gap-2">
+              <Badge variant="outline" className="text-xs" data-testid={`badge-messages-remaining-${match.id}`}>
+                {allCallsDone ? "All calls done" : callStage === 2 ? "Face call stage" : callStage === 1 ? "2nd call ready" : messagesRemaining > 0 ? `${messagesRemaining} left` : "Call time"}
+              </Badge>
+              {showRemoveConfirm ? (
+                <div className="flex items-center gap-1">
+                  <span className="text-xs text-muted-foreground">Remove?</span>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    onClick={() => removeMatch.mutate()}
+                    disabled={removeMatch.isPending}
+                    data-testid={`button-confirm-remove-${match.id}`}
+                  >
+                    <Check className="w-3.5 h-3.5 text-destructive" />
+                  </Button>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    onClick={() => setShowRemoveConfirm(false)}
+                    data-testid={`button-cancel-remove-${match.id}`}
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </Button>
+                </div>
+              ) : (
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  onClick={() => setShowRemoveConfirm(true)}
+                  data-testid={`button-remove-match-${match.id}`}
+                >
+                  <Trash2 className="w-3.5 h-3.5 text-muted-foreground" />
+                </Button>
+              )}
+            </div>
           </div>
 
           <div className="max-h-72 overflow-y-auto p-4 space-y-3" data-testid={`messages-container-${match.id}`}>
@@ -855,6 +907,87 @@ function MatchChat({ match }: { match: MatchWithProfile }) {
   );
 }
 
+function WhoLikedYouCard({ open }: { open: IncomingOpen }) {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+
+  const respond = useMutation({
+    mutationFn: async (type: "open" | "close") => {
+      const res = await apiRequest("POST", "/api/interactions", {
+        toUserId: open.fromUserId,
+        type,
+      });
+      return res.json();
+    },
+    onSuccess: (data: any) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/who-liked-you"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
+      if (data.matched) {
+        toast({
+          title: "It's a match!",
+          description: `You and ${open.profile.firstName} are now connected.`,
+        });
+      } else if (data.connectionLimitReached) {
+        toast({
+          title: "Connection limit reached",
+          description: "You have 8 connections. Remove a chat to make room for new ones.",
+          variant: "destructive",
+        });
+      } else {
+        toast({ title: "Passed", description: `You passed on ${open.profile.firstName}.` });
+      }
+    },
+    onError: (error: Error) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    },
+  });
+
+  return (
+    <Card className="p-4" data-testid={`card-liked-${open.fromUserId}`}>
+      <div className="flex items-center gap-3">
+        <Avatar className="w-12 h-12">
+          <AvatarImage src={open.profile.photos?.[0]} alt={open.profile.firstName} />
+          <AvatarFallback className="bg-primary/10 text-primary font-semibold">
+            {open.profile.firstName?.[0]}
+          </AvatarFallback>
+        </Avatar>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <h3 className="font-semibold text-sm" data-testid={`text-liked-name-${open.fromUserId}`}>
+              {open.profile.firstName}, {open.profile.age}
+            </h3>
+            {open.profile.signals?.[0] && (
+              <Badge variant="secondary" className="text-xs">
+                {open.profile.signals[0]}
+              </Badge>
+            )}
+          </div>
+          <p className="text-xs text-muted-foreground">{open.profile.location}</p>
+        </div>
+        <div className="flex items-center gap-1">
+          <Button
+            size="icon"
+            variant="ghost"
+            onClick={() => respond.mutate("close")}
+            disabled={respond.isPending}
+            data-testid={`button-pass-${open.fromUserId}`}
+          >
+            <X className="w-4 h-4 text-muted-foreground" />
+          </Button>
+          <Button
+            size="icon"
+            onClick={() => respond.mutate("open")}
+            disabled={respond.isPending}
+            data-testid={`button-open-back-${open.fromUserId}`}
+          >
+            <Heart className="w-4 h-4" />
+          </Button>
+        </div>
+      </div>
+    </Card>
+  );
+}
+
 export default function Matches() {
   const { data: matches, isLoading: matchesLoading } = useQuery<MatchWithProfile[]>({
     queryKey: ["/api/matches"],
@@ -865,10 +998,18 @@ export default function Matches() {
     refetchInterval: 10000,
   });
 
+  const { data: whoLikedYou } = useQuery<IncomingOpen[]>({
+    queryKey: ["/api/who-liked-you"],
+    refetchInterval: 15000,
+  });
+
   const isLoading = matchesLoading || requestsLoading;
   const incomingRequests = spinRequestsData?.incoming || [];
   const outgoingPending = spinRequestsData?.outgoing?.filter(r => r.status === "pending") || [];
-  const hasContent = (matches && matches.length > 0) || incomingRequests.length > 0 || outgoingPending.length > 0;
+  const likes = whoLikedYou || [];
+  const connectionCount = matches?.length || 0;
+  const atLimit = connectionCount >= MAX_CONNECTIONS;
+  const hasContent = (matches && matches.length > 0) || incomingRequests.length > 0 || outgoingPending.length > 0 || likes.length > 0;
 
   if (isLoading) {
     return (
@@ -900,11 +1041,17 @@ export default function Matches() {
   return (
     <div className="flex-1 overflow-y-auto p-6 space-y-6 max-w-lg mx-auto w-full">
       <div className="space-y-1">
-        <h1 className="font-serif text-2xl font-bold" data-testid="text-matches-title">Your Connections</h1>
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <h1 className="font-serif text-2xl font-bold" data-testid="text-matches-title">Your Connections</h1>
+          <Badge variant={atLimit ? "destructive" : "secondary"} className="text-xs" data-testid="badge-connection-count">
+            {connectionCount}/{MAX_CONNECTIONS}
+          </Badge>
+        </div>
         <p className="text-sm text-muted-foreground">
-          {incomingRequests.length > 0 && `${incomingRequests.length} pending ${incomingRequests.length === 1 ? "request" : "requests"}`}
-          {incomingRequests.length > 0 && matches && matches.length > 0 && " · "}
-          {matches && matches.length > 0 && `${matches.length} ${matches.length === 1 ? "connection" : "connections"}`}
+          {atLimit && "Connection limit reached - remove a chat to connect with new people"}
+          {!atLimit && incomingRequests.length > 0 && `${incomingRequests.length} pending ${incomingRequests.length === 1 ? "request" : "requests"}`}
+          {!atLimit && incomingRequests.length > 0 && matches && matches.length > 0 && " · "}
+          {!atLimit && matches && matches.length > 0 && `${matches.length} ${matches.length === 1 ? "connection" : "connections"}`}
         </p>
       </div>
 
@@ -948,6 +1095,22 @@ export default function Matches() {
           )}
           {matches.map(match => (
             <MatchChat key={match.id} match={match} />
+          ))}
+        </div>
+      )}
+
+      {likes.length > 0 && (
+        <div className="space-y-3" data-testid="section-who-liked-you">
+          <div className="flex items-center gap-2">
+            <Eye className="w-4 h-4 text-primary" />
+            <h2 className="font-semibold text-sm">Who Liked You</h2>
+            <Badge variant="secondary" className="text-xs">{likes.length}</Badge>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            These people opened your profile. Open them back to connect, or pass.
+          </p>
+          {likes.map(open => (
+            <WhoLikedYouCard key={open.id} open={open} />
           ))}
         </div>
       )}
