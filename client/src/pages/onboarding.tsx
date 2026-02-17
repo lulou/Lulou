@@ -35,6 +35,8 @@ export default function Onboarding() {
     datingIntent: "",
     greenFlags: [] as string[],
     connectionStyle: "",
+    email: "",
+    phoneNumber: "",
     conversationStarters: [] as string[],
     starterAnswers: {} as Record<string, string>,
     questions: [] as string[],
@@ -77,7 +79,7 @@ export default function Onboarding() {
 
   const canProceed = () => {
     switch (step) {
-      case 0: return formData.firstName && formData.age >= 18 && formData.gender && formData.datingPreference && formData.location;
+      case 0: return formData.firstName && formData.age >= 18 && formData.gender && formData.datingPreference && formData.location && formData.email;
       case 1: return formData.photos.length >= 2;
       case 2: return formData.conversationStarters.length >= 2 && formData.conversationStarters.length <= 3 && formData.conversationStarters.every(s => formData.starterAnswers[s]?.trim());
       case 3: return formData.questions.length >= 2 && formData.questions.length <= 3;
@@ -215,6 +217,28 @@ export default function Onboarding() {
                     data-testid="slider-radius"
                   />
                   <p className="text-xs text-muted-foreground">People within {formData.locationRadius} miles of your location</p>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="email">Email address</Label>
+                  <Input
+                    id="email"
+                    type="email"
+                    value={formData.email}
+                    onChange={e => update("email", e.target.value)}
+                    placeholder="your@email.com"
+                    data-testid="input-email"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="phoneNumber">Phone number (optional)</Label>
+                  <Input
+                    id="phoneNumber"
+                    type="tel"
+                    value={formData.phoneNumber}
+                    onChange={e => update("phoneNumber", e.target.value)}
+                    placeholder="e.g. +44 7700 900123"
+                    data-testid="input-phone-number"
+                  />
                 </div>
               </div>
             )}

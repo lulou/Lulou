@@ -20,6 +20,7 @@ const profileBodySchema = z.object({
   connectionStyle: z.string().min(1),
   conversationStarters: z.array(z.string().max(200)).min(2).max(3).optional(),
   questions: z.array(z.string().max(200)).min(2).max(3).optional(),
+  email: z.string().email().max(100).optional(),
   phoneNumber: z.string().max(20).optional(),
   locationRadius: z.number().int().min(5).max(100).optional(),
   preferredAgeMin: z.number().int().min(18).max(65).optional(),
