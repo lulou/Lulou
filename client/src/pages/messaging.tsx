@@ -10,7 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
-import { ArrowLeft, Send, Phone, Video, Check, Clock, Calendar, Heart, PhoneForwarded, X } from "lucide-react";
+import { ArrowLeft, Send, Phone, Video, Check, Clock, Calendar, Heart, PhoneForwarded, X, Moon } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import type { Message, Match, Profile } from "@shared/schema";
 
@@ -425,7 +425,7 @@ export default function Messaging() {
         </Badge>
         {!showCloseConfirm ? (
           <Button variant="ghost" size="icon" onClick={() => setShowCloseConfirm(true)} data-testid="button-close-connection">
-            <X className="w-4 h-4 text-muted-foreground" />
+            <Moon className="w-4 h-4 text-muted-foreground" />
           </Button>
         ) : (
           <div className="flex items-center gap-1">

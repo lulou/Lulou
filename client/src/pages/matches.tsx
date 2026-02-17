@@ -10,7 +10,7 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
 import { Input } from "@/components/ui/input";
-import { MessageCircle, Send, Phone, Video, ChevronDown, ChevronUp, PhoneOff, Clock, Check, X, Sparkles, Calendar, Heart, PhoneForwarded, Trash2 } from "lucide-react";
+import { MessageCircle, Send, Phone, Video, ChevronDown, ChevronUp, PhoneOff, Clock, Check, X, Sparkles, Calendar, Heart, PhoneForwarded, Moon } from "lucide-react";
 import { BloomFlowerIcon } from "@/components/app-layout";
 import type { Profile, Match, Message, SpinRequest } from "@shared/schema";
 
@@ -694,7 +694,7 @@ function MatchChat({ match }: { match: MatchWithProfile }) {
                   onClick={() => setShowRemoveConfirm(true)}
                   data-testid={`button-remove-match-${match.id}`}
                 >
-                  <Trash2 className="w-3.5 h-3.5 text-muted-foreground" />
+                  <Moon className="w-3.5 h-3.5 text-muted-foreground" />
                 </Button>
               )}
             </div>
