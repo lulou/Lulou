@@ -1,5 +1,11 @@
 import { useLocation, Link } from "wouter";
 import { Compass, Heart, User, CircleDot, Eye } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+
+interface IncomingOpen {
+  id: string;
+  fromUserId: string;
+}
 
 export function BloomFlowerIcon({ className }: { className?: string }) {
   return (
@@ -28,6 +34,13 @@ export function BloomFlowerIcon({ className }: { className?: string }) {
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();
 
+  const { data: likes } = useQuery<IncomingOpen[]>({
+    queryKey: ["/api/who-liked-you"],
+    refetchInterval: 15000,
+  });
+
+  const likesCount = likes?.length ?? 0;
+
   const navItems = [
     { path: "/discover", icon: Compass, label: "Discover" },
     { path: "/intent", icon: CircleDot, label: "Intent" },
@@ -55,15 +68,26 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         <div className="flex items-center justify-around py-2">
           {navItems.map(item => {
             const isActive = location.startsWith(item.path);
+            const isLikes = item.path === "/likes";
             return (
               <Link key={item.path} href={item.path}>
                 <button
-                  className={`flex flex-col items-center gap-0.5 px-4 py-1.5 rounded-md transition-colors ${
+                  className={`relative flex flex-col items-center gap-0.5 px-4 py-1.5 rounded-md transition-colors ${
                     isActive ? "text-primary" : "text-muted-foreground"
                   }`}
                   data-testid={`nav-${item.label.toLowerCase()}`}
                 >
-                  <item.icon className="w-5 h-5" />
+                  <div className="relative">
+                    <item.icon className="w-5 h-5" />
+                    {isLikes && likesCount > 0 && (
+                      <span
+                        className="absolute -top-1.5 -right-3.5 flex items-center gap-px bg-primary text-primary-foreground text-[9px] font-bold rounded-full px-1 min-w-[16px] h-4 justify-center leading-none"
+                        data-testid="badge-likes-count"
+                      >
+                        +{likesCount}
+                      </span>
+                    )}
+                  </div>
                   <span className="text-[11px] font-medium">{item.label}</span>
                 </button>
               </Link>
