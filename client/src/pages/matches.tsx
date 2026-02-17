@@ -427,6 +427,16 @@ function ReadyToMeetInline({ detail, matchId, profileName }: { detail: MatchDeta
             </div>
           </div>
         )}
+        {mySlots.length > 0 && theirSlots.length > 0 && (
+          <div className="space-y-1 pt-1">
+            <div className="flex items-center gap-2 justify-center">
+              <Heart className="w-3.5 h-3.5 text-primary" />
+              <p className="font-medium text-xs text-primary">Your date is on the cards!</p>
+              <Heart className="w-3.5 h-3.5 text-primary" />
+            </div>
+            <p className="text-xs text-muted-foreground">Now your numbers can be exchanged</p>
+          </div>
+        )}
         <div className="flex flex-col gap-2 items-center">
           {mySlots.length === 0 ? (
             <Button size="sm" onClick={() => setShowDatePicker(true)} data-testid={`button-ready-to-meet-${matchId}`}>
@@ -437,9 +447,11 @@ function ReadyToMeetInline({ detail, matchId, profileName }: { detail: MatchDeta
               <Calendar className="w-4 h-4 mr-2" /> Update Availability
             </Button>
           )}
-          <Button size="sm" variant="outline" onClick={handleExchangeNumber} data-testid={`button-exchange-number-${matchId}`}>
-            <PhoneForwarded className="w-4 h-4 mr-2" /> Exchange Number
-          </Button>
+          {mySlots.length > 0 && theirSlots.length > 0 && (
+            <Button size="sm" variant="outline" onClick={handleExchangeNumber} data-testid={`button-exchange-number-${matchId}`}>
+              <PhoneForwarded className="w-4 h-4 mr-2" /> Exchange Number
+            </Button>
+          )}
         </div>
       </Card>
     </div>

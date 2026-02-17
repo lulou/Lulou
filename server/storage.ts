@@ -561,6 +561,7 @@ export class DatabaseStorage implements IStorage {
     if (!match) return undefined;
     if (match.user1Id !== userId && match.user2Id !== userId) return undefined;
     if ((match.callStage || 0) < 3) return undefined;
+    if (!match.meetAvailability1 || !match.meetAvailability2) return undefined;
 
     const updates: Record<string, any> = {};
     if (match.user1Id === userId) {
