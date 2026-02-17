@@ -622,8 +622,8 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getMatchCount(userId: string): Promise<number> {
-    const result = await db
-      .select({ count: sql<number>`count(*)::int` })
+    const activeMatches = await db
+      .select()
       .from(matches)
       .where(
         and(
@@ -631,7 +631,13 @@ export class DatabaseStorage implements IStorage {
           eq(matches.status, "active")
         )
       );
-    return result[0]?.count || 0;
+    let count = 0;
+    for (const match of activeMatches) {
+      const otherUserId = match.user1Id === userId ? match.user2Id : match.user1Id;
+      const [profile] = await db.select().from(profiles).where(eq(profiles.userId, otherUserId));
+      if (profile) count++;
+    }
+    return count;
   }
 
   async getIncomingOpens(userId: string): Promise<(Interaction & { profile: Profile })[]> {
