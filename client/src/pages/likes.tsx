@@ -1,3 +1,4 @@
+import { useState, useEffect, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -12,7 +13,153 @@ import type { Profile, Interaction } from "@shared/schema";
 
 type IncomingOpen = Interaction & { profile: Profile };
 
-function LikeCard({ open }: { open: IncomingOpen }) {
+type MatchCelebration = {
+  firstName: string;
+  photo?: string;
+};
+
+function MatchOverlay({ celebration, onClose }: { celebration: MatchCelebration; onClose: () => void }) {
+  const [phase, setPhase] = useState<"enter" | "visible" | "exit">("enter");
+
+  useEffect(() => {
+    const enterTimer = setTimeout(() => setPhase("visible"), 50);
+    return () => clearTimeout(enterTimer);
+  }, []);
+
+  const handleClose = useCallback(() => {
+    setPhase("exit");
+    setTimeout(onClose, 500);
+  }, [onClose]);
+
+  useEffect(() => {
+    const autoClose = setTimeout(handleClose, 4000);
+    return () => clearTimeout(autoClose);
+  }, [handleClose]);
+
+  const isVisible = phase === "visible";
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center cursor-pointer"
+      onClick={handleClose}
+      data-testid="overlay-match-celebration"
+      style={{
+        background: "radial-gradient(ellipse at center, hsl(350 45% 52% / 0.95), hsl(350 45% 35% / 0.98))",
+        opacity: phase === "exit" ? 0 : 1,
+        transition: "opacity 500ms ease",
+      }}
+    >
+      <div className="absolute inset-0 overflow-hidden pointer-events-none">
+        {Array.from({ length: 20 }).map((_, i) => (
+          <div
+            key={i}
+            className="absolute rounded-full"
+            style={{
+              width: `${Math.random() * 8 + 4}px`,
+              height: `${Math.random() * 8 + 4}px`,
+              left: `${Math.random() * 100}%`,
+              top: `${Math.random() * 100}%`,
+              background: "hsl(40 60% 85% / 0.4)",
+              animation: `float ${3 + Math.random() * 4}s ease-in-out infinite`,
+              animationDelay: `${Math.random() * 2}s`,
+            }}
+          />
+        ))}
+      </div>
+
+      <div
+        className="flex flex-col items-center gap-6 px-8"
+        style={{
+          transform: isVisible ? "scale(1) translateY(0)" : "scale(0.6) translateY(30px)",
+          opacity: isVisible ? 1 : 0,
+          transition: "transform 700ms cubic-bezier(0.34, 1.56, 0.64, 1), opacity 500ms ease",
+        }}
+      >
+        <BloomFlowerIcon className="w-14 h-14 text-white/80" />
+
+        <div className="relative">
+          <Avatar
+            className="w-28 h-28 border-4 border-white/30"
+            style={{
+              transform: isVisible ? "scale(1)" : "scale(0)",
+              transition: "transform 600ms cubic-bezier(0.34, 1.56, 0.64, 1) 200ms",
+            }}
+          >
+            <AvatarImage src={celebration.photo} alt={celebration.firstName} />
+            <AvatarFallback className="bg-white/20 text-white text-3xl font-semibold">
+              {celebration.firstName[0]}
+            </AvatarFallback>
+          </Avatar>
+          <div
+            className="absolute -bottom-1 -right-1 w-10 h-10 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center"
+            style={{
+              transform: isVisible ? "scale(1)" : "scale(0)",
+              transition: "transform 500ms cubic-bezier(0.34, 1.56, 0.64, 1) 500ms",
+            }}
+          >
+            <Heart className="w-5 h-5 text-white fill-white" />
+          </div>
+        </div>
+
+        <div className="text-center space-y-2">
+          <h1
+            className="font-serif text-4xl font-bold text-white tracking-wide"
+            data-testid="text-blooming-amazing"
+            style={{
+              transform: isVisible ? "translateY(0)" : "translateY(20px)",
+              opacity: isVisible ? 1 : 0,
+              transition: "transform 600ms ease 300ms, opacity 500ms ease 300ms",
+              textShadow: "0 2px 20px rgba(0,0,0,0.2)",
+            }}
+          >
+            Blooming Amazing
+          </h1>
+          <p
+            className="text-lg text-white/80 font-medium tracking-widest uppercase"
+            data-testid="text-match-made"
+            style={{
+              transform: isVisible ? "translateY(0)" : "translateY(15px)",
+              opacity: isVisible ? 1 : 0,
+              transition: "transform 600ms ease 500ms, opacity 500ms ease 500ms",
+              letterSpacing: "0.2em",
+            }}
+          >
+            match made
+          </p>
+        </div>
+
+        <p
+          className="text-white/60 text-sm mt-2"
+          style={{
+            opacity: isVisible ? 1 : 0,
+            transition: "opacity 600ms ease 700ms",
+          }}
+        >
+          You and {celebration.firstName} are connected
+        </p>
+
+        <p
+          className="text-white/40 text-xs"
+          style={{
+            opacity: isVisible ? 1 : 0,
+            transition: "opacity 600ms ease 900ms",
+          }}
+        >
+          Tap anywhere to continue
+        </p>
+      </div>
+
+      <style>{`
+        @keyframes float {
+          0%, 100% { transform: translateY(0) scale(1); opacity: 0.4; }
+          50% { transform: translateY(-30px) scale(1.5); opacity: 0.7; }
+        }
+      `}</style>
+    </div>
+  );
+}
+
+function LikeCard({ open, onMatch }: { open: IncomingOpen; onMatch: (c: MatchCelebration) => void }) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -28,9 +175,9 @@ function LikeCard({ open }: { open: IncomingOpen }) {
       queryClient.invalidateQueries({ queryKey: ["/api/who-liked-you"] });
       queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
       if (data.matched) {
-        toast({
-          title: "It's a match!",
-          description: `You and ${open.profile.firstName} are now connected. Head to Connections to chat.`,
+        onMatch({
+          firstName: open.profile.firstName,
+          photo: open.profile.photos?.[0],
         });
       } else if (data.connectionLimitReached) {
         toast({
@@ -105,6 +252,8 @@ function LikeCard({ open }: { open: IncomingOpen }) {
 }
 
 export default function LikesPage() {
+  const [celebration, setCelebration] = useState<MatchCelebration | null>(null);
+
   const { data: likes, isLoading } = useQuery<IncomingOpen[]>({
     queryKey: ["/api/who-liked-you"],
     refetchInterval: 15000,
@@ -124,7 +273,7 @@ export default function LikesPage() {
 
   const likesList = likes || [];
 
-  if (likesList.length === 0) {
+  if (likesList.length === 0 && !celebration) {
     return (
       <div className="flex-1 flex items-center justify-center p-6">
         <div className="text-center space-y-4 max-w-sm">
@@ -136,6 +285,7 @@ export default function LikesPage() {
             When someone opens your profile, they'll show up here. Keep your profile fresh to attract more interest.
           </p>
         </div>
+        {celebration && <MatchOverlay celebration={celebration} onClose={() => setCelebration(null)} />}
       </div>
     );
   }
@@ -159,9 +309,11 @@ export default function LikesPage() {
 
       <div className="space-y-3">
         {likesList.map(open => (
-          <LikeCard key={open.id} open={open} />
+          <LikeCard key={open.id} open={open} onMatch={setCelebration} />
         ))}
       </div>
+
+      {celebration && <MatchOverlay celebration={celebration} onClose={() => setCelebration(null)} />}
     </div>
   );
 }
