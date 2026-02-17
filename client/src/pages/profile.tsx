@@ -34,8 +34,11 @@ import {
   Plus,
   X,
   ImagePlus,
+  MessageSquare,
+  Check,
 } from "lucide-react";
 import { DragScrollRow } from "@/components/drag-scroll-row";
+import { CONVERSATION_STARTERS, PROFILE_QUESTIONS } from "@shared/schema";
 import type { Profile } from "@shared/schema";
 
 function RadiusSlider({ initial, onCommit }: { initial: number; onCommit: (v: number) => void }) {
@@ -180,6 +183,11 @@ export default function ProfilePage() {
   });
 
   const [settingsForm, setSettingsForm] = useState<Record<string, string | undefined>>({});
+  const [editingStarters, setEditingStarters] = useState(false);
+  const [editStarters, setEditStarters] = useState<string[]>([]);
+  const [editStarterAnswers, setEditStarterAnswers] = useState<Record<string, string>>({});
+  const [editingQuestions, setEditingQuestions] = useState(false);
+  const [editQuestions, setEditQuestions] = useState<string[]>([]);
 
   const initSettings = () => {
     if (profile) {
@@ -202,6 +210,77 @@ export default function ProfilePage() {
       queryClient.invalidateQueries({ queryKey: ["/api/profile"] });
       toast({ title: "Settings saved" });
       setExpandedSection(null);
+    },
+  });
+
+  const startEditingStarters = () => {
+    if (profile) {
+      const prompts: string[] = [];
+      const answers: Record<string, string> = {};
+      (profile.conversationStarters || []).forEach((s: string) => {
+        const matchedPrompt = CONVERSATION_STARTERS.find(p => s.startsWith(p.replace(/\.\.\.$/, "")));
+        if (matchedPrompt) {
+          prompts.push(matchedPrompt);
+          const answerPart = s.slice(matchedPrompt.length).trim();
+          if (answerPart) answers[matchedPrompt] = answerPart;
+        } else {
+          prompts.push(s);
+        }
+      });
+      setEditStarters(prompts);
+      setEditStarterAnswers(answers);
+      setEditingStarters(true);
+    }
+  };
+
+  const startEditingQuestions = () => {
+    if (profile) {
+      setEditQuestions([...(profile.questions || [])]);
+      setEditingQuestions(true);
+    }
+  };
+
+  const toggleStarter = (starter: string) => {
+    setEditStarters(prev => {
+      if (prev.includes(starter)) return prev.filter(s => s !== starter);
+      if (prev.length >= 3) return prev;
+      return [...prev, starter];
+    });
+  };
+
+  const toggleQuestion = (question: string) => {
+    setEditQuestions(prev => {
+      if (prev.includes(question)) return prev.filter(q => q !== question);
+      if (prev.length >= 3) return prev;
+      return [...prev, question];
+    });
+  };
+
+  const saveStarters = useMutation({
+    mutationFn: async () => {
+      const fullStarters = editStarters.map(s => {
+        const answer = editStarterAnswers[s];
+        return answer ? `${s} ${answer}` : s;
+      });
+      const res = await apiRequest("POST", "/api/profile", { conversationStarters: fullStarters });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/profile"] });
+      toast({ title: "Conversation starters updated" });
+      setEditingStarters(false);
+    },
+  });
+
+  const saveQuestionsMut = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/profile", { questions: editQuestions });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/profile"] });
+      toast({ title: "Questions updated" });
+      setEditingQuestions(false);
     },
   });
 
@@ -506,6 +585,127 @@ export default function ProfilePage() {
           <p className="font-medium" data-testid="text-my-style">{profile.connectionStyle}</p>
         </div>
       </Card>
+
+      <div className="space-y-3">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-1.5">
+            <MessageSquare className="w-4 h-4 text-primary" />
+            <p className="text-xs font-medium tracking-wider uppercase text-muted-foreground">Conversation Starters</p>
+          </div>
+          {!editingStarters ? (
+            <Button size="sm" variant="ghost" onClick={startEditingStarters} data-testid="button-edit-starters">
+              <Pencil className="w-3.5 h-3.5 mr-1.5" /> Edit
+            </Button>
+          ) : (
+            <div className="flex items-center gap-2">
+              <Button size="sm" variant="ghost" onClick={() => setEditingStarters(false)} data-testid="button-cancel-starters">Cancel</Button>
+              <Button size="sm" onClick={() => saveStarters.mutate()} disabled={saveStarters.isPending || editStarters.length < 2} data-testid="button-save-starters">
+                {saveStarters.isPending ? "Saving..." : "Save"}
+              </Button>
+            </div>
+          )}
+        </div>
+        {editingStarters ? (
+          <Card className="p-4 space-y-4" data-testid="section-edit-starters">
+            <div className="flex flex-wrap gap-2">
+              {CONVERSATION_STARTERS.map(starter => {
+                const selected = editStarters.includes(starter);
+                return (
+                  <Badge
+                    key={starter}
+                    variant={selected ? "default" : "outline"}
+                    className={`cursor-pointer text-sm py-2 px-3 transition-all ${selected ? "bg-primary text-primary-foreground" : ""}`}
+                    onClick={() => toggleStarter(starter)}
+                    data-testid={`badge-edit-starter-${starter.slice(0, 20).toLowerCase().replace(/\s+/g, "-")}`}
+                  >
+                    {selected && <Check className="w-3 h-3 mr-1" />}
+                    {starter}
+                  </Badge>
+                );
+              })}
+            </div>
+            <p className="text-xs text-muted-foreground">{editStarters.length}/3 selected (min 2)</p>
+            {editStarters.map(starter => (
+              <div key={starter} className="space-y-1.5">
+                <p className="text-sm font-medium text-primary">{starter}</p>
+                <Input
+                  value={editStarterAnswers[starter] || ""}
+                  onChange={e => setEditStarterAnswers(prev => ({ ...prev, [starter]: e.target.value }))}
+                  placeholder="Your answer..."
+                  maxLength={200}
+                  data-testid={`input-edit-starter-${starter.slice(0, 20).toLowerCase().replace(/\s+/g, "-")}`}
+                />
+              </div>
+            ))}
+          </Card>
+        ) : profile.conversationStarters && profile.conversationStarters.length > 0 ? (
+          <div className="space-y-2">
+            {profile.conversationStarters.map((starter: string, i: number) => (
+              <Card key={i} className="p-3" data-testid={`card-my-starter-${i}`}>
+                <p className="text-sm">{starter}</p>
+              </Card>
+            ))}
+          </div>
+        ) : (
+          <p className="text-sm text-muted-foreground">No conversation starters yet. Tap Edit to add some.</p>
+        )}
+      </div>
+
+      <div className="space-y-3">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-1.5">
+            <HelpCircle className="w-4 h-4 text-primary" />
+            <p className="text-xs font-medium tracking-wider uppercase text-muted-foreground">Questions</p>
+          </div>
+          {!editingQuestions ? (
+            <Button size="sm" variant="ghost" onClick={startEditingQuestions} data-testid="button-edit-questions">
+              <Pencil className="w-3.5 h-3.5 mr-1.5" /> Edit
+            </Button>
+          ) : (
+            <div className="flex items-center gap-2">
+              <Button size="sm" variant="ghost" onClick={() => setEditingQuestions(false)} data-testid="button-cancel-questions">Cancel</Button>
+              <Button size="sm" onClick={() => saveQuestionsMut.mutate()} disabled={saveQuestionsMut.isPending || editQuestions.length < 2} data-testid="button-save-questions">
+                {saveQuestionsMut.isPending ? "Saving..." : "Save"}
+              </Button>
+            </div>
+          )}
+        </div>
+        {editingQuestions ? (
+          <Card className="p-4 space-y-3" data-testid="section-edit-questions">
+            {PROFILE_QUESTIONS.map(question => {
+              const selected = editQuestions.includes(question);
+              return (
+                <Card
+                  key={question}
+                  className={`p-3 cursor-pointer transition-all hover-elevate ${selected ? "border-primary bg-primary/5" : ""}`}
+                  onClick={() => toggleQuestion(question)}
+                  data-testid={`card-edit-question-${question.slice(0, 25).toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-sm">{question}</span>
+                    {selected && (
+                      <div className="w-5 h-5 rounded-full bg-primary flex items-center justify-center shrink-0">
+                        <Check className="w-3 h-3 text-primary-foreground" />
+                      </div>
+                    )}
+                  </div>
+                </Card>
+              );
+            })}
+            <p className="text-xs text-muted-foreground">{editQuestions.length}/3 selected (min 2)</p>
+          </Card>
+        ) : profile.questions && profile.questions.length > 0 ? (
+          <div className="space-y-2">
+            {profile.questions.map((question: string, i: number) => (
+              <Card key={i} className="p-3" data-testid={`card-my-question-${i}`}>
+                <p className="text-sm">{question}</p>
+              </Card>
+            ))}
+          </div>
+        ) : (
+          <p className="text-sm text-muted-foreground">No questions yet. Tap Edit to add some.</p>
+        )}
+      </div>
 
       <div className="space-y-2">
         <button
