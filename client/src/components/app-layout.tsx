@@ -1,5 +1,5 @@
 import { useLocation, Link } from "wouter";
-import { Compass, Heart, User, CircleDot } from "lucide-react";
+import { Compass, Heart, User, CircleDot, Eye } from "lucide-react";
 
 export function BloomFlowerIcon({ className }: { className?: string }) {
   return (
@@ -31,6 +31,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const navItems = [
     { path: "/discover", icon: Compass, label: "Discover" },
     { path: "/intent", icon: CircleDot, label: "Intent" },
+    { path: "/likes", icon: Eye, label: "Likes" },
     { path: "/matches", icon: Heart, label: "Connections" },
     { path: "/profile", icon: User, label: "Profile" },
   ];

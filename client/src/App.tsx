@@ -12,6 +12,7 @@ import Matches from "@/pages/matches";
 import Messaging from "@/pages/messaging";
 import ProfilePage from "@/pages/profile";
 import IntentPage from "@/pages/intent";
+import LikesPage from "@/pages/likes";
 import AppLayout from "@/components/app-layout";
 import type { Profile } from "@shared/schema";
 import { Loader2 } from "lucide-react";
@@ -69,6 +70,7 @@ function AppContent() {
         <Route path="/" component={Discover} />
         <Route path="/discover" component={Discover} />
         <Route path="/intent" component={IntentPage} />
+        <Route path="/likes" component={LikesPage} />
         <Route path="/matches" component={Matches} />
         <Route path="/messages/:matchId" component={Messaging} />
         <Route path="/profile" component={ProfilePage} />

@@ -48,7 +48,7 @@ Bloom is a calm, premium dating app focused on helping people move from matching
 - No gamification, no casino mechanics
 
 ## Project Structure
-- `client/src/pages/` - Landing, Onboarding, Discover, Intent, Matches, Messaging, Profile
+- `client/src/pages/` - Landing, Onboarding, Discover, Intent, Likes, Matches, Messaging, Profile
 - `client/src/components/` - AppLayout (bottom nav), UI components
 - `server/routes.ts` - API endpoints
 - `server/storage.ts` - Database operations

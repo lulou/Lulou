@@ -10,9 +10,9 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
 import { Input } from "@/components/ui/input";
-import { MessageCircle, Send, Phone, Video, ChevronDown, ChevronUp, PhoneOff, Clock, Check, X, Sparkles, Calendar, Heart, PhoneForwarded, Trash2, Eye } from "lucide-react";
+import { MessageCircle, Send, Phone, Video, ChevronDown, ChevronUp, PhoneOff, Clock, Check, X, Sparkles, Calendar, Heart, PhoneForwarded, Trash2 } from "lucide-react";
 import { BloomFlowerIcon } from "@/components/app-layout";
-import type { Profile, Match, Message, SpinRequest, Interaction } from "@shared/schema";
+import type { Profile, Match, Message, SpinRequest } from "@shared/schema";
 
 const MAX_MESSAGES_PER_USER = 15;
 const MAX_CHARS = 500;
@@ -30,8 +30,6 @@ type SpinRequestsData = {
   incoming: SpinRequestWithProfile[];
   outgoing: SpinRequestWithProfile[];
 };
-type IncomingOpen = Interaction & { profile: Profile };
-
 const MAX_CONNECTIONS = 8;
 
 function formatTime(seconds: number): string {
@@ -907,87 +905,6 @@ function MatchChat({ match }: { match: MatchWithProfile }) {
   );
 }
 
-function WhoLikedYouCard({ open }: { open: IncomingOpen }) {
-  const { toast } = useToast();
-  const queryClient = useQueryClient();
-
-  const respond = useMutation({
-    mutationFn: async (type: "open" | "close") => {
-      const res = await apiRequest("POST", "/api/interactions", {
-        toUserId: open.fromUserId,
-        type,
-      });
-      return res.json();
-    },
-    onSuccess: (data: any) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/who-liked-you"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
-      if (data.matched) {
-        toast({
-          title: "It's a match!",
-          description: `You and ${open.profile.firstName} are now connected.`,
-        });
-      } else if (data.connectionLimitReached) {
-        toast({
-          title: "Connection limit reached",
-          description: "You have 8 connections. Remove a chat to make room for new ones.",
-          variant: "destructive",
-        });
-      } else {
-        toast({ title: "Passed", description: `You passed on ${open.profile.firstName}.` });
-      }
-    },
-    onError: (error: Error) => {
-      toast({ title: "Error", description: error.message, variant: "destructive" });
-    },
-  });
-
-  return (
-    <Card className="p-4" data-testid={`card-liked-${open.fromUserId}`}>
-      <div className="flex items-center gap-3">
-        <Avatar className="w-12 h-12">
-          <AvatarImage src={open.profile.photos?.[0]} alt={open.profile.firstName} />
-          <AvatarFallback className="bg-primary/10 text-primary font-semibold">
-            {open.profile.firstName?.[0]}
-          </AvatarFallback>
-        </Avatar>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 flex-wrap">
-            <h3 className="font-semibold text-sm" data-testid={`text-liked-name-${open.fromUserId}`}>
-              {open.profile.firstName}, {open.profile.age}
-            </h3>
-            {open.profile.signals?.[0] && (
-              <Badge variant="secondary" className="text-xs">
-                {open.profile.signals[0]}
-              </Badge>
-            )}
-          </div>
-          <p className="text-xs text-muted-foreground">{open.profile.location}</p>
-        </div>
-        <div className="flex items-center gap-1">
-          <Button
-            size="icon"
-            variant="ghost"
-            onClick={() => respond.mutate("close")}
-            disabled={respond.isPending}
-            data-testid={`button-pass-${open.fromUserId}`}
-          >
-            <X className="w-4 h-4 text-muted-foreground" />
-          </Button>
-          <Button
-            size="icon"
-            onClick={() => respond.mutate("open")}
-            disabled={respond.isPending}
-            data-testid={`button-open-back-${open.fromUserId}`}
-          >
-            <Heart className="w-4 h-4" />
-          </Button>
-        </div>
-      </div>
-    </Card>
-  );
-}
-
 export default function Matches() {
   const { data: matches, isLoading: matchesLoading } = useQuery<MatchWithProfile[]>({
     queryKey: ["/api/matches"],
@@ -998,18 +915,12 @@ export default function Matches() {
     refetchInterval: 10000,
   });
 
-  const { data: whoLikedYou } = useQuery<IncomingOpen[]>({
-    queryKey: ["/api/who-liked-you"],
-    refetchInterval: 15000,
-  });
-
   const isLoading = matchesLoading || requestsLoading;
   const incomingRequests = spinRequestsData?.incoming || [];
   const outgoingPending = spinRequestsData?.outgoing?.filter(r => r.status === "pending") || [];
-  const likes = whoLikedYou || [];
   const connectionCount = matches?.length || 0;
   const atLimit = connectionCount >= MAX_CONNECTIONS;
-  const hasContent = (matches && matches.length > 0) || incomingRequests.length > 0 || outgoingPending.length > 0 || likes.length > 0;
+  const hasContent = (matches && matches.length > 0) || incomingRequests.length > 0 || outgoingPending.length > 0;
 
   if (isLoading) {
     return (
@@ -1099,21 +1010,6 @@ export default function Matches() {
         </div>
       )}
 
-      {likes.length > 0 && (
-        <div className="space-y-3" data-testid="section-who-liked-you">
-          <div className="flex items-center gap-2">
-            <Eye className="w-4 h-4 text-primary" />
-            <h2 className="font-semibold text-sm">Who Liked You</h2>
-            <Badge variant="secondary" className="text-xs">{likes.length}</Badge>
-          </div>
-          <p className="text-xs text-muted-foreground">
-            These people opened your profile. Open them back to connect, or pass.
-          </p>
-          {likes.map(open => (
-            <WhoLikedYouCard key={open.id} open={open} />
-          ))}
-        </div>
-      )}
     </div>
   );
 }
