@@ -32,9 +32,9 @@ Bloom is a calm, premium dating app focused on helping people move from matching
 - Call stages tracked via `callStage` (0=pre-call, 1=first done, 2=second done, 3=face done/skipped)
 - Face call requires mutual acceptance (`faceCallUser1Accepted`, `faceCallUser2Accepted`)
 - After all calls: "Ready to Meet" button shows date/time picker (next 7 days, 4 time slots each)
-- "Exchange Number" button sends phone number as a chat message automatically
 - Meet availability tracked per user (`meetAvailability1`, `meetAvailability2` as JSON)
-- Number exchange tracked (`numberExchanged1`, `numberExchanged2`)
+- No phone number or social media exchange allowed - all communication stays within Bloom
+- Message content filtered server-side to block phone numbers, emails, and social media handles
 - Profile page shows age, height, location, adjustable search radius
 - Profile sections: Bloom Extras (subscriptions), Safety, Bloom Me (photo verification badge), Help Centre, What Works (dating tips)
 - Location radius (5-100 miles) configurable in onboarding and profile
@@ -91,4 +91,3 @@ Bloom is a calm, premium dating app focused on helping people move from matching
 - `POST /api/matches/:id/face-call/accept` - Accept optional face call (after 2nd voice call)
 - `POST /api/matches/:id/face-call/decline` - Decline/skip face call (advances to stage 3)
 - `POST /api/matches/:id/meet-availability` - Set date/time availability slots (after all calls done)
-- `POST /api/matches/:id/exchange-number` - Share phone number into chat (auto-sends as message)

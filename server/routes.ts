@@ -6,6 +6,31 @@ import { seedDatabase } from "./seed";
 import { z } from "zod";
 import type { Profile } from "@shared/schema";
 
+function containsContactInfo(text: string): boolean {
+  const lower = text.toLowerCase().replace(/\s+/g, "");
+  const phonePattern = /(\+?\d[\d\s\-()]{7,})/;
+  if (phonePattern.test(text)) return true;
+  const emailPattern = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/;
+  if (emailPattern.test(text)) return true;
+  const socialPatterns = [
+    /(?:instagram|insta|ig)[\s:@./]*[a-zA-Z0-9._]{2,}/i,
+    /(?:snapchat|snap|sc)[\s:@./]*[a-zA-Z0-9._]{2,}/i,
+    /(?:twitter|x\.com)[\s:@./]*[a-zA-Z0-9._]{2,}/i,
+    /(?:tiktok|tik tok)[\s:@./]*[a-zA-Z0-9._]{2,}/i,
+    /(?:facebook|fb)[\s:@./]*[a-zA-Z0-9._]{2,}/i,
+    /(?:whatsapp|whats app|wa\.me)[\s:@./]*[a-zA-Z0-9._]*/i,
+    /(?:telegram|tg)[\s:@./]*[a-zA-Z0-9._]{2,}/i,
+    /(?:discord)[\s:#./]*[a-zA-Z0-9._]{2,}/i,
+    /(?:linkedin)[\s:@./]*[a-zA-Z0-9._]{2,}/i,
+  ];
+  for (const pattern of socialPatterns) {
+    if (pattern.test(text)) return true;
+  }
+  if (/(?:add me|find me|hmu|hit me up|dm me|message me)[\s]*(?:on|at)/i.test(text)) return true;
+  if (/@[a-zA-Z0-9._]{3,}/.test(text)) return true;
+  return false;
+}
+
 const profileBodySchema = z.object({
   firstName: z.string().min(1).max(50),
   age: z.number().int().min(18).max(99),
@@ -21,7 +46,6 @@ const profileBodySchema = z.object({
   conversationStarters: z.array(z.string().max(200)).min(2).max(3).optional(),
   questions: z.array(z.string().max(200)).min(2).max(3).optional(),
   email: z.string().email().max(100).optional(),
-  phoneNumber: z.string().max(20).optional(),
   locationRadius: z.number().int().min(5).max(100).optional(),
   preferredAgeMin: z.number().int().min(18).max(65).optional(),
   preferredAgeMax: z.number().int().min(18).max(65).optional(),
@@ -195,6 +219,10 @@ export async function registerRoutes(
       }
 
       const { content } = parsed.data;
+
+      if (containsContactInfo(content)) {
+        return res.status(400).json({ message: "For your safety, sharing phone numbers, emails, or social media handles isn't allowed on Bloom. Keep the connection here!" });
+      }
 
       const match = await storage.getMatch(matchId, userId);
       if (!match) {
@@ -527,34 +555,6 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error setting meet availability:", error);
       res.status(500).json({ message: "Failed to set availability" });
-    }
-  });
-
-  app.post("/api/matches/:matchId/exchange-number", isAuthenticated, async (req: any, res) => {
-    try {
-      const userId = req.user.claims.sub;
-      const { matchId } = req.params;
-
-      const profile = await storage.getProfile(userId);
-      if (!profile?.phoneNumber) {
-        return res.status(400).json({ message: "Please add your phone number in your profile first" });
-      }
-
-      const match = await storage.exchangeNumber(matchId, userId);
-      if (!match) {
-        return res.status(404).json({ message: "Match not found or calls not completed yet" });
-      }
-
-      await storage.createMessage({
-        matchId,
-        senderId: userId,
-        content: `My number is ${profile.phoneNumber}`,
-      });
-
-      res.json(match);
-    } catch (error) {
-      console.error("Error exchanging number:", error);
-      res.status(500).json({ message: "Failed to exchange number" });
     }
   });
 

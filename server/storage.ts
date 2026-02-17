@@ -44,7 +44,6 @@ export interface IStorage {
   respondToSpinRequest(requestId: string, userId: string, accept: boolean): Promise<SpinRequest | undefined>;
   getSpinRequest(id: string): Promise<SpinRequest | undefined>;
   setMeetAvailability(matchId: string, userId: string, availability: string): Promise<Match | undefined>;
-  exchangeNumber(matchId: string, userId: string): Promise<Match | undefined>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -556,23 +555,6 @@ export class DatabaseStorage implements IStorage {
     return updated;
   }
 
-  async exchangeNumber(matchId: string, userId: string): Promise<Match | undefined> {
-    const [match] = await db.select().from(matches).where(eq(matches.id, matchId));
-    if (!match) return undefined;
-    if (match.user1Id !== userId && match.user2Id !== userId) return undefined;
-    if ((match.callStage || 0) < 3) return undefined;
-    if (!match.meetAvailability1 || !match.meetAvailability2) return undefined;
-
-    const updates: Record<string, any> = {};
-    if (match.user1Id === userId) {
-      updates.numberExchanged1 = true;
-    } else {
-      updates.numberExchanged2 = true;
-    }
-
-    const [updated] = await db.update(matches).set(updates).where(eq(matches.id, matchId)).returning();
-    return updated;
-  }
 }
 
 export const storage = new DatabaseStorage();

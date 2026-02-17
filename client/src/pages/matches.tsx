@@ -10,7 +10,7 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
 import { Input } from "@/components/ui/input";
-import { MessageCircle, Send, Phone, Video, ChevronDown, ChevronUp, PhoneOff, Clock, Check, X, Sparkles, Calendar, PhoneForwarded, Heart } from "lucide-react";
+import { MessageCircle, Send, Phone, Video, ChevronDown, ChevronUp, PhoneOff, Clock, Check, X, Sparkles, Calendar, Heart } from "lucide-react";
 import { BloomFlowerIcon } from "@/components/app-layout";
 import type { Profile, Match, Message, SpinRequest } from "@shared/schema";
 
@@ -271,19 +271,13 @@ function ReadyToMeetInline({ detail, matchId, profileName }: { detail: MatchDeta
   const queryClient = useQueryClient();
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [selectedSlots, setSelectedSlots] = useState<string[]>([]);
-  const [showPhoneInput, setShowPhoneInput] = useState(false);
-  const [phoneNumber, setPhoneNumber] = useState("");
   const dateSlots = generateDateSlots();
 
   const isUser1 = detail.user1Id === user?.id;
   const myAvailability = isUser1 ? detail.meetAvailability1 : detail.meetAvailability2;
   const theirAvailability = isUser1 ? detail.meetAvailability2 : detail.meetAvailability1;
-  const myNumberExchanged = isUser1 ? detail.numberExchanged1 : detail.numberExchanged2;
-  const theirNumberExchanged = isUser1 ? detail.numberExchanged2 : detail.numberExchanged1;
   const mySlots: string[] = myAvailability ? JSON.parse(myAvailability) : [];
   const theirSlots: string[] = theirAvailability ? JSON.parse(theirAvailability) : [];
-
-  const { data: myProfile } = useQuery<Profile>({ queryKey: ["/api/profile"] });
 
   const saveAvailability = useMutation({
     mutationFn: async () => {
@@ -298,23 +292,6 @@ function ReadyToMeetInline({ detail, matchId, profileName }: { detail: MatchDeta
     onError: (e: Error) => { toast({ title: "Could not save", description: e.message, variant: "destructive" }); },
   });
 
-  const savePhoneAndExchange = useMutation({
-    mutationFn: async () => {
-      if (phoneNumber.trim()) {
-        await apiRequest("POST", "/api/profile", { phoneNumber: phoneNumber.trim() });
-      }
-      const res = await apiRequest("POST", `/api/matches/${matchId}/exchange-number`, {});
-      return res.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/matches", matchId] });
-      queryClient.invalidateQueries({ queryKey: ["/api/profile"] });
-      toast({ title: "Number shared" });
-      setShowPhoneInput(false);
-    },
-    onError: (e: Error) => { toast({ title: "Could not share", description: e.message, variant: "destructive" }); },
-  });
-
   const toggleSlot = (value: string) => {
     setSelectedSlots(prev => {
       if (prev.includes(value)) return prev.filter(s => s !== value);
@@ -322,35 +299,6 @@ function ReadyToMeetInline({ detail, matchId, profileName }: { detail: MatchDeta
       return [...prev, value];
     });
   };
-
-  const handleExchangeNumber = () => {
-    if (myProfile?.phoneNumber) {
-      savePhoneAndExchange.mutate();
-    } else {
-      setShowPhoneInput(true);
-    }
-  };
-
-  if (showPhoneInput) {
-    return (
-      <div className="p-4 border-t">
-        <Card className="p-4 space-y-3 bg-primary/5 border-primary/20">
-          <div className="text-center space-y-1">
-            <PhoneForwarded className="w-5 h-5 text-primary mx-auto" />
-            <p className="font-medium text-sm">Add your phone number</p>
-            <p className="text-xs text-muted-foreground">It will be sent as a message to {profileName}</p>
-          </div>
-          <Input type="tel" value={phoneNumber} onChange={e => setPhoneNumber(e.target.value)} placeholder="Your phone number" maxLength={20} data-testid={`input-phone-inline-${matchId}`} />
-          <div className="flex items-center gap-2 justify-center">
-            <Button size="sm" onClick={() => savePhoneAndExchange.mutate()} disabled={!phoneNumber.trim() || savePhoneAndExchange.isPending} data-testid={`button-confirm-exchange-inline-${matchId}`}>
-              {savePhoneAndExchange.isPending ? "Sending..." : "Share My Number"}
-            </Button>
-            <Button size="sm" variant="outline" onClick={() => setShowPhoneInput(false)}>Cancel</Button>
-          </div>
-        </Card>
-      </div>
-    );
-  }
 
   if (showDatePicker) {
     return (
@@ -386,25 +334,6 @@ function ReadyToMeetInline({ detail, matchId, profileName }: { detail: MatchDeta
     );
   }
 
-  if (myNumberExchanged) {
-    return (
-      <div className="p-4 border-t">
-        <Card className="p-4 text-center space-y-2 bg-primary/5 border-primary/20">
-          <Heart className="w-5 h-5 text-primary mx-auto" />
-          <p className="font-medium text-sm">Number shared</p>
-          <p className="text-xs text-muted-foreground">
-            {theirNumberExchanged ? "You've both exchanged numbers!" : `Waiting for ${profileName} to share theirs.`}
-          </p>
-          {mySlots.length > 0 && (
-            <div className="flex flex-wrap gap-1 justify-center pt-1">
-              {mySlots.map((s: string) => { const m = dateSlots.find(d => d.value === s); return <Badge key={s} variant="secondary" className="text-xs">{m?.label || s}</Badge>; })}
-            </div>
-          )}
-        </Card>
-      </div>
-    );
-  }
-
   return (
     <div className="p-4 border-t">
       <Card className="p-4 text-center space-y-3 bg-primary/5 border-primary/20">
@@ -434,7 +363,7 @@ function ReadyToMeetInline({ detail, matchId, profileName }: { detail: MatchDeta
               <p className="font-medium text-xs text-primary">Your date is on the cards!</p>
               <Heart className="w-3.5 h-3.5 text-primary" />
             </div>
-            <p className="text-xs text-muted-foreground">Now your numbers can be exchanged</p>
+            <p className="text-xs text-muted-foreground">Keep the conversation going right here on Bloom</p>
           </div>
         )}
         <div className="flex flex-col gap-2 items-center">
@@ -445,11 +374,6 @@ function ReadyToMeetInline({ detail, matchId, profileName }: { detail: MatchDeta
           ) : (
             <Button size="sm" variant="outline" onClick={() => { setSelectedSlots([...mySlots]); setShowDatePicker(true); }} data-testid={`button-update-avail-${matchId}`}>
               <Calendar className="w-4 h-4 mr-2" /> Update Availability
-            </Button>
-          )}
-          {mySlots.length > 0 && theirSlots.length > 0 && (
-            <Button size="sm" variant="outline" onClick={handleExchangeNumber} data-testid={`button-exchange-number-${matchId}`}>
-              <PhoneForwarded className="w-4 h-4 mr-2" /> Exchange Number
             </Button>
           )}
         </div>
