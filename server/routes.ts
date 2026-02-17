@@ -20,6 +20,7 @@ const profileBodySchema = z.object({
   connectionStyle: z.string().min(1),
   conversationStarters: z.array(z.string().max(200)).min(2).max(3).optional(),
   questions: z.array(z.string().max(200)).min(2).max(3).optional(),
+  phoneNumber: z.string().max(20).optional(),
   locationRadius: z.number().int().min(5).max(100).optional(),
   preferredAgeMin: z.number().int().min(18).max(65).optional(),
   preferredAgeMax: z.number().int().min(18).max(65).optional(),
@@ -502,6 +503,57 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error responding to spin request:", error);
       res.status(500).json({ message: "Failed to respond to spin request" });
+    }
+  });
+
+  app.post("/api/matches/:matchId/meet-availability", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const { matchId } = req.params;
+      const { slots } = req.body;
+
+      if (!Array.isArray(slots) || slots.length === 0 || slots.length > 5) {
+        return res.status(400).json({ message: "Please select 1-5 time slots" });
+      }
+
+      const availability = JSON.stringify(slots);
+      const match = await storage.setMeetAvailability(matchId, userId, availability);
+      if (!match) {
+        return res.status(404).json({ message: "Match not found or calls not completed yet" });
+      }
+
+      res.json(match);
+    } catch (error) {
+      console.error("Error setting meet availability:", error);
+      res.status(500).json({ message: "Failed to set availability" });
+    }
+  });
+
+  app.post("/api/matches/:matchId/exchange-number", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const { matchId } = req.params;
+
+      const profile = await storage.getProfile(userId);
+      if (!profile?.phoneNumber) {
+        return res.status(400).json({ message: "Please add your phone number in your profile first" });
+      }
+
+      const match = await storage.exchangeNumber(matchId, userId);
+      if (!match) {
+        return res.status(404).json({ message: "Match not found or calls not completed yet" });
+      }
+
+      await storage.createMessage({
+        matchId,
+        senderId: userId,
+        content: `My number is ${profile.phoneNumber}`,
+      });
+
+      res.json(match);
+    } catch (error) {
+      console.error("Error exchanging number:", error);
+      res.status(500).json({ message: "Failed to exchange number" });
     }
   });
 

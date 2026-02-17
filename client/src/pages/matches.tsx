@@ -9,7 +9,8 @@ import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
-import { MessageCircle, Send, Phone, Video, ChevronDown, ChevronUp, PhoneOff, Clock, Check, X, Sparkles } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { MessageCircle, Send, Phone, Video, ChevronDown, ChevronUp, PhoneOff, Clock, Check, X, Sparkles, Calendar, PhoneForwarded, Heart } from "lucide-react";
 import { BloomFlowerIcon } from "@/components/app-layout";
 import type { Profile, Match, Message, SpinRequest } from "@shared/schema";
 
@@ -239,6 +240,209 @@ function SpinRequestCard({ request, type }: { request: SpinRequestWithProfile; t
         )}
       </div>
     </Card>
+  );
+}
+
+function generateDateSlots(): { label: string; value: string }[] {
+  const slots: { label: string; value: string }[] = [];
+  const now = new Date();
+  const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const timeSlots = [
+    { label: "Morning (10am)", time: "10:00" },
+    { label: "Afternoon (2pm)", time: "14:00" },
+    { label: "Evening (7pm)", time: "19:00" },
+    { label: "Late evening (8:30pm)", time: "20:30" },
+  ];
+  for (let d = 1; d <= 7; d++) {
+    const date = new Date(now);
+    date.setDate(now.getDate() + d);
+    const dayLabel = `${dayNames[date.getDay()]}, ${monthNames[date.getMonth()]} ${date.getDate()}`;
+    for (const slot of timeSlots) {
+      slots.push({ label: `${dayLabel} - ${slot.label}`, value: `${date.toISOString().slice(0, 10)} ${slot.time}` });
+    }
+  }
+  return slots;
+}
+
+function ReadyToMeetInline({ detail, matchId, profileName }: { detail: MatchDetail; matchId: string; profileName: string }) {
+  const { user } = useAuth();
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [selectedSlots, setSelectedSlots] = useState<string[]>([]);
+  const [showPhoneInput, setShowPhoneInput] = useState(false);
+  const [phoneNumber, setPhoneNumber] = useState("");
+  const dateSlots = generateDateSlots();
+
+  const isUser1 = detail.user1Id === user?.id;
+  const myAvailability = isUser1 ? detail.meetAvailability1 : detail.meetAvailability2;
+  const theirAvailability = isUser1 ? detail.meetAvailability2 : detail.meetAvailability1;
+  const myNumberExchanged = isUser1 ? detail.numberExchanged1 : detail.numberExchanged2;
+  const theirNumberExchanged = isUser1 ? detail.numberExchanged2 : detail.numberExchanged1;
+  const mySlots: string[] = myAvailability ? JSON.parse(myAvailability) : [];
+  const theirSlots: string[] = theirAvailability ? JSON.parse(theirAvailability) : [];
+
+  const { data: myProfile } = useQuery<Profile>({ queryKey: ["/api/profile"] });
+
+  const saveAvailability = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", `/api/matches/${matchId}/meet-availability`, { slots: selectedSlots });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/matches", matchId] });
+      toast({ title: "Availability shared" });
+      setShowDatePicker(false);
+    },
+    onError: (e: Error) => { toast({ title: "Could not save", description: e.message, variant: "destructive" }); },
+  });
+
+  const savePhoneAndExchange = useMutation({
+    mutationFn: async () => {
+      if (phoneNumber.trim()) {
+        await apiRequest("POST", "/api/profile", { phoneNumber: phoneNumber.trim() });
+      }
+      const res = await apiRequest("POST", `/api/matches/${matchId}/exchange-number`, {});
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/matches", matchId] });
+      queryClient.invalidateQueries({ queryKey: ["/api/profile"] });
+      toast({ title: "Number shared" });
+      setShowPhoneInput(false);
+    },
+    onError: (e: Error) => { toast({ title: "Could not share", description: e.message, variant: "destructive" }); },
+  });
+
+  const toggleSlot = (value: string) => {
+    setSelectedSlots(prev => {
+      if (prev.includes(value)) return prev.filter(s => s !== value);
+      if (prev.length >= 5) return prev;
+      return [...prev, value];
+    });
+  };
+
+  const handleExchangeNumber = () => {
+    if (myProfile?.phoneNumber) {
+      savePhoneAndExchange.mutate();
+    } else {
+      setShowPhoneInput(true);
+    }
+  };
+
+  if (showPhoneInput) {
+    return (
+      <div className="p-4 border-t">
+        <Card className="p-4 space-y-3 bg-primary/5 border-primary/20">
+          <div className="text-center space-y-1">
+            <PhoneForwarded className="w-5 h-5 text-primary mx-auto" />
+            <p className="font-medium text-sm">Add your phone number</p>
+            <p className="text-xs text-muted-foreground">It will be sent as a message to {profileName}</p>
+          </div>
+          <Input type="tel" value={phoneNumber} onChange={e => setPhoneNumber(e.target.value)} placeholder="Your phone number" maxLength={20} data-testid={`input-phone-inline-${matchId}`} />
+          <div className="flex items-center gap-2 justify-center">
+            <Button size="sm" onClick={() => savePhoneAndExchange.mutate()} disabled={!phoneNumber.trim() || savePhoneAndExchange.isPending} data-testid={`button-confirm-exchange-inline-${matchId}`}>
+              {savePhoneAndExchange.isPending ? "Sending..." : "Share My Number"}
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => setShowPhoneInput(false)}>Cancel</Button>
+          </div>
+        </Card>
+      </div>
+    );
+  }
+
+  if (showDatePicker) {
+    return (
+      <div className="p-4 border-t">
+        <Card className="p-4 space-y-3 bg-primary/5 border-primary/20">
+          <div className="text-center space-y-1">
+            <Calendar className="w-5 h-5 text-primary mx-auto" />
+            <p className="font-medium text-sm">When are you free?</p>
+            <p className="text-xs text-muted-foreground">Select up to 5 time slots</p>
+          </div>
+          <div className="max-h-48 overflow-y-auto space-y-1">
+            {dateSlots.map(slot => {
+              const selected = selectedSlots.includes(slot.value);
+              return (
+                <div key={slot.value} className={`flex items-center gap-2 p-2 rounded-md cursor-pointer transition-all text-xs ${selected ? "bg-primary/15 border border-primary/30" : "hover-elevate border border-transparent"}`} onClick={() => toggleSlot(slot.value)} data-testid={`slot-inline-${slot.value}-${matchId}`}>
+                  <div className={`w-3.5 h-3.5 rounded-full border-2 flex items-center justify-center shrink-0 ${selected ? "border-primary bg-primary" : "border-muted-foreground/30"}`}>
+                    {selected && <Check className="w-2 h-2 text-primary-foreground" />}
+                  </div>
+                  <span>{slot.label}</span>
+                </div>
+              );
+            })}
+          </div>
+          <p className="text-xs text-muted-foreground text-center">{selectedSlots.length}/5 selected</p>
+          <div className="flex items-center gap-2 justify-center">
+            <Button size="sm" onClick={() => saveAvailability.mutate()} disabled={selectedSlots.length === 0 || saveAvailability.isPending} data-testid={`button-save-avail-inline-${matchId}`}>
+              {saveAvailability.isPending ? "Saving..." : "Share Availability"}
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => setShowDatePicker(false)}>Cancel</Button>
+          </div>
+        </Card>
+      </div>
+    );
+  }
+
+  if (myNumberExchanged) {
+    return (
+      <div className="p-4 border-t">
+        <Card className="p-4 text-center space-y-2 bg-primary/5 border-primary/20">
+          <Heart className="w-5 h-5 text-primary mx-auto" />
+          <p className="font-medium text-sm">Number shared</p>
+          <p className="text-xs text-muted-foreground">
+            {theirNumberExchanged ? "You've both exchanged numbers!" : `Waiting for ${profileName} to share theirs.`}
+          </p>
+          {mySlots.length > 0 && (
+            <div className="flex flex-wrap gap-1 justify-center pt-1">
+              {mySlots.map((s: string) => { const m = dateSlots.find(d => d.value === s); return <Badge key={s} variant="secondary" className="text-xs">{m?.label || s}</Badge>; })}
+            </div>
+          )}
+        </Card>
+      </div>
+    );
+  }
+
+  return (
+    <div className="p-4 border-t">
+      <Card className="p-4 text-center space-y-3 bg-primary/5 border-primary/20">
+        <Check className="w-5 h-5 text-primary mx-auto" />
+        <p className="font-medium text-sm">All calls completed</p>
+        <p className="text-xs text-muted-foreground">Ready to meet in real life?</p>
+        {mySlots.length > 0 && (
+          <div className="space-y-1">
+            <p className="text-xs font-medium text-muted-foreground">Your availability:</p>
+            <div className="flex flex-wrap gap-1 justify-center">
+              {mySlots.map((s: string) => { const m = dateSlots.find(d => d.value === s); return <Badge key={s} variant="secondary" className="text-xs">{m?.label || s}</Badge>; })}
+            </div>
+          </div>
+        )}
+        {theirSlots.length > 0 && (
+          <div className="space-y-1">
+            <p className="text-xs font-medium text-muted-foreground">{profileName}'s availability:</p>
+            <div className="flex flex-wrap gap-1 justify-center">
+              {theirSlots.map((s: string) => { const m = dateSlots.find(d => d.value === s); return <Badge key={s} variant="outline" className="text-xs">{m?.label || s}</Badge>; })}
+            </div>
+          </div>
+        )}
+        <div className="flex flex-col gap-2 items-center">
+          {mySlots.length === 0 ? (
+            <Button size="sm" onClick={() => setShowDatePicker(true)} data-testid={`button-ready-to-meet-${matchId}`}>
+              <Calendar className="w-4 h-4 mr-2" /> Ready to Meet
+            </Button>
+          ) : (
+            <Button size="sm" variant="outline" onClick={() => { setSelectedSlots([...mySlots]); setShowDatePicker(true); }} data-testid={`button-update-avail-${matchId}`}>
+              <Calendar className="w-4 h-4 mr-2" /> Update Availability
+            </Button>
+          )}
+          <Button size="sm" variant="outline" onClick={handleExchangeNumber} data-testid={`button-exchange-number-${matchId}`}>
+            <PhoneForwarded className="w-4 h-4 mr-2" /> Exchange Number
+          </Button>
+        </div>
+      </Card>
+    </div>
   );
 }
 
@@ -478,12 +682,14 @@ function MatchChat({ match }: { match: MatchWithProfile }) {
             </div>
           ) : isCallActive && matchDetail ? (
             <CallTimer match={matchDetail} onComplete={() => completeCall.mutate()} isFaceCall={isFaceCallStage && !!bothAcceptedFaceCall} />
+          ) : allCallsDone && matchDetail ? (
+            <ReadyToMeetInline detail={matchDetail} matchId={match.id} profileName={match.profile.firstName} />
           ) : allCallsDone ? (
             <div className="p-4 border-t">
               <Card className="p-4 text-center space-y-2 bg-primary/5 border-primary/20">
                 <Check className="w-5 h-5 text-primary mx-auto" />
                 <p className="font-medium text-sm">All calls completed</p>
-                <p className="text-xs text-muted-foreground">You've had wonderful conversations. Ready to meet in real life?</p>
+                <p className="text-xs text-muted-foreground">Ready to meet in real life?</p>
               </Card>
             </div>
           ) : isFaceCallStage && !bothAcceptedFaceCall ? (

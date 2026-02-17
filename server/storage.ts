@@ -43,6 +43,8 @@ export interface IStorage {
   getOutgoingSpinRequests(userId: string): Promise<(SpinRequest & { profile: Profile })[]>;
   respondToSpinRequest(requestId: string, userId: string, accept: boolean): Promise<SpinRequest | undefined>;
   getSpinRequest(id: string): Promise<SpinRequest | undefined>;
+  setMeetAvailability(matchId: string, userId: string, availability: string): Promise<Match | undefined>;
+  exchangeNumber(matchId: string, userId: string): Promise<Match | undefined>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -535,6 +537,40 @@ export class DatabaseStorage implements IStorage {
   async getSpinRequest(id: string): Promise<SpinRequest | undefined> {
     const [request] = await db.select().from(spinRequests).where(eq(spinRequests.id, id));
     return request;
+  }
+
+  async setMeetAvailability(matchId: string, userId: string, availability: string): Promise<Match | undefined> {
+    const [match] = await db.select().from(matches).where(eq(matches.id, matchId));
+    if (!match) return undefined;
+    if (match.user1Id !== userId && match.user2Id !== userId) return undefined;
+    if ((match.callStage || 0) < 3) return undefined;
+
+    const updates: Record<string, any> = {};
+    if (match.user1Id === userId) {
+      updates.meetAvailability1 = availability;
+    } else {
+      updates.meetAvailability2 = availability;
+    }
+
+    const [updated] = await db.update(matches).set(updates).where(eq(matches.id, matchId)).returning();
+    return updated;
+  }
+
+  async exchangeNumber(matchId: string, userId: string): Promise<Match | undefined> {
+    const [match] = await db.select().from(matches).where(eq(matches.id, matchId));
+    if (!match) return undefined;
+    if (match.user1Id !== userId && match.user2Id !== userId) return undefined;
+    if ((match.callStage || 0) < 3) return undefined;
+
+    const updates: Record<string, any> = {};
+    if (match.user1Id === userId) {
+      updates.numberExchanged1 = true;
+    } else {
+      updates.numberExchanged2 = true;
+    }
+
+    const [updated] = await db.update(matches).set(updates).where(eq(matches.id, matchId)).returning();
+    return updated;
   }
 }
 

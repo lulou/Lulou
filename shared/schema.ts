@@ -24,6 +24,7 @@ export const profiles = pgTable("profiles", {
   locationRadius: integer("location_radius").default(25),
   preferredAgeMin: integer("preferred_age_min").default(18),
   preferredAgeMax: integer("preferred_age_max").default(45),
+  phoneNumber: text("phone_number"),
   photoVerified: boolean("photo_verified").default(false),
   onboardingComplete: boolean("onboarding_complete").default(false),
   createdAt: timestamp("created_at").defaultNow(),
@@ -53,6 +54,10 @@ export const matches = pgTable("matches", {
   callStage: integer("call_stage").default(0),
   faceCallUser1Accepted: boolean("face_call_user1_accepted").default(false),
   faceCallUser2Accepted: boolean("face_call_user2_accepted").default(false),
+  meetAvailability1: text("meet_availability_1"),
+  meetAvailability2: text("meet_availability_2"),
+  numberExchanged1: boolean("number_exchanged_1").default(false),
+  numberExchanged2: boolean("number_exchanged_2").default(false),
   status: text("status").default("active"),
   createdAt: timestamp("created_at").defaultNow(),
 });
