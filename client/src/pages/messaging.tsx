@@ -10,7 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
-import { ArrowLeft, Send, Phone, Video, Check, Clock, Calendar, Heart, PhoneForwarded } from "lucide-react";
+import { ArrowLeft, Send, Phone, Video, Check, Clock, Calendar, Heart, PhoneForwarded, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import type { Message, Match, Profile } from "@shared/schema";
 
@@ -316,8 +316,23 @@ export default function Messaging() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [message, setMessage] = useState("");
+  const [showCloseConfirm, setShowCloseConfirm] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const matchId = params?.matchId;
+
+  const closeConnection = useMutation({
+    mutationFn: async () => {
+      await apiRequest("DELETE", `/api/matches/${matchId}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
+      toast({ title: "Connection closed", description: "You can now connect with someone new." });
+      navigate("/matches");
+    },
+    onError: (error: Error) => {
+      toast({ title: "Could not close connection", description: error.message, variant: "destructive" });
+    },
+  });
 
   const { data: matchDetail, isLoading } = useQuery<MatchDetail>({
     queryKey: ["/api/matches", matchId],
@@ -408,7 +423,35 @@ export default function Messaging() {
         <Badge variant="outline" className="text-xs" data-testid="badge-messages-remaining">
           {statusLabel}
         </Badge>
+        {!showCloseConfirm ? (
+          <Button variant="ghost" size="icon" onClick={() => setShowCloseConfirm(true)} data-testid="button-close-connection">
+            <X className="w-4 h-4 text-muted-foreground" />
+          </Button>
+        ) : (
+          <div className="flex items-center gap-1">
+            <Button
+              size="sm"
+              variant="destructive"
+              onClick={() => closeConnection.mutate()}
+              disabled={closeConnection.isPending}
+              data-testid="button-confirm-close"
+            >
+              {closeConnection.isPending ? "Closing..." : "Close"}
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => setShowCloseConfirm(false)} data-testid="button-cancel-close">
+              Keep
+            </Button>
+          </div>
+        )}
       </div>
+
+      {showCloseConfirm && (
+        <div className="px-4 py-2 bg-destructive/5 border-b">
+          <p className="text-xs text-center text-muted-foreground">
+            Close your connection with {matchDetail.profile.firstName}? This frees a spot for a new connection.
+          </p>
+        </div>
+      )}
 
       <div className="flex-1 overflow-y-auto p-4 space-y-3" data-testid="messages-container">
         {matchDetail.messages?.length === 0 && (
