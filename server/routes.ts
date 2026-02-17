@@ -7,27 +7,57 @@ import { z } from "zod";
 import type { Profile } from "@shared/schema";
 
 function containsContactInfo(text: string): boolean {
-  const lower = text.toLowerCase().replace(/\s+/g, "");
   const phonePattern = /(\+?\d[\d\s\-()]{7,})/;
   if (phonePattern.test(text)) return true;
   const emailPattern = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/;
   if (emailPattern.test(text)) return true;
-  const socialPatterns = [
-    /(?:instagram|insta|ig)[\s:@./]*[a-zA-Z0-9._]{2,}/i,
-    /(?:snapchat|snap|sc)[\s:@./]*[a-zA-Z0-9._]{2,}/i,
-    /(?:twitter|x\.com)[\s:@./]*[a-zA-Z0-9._]{2,}/i,
-    /(?:tiktok|tik tok)[\s:@./]*[a-zA-Z0-9._]{2,}/i,
-    /(?:facebook|fb)[\s:@./]*[a-zA-Z0-9._]{2,}/i,
-    /(?:whatsapp|whats app|wa\.me)[\s:@./]*[a-zA-Z0-9._]*/i,
-    /(?:telegram|tg)[\s:@./]*[a-zA-Z0-9._]{2,}/i,
-    /(?:discord)[\s:#./]*[a-zA-Z0-9._]{2,}/i,
-    /(?:linkedin)[\s:@./]*[a-zA-Z0-9._]{2,}/i,
+
+  const socialKeywords = [
+    /\b(?:instagram|insta|ig)\b/i,
+    /\b(?:snapchat|snap|sc)\b/i,
+    /\b(?:twitter)\b/i,
+    /\b(?:tiktok|tik\s*tok)\b/i,
+    /\b(?:facebook|fb)\b/i,
+    /\b(?:whatsapp|whats\s*app)\b/i,
+    /\b(?:telegram|tg)\b/i,
+    /\b(?:discord)\b/i,
+    /\b(?:linkedin)\b/i,
+    /\b(?:wechat)\b/i,
+    /\b(?:signal)\s+(is|@|:)/i,
+    /\b(?:kik)\b/i,
+    /\b(?:viber)\b/i,
+    /\b(?:line)\s+(id|is|@|:)/i,
+    /\b(?:x\.com)\b/i,
   ];
-  for (const pattern of socialPatterns) {
+  for (const pattern of socialKeywords) {
     if (pattern.test(text)) return true;
   }
-  if (/(?:add me|find me|hmu|hit me up|dm me|message me)[\s]*(?:on|at)/i.test(text)) return true;
+
+  const socialUrls = [
+    /(?:instagram\.com|instagr\.am)\//i,
+    /(?:snapchat\.com)\//i,
+    /(?:twitter\.com|x\.com)\//i,
+    /(?:tiktok\.com)\//i,
+    /(?:facebook\.com|fb\.com)\//i,
+    /(?:wa\.me)\//i,
+    /(?:t\.me)\//i,
+    /(?:discord\.gg)\//i,
+    /(?:linkedin\.com)\//i,
+  ];
+  for (const pattern of socialUrls) {
+    if (pattern.test(text)) return true;
+  }
+
+  if (/(?:add me|find me|hmu|hit me up|dm me|message me|follow me|text me|call me|reach me)[\s]*(?:on|at|@)/i.test(text)) return true;
   if (/@[a-zA-Z0-9._]{3,}/.test(text)) return true;
+
+  if (/\b(?:my\s+(?:handle|username|user\s*name|number|num|#|digits|cell|mobile))\s*(?:is|:|=)\s*/i.test(text)) return true;
+
+  const stripped = text.replace(/[\s\-_.]/g, "");
+  const digitCount = (stripped.match(/\d/g) || []).length;
+  const totalLen = stripped.length;
+  if (totalLen >= 7 && totalLen <= 15 && digitCount >= 7) return true;
+
   return false;
 }
 
