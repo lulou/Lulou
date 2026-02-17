@@ -195,6 +195,7 @@ export default function ProfilePage() {
         location: profile.location,
         height: profile.height || "",
         email: profile.email || "",
+        phoneNumber: profile.phoneNumber || "",
         datingPreference: profile.datingPreference,
         datingIntent: profile.datingIntent,
         connectionStyle: profile.connectionStyle,
@@ -396,6 +397,17 @@ export default function ProfilePage() {
                 onChange={e => setSettingsForm(prev => ({ ...prev, email: e.target.value }))}
                 placeholder="your@email.com"
                 data-testid="input-settings-email"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="settings-phone" className="text-xs">Phone number</Label>
+              <Input
+                id="settings-phone"
+                type="tel"
+                value={settingsForm.phoneNumber || ""}
+                onChange={e => setSettingsForm(prev => ({ ...prev, phoneNumber: e.target.value }))}
+                placeholder="e.g. +44 7700 900123"
+                data-testid="input-settings-phone"
               />
             </div>
             <div className="space-y-1.5">

@@ -36,6 +36,7 @@ export default function Onboarding() {
     greenFlags: [] as string[],
     connectionStyle: "",
     email: "",
+    phoneNumber: "",
     conversationStarters: [] as string[],
     starterAnswers: {} as Record<string, string>,
     questions: [] as string[],
@@ -226,6 +227,17 @@ export default function Onboarding() {
                     onChange={e => update("email", e.target.value)}
                     placeholder="your@email.com"
                     data-testid="input-email"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="phoneNumber">Phone number (optional)</Label>
+                  <Input
+                    id="phoneNumber"
+                    type="tel"
+                    value={formData.phoneNumber}
+                    onChange={e => update("phoneNumber", e.target.value)}
+                    placeholder="e.g. +44 7700 900123"
+                    data-testid="input-phone-number"
                   />
                 </div>
               </div>

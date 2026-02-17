@@ -222,7 +222,7 @@ export async function registerRoutes(
       const { content } = parsed.data;
 
       if (containsContactInfo(content)) {
-        return res.status(400).json({ message: "For your safety, sharing phone numbers, emails, or social media handles isn't allowed on Bloom. Keep the connection here!" });
+        return res.status(400).json({ message: "No exchange of information until a date has been agreed upon. Complete your calls and match your availability first!" });
       }
 
       const match = await storage.getMatch(matchId, userId);
