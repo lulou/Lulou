@@ -1,5 +1,5 @@
 import { Button } from "@/components/ui/button";
-import { Heart, MessageCircle, Phone, Shield } from "lucide-react";
+import { Heart, MessageCircle, Phone, Shield, RefreshCw } from "lucide-react";
 import { LulouFlowerIcon } from "@/components/app-layout";
 
 export default function Landing() {
@@ -12,6 +12,10 @@ export default function Landing() {
             <span className="font-serif text-xl font-semibold tracking-tight" data-testid="text-logo">Lulou</span>
           </div>
           <div className="flex items-center gap-3">
+            <a href="/api/logout" className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-primary transition-colors" data-testid="link-switch-account">
+              <RefreshCw className="w-3.5 h-3.5" />
+              Switch Account
+            </a>
             <a href="/api/login">
               <Button variant="ghost" data-testid="button-login">Log in</Button>
             </a>
