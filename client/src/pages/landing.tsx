@@ -1,8 +1,42 @@
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Heart, MessageCircle, Phone, Shield, RefreshCw } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Heart, MessageCircle, Phone, Shield, Mail, RefreshCw, Loader2 } from "lucide-react";
 import { LulouFlowerIcon } from "@/components/app-layout";
+import { supabase } from "@/lib/supabase";
+import { useToast } from "@/hooks/use-toast";
 
 export default function Landing() {
+  const [email, setEmail] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [sent, setSent] = useState(false);
+  const { toast } = useToast();
+
+  async function handleLogin(e: React.FormEvent) {
+    e.preventDefault();
+    if (!email.trim()) return;
+
+    setLoading(true);
+    const { error } = await supabase.auth.signInWithOtp({
+      email: email.trim(),
+      options: {
+        emailRedirectTo: window.location.origin,
+      },
+    });
+    setLoading(false);
+
+    if (error) {
+      toast({
+        title: "Could not send link",
+        description: error.message,
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setSent(true);
+  }
+
   return (
     <div className="min-h-screen bg-background">
       <nav className="fixed top-0 left-0 right-0 z-50 backdrop-blur-md bg-background/80 border-b">
@@ -11,18 +45,14 @@ export default function Landing() {
             <LulouFlowerIcon className="w-6 h-6 text-primary" />
             <span className="font-serif text-xl font-semibold tracking-tight" data-testid="text-logo">Lulou</span>
           </div>
-          <div className="flex items-center gap-3">
-            <a href="/api/logout" className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-primary transition-colors" data-testid="link-switch-account">
-              <RefreshCw className="w-3.5 h-3.5" />
-              Switch Account
-            </a>
-            <a href="/api/login">
-              <Button variant="ghost" data-testid="button-login">Log in</Button>
-            </a>
-            <a href="/api/login">
-              <Button data-testid="button-get-started">Get Started</Button>
-            </a>
-          </div>
+          <button
+            onClick={() => { setSent(false); setEmail(""); }}
+            className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-primary transition-colors"
+            data-testid="link-switch-account"
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+            Switch Account
+          </button>
         </div>
       </nav>
 
@@ -42,13 +72,68 @@ export default function Landing() {
                 Move beyond endless swiping. Lulou guides you from matching to meaningful conversations to meeting in real life.
               </p>
             </div>
-            <div className="flex items-center gap-4 flex-wrap">
-              <a href="/api/login">
-                <Button size="lg" className="text-base px-8" data-testid="button-hero-cta">
-                  Begin Your Journey
+
+            {sent ? (
+              <div className="max-w-sm space-y-4 p-6 rounded-lg border bg-card" data-testid="container-magic-link-sent">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
+                    <Mail className="w-5 h-5 text-primary" />
+                  </div>
+                  <div>
+                    <p className="font-semibold" data-testid="text-check-email">Check your email</p>
+                    <p className="text-sm text-muted-foreground" data-testid="text-email-sent-to">{email}</p>
+                  </div>
+                </div>
+                <p className="text-sm text-muted-foreground">
+                  We sent you a magic link. Click the link in the email to sign in.
+                </p>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => { setSent(false); setEmail(""); }}
+                  data-testid="button-try-different-email"
+                >
+                  Try a different email
                 </Button>
-              </a>
-            </div>
+              </div>
+            ) : (
+              <form onSubmit={handleLogin} className="max-w-sm space-y-3" data-testid="form-login">
+                <div className="space-y-2">
+                  <Input
+                    type="email"
+                    placeholder="Enter your email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    required
+                    data-testid="input-email"
+                    className="h-12"
+                  />
+                </div>
+                <Button
+                  type="submit"
+                  size="lg"
+                  className="w-full text-base"
+                  disabled={loading || !email.trim()}
+                  data-testid="button-send-magic-link"
+                >
+                  {loading ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      Sending...
+                    </>
+                  ) : (
+                    <>
+                      <Mail className="w-4 h-4 mr-2" />
+                      Send Magic Link
+                    </>
+                  )}
+                </Button>
+                <p className="text-xs text-muted-foreground text-center">
+                  No password needed. We'll email you a sign-in link.
+                </p>
+              </form>
+            )}
+
             <div className="flex items-center gap-6 flex-wrap text-sm text-muted-foreground">
               <div className="flex items-center gap-2">
                 <Shield className="w-4 h-4 text-primary" />
@@ -112,11 +197,6 @@ export default function Landing() {
           <p className="text-lg text-muted-foreground max-w-xl mx-auto">
             Lulou is for people who are done with the noise. Step into a calmer, more intentional way to date.
           </p>
-          <a href="/api/login">
-            <Button size="lg" className="text-base px-10 mt-4" data-testid="button-cta-bottom">
-              Start Your Journey
-            </Button>
-          </a>
         </div>
       </section>
 

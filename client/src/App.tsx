@@ -16,9 +16,15 @@ import LikesPage from "@/pages/likes";
 import AppLayout from "@/components/app-layout";
 import type { Profile } from "@shared/schema";
 import { Loader2 } from "lucide-react";
+import { supabase } from "@/lib/supabase";
 
 async function fetchProfileSafe(): Promise<Profile | null> {
-  const res = await fetch("/api/profile", { credentials: "include" });
+  const { data: { session } } = await supabase.auth.getSession();
+  const headers: Record<string, string> = {};
+  if (session?.access_token) {
+    headers["Authorization"] = `Bearer ${session.access_token}`;
+  }
+  const res = await fetch("/api/profile", { credentials: "include", headers });
   if (res.status === 401 || res.status === 404) return null;
   if (!res.ok) throw new Error(`${res.status}: ${res.statusText}`);
   return res.json();

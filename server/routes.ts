@@ -1,10 +1,27 @@
-import type { Express } from "express";
+import type { Express, RequestHandler } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { setupAuth, registerAuthRoutes, isAuthenticated } from "./replit_integrations/auth";
 import { seedDatabase } from "./seed";
 import { z } from "zod";
 import type { Profile } from "@shared/schema";
+import { supabase } from "./supabase";
+
+const isAuthenticated: RequestHandler = async (req: any, res, next) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    return res.status(401).json({ message: "Unauthorized" });
+  }
+
+  const token = authHeader.split(" ")[1];
+  const { data: { user }, error } = await supabase.auth.getUser(token);
+
+  if (error || !user) {
+    return res.status(401).json({ message: "Unauthorized" });
+  }
+
+  req.user = user;
+  next();
+};
 
 function containsContactInfo(text: string): boolean {
   const phonePattern = /(\+?\d[\d\s\-()]{7,})/;
@@ -124,12 +141,22 @@ export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
-  await setupAuth(app);
-  registerAuthRoutes(app);
+  app.get("/api/auth/user", isAuthenticated, async (req: any, res) => {
+    try {
+      const user = req.user;
+      res.json({
+        id: user.id,
+        email: user.email,
+      });
+    } catch (error) {
+      console.error("Error fetching user:", error);
+      res.status(500).json({ message: "Failed to fetch user" });
+    }
+  });
 
   app.get("/api/profile", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       const profile = await storage.getProfile(userId);
       if (!profile) {
         return res.status(404).json({ message: "Profile not found" });
@@ -143,7 +170,7 @@ export async function registerRoutes(
 
   app.post("/api/profile", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       const existing = await storage.getProfile(userId);
 
       if (existing) {
@@ -169,7 +196,7 @@ export async function registerRoutes(
 
   app.get("/api/discover", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       const myProfile = await storage.getProfile(userId);
       if (!myProfile) {
         return res.json([]);
@@ -184,7 +211,7 @@ export async function registerRoutes(
 
   app.post("/api/interactions", isAuthenticated, async (req: any, res) => {
     try {
-      const fromUserId = req.user.claims.sub;
+      const fromUserId = req.user.id;
       const parsed = interactionBodySchema.safeParse(req.body);
       if (!parsed.success) {
         return res.status(400).json({ message: "Invalid interaction data" });
@@ -229,7 +256,7 @@ export async function registerRoutes(
 
   app.get("/api/matches", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       const userMatches = await storage.getMatchesForUser(userId);
       res.json(userMatches);
     } catch (error) {
@@ -240,7 +267,7 @@ export async function registerRoutes(
 
   app.get("/api/matches/:matchId", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       const match = await storage.getMatch(req.params.matchId, userId);
       if (!match) {
         return res.status(404).json({ message: "Match not found" });
@@ -254,7 +281,7 @@ export async function registerRoutes(
 
   app.post("/api/matches/:matchId/messages", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       const { matchId } = req.params;
       const parsed = messageBodySchema.safeParse(req.body);
       if (!parsed.success) {
@@ -315,7 +342,7 @@ export async function registerRoutes(
 
   app.post("/api/matches/:matchId/call/start", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       const match = await storage.startCall(req.params.matchId, userId);
       if (!match) {
         return res.status(404).json({ message: "Match not found" });
@@ -341,7 +368,7 @@ export async function registerRoutes(
 
   app.post("/api/matches/:matchId/call/answer", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       const match = await storage.answerCall(req.params.matchId, userId);
       if (!match) {
         return res.status(404).json({ message: "Match not found or you cannot answer your own call" });
@@ -355,7 +382,7 @@ export async function registerRoutes(
 
   app.post("/api/matches/:matchId/call/cancel", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       const match = await storage.cancelCall(req.params.matchId, userId);
       if (!match) {
         return res.status(404).json({ message: "Match not found" });
@@ -369,7 +396,7 @@ export async function registerRoutes(
 
   app.post("/api/matches/:matchId/call/complete", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       const match = await storage.completeCall(req.params.matchId, userId);
       if (!match) {
         return res.status(404).json({ message: "Match not found" });
@@ -383,7 +410,7 @@ export async function registerRoutes(
 
   app.post("/api/matches/:matchId/face-call/accept", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       const match = await storage.acceptFaceCall(req.params.matchId, userId);
       if (!match) {
         return res.status(404).json({ message: "Match not found or not eligible for face call" });
@@ -409,7 +436,7 @@ export async function registerRoutes(
 
   app.post("/api/matches/:matchId/face-call/decline", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       const match = await storage.declineFaceCall(req.params.matchId, userId);
       if (!match) {
         return res.status(404).json({ message: "Match not found" });
@@ -423,7 +450,7 @@ export async function registerRoutes(
 
   app.get("/api/popular", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       const myProfile = await storage.getProfile(userId);
       const preference = myProfile?.datingPreference;
       const popular = await storage.getPopularProfiles(30, preference, myProfile?.gender);
@@ -441,7 +468,7 @@ export async function registerRoutes(
 
   app.get("/api/spin-status", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       const spinsThisWeek = await storage.getSpinsThisWeek(userId);
       const dailyLikes = await storage.getDailyLikeCount(userId);
       const consecutiveDays = await storage.getConsecutiveLikeDays(userId, 10);
@@ -470,7 +497,7 @@ export async function registerRoutes(
 
   app.post("/api/spin", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       const { standoutUserId } = req.body;
 
       const spinsThisWeek = await storage.getSpinsThisWeek(userId);
@@ -504,7 +531,7 @@ export async function registerRoutes(
 
   app.post("/api/spin-requests", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       const { toUserId, message } = req.body;
 
       if (!toUserId || !message?.trim()) {
@@ -525,7 +552,7 @@ export async function registerRoutes(
 
   app.get("/api/spin-requests", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       const incoming = await storage.getIncomingSpinRequests(userId);
       const outgoing = await storage.getOutgoingSpinRequests(userId);
       res.json({ incoming, outgoing });
@@ -537,7 +564,7 @@ export async function registerRoutes(
 
   app.post("/api/spin-requests/:id/respond", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       const { id } = req.params;
       const { accept } = req.body;
 
@@ -585,7 +612,7 @@ export async function registerRoutes(
 
   app.delete("/api/matches/:matchId", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       const { matchId } = req.params;
       const removed = await storage.removeMatch(matchId, userId);
       if (!removed) {
@@ -600,7 +627,7 @@ export async function registerRoutes(
 
   app.get("/api/match-count", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       const count = await storage.getMatchCount(userId);
       res.json({ count });
     } catch (error) {
@@ -611,7 +638,7 @@ export async function registerRoutes(
 
   app.get("/api/who-liked-you", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       const incomingOpens = await storage.getIncomingOpens(userId);
       res.json(incomingOpens);
     } catch (error) {
@@ -622,7 +649,7 @@ export async function registerRoutes(
 
   app.post("/api/matches/:matchId/meet-availability", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       const { matchId } = req.params;
       const { slots } = req.body;
 
@@ -645,7 +672,7 @@ export async function registerRoutes(
 
   app.post("/api/matches/:matchId/exchange-number", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       const { matchId } = req.params;
 
       const profile = await storage.getProfile(userId);
