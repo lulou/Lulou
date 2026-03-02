@@ -178,19 +178,30 @@ export async function registerRoutes(
         if (!parsed.success) {
           return res.status(400).json({ message: "Invalid profile data", errors: parsed.error.flatten() });
         }
-        const updated = await storage.updateProfile(userId, { ...parsed.data, userId });
-        return res.json(updated);
+        const payload = { ...parsed.data, userId };
+        console.log("PROFILE_UPDATE_PAYLOAD", JSON.stringify(payload));
+        try {
+          const updated = await storage.updateProfile(userId, payload);
+          return res.json(updated);
+        } catch (updateError: any) {
+          const errMsg = updateError?.message || "Failed to update profile";
+          console.error("PROFILE_SAVE_ERROR", errMsg, updateError);
+          return res.status(500).json({ message: errMsg });
+        }
       }
 
       const parsed = profileBodySchema.safeParse(req.body);
       if (!parsed.success) {
         return res.status(400).json({ message: "Invalid profile data", errors: parsed.error.flatten() });
       }
-      const profile = await storage.createProfile({ ...parsed.data, userId });
+      const payload = { ...parsed.data, userId };
+      console.log("PROFILE_CREATE_PAYLOAD", JSON.stringify(payload));
+      const profile = await storage.createProfile(payload);
       res.json(profile);
-    } catch (error) {
-      console.error("Error creating profile:", error);
-      res.status(500).json({ message: "Failed to create profile" });
+    } catch (error: any) {
+      const errMsg = error?.message || "Failed to create profile";
+      console.error("PROFILE_SAVE_ERROR", errMsg, error);
+      res.status(500).json({ message: errMsg });
     }
   });
 

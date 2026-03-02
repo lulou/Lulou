@@ -48,19 +48,29 @@ export default function Onboarding() {
         .filter(s => formData.starterAnswers[s])
         .map(s => `${s} ${formData.starterAnswers[s]}`);
       const { starterAnswers, ...rest } = formData;
-      const res = await apiRequest("POST", "/api/profile", {
+      const payload = {
         ...rest,
         conversationStarters: fullStarters,
         onboardingComplete: true,
-      });
+      };
+      console.log("PROFILE_CREATE_PAYLOAD", JSON.stringify(payload));
+      const res = await apiRequest("POST", "/api/profile", payload);
       return res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/profile"] });
       navigate("/discover");
     },
-    onError: () => {
-      toast({ title: "Something went wrong", description: "Please try again.", variant: "destructive" });
+    onError: (error: any) => {
+      const raw = error?.message || "";
+      const afterCode = raw.includes(": ") ? raw.substring(raw.indexOf(": ") + 2) : raw;
+      let errorMessage = afterCode || "Please try again.";
+      try {
+        const parsed = JSON.parse(afterCode);
+        if (parsed?.message) errorMessage = parsed.message;
+      } catch {}
+      console.error("PROFILE_SAVE_ERROR", errorMessage, error);
+      toast({ title: "Could not save profile", description: errorMessage, variant: "destructive" });
     },
   });
 
