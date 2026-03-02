@@ -6,7 +6,7 @@ Lulou Dating is a calm, premium dating app focused on helping people move from m
 ## Architecture
 - **Frontend**: React + Vite + Tailwind CSS + shadcn/ui
 - **Backend**: Express.js with session-based auth (Replit Auth)
-- **Database**: PostgreSQL with Drizzle ORM
+- **Database**: Supabase (PostgreSQL) via @supabase/supabase-js client
 - **Auth**: Replit Auth (OpenID Connect)
 
 ## Key Features
