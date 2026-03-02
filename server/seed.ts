@@ -1,6 +1,4 @@
-import { db } from "./db";
-import { profiles } from "@shared/schema";
-import { sql } from "drizzle-orm";
+import { supabase } from "./supabase";
 
 const SEED_PROFILES = [
   {
@@ -857,14 +855,42 @@ const SEED_PROFILES = [
 
 export async function seedDatabase() {
   try {
-    const existing = await db.select({ count: sql<number>`count(*)::int` }).from(profiles);
-    if (existing[0].count > 0) {
-      console.log("Database already has profiles, skipping seed");
+    const { count, error: countError } = await supabase
+      .from("profiles")
+      .select("*", { count: "exact", head: true })
+      .like("user_id", "seed-%");
+
+    if (countError) {
+      console.error("Error checking profiles count:", countError);
+      return;
+    }
+
+    if (count && count > 0) {
+      console.log("Database already has seed profiles, skipping seed");
       return;
     }
 
     for (const profile of SEED_PROFILES) {
-      await db.insert(profiles).values(profile);
+      const { error } = await supabase.from("profiles").insert({
+        user_id: profile.userId,
+        first_name: profile.firstName,
+        age: profile.age,
+        gender: profile.gender,
+        dating_preference: profile.datingPreference,
+        location: profile.location,
+        height: profile.height || null,
+        photos: profile.photos,
+        signals: profile.signals,
+        dating_intent: profile.datingIntent,
+        green_flags: profile.greenFlags,
+        connection_style: profile.connectionStyle,
+        conversation_starters: profile.conversationStarters || [],
+        questions: profile.questions || [],
+        onboarding_complete: profile.onboardingComplete,
+      });
+      if (error) {
+        console.error(`Error seeding profile ${profile.userId}:`, error);
+      }
     }
 
     console.log(`Seeded ${SEED_PROFILES.length} profiles`);

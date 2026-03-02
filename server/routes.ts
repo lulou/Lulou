@@ -198,12 +198,9 @@ export async function registerRoutes(
       }
 
       if (type === "open") {
-        const isMutual = await storage.getMutualOpen(fromUserId, toUserId);
-        if (isMutual) {
-          const matchCount = await storage.getMatchCount(fromUserId);
-          if (matchCount >= 8) {
-            return res.json({ matched: false, connectionLimitReached: true });
-          }
+        const matchCount = await storage.getMatchCount(fromUserId);
+        if (matchCount >= 8) {
+          return res.json({ matched: false, connectionLimitReached: true });
         }
       }
 
@@ -211,13 +208,15 @@ export async function registerRoutes(
 
       let matched = false;
       if (type === "open") {
-        const isMutual = await storage.getMutualOpen(fromUserId, toUserId);
-        if (isMutual) {
-          const recheck = await storage.getMatchCount(fromUserId);
-          if (recheck < 8) {
-            await storage.createMatch(fromUserId, toUserId);
-            matched = true;
-          }
+        const reverseExists = await storage.getInteraction(toUserId, fromUserId);
+        if (!reverseExists) {
+          await storage.createInteraction({ fromUserId: toUserId, toUserId: fromUserId, type: "open" });
+        }
+
+        const matchCount = await storage.getMatchCount(fromUserId);
+        if (matchCount < 8) {
+          await storage.createMatch(fromUserId, toUserId);
+          matched = true;
         }
       }
 
