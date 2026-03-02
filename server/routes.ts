@@ -154,6 +154,38 @@ export async function registerRoutes(
     }
   });
 
+  app.post("/api/auth/init", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const email = req.user.email || "";
+      const existing = await storage.getProfile(userId);
+      if (!existing) {
+        await storage.createProfile({
+          userId,
+          email,
+          firstName: "",
+          age: 0,
+          gender: "",
+          datingPreference: "",
+          location: "",
+          photos: [],
+          signals: [],
+          datingIntent: "",
+          greenFlags: [],
+          connectionStyle: "",
+          conversationStarters: [],
+          questions: [],
+          onboardingComplete: false,
+        });
+        console.log("AUTH_INIT: Created stub profile for", userId);
+      }
+      res.json({ ok: true });
+    } catch (error: any) {
+      console.error("AUTH_INIT_ERROR", error?.message, error);
+      res.status(500).json({ message: error?.message || "Failed to init profile" });
+    }
+  });
+
   app.get("/api/profile", isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;
