@@ -1,6 +1,7 @@
 import { useLocation, Link } from "wouter";
-import { Compass, Heart, User, CircleDot, Eye } from "lucide-react";
+import { Compass, Heart, User, CircleDot, Eye, LogOut } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
+import { useAuth } from "@/hooks/use-auth";
 
 interface IncomingOpen {
   id: string;
@@ -33,6 +34,7 @@ export function LulouFlowerIcon({ className }: { className?: string }) {
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();
+  const { logout, isLoggingOut } = useAuth();
 
   const { data: likes } = useQuery<IncomingOpen[]>({
     queryKey: ["/api/who-liked-you"],
@@ -58,6 +60,15 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             <span className="font-serif text-lg font-semibold tracking-tight" data-testid="text-app-logo">Lulou</span>
           </div>
         </Link>
+        <button
+          onClick={() => logout()}
+          disabled={isLoggingOut}
+          className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-destructive transition-colors px-2 py-1.5 rounded-md"
+          data-testid="button-header-logout"
+        >
+          <LogOut className="w-4 h-4" />
+          <span className="hidden sm:inline">Sign Out</span>
+        </button>
       </header>
 
       <main className="flex-1 overflow-hidden flex flex-col">
