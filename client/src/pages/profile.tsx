@@ -1,7 +1,7 @@
 import { useState, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
-import { BloomFlowerIcon } from "@/components/app-layout";
+import { LulouFlowerIcon } from "@/components/app-layout";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
@@ -313,7 +313,7 @@ export default function ProfilePage() {
     return (
       <div className="flex-1 flex items-center justify-center p-6">
         <div className="text-center space-y-4">
-          <BloomFlowerIcon className="w-12 h-12 text-primary mx-auto" />
+          <LulouFlowerIcon className="w-12 h-12 text-primary mx-auto" />
           <p className="text-muted-foreground">Profile not found. Complete your onboarding to get started.</p>
         </div>
       </div>
@@ -743,7 +743,7 @@ export default function ProfilePage() {
           <div className="flex items-center gap-3">
             <Crown className="w-5 h-5 text-primary" />
             <div className="text-left">
-              <p className="font-medium text-sm">Bloom Extras</p>
+              <p className="font-medium text-sm">Lulou Extras</p>
               <p className="text-xs text-muted-foreground">Individual extras & membership</p>
             </div>
           </div>
@@ -752,13 +752,13 @@ export default function ProfilePage() {
         {expandedSection === "extras" && !purchaseItem && (
           <Card className="p-4 space-y-4" data-testid="section-bloom-extras">
             <div className="space-y-1 pb-2">
-              <p className="font-medium text-sm">Bloom Membership</p>
+              <p className="font-medium text-sm">Lulou Membership</p>
               <p className="text-xs text-muted-foreground">Everything you need for deeper connections</p>
             </div>
             <div className="rounded-md border p-3 space-y-2">
               <div className="flex items-center justify-between gap-2 flex-wrap">
                 <p className="font-medium text-sm">$19.99/month</p>
-                <Button size="sm" onClick={() => setPurchaseItem({ name: "Bloom Membership", price: "$19.99/month", type: "subscription" })} data-testid="button-subscribe-membership">Join</Button>
+                <Button size="sm" onClick={() => setPurchaseItem({ name: "Lulou Membership", price: "$19.99/month", type: "subscription" })} data-testid="button-subscribe-membership">Join</Button>
               </div>
               <ul className="text-xs text-muted-foreground space-y-1">
                 <li>2 conversation extensions per month</li>
@@ -909,7 +909,7 @@ export default function ProfilePage() {
           <div className="flex items-center gap-3">
             <Camera className="w-5 h-5 text-primary" />
             <div className="text-left">
-              <p className="font-medium text-sm">Bloom Me</p>
+              <p className="font-medium text-sm">Lulou Me</p>
               <p className="text-xs text-muted-foreground">Photo verification badge</p>
             </div>
           </div>
@@ -963,7 +963,7 @@ export default function ProfilePage() {
             </div>
             <div className="space-y-2">
               <p className="font-medium text-sm">Why is messaging limited?</p>
-              <p className="text-xs text-muted-foreground">Bloom limits messages to 15 per match to encourage meaningful conversation and moving to real-life meetings sooner.</p>
+              <p className="text-xs text-muted-foreground">Lulou limits messages to 15 per match to encourage meaningful conversation and moving to real-life meetings sooner.</p>
             </div>
             <div className="space-y-2">
               <p className="font-medium text-sm">How do I delete my account?</p>
@@ -971,7 +971,7 @@ export default function ProfilePage() {
             </div>
             <div className="space-y-2">
               <p className="font-medium text-sm">I found a bug</p>
-              <p className="text-xs text-muted-foreground">Please reach out to us through the app or email support@bloom.dating and we'll look into it right away.</p>
+              <p className="text-xs text-muted-foreground">Please reach out to us through the app or email support@lulou.dating and we'll look into it right away.</p>
             </div>
           </Card>
         )}

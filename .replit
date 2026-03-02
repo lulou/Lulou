@@ -40,3 +40,9 @@ waitForPort = 5000
 
 [agent]
 integrations = ["javascript_log_in_with_replit:2.0.0", "javascript_database:1.0.0"]
+
+[userenv]
+
+[userenv.shared]
+NEXT_PUBLIC_SUPABASE_URL = "https://tizlwrcgdlvogbazrxef.supabase.co/"
+NEXT_PUBLIC_SUPABASE_ANON_KEY = "sb_publishable_Ch8KighIDo6r-CHxSwPE3w_d70T37to"

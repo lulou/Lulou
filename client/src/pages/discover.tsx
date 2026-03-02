@@ -10,7 +10,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { DragScrollRow } from "@/components/drag-scroll-row";
 import type { Profile } from "@shared/schema";
 import { MapPin, Ruler, MessageCircle, HelpCircle, Send } from "lucide-react";
-import { BloomFlowerIcon } from "@/components/app-layout";
+import { LulouFlowerIcon } from "@/components/app-layout";
 import { AnimatePresence, motion } from "framer-motion";
 
 function PhotoBubbles({ photos, name, onOpen, isOpenPending }: { photos: string[]; name: string; onOpen: () => void; isOpenPending: boolean }) {
@@ -433,11 +433,11 @@ export default function Discover() {
       <div className="flex-1 flex items-center justify-center p-6">
         <div className="text-center space-y-4 max-w-sm">
           <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center mx-auto">
-            <BloomFlowerIcon className="w-8 h-8 text-primary" />
+            <LulouFlowerIcon className="w-8 h-8 text-primary" />
           </div>
           <h2 className="font-serif text-2xl font-bold" data-testid="text-no-profiles">That's everyone for now</h2>
           <p className="text-muted-foreground text-sm leading-relaxed">
-            Take a breath. New people join Bloom every day. We'll let you know when someone new arrives.
+            Take a breath. New people join Lulou every day. We'll let you know when someone new arrives.
           </p>
         </div>
       </div>

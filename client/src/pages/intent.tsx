@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Loader2, RotateCw, X, MapPin, Send, Lock, Star, Crown, MessageCircle, HelpCircle } from "lucide-react";
-import { BloomFlowerIcon } from "@/components/app-layout";
+import { LulouFlowerIcon } from "@/components/app-layout";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
@@ -248,7 +248,7 @@ export default function IntentPage() {
     return (
       <div className="flex-1 flex items-center justify-center p-6">
         <div className="text-center space-y-2">
-          <BloomFlowerIcon className="w-10 h-10 text-muted-foreground mx-auto opacity-60" />
+          <LulouFlowerIcon className="w-10 h-10 text-muted-foreground mx-auto opacity-60" />
           <p className="text-muted-foreground text-sm">Unable to load profiles right now</p>
         </div>
       </div>
@@ -259,7 +259,7 @@ export default function IntentPage() {
     return (
       <div className="flex-1 flex items-center justify-center p-6">
         <div className="text-center space-y-2">
-          <BloomFlowerIcon className="w-10 h-10 text-primary mx-auto opacity-60" />
+          <LulouFlowerIcon className="w-10 h-10 text-primary mx-auto opacity-60" />
           <p className="text-muted-foreground text-sm">No profiles to show yet</p>
         </div>
       </div>
@@ -373,7 +373,7 @@ export default function IntentPage() {
                     />
                   ) : (
                     <div className="w-full h-full bg-muted flex items-center justify-center">
-                      <BloomFlowerIcon className="w-8 h-8 text-muted-foreground" />
+                      <LulouFlowerIcon className="w-8 h-8 text-muted-foreground" />
                     </div>
                   )}
                   <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-2">
@@ -546,7 +546,7 @@ export default function IntentPage() {
                 />
               ) : (
                 <div className="w-full aspect-[3/4] max-h-[50vh] bg-muted flex items-center justify-center">
-                  <BloomFlowerIcon className="w-16 h-16 text-muted-foreground" />
+                  <LulouFlowerIcon className="w-16 h-16 text-muted-foreground" />
                 </div>
               )}
               <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-background via-background/80 to-transparent h-24" />

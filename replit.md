@@ -1,7 +1,7 @@
-# Bloom - Intentional Dating App
+# Lulou Dating - Intentional Dating App
 
 ## Overview
-Bloom is a calm, premium dating app focused on helping people move from matching to conversation to real-life meeting. It reduces endless texting, ghosting, and casual dating culture.
+Lulou Dating is a calm, premium dating app focused on helping people move from matching to conversation to real-life meeting. It reduces endless texting, ghosting, and casual dating culture.
 
 ## Architecture
 - **Frontend**: React + Vite + Tailwind CSS + shadcn/ui
@@ -37,9 +37,9 @@ Bloom is a calm, premium dating app focused on helping people move from matching
 - Message content filtered server-side to block phone numbers, emails, and social media handles in regular messages
 - Exchange number auto-sends phone as message via dedicated route (bypasses content filter)
 - Profile page shows age, height, location, adjustable search radius
-- Profile sections: Bloom Extras (subscriptions), Safety, Bloom Me (photo verification badge), Help Centre, What Works (dating tips)
+- Profile sections: Lulou Extras (subscriptions), Safety, Lulou Me (photo verification badge), Help Centre, What Works (dating tips)
 - Location radius (5-100 miles) configurable in onboarding and profile
-- Photo verification (Bloom Me) gives profiles a verified badge
+- Photo verification (Lulou Me) gives profiles a verified badge
 
 ## Design Language
 - Color scheme: Warm rose-blush primary (HSL 350 45% 52%), sage green accents (HSL 155 25%), warm cream backgrounds

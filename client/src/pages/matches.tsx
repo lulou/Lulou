@@ -11,7 +11,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
 import { Input } from "@/components/ui/input";
 import { MessageCircle, Send, Phone, Video, ChevronDown, ChevronUp, PhoneOff, Clock, Check, X, Sparkles, Calendar, Heart, PhoneForwarded, Moon } from "lucide-react";
-import { BloomFlowerIcon } from "@/components/app-layout";
+import { LulouFlowerIcon } from "@/components/app-layout";
 import type { Profile, Match, Message, SpinRequest } from "@shared/schema";
 
 const MAX_MESSAGES_PER_USER = 15;
@@ -938,7 +938,7 @@ export default function Matches() {
       <div className="flex-1 flex items-center justify-center p-6">
         <div className="text-center space-y-4 max-w-sm">
           <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center mx-auto">
-            <BloomFlowerIcon className="w-8 h-8 text-primary" />
+            <LulouFlowerIcon className="w-8 h-8 text-primary" />
           </div>
           <h2 className="font-serif text-2xl font-bold" data-testid="text-no-matches">No connections yet</h2>
           <p className="text-muted-foreground text-sm">

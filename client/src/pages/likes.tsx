@@ -8,7 +8,7 @@ import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { Heart, X, Eye, MapPin, Lock } from "lucide-react";
-import { BloomFlowerIcon } from "@/components/app-layout";
+import { LulouFlowerIcon } from "@/components/app-layout";
 import type { Profile, Interaction } from "@shared/schema";
 
 type IncomingOpen = Interaction & { profile: Profile };
@@ -77,7 +77,7 @@ function MatchOverlay({ celebration, onClose }: { celebration: MatchCelebration;
           transition: "transform 700ms cubic-bezier(0.34, 1.56, 0.64, 1), opacity 500ms ease",
         }}
       >
-        <BloomFlowerIcon className="w-14 h-14 text-white/80" />
+        <LulouFlowerIcon className="w-14 h-14 text-white/80" />
 
         <div className="relative">
           <Avatar
@@ -114,7 +114,7 @@ function MatchOverlay({ celebration, onClose }: { celebration: MatchCelebration;
               textShadow: "0 2px 20px rgba(0,0,0,0.2)",
             }}
           >
-            Blooming Amazing
+            Simply Amazing
           </h1>
           <p
             className="text-lg text-white/80 font-medium tracking-widest uppercase"

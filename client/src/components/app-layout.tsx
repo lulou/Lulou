@@ -7,7 +7,7 @@ interface IncomingOpen {
   fromUserId: string;
 }
 
-export function BloomFlowerIcon({ className }: { className?: string }) {
+export function LulouFlowerIcon({ className }: { className?: string }) {
   return (
     <svg viewBox="0 0 40 44" fill="none" className={className} xmlns="http://www.w3.org/2000/svg">
       <path d="M20 28 Q19.6 32, 19.2 38 Q19.6 40, 20 40 Q20.4 40, 20.8 38 Q20.4 32, 20 28Z" fill="hsl(155 30% 40%)" opacity="0.75" />
@@ -54,8 +54,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       <header className="flex items-center justify-between gap-4 px-5 py-3 border-b bg-background/80 backdrop-blur-md z-30 flex-wrap">
         <Link href="/discover">
           <div className="flex items-center gap-2 cursor-pointer">
-            <BloomFlowerIcon className="w-6 h-6 text-primary" />
-            <span className="font-serif text-lg font-semibold tracking-tight" data-testid="text-app-logo">Bloom</span>
+            <LulouFlowerIcon className="w-6 h-6 text-primary" />
+            <span className="font-serif text-lg font-semibold tracking-tight" data-testid="text-app-logo">Lulou</span>
           </div>
         </Link>
       </header>
