@@ -475,7 +475,7 @@ export default function Discover() {
           >
             <Card className="overflow-hidden relative" data-testid="card-profile">
               <button
-                className="absolute top-3 right-3 z-20 w-10 h-10 rounded-full border border-muted-foreground/20 bg-background/80 backdrop-blur-sm flex items-center justify-center text-base shadow-md transition-all active:scale-90 hover:border-muted-foreground/40 hover:shadow-lg"
+                className="absolute bottom-3 right-3 z-20 w-10 h-10 rounded-full border border-muted-foreground/20 bg-background/80 backdrop-blur-sm flex items-center justify-center text-base shadow-md transition-all active:scale-90 hover:border-muted-foreground/40 hover:shadow-lg"
                 onClick={() => interact.mutate("close")}
                 disabled={interact.isPending}
                 data-testid="button-close"
