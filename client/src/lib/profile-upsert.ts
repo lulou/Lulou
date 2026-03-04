@@ -39,15 +39,24 @@ export async function upsertProfile(fields: Record<string, unknown>) {
     throw new Error("Session expired. Please sign in again.");
   }
 
-  const { data: legacy } = await supabase
-    .from("profiles")
-    .select("id")
-    .eq("user_id", user.id)
-    .neq("id", user.id)
-    .maybeSingle();
+  try {
+    const { data: legacy, error: legacyErr } = await supabase
+      .from("profiles")
+      .select("id")
+      .eq("user_id", user.id)
+      .neq("id", user.id)
+      .maybeSingle();
 
-  if (legacy) {
-    await supabase.from("profiles").delete().eq("id", legacy.id);
+    if (legacyErr) {
+      console.error("PROFILE_UPSERT_LEGACY_CHECK_ERROR", legacyErr.message);
+    }
+
+    if (legacy) {
+      const { error: delErr } = await supabase.from("profiles").delete().eq("id", legacy.id);
+      if (delErr) console.error("PROFILE_UPSERT_LEGACY_DELETE_ERROR", delErr.message);
+    }
+  } catch (err: any) {
+    console.error("PROFILE_UPSERT_LEGACY_CLEANUP_ERROR", err?.message || err);
   }
 
   const dbFields = toDbFields(fields);
@@ -61,63 +70,79 @@ export async function upsertProfile(fields: Record<string, unknown>) {
     .select()
     .single();
 
-  if (error) throw new Error(error.message);
+  if (error) {
+    console.error("PROFILE_UPSERT_ERROR", error.message);
+    throw new Error(error.message);
+  }
   return data;
 }
 
 export async function initProfileOnLogin() {
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return;
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
 
-  const { data: existing } = await supabase
-    .from("profiles")
-    .select("id")
-    .eq("id", user.id)
-    .maybeSingle();
-
-  if (existing) return;
-
-  const { data: legacy } = await supabase
-    .from("profiles")
-    .select("id")
-    .eq("user_id", user.id)
-    .neq("id", user.id)
-    .maybeSingle();
-
-  if (legacy) {
-    await supabase
+    const { data: existing, error: existErr } = await supabase
       .from("profiles")
-      .update({ id: user.id })
-      .eq("id", legacy.id);
-    return;
-  }
+      .select("id")
+      .eq("id", user.id)
+      .maybeSingle();
 
-  const payload = {
-    id: user.id,
-    user_id: user.id,
-    first_name: "",
-    age: 0,
-    gender: "",
-    dating_preference: "",
-    location: "",
-    photos: [],
-    signals: [],
-    dating_intent: "",
-    green_flags: [],
-    connection_style: "",
-    conversation_starters: [],
-    questions: [],
-    onboarding_complete: false,
-    email: user.email || "",
-  };
+    if (existErr) {
+      console.error("PROFILE_CHECK_ERROR", existErr.message);
+    }
 
-  console.log("PROFILE_INIT user.id:", user.id, "payload keys:", Object.keys(payload));
+    if (existing) return;
 
-  const { error } = await supabase
-    .from("profiles")
-    .upsert(payload, { onConflict: "id" });
+    const { data: legacy, error: legacyErr } = await supabase
+      .from("profiles")
+      .select("id")
+      .eq("user_id", user.id)
+      .neq("id", user.id)
+      .maybeSingle();
 
-  if (error) {
-    console.error("PROFILE_INIT_ERROR", error.message);
+    if (legacyErr) {
+      console.error("PROFILE_LEGACY_CHECK_ERROR", legacyErr.message);
+    }
+
+    if (legacy) {
+      const { error: updateErr } = await supabase
+        .from("profiles")
+        .update({ id: user.id })
+        .eq("id", legacy.id);
+      if (updateErr) console.error("PROFILE_LEGACY_MIGRATE_ERROR", updateErr.message);
+      return;
+    }
+
+    const payload = {
+      id: user.id,
+      user_id: user.id,
+      first_name: "",
+      age: 0,
+      gender: "",
+      dating_preference: "",
+      location: "",
+      photos: [],
+      signals: [],
+      dating_intent: "",
+      green_flags: [],
+      connection_style: "",
+      conversation_starters: [],
+      questions: [],
+      onboarding_complete: false,
+      email: user.email || "",
+    };
+
+    console.log("PROFILE_INIT user.id:", user.id, "payload keys:", Object.keys(payload));
+
+    const { error } = await supabase
+      .from("profiles")
+      .upsert(payload, { onConflict: "id" });
+
+    if (error) {
+      console.error("PROFILE_INIT_UPSERT_ERROR", error.message);
+    }
+  } catch (err: any) {
+    console.error("PROFILE_INIT_UNEXPECTED_ERROR", err?.message || err);
   }
 }
