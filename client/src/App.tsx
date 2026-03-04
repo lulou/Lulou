@@ -18,7 +18,9 @@ import type { Profile } from "@shared/schema";
 import { Loader2 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 
-async function fetchProfileSafe(): Promise<Profile | null> {
+type ProfileResult = { profile: Profile | null; fetchFailed: boolean };
+
+async function fetchProfileSafe(): Promise<ProfileResult> {
   try {
     const { data: { session } } = await supabase.auth.getSession();
     const headers: Record<string, string> = {};
@@ -26,27 +28,31 @@ async function fetchProfileSafe(): Promise<Profile | null> {
       headers["Authorization"] = `Bearer ${session.access_token}`;
     }
     const res = await fetch("/api/profile", { credentials: "include", headers });
-    if (res.status === 401 || res.status === 404) return null;
+    if (res.status === 401 || res.status === 404) return { profile: null, fetchFailed: false };
     if (!res.ok) {
       console.error("PROFILE_FETCH_ERROR", res.status, res.statusText);
-      return null;
+      return { profile: null, fetchFailed: true };
     }
-    return res.json();
+    const data = await res.json();
+    return { profile: data, fetchFailed: false };
   } catch (err) {
     console.error("PROFILE_FETCH_ERROR", err);
-    return null;
+    return { profile: null, fetchFailed: true };
   }
 }
 
 function AppContent() {
   const { user, isLoading: authLoading } = useAuth();
 
-  const { data: profile, isLoading: profileLoading } = useQuery<Profile | null>({
+  const { data, isLoading: profileLoading } = useQuery<ProfileResult>({
     queryKey: ["/api/profile"],
     queryFn: fetchProfileSafe,
     enabled: !!user,
     retry: false,
   });
+
+  const profile = data?.profile ?? null;
+  const fetchFailed = data?.fetchFailed ?? false;
 
   if (authLoading) {
     return (
@@ -69,6 +75,24 @@ function AppContent() {
         <div className="flex flex-col items-center gap-3">
           <Loader2 className="w-8 h-8 text-primary animate-spin" />
           <p className="text-sm text-muted-foreground">Setting up your experience...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (fetchFailed && !profile) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="flex flex-col items-center gap-4 text-center px-6">
+          <p className="text-lg font-serif font-semibold">Something went wrong</p>
+          <p className="text-sm text-muted-foreground">We couldn't load your profile right now. You're still signed in — this is just a temporary issue.</p>
+          <button
+            className="px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:brightness-110 transition-all"
+            onClick={() => queryClient.invalidateQueries({ queryKey: ["/api/profile"] })}
+            data-testid="button-retry-profile"
+          >
+            Try Again
+          </button>
         </div>
       </div>
     );
