@@ -442,22 +442,21 @@ export default function Discover() {
   const questions = currentProfile.questions || [];
 
   return (
-    <div className="flex-1 flex flex-col overflow-hidden">
-      <div className="flex-1 overflow-y-auto">
-        <div className="max-w-md mx-auto p-4 md:p-6 space-y-5 pb-6">
-          <AnimatePresence mode="wait">
-            <motion.div
-              key={currentProfile.id}
-              initial={{ opacity: 0, scale: 0.96 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, y: -20 }}
-              transition={{ duration: 0.3, ease: "easeOut" }}
-              data-testid="profile-container"
-            >
-              <Card className="overflow-hidden" data-testid="card-profile">
-                <PhotoBubbles photos={photos} name={currentProfile.firstName} />
+    <div className="flex-1 overflow-y-auto">
+      <div className="max-w-md mx-auto p-4 md:p-6 space-y-5 pb-32">
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={currentProfile.id}
+            initial={{ opacity: 0, scale: 0.96 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, y: -20 }}
+            transition={{ duration: 0.3, ease: "easeOut" }}
+            data-testid="profile-container"
+          >
+            <Card className="overflow-hidden" data-testid="card-profile">
+              <PhotoBubbles photos={photos} name={currentProfile.firstName} />
 
-                <div className="px-5 pb-5 pt-3 space-y-5" data-testid="profile-about-section">
+              <div className="px-5 pb-5 pt-3 space-y-5" data-testid="profile-about-section">
                 {conversationStarters.length > 0 && (
                   <div className="space-y-3" data-testid="section-conversation-starters">
                     <div className="flex items-center gap-1.5">
@@ -526,14 +525,13 @@ export default function Discover() {
                   <p className="font-medium" data-testid="text-profile-style">{currentProfile.connectionStyle}</p>
                 </div>
               </div>
-              </Card>
-            </motion.div>
-          </AnimatePresence>
-        </div>
+            </Card>
+          </motion.div>
+        </AnimatePresence>
       </div>
 
-      <div className="shrink-0 bg-background/95 backdrop-blur-sm border-t px-4 py-3" data-testid="action-buttons">
-        <div className="max-w-md mx-auto flex items-center justify-center gap-8">
+      <div className="fixed bottom-16 left-0 right-0 z-40 flex justify-center pointer-events-none" data-testid="action-buttons">
+        <div className="flex items-center gap-8 pointer-events-auto bg-background/90 backdrop-blur-md rounded-full px-6 py-3 shadow-xl border">
           <div className="text-center">
             <button
               className="w-14 h-14 rounded-full border-2 border-muted-foreground/20 bg-background flex items-center justify-center text-xl shadow-md transition-all active:scale-90 hover:border-muted-foreground/40 hover:shadow-lg"
