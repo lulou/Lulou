@@ -9,7 +9,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Slider } from "@/components/ui/slider";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { useToast } from "@/hooks/use-toast";
-import { apiRequest } from "@/lib/queryClient";
+import { upsertProfile } from "@/lib/profile-upsert";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -113,8 +113,7 @@ export default function ProfilePage() {
 
   const updateProfileField = useMutation({
     mutationFn: async (data: Record<string, unknown>) => {
-      const res = await apiRequest("POST", "/api/profile", data);
-      return res.json();
+      return upsertProfile(data);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/profile"] });
@@ -123,8 +122,7 @@ export default function ProfilePage() {
 
   const requestVerification = useMutation({
     mutationFn: async () => {
-      const res = await apiRequest("POST", "/api/profile", { photoVerified: true });
-      return res.json();
+      return upsertProfile({ photoVerified: true });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/profile"] });
@@ -168,8 +166,7 @@ export default function ProfilePage() {
 
   const savePhotos = useMutation({
     mutationFn: async () => {
-      const res = await apiRequest("POST", "/api/profile", { photos: editPhotos });
-      return res.json();
+      return upsertProfile({ photos: editPhotos });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/profile"] });
@@ -205,8 +202,7 @@ export default function ProfilePage() {
 
   const saveSettings = useMutation({
     mutationFn: async () => {
-      const res = await apiRequest("POST", "/api/profile", settingsForm);
-      return res.json();
+      return upsertProfile(settingsForm);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/profile"] });
@@ -264,8 +260,7 @@ export default function ProfilePage() {
         const answer = editStarterAnswers[s];
         return answer ? `${s} ${answer}` : s;
       });
-      const res = await apiRequest("POST", "/api/profile", { conversationStarters: fullStarters });
-      return res.json();
+      return upsertProfile({ conversationStarters: fullStarters });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/profile"] });
@@ -276,8 +271,7 @@ export default function ProfilePage() {
 
   const saveQuestionsMut = useMutation({
     mutationFn: async () => {
-      const res = await apiRequest("POST", "/api/profile", { questions: editQuestions });
-      return res.json();
+      return upsertProfile({ questions: editQuestions });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/profile"] });

@@ -158,27 +158,24 @@ export async function registerRoutes(
     try {
       const userId = req.user.id;
       const email = req.user.email || "";
-      const existing = await storage.getProfile(userId);
-      if (!existing) {
-        await storage.createProfile({
-          userId,
-          email,
-          firstName: "",
-          age: 0,
-          gender: "",
-          datingPreference: "",
-          location: "",
-          photos: [],
-          signals: [],
-          datingIntent: "",
-          greenFlags: [],
-          connectionStyle: "",
-          conversationStarters: [],
-          questions: [],
-          onboardingComplete: false,
-        });
-        console.log("AUTH_INIT: Created stub profile for", userId);
-      }
+      await storage.createProfile({
+        userId,
+        email,
+        firstName: "",
+        age: 0,
+        gender: "",
+        datingPreference: "",
+        location: "",
+        photos: [],
+        signals: [],
+        datingIntent: "",
+        greenFlags: [],
+        connectionStyle: "",
+        conversationStarters: [],
+        questions: [],
+        onboardingComplete: false,
+      });
+      console.log("AUTH_INIT: Upserted profile for", userId);
       res.json({ ok: true });
     } catch (error: any) {
       console.error("AUTH_INIT_ERROR", error?.message, error);
@@ -203,35 +200,15 @@ export async function registerRoutes(
   app.post("/api/profile", isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;
-      const existing = await storage.getProfile(userId);
-
-      if (existing) {
-        const parsed = profileUpdateSchema.safeParse(req.body);
-        if (!parsed.success) {
-          return res.status(400).json({ message: "Invalid profile data", errors: parsed.error.flatten() });
-        }
-        const payload = { ...parsed.data, userId };
-        console.log("PROFILE_UPDATE_PAYLOAD", JSON.stringify(payload));
-        try {
-          const updated = await storage.updateProfile(userId, payload);
-          return res.json(updated);
-        } catch (updateError: any) {
-          const errMsg = updateError?.message || "Failed to update profile";
-          console.error("PROFILE_SAVE_ERROR", errMsg, updateError);
-          return res.status(500).json({ message: errMsg });
-        }
-      }
-
-      const parsed = profileBodySchema.safeParse(req.body);
+      const parsed = profileUpdateSchema.safeParse(req.body);
       if (!parsed.success) {
         return res.status(400).json({ message: "Invalid profile data", errors: parsed.error.flatten() });
       }
       const payload = { ...parsed.data, userId };
-      console.log("PROFILE_CREATE_PAYLOAD", JSON.stringify(payload));
-      const profile = await storage.createProfile(payload);
-      res.json(profile);
+      const result = await storage.updateProfile(userId, payload);
+      res.json(result);
     } catch (error: any) {
-      const errMsg = error?.message || "Failed to create profile";
+      const errMsg = error?.message || "Failed to save profile";
       console.error("PROFILE_SAVE_ERROR", errMsg, error);
       res.status(500).json({ message: errMsg });
     }

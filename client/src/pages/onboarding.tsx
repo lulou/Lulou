@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { apiRequest } from "@/lib/queryClient";
+import { upsertProfile } from "@/lib/profile-upsert";
 import { SIGNALS, GREEN_FLAGS, DATING_INTENTS, CONNECTION_STYLES, CONVERSATION_STARTERS, PROFILE_QUESTIONS } from "@shared/schema";
 import { Loader2, ArrowRight, ArrowLeft, Check } from "lucide-react";
 import { LulouFlowerIcon } from "@/components/app-layout";
@@ -53,9 +53,7 @@ export default function Onboarding() {
         conversationStarters: fullStarters,
         onboardingComplete: true,
       };
-      console.log("PROFILE_CREATE_PAYLOAD", JSON.stringify(payload));
-      const res = await apiRequest("POST", "/api/profile", payload);
-      return res.json();
+      return upsertProfile(payload);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/profile"] });

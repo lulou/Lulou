@@ -1,17 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/lib/supabase";
+import { initProfileOnLogin } from "@/lib/profile-upsert";
 import type { User } from "@supabase/supabase-js";
-
-async function initProfile(accessToken: string) {
-  try {
-    await fetch("/api/auth/init", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${accessToken}` },
-    });
-  } catch (e) {
-    console.error("AUTH_INIT_ERROR", e);
-  }
-}
 
 export function useAuth() {
   const [user, setUser] = useState<User | null>(null);
@@ -27,8 +17,8 @@ export function useAuth() {
       setUser(session?.user ?? null);
       setIsLoading(false);
 
-      if (event === "SIGNED_IN" && session?.access_token) {
-        initProfile(session.access_token);
+      if (event === "SIGNED_IN" && session?.user) {
+        initProfileOnLogin().catch(err => console.error("PROFILE_INIT_ERROR", err));
       }
     });
 
