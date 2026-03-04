@@ -13,7 +13,7 @@ import { MapPin, Ruler, MessageCircle, HelpCircle, Send } from "lucide-react";
 import { LulouFlowerIcon } from "@/components/app-layout";
 import { AnimatePresence, motion } from "framer-motion";
 
-function PhotoBubbles({ photos, name }: { photos: string[]; name: string }) {
+function PhotoBubbles({ photos, name, onOpen, isDisabled }: { photos: string[]; name: string; onOpen: () => void; isDisabled?: boolean }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const isDragging = useRef(false);
   const startX = useRef(0);
@@ -132,6 +132,15 @@ function PhotoBubbles({ photos, name }: { photos: string[]; name: string }) {
             draggable={false}
             data-testid="img-profile-photo-0"
           />
+          <button
+            className="absolute bottom-3 left-1/2 -translate-x-1/2 flex items-center gap-1.5 bg-primary text-white rounded-full pl-3 pr-4 py-2 shadow-lg transition-all active:scale-90 hover:shadow-xl hover:brightness-110 z-10"
+            onClick={onOpen}
+            disabled={isDisabled}
+            data-testid="button-open"
+          >
+            <span className="text-lg">❤️</span>
+            <span className="text-sm font-semibold">Open</span>
+          </button>
         </div>
       </div>
     );
@@ -177,6 +186,17 @@ function PhotoBubbles({ photos, name }: { photos: string[]; name: string }) {
                   draggable={false}
                   data-testid={`img-profile-photo-${i}`}
                 />
+                {isFocused && (
+                  <button
+                    className="absolute bottom-3 left-1/2 -translate-x-1/2 flex items-center gap-1.5 bg-primary text-white rounded-full pl-3 pr-4 py-2 shadow-lg transition-all active:scale-90 hover:shadow-xl hover:brightness-110 z-10"
+                    onClick={(e) => { e.stopPropagation(); onOpen(); }}
+                    disabled={isDisabled}
+                    data-testid="button-open"
+                  >
+                    <span className="text-lg">❤️</span>
+                    <span className="text-sm font-semibold">Open</span>
+                  </button>
+                )}
               </div>
             );
           })}
@@ -443,7 +463,7 @@ export default function Discover() {
 
   return (
     <div className="flex-1 overflow-y-auto">
-      <div className="max-w-md mx-auto p-4 md:p-6 space-y-5 pb-32">
+      <div className="max-w-md mx-auto p-4 md:p-6 space-y-5 pb-6">
         <AnimatePresence mode="wait">
           <motion.div
             key={currentProfile.id}
@@ -453,8 +473,17 @@ export default function Discover() {
             transition={{ duration: 0.3, ease: "easeOut" }}
             data-testid="profile-container"
           >
-            <Card className="overflow-hidden" data-testid="card-profile">
-              <PhotoBubbles photos={photos} name={currentProfile.firstName} />
+            <Card className="overflow-hidden relative" data-testid="card-profile">
+              <button
+                className="absolute top-3 right-3 z-20 w-10 h-10 rounded-full border border-muted-foreground/20 bg-background/80 backdrop-blur-sm flex items-center justify-center text-base shadow-md transition-all active:scale-90 hover:border-muted-foreground/40 hover:shadow-lg"
+                onClick={() => interact.mutate("close")}
+                disabled={interact.isPending}
+                data-testid="button-close"
+              >
+                <span role="img" aria-label="Close">🌙</span>
+              </button>
+
+              <PhotoBubbles photos={photos} name={currentProfile.firstName} onOpen={() => interact.mutate("open")} isDisabled={interact.isPending} />
 
               <div className="px-5 pb-5 pt-3 space-y-5" data-testid="profile-about-section">
                 {conversationStarters.length > 0 && (
@@ -530,33 +559,6 @@ export default function Discover() {
         </AnimatePresence>
       </div>
 
-      <div className="fixed bottom-16 left-0 right-0 z-40 flex justify-center pointer-events-none" data-testid="action-buttons">
-        <div className="flex items-center gap-8 pointer-events-auto bg-background/90 backdrop-blur-md rounded-full px-6 py-3 shadow-xl border">
-          <div className="text-center">
-            <button
-              className="w-14 h-14 rounded-full border-2 border-muted-foreground/20 bg-background flex items-center justify-center text-xl shadow-md transition-all active:scale-90 hover:border-muted-foreground/40 hover:shadow-lg"
-              onClick={() => interact.mutate("close")}
-              disabled={interact.isPending}
-              data-testid="button-close"
-            >
-              <span role="img" aria-label="Close">🌙</span>
-            </button>
-            <p className="text-[10px] text-muted-foreground mt-1 font-medium">Close</p>
-          </div>
-
-          <div className="text-center">
-            <button
-              className="w-16 h-16 rounded-full bg-primary flex items-center justify-center text-2xl shadow-lg transition-all active:scale-90 hover:shadow-xl hover:brightness-110 ring-4 ring-primary/20"
-              onClick={() => interact.mutate("open")}
-              disabled={interact.isPending}
-              data-testid="button-open"
-            >
-              <span role="img" aria-label="Open" className="text-white">❤️</span>
-            </button>
-            <p className="text-[10px] text-primary mt-1 font-semibold">Open</p>
-          </div>
-        </div>
-      </div>
     </div>
   );
 }
