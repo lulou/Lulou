@@ -190,7 +190,7 @@ export class SupabaseStorage implements IStorage {
     const { data, error } = await supabase
       .from("profiles")
       .select("*")
-      .or(`id.eq.${userId},user_id.eq.${userId}`)
+      .eq("user_id", userId)
       .maybeSingle();
     if (error || !data) return undefined;
     return mapProfile(data);
@@ -198,10 +198,10 @@ export class SupabaseStorage implements IStorage {
 
   async createProfile(data: InsertProfile): Promise<Profile> {
     const row = profileToDbRow(data);
-    row.id = data.userId;
+    row.user_id = data.userId;
     const { data: result, error } = await supabase
       .from("profiles")
-      .upsert(row, { onConflict: "id" })
+      .upsert(row, { onConflict: "user_id" })
       .select()
       .single();
     if (error) throw new Error(`Failed to create profile: ${error.message}`);
@@ -210,11 +210,10 @@ export class SupabaseStorage implements IStorage {
 
   async updateProfile(userId: string, data: Partial<InsertProfile>): Promise<Profile | undefined> {
     const row = profileToDbRow(data);
-    row.id = userId;
     row.user_id = userId;
     const { data: result, error } = await supabase
       .from("profiles")
-      .upsert(row, { onConflict: "id" })
+      .upsert(row, { onConflict: "user_id" })
       .select()
       .single();
     if (error || !result) return undefined;

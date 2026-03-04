@@ -55,12 +55,12 @@ Lulou Dating is a calm, premium dating app focused on helping people move from m
 - `server/seed.ts` - Seed data with 5 demo profiles
 - `shared/schema.ts` - Drizzle schema definitions
 - `client/src/lib/supabase.ts` - Frontend Supabase client
-- `client/src/lib/profile-upsert.ts` - Frontend profile upsert helper (writes directly to Supabase with id = user.id)
+- `client/src/lib/profile-upsert.ts` - Frontend profile upsert helper (writes directly to Supabase with user_id = user.id, onConflict: "user_id")
 - `client/src/hooks/use-auth.ts` - Supabase Auth hook (session, login, logout)
 - `server/supabase.ts` - Server Supabase client
 
 ## Database Tables
-- `profiles` - Dating profiles with signals, flags, photos (id = Supabase auth user.id)
+- `profiles` - Dating profiles with signals, flags, photos (user_id = Supabase auth user.id, id auto-generated)
 - `interactions` - Open/Close actions between users
 - `matches` - Mutual connections
 - `messages` - Conversation messages
