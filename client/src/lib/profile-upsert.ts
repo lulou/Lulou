@@ -1,28 +1,36 @@
 import { supabase } from "./supabase";
 
-function buildDbRow(userId: string, fields: Record<string, unknown>): Record<string, unknown> {
-  const dbRow: Record<string, unknown> = { id: userId, user_id: userId };
-  if (fields.firstName !== undefined) dbRow.first_name = fields.firstName;
-  if (fields.age !== undefined) dbRow.age = fields.age;
-  if (fields.gender !== undefined) dbRow.gender = fields.gender;
-  if (fields.datingPreference !== undefined) dbRow.dating_preference = fields.datingPreference;
-  if (fields.location !== undefined) dbRow.location = fields.location;
-  if (fields.height !== undefined) dbRow.height = fields.height;
-  if (fields.photos !== undefined) dbRow.photos = fields.photos;
-  if (fields.signals !== undefined) dbRow.signals = fields.signals;
-  if (fields.datingIntent !== undefined) dbRow.dating_intent = fields.datingIntent;
-  if (fields.greenFlags !== undefined) dbRow.green_flags = fields.greenFlags;
-  if (fields.connectionStyle !== undefined) dbRow.connection_style = fields.connectionStyle;
-  if (fields.conversationStarters !== undefined) dbRow.conversation_starters = fields.conversationStarters;
-  if (fields.questions !== undefined) dbRow.questions = fields.questions;
-  if (fields.locationRadius !== undefined) dbRow.location_radius = fields.locationRadius;
-  if (fields.preferredAgeMin !== undefined) dbRow.preferred_age_min = fields.preferredAgeMin;
-  if (fields.preferredAgeMax !== undefined) dbRow.preferred_age_max = fields.preferredAgeMax;
-  if (fields.email !== undefined) dbRow.email = fields.email;
-  if (fields.phoneNumber !== undefined) dbRow.phone_number = fields.phoneNumber;
-  if (fields.photoVerified !== undefined) dbRow.photo_verified = fields.photoVerified;
-  if (fields.onboardingComplete !== undefined) dbRow.onboarding_complete = fields.onboardingComplete;
-  return dbRow;
+const FIELD_MAP: Record<string, string> = {
+  firstName: "first_name",
+  age: "age",
+  gender: "gender",
+  datingPreference: "dating_preference",
+  location: "location",
+  height: "height",
+  photos: "photos",
+  signals: "signals",
+  datingIntent: "dating_intent",
+  greenFlags: "green_flags",
+  connectionStyle: "connection_style",
+  conversationStarters: "conversation_starters",
+  questions: "questions",
+  locationRadius: "location_radius",
+  preferredAgeMin: "preferred_age_min",
+  preferredAgeMax: "preferred_age_max",
+  email: "email",
+  phoneNumber: "phone_number",
+  photoVerified: "photo_verified",
+  onboardingComplete: "onboarding_complete",
+};
+
+function toDbFields(fields: Record<string, unknown>): Record<string, unknown> {
+  const row: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(fields)) {
+    if (value === undefined) continue;
+    const dbKey = FIELD_MAP[key];
+    if (dbKey) row[dbKey] = value;
+  }
+  return row;
 }
 
 export async function upsertProfile(fields: Record<string, unknown>) {
@@ -42,11 +50,14 @@ export async function upsertProfile(fields: Record<string, unknown>) {
     await supabase.from("profiles").delete().eq("id", legacy.id);
   }
 
-  const dbRow = buildDbRow(user.id, fields);
+  const dbFields = toDbFields(fields);
+  const payload = { ...dbFields, id: user.id, user_id: user.id };
+
+  console.log("PROFILE_UPSERT user.id:", user.id, "payload keys:", Object.keys(payload));
 
   const { data, error } = await supabase
     .from("profiles")
-    .upsert(dbRow, { onConflict: "id" })
+    .upsert(payload, { onConflict: "id" })
     .select()
     .single();
 
@@ -81,26 +92,30 @@ export async function initProfileOnLogin() {
     return;
   }
 
+  const payload = {
+    id: user.id,
+    user_id: user.id,
+    first_name: "",
+    age: 0,
+    gender: "",
+    dating_preference: "",
+    location: "",
+    photos: [],
+    signals: [],
+    dating_intent: "",
+    green_flags: [],
+    connection_style: "",
+    conversation_starters: [],
+    questions: [],
+    onboarding_complete: false,
+    email: user.email || "",
+  };
+
+  console.log("PROFILE_INIT user.id:", user.id, "payload keys:", Object.keys(payload));
+
   const { error } = await supabase
     .from("profiles")
-    .upsert({
-      id: user.id,
-      user_id: user.id,
-      first_name: "",
-      age: 0,
-      gender: "",
-      dating_preference: "",
-      location: "",
-      photos: [],
-      signals: [],
-      dating_intent: "",
-      green_flags: [],
-      connection_style: "",
-      conversation_starters: [],
-      questions: [],
-      onboarding_complete: false,
-      email: user.email || "",
-    }, { onConflict: "id" });
+    .upsert(payload, { onConflict: "id" });
 
   if (error) {
     console.error("PROFILE_INIT_ERROR", error.message);
