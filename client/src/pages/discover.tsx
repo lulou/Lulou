@@ -392,13 +392,24 @@ export default function Discover() {
   const interact = useMutation({
     mutationFn: async (type: "open" | "close") => {
       if (!currentProfile) return;
-      const res = await apiRequest("POST", "/api/interactions", {
-        toUserId: currentProfile.userId,
-        type,
-      });
-      return res.json();
+      try {
+        const res = await apiRequest("POST", "/api/interactions", {
+          toUserId: currentProfile.userId,
+          type,
+        });
+        return res.json();
+      } catch (err: any) {
+        console.error("INTERACTION_ERROR", type, err?.message || err);
+        toast({
+          title: type === "open" ? "Couldn't send like" : "Couldn't close",
+          description: err?.message || "Something went wrong. Try again.",
+          variant: "destructive",
+        });
+        return { skipped: true };
+      }
     },
     onSuccess: (data) => {
+      if (data?.skipped) return;
       if (data?.matched) {
         toast({
           title: "It's mutual",

@@ -167,13 +167,24 @@ function LikeCard({ open, onMatch, onConnectionFull }: { open: IncomingOpen; onM
 
   const respond = useMutation({
     mutationFn: async (type: "open" | "close") => {
-      const res = await apiRequest("POST", "/api/interactions", {
-        toUserId: open.fromUserId,
-        type,
-      });
-      return res.json();
+      try {
+        const res = await apiRequest("POST", "/api/interactions", {
+          toUserId: open.fromUserId,
+          type,
+        });
+        return res.json();
+      } catch (err: any) {
+        console.error("LIKE_INTERACTION_ERROR", type, err?.message || err);
+        toast({
+          title: type === "open" ? "Couldn't send like" : "Couldn't close",
+          description: err?.message || "Something went wrong. Try again.",
+          variant: "destructive",
+        });
+        return { skipped: true };
+      }
     },
     onSuccess: (data: any) => {
+      if (data?.skipped) return;
       queryClient.invalidateQueries({ queryKey: ["/api/who-liked-you"] });
       queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
       queryClient.invalidateQueries({ queryKey: ["/api/match-count"] });
@@ -187,9 +198,6 @@ function LikeCard({ open, onMatch, onConnectionFull }: { open: IncomingOpen; onM
       } else {
         toast({ title: "Passed", description: `You passed on ${open.profile.firstName}.` });
       }
-    },
-    onError: (error: Error) => {
-      toast({ title: "Error", description: error.message, variant: "destructive" });
     },
   });
 
