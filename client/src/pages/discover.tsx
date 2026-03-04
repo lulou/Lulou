@@ -473,16 +473,7 @@ export default function Discover() {
             transition={{ duration: 0.3, ease: "easeOut" }}
             data-testid="profile-container"
           >
-            <Card className="overflow-hidden relative" data-testid="card-profile">
-              <button
-                className="absolute bottom-3 right-3 z-20 w-10 h-10 rounded-full border border-muted-foreground/20 bg-background/80 backdrop-blur-sm flex items-center justify-center text-base shadow-md transition-all active:scale-90 hover:border-muted-foreground/40 hover:shadow-lg"
-                onClick={() => interact.mutate("close")}
-                disabled={interact.isPending}
-                data-testid="button-close"
-              >
-                <span role="img" aria-label="Close">🌙</span>
-              </button>
-
+            <Card className="overflow-hidden" data-testid="card-profile">
               <PhotoBubbles photos={photos} name={currentProfile.firstName} onOpen={() => interact.mutate("open")} isDisabled={interact.isPending} />
 
               <div className="px-5 pb-5 pt-3 space-y-5" data-testid="profile-about-section">
@@ -559,6 +550,14 @@ export default function Discover() {
         </AnimatePresence>
       </div>
 
+      <button
+        className="fixed bottom-20 right-4 z-40 w-12 h-12 rounded-full border border-muted-foreground/20 bg-background/90 backdrop-blur-sm flex items-center justify-center text-lg shadow-lg transition-all active:scale-90 hover:border-muted-foreground/40 hover:shadow-xl"
+        onClick={() => interact.mutate("close")}
+        disabled={interact.isPending}
+        data-testid="button-close"
+      >
+        <span role="img" aria-label="Close">🌙</span>
+      </button>
     </div>
   );
 }
