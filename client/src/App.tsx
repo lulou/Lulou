@@ -19,15 +19,23 @@ import { Loader2 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 
 async function fetchProfileSafe(): Promise<Profile | null> {
-  const { data: { session } } = await supabase.auth.getSession();
-  const headers: Record<string, string> = {};
-  if (session?.access_token) {
-    headers["Authorization"] = `Bearer ${session.access_token}`;
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    const headers: Record<string, string> = {};
+    if (session?.access_token) {
+      headers["Authorization"] = `Bearer ${session.access_token}`;
+    }
+    const res = await fetch("/api/profile", { credentials: "include", headers });
+    if (res.status === 401 || res.status === 404) return null;
+    if (!res.ok) {
+      console.error("PROFILE_FETCH_ERROR", res.status, res.statusText);
+      return null;
+    }
+    return res.json();
+  } catch (err) {
+    console.error("PROFILE_FETCH_ERROR", err);
+    return null;
   }
-  const res = await fetch("/api/profile", { credentials: "include", headers });
-  if (res.status === 401 || res.status === 404) return null;
-  if (!res.ok) throw new Error(`${res.status}: ${res.statusText}`);
-  return res.json();
 }
 
 function AppContent() {
