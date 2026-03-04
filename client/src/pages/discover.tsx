@@ -442,21 +442,22 @@ export default function Discover() {
   const questions = currentProfile.questions || [];
 
   return (
-    <div className="flex-1 overflow-y-auto">
-      <div className="max-w-md mx-auto p-4 md:p-6 space-y-5 pb-24">
-        <AnimatePresence mode="wait">
-          <motion.div
-            key={currentProfile.id}
-            initial={{ opacity: 0, scale: 0.96 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, y: -20 }}
-            transition={{ duration: 0.3, ease: "easeOut" }}
-            data-testid="profile-container"
-          >
-            <Card className="overflow-hidden" data-testid="card-profile">
-              <PhotoBubbles photos={photos} name={currentProfile.firstName} />
+    <div className="flex-1 flex flex-col overflow-hidden">
+      <div className="flex-1 overflow-y-auto">
+        <div className="max-w-md mx-auto p-4 md:p-6 space-y-5 pb-6">
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={currentProfile.id}
+              initial={{ opacity: 0, scale: 0.96 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, y: -20 }}
+              transition={{ duration: 0.3, ease: "easeOut" }}
+              data-testid="profile-container"
+            >
+              <Card className="overflow-hidden" data-testid="card-profile">
+                <PhotoBubbles photos={photos} name={currentProfile.firstName} />
 
-              <div className="px-5 pb-5 pt-3 space-y-5" data-testid="profile-about-section">
+                <div className="px-5 pb-5 pt-3 space-y-5" data-testid="profile-about-section">
                 {conversationStarters.length > 0 && (
                   <div className="space-y-3" data-testid="section-conversation-starters">
                     <div className="flex items-center gap-1.5">
@@ -525,35 +526,38 @@ export default function Discover() {
                   <p className="font-medium" data-testid="text-profile-style">{currentProfile.connectionStyle}</p>
                 </div>
               </div>
-            </Card>
+              </Card>
+            </motion.div>
+          </AnimatePresence>
+        </div>
+      </div>
 
-            <div className="flex items-center justify-center gap-6 pt-5 pb-2" data-testid="action-buttons">
-              <div className="text-center">
-                <button
-                  className="w-16 h-16 rounded-full border-2 border-muted-foreground/20 bg-background flex items-center justify-center text-2xl shadow-md transition-all active:scale-90 hover:border-muted-foreground/40 hover:shadow-lg"
-                  onClick={() => interact.mutate("close")}
-                  disabled={interact.isPending}
-                  data-testid="button-close"
-                >
-                  <span role="img" aria-label="Close">🌙</span>
-                </button>
-                <p className="text-xs text-muted-foreground mt-1.5 font-medium">Close</p>
-              </div>
+      <div className="shrink-0 bg-background/95 backdrop-blur-sm border-t px-4 py-3" data-testid="action-buttons">
+        <div className="max-w-md mx-auto flex items-center justify-center gap-8">
+          <div className="text-center">
+            <button
+              className="w-14 h-14 rounded-full border-2 border-muted-foreground/20 bg-background flex items-center justify-center text-xl shadow-md transition-all active:scale-90 hover:border-muted-foreground/40 hover:shadow-lg"
+              onClick={() => interact.mutate("close")}
+              disabled={interact.isPending}
+              data-testid="button-close"
+            >
+              <span role="img" aria-label="Close">🌙</span>
+            </button>
+            <p className="text-[10px] text-muted-foreground mt-1 font-medium">Close</p>
+          </div>
 
-              <div className="text-center">
-                <button
-                  className="w-20 h-20 rounded-full bg-primary flex items-center justify-center text-3xl shadow-lg transition-all active:scale-90 hover:shadow-xl hover:brightness-110 ring-4 ring-primary/20"
-                  onClick={() => interact.mutate("open")}
-                  disabled={interact.isPending}
-                  data-testid="button-open"
-                >
-                  <span role="img" aria-label="Open" className="text-white">❤️</span>
-                </button>
-                <p className="text-xs text-primary mt-1.5 font-semibold">Open</p>
-              </div>
-            </div>
-          </motion.div>
-        </AnimatePresence>
+          <div className="text-center">
+            <button
+              className="w-16 h-16 rounded-full bg-primary flex items-center justify-center text-2xl shadow-lg transition-all active:scale-90 hover:shadow-xl hover:brightness-110 ring-4 ring-primary/20"
+              onClick={() => interact.mutate("open")}
+              disabled={interact.isPending}
+              data-testid="button-open"
+            >
+              <span role="img" aria-label="Open" className="text-white">❤️</span>
+            </button>
+            <p className="text-[10px] text-primary mt-1 font-semibold">Open</p>
+          </div>
+        </div>
       </div>
     </div>
   );
