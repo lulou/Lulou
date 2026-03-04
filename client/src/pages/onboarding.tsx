@@ -9,9 +9,10 @@ import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/use-auth";
 import { upsertProfile } from "@/lib/profile-upsert";
 import { SIGNALS, GREEN_FLAGS, DATING_INTENTS, CONNECTION_STYLES, CONVERSATION_STARTERS, PROFILE_QUESTIONS } from "@shared/schema";
-import { Loader2, ArrowRight, ArrowLeft, Check } from "lucide-react";
+import { Loader2, ArrowRight, ArrowLeft, Check, AlertCircle } from "lucide-react";
 import { LulouFlowerIcon } from "@/components/app-layout";
 
 const STEPS = ["Basics", "Photos", "Starters", "Questions", "Signals", "Intent", "Green Flags", "Pace"];
@@ -20,6 +21,7 @@ export default function Onboarding() {
   const [step, setStep] = useState(0);
   const [, navigate] = useLocation();
   const { toast } = useToast();
+  const { profileInitError } = useAuth();
   const queryClient = useQueryClient();
 
   const [formData, setFormData] = useState({
@@ -110,6 +112,13 @@ export default function Onboarding() {
         <LulouFlowerIcon className="w-6 h-6 text-primary" />
         <span className="font-serif text-lg font-semibold">Lulou</span>
       </div>
+
+      {profileInitError && (
+        <div className="mx-6 mb-4 p-3 rounded-md bg-destructive/10 border border-destructive/20 flex items-start gap-2" data-testid="banner-profile-error">
+          <AlertCircle className="w-4 h-4 text-destructive mt-0.5 shrink-0" />
+          <p className="text-sm text-destructive">{profileInitError}</p>
+        </div>
+      )}
 
       <div className="flex-1 flex items-center justify-center px-6 pb-12">
         <div className="w-full max-w-lg space-y-8">

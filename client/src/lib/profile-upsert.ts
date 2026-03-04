@@ -28,8 +28,7 @@ function buildDbRow(userId: string, fields: Record<string, unknown>): Record<str
 export async function upsertProfile(fields: Record<string, unknown>) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) {
-    window.location.href = "/";
-    throw new Error("Not authenticated");
+    throw new Error("Session expired. Please sign in again.");
   }
 
   const { data: legacy } = await supabase

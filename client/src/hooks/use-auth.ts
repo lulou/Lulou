@@ -6,6 +6,7 @@ import type { User } from "@supabase/supabase-js";
 export function useAuth() {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [profileInitError, setProfileInitError] = useState<string | null>(null);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -18,7 +19,11 @@ export function useAuth() {
       setIsLoading(false);
 
       if (event === "SIGNED_IN" && session?.user) {
-        initProfileOnLogin().catch(err => console.error("PROFILE_INIT_ERROR", err));
+        setProfileInitError(null);
+        initProfileOnLogin().catch(err => {
+          console.error("PROFILE_INIT_ERROR", err);
+          setProfileInitError(err?.message || "Could not initialize profile");
+        });
       }
     });
 
@@ -37,5 +42,6 @@ export function useAuth() {
     isAuthenticated: !!user,
     logout,
     isLoggingOut: false,
+    profileInitError,
   };
 }
