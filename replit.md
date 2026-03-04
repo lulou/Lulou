@@ -54,10 +54,11 @@ Lulou Dating is a calm, premium dating app focused on helping people move from m
 - `server/storage.ts` - Database operations
 - `server/seed.ts` - Seed data with 5 demo profiles
 - `shared/schema.ts` - Drizzle schema definitions
-- `server/replit_integrations/auth/` - Replit Auth integration
+- `client/src/lib/supabase.ts` - Frontend Supabase client
+- `client/src/hooks/use-auth.ts` - Supabase Auth hook (session, login, logout)
+- `server/supabase.ts` - Server Supabase client
 
 ## Database Tables
-- `users` + `sessions` - Auth (managed by Replit Auth)
 - `profiles` - Dating profiles with signals, flags, photos
 - `interactions` - Open/Close actions between users
 - `matches` - Mutual connections
