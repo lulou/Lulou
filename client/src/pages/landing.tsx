@@ -1,40 +1,73 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Heart, MessageCircle, Phone, Shield, Mail, RefreshCw, Loader2 } from "lucide-react";
+import { Heart, MessageCircle, Phone, Shield, Mail, RefreshCw, Loader2, Lock, Eye, EyeOff } from "lucide-react";
 import { LulouFlowerIcon } from "@/components/app-layout";
 import { supabase } from "@/lib/supabase";
 import { useToast } from "@/hooks/use-toast";
 
+type AuthMode = "signin" | "signup" | "magic-link" | "magic-link-sent";
+
 export default function Landing() {
   const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [sent, setSent] = useState(false);
+  const [mode, setMode] = useState<AuthMode>("signin");
   const { toast } = useToast();
 
-  async function handleLogin(e: React.FormEvent) {
+  function resetForm() {
+    setEmail("");
+    setPassword("");
+    setMode("signin");
+    setShowPassword(false);
+  }
+
+  async function handlePasswordAuth(e: React.FormEvent) {
+    e.preventDefault();
+    if (!email.trim() || !password) return;
+
+    setLoading(true);
+    if (mode === "signup") {
+      const { error } = await supabase.auth.signUp({
+        email: email.trim(),
+        password,
+      });
+      setLoading(false);
+      if (error) {
+        toast({ title: "Sign up failed", description: error.message, variant: "destructive" });
+        return;
+      }
+      toast({ title: "Account created", description: "You're now signed in." });
+    } else {
+      const { error } = await supabase.auth.signInWithPassword({
+        email: email.trim(),
+        password,
+      });
+      setLoading(false);
+      if (error) {
+        toast({ title: "Sign in failed", description: error.message, variant: "destructive" });
+        return;
+      }
+    }
+  }
+
+  async function handleMagicLink(e: React.FormEvent) {
     e.preventDefault();
     if (!email.trim()) return;
 
     setLoading(true);
     const { error } = await supabase.auth.signInWithOtp({
       email: email.trim(),
-      options: {
-        emailRedirectTo: window.location.origin,
-      },
+      options: { emailRedirectTo: window.location.origin },
     });
     setLoading(false);
 
     if (error) {
-      toast({
-        title: "Could not send link",
-        description: error.message,
-        variant: "destructive",
-      });
+      toast({ title: "Could not send link", description: error.message, variant: "destructive" });
       return;
     }
-
-    setSent(true);
+    setMode("magic-link-sent");
   }
 
   return (
@@ -46,7 +79,7 @@ export default function Landing() {
             <span className="font-serif text-xl font-semibold tracking-tight" data-testid="text-logo">Lulou</span>
           </div>
           <button
-            onClick={() => { setSent(false); setEmail(""); }}
+            onClick={resetForm}
             className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-primary transition-colors"
             data-testid="link-switch-account"
           >
@@ -73,7 +106,7 @@ export default function Landing() {
               </p>
             </div>
 
-            {sent ? (
+            {mode === "magic-link-sent" ? (
               <div className="max-w-sm space-y-4 p-6 rounded-lg border bg-card" data-testid="container-magic-link-sent">
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
@@ -90,14 +123,14 @@ export default function Landing() {
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={() => { setSent(false); setEmail(""); }}
+                  onClick={resetForm}
                   data-testid="button-try-different-email"
                 >
                   Try a different email
                 </Button>
               </div>
-            ) : (
-              <form onSubmit={handleLogin} className="max-w-sm space-y-3" data-testid="form-login">
+            ) : mode === "magic-link" ? (
+              <form onSubmit={handleMagicLink} className="max-w-sm space-y-3" data-testid="form-magic-link">
                 <div className="space-y-2">
                   <Input
                     type="email"
@@ -105,7 +138,7 @@ export default function Landing() {
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     required
-                    data-testid="input-email"
+                    data-testid="input-email-magic"
                     className="h-12"
                   />
                 </div>
@@ -131,6 +164,88 @@ export default function Landing() {
                 <p className="text-xs text-muted-foreground text-center">
                   No password needed. We'll email you a sign-in link.
                 </p>
+                <div className="pt-2 text-center">
+                  <button
+                    type="button"
+                    onClick={() => setMode("signin")}
+                    className="text-sm text-primary hover:underline"
+                    data-testid="link-back-to-password"
+                  >
+                    Sign in with password instead
+                  </button>
+                </div>
+              </form>
+            ) : (
+              <form onSubmit={handlePasswordAuth} className="max-w-sm space-y-3" data-testid="form-login">
+                <div className="space-y-2">
+                  <Input
+                    type="email"
+                    placeholder="Enter your email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    required
+                    data-testid="input-email"
+                    className="h-12"
+                  />
+                  <div className="relative">
+                    <Input
+                      type={showPassword ? "text" : "password"}
+                      placeholder="Password"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      required
+                      minLength={6}
+                      data-testid="input-password"
+                      className="h-12 pr-10"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                      data-testid="button-toggle-password"
+                      tabIndex={-1}
+                    >
+                      {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                </div>
+                <Button
+                  type="submit"
+                  size="lg"
+                  className="w-full text-base"
+                  disabled={loading || !email.trim() || !password}
+                  data-testid="button-submit-auth"
+                >
+                  {loading ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      {mode === "signup" ? "Creating account..." : "Signing in..."}
+                    </>
+                  ) : (
+                    <>
+                      <Lock className="w-4 h-4 mr-2" />
+                      {mode === "signup" ? "Create Account" : "Sign In"}
+                    </>
+                  )}
+                </Button>
+                <div className="flex items-center justify-between pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setMode(mode === "signup" ? "signin" : "signup")}
+                    className="text-sm text-primary hover:underline"
+                    data-testid="link-toggle-auth-mode"
+                  >
+                    {mode === "signup" ? "Already have an account? Sign in" : "New here? Create account"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setMode("magic-link")}
+                    className="text-sm text-muted-foreground hover:text-primary hover:underline"
+                    data-testid="link-magic-link"
+                  >
+                    Magic link
+                  </button>
+                </div>
               </form>
             )}
 
