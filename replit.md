@@ -7,7 +7,7 @@ Lulou Dating is a calm, premium dating app focused on helping people move from m
 - **Frontend**: React + Vite + Tailwind CSS + shadcn/ui
 - **Backend**: Express.js with Supabase token verification middleware
 - **Database**: Supabase (PostgreSQL) via @supabase/supabase-js client
-- **Auth**: Supabase Auth (email magic link via `signInWithOtp`)
+- **Auth**: Supabase Auth (email + password via `signUp` / `signInWithPassword`)
 
 ## Key Features
 - Profile creation with personality signals, green flags, dating intent, connection style, optional height

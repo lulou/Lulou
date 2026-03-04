@@ -1,12 +1,12 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Heart, MessageCircle, Phone, Shield, Mail, RefreshCw, Loader2, Lock, Eye, EyeOff } from "lucide-react";
+import { Heart, MessageCircle, Phone, Shield, RefreshCw, Loader2, Lock, Eye, EyeOff } from "lucide-react";
 import { LulouFlowerIcon } from "@/components/app-layout";
 import { supabase } from "@/lib/supabase";
 import { useToast } from "@/hooks/use-toast";
 
-type AuthMode = "signin" | "signup" | "magic-link" | "magic-link-sent";
+type AuthMode = "signin" | "signup";
 
 export default function Landing() {
   const [email, setEmail] = useState("");
@@ -23,7 +23,7 @@ export default function Landing() {
     setShowPassword(false);
   }
 
-  async function handlePasswordAuth(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!email.trim() || !password) return;
 
@@ -50,24 +50,6 @@ export default function Landing() {
         return;
       }
     }
-  }
-
-  async function handleMagicLink(e: React.FormEvent) {
-    e.preventDefault();
-    if (!email.trim()) return;
-
-    setLoading(true);
-    const { error } = await supabase.auth.signInWithOtp({
-      email: email.trim(),
-      options: { emailRedirectTo: window.location.origin },
-    });
-    setLoading(false);
-
-    if (error) {
-      toast({ title: "Could not send link", description: error.message, variant: "destructive" });
-      return;
-    }
-    setMode("magic-link-sent");
   }
 
   return (
@@ -106,148 +88,69 @@ export default function Landing() {
               </p>
             </div>
 
-            {mode === "magic-link-sent" ? (
-              <div className="max-w-sm space-y-4 p-6 rounded-lg border bg-card" data-testid="container-magic-link-sent">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
-                    <Mail className="w-5 h-5 text-primary" />
-                  </div>
-                  <div>
-                    <p className="font-semibold" data-testid="text-check-email">Check your email</p>
-                    <p className="text-sm text-muted-foreground" data-testid="text-email-sent-to">{email}</p>
-                  </div>
+            <form onSubmit={handleSubmit} className="max-w-sm space-y-3" data-testid="form-login">
+              <div className="space-y-2">
+                <Input
+                  type="email"
+                  placeholder="Enter your email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                  data-testid="input-email"
+                  className="h-12"
+                />
+                <div className="relative">
+                  <Input
+                    type={showPassword ? "text" : "password"}
+                    placeholder="Password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    required
+                    minLength={6}
+                    data-testid="input-password"
+                    className="h-12 pr-10"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                    data-testid="button-toggle-password"
+                    tabIndex={-1}
+                  >
+                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
                 </div>
-                <p className="text-sm text-muted-foreground">
-                  We sent you a magic link. Click the link in the email to sign in.
-                </p>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={resetForm}
-                  data-testid="button-try-different-email"
-                >
-                  Try a different email
-                </Button>
               </div>
-            ) : mode === "magic-link" ? (
-              <form onSubmit={handleMagicLink} className="max-w-sm space-y-3" data-testid="form-magic-link">
-                <div className="space-y-2">
-                  <Input
-                    type="email"
-                    placeholder="Enter your email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    required
-                    data-testid="input-email-magic"
-                    className="h-12"
-                  />
-                </div>
-                <Button
-                  type="submit"
-                  size="lg"
-                  className="w-full text-base"
-                  disabled={loading || !email.trim()}
-                  data-testid="button-send-magic-link"
+              <Button
+                type="submit"
+                size="lg"
+                className="w-full text-base"
+                disabled={loading || !email.trim() || !password}
+                data-testid="button-submit-auth"
+              >
+                {loading ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    {mode === "signup" ? "Creating account..." : "Signing in..."}
+                  </>
+                ) : (
+                  <>
+                    <Lock className="w-4 h-4 mr-2" />
+                    {mode === "signup" ? "Create Account" : "Sign In"}
+                  </>
+                )}
+              </Button>
+              <div className="text-center pt-1">
+                <button
+                  type="button"
+                  onClick={() => setMode(mode === "signup" ? "signin" : "signup")}
+                  className="text-sm text-primary hover:underline"
+                  data-testid="link-toggle-auth-mode"
                 >
-                  {loading ? (
-                    <>
-                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                      Sending...
-                    </>
-                  ) : (
-                    <>
-                      <Mail className="w-4 h-4 mr-2" />
-                      Send Magic Link
-                    </>
-                  )}
-                </Button>
-                <p className="text-xs text-muted-foreground text-center">
-                  No password needed. We'll email you a sign-in link.
-                </p>
-                <div className="pt-2 text-center">
-                  <button
-                    type="button"
-                    onClick={() => setMode("signin")}
-                    className="text-sm text-primary hover:underline"
-                    data-testid="link-back-to-password"
-                  >
-                    Sign in with password instead
-                  </button>
-                </div>
-              </form>
-            ) : (
-              <form onSubmit={handlePasswordAuth} className="max-w-sm space-y-3" data-testid="form-login">
-                <div className="space-y-2">
-                  <Input
-                    type="email"
-                    placeholder="Enter your email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    required
-                    data-testid="input-email"
-                    className="h-12"
-                  />
-                  <div className="relative">
-                    <Input
-                      type={showPassword ? "text" : "password"}
-                      placeholder="Password"
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      required
-                      minLength={6}
-                      data-testid="input-password"
-                      className="h-12 pr-10"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                      data-testid="button-toggle-password"
-                      tabIndex={-1}
-                    >
-                      {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                    </button>
-                  </div>
-                </div>
-                <Button
-                  type="submit"
-                  size="lg"
-                  className="w-full text-base"
-                  disabled={loading || !email.trim() || !password}
-                  data-testid="button-submit-auth"
-                >
-                  {loading ? (
-                    <>
-                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                      {mode === "signup" ? "Creating account..." : "Signing in..."}
-                    </>
-                  ) : (
-                    <>
-                      <Lock className="w-4 h-4 mr-2" />
-                      {mode === "signup" ? "Create Account" : "Sign In"}
-                    </>
-                  )}
-                </Button>
-                <div className="flex items-center justify-between pt-1">
-                  <button
-                    type="button"
-                    onClick={() => setMode(mode === "signup" ? "signin" : "signup")}
-                    className="text-sm text-primary hover:underline"
-                    data-testid="link-toggle-auth-mode"
-                  >
-                    {mode === "signup" ? "Already have an account? Sign in" : "New here? Create account"}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setMode("magic-link")}
-                    className="text-sm text-muted-foreground hover:text-primary hover:underline"
-                    data-testid="link-magic-link"
-                  >
-                    Magic link
-                  </button>
-                </div>
-              </form>
-            )}
+                  {mode === "signup" ? "Already have an account? Sign in" : "New here? Create account"}
+                </button>
+              </div>
+            </form>
 
             <div className="flex items-center gap-6 flex-wrap text-sm text-muted-foreground">
               <div className="flex items-center gap-2">
