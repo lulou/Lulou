@@ -75,7 +75,13 @@ export function DragScrollRow({ children, className = "" }: { children: React.Re
   return (
     <div
       ref={ref}
-      className={`flex gap-2 overflow-x-auto scrollbar-hide cursor-grab select-none touch-pan-y ${className}`}
+      className={`scrollbar-hide cursor-grab select-none ${className}`}
+      style={{
+        display: "flex",
+        gap: "0.5rem",
+        overflowX: "auto",
+        WebkitOverflowScrolling: "touch",
+      }}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}

@@ -150,7 +150,12 @@ function PhotoBubbles({ photos, name, onOpen, isDisabled }: { photos: string[]; 
     <div className="relative" data-testid="photo-bubbles-wrapper">
       <div
         ref={scrollRef}
-        className="overflow-x-auto scrollbar-hide cursor-grab select-none touch-pan-y"
+        className="scrollbar-hide cursor-grab select-none"
+        style={{
+          display: "flex",
+          overflowX: "auto",
+          WebkitOverflowScrolling: "touch",
+        }}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
@@ -161,6 +166,7 @@ function PhotoBubbles({ photos, name, onOpen, isDisabled }: { photos: string[]; 
         <div
           className="flex items-end gap-3 py-4"
           style={{
+            flex: "0 0 auto",
             paddingLeft: "calc(50% - 112px)",
             paddingRight: "calc(50% - 112px)",
             width: "max-content",
@@ -172,11 +178,12 @@ function PhotoBubbles({ photos, name, onOpen, isDisabled }: { photos: string[]; 
               <div
                 key={i}
                 ref={(el) => { itemRefs.current[i] = el; }}
-                className={`relative rounded-2xl overflow-hidden flex-shrink-0 transition-all duration-300 ease-out ${
+                className={`relative rounded-2xl overflow-hidden transition-all duration-300 ease-out ${
                   isFocused
                     ? "w-56 h-72 shadow-lg ring-2 ring-primary/20"
                     : "w-40 h-56 shadow-md opacity-70"
                 }`}
+                style={{ flex: "0 0 auto" }}
                 data-testid={`photo-bubble-${i}`}
               >
                 <img
@@ -318,7 +325,12 @@ function SlideCards({ items, type, onReply }: { items: string[]; type: "starter"
     <div className="space-y-2">
       <div
         ref={scrollRef}
-        className="overflow-x-auto scrollbar-hide select-none touch-pan-y cursor-grab"
+        className="scrollbar-hide select-none cursor-grab"
+        style={{
+          display: "flex",
+          overflowX: "auto",
+          WebkitOverflowScrolling: "touch",
+        }}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
@@ -329,12 +341,12 @@ function SlideCards({ items, type, onReply }: { items: string[]; type: "starter"
           {items.map((item, i) => (
             <div
               key={i}
-              className={`rounded-md px-4 py-3 text-sm leading-relaxed flex-shrink-0 cursor-pointer transition-all ${
+              className={`rounded-md px-4 py-3 text-sm leading-relaxed cursor-pointer transition-all ${
                 isStarter
                   ? "bg-muted/50 hover-elevate"
                   : "border hover-elevate"
               } ${activeIndex === i ? "ring-2 ring-primary/40" : ""}`}
-              style={{ maxWidth: "260px", minWidth: "200px" }}
+              style={{ flex: "0 0 auto", maxWidth: "260px", minWidth: "200px" }}
               onClick={() => handleCardClick(i)}
               data-testid={isStarter ? `text-starter-${i}` : `text-question-${i}`}
             >
