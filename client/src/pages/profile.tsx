@@ -316,7 +316,13 @@ export default function ProfilePage() {
   }
 
   return (
-    <div className="flex-1 overflow-y-auto p-6 space-y-5 max-w-lg mx-auto w-full pb-28">
+    <div className="flex-1 overflow-y-auto">
+      <div className="sticky top-0 z-30 bg-background/95 backdrop-blur-sm border-b px-6 py-3 max-w-lg mx-auto w-full">
+        <h1 className="font-serif text-lg font-bold truncate" data-testid="text-profile-sticky-name">
+          {profile.firstName}
+        </h1>
+      </div>
+      <div className="p-6 space-y-5 max-w-lg mx-auto w-full pb-28">
       <div className="flex items-center gap-4">
         <div className="relative">
           <Avatar className="w-20 h-20">
@@ -1035,6 +1041,7 @@ export default function ProfilePage() {
       >
         <LogOut className="w-4 h-4 mr-2" /> Sign Out
       </Button>
+      </div>
     </div>
   );
 }
