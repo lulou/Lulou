@@ -527,13 +527,13 @@ export default function ProfilePage() {
         </div>
 
         {showPhotos && (editingPhotos ? (
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-3 gap-3">
             {editPhotos.map((photo, i) => (
-              <div key={i} className="aspect-[3/4] rounded-md overflow-hidden relative group">
+              <div key={i} className="aspect-[3/4] overflow-hidden relative group" style={{ borderRadius: 18 }}>
                 <img src={photo} alt={`Photo ${i + 1}`} className="w-full h-full object-cover" data-testid={`img-edit-photo-${i}`} />
                 <button
                   onClick={() => removeEditPhoto(i)}
-                  className="absolute top-1 right-1 w-6 h-6 rounded-full bg-destructive text-destructive-foreground flex items-center justify-center invisible group-hover:visible"
+                  className="absolute top-1.5 right-1.5 w-6 h-6 rounded-full bg-destructive text-destructive-foreground flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
                   data-testid={`button-remove-photo-${i}`}
                 >
                   <X className="w-3.5 h-3.5" />
@@ -543,7 +543,8 @@ export default function ProfilePage() {
             {editPhotos.length < 6 && (
               <button
                 onClick={() => fileInputRef.current?.click()}
-                className="aspect-[3/4] rounded-md border-2 border-dashed border-muted-foreground/30 flex flex-col items-center justify-center gap-1 hover-elevate transition-colors"
+                className="aspect-[3/4] border-2 border-dashed border-muted-foreground/30 flex flex-col items-center justify-center gap-1 hover-elevate transition-colors"
+                style={{ borderRadius: 18 }}
                 data-testid="button-add-photo"
               >
                 <ImagePlus className="w-6 h-6 text-muted-foreground/50" />
@@ -561,9 +562,22 @@ export default function ProfilePage() {
             />
           </div>
         ) : profile.photos && profile.photos.length > 0 ? (
-          <div className="grid grid-cols-3 gap-2">
+          <div className="flex gap-3 overflow-x-auto scrollbar-hide py-2 px-1" style={{ WebkitOverflowScrolling: "touch" }}>
             {profile.photos.map((photo, i) => (
-              <div key={i} className="aspect-[3/4] rounded-md overflow-hidden">
+              <div
+                key={i}
+                style={{
+                  flex: "0 0 auto",
+                  width: i === 0 ? 140 : 100,
+                  height: i === 0 ? 190 : 140,
+                  borderRadius: 20,
+                  overflow: "hidden",
+                  boxShadow: i === 0
+                    ? "0 8px 20px -4px rgba(0,0,0,0.15)"
+                    : "0 4px 12px -2px rgba(0,0,0,0.08)",
+                }}
+                data-testid={`photo-bubble-profile-${i}`}
+              >
                 <img src={photo} alt={`Photo ${i + 1}`} className="w-full h-full object-cover" data-testid={`img-my-photo-${i}`} />
               </div>
             ))}
@@ -571,7 +585,8 @@ export default function ProfilePage() {
         ) : (
           <button
             onClick={startEditingPhotos}
-            className="w-full aspect-[3/4] max-w-[140px] rounded-md border-2 border-dashed border-muted-foreground/30 flex flex-col items-center justify-center gap-1 hover-elevate"
+            className="w-full aspect-[3/4] max-w-[140px] border-2 border-dashed border-muted-foreground/30 flex flex-col items-center justify-center gap-1 hover-elevate"
+            style={{ borderRadius: 20 }}
             data-testid="button-add-first-photo"
           >
             <ImagePlus className="w-8 h-8 text-muted-foreground/50" />
