@@ -13,14 +13,31 @@ import { MapPin, Ruler, MessageCircle, HelpCircle, Send } from "lucide-react";
 import { LulouFlowerIcon } from "@/components/app-layout";
 import { AnimatePresence, motion } from "framer-motion";
 
+const BUBBLE_W = 160;
+const BUBBLE_H = 224;
+const FOCUSED_SCALE = 1.28;
+
+const bubbleBaseStyle: React.CSSProperties = {
+  flex: "0 0 auto",
+  width: BUBBLE_W,
+  height: BUBBLE_H,
+  borderRadius: 16,
+  overflow: "hidden",
+  willChange: "transform, opacity",
+  backfaceVisibility: "hidden",
+  scrollSnapAlign: "center",
+};
+
 function PhotoBubbles({ photos, name, onOpen, isDisabled }: { photos: string[]; name: string; onOpen: () => void; isDisabled?: boolean }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const itemRefs = useRef<(HTMLDivElement | null)[]>([]);
   const focusedRef = useRef(0);
   const [focusedIndex, setFocusedIndex] = useState(0);
-  const scrollTimer = useRef<ReturnType<typeof setTimeout>>();
+  const rafId = useRef(0);
+  const ticking = useRef(false);
 
   const commitFocus = useCallback(() => {
+    ticking.current = false;
     const container = scrollRef.current;
     if (!container) return;
     const center = container.scrollLeft + container.offsetWidth / 2;
@@ -39,12 +56,14 @@ function PhotoBubbles({ photos, name, onOpen, isDisabled }: { photos: string[]; 
   }, []);
 
   const handleScroll = useCallback(() => {
-    clearTimeout(scrollTimer.current);
-    scrollTimer.current = setTimeout(commitFocus, 80);
+    if (!ticking.current) {
+      ticking.current = true;
+      rafId.current = requestAnimationFrame(commitFocus);
+    }
   }, [commitFocus]);
 
   useEffect(() => {
-    return () => clearTimeout(scrollTimer.current);
+    return () => cancelAnimationFrame(rafId.current);
   }, []);
 
   if (photos.length === 0) {
@@ -58,7 +77,7 @@ function PhotoBubbles({ photos, name, onOpen, isDisabled }: { photos: string[]; 
   if (photos.length === 1) {
     return (
       <div className="flex justify-center py-4 px-4" data-testid="photo-bubbles">
-        <div className="relative w-56 h-72 rounded-2xl overflow-hidden shadow-md ring-2 ring-primary/15">
+        <div className="relative rounded-2xl overflow-hidden shadow-md ring-2 ring-primary/15" style={{ width: BUBBLE_W * FOCUSED_SCALE, height: BUBBLE_H * FOCUSED_SCALE }}>
           <img
             src={photos[0]}
             alt={`${name} photo 1`}
@@ -80,27 +99,32 @@ function PhotoBubbles({ photos, name, onOpen, isDisabled }: { photos: string[]; 
     );
   }
 
+  const padSide = `calc(50% - ${BUBBLE_W / 2}px)`;
+
   return (
     <div className="relative" data-testid="photo-bubbles-wrapper">
       <div
         ref={scrollRef}
         className="scrollbar-hide select-none"
         style={{
+          display: "flex",
           overflowX: "auto",
           overflowY: "hidden",
           WebkitOverflowScrolling: "touch",
           scrollSnapType: "x mandatory",
-          willChange: "scroll-position",
         }}
         onScroll={handleScroll}
         data-testid="photo-bubbles"
       >
         <div
-          className="flex items-end gap-3 py-4"
           style={{
-            paddingLeft: "calc(50% - 112px)",
-            paddingRight: "calc(50% - 112px)",
-            width: "max-content",
+            display: "flex",
+            alignItems: "center",
+            gap: 12,
+            paddingTop: 16,
+            paddingBottom: 16,
+            paddingLeft: padSide,
+            paddingRight: padSide,
           }}
         >
           {photos.map((photo, i) => {
@@ -109,26 +133,29 @@ function PhotoBubbles({ photos, name, onOpen, isDisabled }: { photos: string[]; 
               <div
                 key={i}
                 ref={(el) => { itemRefs.current[i] = el; }}
-                className="relative rounded-2xl overflow-hidden"
                 style={{
-                  flex: "0 0 auto",
-                  width: isFocused ? "14rem" : "10rem",
-                  height: isFocused ? "18rem" : "14rem",
-                  opacity: isFocused ? 1 : 0.7,
+                  ...bubbleBaseStyle,
+                  transform: isFocused
+                    ? `translateZ(0) scale(${FOCUSED_SCALE})`
+                    : "translateZ(0) scale(1)",
+                  opacity: isFocused ? 1 : 0.65,
                   boxShadow: isFocused
-                    ? "0 10px 15px -3px rgba(0,0,0,0.1)"
-                    : "0 4px 6px -1px rgba(0,0,0,0.1)",
-                  transform: "translateZ(0)",
-                  transition: "width 0.25s ease-out, height 0.25s ease-out, opacity 0.25s ease-out",
-                  scrollSnapAlign: "center",
-                  contain: "layout style paint",
+                    ? "0 10px 25px -5px rgba(0,0,0,0.15)"
+                    : "0 4px 6px -1px rgba(0,0,0,0.08)",
+                  transition: "transform 0.25s ease-out, opacity 0.25s ease-out, box-shadow 0.25s ease-out",
                 }}
                 data-testid={`photo-bubble-${i}`}
               >
                 <img
                   src={photo}
                   alt={`${name} photo ${i + 1}`}
-                  className="w-full h-full object-cover pointer-events-none"
+                  style={{
+                    display: "block",
+                    width: "100%",
+                    height: "100%",
+                    objectFit: "cover",
+                    pointerEvents: "none",
+                  }}
                   draggable={false}
                   loading="eager"
                   decoding="async"
@@ -137,6 +164,7 @@ function PhotoBubbles({ photos, name, onOpen, isDisabled }: { photos: string[]; 
                 {isFocused && (
                   <button
                     className="absolute bottom-3 left-1/2 -translate-x-1/2 flex items-center gap-1.5 bg-primary text-white rounded-full pl-3 pr-4 py-2 shadow-lg active:scale-90 z-10"
+                    style={{ position: "absolute" }}
                     onClick={(e) => { e.stopPropagation(); onOpen(); }}
                     disabled={isDisabled}
                     data-testid="button-open"
@@ -158,8 +186,10 @@ function PhotoBubbles({ photos, name, onOpen, isDisabled }: { photos: string[]; 
           {photos.map((_, i) => (
             <div
               key={i}
-              className="w-1.5 h-1.5 rounded-full"
               style={{
+                width: 6,
+                height: 6,
+                borderRadius: "50%",
                 backgroundColor: i === focusedIndex
                   ? "hsl(var(--primary))"
                   : "hsl(var(--muted-foreground) / 0.25)",
@@ -274,7 +304,9 @@ function SlideCards({ items, type, onReply }: { items: string[]; type: "starter"
         style={{
           display: "flex",
           overflowX: "auto",
+          overflowY: "hidden",
           WebkitOverflowScrolling: "touch",
+          transform: "translateZ(0)",
         }}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
@@ -282,16 +314,22 @@ function SlideCards({ items, type, onReply }: { items: string[]; type: "starter"
         onPointerLeave={handlePointerUp}
         data-testid={isStarter ? "slide-starters" : "slide-questions"}
       >
-        <div className="flex gap-3 px-1" style={{ width: "max-content" }}>
+        <div className="flex gap-3 px-1" style={{ display: "flex", gap: 12, paddingLeft: 4, paddingRight: 4 }}>
           {items.map((item, i) => (
             <div
               key={i}
-              className={`rounded-md px-4 py-3 text-sm leading-relaxed cursor-pointer transition-all ${
+              className={`rounded-md px-4 py-3 text-sm leading-relaxed cursor-pointer ${
                 isStarter
                   ? "bg-muted/50 hover-elevate"
                   : "border hover-elevate"
               } ${activeIndex === i ? "ring-2 ring-primary/40" : ""}`}
-              style={{ flex: "0 0 auto", maxWidth: "260px", minWidth: "200px" }}
+              style={{
+                flex: "0 0 auto",
+                maxWidth: 260,
+                minWidth: 200,
+                transform: "translateZ(0)",
+                backfaceVisibility: "hidden",
+              }}
               onClick={() => handleCardClick(i)}
               data-testid={isStarter ? `text-starter-${i}` : `text-question-${i}`}
             >

@@ -80,7 +80,9 @@ export function DragScrollRow({ children, className = "" }: { children: React.Re
         display: "flex",
         gap: "0.5rem",
         overflowX: "auto",
+        overflowY: "hidden",
         WebkitOverflowScrolling: "touch",
+        transform: "translateZ(0)",
       }}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
