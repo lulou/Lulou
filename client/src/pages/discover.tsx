@@ -13,20 +13,9 @@ import { MapPin, Ruler, MessageCircle, HelpCircle, Send } from "lucide-react";
 import { LulouFlowerIcon } from "@/components/app-layout";
 import { AnimatePresence, motion } from "framer-motion";
 
-const BUBBLE_W = 160;
-const BUBBLE_H = 224;
-const FOCUSED_SCALE = 1.28;
-
-const bubbleBaseStyle: React.CSSProperties = {
-  flex: "0 0 auto",
-  width: BUBBLE_W,
-  height: BUBBLE_H,
-  borderRadius: 16,
-  overflow: "hidden",
-  willChange: "transform, opacity",
-  backfaceVisibility: "hidden",
-  scrollSnapAlign: "center",
-};
+const SLOT_W = 180;
+const SLOT_H = 280;
+const UNFOCUSED_SCALE = 0.78;
 
 function PhotoBubbles({ photos, name, onOpen, isDisabled }: { photos: string[]; name: string; onOpen: () => void; isDisabled?: boolean }) {
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -77,7 +66,7 @@ function PhotoBubbles({ photos, name, onOpen, isDisabled }: { photos: string[]; 
   if (photos.length === 1) {
     return (
       <div className="flex justify-center py-4 px-4" data-testid="photo-bubbles">
-        <div className="relative rounded-2xl overflow-hidden shadow-md ring-2 ring-primary/15" style={{ width: BUBBLE_W * FOCUSED_SCALE, height: BUBBLE_H * FOCUSED_SCALE }}>
+        <div className="relative rounded-2xl overflow-hidden shadow-lg" style={{ width: SLOT_W, height: SLOT_H }}>
           <img
             src={photos[0]}
             alt={`${name} photo 1`}
@@ -85,8 +74,17 @@ function PhotoBubbles({ photos, name, onOpen, isDisabled }: { photos: string[]; 
             draggable={false}
             data-testid="img-profile-photo-0"
           />
+          <div
+            style={{
+              position: "absolute",
+              inset: 0,
+              background: "linear-gradient(to top, rgba(0,0,0,0.35) 0%, transparent 40%)",
+              pointerEvents: "none",
+            }}
+          />
           <button
-            className="absolute bottom-3 left-1/2 -translate-x-1/2 flex items-center gap-1.5 bg-primary text-white rounded-full pl-3 pr-4 py-2 shadow-lg active:scale-90 z-10"
+            style={{ position: "absolute", bottom: 12, left: "50%", transform: "translateX(-50%)", zIndex: 10 }}
+            className="flex items-center gap-1.5 bg-primary text-white rounded-full pl-3 pr-4 py-2 shadow-lg active:scale-95"
             onClick={onOpen}
             disabled={isDisabled}
             data-testid="button-open"
@@ -99,7 +97,7 @@ function PhotoBubbles({ photos, name, onOpen, isDisabled }: { photos: string[]; 
     );
   }
 
-  const padSide = `calc(50% - ${BUBBLE_W / 2}px)`;
+  const padSide = `calc(50% - ${SLOT_W / 2}px)`;
 
   return (
     <div className="relative" data-testid="photo-bubbles-wrapper">
@@ -107,7 +105,6 @@ function PhotoBubbles({ photos, name, onOpen, isDisabled }: { photos: string[]; 
         ref={scrollRef}
         className="scrollbar-hide select-none"
         style={{
-          display: "flex",
           overflowX: "auto",
           overflowY: "hidden",
           WebkitOverflowScrolling: "touch",
@@ -120,9 +117,9 @@ function PhotoBubbles({ photos, name, onOpen, isDisabled }: { photos: string[]; 
           style={{
             display: "flex",
             alignItems: "center",
-            gap: 12,
-            paddingTop: 16,
-            paddingBottom: 16,
+            gap: 10,
+            paddingTop: 20,
+            paddingBottom: 20,
             paddingLeft: padSide,
             paddingRight: padSide,
           }}
@@ -134,66 +131,89 @@ function PhotoBubbles({ photos, name, onOpen, isDisabled }: { photos: string[]; 
                 key={i}
                 ref={(el) => { itemRefs.current[i] = el; }}
                 style={{
-                  ...bubbleBaseStyle,
-                  transform: isFocused
-                    ? `translateZ(0) scale(${FOCUSED_SCALE})`
-                    : "translateZ(0) scale(1)",
-                  opacity: isFocused ? 1 : 0.65,
-                  boxShadow: isFocused
-                    ? "0 10px 25px -5px rgba(0,0,0,0.15)"
-                    : "0 4px 6px -1px rgba(0,0,0,0.08)",
-                  transition: "transform 0.25s ease-out, opacity 0.25s ease-out, box-shadow 0.25s ease-out",
+                  flex: "0 0 auto",
+                  width: SLOT_W,
+                  height: SLOT_H,
+                  scrollSnapAlign: "center",
                 }}
                 data-testid={`photo-bubble-${i}`}
               >
-                <img
-                  src={photo}
-                  alt={`${name} photo ${i + 1}`}
+                <div
                   style={{
-                    display: "block",
+                    position: "relative",
                     width: "100%",
                     height: "100%",
-                    objectFit: "cover",
-                    pointerEvents: "none",
+                    borderRadius: 16,
+                    overflow: "hidden",
+                    transform: isFocused
+                      ? "translateZ(0) scale(1)"
+                      : `translateZ(0) scale(${UNFOCUSED_SCALE})`,
+                    opacity: isFocused ? 1 : 0.55,
+                    boxShadow: isFocused
+                      ? "0 14px 30px -6px rgba(0,0,0,0.2)"
+                      : "0 4px 12px -2px rgba(0,0,0,0.06)",
+                    willChange: "transform, opacity",
+                    backfaceVisibility: "hidden",
+                    transition: "transform 0.3s cubic-bezier(0.25,1,0.5,1), opacity 0.3s ease-out, box-shadow 0.3s ease-out",
                   }}
-                  draggable={false}
-                  loading="eager"
-                  decoding="async"
-                  data-testid={`img-profile-photo-${i}`}
-                />
-                {isFocused && (
-                  <button
-                    className="absolute bottom-3 left-1/2 -translate-x-1/2 flex items-center gap-1.5 bg-primary text-white rounded-full pl-3 pr-4 py-2 shadow-lg active:scale-90 z-10"
-                    style={{ position: "absolute" }}
-                    onClick={(e) => { e.stopPropagation(); onOpen(); }}
-                    disabled={isDisabled}
-                    data-testid="button-open"
-                  >
-                    <span className="text-lg">❤️</span>
-                    <span className="text-sm font-semibold">Open</span>
-                  </button>
-                )}
+                >
+                  <img
+                    src={photo}
+                    alt={`${name} photo ${i + 1}`}
+                    style={{
+                      display: "block",
+                      width: "100%",
+                      height: "100%",
+                      objectFit: "cover",
+                      pointerEvents: "none",
+                    }}
+                    draggable={false}
+                    loading="eager"
+                    decoding="async"
+                    data-testid={`img-profile-photo-${i}`}
+                  />
+                  <div
+                    style={{
+                      position: "absolute",
+                      inset: 0,
+                      background: isFocused
+                        ? "linear-gradient(to top, rgba(0,0,0,0.32) 0%, transparent 45%)"
+                        : "none",
+                      pointerEvents: "none",
+                    }}
+                  />
+                  {isFocused && (
+                    <button
+                      style={{ position: "absolute", bottom: 14, left: "50%", transform: "translateX(-50%)", zIndex: 10 }}
+                      className="flex items-center gap-1.5 bg-primary text-white rounded-full pl-3 pr-4 py-2 shadow-lg active:scale-95"
+                      onClick={(e) => { e.stopPropagation(); onOpen(); }}
+                      disabled={isDisabled}
+                      data-testid="button-open"
+                    >
+                      <span className="text-lg">❤️</span>
+                      <span className="text-sm font-semibold">Open</span>
+                    </button>
+                  )}
+                </div>
               </div>
             );
           })}
         </div>
       </div>
-      <div className="absolute inset-y-0 left-0 w-8 bg-gradient-to-r from-card to-transparent pointer-events-none" />
-      <div className="absolute inset-y-0 right-0 w-8 bg-gradient-to-l from-card to-transparent pointer-events-none" />
 
       {photos.length > 1 && (
-        <div className="flex justify-center gap-1.5 pt-1 pb-1">
+        <div style={{ display: "flex", justifyContent: "center", gap: 5, paddingTop: 2, paddingBottom: 6 }}>
           {photos.map((_, i) => (
             <div
               key={i}
               style={{
-                width: 6,
+                width: i === focusedIndex ? 20 : 6,
                 height: 6,
-                borderRadius: "50%",
+                borderRadius: 3,
                 backgroundColor: i === focusedIndex
                   ? "hsl(var(--primary))"
-                  : "hsl(var(--muted-foreground) / 0.25)",
-                transition: "background-color 0.2s",
+                  : "hsl(var(--muted-foreground) / 0.2)",
+                transition: "width 0.3s ease-out, background-color 0.3s ease-out",
               }}
             />
           ))}
