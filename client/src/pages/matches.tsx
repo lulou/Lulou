@@ -492,14 +492,16 @@ function MatchChat({ match }: { match: MatchWithProfile }) {
     refetchInterval: expanded ? 3000 : false,
   });
 
+  const pendingMsgRef = useRef("");
+
   const sendMessage = useMutation({
     mutationFn: async () => {
       if (!match.id) {
         throw new Error("No match selected");
       }
-      const content = message.trim();
+      const content = pendingMsgRef.current;
       if (!content) {
-        throw new Error("Message cannot be empty");
+        throw new Error("Type a message");
       }
       const authHeaders: Record<string, string> = {};
       const { data: { session } } = await (await import("@/lib/supabase")).supabase.auth.getSession();
@@ -524,8 +526,9 @@ function MatchChat({ match }: { match: MatchWithProfile }) {
       return res.json();
     },
     onMutate: async () => {
-      if (!match.id) return {};
       const content = message.trim();
+      if (!match.id || !content) return {};
+      pendingMsgRef.current = content;
       setMessage("");
       await queryClient.cancelQueries({ queryKey: ["/api/matches", match.id] });
       const previous = queryClient.getQueryData<MatchDetail>(["/api/matches", match.id]);
@@ -551,6 +554,7 @@ function MatchChat({ match }: { match: MatchWithProfile }) {
       toast({ title: "Could not send", description: error.message, variant: "destructive" });
     },
     onSettled: () => {
+      pendingMsgRef.current = "";
       queryClient.invalidateQueries({ queryKey: ["/api/matches", match.id] });
     },
   });
