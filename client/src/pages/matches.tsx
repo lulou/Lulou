@@ -9,6 +9,7 @@ import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
+import { useTabActive } from "@/App";
 import { Input } from "@/components/ui/input";
 import { MessageCircle, Send, Phone, Video, ChevronDown, ChevronUp, PhoneOff, Clock, Check, X, Sparkles, Calendar, Heart, PhoneForwarded, Moon } from "lucide-react";
 import { LulouFlowerIcon } from "@/components/app-layout";
@@ -482,6 +483,7 @@ function MatchChat({ match }: { match: MatchWithProfile }) {
   const { user } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const isActive = useTabActive();
   const [expanded, setExpanded] = useState(false);
   const [message, setMessage] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -489,7 +491,7 @@ function MatchChat({ match }: { match: MatchWithProfile }) {
   const { data: matchDetail } = useQuery<MatchDetail>({
     queryKey: ["/api/matches", match.id],
     enabled: expanded,
-    refetchInterval: expanded ? 3000 : false,
+    refetchInterval: expanded && isActive ? 3000 : false,
   });
 
   const pendingMsgRef = useRef("");
@@ -959,13 +961,14 @@ function MatchChat({ match }: { match: MatchWithProfile }) {
 export default function Matches() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
+  const isActive = useTabActive();
   const { data: matches, isLoading: matchesLoading, error: matchesError } = useQuery<MatchWithProfile[]>({
     queryKey: ["/api/matches"],
   });
 
   const { data: spinRequestsData, isLoading: requestsLoading, error: requestsError } = useQuery<SpinRequestsData>({
     queryKey: ["/api/spin-requests"],
-    refetchInterval: 10000,
+    refetchInterval: isActive ? 10000 : false,
   });
 
   const isLoading = matchesLoading || requestsLoading;

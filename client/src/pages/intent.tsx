@@ -8,6 +8,7 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
+import { useTabActive } from "@/App";
 import type { Profile } from "@shared/schema";
 
 const ITEM_WIDTH = 130;
@@ -26,6 +27,7 @@ type SpinStatus = {
 export default function IntentPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const isActive = useTabActive();
 
   const { data: profiles, isLoading, isError } = useQuery<Profile[]>({
     queryKey: ["/api/popular"],
@@ -33,7 +35,7 @@ export default function IntentPage() {
 
   const { data: spinStatus } = useQuery<SpinStatus>({
     queryKey: ["/api/spin-status"],
-    refetchInterval: 10000,
+    refetchInterval: isActive ? 10000 : false,
   });
 
   const animFrame = useRef(0);

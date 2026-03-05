@@ -1,4 +1,5 @@
-import { Switch, Route } from "wouter";
+import { Switch, Route, useLocation } from "wouter";
+import { createContext, useContext } from "react";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -17,6 +18,51 @@ import AppLayout from "@/components/app-layout";
 import type { Profile } from "@shared/schema";
 import { Loader2 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+
+const TabActiveContext = createContext(true);
+export function useTabActive() { return useContext(TabActiveContext); }
+
+const TAB_PAGES = [
+  { path: "/discover", Component: Discover },
+  { path: "/intent", Component: IntentPage },
+  { path: "/likes", Component: LikesPage },
+  { path: "/matches", Component: Matches },
+  { path: "/profile", Component: ProfilePage },
+] as const;
+
+function PersistentTabs() {
+  const [location] = useLocation();
+
+  const activeTab = location === "/" ? "/discover" : location;
+  const isTabRoute = TAB_PAGES.some(t => activeTab.startsWith(t.path));
+  const isSubRoute = location.startsWith("/messages/");
+
+  return (
+    <>
+      {TAB_PAGES.map(({ path, Component }) => {
+        const isActive = activeTab.startsWith(path) && !isSubRoute;
+        return (
+          <div
+            key={path}
+            style={{
+              display: isActive ? "contents" : "none",
+            }}
+          >
+            <TabActiveContext.Provider value={isActive}>
+              <Component />
+            </TabActiveContext.Provider>
+          </div>
+        );
+      })}
+      {isSubRoute && (
+        <Switch>
+          <Route path="/messages/:matchId" component={Messaging} />
+        </Switch>
+      )}
+      {!isTabRoute && !isSubRoute && location !== "/" && <NotFound />}
+    </>
+  );
+}
 
 type ProfileResult = { profile: Profile | null; fetchFailed: boolean };
 
@@ -104,16 +150,7 @@ function AppContent() {
 
   return (
     <AppLayout>
-      <Switch>
-        <Route path="/" component={Discover} />
-        <Route path="/discover" component={Discover} />
-        <Route path="/intent" component={IntentPage} />
-        <Route path="/likes" component={LikesPage} />
-        <Route path="/matches" component={Matches} />
-        <Route path="/messages/:matchId" component={Messaging} />
-        <Route path="/profile" component={ProfilePage} />
-        <Route component={NotFound} />
-      </Switch>
+      <PersistentTabs />
     </AppLayout>
   );
 }

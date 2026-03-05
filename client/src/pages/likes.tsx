@@ -7,6 +7,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
+import { useTabActive } from "@/App";
 import { Heart, X, Eye, MapPin, Lock } from "lucide-react";
 import { LulouFlowerIcon } from "@/components/app-layout";
 import type { Profile, Interaction } from "@shared/schema";
@@ -261,10 +262,11 @@ function LikeCard({ open, onMatch, onConnectionFull }: { open: IncomingOpen; onM
 export default function LikesPage() {
   const [celebration, setCelebration] = useState<MatchCelebration | null>(null);
   const [showFullMessage, setShowFullMessage] = useState(false);
+  const isActive = useTabActive();
 
   const { data: likes, isLoading } = useQuery<IncomingOpen[]>({
     queryKey: ["/api/who-liked-you"],
-    refetchInterval: 15000,
+    refetchInterval: isActive ? 15000 : false,
   });
 
   const { data: matchCountData } = useQuery<MatchCountData>({
