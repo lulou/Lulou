@@ -906,6 +906,7 @@ function MatchChat({ match }: { match: MatchWithProfile }) {
 }
 
 export default function Matches() {
+  const { user } = useAuth();
   const queryClient = useQueryClient();
   const { data: matches, isLoading: matchesLoading, error: matchesError } = useQuery<MatchWithProfile[]>({
     queryKey: ["/api/matches"],
@@ -924,11 +925,19 @@ export default function Matches() {
   const atLimit = connectionCount >= MAX_CONNECTIONS;
   const hasContent = (matches && matches.length > 0) || incomingRequests.length > 0 || outgoingPending.length > 0;
 
+  const debugLine = (extra?: string) => (
+    <div className="px-4 py-1.5 text-[10px] text-muted-foreground/60 font-mono bg-muted/30 border-b" data-testid="debug-line">
+      Logged in as: {user?.id || "—"} · Matches loaded: {matches?.length ?? "—"}{extra ? ` · ${extra}` : ""}
+    </div>
+  );
+
   if (fetchFailed) {
     const errMsg = matchesError?.message || requestsError?.message || "Could not load connections";
     console.error("MATCHES_FETCH_ERROR", errMsg);
     return (
-      <div className="flex-1 flex items-center justify-center p-6">
+      <div className="flex-1 flex flex-col">
+        {debugLine(`Error: ${errMsg}`)}
+        <div className="flex-1 flex items-center justify-center p-6">
         <div className="text-center space-y-4 max-w-sm">
           <div className="w-16 h-16 rounded-full bg-destructive/10 flex items-center justify-center mx-auto">
             <Moon className="w-8 h-8 text-destructive" />
@@ -947,6 +956,7 @@ export default function Matches() {
           </button>
         </div>
       </div>
+      </div>
     );
   }
 
@@ -963,7 +973,9 @@ export default function Matches() {
 
   if (!hasContent) {
     return (
-      <div className="flex-1 flex items-center justify-center p-6">
+      <div className="flex-1 flex flex-col">
+        {debugLine()}
+        <div className="flex-1 flex items-center justify-center p-6">
         <div className="text-center space-y-4 max-w-sm">
           <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center mx-auto">
             <LulouFlowerIcon className="w-8 h-8 text-primary" />
@@ -974,11 +986,14 @@ export default function Matches() {
           </p>
         </div>
       </div>
+      </div>
     );
   }
 
   return (
-    <div className="flex-1 overflow-y-auto p-6 space-y-6 max-w-lg mx-auto w-full">
+    <div className="flex-1 overflow-y-auto">
+      {debugLine()}
+      <div className="p-6 space-y-6 max-w-lg mx-auto w-full">
       <div className="space-y-1">
         <div className="flex items-center justify-between gap-2 flex-wrap">
           <h1 className="font-serif text-2xl font-bold" data-testid="text-matches-title">Your Connections</h1>
@@ -1038,6 +1053,7 @@ export default function Matches() {
         </div>
       )}
 
+      </div>
     </div>
   );
 }
