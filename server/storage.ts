@@ -342,7 +342,14 @@ export class SupabaseStorage implements IStorage {
       .select("*")
       .eq("id", matchId)
       .maybeSingle();
-    if (error || !matchData) return undefined;
+    if (error) {
+      console.error("GET_MATCH_ERROR", matchId, error.message, error.code);
+      return undefined;
+    }
+    if (!matchData) {
+      console.log("GET_MATCH_NO_DATA", matchId, userId);
+      return undefined;
+    }
 
     const match = mapMatch(matchData);
     if (match.user1Id !== userId && match.user2Id !== userId) return undefined;
@@ -369,6 +376,7 @@ export class SupabaseStorage implements IStorage {
   }
 
   async createMessage(data: InsertMessage): Promise<Message> {
+    console.log("CREATE_MSG", { matchId: data.matchId, senderId: data.senderId, contentLen: data.content?.length });
     const { data: result, error } = await this.sb
       .from("messages")
       .insert({
@@ -378,7 +386,10 @@ export class SupabaseStorage implements IStorage {
       })
       .select()
       .single();
-    if (error) throw new Error(`Failed to create message: ${error.message}`);
+    if (error) {
+      console.error("CREATE_MSG_ERROR", error.message, error.code, error.details);
+      throw new Error(`Failed to create message: ${error.message}`);
+    }
     return mapMessage(result);
   }
 

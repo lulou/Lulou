@@ -318,9 +318,18 @@ export async function registerRoutes(
       const storage = getStorage(req);
       const userId = req.user.id;
       const { matchId } = req.params;
+
+      console.log("MSG_SEND", { matchId, userId, body: req.body });
+
+      if (!matchId) {
+        return res.status(400).json({ message: "Missing match_id in request" });
+      }
+
       const parsed = messageBodySchema.safeParse(req.body);
       if (!parsed.success) {
-        return res.status(400).json({ message: "Invalid message" });
+        const fieldErrors = parsed.error.flatten().fieldErrors;
+        console.log("MSG_VALIDATION_FAIL", fieldErrors);
+        return res.status(400).json({ message: "Invalid message: content is required (1-500 chars)", errors: fieldErrors });
       }
 
       const { content } = parsed.data;
@@ -331,6 +340,7 @@ export async function registerRoutes(
 
       const match = await storage.getMatch(matchId, userId);
       if (!match) {
+        console.log("MSG_MATCH_NOT_FOUND", { matchId, userId });
         return res.status(404).json({ message: "Match not found" });
       }
 
@@ -352,16 +362,16 @@ export async function registerRoutes(
         const otherProfile = await storage.getProfile(otherUserId);
         const otherCount = await storage.getUserMessageCount(matchId, otherUserId);
         if (otherCount < 15) {
+          const replyStorage = storage;
           setTimeout(async () => {
             try {
-      const storage = getStorage(req);
               const reply = generateAutoReply(otherProfile, otherCount);
-              await storage.createMessage({
+              await replyStorage.createMessage({
                 matchId,
                 senderId: otherUserId,
                 content: reply,
               });
-              await storage.incrementMessageCount(matchId, otherUserId);
+              await replyStorage.incrementMessageCount(matchId, otherUserId);
             } catch (err) {
               console.error("Auto-reply error:", err);
             }
