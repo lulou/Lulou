@@ -494,17 +494,40 @@ function MatchChat({ match }: { match: MatchWithProfile }) {
 
   const sendMessage = useMutation({
     mutationFn: async () => {
+      const content = message.trim();
       const res = await apiRequest("POST", `/api/matches/${match.id}/messages`, {
-        content: message.trim(),
+        content,
       });
       return res.json();
     },
-    onSuccess: () => {
+    onMutate: async () => {
+      const content = message.trim();
       setMessage("");
-      queryClient.invalidateQueries({ queryKey: ["/api/matches", match.id] });
+      await queryClient.cancelQueries({ queryKey: ["/api/matches", match.id] });
+      const previous = queryClient.getQueryData<MatchDetail>(["/api/matches", match.id]);
+      if (previous) {
+        const optimisticMsg = {
+          id: `temp-${Date.now()}`,
+          matchId: match.id,
+          senderId: user?.id || "",
+          content,
+          createdAt: new Date().toISOString(),
+        };
+        queryClient.setQueryData<MatchDetail>(["/api/matches", match.id], {
+          ...previous,
+          messages: [...(previous.messages || []), optimisticMsg],
+        });
+      }
+      return { previous };
     },
-    onError: (error: Error) => {
+    onError: (error: Error, _vars, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(["/api/matches", match.id], context.previous);
+      }
       toast({ title: "Could not send", description: error.message, variant: "destructive" });
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/matches", match.id] });
     },
   });
 
