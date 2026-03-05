@@ -906,21 +906,49 @@ function MatchChat({ match }: { match: MatchWithProfile }) {
 }
 
 export default function Matches() {
-  const { data: matches, isLoading: matchesLoading } = useQuery<MatchWithProfile[]>({
+  const queryClient = useQueryClient();
+  const { data: matches, isLoading: matchesLoading, error: matchesError } = useQuery<MatchWithProfile[]>({
     queryKey: ["/api/matches"],
   });
 
-  const { data: spinRequestsData, isLoading: requestsLoading } = useQuery<SpinRequestsData>({
+  const { data: spinRequestsData, isLoading: requestsLoading, error: requestsError } = useQuery<SpinRequestsData>({
     queryKey: ["/api/spin-requests"],
     refetchInterval: 10000,
   });
 
   const isLoading = matchesLoading || requestsLoading;
+  const fetchFailed = (!matches && !matchesLoading) || matchesError;
   const incomingRequests = spinRequestsData?.incoming || [];
   const outgoingPending = spinRequestsData?.outgoing?.filter(r => r.status === "pending") || [];
   const connectionCount = matches?.length || 0;
   const atLimit = connectionCount >= MAX_CONNECTIONS;
   const hasContent = (matches && matches.length > 0) || incomingRequests.length > 0 || outgoingPending.length > 0;
+
+  if (fetchFailed) {
+    const errMsg = matchesError?.message || requestsError?.message || "Could not load connections";
+    console.error("MATCHES_FETCH_ERROR", errMsg);
+    return (
+      <div className="flex-1 flex items-center justify-center p-6">
+        <div className="text-center space-y-4 max-w-sm">
+          <div className="w-16 h-16 rounded-full bg-destructive/10 flex items-center justify-center mx-auto">
+            <Moon className="w-8 h-8 text-destructive" />
+          </div>
+          <h2 className="font-serif text-xl font-bold" data-testid="text-matches-error">Something went wrong</h2>
+          <p className="text-muted-foreground text-sm" data-testid="text-matches-error-detail">{errMsg}</p>
+          <button
+            className="px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:brightness-110 transition-all"
+            onClick={() => {
+              queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
+              queryClient.invalidateQueries({ queryKey: ["/api/spin-requests"] });
+            }}
+            data-testid="button-retry-matches"
+          >
+            Try Again
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   if (isLoading) {
     return (
