@@ -228,33 +228,37 @@ export class SupabaseStorage implements IStorage {
   }
 
   async getDiscoverProfiles(userId: string, gender: string, preference: string, ageMin: number = 18, ageMax: number = 45): Promise<Profile[]> {
-    const { data: interacted } = await this.sb
-      .from("interactions")
-      .select("to_user_id")
-      .eq("from_user_id", userId);
-    const interactedIds = (interacted || []).map(r => r.to_user_id);
+    const isDev = process.env.NODE_ENV === "development";
 
     let query = this.sb
       .from("profiles")
       .select("*")
-      .neq("user_id", userId)
-      .eq("onboarding_complete", true)
-      .gte("age", ageMin)
-      .lte("age", ageMax);
+      .neq("user_id", userId);
 
-    if (interactedIds.length > 0) {
-      query = query.not("user_id", "in", `(${interactedIds.join(",")})`);
+    if (!isDev) {
+      query = query.eq("onboarding_complete", true);
+
+      const { data: interacted } = await this.sb
+        .from("interactions")
+        .select("to_user_id")
+        .eq("from_user_id", userId);
+      const interactedIds = (interacted || []).map(r => r.to_user_id);
+      if (interactedIds.length > 0) {
+        query = query.not("user_id", "in", `(${interactedIds.join(",")})`);
+      }
+
+      query = query.gte("age", ageMin).lte("age", ageMax);
+
+      const genders = getGendersForPreference(preference);
+      if (genders) {
+        query = query.in("gender", genders);
+      }
+
+      const validPrefs = getPreferencesThatIncludeGender(gender);
+      query = query.in("dating_preference", validPrefs);
     }
 
-    const genders = getGendersForPreference(preference);
-    if (genders) {
-      query = query.in("gender", genders);
-    }
-
-    const validPrefs = getPreferencesThatIncludeGender(gender);
-    query = query.in("dating_preference", validPrefs);
-
-    const { data, error } = await query.limit(5);
+    const { data, error } = await query.limit(20);
     if (error) return [];
     return (data || []).map(mapProfile);
   }
