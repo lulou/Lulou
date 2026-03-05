@@ -390,17 +390,20 @@ export async function registerRoutes(
     try {
       const storage = getStorage(req);
       const userId = req.user.id;
-      const match = await storage.startCall(req.params.matchId, userId);
+      const matchId = req.params.matchId;
+      const match = await storage.startCall(matchId, userId);
       if (!match) {
         return res.status(404).json({ message: "Match not found" });
       }
 
+      const isDev = process.env.NODE_ENV === "development";
       const otherUserId = match.user1Id === userId ? match.user2Id : match.user1Id;
-      if (otherUserId.startsWith("seed-")) {
+      if (isDev || otherUserId.startsWith("seed-")) {
+        const autoStorage = storage;
         setTimeout(async () => {
           try {
-      const storage = getStorage(req);
-            await storage.answerCall(req.params.matchId, otherUserId);
+            await autoStorage.answerCall(matchId, otherUserId);
+            console.log("AUTO_ANSWER_CALL", matchId, otherUserId);
           } catch (err) {
             console.error("Auto-answer error:", err);
           }
@@ -463,17 +466,20 @@ export async function registerRoutes(
     try {
       const storage = getStorage(req);
       const userId = req.user.id;
-      const match = await storage.acceptFaceCall(req.params.matchId, userId);
+      const matchId = req.params.matchId;
+      const match = await storage.acceptFaceCall(matchId, userId);
       if (!match) {
         return res.status(404).json({ message: "Match not found or not eligible for face call" });
       }
 
+      const isDev = process.env.NODE_ENV === "development";
       const otherUserId = match.user1Id === userId ? match.user2Id : match.user1Id;
-      if (otherUserId.startsWith("seed-")) {
+      if (isDev || otherUserId.startsWith("seed-")) {
+        const autoStorage = storage;
         setTimeout(async () => {
           try {
-      const storage = getStorage(req);
-            await storage.acceptFaceCall(req.params.matchId, otherUserId);
+            await autoStorage.acceptFaceCall(matchId, otherUserId);
+            console.log("AUTO_ACCEPT_FACE_CALL", matchId, otherUserId);
           } catch (err) {
             console.error("Auto face-call accept error:", err);
           }
