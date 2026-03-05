@@ -4,7 +4,8 @@ import {
   type Match, type Message, type InsertMessage,
   type SpinRequest,
 } from "@shared/schema";
-import { supabase } from "./supabase";
+import { supabase as defaultSupabase } from "./supabase";
+import type { SupabaseClient } from "@supabase/supabase-js";
 
 function getGendersForPreference(preference: string): string[] | null {
   switch (preference) {
@@ -186,8 +187,14 @@ function profileToDbRow(data: Partial<InsertProfile>): Record<string, any> {
 }
 
 export class SupabaseStorage implements IStorage {
+  private sb: SupabaseClient;
+
+  constructor(client?: SupabaseClient) {
+    this.sb = client || defaultSupabase;
+  }
+
   async getProfile(userId: string): Promise<Profile | undefined> {
-    const { data, error } = await supabase
+    const { data, error } = await this.sb
       .from("profiles")
       .select("*")
       .eq("user_id", userId)
@@ -199,7 +206,7 @@ export class SupabaseStorage implements IStorage {
   async createProfile(data: InsertProfile): Promise<Profile> {
     const row = profileToDbRow(data);
     row.user_id = data.userId;
-    const { data: result, error } = await supabase
+    const { data: result, error } = await this.sb
       .from("profiles")
       .upsert(row, { onConflict: "user_id" })
       .select()
@@ -211,7 +218,7 @@ export class SupabaseStorage implements IStorage {
   async updateProfile(userId: string, data: Partial<InsertProfile>): Promise<Profile | undefined> {
     const row = profileToDbRow(data);
     row.user_id = userId;
-    const { data: result, error } = await supabase
+    const { data: result, error } = await this.sb
       .from("profiles")
       .upsert(row, { onConflict: "user_id" })
       .select()
@@ -221,13 +228,13 @@ export class SupabaseStorage implements IStorage {
   }
 
   async getDiscoverProfiles(userId: string, gender: string, preference: string, ageMin: number = 18, ageMax: number = 45): Promise<Profile[]> {
-    const { data: interacted } = await supabase
+    const { data: interacted } = await this.sb
       .from("interactions")
       .select("to_user_id")
       .eq("from_user_id", userId);
     const interactedIds = (interacted || []).map(r => r.to_user_id);
 
-    let query = supabase
+    let query = this.sb
       .from("profiles")
       .select("*")
       .neq("user_id", userId)
@@ -253,7 +260,7 @@ export class SupabaseStorage implements IStorage {
   }
 
   async createInteraction(data: InsertInteraction): Promise<Interaction> {
-    const { data: result, error } = await supabase
+    const { data: result, error } = await this.sb
       .from("interactions")
       .insert({
         from_user_id: data.fromUserId,
@@ -267,7 +274,7 @@ export class SupabaseStorage implements IStorage {
   }
 
   async getInteraction(fromUserId: string, toUserId: string): Promise<Interaction | undefined> {
-    const { data, error } = await supabase
+    const { data, error } = await this.sb
       .from("interactions")
       .select("*")
       .eq("from_user_id", fromUserId)
@@ -278,7 +285,7 @@ export class SupabaseStorage implements IStorage {
   }
 
   async getMutualOpen(user1Id: string, user2Id: string): Promise<boolean> {
-    const { data, error } = await supabase
+    const { data, error } = await this.sb
       .from("interactions")
       .select("id")
       .eq("from_user_id", user2Id)
@@ -289,7 +296,7 @@ export class SupabaseStorage implements IStorage {
   }
 
   async createMatch(user1Id: string, user2Id: string): Promise<Match> {
-    const { data: result, error } = await supabase
+    const { data: result, error } = await this.sb
       .from("matches")
       .insert({ user1_id: user1Id, user2_id: user2Id })
       .select()
@@ -299,7 +306,7 @@ export class SupabaseStorage implements IStorage {
   }
 
   async getMatchesForUser(userId: string): Promise<(Match & { profile: Profile })[]> {
-    const { data: userMatches, error } = await supabase
+    const { data: userMatches, error } = await this.sb
       .from("matches")
       .select("*")
       .eq("status", "active")
@@ -312,7 +319,7 @@ export class SupabaseStorage implements IStorage {
     for (const row of userMatches) {
       const match = mapMatch(row);
       const otherUserId = match.user1Id === userId ? match.user2Id : match.user1Id;
-      const { data: profileData } = await supabase
+      const { data: profileData } = await this.sb
         .from("profiles")
         .select("*")
         .eq("user_id", otherUserId)
@@ -325,7 +332,7 @@ export class SupabaseStorage implements IStorage {
   }
 
   async getMatch(matchId: string, userId: string): Promise<(Match & { profile: Profile; messages: Message[] }) | undefined> {
-    const { data: matchData, error } = await supabase
+    const { data: matchData, error } = await this.sb
       .from("matches")
       .select("*")
       .eq("id", matchId)
@@ -336,14 +343,14 @@ export class SupabaseStorage implements IStorage {
     if (match.user1Id !== userId && match.user2Id !== userId) return undefined;
 
     const otherUserId = match.user1Id === userId ? match.user2Id : match.user1Id;
-    const { data: profileData } = await supabase
+    const { data: profileData } = await this.sb
       .from("profiles")
       .select("*")
       .eq("user_id", otherUserId)
       .maybeSingle();
     if (!profileData) return undefined;
 
-    const { data: msgData } = await supabase
+    const { data: msgData } = await this.sb
       .from("messages")
       .select("*")
       .eq("match_id", matchId)
@@ -357,7 +364,7 @@ export class SupabaseStorage implements IStorage {
   }
 
   async createMessage(data: InsertMessage): Promise<Message> {
-    const { data: result, error } = await supabase
+    const { data: result, error } = await this.sb
       .from("messages")
       .insert({
         match_id: data.matchId,
@@ -371,7 +378,7 @@ export class SupabaseStorage implements IStorage {
   }
 
   async getUserMessageCount(matchId: string, userId: string): Promise<number> {
-    const { count, error } = await supabase
+    const { count, error } = await this.sb
       .from("messages")
       .select("*", { count: "exact", head: true })
       .eq("match_id", matchId)
@@ -380,7 +387,7 @@ export class SupabaseStorage implements IStorage {
   }
 
   async incrementMessageCount(matchId: string, userId: string): Promise<void> {
-    const { data: matchData } = await supabase
+    const { data: matchData } = await this.sb
       .from("matches")
       .select("*")
       .eq("id", matchId)
@@ -389,12 +396,12 @@ export class SupabaseStorage implements IStorage {
     const match = mapMatch(matchData);
 
     if (match.user1Id === userId) {
-      await supabase
+      await this.sb
         .from("matches")
         .update({ message_count_1: (match.messageCount1 || 0) + 1 })
         .eq("id", matchId);
     } else {
-      await supabase
+      await this.sb
         .from("matches")
         .update({ message_count_2: (match.messageCount2 || 0) + 1 })
         .eq("id", matchId);
@@ -402,7 +409,7 @@ export class SupabaseStorage implements IStorage {
   }
 
   async startCall(matchId: string, userId: string): Promise<Match | undefined> {
-    const { data: matchData } = await supabase
+    const { data: matchData } = await this.sb
       .from("matches")
       .select("*")
       .eq("id", matchId)
@@ -414,7 +421,7 @@ export class SupabaseStorage implements IStorage {
     if (stage >= 3) return undefined;
     if (stage === 2 && !(match.faceCallUser1Accepted && match.faceCallUser2Accepted)) return undefined;
 
-    const { data: updated, error } = await supabase
+    const { data: updated, error } = await this.sb
       .from("matches")
       .update({
         call_started_at: new Date().toISOString(),
@@ -430,7 +437,7 @@ export class SupabaseStorage implements IStorage {
   }
 
   async answerCall(matchId: string, userId: string): Promise<Match | undefined> {
-    const { data: matchData } = await supabase
+    const { data: matchData } = await this.sb
       .from("matches")
       .select("*")
       .eq("id", matchId)
@@ -440,7 +447,7 @@ export class SupabaseStorage implements IStorage {
     if (match.user1Id !== userId && match.user2Id !== userId) return undefined;
     if (match.callInitiatorId === userId) return undefined;
 
-    const { data: updated, error } = await supabase
+    const { data: updated, error } = await this.sb
       .from("matches")
       .update({
         call_answered: true,
@@ -454,7 +461,7 @@ export class SupabaseStorage implements IStorage {
   }
 
   async cancelCall(matchId: string, userId: string): Promise<Match | undefined> {
-    const { data: matchData } = await supabase
+    const { data: matchData } = await this.sb
       .from("matches")
       .select("*")
       .eq("id", matchId)
@@ -463,7 +470,7 @@ export class SupabaseStorage implements IStorage {
     const match = mapMatch(matchData);
     if (match.user1Id !== userId && match.user2Id !== userId) return undefined;
 
-    const { data: updated, error } = await supabase
+    const { data: updated, error } = await this.sb
       .from("matches")
       .update({
         call_started_at: null,
@@ -479,7 +486,7 @@ export class SupabaseStorage implements IStorage {
   }
 
   async completeCall(matchId: string, userId: string): Promise<Match | undefined> {
-    const { data: matchData } = await supabase
+    const { data: matchData } = await this.sb
       .from("matches")
       .select("*")
       .eq("id", matchId)
@@ -489,7 +496,7 @@ export class SupabaseStorage implements IStorage {
     if (match.user1Id !== userId && match.user2Id !== userId) return undefined;
 
     if (!match.callAnswered) {
-      const { data: updated } = await supabase
+      const { data: updated } = await this.sb
         .from("matches")
         .update({
           call_started_at: null,
@@ -507,7 +514,7 @@ export class SupabaseStorage implements IStorage {
     if (currentStage >= 3) return undefined;
     const nextStage = Math.min(currentStage + 1, 3);
 
-    const { data: updated } = await supabase
+    const { data: updated } = await this.sb
       .from("matches")
       .update({
         call_completed: false,
@@ -523,7 +530,7 @@ export class SupabaseStorage implements IStorage {
   }
 
   async acceptFaceCall(matchId: string, userId: string): Promise<Match | undefined> {
-    const { data: matchData } = await supabase
+    const { data: matchData } = await this.sb
       .from("matches")
       .select("*")
       .eq("id", matchId)
@@ -540,7 +547,7 @@ export class SupabaseStorage implements IStorage {
       updates.face_call_user2_accepted = true;
     }
 
-    const { data: updated } = await supabase
+    const { data: updated } = await this.sb
       .from("matches")
       .update(updates)
       .eq("id", matchId)
@@ -550,7 +557,7 @@ export class SupabaseStorage implements IStorage {
   }
 
   async declineFaceCall(matchId: string, userId: string): Promise<Match | undefined> {
-    const { data: matchData } = await supabase
+    const { data: matchData } = await this.sb
       .from("matches")
       .select("*")
       .eq("id", matchId)
@@ -560,7 +567,7 @@ export class SupabaseStorage implements IStorage {
     if (match.user1Id !== userId && match.user2Id !== userId) return undefined;
     if ((match.callStage || 0) !== 2) return undefined;
 
-    const { data: updated } = await supabase
+    const { data: updated } = await this.sb
       .from("matches")
       .update({
         call_stage: 3,
@@ -574,7 +581,7 @@ export class SupabaseStorage implements IStorage {
   }
 
   async getPopularProfiles(limit: number = 10, preference?: string, myGender?: string): Promise<Profile[]> {
-    const { data: popularRows } = await supabase
+    const { data: popularRows } = await this.sb
       .from("interactions")
       .select("to_user_id")
       .eq("type", "open");
@@ -591,7 +598,7 @@ export class SupabaseStorage implements IStorage {
     let allProfiles: Profile[] = [];
 
     if (sortedIds.length > 0) {
-      let query = supabase
+      let query = this.sb
         .from("profiles")
         .select("*")
         .eq("onboarding_complete", true)
@@ -615,7 +622,7 @@ export class SupabaseStorage implements IStorage {
 
     if (allProfiles.length < limit) {
       const existingIds = allProfiles.map(r => r.userId);
-      let query = supabase
+      let query = this.sb
         .from("profiles")
         .select("*")
         .eq("onboarding_complete", true)
@@ -641,7 +648,7 @@ export class SupabaseStorage implements IStorage {
   }
 
   async getSpinStandouts(userId: string): Promise<string[]> {
-    const { data } = await supabase
+    const { data } = await this.sb
       .from("spin_standouts")
       .select("standout_user_id")
       .eq("user_id", userId);
@@ -649,14 +656,14 @@ export class SupabaseStorage implements IStorage {
   }
 
   async addSpinStandout(userId: string, standoutUserId: string): Promise<void> {
-    await supabase
+    await this.sb
       .from("spin_standouts")
       .insert({ user_id: userId, standout_user_id: standoutUserId });
   }
 
   async getSpinsToday(userId: string): Promise<number> {
     const today = new Date().toISOString().slice(0, 10);
-    const { count } = await supabase
+    const { count } = await this.sb
       .from("spin_usage")
       .select("*", { count: "exact", head: true })
       .eq("user_id", userId)
@@ -671,7 +678,7 @@ export class SupabaseStorage implements IStorage {
     monday.setDate(now.getDate() - ((dayOfWeek + 6) % 7));
     const weekStart = monday.toISOString().slice(0, 10);
 
-    const { count } = await supabase
+    const { count } = await this.sb
       .from("spin_usage")
       .select("*", { count: "exact", head: true })
       .eq("user_id", userId)
@@ -681,7 +688,7 @@ export class SupabaseStorage implements IStorage {
 
   async recordSpin(userId: string): Promise<void> {
     const today = new Date().toISOString().slice(0, 10);
-    await supabase
+    await this.sb
       .from("spin_usage")
       .insert({ user_id: userId, spin_date: today });
   }
@@ -691,7 +698,7 @@ export class SupabaseStorage implements IStorage {
     const startOfDay = `${today}T00:00:00.000Z`;
     const endOfDay = `${today}T23:59:59.999Z`;
 
-    const { count } = await supabase
+    const { count } = await this.sb
       .from("interactions")
       .select("*", { count: "exact", head: true })
       .eq("from_user_id", userId)
@@ -714,7 +721,7 @@ export class SupabaseStorage implements IStorage {
         const startOfDay = `${dateStr}T00:00:00.000Z`;
         const endOfDay = `${dateStr}T23:59:59.999Z`;
 
-        const { count } = await supabase
+        const { count } = await this.sb
           .from("interactions")
           .select("*", { count: "exact", head: true })
           .eq("from_user_id", userId)
@@ -740,7 +747,7 @@ export class SupabaseStorage implements IStorage {
     threeDaysAgo.setDate(today.getDate() - 3);
     const cutoffDate = threeDaysAgo.toISOString().slice(0, 10);
 
-    const { count } = await supabase
+    const { count } = await this.sb
       .from("spin_usage")
       .select("*", { count: "exact", head: true })
       .eq("user_id", userId)
@@ -749,7 +756,7 @@ export class SupabaseStorage implements IStorage {
   }
 
   async createSpinRequest(fromUserId: string, toUserId: string, message: string): Promise<SpinRequest> {
-    const { data: result, error } = await supabase
+    const { data: result, error } = await this.sb
       .from("spin_requests")
       .insert({
         from_user_id: fromUserId,
@@ -764,7 +771,7 @@ export class SupabaseStorage implements IStorage {
   }
 
   async getIncomingSpinRequests(userId: string): Promise<(SpinRequest & { profile: Profile })[]> {
-    const { data: requests } = await supabase
+    const { data: requests } = await this.sb
       .from("spin_requests")
       .select("*")
       .eq("to_user_id", userId)
@@ -773,7 +780,7 @@ export class SupabaseStorage implements IStorage {
 
     const results: (SpinRequest & { profile: Profile })[] = [];
     for (const req of requests || []) {
-      const { data: profileData } = await supabase
+      const { data: profileData } = await this.sb
         .from("profiles")
         .select("*")
         .eq("user_id", req.from_user_id)
@@ -786,7 +793,7 @@ export class SupabaseStorage implements IStorage {
   }
 
   async getOutgoingSpinRequests(userId: string): Promise<(SpinRequest & { profile: Profile })[]> {
-    const { data: requests } = await supabase
+    const { data: requests } = await this.sb
       .from("spin_requests")
       .select("*")
       .eq("from_user_id", userId)
@@ -794,7 +801,7 @@ export class SupabaseStorage implements IStorage {
 
     const results: (SpinRequest & { profile: Profile })[] = [];
     for (const req of requests || []) {
-      const { data: profileData } = await supabase
+      const { data: profileData } = await this.sb
         .from("profiles")
         .select("*")
         .eq("user_id", req.to_user_id)
@@ -807,7 +814,7 @@ export class SupabaseStorage implements IStorage {
   }
 
   async respondToSpinRequest(requestId: string, userId: string, accept: boolean): Promise<SpinRequest | undefined> {
-    const { data: reqData } = await supabase
+    const { data: reqData } = await this.sb
       .from("spin_requests")
       .select("*")
       .eq("id", requestId)
@@ -816,7 +823,7 @@ export class SupabaseStorage implements IStorage {
     if (!reqData || reqData.status !== "pending") return undefined;
 
     const newStatus = accept ? "accepted" : "declined";
-    const { data: updated } = await supabase
+    const { data: updated } = await this.sb
       .from("spin_requests")
       .update({ status: newStatus })
       .eq("id", requestId)
@@ -826,7 +833,7 @@ export class SupabaseStorage implements IStorage {
   }
 
   async getSpinRequest(id: string): Promise<SpinRequest | undefined> {
-    const { data } = await supabase
+    const { data } = await this.sb
       .from("spin_requests")
       .select("*")
       .eq("id", id)
@@ -835,7 +842,7 @@ export class SupabaseStorage implements IStorage {
   }
 
   async setMeetAvailability(matchId: string, userId: string, availability: string): Promise<Match | undefined> {
-    const { data: matchData } = await supabase
+    const { data: matchData } = await this.sb
       .from("matches")
       .select("*")
       .eq("id", matchId)
@@ -852,7 +859,7 @@ export class SupabaseStorage implements IStorage {
       updates.meet_availability_2 = availability;
     }
 
-    const { data: updated } = await supabase
+    const { data: updated } = await this.sb
       .from("matches")
       .update(updates)
       .eq("id", matchId)
@@ -862,7 +869,7 @@ export class SupabaseStorage implements IStorage {
   }
 
   async exchangeNumber(matchId: string, userId: string): Promise<Match | undefined> {
-    const { data: matchData } = await supabase
+    const { data: matchData } = await this.sb
       .from("matches")
       .select("*")
       .eq("id", matchId)
@@ -885,7 +892,7 @@ export class SupabaseStorage implements IStorage {
       updates.number_exchanged_2 = true;
     }
 
-    const { data: updated } = await supabase
+    const { data: updated } = await this.sb
       .from("matches")
       .update(updates)
       .eq("id", matchId)
@@ -895,7 +902,7 @@ export class SupabaseStorage implements IStorage {
   }
 
   async removeMatch(matchId: string, userId: string): Promise<boolean> {
-    const { data: matchData } = await supabase
+    const { data: matchData } = await this.sb
       .from("matches")
       .select("*")
       .eq("id", matchId)
@@ -904,7 +911,7 @@ export class SupabaseStorage implements IStorage {
     const match = mapMatch(matchData);
     if (match.user1Id !== userId && match.user2Id !== userId) return false;
 
-    await supabase
+    await this.sb
       .from("matches")
       .update({ status: "removed" })
       .eq("id", matchId);
@@ -912,7 +919,7 @@ export class SupabaseStorage implements IStorage {
   }
 
   async getMatchCount(userId: string): Promise<number> {
-    const { data: activeMatches } = await supabase
+    const { data: activeMatches } = await this.sb
       .from("matches")
       .select("*")
       .eq("status", "active")
@@ -922,7 +929,7 @@ export class SupabaseStorage implements IStorage {
     for (const row of activeMatches || []) {
       const match = mapMatch(row);
       const otherUserId = match.user1Id === userId ? match.user2Id : match.user1Id;
-      const { data: profileData } = await supabase
+      const { data: profileData } = await this.sb
         .from("profiles")
         .select("id")
         .eq("user_id", otherUserId)
@@ -933,18 +940,18 @@ export class SupabaseStorage implements IStorage {
   }
 
   async getIncomingOpens(userId: string): Promise<(Interaction & { profile: Profile })[]> {
-    const { data: userInteractedBack } = await supabase
+    const { data: userInteractedBack } = await this.sb
       .from("interactions")
       .select("to_user_id")
       .eq("from_user_id", userId);
     const interactedBackIds = (userInteractedBack || []).map(r => r.to_user_id);
 
-    const { data: matchRows1 } = await supabase
+    const { data: matchRows1 } = await this.sb
       .from("matches")
       .select("user1_id")
       .eq("user2_id", userId)
       .eq("status", "active");
-    const { data: matchRows2 } = await supabase
+    const { data: matchRows2 } = await this.sb
       .from("matches")
       .select("user2_id")
       .eq("user1_id", userId)
@@ -956,7 +963,7 @@ export class SupabaseStorage implements IStorage {
 
     const excludeIds = [...new Set([...interactedBackIds, ...matchedIds])];
 
-    let query = supabase
+    let query = this.sb
       .from("interactions")
       .select("*")
       .eq("to_user_id", userId)
@@ -971,7 +978,7 @@ export class SupabaseStorage implements IStorage {
 
     const result: (Interaction & { profile: Profile })[] = [];
     for (const open of incomingOpens || []) {
-      const { data: profileData } = await supabase
+      const { data: profileData } = await this.sb
         .from("profiles")
         .select("*")
         .eq("user_id", open.from_user_id)

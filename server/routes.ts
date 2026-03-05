@@ -1,10 +1,18 @@
 import type { Express, RequestHandler } from "express";
 import { createServer, type Server } from "http";
-import { storage } from "./storage";
+import { SupabaseStorage } from "./storage";
 import { seedDatabase } from "./seed";
 import { z } from "zod";
 import type { Profile } from "@shared/schema";
-import { supabase } from "./supabase";
+import { supabase, createUserClient } from "./supabase";
+
+function getStorage(req: any): SupabaseStorage {
+  const auth = req.headers.authorization;
+  if (auth) {
+    return new SupabaseStorage(createUserClient(auth));
+  }
+  return new SupabaseStorage();
+}
 
 const isAuthenticated: RequestHandler = async (req: any, res, next) => {
   const authHeader = req.headers.authorization;
@@ -156,6 +164,7 @@ export async function registerRoutes(
 
   app.post("/api/auth/init", isAuthenticated, async (req: any, res) => {
     try {
+      const storage = getStorage(req);
       const userId = req.user.id;
       const email = req.user.email || "";
       await storage.createProfile({
@@ -185,6 +194,7 @@ export async function registerRoutes(
 
   app.get("/api/profile", isAuthenticated, async (req: any, res) => {
     try {
+      const storage = getStorage(req);
       const userId = req.user.id;
       const profile = await storage.getProfile(userId);
       if (!profile) {
@@ -199,6 +209,7 @@ export async function registerRoutes(
 
   app.post("/api/profile", isAuthenticated, async (req: any, res) => {
     try {
+      const storage = getStorage(req);
       const userId = req.user.id;
       const parsed = profileUpdateSchema.safeParse(req.body);
       if (!parsed.success) {
@@ -216,6 +227,7 @@ export async function registerRoutes(
 
   app.get("/api/discover", isAuthenticated, async (req: any, res) => {
     try {
+      const storage = getStorage(req);
       const userId = req.user.id;
       const myProfile = await storage.getProfile(userId);
       if (!myProfile) {
@@ -231,6 +243,7 @@ export async function registerRoutes(
 
   app.post("/api/interactions", isAuthenticated, async (req: any, res) => {
     try {
+      const storage = getStorage(req);
       const fromUserId = req.user.id;
       const parsed = interactionBodySchema.safeParse(req.body);
       if (!parsed.success) {
@@ -276,6 +289,7 @@ export async function registerRoutes(
 
   app.get("/api/matches", isAuthenticated, async (req: any, res) => {
     try {
+      const storage = getStorage(req);
       const userId = req.user.id;
       const userMatches = await storage.getMatchesForUser(userId);
       res.json(userMatches);
@@ -287,6 +301,7 @@ export async function registerRoutes(
 
   app.get("/api/matches/:matchId", isAuthenticated, async (req: any, res) => {
     try {
+      const storage = getStorage(req);
       const userId = req.user.id;
       const match = await storage.getMatch(req.params.matchId, userId);
       if (!match) {
@@ -301,6 +316,7 @@ export async function registerRoutes(
 
   app.post("/api/matches/:matchId/messages", isAuthenticated, async (req: any, res) => {
     try {
+      const storage = getStorage(req);
       const userId = req.user.id;
       const { matchId } = req.params;
       const parsed = messageBodySchema.safeParse(req.body);
@@ -339,6 +355,7 @@ export async function registerRoutes(
         if (otherCount < 15) {
           setTimeout(async () => {
             try {
+      const storage = getStorage(req);
               const reply = generateAutoReply(otherProfile, otherCount);
               await storage.createMessage({
                 matchId,
@@ -362,6 +379,7 @@ export async function registerRoutes(
 
   app.post("/api/matches/:matchId/call/start", isAuthenticated, async (req: any, res) => {
     try {
+      const storage = getStorage(req);
       const userId = req.user.id;
       const match = await storage.startCall(req.params.matchId, userId);
       if (!match) {
@@ -372,6 +390,7 @@ export async function registerRoutes(
       if (otherUserId.startsWith("seed-")) {
         setTimeout(async () => {
           try {
+      const storage = getStorage(req);
             await storage.answerCall(req.params.matchId, otherUserId);
           } catch (err) {
             console.error("Auto-answer error:", err);
@@ -388,6 +407,7 @@ export async function registerRoutes(
 
   app.post("/api/matches/:matchId/call/answer", isAuthenticated, async (req: any, res) => {
     try {
+      const storage = getStorage(req);
       const userId = req.user.id;
       const match = await storage.answerCall(req.params.matchId, userId);
       if (!match) {
@@ -402,6 +422,7 @@ export async function registerRoutes(
 
   app.post("/api/matches/:matchId/call/cancel", isAuthenticated, async (req: any, res) => {
     try {
+      const storage = getStorage(req);
       const userId = req.user.id;
       const match = await storage.cancelCall(req.params.matchId, userId);
       if (!match) {
@@ -416,6 +437,7 @@ export async function registerRoutes(
 
   app.post("/api/matches/:matchId/call/complete", isAuthenticated, async (req: any, res) => {
     try {
+      const storage = getStorage(req);
       const userId = req.user.id;
       const match = await storage.completeCall(req.params.matchId, userId);
       if (!match) {
@@ -430,6 +452,7 @@ export async function registerRoutes(
 
   app.post("/api/matches/:matchId/face-call/accept", isAuthenticated, async (req: any, res) => {
     try {
+      const storage = getStorage(req);
       const userId = req.user.id;
       const match = await storage.acceptFaceCall(req.params.matchId, userId);
       if (!match) {
@@ -440,6 +463,7 @@ export async function registerRoutes(
       if (otherUserId.startsWith("seed-")) {
         setTimeout(async () => {
           try {
+      const storage = getStorage(req);
             await storage.acceptFaceCall(req.params.matchId, otherUserId);
           } catch (err) {
             console.error("Auto face-call accept error:", err);
@@ -456,6 +480,7 @@ export async function registerRoutes(
 
   app.post("/api/matches/:matchId/face-call/decline", isAuthenticated, async (req: any, res) => {
     try {
+      const storage = getStorage(req);
       const userId = req.user.id;
       const match = await storage.declineFaceCall(req.params.matchId, userId);
       if (!match) {
@@ -470,6 +495,7 @@ export async function registerRoutes(
 
   app.get("/api/popular", isAuthenticated, async (req: any, res) => {
     try {
+      const storage = getStorage(req);
       const userId = req.user.id;
       const myProfile = await storage.getProfile(userId);
       const preference = myProfile?.datingPreference;
@@ -488,6 +514,7 @@ export async function registerRoutes(
 
   app.get("/api/spin-status", isAuthenticated, async (req: any, res) => {
     try {
+      const storage = getStorage(req);
       const userId = req.user.id;
       const spinsThisWeek = await storage.getSpinsThisWeek(userId);
       const dailyLikes = await storage.getDailyLikeCount(userId);
@@ -517,6 +544,7 @@ export async function registerRoutes(
 
   app.post("/api/spin", isAuthenticated, async (req: any, res) => {
     try {
+      const storage = getStorage(req);
       const userId = req.user.id;
       const { standoutUserId } = req.body;
 
@@ -551,6 +579,7 @@ export async function registerRoutes(
 
   app.post("/api/spin-requests", isAuthenticated, async (req: any, res) => {
     try {
+      const storage = getStorage(req);
       const userId = req.user.id;
       const { toUserId, message } = req.body;
 
@@ -572,6 +601,7 @@ export async function registerRoutes(
 
   app.get("/api/spin-requests", isAuthenticated, async (req: any, res) => {
     try {
+      const storage = getStorage(req);
       const userId = req.user.id;
       const incoming = await storage.getIncomingSpinRequests(userId);
       const outgoing = await storage.getOutgoingSpinRequests(userId);
@@ -584,6 +614,7 @@ export async function registerRoutes(
 
   app.post("/api/spin-requests/:id/respond", isAuthenticated, async (req: any, res) => {
     try {
+      const storage = getStorage(req);
       const userId = req.user.id;
       const { id } = req.params;
       const { accept } = req.body;
@@ -632,6 +663,7 @@ export async function registerRoutes(
 
   app.delete("/api/matches/:matchId", isAuthenticated, async (req: any, res) => {
     try {
+      const storage = getStorage(req);
       const userId = req.user.id;
       const { matchId } = req.params;
       const removed = await storage.removeMatch(matchId, userId);
@@ -647,6 +679,7 @@ export async function registerRoutes(
 
   app.get("/api/match-count", isAuthenticated, async (req: any, res) => {
     try {
+      const storage = getStorage(req);
       const userId = req.user.id;
       const count = await storage.getMatchCount(userId);
       res.json({ count });
@@ -658,6 +691,7 @@ export async function registerRoutes(
 
   app.get("/api/who-liked-you", isAuthenticated, async (req: any, res) => {
     try {
+      const storage = getStorage(req);
       const userId = req.user.id;
       const incomingOpens = await storage.getIncomingOpens(userId);
       res.json(incomingOpens);
@@ -669,6 +703,7 @@ export async function registerRoutes(
 
   app.post("/api/matches/:matchId/meet-availability", isAuthenticated, async (req: any, res) => {
     try {
+      const storage = getStorage(req);
       const userId = req.user.id;
       const { matchId } = req.params;
       const { slots } = req.body;
@@ -692,6 +727,7 @@ export async function registerRoutes(
 
   app.post("/api/matches/:matchId/exchange-number", isAuthenticated, async (req: any, res) => {
     try {
+      const storage = getStorage(req);
       const userId = req.user.id;
       const { matchId } = req.params;
 
