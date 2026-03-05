@@ -463,6 +463,19 @@ export default function Discover() {
 
   return (
     <div className="flex-1 overflow-y-auto">
+      <div className="sticky top-0 z-30 bg-background/95 backdrop-blur-sm border-b px-5 py-3">
+        <div className="max-w-md mx-auto flex items-center gap-2">
+          <h1 className="font-serif text-lg font-bold truncate" data-testid="text-discover-sticky-name">
+            {currentProfile.firstName}, {currentProfile.age}
+          </h1>
+          {currentProfile.location && (
+            <span className="text-xs text-muted-foreground flex items-center gap-1 shrink-0">
+              <MapPin className="w-3 h-3" />
+              {currentProfile.location}
+            </span>
+          )}
+        </div>
+      </div>
       <div className="max-w-md mx-auto p-4 md:p-6 space-y-5 pb-6">
         <AnimatePresence mode="wait">
           <motion.div
