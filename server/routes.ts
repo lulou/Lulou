@@ -268,15 +268,14 @@ export async function registerRoutes(
 
       let matched = false;
       if (type === "open") {
-        const reverseExists = await storage.getInteraction(toUserId, fromUserId);
-        if (!reverseExists) {
-          await storage.createInteraction({ fromUserId: toUserId, toUserId: fromUserId, type: "open" });
-        }
-
-        const matchCount = await storage.getMatchCount(fromUserId);
-        if (matchCount < 8) {
-          await storage.createMatch(fromUserId, toUserId);
-          matched = true;
+        const reverseOpen = await storage.getInteraction(toUserId, fromUserId);
+        if (reverseOpen && reverseOpen.type === "open") {
+          const fromCount = await storage.getMatchCount(fromUserId);
+          const toCount = await storage.getMatchCount(toUserId);
+          if (fromCount < 8 && toCount < 8) {
+            await storage.createMatch(fromUserId, toUserId);
+            matched = true;
+          }
         }
       }
 
