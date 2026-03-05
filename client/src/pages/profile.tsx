@@ -10,6 +10,7 @@ import { Slider } from "@/components/ui/slider";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { useToast } from "@/hooks/use-toast";
 import { upsertProfile } from "@/lib/profile-upsert";
+import { apiRequest } from "@/lib/queryClient";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -1006,6 +1007,25 @@ export default function ProfilePage() {
           </Card>
         )}
       </div>
+
+      {user?.email === "abayomibalogun@icloud.com" && import.meta.env.DEV && (
+        <Button
+          variant="destructive"
+          className="w-full opacity-60"
+          onClick={async () => {
+            try {
+              await apiRequest("POST", "/api/dev/reset-test-data");
+              queryClient.invalidateQueries();
+              toast({ title: "Test data cleared", description: "Interactions, matches, and spins reset." });
+            } catch (err: any) {
+              toast({ title: "Reset failed", description: err?.message || "Something went wrong", variant: "destructive" });
+            }
+          }}
+          data-testid="button-reset-test-data"
+        >
+          Reset Test Data
+        </Button>
+      )}
 
       <Button
         variant="outline"

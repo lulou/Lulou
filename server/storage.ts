@@ -76,6 +76,7 @@ export interface IStorage {
   removeMatch(matchId: string, userId: string): Promise<boolean>;
   getMatchCount(userId: string): Promise<number>;
   getIncomingOpens(userId: string): Promise<(Interaction & { profile: Profile })[]>;
+  resetUserTestData(userId: string): Promise<void>;
 }
 
 function mapProfile(row: any): Profile {
@@ -992,6 +993,26 @@ export class SupabaseStorage implements IStorage {
       }
     }
     return result;
+  }
+
+  async resetUserTestData(userId: string): Promise<void> {
+    const { data: m1 } = await this.sb.from("matches").select("id").eq("user1_id", userId);
+    const { data: m2 } = await this.sb.from("matches").select("id").eq("user2_id", userId);
+    const matchIds = [...(m1 || []), ...(m2 || [])].map(r => r.id);
+
+    if (matchIds.length > 0) {
+      await this.sb.from("messages").delete().in("match_id", matchIds);
+    }
+
+    await this.sb.from("matches").delete().or(`user1_id.eq.${userId},user2_id.eq.${userId}`);
+
+    await this.sb.from("interactions").delete().or(`from_user_id.eq.${userId},to_user_id.eq.${userId}`);
+
+    await this.sb.from("spin_standouts").delete().eq("user_id", userId);
+
+    await this.sb.from("spin_usage").delete().eq("user_id", userId);
+
+    await this.sb.from("spin_requests").delete().or(`from_user_id.eq.${userId},to_user_id.eq.${userId}`);
   }
 }
 

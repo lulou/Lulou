@@ -753,6 +753,21 @@ export async function registerRoutes(
     }
   });
 
+  app.post("/api/dev/reset-test-data", isAuthenticated, async (req: any, res) => {
+    try {
+      if (process.env.NODE_ENV !== "development") {
+        return res.status(403).json({ message: "Not available in production" });
+      }
+      const storage = getStorage(req);
+      const userId = req.user.id;
+      await storage.resetUserTestData(userId);
+      res.json({ ok: true });
+    } catch (error) {
+      console.error("Error resetting test data:", error);
+      res.status(500).json({ message: "Failed to reset test data" });
+    }
+  });
+
   await seedDatabase();
 
   return httpServer;
