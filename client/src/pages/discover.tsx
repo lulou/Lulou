@@ -15,102 +15,36 @@ import { AnimatePresence, motion } from "framer-motion";
 
 function PhotoBubbles({ photos, name, onOpen, isDisabled }: { photos: string[]; name: string; onOpen: () => void; isDisabled?: boolean }) {
   const scrollRef = useRef<HTMLDivElement>(null);
-  const isDragging = useRef(false);
-  const startX = useRef(0);
-  const scrollLeftStart = useRef(0);
-  const lastX = useRef(0);
-  const lastTime = useRef(0);
-  const velocity = useRef(0);
-  const animFrame = useRef<number>(0);
-  const [focusedIndex, setFocusedIndex] = useState(0);
   const itemRefs = useRef<(HTMLDivElement | null)[]>([]);
+  const focusedRef = useRef(0);
+  const [focusedIndex, setFocusedIndex] = useState(0);
+  const scrollTimer = useRef<ReturnType<typeof setTimeout>>();
 
-  const updateFocused = useCallback(() => {
+  const commitFocus = useCallback(() => {
     const container = scrollRef.current;
     if (!container) return;
-    const containerCenter = container.scrollLeft + container.offsetWidth / 2;
+    const center = container.scrollLeft + container.offsetWidth / 2;
     let closest = 0;
     let minDist = Infinity;
     itemRefs.current.forEach((el, i) => {
       if (!el) return;
-      const itemCenter = el.offsetLeft + el.offsetWidth / 2;
-      const dist = Math.abs(containerCenter - itemCenter);
-      if (dist < minDist) {
-        minDist = dist;
-        closest = i;
-      }
+      const mid = el.offsetLeft + el.offsetWidth / 2;
+      const d = Math.abs(center - mid);
+      if (d < minDist) { minDist = d; closest = i; }
     });
-    setFocusedIndex(closest);
+    if (focusedRef.current !== closest) {
+      focusedRef.current = closest;
+      setFocusedIndex(closest);
+    }
   }, []);
 
-  const glide = useCallback(() => {
-    const el = scrollRef.current;
-    if (!el) return;
-    velocity.current *= 0.93;
-    if (Math.abs(velocity.current) < 0.3) {
-      velocity.current = 0;
-      updateFocused();
-      return;
-    }
-    el.scrollLeft -= velocity.current;
-    updateFocused();
-    animFrame.current = requestAnimationFrame(glide);
-  }, [updateFocused]);
-
-  const committed = useRef(false);
-  const startY = useRef(0);
-
-  const handlePointerDown = (e: React.PointerEvent) => {
-    const target = e.target as HTMLElement;
-    if (target.closest("[data-testid='button-open']")) return;
-    if (e.pointerType === "touch") return;
-    const el = scrollRef.current;
-    if (!el) return;
-    cancelAnimationFrame(animFrame.current);
-    velocity.current = 0;
-    isDragging.current = true;
-    committed.current = false;
-    startX.current = e.clientX;
-    startY.current = e.clientY;
-    lastX.current = e.clientX;
-    lastTime.current = Date.now();
-    scrollLeftStart.current = el.scrollLeft;
-    el.style.cursor = "grabbing";
-  };
-
-  const handlePointerMove = (e: React.PointerEvent) => {
-    if (!isDragging.current || !scrollRef.current || e.pointerType === "touch") return;
-    if (!committed.current) {
-      const adx = Math.abs(e.clientX - startX.current);
-      const ady = Math.abs(e.clientY - startY.current);
-      if (ady > adx) { isDragging.current = false; return; }
-      if (adx < 5) return;
-      committed.current = true;
-    }
-    const now = Date.now();
-    const dt = now - lastTime.current;
-    const dx = e.clientX - lastX.current;
-    if (dt > 0) velocity.current = dx / dt * 16;
-    lastX.current = e.clientX;
-    lastTime.current = now;
-    const totalDx = e.clientX - startX.current;
-    scrollRef.current.scrollLeft = scrollLeftStart.current - totalDx;
-    updateFocused();
-  };
-
-  const handlePointerUp = () => {
-    isDragging.current = false;
-    committed.current = false;
-    if (scrollRef.current) scrollRef.current.style.cursor = "grab";
-    if (Math.abs(velocity.current) > 1) {
-      animFrame.current = requestAnimationFrame(glide);
-    } else {
-      updateFocused();
-    }
-  };
+  const handleScroll = useCallback(() => {
+    clearTimeout(scrollTimer.current);
+    scrollTimer.current = setTimeout(commitFocus, 80);
+  }, [commitFocus]);
 
   useEffect(() => {
-    return () => cancelAnimationFrame(animFrame.current);
+    return () => clearTimeout(scrollTimer.current);
   }, []);
 
   if (photos.length === 0) {
@@ -133,7 +67,7 @@ function PhotoBubbles({ photos, name, onOpen, isDisabled }: { photos: string[]; 
             data-testid="img-profile-photo-0"
           />
           <button
-            className="absolute bottom-3 left-1/2 -translate-x-1/2 flex items-center gap-1.5 bg-primary text-white rounded-full pl-3 pr-4 py-2 shadow-lg transition-all active:scale-90 hover:shadow-xl hover:brightness-110 z-10"
+            className="absolute bottom-3 left-1/2 -translate-x-1/2 flex items-center gap-1.5 bg-primary text-white rounded-full pl-3 pr-4 py-2 shadow-lg active:scale-90 z-10"
             onClick={onOpen}
             disabled={isDisabled}
             data-testid="button-open"
@@ -150,23 +84,20 @@ function PhotoBubbles({ photos, name, onOpen, isDisabled }: { photos: string[]; 
     <div className="relative" data-testid="photo-bubbles-wrapper">
       <div
         ref={scrollRef}
-        className="scrollbar-hide cursor-grab select-none"
+        className="scrollbar-hide select-none"
         style={{
-          display: "flex",
           overflowX: "auto",
+          overflowY: "hidden",
           WebkitOverflowScrolling: "touch",
+          scrollSnapType: "x mandatory",
+          willChange: "scroll-position",
         }}
-        onPointerDown={handlePointerDown}
-        onPointerMove={handlePointerMove}
-        onPointerUp={handlePointerUp}
-        onPointerLeave={handlePointerUp}
-        onScroll={updateFocused}
+        onScroll={handleScroll}
         data-testid="photo-bubbles"
       >
         <div
           className="flex items-end gap-3 py-4"
           style={{
-            flex: "0 0 auto",
             paddingLeft: "calc(50% - 112px)",
             paddingRight: "calc(50% - 112px)",
             width: "max-content",
@@ -178,12 +109,20 @@ function PhotoBubbles({ photos, name, onOpen, isDisabled }: { photos: string[]; 
               <div
                 key={i}
                 ref={(el) => { itemRefs.current[i] = el; }}
-                className={`relative rounded-2xl overflow-hidden transition-all duration-300 ease-out ${
-                  isFocused
-                    ? "w-56 h-72 shadow-lg ring-2 ring-primary/20"
-                    : "w-40 h-56 shadow-md opacity-70"
-                }`}
-                style={{ flex: "0 0 auto" }}
+                className="relative rounded-2xl overflow-hidden"
+                style={{
+                  flex: "0 0 auto",
+                  width: isFocused ? "14rem" : "10rem",
+                  height: isFocused ? "18rem" : "14rem",
+                  opacity: isFocused ? 1 : 0.7,
+                  boxShadow: isFocused
+                    ? "0 10px 15px -3px rgba(0,0,0,0.1)"
+                    : "0 4px 6px -1px rgba(0,0,0,0.1)",
+                  transform: "translateZ(0)",
+                  transition: "width 0.25s ease-out, height 0.25s ease-out, opacity 0.25s ease-out",
+                  scrollSnapAlign: "center",
+                  contain: "layout style paint",
+                }}
                 data-testid={`photo-bubble-${i}`}
               >
                 <img
@@ -191,11 +130,13 @@ function PhotoBubbles({ photos, name, onOpen, isDisabled }: { photos: string[]; 
                   alt={`${name} photo ${i + 1}`}
                   className="w-full h-full object-cover pointer-events-none"
                   draggable={false}
+                  loading="eager"
+                  decoding="async"
                   data-testid={`img-profile-photo-${i}`}
                 />
                 {isFocused && (
                   <button
-                    className="absolute bottom-3 left-1/2 -translate-x-1/2 flex items-center gap-1.5 bg-primary text-white rounded-full pl-3 pr-4 py-2 shadow-lg transition-all active:scale-90 hover:shadow-xl hover:brightness-110 z-10"
+                    className="absolute bottom-3 left-1/2 -translate-x-1/2 flex items-center gap-1.5 bg-primary text-white rounded-full pl-3 pr-4 py-2 shadow-lg active:scale-90 z-10"
                     onClick={(e) => { e.stopPropagation(); onOpen(); }}
                     disabled={isDisabled}
                     data-testid="button-open"
@@ -217,9 +158,13 @@ function PhotoBubbles({ photos, name, onOpen, isDisabled }: { photos: string[]; 
           {photos.map((_, i) => (
             <div
               key={i}
-              className={`w-1.5 h-1.5 rounded-full transition-colors duration-300 ${
-                i === focusedIndex ? "bg-primary" : "bg-muted-foreground/25"
-              }`}
+              className="w-1.5 h-1.5 rounded-full"
+              style={{
+                backgroundColor: i === focusedIndex
+                  ? "hsl(var(--primary))"
+                  : "hsl(var(--muted-foreground) / 0.25)",
+                transition: "background-color 0.2s",
+              }}
             />
           ))}
         </div>
