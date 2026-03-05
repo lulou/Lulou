@@ -494,13 +494,37 @@ function MatchChat({ match }: { match: MatchWithProfile }) {
 
   const sendMessage = useMutation({
     mutationFn: async () => {
+      if (!match.id) {
+        throw new Error("No match selected");
+      }
       const content = message.trim();
-      const res = await apiRequest("POST", `/api/matches/${match.id}/messages`, {
-        content,
+      if (!content) {
+        throw new Error("Message cannot be empty");
+      }
+      const authHeaders: Record<string, string> = {};
+      const { data: { session } } = await (await import("@/lib/supabase")).supabase.auth.getSession();
+      if (session?.access_token) {
+        authHeaders["Authorization"] = `Bearer ${session.access_token}`;
+      }
+      const res = await fetch(`/api/matches/${match.id}/messages`, {
+        method: "POST",
+        headers: { ...authHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify({ content }),
+        credentials: "include",
       });
+      if (!res.ok) {
+        let errMsg = `${res.status}: ${res.statusText}`;
+        try {
+          const body = await res.json();
+          errMsg = body.message || JSON.stringify(body);
+        } catch {}
+        console.error("MSG_SEND_FAIL", errMsg);
+        throw new Error(errMsg);
+      }
       return res.json();
     },
     onMutate: async () => {
+      if (!match.id) return {};
       const content = message.trim();
       setMessage("");
       await queryClient.cancelQueries({ queryKey: ["/api/matches", match.id] });
