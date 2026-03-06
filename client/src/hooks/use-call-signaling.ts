@@ -91,7 +91,7 @@ export function useCallSignaling(matchIds: string[], userId: string) {
             callEndedCallback?.(matchId);
           }
         } else if (event.type === "call:cancelled") {
-          console.log(LOG_PREFIX, `CANCEL_CALL_RECEIVED matchId=${matchId} by=${senderId}`);
+          console.log(LOG_PREFIX, `CANCEL_EVENT_RECEIVED matchId=${matchId} by=${senderId}`);
           if (dedupeCallEnd(matchId, "cancelled")) {
             console.log(LOG_PREFIX, `CALL_END_RECEIVED matchId=${matchId} by=${senderId} reason=cancelled`);
             callEndedCallback?.(matchId);

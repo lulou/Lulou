@@ -507,16 +507,16 @@ export class SupabaseStorage implements IStorage {
   }
 
   async cancelCall(matchId: string, userId: string): Promise<Match | undefined> {
-    console.log("[cancelCall] Reading match", { matchId, userId });
+    console.log("[cancelCall] CANCEL_API_ROUTE_HIT - Reading match", { matchId, userId });
     const { data: matchData, error: readError } = await this.sb
       .from("matches")
       .select("*")
       .eq("id", matchId)
       .maybeSingle();
-    if (readError) console.log("[cancelCall] DB read error:", readError.message);
-    if (!matchData) { console.log("[cancelCall] Match not found:", matchId); return undefined; }
+    if (readError) console.log("[cancelCall] DB read error:", readError.message, readError.code, readError.details);
+    if (!matchData) { console.log("[cancelCall] Match not found - RLS may be blocking:", matchId); return undefined; }
     const match = mapMatch(matchData);
-    if (match.user1Id !== userId && match.user2Id !== userId) { console.log("[cancelCall] User not in match"); return undefined; }
+    if (match.user1Id !== userId && match.user2Id !== userId) { console.log("[cancelCall] User not in match:", { user1Id: match.user1Id, user2Id: match.user2Id, userId }); return undefined; }
 
     const { data: updated, error } = await this.sb
       .from("matches")
@@ -529,8 +529,8 @@ export class SupabaseStorage implements IStorage {
       .eq("id", matchId)
       .select()
       .single();
-    if (error || !updated) { console.log("[cancelCall] DB update failed:", error?.message); return undefined; }
-    console.log("[cancelCall] CALL_SESSION_ENDED", { matchId, callSessionId: match.callSessionId, userId });
+    if (error || !updated) { console.log("[cancelCall] DB update failed:", error?.message, error?.code, error?.details); return undefined; }
+    console.log("[cancelCall] CALL_SESSION_CANCELLED", { matchId, callSessionId: match.callSessionId, userId });
     return mapMatch(updated);
   }
 

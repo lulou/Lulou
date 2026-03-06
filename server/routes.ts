@@ -463,7 +463,7 @@ export async function registerRoutes(
 
   app.post("/api/matches/:matchId/call/start", isAuthenticated, async (req: any, res) => {
     try {
-      const serverStorage = new SupabaseStorage();
+      const serverStorage = getStorage(req);
       const userId = req.user.id;
       const matchId = req.params.matchId;
       console.log("[CALL_START] CALL_API_REQUEST", { path: "/api/matches/:matchId/call/start", matchId, userId, timestamp: new Date().toISOString() });
@@ -512,7 +512,7 @@ export async function registerRoutes(
 
   app.post("/api/matches/:matchId/call/answer", isAuthenticated, async (req: any, res) => {
     try {
-      const serverStorage = new SupabaseStorage();
+      const serverStorage = getStorage(req);
       const userId = req.user.id;
       const matchId = req.params.matchId;
       console.log("[CALL_ANSWER] CALL_API_REQUEST", { path: "/api/matches/:matchId/call/answer", matchId, userId, timestamp: new Date().toISOString() });
@@ -537,18 +537,19 @@ export async function registerRoutes(
 
   app.post("/api/matches/:matchId/call/cancel", isAuthenticated, async (req: any, res) => {
     try {
-      const serverStorage = new SupabaseStorage();
+      const serverStorage = getStorage(req);
       const userId = req.user.id;
       const matchId = req.params.matchId;
+      console.log("[CALL_CANCEL] CANCEL_API_REQUEST", { path: "/api/matches/:matchId/call/cancel", matchId, userId, timestamp: new Date().toISOString() });
+      console.log("[CALL_CANCEL] CANCEL_API_ROUTE_HIT", { matchId, userId });
       const preCancelMatch = await serverStorage.getMatch(matchId, userId);
       const prevSessionId = preCancelMatch?.callSessionId || null;
-      console.log("[CALL_CANCEL] CALL_API_REQUEST", { path: "/api/matches/:matchId/call/cancel", matchId, userId, CALL_SESSION_ID: prevSessionId, timestamp: new Date().toISOString() });
       const match = await serverStorage.cancelCall(matchId, userId);
       if (!match) {
-        console.log("[CALL_CANCEL] CALL_API_RESPONSE", { status: 404, matchId, userId });
+        console.log("[CALL_CANCEL] CANCEL_API_FAILED", { status: 404, matchId, userId, reason: "match not found or DB error" });
         return res.status(404).json({ message: "Match not found" });
       }
-      console.log("[CALL_CANCEL] CANCEL_CALL_SESSION_UPDATED", { status: 200, matchId, CALL_SESSION_ID: prevSessionId, userId });
+      console.log("[CALL_CANCEL] CALL_SESSION_CANCELLED", { status: 200, matchId, CALL_SESSION_ID: prevSessionId, userId });
       broadcastCallEvent(matchId, {
         type: "call:ended",
         matchId,
@@ -560,7 +561,7 @@ export async function registerRoutes(
         userId,
         callSessionId: prevSessionId,
       });
-      console.log("[CALL_CANCEL] CANCEL_CALL_EVENT_SENT", { matchId, CALL_SESSION_ID: prevSessionId, userId });
+      console.log("[CALL_CANCEL] CANCEL_EVENT_SENT", { matchId, CALL_SESSION_ID: prevSessionId, userId });
       res.json(match);
     } catch (error) {
       console.error("[CALL_CANCEL] Error:", error);
@@ -570,7 +571,7 @@ export async function registerRoutes(
 
   app.post("/api/matches/:matchId/call/complete", isAuthenticated, async (req: any, res) => {
     try {
-      const serverStorage = new SupabaseStorage();
+      const serverStorage = getStorage(req);
       const userId = req.user.id;
       const matchId = req.params.matchId;
       const preCompleteMatch = await serverStorage.getMatch(matchId, userId);
@@ -602,7 +603,7 @@ export async function registerRoutes(
 
   app.post("/api/matches/:matchId/face-call/accept", isAuthenticated, async (req: any, res) => {
     try {
-      const serverStorage = new SupabaseStorage();
+      const serverStorage = getStorage(req);
       const userId = req.user.id;
       const matchId = req.params.matchId;
       console.log("[FACE_CALL_ACCEPT] CALL_API_REQUEST", { path: "/api/matches/:matchId/face-call/accept", matchId, userId });
@@ -635,7 +636,7 @@ export async function registerRoutes(
 
   app.post("/api/matches/:matchId/face-call/decline", isAuthenticated, async (req: any, res) => {
     try {
-      const serverStorage = new SupabaseStorage();
+      const serverStorage = getStorage(req);
       const userId = req.user.id;
       console.log("[FACE_CALL_DECLINE] CALL_API_REQUEST", { path: "/api/matches/:matchId/face-call/decline", matchId: req.params.matchId, userId });
       const match = await serverStorage.declineFaceCall(req.params.matchId, userId);
