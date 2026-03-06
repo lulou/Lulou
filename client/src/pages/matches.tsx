@@ -10,6 +10,7 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
 import { useTabActive } from "@/App";
+import { useRealtimeMessages } from "@/hooks/use-realtime-messages";
 import { Input } from "@/components/ui/input";
 import { MessageCircle, Send, Phone, Video, ChevronDown, ChevronUp, PhoneOff, Clock, Check, X, Sparkles, Calendar, Heart, PhoneForwarded, Moon } from "lucide-react";
 import { LulouFlowerIcon } from "@/components/app-layout";
@@ -491,19 +492,15 @@ function MatchChat({ match }: { match: MatchWithProfile }) {
   const { data: matchDetail } = useQuery<MatchDetail>({
     queryKey: ["/api/matches", match.id],
     enabled: expanded,
-    refetchInterval: expanded && isActive ? 3000 : false,
+    refetchInterval: expanded && isActive ? 10000 : false,
   });
 
-  const pendingMsgRef = useRef("");
+  useRealtimeMessages(match.id, expanded);
 
   const sendMessage = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (vars: { content: string; tempId: string }) => {
       if (!match.id) {
         throw new Error("No match selected");
-      }
-      const content = pendingMsgRef.current;
-      if (!content) {
-        throw new Error("Type a message");
       }
       const authHeaders: Record<string, string> = {};
       const { data: { session } } = await (await import("@/lib/supabase")).supabase.auth.getSession();
@@ -513,7 +510,7 @@ function MatchChat({ match }: { match: MatchWithProfile }) {
       const res = await fetch(`/api/matches/${match.id}/messages`, {
         method: "POST",
         headers: { ...authHeaders, "Content-Type": "application/json" },
-        body: JSON.stringify({ content }),
+        body: JSON.stringify({ content: vars.content }),
         credentials: "include",
       });
       if (!res.ok) {
@@ -527,19 +524,17 @@ function MatchChat({ match }: { match: MatchWithProfile }) {
       }
       return res.json();
     },
-    onMutate: async () => {
-      const content = message.trim();
-      if (!match.id || !content) return {};
-      pendingMsgRef.current = content;
+    onMutate: async (vars: { content: string; tempId: string }) => {
+      if (!match.id) return {};
       setMessage("");
       await queryClient.cancelQueries({ queryKey: ["/api/matches", match.id] });
       const previous = queryClient.getQueryData<MatchDetail>(["/api/matches", match.id]);
       if (previous) {
         const optimisticMsg = {
-          id: `temp-${Date.now()}`,
+          id: vars.tempId,
           matchId: match.id,
           senderId: user?.id || "",
-          content,
+          content: vars.content,
           createdAt: new Date().toISOString(),
         };
         queryClient.setQueryData<MatchDetail>(["/api/matches", match.id], {
@@ -549,14 +544,13 @@ function MatchChat({ match }: { match: MatchWithProfile }) {
       }
       return { previous };
     },
-    onError: (error: Error, _vars, context) => {
+    onError: (error: Error, _vars: any, context: any) => {
       if (context?.previous) {
         queryClient.setQueryData(["/api/matches", match.id], context.previous);
       }
       toast({ title: "Could not send", description: error.message, variant: "destructive" });
     },
     onSettled: () => {
-      pendingMsgRef.current = "";
       queryClient.invalidateQueries({ queryKey: ["/api/matches", match.id] });
     },
   });
@@ -951,14 +945,22 @@ function MatchChat({ match }: { match: MatchWithProfile }) {
                   onKeyDown={e => {
                     if (e.key === "Enter" && !e.shiftKey) {
                       e.preventDefault();
-                      if (message.trim()) sendMessage.mutate();
+                      if (message.trim()) {
+                        const content = message.trim();
+                        sendMessage.mutate({ content, tempId: `temp-${Date.now()}-${Math.random().toString(36).slice(2)}` });
+                      }
                     }
                   }}
                   data-testid={`input-message-${match.id}`}
                 />
                 <Button
                   size="icon"
-                  onClick={() => sendMessage.mutate()}
+                  onClick={() => {
+                    if (message.trim()) {
+                      const content = message.trim();
+                      sendMessage.mutate({ content, tempId: `temp-${Date.now()}-${Math.random().toString(36).slice(2)}` });
+                    }
+                  }}
                   disabled={!message.trim() || sendMessage.isPending}
                   data-testid={`button-send-${match.id}`}
                 >

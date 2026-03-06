@@ -24,6 +24,8 @@ Lulou Dating is a calm, premium dating app focused on helping people move from m
   - Manual drag scrolling with momentum physics
 - Mutual matching system
 - Matches page with expandable inline chatrooms per match card
+- Real-time messaging via Supabase Realtime subscriptions (with 10s polling fallback)
+- Optimistic message updates (sender sees message instantly)
 - Limited messaging (15 messages per person, 500 chars max)
 - Multi-call progression after message limit:
   1. First voice call (10 minutes) - prompted after 15 messages
@@ -60,6 +62,7 @@ Lulou Dating is a calm, premium dating app focused on helping people move from m
 - `client/src/lib/supabase.ts` - Frontend Supabase client
 - `client/src/lib/profile-upsert.ts` - Frontend profile upsert helper (writes directly to Supabase with user_id = user.id, onConflict: "user_id")
 - `client/src/hooks/use-auth.ts` - Supabase Auth hook (session, login, logout)
+- `client/src/hooks/use-realtime-messages.ts` - Supabase Realtime subscription for instant message delivery
 - `server/supabase.ts` - Server Supabase client
 
 ## Database Tables

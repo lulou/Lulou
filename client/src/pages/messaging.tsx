@@ -10,6 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
+import { useRealtimeMessages } from "@/hooks/use-realtime-messages";
 import { ArrowLeft, Send, Phone, Video, Check, Clock, Calendar, Heart, PhoneForwarded, X, Moon } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import type { Message, Match, Profile } from "@shared/schema";
@@ -337,22 +338,43 @@ export default function Messaging() {
   const { data: matchDetail, isLoading } = useQuery<MatchDetail>({
     queryKey: ["/api/matches", matchId],
     enabled: !!matchId,
-    refetchInterval: 5000,
+    refetchInterval: 10000,
   });
 
+  useRealtimeMessages(matchId, !!matchId);
+
   const sendMessage = useMutation({
-    mutationFn: async () => {
-      const res = await apiRequest("POST", `/api/matches/${matchId}/messages`, {
-        content: message.trim(),
-      });
+    mutationFn: async (vars: { content: string; tempId: string }) => {
+      if (!matchId) throw new Error("No match");
+      const res = await apiRequest("POST", `/api/matches/${matchId}/messages`, { content: vars.content });
       return res.json();
     },
-    onSuccess: () => {
-      setMessage("");
-      queryClient.invalidateQueries({ queryKey: ["/api/matches", matchId] });
+    onMutate: async (vars: { content: string; tempId: string }) => {
+      await queryClient.cancelQueries({ queryKey: ["/api/matches", matchId] });
+      const previous = queryClient.getQueryData<MatchDetail>(["/api/matches", matchId]);
+      if (previous) {
+        const optimisticMsg = {
+          id: vars.tempId,
+          matchId: matchId!,
+          senderId: user?.id || "",
+          content: vars.content,
+          createdAt: new Date().toISOString(),
+        };
+        queryClient.setQueryData<MatchDetail>(["/api/matches", matchId], {
+          ...previous,
+          messages: [...(previous.messages || []), optimisticMsg],
+        });
+      }
+      return { previous };
     },
-    onError: (error: Error) => {
+    onError: (error: Error, _vars: any, context: any) => {
+      if (context?.previous) {
+        queryClient.setQueryData(["/api/matches", matchId], context.previous);
+      }
       toast({ title: "Could not send", description: error.message, variant: "destructive" });
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/matches", matchId] });
     },
   });
 
@@ -513,14 +535,24 @@ export default function Messaging() {
               onKeyDown={e => {
                 if (e.key === "Enter" && !e.shiftKey) {
                   e.preventDefault();
-                  if (message.trim()) sendMessage.mutate();
+                  if (message.trim()) {
+                    const content = message.trim();
+                    setMessage("");
+                    sendMessage.mutate({ content, tempId: `temp-${Date.now()}-${Math.random().toString(36).slice(2)}` });
+                  }
                 }
               }}
               data-testid="input-message"
             />
             <Button
               size="icon"
-              onClick={() => sendMessage.mutate()}
+              onClick={() => {
+                if (message.trim()) {
+                  const content = message.trim();
+                  setMessage("");
+                  sendMessage.mutate({ content, tempId: `temp-${Date.now()}-${Math.random().toString(36).slice(2)}` });
+                }
+              }}
               disabled={!message.trim() || sendMessage.isPending}
               data-testid="button-send"
             >
