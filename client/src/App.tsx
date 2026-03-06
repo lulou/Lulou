@@ -1,5 +1,5 @@
 import { Switch, Route, useLocation } from "wouter";
-import { createContext, useContext } from "react";
+import { createContext, useContext, useState, useCallback, useEffect } from "react";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -15,7 +15,8 @@ import ProfilePage from "@/pages/profile";
 import IntentPage from "@/pages/intent";
 import LikesPage from "@/pages/likes";
 import AppLayout from "@/components/app-layout";
-import type { Profile } from "@shared/schema";
+import IncomingCallOverlay from "@/components/incoming-call";
+import type { Profile, Match } from "@shared/schema";
 import { Loader2 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 
@@ -61,6 +62,46 @@ function PersistentTabs() {
       )}
       {!isTabRoute && !isSubRoute && location !== "/" && <NotFound />}
     </>
+  );
+}
+
+type MatchWithProfile = Match & { profile: Profile };
+
+function IncomingCallDetector({ userId }: { userId: string }) {
+  const [dismissedCallKey, setDismissedCallKey] = useState<string | null>(null);
+
+  const { data: matches } = useQuery<MatchWithProfile[]>({
+    queryKey: ["/api/matches"],
+    refetchInterval: 3000,
+  });
+
+  const incomingCall = matches?.find(m => {
+    if (!m.callStartedAt || m.callAnswered || m.callCompleted) return false;
+    if (!m.callInitiatorId || m.callInitiatorId === userId) return false;
+    const callKey = `${m.id}:${m.callStartedAt}`;
+    return callKey !== dismissedCallKey;
+  });
+
+  const isFaceCall = incomingCall
+    ? (incomingCall.callStage || 0) === 2 &&
+      !!incomingCall.faceCallUser1Accepted &&
+      !!incomingCall.faceCallUser2Accepted
+    : false;
+
+  const handleDismiss = useCallback(() => {
+    if (incomingCall) {
+      setDismissedCallKey(`${incomingCall.id}:${incomingCall.callStartedAt}`);
+    }
+  }, [incomingCall]);
+
+  if (!incomingCall) return null;
+
+  return (
+    <IncomingCallOverlay
+      match={incomingCall}
+      isFaceCall={isFaceCall}
+      onDismiss={handleDismiss}
+    />
   );
 }
 
@@ -151,6 +192,7 @@ function AppContent() {
   return (
     <AppLayout>
       <PersistentTabs />
+      <IncomingCallDetector userId={user.id} />
     </AppLayout>
   );
 }

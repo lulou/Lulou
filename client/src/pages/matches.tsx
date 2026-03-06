@@ -578,6 +578,7 @@ function MatchChat({ match }: { match: MatchWithProfile }) {
       return res.json();
     },
     onSuccess: () => {
+      iCancelledRef.current = true;
       queryClient.invalidateQueries({ queryKey: ["/api/matches", match.id] });
       queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
       toast({ title: "Call cancelled", description: "No worries - the call wasn't connected so it doesn't count." });
@@ -642,6 +643,8 @@ function MatchChat({ match }: { match: MatchWithProfile }) {
   });
 
   const [showRemoveConfirm, setShowRemoveConfirm] = useState(false);
+  const wasRingingRef = useRef(false);
+  const iCancelledRef = useRef(false);
 
   useEffect(() => {
     if (expanded) {
@@ -657,6 +660,21 @@ function MatchChat({ match }: { match: MatchWithProfile }) {
   const callStage = detail.callStage || 0;
   const isCallRinging = detail.callStartedAt && !detail.callAnswered && !detail.callCompleted;
   const isCallActive = detail.callStartedAt && detail.callAnswered && !detail.callCompleted;
+
+  const iAmCaller = detail.callInitiatorId === user?.id;
+  const prevRingingRef = useRef(false);
+  useEffect(() => {
+    const wasRinging = prevRingingRef.current;
+    const isRingingNow = !!(isCallRinging && iAmCaller);
+    prevRingingRef.current = isRingingNow;
+
+    if (wasRinging && !isRingingNow && !isCallActive && !iCancelledRef.current) {
+      toast({ title: `${match.profile.firstName} declined`, description: "They weren't available right now. Try again later." });
+    }
+    if (isCallActive || !isRingingNow) {
+      wasRingingRef.current = false;
+    }
+  }, [isCallRinging, isCallActive, iAmCaller, match.profile.firstName, toast]);
   const allCallsDone = callStage >= 3;
   const isFaceCallStage = callStage === 2;
   const myFaceCallAccepted = detail.user1Id === user?.id ? detail.faceCallUser1Accepted : detail.faceCallUser2Accepted;

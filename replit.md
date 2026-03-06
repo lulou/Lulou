@@ -30,6 +30,9 @@ Lulou Dating is a calm, premium dating app focused on helping people move from m
   2. Second voice call (15 minutes) - prompted after first call
   3. Optional face/video call (10 minutes) - both users must accept; either can skip
 - Call stages tracked via `callStage` (0=pre-call, 1=first done, 2=second done, 3=face done/skipped)
+- Incoming call overlay: full-screen phone-call-style screen with caller photo, swipe-to-answer/decline
+- IncomingCallDetector in App.tsx polls matches every 3s and shows overlay for any incoming call
+- Caller gets "declined" notification when receiver declines their call
 - Face call requires mutual acceptance (`faceCallUser1Accepted`, `faceCallUser2Accepted`)
 - After all calls: "Ready to Meet" button shows date/time picker (next 7 days, 4 time slots each)
 - Meet availability tracked per user (`meetAvailability1`, `meetAvailability2` as JSON)
@@ -49,7 +52,7 @@ Lulou Dating is a calm, premium dating app focused on helping people move from m
 
 ## Project Structure
 - `client/src/pages/` - Landing, Onboarding, Discover, Intent, Likes, Matches, Messaging, Profile
-- `client/src/components/` - AppLayout (bottom nav), UI components
+- `client/src/components/` - AppLayout (bottom nav), IncomingCallOverlay, UI components
 - `server/routes.ts` - API endpoints
 - `server/storage.ts` - Database operations
 - `server/seed.ts` - Seed data with 5 demo profiles
