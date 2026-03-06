@@ -32,6 +32,7 @@ Lulou Dating is a calm, premium dating app focused on helping people move from m
   2. Second voice call (15 minutes) - prompted after first call
   3. Optional face/video call (10 minutes) - both users must accept; either can skip
 - Call stages tracked via `callStage` (0=pre-call, 1=first done, 2=second done, 3=face done/skipped)
+- Call sessions tracked via `callSessionId` on matches table (unique per call, cleared on end/cancel)
 - WebRTC peer-to-peer audio/video calls using Supabase Realtime broadcast for signaling
   - Voice calls: microphone audio streamed between devices
   - Video calls: camera + microphone streamed, remote video full-screen with local PIP

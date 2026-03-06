@@ -83,18 +83,19 @@ function CallDetectors({ userId }: { userId: string }) {
 
   const incomingCall = matches?.find(m => {
     if (!m.callStartedAt || m.callAnswered || m.callCompleted) return false;
+    if (!m.callSessionId) return false;
     if (!m.callInitiatorId || m.callInitiatorId === userId) return false;
-    const callKey = `${m.id}:${m.callStartedAt}`;
+    const callKey = `${m.id}:${m.callSessionId}`;
     return callKey !== dismissedCallKey;
   });
 
   const answeredCall = matches?.find(m =>
-    !!m.callStartedAt && m.callAnswered === true && m.callCompleted === false &&
+    !!m.callStartedAt && !!m.callSessionId && m.callAnswered === true && m.callCompleted === false &&
     (m.user1Id === userId || m.user2Id === userId)
   );
 
   const callerRingingCall = matches?.find(m =>
-    !!m.callStartedAt && !m.callAnswered && !m.callCompleted &&
+    !!m.callStartedAt && !!m.callSessionId && !m.callAnswered && !m.callCompleted &&
     m.callInitiatorId === userId
   );
 
@@ -102,25 +103,25 @@ function CallDetectors({ userId }: { userId: string }) {
 
   useEffect(() => {
     if (incomingCall) {
-      console.log("[CallDetectors] INCOMING_CALL_DETECTED (will show overlay):", {
+      console.log("[CallDetectors] INCOMING_CALL_DETECTED", {
         matchId: incomingCall.id,
+        callSessionId: incomingCall.callSessionId,
         callerId: incomingCall.callInitiatorId,
         callerName: incomingCall.profile?.firstName,
-        callStartedAt: incomingCall.callStartedAt,
       });
     }
-  }, [incomingCall?.id, incomingCall?.callStartedAt]);
+  }, [incomingCall?.id, incomingCall?.callSessionId]);
 
   useEffect(() => {
     if (activeCall) {
-      console.log("[CallDetectors] Active call state:", {
+      console.log("[CallDetectors] CALL_SESSION_LOADED", {
         matchId: activeCall.id,
+        callSessionId: activeCall.callSessionId,
         isCaller: activeCall.callInitiatorId === userId,
         answered: activeCall.callAnswered,
-        completed: activeCall.callCompleted,
       });
     }
-  }, [activeCall?.id, activeCall?.callAnswered, activeCall?.callCompleted, userId]);
+  }, [activeCall?.id, activeCall?.callSessionId, activeCall?.callAnswered, userId]);
 
   const isFaceCall = incomingCall
     ? (incomingCall.callStage || 0) === 2 &&
@@ -137,14 +138,14 @@ function CallDetectors({ userId }: { userId: string }) {
   const handleDismiss = useCallback(() => {
     if (incomingCall) {
       console.log("[CallDetectors] Dismissing incoming call:", incomingCall.id);
-      setDismissedCallKey(`${incomingCall.id}:${incomingCall.callStartedAt}`);
+      setDismissedCallKey(`${incomingCall.id}:${incomingCall.callSessionId}`);
     }
   }, [incomingCall]);
 
   const handleActiveCallEnd = useCallback(() => {
-    console.log("[CallDetectors] Active call ended");
+    console.log("[CallDetectors] CALL_SESSION_ENDED", { matchId: activeCall?.id, callSessionId: activeCall?.callSessionId });
     qc.invalidateQueries({ queryKey: ["/api/matches"] });
-  }, [qc]);
+  }, [qc, activeCall?.id, activeCall?.callSessionId]);
 
   return (
     <>
@@ -158,6 +159,7 @@ function CallDetectors({ userId }: { userId: string }) {
       {activeCall && (
         <ActiveCallOverlay
           matchId={activeCall.id}
+          callSessionId={activeCall.callSessionId || ""}
           userId={userId}
           isCaller={activeCall.callInitiatorId === userId}
           isVideo={isActiveVideo}

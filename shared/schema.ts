@@ -53,6 +53,7 @@ export const matches = pgTable("matches", {
   callAnswered: boolean("call_answered").default(false),
   callInitiatorId: varchar("call_initiator_id"),
   callStage: integer("call_stage").default(0),
+  callSessionId: varchar("call_session_id"),
   faceCallUser1Accepted: boolean("face_call_user1_accepted").default(false),
   faceCallUser2Accepted: boolean("face_call_user2_accepted").default(false),
   meetAvailability1: text("meet_availability_1"),

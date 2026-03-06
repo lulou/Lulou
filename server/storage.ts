@@ -129,6 +129,7 @@ function mapMatch(row: any): Match {
     callAnswered: row.call_answered,
     callInitiatorId: row.call_initiator_id,
     callStage: row.call_stage,
+    callSessionId: row.call_session_id || null,
     faceCallUser1Accepted: row.face_call_user1_accepted,
     faceCallUser2Accepted: row.face_call_user2_accepted,
     meetAvailability1: row.meet_availability_1,
@@ -437,6 +438,8 @@ export class SupabaseStorage implements IStorage {
     if (stage >= 3) return undefined;
     if (stage === 2 && !(match.faceCallUser1Accepted && match.faceCallUser2Accepted)) return undefined;
 
+    const callSessionId = `call-${matchId}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+
     const { data: updated, error } = await this.sb
       .from("matches")
       .update({
@@ -444,6 +447,7 @@ export class SupabaseStorage implements IStorage {
         call_initiator_id: userId,
         call_answered: false,
         call_completed: false,
+        call_session_id: callSessionId,
       })
       .eq("id", matchId)
       .select()
@@ -492,6 +496,7 @@ export class SupabaseStorage implements IStorage {
         call_initiator_id: null,
         call_answered: false,
         call_completed: false,
+        call_session_id: null,
       })
       .eq("id", matchId)
       .select()
@@ -518,6 +523,7 @@ export class SupabaseStorage implements IStorage {
           call_initiator_id: null,
           call_answered: false,
           call_completed: false,
+          call_session_id: null,
         })
         .eq("id", matchId)
         .select()
@@ -537,6 +543,7 @@ export class SupabaseStorage implements IStorage {
         call_initiator_id: null,
         call_answered: false,
         call_stage: nextStage,
+        call_session_id: null,
       })
       .eq("id", matchId)
       .select()

@@ -8,6 +8,7 @@ import { Mic, MicOff, Video, VideoOff, PhoneOff, Loader2, WifiOff, ShieldAlert, 
 
 interface ActiveCallProps {
   matchId: string;
+  callSessionId: string;
   userId: string;
   isCaller: boolean;
   isVideo: boolean;
@@ -36,6 +37,7 @@ function CallTimer() {
 
 export function ActiveCallOverlay({
   matchId,
+  callSessionId,
   userId,
   isCaller,
   isVideo,
@@ -50,10 +52,14 @@ export function ActiveCallOverlay({
   const remoteAudioRef = useRef<HTMLAudioElement>(null);
   const endedRef = useRef(false);
 
+  useEffect(() => {
+    console.log("[ActiveCall] CALL_SESSION_LOADED", { matchId, callSessionId, isCaller, isVideo, isRinging });
+  }, [matchId, callSessionId, isCaller, isVideo, isRinging]);
+
   const finishCall = useCallback(() => {
     if (endedRef.current) return;
     endedRef.current = true;
-    console.log("[ActiveCall] Finishing call:", { matchId, isRinging });
+    console.log("[ActiveCall] CALL_SESSION_ENDED", { matchId, callSessionId, isRinging });
     onCallEnd();
     const endpoint = isRinging
       ? `/api/matches/${matchId}/call/cancel`
@@ -63,6 +69,7 @@ export function ActiveCallOverlay({
       type: signalType as any,
       matchId,
       userId,
+      callSessionId,
     });
     apiRequest("POST", endpoint).catch((e) => {
       console.error("[ActiveCall] Failed to update server:", e);
@@ -70,7 +77,7 @@ export function ActiveCallOverlay({
       queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
       queryClient.invalidateQueries({ queryKey: ["/api/matches", matchId] });
     });
-  }, [matchId, userId, isRinging, onCallEnd, queryClient]);
+  }, [matchId, callSessionId, userId, isRinging, onCallEnd, queryClient]);
 
   const {
     localStream,

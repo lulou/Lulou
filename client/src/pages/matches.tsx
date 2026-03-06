@@ -562,13 +562,14 @@ function MatchChat({ match }: { match: MatchWithProfile }) {
       const res = await apiRequest("POST", `/api/matches/${match.id}/call/start`, {});
       return res.json();
     },
-    onSuccess: () => {
-      console.log("[Call] CALL_REQUEST_SENT success - server will broadcast ring signal");
+    onSuccess: (data: any) => {
+      console.log("[Call] CALL_SESSION_CREATED", { matchId: match.id, callSessionId: data.callSessionId });
       broadcastCallSignal(match.id, {
         type: "call:ring",
         matchId: match.id,
         callerId: user!.id,
         callerName: "You",
+        callSessionId: data.callSessionId,
       });
       queryClient.invalidateQueries({ queryKey: ["/api/matches", match.id] });
       queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
@@ -672,8 +673,8 @@ function MatchChat({ match }: { match: MatchWithProfile }) {
   const isLimitReached = messagesRemaining <= 0;
   const allMessages = matchDetail?.messages || [];
   const callStage = detail.callStage || 0;
-  const isCallRinging = detail.callStartedAt && !detail.callAnswered && !detail.callCompleted;
-  const isCallActive = detail.callStartedAt && detail.callAnswered && !detail.callCompleted;
+  const isCallRinging = detail.callStartedAt && detail.callSessionId && !detail.callAnswered && !detail.callCompleted;
+  const isCallActive = detail.callStartedAt && detail.callSessionId && detail.callAnswered && !detail.callCompleted;
 
   const iAmCaller = detail.callInitiatorId === user?.id;
   const prevRingingRef = useRef(false);
@@ -1012,7 +1013,7 @@ export default function Matches() {
   });
 
   const isLoading = matchesLoading || requestsLoading;
-  const fetchFailed = (!matches && !matchesLoading) || matchesError;
+  const fetchFailed = !!matchesError || !!requestsError;
   const incomingRequests = spinRequestsData?.incoming || [];
   const outgoingPending = spinRequestsData?.outgoing?.filter(r => r.status === "pending") || [];
   const connectionCount = matches?.length || 0;

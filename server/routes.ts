@@ -476,13 +476,14 @@ export async function registerRoutes(
       const otherUserId = match.user1Id === userId ? match.user2Id : match.user1Id;
       const callerProfile = await storage.getProfile(userId);
       const callerName = callerProfile?.firstName || "Someone";
-      console.log("[CALL_START] Call created, broadcasting ring to receiver:", { matchId, callerId: userId, receiverId: otherUserId, callerName });
+      console.log("[CALL_START] CALL_SESSION_CREATED", { matchId, callSessionId: match.callSessionId, callerId: userId, receiverId: otherUserId, callerName });
 
       broadcastCallEvent(matchId, {
         type: "call:ring",
         matchId,
         callerId: userId,
         callerName,
+        callSessionId: match.callSessionId,
       });
 
       if (otherUserId.startsWith("seed-")) {
@@ -490,11 +491,12 @@ export async function registerRoutes(
         setTimeout(async () => {
           try {
             await autoStorage.answerCall(matchId, otherUserId);
-            console.log("[CALL_AUTO_ANSWER]", { matchId, userId: otherUserId });
+            console.log("[CALL_AUTO_ANSWER] CALL_SESSION_JOINED", { matchId, callSessionId: match.callSessionId, userId: otherUserId });
             broadcastCallEvent(matchId, {
               type: "call:answered",
               matchId,
               userId: otherUserId,
+              callSessionId: match.callSessionId,
             });
           } catch (err) {
             console.error("[CALL_AUTO_ANSWER] Error:", err);
@@ -520,11 +522,12 @@ export async function registerRoutes(
         console.log("[CALL_ANSWER] Match not found or cannot answer own call:", matchId);
         return res.status(404).json({ message: "Match not found or you cannot answer your own call" });
       }
-      console.log("[CALL_ANSWER] CALL_ACCEPTED", { matchId, userId });
+      console.log("[CALL_ANSWER] CALL_SESSION_JOINED", { matchId, callSessionId: match.callSessionId, userId });
       broadcastCallEvent(matchId, {
         type: "call:answered",
         matchId,
         userId,
+        callSessionId: match.callSessionId,
       });
       res.json(match);
     } catch (error) {
@@ -538,17 +541,20 @@ export async function registerRoutes(
       const storage = getStorage(req);
       const userId = req.user.id;
       const matchId = req.params.matchId;
-      console.log("[CALL_CANCEL]", { matchId, userId, timestamp: new Date().toISOString() });
+      const preCancelMatch = await storage.getMatch(matchId, userId);
+      const prevSessionId = preCancelMatch?.callSessionId || null;
+      console.log("[CALL_CANCEL]", { matchId, userId, callSessionId: prevSessionId, timestamp: new Date().toISOString() });
       const match = await storage.cancelCall(matchId, userId);
       if (!match) {
         console.log("[CALL_CANCEL] Match not found:", matchId);
         return res.status(404).json({ message: "Match not found" });
       }
-      console.log("[CALL_CANCEL] CALL_CANCELLED", { matchId, userId });
+      console.log("[CALL_CANCEL] CALL_SESSION_ENDED", { matchId, callSessionId: prevSessionId, userId });
       broadcastCallEvent(matchId, {
         type: "call:cancelled",
         matchId,
         userId,
+        callSessionId: prevSessionId,
       });
       res.json(match);
     } catch (error) {
@@ -562,17 +568,20 @@ export async function registerRoutes(
       const storage = getStorage(req);
       const userId = req.user.id;
       const matchId = req.params.matchId;
-      console.log("[CALL_COMPLETE]", { matchId, userId, timestamp: new Date().toISOString() });
+      const preCompleteMatch = await storage.getMatch(matchId, userId);
+      const prevSessionId = preCompleteMatch?.callSessionId || null;
+      console.log("[CALL_COMPLETE]", { matchId, userId, callSessionId: prevSessionId, timestamp: new Date().toISOString() });
       const match = await storage.completeCall(matchId, userId);
       if (!match) {
         console.log("[CALL_COMPLETE] Match not found:", matchId);
         return res.status(404).json({ message: "Match not found" });
       }
-      console.log("[CALL_COMPLETE] CALL_COMPLETED", { matchId, userId });
+      console.log("[CALL_COMPLETE] CALL_SESSION_ENDED", { matchId, callSessionId: prevSessionId, userId, callStage: match.callStage });
       broadcastCallEvent(matchId, {
         type: "call:completed",
         matchId,
         userId,
+        callSessionId: prevSessionId,
       });
       res.json(match);
     } catch (error) {

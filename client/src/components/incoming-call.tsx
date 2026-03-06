@@ -176,12 +176,13 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss }: In
       return res.json();
     },
     onSuccess: () => {
-      console.log("[IncomingCall] Call answered successfully, broadcasting answer signal");
+      console.log("[IncomingCall] CALL_SESSION_JOINED", { matchId: match.id, callSessionId: match.callSessionId });
       setAnswered(true);
       broadcastCallSignal(match.id, {
         type: "call:answered",
         matchId: match.id,
         userId: user!.id,
+        callSessionId: match.callSessionId,
       });
       queryClient.invalidateQueries({ queryKey: ["/api/matches", match.id] });
       queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
