@@ -466,11 +466,23 @@ export async function registerRoutes(
       const serverStorage = getStorage(req);
       const userId = req.user.id;
       const matchId = req.params.matchId;
-      console.log("[CALL_START] CALL_API_REQUEST", { path: "/api/matches/:matchId/call/start", matchId, userId, timestamp: new Date().toISOString() });
-      const match = await serverStorage.startCall(matchId, userId);
-      if (!match) {
+      console.log("[CALL_START] CALL_SESSION_CHECKED", { path: "/api/matches/:matchId/call/start", matchId, userId, timestamp: new Date().toISOString() });
+      const result = await serverStorage.startCall(matchId, userId);
+      if (!result) {
         console.log("[CALL_START] CALL_API_RESPONSE", { status: 404, matchId, userId });
-        return res.status(404).json({ message: "Match not found" });
+        return res.status(404).json({ message: "Match not found or call not allowed" });
+      }
+
+      const { match, status } = result;
+
+      if (status === "blocked") {
+        console.log("[CALL_START] DUPLICATE_CALL_BLOCKED", { matchId, existingCaller: match.callInitiatorId, blockedUser: userId });
+        return res.status(409).json({ message: "A call is already in progress", match });
+      }
+
+      if (status === "reused") {
+        console.log("[CALL_START] CALL_SESSION_REUSED", { matchId, CALL_SESSION_ID: match.callSessionId, callerId: userId });
+        return res.json(match);
       }
 
       const otherUserId = match.user1Id === userId ? match.user2Id : match.user1Id;

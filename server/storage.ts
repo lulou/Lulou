@@ -51,7 +51,7 @@ export interface IStorage {
   createMessage(data: InsertMessage): Promise<Message>;
   getUserMessageCount(matchId: string, userId: string): Promise<number>;
   incrementMessageCount(matchId: string, userId: string): Promise<void>;
-  startCall(matchId: string, userId: string): Promise<Match | undefined>;
+  startCall(matchId: string, userId: string): Promise<{ match: Match; status: "created" | "reused" | "blocked" } | undefined>;
   answerCall(matchId: string, userId: string): Promise<Match | undefined>;
   cancelCall(matchId: string, userId: string): Promise<Match | undefined>;
   completeCall(matchId: string, userId: string): Promise<Match | undefined>;
@@ -427,8 +427,8 @@ export class SupabaseStorage implements IStorage {
     }
   }
 
-  async startCall(matchId: string, userId: string): Promise<Match | undefined> {
-    console.log("[startCall] Reading match", { matchId, userId });
+  async startCall(matchId: string, userId: string): Promise<{ match: Match; status: "created" | "reused" | "blocked" } | undefined> {
+    console.log("[startCall] CALL_SESSION_CHECKED", { matchId, userId });
     const { data: matchData, error: readError } = await this.sb
       .from("matches")
       .select("*")
@@ -455,9 +455,14 @@ export class SupabaseStorage implements IStorage {
       console.log("[startCall] Face call not mutually accepted:", { matchId, stage, fc1: match.faceCallUser1Accepted, fc2: match.faceCallUser2Accepted });
       return undefined;
     }
+
     if (match.callStartedAt && match.callInitiatorId) {
-      console.log("[startCall] Call already in progress:", { matchId, existingInitiator: match.callInitiatorId, callStartedAt: match.callStartedAt });
-      return match;
+      if (match.callInitiatorId === userId) {
+        console.log("[startCall] CALL_SESSION_REUSED", { matchId, existingInitiator: match.callInitiatorId, callSessionId: match.callSessionId });
+        return { match, status: "reused" };
+      }
+      console.log("[startCall] DUPLICATE_CALL_BLOCKED", { matchId, existingInitiator: match.callInitiatorId, blockedCaller: userId, callSessionId: match.callSessionId });
+      return { match, status: "blocked" };
     }
 
     const { data: updated, error } = await this.sb
@@ -469,15 +474,24 @@ export class SupabaseStorage implements IStorage {
         call_completed: false,
       })
       .eq("id", matchId)
+      .is("call_started_at", null)
       .select()
       .single();
     if (error || !updated) {
+      const { data: recheck } = await this.sb.from("matches").select("*").eq("id", matchId).maybeSingle();
+      if (recheck) {
+        const recheckMatch = mapMatch(recheck);
+        if (recheckMatch.callStartedAt && recheckMatch.callInitiatorId) {
+          console.log("[startCall] DUPLICATE_CALL_BLOCKED (race)", { matchId, existingInitiator: recheckMatch.callInitiatorId, blockedCaller: userId });
+          return { match: recheckMatch, status: "blocked" };
+        }
+      }
       console.log("[startCall] DB update failed:", { matchId, error: error?.message, code: error?.code });
       return undefined;
     }
     const result = mapMatch(updated);
     console.log("[startCall] CALL_SESSION_CREATED", { matchId, callSessionId: result.callSessionId, userId });
-    return mapMatch(updated);
+    return { match: result, status: "created" };
   }
 
   async answerCall(matchId: string, userId: string): Promise<Match | undefined> {
@@ -531,6 +545,7 @@ export class SupabaseStorage implements IStorage {
       .single();
     if (error || !updated) { console.log("[cancelCall] DB update failed:", error?.message, error?.code, error?.details); return undefined; }
     console.log("[cancelCall] CALL_SESSION_CANCELLED", { matchId, callSessionId: match.callSessionId, userId });
+    console.log("[cancelCall] CALL_SESSION_CLEARED", { matchId, userId });
     return mapMatch(updated);
   }
 
@@ -556,6 +571,7 @@ export class SupabaseStorage implements IStorage {
         .eq("id", matchId)
         .select()
         .single();
+      if (updated) console.log("[completeCall] CALL_SESSION_CLEARED (unanswered)", { matchId, userId });
       return updated ? mapMatch(updated) : undefined;
     }
 
@@ -575,6 +591,7 @@ export class SupabaseStorage implements IStorage {
       .eq("id", matchId)
       .select()
       .single();
+    if (updated) console.log("[completeCall] CALL_SESSION_CLEARED", { matchId, userId, newStage: nextStage });
     return updated ? mapMatch(updated) : undefined;
   }
 

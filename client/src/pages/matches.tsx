@@ -559,7 +559,7 @@ function MatchChat({ match }: { match: MatchWithProfile }) {
   const startCall = useMutation({
     mutationFn: async () => {
       const path = `/api/matches/${match.id}/call/start`;
-      console.log("[Call] CALL_API_REQUEST", { path, method: "POST", matchId: match.id });
+      console.log("[Call] CALL_SESSION_CHECKED", { path, method: "POST", matchId: match.id });
       const res = await apiRequest("POST", path, {});
       const data = await res.json();
       console.log("[Call] CALL_API_RESPONSE", { path, status: res.status, callSessionId: data.callSessionId });
@@ -580,7 +580,14 @@ function MatchChat({ match }: { match: MatchWithProfile }) {
     },
     onError: (error: Error) => {
       console.error("[Call] CALL_API_RESPONSE error:", error.message);
-      toast({ title: "Call failed", description: error.message, variant: "destructive" });
+      if (error.message.includes("already in progress")) {
+        console.log("[Call] DUPLICATE_CALL_BLOCKED - other user is already calling", { matchId: match.id });
+        toast({ title: "Call in progress", description: "The other person is already calling you." });
+        queryClient.invalidateQueries({ queryKey: ["/api/matches", match.id] });
+        queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
+      } else {
+        toast({ title: "Call failed", description: error.message, variant: "destructive" });
+      }
     },
   });
 
