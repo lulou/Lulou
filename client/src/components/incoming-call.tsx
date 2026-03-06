@@ -142,11 +142,7 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss }: In
   const actedRef = useRef(false);
 
   useEffect(() => {
-    console.log("[IncomingCall] INCOMING_CALL_SHOWN", {
-      matchId: match.id,
-      callerName: match.profile.firstName,
-      isFaceCall,
-    });
+    console.log("[IncomingCall] Shown for", match.profile.firstName, match.id);
   }, [match.id]);
 
   const { data: freshMatches } = useQuery<MatchWithProfile[]>({
@@ -170,29 +166,22 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss }: In
 
   const answerCall = useMutation({
     mutationFn: async () => {
-      const path = `/api/matches/${match.id}/call/answer`;
-      console.log("[IncomingCall] CALL_API_REQUEST", { path, method: "POST", matchId: match.id });
       actedRef.current = true;
-      const res = await apiRequest("POST", path, {});
-      const data = await res.json();
-      console.log("[IncomingCall] CALL_API_RESPONSE", { path, status: res.status, CALL_SESSION_ID: data.callSessionId });
-      return data;
+      const res = await apiRequest("POST", `/api/matches/${match.id}/call/answer`, {});
+      return await res.json();
     },
     onSuccess: () => {
-      console.log("[IncomingCall] CALL_SESSION_JOINED", { matchId: match.id, callSessionId: match.callSessionId });
       setAnswered(true);
       broadcastCallSignal(match.id, {
         type: "call:answered",
         matchId: match.id,
         userId: user!.id,
-        callSessionId: match.callSessionId,
-      });
+      } as any);
       queryClient.invalidateQueries({ queryKey: ["/api/matches", match.id] });
       queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
       onDismiss();
     },
     onError: () => {
-      console.error("[IncomingCall] Failed to answer call");
       toast({ title: "Couldn't connect", description: "The call may have ended.", variant: "destructive" });
       onDismiss();
     },
@@ -200,34 +189,22 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss }: In
 
   const declineCall = useMutation({
     mutationFn: async () => {
-      const path = `/api/matches/${match.id}/call/cancel`;
-      console.log("[IncomingCall] CALL_API_REQUEST", { path, method: "POST", matchId: match.id });
       actedRef.current = true;
-      const res = await apiRequest("POST", path, {});
-      const data = await res.json();
-      console.log("[IncomingCall] CALL_API_RESPONSE", { path, status: res.status });
-      return data;
+      const res = await apiRequest("POST", `/api/matches/${match.id}/call/cancel`, {});
+      return await res.json();
     },
     onSuccess: () => {
-      console.log("[IncomingCall] CALL_END_REQUESTED - declining call");
-      broadcastCallSignal(match.id, {
-        type: "call:ended" as any,
-        matchId: match.id,
-        userId: user!.id,
-      });
       broadcastCallSignal(match.id, {
         type: "call:declined",
         matchId: match.id,
         userId: user!.id,
       });
-      console.log("[IncomingCall] CALL_END_SENT", { matchId: match.id });
       queryClient.invalidateQueries({ queryKey: ["/api/matches", match.id] });
       queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
       toast({ title: "Call declined" });
       onDismiss();
     },
     onError: () => {
-      console.error("[IncomingCall] Failed to decline call");
       onDismiss();
     },
   });

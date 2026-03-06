@@ -69,9 +69,24 @@ function PersistentTabs() {
 
 type MatchWithProfile = Match & { profile: Profile };
 
+function clearCallFromCache(qc: ReturnType<typeof useQueryClient>, matchId: string) {
+  qc.setQueriesData<MatchWithProfile[]>({ queryKey: ["/api/matches"] }, (old) => {
+    if (!old) return old;
+    return old.map(m => m.id === matchId ? {
+      ...m,
+      callStartedAt: null,
+      callInitiatorId: null,
+      callAnswered: false,
+      callCompleted: false,
+      callSessionId: null,
+    } : m);
+  });
+  qc.invalidateQueries({ queryKey: ["/api/matches"] });
+  qc.invalidateQueries({ queryKey: ["/api/matches", matchId] });
+}
+
 function CallDetectors({ userId }: { userId: string }) {
   const [dismissedCallKey, setDismissedCallKey] = useState<string | null>(null);
-  const endedSessionsRef = useRef(new Set<string>());
   const endedMatchIdsRef = useRef(new Set<string>());
   const [endedTick, setEndedTick] = useState(0);
   const qc = useQueryClient();
@@ -84,116 +99,56 @@ function CallDetectors({ userId }: { userId: string }) {
   const matchIds = (matches || []).map(m => m.id);
   useCallSignaling(matchIds, userId);
 
-  const markCallEnded = useCallback((matchId: string, sessionId?: string) => {
+  const markCallEnded = useCallback((matchId: string) => {
     endedMatchIdsRef.current.add(matchId);
-    if (sessionId) endedSessionsRef.current.add(sessionId);
-    console.log("[CallDetectors] CALL_STATE_CLEARED", { matchId, sessionId, endedMatches: [...endedMatchIdsRef.current], endedSessions: [...endedSessionsRef.current] });
     setEndedTick(t => t + 1);
-    qc.invalidateQueries({ queryKey: ["/api/matches"] });
-    qc.invalidateQueries({ queryKey: ["/api/matches", matchId] });
+    clearCallFromCache(qc, matchId);
   }, [qc]);
 
   useEffect(() => {
     if (!matches) return;
-    const toRemove: string[] = [];
     for (const mid of endedMatchIdsRef.current) {
       const m = matches.find(x => x.id === mid);
       if (m && !m.callStartedAt && !m.callInitiatorId && !m.callAnswered && !m.callSessionId) {
-        toRemove.push(mid);
-      }
-    }
-    if (toRemove.length > 0) {
-      for (const mid of toRemove) {
         endedMatchIdsRef.current.delete(mid);
         clearDedupeForMatch(mid);
-        console.log("[CallDetectors] CALL_LISTENER_REMOVED - match confirmed cleared:", mid);
       }
-      setEndedTick(t => t + 1);
     }
   }, [matches]);
 
   useEffect(() => {
     setCallEndedHandler((matchId: string) => {
-      console.log("[CallDetectors] CANCEL_CALL_EVENT_RECEIVED - forcing call end for matchId:", matchId);
-      const m = matches?.find(x => x.id === matchId);
-      markCallEnded(matchId, m?.callSessionId || undefined);
-      qc.setQueriesData<MatchWithProfile[]>({ queryKey: ["/api/matches"] }, (old) => {
-        if (!old) return old;
-        return old.map(mx => mx.id === matchId ? {
-          ...mx,
-          callStartedAt: null,
-          callInitiatorId: null,
-          callAnswered: false,
-          callCompleted: false,
-          callSessionId: null,
-        } : mx);
-      });
-      console.log("[CallDetectors] CANCEL_CALL_STATE_CLEARED - remote signal cache cleared:", matchId);
+      markCallEnded(matchId);
     });
     return () => setCallEndedHandler(null);
-  }, [qc, matches, markCallEnded]);
+  }, [markCallEnded]);
 
   const isEndedCall = useCallback((m: MatchWithProfile) => {
-    if (endedMatchIdsRef.current.has(m.id)) return true;
-    if (m.callSessionId && endedSessionsRef.current.has(m.callSessionId)) return true;
-    return false;
+    return endedMatchIdsRef.current.has(m.id);
   }, [endedTick]);
 
   const incomingCall = matches?.find(m => {
     if (!m.callStartedAt || m.callAnswered || m.callCompleted) return false;
     if (!m.callSessionId) return false;
     if (!m.callInitiatorId || m.callInitiatorId === userId) return false;
-    if (isEndedCall(m)) {
-      console.log("[CallDetectors] INCOMING_CALL_RESET - suppressed ended call:", m.id, m.callSessionId);
-      return false;
-    }
+    if (isEndedCall(m)) return false;
     const callKey = `${m.id}:${m.callSessionId}`;
     return callKey !== dismissedCallKey;
   });
 
   const answeredCall = matches?.find(m => {
-    if (!(!!m.callStartedAt && !!m.callSessionId && m.callAnswered === true && m.callCompleted === false &&
+    if (!(m.callStartedAt && m.callSessionId && m.callAnswered === true && m.callCompleted === false &&
       (m.user1Id === userId || m.user2Id === userId))) return false;
-    if (isEndedCall(m)) {
-      console.log("[CallDetectors] OUTGOING_CALL_RESET - suppressed ended answered call:", m.id, m.callSessionId);
-      return false;
-    }
-    return true;
+    return !isEndedCall(m);
   });
 
   const callerRingingCall = matches?.find(m => {
-    if (!(!!m.callStartedAt && !!m.callSessionId && !m.callAnswered && !m.callCompleted &&
+    if (!(m.callStartedAt && m.callSessionId && !m.callAnswered && !m.callCompleted &&
       m.callInitiatorId === userId)) return false;
-    if (isEndedCall(m)) {
-      console.log("[CallDetectors] OUTGOING_CALL_RESET - suppressed ended ringing call:", m.id, m.callSessionId);
-      return false;
-    }
-    return true;
+    return !isEndedCall(m);
   });
 
   const activeCall = answeredCall || callerRingingCall;
-
-  useEffect(() => {
-    if (incomingCall) {
-      console.log("[CallDetectors] INCOMING_CALL_DETECTED", {
-        matchId: incomingCall.id,
-        callSessionId: incomingCall.callSessionId,
-        callerId: incomingCall.callInitiatorId,
-        callerName: incomingCall.profile?.firstName,
-      });
-    }
-  }, [incomingCall?.id, incomingCall?.callSessionId]);
-
-  useEffect(() => {
-    if (activeCall) {
-      console.log("[CallDetectors] CALL_SESSION_LOADED", {
-        matchId: activeCall.id,
-        callSessionId: activeCall.callSessionId,
-        isCaller: activeCall.callInitiatorId === userId,
-        answered: activeCall.callAnswered,
-      });
-    }
-  }, [activeCall?.id, activeCall?.callSessionId, activeCall?.callAnswered, userId]);
 
   const isFaceCall = incomingCall
     ? (incomingCall.callStage || 0) === 2 &&
@@ -209,45 +164,16 @@ function CallDetectors({ userId }: { userId: string }) {
 
   const handleDismiss = useCallback(() => {
     if (incomingCall) {
-      const mid = incomingCall.id;
-      console.log("[CallDetectors] INCOMING_CALL_RESET - dismissing:", mid);
-      setDismissedCallKey(`${mid}:${incomingCall.callSessionId}`);
-      markCallEnded(mid, incomingCall.callSessionId || undefined);
-      qc.setQueriesData<MatchWithProfile[]>({ queryKey: ["/api/matches"] }, (old) => {
-        if (!old) return old;
-        return old.map(m => m.id === mid ? {
-          ...m,
-          callStartedAt: null,
-          callInitiatorId: null,
-          callAnswered: false,
-          callCompleted: false,
-          callSessionId: null,
-        } : m);
-      });
-      console.log("[CallDetectors] CANCEL_CALL_STATE_CLEARED - incoming call cache cleared:", mid);
+      setDismissedCallKey(`${incomingCall.id}:${incomingCall.callSessionId}`);
+      markCallEnded(incomingCall.id);
     }
-  }, [incomingCall, markCallEnded, qc]);
+  }, [incomingCall, markCallEnded]);
 
   const handleActiveCallEnd = useCallback(() => {
-    const mid = activeCall?.id;
-    const sid = activeCall?.callSessionId;
-    console.log("[CallDetectors] CANCEL_CALL_STATE_CLEARED", { matchId: mid, callSessionId: sid });
-    if (mid) {
-      markCallEnded(mid, sid || undefined);
-      qc.setQueriesData<MatchWithProfile[]>({ queryKey: ["/api/matches"] }, (old) => {
-        if (!old) return old;
-        return old.map(m => m.id === mid ? {
-          ...m,
-          callStartedAt: null,
-          callInitiatorId: null,
-          callAnswered: false,
-          callCompleted: false,
-          callSessionId: null,
-        } : m);
-      });
-      console.log("[CallDetectors] CALL_PENDING_STATE_CLEARED - optimistic cache update for:", mid);
+    if (activeCall) {
+      markCallEnded(activeCall.id);
     }
-  }, [activeCall?.id, activeCall?.callSessionId, markCallEnded, qc]);
+  }, [activeCall?.id, markCallEnded]);
 
   return (
     <>

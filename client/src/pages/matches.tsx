@@ -558,32 +558,17 @@ function MatchChat({ match }: { match: MatchWithProfile }) {
 
   const startCall = useMutation({
     mutationFn: async () => {
-      const path = `/api/matches/${match.id}/call/start`;
-      console.log("[Call] CALL_SESSION_CHECKED", { path, method: "POST", matchId: match.id });
-      const res = await apiRequest("POST", path, {});
-      const data = await res.json();
-      console.log("[Call] CALL_API_RESPONSE", { path, status: res.status, callSessionId: data.callSessionId });
-      return data;
+      const res = await apiRequest("POST", `/api/matches/${match.id}/call/start`, {});
+      return await res.json();
     },
-    onSuccess: (data: any) => {
+    onSuccess: () => {
       iCancelledRef.current = false;
-      console.log("[MatchChat] OUTGOING_CALL_STARTED", { matchId: match.id, callSessionId: data.callSessionId, callerId: user!.id });
-      broadcastCallSignal(match.id, {
-        type: "call:ring",
-        matchId: match.id,
-        callerId: user!.id,
-        callerName: "You",
-        callSessionId: data.callSessionId,
-      });
       queryClient.invalidateQueries({ queryKey: ["/api/matches", match.id] });
       queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
     },
     onError: (error: Error) => {
-      console.error("[Call] CALL_API_RESPONSE error:", error.message);
       if (error.message.includes("already in progress")) {
-        console.log("[Call] DUPLICATE_CALL_BLOCKED - other user is already calling", { matchId: match.id });
         toast({ title: "Call in progress", description: "The other person is already calling you." });
-        queryClient.invalidateQueries({ queryKey: ["/api/matches", match.id] });
         queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
       } else {
         toast({ title: "Call failed", description: error.message, variant: "destructive" });
@@ -593,42 +578,21 @@ function MatchChat({ match }: { match: MatchWithProfile }) {
 
   const cancelCall = useMutation({
     mutationFn: async () => {
-      console.log("[MatchChat] CANCEL_CALL_CLICKED", { matchId: match.id });
       const res = await apiRequest("POST", `/api/matches/${match.id}/call/cancel`, {});
       return res.json();
     },
     onSuccess: () => {
-      console.log("[MatchChat] CANCEL_CALL_SESSION_UPDATED", { matchId: match.id });
       iCancelledRef.current = true;
-      broadcastCallSignal(match.id, {
-        type: "call:ended" as any,
-        matchId: match.id,
-        userId: user!.id,
-      });
       broadcastCallSignal(match.id, {
         type: "call:cancelled",
         matchId: match.id,
         userId: user!.id,
       });
-      console.log("[MatchChat] CANCEL_CALL_EVENT_SENT", { matchId: match.id });
-      queryClient.setQueriesData<any>({ queryKey: ["/api/matches"] }, (old: any) => {
-        if (!old || !Array.isArray(old)) return old;
-        return old.map((m: any) => m.id === match.id ? {
-          ...m,
-          callStartedAt: null,
-          callInitiatorId: null,
-          callAnswered: false,
-          callCompleted: false,
-          callSessionId: null,
-        } : m);
-      });
       queryClient.invalidateQueries({ queryKey: ["/api/matches", match.id] });
       queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
-      console.log("[MatchChat] CANCEL_CALL_STATE_CLEARED", { matchId: match.id });
-      toast({ title: "Call cancelled", description: "No worries - the call wasn't connected so it doesn't count." });
+      toast({ title: "Call cancelled" });
     },
     onError: (error: Error) => {
-      console.error("[MatchChat] CANCEL_CALL_SESSION_UPDATED error:", error.message);
       toast({ title: "Cancel failed", description: error.message, variant: "destructive" });
     },
   });

@@ -7,10 +7,7 @@ type CallSignalEvent =
   | { type: "call:answered"; matchId: string; userId: string }
   | { type: "call:declined"; matchId: string; userId: string }
   | { type: "call:cancelled"; matchId: string; userId: string }
-  | { type: "call:completed"; matchId: string; userId: string }
   | { type: "call:ended"; matchId: string; userId: string };
-
-const LOG_PREFIX = "[CallSignaling]";
 
 function getChannelName(matchId: string) {
   return `call-signal:${matchId}`;
@@ -19,29 +16,26 @@ function getChannelName(matchId: string) {
 const subscribedChannels = new Map<string, ReturnType<typeof supabase.channel>>();
 
 let callEndedCallback: ((matchId: string) => void) | null = null;
-const processedEndEvents = new Set<string>();
+const recentlyProcessed = new Set<string>();
 
 export function setCallEndedHandler(handler: ((matchId: string) => void) | null) {
   callEndedCallback = handler;
 }
 
-function dedupeCallEnd(matchId: string, reason: string): boolean {
-  const key = `${matchId}:${reason}`;
-  if (processedEndEvents.has(key)) {
-    console.log(LOG_PREFIX, `Duplicate call-end event suppressed: ${key}`);
-    return false;
-  }
-  processedEndEvents.add(key);
-  setTimeout(() => processedEndEvents.delete(key), 10000);
-  return true;
-}
-
 export function clearDedupeForMatch(matchId: string) {
-  for (const key of processedEndEvents) {
+  for (const key of recentlyProcessed) {
     if (key.startsWith(`${matchId}:`)) {
-      processedEndEvents.delete(key);
+      recentlyProcessed.delete(key);
     }
   }
+}
+
+function processEndSignal(matchId: string, reason: string) {
+  const key = `${matchId}:${reason}`;
+  if (recentlyProcessed.has(key)) return;
+  recentlyProcessed.add(key);
+  setTimeout(() => recentlyProcessed.delete(key), 10000);
+  callEndedCallback?.(matchId);
 }
 
 export function useCallSignaling(matchIds: string[], userId: string) {
@@ -58,7 +52,6 @@ export function useCallSignaling(matchIds: string[], userId: string) {
 
     for (const [id, ch] of subscribedChannels.entries()) {
       if (!currentIds.has(id)) {
-        console.log(LOG_PREFIX, `Unsubscribing from ${getChannelName(id)}`);
         supabase.removeChannel(ch);
         subscribedChannels.delete(id);
       }
@@ -67,10 +60,7 @@ export function useCallSignaling(matchIds: string[], userId: string) {
     for (const matchId of matchIds) {
       if (subscribedChannels.has(matchId)) continue;
 
-      const channelName = getChannelName(matchId);
-      console.log(LOG_PREFIX, `Subscribing to ${channelName}`);
-
-      const channel = supabase.channel(channelName, {
+      const channel = supabase.channel(getChannelName(matchId), {
         config: { broadcast: { self: false } },
       });
 
@@ -80,53 +70,24 @@ export function useCallSignaling(matchIds: string[], userId: string) {
         if (senderId === userId) return;
         const event = payload as CallSignalEvent;
 
-        if (event.type === "call:ring") {
-          console.log(LOG_PREFIX, `INCOMING_CALL_RECEIVED matchId=${matchId} from=${senderId} callerName=${(event as any).callerName}`);
-        } else if (event.type === "call:answered") {
-          console.log(LOG_PREFIX, `CALL_ACCEPTED matchId=${matchId} by=${senderId}`);
-        } else if (event.type === "call:declined") {
-          console.log(LOG_PREFIX, `CALL_DECLINED matchId=${matchId} by=${senderId}`);
-          if (dedupeCallEnd(matchId, "declined")) {
-            console.log(LOG_PREFIX, `CALL_END_RECEIVED matchId=${matchId} by=${senderId} reason=declined`);
-            callEndedCallback?.(matchId);
-          }
+        if (event.type === "call:declined") {
+          processEndSignal(matchId, "declined");
         } else if (event.type === "call:cancelled") {
-          console.log(LOG_PREFIX, `CANCEL_EVENT_RECEIVED matchId=${matchId} by=${senderId}`);
-          if (dedupeCallEnd(matchId, "cancelled")) {
-            console.log(LOG_PREFIX, `CALL_END_RECEIVED matchId=${matchId} by=${senderId} reason=cancelled`);
-            callEndedCallback?.(matchId);
-          }
-        } else if (event.type === "call:completed") {
-          console.log(LOG_PREFIX, `CALL_COMPLETED matchId=${matchId} by=${senderId}`);
-          if (dedupeCallEnd(matchId, "completed")) {
-            console.log(LOG_PREFIX, `CALL_END_RECEIVED matchId=${matchId} by=${senderId} reason=completed`);
-            callEndedCallback?.(matchId);
-          }
+          processEndSignal(matchId, "cancelled");
         } else if (event.type === "call:ended") {
-          if (dedupeCallEnd(matchId, "ended")) {
-            console.log(LOG_PREFIX, `CALL_END_RECEIVED matchId=${matchId} by=${senderId} reason=ended`);
-            callEndedCallback?.(matchId);
-          }
+          processEndSignal(matchId, "ended");
         }
 
         queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
         queryClient.invalidateQueries({ queryKey: ["/api/matches", matchId] });
       });
 
-      channel.subscribe((status) => {
-        if (status === "SUBSCRIBED") {
-          console.log(LOG_PREFIX, `Channel ${channelName} SUBSCRIBED - ready to receive signals`);
-        } else if (status === "CLOSED" || status === "CHANNEL_ERROR") {
-          console.error(LOG_PREFIX, `Channel ${channelName} ${status}`);
-        }
-      });
-
+      channel.subscribe();
       subscribedChannels.set(matchId, channel);
     }
 
     return () => {
-      for (const [id, ch] of subscribedChannels.entries()) {
-        console.log(LOG_PREFIX, `Cleanup: removing ${getChannelName(id)}`);
+      for (const [, ch] of subscribedChannels.entries()) {
         supabase.removeChannel(ch);
       }
       subscribedChannels.clear();
@@ -136,8 +97,6 @@ export function useCallSignaling(matchIds: string[], userId: string) {
 }
 
 export function broadcastCallSignal(matchId: string, event: CallSignalEvent) {
-  console.log(LOG_PREFIX, `Broadcasting (client backup):`, event.type, `matchId=${matchId}`);
-
   const existing = subscribedChannels.get(matchId);
   if (existing) {
     existing.send({
@@ -145,18 +104,15 @@ export function broadcastCallSignal(matchId: string, event: CallSignalEvent) {
       event: "call-signal",
       payload: event,
     });
-    console.log(LOG_PREFIX, `Client broadcast sent via subscribed channel`);
     return;
   }
 
-  console.log(LOG_PREFIX, `No subscribed channel, creating one-shot sender for ${matchId}`);
   const channelName = getChannelName(matchId);
   const tempChannel = supabase.channel(channelName, {
     config: { broadcast: { self: false } },
   });
 
   const timeout = setTimeout(() => {
-    console.warn(LOG_PREFIX, `One-shot sender timed out for ${matchId}`);
     supabase.removeChannel(tempChannel);
   }, 5000);
 
@@ -168,7 +124,6 @@ export function broadcastCallSignal(matchId: string, event: CallSignalEvent) {
         event: "call-signal",
         payload: event,
       });
-      console.log(LOG_PREFIX, `Client backup broadcast sent via one-shot channel`);
       setTimeout(() => supabase.removeChannel(tempChannel), 2000);
     }
   });

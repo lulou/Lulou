@@ -32,17 +32,15 @@ Lulou Dating is a calm, premium dating app focused on helping people move from m
   2. Second voice call (15 minutes) - prompted after first call
   3. Optional face/video call (10 minutes) - both users must accept; either can skip
 - Call stages tracked via `callStage` (0=pre-call, 1=first done, 2=second done, 3=face done/skipped)
-- Call sessions tracked via `callSessionId` on matches table (unique per call, cleared on end/cancel)
-- WebRTC peer-to-peer audio/video calls using Supabase Realtime broadcast for signaling
-  - Voice calls: microphone audio streamed between devices
-  - Video calls: camera + microphone streamed, remote video full-screen with local PIP
-  - Permission denied handling with clear user-facing messages
-  - STUN servers for NAT traversal (Google public STUN)
-  - Connection state display (connecting, connected, failed)
-  - Mute/camera-off toggles, end call button
+- Call sessions tracked via `callSessionId` derived from `call_started_at` (no DB column)
+- **Call system is baseline-only** — no WebRTC audio/video yet (use-webrtc.ts exists but is not imported)
+- Call signaling via Supabase Realtime broadcast (5 signal types: ring, answered, declined, cancelled, ended)
+- Server broadcasts ring on start, cancelled on cancel, ended on complete
+- Client broadcasts declined (on decline), cancelled (on caller cancel), ended (on hang up)
 - Incoming call overlay: full-screen phone-call-style screen with caller photo, swipe-to-answer/decline
-- Active call overlay: full-screen UI with call timer, controls, WebRTC audio/video streams
-- CallDetectors in App.tsx polls matches every 3s and shows incoming or active call overlays
+- Active call overlay: full-screen UI with call timer and end-call button (no audio/video controls)
+- CallDetectors in App.tsx polls matches every 10s and shows incoming or active call overlays
+- Duplicate call prevention via `.is("call_started_at", null)` guard in DB update
 - Caller gets "declined" notification when receiver declines their call
 - Face call requires mutual acceptance (`faceCallUser1Accepted`, `faceCallUser2Accepted`)
 - After all calls: "Ready to Meet" button shows date/time picker (next 7 days, 4 time slots each)
