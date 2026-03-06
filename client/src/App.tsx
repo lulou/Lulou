@@ -17,7 +17,7 @@ import LikesPage from "@/pages/likes";
 import AppLayout from "@/components/app-layout";
 import IncomingCallOverlay from "@/components/incoming-call";
 import { ActiveCallOverlay } from "@/components/active-call";
-import { useCallSignaling, setCallEndedHandler, clearDedupeForMatch } from "@/hooks/use-call-signaling";
+import { useCallSignaling, setCallEndedHandler, clearDedupeForMatch, getPendingCallState, clearPendingCallState, reconcilePendingWithServer } from "@/hooks/use-call-signaling";
 import type { Profile, Match } from "@shared/schema";
 import { Loader2 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
@@ -114,6 +114,9 @@ function CallDetectors({ userId }: { userId: string }) {
         clearDedupeForMatch(mid);
       }
     }
+    for (const m of matches) {
+      reconcilePendingWithServer(m.id, m.callStartedAt, m.callInitiatorId);
+    }
   }, [matches]);
 
   useEffect(() => {
@@ -150,6 +153,40 @@ function CallDetectors({ userId }: { userId: string }) {
 
   const activeCall = answeredCall || callerRingingCall;
 
+  const prevIncomingRef = useRef<string | null>(null);
+  const prevActiveRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    const incomingKey = incomingCall ? `${incomingCall.id}:${incomingCall.callSessionId}` : null;
+    if (incomingKey && incomingKey !== prevIncomingRef.current) {
+      console.log("[CALL_UI] INCOMING_CALL_UI_SHOWN", {
+        matchId: incomingCall!.id,
+        callSessionId: incomingCall!.callSessionId,
+        callerId: incomingCall!.callInitiatorId,
+        receiverId: userId,
+        SESSION_PARTICIPANTS_COUNT: 2,
+      });
+    }
+    prevIncomingRef.current = incomingKey;
+  }, [incomingCall?.id, incomingCall?.callSessionId, userId]);
+
+  useEffect(() => {
+    const activeKey = activeCall ? `${activeCall.id}:${activeCall.callSessionId}` : null;
+    if (activeKey && activeKey !== prevActiveRef.current) {
+      const isCaller = activeCall!.callInitiatorId === userId;
+      console.log("[CALL_UI] ACTIVE_CALL_UI_SHOWN", {
+        matchId: activeCall!.id,
+        callSessionId: activeCall!.callSessionId,
+        role: isCaller ? "CALLER" : "RECEIVER",
+        callerId: activeCall!.callInitiatorId,
+        userId,
+        isRinging: !activeCall!.callAnswered,
+        SESSION_PARTICIPANTS_COUNT: 2,
+      });
+    }
+    prevActiveRef.current = activeKey;
+  }, [activeCall?.id, activeCall?.callSessionId, userId]);
+
   const isFaceCall = incomingCall
     ? (incomingCall.callStage || 0) === 2 &&
       !!incomingCall.faceCallUser1Accepted &&
@@ -171,6 +208,7 @@ function CallDetectors({ userId }: { userId: string }) {
 
   const handleActiveCallEnd = useCallback(() => {
     if (activeCall) {
+      clearPendingCallState(activeCall.id);
       markCallEnded(activeCall.id);
     }
   }, [activeCall?.id, markCallEnded]);

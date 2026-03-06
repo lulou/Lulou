@@ -14,7 +14,7 @@ import { useRealtimeMessages } from "@/hooks/use-realtime-messages";
 import { Input } from "@/components/ui/input";
 import { MessageCircle, Send, Phone, Video, ChevronDown, ChevronUp, PhoneOff, Clock, Check, X, Sparkles, Calendar, Heart, PhoneForwarded, Moon } from "lucide-react";
 import { LulouFlowerIcon } from "@/components/app-layout";
-import { broadcastCallSignal } from "@/hooks/use-call-signaling";
+import { broadcastCallSignal, getPendingCallState } from "@/hooks/use-call-signaling";
 import type { Profile, Match, Message, SpinRequest } from "@shared/schema";
 
 const MAX_MESSAGES_PER_USER = 15;
@@ -558,16 +558,29 @@ function MatchChat({ match }: { match: MatchWithProfile }) {
 
   const startCall = useMutation({
     mutationFn: async () => {
+      const pending = getPendingCallState(match.id);
+      if (pending) {
+        console.log("[CALL] DUPLICATE_CALL_BLOCKED (client)", { matchId: match.id, existingCallerId: pending.callerId, blockedUser: user?.id });
+        throw new Error("A call is already in progress");
+      }
+      if (detail.callStartedAt && detail.callInitiatorId) {
+        console.log("[CALL] DUPLICATE_CALL_BLOCKED (cached)", { matchId: match.id, existingCallerId: detail.callInitiatorId, blockedUser: user?.id });
+        throw new Error("A call is already in progress");
+      }
+      console.log("[CALL] CALL_SESSION_CREATED (initiating)", { matchId: match.id, callerId: user?.id });
       const res = await apiRequest("POST", `/api/matches/${match.id}/call/start`, {});
       return await res.json();
     },
-    onSuccess: () => {
+    onSuccess: (data: any) => {
       iCancelledRef.current = false;
+      console.log("[CALL] CALLER_ASSIGNED", { matchId: match.id, callerId: user?.id, callSessionId: data?.callSessionId, status: "created" });
+      console.log("[CALL] OUTGOING_CALL_UI_SHOWN", { matchId: match.id });
       queryClient.invalidateQueries({ queryKey: ["/api/matches", match.id] });
       queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
     },
     onError: (error: Error) => {
       if (error.message.includes("already in progress")) {
+        console.log("[CALL] DUPLICATE_CALL_BLOCKED (server)", { matchId: match.id, userId: user?.id });
         toast({ title: "Call in progress", description: "The other person is already calling you." });
         queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
       } else {
@@ -681,6 +694,9 @@ function MatchChat({ match }: { match: MatchWithProfile }) {
   const isCallActive = detail.callStartedAt && detail.callSessionId && detail.callAnswered && !detail.callCompleted;
 
   const iAmCaller = detail.callInitiatorId === user?.id;
+  const hasExistingCall = !!(detail.callStartedAt && detail.callInitiatorId);
+  const pendingFromSignal = getPendingCallState(match.id);
+  const callBlocked = hasExistingCall || !!pendingFromSignal;
   const prevRingingRef = useRef(false);
   useEffect(() => {
     const wasRinging = prevRingingRef.current;
@@ -951,7 +967,7 @@ function MatchChat({ match }: { match: MatchWithProfile }) {
                 <Button
                   size="sm"
                   onClick={() => startCall.mutate()}
-                  disabled={startCall.isPending}
+                  disabled={startCall.isPending || callBlocked}
                   data-testid={`button-start-face-call-${match.id}`}
                 >
                   <Video className="w-4 h-4 mr-2" /> {startCall.isPending ? "Starting..." : "Start Face Call"}
@@ -967,7 +983,7 @@ function MatchChat({ match }: { match: MatchWithProfile }) {
                 <Button
                   size="sm"
                   onClick={() => startCall.mutate()}
-                  disabled={startCall.isPending}
+                  disabled={startCall.isPending || callBlocked}
                   data-testid={`button-second-call-${match.id}`}
                 >
                   <Phone className="w-4 h-4 mr-2" /> {startCall.isPending ? "Starting..." : "Start Second Call"}
@@ -983,7 +999,7 @@ function MatchChat({ match }: { match: MatchWithProfile }) {
                 <Button
                   size="sm"
                   onClick={() => startCall.mutate()}
-                  disabled={startCall.isPending}
+                  disabled={startCall.isPending || callBlocked}
                   data-testid={`button-call-${match.id}`}
                 >
                   <Phone className="w-4 h-4 mr-2" /> {startCall.isPending ? "Starting..." : "Start First Call"}

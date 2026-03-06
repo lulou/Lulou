@@ -48,6 +48,17 @@ export function ActiveCallOverlay({
   const queryClient = useQueryClient();
   const endedRef = useRef(false);
 
+  useEffect(() => {
+    console.log("[CALL_UI] OUTGOING_CALL_UI_SHOWN", {
+      matchId,
+      callSessionId,
+      role: isCaller ? "CALLER" : "RECEIVER",
+      userId,
+      isRinging,
+      SESSION_PARTICIPANTS_COUNT: 2,
+    });
+  }, [matchId, callSessionId]);
+
   const finishCall = useCallback(() => {
     if (endedRef.current) return;
     endedRef.current = true;

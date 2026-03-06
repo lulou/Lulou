@@ -142,7 +142,13 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss }: In
   const actedRef = useRef(false);
 
   useEffect(() => {
-    console.log("[IncomingCall] Shown for", match.profile.firstName, match.id);
+    console.log("[CALL_UI] INCOMING_CALL_UI_SHOWN", {
+      matchId: match.id,
+      callerId: match.callInitiatorId,
+      receiverId: user?.id,
+      callerName: match.profile.firstName,
+      callSessionId: match.callSessionId,
+    });
   }, [match.id]);
 
   const { data: freshMatches } = useQuery<MatchWithProfile[]>({

@@ -479,19 +479,21 @@ export async function registerRoutes(
       const { match, status } = result;
 
       if (status === "blocked") {
-        console.log("[CALL_START] DUPLICATE_CALL_BLOCKED", { matchId, existingCaller: match.callInitiatorId, blockedUser: userId });
+        console.log("[CALL_START] DUPLICATE_CALL_BLOCKED", { matchId, existingCaller: match.callInitiatorId, blockedUser: userId, callSessionId: match.callSessionId });
         return res.status(409).json({ message: "A call is already in progress", match });
       }
 
       if (status === "reused") {
-        console.log("[CALL_START] CALL_SESSION_REUSED", { matchId, CALL_SESSION_ID: match.callSessionId, callerId: userId });
+        console.log("[CALL_START] CALL_SESSION_REUSED", { matchId, callSessionId: match.callSessionId, callerId: userId });
         return res.json(match);
       }
 
       const otherUserId = match.user1Id === userId ? match.user2Id : match.user1Id;
       const callerProfile = await serverStorage.getProfile(userId);
       const callerName = callerProfile?.firstName || "Someone";
-      console.log("[CALL_START] CALL_API_RESPONSE", { status: 200, matchId, CALL_SESSION_ID: match.callSessionId, callerId: userId, receiverId: otherUserId, callerName });
+      console.log("[CALL_START] CALL_SESSION_CREATED", { matchId, callSessionId: match.callSessionId, SESSION_PARTICIPANTS_COUNT: 2 });
+      console.log("[CALL_START] CALLER_ASSIGNED", { matchId, callerId: userId, callerName });
+      console.log("[CALL_START] RECEIVER_ASSIGNED", { matchId, receiverId: otherUserId });
 
       broadcastCallEvent(matchId, {
         type: "call:ring",
