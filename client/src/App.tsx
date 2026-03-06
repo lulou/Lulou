@@ -17,6 +17,7 @@ import LikesPage from "@/pages/likes";
 import AppLayout from "@/components/app-layout";
 import IncomingCallOverlay from "@/components/incoming-call";
 import { ActiveCallOverlay } from "@/components/active-call";
+import { useCallSignaling } from "@/hooks/use-call-signaling";
 import type { Profile, Match } from "@shared/schema";
 import { Loader2 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
@@ -74,8 +75,11 @@ function CallDetectors({ userId }: { userId: string }) {
 
   const { data: matches } = useQuery<MatchWithProfile[]>({
     queryKey: ["/api/matches"],
-    refetchInterval: 3000,
+    refetchInterval: 10000,
   });
+
+  const matchIds = (matches || []).map(m => m.id);
+  useCallSignaling(matchIds, userId);
 
   const incomingCall = matches?.find(m => {
     if (!m.callStartedAt || m.callAnswered || m.callCompleted) return false;
@@ -96,6 +100,27 @@ function CallDetectors({ userId }: { userId: string }) {
 
   const activeCall = answeredCall || callerRingingCall;
 
+  useEffect(() => {
+    if (incomingCall) {
+      console.log("[CallDetectors] Incoming call detected:", {
+        matchId: incomingCall.id,
+        callerId: incomingCall.callInitiatorId,
+        callerName: incomingCall.profile?.firstName,
+      });
+    }
+  }, [incomingCall?.id, incomingCall?.callStartedAt]);
+
+  useEffect(() => {
+    if (activeCall) {
+      console.log("[CallDetectors] Active call state:", {
+        matchId: activeCall.id,
+        isCaller: activeCall.callInitiatorId === userId,
+        answered: activeCall.callAnswered,
+        completed: activeCall.callCompleted,
+      });
+    }
+  }, [activeCall?.id, activeCall?.callAnswered, activeCall?.callCompleted, userId]);
+
   const isFaceCall = incomingCall
     ? (incomingCall.callStage || 0) === 2 &&
       !!incomingCall.faceCallUser1Accepted &&
@@ -110,11 +135,13 @@ function CallDetectors({ userId }: { userId: string }) {
 
   const handleDismiss = useCallback(() => {
     if (incomingCall) {
+      console.log("[CallDetectors] Dismissing incoming call:", incomingCall.id);
       setDismissedCallKey(`${incomingCall.id}:${incomingCall.callStartedAt}`);
     }
   }, [incomingCall]);
 
   const handleActiveCallEnd = useCallback(() => {
+    console.log("[CallDetectors] Active call ended");
     qc.invalidateQueries({ queryKey: ["/api/matches"] });
   }, [qc]);
 

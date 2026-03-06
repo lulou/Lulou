@@ -4,6 +4,8 @@ import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { useMutation, useQueryClient, useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { broadcastCallSignal } from "@/hooks/use-call-signaling";
+import { useAuth } from "@/hooks/use-auth";
 import type { Profile, Match } from "@shared/schema";
 
 type IncomingCallProps = {
@@ -134,13 +136,22 @@ function SwipeButton({
 
 export default function IncomingCallOverlay({ match, isFaceCall, onDismiss }: IncomingCallProps) {
   const { toast } = useToast();
+  const { user } = useAuth();
   const queryClient = useQueryClient();
   const [answered, setAnswered] = useState(false);
   const actedRef = useRef(false);
 
+  useEffect(() => {
+    console.log("[IncomingCall] Showing incoming call overlay:", {
+      matchId: match.id,
+      callerName: match.profile.firstName,
+      isFaceCall,
+    });
+  }, [match.id]);
+
   const { data: freshMatches } = useQuery<MatchWithProfile[]>({
     queryKey: ["/api/matches"],
-    refetchInterval: 2000,
+    refetchInterval: 5000,
   });
 
   const stillRinging = freshMatches?.some(m =>
@@ -152,23 +163,32 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss }: In
 
   useEffect(() => {
     if (freshMatches && !stillRinging && !answered && !actedRef.current) {
+      console.log("[IncomingCall] Call no longer ringing, dismissing overlay");
       onDismiss();
     }
   }, [stillRinging, freshMatches, answered, onDismiss]);
 
   const answerCall = useMutation({
     mutationFn: async () => {
+      console.log("[IncomingCall] Answering call for match:", match.id);
       actedRef.current = true;
       const res = await apiRequest("POST", `/api/matches/${match.id}/call/answer`, {});
       return res.json();
     },
     onSuccess: () => {
+      console.log("[IncomingCall] Call answered successfully, broadcasting answer signal");
       setAnswered(true);
+      broadcastCallSignal(match.id, {
+        type: "call:answered",
+        matchId: match.id,
+        userId: user!.id,
+      });
       queryClient.invalidateQueries({ queryKey: ["/api/matches", match.id] });
       queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
       onDismiss();
     },
     onError: () => {
+      console.error("[IncomingCall] Failed to answer call");
       toast({ title: "Couldn't connect", description: "The call may have ended.", variant: "destructive" });
       onDismiss();
     },
@@ -176,17 +196,25 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss }: In
 
   const declineCall = useMutation({
     mutationFn: async () => {
+      console.log("[IncomingCall] Declining call for match:", match.id);
       actedRef.current = true;
       const res = await apiRequest("POST", `/api/matches/${match.id}/call/cancel`, {});
       return res.json();
     },
     onSuccess: () => {
+      console.log("[IncomingCall] Call declined, broadcasting decline signal");
+      broadcastCallSignal(match.id, {
+        type: "call:declined",
+        matchId: match.id,
+        userId: user!.id,
+      });
       queryClient.invalidateQueries({ queryKey: ["/api/matches", match.id] });
       queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
       toast({ title: "Call declined" });
       onDismiss();
     },
     onError: () => {
+      console.error("[IncomingCall] Failed to decline call");
       onDismiss();
     },
   });

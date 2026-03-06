@@ -97,22 +97,26 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
       if (!pc || cleanedUpRef.current) return;
       if (pc.signalingState !== "stable") return;
       try {
+        console.log("[WebRTC] Creating and sending offer");
         hasSetRemoteDescRef.current = false;
         pendingCandidatesRef.current = [];
         const offer = await pc.createOffer();
         await pc.setLocalDescription(offer);
         broadcastOnChannel({ type: "webrtc:offer", sdp: offer.sdp! });
+        console.log("[WebRTC] Offer sent");
       } catch (e) {
-        console.error("Failed to create offer:", e);
+        console.error("[WebRTC] Failed to create offer:", e);
         setConnectionState("failed");
       }
     };
 
     const handleSignal = async (msg: SignalMessage) => {
       if (msg.from === userId) return;
+      console.log("[WebRTC] Signal received:", msg.type, "from:", msg.from.slice(0, 8));
 
       try {
         if (msg.type === "webrtc:ready") {
+          console.log("[WebRTC] Remote peer ready, isCaller:", isCaller, "pcExists:", !!pcRef.current);
           readyReceivedRef.current = true;
           if (isCaller && pcRef.current) {
             await sendOffer();
@@ -121,6 +125,7 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
         }
 
         if (msg.type === "webrtc:hangup") {
+          console.log("[WebRTC] Remote hangup received");
           cleanup();
           onRemoteHangupRef.current?.();
           return;
@@ -168,6 +173,7 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
     };
 
     const init = async () => {
+      console.log("[WebRTC] Initializing:", { matchId, isCaller, isVideo });
       setConnectionState("requesting-media");
       setPermissionDenied(false);
 
@@ -256,6 +262,7 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
       pc.oniceconnectionstatechange = () => {
         if (cleanedUpRef.current) return;
         const state = pc.iceConnectionState;
+        console.log("[WebRTC] ICE connection state:", state);
         if (state === "connected" || state === "completed") {
           if (disconnectTimerRef.current) {
             clearTimeout(disconnectTimerRef.current);

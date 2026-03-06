@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useWebRTC, type WebRTCState } from "@/hooks/use-webrtc";
 import { useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
+import { broadcastCallSignal } from "@/hooks/use-call-signaling";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { Mic, MicOff, Video, VideoOff, PhoneOff, Loader2, WifiOff, ShieldAlert, RefreshCw } from "lucide-react";
 
@@ -52,15 +53,24 @@ export function ActiveCallOverlay({
   const finishCall = useCallback(() => {
     if (endedRef.current) return;
     endedRef.current = true;
+    console.log("[ActiveCall] Finishing call:", { matchId, isRinging });
     onCallEnd();
     const endpoint = isRinging
       ? `/api/matches/${matchId}/call/cancel`
       : `/api/matches/${matchId}/call/complete`;
-    apiRequest("POST", endpoint).catch(() => {}).finally(() => {
+    const signalType = isRinging ? "call:cancelled" : "call:completed";
+    broadcastCallSignal(matchId, {
+      type: signalType as any,
+      matchId,
+      userId,
+    });
+    apiRequest("POST", endpoint).catch((e) => {
+      console.error("[ActiveCall] Failed to update server:", e);
+    }).finally(() => {
       queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
       queryClient.invalidateQueries({ queryKey: ["/api/matches", matchId] });
     });
-  }, [matchId, isRinging, onCallEnd, queryClient]);
+  }, [matchId, userId, isRinging, onCallEnd, queryClient]);
 
   const {
     localStream,

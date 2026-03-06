@@ -14,6 +14,7 @@ import { useRealtimeMessages } from "@/hooks/use-realtime-messages";
 import { Input } from "@/components/ui/input";
 import { MessageCircle, Send, Phone, Video, ChevronDown, ChevronUp, PhoneOff, Clock, Check, X, Sparkles, Calendar, Heart, PhoneForwarded, Moon } from "lucide-react";
 import { LulouFlowerIcon } from "@/components/app-layout";
+import { broadcastCallSignal } from "@/hooks/use-call-signaling";
 import type { Profile, Match, Message, SpinRequest } from "@shared/schema";
 
 const MAX_MESSAGES_PER_USER = 15;
@@ -557,22 +558,41 @@ function MatchChat({ match }: { match: MatchWithProfile }) {
 
   const startCall = useMutation({
     mutationFn: async () => {
+      console.log("[Call] Starting call for match:", match.id);
       const res = await apiRequest("POST", `/api/matches/${match.id}/call/start`, {});
       return res.json();
     },
     onSuccess: () => {
+      console.log("[Call] Call request sent successfully, broadcasting ring signal");
+      broadcastCallSignal(match.id, {
+        type: "call:ring",
+        matchId: match.id,
+        callerId: user!.id,
+        callerName: "You",
+      });
       queryClient.invalidateQueries({ queryKey: ["/api/matches", match.id] });
       queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
+    },
+    onError: (error: Error) => {
+      console.error("[Call] Failed to start call:", error.message);
+      toast({ title: "Call failed", description: error.message, variant: "destructive" });
     },
   });
 
   const cancelCall = useMutation({
     mutationFn: async () => {
+      console.log("[Call] Cancelling call for match:", match.id);
       const res = await apiRequest("POST", `/api/matches/${match.id}/call/cancel`, {});
       return res.json();
     },
     onSuccess: () => {
+      console.log("[Call] Call cancelled, broadcasting cancel signal");
       iCancelledRef.current = true;
+      broadcastCallSignal(match.id, {
+        type: "call:cancelled",
+        matchId: match.id,
+        userId: user!.id,
+      });
       queryClient.invalidateQueries({ queryKey: ["/api/matches", match.id] });
       queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
       toast({ title: "Call cancelled", description: "No worries - the call wasn't connected so it doesn't count." });

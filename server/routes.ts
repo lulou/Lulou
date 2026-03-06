@@ -391,28 +391,32 @@ export async function registerRoutes(
       const storage = getStorage(req);
       const userId = req.user.id;
       const matchId = req.params.matchId;
+      console.log("[CALL_START]", { matchId, userId, timestamp: new Date().toISOString() });
       const match = await storage.startCall(matchId, userId);
       if (!match) {
+        console.log("[CALL_START] Match not found or invalid:", matchId);
         return res.status(404).json({ message: "Match not found" });
       }
 
-      const isDev = process.env.NODE_ENV === "development";
       const otherUserId = match.user1Id === userId ? match.user2Id : match.user1Id;
+      console.log("[CALL_START] Call created:", { matchId, callerId: userId, receiverId: otherUserId });
+
+      const isDev = process.env.NODE_ENV === "development";
       if (isDev || otherUserId.startsWith("seed-")) {
         const autoStorage = storage;
         setTimeout(async () => {
           try {
             await autoStorage.answerCall(matchId, otherUserId);
-            console.log("AUTO_ANSWER_CALL", matchId, otherUserId);
+            console.log("[CALL_AUTO_ANSWER]", { matchId, userId: otherUserId });
           } catch (err) {
-            console.error("Auto-answer error:", err);
+            console.error("[CALL_AUTO_ANSWER] Error:", err);
           }
         }, 2000 + Math.random() * 2000);
       }
 
       res.json(match);
     } catch (error) {
-      console.error("Error starting call:", error);
+      console.error("[CALL_START] Error:", error);
       res.status(500).json({ message: "Failed to start call" });
     }
   });
@@ -421,13 +425,17 @@ export async function registerRoutes(
     try {
       const storage = getStorage(req);
       const userId = req.user.id;
-      const match = await storage.answerCall(req.params.matchId, userId);
+      const matchId = req.params.matchId;
+      console.log("[CALL_ANSWER]", { matchId, userId, timestamp: new Date().toISOString() });
+      const match = await storage.answerCall(matchId, userId);
       if (!match) {
+        console.log("[CALL_ANSWER] Match not found or cannot answer own call:", matchId);
         return res.status(404).json({ message: "Match not found or you cannot answer your own call" });
       }
+      console.log("[CALL_ANSWER] Call answered:", { matchId, userId });
       res.json(match);
     } catch (error) {
-      console.error("Error answering call:", error);
+      console.error("[CALL_ANSWER] Error:", error);
       res.status(500).json({ message: "Failed to answer call" });
     }
   });
@@ -436,13 +444,17 @@ export async function registerRoutes(
     try {
       const storage = getStorage(req);
       const userId = req.user.id;
-      const match = await storage.cancelCall(req.params.matchId, userId);
+      const matchId = req.params.matchId;
+      console.log("[CALL_CANCEL]", { matchId, userId, timestamp: new Date().toISOString() });
+      const match = await storage.cancelCall(matchId, userId);
       if (!match) {
+        console.log("[CALL_CANCEL] Match not found:", matchId);
         return res.status(404).json({ message: "Match not found" });
       }
+      console.log("[CALL_CANCEL] Call cancelled:", { matchId, userId });
       res.json(match);
     } catch (error) {
-      console.error("Error cancelling call:", error);
+      console.error("[CALL_CANCEL] Error:", error);
       res.status(500).json({ message: "Failed to cancel call" });
     }
   });
@@ -451,13 +463,17 @@ export async function registerRoutes(
     try {
       const storage = getStorage(req);
       const userId = req.user.id;
-      const match = await storage.completeCall(req.params.matchId, userId);
+      const matchId = req.params.matchId;
+      console.log("[CALL_COMPLETE]", { matchId, userId, timestamp: new Date().toISOString() });
+      const match = await storage.completeCall(matchId, userId);
       if (!match) {
+        console.log("[CALL_COMPLETE] Match not found:", matchId);
         return res.status(404).json({ message: "Match not found" });
       }
+      console.log("[CALL_COMPLETE] Call completed:", { matchId, userId });
       res.json(match);
     } catch (error) {
-      console.error("Error completing call:", error);
+      console.error("[CALL_COMPLETE] Error:", error);
       res.status(500).json({ message: "Failed to complete call" });
     }
   });
