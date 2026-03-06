@@ -558,12 +558,12 @@ function MatchChat({ match }: { match: MatchWithProfile }) {
 
   const startCall = useMutation({
     mutationFn: async () => {
-      console.log("[Call] Starting call for match:", match.id);
+      console.log("[Call] CALL_REQUEST_SENT - starting call for match:", match.id);
       const res = await apiRequest("POST", `/api/matches/${match.id}/call/start`, {});
       return res.json();
     },
     onSuccess: () => {
-      console.log("[Call] Call request sent successfully, broadcasting ring signal");
+      console.log("[Call] CALL_REQUEST_SENT success - server will broadcast ring signal");
       broadcastCallSignal(match.id, {
         type: "call:ring",
         matchId: match.id,
@@ -581,7 +581,7 @@ function MatchChat({ match }: { match: MatchWithProfile }) {
 
   const cancelCall = useMutation({
     mutationFn: async () => {
-      console.log("[Call] Cancelling call for match:", match.id);
+      console.log("[Call] CALL_CANCELLED - cancelling call for match:", match.id);
       const res = await apiRequest("POST", `/api/matches/${match.id}/call/cancel`, {});
       return res.json();
     },

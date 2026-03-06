@@ -6,6 +6,81 @@ import { z } from "zod";
 import type { Profile } from "@shared/schema";
 import { supabase, createUserClient } from "./supabase";
 
+const serverBroadcastChannels = new Map<string, ReturnType<typeof supabase.channel>>();
+const serverChannelTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+async function broadcastCallEvent(matchId: string, event: Record<string, any>) {
+  const channelName = `call-signal:${matchId}`;
+  console.log(`[CALL_BROADCAST] Sending ${event.type} on ${channelName}`);
+
+  const existingTimer = serverChannelTimers.get(channelName);
+  if (existingTimer) clearTimeout(existingTimer);
+
+  const existing = serverBroadcastChannels.get(channelName);
+  if (existing) {
+    try {
+      const result = await existing.send({
+        type: "broadcast",
+        event: "call-signal",
+        payload: event,
+      });
+      console.log(`[CALL_BROADCAST] Sent ${event.type} via existing channel, result=${result}`);
+    } catch (err) {
+      console.error(`[CALL_BROADCAST] Send failed on existing channel:`, err);
+    }
+    const timer = setTimeout(() => {
+      supabase.removeChannel(existing);
+      serverBroadcastChannels.delete(channelName);
+      serverChannelTimers.delete(channelName);
+      console.log(`[CALL_BROADCAST] Cleaned up server channel ${channelName}`);
+    }, 30000);
+    serverChannelTimers.set(channelName, timer);
+    return;
+  }
+
+  try {
+    const channel = supabase.channel(channelName, {
+      config: { broadcast: { self: false } },
+    });
+
+    const subscribeTimeout = setTimeout(() => {
+      console.error(`[CALL_BROADCAST] Subscription TIMEOUT for ${channelName} - ${event.type} NOT delivered`);
+      supabase.removeChannel(channel);
+    }, 8000);
+
+    channel.subscribe((status) => {
+      if (status === "SUBSCRIBED") {
+        clearTimeout(subscribeTimeout);
+        console.log(`[CALL_BROADCAST] Server channel ${channelName} subscribed`);
+        serverBroadcastChannels.set(channelName, channel);
+
+        channel.send({
+          type: "broadcast",
+          event: "call-signal",
+          payload: event,
+        }).then((result) => {
+          console.log(`[CALL_BROADCAST] Sent ${event.type}, result=${result}`);
+        });
+
+        const timer = setTimeout(() => {
+          supabase.removeChannel(channel);
+          serverBroadcastChannels.delete(channelName);
+          serverChannelTimers.delete(channelName);
+          console.log(`[CALL_BROADCAST] Cleaned up server channel ${channelName}`);
+        }, 30000);
+        serverChannelTimers.set(channelName, timer);
+      } else if (status === "CLOSED" || status === "CHANNEL_ERROR") {
+        clearTimeout(subscribeTimeout);
+        console.error(`[CALL_BROADCAST] Channel ${status} for ${event.type} - NOT delivered`);
+        supabase.removeChannel(channel);
+        serverBroadcastChannels.delete(channelName);
+      }
+    });
+  } catch (err) {
+    console.error(`[CALL_BROADCAST] Failed to create channel for ${event.type}:`, err);
+  }
+}
+
 function getStorage(req: any): SupabaseStorage {
   const auth = req.headers.authorization;
   if (auth) {
@@ -391,7 +466,7 @@ export async function registerRoutes(
       const storage = getStorage(req);
       const userId = req.user.id;
       const matchId = req.params.matchId;
-      console.log("[CALL_START]", { matchId, userId, timestamp: new Date().toISOString() });
+      console.log("[CALL_START] CALL_REQUEST_SENT", { matchId, userId, timestamp: new Date().toISOString() });
       const match = await storage.startCall(matchId, userId);
       if (!match) {
         console.log("[CALL_START] Match not found or invalid:", matchId);
@@ -399,19 +474,32 @@ export async function registerRoutes(
       }
 
       const otherUserId = match.user1Id === userId ? match.user2Id : match.user1Id;
-      console.log("[CALL_START] Call created:", { matchId, callerId: userId, receiverId: otherUserId });
+      const callerProfile = await storage.getProfile(userId);
+      const callerName = callerProfile?.firstName || "Someone";
+      console.log("[CALL_START] Call created, broadcasting ring to receiver:", { matchId, callerId: userId, receiverId: otherUserId, callerName });
 
-      const isDev = process.env.NODE_ENV === "development";
-      if (isDev || otherUserId.startsWith("seed-")) {
+      broadcastCallEvent(matchId, {
+        type: "call:ring",
+        matchId,
+        callerId: userId,
+        callerName,
+      });
+
+      if (otherUserId.startsWith("seed-")) {
         const autoStorage = storage;
         setTimeout(async () => {
           try {
             await autoStorage.answerCall(matchId, otherUserId);
             console.log("[CALL_AUTO_ANSWER]", { matchId, userId: otherUserId });
+            broadcastCallEvent(matchId, {
+              type: "call:answered",
+              matchId,
+              userId: otherUserId,
+            });
           } catch (err) {
             console.error("[CALL_AUTO_ANSWER] Error:", err);
           }
-        }, 2000 + Math.random() * 2000);
+        }, 3000 + Math.random() * 2000);
       }
 
       res.json(match);
@@ -432,7 +520,12 @@ export async function registerRoutes(
         console.log("[CALL_ANSWER] Match not found or cannot answer own call:", matchId);
         return res.status(404).json({ message: "Match not found or you cannot answer your own call" });
       }
-      console.log("[CALL_ANSWER] Call answered:", { matchId, userId });
+      console.log("[CALL_ANSWER] CALL_ACCEPTED", { matchId, userId });
+      broadcastCallEvent(matchId, {
+        type: "call:answered",
+        matchId,
+        userId,
+      });
       res.json(match);
     } catch (error) {
       console.error("[CALL_ANSWER] Error:", error);
@@ -451,7 +544,12 @@ export async function registerRoutes(
         console.log("[CALL_CANCEL] Match not found:", matchId);
         return res.status(404).json({ message: "Match not found" });
       }
-      console.log("[CALL_CANCEL] Call cancelled:", { matchId, userId });
+      console.log("[CALL_CANCEL] CALL_CANCELLED", { matchId, userId });
+      broadcastCallEvent(matchId, {
+        type: "call:cancelled",
+        matchId,
+        userId,
+      });
       res.json(match);
     } catch (error) {
       console.error("[CALL_CANCEL] Error:", error);
@@ -470,7 +568,12 @@ export async function registerRoutes(
         console.log("[CALL_COMPLETE] Match not found:", matchId);
         return res.status(404).json({ message: "Match not found" });
       }
-      console.log("[CALL_COMPLETE] Call completed:", { matchId, userId });
+      console.log("[CALL_COMPLETE] CALL_COMPLETED", { matchId, userId });
+      broadcastCallEvent(matchId, {
+        type: "call:completed",
+        matchId,
+        userId,
+      });
       res.json(match);
     } catch (error) {
       console.error("[CALL_COMPLETE] Error:", error);

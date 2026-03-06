@@ -102,10 +102,11 @@ function CallDetectors({ userId }: { userId: string }) {
 
   useEffect(() => {
     if (incomingCall) {
-      console.log("[CallDetectors] Incoming call detected:", {
+      console.log("[CallDetectors] INCOMING_CALL_DETECTED (will show overlay):", {
         matchId: incomingCall.id,
         callerId: incomingCall.callInitiatorId,
         callerName: incomingCall.profile?.firstName,
+        callStartedAt: incomingCall.callStartedAt,
       });
     }
   }, [incomingCall?.id, incomingCall?.callStartedAt]);

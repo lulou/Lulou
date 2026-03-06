@@ -52,7 +52,18 @@ export function useCallSignaling(matchIds: string[], userId: string) {
         const senderId = payload.userId || payload.callerId;
         if (senderId === userId) return;
         const event = payload as CallSignalEvent;
-        console.log(LOG_PREFIX, `Received:`, event.type, `matchId=${matchId}`, `from=${senderId}`);
+
+        if (event.type === "call:ring") {
+          console.log(LOG_PREFIX, `CALL_REQUEST_RECEIVED matchId=${matchId} from=${senderId} callerName=${(event as any).callerName}`);
+        } else if (event.type === "call:answered") {
+          console.log(LOG_PREFIX, `CALL_ACCEPTED matchId=${matchId} by=${senderId}`);
+        } else if (event.type === "call:declined") {
+          console.log(LOG_PREFIX, `CALL_DECLINED matchId=${matchId} by=${senderId}`);
+        } else if (event.type === "call:cancelled") {
+          console.log(LOG_PREFIX, `CALL_CANCELLED matchId=${matchId} by=${senderId}`);
+        } else if (event.type === "call:completed") {
+          console.log(LOG_PREFIX, `CALL_COMPLETED matchId=${matchId} by=${senderId}`);
+        }
 
         queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
         queryClient.invalidateQueries({ queryKey: ["/api/matches", matchId] });
@@ -60,7 +71,9 @@ export function useCallSignaling(matchIds: string[], userId: string) {
 
       channel.subscribe((status) => {
         if (status === "SUBSCRIBED") {
-          console.log(LOG_PREFIX, `Channel ${channelName} ready`);
+          console.log(LOG_PREFIX, `Channel ${channelName} SUBSCRIBED - ready to receive signals`);
+        } else if (status === "CLOSED" || status === "CHANNEL_ERROR") {
+          console.error(LOG_PREFIX, `Channel ${channelName} ${status}`);
         }
       });
 
@@ -79,7 +92,7 @@ export function useCallSignaling(matchIds: string[], userId: string) {
 }
 
 export function broadcastCallSignal(matchId: string, event: CallSignalEvent) {
-  console.log(LOG_PREFIX, `Broadcasting:`, event.type, `matchId=${matchId}`);
+  console.log(LOG_PREFIX, `Broadcasting (client backup):`, event.type, `matchId=${matchId}`);
 
   const existing = subscribedChannels.get(matchId);
   if (existing) {
@@ -88,27 +101,31 @@ export function broadcastCallSignal(matchId: string, event: CallSignalEvent) {
       event: "call-signal",
       payload: event,
     });
-    console.log(LOG_PREFIX, `Sent via subscribed channel`);
+    console.log(LOG_PREFIX, `Client broadcast sent via subscribed channel`);
     return;
   }
 
-  console.log(LOG_PREFIX, `No subscribed channel found, creating one-shot sender`);
+  console.log(LOG_PREFIX, `No subscribed channel, creating one-shot sender for ${matchId}`);
   const channelName = getChannelName(matchId);
   const tempChannel = supabase.channel(channelName, {
     config: { broadcast: { self: false } },
   });
 
+  const timeout = setTimeout(() => {
+    console.warn(LOG_PREFIX, `One-shot sender timed out for ${matchId}`);
+    supabase.removeChannel(tempChannel);
+  }, 5000);
+
   tempChannel.subscribe((status) => {
     if (status === "SUBSCRIBED") {
+      clearTimeout(timeout);
       tempChannel.send({
         type: "broadcast",
         event: "call-signal",
         payload: event,
       });
-      console.log(LOG_PREFIX, `Sent via one-shot channel`);
-      setTimeout(() => {
-        supabase.removeChannel(tempChannel);
-      }, 3000);
+      console.log(LOG_PREFIX, `Client backup broadcast sent via one-shot channel`);
+      setTimeout(() => supabase.removeChannel(tempChannel), 2000);
     }
   });
 }

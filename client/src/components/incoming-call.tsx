@@ -142,7 +142,7 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss }: In
   const actedRef = useRef(false);
 
   useEffect(() => {
-    console.log("[IncomingCall] Showing incoming call overlay:", {
+    console.log("[IncomingCall] INCOMING_CALL_SHOWN", {
       matchId: match.id,
       callerName: match.profile.firstName,
       isFaceCall,
@@ -170,7 +170,7 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss }: In
 
   const answerCall = useMutation({
     mutationFn: async () => {
-      console.log("[IncomingCall] Answering call for match:", match.id);
+      console.log("[IncomingCall] CALL_ACCEPTED - answering call for match:", match.id);
       actedRef.current = true;
       const res = await apiRequest("POST", `/api/matches/${match.id}/call/answer`, {});
       return res.json();
@@ -196,7 +196,7 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss }: In
 
   const declineCall = useMutation({
     mutationFn: async () => {
-      console.log("[IncomingCall] Declining call for match:", match.id);
+      console.log("[IncomingCall] CALL_DECLINED - declining call for match:", match.id);
       actedRef.current = true;
       const res = await apiRequest("POST", `/api/matches/${match.id}/call/cancel`, {});
       return res.json();
