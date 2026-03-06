@@ -84,10 +84,17 @@ function CallDetectors({ userId }: { userId: string }) {
     return callKey !== dismissedCallKey;
   });
 
-  const activeCall = matches?.find(m =>
+  const answeredCall = matches?.find(m =>
     !!m.callStartedAt && m.callAnswered === true && m.callCompleted === false &&
     (m.user1Id === userId || m.user2Id === userId)
   );
+
+  const callerRingingCall = matches?.find(m =>
+    !!m.callStartedAt && !m.callAnswered && !m.callCompleted &&
+    m.callInitiatorId === userId
+  );
+
+  const activeCall = answeredCall || callerRingingCall;
 
   const isFaceCall = incomingCall
     ? (incomingCall.callStage || 0) === 2 &&
@@ -126,7 +133,8 @@ function CallDetectors({ userId }: { userId: string }) {
           userId={userId}
           isCaller={activeCall.callInitiatorId === userId}
           isVideo={isActiveVideo}
-          callerName={activeCall.profile?.name || "Unknown"}
+          isRinging={!activeCall.callAnswered}
+          callerName={activeCall.profile?.name || activeCall.profile?.firstName || "Unknown"}
           callerPhoto={activeCall.profile?.photos?.[0] || undefined}
           onCallEnd={handleActiveCallEnd}
         />

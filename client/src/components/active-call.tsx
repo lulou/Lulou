@@ -1,16 +1,16 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useWebRTC, type WebRTCState } from "@/hooks/use-webrtc";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
-import { Button } from "@/components/ui/button";
-import { Mic, MicOff, Video, VideoOff, PhoneOff, Loader2, WifiOff, ShieldAlert } from "lucide-react";
+import { Mic, MicOff, Video, VideoOff, PhoneOff, Loader2, WifiOff, ShieldAlert, RefreshCw } from "lucide-react";
 
 interface ActiveCallProps {
   matchId: string;
   userId: string;
   isCaller: boolean;
   isVideo: boolean;
+  isRinging: boolean;
   callerName: string;
   callerPhoto?: string;
   onCallEnd: () => void;
@@ -38,6 +38,7 @@ export function ActiveCallOverlay({
   userId,
   isCaller,
   isVideo,
+  isRinging,
   callerName,
   callerPhoto,
   onCallEnd,
@@ -48,22 +49,18 @@ export function ActiveCallOverlay({
   const remoteAudioRef = useRef<HTMLAudioElement>(null);
   const endedRef = useRef(false);
 
-  const completeCall = useMutation({
-    mutationFn: async () => {
-      await apiRequest("POST", `/api/matches/${matchId}/call/complete`);
-    },
-    onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/matches", matchId] });
-      onCallEnd();
-    },
-  });
-
-  const endCall = useCallback(() => {
+  const finishCall = useCallback(() => {
     if (endedRef.current) return;
     endedRef.current = true;
-    completeCall.mutate();
-  }, [completeCall]);
+    onCallEnd();
+    const endpoint = isRinging
+      ? `/api/matches/${matchId}/call/cancel`
+      : `/api/matches/${matchId}/call/complete`;
+    apiRequest("POST", endpoint).catch(() => {}).finally(() => {
+      queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/matches", matchId] });
+    });
+  }, [matchId, isRinging, onCallEnd, queryClient]);
 
   const {
     localStream,
@@ -81,7 +78,7 @@ export function ActiveCallOverlay({
     isCaller,
     isVideo,
     enabled: true,
-    onRemoteHangup: endCall,
+    onRemoteHangup: finishCall,
   });
 
   useEffect(() => {
@@ -103,18 +100,8 @@ export function ActiveCallOverlay({
 
   const handleEndCall = useCallback(() => {
     hangup();
-    endCall();
-  }, [hangup, endCall]);
-
-  const handleClosePermission = useCallback(() => {
-    hangup();
-    endCall();
-  }, [hangup, endCall]);
-
-  const handleCloseFailed = useCallback(() => {
-    hangup();
-    endCall();
-  }, [hangup, endCall]);
+    finishCall();
+  }, [hangup, finishCall]);
 
   if (permissionDenied) {
     return (
@@ -131,19 +118,18 @@ export function ActiveCallOverlay({
         <p className="text-white/40 text-center px-12 mb-8 text-xs">
           Check your browser's address bar for a blocked permission icon, or go to Settings &gt; Privacy &gt; Permissions.
         </p>
-        <Button
-          variant="destructive"
-          size="lg"
-          onClick={handleClosePermission}
+        <button
+          className="px-6 py-3 rounded-full bg-red-600 text-white font-medium active:scale-95 transition-all"
+          onClick={handleEndCall}
           data-testid="button-close-permission"
         >
           Close
-        </Button>
+        </button>
       </div>
     );
   }
 
-  if (connectionState === "failed") {
+  if (connectionState === "failed" && !isRinging) {
     return (
       <div className="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-gradient-to-b from-gray-900 to-black" data-testid="overlay-connection-failed">
         <WifiOff className="w-16 h-16 text-orange-400 mb-6" />
@@ -151,17 +137,24 @@ export function ActiveCallOverlay({
         <p className="text-white/60 text-center px-12 mb-8 text-sm">
           Unable to establish a connection. This may be due to network issues.
         </p>
-        <Button
-          variant="destructive"
-          size="lg"
-          onClick={handleCloseFailed}
+        <button
+          className="px-6 py-3 rounded-full bg-red-600 text-white font-medium active:scale-95 transition-all"
+          onClick={handleEndCall}
           data-testid="button-close-failed"
         >
           End Call
-        </Button>
+        </button>
       </div>
     );
   }
+
+  const statusLabel = isRinging
+    ? "Ringing..."
+    : connectionState === "connected"
+    ? null
+    : connectionState === "reconnecting"
+    ? "Reconnecting..."
+    : "Connecting...";
 
   if (isVideo) {
     return (
@@ -175,10 +168,21 @@ export function ActiveCallOverlay({
         />
         <audio ref={remoteAudioRef} autoPlay data-testid="audio-remote" />
 
-        {connectionState !== "connected" && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/70 z-10">
-            <Loader2 className="w-10 h-10 text-white animate-spin mb-4" />
-            <p className="text-white text-lg">Connecting...</p>
+        {statusLabel && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/60 z-10">
+            <Avatar className="w-24 h-24 mb-6 border-2 border-white/20">
+              <AvatarImage src={callerPhoto} alt={callerName} />
+              <AvatarFallback className="text-2xl bg-white/10 text-white">{callerName[0]}</AvatarFallback>
+            </Avatar>
+            <p className="text-white text-lg font-medium mb-2">{callerName}</p>
+            <div className="flex items-center gap-2">
+              {connectionState === "reconnecting" ? (
+                <RefreshCw className="w-4 h-4 text-white/60 animate-spin" />
+              ) : (
+                <Loader2 className="w-4 h-4 text-white/60 animate-spin" />
+              )}
+              <p className="text-white/60 text-sm">{statusLabel}</p>
+            </div>
           </div>
         )}
 
@@ -197,12 +201,14 @@ export function ActiveCallOverlay({
           )}
         </div>
 
-        <div className="absolute top-6 left-0 right-0 flex justify-center z-20">
-          <div className="bg-black/40 backdrop-blur-sm rounded-full px-4 py-2 flex items-center gap-3">
-            <span className="text-white text-sm font-medium">{callerName}</span>
-            {connectionState === "connected" && <CallTimer />}
+        {!statusLabel && (
+          <div className="absolute top-6 left-0 right-0 flex justify-center z-20">
+            <div className="bg-black/40 backdrop-blur-sm rounded-full px-4 py-2 flex items-center gap-3">
+              <span className="text-white text-sm font-medium">{callerName}</span>
+              <CallTimer />
+            </div>
           </div>
-        </div>
+        )}
 
         <div className="absolute bottom-12 left-0 right-0 flex justify-center gap-6 z-20">
           <button
@@ -237,7 +243,11 @@ export function ActiveCallOverlay({
 
       <div className="flex flex-col items-center gap-6">
         <div className="relative">
-          <div className="absolute inset-0 rounded-full bg-white/10 animate-ping" style={{ animationDuration: "2s" }} />
+          {connectionState === "connected" && !isRinging ? (
+            <div className="absolute -inset-2 rounded-full border-2 border-green-400/40" />
+          ) : (
+            <div className="absolute inset-0 rounded-full bg-white/10 animate-ping" style={{ animationDuration: "2s" }} />
+          )}
           <Avatar className="w-32 h-32 border-4 border-white/30">
             <AvatarImage src={callerPhoto} alt={callerName} />
             <AvatarFallback className="text-3xl bg-white/20 text-white">{callerName[0]}</AvatarFallback>
@@ -246,13 +256,19 @@ export function ActiveCallOverlay({
 
         <h2 className="text-white text-2xl font-semibold" data-testid="text-call-name">{callerName}</h2>
 
-        {connectionState === "connected" ? (
-          <CallTimer />
-        ) : (
+        {statusLabel ? (
           <div className="flex items-center gap-2">
-            <Loader2 className="w-4 h-4 text-white/60 animate-spin" />
-            <span className="text-white/60 text-sm">Connecting...</span>
+            {connectionState === "reconnecting" ? (
+              <RefreshCw className="w-4 h-4 text-orange-300/80 animate-spin" />
+            ) : (
+              <Loader2 className="w-4 h-4 text-white/60 animate-spin" />
+            )}
+            <span className={connectionState === "reconnecting" ? "text-orange-300/80 text-sm" : "text-white/60 text-sm"}>
+              {statusLabel}
+            </span>
           </div>
+        ) : (
+          <CallTimer />
         )}
       </div>
 

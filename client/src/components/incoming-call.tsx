@@ -166,8 +166,7 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss }: In
       setAnswered(true);
       queryClient.invalidateQueries({ queryKey: ["/api/matches", match.id] });
       queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
-      toast({ title: "Call connected", description: `You're now on a call with ${match.profile.firstName}` });
-      setTimeout(() => onDismiss(), 600);
+      onDismiss();
     },
     onError: () => {
       toast({ title: "Couldn't connect", description: "The call may have ended.", variant: "destructive" });
