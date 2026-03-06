@@ -114,9 +114,21 @@ function CallDetectors({ userId }: { userId: string }) {
 
   useEffect(() => {
     setCallEndedHandler((matchId: string) => {
-      console.log("[CallDetectors] CALL_END_RECEIVED - forcing call end for matchId:", matchId);
+      console.log("[CallDetectors] CANCEL_CALL_EVENT_RECEIVED - forcing call end for matchId:", matchId);
       const m = matches?.find(x => x.id === matchId);
       markCallEnded(matchId, m?.callSessionId || undefined);
+      qc.setQueriesData<MatchWithProfile[]>({ queryKey: ["/api/matches"] }, (old) => {
+        if (!old) return old;
+        return old.map(mx => mx.id === matchId ? {
+          ...mx,
+          callStartedAt: null,
+          callInitiatorId: null,
+          callAnswered: false,
+          callCompleted: false,
+          callSessionId: null,
+        } : mx);
+      });
+      console.log("[CallDetectors] CANCEL_CALL_STATE_CLEARED - remote signal cache cleared:", matchId);
     });
     return () => setCallEndedHandler(null);
   }, [qc, matches, markCallEnded]);
@@ -197,18 +209,45 @@ function CallDetectors({ userId }: { userId: string }) {
 
   const handleDismiss = useCallback(() => {
     if (incomingCall) {
-      console.log("[CallDetectors] INCOMING_CALL_RESET - dismissing:", incomingCall.id);
-      setDismissedCallKey(`${incomingCall.id}:${incomingCall.callSessionId}`);
-      markCallEnded(incomingCall.id, incomingCall.callSessionId || undefined);
+      const mid = incomingCall.id;
+      console.log("[CallDetectors] INCOMING_CALL_RESET - dismissing:", mid);
+      setDismissedCallKey(`${mid}:${incomingCall.callSessionId}`);
+      markCallEnded(mid, incomingCall.callSessionId || undefined);
+      qc.setQueriesData<MatchWithProfile[]>({ queryKey: ["/api/matches"] }, (old) => {
+        if (!old) return old;
+        return old.map(m => m.id === mid ? {
+          ...m,
+          callStartedAt: null,
+          callInitiatorId: null,
+          callAnswered: false,
+          callCompleted: false,
+          callSessionId: null,
+        } : m);
+      });
+      console.log("[CallDetectors] CANCEL_CALL_STATE_CLEARED - incoming call cache cleared:", mid);
     }
-  }, [incomingCall, markCallEnded]);
+  }, [incomingCall, markCallEnded, qc]);
 
   const handleActiveCallEnd = useCallback(() => {
-    console.log("[CallDetectors] CALL_SESSION_CLOSED", { matchId: activeCall?.id, callSessionId: activeCall?.callSessionId });
-    if (activeCall) {
-      markCallEnded(activeCall.id, activeCall.callSessionId || undefined);
+    const mid = activeCall?.id;
+    const sid = activeCall?.callSessionId;
+    console.log("[CallDetectors] CANCEL_CALL_STATE_CLEARED", { matchId: mid, callSessionId: sid });
+    if (mid) {
+      markCallEnded(mid, sid || undefined);
+      qc.setQueriesData<MatchWithProfile[]>({ queryKey: ["/api/matches"] }, (old) => {
+        if (!old) return old;
+        return old.map(m => m.id === mid ? {
+          ...m,
+          callStartedAt: null,
+          callInitiatorId: null,
+          callAnswered: false,
+          callCompleted: false,
+          callSessionId: null,
+        } : m);
+      });
+      console.log("[CallDetectors] CALL_PENDING_STATE_CLEARED - optimistic cache update for:", mid);
     }
-  }, [activeCall?.id, activeCall?.callSessionId, markCallEnded]);
+  }, [activeCall?.id, activeCall?.callSessionId, markCallEnded, qc]);
 
   return (
     <>

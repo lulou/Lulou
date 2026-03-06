@@ -57,19 +57,25 @@ export function ActiveCallOverlay({
   }, [matchId, callSessionId, isCaller, isVideo, isRinging]);
 
   const finishCall = useCallback(() => {
-    if (endedRef.current) return;
+    if (endedRef.current) {
+      console.log("[ActiveCall] finishCall skipped - already ended");
+      return;
+    }
     endedRef.current = true;
     const endpoint = isRinging
       ? `/api/matches/${matchId}/call/cancel`
       : `/api/matches/${matchId}/call/complete`;
-    console.log("[ActiveCall] CALL_END_REQUESTED", { matchId, CALL_SESSION_ID: callSessionId, isRinging, endpoint });
+    const action = isRinging ? "CANCEL" : "COMPLETE";
+    console.log(`[ActiveCall] ${action}_CALL_CLICKED`, { matchId, CALL_SESSION_ID: callSessionId, isRinging });
+
     onCallEnd();
+    console.log(`[ActiveCall] CANCEL_CALL_STATE_CLEARED`, { matchId, CALL_SESSION_ID: callSessionId });
+
     broadcastCallSignal(matchId, {
       type: "call:ended" as any,
       matchId,
       userId,
     });
-    console.log("[ActiveCall] CALL_END_SENT", { matchId, CALL_SESSION_ID: callSessionId });
     const signalType = isRinging ? "call:cancelled" : "call:completed";
     broadcastCallSignal(matchId, {
       type: signalType as any,
@@ -77,10 +83,12 @@ export function ActiveCallOverlay({
       userId,
       callSessionId,
     });
+    console.log(`[ActiveCall] CANCEL_CALL_EVENT_SENT`, { matchId, signalType, CALL_SESSION_ID: callSessionId });
+
     apiRequest("POST", endpoint).then((res) => {
-      console.log("[ActiveCall] CALL_SESSION_CLOSED", { path: endpoint, status: res.status, CALL_SESSION_ID: callSessionId });
+      console.log(`[ActiveCall] CANCEL_CALL_SESSION_UPDATED`, { path: endpoint, status: res.status, CALL_SESSION_ID: callSessionId });
     }).catch((e) => {
-      console.error("[ActiveCall] CALL_SESSION_CLOSED error:", e.message);
+      console.error(`[ActiveCall] CANCEL_CALL_SESSION_UPDATED error:`, e.message);
     }).finally(() => {
       queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
       queryClient.invalidateQueries({ queryKey: ["/api/matches", matchId] });
@@ -124,9 +132,15 @@ export function ActiveCallOverlay({
   }, [remoteStream, isVideo]);
 
   const handleEndCall = useCallback(() => {
-    hangup();
-    finishCall();
-  }, [hangup, finishCall]);
+    console.log("[ActiveCall] handleEndCall called", { isRinging, matchId });
+    if (isRinging) {
+      console.log("[ActiveCall] CANCEL_CALL_CLICKED - cancelling ringing call (skipping WebRTC hangup)");
+      finishCall();
+    } else {
+      hangup();
+      finishCall();
+    }
+  }, [hangup, finishCall, isRinging, matchId]);
 
   if (permissionDenied) {
     return (

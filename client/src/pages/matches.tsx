@@ -586,13 +586,12 @@ function MatchChat({ match }: { match: MatchWithProfile }) {
 
   const cancelCall = useMutation({
     mutationFn: async () => {
-      console.log("[Call] CALL_CANCELLED - cancelling call for match:", match.id);
+      console.log("[MatchChat] CANCEL_CALL_CLICKED", { matchId: match.id });
       const res = await apiRequest("POST", `/api/matches/${match.id}/call/cancel`, {});
       return res.json();
     },
     onSuccess: () => {
-      console.log("[MatchChat] CANCEL_CALL_REQUESTED", { matchId: match.id });
-      console.log("[MatchChat] CALL_PENDING_STATE_CLEARED", { matchId: match.id });
+      console.log("[MatchChat] CANCEL_CALL_SESSION_UPDATED", { matchId: match.id });
       iCancelledRef.current = true;
       broadcastCallSignal(match.id, {
         type: "call:ended" as any,
@@ -604,9 +603,26 @@ function MatchChat({ match }: { match: MatchWithProfile }) {
         matchId: match.id,
         userId: user!.id,
       });
+      console.log("[MatchChat] CANCEL_CALL_EVENT_SENT", { matchId: match.id });
+      queryClient.setQueriesData<any>({ queryKey: ["/api/matches"] }, (old: any) => {
+        if (!old || !Array.isArray(old)) return old;
+        return old.map((m: any) => m.id === match.id ? {
+          ...m,
+          callStartedAt: null,
+          callInitiatorId: null,
+          callAnswered: false,
+          callCompleted: false,
+          callSessionId: null,
+        } : m);
+      });
       queryClient.invalidateQueries({ queryKey: ["/api/matches", match.id] });
       queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
+      console.log("[MatchChat] CANCEL_CALL_STATE_CLEARED", { matchId: match.id });
       toast({ title: "Call cancelled", description: "No worries - the call wasn't connected so it doesn't count." });
+    },
+    onError: (error: Error) => {
+      console.error("[MatchChat] CANCEL_CALL_SESSION_UPDATED error:", error.message);
+      toast({ title: "Cancel failed", description: error.message, variant: "destructive" });
     },
   });
 
