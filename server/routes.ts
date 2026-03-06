@@ -550,6 +550,11 @@ export async function registerRoutes(
       }
       console.log("[CALL_CANCEL] CALL_API_RESPONSE", { status: 200, matchId, CALL_SESSION_ID: prevSessionId, userId });
       broadcastCallEvent(matchId, {
+        type: "call:ended",
+        matchId,
+        userId,
+      });
+      broadcastCallEvent(matchId, {
         type: "call:cancelled",
         matchId,
         userId,
@@ -576,6 +581,11 @@ export async function registerRoutes(
         return res.status(404).json({ message: "Match not found" });
       }
       console.log("[CALL_COMPLETE] CALL_API_RESPONSE", { status: 200, matchId, CALL_SESSION_ID: prevSessionId, userId, callStage: match.callStage });
+      broadcastCallEvent(matchId, {
+        type: "call:ended",
+        matchId,
+        userId,
+      });
       broadcastCallEvent(matchId, {
         type: "call:completed",
         matchId,

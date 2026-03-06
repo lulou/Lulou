@@ -125,7 +125,7 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
         }
 
         if (msg.type === "webrtc:hangup") {
-          console.log("[WebRTC] Remote hangup received");
+          console.log("[WebRTC] CALL_END_RECEIVED - remote hangup from:", msg.from.slice(0, 8));
           cleanup();
           onRemoteHangupRef.current?.();
           return;
@@ -321,6 +321,7 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
   }, []);
 
   const hangup = useCallback(() => {
+    console.log("[WebRTC] CALL_END_REQUESTED - sending hangup signal");
     const channel = channelRef.current;
     if (channel) {
       channel.send({
@@ -328,9 +329,31 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
         event: "signal",
         payload: { type: "webrtc:hangup", from: userId },
       });
+      console.log("[WebRTC] CALL_END_SENT - webrtc:hangup broadcast");
     }
-    cleanup();
-  }, [userId, cleanup]);
+    if (localStreamRef.current) {
+      localStreamRef.current.getTracks().forEach((t) => t.stop());
+      localStreamRef.current = null;
+    }
+    if (pcRef.current) {
+      pcRef.current.ontrack = null;
+      pcRef.current.onicecandidate = null;
+      pcRef.current.oniceconnectionstatechange = null;
+      pcRef.current.close();
+      pcRef.current = null;
+    }
+    setLocalStream(null);
+    setRemoteStream(null);
+    setConnectionState("closed");
+    setTimeout(() => {
+      if (channelRef.current) {
+        supabase.removeChannel(channelRef.current);
+        channelRef.current = null;
+      }
+      cleanedUpRef.current = true;
+      console.log("[WebRTC] CALL_SESSION_CLOSED - all resources released");
+    }, 500);
+  }, [userId]);
 
   return {
     localStream,

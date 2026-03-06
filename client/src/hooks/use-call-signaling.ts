@@ -7,7 +7,8 @@ type CallSignalEvent =
   | { type: "call:answered"; matchId: string; userId: string }
   | { type: "call:declined"; matchId: string; userId: string }
   | { type: "call:cancelled"; matchId: string; userId: string }
-  | { type: "call:completed"; matchId: string; userId: string };
+  | { type: "call:completed"; matchId: string; userId: string }
+  | { type: "call:ended"; matchId: string; userId: string };
 
 const LOG_PREFIX = "[CallSignaling]";
 
@@ -16,6 +17,12 @@ function getChannelName(matchId: string) {
 }
 
 const subscribedChannels = new Map<string, ReturnType<typeof supabase.channel>>();
+
+let callEndedCallback: ((matchId: string) => void) | null = null;
+
+export function setCallEndedHandler(handler: ((matchId: string) => void) | null) {
+  callEndedCallback = handler;
+}
 
 export function useCallSignaling(matchIds: string[], userId: string) {
   const prevKeyRef = useRef("");
@@ -59,10 +66,19 @@ export function useCallSignaling(matchIds: string[], userId: string) {
           console.log(LOG_PREFIX, `CALL_ACCEPTED matchId=${matchId} by=${senderId}`);
         } else if (event.type === "call:declined") {
           console.log(LOG_PREFIX, `CALL_DECLINED matchId=${matchId} by=${senderId}`);
+          console.log(LOG_PREFIX, `CALL_END_RECEIVED matchId=${matchId} by=${senderId} reason=declined`);
+          callEndedCallback?.(matchId);
         } else if (event.type === "call:cancelled") {
           console.log(LOG_PREFIX, `CALL_CANCELLED matchId=${matchId} by=${senderId}`);
+          console.log(LOG_PREFIX, `CALL_END_RECEIVED matchId=${matchId} by=${senderId} reason=cancelled`);
+          callEndedCallback?.(matchId);
         } else if (event.type === "call:completed") {
           console.log(LOG_PREFIX, `CALL_COMPLETED matchId=${matchId} by=${senderId}`);
+          console.log(LOG_PREFIX, `CALL_END_RECEIVED matchId=${matchId} by=${senderId} reason=completed`);
+          callEndedCallback?.(matchId);
+        } else if (event.type === "call:ended") {
+          console.log(LOG_PREFIX, `CALL_END_RECEIVED matchId=${matchId} by=${senderId} reason=ended`);
+          callEndedCallback?.(matchId);
         }
 
         queryClient.invalidateQueries({ queryKey: ["/api/matches"] });

@@ -209,12 +209,18 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss }: In
       return data;
     },
     onSuccess: () => {
-      console.log("[IncomingCall] Call declined, broadcasting decline signal");
+      console.log("[IncomingCall] CALL_END_REQUESTED - declining call");
+      broadcastCallSignal(match.id, {
+        type: "call:ended" as any,
+        matchId: match.id,
+        userId: user!.id,
+      });
       broadcastCallSignal(match.id, {
         type: "call:declined",
         matchId: match.id,
         userId: user!.id,
       });
+      console.log("[IncomingCall] CALL_END_SENT", { matchId: match.id });
       queryClient.invalidateQueries({ queryKey: ["/api/matches", match.id] });
       queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
       toast({ title: "Call declined" });

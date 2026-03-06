@@ -590,13 +590,19 @@ function MatchChat({ match }: { match: MatchWithProfile }) {
       return res.json();
     },
     onSuccess: () => {
-      console.log("[Call] Call cancelled, broadcasting cancel signal");
+      console.log("[Call] CALL_END_REQUESTED - cancelling call");
       iCancelledRef.current = true;
+      broadcastCallSignal(match.id, {
+        type: "call:ended" as any,
+        matchId: match.id,
+        userId: user!.id,
+      });
       broadcastCallSignal(match.id, {
         type: "call:cancelled",
         matchId: match.id,
         userId: user!.id,
       });
+      console.log("[Call] CALL_END_SENT", { matchId: match.id });
       queryClient.invalidateQueries({ queryKey: ["/api/matches", match.id] });
       queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
       toast({ title: "Call cancelled", description: "No worries - the call wasn't connected so it doesn't count." });
@@ -609,6 +615,13 @@ function MatchChat({ match }: { match: MatchWithProfile }) {
       return res.json();
     },
     onSuccess: (data: any) => {
+      console.log("[Call] CALL_END_REQUESTED - completing call");
+      broadcastCallSignal(match.id, {
+        type: "call:ended" as any,
+        matchId: match.id,
+        userId: user!.id,
+      });
+      console.log("[Call] CALL_END_SENT", { matchId: match.id });
       queryClient.invalidateQueries({ queryKey: ["/api/matches", match.id] });
       queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
       const stage = data.callStage || 0;

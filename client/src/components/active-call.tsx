@@ -62,8 +62,14 @@ export function ActiveCallOverlay({
     const endpoint = isRinging
       ? `/api/matches/${matchId}/call/cancel`
       : `/api/matches/${matchId}/call/complete`;
-    console.log("[ActiveCall] CALL_API_REQUEST", { path: endpoint, method: "POST", matchId, CALL_SESSION_ID: callSessionId, isRinging });
+    console.log("[ActiveCall] CALL_END_REQUESTED", { matchId, CALL_SESSION_ID: callSessionId, isRinging, endpoint });
     onCallEnd();
+    broadcastCallSignal(matchId, {
+      type: "call:ended" as any,
+      matchId,
+      userId,
+    });
+    console.log("[ActiveCall] CALL_END_SENT", { matchId, CALL_SESSION_ID: callSessionId });
     const signalType = isRinging ? "call:cancelled" : "call:completed";
     broadcastCallSignal(matchId, {
       type: signalType as any,
@@ -72,9 +78,9 @@ export function ActiveCallOverlay({
       callSessionId,
     });
     apiRequest("POST", endpoint).then((res) => {
-      console.log("[ActiveCall] CALL_API_RESPONSE", { path: endpoint, status: res.status, CALL_SESSION_ID: callSessionId });
+      console.log("[ActiveCall] CALL_SESSION_CLOSED", { path: endpoint, status: res.status, CALL_SESSION_ID: callSessionId });
     }).catch((e) => {
-      console.error("[ActiveCall] CALL_API_RESPONSE error:", e.message);
+      console.error("[ActiveCall] CALL_SESSION_CLOSED error:", e.message);
     }).finally(() => {
       queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
       queryClient.invalidateQueries({ queryKey: ["/api/matches", matchId] });
