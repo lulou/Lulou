@@ -24,8 +24,9 @@ export function useAuth() {
       if (event === "SIGNED_IN" && session?.user) {
         setProfileInitError(null);
         initProfileOnLogin().catch(err => {
-          console.error("PROFILE_INIT_ERROR", err);
-          setProfileInitError(err?.message || "Could not initialize profile");
+          const msg = err?.message || "Unknown profile initialization error";
+          console.error("PROFILE_INIT_ERROR", msg, err);
+          setProfileInitError(msg);
         });
       }
     });

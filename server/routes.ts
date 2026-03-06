@@ -242,19 +242,20 @@ export async function registerRoutes(
       const storage = getStorage(req);
       const userId = req.user.id;
       const email = req.user.email || "";
+      const userName = email.split("@")[0] || "New User";
       await storage.createProfile({
         userId,
         email,
-        firstName: "",
-        age: 0,
-        gender: "",
-        datingPreference: "",
-        location: "",
+        firstName: userName,
+        age: 25,
+        gender: "Prefer not to say",
+        datingPreference: "Everyone",
+        location: "Not set",
         photos: [],
         signals: [],
-        datingIntent: "",
+        datingIntent: "Not set",
         greenFlags: [],
-        connectionStyle: "",
+        connectionStyle: "Not set",
         conversationStarters: [],
         questions: [],
         onboardingComplete: false,
@@ -262,8 +263,9 @@ export async function registerRoutes(
       console.log("AUTH_INIT: Upserted profile for", userId);
       res.json({ ok: true });
     } catch (error: any) {
-      console.error("AUTH_INIT_ERROR", error?.message, error);
-      res.status(500).json({ message: error?.message || "Failed to init profile" });
+      const errMsg = error?.message || "Failed to init profile";
+      console.error("AUTH_INIT_ERROR", errMsg, error?.code, error?.details, error?.hint);
+      res.status(500).json({ message: `Profile init failed: ${errMsg}` });
     }
   });
 
@@ -273,12 +275,13 @@ export async function registerRoutes(
       const userId = req.user.id;
       const profile = await storage.getProfile(userId);
       if (!profile) {
-        return res.status(404).json({ message: "Profile not found" });
+        return res.status(404).json({ message: "Profile not found. Please complete onboarding to create your profile." });
       }
       res.json(profile);
-    } catch (error) {
-      console.error("Error fetching profile:", error);
-      res.status(500).json({ message: "Failed to fetch profile" });
+    } catch (error: any) {
+      const errMsg = error?.message || "Unknown error";
+      console.error("PROFILE_FETCH_ERROR", { userId: req.user?.id, error: errMsg, code: error?.code, details: error?.details });
+      res.status(500).json({ message: `Profile load error: ${errMsg}` });
     }
   });
 

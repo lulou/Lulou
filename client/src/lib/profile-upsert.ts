@@ -58,50 +58,56 @@ export async function upsertProfile(fields: Record<string, unknown>) {
 }
 
 export async function initProfileOnLogin() {
-  try {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return;
 
-    const { data: existing, error: existErr } = await supabase
-      .from("profiles")
-      .select("id")
-      .eq("user_id", user.id)
-      .maybeSingle();
+  const { data: existing, error: existErr } = await supabase
+    .from("profiles")
+    .select("id")
+    .eq("user_id", user.id)
+    .maybeSingle();
 
-    if (existErr) {
-      console.error("PROFILE_CHECK_ERROR", existErr.message);
-    }
-
-    if (existing) return;
-
-    const payload = {
-      user_id: user.id,
-      first_name: "",
-      age: 0,
-      gender: "",
-      dating_preference: "",
-      location: "",
-      photos: [],
-      signals: [],
-      dating_intent: "",
-      green_flags: [],
-      connection_style: "",
-      conversation_starters: [],
-      questions: [],
-      onboarding_complete: false,
-      email: user.email || "",
-    };
-
-    console.log("PROFILE_INIT user.id:", user.id, "payload keys:", Object.keys(payload));
-
-    const { error } = await supabase
-      .from("profiles")
-      .upsert(payload, { onConflict: "user_id" });
-
-    if (error) {
-      console.error("PROFILE_INIT_UPSERT_ERROR", error.message);
-    }
-  } catch (err: any) {
-    console.error("PROFILE_INIT_UNEXPECTED_ERROR", err?.message || err);
+  if (existErr) {
+    console.error("PROFILE_CHECK_ERROR", existErr.code, existErr.message, existErr.details);
+    throw new Error(`Profile check failed: ${existErr.message} (${existErr.code})`);
   }
+
+  if (existing) {
+    console.log("PROFILE_INIT_SKIPPED - profile already exists for:", user.id);
+    return;
+  }
+
+  const payload = {
+    user_id: user.id,
+    first_name: user.user_metadata?.first_name || user.email?.split("@")[0] || "New User",
+    age: 25,
+    gender: "Prefer not to say",
+    dating_preference: "Everyone",
+    location: "Not set",
+    photos: [] as string[],
+    signals: [] as string[],
+    dating_intent: "Not set",
+    green_flags: [] as string[],
+    connection_style: "Not set",
+    conversation_starters: [] as string[],
+    questions: [] as string[],
+    onboarding_complete: false,
+    email: user.email || "",
+  };
+
+  console.log("PROFILE_INIT_INSERT user.id:", user.id, "payload keys:", Object.keys(payload));
+
+  const { data, error } = await supabase
+    .from("profiles")
+    .upsert(payload, { onConflict: "user_id" })
+    .select()
+    .single();
+
+  if (error) {
+    console.error("PROFILE_INIT_UPSERT_ERROR", error.code, error.message, error.details, error.hint);
+    throw new Error(`Profile creation failed: ${error.message} (${error.code})${error.hint ? " — " + error.hint : ""}`);
+  }
+
+  console.log("PROFILE_INIT_SUCCESS", { userId: user.id, profileId: data?.id });
+  return data;
 }
