@@ -1,7 +1,7 @@
 import { Switch, Route, useLocation } from "wouter";
 import { createContext, useContext, useState, useCallback, useEffect } from "react";
 import { queryClient } from "./lib/queryClient";
-import { QueryClientProvider, useQuery } from "@tanstack/react-query";
+import { QueryClientProvider, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useAuth } from "@/hooks/use-auth";
@@ -16,6 +16,7 @@ import IntentPage from "@/pages/intent";
 import LikesPage from "@/pages/likes";
 import AppLayout from "@/components/app-layout";
 import IncomingCallOverlay from "@/components/incoming-call";
+import { ActiveCallOverlay } from "@/components/active-call";
 import type { Profile, Match } from "@shared/schema";
 import { Loader2 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
@@ -67,8 +68,9 @@ function PersistentTabs() {
 
 type MatchWithProfile = Match & { profile: Profile };
 
-function IncomingCallDetector({ userId }: { userId: string }) {
+function CallDetectors({ userId }: { userId: string }) {
   const [dismissedCallKey, setDismissedCallKey] = useState<string | null>(null);
+  const qc = useQueryClient();
 
   const { data: matches } = useQuery<MatchWithProfile[]>({
     queryKey: ["/api/matches"],
@@ -82,10 +84,21 @@ function IncomingCallDetector({ userId }: { userId: string }) {
     return callKey !== dismissedCallKey;
   });
 
+  const activeCall = matches?.find(m =>
+    !!m.callStartedAt && m.callAnswered === true && m.callCompleted === false &&
+    (m.user1Id === userId || m.user2Id === userId)
+  );
+
   const isFaceCall = incomingCall
     ? (incomingCall.callStage || 0) === 2 &&
       !!incomingCall.faceCallUser1Accepted &&
       !!incomingCall.faceCallUser2Accepted
+    : false;
+
+  const isActiveVideo = activeCall
+    ? (activeCall.callStage || 0) === 2 &&
+      !!activeCall.faceCallUser1Accepted &&
+      !!activeCall.faceCallUser2Accepted
     : false;
 
   const handleDismiss = useCallback(() => {
@@ -94,14 +107,31 @@ function IncomingCallDetector({ userId }: { userId: string }) {
     }
   }, [incomingCall]);
 
-  if (!incomingCall) return null;
+  const handleActiveCallEnd = useCallback(() => {
+    qc.invalidateQueries({ queryKey: ["/api/matches"] });
+  }, [qc]);
 
   return (
-    <IncomingCallOverlay
-      match={incomingCall}
-      isFaceCall={isFaceCall}
-      onDismiss={handleDismiss}
-    />
+    <>
+      {incomingCall && !activeCall && (
+        <IncomingCallOverlay
+          match={incomingCall}
+          isFaceCall={isFaceCall}
+          onDismiss={handleDismiss}
+        />
+      )}
+      {activeCall && (
+        <ActiveCallOverlay
+          matchId={activeCall.id}
+          userId={userId}
+          isCaller={activeCall.callInitiatorId === userId}
+          isVideo={isActiveVideo}
+          callerName={activeCall.profile?.name || "Unknown"}
+          callerPhoto={activeCall.profile?.photos?.[0] || undefined}
+          onCallEnd={handleActiveCallEnd}
+        />
+      )}
+    </>
   );
 }
 
@@ -192,7 +222,7 @@ function AppContent() {
   return (
     <AppLayout>
       <PersistentTabs />
-      <IncomingCallDetector userId={user.id} />
+      <CallDetectors userId={user.id} />
     </AppLayout>
   );
 }

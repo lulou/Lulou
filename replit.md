@@ -32,8 +32,16 @@ Lulou Dating is a calm, premium dating app focused on helping people move from m
   2. Second voice call (15 minutes) - prompted after first call
   3. Optional face/video call (10 minutes) - both users must accept; either can skip
 - Call stages tracked via `callStage` (0=pre-call, 1=first done, 2=second done, 3=face done/skipped)
+- WebRTC peer-to-peer audio/video calls using Supabase Realtime broadcast for signaling
+  - Voice calls: microphone audio streamed between devices
+  - Video calls: camera + microphone streamed, remote video full-screen with local PIP
+  - Permission denied handling with clear user-facing messages
+  - STUN servers for NAT traversal (Google public STUN)
+  - Connection state display (connecting, connected, failed)
+  - Mute/camera-off toggles, end call button
 - Incoming call overlay: full-screen phone-call-style screen with caller photo, swipe-to-answer/decline
-- IncomingCallDetector in App.tsx polls matches every 3s and shows overlay for any incoming call
+- Active call overlay: full-screen UI with call timer, controls, WebRTC audio/video streams
+- CallDetectors in App.tsx polls matches every 3s and shows incoming or active call overlays
 - Caller gets "declined" notification when receiver declines their call
 - Face call requires mutual acceptance (`faceCallUser1Accepted`, `faceCallUser2Accepted`)
 - After all calls: "Ready to Meet" button shows date/time picker (next 7 days, 4 time slots each)
@@ -63,6 +71,8 @@ Lulou Dating is a calm, premium dating app focused on helping people move from m
 - `client/src/lib/profile-upsert.ts` - Frontend profile upsert helper (writes directly to Supabase with user_id = user.id, onConflict: "user_id")
 - `client/src/hooks/use-auth.ts` - Supabase Auth hook (session, login, logout)
 - `client/src/hooks/use-realtime-messages.ts` - Supabase Realtime subscription for instant message delivery
+- `client/src/hooks/use-webrtc.ts` - WebRTC peer connection hook with Supabase Realtime signaling
+- `client/src/components/active-call.tsx` - Active call overlay (voice/video) with WebRTC streams
 - `server/supabase.ts` - Server Supabase client
 
 ## Database Tables
