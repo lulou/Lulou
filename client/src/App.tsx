@@ -1,5 +1,5 @@
 import { Switch, Route, useLocation } from "wouter";
-import { createContext, useContext, useState, useCallback, useEffect } from "react";
+import { createContext, useContext, useState, useCallback, useEffect, useRef } from "react";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -17,7 +17,7 @@ import LikesPage from "@/pages/likes";
 import AppLayout from "@/components/app-layout";
 import IncomingCallOverlay from "@/components/incoming-call";
 import { ActiveCallOverlay } from "@/components/active-call";
-import { useCallSignaling, setCallEndedHandler } from "@/hooks/use-call-signaling";
+import { useCallSignaling, setCallEndedHandler, clearDedupeForMatch } from "@/hooks/use-call-signaling";
 import type { Profile, Match } from "@shared/schema";
 import { Loader2 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
@@ -71,7 +71,9 @@ type MatchWithProfile = Match & { profile: Profile };
 
 function CallDetectors({ userId }: { userId: string }) {
   const [dismissedCallKey, setDismissedCallKey] = useState<string | null>(null);
-  const [forcedEndMatchId, setForcedEndMatchId] = useState<string | null>(null);
+  const endedSessionsRef = useRef(new Set<string>());
+  const endedMatchIdsRef = useRef(new Set<string>());
+  const [endedTick, setEndedTick] = useState(0);
   const qc = useQueryClient();
 
   const { data: matches } = useQuery<MatchWithProfile[]>({
@@ -82,43 +84,80 @@ function CallDetectors({ userId }: { userId: string }) {
   const matchIds = (matches || []).map(m => m.id);
   useCallSignaling(matchIds, userId);
 
-  useEffect(() => {
-    setCallEndedHandler((matchId: string) => {
-      console.log("[CallDetectors] CALL_END_RECEIVED - forcing call end for matchId:", matchId);
-      setForcedEndMatchId(matchId);
-      qc.invalidateQueries({ queryKey: ["/api/matches"] });
-      qc.invalidateQueries({ queryKey: ["/api/matches", matchId] });
-    });
-    return () => setCallEndedHandler(null);
+  const markCallEnded = useCallback((matchId: string, sessionId?: string) => {
+    endedMatchIdsRef.current.add(matchId);
+    if (sessionId) endedSessionsRef.current.add(sessionId);
+    console.log("[CallDetectors] CALL_STATE_CLEARED", { matchId, sessionId, endedMatches: [...endedMatchIdsRef.current], endedSessions: [...endedSessionsRef.current] });
+    setEndedTick(t => t + 1);
+    qc.invalidateQueries({ queryKey: ["/api/matches"] });
+    qc.invalidateQueries({ queryKey: ["/api/matches", matchId] });
   }, [qc]);
 
   useEffect(() => {
-    if (forcedEndMatchId) {
-      const timer = setTimeout(() => setForcedEndMatchId(null), 5000);
-      return () => clearTimeout(timer);
+    if (!matches) return;
+    const toRemove: string[] = [];
+    for (const mid of endedMatchIdsRef.current) {
+      const m = matches.find(x => x.id === mid);
+      if (m && !m.callStartedAt && !m.callInitiatorId && !m.callAnswered && !m.callSessionId) {
+        toRemove.push(mid);
+      }
     }
-  }, [forcedEndMatchId]);
+    if (toRemove.length > 0) {
+      for (const mid of toRemove) {
+        endedMatchIdsRef.current.delete(mid);
+        clearDedupeForMatch(mid);
+        console.log("[CallDetectors] CALL_LISTENER_REMOVED - match confirmed cleared:", mid);
+      }
+      setEndedTick(t => t + 1);
+    }
+  }, [matches]);
+
+  useEffect(() => {
+    setCallEndedHandler((matchId: string) => {
+      console.log("[CallDetectors] CALL_END_RECEIVED - forcing call end for matchId:", matchId);
+      const m = matches?.find(x => x.id === matchId);
+      markCallEnded(matchId, m?.callSessionId || undefined);
+    });
+    return () => setCallEndedHandler(null);
+  }, [qc, matches, markCallEnded]);
+
+  const isEndedCall = useCallback((m: MatchWithProfile) => {
+    if (endedMatchIdsRef.current.has(m.id)) return true;
+    if (m.callSessionId && endedSessionsRef.current.has(m.callSessionId)) return true;
+    return false;
+  }, [endedTick]);
 
   const incomingCall = matches?.find(m => {
     if (!m.callStartedAt || m.callAnswered || m.callCompleted) return false;
     if (!m.callSessionId) return false;
     if (!m.callInitiatorId || m.callInitiatorId === userId) return false;
-    if (m.id === forcedEndMatchId) return false;
+    if (isEndedCall(m)) {
+      console.log("[CallDetectors] INCOMING_CALL_RESET - suppressed ended call:", m.id, m.callSessionId);
+      return false;
+    }
     const callKey = `${m.id}:${m.callSessionId}`;
     return callKey !== dismissedCallKey;
   });
 
-  const answeredCall = matches?.find(m =>
-    !!m.callStartedAt && !!m.callSessionId && m.callAnswered === true && m.callCompleted === false &&
-    (m.user1Id === userId || m.user2Id === userId) &&
-    m.id !== forcedEndMatchId
-  );
+  const answeredCall = matches?.find(m => {
+    if (!(!!m.callStartedAt && !!m.callSessionId && m.callAnswered === true && m.callCompleted === false &&
+      (m.user1Id === userId || m.user2Id === userId))) return false;
+    if (isEndedCall(m)) {
+      console.log("[CallDetectors] OUTGOING_CALL_RESET - suppressed ended answered call:", m.id, m.callSessionId);
+      return false;
+    }
+    return true;
+  });
 
-  const callerRingingCall = matches?.find(m =>
-    !!m.callStartedAt && !!m.callSessionId && !m.callAnswered && !m.callCompleted &&
-    m.callInitiatorId === userId &&
-    m.id !== forcedEndMatchId
-  );
+  const callerRingingCall = matches?.find(m => {
+    if (!(!!m.callStartedAt && !!m.callSessionId && !m.callAnswered && !m.callCompleted &&
+      m.callInitiatorId === userId)) return false;
+    if (isEndedCall(m)) {
+      console.log("[CallDetectors] OUTGOING_CALL_RESET - suppressed ended ringing call:", m.id, m.callSessionId);
+      return false;
+    }
+    return true;
+  });
 
   const activeCall = answeredCall || callerRingingCall;
 
@@ -158,16 +197,18 @@ function CallDetectors({ userId }: { userId: string }) {
 
   const handleDismiss = useCallback(() => {
     if (incomingCall) {
-      console.log("[CallDetectors] Dismissing incoming call:", incomingCall.id);
+      console.log("[CallDetectors] INCOMING_CALL_RESET - dismissing:", incomingCall.id);
       setDismissedCallKey(`${incomingCall.id}:${incomingCall.callSessionId}`);
+      markCallEnded(incomingCall.id, incomingCall.callSessionId || undefined);
     }
-  }, [incomingCall]);
+  }, [incomingCall, markCallEnded]);
 
   const handleActiveCallEnd = useCallback(() => {
     console.log("[CallDetectors] CALL_SESSION_CLOSED", { matchId: activeCall?.id, callSessionId: activeCall?.callSessionId });
-    setForcedEndMatchId(activeCall?.id || null);
-    qc.invalidateQueries({ queryKey: ["/api/matches"] });
-  }, [qc, activeCall?.id, activeCall?.callSessionId]);
+    if (activeCall) {
+      markCallEnded(activeCall.id, activeCall.callSessionId || undefined);
+    }
+  }, [activeCall?.id, activeCall?.callSessionId, markCallEnded]);
 
   return (
     <>

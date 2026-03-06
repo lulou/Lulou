@@ -112,6 +112,18 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
 
     const handleSignal = async (msg: SignalMessage) => {
       if (msg.from === userId) return;
+
+      if (msg.type === "webrtc:hangup") {
+        console.log("[WebRTC] CALL_END_RECEIVED - remote hangup from:", msg.from.slice(0, 8));
+        cleanup();
+        onRemoteHangupRef.current?.();
+        return;
+      }
+
+      if (cleanedUpRef.current) {
+        console.log("[WebRTC] Signal ignored (already cleaned up):", msg.type);
+        return;
+      }
       console.log("[WebRTC] Signal received:", msg.type, "from:", msg.from.slice(0, 8));
 
       try {
@@ -121,13 +133,6 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
           if (isCaller && pcRef.current) {
             await sendOffer();
           }
-          return;
-        }
-
-        if (msg.type === "webrtc:hangup") {
-          console.log("[WebRTC] CALL_END_RECEIVED - remote hangup from:", msg.from.slice(0, 8));
-          cleanup();
-          onRemoteHangupRef.current?.();
           return;
         }
 
@@ -321,6 +326,11 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
   }, []);
 
   const hangup = useCallback(() => {
+    if (cleanedUpRef.current) {
+      console.log("[WebRTC] hangup() called but already cleaned up - skipping");
+      return;
+    }
+    cleanedUpRef.current = true;
     console.log("[WebRTC] CALL_END_REQUESTED - sending hangup signal");
     const channel = channelRef.current;
     if (channel) {
@@ -342,15 +352,20 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
       pcRef.current.close();
       pcRef.current = null;
     }
+    if (disconnectTimerRef.current) {
+      clearTimeout(disconnectTimerRef.current);
+      disconnectTimerRef.current = null;
+    }
     setLocalStream(null);
     setRemoteStream(null);
     setConnectionState("closed");
+    console.log("[WebRTC] CALL_STATE_CLEARED - streams and peer connection closed");
     setTimeout(() => {
       if (channelRef.current) {
         supabase.removeChannel(channelRef.current);
         channelRef.current = null;
+        console.log("[WebRTC] CALL_LISTENER_REMOVED - signaling channel removed");
       }
-      cleanedUpRef.current = true;
       console.log("[WebRTC] CALL_SESSION_CLOSED - all resources released");
     }, 500);
   }, [userId]);

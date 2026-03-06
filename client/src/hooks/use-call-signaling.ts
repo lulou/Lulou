@@ -19,9 +19,29 @@ function getChannelName(matchId: string) {
 const subscribedChannels = new Map<string, ReturnType<typeof supabase.channel>>();
 
 let callEndedCallback: ((matchId: string) => void) | null = null;
+const processedEndEvents = new Set<string>();
 
 export function setCallEndedHandler(handler: ((matchId: string) => void) | null) {
   callEndedCallback = handler;
+}
+
+function dedupeCallEnd(matchId: string, reason: string): boolean {
+  const key = `${matchId}:${reason}`;
+  if (processedEndEvents.has(key)) {
+    console.log(LOG_PREFIX, `Duplicate call-end event suppressed: ${key}`);
+    return false;
+  }
+  processedEndEvents.add(key);
+  setTimeout(() => processedEndEvents.delete(key), 10000);
+  return true;
+}
+
+export function clearDedupeForMatch(matchId: string) {
+  for (const key of processedEndEvents) {
+    if (key.startsWith(`${matchId}:`)) {
+      processedEndEvents.delete(key);
+    }
+  }
 }
 
 export function useCallSignaling(matchIds: string[], userId: string) {
@@ -66,19 +86,27 @@ export function useCallSignaling(matchIds: string[], userId: string) {
           console.log(LOG_PREFIX, `CALL_ACCEPTED matchId=${matchId} by=${senderId}`);
         } else if (event.type === "call:declined") {
           console.log(LOG_PREFIX, `CALL_DECLINED matchId=${matchId} by=${senderId}`);
-          console.log(LOG_PREFIX, `CALL_END_RECEIVED matchId=${matchId} by=${senderId} reason=declined`);
-          callEndedCallback?.(matchId);
+          if (dedupeCallEnd(matchId, "declined")) {
+            console.log(LOG_PREFIX, `CALL_END_RECEIVED matchId=${matchId} by=${senderId} reason=declined`);
+            callEndedCallback?.(matchId);
+          }
         } else if (event.type === "call:cancelled") {
           console.log(LOG_PREFIX, `CALL_CANCELLED matchId=${matchId} by=${senderId}`);
-          console.log(LOG_PREFIX, `CALL_END_RECEIVED matchId=${matchId} by=${senderId} reason=cancelled`);
-          callEndedCallback?.(matchId);
+          if (dedupeCallEnd(matchId, "cancelled")) {
+            console.log(LOG_PREFIX, `CALL_END_RECEIVED matchId=${matchId} by=${senderId} reason=cancelled`);
+            callEndedCallback?.(matchId);
+          }
         } else if (event.type === "call:completed") {
           console.log(LOG_PREFIX, `CALL_COMPLETED matchId=${matchId} by=${senderId}`);
-          console.log(LOG_PREFIX, `CALL_END_RECEIVED matchId=${matchId} by=${senderId} reason=completed`);
-          callEndedCallback?.(matchId);
+          if (dedupeCallEnd(matchId, "completed")) {
+            console.log(LOG_PREFIX, `CALL_END_RECEIVED matchId=${matchId} by=${senderId} reason=completed`);
+            callEndedCallback?.(matchId);
+          }
         } else if (event.type === "call:ended") {
-          console.log(LOG_PREFIX, `CALL_END_RECEIVED matchId=${matchId} by=${senderId} reason=ended`);
-          callEndedCallback?.(matchId);
+          if (dedupeCallEnd(matchId, "ended")) {
+            console.log(LOG_PREFIX, `CALL_END_RECEIVED matchId=${matchId} by=${senderId} reason=ended`);
+            callEndedCallback?.(matchId);
+          }
         }
 
         queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
