@@ -299,12 +299,12 @@ async function fetchProfileSafe(): Promise<ProfileResult> {
 }
 
 function AppContent() {
-  const { user, isLoading: authLoading } = useAuth();
+  const { user, isLoading: authLoading, profileReady } = useAuth();
 
   const { data, isLoading: profileLoading } = useQuery<ProfileResult>({
     queryKey: ["/api/profile"],
     queryFn: fetchProfileSafe,
-    enabled: !!user,
+    enabled: !!user && profileReady,
     retry: false,
   });
 
@@ -326,7 +326,7 @@ function AppContent() {
     return <Landing />;
   }
 
-  if (profileLoading) {
+  if (profileLoading || !profileReady) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-3">

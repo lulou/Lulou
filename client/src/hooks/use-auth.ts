@@ -6,37 +6,58 @@ import type { User } from "@supabase/supabase-js";
 export function useAuth() {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [profileReady, setProfileReady] = useState(false);
   const [profileInitError, setProfileInitError] = useState<string | null>(null);
+
+  const ensureProfile = useCallback(async () => {
+    setProfileReady(false);
+    setProfileInitError(null);
+    try {
+      await initProfileOnLogin();
+    } catch (err: any) {
+      const msg = err?.message || "Unknown profile initialization error";
+      console.error("PROFILE_INIT_ERROR", msg, err);
+      setProfileInitError(msg);
+    } finally {
+      setProfileReady(true);
+    }
+  }, []);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
-      setUser(session?.user ?? null);
-      setIsLoading(false);
+      const u = session?.user ?? null;
+      setUser(u);
+      if (u) {
+        ensureProfile().then(() => setIsLoading(false));
+      } else {
+        setProfileReady(true);
+        setIsLoading(false);
+      }
     }).catch(err => {
       console.error("AUTH_SESSION_ERROR", err);
+      setProfileReady(true);
       setIsLoading(false);
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      setUser(session?.user ?? null);
-      setIsLoading(false);
+      const u = session?.user ?? null;
+      setUser(u);
 
-      if (event === "SIGNED_IN" && session?.user) {
-        setProfileInitError(null);
-        initProfileOnLogin().catch(err => {
-          const msg = err?.message || "Unknown profile initialization error";
-          console.error("PROFILE_INIT_ERROR", msg, err);
-          setProfileInitError(msg);
-        });
+      if (event === "SIGNED_IN" && u) {
+        ensureProfile().then(() => setIsLoading(false));
+      } else {
+        setProfileReady(true);
+        setIsLoading(false);
       }
     });
 
     return () => subscription.unsubscribe();
-  }, []);
+  }, [ensureProfile]);
 
   const logout = useCallback(async () => {
     await supabase.auth.signOut();
     setUser(null);
+    setProfileReady(false);
     window.location.href = "/";
   }, []);
 
@@ -47,5 +68,6 @@ export function useAuth() {
     logout,
     isLoggingOut: false,
     profileInitError,
+    profileReady,
   };
 }
