@@ -467,7 +467,6 @@ export class SupabaseStorage implements IStorage {
       .from("matches")
       .update({
         call_answered: true,
-        call_started_at: new Date().toISOString(),
       })
       .eq("id", matchId)
       .select()

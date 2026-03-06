@@ -5,13 +5,16 @@ const ICE_SERVERS = [
   { urls: "stun:stun.l.google.com:19302" },
   { urls: "stun:stun1.l.google.com:19302" },
   { urls: "stun:stun2.l.google.com:19302" },
+  { urls: "stun:stun3.l.google.com:19302" },
+  { urls: "stun:stun4.l.google.com:19302" },
 ];
 
 type SignalMessage =
   | { type: "webrtc:offer"; sdp: string; from: string }
   | { type: "webrtc:answer"; sdp: string; from: string }
   | { type: "webrtc:ice"; candidate: RTCIceCandidateInit; from: string }
-  | { type: "webrtc:hangup"; from: string };
+  | { type: "webrtc:hangup"; from: string }
+  | { type: "webrtc:ready"; from: string };
 
 export type WebRTCState = "idle" | "requesting-media" | "connecting" | "connected" | "reconnecting" | "failed" | "closed";
 
@@ -40,6 +43,7 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
   const cleanedUpRef = useRef(false);
   const onRemoteHangupRef = useRef(onRemoteHangup);
   const disconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const readyReceivedRef = useRef(false);
   onRemoteHangupRef.current = onRemoteHangup;
 
   const cleanup = useCallback(() => {
@@ -76,6 +80,7 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
     cleanedUpRef.current = false;
     hasSetRemoteDescRef.current = false;
     pendingCandidatesRef.current = [];
+    readyReceivedRef.current = false;
 
     const broadcastOnChannel = (msg: Omit<SignalMessage, "from">) => {
       const channel = channelRef.current;
@@ -87,13 +92,48 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
       });
     };
 
+    const sendOffer = async () => {
+      const pc = pcRef.current;
+      if (!pc || cleanedUpRef.current) return;
+      if (pc.signalingState !== "stable") return;
+      try {
+        hasSetRemoteDescRef.current = false;
+        pendingCandidatesRef.current = [];
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        broadcastOnChannel({ type: "webrtc:offer", sdp: offer.sdp! });
+      } catch (e) {
+        console.error("Failed to create offer:", e);
+        setConnectionState("failed");
+      }
+    };
+
     const handleSignal = async (msg: SignalMessage) => {
       if (msg.from === userId) return;
-      const pc = pcRef.current;
-      if (!pc) return;
 
       try {
+        if (msg.type === "webrtc:ready") {
+          readyReceivedRef.current = true;
+          if (isCaller && pcRef.current) {
+            await sendOffer();
+          }
+          return;
+        }
+
+        if (msg.type === "webrtc:hangup") {
+          cleanup();
+          onRemoteHangupRef.current?.();
+          return;
+        }
+
+        const pc = pcRef.current;
+        if (!pc) return;
+
         if (msg.type === "webrtc:offer" && !isCaller) {
+          if (pc.signalingState !== "stable") {
+            console.warn("Ignoring offer in state:", pc.signalingState);
+            return;
+          }
           await pc.setRemoteDescription(new RTCSessionDescription({ type: "offer", sdp: msg.sdp }));
           hasSetRemoteDescRef.current = true;
           const queued = pendingCandidatesRef.current.splice(0);
@@ -104,6 +144,10 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
           await pc.setLocalDescription(answer);
           broadcastOnChannel({ type: "webrtc:answer", sdp: answer.sdp! });
         } else if (msg.type === "webrtc:answer" && isCaller) {
+          if (pc.signalingState !== "have-local-offer") {
+            console.warn("Ignoring answer in state:", pc.signalingState);
+            return;
+          }
           await pc.setRemoteDescription(new RTCSessionDescription({ type: "answer", sdp: msg.sdp }));
           hasSetRemoteDescRef.current = true;
           const queued = pendingCandidatesRef.current.splice(0);
@@ -116,9 +160,6 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
           } else {
             pendingCandidatesRef.current.push(msg.candidate);
           }
-        } else if (msg.type === "webrtc:hangup") {
-          cleanup();
-          onRemoteHangupRef.current?.();
         }
       } catch (e) {
         console.error("Signal handling error:", e);
@@ -140,7 +181,7 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
         }
       });
 
-      const [mediaResult, channelStatus] = await Promise.allSettled([
+      const [mediaResult, channelResult] = await Promise.allSettled([
         navigator.mediaDevices.getUserMedia({
           audio: true,
           video: isVideo ? { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } } : false,
@@ -170,25 +211,24 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
       localStreamRef.current = stream;
       setLocalStream(stream);
 
-      if (channelStatus.status === "rejected" || channelStatus.value !== "SUBSCRIBED") {
-        console.warn("Signaling channel subscription issue, retrying...");
-        let retries = 0;
-        const retrySubscribe = async (): Promise<boolean> => {
-          while (retries < 5 && !cleanedUpRef.current) {
-            retries++;
-            await new Promise(r => setTimeout(r, 1000));
+      if (channelResult.status === "rejected" || channelResult.value !== "SUBSCRIBED") {
+        let subscribed = false;
+        for (let i = 0; i < 5 && !cleanedUpRef.current; i++) {
+          await new Promise(r => setTimeout(r, 1000));
+          try {
             const s = await channel.subscribe();
-            if (s === "SUBSCRIBED") return true;
-          }
-          return false;
-        };
-        const ok = await retrySubscribe();
-        if (!ok && !cleanedUpRef.current) {
+            if (s === "SUBSCRIBED") { subscribed = true; break; }
+          } catch {}
+        }
+        if (!subscribed && !cleanedUpRef.current) {
+          console.error("Channel subscription failed after retries");
           cleanup();
           setConnectionState("failed");
           return;
         }
       }
+
+      if (cleanedUpRef.current) return;
 
       const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
       pcRef.current = pc;
@@ -199,7 +239,11 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
       stream.getTracks().forEach((track) => pc.addTrack(track, stream));
 
       pc.ontrack = (event) => {
-        event.streams[0]?.getTracks().forEach((track) => remote.addTrack(track));
+        event.streams[0]?.getTracks().forEach((track) => {
+          if (!remote.getTrackById(track.id)) {
+            remote.addTrack(track);
+          }
+        });
         setRemoteStream(new MediaStream(remote.getTracks()));
       };
 
@@ -236,14 +280,9 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
       setConnectionState("connecting");
 
       if (isCaller) {
-        try {
-          const offer = await pc.createOffer();
-          await pc.setLocalDescription(offer);
-          broadcastOnChannel({ type: "webrtc:offer", sdp: offer.sdp! });
-        } catch (e) {
-          console.error("Failed to create offer:", e);
-          setConnectionState("failed");
-        }
+        await sendOffer();
+      } else {
+        broadcastOnChannel({ type: "webrtc:ready" });
       }
     };
 

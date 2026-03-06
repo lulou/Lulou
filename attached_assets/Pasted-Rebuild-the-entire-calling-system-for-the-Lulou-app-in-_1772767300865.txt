@@ -1,0 +1,74 @@
+Rebuild the entire calling system for the Lulou app in a stable and structured way so that voice and video calls work reliably between any two matched users.
+
+
+
+The calling system must work across all device combinations including phone to phone, phone to laptop, and laptop to laptop. The goal is for calls to feel effortless, natural, and instant once both users accept.
+
+
+
+Call Flow:
+
+
+
+A user in a match chat can press the call button to start a call request.
+The other user must receive a clear incoming call notification.
+The receiving user can accept or decline the call.
+If the call is accepted, both users should immediately enter the call screen at the same time.
+
+
+
+
+Voice Call Requirements:
+
+
+
+When the call is accepted, both users must be able to speak and hear each other through their device microphones and speakers. The app must request microphone permission from the user’s device before starting the call. If microphone access is denied, display a clear message explaining that microphone access is required to place or receive calls.
+
+
+
+Audio must stream in real time between both users with minimal latency so the conversation feels natural.
+
+
+
+Video Call Requirements:
+
+
+
+When a video call is started and accepted, the app must request both camera and microphone access. Each user’s camera feed should appear on the other user’s screen so they can see and hear each other live.
+
+
+
+If camera permission is denied, inform the user that camera access is required for video calls.
+
+
+
+Technology Requirements:
+
+
+
+Implement the call system using WebRTC for real-time peer-to-peer audio and video streaming. Use the server only for signaling (sending connection offers, answers, and ICE candidates between users). This ensures low latency and stable connections.
+
+
+
+Call Experience:
+
+
+
+Calls must start effortlessly once accepted with no noticeable delay. Connection setup should happen quickly in the background so users can begin speaking immediately.
+
+
+
+When a call ends, the connection must close instantly and return both users to the chat screen without lag or errors. All microphone, camera, and network resources must be released so the next call can start smoothly.
+
+
+
+Stability Requirements:
+
+
+
+Do not rewrite unrelated messaging, matching, or profile systems. Only modify the call system. Ensure existing chat functionality in Lulou continues to work normally.
+
+
+
+If any error occurs during call setup, log the error clearly and show a helpful message instead of silently failing.
+
