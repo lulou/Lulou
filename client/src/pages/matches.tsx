@@ -558,9 +558,12 @@ function MatchChat({ match }: { match: MatchWithProfile }) {
 
   const startCall = useMutation({
     mutationFn: async () => {
-      console.log("[Call] CALL_REQUEST_SENT - starting call for match:", match.id);
-      const res = await apiRequest("POST", `/api/matches/${match.id}/call/start`, {});
-      return res.json();
+      const path = `/api/matches/${match.id}/call/start`;
+      console.log("[Call] CALL_API_REQUEST", { path, method: "POST", matchId: match.id });
+      const res = await apiRequest("POST", path, {});
+      const data = await res.json();
+      console.log("[Call] CALL_API_RESPONSE", { path, status: res.status, callSessionId: data.callSessionId });
+      return data;
     },
     onSuccess: (data: any) => {
       console.log("[Call] CALL_SESSION_CREATED", { matchId: match.id, callSessionId: data.callSessionId });
@@ -575,7 +578,7 @@ function MatchChat({ match }: { match: MatchWithProfile }) {
       queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
     },
     onError: (error: Error) => {
-      console.error("[Call] Failed to start call:", error.message);
+      console.error("[Call] CALL_API_RESPONSE error:", error.message);
       toast({ title: "Call failed", description: error.message, variant: "destructive" });
     },
   });

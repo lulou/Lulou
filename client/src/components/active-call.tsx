@@ -59,11 +59,11 @@ export function ActiveCallOverlay({
   const finishCall = useCallback(() => {
     if (endedRef.current) return;
     endedRef.current = true;
-    console.log("[ActiveCall] CALL_SESSION_ENDED", { matchId, callSessionId, isRinging });
-    onCallEnd();
     const endpoint = isRinging
       ? `/api/matches/${matchId}/call/cancel`
       : `/api/matches/${matchId}/call/complete`;
+    console.log("[ActiveCall] CALL_API_REQUEST", { path: endpoint, method: "POST", matchId, CALL_SESSION_ID: callSessionId, isRinging });
+    onCallEnd();
     const signalType = isRinging ? "call:cancelled" : "call:completed";
     broadcastCallSignal(matchId, {
       type: signalType as any,
@@ -71,8 +71,10 @@ export function ActiveCallOverlay({
       userId,
       callSessionId,
     });
-    apiRequest("POST", endpoint).catch((e) => {
-      console.error("[ActiveCall] Failed to update server:", e);
+    apiRequest("POST", endpoint).then((res) => {
+      console.log("[ActiveCall] CALL_API_RESPONSE", { path: endpoint, status: res.status, CALL_SESSION_ID: callSessionId });
+    }).catch((e) => {
+      console.error("[ActiveCall] CALL_API_RESPONSE error:", e.message);
     }).finally(() => {
       queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
       queryClient.invalidateQueries({ queryKey: ["/api/matches", matchId] });

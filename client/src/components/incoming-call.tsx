@@ -170,10 +170,13 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss }: In
 
   const answerCall = useMutation({
     mutationFn: async () => {
-      console.log("[IncomingCall] CALL_ACCEPTED - answering call for match:", match.id);
+      const path = `/api/matches/${match.id}/call/answer`;
+      console.log("[IncomingCall] CALL_API_REQUEST", { path, method: "POST", matchId: match.id });
       actedRef.current = true;
-      const res = await apiRequest("POST", `/api/matches/${match.id}/call/answer`, {});
-      return res.json();
+      const res = await apiRequest("POST", path, {});
+      const data = await res.json();
+      console.log("[IncomingCall] CALL_API_RESPONSE", { path, status: res.status, CALL_SESSION_ID: data.callSessionId });
+      return data;
     },
     onSuccess: () => {
       console.log("[IncomingCall] CALL_SESSION_JOINED", { matchId: match.id, callSessionId: match.callSessionId });
@@ -197,10 +200,13 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss }: In
 
   const declineCall = useMutation({
     mutationFn: async () => {
-      console.log("[IncomingCall] CALL_DECLINED - declining call for match:", match.id);
+      const path = `/api/matches/${match.id}/call/cancel`;
+      console.log("[IncomingCall] CALL_API_REQUEST", { path, method: "POST", matchId: match.id });
       actedRef.current = true;
-      const res = await apiRequest("POST", `/api/matches/${match.id}/call/cancel`, {});
-      return res.json();
+      const res = await apiRequest("POST", path, {});
+      const data = await res.json();
+      console.log("[IncomingCall] CALL_API_RESPONSE", { path, status: res.status });
+      return data;
     },
     onSuccess: () => {
       console.log("[IncomingCall] Call declined, broadcasting decline signal");

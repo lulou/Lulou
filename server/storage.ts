@@ -129,7 +129,9 @@ function mapMatch(row: any): Match {
     callAnswered: row.call_answered,
     callInitiatorId: row.call_initiator_id,
     callStage: row.call_stage,
-    callSessionId: row.call_session_id || null,
+    callSessionId: row.call_started_at && row.call_initiator_id
+      ? `call-${row.id}-${new Date(row.call_started_at).getTime()}`
+      : null,
     faceCallUser1Accepted: row.face_call_user1_accepted,
     faceCallUser2Accepted: row.face_call_user2_accepted,
     meetAvailability1: row.meet_availability_1,
@@ -426,19 +428,33 @@ export class SupabaseStorage implements IStorage {
   }
 
   async startCall(matchId: string, userId: string): Promise<Match | undefined> {
-    const { data: matchData } = await this.sb
+    console.log("[startCall] Reading match", { matchId, userId });
+    const { data: matchData, error: readError } = await this.sb
       .from("matches")
       .select("*")
       .eq("id", matchId)
       .maybeSingle();
-    if (!matchData) return undefined;
+    if (readError) {
+      console.log("[startCall] DB read error:", readError.message, readError.code);
+    }
+    if (!matchData) {
+      console.log("[startCall] Match not found in DB:", matchId);
+      return undefined;
+    }
     const match = mapMatch(matchData);
-    if (match.user1Id !== userId && match.user2Id !== userId) return undefined;
+    if (match.user1Id !== userId && match.user2Id !== userId) {
+      console.log("[startCall] User not in match:", { userId, user1Id: match.user1Id, user2Id: match.user2Id });
+      return undefined;
+    }
     const stage = match.callStage || 0;
-    if (stage >= 3) return undefined;
-    if (stage === 2 && !(match.faceCallUser1Accepted && match.faceCallUser2Accepted)) return undefined;
-
-    const callSessionId = `call-${matchId}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    if (stage >= 3) {
+      console.log("[startCall] All call stages completed:", { matchId, callStage: stage });
+      return undefined;
+    }
+    if (stage === 2 && !(match.faceCallUser1Accepted && match.faceCallUser2Accepted)) {
+      console.log("[startCall] Face call not mutually accepted:", { matchId, stage, fc1: match.faceCallUser1Accepted, fc2: match.faceCallUser2Accepted });
+      return undefined;
+    }
 
     const { data: updated, error } = await this.sb
       .from("matches")
@@ -447,25 +463,31 @@ export class SupabaseStorage implements IStorage {
         call_initiator_id: userId,
         call_answered: false,
         call_completed: false,
-        call_session_id: callSessionId,
       })
       .eq("id", matchId)
       .select()
       .single();
-    if (error || !updated) return undefined;
+    if (error || !updated) {
+      console.log("[startCall] DB update failed:", { matchId, error: error?.message, code: error?.code });
+      return undefined;
+    }
+    const result = mapMatch(updated);
+    console.log("[startCall] CALL_SESSION_CREATED", { matchId, callSessionId: result.callSessionId, userId });
     return mapMatch(updated);
   }
 
   async answerCall(matchId: string, userId: string): Promise<Match | undefined> {
-    const { data: matchData } = await this.sb
+    console.log("[answerCall] Reading match", { matchId, userId });
+    const { data: matchData, error: readError } = await this.sb
       .from("matches")
       .select("*")
       .eq("id", matchId)
       .maybeSingle();
-    if (!matchData) return undefined;
+    if (readError) console.log("[answerCall] DB read error:", readError.message);
+    if (!matchData) { console.log("[answerCall] Match not found:", matchId); return undefined; }
     const match = mapMatch(matchData);
-    if (match.user1Id !== userId && match.user2Id !== userId) return undefined;
-    if (match.callInitiatorId === userId) return undefined;
+    if (match.user1Id !== userId && match.user2Id !== userId) { console.log("[answerCall] User not in match"); return undefined; }
+    if (match.callInitiatorId === userId) { console.log("[answerCall] Cannot answer own call"); return undefined; }
 
     const { data: updated, error } = await this.sb
       .from("matches")
@@ -475,19 +497,22 @@ export class SupabaseStorage implements IStorage {
       .eq("id", matchId)
       .select()
       .single();
-    if (error || !updated) return undefined;
+    if (error || !updated) { console.log("[answerCall] DB update failed:", error?.message); return undefined; }
+    console.log("[answerCall] CALL_SESSION_JOINED", { matchId, callSessionId: match.callSessionId, userId });
     return mapMatch(updated);
   }
 
   async cancelCall(matchId: string, userId: string): Promise<Match | undefined> {
-    const { data: matchData } = await this.sb
+    console.log("[cancelCall] Reading match", { matchId, userId });
+    const { data: matchData, error: readError } = await this.sb
       .from("matches")
       .select("*")
       .eq("id", matchId)
       .maybeSingle();
-    if (!matchData) return undefined;
+    if (readError) console.log("[cancelCall] DB read error:", readError.message);
+    if (!matchData) { console.log("[cancelCall] Match not found:", matchId); return undefined; }
     const match = mapMatch(matchData);
-    if (match.user1Id !== userId && match.user2Id !== userId) return undefined;
+    if (match.user1Id !== userId && match.user2Id !== userId) { console.log("[cancelCall] User not in match"); return undefined; }
 
     const { data: updated, error } = await this.sb
       .from("matches")
@@ -496,12 +521,12 @@ export class SupabaseStorage implements IStorage {
         call_initiator_id: null,
         call_answered: false,
         call_completed: false,
-        call_session_id: null,
       })
       .eq("id", matchId)
       .select()
       .single();
-    if (error || !updated) return undefined;
+    if (error || !updated) { console.log("[cancelCall] DB update failed:", error?.message); return undefined; }
+    console.log("[cancelCall] CALL_SESSION_ENDED", { matchId, callSessionId: match.callSessionId, userId });
     return mapMatch(updated);
   }
 
@@ -523,7 +548,6 @@ export class SupabaseStorage implements IStorage {
           call_initiator_id: null,
           call_answered: false,
           call_completed: false,
-          call_session_id: null,
         })
         .eq("id", matchId)
         .select()
@@ -543,7 +567,6 @@ export class SupabaseStorage implements IStorage {
         call_initiator_id: null,
         call_answered: false,
         call_stage: nextStage,
-        call_session_id: null,
       })
       .eq("id", matchId)
       .select()

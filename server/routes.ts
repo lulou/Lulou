@@ -463,20 +463,20 @@ export async function registerRoutes(
 
   app.post("/api/matches/:matchId/call/start", isAuthenticated, async (req: any, res) => {
     try {
-      const storage = getStorage(req);
+      const serverStorage = new SupabaseStorage();
       const userId = req.user.id;
       const matchId = req.params.matchId;
-      console.log("[CALL_START] CALL_REQUEST_SENT", { matchId, userId, timestamp: new Date().toISOString() });
-      const match = await storage.startCall(matchId, userId);
+      console.log("[CALL_START] CALL_API_REQUEST", { path: "/api/matches/:matchId/call/start", matchId, userId, timestamp: new Date().toISOString() });
+      const match = await serverStorage.startCall(matchId, userId);
       if (!match) {
-        console.log("[CALL_START] Match not found or invalid:", matchId);
+        console.log("[CALL_START] CALL_API_RESPONSE", { status: 404, matchId, userId });
         return res.status(404).json({ message: "Match not found" });
       }
 
       const otherUserId = match.user1Id === userId ? match.user2Id : match.user1Id;
-      const callerProfile = await storage.getProfile(userId);
+      const callerProfile = await serverStorage.getProfile(userId);
       const callerName = callerProfile?.firstName || "Someone";
-      console.log("[CALL_START] CALL_SESSION_CREATED", { matchId, callSessionId: match.callSessionId, callerId: userId, receiverId: otherUserId, callerName });
+      console.log("[CALL_START] CALL_API_RESPONSE", { status: 200, matchId, CALL_SESSION_ID: match.callSessionId, callerId: userId, receiverId: otherUserId, callerName });
 
       broadcastCallEvent(matchId, {
         type: "call:ring",
@@ -487,10 +487,9 @@ export async function registerRoutes(
       });
 
       if (otherUserId.startsWith("seed-")) {
-        const autoStorage = storage;
         setTimeout(async () => {
           try {
-            await autoStorage.answerCall(matchId, otherUserId);
+            await serverStorage.answerCall(matchId, otherUserId);
             console.log("[CALL_AUTO_ANSWER] CALL_SESSION_JOINED", { matchId, callSessionId: match.callSessionId, userId: otherUserId });
             broadcastCallEvent(matchId, {
               type: "call:answered",
@@ -513,16 +512,16 @@ export async function registerRoutes(
 
   app.post("/api/matches/:matchId/call/answer", isAuthenticated, async (req: any, res) => {
     try {
-      const storage = getStorage(req);
+      const serverStorage = new SupabaseStorage();
       const userId = req.user.id;
       const matchId = req.params.matchId;
-      console.log("[CALL_ANSWER]", { matchId, userId, timestamp: new Date().toISOString() });
-      const match = await storage.answerCall(matchId, userId);
+      console.log("[CALL_ANSWER] CALL_API_REQUEST", { path: "/api/matches/:matchId/call/answer", matchId, userId, timestamp: new Date().toISOString() });
+      const match = await serverStorage.answerCall(matchId, userId);
       if (!match) {
-        console.log("[CALL_ANSWER] Match not found or cannot answer own call:", matchId);
+        console.log("[CALL_ANSWER] CALL_API_RESPONSE", { status: 404, matchId, userId });
         return res.status(404).json({ message: "Match not found or you cannot answer your own call" });
       }
-      console.log("[CALL_ANSWER] CALL_SESSION_JOINED", { matchId, callSessionId: match.callSessionId, userId });
+      console.log("[CALL_ANSWER] CALL_API_RESPONSE", { status: 200, matchId, CALL_SESSION_ID: match.callSessionId, userId });
       broadcastCallEvent(matchId, {
         type: "call:answered",
         matchId,
@@ -538,18 +537,18 @@ export async function registerRoutes(
 
   app.post("/api/matches/:matchId/call/cancel", isAuthenticated, async (req: any, res) => {
     try {
-      const storage = getStorage(req);
+      const serverStorage = new SupabaseStorage();
       const userId = req.user.id;
       const matchId = req.params.matchId;
-      const preCancelMatch = await storage.getMatch(matchId, userId);
+      const preCancelMatch = await serverStorage.getMatch(matchId, userId);
       const prevSessionId = preCancelMatch?.callSessionId || null;
-      console.log("[CALL_CANCEL]", { matchId, userId, callSessionId: prevSessionId, timestamp: new Date().toISOString() });
-      const match = await storage.cancelCall(matchId, userId);
+      console.log("[CALL_CANCEL] CALL_API_REQUEST", { path: "/api/matches/:matchId/call/cancel", matchId, userId, CALL_SESSION_ID: prevSessionId, timestamp: new Date().toISOString() });
+      const match = await serverStorage.cancelCall(matchId, userId);
       if (!match) {
-        console.log("[CALL_CANCEL] Match not found:", matchId);
+        console.log("[CALL_CANCEL] CALL_API_RESPONSE", { status: 404, matchId, userId });
         return res.status(404).json({ message: "Match not found" });
       }
-      console.log("[CALL_CANCEL] CALL_SESSION_ENDED", { matchId, callSessionId: prevSessionId, userId });
+      console.log("[CALL_CANCEL] CALL_API_RESPONSE", { status: 200, matchId, CALL_SESSION_ID: prevSessionId, userId });
       broadcastCallEvent(matchId, {
         type: "call:cancelled",
         matchId,
@@ -565,18 +564,18 @@ export async function registerRoutes(
 
   app.post("/api/matches/:matchId/call/complete", isAuthenticated, async (req: any, res) => {
     try {
-      const storage = getStorage(req);
+      const serverStorage = new SupabaseStorage();
       const userId = req.user.id;
       const matchId = req.params.matchId;
-      const preCompleteMatch = await storage.getMatch(matchId, userId);
+      const preCompleteMatch = await serverStorage.getMatch(matchId, userId);
       const prevSessionId = preCompleteMatch?.callSessionId || null;
-      console.log("[CALL_COMPLETE]", { matchId, userId, callSessionId: prevSessionId, timestamp: new Date().toISOString() });
-      const match = await storage.completeCall(matchId, userId);
+      console.log("[CALL_COMPLETE] CALL_API_REQUEST", { path: "/api/matches/:matchId/call/complete", matchId, userId, CALL_SESSION_ID: prevSessionId, timestamp: new Date().toISOString() });
+      const match = await serverStorage.completeCall(matchId, userId);
       if (!match) {
-        console.log("[CALL_COMPLETE] Match not found:", matchId);
+        console.log("[CALL_COMPLETE] CALL_API_RESPONSE", { status: 404, matchId, userId });
         return res.status(404).json({ message: "Match not found" });
       }
-      console.log("[CALL_COMPLETE] CALL_SESSION_ENDED", { matchId, callSessionId: prevSessionId, userId, callStage: match.callStage });
+      console.log("[CALL_COMPLETE] CALL_API_RESPONSE", { status: 200, matchId, CALL_SESSION_ID: prevSessionId, userId, callStage: match.callStage });
       broadcastCallEvent(matchId, {
         type: "call:completed",
         matchId,
@@ -592,21 +591,22 @@ export async function registerRoutes(
 
   app.post("/api/matches/:matchId/face-call/accept", isAuthenticated, async (req: any, res) => {
     try {
-      const storage = getStorage(req);
+      const serverStorage = new SupabaseStorage();
       const userId = req.user.id;
       const matchId = req.params.matchId;
-      const match = await storage.acceptFaceCall(matchId, userId);
+      console.log("[FACE_CALL_ACCEPT] CALL_API_REQUEST", { path: "/api/matches/:matchId/face-call/accept", matchId, userId });
+      const match = await serverStorage.acceptFaceCall(matchId, userId);
       if (!match) {
+        console.log("[FACE_CALL_ACCEPT] CALL_API_RESPONSE", { status: 404, matchId, userId });
         return res.status(404).json({ message: "Match not found or not eligible for face call" });
       }
 
       const isDev = process.env.NODE_ENV === "development";
       const otherUserId = match.user1Id === userId ? match.user2Id : match.user1Id;
       if (isDev || otherUserId.startsWith("seed-")) {
-        const autoStorage = storage;
         setTimeout(async () => {
           try {
-            await autoStorage.acceptFaceCall(matchId, otherUserId);
+            await serverStorage.acceptFaceCall(matchId, otherUserId);
             console.log("AUTO_ACCEPT_FACE_CALL", matchId, otherUserId);
           } catch (err) {
             console.error("Auto face-call accept error:", err);
@@ -614,6 +614,7 @@ export async function registerRoutes(
         }, 1500 + Math.random() * 2000);
       }
 
+      console.log("[FACE_CALL_ACCEPT] CALL_API_RESPONSE", { status: 200, matchId, userId });
       res.json(match);
     } catch (error) {
       console.error("Error accepting face call:", error);
@@ -623,12 +624,15 @@ export async function registerRoutes(
 
   app.post("/api/matches/:matchId/face-call/decline", isAuthenticated, async (req: any, res) => {
     try {
-      const storage = getStorage(req);
+      const serverStorage = new SupabaseStorage();
       const userId = req.user.id;
-      const match = await storage.declineFaceCall(req.params.matchId, userId);
+      console.log("[FACE_CALL_DECLINE] CALL_API_REQUEST", { path: "/api/matches/:matchId/face-call/decline", matchId: req.params.matchId, userId });
+      const match = await serverStorage.declineFaceCall(req.params.matchId, userId);
       if (!match) {
+        console.log("[FACE_CALL_DECLINE] CALL_API_RESPONSE", { status: 404, matchId: req.params.matchId, userId });
         return res.status(404).json({ message: "Match not found" });
       }
+      console.log("[FACE_CALL_DECLINE] CALL_API_RESPONSE", { status: 200, matchId: req.params.matchId, userId });
       res.json(match);
     } catch (error) {
       console.error("Error declining face call:", error);
