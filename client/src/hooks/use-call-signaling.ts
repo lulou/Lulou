@@ -81,7 +81,7 @@ export function useCallSignaling(matchIds: string[], userId: string) {
         const event = payload as CallSignalEvent;
 
         if (event.type === "call:ring") {
-          console.log(LOG_PREFIX, `CALL_REQUEST_RECEIVED matchId=${matchId} from=${senderId} callerName=${(event as any).callerName}`);
+          console.log(LOG_PREFIX, `INCOMING_CALL_RECEIVED matchId=${matchId} from=${senderId} callerName=${(event as any).callerName}`);
         } else if (event.type === "call:answered") {
           console.log(LOG_PREFIX, `CALL_ACCEPTED matchId=${matchId} by=${senderId}`);
         } else if (event.type === "call:declined") {
@@ -91,7 +91,7 @@ export function useCallSignaling(matchIds: string[], userId: string) {
             callEndedCallback?.(matchId);
           }
         } else if (event.type === "call:cancelled") {
-          console.log(LOG_PREFIX, `CALL_CANCELLED matchId=${matchId} by=${senderId}`);
+          console.log(LOG_PREFIX, `CANCEL_CALL_RECEIVED matchId=${matchId} by=${senderId}`);
           if (dedupeCallEnd(matchId, "cancelled")) {
             console.log(LOG_PREFIX, `CALL_END_RECEIVED matchId=${matchId} by=${senderId} reason=cancelled`);
             callEndedCallback?.(matchId);

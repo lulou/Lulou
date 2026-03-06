@@ -566,7 +566,8 @@ function MatchChat({ match }: { match: MatchWithProfile }) {
       return data;
     },
     onSuccess: (data: any) => {
-      console.log("[Call] CALL_SESSION_CREATED", { matchId: match.id, callSessionId: data.callSessionId });
+      iCancelledRef.current = false;
+      console.log("[MatchChat] OUTGOING_CALL_STARTED", { matchId: match.id, callSessionId: data.callSessionId, callerId: user!.id });
       broadcastCallSignal(match.id, {
         type: "call:ring",
         matchId: match.id,
@@ -590,7 +591,8 @@ function MatchChat({ match }: { match: MatchWithProfile }) {
       return res.json();
     },
     onSuccess: () => {
-      console.log("[Call] CALL_END_REQUESTED - cancelling call");
+      console.log("[MatchChat] CANCEL_CALL_REQUESTED", { matchId: match.id });
+      console.log("[MatchChat] CALL_PENDING_STATE_CLEARED", { matchId: match.id });
       iCancelledRef.current = true;
       broadcastCallSignal(match.id, {
         type: "call:ended" as any,
@@ -602,7 +604,6 @@ function MatchChat({ match }: { match: MatchWithProfile }) {
         matchId: match.id,
         userId: user!.id,
       });
-      console.log("[Call] CALL_END_SENT", { matchId: match.id });
       queryClient.invalidateQueries({ queryKey: ["/api/matches", match.id] });
       queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
       toast({ title: "Call cancelled", description: "No worries - the call wasn't connected so it doesn't count." });
@@ -736,9 +737,14 @@ function MatchChat({ match }: { match: MatchWithProfile }) {
                   {match.profile.signals[0]}
                 </Badge>
               )}
-              {isCallRinging && (
+              {isCallRinging && iAmCaller && (
                 <Badge variant="secondary" className="text-xs" data-testid={`badge-call-ringing-${match.id}`}>
-                  <Phone className="w-3 h-3 mr-1 animate-pulse" /> Ringing
+                  <Phone className="w-3 h-3 mr-1 animate-pulse" /> Calling
+                </Badge>
+              )}
+              {isCallRinging && !iAmCaller && (
+                <Badge variant="default" className="text-xs bg-green-600" data-testid={`badge-call-incoming-${match.id}`}>
+                  <Phone className="w-3 h-3 mr-1 animate-pulse" /> Incoming Call
                 </Badge>
               )}
               {isCallActive && (
@@ -832,7 +838,7 @@ function MatchChat({ match }: { match: MatchWithProfile }) {
             <div ref={messagesEndRef} />
           </div>
 
-          {isCallRinging ? (
+          {isCallRinging && iAmCaller ? (
             <div className="p-5 border-t" data-testid={`call-ringing-${match.id}`}>
               <div className="text-center space-y-4">
                 <div className="relative w-20 h-20 mx-auto">
@@ -848,19 +854,45 @@ function MatchChat({ match }: { match: MatchWithProfile }) {
                   </div>
                 </div>
                 <div className="space-y-1">
-                  <p className="font-medium text-sm">Calling {match.profile.firstName}...</p>
+                  <p className="font-medium text-sm" data-testid={`text-outgoing-call-${match.id}`}>Calling {match.profile.firstName}...</p>
                   <p className="text-xs text-muted-foreground">Waiting for them to pick up</p>
                 </div>
                 <Button
                   size="sm"
                   variant="outline"
-                  onClick={() => cancelCall.mutate()}
+                  onClick={() => {
+                    console.log("[MatchChat] CANCEL_CALL_REQUESTED", { matchId: match.id });
+                    cancelCall.mutate();
+                  }}
                   disabled={cancelCall.isPending}
                   data-testid={`button-cancel-call-${match.id}`}
                 >
-                  <PhoneOff className="w-4 h-4 mr-2" /> Cancel Call
+                  <PhoneOff className="w-4 h-4 mr-2" /> {cancelCall.isPending ? "Cancelling..." : "Cancel Call"}
                 </Button>
                 <p className="text-xs text-muted-foreground">If they don't pick up, it won't count as your call</p>
+              </div>
+            </div>
+          ) : isCallRinging && !iAmCaller ? (
+            <div className="p-5 border-t" data-testid={`call-incoming-inline-${match.id}`}>
+              <div className="text-center space-y-4">
+                <div className="relative w-20 h-20 mx-auto">
+                  <div className="absolute inset-0 rounded-full bg-green-500/10 animate-ping" />
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <div className="w-16 h-16 rounded-full bg-green-500/15 flex items-center justify-center">
+                      {isFaceCallStage && bothAcceptedFaceCall ? (
+                        <Video className="w-6 h-6 text-green-600 animate-pulse" />
+                      ) : (
+                        <Phone className="w-6 h-6 text-green-600 animate-pulse" />
+                      )}
+                    </div>
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  <p className="font-medium text-sm" data-testid={`text-incoming-call-${match.id}`}>
+                    {match.profile.firstName} is calling you
+                  </p>
+                  <p className="text-xs text-muted-foreground">Answer to start your conversation</p>
+                </div>
               </div>
             </div>
           ) : isCallActive && matchDetail ? (

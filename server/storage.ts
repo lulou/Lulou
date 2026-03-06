@@ -455,6 +455,10 @@ export class SupabaseStorage implements IStorage {
       console.log("[startCall] Face call not mutually accepted:", { matchId, stage, fc1: match.faceCallUser1Accepted, fc2: match.faceCallUser2Accepted });
       return undefined;
     }
+    if (match.callStartedAt && match.callInitiatorId) {
+      console.log("[startCall] Call already in progress:", { matchId, existingInitiator: match.callInitiatorId, callStartedAt: match.callStartedAt });
+      return match;
+    }
 
     const { data: updated, error } = await this.sb
       .from("matches")
