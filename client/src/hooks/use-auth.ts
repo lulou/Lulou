@@ -24,8 +24,10 @@ export function useAuth() {
   }, []);
 
   useEffect(() => {
+    console.log("[AUTH] SESSION_CHECK_STARTED");
     supabase.auth.getSession().then(({ data: { session } }) => {
       const u = session?.user ?? null;
+      console.log("[AUTH] SESSION_CHECK_RESULT", { hasSession: !!session, userId: u?.id || null });
       setUser(u);
       if (u) {
         ensureProfile().then(() => setIsLoading(false));
@@ -34,14 +36,14 @@ export function useAuth() {
         setIsLoading(false);
       }
     }).catch(err => {
-      console.error("AUTH_SESSION_ERROR", err);
+      console.error("[AUTH] SESSION_CHECK_ERROR", { error: err?.message, stack: err?.stack });
       setProfileReady(true);
       setIsLoading(false);
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       const u = session?.user ?? null;
-      setUser(u);
+      console.log("[AUTH] AUTH_STATE_CHANGE", { event, userId: u?.id || null });
 
       if (event === "SIGNED_IN" && u) {
         ensureProfile().then(() => setIsLoading(false));

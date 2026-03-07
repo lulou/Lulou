@@ -28,27 +28,40 @@ export default function Landing() {
     if (!email.trim() || !password) return;
 
     setLoading(true);
-    if (mode === "signup") {
-      const { error } = await supabase.auth.signUp({
-        email: email.trim(),
-        password,
-      });
-      setLoading(false);
-      if (error) {
-        toast({ title: "Sign up failed", description: error.message, variant: "destructive" });
-        return;
+    console.log("[AUTH] AUTH_REQUEST_STARTED", { mode, email: email.trim() });
+
+    try {
+      if (mode === "signup") {
+        const { data, error } = await supabase.auth.signUp({
+          email: email.trim(),
+          password,
+        });
+        setLoading(false);
+        if (error) {
+          console.error("[AUTH] AUTH_REQUEST_FAILED", { mode, errorMessage: error.message, errorStatus: error.status });
+          toast({ title: "Sign up failed", description: error.message, variant: "destructive" });
+          return;
+        }
+        console.log("[AUTH] AUTH_REQUEST_SUCCESS", { mode, userId: data.user?.id });
+        toast({ title: "Account created", description: "You're now signed in." });
+      } else {
+        const { data, error } = await supabase.auth.signInWithPassword({
+          email: email.trim(),
+          password,
+        });
+        setLoading(false);
+        if (error) {
+          console.error("[AUTH] AUTH_REQUEST_FAILED", { mode, errorMessage: error.message, errorStatus: error.status });
+          toast({ title: "Sign in failed", description: error.message, variant: "destructive" });
+          return;
+        }
+        console.log("[AUTH] AUTH_REQUEST_SUCCESS", { mode, userId: data.user?.id });
       }
-      toast({ title: "Account created", description: "You're now signed in." });
-    } else {
-      const { error } = await supabase.auth.signInWithPassword({
-        email: email.trim(),
-        password,
-      });
+    } catch (err: any) {
       setLoading(false);
-      if (error) {
-        toast({ title: "Sign in failed", description: error.message, variant: "destructive" });
-        return;
-      }
+      const msg = err?.message || "Unknown error";
+      console.error("[AUTH] AUTH_ERROR_MESSAGE", { mode, error: msg, stack: err?.stack });
+      toast({ title: `${mode === "signup" ? "Sign up" : "Sign in"} failed`, description: msg, variant: "destructive" });
     }
   }
 
