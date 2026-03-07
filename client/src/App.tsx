@@ -70,6 +70,7 @@ function PersistentTabs() {
 type MatchWithProfile = Match & { profile: Profile };
 
 function clearCallFromCache(qc: ReturnType<typeof useQueryClient>, matchId: string) {
+  console.log("[CALL_SESSION] CACHE_CLEARED", { matchId });
   qc.setQueriesData<MatchWithProfile[]>({ queryKey: ["/api/matches"] }, (old) => {
     if (!old) return old;
     return old.map(m => m.id === matchId ? {
@@ -99,7 +100,8 @@ function CallDetectors({ userId }: { userId: string }) {
   const matchIds = (matches || []).map(m => m.id);
   useCallSignaling(matchIds, userId);
 
-  const markCallEnded = useCallback((matchId: string) => {
+  const markCallEnded = useCallback((matchId: string, reason?: string) => {
+    console.log("[CALL_SESSION] CALL_SESSION_CLEANUP_REASON", { matchId, reason: reason || "signal_or_hangup", endedSetSize: endedMatchIdsRef.current.size });
     endedMatchIdsRef.current.add(matchId);
     setEndedTick(t => t + 1);
     clearCallFromCache(qc, matchId);
@@ -118,7 +120,7 @@ function CallDetectors({ userId }: { userId: string }) {
 
   useEffect(() => {
     setCallEndedHandler((matchId: string) => {
-      markCallEnded(matchId);
+      markCallEnded(matchId, "realtime_end_signal");
     });
     return () => setCallEndedHandler(null);
   }, [markCallEnded]);
@@ -133,8 +135,14 @@ function CallDetectors({ userId }: { userId: string }) {
   function isStaleCall(m: MatchWithProfile): boolean {
     if (!m.callStartedAt) return false;
     const age = Date.now() - new Date(m.callStartedAt).getTime();
-    if (!m.callAnswered && age > STALE_RINGING_MS) return true;
-    if (m.callAnswered && age > STALE_ANSWERED_MS) return true;
+    if (!m.callAnswered && age > STALE_RINGING_MS) {
+      console.log("[CALL_SESSION] STALE_SESSION_CHECK", { matchId: m.id, callSessionId: m.callSessionId, ageMs: age, answered: false, verdict: "stale_ringing" });
+      return true;
+    }
+    if (m.callAnswered && age > STALE_ANSWERED_MS) {
+      console.log("[CALL_SESSION] STALE_SESSION_CHECK", { matchId: m.id, callSessionId: m.callSessionId, ageMs: age, answered: true, verdict: "stale_answered" });
+      return true;
+    }
     return false;
   }
 
@@ -187,13 +195,15 @@ function CallDetectors({ userId }: { userId: string }) {
     const activeKey = activeCall ? `${activeCall.id}:${activeCall.callSessionId}` : null;
     if (activeKey && activeKey !== prevActiveRef.current) {
       const isCaller = activeCall!.callInitiatorId === userId;
-      console.log("[CALL_UI] ACTIVE_CALL_UI_SHOWN", {
+      const isAnswered = activeCall!.callAnswered;
+      console.log("[CALL_SESSION] CALL_SESSION_ACTIVE", {
         matchId: activeCall!.id,
         callSessionId: activeCall!.callSessionId,
         role: isCaller ? "CALLER" : "RECEIVER",
         callerId: activeCall!.callInitiatorId,
         userId,
-        isRinging: !activeCall!.callAnswered,
+        isRinging: !isAnswered,
+        isAnswered,
         SESSION_PARTICIPANTS_COUNT: 2,
       });
     }
@@ -214,14 +224,15 @@ function CallDetectors({ userId }: { userId: string }) {
 
   const handleDismiss = useCallback(() => {
     if (incomingCall) {
+      console.log("[CALL_SESSION] INCOMING_OVERLAY_DISMISSED", { matchId: incomingCall.id, callSessionId: incomingCall.callSessionId, reason: "overlay_dismissed" });
       setDismissedCallKey(`${incomingCall.id}:${incomingCall.callSessionId}`);
-      markCallEnded(incomingCall.id);
     }
-  }, [incomingCall, markCallEnded]);
+  }, [incomingCall]);
 
   const handleActiveCallEnd = useCallback(() => {
     if (activeCall) {
-      markCallEnded(activeCall.id);
+      console.log("[CALL_SESSION] CONNECTION_REMOVED", { matchId: activeCall.id, callSessionId: activeCall.callSessionId, reason: "user_hangup" });
+      markCallEnded(activeCall.id, "user_hangup");
     }
   }, [activeCall?.id, markCallEnded]);
 

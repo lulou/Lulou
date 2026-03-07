@@ -568,7 +568,8 @@ function MatchChat({ match }: { match: MatchWithProfile }) {
     },
     onSuccess: (data: any) => {
       iCancelledRef.current = false;
-      console.log("[CALL] CALLER_ASSIGNED", { matchId: match.id, callerId: user?.id, callSessionId: data?.callSessionId });
+      console.log("[CALL_SESSION] CALL_SESSION_CREATED", { matchId: match.id, callSessionId: data?.callSessionId, callerId: user?.id });
+      console.log("[CALL_SESSION] CONNECTION_ADDED", { matchId: match.id, callSessionId: data?.callSessionId, participant: user?.id, role: "caller" });
       queryClient.invalidateQueries({ queryKey: ["/api/matches", match.id] });
       queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
     },

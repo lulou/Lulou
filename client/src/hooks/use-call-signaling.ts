@@ -35,6 +35,7 @@ function processEndSignal(matchId: string, reason: string) {
   if (recentlyProcessed.has(key)) return;
   recentlyProcessed.add(key);
   setTimeout(() => recentlyProcessed.delete(key), 10000);
+  console.log("[CALL_SESSION] CONNECTION_REMOVED", { matchId, reason: `signal_${reason}`, source: "realtime" });
   callEndedCallback?.(matchId);
 }
 

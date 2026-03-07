@@ -177,6 +177,8 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss }: In
       return await res.json();
     },
     onSuccess: () => {
+      console.log("[CALL_SESSION] CALL_SESSION_ACCEPTED", { matchId: match.id, callSessionId: match.callSessionId, userId: user!.id });
+      console.log("[CALL_SESSION] CONNECTION_ADDED", { matchId: match.id, callSessionId: match.callSessionId, participant: user!.id, role: "receiver" });
       setAnswered(true);
       broadcastCallSignal(match.id, {
         type: "call:answered",
@@ -188,6 +190,7 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss }: In
       onDismiss();
     },
     onError: () => {
+      console.log("[CALL_SESSION] CONNECTION_REMOVED", { matchId: match.id, reason: "answer_failed" });
       toast({ title: "Couldn't connect", description: "The call may have ended.", variant: "destructive" });
       onDismiss();
     },
@@ -200,6 +203,7 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss }: In
       return await res.json();
     },
     onSuccess: () => {
+      console.log("[CALL_SESSION] CONNECTION_REMOVED", { matchId: match.id, callSessionId: match.callSessionId, reason: "call_declined" });
       broadcastCallSignal(match.id, {
         type: "call:declined",
         matchId: match.id,
@@ -211,6 +215,7 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss }: In
       onDismiss();
     },
     onError: () => {
+      console.log("[CALL_SESSION] CONNECTION_REMOVED", { matchId: match.id, reason: "decline_failed" });
       onDismiss();
     },
   });
