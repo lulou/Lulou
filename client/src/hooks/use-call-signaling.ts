@@ -18,35 +18,6 @@ const subscribedChannels = new Map<string, ReturnType<typeof supabase.channel>>(
 let callEndedCallback: ((matchId: string) => void) | null = null;
 const recentlyProcessed = new Set<string>();
 
-const pendingCallState = new Map<string, { callerId: string; callerName: string; callSessionId: string; expiresAt: number }>();
-const PENDING_CALL_TTL = 20000;
-
-export function getPendingCallState(matchId: string) {
-  const state = pendingCallState.get(matchId);
-  if (!state) return null;
-  if (Date.now() > state.expiresAt) {
-    pendingCallState.delete(matchId);
-    return null;
-  }
-  return state;
-}
-
-export function clearPendingCallState(matchId: string) {
-  pendingCallState.delete(matchId);
-}
-
-export function reconcilePendingWithServer(matchId: string, serverCallStartedAt: any, serverCallInitiatorId: string | null) {
-  const pending = pendingCallState.get(matchId);
-  if (!pending) return;
-  if (!serverCallStartedAt || !serverCallInitiatorId) {
-    pendingCallState.delete(matchId);
-    return;
-  }
-  if (serverCallInitiatorId !== pending.callerId) {
-    pendingCallState.delete(matchId);
-  }
-}
-
 export function setCallEndedHandler(handler: ((matchId: string) => void) | null) {
   callEndedCallback = handler;
 }
@@ -64,27 +35,7 @@ function processEndSignal(matchId: string, reason: string) {
   if (recentlyProcessed.has(key)) return;
   recentlyProcessed.add(key);
   setTimeout(() => recentlyProcessed.delete(key), 10000);
-  clearPendingCallState(matchId);
   callEndedCallback?.(matchId);
-}
-
-function applyCallStateToCache(matchId: string, callerId: string, callSessionId: string) {
-  const updateMatches = (old: any[] | undefined) => {
-    if (!old) return old;
-    return old.map((m: any) => {
-      if (m.id !== matchId) return m;
-      if (m.callStartedAt && m.callInitiatorId && m.callInitiatorId === callerId) return m;
-      return {
-        ...m,
-        callStartedAt: new Date().toISOString(),
-        callInitiatorId: callerId,
-        callSessionId,
-        callAnswered: false,
-        callCompleted: false,
-      };
-    });
-  };
-  queryClient.setQueryData(["/api/matches"], updateMatches);
 }
 
 export function useCallSignaling(matchIds: string[], userId: string) {
@@ -120,25 +71,9 @@ export function useCallSignaling(matchIds: string[], userId: string) {
         const event = payload as CallSignalEvent;
 
         if (event.type === "call:ring") {
-          const ringEvent = event as Extract<CallSignalEvent, { type: "call:ring" }>;
-          if (!ringEvent.callSessionId) {
-            console.log("[CALL_SIGNAL] RING_IGNORED (no callSessionId)", { matchId });
-            queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
-            queryClient.invalidateQueries({ queryKey: ["/api/matches", matchId] });
-            return;
-          }
-          const sessionId = ringEvent.callSessionId;
-          console.log("[CALL_SIGNAL] RECEIVER_ASSIGNED", { matchId, callerId: ringEvent.callerId, receiverId: userId, callSessionId: sessionId });
-          pendingCallState.set(matchId, {
-            callerId: ringEvent.callerId,
-            callerName: ringEvent.callerName,
-            callSessionId: sessionId,
-            expiresAt: Date.now() + PENDING_CALL_TTL,
-          });
-          applyCallStateToCache(matchId, ringEvent.callerId, sessionId);
+          console.log("[CALL_SIGNAL] RECEIVER_ASSIGNED", { matchId, callerId: (event as any).callerId, receiverId: userId });
         } else if (event.type === "call:answered") {
           console.log("[CALL_SIGNAL] CALL_ANSWERED", { matchId, answeredBy: senderId });
-          clearPendingCallState(matchId);
         } else if (event.type === "call:declined") {
           console.log("[CALL_SIGNAL] CALL_DECLINED", { matchId, declinedBy: senderId });
           processEndSignal(matchId, "declined");

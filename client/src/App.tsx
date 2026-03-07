@@ -17,7 +17,7 @@ import LikesPage from "@/pages/likes";
 import AppLayout from "@/components/app-layout";
 import IncomingCallOverlay from "@/components/incoming-call";
 import { ActiveCallOverlay } from "@/components/active-call";
-import { useCallSignaling, setCallEndedHandler, clearDedupeForMatch, getPendingCallState, clearPendingCallState, reconcilePendingWithServer } from "@/hooks/use-call-signaling";
+import { useCallSignaling, setCallEndedHandler, clearDedupeForMatch } from "@/hooks/use-call-signaling";
 import type { Profile, Match } from "@shared/schema";
 import { Loader2 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
@@ -114,9 +114,6 @@ function CallDetectors({ userId }: { userId: string }) {
         clearDedupeForMatch(mid);
       }
     }
-    for (const m of matches) {
-      reconcilePendingWithServer(m.id, m.callStartedAt, m.callInitiatorId);
-    }
   }, [matches]);
 
   useEffect(() => {
@@ -130,11 +127,23 @@ function CallDetectors({ userId }: { userId: string }) {
     return endedMatchIdsRef.current.has(m.id);
   }, [endedTick]);
 
+  const STALE_RINGING_MS = 120_000;
+  const STALE_ANSWERED_MS = 30 * 60_000;
+
+  function isStaleCall(m: MatchWithProfile): boolean {
+    if (!m.callStartedAt) return false;
+    const age = Date.now() - new Date(m.callStartedAt).getTime();
+    if (!m.callAnswered && age > STALE_RINGING_MS) return true;
+    if (m.callAnswered && age > STALE_ANSWERED_MS) return true;
+    return false;
+  }
+
   const incomingCall = matches?.find(m => {
     if (!m.callStartedAt || m.callAnswered || m.callCompleted) return false;
     if (!m.callSessionId) return false;
     if (!m.callInitiatorId || m.callInitiatorId === userId) return false;
     if (isEndedCall(m)) return false;
+    if (isStaleCall(m)) return false;
     const callKey = `${m.id}:${m.callSessionId}`;
     return callKey !== dismissedCallKey;
   });
@@ -142,13 +151,17 @@ function CallDetectors({ userId }: { userId: string }) {
   const answeredCall = matches?.find(m => {
     if (!(m.callStartedAt && m.callSessionId && m.callAnswered === true && m.callCompleted === false &&
       (m.user1Id === userId || m.user2Id === userId))) return false;
-    return !isEndedCall(m);
+    if (isEndedCall(m)) return false;
+    if (isStaleCall(m)) return false;
+    return true;
   });
 
   const callerRingingCall = matches?.find(m => {
     if (!(m.callStartedAt && m.callSessionId && !m.callAnswered && !m.callCompleted &&
       m.callInitiatorId === userId)) return false;
-    return !isEndedCall(m);
+    if (isEndedCall(m)) return false;
+    if (isStaleCall(m)) return false;
+    return true;
   });
 
   const activeCall = answeredCall || callerRingingCall;
@@ -208,7 +221,6 @@ function CallDetectors({ userId }: { userId: string }) {
 
   const handleActiveCallEnd = useCallback(() => {
     if (activeCall) {
-      clearPendingCallState(activeCall.id);
       markCallEnded(activeCall.id);
     }
   }, [activeCall?.id, markCallEnded]);

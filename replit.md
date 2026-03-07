@@ -40,6 +40,8 @@ Lulou Dating is a calm, premium dating app focused on helping people move from m
 - Incoming call overlay: full-screen phone-call-style screen with caller photo, swipe-to-answer/decline
 - Active call overlay: full-screen UI with call timer and end-call button (no audio/video controls)
 - CallDetectors in App.tsx polls matches every 10s and shows incoming or active call overlays
+- Staleness protection: ringing calls >120s and answered calls >30min are ignored (prevents stale re-entry)
+- Call signaling is server-data-only: no optimistic cache injection from signals, queries invalidated on signal receipt
 - Duplicate call prevention via `.is("call_started_at", null)` guard in DB update
 - Caller gets "declined" notification when receiver declines their call
 - Face call requires mutual acceptance (`faceCallUser1Accepted`, `faceCallUser2Accepted`)
