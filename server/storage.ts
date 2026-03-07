@@ -435,7 +435,8 @@ export class SupabaseStorage implements IStorage {
       .eq("id", matchId)
       .maybeSingle();
     if (readError) {
-      console.log("[startCall] DB read error:", readError.message, readError.code);
+      console.error("[startCall] CALL_START_ERROR DB read failed:", { message: readError.message, code: readError.code, matchId, userId });
+      throw new Error(`DB read failed: ${readError.message}`);
     }
     if (!matchData) {
       console.log("[startCall] Match not found in DB:", matchId);
@@ -457,12 +458,31 @@ export class SupabaseStorage implements IStorage {
     }
 
     if (match.callStartedAt && match.callInitiatorId) {
-      if (match.callInitiatorId === userId) {
-        console.log("[startCall] CALL_SESSION_REUSED", { matchId, existingInitiator: match.callInitiatorId, callSessionId: match.callSessionId });
-        return { match, status: "reused" };
+      const callAge = Date.now() - new Date(match.callStartedAt).getTime();
+      const STALE_RINGING_MS = 2 * 60 * 1000;
+      const STALE_ANSWERED_MS = 30 * 60 * 1000;
+      const isStale = (!match.callAnswered && callAge > STALE_RINGING_MS) || (match.callAnswered && callAge > STALE_ANSWERED_MS);
+
+      if (isStale) {
+        console.log("[startCall] STALE_CALL_CLEARED", { matchId, callAge, answered: match.callAnswered, oldInitiator: match.callInitiatorId });
+        const { data: cleared } = await this.sb
+          .from("matches")
+          .update({ call_started_at: null, call_initiator_id: null, call_answered: false, call_completed: false })
+          .eq("id", matchId)
+          .select()
+          .single();
+        if (!cleared) {
+          console.error("[startCall] CALL_START_ERROR failed to clear stale call:", { matchId });
+          throw new Error("Failed to clear stale call session");
+        }
+      } else {
+        if (match.callInitiatorId === userId) {
+          console.log("[startCall] CALL_SESSION_REUSED", { matchId, existingInitiator: match.callInitiatorId, callSessionId: match.callSessionId });
+          return { match, status: "reused" };
+        }
+        console.log("[startCall] DUPLICATE_CALL_BLOCKED", { matchId, existingInitiator: match.callInitiatorId, blockedCaller: userId, callSessionId: match.callSessionId });
+        return { match, status: "blocked" };
       }
-      console.log("[startCall] DUPLICATE_CALL_BLOCKED", { matchId, existingInitiator: match.callInitiatorId, blockedCaller: userId, callSessionId: match.callSessionId });
-      return { match, status: "blocked" };
     }
 
     const { data: updated, error } = await this.sb
@@ -486,8 +506,9 @@ export class SupabaseStorage implements IStorage {
           return { match: recheckMatch, status: "blocked" };
         }
       }
-      console.log("[startCall] DB update failed:", { matchId, error: error?.message, code: error?.code });
-      return undefined;
+      console.error("[startCall] CALL_START_ERROR DB update failed:", { matchId, error: error?.message, code: error?.code, userId });
+      throw new Error(`DB update failed: ${error?.message || "unknown error"}`);
+
     }
     const result = mapMatch(updated);
     console.log("[startCall] CALL_SESSION_CREATED", { matchId, callSessionId: result.callSessionId, userId });

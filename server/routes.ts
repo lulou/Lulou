@@ -521,8 +521,14 @@ export async function registerRoutes(
       }
 
       res.json(match);
-    } catch (error) {
-      console.error("[CALL_START] Error:", error);
+    } catch (error: any) {
+      console.error("[CALL_START] CALL_START_ERROR", {
+        message: error?.message,
+        stack: error?.stack,
+        matchId: req.params.matchId,
+        userId: req.user?.id,
+        body: req.body,
+      });
       res.status(500).json({ message: "Failed to start call" });
     }
   });
@@ -546,8 +552,8 @@ export async function registerRoutes(
         callSessionId: match.callSessionId,
       });
       res.json(match);
-    } catch (error) {
-      console.error("[CALL_ANSWER] Error:", error);
+    } catch (error: any) {
+      console.error("[CALL_ANSWER] CALL_ANSWER_ERROR", { message: error?.message, stack: error?.stack, matchId: req.params.matchId, userId: req.user?.id });
       res.status(500).json({ message: "Failed to answer call" });
     }
   });
@@ -567,8 +573,8 @@ export async function registerRoutes(
         userId,
       });
       res.json(match);
-    } catch (error) {
-      console.error("[CALL_CANCEL] Error:", error);
+    } catch (error: any) {
+      console.error("[CALL_CANCEL] CALL_CANCEL_ERROR", { message: error?.message, stack: error?.stack, matchId: req.params.matchId, userId: req.user?.id });
       res.status(500).json({ message: "Failed to cancel call" });
     }
   });
@@ -588,8 +594,8 @@ export async function registerRoutes(
         userId,
       });
       res.json(match);
-    } catch (error) {
-      console.error("[CALL_COMPLETE] Error:", error);
+    } catch (error: any) {
+      console.error("[CALL_COMPLETE] CALL_COMPLETE_ERROR", { message: error?.message, stack: error?.stack, matchId: req.params.matchId, userId: req.user?.id });
       res.status(500).json({ message: "Failed to complete call" });
     }
   });
