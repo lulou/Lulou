@@ -542,31 +542,69 @@ export class SupabaseStorage implements IStorage {
   }
 
   async cancelCall(matchId: string, userId: string): Promise<Match | undefined> {
-    console.log("[cancelCall] CANCEL_API_ROUTE_HIT - Reading match", { matchId, userId });
-    const { data: matchData, error: readError } = await this.sb
-      .from("matches")
-      .select("*")
-      .eq("id", matchId)
-      .maybeSingle();
-    if (readError) console.log("[cancelCall] DB read error:", readError.message, readError.code, readError.details);
-    if (!matchData) { console.log("[cancelCall] Match not found - RLS may be blocking:", matchId); return undefined; }
-    const match = mapMatch(matchData);
-    if (match.user1Id !== userId && match.user2Id !== userId) { console.log("[cancelCall] User not in match:", { user1Id: match.user1Id, user2Id: match.user2Id, userId }); return undefined; }
+    console.log("[cancelCall] CANCEL_CALL_START", { matchId, userId });
 
-    const { data: updated, error } = await this.sb
-      .from("matches")
-      .update({
-        call_started_at: null,
-        call_initiator_id: null,
-        call_answered: false,
-        call_completed: false,
-      })
-      .eq("id", matchId)
-      .select()
-      .single();
-    if (error || !updated) { console.log("[cancelCall] DB update failed:", error?.message, error?.code, error?.details); return undefined; }
-    console.log("[cancelCall] CALL_SESSION_CANCELLED", { matchId, callSessionId: match.callSessionId, userId });
-    console.log("[cancelCall] CALL_SESSION_CLEARED", { matchId, userId });
+    let matchData: any;
+    try {
+      const { data, error: readError } = await this.sb
+        .from("matches")
+        .select("*")
+        .eq("id", matchId)
+        .maybeSingle();
+      if (readError) {
+        console.error("[cancelCall] CANCEL_CALL_ERROR DB_READ_FAILED", { matchId, userId, error: readError.message, code: readError.code, details: readError.details });
+        throw new Error(`DB read failed: ${readError.message}`);
+      }
+      matchData = data;
+    } catch (err: any) {
+      if (err.message?.startsWith("DB read failed")) throw err;
+      console.error("[cancelCall] CANCEL_CALL_ERROR DB_READ_EXCEPTION", { matchId, userId, error: err.message, stack: err.stack });
+      throw new Error(`DB read exception: ${err.message}`);
+    }
+
+    if (!matchData) {
+      console.log("[cancelCall] CANCEL_CALL_ERROR MATCH_NOT_FOUND", { matchId, userId });
+      return undefined;
+    }
+
+    console.log("[cancelCall] CANCEL_CALL_MATCH_READ", { matchId, user1Id: matchData.user1_id, user2Id: matchData.user2_id, callStartedAt: matchData.call_started_at, callInitiatorId: matchData.call_initiator_id });
+    const match = mapMatch(matchData);
+
+    if (match.user1Id !== userId && match.user2Id !== userId) {
+      console.log("[cancelCall] CANCEL_CALL_ERROR USER_NOT_IN_MATCH", { matchId, user1Id: match.user1Id, user2Id: match.user2Id, userId });
+      return undefined;
+    }
+
+    let updated: any;
+    try {
+      const { data, error } = await this.sb
+        .from("matches")
+        .update({
+          call_started_at: null,
+          call_initiator_id: null,
+          call_answered: false,
+          call_completed: false,
+        })
+        .eq("id", matchId)
+        .select()
+        .single();
+      if (error) {
+        console.error("[cancelCall] CANCEL_CALL_ERROR DB_UPDATE_FAILED", { matchId, userId, error: error.message, code: error.code, details: error.details });
+        throw new Error(`DB update failed: ${error.message}`);
+      }
+      updated = data;
+    } catch (err: any) {
+      if (err.message?.startsWith("DB update failed")) throw err;
+      console.error("[cancelCall] CANCEL_CALL_ERROR DB_UPDATE_EXCEPTION", { matchId, userId, error: err.message, stack: err.stack });
+      throw new Error(`DB update exception: ${err.message}`);
+    }
+
+    if (!updated) {
+      console.error("[cancelCall] CANCEL_CALL_ERROR UPDATE_RETURNED_NULL", { matchId, userId });
+      throw new Error("DB update returned null - RLS may be blocking writes");
+    }
+
+    console.log("[cancelCall] CANCEL_CALL_SUCCESS", { matchId, userId });
     return mapMatch(updated);
   }
 
