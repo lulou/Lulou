@@ -365,29 +365,43 @@ export async function registerRoutes(
   });
 
   app.get("/api/matches", isAuthenticated, async (req: any, res) => {
+    const userId = req.user?.id;
     try {
       const storage = getStorage(req);
-      const userId = req.user.id;
       const userMatches = await storage.getMatchesForUser(userId);
       res.json(userMatches);
-    } catch (error) {
-      console.error("Error fetching matches:", error);
-      res.status(500).json({ message: "Failed to fetch matches" });
+    } catch (err: any) {
+      console.error("[MATCHES_FETCH_ERROR] GET /api/matches", {
+        message: err?.message,
+        stack: err?.stack,
+        userId,
+      });
+      if (!res.headersSent) {
+        res.status(500).json({ message: err?.message || "Failed to fetch matches" });
+      }
     }
   });
 
   app.get("/api/matches/:matchId", isAuthenticated, async (req: any, res) => {
+    const userId = req.user?.id;
+    const matchId = req.params.matchId;
     try {
       const storage = getStorage(req);
-      const userId = req.user.id;
-      const match = await storage.getMatch(req.params.matchId, userId);
+      const match = await storage.getMatch(matchId, userId);
       if (!match) {
         return res.status(404).json({ message: "Match not found" });
       }
       res.json(match);
-    } catch (error) {
-      console.error("Error fetching match:", error);
-      res.status(500).json({ message: "Failed to fetch match" });
+    } catch (err: any) {
+      console.error("[MATCHES_FETCH_ERROR] GET /api/matches/:matchId", {
+        message: err?.message,
+        stack: err?.stack,
+        userId,
+        matchId,
+      });
+      if (!res.headersSent) {
+        res.status(500).json({ message: err?.message || "Failed to fetch match" });
+      }
     }
   });
 

@@ -321,19 +321,27 @@ export class SupabaseStorage implements IStorage {
       .or(`user1_id.eq.${userId},user2_id.eq.${userId}`)
       .order("created_at", { ascending: false });
 
-    if (error || !userMatches) return [];
+    if (error) {
+      console.error("[MATCHES_FETCH_ERROR] getMatchesForUser DB query failed", { message: error.message, code: error.code, userId });
+      throw new Error(`Matches query failed: ${error.message}`);
+    }
+    if (!userMatches) return [];
 
     const result: (Match & { profile: Profile })[] = [];
     for (const row of userMatches) {
-      const match = mapMatch(row);
-      const otherUserId = match.user1Id === userId ? match.user2Id : match.user1Id;
-      const { data: profileData } = await this.sb
-        .from("profiles")
-        .select("*")
-        .eq("user_id", otherUserId)
-        .maybeSingle();
-      if (profileData) {
-        result.push({ ...match, profile: mapProfile(profileData) });
+      try {
+        const match = mapMatch(row);
+        const otherUserId = match.user1Id === userId ? match.user2Id : match.user1Id;
+        const { data: profileData } = await this.sb
+          .from("profiles")
+          .select("*")
+          .eq("user_id", otherUserId)
+          .maybeSingle();
+        if (profileData) {
+          result.push({ ...match, profile: mapProfile(profileData) });
+        }
+      } catch (rowErr: any) {
+        console.error("[MATCHES_FETCH_ERROR] Failed to process match row", { matchId: row.id, error: rowErr?.message, userId });
       }
     }
     return result;
