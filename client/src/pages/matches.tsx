@@ -629,6 +629,10 @@ function MatchChat({ match }: { match: MatchWithProfile }) {
         toast({ title: "Call completed", description: "Great conversation! Ready to meet in person?" });
       }
     },
+    onError: (error: Error) => {
+      console.error("[CALL_COMPLETE] FRONTEND_ERROR", { matchId: match.id, error: error.message });
+      toast({ title: "Complete call failed", description: error.message, variant: "destructive" });
+    },
   });
 
   const acceptFaceCall = useMutation({
@@ -641,6 +645,10 @@ function MatchChat({ match }: { match: MatchWithProfile }) {
       queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
       toast({ title: "Face call accepted", description: "Waiting for them to accept too..." });
     },
+    onError: (error: Error) => {
+      console.error("[FACE_CALL_ACCEPT] FRONTEND_ERROR", { matchId: match.id, error: error.message });
+      toast({ title: "Accept face call failed", description: error.message, variant: "destructive" });
+    },
   });
 
   const declineFaceCall = useMutation({
@@ -652,6 +660,10 @@ function MatchChat({ match }: { match: MatchWithProfile }) {
       queryClient.invalidateQueries({ queryKey: ["/api/matches", match.id] });
       queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
       toast({ title: "Face call skipped", description: "No worries - you can always meet in person instead." });
+    },
+    onError: (error: Error) => {
+      console.error("[FACE_CALL_DECLINE] FRONTEND_ERROR", { matchId: match.id, error: error.message });
+      toast({ title: "Decline face call failed", description: error.message, variant: "destructive" });
     },
   });
 

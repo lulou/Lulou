@@ -12,7 +12,14 @@ async function getAuthHeaders(): Promise<Record<string, string>> {
 async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
     const text = (await res.text()) || res.statusText;
-    throw new Error(`${res.status}: ${text}`);
+    let message = `${res.status}: ${text}`;
+    try {
+      const parsed = JSON.parse(text);
+      if (parsed.message) {
+        message = parsed.message;
+      }
+    } catch {}
+    throw new Error(message);
   }
 }
 

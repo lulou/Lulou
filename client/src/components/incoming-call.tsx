@@ -189,9 +189,9 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss }: In
       queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
       onDismiss();
     },
-    onError: () => {
-      console.log("[CALL_SESSION] CONNECTION_REMOVED", { matchId: match.id, reason: "answer_failed" });
-      toast({ title: "Couldn't connect", description: "The call may have ended.", variant: "destructive" });
+    onError: (error: Error) => {
+      console.error("[CALL_ANSWER] FRONTEND_ERROR", { matchId: match.id, error: error.message });
+      toast({ title: "Couldn't connect", description: error.message, variant: "destructive" });
       onDismiss();
     },
   });
@@ -214,8 +214,9 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss }: In
       toast({ title: "Call declined" });
       onDismiss();
     },
-    onError: () => {
-      console.log("[CALL_SESSION] CONNECTION_REMOVED", { matchId: match.id, reason: "decline_failed" });
+    onError: (error: Error) => {
+      console.error("[CALL_CANCEL] FRONTEND_ERROR", { matchId: match.id, error: error.message });
+      toast({ title: "Decline failed", description: error.message, variant: "destructive" });
       onDismiss();
     },
   });

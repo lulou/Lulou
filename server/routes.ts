@@ -523,13 +523,14 @@ export async function registerRoutes(
       res.json(match);
     } catch (error: any) {
       console.error("[CALL_START] CALL_START_ERROR", {
-        message: error?.message,
+        CALL_ROUTE_NAME: "POST /api/matches/:matchId/call/start",
+        CALL_ROUTE_ERROR: error?.message,
         stack: error?.stack,
         matchId: req.params.matchId,
         userId: req.user?.id,
         body: req.body,
       });
-      res.status(500).json({ message: "Failed to start call" });
+      res.status(500).json({ message: error?.message || "Failed to start call", route: "call/start" });
     }
   });
 
@@ -553,8 +554,8 @@ export async function registerRoutes(
       });
       res.json(match);
     } catch (error: any) {
-      console.error("[CALL_ANSWER] CALL_ANSWER_ERROR", { message: error?.message, stack: error?.stack, matchId: req.params.matchId, userId: req.user?.id });
-      res.status(500).json({ message: "Failed to answer call" });
+      console.error("[CALL_ANSWER] CALL_ANSWER_ERROR", { CALL_ROUTE_NAME: "POST /api/matches/:matchId/call/answer", CALL_ROUTE_ERROR: error?.message, stack: error?.stack, matchId: req.params.matchId, userId: req.user?.id });
+      res.status(500).json({ message: error?.message || "Failed to answer call", route: "call/answer" });
     }
   });
 
@@ -574,8 +575,8 @@ export async function registerRoutes(
       });
       res.json(match);
     } catch (error: any) {
-      console.error("[CALL_CANCEL] CALL_CANCEL_ERROR", { message: error?.message, stack: error?.stack, matchId: req.params.matchId, userId: req.user?.id });
-      res.status(500).json({ message: "Failed to cancel call" });
+      console.error("[CALL_CANCEL] CALL_CANCEL_ERROR", { CALL_ROUTE_NAME: "POST /api/matches/:matchId/call/cancel", CALL_ROUTE_ERROR: error?.message, stack: error?.stack, matchId: req.params.matchId, userId: req.user?.id });
+      res.status(500).json({ message: error?.message || "Failed to cancel call", route: "call/cancel" });
     }
   });
 
@@ -595,8 +596,8 @@ export async function registerRoutes(
       });
       res.json(match);
     } catch (error: any) {
-      console.error("[CALL_COMPLETE] CALL_COMPLETE_ERROR", { message: error?.message, stack: error?.stack, matchId: req.params.matchId, userId: req.user?.id });
-      res.status(500).json({ message: "Failed to complete call" });
+      console.error("[CALL_COMPLETE] CALL_COMPLETE_ERROR", { CALL_ROUTE_NAME: "POST /api/matches/:matchId/call/complete", CALL_ROUTE_ERROR: error?.message, stack: error?.stack, matchId: req.params.matchId, userId: req.user?.id });
+      res.status(500).json({ message: error?.message || "Failed to complete call", route: "call/complete" });
     }
   });
 
@@ -627,9 +628,9 @@ export async function registerRoutes(
 
       console.log("[FACE_CALL_ACCEPT] CALL_API_RESPONSE", { status: 200, matchId, userId });
       res.json(match);
-    } catch (error) {
-      console.error("Error accepting face call:", error);
-      res.status(500).json({ message: "Failed to accept face call" });
+    } catch (error: any) {
+      console.error("[FACE_CALL_ACCEPT] FACE_CALL_ACCEPT_ERROR", { CALL_ROUTE_NAME: "POST /api/matches/:matchId/face-call/accept", CALL_ROUTE_ERROR: error?.message, stack: error?.stack, matchId: req.params.matchId, userId: req.user?.id });
+      res.status(500).json({ message: error?.message || "Failed to accept face call", route: "face-call/accept" });
     }
   });
 
@@ -645,9 +646,9 @@ export async function registerRoutes(
       }
       console.log("[FACE_CALL_DECLINE] CALL_API_RESPONSE", { status: 200, matchId: req.params.matchId, userId });
       res.json(match);
-    } catch (error) {
-      console.error("Error declining face call:", error);
-      res.status(500).json({ message: "Failed to decline face call" });
+    } catch (error: any) {
+      console.error("[FACE_CALL_DECLINE] FACE_CALL_DECLINE_ERROR", { CALL_ROUTE_NAME: "POST /api/matches/:matchId/face-call/decline", CALL_ROUTE_ERROR: error?.message, stack: error?.stack, matchId: req.params.matchId, userId: req.user?.id });
+      res.status(500).json({ message: error?.message || "Failed to decline face call", route: "face-call/decline" });
     }
   });
 
