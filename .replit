@@ -51,3 +51,4 @@ integrations = ["javascript_log_in_with_replit:2.0.0", "javascript_database:1.0.
 [userenv.shared]
 NEXT_PUBLIC_SUPABASE_URL = "https://tizlwrcgdlvogbazrxef.supabase.co/"
 VITE_SUPABASE_URL = "https://tizlwrcgdlvogbazrxef.supabase.co/"
+NEXT_PUBLIC_SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRpemx3cmNnZGx2b2diYXpyeGVmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI0MjI0MzMsImV4cCI6MjA4Nzk5ODQzM30.4M8hXUyS49epaYxwQPTX9lVIe3XLzuh25VNvwIIfK18"
