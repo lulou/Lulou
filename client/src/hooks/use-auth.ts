@@ -44,6 +44,7 @@ export function useAuth() {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       const u = session?.user ?? null;
       console.log("[AUTH] AUTH_STATE_CHANGE", { event, userId: u?.id || null });
+      setUser(u);
 
       if (event === "SIGNED_IN" && u) {
         ensureProfile().then(() => setIsLoading(false));
