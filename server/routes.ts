@@ -465,12 +465,25 @@ export async function registerRoutes(
   });
 
   app.post("/api/matches/:matchId/call/start", isAuthenticated, async (req: any, res) => {
+    const matchId = req.params.matchId;
+    const userId = req.user?.id;
     try {
       const serverStorage = getStorage(req);
-      const userId = req.user.id;
-      const matchId = req.params.matchId;
-      console.log("[CALL_START] CALL_SESSION_CHECKED", { path: "/api/matches/:matchId/call/start", matchId, userId, timestamp: new Date().toISOString() });
-      const result = await serverStorage.startCall(matchId, userId);
+      console.log("[CALL_START] CALL_SESSION_CHECKED", { matchId, userId, timestamp: new Date().toISOString() });
+
+      let result;
+      try {
+        result = await serverStorage.startCall(matchId, userId);
+      } catch (dbErr: any) {
+        console.error("[CALL_START] CALL_START_ERROR startCall threw", {
+          message: dbErr?.message,
+          stack: dbErr?.stack,
+          matchId,
+          userId,
+        });
+        return res.status(500).json({ message: dbErr?.message || "Database error starting call" });
+      }
+
       if (!result) {
         console.log("[CALL_START] CALL_API_RESPONSE", { status: 404, matchId, userId });
         return res.status(404).json({ message: "Match not found or call not allowed" });
@@ -489,8 +502,15 @@ export async function registerRoutes(
       }
 
       const otherUserId = match.user1Id === userId ? match.user2Id : match.user1Id;
-      const callerProfile = await serverStorage.getProfile(userId);
-      const callerName = callerProfile?.firstName || "Someone";
+
+      let callerName = "Someone";
+      try {
+        const callerProfile = await serverStorage.getProfile(userId);
+        callerName = callerProfile?.firstName || "Someone";
+      } catch (profileErr: any) {
+        console.warn("[CALL_START] Failed to fetch caller profile, using default name", { userId, error: profileErr?.message });
+      }
+
       console.log("[CALL_START] CALL_SESSION_CREATED", { matchId, callSessionId: match.callSessionId, SESSION_PARTICIPANTS_COUNT: 2 });
       console.log("[CALL_START] CALLER_ASSIGNED", { matchId, callerId: userId, callerName });
       console.log("[CALL_START] RECEIVER_ASSIGNED", { matchId, receiverId: otherUserId });
@@ -520,16 +540,18 @@ export async function registerRoutes(
         }, 3000 + Math.random() * 2000);
       }
 
-      res.json(match);
+      return res.json(match);
     } catch (error: any) {
       console.error("[CALL_START] CALL_START_ERROR", {
         message: error?.message,
         stack: error?.stack,
-        matchId: req.params.matchId,
-        userId: req.user?.id,
+        matchId,
+        userId,
         body: req.body,
       });
-      res.status(500).json({ message: "Failed to start call" });
+      if (!res.headersSent) {
+        return res.status(500).json({ message: error?.message || "Failed to start call" });
+      }
     }
   });
 
@@ -554,7 +576,9 @@ export async function registerRoutes(
       res.json(match);
     } catch (error: any) {
       console.error("[CALL_ANSWER] CALL_ANSWER_ERROR", { message: error?.message, stack: error?.stack, matchId: req.params.matchId, userId: req.user?.id });
-      res.status(500).json({ message: "Failed to answer call" });
+      if (!res.headersSent) {
+        res.status(500).json({ message: error?.message || "Failed to answer call" });
+      }
     }
   });
 
@@ -575,7 +599,9 @@ export async function registerRoutes(
       res.json(match);
     } catch (error: any) {
       console.error("[CALL_CANCEL] CALL_CANCEL_ERROR", { message: error?.message, stack: error?.stack, matchId: req.params.matchId, userId: req.user?.id });
-      res.status(500).json({ message: "Failed to cancel call" });
+      if (!res.headersSent) {
+        res.status(500).json({ message: error?.message || "Failed to cancel call" });
+      }
     }
   });
 
@@ -596,7 +622,9 @@ export async function registerRoutes(
       res.json(match);
     } catch (error: any) {
       console.error("[CALL_COMPLETE] CALL_COMPLETE_ERROR", { message: error?.message, stack: error?.stack, matchId: req.params.matchId, userId: req.user?.id });
-      res.status(500).json({ message: "Failed to complete call" });
+      if (!res.headersSent) {
+        res.status(500).json({ message: error?.message || "Failed to complete call" });
+      }
     }
   });
 

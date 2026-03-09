@@ -496,8 +496,13 @@ export class SupabaseStorage implements IStorage {
       .eq("id", matchId)
       .is("call_started_at", null)
       .select()
-      .single();
-    if (error || !updated) {
+      .maybeSingle();
+
+    if (error) {
+      console.error("[startCall] CALL_START_ERROR DB update error:", { matchId, error: error.message, code: error.code, userId });
+    }
+
+    if (!updated) {
       const { data: recheck } = await this.sb.from("matches").select("*").eq("id", matchId).maybeSingle();
       if (recheck) {
         const recheckMatch = mapMatch(recheck);
@@ -506,10 +511,10 @@ export class SupabaseStorage implements IStorage {
           return { match: recheckMatch, status: "blocked" };
         }
       }
-      console.error("[startCall] CALL_START_ERROR DB update failed:", { matchId, error: error?.message, code: error?.code, userId });
-      throw new Error(`DB update failed: ${error?.message || "unknown error"}`);
-
+      console.error("[startCall] CALL_START_ERROR DB update returned no rows:", { matchId, error: error?.message, code: error?.code, userId });
+      throw new Error(`Failed to create call session: ${error?.message || "no matching row updated"}`);
     }
+
     const result = mapMatch(updated);
     console.log("[startCall] CALL_SESSION_CREATED", { matchId, callSessionId: result.callSessionId, userId });
     return { match: result, status: "created" };
