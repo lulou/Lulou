@@ -321,27 +321,19 @@ export class SupabaseStorage implements IStorage {
       .or(`user1_id.eq.${userId},user2_id.eq.${userId}`)
       .order("created_at", { ascending: false });
 
-    if (error) {
-      console.error("[MATCHES_FETCH_ERROR] getMatchesForUser DB query failed", { message: error.message, code: error.code, userId });
-      throw new Error(`Matches query failed: ${error.message}`);
-    }
-    if (!userMatches) return [];
+    if (error || !userMatches) return [];
 
     const result: (Match & { profile: Profile })[] = [];
     for (const row of userMatches) {
-      try {
-        const match = mapMatch(row);
-        const otherUserId = match.user1Id === userId ? match.user2Id : match.user1Id;
-        const { data: profileData } = await this.sb
-          .from("profiles")
-          .select("*")
-          .eq("user_id", otherUserId)
-          .maybeSingle();
-        if (profileData) {
-          result.push({ ...match, profile: mapProfile(profileData) });
-        }
-      } catch (rowErr: any) {
-        console.error("[MATCHES_FETCH_ERROR] Failed to process match row", { matchId: row.id, error: rowErr?.message, userId });
+      const match = mapMatch(row);
+      const otherUserId = match.user1Id === userId ? match.user2Id : match.user1Id;
+      const { data: profileData } = await this.sb
+        .from("profiles")
+        .select("*")
+        .eq("user_id", otherUserId)
+        .maybeSingle();
+      if (profileData) {
+        result.push({ ...match, profile: mapProfile(profileData) });
       }
     }
     return result;
@@ -473,19 +465,15 @@ export class SupabaseStorage implements IStorage {
 
       if (isStale) {
         console.log("[startCall] STALE_CALL_CLEARED", { matchId, callAge, answered: match.callAnswered, oldInitiator: match.callInitiatorId });
-        const { data: cleared, error: clearErr } = await this.sb
+        const { data: cleared } = await this.sb
           .from("matches")
           .update({ call_started_at: null, call_initiator_id: null, call_answered: false, call_completed: false })
           .eq("id", matchId)
           .select()
-          .maybeSingle();
-        if (clearErr) {
-          console.error("[startCall] CALL_START_ERROR failed to clear stale call:", { matchId, error: clearErr.message, code: clearErr.code });
-          throw new Error(`Failed to clear stale call session: ${clearErr.message}`);
-        }
+          .single();
         if (!cleared) {
-          console.error("[startCall] CALL_START_ERROR stale clear returned no rows:", { matchId });
-          throw new Error("Failed to clear stale call session: no rows updated");
+          console.error("[startCall] CALL_START_ERROR failed to clear stale call:", { matchId });
+          throw new Error("Failed to clear stale call session");
         }
       } else {
         if (match.callInitiatorId === userId) {
@@ -508,13 +496,8 @@ export class SupabaseStorage implements IStorage {
       .eq("id", matchId)
       .is("call_started_at", null)
       .select()
-      .maybeSingle();
-
-    if (error) {
-      console.error("[startCall] CALL_START_ERROR DB update error:", { matchId, error: error.message, code: error.code, userId });
-    }
-
-    if (!updated) {
+      .single();
+    if (error || !updated) {
       const { data: recheck } = await this.sb.from("matches").select("*").eq("id", matchId).maybeSingle();
       if (recheck) {
         const recheckMatch = mapMatch(recheck);
@@ -523,10 +506,10 @@ export class SupabaseStorage implements IStorage {
           return { match: recheckMatch, status: "blocked" };
         }
       }
-      console.error("[startCall] CALL_START_ERROR DB update returned no rows:", { matchId, error: error?.message, code: error?.code, userId });
-      throw new Error(`Failed to create call session: ${error?.message || "no matching row updated"}`);
-    }
+      console.error("[startCall] CALL_START_ERROR DB update failed:", { matchId, error: error?.message, code: error?.code, userId });
+      throw new Error(`DB update failed: ${error?.message || "unknown error"}`);
 
+    }
     const result = mapMatch(updated);
     console.log("[startCall] CALL_SESSION_CREATED", { matchId, callSessionId: result.callSessionId, userId });
     return { match: result, status: "created" };

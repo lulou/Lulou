@@ -574,21 +574,12 @@ function MatchChat({ match }: { match: MatchWithProfile }) {
       queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
     },
     onError: (error: Error) => {
-      let msg = error.message;
-      try {
-        const jsonMatch = msg.match(/^\d+:\s*(.*)$/s);
-        if (jsonMatch) {
-          const parsed = JSON.parse(jsonMatch[1]);
-          if (parsed.message) msg = parsed.message;
-        }
-      } catch {}
-      console.error("[CALL_START] CALL_START_ERROR (frontend)", { matchId: match.id, errorMessage: msg, rawError: error.message });
-      if (msg.includes("already in progress")) {
+      if (error.message.includes("already in progress")) {
         console.log("[CALL] DUPLICATE_CALL_BLOCKED (server)", { matchId: match.id });
         toast({ title: "Call in progress", description: "The other person is already calling you." });
         queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
       } else {
-        toast({ title: "Call failed", description: msg, variant: "destructive" });
+        toast({ title: "Call failed", description: error.message, variant: "destructive" });
       }
     },
   });

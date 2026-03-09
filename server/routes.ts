@@ -365,43 +365,29 @@ export async function registerRoutes(
   });
 
   app.get("/api/matches", isAuthenticated, async (req: any, res) => {
-    const userId = req.user?.id;
     try {
       const storage = getStorage(req);
+      const userId = req.user.id;
       const userMatches = await storage.getMatchesForUser(userId);
       res.json(userMatches);
-    } catch (err: any) {
-      console.error("[MATCHES_FETCH_ERROR] GET /api/matches", {
-        message: err?.message,
-        stack: err?.stack,
-        userId,
-      });
-      if (!res.headersSent) {
-        res.status(500).json({ message: err?.message || "Failed to fetch matches" });
-      }
+    } catch (error) {
+      console.error("Error fetching matches:", error);
+      res.status(500).json({ message: "Failed to fetch matches" });
     }
   });
 
   app.get("/api/matches/:matchId", isAuthenticated, async (req: any, res) => {
-    const userId = req.user?.id;
-    const matchId = req.params.matchId;
     try {
       const storage = getStorage(req);
-      const match = await storage.getMatch(matchId, userId);
+      const userId = req.user.id;
+      const match = await storage.getMatch(req.params.matchId, userId);
       if (!match) {
         return res.status(404).json({ message: "Match not found" });
       }
       res.json(match);
-    } catch (err: any) {
-      console.error("[MATCHES_FETCH_ERROR] GET /api/matches/:matchId", {
-        message: err?.message,
-        stack: err?.stack,
-        userId,
-        matchId,
-      });
-      if (!res.headersSent) {
-        res.status(500).json({ message: err?.message || "Failed to fetch match" });
-      }
+    } catch (error) {
+      console.error("Error fetching match:", error);
+      res.status(500).json({ message: "Failed to fetch match" });
     }
   });
 
@@ -479,14 +465,12 @@ export async function registerRoutes(
   });
 
   app.post("/api/matches/:matchId/call/start", isAuthenticated, async (req: any, res) => {
-    const matchId = req.params.matchId;
-    const userId = req.user?.id;
     try {
       const serverStorage = getStorage(req);
-      console.log("[CALL_START] CALL_SESSION_CHECKED", { matchId, userId, timestamp: new Date().toISOString() });
-
+      const userId = req.user.id;
+      const matchId = req.params.matchId;
+      console.log("[CALL_START] CALL_SESSION_CHECKED", { path: "/api/matches/:matchId/call/start", matchId, userId, timestamp: new Date().toISOString() });
       const result = await serverStorage.startCall(matchId, userId);
-
       if (!result) {
         console.log("[CALL_START] CALL_API_RESPONSE", { status: 404, matchId, userId });
         return res.status(404).json({ message: "Match not found or call not allowed" });
@@ -507,7 +491,6 @@ export async function registerRoutes(
       const otherUserId = match.user1Id === userId ? match.user2Id : match.user1Id;
       const callerProfile = await serverStorage.getProfile(userId);
       const callerName = callerProfile?.firstName || "Someone";
-
       console.log("[CALL_START] CALL_SESSION_CREATED", { matchId, callSessionId: match.callSessionId, SESSION_PARTICIPANTS_COUNT: 2 });
       console.log("[CALL_START] CALLER_ASSIGNED", { matchId, callerId: userId, callerName });
       console.log("[CALL_START] RECEIVER_ASSIGNED", { matchId, receiverId: otherUserId });
@@ -537,19 +520,16 @@ export async function registerRoutes(
         }, 3000 + Math.random() * 2000);
       }
 
-      return res.json(match);
-    } catch (err: any) {
+      res.json(match);
+    } catch (error: any) {
       console.error("[CALL_START] CALL_START_ERROR", {
-        message: err?.message,
-        stack: err?.stack,
-        matchId,
-        userId,
+        message: error?.message,
+        stack: error?.stack,
+        matchId: req.params.matchId,
+        userId: req.user?.id,
         body: req.body,
-        headers: { authorization: req.headers.authorization ? "present" : "missing" },
       });
-      if (!res.headersSent) {
-        return res.status(500).json({ message: err?.message || "Failed to start call" });
-      }
+      res.status(500).json({ message: "Failed to start call" });
     }
   });
 
@@ -574,9 +554,7 @@ export async function registerRoutes(
       res.json(match);
     } catch (error: any) {
       console.error("[CALL_ANSWER] CALL_ANSWER_ERROR", { message: error?.message, stack: error?.stack, matchId: req.params.matchId, userId: req.user?.id });
-      if (!res.headersSent) {
-        res.status(500).json({ message: error?.message || "Failed to answer call" });
-      }
+      res.status(500).json({ message: "Failed to answer call" });
     }
   });
 
@@ -597,9 +575,7 @@ export async function registerRoutes(
       res.json(match);
     } catch (error: any) {
       console.error("[CALL_CANCEL] CALL_CANCEL_ERROR", { message: error?.message, stack: error?.stack, matchId: req.params.matchId, userId: req.user?.id });
-      if (!res.headersSent) {
-        res.status(500).json({ message: error?.message || "Failed to cancel call" });
-      }
+      res.status(500).json({ message: "Failed to cancel call" });
     }
   });
 
@@ -620,9 +596,7 @@ export async function registerRoutes(
       res.json(match);
     } catch (error: any) {
       console.error("[CALL_COMPLETE] CALL_COMPLETE_ERROR", { message: error?.message, stack: error?.stack, matchId: req.params.matchId, userId: req.user?.id });
-      if (!res.headersSent) {
-        res.status(500).json({ message: error?.message || "Failed to complete call" });
-      }
+      res.status(500).json({ message: "Failed to complete call" });
     }
   });
 
