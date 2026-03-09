@@ -471,18 +471,7 @@ export async function registerRoutes(
       const serverStorage = getStorage(req);
       console.log("[CALL_START] CALL_SESSION_CHECKED", { matchId, userId, timestamp: new Date().toISOString() });
 
-      let result;
-      try {
-        result = await serverStorage.startCall(matchId, userId);
-      } catch (dbErr: any) {
-        console.error("[CALL_START] CALL_START_ERROR startCall threw", {
-          message: dbErr?.message,
-          stack: dbErr?.stack,
-          matchId,
-          userId,
-        });
-        return res.status(500).json({ message: dbErr?.message || "Database error starting call" });
-      }
+      const result = await serverStorage.startCall(matchId, userId);
 
       if (!result) {
         console.log("[CALL_START] CALL_API_RESPONSE", { status: 404, matchId, userId });
@@ -502,14 +491,8 @@ export async function registerRoutes(
       }
 
       const otherUserId = match.user1Id === userId ? match.user2Id : match.user1Id;
-
-      let callerName = "Someone";
-      try {
-        const callerProfile = await serverStorage.getProfile(userId);
-        callerName = callerProfile?.firstName || "Someone";
-      } catch (profileErr: any) {
-        console.warn("[CALL_START] Failed to fetch caller profile, using default name", { userId, error: profileErr?.message });
-      }
+      const callerProfile = await serverStorage.getProfile(userId);
+      const callerName = callerProfile?.firstName || "Someone";
 
       console.log("[CALL_START] CALL_SESSION_CREATED", { matchId, callSessionId: match.callSessionId, SESSION_PARTICIPANTS_COUNT: 2 });
       console.log("[CALL_START] CALLER_ASSIGNED", { matchId, callerId: userId, callerName });
@@ -541,16 +524,17 @@ export async function registerRoutes(
       }
 
       return res.json(match);
-    } catch (error: any) {
+    } catch (err: any) {
       console.error("[CALL_START] CALL_START_ERROR", {
-        message: error?.message,
-        stack: error?.stack,
+        message: err?.message,
+        stack: err?.stack,
         matchId,
         userId,
         body: req.body,
+        headers: { authorization: req.headers.authorization ? "present" : "missing" },
       });
       if (!res.headersSent) {
-        return res.status(500).json({ message: error?.message || "Failed to start call" });
+        return res.status(500).json({ message: err?.message || "Failed to start call" });
       }
     }
   });

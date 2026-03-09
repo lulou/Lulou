@@ -465,15 +465,19 @@ export class SupabaseStorage implements IStorage {
 
       if (isStale) {
         console.log("[startCall] STALE_CALL_CLEARED", { matchId, callAge, answered: match.callAnswered, oldInitiator: match.callInitiatorId });
-        const { data: cleared } = await this.sb
+        const { data: cleared, error: clearErr } = await this.sb
           .from("matches")
           .update({ call_started_at: null, call_initiator_id: null, call_answered: false, call_completed: false })
           .eq("id", matchId)
           .select()
-          .single();
+          .maybeSingle();
+        if (clearErr) {
+          console.error("[startCall] CALL_START_ERROR failed to clear stale call:", { matchId, error: clearErr.message, code: clearErr.code });
+          throw new Error(`Failed to clear stale call session: ${clearErr.message}`);
+        }
         if (!cleared) {
-          console.error("[startCall] CALL_START_ERROR failed to clear stale call:", { matchId });
-          throw new Error("Failed to clear stale call session");
+          console.error("[startCall] CALL_START_ERROR stale clear returned no rows:", { matchId });
+          throw new Error("Failed to clear stale call session: no rows updated");
         }
       } else {
         if (match.callInitiatorId === userId) {
