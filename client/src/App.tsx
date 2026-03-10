@@ -18,6 +18,7 @@ import AppLayout from "@/components/app-layout";
 import IncomingCallOverlay from "@/components/incoming-call";
 import { ActiveCallOverlay } from "@/components/active-call";
 import { useCallSignaling, setCallEndedHandler, clearDedupeForMatch } from "@/hooks/use-call-signaling";
+import { markCallSessionCancelled, isCallSessionCancelled, clearCancelledSession, getCancelledSessions } from "@/lib/cancelled-calls";
 import type { Profile, Match } from "@shared/schema";
 import { Loader2 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
@@ -71,6 +72,7 @@ type MatchWithProfile = Match & { profile: Profile };
 
 function clearCallFromCache(qc: ReturnType<typeof useQueryClient>, matchId: string) {
   console.log("[CALL_SESSION] CACHE_CLEARED", { matchId });
+  markCallSessionCancelled(matchId);
   qc.setQueriesData<MatchWithProfile[]>({ queryKey: ["/api/matches"] }, (old) => {
     if (!old) return old;
     return old.map(m => m.id === matchId ? {
@@ -82,8 +84,6 @@ function clearCallFromCache(qc: ReturnType<typeof useQueryClient>, matchId: stri
       callSessionId: null,
     } : m);
   });
-  qc.invalidateQueries({ queryKey: ["/api/matches"] });
-  qc.invalidateQueries({ queryKey: ["/api/matches", matchId] });
 }
 
 function CallDetectors({ userId }: { userId: string }) {
@@ -109,11 +109,32 @@ function CallDetectors({ userId }: { userId: string }) {
 
   useEffect(() => {
     if (!matches) return;
+    const clearedMatchIds = new Set<string>();
     for (const mid of endedMatchIdsRef.current) {
       const m = matches.find(x => x.id === mid);
       if (m && !m.callStartedAt && !m.callInitiatorId && !m.callAnswered && !m.callSessionId) {
         endedMatchIdsRef.current.delete(mid);
+        clearCancelledSession(mid);
+        clearedMatchIds.add(mid);
         clearDedupeForMatch(mid);
+        console.log("[CALL_SESSION] CALL_SUBSCRIPTION_REMOVED", { matchId: mid, reason: "server_confirmed_cleared" });
+      }
+    }
+    const cancelled = getCancelledSessions();
+    for (const key of cancelled) {
+      const matchById = matches.find(x => x.id === key);
+      if (matchById && !matchById.callStartedAt && !matchById.callInitiatorId && !matchById.callAnswered && !matchById.callSessionId) {
+        clearCancelledSession(key);
+        console.log("[CALL_SESSION] CALL_SUBSCRIPTION_REMOVED", { matchId: key, reason: "cancelled_session_confirmed_cleared" });
+        continue;
+      }
+      const matchBySession = matches.find(x => x.callSessionId === key);
+      if (!matchBySession) {
+        clearCancelledSession(key);
+        console.log("[CALL_SESSION] CALL_SUBSCRIPTION_REMOVED", { sessionKey: key, reason: "session_no_longer_exists" });
+      } else if (!matchBySession.callStartedAt && !matchBySession.callInitiatorId) {
+        clearCancelledSession(key);
+        console.log("[CALL_SESSION] CALL_SUBSCRIPTION_REMOVED", { sessionKey: key, matchId: matchBySession.id, reason: "session_confirmed_cleared" });
       }
     }
   }, [matches]);
@@ -152,6 +173,10 @@ function CallDetectors({ userId }: { userId: string }) {
     if (!m.callInitiatorId || m.callInitiatorId === userId) return false;
     if (isEndedCall(m)) return false;
     if (isStaleCall(m)) return false;
+    if (isCallSessionCancelled(m.id, m.callSessionId)) {
+      console.log("[CALL_SESSION] STALE_CALL_SESSION_BLOCKED", { matchId: m.id, callSessionId: m.callSessionId, source: "incoming_check" });
+      return false;
+    }
     const callKey = `${m.id}:${m.callSessionId}`;
     return callKey !== dismissedCallKey;
   });
@@ -161,6 +186,10 @@ function CallDetectors({ userId }: { userId: string }) {
       (m.user1Id === userId || m.user2Id === userId))) return false;
     if (isEndedCall(m)) return false;
     if (isStaleCall(m)) return false;
+    if (isCallSessionCancelled(m.id, m.callSessionId)) {
+      console.log("[CALL_SESSION] STALE_CALL_SESSION_BLOCKED", { matchId: m.id, callSessionId: m.callSessionId, source: "answered_check" });
+      return false;
+    }
     return true;
   });
 
@@ -169,6 +198,10 @@ function CallDetectors({ userId }: { userId: string }) {
       m.callInitiatorId === userId)) return false;
     if (isEndedCall(m)) return false;
     if (isStaleCall(m)) return false;
+    if (isCallSessionCancelled(m.id, m.callSessionId)) {
+      console.log("[CALL_SESSION] STALE_CALL_SESSION_BLOCKED", { matchId: m.id, callSessionId: m.callSessionId, source: "caller_ringing_check" });
+      return false;
+    }
     return true;
   });
 

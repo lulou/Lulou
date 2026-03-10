@@ -43,7 +43,12 @@ Lulou Dating is a calm, premium dating app focused on helping people move from m
 - Active call overlay: full-screen UI with call timer and end-call button (no audio/video controls)
 - CallDetectors in App.tsx polls matches every 10s and shows incoming or active call overlays
 - Staleness protection: ringing calls >120s and answered calls >30min are ignored (prevents stale re-entry)
-- Call signaling is server-data-only: no optimistic cache injection from signals, queries invalidated on signal receipt
+- Cancelled call session tracking via `client/src/lib/cancelled-calls.ts` — prevents stale call data from re-showing call UI after decline/cancel
+- After decline/cancel, optimistic cache clear sticks (no immediate refetch); 10s poll refreshes naturally
+- End signals (declined/cancelled/ended) in use-call-signaling.ts mark sessions as cancelled and do NOT invalidate queries (prevents stale data flip-flop)
+- Both CallDetectors (App.tsx) and inline call UI (matches.tsx) check `isCallSessionCancelled` before showing call overlays/ringing state
+- Call routes use `getCallStorage(req)` — uses admin client if service role key exists, falls back to user JWT client
+- `cancelCall` in storage.ts never throws on DB update failure — returns pre-read data with cleared fields
 - Duplicate call prevention via `.is("call_started_at", null)` guard in DB update
 - Caller gets "declined" notification when receiver declines their call
 - Face call requires mutual acceptance (`faceCallUser1Accepted`, `faceCallUser2Accepted`)
@@ -76,6 +81,7 @@ Lulou Dating is a calm, premium dating app focused on helping people move from m
 - `client/src/hooks/use-auth.ts` - Supabase Auth hook (session, login, logout)
 - `client/src/hooks/use-realtime-messages.ts` - Supabase Realtime subscription for instant message delivery
 - `client/src/hooks/use-unread-counts.ts` - Per-match unread message tracking via Supabase Realtime
+- `client/src/lib/cancelled-calls.ts` - Cancelled call session tracking (prevents stale call UI reappearance)
 - `client/src/hooks/use-webrtc.ts` - WebRTC peer connection hook with Supabase Realtime signaling
 - `client/src/components/active-call.tsx` - Active call overlay (voice/video) with WebRTC streams
 - `server/supabase.ts` - Server Supabase client

@@ -7,6 +7,7 @@ import { useToast } from "@/hooks/use-toast";
 import { broadcastCallSignal } from "@/hooks/use-call-signaling";
 import { useAuth } from "@/hooks/use-auth";
 import type { Profile, Match } from "@shared/schema";
+import { markCallSessionCancelled } from "@/lib/cancelled-calls";
 
 type IncomingCallProps = {
   match: Match & { profile: Profile };
@@ -221,15 +222,19 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss }: In
       return await res.json();
     },
     onSuccess: () => {
+      markCallSessionCancelled(match.id, match.callSessionId);
       broadcastCallSignal(match.id, {
         type: "call:declined",
         matchId: match.id,
         userId: user!.id,
       });
-      queryClient.invalidateQueries({ queryKey: ["/api/matches", match.id] });
-      queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
-      console.log("[CALL_UI] CALL_STATE_CLEARED", {
+      queryClient.setQueriesData<MatchWithProfile[]>({ queryKey: ["/api/matches"] }, (old) => {
+        if (!old) return old;
+        return old.map(m => m.id === match.id ? { ...m, callStartedAt: null, callInitiatorId: null, callAnswered: false, callCompleted: false, callSessionId: null } : m);
+      });
+      console.log("[CALL_UI] CALL_DECLINED", {
         matchId: match.id,
+        callSessionId: match.callSessionId,
         reason: "declined_by_receiver",
       });
       toast({ title: "Call declined" });
@@ -237,13 +242,16 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss }: In
     },
     onError: (error: Error) => {
       console.error("[CALL_UI] CALL_DECLINE_FAILED", { matchId: match.id, error: error.message });
+      markCallSessionCancelled(match.id, match.callSessionId);
       broadcastCallSignal(match.id, {
         type: "call:declined",
         matchId: match.id,
         userId: user!.id,
       });
-      queryClient.invalidateQueries({ queryKey: ["/api/matches", match.id] });
-      queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
+      queryClient.setQueriesData<MatchWithProfile[]>({ queryKey: ["/api/matches"] }, (old) => {
+        if (!old) return old;
+        return old.map(m => m.id === match.id ? { ...m, callStartedAt: null, callInitiatorId: null, callAnswered: false, callCompleted: false, callSessionId: null } : m);
+      });
       toast({ title: "Call declined" });
       onDismiss();
     },

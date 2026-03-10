@@ -10,6 +10,7 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
 import { useTabActive } from "@/App";
+import { isCallSessionCancelled, markCallSessionCancelled } from "@/lib/cancelled-calls";
 import { useRealtimeMessages } from "@/hooks/use-realtime-messages";
 import { useUnreadCounts } from "@/hooks/use-unread-counts";
 import { Input } from "@/components/ui/input";
@@ -589,17 +590,21 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
     },
     onSuccess: () => {
       iCancelledRef.current = true;
+      markCallSessionCancelled(match.id, detail.callSessionId);
       broadcastCallSignal(match.id, {
         type: "call:cancelled",
         matchId: match.id,
         userId: user!.id,
       });
-      queryClient.invalidateQueries({ queryKey: ["/api/matches", match.id] });
-      queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
-      console.log("[CALL_UI] CALL_STATE_CLEARED", { matchId: match.id, reason: "caller_cancelled" });
+      queryClient.setQueriesData<(Match & { profile: Profile })[]>({ queryKey: ["/api/matches"] }, (old) => {
+        if (!old) return old;
+        return old.map(m => m.id === match.id ? { ...m, callStartedAt: null, callInitiatorId: null, callAnswered: false, callCompleted: false, callSessionId: null } : m);
+      });
+      console.log("[CALL_UI] CALL_CANCELLED", { matchId: match.id, reason: "caller_cancelled" });
       toast({ title: "Call cancelled" });
     },
     onError: (error: Error) => {
+      markCallSessionCancelled(match.id, detail.callSessionId);
       toast({ title: "Cancel failed", description: error.message, variant: "destructive" });
     },
   });
@@ -747,8 +752,12 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
   const isLimitReached = messagesRemaining <= 0;
   const allMessages = matchDetail?.messages || [];
   const callStage = detail.callStage || 0;
-  const isCallRinging = !!(detail.callStartedAt && detail.callSessionId && !detail.callAnswered && !detail.callCompleted);
-  const isCallActive = !!(detail.callStartedAt && detail.callSessionId && detail.callAnswered && !detail.callCompleted);
+  const callCancelled = isCallSessionCancelled(match.id, detail.callSessionId);
+  const isCallRinging = !callCancelled && !!(detail.callStartedAt && detail.callSessionId && !detail.callAnswered && !detail.callCompleted);
+  const isCallActive = !callCancelled && !!(detail.callStartedAt && detail.callSessionId && detail.callAnswered && !detail.callCompleted);
+  if (callCancelled && detail.callStartedAt) {
+    console.log("[CALL_SESSION] CONNECTION_RESTORE_PREVENTED", { matchId: match.id, callSessionId: detail.callSessionId, source: "matches_inline_check" });
+  }
 
   const iAmCaller = detail.callInitiatorId === user?.id;
   const hasExistingCall = isCallRinging || isCallActive;

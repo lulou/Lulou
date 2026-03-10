@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { supabase } from "@/lib/supabase";
 import { queryClient } from "@/lib/queryClient";
+import { markCallSessionCancelled } from "@/lib/cancelled-calls";
 
 type CallSignalEvent =
   | { type: "call:ring"; matchId: string; callerId: string; callerName: string; callSessionId?: string }
@@ -71,23 +72,33 @@ export function useCallSignaling(matchIds: string[], userId: string) {
         if (senderId === userId) return;
         const event = payload as CallSignalEvent;
 
+        let isEndSignal = false;
+
         if (event.type === "call:ring") {
           console.log("[CALL_SIGNAL] RECEIVER_ASSIGNED", { matchId, callerId: (event as any).callerId, receiverId: userId });
         } else if (event.type === "call:answered") {
           console.log("[CALL_SIGNAL] CALL_ANSWERED", { matchId, answeredBy: senderId });
         } else if (event.type === "call:declined") {
           console.log("[CALL_SIGNAL] CALL_DECLINED", { matchId, declinedBy: senderId });
+          markCallSessionCancelled(matchId, (event as any).callSessionId);
           processEndSignal(matchId, "declined");
+          isEndSignal = true;
         } else if (event.type === "call:cancelled") {
           console.log("[CALL_SIGNAL] CALL_CANCELLED", { matchId, cancelledBy: senderId });
+          markCallSessionCancelled(matchId, (event as any).callSessionId);
           processEndSignal(matchId, "cancelled");
+          isEndSignal = true;
         } else if (event.type === "call:ended") {
           console.log("[CALL_SIGNAL] CALL_ENDED", { matchId, endedBy: senderId });
+          markCallSessionCancelled(matchId, (event as any).callSessionId);
           processEndSignal(matchId, "ended");
+          isEndSignal = true;
         }
 
-        queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
-        queryClient.invalidateQueries({ queryKey: ["/api/matches", matchId] });
+        if (!isEndSignal) {
+          queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
+          queryClient.invalidateQueries({ queryKey: ["/api/matches", matchId] });
+        }
       });
 
       channel.subscribe();
