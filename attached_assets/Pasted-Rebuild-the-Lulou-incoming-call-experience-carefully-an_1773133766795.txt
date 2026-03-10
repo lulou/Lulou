@@ -1,0 +1,80 @@
+Rebuild the Lulou incoming call experience carefully and correctly.
+
+Important:
+The app baseline is now stable:
+- sign in works
+- matches load
+- messages send
+- chat layout works
+- reactions work
+
+Do not break any of that.
+
+Now rebuild the incoming call UI and call handling safely.
+
+Goal:
+When a user receives a call, they should see a proper incoming call screen with:
+- caller name
+- red phone button to end/decline the call
+- green drag/pull to answer the call
+
+Requirements:
+
+1. Incoming call UI
+- When User A calls User B, User B must see an incoming call screen immediately.
+- The incoming call screen must clearly show:
+ - caller name
+ - red end/decline phone button
+ - green drag/pull to answer control
+- The UI should feel like a real phone incoming call screen.
+
+2. Decline / end behavior
+- Pressing the red phone button on the incoming call screen must decline the call immediately.
+- User A must instantly see that the call was declined or ended.
+- Both users must return to the chat screen cleanly.
+- No stale call state must remain.
+- The call must not restart automatically.
+
+3. Answer behavior
+- Dragging/pulling the green answer control must accept the call.
+- Only after the accept action succeeds should both users move into the call stage.
+- Do not move users into the call stage before the call is actually accepted.
+
+4. State handling
+- Only one user is caller and one user is receiver.
+- The receiver must never be shown as "calling".
+- Prevent duplicate or mirrored call sessions.
+- Preserve chat state and match state during all call transitions.
+
+5. Cleanup
+- If the call is declined or cancelled, fully clear:
+ - incoming call state
+ - outgoing call state
+ - ringing state
+ - active call state
+ - call session id
+- Do not clear chat thread or break messaging.
+
+6. Logging
+Add logs for:
+- INCOMING_CALL_SHOWN
+- CALL_DECLINED
+- CALL_ACCEPT_DRAG_STARTED
+- CALL_ACCEPTED
+- CALL_STAGE_ENTERED
+- CALL_STAGE_EXITED
+- CALL_STATE_CLEARED
+
+7. Safety
+- Do not add audio or video yet.
+- Do not rewrite the whole call system.
+- Do not modify auth, profiles, matches, or messaging.
+- Make minimal safe changes only.
+
+Goal:
+The incoming call screen must work correctly and reliably with:
+- red phone button to decline/end
+- green drag/pull to answer
+- correct caller/receiver behavior
+- no broken chat state
+- no duplicate sessions

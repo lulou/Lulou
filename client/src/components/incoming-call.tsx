@@ -16,65 +16,62 @@ type IncomingCallProps = {
 
 type MatchWithProfile = Match & { profile: Profile };
 
-const SWIPE_THRESHOLD = 100;
+const DRAG_THRESHOLD = 120;
 
-function SwipeButton({
-  direction,
-  icon: Icon,
-  label,
-  color,
-  onSwipeComplete,
+function SlideToAnswer({
+  onAnswerComplete,
   disabled,
+  isFaceCall,
 }: {
-  direction: "right" | "left";
-  icon: typeof Phone;
-  label: string;
-  color: string;
-  onSwipeComplete: () => void;
-  disabled?: boolean;
+  onAnswerComplete: () => void;
+  disabled: boolean;
+  isFaceCall: boolean;
 }) {
-  const btnRef = useRef<HTMLDivElement>(null);
-  const startX = useRef(0);
-  const currentX = useRef(0);
+  const trackRef = useRef<HTMLDivElement>(null);
+  const knobRef = useRef<HTMLDivElement>(null);
+  const startY = useRef(0);
+  const currentOffset = useRef(0);
   const isDragging = useRef(false);
   const completedRef = useRef(false);
+  const [dragProgress, setDragProgress] = useState(0);
 
   const handleEnd = useCallback(() => {
-    if (!isDragging.current || !btnRef.current) return;
+    if (!isDragging.current || !knobRef.current) return;
     isDragging.current = false;
-    const dist = Math.abs(currentX.current);
-    if (dist >= SWIPE_THRESHOLD && !completedRef.current) {
+    if (Math.abs(currentOffset.current) >= DRAG_THRESHOLD && !completedRef.current) {
       completedRef.current = true;
-      onSwipeComplete();
+      console.log("[CALL_UI] CALL_ACCEPTED", { source: "drag_complete" });
+      onAnswerComplete();
+    } else {
+      knobRef.current.style.transition = "transform 0.3s cubic-bezier(0.25,1,0.5,1)";
+      knobRef.current.style.transform = "translateY(0px)";
+      setDragProgress(0);
     }
-    btnRef.current.style.transition = "transform 0.3s cubic-bezier(0.25,1,0.5,1)";
-    btnRef.current.style.transform = "translateX(0px)";
-  }, [onSwipeComplete]);
+  }, [onAnswerComplete]);
 
-  const handleMove = useCallback((clientX: number) => {
-    if (!isDragging.current || !btnRef.current) return;
-    const dx = clientX - startX.current;
-    const clamped = direction === "right"
-      ? Math.max(0, Math.min(dx, SWIPE_THRESHOLD + 20))
-      : Math.min(0, Math.max(dx, -(SWIPE_THRESHOLD + 20)));
-    currentX.current = clamped;
-    btnRef.current.style.transform = `translateX(${clamped}px)`;
-  }, [direction]);
+  const handleMove = useCallback((clientY: number) => {
+    if (!isDragging.current || !knobRef.current) return;
+    const dy = startY.current - clientY;
+    const clamped = Math.max(0, Math.min(dy, DRAG_THRESHOLD + 10));
+    currentOffset.current = clamped;
+    knobRef.current.style.transform = `translateY(-${clamped}px)`;
+    setDragProgress(Math.min(1, clamped / DRAG_THRESHOLD));
+  }, []);
 
-  const handleStart = useCallback((clientX: number) => {
-    if (disabled) return;
+  const handleStart = useCallback((clientY: number) => {
+    if (disabled || completedRef.current) return;
     isDragging.current = true;
-    completedRef.current = false;
-    startX.current = clientX;
-    currentX.current = 0;
-    if (btnRef.current) {
-      btnRef.current.style.transition = "none";
+    startY.current = clientY;
+    currentOffset.current = 0;
+    console.log("[CALL_UI] CALL_ACCEPT_DRAG_STARTED");
+    if (knobRef.current) {
+      knobRef.current.style.transition = "none";
     }
   }, [disabled]);
 
   useEffect(() => {
     const onMouseMove = (e: MouseEvent) => {
-      if (isDragging.current) handleMove(e.clientX);
+      if (isDragging.current) handleMove(e.clientY);
     };
     const onMouseUp = () => {
       if (isDragging.current) handleEnd();
@@ -88,47 +85,57 @@ function SwipeButton({
   }, [handleMove, handleEnd]);
 
   return (
-    <div
-      className="relative flex items-center"
-      style={{
-        width: 200,
-        height: 64,
-        justifyContent: direction === "right" ? "flex-start" : "flex-end",
-      }}
-    >
+    <div className="flex flex-col items-center gap-3">
       <div
-        className="absolute inset-0 rounded-full"
+        className="text-xs text-white/40 tracking-wider uppercase"
         style={{
-          background: `linear-gradient(${direction === "right" ? "to right" : "to left"}, ${color}15, transparent)`,
-        }}
-      />
-      <div
-        className="absolute text-xs font-medium tracking-wider uppercase"
-        style={{
-          color: `${color}`,
-          opacity: 0.5,
-          [direction === "right" ? "right" : "left"]: 20,
+          opacity: 1 - dragProgress,
+          transition: isDragging.current ? "none" : "opacity 0.3s",
         }}
       >
-        {direction === "right" ? "→" : "←"} {label}
+        ↑ Drag up to answer
       </div>
+
       <div
-        ref={btnRef}
-        className="relative z-10 flex items-center justify-center rounded-full cursor-grab active:cursor-grabbing"
+        ref={trackRef}
+        className="relative flex items-end justify-center"
         style={{
-          width: 64,
-          height: 64,
-          background: color,
-          boxShadow: `0 4px 20px ${color}50`,
-          touchAction: "none",
+          width: 80,
+          height: DRAG_THRESHOLD + 80,
         }}
-        onTouchStart={(e) => handleStart(e.touches[0].clientX)}
-        onTouchMove={(e) => handleMove(e.touches[0].clientX)}
-        onTouchEnd={handleEnd}
-        onMouseDown={(e) => { handleStart(e.clientX); e.preventDefault(); }}
-        data-testid={`swipe-${direction === "right" ? "answer" : "decline"}`}
       >
-        <Icon className="w-7 h-7 text-white" />
+        <div
+          className="absolute left-1/2 -translate-x-1/2 bottom-[40px] w-[2px] rounded-full"
+          style={{
+            height: DRAG_THRESHOLD,
+            background: `linear-gradient(to top, rgba(34,197,94,0.4), rgba(34,197,94,0.05))`,
+          }}
+        />
+
+        <div
+          ref={knobRef}
+          className="relative z-10 flex items-center justify-center rounded-full cursor-grab active:cursor-grabbing select-none"
+          style={{
+            width: 72,
+            height: 72,
+            background: dragProgress > 0.8
+              ? "linear-gradient(135deg, #16a34a 0%, #22c55e 100%)"
+              : "linear-gradient(135deg, #22c55e 0%, #4ade80 100%)",
+            boxShadow: `0 4px 24px rgba(34,197,94,${0.3 + dragProgress * 0.4})`,
+            touchAction: "none",
+          }}
+          onTouchStart={(e) => handleStart(e.touches[0].clientY)}
+          onTouchMove={(e) => handleMove(e.touches[0].clientY)}
+          onTouchEnd={handleEnd}
+          onMouseDown={(e) => { handleStart(e.clientY); e.preventDefault(); }}
+          data-testid="drag-answer-call"
+        >
+          {isFaceCall ? (
+            <Video className="w-8 h-8 text-white" />
+          ) : (
+            <Phone className="w-8 h-8 text-white" />
+          )}
+        </div>
       </div>
     </div>
   );
@@ -138,11 +145,10 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss }: In
   const { toast } = useToast();
   const { user } = useAuth();
   const queryClient = useQueryClient();
-  const [answered, setAnswered] = useState(false);
   const actedRef = useRef(false);
 
   useEffect(() => {
-    console.log("[CALL_UI] INCOMING_CALL_UI_SHOWN", {
+    console.log("[CALL_UI] INCOMING_CALL_SHOWN", {
       matchId: match.id,
       callerId: match.callInitiatorId,
       receiverId: user?.id,
@@ -164,22 +170,28 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss }: In
   );
 
   useEffect(() => {
-    if (freshMatches && !stillRinging && !answered && !actedRef.current) {
-      console.log("[IncomingCall] Call no longer ringing, dismissing overlay");
+    if (freshMatches && !stillRinging && !actedRef.current) {
+      console.log("[CALL_UI] CALL_STATE_CLEARED", {
+        matchId: match.id,
+        reason: "call_no_longer_ringing",
+      });
       onDismiss();
     }
-  }, [stillRinging, freshMatches, answered, onDismiss]);
+  }, [stillRinging, freshMatches, onDismiss]);
 
   const answerCall = useMutation({
     mutationFn: async () => {
       actedRef.current = true;
+      console.log("[CALL_UI] CALL_STAGE_ENTERED", { matchId: match.id, role: "receiver" });
       const res = await apiRequest("POST", `/api/matches/${match.id}/call/answer`, {});
       return await res.json();
     },
     onSuccess: () => {
-      console.log("[CALL_SESSION] CALL_SESSION_ACCEPTED", { matchId: match.id, callSessionId: match.callSessionId, userId: user!.id });
-      console.log("[CALL_SESSION] CONNECTION_ADDED", { matchId: match.id, callSessionId: match.callSessionId, participant: user!.id, role: "receiver" });
-      setAnswered(true);
+      console.log("[CALL_UI] CALL_ACCEPTED", {
+        matchId: match.id,
+        callSessionId: match.callSessionId,
+        userId: user!.id,
+      });
       broadcastCallSignal(match.id, {
         type: "call:answered",
         matchId: match.id,
@@ -190,20 +202,25 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss }: In
       onDismiss();
     },
     onError: (error: Error) => {
-      console.error("[CALL_ANSWER] FRONTEND_ERROR", { matchId: match.id, error: error.message });
+      actedRef.current = false;
+      console.error("[CALL_UI] CALL_ANSWER_FAILED", { matchId: match.id, error: error.message });
       toast({ title: "Couldn't connect", description: error.message, variant: "destructive" });
-      onDismiss();
     },
   });
 
   const declineCall = useMutation({
     mutationFn: async () => {
       actedRef.current = true;
+      console.log("[CALL_UI] CALL_DECLINED", {
+        matchId: match.id,
+        callSessionId: match.callSessionId,
+        userId: user?.id,
+        role: "receiver",
+      });
       const res = await apiRequest("POST", `/api/matches/${match.id}/call/cancel`, {});
       return await res.json();
     },
     onSuccess: () => {
-      console.log("[CALL_SESSION] CONNECTION_REMOVED", { matchId: match.id, callSessionId: match.callSessionId, reason: "call_declined" });
       broadcastCallSignal(match.id, {
         type: "call:declined",
         matchId: match.id,
@@ -211,13 +228,17 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss }: In
       });
       queryClient.invalidateQueries({ queryKey: ["/api/matches", match.id] });
       queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
+      console.log("[CALL_UI] CALL_STATE_CLEARED", {
+        matchId: match.id,
+        reason: "declined_by_receiver",
+      });
       toast({ title: "Call declined" });
       onDismiss();
     },
     onError: (error: Error) => {
-      console.error("[CALL_CANCEL] FRONTEND_ERROR", { matchId: match.id, error: error.message });
+      actedRef.current = false;
+      console.error("[CALL_UI] CALL_DECLINE_FAILED", { matchId: match.id, error: error.message });
       toast({ title: "Decline failed", description: error.message, variant: "destructive" });
-      onDismiss();
     },
   });
 
@@ -226,7 +247,6 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss }: In
     return () => { document.body.style.overflow = ""; };
   }, []);
 
-  const CallIcon = isFaceCall ? Video : Phone;
   const photo = match.profile.photos?.[0];
   const isPending = answerCall.isPending || declineCall.isPending;
 
@@ -290,7 +310,11 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss }: In
             className="absolute -bottom-1 -right-1 w-10 h-10 rounded-full flex items-center justify-center"
             style={{ background: isFaceCall ? "#6366f1" : "#22c55e" }}
           >
-            <CallIcon className="w-5 h-5 text-white" />
+            {isFaceCall ? (
+              <Video className="w-5 h-5 text-white" />
+            ) : (
+              <Phone className="w-5 h-5 text-white" />
+            )}
           </div>
         </div>
 
@@ -305,46 +329,39 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss }: In
           {match.profile.location && ` · ${match.profile.location}`}
         </p>
         <p className="text-white/40 text-xs tracking-wider uppercase mt-2">
-          {answered ? "Connecting..." : isFaceCall ? "Incoming face call" : "Incoming call"}
+          {isFaceCall ? "Incoming face call" : "Incoming call"}
         </p>
 
-        {!answered && (
-          <div className="mt-4 flex items-center gap-2">
-            <div className="w-2 h-2 rounded-full bg-white/30" style={{ animation: "dotBounce 1.2s ease-in-out infinite" }} />
-            <div className="w-2 h-2 rounded-full bg-white/30" style={{ animation: "dotBounce 1.2s ease-in-out infinite 0.2s" }} />
-            <div className="w-2 h-2 rounded-full bg-white/30" style={{ animation: "dotBounce 1.2s ease-in-out infinite 0.4s" }} />
-          </div>
-        )}
+        <div className="mt-4 flex items-center gap-2">
+          <div className="w-2 h-2 rounded-full bg-white/30" style={{ animation: "dotBounce 1.2s ease-in-out infinite" }} />
+          <div className="w-2 h-2 rounded-full bg-white/30" style={{ animation: "dotBounce 1.2s ease-in-out infinite 0.2s" }} />
+          <div className="w-2 h-2 rounded-full bg-white/30" style={{ animation: "dotBounce 1.2s ease-in-out infinite 0.4s" }} />
+        </div>
       </div>
 
-      {!answered && (
-        <div className="flex items-center justify-between w-full px-10 pb-16 z-10" data-testid="incoming-call-actions">
-          <SwipeButton
-            direction="left"
-            icon={PhoneOff}
-            label="Decline"
-            color="#ef4444"
-            onSwipeComplete={() => declineCall.mutate()}
-            disabled={isPending}
-          />
-          <SwipeButton
-            direction="right"
-            icon={isFaceCall ? Video : Phone}
-            label="Answer"
-            color="#22c55e"
-            onSwipeComplete={() => answerCall.mutate()}
-            disabled={isPending}
-          />
-        </div>
-      )}
+      <div className="flex flex-col items-center pb-12 z-10 gap-10" data-testid="incoming-call-actions">
+        <SlideToAnswer
+          onAnswerComplete={() => answerCall.mutate()}
+          disabled={isPending}
+          isFaceCall={isFaceCall}
+        />
 
-      {answered && (
-        <div className="pb-16 z-10">
-          <div className="w-16 h-16 rounded-full bg-green-500/20 flex items-center justify-center">
-            <Phone className="w-8 h-8 text-green-400" />
-          </div>
-        </div>
-      )}
+        <button
+          className="w-16 h-16 rounded-full flex items-center justify-center active:scale-95 transition-transform"
+          style={{
+            background: "linear-gradient(135deg, #dc2626 0%, #ef4444 100%)",
+            boxShadow: "0 4px 20px rgba(239,68,68,0.4)",
+          }}
+          onClick={() => {
+            if (!isPending) declineCall.mutate();
+          }}
+          disabled={isPending}
+          data-testid="button-decline-call"
+        >
+          <PhoneOff className="w-7 h-7 text-white" />
+        </button>
+        <span className="text-white/40 text-xs -mt-8">Decline</span>
+      </div>
 
       <style>{`
         @keyframes incomingPulse1 {

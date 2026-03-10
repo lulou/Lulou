@@ -565,23 +565,25 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
 
   const startCall = useMutation({
     mutationFn: async () => {
-      console.log("[CALL] CALL_REQUEST_STARTED", { matchId: match.id, callerId: user?.id, callStage });
-      console.log("[CALL] CALL_SESSION_CONFIRMED", { matchId: match.id, confirmed: false, reason: "call_flow_disabled_for_stability" });
-      console.log("[CALL] CALL_STAGE_BLOCKED", { matchId: match.id, reason: "call_flow_disabled_for_stability" });
-      throw new Error("BLOCKED");
+      console.log("[CALL_UI] CALL_STAGE_ENTERED", { matchId: match.id, callerId: user?.id, callStage, role: "caller" });
+      const res = await apiRequest("POST", `/api/matches/${match.id}/call/start`, {});
+      return await res.json();
+    },
+    onSuccess: (data: any) => {
+      console.log("[CALL_UI] CALL_STAGE_ENTERED", { matchId: match.id, callSessionId: data.callSessionId, confirmed: true });
+      iCancelledRef.current = false;
+      queryClient.invalidateQueries({ queryKey: ["/api/matches", match.id] });
+      queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
     },
     onError: (error: Error) => {
-      if (error.message === "BLOCKED") {
-        console.log("[CALL] CALL_SESSION_REJECTED", { matchId: match.id, reason: "call_flow_disabled" });
-        toast({ title: "Calls coming soon", description: "Voice and video calls are being improved. Your chat is safe." });
-      } else {
-        toast({ title: "Call failed", description: error.message, variant: "destructive" });
-      }
+      console.error("[CALL_UI] CALL_START_FAILED", { matchId: match.id, error: error.message });
+      toast({ title: "Call failed", description: error.message, variant: "destructive" });
     },
   });
 
   const cancelCall = useMutation({
     mutationFn: async () => {
+      console.log("[CALL_UI] CALL_STAGE_EXITED", { matchId: match.id, reason: "caller_cancelled" });
       const res = await apiRequest("POST", `/api/matches/${match.id}/call/cancel`, {});
       return res.json();
     },
@@ -594,6 +596,7 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
       });
       queryClient.invalidateQueries({ queryKey: ["/api/matches", match.id] });
       queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
+      console.log("[CALL_UI] CALL_STATE_CLEARED", { matchId: match.id, reason: "caller_cancelled" });
       toast({ title: "Call cancelled" });
     },
     onError: (error: Error) => {
@@ -603,17 +606,17 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
 
   const completeCall = useMutation({
     mutationFn: async () => {
+      console.log("[CALL_UI] CALL_STAGE_EXITED", { matchId: match.id, reason: "call_completed" });
       const res = await apiRequest("POST", `/api/matches/${match.id}/call/complete`, {});
       return res.json();
     },
     onSuccess: (data: any) => {
-      console.log("[Call] CALL_END_REQUESTED - completing call");
       broadcastCallSignal(match.id, {
         type: "call:ended" as any,
         matchId: match.id,
         userId: user!.id,
       });
-      console.log("[Call] CALL_END_SENT", { matchId: match.id });
+      console.log("[CALL_UI] CALL_STATE_CLEARED", { matchId: match.id, reason: "call_completed", newStage: data.callStage });
       queryClient.invalidateQueries({ queryKey: ["/api/matches", match.id] });
       queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
       const stage = data.callStage || 0;
@@ -744,11 +747,11 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
   const isLimitReached = messagesRemaining <= 0;
   const allMessages = matchDetail?.messages || [];
   const callStage = detail.callStage || 0;
-  const isCallRinging = false;
-  const isCallActive = false;
+  const isCallRinging = !!(detail.callStartedAt && detail.callSessionId && !detail.callAnswered && !detail.callCompleted);
+  const isCallActive = !!(detail.callStartedAt && detail.callSessionId && detail.callAnswered && !detail.callCompleted);
 
   const iAmCaller = detail.callInitiatorId === user?.id;
-  const hasExistingCall = false;
+  const hasExistingCall = isCallRinging || isCallActive;
   const prevRingingRef = useRef(false);
   useEffect(() => {
     const wasRinging = prevRingingRef.current;
