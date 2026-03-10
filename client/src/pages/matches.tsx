@@ -722,6 +722,22 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
   const theirFaceCallAccepted = detail.user1Id === user?.id ? detail.faceCallUser2Accepted : detail.faceCallUser1Accepted;
   const bothAcceptedFaceCall = detail.faceCallUser1Accepted && detail.faceCallUser2Accepted;
 
+  const formatTimestamp = (dateStr: string | null | undefined) => {
+    if (!dateStr) return "";
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return "";
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const yesterday = new Date(today.getTime() - 86400000);
+    const msgDay = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    const time = d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+    if (msgDay.getTime() === today.getTime()) return time;
+    if (msgDay.getTime() === yesterday.getTime()) return `Yesterday`;
+    const sixDaysAgo = new Date(today.getTime() - 6 * 86400000);
+    if (msgDay >= sixDaysAgo) return d.toLocaleDateString([], { weekday: "short" });
+    return d.toLocaleDateString([], { month: "short", day: "numeric" });
+  };
+
   if (!expanded) return null;
 
   return (
@@ -808,8 +824,8 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
                     data-testid={`message-${msg.id}`}
                   >
                     <p className="leading-relaxed">{msg.content}</p>
-                    <p className={`text-xs mt-1 ${isMe ? "text-primary-foreground/60" : "text-muted-foreground"}`}>
-                      {msg.createdAt ? new Date(msg.createdAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : ""}
+                    <p className={`text-[10px] mt-1.5 leading-none opacity-60 ${isMe ? "text-primary-foreground" : "text-muted-foreground"}`} data-testid={`timestamp-${msg.id}`}>
+                      {formatTimestamp(msg.createdAt)}
                     </p>
                   </div>
                 </div>
