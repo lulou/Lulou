@@ -402,6 +402,20 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Missing messageId" });
       }
 
+      const { data: msg, error: msgErr } = await storage.getMessage(messageId);
+      if (msgErr || !msg) {
+        return res.status(404).json({ message: "Message not found" });
+      }
+
+      if (msg.sender_id === userId) {
+        return res.status(403).json({ message: "Cannot react to your own message" });
+      }
+
+      const participants = await storage.getMatchParticipants(msg.match_id);
+      if (!participants || (participants.user1Id !== userId && participants.user2Id !== userId)) {
+        return res.status(403).json({ message: "Not authorized to react to this message" });
+      }
+
       const validReaction = reaction === "❤️" ? "❤️" : null;
 
       console.log(validReaction ? "MESSAGE_REACTION_ADDED" : "MESSAGE_REACTION_REMOVED", { messageId, userId, reaction: validReaction });

@@ -50,6 +50,7 @@ Lulou Dating is a calm, premium dating app focused on helping people move from m
 - After all calls: "Ready to Meet" button shows date/time picker (next 7 days, 4 time slots each)
 - Meet availability tracked per user (`meetAvailability1`, `meetAvailability2` as JSON)
 - Phone number exchange only unlocked after both users confirm matching date/time availability
+- Message reactions: double-tap a received message to toggle ❤️ reaction (stored in DB, visible to both users)
 - Message content filtered server-side to block phone numbers, emails, and social media handles in regular messages
 - Exchange number auto-sends phone as message via dedicated route (bypasses content filter)
 - Profile page shows age, height, location, adjustable search radius
@@ -113,4 +114,5 @@ Lulou Dating is a calm, premium dating app focused on helping people move from m
 - `POST /api/matches/:id/call/complete` - Complete call and advance callStage
 - `POST /api/matches/:id/face-call/accept` - Accept optional face call (after 2nd voice call)
 - `POST /api/matches/:id/face-call/decline` - Decline/skip face call (advances to stage 3)
+- `POST /api/messages/:messageId/reaction` - Toggle ❤️ reaction on a message (server validates ownership + received-only)
 - `POST /api/matches/:id/meet-availability` - Set date/time availability slots (after all calls done)

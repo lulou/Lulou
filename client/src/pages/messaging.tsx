@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRoute, useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
@@ -358,6 +358,7 @@ export default function Messaging() {
           matchId: matchId!,
           senderId: user?.id || "",
           content: vars.content,
+          reaction: null,
           createdAt: new Date().toISOString(),
         };
         queryClient.setQueryData<MatchDetail>(["/api/matches", matchId], {
@@ -377,6 +378,51 @@ export default function Messaging() {
       queryClient.invalidateQueries({ queryKey: ["/api/matches", matchId] });
     },
   });
+
+  const toggleReaction = useMutation({
+    mutationFn: async ({ messageId, currentReaction }: { messageId: string; currentReaction: string | null }) => {
+      const newReaction = currentReaction ? null : "❤️";
+      console.log(newReaction ? "[CHAT] MESSAGE_REACTION_ADDED" : "[CHAT] MESSAGE_REACTION_REMOVED", { messageId, matchId });
+      const res = await apiRequest("POST", `/api/messages/${messageId}/reaction`, { reaction: newReaction });
+      return res.json();
+    },
+    onMutate: async ({ messageId, currentReaction }) => {
+      const key = ["/api/matches", matchId];
+      await queryClient.cancelQueries({ queryKey: key });
+      const prev = queryClient.getQueryData<MatchDetail>(key);
+      if (prev) {
+        queryClient.setQueryData<MatchDetail>(key, {
+          ...prev,
+          messages: prev.messages.map(m =>
+            m.id === messageId ? { ...m, reaction: currentReaction ? null : "❤️" } : m
+          ),
+        });
+      }
+      return { prev };
+    },
+    onError: (_err: any, _vars: any, context: any) => {
+      if (context?.prev) {
+        queryClient.setQueryData(["/api/matches", matchId], context.prev);
+      }
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/matches", matchId] });
+    },
+  });
+
+  const doubleTapRef = useRef<{ id: string; time: number } | null>(null);
+  const handleMessageTap = useCallback((msg: any) => {
+    if (msg.senderId === user?.id) return;
+    const now = Date.now();
+    const prev = doubleTapRef.current;
+    if (prev && prev.id === msg.id && now - prev.time < 400) {
+      doubleTapRef.current = null;
+      const currentReaction = (msg.reaction && typeof msg.reaction === 'string' && msg.reaction.length > 0) ? msg.reaction : null;
+      toggleReaction.mutate({ messageId: msg.id, currentReaction });
+    } else {
+      doubleTapRef.current = { id: msg.id, time: now };
+    }
+  }, [user?.id, toggleReaction]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -484,20 +530,35 @@ export default function Messaging() {
         )}
         {matchDetail.messages?.map(msg => {
           const isMe = msg.senderId === user?.id;
+          const hasReaction = msg.reaction && typeof msg.reaction === 'string' && msg.reaction.length > 0;
+          if (hasReaction) {
+            console.log("[CHAT] MESSAGE_REACTION_RENDERED", { messageId: msg.id, reaction: msg.reaction });
+          }
           return (
-            <div key={msg.id} className={`flex ${isMe ? "justify-end" : "justify-start"}`}>
-              <div
-                className={`max-w-[75%] rounded-md px-4 py-3 text-sm ${
-                  isMe
-                    ? "bg-primary text-primary-foreground"
-                    : "bg-card border"
-                }`}
-                data-testid={`message-${msg.id}`}
-              >
-                <p className="leading-relaxed">{msg.content}</p>
-                <p className={`text-xs mt-1 ${isMe ? "text-primary-foreground/60" : "text-muted-foreground"}`}>
-                  {msg.createdAt ? new Date(msg.createdAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : ""}
-                </p>
+            <div key={msg.id} className={`flex ${isMe ? "justify-end" : "justify-start"} ${hasReaction ? "mb-2" : ""}`}>
+              <div className="relative">
+                <div
+                  className={`max-w-[75vw] rounded-md px-4 py-3 text-sm select-none ${
+                    isMe
+                      ? "bg-primary text-primary-foreground"
+                      : "bg-card border cursor-pointer"
+                  } ${!isMe ? "active:scale-[0.98] transition-transform" : ""}`}
+                  onClick={() => handleMessageTap(msg)}
+                  data-testid={`message-${msg.id}`}
+                >
+                  <p className="leading-relaxed">{msg.content}</p>
+                  <p className={`text-[10px] mt-1.5 leading-none opacity-60 ${isMe ? "text-primary-foreground" : "text-muted-foreground"}`}>
+                    {msg.createdAt ? new Date(msg.createdAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : ""}
+                  </p>
+                </div>
+                {hasReaction && (
+                  <span
+                    className={`absolute -bottom-2.5 ${isMe ? "left-1" : "right-1"} text-sm drop-shadow-sm`}
+                    data-testid={`reaction-${msg.id}`}
+                  >
+                    ❤️
+                  </span>
+                )}
               </div>
             </div>
           );

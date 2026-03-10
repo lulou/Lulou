@@ -144,12 +144,14 @@ function mapMatch(row: any): Match {
 }
 
 function mapMessage(row: any): Message {
+  const rawReaction = row.reaction;
+  const reaction = (typeof rawReaction === 'string' && rawReaction.length > 0) ? rawReaction : null;
   return {
     id: row.id,
     matchId: row.match_id,
     senderId: row.sender_id,
     content: row.content,
-    reaction: row.reaction || null,
+    reaction,
     createdAt: row.created_at ? new Date(row.created_at) : null,
   };
 }
@@ -395,6 +397,24 @@ export class SupabaseStorage implements IStorage {
       throw new Error(`Failed to create message: ${error.message}`);
     }
     return mapMessage(result);
+  }
+
+  async getMessage(messageId: string): Promise<{ data: any; error: any }> {
+    return this.sb
+      .from("messages")
+      .select("*")
+      .eq("id", messageId)
+      .maybeSingle();
+  }
+
+  async getMatchParticipants(matchId: string): Promise<{ user1Id: string; user2Id: string } | null> {
+    const { data } = await this.sb
+      .from("matches")
+      .select("user1_id, user2_id")
+      .eq("id", matchId)
+      .maybeSingle();
+    if (!data) return null;
+    return { user1Id: data.user1_id, user2Id: data.user2_id };
   }
 
   async reactToMessage(messageId: string, reaction: string | null): Promise<Message> {
