@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -11,6 +11,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
 import { useTabActive } from "@/App";
 import { useRealtimeMessages } from "@/hooks/use-realtime-messages";
+import { useUnreadCounts } from "@/hooks/use-unread-counts";
 import { Input } from "@/components/ui/input";
 import { MessageCircle, Send, Phone, Video, ChevronDown, ChevronUp, PhoneOff, Clock, Check, X, Sparkles, Calendar, Heart, PhoneForwarded, Moon } from "lucide-react";
 import { LulouFlowerIcon } from "@/components/app-layout";
@@ -481,12 +482,17 @@ function ReadyToMeetInline({ detail, matchId, profileName }: { detail: MatchDeta
   );
 }
 
-function MatchChat({ match }: { match: MatchWithProfile }) {
+function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }: {
+  match: MatchWithProfile;
+  expanded: boolean;
+  onToggleExpand: () => void;
+  unreadCount: number;
+  onMarkRead: () => void;
+}) {
   const { user } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const isActive = useTabActive();
-  const [expanded, setExpanded] = useState(false);
   const [message, setMessage] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -680,6 +686,14 @@ function MatchChat({ match }: { match: MatchWithProfile }) {
     }
   }, [matchDetail?.messages, expanded]);
 
+  useEffect(() => {
+    if (expanded) {
+      console.log("[CHAT] CHAT_THREAD_SELECTED", { matchId: match.id, profileName: match.profile.firstName });
+      console.log("[CHAT] ACTIVE_MATCH_ID", { matchId: match.id });
+      onMarkRead();
+    }
+  }, [expanded]);
+
   const detail = matchDetail || match as unknown as MatchDetail;
   const myMessages = matchDetail?.messages?.filter(m => m.senderId === user?.id) || [];
   const messagesRemaining = MAX_MESSAGES_PER_USER - myMessages.length;
@@ -714,7 +728,7 @@ function MatchChat({ match }: { match: MatchWithProfile }) {
     <Card className="overflow-hidden" data-testid={`card-match-${match.id}`}>
       <div
         className="p-4 cursor-pointer hover-elevate transition-all"
-        onClick={() => setExpanded(!expanded)}
+        onClick={onToggleExpand}
         data-testid={`button-expand-match-${match.id}`}
       >
         <div className="flex items-center gap-4">
@@ -753,7 +767,12 @@ function MatchChat({ match }: { match: MatchWithProfile }) {
             <p className="text-sm text-muted-foreground mt-0.5">{match.profile.datingIntent}</p>
           </div>
           <div className="flex items-center gap-2">
-            <MessageCircle className="w-5 h-5 text-muted-foreground/50" />
+            {unreadCount > 0 && !expanded && (
+              <Badge variant="default" className="bg-primary text-primary-foreground text-xs min-w-[20px] h-5 flex items-center justify-center rounded-full px-1.5" data-testid={`badge-unread-${match.id}`}>
+                {unreadCount}
+              </Badge>
+            )}
+            <MessageCircle className={`w-5 h-5 ${unreadCount > 0 && !expanded ? "text-primary" : "text-muted-foreground/50"}`} />
             {expanded ? (
               <ChevronUp className="w-4 h-4 text-muted-foreground" />
             ) : (
@@ -1048,6 +1067,7 @@ export default function Matches() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const isActive = useTabActive();
+  const [expandedMatchId, setExpandedMatchId] = useState<string | null>(null);
   const { data: matches, isLoading: matchesLoading, error: matchesError } = useQuery<MatchWithProfile[]>({
     queryKey: ["/api/matches"],
   });
@@ -1061,6 +1081,9 @@ export default function Matches() {
   const fetchFailed = !!matchesError || !!requestsError;
   const incomingRequests = spinRequestsData?.incoming || [];
   const outgoingPending = spinRequestsData?.outgoing?.filter(r => r.status === "pending") || [];
+  const matchIds = (matches || []).map(m => m.id);
+  const { unreadCounts, markRead } = useUnreadCounts(matchIds, user?.id || null, expandedMatchId);
+
   const connectionCount = matches?.length || 0;
   const atLimit = connectionCount >= MAX_CONNECTIONS;
   const hasContent = (matches && matches.length > 0) || incomingRequests.length > 0 || outgoingPending.length > 0;
@@ -1188,7 +1211,16 @@ export default function Matches() {
             </div>
           )}
           {matches.map(match => (
-            <MatchChat key={match.id} match={match} />
+            <MatchChat
+              key={match.id}
+              match={match}
+              expanded={expandedMatchId === match.id}
+              onToggleExpand={() => {
+                setExpandedMatchId(prev => prev === match.id ? null : match.id);
+              }}
+              unreadCount={unreadCounts[match.id] || 0}
+              onMarkRead={() => markRead(match.id)}
+            />
           ))}
         </div>
       )}
