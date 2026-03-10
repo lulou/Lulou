@@ -8,14 +8,20 @@ const isValidJwt = (key: string | undefined): boolean =>
 
 const envUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.VITE_SUPABASE_URL;
 const envKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY;
+const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 const supabaseUrl = envUrl || SUPABASE_URL_FALLBACK;
 const supabaseAnonKey = isValidJwt(envKey) ? envKey! : SUPABASE_ANON_KEY_FALLBACK;
 
 console.log("[SERVER_AUTH] SUPABASE_URL:", supabaseUrl.substring(0, 30) + "...");
 console.log("[SERVER_AUTH] SUPABASE_KEY: length=" + supabaseAnonKey.length, "source=" + (isValidJwt(envKey) ? "env" : "fallback"));
+console.log("[SERVER_AUTH] SERVICE_ROLE_KEY:", serviceRoleKey ? `length=${serviceRoleKey.length}` : "NOT SET");
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+
+export const supabaseAdmin: SupabaseClient = isValidJwt(serviceRoleKey)
+  ? createClient(supabaseUrl, serviceRoleKey!, { auth: { autoRefreshToken: false, persistSession: false } })
+  : supabase;
 
 export function createUserClient(authorizationHeader: string): SupabaseClient {
   return createClient(supabaseUrl, supabaseAnonKey, {

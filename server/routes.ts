@@ -4,7 +4,7 @@ import { SupabaseStorage } from "./storage";
 import { seedDatabase } from "./seed";
 import { z } from "zod";
 import type { Profile } from "@shared/schema";
-import { supabase, createUserClient } from "./supabase";
+import { supabase, supabaseAdmin, createUserClient } from "./supabase";
 
 const serverBroadcastChannels = new Map<string, ReturnType<typeof supabase.channel>>();
 const serverChannelTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -87,6 +87,10 @@ function getStorage(req: any): SupabaseStorage {
     return new SupabaseStorage(createUserClient(auth));
   }
   return new SupabaseStorage();
+}
+
+function getAdminStorage(): SupabaseStorage {
+  return new SupabaseStorage(supabaseAdmin);
 }
 
 const isAuthenticated: RequestHandler = async (req: any, res, next) => {
@@ -503,7 +507,7 @@ export async function registerRoutes(
 
   app.post("/api/matches/:matchId/call/start", isAuthenticated, async (req: any, res) => {
     try {
-      const serverStorage = getStorage(req);
+      const serverStorage = getAdminStorage();
       const userId = req.user.id;
       const matchId = req.params.matchId;
       console.log("[CALL_START] CALL_SESSION_CHECKED", { path: "/api/matches/:matchId/call/start", matchId, userId, timestamp: new Date().toISOString() });
@@ -573,7 +577,7 @@ export async function registerRoutes(
 
   app.post("/api/matches/:matchId/call/answer", isAuthenticated, async (req: any, res) => {
     try {
-      const serverStorage = getStorage(req);
+      const serverStorage = getAdminStorage();
       const userId = req.user.id;
       const matchId = req.params.matchId;
       console.log("[CALL_ANSWER] CALL_API_REQUEST", { path: "/api/matches/:matchId/call/answer", matchId, userId, timestamp: new Date().toISOString() });
@@ -598,7 +602,7 @@ export async function registerRoutes(
 
   app.post("/api/matches/:matchId/call/cancel", isAuthenticated, async (req: any, res) => {
     try {
-      const serverStorage = getStorage(req);
+      const serverStorage = getAdminStorage();
       const userId = req.user.id;
       const matchId = req.params.matchId;
       const match = await serverStorage.cancelCall(matchId, userId);
@@ -619,7 +623,7 @@ export async function registerRoutes(
 
   app.post("/api/matches/:matchId/call/complete", isAuthenticated, async (req: any, res) => {
     try {
-      const serverStorage = getStorage(req);
+      const serverStorage = getAdminStorage();
       const userId = req.user.id;
       const matchId = req.params.matchId;
       const match = await serverStorage.completeCall(matchId, userId);
@@ -640,7 +644,7 @@ export async function registerRoutes(
 
   app.post("/api/matches/:matchId/face-call/accept", isAuthenticated, async (req: any, res) => {
     try {
-      const serverStorage = getStorage(req);
+      const serverStorage = getAdminStorage();
       const userId = req.user.id;
       const matchId = req.params.matchId;
       console.log("[FACE_CALL_ACCEPT] CALL_API_REQUEST", { path: "/api/matches/:matchId/face-call/accept", matchId, userId });
@@ -673,7 +677,7 @@ export async function registerRoutes(
 
   app.post("/api/matches/:matchId/face-call/decline", isAuthenticated, async (req: any, res) => {
     try {
-      const serverStorage = getStorage(req);
+      const serverStorage = getAdminStorage();
       const userId = req.user.id;
       console.log("[FACE_CALL_DECLINE] CALL_API_REQUEST", { path: "/api/matches/:matchId/face-call/decline", matchId: req.params.matchId, userId });
       const match = await serverStorage.declineFaceCall(req.params.matchId, userId);
