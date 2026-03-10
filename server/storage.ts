@@ -149,6 +149,7 @@ function mapMessage(row: any): Message {
     matchId: row.match_id,
     senderId: row.sender_id,
     content: row.content,
+    reaction: row.reaction || null,
     createdAt: row.created_at ? new Date(row.created_at) : null,
   };
 }
@@ -392,6 +393,20 @@ export class SupabaseStorage implements IStorage {
     if (error) {
       console.error("CREATE_MSG_ERROR", error.message, error.code, error.details);
       throw new Error(`Failed to create message: ${error.message}`);
+    }
+    return mapMessage(result);
+  }
+
+  async reactToMessage(messageId: string, reaction: string | null): Promise<Message> {
+    const { data: result, error } = await this.sb
+      .from("messages")
+      .update({ reaction })
+      .eq("id", messageId)
+      .select()
+      .single();
+    if (error) {
+      console.error("REACT_MSG_ERROR", error.message, error.code);
+      throw new Error(`Failed to react to message: ${error.message}`);
     }
     return mapMessage(result);
   }

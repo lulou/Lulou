@@ -391,6 +391,29 @@ export async function registerRoutes(
     }
   });
 
+  app.post("/api/messages/:messageId/reaction", isAuthenticated, async (req: any, res) => {
+    try {
+      const storage = getStorage(req);
+      const userId = req.user.id;
+      const { messageId } = req.params;
+      const { reaction } = req.body;
+
+      if (!messageId) {
+        return res.status(400).json({ message: "Missing messageId" });
+      }
+
+      const validReaction = reaction === "❤️" ? "❤️" : null;
+
+      console.log(validReaction ? "MESSAGE_REACTION_ADDED" : "MESSAGE_REACTION_REMOVED", { messageId, userId, reaction: validReaction });
+
+      const updated = await storage.reactToMessage(messageId, validReaction);
+      res.json(updated);
+    } catch (error: any) {
+      console.error("MESSAGE_REACTION_ERROR", error?.message);
+      res.status(500).json({ message: error?.message || "Failed to update reaction" });
+    }
+  });
+
   app.post("/api/matches/:matchId/messages", isAuthenticated, async (req: any, res) => {
     try {
       const storage = getStorage(req);

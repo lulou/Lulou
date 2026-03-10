@@ -69,6 +69,7 @@ export const messages = pgTable("messages", {
   matchId: varchar("match_id").notNull(),
   senderId: varchar("sender_id").notNull(),
   content: text("content").notNull(),
+  reaction: varchar("reaction"),
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => [
   index("idx_messages_match").on(table.matchId),
