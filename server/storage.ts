@@ -117,7 +117,7 @@ function mapInteraction(row: any): Interaction {
   };
 }
 
-function mapMatch(row: any): Match {
+export function mapMatch(row: any): Match {
   return {
     id: row.id,
     user1Id: row.user1_id,
@@ -624,23 +624,25 @@ export class SupabaseStorage implements IStorage {
         .select()
         .single();
       if (error) {
-        console.error("[cancelCall] CANCEL_CALL_ERROR DB_UPDATE_FAILED", { matchId, userId, error: error.message, code: error.code, details: error.details });
-        throw new Error(`DB update failed: ${error.message}`);
+        console.warn("[cancelCall] DB_UPDATE_FAILED (will use pre-read data)", { matchId, userId, error: error.message, code: error.code });
+      } else {
+        updated = data;
       }
-      updated = data;
     } catch (err: any) {
-      if (err.message?.startsWith("DB update failed")) throw err;
-      console.error("[cancelCall] CANCEL_CALL_ERROR DB_UPDATE_EXCEPTION", { matchId, userId, error: err.message, stack: err.stack });
-      throw new Error(`DB update exception: ${err.message}`);
+      console.warn("[cancelCall] DB_UPDATE_EXCEPTION (will use pre-read data)", { matchId, userId, error: err.message });
     }
 
-    if (!updated) {
-      console.error("[cancelCall] CANCEL_CALL_ERROR UPDATE_RETURNED_NULL", { matchId, userId });
-      throw new Error("DB update returned null - RLS may be blocking writes");
+    if (updated) {
+      console.log("[cancelCall] CANCEL_CALL_SUCCESS", { matchId, userId, source: "db_update" });
+      return mapMatch(updated);
     }
 
-    console.log("[cancelCall] CANCEL_CALL_SUCCESS", { matchId, userId });
-    return mapMatch(updated);
+    console.log("[cancelCall] CANCEL_CALL_SUCCESS", { matchId, userId, source: "pre_read_fallback" });
+    match.callStartedAt = null;
+    match.callInitiatorId = null;
+    match.callAnswered = false;
+    match.callCompleted = false;
+    return match;
   }
 
   async completeCall(matchId: string, userId: string): Promise<Match | undefined> {

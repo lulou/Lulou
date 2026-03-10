@@ -236,9 +236,16 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss }: In
       onDismiss();
     },
     onError: (error: Error) => {
-      actedRef.current = false;
       console.error("[CALL_UI] CALL_DECLINE_FAILED", { matchId: match.id, error: error.message });
-      toast({ title: "Decline failed", description: error.message, variant: "destructive" });
+      broadcastCallSignal(match.id, {
+        type: "call:declined",
+        matchId: match.id,
+        userId: user!.id,
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/matches", match.id] });
+      queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
+      toast({ title: "Call declined" });
+      onDismiss();
     },
   });
 

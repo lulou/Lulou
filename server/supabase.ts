@@ -23,6 +23,8 @@ export const supabaseAdmin: SupabaseClient = isValidJwt(serviceRoleKey)
   ? createClient(supabaseUrl, serviceRoleKey!, { auth: { autoRefreshToken: false, persistSession: false } })
   : supabase;
 
+export const hasServiceRoleKey = isValidJwt(serviceRoleKey);
+
 export function createUserClient(authorizationHeader: string): SupabaseClient {
   return createClient(supabaseUrl, supabaseAnonKey, {
     global: {
