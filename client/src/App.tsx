@@ -238,14 +238,16 @@ function CallDetectors({ userId }: { userId: string }) {
 
   return (
     <>
-      {incomingCall && !activeCall && (
+      {/* CALL OVERLAYS DISABLED — call flow is unstable and causes matches to disappear.
+         Re-enable once call sessions are rebuilt and stable. */}
+      {false && incomingCall && !activeCall && (
         <IncomingCallOverlay
           match={incomingCall}
           isFaceCall={isFaceCall}
           onDismiss={handleDismiss}
         />
       )}
-      {activeCall && (
+      {false && activeCall && (
         <ActiveCallOverlay
           matchId={activeCall.id}
           callSessionId={activeCall.callSessionId || ""}

@@ -558,26 +558,15 @@ function MatchChat({ match }: { match: MatchWithProfile }) {
 
   const startCall = useMutation({
     mutationFn: async () => {
-      if (detail.callStartedAt && detail.callInitiatorId) {
-        console.log("[CALL] DUPLICATE_CALL_BLOCKED (cached)", { matchId: match.id, existingCallerId: detail.callInitiatorId });
-        throw new Error("A call is already in progress");
-      }
-      console.log("[CALL] CALL_SESSION_CREATED (initiating)", { matchId: match.id, callerId: user?.id });
-      const res = await apiRequest("POST", `/api/matches/${match.id}/call/start`, {});
-      return await res.json();
-    },
-    onSuccess: (data: any) => {
-      iCancelledRef.current = false;
-      console.log("[CALL_SESSION] CALL_SESSION_CREATED", { matchId: match.id, callSessionId: data?.callSessionId, callerId: user?.id });
-      console.log("[CALL_SESSION] CONNECTION_ADDED", { matchId: match.id, callSessionId: data?.callSessionId, participant: user?.id, role: "caller" });
-      queryClient.invalidateQueries({ queryKey: ["/api/matches", match.id] });
-      queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
+      console.log("[CALL] CALL_REQUEST_STARTED", { matchId: match.id, callerId: user?.id, callStage });
+      console.log("[CALL] CALL_SESSION_CONFIRMED", { matchId: match.id, confirmed: false, reason: "call_flow_disabled_for_stability" });
+      console.log("[CALL] CALL_STAGE_BLOCKED", { matchId: match.id, reason: "call_flow_disabled_for_stability" });
+      throw new Error("BLOCKED");
     },
     onError: (error: Error) => {
-      if (error.message.includes("already in progress")) {
-        console.log("[CALL] DUPLICATE_CALL_BLOCKED (server)", { matchId: match.id });
-        toast({ title: "Call in progress", description: "The other person is already calling you." });
-        queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
+      if (error.message === "BLOCKED") {
+        console.log("[CALL] CALL_SESSION_REJECTED", { matchId: match.id, reason: "call_flow_disabled" });
+        toast({ title: "Calls coming soon", description: "Voice and video calls are being improved. Your chat is safe." });
       } else {
         toast({ title: "Call failed", description: error.message, variant: "destructive" });
       }
@@ -697,11 +686,11 @@ function MatchChat({ match }: { match: MatchWithProfile }) {
   const isLimitReached = messagesRemaining <= 0;
   const allMessages = matchDetail?.messages || [];
   const callStage = detail.callStage || 0;
-  const isCallRinging = detail.callStartedAt && detail.callSessionId && !detail.callAnswered && !detail.callCompleted;
-  const isCallActive = detail.callStartedAt && detail.callSessionId && detail.callAnswered && !detail.callCompleted;
+  const isCallRinging = false;
+  const isCallActive = false;
 
   const iAmCaller = detail.callInitiatorId === user?.id;
-  const hasExistingCall = !!(detail.callStartedAt && detail.callInitiatorId);
+  const hasExistingCall = false;
   const prevRingingRef = useRef(false);
   useEffect(() => {
     const wasRinging = prevRingingRef.current;
