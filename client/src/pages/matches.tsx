@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, type ReactNode } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -21,6 +21,7 @@ import { broadcastCallSignal } from "@/hooks/use-call-signaling";
 import type { Profile, Match, Message, SpinRequest } from "@shared/schema";
 
 const MAX_MESSAGES_PER_USER = 15;
+const MAX_POST_CALL_MESSAGES = 6;
 const MAX_CHARS = 500;
 
 const CALL_DURATIONS = [10 * 60, 15 * 60, 10 * 60];
@@ -484,6 +485,45 @@ function ReadyToMeetInline({ detail, matchId, profileName }: { detail: MatchDeta
   );
 }
 
+function SparkProgressBar({ sparkStep }: { sparkStep: number }) {
+  const steps = ["Match", "Chat", "1st Call", "2nd Call", "Meet"];
+  return (
+    <div className="px-4 py-2.5 bg-primary/[0.03] border-b flex items-center justify-center" data-testid="spark-progress-bar">
+      {steps.map((label, i) => {
+        const isDone = i < sparkStep;
+        const isCurrent = i === sparkStep;
+        return (
+          <div key={label} className="flex items-center">
+            <div className="flex flex-col items-center gap-0.5">
+              <div className={`w-2 h-2 rounded-full transition-all ${
+                isDone ? "bg-primary" :
+                isCurrent ? "bg-primary ring-2 ring-primary/30 ring-offset-1" :
+                "bg-muted-foreground/20"
+              }`} />
+              <span className={`text-[8px] leading-none whitespace-nowrap ${
+                isCurrent ? "text-primary font-semibold" :
+                isDone ? "text-primary/50" :
+                "text-muted-foreground/35"
+              }`}>{label}</span>
+            </div>
+            {i < steps.length - 1 && (
+              <div className={`w-6 h-px mb-2.5 mx-0.5 ${i < sparkStep ? "bg-primary/40" : "bg-muted-foreground/15"}`} />
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function StageHint({ children }: { children: ReactNode }) {
+  return (
+    <div className="mx-3 mb-2 px-3 py-2 rounded-lg bg-primary/5 border border-primary/10 text-[11px] text-primary/65 text-center leading-relaxed" data-testid="stage-hint">
+      {children}
+    </div>
+  );
+}
+
 function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }: {
   match: MatchWithProfile;
   expanded: boolean;
@@ -755,6 +795,21 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
   const isLimitReached = messagesRemaining <= 0;
   const allMessages = matchDetail?.messages || [];
   const callStage = detail.callStage || 0;
+  const isUser1 = detail.user1Id === user?.id;
+
+  const myPostCallMessages = callStage === 1
+    ? (isUser1 ? (detail.messageCount1 || 0) : (detail.messageCount2 || 0))
+    : 0;
+  const theirPostCallMessages = callStage === 1
+    ? (isUser1 ? (detail.messageCount2 || 0) : (detail.messageCount1 || 0))
+    : 0;
+  const myPostCallRemaining = MAX_POST_CALL_MESSAGES - myPostCallMessages;
+  const myPostCallLimitReached = myPostCallMessages >= MAX_POST_CALL_MESSAGES;
+  const theirPostCallLimitReached = theirPostCallMessages >= MAX_POST_CALL_MESSAGES;
+  const bothPostCallLimitReached = myPostCallLimitReached && theirPostCallLimitReached;
+
+  const sparkStep = callStage >= 3 ? 4 : callStage >= 2 ? 3 : callStage === 1 ? 2 : 1;
+
   const callCancelled = isCallSessionCancelled(match.id, detail.callSessionId);
 
   const isCallStale = (() => {
@@ -815,6 +870,16 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
       wasRingingRef.current = false;
     }
   }, [isCallRinging, isCallActive, iAmCaller, match.profile.firstName, toast]);
+  useEffect(() => {
+    console.log("[CONNECTION_STAGE] SPARK_PROGRESS_UPDATED", {
+      matchId: match.id,
+      sparkStep,
+      callStage,
+      myPostCallMessages,
+      bothPostCallLimitReached,
+    });
+  }, [sparkStep, callStage]);
+
   const allCallsDone = callStage >= 3;
   const isFaceCallStage = callStage === 2;
   const myFaceCallAccepted = detail.user1Id === user?.id ? detail.faceCallUser1Accepted : detail.faceCallUser2Accepted;
@@ -865,7 +930,7 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
         </div>
         <div className="flex items-center gap-1.5 shrink-0">
           <Badge variant="outline" className="text-[10px] px-1.5 py-0" data-testid={`badge-messages-remaining-${match.id}`}>
-            {allCallsDone ? "All calls done" : callStage === 2 ? "Face call stage" : callStage === 1 ? "2nd call ready" : messagesRemaining > 0 ? `${messagesRemaining} left` : "Call time"}
+            {allCallsDone ? "All calls done" : callStage === 2 ? "Face call stage" : callStage === 1 && bothPostCallLimitReached ? "2nd call ready" : callStage === 1 ? `${myPostCallRemaining} post-call left` : messagesRemaining > 0 ? `${messagesRemaining} left` : "Call time"}
           </Badge>
           {showRemoveConfirm ? (
             <div className="flex items-center gap-0.5">
@@ -902,6 +967,8 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
           )}
         </div>
       </div>
+
+      {expanded && <SparkProgressBar sparkStep={sparkStep} />}
 
       <div className="flex-1 overflow-y-auto p-4 space-y-3" data-testid={`messages-container-${match.id}`}>
             {allMessages.length === 0 && (
@@ -1084,12 +1151,12 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
                 </Button>
               </Card>
             </div>
-          ) : callStage === 1 ? (
+          ) : callStage === 1 && bothPostCallLimitReached ? (
             <div className="p-4 border-t">
-              <Card className="p-4 text-center space-y-3 bg-primary/5 border-primary/20">
+              <Card className="p-4 text-center space-y-3 bg-primary/5 border-primary/20" data-testid={`card-second-call-${match.id}`}>
                 <Phone className="w-5 h-5 text-primary mx-auto" />
-                <p className="font-medium text-sm">First call went great!</p>
-                <p className="text-xs text-muted-foreground">Ready for a longer 15-minute call to go deeper?</p>
+                <p className="font-medium text-sm">You're both ready for the second call!</p>
+                <p className="text-xs text-muted-foreground">A 15-minute call to go even deeper. Let's do it.</p>
                 <Button
                   size="sm"
                   onClick={() => {
@@ -1102,6 +1169,77 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
                   <Phone className="w-4 h-4 mr-2" /> Start Second Call
                 </Button>
               </Card>
+            </div>
+          ) : callStage === 1 ? (
+            <div className="border-t" data-testid={`post-call-messaging-${match.id}`}>
+              {isOtherTyping && (
+                <div className="flex items-center gap-1.5 px-4 pt-2 text-xs text-muted-foreground" data-testid="text-typing-indicator-postcall">
+                  <span className="flex gap-0.5 items-center">
+                    <span className="w-1.5 h-1.5 bg-muted-foreground/50 rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
+                    <span className="w-1.5 h-1.5 bg-muted-foreground/50 rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
+                    <span className="w-1.5 h-1.5 bg-muted-foreground/50 rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
+                  </span>
+                  <span>{match.profile.firstName} is typing...</span>
+                </div>
+              )}
+              {myPostCallLimitReached ? (
+                <div className="p-4 text-center space-y-1" data-testid={`waiting-their-postcall-${match.id}`}>
+                  <p className="text-sm font-medium text-primary">Your post-call messages are sent!</p>
+                  <p className="text-xs text-muted-foreground">
+                    Waiting for {match.profile.firstName} to send their messages before your second call unlocks.
+                  </p>
+                </div>
+              ) : (
+                <div className="p-3 space-y-2">
+                  {myPostCallMessages === 0 && (
+                    <StageHint>Great call! You each have 6 messages before your second call unlocks.</StageHint>
+                  )}
+                  {myPostCallMessages >= 4 && myPostCallMessages < 6 && (
+                    <StageHint>Almost there — {myPostCallRemaining} message{myPostCallRemaining !== 1 ? "s" : ""} left before your second call is ready.</StageHint>
+                  )}
+                  <div className="flex gap-2 items-end">
+                    <Textarea
+                      value={message}
+                      onChange={e => {
+                        setMessage(e.target.value.slice(0, MAX_CHARS));
+                        if (e.target.value.trim()) sendTyping();
+                      }}
+                      placeholder="Keep the momentum going..."
+                      className="resize-none min-h-[44px] max-h-[80px] text-sm"
+                      onKeyDown={e => {
+                        if (e.key === "Enter" && !e.shiftKey) {
+                          e.preventDefault();
+                          if (message.trim()) {
+                            const content = message.trim();
+                            stopTyping();
+                            sendMessage.mutate({ content, tempId: `temp-${Date.now()}-${Math.random().toString(36).slice(2)}` });
+                          }
+                        }
+                      }}
+                      data-testid={`input-message-postcall-${match.id}`}
+                    />
+                    <div className="flex flex-col items-end gap-1 shrink-0">
+                      <span className="text-[10px] text-muted-foreground tabular-nums" data-testid={`text-postcall-counter-${match.id}`}>
+                        {myPostCallMessages}/{MAX_POST_CALL_MESSAGES}
+                      </span>
+                      <Button
+                        size="sm"
+                        onClick={() => {
+                          if (message.trim()) {
+                            const content = message.trim();
+                            stopTyping();
+                            sendMessage.mutate({ content, tempId: `temp-${Date.now()}-${Math.random().toString(36).slice(2)}` });
+                          }
+                        }}
+                        disabled={!message.trim() || sendMessage.isPending}
+                        data-testid={`button-send-postcall-${match.id}`}
+                      >
+                        <Send className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           ) : isLimitReached ? (
             <div className="p-4 border-t">
@@ -1133,6 +1271,12 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
                   </span>
                   <span>{match.profile.firstName} is typing...</span>
                 </div>
+              )}
+              {messagesRemaining <= 5 && messagesRemaining > 1 && (
+                <StageHint>Your first call is approaching — start thinking about when you'd like to talk.</StageHint>
+              )}
+              {messagesRemaining === 1 && (
+                <StageHint>Just 1 message left before your first call unlocks.</StageHint>
               )}
               <div className="flex gap-2 items-end">
                 <Textarea

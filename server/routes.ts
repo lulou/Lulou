@@ -481,9 +481,25 @@ export async function registerRoutes(
         return res.status(404).json({ message: "Match not found" });
       }
 
-      const messageCount = await storage.getUserMessageCount(matchId, userId);
-      if (messageCount >= 15) {
-        return res.status(400).json({ message: "Message limit reached. Time to call!" });
+      const callStage = match.callStage || 0;
+
+      if (callStage === 0) {
+        const messageCount = await storage.getUserMessageCount(matchId, userId);
+        if (messageCount >= 15) {
+          console.log("[CONNECTION_STAGE] POST_CALL_MESSAGE_LIMIT_REACHED", { matchId, userId, callStage: 0, count: messageCount, limit: 15 });
+          return res.status(400).json({ message: "Message limit reached. Time to call!" });
+        }
+        if (messageCount === 14) {
+          console.log("[CONNECTION_STAGE] FIRST_CALL_UNLOCKED", { matchId, userId, messageCount: 14 });
+        }
+      } else if (callStage === 1) {
+        const myPostCallCount = match.user1Id === userId ? (match.messageCount1 || 0) : (match.messageCount2 || 0);
+        if (myPostCallCount >= 6) {
+          console.log("[CONNECTION_STAGE] POST_CALL_MESSAGE_LIMIT_REACHED", { matchId, userId, callStage: 1, count: myPostCallCount, limit: 6 });
+          return res.status(400).json({ message: "Post-call message limit reached. Your second call is ready!" });
+        }
+      } else {
+        return res.status(400).json({ message: "Messaging is locked at this stage." });
       }
 
       const message = await storage.createMessage({
@@ -494,25 +510,53 @@ export async function registerRoutes(
 
       await storage.incrementMessageCount(matchId, userId);
 
+      if (callStage === 1) {
+        const updatedMatch = await storage.getMatch(matchId, userId);
+        if (updatedMatch) {
+          const pc1 = updatedMatch.messageCount1 || 0;
+          const pc2 = updatedMatch.messageCount2 || 0;
+          const myNewCount = updatedMatch.user1Id === userId ? pc1 : pc2;
+          console.log("[CONNECTION_STAGE] POST_CALL_MESSAGE_SENT", { matchId, userId, callStage, myPostCallCount: myNewCount });
+          if (pc1 >= 6 && pc2 >= 6) {
+            console.log("[CONNECTION_STAGE] SECOND_CALL_UNLOCKED", { matchId, pc1, pc2 });
+            console.log("[CONNECTION_STAGE] CONNECTION_STAGE_CHANGED", { matchId, from: "post_call_messaging", to: "second_call_ready" });
+          }
+        }
+      }
+
       const otherUserId = match.user1Id === userId ? match.user2Id : match.user1Id;
       if (otherUserId.startsWith("seed-")) {
         const otherProfile = await storage.getProfile(otherUserId);
-        const otherCount = await storage.getUserMessageCount(matchId, otherUserId);
-        if (otherCount < 15) {
-          const replyStorage = storage;
-          setTimeout(async () => {
-            try {
-              const reply = generateAutoReply(otherProfile, otherCount);
-              await replyStorage.createMessage({
-                matchId,
-                senderId: otherUserId,
-                content: reply,
-              });
-              await replyStorage.incrementMessageCount(matchId, otherUserId);
-            } catch (err) {
-              console.error("Auto-reply error:", err);
+        const replyStorage = storage;
+        if (callStage === 0) {
+          const otherCount = await storage.getUserMessageCount(matchId, otherUserId);
+          if (otherCount < 15) {
+            setTimeout(async () => {
+              try {
+                const reply = generateAutoReply(otherProfile, otherCount);
+                await replyStorage.createMessage({ matchId, senderId: otherUserId, content: reply });
+                await replyStorage.incrementMessageCount(matchId, otherUserId);
+              } catch (err) {
+                console.error("Auto-reply error:", err);
+              }
+            }, 1500 + Math.random() * 2000);
+          }
+        } else if (callStage === 1) {
+          const freshMatch = await storage.getMatch(matchId, otherUserId);
+          if (freshMatch) {
+            const otherPostCallCount = freshMatch.user1Id === otherUserId ? (freshMatch.messageCount1 || 0) : (freshMatch.messageCount2 || 0);
+            if (otherPostCallCount < 6) {
+              setTimeout(async () => {
+                try {
+                  const reply = generateAutoReply(otherProfile, 30 + otherPostCallCount);
+                  await replyStorage.createMessage({ matchId, senderId: otherUserId, content: reply });
+                  await replyStorage.incrementMessageCount(matchId, otherUserId);
+                } catch (err) {
+                  console.error("Auto-reply (post-call) error:", err);
+                }
+              }, 1500 + Math.random() * 2000);
             }
-          }, 1500 + Math.random() * 2000);
+          }
         }
       }
 
@@ -554,6 +598,13 @@ export async function registerRoutes(
       console.log("[CALL_START] CALL_SESSION_CREATED", { matchId, callSessionId: match.callSessionId, SESSION_PARTICIPANTS_COUNT: 2 });
       console.log("[CALL_START] CALLER_ASSIGNED", { matchId, callerId: userId, callerName });
       console.log("[CALL_START] RECEIVER_ASSIGNED", { matchId, receiverId: otherUserId });
+      if ((match.callStage || 0) === 0) {
+        console.log("[CONNECTION_STAGE] FIRST_CALL_STARTED", { matchId, callSessionId: match.callSessionId, userId, callStage: match.callStage || 0 });
+        console.log("[CONNECTION_STAGE] CONNECTION_STAGE_CHANGED", { matchId, from: "chat", to: "first_call" });
+      } else if ((match.callStage || 0) === 1) {
+        console.log("[CONNECTION_STAGE] SECOND_CALL_STARTED", { matchId, callSessionId: match.callSessionId, userId, callStage: match.callStage || 0 });
+        console.log("[CONNECTION_STAGE] CONNECTION_STAGE_CHANGED", { matchId, from: "post_call_messaging", to: "second_call" });
+      }
 
       broadcastCallEvent(matchId, {
         type: "call:ring",

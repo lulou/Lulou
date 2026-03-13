@@ -697,15 +697,27 @@ export class SupabaseStorage implements IStorage {
     if (currentStage >= 3) return undefined;
     const nextStage = Math.min(currentStage + 1, 3);
 
+    const stageUpdate: Record<string, any> = {
+      call_completed: false,
+      call_started_at: null,
+      call_initiator_id: null,
+      call_answered: false,
+      call_stage: nextStage,
+    };
+
+    if (currentStage === 0) {
+      stageUpdate.message_count_1 = 0;
+      stageUpdate.message_count_2 = 0;
+      console.log("[CONNECTION_STAGE] FIRST_CALL_ENDED", { matchId, userId, newStage: nextStage });
+      console.log("[CONNECTION_STAGE] CONNECTION_STAGE_CHANGED", { matchId, from: "first_call", to: "post_call_messaging", nextStage });
+    } else if (currentStage === 1) {
+      console.log("[CONNECTION_STAGE] SECOND_CALL_ENDED", { matchId, userId, newStage: nextStage });
+      console.log("[CONNECTION_STAGE] CONNECTION_STAGE_CHANGED", { matchId, from: "second_call", to: "face_call_or_meeting", nextStage });
+    }
+
     const { data: updated } = await this.sb
       .from("matches")
-      .update({
-        call_completed: false,
-        call_started_at: null,
-        call_initiator_id: null,
-        call_answered: false,
-        call_stage: nextStage,
-      })
+      .update(stageUpdate)
       .eq("id", matchId)
       .select()
       .single();

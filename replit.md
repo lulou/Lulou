@@ -30,11 +30,16 @@ Lulou Dating is a calm, premium dating app focused on helping people move from m
 - Typing indicators via Supabase Realtime broadcast (no DB writes) — "{Name} is typing..." shown in active thread with animated dots; disappears on send or after 3.5s timeout; throttled to one broadcast per 2s
 - Optimistic message updates (sender sees message instantly)
 - Limited messaging (15 messages per person, 500 chars max)
+- Structured connection progression (5 steps: Match → Chat → 1st Call → 2nd Call → Meet)
+  - Spark progress bar in chat header shows current step
+  - Stage hint banners appear in input area as limits approach
 - Multi-call progression after message limit:
-  1. First voice call (10 minutes) - prompted after 15 messages
-  2. Second voice call (15 minutes) - prompted after first call
-  3. Optional face/video call (10 minutes) - both users must accept; either can skip
+  1. First voice call (10 minutes) - prompted after 15 messages (stage 0)
+  2. Post-call messaging (6 messages per user) - after first call (stage 1)
+  3. Second voice call (15 minutes) - unlocked when both users hit 6 post-call messages (stage 1→2)
+  4. Optional face/video call (10 minutes) - both users must accept; either can skip (stage 2→3)
 - Call stages tracked via `callStage` (0=pre-call, 1=first done, 2=second done, 3=face done/skipped)
+- `message_count_1/2` reset to 0 when first call completes — reused as post-call message counters (0-6)
 - Call sessions tracked via `callSessionId` derived from `call_started_at` (no DB column)
 - **Call system active** — re-enabled with stale checks, cancelled-session guards, and inline chat state preservation; no WebRTC audio/video yet (use-webrtc.ts exists but is not imported)
 - Call signaling via Supabase Realtime broadcast (5 signal types: ring, answered, declined, cancelled, ended)

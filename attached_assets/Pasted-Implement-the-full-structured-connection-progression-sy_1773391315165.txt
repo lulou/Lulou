@@ -1,0 +1,210 @@
+Implement the full structured connection progression system for Lulou.
+
+The baseline system is already stable:
+- sign in works
+- profiles load
+- connections/matches work
+- messaging works
+- chat layout works
+- reactions work
+- connections inbox works
+- calls currently disabled safely
+
+Now implement Lulou's structured progression from messaging → calls → meeting.
+
+IMPORTANT:
+Do not modify auth, profiles, matches, or core messaging logic beyond adding stage tracking.
+
+----------------------------------
+
+CONNECTION STAGES
+
+Each connection progresses through these stages:
+
+1. Messaging Stage
+2. First Call Stage
+3. Post-Call Messaging Stage
+4. Second Call Stage
+
+Track the stage for each match.
+
+Example field:
+connection_stage
+
+----------------------------------
+
+STAGE 1 — MESSAGING BEFORE FIRST CALL
+
+Users exchange messages normally.
+
+Add system hints when approaching the first call stage.
+
+Example system messages:
+
+"Looks like you two are getting to know each other well. Your call stage is coming up soon — start thinking about when you’d like to talk."
+
+"Only a few messages left before your first call unlocks."
+
+When the message threshold is reached:
+
+"You’ve reached your call stage. When you’re ready, start your first call."
+
+Then unlock the Call button.
+
+----------------------------------
+
+STAGE 2 — FIRST CALL
+
+When the call begins:
+
+"You're now in your call stage. Take a few minutes to talk and see how the conversation flows."
+
+During a call:
+- messaging input must be disabled
+- only the call interface is visible
+
+When the call ends:
+
+"Nice call! Head back to chat and continue getting to know each other."
+
+Then transition to Stage 3.
+
+----------------------------------
+
+STAGE 3 — POST-CALL MESSAGING
+
+After the first call ends:
+
+Return both users to the chat thread.
+
+Enable messaging again but limit it.
+
+Rules:
+
+Each user can send exactly 6 messages.
+
+Track separately:
+
+userA_post_call_messages
+userB_post_call_messages
+
+Show message counter in chat UI:
+
+"Messages remaining: X / 6"
+
+System hints during this stage:
+
+"You can now send 6 messages each before your next call unlocks."
+
+Halfway reminder:
+
+"Your next call stage is getting close. Start thinking about when you’d like to talk again."
+
+Near the limit:
+
+"Just a couple messages left before your second call unlocks."
+
+When both users reach 6 messages:
+
+- messaging locks
+- message input disables
+
+Show system message:
+
+"You’ve reached the next stage. Your second call is now available."
+
+----------------------------------
+
+STAGE 4 — SECOND CALL
+
+Unlock the Second Call button.
+
+Rules:
+
+Second call duration = 15 minutes maximum.
+
+Show system message when unlocked:
+
+"You’ve unlocked your second call. You’ll have 15 minutes to talk."
+
+During this call:
+- messaging input must remain disabled
+- call UI only
+
+When the call ends:
+
+"Great conversation. If things feel right, it might be time to think about meeting."
+
+----------------------------------
+
+SPARK / CONNECTION PROGRESS INDICATOR
+
+Add a visual progress indicator for each connection showing progression:
+
+Match
+↓
+Chat
+↓
+First Call
+↓
+Second Call
+↓
+Meeting
+
+Display this as a small progress bar or spark meter at the top of the chat.
+
+Update it automatically when stages change.
+
+----------------------------------
+
+CALL PREPARATION HINTS
+
+Before both calls unlock, provide gentle hints encouraging users to prepare.
+
+Example hints:
+
+"Your call stage is approaching — start thinking about when you'd like to talk."
+
+"Pick a time that works for both of you."
+
+These hints should appear as system messages inside the chat thread.
+
+----------------------------------
+
+STATE SAFETY
+
+Ensure:
+
+- call stages cannot skip
+- duplicate calls cannot start
+- messaging limits are enforced
+- chat thread and match state are preserved
+- messaging resumes only in correct stages
+- call state and chat state never conflict
+
+----------------------------------
+
+LOGGING
+
+Add logs for:
+
+CONNECTION_STAGE_CHANGED
+FIRST_CALL_UNLOCKED
+FIRST_CALL_STARTED
+FIRST_CALL_ENDED
+POST_CALL_MESSAGE_SENT
+POST_CALL_MESSAGE_LIMIT_REACHED
+SECOND_CALL_UNLOCKED
+SECOND_CALL_STARTED
+SECOND_CALL_ENDED
+SPARK_PROGRESS_UPDATED
+
+----------------------------------
+
+GOAL
+
+Create a guided progression that moves users from:
+
+Match → Chat → First Call → Second Call → Meeting
+
+while preventing endless messaging and encouraging real interaction.
