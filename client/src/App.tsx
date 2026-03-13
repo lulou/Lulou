@@ -264,10 +264,12 @@ function CallDetectors({ userId }: { userId: string }) {
 
   const handleActiveCallEnd = useCallback(() => {
     if (activeCall) {
-      console.log("[CALL_SESSION] CONNECTION_REMOVED", { matchId: activeCall.id, callSessionId: activeCall.callSessionId, reason: "user_hangup" });
+      console.log("[CALL_UI] CALL_HUNG_UP", { matchId: activeCall.id, callSessionId: activeCall.callSessionId, role: activeCall.callInitiatorId === userId ? "caller" : "receiver", source: "fullscreen_overlay" });
+      console.log("[CALL_SESSION] CALL_STAGE_EXITED", { matchId: activeCall.id, callSessionId: activeCall.callSessionId, reason: "user_hangup_overlay" });
+      console.log("[CALL_SESSION] CHAT_STATE_PRESERVED", { matchId: activeCall.id, callSessionId: activeCall.callSessionId, note: "overlay ended — chat thread intact" });
       markCallEnded(activeCall.id, "user_hangup");
     }
-  }, [activeCall?.id, markCallEnded]);
+  }, [activeCall?.id, activeCall?.callSessionId, activeCall?.callInitiatorId, userId, markCallEnded]);
 
   return (
     <>

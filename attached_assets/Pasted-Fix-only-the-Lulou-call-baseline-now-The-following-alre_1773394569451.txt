@@ -1,0 +1,82 @@
+Fix only the Lulou call baseline now.
+
+The following already works and must NOT be changed:
+- sign in
+- profiles
+- matches/connections
+- messaging
+- focused chat thread
+- reactions
+- unread/chat inbox improvements
+- stage progression
+- stage progress indicator
+- system guidance messages
+- call scheduling UI/messages if present
+
+The only broken part is the actual call flow.
+
+Rebuild only the baseline call behavior in this strict order:
+
+PHASE 1 — STABLE CALL SIGNALING
+1. User A presses Call
+2. User B receives the incoming call screen immediately
+3. User B can Answer or Decline
+4. User A can Cancel before answer
+5. If declined/cancelled, both users return to the same chat thread
+6. If answered, both users enter the same call stage
+7. If either user hangs up, both users return to the same chat thread
+8. Messaging must still work after returning to chat
+
+PHASE 2 — STABLE SESSION CONTROL
+1. Only one user is caller and one user is receiver
+2. Only one shared call session may exist between the two users
+3. Prevent duplicate or mirrored call sessions
+4. Prevent stale call session restore
+5. Prevent connections disappearing and reappearing
+6. Do not remove the active call session prematurely
+7. Do not re-open an ended/declined/cancelled call
+8. Preserve match_id and chat thread state at all times
+
+REQUIREMENTS
+- Do not add audio or video yet
+- Do not add microphone or camera permissions yet
+- Do not rewrite the whole app
+- Do not modify stable messaging/progression logic
+- Make minimal safe changes only
+- Show real backend/frontend errors instead of generic 500
+
+Add logs for:
+CALL_REQUEST_STARTED
+INCOMING_CALL_SHOWN
+CALL_ANSWERED
+CALL_DECLINED
+CALL_CANCELLED
+CALL_HUNG_UP
+CALL_SESSION_CREATED
+CALL_SESSION_REUSED
+DUPLICATE_CALL_BLOCKED
+STALE_CALL_BLOCKED
+CALL_STAGE_ENTERED
+CALL_STAGE_EXITED
+CHAT_STATE_PRESERVED
+
+Show me exactly which files handle:
+1. starting a call
+2. incoming call listener
+3. answer/decline
+4. cancel
+5. hang up
+6. call session creation
+7. call session cleanup
+8. restoring call state on load
+
+Success criteria:
+- incoming call appears
+- decline works
+- cancel works
+- answer works
+- hang up works
+- both return to the same chat
+- no duplicate sessions
+- no stale call restore
+- messaging still works after any call action
