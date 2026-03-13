@@ -46,7 +46,7 @@ export interface IStorage {
   getInteraction(fromUserId: string, toUserId: string): Promise<Interaction | undefined>;
   getMutualOpen(user1Id: string, user2Id: string): Promise<boolean>;
   createMatch(user1Id: string, user2Id: string): Promise<Match>;
-  getMatchesForUser(userId: string): Promise<(Match & { profile: Profile })[]>;
+  getMatchesForUser(userId: string): Promise<(Match & { profile: Profile; lastMessage: { content: string; senderId: string; createdAt: Date | null } | null })[]>;
   getMatch(matchId: string, userId: string): Promise<(Match & { profile: Profile; messages: Message[] }) | undefined>;
   createMessage(data: InsertMessage): Promise<Message>;
   getUserMessageCount(matchId: string, userId: string): Promise<number>;
@@ -316,17 +316,16 @@ export class SupabaseStorage implements IStorage {
     return mapMatch(result);
   }
 
-  async getMatchesForUser(userId: string): Promise<(Match & { profile: Profile })[]> {
+  async getMatchesForUser(userId: string): Promise<(Match & { profile: Profile; lastMessage: { content: string; senderId: string; createdAt: Date | null } | null })[]> {
     const { data: userMatches, error } = await this.sb
       .from("matches")
       .select("*")
       .eq("status", "active")
-      .or(`user1_id.eq.${userId},user2_id.eq.${userId}`)
-      .order("created_at", { ascending: false });
+      .or(`user1_id.eq.${userId},user2_id.eq.${userId}`);
 
     if (error || !userMatches) return [];
 
-    const result: (Match & { profile: Profile })[] = [];
+    const result: (Match & { profile: Profile; lastMessage: { content: string; senderId: string; createdAt: Date | null } | null })[] = [];
     for (const row of userMatches) {
       const match = mapMatch(row);
       const otherUserId = match.user1Id === userId ? match.user2Id : match.user1Id;
@@ -335,10 +334,33 @@ export class SupabaseStorage implements IStorage {
         .select("*")
         .eq("user_id", otherUserId)
         .maybeSingle();
-      if (profileData) {
-        result.push({ ...match, profile: mapProfile(profileData) });
-      }
+      if (!profileData) continue;
+
+      const { data: lastMsgRow } = await this.sb
+        .from("messages")
+        .select("content, sender_id, created_at")
+        .eq("match_id", match.id)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      const lastMessage = lastMsgRow
+        ? { content: lastMsgRow.content, senderId: lastMsgRow.sender_id, createdAt: lastMsgRow.created_at ? new Date(lastMsgRow.created_at) : null }
+        : null;
+
+      console.log("[CHAT] LAST_MESSAGE_UPDATED", { matchId: match.id, hasLastMessage: !!lastMessage, senderId: lastMessage?.senderId });
+
+      result.push({ ...match, profile: mapProfile(profileData), lastMessage });
     }
+
+    // Sort by most recent activity: last message time, falling back to match creation time
+    result.sort((a, b) => {
+      const aTime = a.lastMessage?.createdAt?.getTime() ?? a.createdAt?.getTime() ?? 0;
+      const bTime = b.lastMessage?.createdAt?.getTime() ?? b.createdAt?.getTime() ?? 0;
+      return bTime - aTime;
+    });
+
+    console.log("[CHAT] CONNECTIONS_SORTED", { count: result.length, userId });
     return result;
   }
 

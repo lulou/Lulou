@@ -28,7 +28,7 @@ function getCallDuration(stage: number): number {
   return CALL_DURATIONS[stage] || CALL_DURATIONS[0];
 }
 
-type MatchWithProfile = Match & { profile: Profile };
+type MatchWithProfile = Match & { profile: Profile; lastMessage?: { content: string; senderId: string; createdAt: Date | null } | null };
 type MatchDetail = Match & { profile: Profile; messages: Message[] };
 type SpinRequestWithProfile = SpinRequest & { profile: Profile };
 type SpinRequestsData = {
@@ -1132,7 +1132,13 @@ export default function Matches() {
   const incomingRequests = spinRequestsData?.incoming || [];
   const outgoingPending = spinRequestsData?.outgoing?.filter(r => r.status === "pending") || [];
   const matchIds = (matches || []).map(m => m.id);
-  const { unreadCounts, markRead } = useUnreadCounts(matchIds, user?.id || null, expandedMatchId);
+
+  const handleNewBackgroundMessage = useCallback((matchId: string) => {
+    console.log("[CHAT] BACKGROUND_MESSAGE_RECEIVED_INVALIDATING", { matchId });
+    queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
+  }, [queryClient]);
+
+  const { unreadCounts, markRead } = useUnreadCounts(matchIds, user?.id || null, expandedMatchId, handleNewBackgroundMessage);
 
   const connectionCount = matches?.length || 0;
   const atLimit = connectionCount >= MAX_CONNECTIONS;
@@ -1306,7 +1312,11 @@ export default function Matches() {
                   <h3 className="font-semibold text-sm truncate" data-testid={`text-match-name-${match.id}`}>
                     {match.profile.firstName}, {match.profile.age}
                   </h3>
-                  <p className="text-xs text-muted-foreground truncate mt-0.5">{match.profile.datingIntent}</p>
+                  <p className="text-xs text-muted-foreground truncate mt-0.5" data-testid={`text-last-message-${match.id}`}>
+                    {match.lastMessage
+                      ? (match.lastMessage.senderId === user?.id ? "You: " : "") + match.lastMessage.content
+                      : match.profile.datingIntent || "Start the conversation"}
+                  </p>
                 </div>
                 <ChevronDown className="w-4 h-4 text-muted-foreground/40 shrink-0" />
               </div>

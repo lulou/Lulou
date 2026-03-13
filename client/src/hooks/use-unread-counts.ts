@@ -6,15 +6,21 @@ type UnreadState = Record<string, number>;
 export function useUnreadCounts(
   matchIds: string[],
   userId: string | null,
-  activeMatchId: string | null
+  activeMatchId: string | null,
+  onNewBackgroundMessage?: (matchId: string) => void
 ) {
   const [unreadCounts, setUnreadCounts] = useState<UnreadState>({});
   const channelsRef = useRef<Map<string, ReturnType<typeof supabase.channel>>>(new Map());
   const activeMatchIdRef = useRef(activeMatchId);
+  const onNewBackgroundMessageRef = useRef(onNewBackgroundMessage);
 
   useEffect(() => {
     activeMatchIdRef.current = activeMatchId;
   }, [activeMatchId]);
+
+  useEffect(() => {
+    onNewBackgroundMessageRef.current = onNewBackgroundMessage;
+  }, [onNewBackgroundMessage]);
 
   const markRead = useCallback((matchId: string) => {
     setUnreadCounts(prev => {
@@ -68,6 +74,8 @@ export function useUnreadCounts(
               console.log("[CHAT] UNREAD_COUNT_UPDATED", { matchId, count: newCount });
               return { ...prev, [matchId]: newCount };
             });
+
+            onNewBackgroundMessageRef.current?.(matchId);
           }
         )
         .subscribe();
