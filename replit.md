@@ -27,6 +27,7 @@ Lulou Dating is a calm, premium dating app focused on helping people move from m
 - Unread message counts per conversation via Supabase Realtime (badge on match card)
 - Unread counts clear automatically when opening a thread
 - Real-time messaging via Supabase Realtime subscriptions (with 10s polling fallback)
+- Typing indicators via Supabase Realtime broadcast (no DB writes) — "{Name} is typing..." shown in active thread with animated dots; disappears on send or after 3.5s timeout; throttled to one broadcast per 2s
 - Optimistic message updates (sender sees message instantly)
 - Limited messaging (15 messages per person, 500 chars max)
 - Multi-call progression after message limit:
@@ -81,6 +82,7 @@ Lulou Dating is a calm, premium dating app focused on helping people move from m
 - `client/src/hooks/use-auth.ts` - Supabase Auth hook (session, login, logout)
 - `client/src/hooks/use-realtime-messages.ts` - Supabase Realtime subscription for instant message delivery
 - `client/src/hooks/use-unread-counts.ts` - Per-match unread message tracking via Supabase Realtime
+- `client/src/hooks/use-typing-indicator.ts` - Typing indicator via Supabase Realtime broadcast (ephemeral, no DB writes)
 - `client/src/lib/cancelled-calls.ts` - Cancelled call session tracking (prevents stale call UI reappearance)
 - `client/src/hooks/use-webrtc.ts` - WebRTC peer connection hook with Supabase Realtime signaling
 - `client/src/components/active-call.tsx` - Active call overlay (voice/video) with WebRTC streams

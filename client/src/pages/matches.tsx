@@ -13,6 +13,7 @@ import { useTabActive } from "@/App";
 import { isCallSessionCancelled, markCallSessionCancelled } from "@/lib/cancelled-calls";
 import { useRealtimeMessages } from "@/hooks/use-realtime-messages";
 import { useUnreadCounts } from "@/hooks/use-unread-counts";
+import { useTypingIndicator } from "@/hooks/use-typing-indicator";
 import { Input } from "@/components/ui/input";
 import { MessageCircle, Send, Phone, Video, ChevronDown, ChevronUp, ChevronLeft, PhoneOff, Clock, Check, X, Sparkles, Calendar, Heart, PhoneForwarded, Moon } from "lucide-react";
 import { LulouFlowerIcon } from "@/components/app-layout";
@@ -504,6 +505,8 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
   });
 
   useRealtimeMessages(match.id, expanded);
+
+  const { isOtherTyping, sendTyping, stopTyping } = useTypingIndicator(match.id, user?.id || null, expanded);
 
   const sendMessage = useMutation({
     mutationFn: async (vars: { content: string; tempId: string }) => {
@@ -1073,10 +1076,23 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
             </div>
           ) : (
             <div className="p-3 border-t">
+              {isOtherTyping && (
+                <div className="flex items-center gap-1.5 px-1 pb-2 text-xs text-muted-foreground" data-testid="text-typing-indicator">
+                  <span className="flex gap-0.5 items-center">
+                    <span className="w-1.5 h-1.5 bg-muted-foreground/50 rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
+                    <span className="w-1.5 h-1.5 bg-muted-foreground/50 rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
+                    <span className="w-1.5 h-1.5 bg-muted-foreground/50 rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
+                  </span>
+                  <span>{match.profile.firstName} is typing...</span>
+                </div>
+              )}
               <div className="flex gap-2 items-end">
                 <Textarea
                   value={message}
-                  onChange={e => setMessage(e.target.value.slice(0, MAX_CHARS))}
+                  onChange={e => {
+                    setMessage(e.target.value.slice(0, MAX_CHARS));
+                    if (e.target.value.trim()) sendTyping();
+                  }}
                   placeholder="Write something meaningful..."
                   className="resize-none min-h-[44px] max-h-[80px] text-sm"
                   onKeyDown={e => {
@@ -1084,6 +1100,7 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
                       e.preventDefault();
                       if (message.trim()) {
                         const content = message.trim();
+                        stopTyping();
                         sendMessage.mutate({ content, tempId: `temp-${Date.now()}-${Math.random().toString(36).slice(2)}` });
                       }
                     }
@@ -1095,6 +1112,7 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
                   onClick={() => {
                     if (message.trim()) {
                       const content = message.trim();
+                      stopTyping();
                       sendMessage.mutate({ content, tempId: `temp-${Date.now()}-${Math.random().toString(36).slice(2)}` });
                     }
                   }}
