@@ -36,7 +36,7 @@ Lulou Dating is a calm, premium dating app focused on helping people move from m
   3. Optional face/video call (10 minutes) - both users must accept; either can skip
 - Call stages tracked via `callStage` (0=pre-call, 1=first done, 2=second done, 3=face done/skipped)
 - Call sessions tracked via `callSessionId` derived from `call_started_at` (no DB column)
-- **Call system active** — no WebRTC audio/video yet (use-webrtc.ts exists but is not imported)
+- **Call system active** — re-enabled with stale checks, cancelled-session guards, and inline chat state preservation; no WebRTC audio/video yet (use-webrtc.ts exists but is not imported)
 - Call signaling via Supabase Realtime broadcast (5 signal types: ring, answered, declined, cancelled, ended)
 - Server broadcasts ring on start, cancelled on cancel, ended on complete
 - Client broadcasts declined (on decline), cancelled (on caller cancel), ended (on hang up)

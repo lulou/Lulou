@@ -1,0 +1,76 @@
+Fix the Lulou call system properly by rebuilding only the stable call flow first.
+
+Do not work on audio or video yet.
+Do not work on chat polish, reactions, inbox, or UI improvements.
+Do not modify auth, profiles, matches, or messaging.
+
+The goal right now is to make the call system stable in this exact order:
+
+PHASE 1 — SIGNALING ONLY
+1. User A presses Call
+2. User B receives incoming call immediately
+3. User B can Accept or Decline
+4. User A can Cancel before answer
+5. Either user can Hang Up after answer
+6. Both users always return to chat correctly
+7. Messaging must still work after any call state change
+
+PHASE 2 — SESSION STABILITY
+1. Only one user can be caller and one user can be receiver
+2. Only one shared call session may exist between the two users
+3. Prevent duplicate or mirrored call sessions
+4. Prevent stale call session restore
+5. Prevent connections disappearing and reappearing
+6. Do not clear chat state or match state during call cleanup
+7. Only leave call stage when:
+  - declined
+  - cancelled
+  - hung up
+  - explicitly failed
+
+Requirements:
+- If the call session is not valid, do not enter call stage
+- If the call session is cancelled/declined/ended, do not restore it
+- Remove stale listeners/subscriptions tied to old call sessions
+- Preserve current match_id and chat thread at all times
+- Show real error messages instead of generic 500s
+
+Add clear logs for:
+- CALL_REQUEST_STARTED
+- INCOMING_CALL_SHOWN
+- CALL_ACCEPTED
+- CALL_DECLINED
+- CALL_CANCELLED
+- CALL_HUNG_UP
+- CALL_SESSION_CREATED
+- CALL_SESSION_REUSED
+- DUPLICATE_CALL_BLOCKED
+- STALE_CALL_BLOCKED
+- CALL_STAGE_ENTERED
+- CALL_STAGE_EXITED
+- CHAT_STATE_PRESERVED
+
+Show me exactly which files handle:
+1. starting a call
+2. incoming call listener
+3. accept/decline
+4. cancel
+5. hang up
+6. call session creation
+7. call session cleanup
+8. restoring call state on load
+
+Do not add media yet.
+Do not add microphone or camera yet.
+Do not rewrite the whole app.
+Make minimal safe changes only.
+
+Success criteria:
+- incoming call works
+- decline works
+- cancel works
+- hang up works
+- both users return to chat correctly
+- no duplicate sessions
+- no stale call restore
+- messaging still works after call actions

@@ -756,12 +756,48 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
   const allMessages = matchDetail?.messages || [];
   const callStage = detail.callStage || 0;
   const callCancelled = isCallSessionCancelled(match.id, detail.callSessionId);
-  // Live call flow temporarily disabled — forces all call UI to idle state regardless of DB data.
-  // Stale call sessions in the DB cannot re-enter the call overlay or ringing state.
-  const isCallRinging = false;
-  const isCallActive = false;
+
+  const isCallStale = (() => {
+    if (!detail.callStartedAt) return false;
+    const age = Date.now() - new Date(detail.callStartedAt).getTime();
+    if (!detail.callAnswered && age > 120_000) {
+      console.log("[CALL_SESSION] STALE_CALL_BLOCKED", { matchId: match.id, callSessionId: detail.callSessionId, ageMs: age, answered: false, source: "inline_chat" });
+      return true;
+    }
+    if (detail.callAnswered && age > 30 * 60_000) {
+      console.log("[CALL_SESSION] STALE_CALL_BLOCKED", { matchId: match.id, callSessionId: detail.callSessionId, ageMs: age, answered: true, source: "inline_chat" });
+      return true;
+    }
+    return false;
+  })();
+
+  const isCallRinging = (
+    !!detail.callStartedAt &&
+    !detail.callAnswered &&
+    !detail.callCompleted &&
+    !!detail.callSessionId &&
+    !callCancelled &&
+    !isCallStale
+  );
+  const isCallActive = (
+    !!detail.callStartedAt &&
+    detail.callAnswered === true &&
+    !detail.callCompleted &&
+    !!detail.callSessionId &&
+    !callCancelled &&
+    !isCallStale
+  );
+
   if (detail.callStartedAt) {
-    console.log("[CALL_SESSION] CONNECTION_RESTORE_PREVENTED", { matchId: match.id, callSessionId: detail.callSessionId, source: "calls_disabled", callCancelled });
+    console.log("[CALL_SESSION] CHAT_STATE_PRESERVED", {
+      matchId: match.id,
+      callSessionId: detail.callSessionId,
+      isCallRinging,
+      isCallActive,
+      callCancelled,
+      isCallStale,
+      messageCount: allMessages.length,
+    });
   }
 
   const iAmCaller = detail.callInitiatorId === user?.id;
@@ -1037,7 +1073,11 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
                 <p className="text-xs text-muted-foreground">Start your 10-minute face-to-face video call whenever you're ready.</p>
                 <Button
                   size="sm"
-                  onClick={() => toast({ title: "Calls coming soon", description: "Voice and video calls are being improved. Your chat is safe.", variant: "default" })}
+                  onClick={() => {
+                    console.log("[CALL_UI] CALL_REQUEST_STARTED", { matchId: match.id, callStage, callType: "face", role: "caller" });
+                    startCall.mutate();
+                  }}
+                  disabled={startCall.isPending || hasExistingCall}
                   data-testid={`button-start-face-call-${match.id}`}
                 >
                   <Video className="w-4 h-4 mr-2" /> Start Face Call
@@ -1052,7 +1092,11 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
                 <p className="text-xs text-muted-foreground">Ready for a longer 15-minute call to go deeper?</p>
                 <Button
                   size="sm"
-                  onClick={() => toast({ title: "Calls coming soon", description: "Voice and video calls are being improved. Your chat is safe.", variant: "default" })}
+                  onClick={() => {
+                    console.log("[CALL_UI] CALL_REQUEST_STARTED", { matchId: match.id, callStage, callType: "voice_2", role: "caller" });
+                    startCall.mutate();
+                  }}
+                  disabled={startCall.isPending || hasExistingCall}
                   data-testid={`button-second-call-${match.id}`}
                 >
                   <Phone className="w-4 h-4 mr-2" /> Start Second Call
@@ -1067,7 +1111,11 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
                 <p className="text-xs text-muted-foreground">Your first call is 10 minutes to keep it meaningful.</p>
                 <Button
                   size="sm"
-                  onClick={() => toast({ title: "Calls coming soon", description: "Voice and video calls are being improved. Your chat is safe.", variant: "default" })}
+                  onClick={() => {
+                    console.log("[CALL_UI] CALL_REQUEST_STARTED", { matchId: match.id, callStage, callType: "voice_1", role: "caller" });
+                    startCall.mutate();
+                  }}
+                  disabled={startCall.isPending || hasExistingCall}
                   data-testid={`button-call-${match.id}`}
                 >
                   <Phone className="w-4 h-4 mr-2" /> Start First Call

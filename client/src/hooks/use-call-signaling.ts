@@ -95,7 +95,13 @@ export function useCallSignaling(matchIds: string[], userId: string) {
           isEndSignal = true;
         }
 
-        if (!isEndSignal) {
+        if (isEndSignal) {
+          console.log("[CALL_SESSION] CHAT_STATE_PRESERVED", {
+            matchId,
+            signal: event.type,
+            note: "end signal received — queries NOT invalidated, chat history intact",
+          });
+        } else {
           queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
           queryClient.invalidateQueries({ queryKey: ["/api/matches", matchId] });
         }

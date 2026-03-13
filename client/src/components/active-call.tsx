@@ -68,6 +68,9 @@ export function ActiveCallOverlay({
       ? `/api/matches/${matchId}/call/cancel`
       : `/api/matches/${matchId}/call/complete`;
 
+    if (!isRinging) {
+      console.log("[CALL_SESSION] CALL_HUNG_UP", { matchId, callSessionId, userId, isCaller, reason: "user_hangup" });
+    }
     console.log("[CALL_SESSION] CONNECTION_REMOVED", { matchId, callSessionId, userId, reason });
 
     onCallEnd();

@@ -382,7 +382,7 @@ function AppContent() {
   return (
     <AppLayout>
       <PersistentTabs />
-      {/* CallDetectors disabled — live call flow is temporarily disabled to protect stable messaging baseline */}
+      <CallDetectors userId={user.id} />
     </AppLayout>
   );
 }
