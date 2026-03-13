@@ -868,7 +868,7 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
   const [message, setMessage] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  const { data: matchDetail } = useQuery<MatchDetail>({
+  const { data: matchDetail, isLoading: matchLoading, error: matchError } = useQuery<MatchDetail>({
     queryKey: ["/api/matches", match.id],
     enabled: expanded,
     refetchInterval: expanded && isActive ? 10000 : false,
@@ -1166,6 +1166,10 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
   const iCancelledRef = useRef(false);
   const lastCallSessionIdRef = useRef<string | null>(null);
 
+  // MUST be declared before any useEffect that references it in a dependency array
+  // (fixes: ReferenceError – Cannot access 'detail' before initialization → white screen crash)
+  const detail = matchDetail || match as unknown as MatchDetail;
+
   useEffect(() => {
     if (expanded) {
       messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -1183,8 +1187,6 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
       onMarkRead();
     }
   }, [expanded]);
-
-  const detail = matchDetail || match as unknown as MatchDetail;
   const myMessages = matchDetail?.messages?.filter(m => m.senderId === user?.id) || [];
   const messagesRemaining = MAX_MESSAGES_PER_USER - myMessages.length;
   const isLimitReached = messagesRemaining <= 0;
@@ -1406,7 +1408,26 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
       {expanded && <SparkProgressBar sparkStep={sparkStep} />}
 
       <div className="flex-1 overflow-y-auto p-4 space-y-3" data-testid={`messages-container-${match.id}`}>
-            {allMessages.length === 0 && (
+            {expanded && matchLoading && !matchDetail && (
+              <div className="flex flex-col items-center justify-center py-10 gap-3" data-testid={`chat-loading-${match.id}`}>
+                <div className="w-8 h-8 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+                <p className="text-xs text-muted-foreground">Loading conversation…</p>
+              </div>
+            )}
+            {expanded && matchError && (
+              <div className="p-4 rounded-lg bg-destructive/10 text-destructive text-sm text-center" data-testid={`chat-error-${match.id}`}>
+                {(() => {
+                  const err = matchError as Error;
+                  console.error("[CHAT_ROOM_LOAD_ERROR]", {
+                    matchId: match.id,
+                    message: err?.message,
+                    stack: err?.stack,
+                  });
+                  return "Could not load messages. Pull down to retry.";
+                })()}
+              </div>
+            )}
+            {!matchLoading && !matchError && allMessages.length === 0 && (
               <div className="text-center py-6 space-y-2">
                 <p className="text-muted-foreground text-sm">Start of your conversation</p>
                 <p className="text-xs text-muted-foreground">You each have {MAX_MESSAGES_PER_USER} messages. Make them count.</p>
