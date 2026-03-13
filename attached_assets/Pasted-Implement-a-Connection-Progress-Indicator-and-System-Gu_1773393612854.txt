@@ -1,0 +1,132 @@
+Implement a Connection Progress Indicator and System Guidance Messages in Lulou chat.
+
+The app already has a structured connection progression:
+Match → Messaging → First Call → Post-Call Messaging → Second Call → Meeting.
+
+Do not modify auth, profiles, matches, or core messaging logic. Only add UI and system guidance tied to the existing stage system.
+
+----------------------------------
+
+CONNECTION PROGRESS INDICATOR
+
+Add a visual progress indicator at the top of each chat thread.
+
+Stages:
+
+1. Match  
+2. Chat  
+3. First Call  
+4. Second Call  
+5. Meet  
+
+Requirements:
+
+• Display the indicator horizontally at the top of the chat interface.  
+• Highlight the user's current stage.  
+• Completed stages should appear visually completed (for example with a checkmark or filled icon).  
+• Future stages should appear dimmed.  
+• Update the indicator automatically when the connection_stage changes.
+
+Example progression:
+
+Match → Chat → First Call → Second Call → Meet
+
+----------------------------------
+
+SYSTEM GUIDANCE MESSAGES
+
+Insert system messages in the chat when stages change.
+
+FIRST CALL APPROACHING
+
+When the messaging threshold is nearly reached:
+
+"Looks like you two are getting along well. Your first call stage is coming up soon — start thinking about when you'd like to talk."
+
+FINAL MESSAGE BEFORE FIRST CALL
+
+"You’ve reached your call stage. When you're ready, start your first call."
+
+----------------------------------
+
+WHEN FIRST CALL STARTS
+
+"You're now in your call stage. Take a few minutes to talk and see how the conversation flows."
+
+----------------------------------
+
+WHEN FIRST CALL ENDS
+
+"Nice call! Head back to chat and continue getting to know each other."
+
+Immediately follow with:
+
+"You can now send 6 messages each before your next call unlocks."
+
+----------------------------------
+
+POST-CALL MESSAGE STAGE HINTS
+
+Halfway through the 6 messages:
+
+"Your next call stage is getting close. Start thinking about when you'd like to talk again."
+
+Near the limit:
+
+"Just a couple messages left before your second call unlocks."
+
+----------------------------------
+
+SECOND CALL UNLOCK
+
+"You've unlocked your second call. Pick a time that suits you both."
+
+----------------------------------
+
+SECOND CALL START
+
+"You've got 15 minutes for this call — make it count."
+
+----------------------------------
+
+SECOND CALL END
+
+"Great conversation. If things feel right, it might be time to think about meeting."
+
+----------------------------------
+
+UI REQUIREMENTS
+
+• System messages should appear styled differently from normal chat messages (subtle neutral styling).  
+• They should not count toward message limits.  
+• They should be clearly labeled as coming from Lulou (system guidance).  
+• Do not interfere with normal messaging or reaction features.
+
+----------------------------------
+
+STATE SAFETY
+
+• Stage changes must update the progress indicator automatically.  
+• Do not allow stages to skip.  
+• Do not break chat thread continuity.  
+• Preserve match_id and conversation state.
+
+----------------------------------
+
+LOGGING
+
+Add logs for:
+
+CONNECTION_STAGE_CHANGED  
+PROGRESS_INDICATOR_UPDATED  
+SYSTEM_GUIDANCE_MESSAGE_INSERTED
+
+----------------------------------
+
+GOAL
+
+Users should clearly see their connection progressing from:
+
+Match → Chat → First Call → Second Call → Meeting
+
+with helpful guidance messages and a clean progress indicator inside the chat.

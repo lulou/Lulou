@@ -33,6 +33,13 @@ Lulou Dating is a calm, premium dating app focused on helping people move from m
 - Structured connection progression (5 steps: Match → Chat → 1st Call → 2nd Call → Meet)
   - Spark progress bar in chat header shows current step
   - Stage hint banners appear in input area as limits approach
+- System guidance messages appear inline in the chat thread at key stage transitions (styled as centered "Lulou" bubbles, not counted toward message limits, computed from state — no DB writes)
+  - Stage 0 (5 msgs left): "first call coming up soon" nudge
+  - Stage 0 (1 msg left or limit reached): "you've reached your call stage" prompt
+  - Stage 1 entry: "nice call" + "6 messages each" info
+  - Stage 1 halfway (3+ post-call msgs): second call approaching hint
+  - Stage 1 near limit (≤2 left): "just a couple messages left" nudge
+  - Stage 1 both limit reached: "second call unlocked" prompt
 - Call scheduling: both calls require mutual agreement on a time before starting
   - States: not scheduled → proposed → accepted → ready to start
   - Quick times: Available now / In 30 min / In 1 hr / In 2 hrs / Pick specific time

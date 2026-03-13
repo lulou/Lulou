@@ -843,6 +843,17 @@ function StageHint({ children }: { children: ReactNode }) {
   );
 }
 
+function SystemGuidanceMessage({ children, testId }: { children: ReactNode; testId?: string }) {
+  return (
+    <div className="flex justify-center my-3" data-testid={testId || "system-guidance-message"}>
+      <div className="max-w-[82%] rounded-2xl px-4 py-3 bg-muted/50 border border-border/40 text-center space-y-1">
+        <p className="text-[9px] font-semibold text-muted-foreground/55 uppercase tracking-widest">Lulou</p>
+        <p className="text-[11px] text-muted-foreground leading-relaxed">{children}</p>
+      </div>
+    </div>
+  );
+}
+
 function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }: {
   match: MatchWithProfile;
   expanded: boolean;
@@ -1197,7 +1208,45 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
       myPostCallMessages,
       bothPostCallLimitReached,
     });
+    console.log("[CONNECTION_STAGE] PROGRESS_INDICATOR_UPDATED", { matchId: match.id, sparkStep, stage: ["Match","Chat","1st Call","2nd Call","Meet"][sparkStep] });
   }, [sparkStep, callStage]);
+
+  const guidanceMessages = useMemo(() => {
+    const msgs: { id: string; text: string }[] = [];
+    if (callStage === 0) {
+      if (messagesRemaining <= 5 && messagesRemaining > 1) {
+        msgs.push({ id: "stage0-approaching", text: "Looks like you two are getting along well. Your first call stage is coming up soon — start thinking about when you'd like to talk." });
+      }
+      if (messagesRemaining <= 1 || isLimitReached) {
+        msgs.push({ id: "stage0-limit", text: "You've reached your call stage. When you're ready, start your first call." });
+      }
+    }
+    if (callStage === 1) {
+      msgs.push({ id: "stage1-welcome", text: "Nice call! Head back to chat and continue getting to know each other." });
+      msgs.push({ id: "stage1-info", text: "You can now send 6 messages each before your next call unlocks." });
+      if (myPostCallMessages >= 3 && !myPostCallLimitReached) {
+        msgs.push({ id: "stage1-approaching", text: "Your next call stage is getting close. Start thinking about when you'd like to talk again." });
+      }
+      if (myPostCallRemaining <= 2 && !myPostCallLimitReached) {
+        msgs.push({ id: "stage1-near-limit", text: "Just a couple messages left before your second call unlocks." });
+      }
+      if (bothPostCallLimitReached) {
+        msgs.push({ id: "stage1-unlocked", text: "You've unlocked your second call. Pick a time that suits you both." });
+      }
+    }
+    return msgs;
+  }, [callStage, messagesRemaining, isLimitReached, myPostCallMessages, myPostCallRemaining, myPostCallLimitReached, bothPostCallLimitReached]);
+
+  const guidanceKey = guidanceMessages.map(m => m.id).join(",");
+  useEffect(() => {
+    if (guidanceMessages.length > 0) {
+      console.log("[SYSTEM_GUIDANCE] SYSTEM_GUIDANCE_MESSAGE_INSERTED", {
+        matchId: match.id,
+        callStage,
+        messages: guidanceMessages.map(m => m.id),
+      });
+    }
+  }, [guidanceKey]);
 
   const allCallsDone = callStage >= 3;
   const isFaceCallStage = callStage === 2;
@@ -1296,7 +1345,7 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
                 <p className="text-xs text-muted-foreground">You each have {MAX_MESSAGES_PER_USER} messages. Make them count.</p>
               </div>
             )}
-            {allMessages.filter(m => !m.content.startsWith(SCHEDULE_PREFIX)).map(msg => {
+            {allMessages.filter(m => !m.content.startsWith(SCHEDULE_PREFIX) && !m.content.startsWith("__SYSTEM__:")).map(msg => {
               const isMe = msg.senderId === user?.id;
               const hasReaction = msg.reaction && typeof msg.reaction === 'string' && msg.reaction.length > 0;
               if (hasReaction) {
@@ -1331,6 +1380,9 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
                 </div>
               );
             })}
+            {guidanceMessages.map(m => (
+              <SystemGuidanceMessage key={m.id} testId={`guidance-${m.id}`}>{m.text}</SystemGuidanceMessage>
+            ))}
             <div ref={messagesEndRef} />
           </div>
 
