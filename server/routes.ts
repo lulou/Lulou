@@ -1073,6 +1073,92 @@ export async function registerRoutes(
     }
   });
 
+  app.post("/api/matches/:matchId/schedule-call", isAuthenticated, async (req: any, res) => {
+    try {
+      const storage = getStorage(req);
+      const userId = req.user.id;
+      const { matchId } = req.params;
+      const { action, proposedTime } = req.body;
+
+      if (!["propose", "accept", "decline", "reschedule"].includes(action)) {
+        return res.status(400).json({ message: "Invalid action" });
+      }
+
+      const match = await storage.getMatch(matchId, userId);
+      if (!match) return res.status(404).json({ message: "Match not found" });
+
+      const callStage = match.callStage || 0;
+      if (callStage >= 2) {
+        return res.status(400).json({ message: "No more calls to schedule at this stage" });
+      }
+
+      const SCHEDULE_PREFIX = "__SCHEDULE__:";
+      const stageMsgs = match.messages
+        .filter(m => m.content.startsWith(SCHEDULE_PREFIX))
+        .filter(m => {
+          try { return JSON.parse(m.content.slice(SCHEDULE_PREFIX.length)).stage === callStage; }
+          catch { return false; }
+        });
+      const lastData: any = stageMsgs.length > 0
+        ? (() => { try { return JSON.parse(stageMsgs[stageMsgs.length - 1].content.slice(SCHEDULE_PREFIX.length)); } catch { return null; } })()
+        : null;
+
+      if ((action === "accept" || action === "decline")) {
+        if (!lastData || !["propose", "reschedule"].includes(lastData.type)) {
+          return res.status(400).json({ message: "No pending proposal to respond to" });
+        }
+        if (lastData.proposedBy === userId) {
+          return res.status(400).json({ message: "Cannot respond to your own proposal" });
+        }
+      }
+
+      if ((action === "propose" || action === "reschedule") && !proposedTime) {
+        return res.status(400).json({ message: "proposedTime is required" });
+      }
+
+      if (action === "propose" && lastData?.type === "accept") {
+        return res.status(400).json({ message: "Call is already confirmed. Use reschedule if needed." });
+      }
+
+      const resolvedTime = (action === "accept" || action === "decline")
+        ? (lastData?.proposedTime ?? new Date().toISOString())
+        : proposedTime;
+
+      const scheduleData = { type: action, proposedBy: userId, proposedTime: resolvedTime, stage: callStage };
+      const content = `${SCHEDULE_PREFIX}${JSON.stringify(scheduleData)}`;
+
+      const message = await storage.createMessage({ matchId, senderId: userId, content });
+
+      const logLabels: Record<string, string> = {
+        propose: "CALL_TIME_PROPOSED",
+        accept: "CALL_TIME_ACCEPTED",
+        decline: "CALL_TIME_DECLINED",
+        reschedule: "CALL_TIME_RESCHEDULED",
+      };
+      console.log(`[CALL_SCHEDULE] ${logLabels[action]}`, { matchId, userId, action, proposedTime: resolvedTime, callStage });
+      if (action === "accept") {
+        console.log("[CALL_SCHEDULE] CALL_SCHEDULE_CONFIRMED", { matchId, callStage, scheduledTime: resolvedTime });
+      }
+
+      const otherUserId = match.user1Id === userId ? match.user2Id : match.user1Id;
+      if (["propose", "reschedule"].includes(action) && otherUserId.startsWith("seed-")) {
+        const replyStorage = storage;
+        setTimeout(async () => {
+          try {
+            const acceptData = { type: "accept", proposedBy: otherUserId, proposedTime: resolvedTime, stage: callStage };
+            await replyStorage.createMessage({ matchId, senderId: otherUserId, content: `${SCHEDULE_PREFIX}${JSON.stringify(acceptData)}` });
+            console.log("[CALL_SCHEDULE] SEED_AUTO_ACCEPTED", { matchId, otherUserId, callStage, scheduledTime: resolvedTime });
+          } catch (err) { console.error("Seed auto-accept error:", err); }
+        }, 1500 + Math.random() * 1500);
+      }
+
+      res.json({ message, scheduleData });
+    } catch (error) {
+      console.error("Error scheduling call:", error);
+      res.status(500).json({ message: "Failed to schedule call" });
+    }
+  });
+
   app.post("/api/matches/:matchId/meet-availability", isAuthenticated, async (req: any, res) => {
     try {
       const storage = getStorage(req);

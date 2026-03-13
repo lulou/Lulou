@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback, type ReactNode } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo, type ReactNode } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -479,6 +479,325 @@ function ReadyToMeetInline({ detail, matchId, profileName }: { detail: MatchDeta
               )}
             </div>
           </>
+        )}
+      </Card>
+    </div>
+  );
+}
+
+const SCHEDULE_PREFIX = "__SCHEDULE__:";
+
+function parseScheduleData(msg: Message): { type: string; proposedBy: string; proposedTime: string; stage: number } | null {
+  if (!msg.content.startsWith(SCHEDULE_PREFIX)) return null;
+  try { return JSON.parse(msg.content.slice(SCHEDULE_PREFIX.length)); }
+  catch { return null; }
+}
+
+function formatScheduledTime(d: Date, now: number): string {
+  const diff = d.getTime() - now;
+  if (diff <= 60000) return "now";
+  if (diff < 3600000) return `in ${Math.round(diff / 60000)} min`;
+  if (diff < 86400000) return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  return d.toLocaleDateString([], { weekday: "short", hour: "2-digit", minute: "2-digit" });
+}
+
+function TimePickerInline({
+  quickTimes,
+  selectedTime,
+  setSelectedTime,
+  onConfirm,
+  onCancel,
+  confirmLabel = "Confirm time",
+}: {
+  quickTimes: { label: string; value: string }[];
+  selectedTime: string;
+  setSelectedTime: (v: string) => void;
+  onConfirm: () => void;
+  onCancel: () => void;
+  confirmLabel?: string;
+}) {
+  return (
+    <div className="space-y-2 pt-1">
+      {quickTimes.map(qt => (
+        <button
+          key={qt.label}
+          className={`w-full text-sm px-3 py-2 rounded-md border transition-colors text-left ${selectedTime === qt.value ? "bg-primary text-primary-foreground border-primary" : "border-border hover:bg-muted/50"}`}
+          onClick={() => setSelectedTime(qt.value)}
+        >
+          {qt.label}
+        </button>
+      ))}
+      <div className="flex items-center gap-1.5 pt-0.5">
+        <span className="text-xs text-muted-foreground shrink-0">Pick a time:</span>
+        <Input
+          type="datetime-local"
+          min={new Date().toISOString().slice(0, 16)}
+          value={selectedTime ? new Date(selectedTime).toISOString().slice(0, 16) : ""}
+          onChange={e => {
+            if (e.target.value) setSelectedTime(new Date(e.target.value).toISOString());
+          }}
+          className="text-xs h-8 flex-1"
+        />
+      </div>
+      <div className="flex gap-2">
+        <Button size="sm" onClick={onConfirm} disabled={!selectedTime} className="flex-1" data-testid="button-confirm-time">
+          {confirmLabel}
+        </Button>
+        <Button size="sm" variant="outline" onClick={onCancel} className="flex-1" data-testid="button-cancel-time">
+          Cancel
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function CallSchedulingCard({
+  matchId,
+  matchName,
+  allMessages,
+  callStage,
+  startCallPending,
+  onStartCall,
+}: {
+  matchId: string;
+  matchName: string;
+  allMessages: Message[];
+  callStage: number;
+  startCallPending: boolean;
+  onStartCall: () => void;
+}) {
+  const { user } = useAuth();
+  const [showPicker, setShowPicker] = useState(false);
+  const [selectedTime, setSelectedTime] = useState("");
+  const [now, setNow] = useState(Date.now());
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 15000);
+    return () => clearInterval(t);
+  }, []);
+
+  const scheduleData = useMemo(() => {
+    const msgs = allMessages
+      .filter(m => m.content.startsWith(SCHEDULE_PREFIX))
+      .filter(m => { const d = parseScheduleData(m); return d?.stage === callStage; });
+    if (msgs.length === 0) return null;
+    return parseScheduleData(msgs[msgs.length - 1]);
+  }, [allMessages, callStage]);
+
+  useEffect(() => {
+    if (scheduleData?.type === "accept") {
+      const t = new Date(scheduleData.proposedTime).getTime();
+      if (t <= now + 5 * 60 * 1000) {
+        console.log("[CALL_SCHEDULE] CALL_READY_TO_START", { matchId, callStage, scheduledTime: scheduleData.proposedTime });
+      }
+    }
+  }, [scheduleData, now]);
+
+  const scheduleMutation = useMutation({
+    mutationFn: async ({ action, proposedTime }: { action: string; proposedTime?: string }) => {
+      const r = await apiRequest("POST", `/api/matches/${matchId}/schedule-call`, { action, proposedTime });
+      return r.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/matches", matchId] });
+      setShowPicker(false);
+      setSelectedTime("");
+    },
+    onError: (err: any) => {
+      toast({ title: "Couldn't schedule call", description: err?.message || "Something went wrong", variant: "destructive" });
+    },
+  });
+
+  const iAmProposer = scheduleData?.proposedBy === user?.id;
+  const scheduledTime = scheduleData?.proposedTime ? new Date(scheduleData.proposedTime) : null;
+  const isReadyToStart = scheduleData?.type === "accept" && scheduledTime && scheduledTime.getTime() <= now + 5 * 60 * 1000;
+  const callLabel = callStage === 0 ? "first" : "second";
+  const callDuration = callStage === 0 ? "10-minute" : "15-minute";
+
+  const quickTimes = [
+    { label: "Available now", value: new Date().toISOString() },
+    { label: "In 30 minutes", value: new Date(now + 30 * 60000).toISOString() },
+    { label: "In 1 hour", value: new Date(now + 60 * 60000).toISOString() },
+    { label: "In 2 hours", value: new Date(now + 2 * 60 * 60000).toISOString() },
+  ];
+
+  const propose = (time: string) => scheduleMutation.mutate({ action: "propose", proposedTime: time });
+  const reschedule = (time: string) => scheduleMutation.mutate({ action: "reschedule", proposedTime: time });
+
+  if (isReadyToStart) {
+    return (
+      <div className="p-4 border-t" data-testid={`call-schedule-ready-${matchId}`}>
+        <Card className="p-4 text-center space-y-3 bg-green-50/60 dark:bg-green-950/20 border-green-200/50 dark:border-green-800/40">
+          <div className="flex items-center justify-center gap-2">
+            <Phone className="w-5 h-5 text-green-600 dark:text-green-400" />
+            <p className="font-semibold text-sm text-green-700 dark:text-green-400">It's time to talk!</p>
+          </div>
+          <p className="text-xs text-muted-foreground">Your {callLabel} call is ready. Start when you're both on.</p>
+          <Button size="sm" onClick={onStartCall} disabled={startCallPending} className="bg-green-600 hover:bg-green-700 text-white" data-testid={`button-start-scheduled-call-${matchId}`}>
+            <Phone className="w-4 h-4 mr-2" /> Start {callLabel === "first" ? "First" : "Second"} Call
+          </Button>
+        </Card>
+      </div>
+    );
+  }
+
+  if (scheduleData?.type === "accept" && scheduledTime) {
+    return (
+      <div className="p-4 border-t" data-testid={`call-schedule-confirmed-${matchId}`}>
+        <Card className="p-4 text-center space-y-2.5 bg-primary/5 border-primary/20">
+          <Check className="w-5 h-5 text-primary mx-auto" />
+          <p className="font-medium text-sm">Call confirmed</p>
+          <p className="text-xs font-medium text-primary">{scheduledTime.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" })} at {scheduledTime.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</p>
+          <p className="text-xs text-muted-foreground">{formatScheduledTime(scheduledTime, now)} — the Start button will appear 5 min before</p>
+          <Button size="sm" variant="ghost" className="text-xs text-muted-foreground h-7" onClick={() => { setShowPicker(true); }} data-testid={`button-reschedule-${matchId}`}>Change time</Button>
+          {showPicker && (
+            <TimePickerInline
+              quickTimes={quickTimes}
+              selectedTime={selectedTime}
+              setSelectedTime={setSelectedTime}
+              confirmLabel="Reschedule"
+              onConfirm={() => { if (selectedTime) reschedule(selectedTime); }}
+              onCancel={() => { setShowPicker(false); setSelectedTime(""); }}
+            />
+          )}
+        </Card>
+      </div>
+    );
+  }
+
+  if ((scheduleData?.type === "propose" || scheduleData?.type === "reschedule") && iAmProposer) {
+    return (
+      <div className="p-4 border-t" data-testid={`call-schedule-waiting-${matchId}`}>
+        <Card className="p-4 space-y-3 bg-primary/5 border-primary/20">
+          <div className="flex items-center gap-2">
+            <Clock className="w-4 h-4 text-primary shrink-0" />
+            <p className="font-medium text-sm">Waiting for {matchName}…</p>
+          </div>
+          {scheduledTime && (
+            <p className="text-xs text-muted-foreground">You proposed {formatScheduledTime(scheduledTime, now)} ({scheduledTime.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })})</p>
+          )}
+          {!showPicker ? (
+            <Button size="sm" variant="outline" className="w-full" onClick={() => setShowPicker(true)} data-testid={`button-change-proposal-${matchId}`}>
+              <Clock className="w-3.5 h-3.5 mr-1.5" /> Suggest a different time
+            </Button>
+          ) : (
+            <TimePickerInline
+              quickTimes={quickTimes}
+              selectedTime={selectedTime}
+              setSelectedTime={setSelectedTime}
+              confirmLabel="Update proposal"
+              onConfirm={() => { if (selectedTime) reschedule(selectedTime); }}
+              onCancel={() => { setShowPicker(false); setSelectedTime(""); }}
+            />
+          )}
+        </Card>
+      </div>
+    );
+  }
+
+  if ((scheduleData?.type === "propose" || scheduleData?.type === "reschedule") && !iAmProposer) {
+    return (
+      <div className="p-4 border-t" data-testid={`call-schedule-incoming-${matchId}`}>
+        <Card className="p-4 space-y-3 bg-primary/5 border-primary/20">
+          <div className="flex items-center gap-2">
+            <Phone className="w-4 h-4 text-primary shrink-0" />
+            <p className="font-medium text-sm">{matchName} wants to schedule your {callLabel} call</p>
+          </div>
+          {scheduledTime && (
+            <p className="text-xs text-muted-foreground">Proposed: {formatScheduledTime(scheduledTime, now)} ({scheduledTime.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })})</p>
+          )}
+          {!showPicker ? (
+            <div className="flex gap-2">
+              <Button size="sm" className="flex-1" onClick={() => scheduleMutation.mutate({ action: "accept" })} disabled={scheduleMutation.isPending} data-testid={`button-accept-schedule-${matchId}`}>
+                <Check className="w-3.5 h-3.5 mr-1" /> Accept
+              </Button>
+              <Button size="sm" variant="outline" className="flex-1" onClick={() => setShowPicker(true)} data-testid={`button-suggest-time-${matchId}`}>
+                <Clock className="w-3.5 h-3.5 mr-1" /> Different time
+              </Button>
+              <Button size="sm" variant="ghost" className="shrink-0 px-2" onClick={() => scheduleMutation.mutate({ action: "decline" })} disabled={scheduleMutation.isPending} data-testid={`button-decline-schedule-${matchId}`}>
+                <X className="w-4 h-4" />
+              </Button>
+            </div>
+          ) : (
+            <TimePickerInline
+              quickTimes={quickTimes}
+              selectedTime={selectedTime}
+              setSelectedTime={setSelectedTime}
+              confirmLabel="Propose this time"
+              onConfirm={() => { if (selectedTime) reschedule(selectedTime); }}
+              onCancel={() => { setShowPicker(false); setSelectedTime(""); }}
+            />
+          )}
+        </Card>
+      </div>
+    );
+  }
+
+  if (scheduleData?.type === "decline") {
+    return (
+      <div className="p-4 border-t" data-testid={`call-schedule-declined-${matchId}`}>
+        <Card className="p-4 space-y-3 bg-primary/5 border-primary/20">
+          <p className="font-medium text-sm text-center">That time didn't work</p>
+          <p className="text-xs text-muted-foreground text-center">Either of you can suggest a new time.</p>
+          {!showPicker ? (
+            <Button size="sm" className="w-full" onClick={() => setShowPicker(true)} data-testid={`button-propose-new-time-${matchId}`}>
+              <Calendar className="w-4 h-4 mr-2" /> Propose a new time
+            </Button>
+          ) : (
+            <TimePickerInline
+              quickTimes={quickTimes}
+              selectedTime={selectedTime}
+              setSelectedTime={setSelectedTime}
+              confirmLabel="Send proposal"
+              onConfirm={() => { if (selectedTime) reschedule(selectedTime); }}
+              onCancel={() => { setShowPicker(false); setSelectedTime(""); }}
+            />
+          )}
+        </Card>
+      </div>
+    );
+  }
+
+  return (
+    <div className="p-4 border-t" data-testid={`call-schedule-initial-${matchId}`}>
+      <Card className="p-4 space-y-3 bg-primary/5 border-primary/20">
+        <Phone className="w-5 h-5 text-primary mx-auto" />
+        <p className="font-medium text-sm text-center">
+          {callStage === 0 ? "Ready for your first call?" : "Ready for your second call?"}
+        </p>
+        <p className="text-xs text-muted-foreground text-center">
+          Schedule your {callDuration} {callLabel} call. Pick a time that works for you.
+        </p>
+        {!showPicker ? (
+          <div className="space-y-2">
+            {quickTimes.map(qt => (
+              <Button
+                key={qt.label}
+                size="sm"
+                variant="outline"
+                className="w-full justify-start"
+                onClick={() => propose(qt.value)}
+                disabled={scheduleMutation.isPending}
+                data-testid={`button-quick-time-${qt.label.replace(/\s+/g, "-").toLowerCase()}-${matchId}`}
+              >
+                {qt.label}
+              </Button>
+            ))}
+            <Button size="sm" variant="ghost" className="w-full text-muted-foreground" onClick={() => setShowPicker(true)} data-testid={`button-pick-time-${matchId}`}>
+              <Calendar className="w-4 h-4 mr-2" /> Pick a specific time
+            </Button>
+          </div>
+        ) : (
+          <TimePickerInline
+            quickTimes={[]}
+            selectedTime={selectedTime}
+            setSelectedTime={setSelectedTime}
+            confirmLabel="Propose this time"
+            onConfirm={() => { if (selectedTime) propose(selectedTime); }}
+            onCancel={() => { setShowPicker(false); setSelectedTime(""); }}
+          />
         )}
       </Card>
     </div>
@@ -977,7 +1296,7 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
                 <p className="text-xs text-muted-foreground">You each have {MAX_MESSAGES_PER_USER} messages. Make them count.</p>
               </div>
             )}
-            {allMessages.map(msg => {
+            {allMessages.filter(m => !m.content.startsWith(SCHEDULE_PREFIX)).map(msg => {
               const isMe = msg.senderId === user?.id;
               const hasReaction = msg.reaction && typeof msg.reaction === 'string' && msg.reaction.length > 0;
               if (hasReaction) {
@@ -1152,24 +1471,17 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
               </Card>
             </div>
           ) : callStage === 1 && bothPostCallLimitReached ? (
-            <div className="p-4 border-t">
-              <Card className="p-4 text-center space-y-3 bg-primary/5 border-primary/20" data-testid={`card-second-call-${match.id}`}>
-                <Phone className="w-5 h-5 text-primary mx-auto" />
-                <p className="font-medium text-sm">You're both ready for the second call!</p>
-                <p className="text-xs text-muted-foreground">A 15-minute call to go even deeper. Let's do it.</p>
-                <Button
-                  size="sm"
-                  onClick={() => {
-                    console.log("[CALL_UI] CALL_REQUEST_STARTED", { matchId: match.id, callStage, callType: "voice_2", role: "caller" });
-                    startCall.mutate();
-                  }}
-                  disabled={startCall.isPending || hasExistingCall}
-                  data-testid={`button-second-call-${match.id}`}
-                >
-                  <Phone className="w-4 h-4 mr-2" /> Start Second Call
-                </Button>
-              </Card>
-            </div>
+            <CallSchedulingCard
+              matchId={match.id}
+              matchName={match.profile.firstName}
+              allMessages={allMessages}
+              callStage={1}
+              startCallPending={startCall.isPending}
+              onStartCall={() => {
+                console.log("[CALL_UI] CALL_REQUEST_STARTED", { matchId: match.id, callStage: 1, callType: "voice_2", role: "caller" });
+                startCall.mutate();
+              }}
+            />
           ) : callStage === 1 ? (
             <div className="border-t" data-testid={`post-call-messaging-${match.id}`}>
               {isOtherTyping && (
@@ -1242,24 +1554,17 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
               )}
             </div>
           ) : isLimitReached ? (
-            <div className="p-4 border-t">
-              <Card className="p-4 text-center space-y-3 bg-primary/5 border-primary/20">
-                <Phone className="w-5 h-5 text-primary mx-auto" />
-                <p className="font-medium text-sm">You've both shared a lot - ready to hear each other's voice?</p>
-                <p className="text-xs text-muted-foreground">Your first call is 10 minutes to keep it meaningful.</p>
-                <Button
-                  size="sm"
-                  onClick={() => {
-                    console.log("[CALL_UI] CALL_REQUEST_STARTED", { matchId: match.id, callStage, callType: "voice_1", role: "caller" });
-                    startCall.mutate();
-                  }}
-                  disabled={startCall.isPending || hasExistingCall}
-                  data-testid={`button-call-${match.id}`}
-                >
-                  <Phone className="w-4 h-4 mr-2" /> Start First Call
-                </Button>
-              </Card>
-            </div>
+            <CallSchedulingCard
+              matchId={match.id}
+              matchName={match.profile.firstName}
+              allMessages={allMessages}
+              callStage={0}
+              startCallPending={startCall.isPending}
+              onStartCall={() => {
+                console.log("[CALL_UI] CALL_REQUEST_STARTED", { matchId: match.id, callStage: 0, callType: "voice_1", role: "caller" });
+                startCall.mutate();
+              }}
+            />
           ) : (
             <div className="p-3 border-t">
               {isOtherTyping && (

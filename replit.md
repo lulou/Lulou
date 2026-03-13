@@ -33,6 +33,14 @@ Lulou Dating is a calm, premium dating app focused on helping people move from m
 - Structured connection progression (5 steps: Match → Chat → 1st Call → 2nd Call → Meet)
   - Spark progress bar in chat header shows current step
   - Stage hint banners appear in input area as limits approach
+- Call scheduling: both calls require mutual agreement on a time before starting
+  - States: not scheduled → proposed → accepted → ready to start
+  - Quick times: Available now / In 30 min / In 1 hr / In 2 hrs / Pick specific time
+  - Receiver can accept, decline, or suggest a different time
+  - Seed users auto-accept proposals (1.5-3s delay)
+  - Scheduling state derived from `__SCHEDULE__:` system messages in messages table (no new columns)
+  - `__SCHEDULE__:` messages are hidden from the chat display
+  - Start Call button only appears when schedule is accepted + time is within 5 min
 - Multi-call progression after message limit:
   1. First voice call (10 minutes) - prompted after 15 messages (stage 0)
   2. Post-call messaging (6 messages per user) - after first call (stage 1)
@@ -128,4 +136,5 @@ Lulou Dating is a calm, premium dating app focused on helping people move from m
 - `POST /api/matches/:id/face-call/accept` - Accept optional face call (after 2nd voice call)
 - `POST /api/matches/:id/face-call/decline` - Decline/skip face call (advances to stage 3)
 - `POST /api/messages/:messageId/reaction` - Toggle ❤️ reaction on a message (server validates ownership + received-only)
+- `POST /api/matches/:id/schedule-call` - Propose/accept/decline/reschedule a call time (action + proposedTime)
 - `POST /api/matches/:id/meet-availability` - Set date/time availability slots (after all calls done)
