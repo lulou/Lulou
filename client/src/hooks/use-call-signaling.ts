@@ -16,10 +16,10 @@ function getChannelName(matchId: string) {
 
 const subscribedChannels = new Map<string, ReturnType<typeof supabase.channel>>();
 
-let callEndedCallback: ((matchId: string) => void) | null = null;
+let callEndedCallback: ((matchId: string, callSessionId?: string | null) => void) | null = null;
 const recentlyProcessed = new Set<string>();
 
-export function setCallEndedHandler(handler: ((matchId: string) => void) | null) {
+export function setCallEndedHandler(handler: ((matchId: string, callSessionId?: string | null) => void) | null) {
   callEndedCallback = handler;
 }
 
@@ -31,13 +31,13 @@ export function clearDedupeForMatch(matchId: string) {
   }
 }
 
-function processEndSignal(matchId: string, reason: string) {
+function processEndSignal(matchId: string, reason: string, callSessionId?: string | null) {
   const key = `${matchId}:${reason}`;
   if (recentlyProcessed.has(key)) return;
   recentlyProcessed.add(key);
   setTimeout(() => recentlyProcessed.delete(key), 10000);
-  console.log("[CALL_SESSION] CONNECTION_REMOVED", { matchId, reason: `signal_${reason}`, source: "realtime" });
-  callEndedCallback?.(matchId);
+  console.log("[CALL_SESSION] CONNECTION_REMOVED", { matchId, callSessionId, reason: `signal_${reason}`, source: "realtime" });
+  callEndedCallback?.(matchId, callSessionId);
 }
 
 export function useCallSignaling(matchIds: string[], userId: string) {
@@ -79,19 +79,22 @@ export function useCallSignaling(matchIds: string[], userId: string) {
         } else if (event.type === "call:answered") {
           console.log("[CALL_SIGNAL] CALL_ANSWERED", { matchId, answeredBy: senderId });
         } else if (event.type === "call:declined") {
-          console.log("[CALL_SIGNAL] CALL_DECLINED", { matchId, declinedBy: senderId });
-          markCallSessionCancelled(matchId, (event as any).callSessionId);
-          processEndSignal(matchId, "declined");
+          const sid = (event as any).callSessionId ?? null;
+          console.log("[CALL_SIGNAL] CALL_DECLINED", { matchId, declinedBy: senderId, callSessionId: sid });
+          markCallSessionCancelled(matchId, sid);
+          processEndSignal(matchId, "declined", sid);
           isEndSignal = true;
         } else if (event.type === "call:cancelled") {
-          console.log("[CALL_SIGNAL] CALL_CANCELLED", { matchId, cancelledBy: senderId });
-          markCallSessionCancelled(matchId, (event as any).callSessionId);
-          processEndSignal(matchId, "cancelled");
+          const sid = (event as any).callSessionId ?? null;
+          console.log("[CALL_SIGNAL] CALL_CANCELLED", { matchId, cancelledBy: senderId, callSessionId: sid });
+          markCallSessionCancelled(matchId, sid);
+          processEndSignal(matchId, "cancelled", sid);
           isEndSignal = true;
         } else if (event.type === "call:ended") {
-          console.log("[CALL_SIGNAL] CALL_ENDED", { matchId, endedBy: senderId });
-          markCallSessionCancelled(matchId, (event as any).callSessionId);
-          processEndSignal(matchId, "ended");
+          const sid = (event as any).callSessionId ?? null;
+          console.log("[CALL_SIGNAL] CALL_ENDED", { matchId, endedBy: senderId, callSessionId: sid });
+          markCallSessionCancelled(matchId, sid);
+          processEndSignal(matchId, "ended", sid);
           isEndSignal = true;
         }
 

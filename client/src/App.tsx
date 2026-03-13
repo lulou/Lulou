@@ -18,7 +18,7 @@ import AppLayout from "@/components/app-layout";
 import IncomingCallOverlay from "@/components/incoming-call";
 import { ActiveCallOverlay } from "@/components/active-call";
 import { useCallSignaling, setCallEndedHandler, clearDedupeForMatch } from "@/hooks/use-call-signaling";
-import { markCallSessionCancelled, isCallSessionCancelled, clearCancelledSession, getCancelledSessions } from "@/lib/cancelled-calls";
+import { markCallSessionCancelled, isCallSessionCancelled, clearCancelledSession } from "@/lib/cancelled-calls";
 import type { Profile, Match } from "@shared/schema";
 import { Loader2 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
@@ -70,9 +70,13 @@ function PersistentTabs() {
 
 type MatchWithProfile = Match & { profile: Profile };
 
-function clearCallFromCache(qc: ReturnType<typeof useQueryClient>, matchId: string) {
-  console.log("[CALL_SESSION] CACHE_CLEARED", { matchId });
-  markCallSessionCancelled(matchId);
+function clearCallFromCache(
+  qc: ReturnType<typeof useQueryClient>,
+  matchId: string,
+  callSessionId?: string | null,
+) {
+  console.log("[CALL_SESSION] CACHE_CLEARED", { matchId, callSessionId });
+  if (callSessionId) markCallSessionCancelled(matchId, callSessionId);
   qc.setQueriesData<MatchWithProfile[]>({ queryKey: ["/api/matches"] }, (old) => {
     if (!old) return old;
     return old.map(m => m.id === matchId ? {
@@ -100,48 +104,29 @@ function CallDetectors({ userId }: { userId: string }) {
   const matchIds = (matches || []).map(m => m.id);
   useCallSignaling(matchIds, userId);
 
-  const markCallEnded = useCallback((matchId: string, reason?: string) => {
-    console.log("[CALL_SESSION] CALL_SESSION_CLEANUP_REASON", { matchId, reason: reason || "signal_or_hangup", endedSetSize: endedMatchIdsRef.current.size });
+  const markCallEnded = useCallback((matchId: string, callSessionId?: string | null, reason?: string) => {
+    console.log("[CALL_SESSION] CALL_SESSION_CLEANUP_REASON", { matchId, callSessionId, reason: reason || "signal_or_hangup" });
     endedMatchIdsRef.current.add(matchId);
     setEndedTick(t => t + 1);
-    clearCallFromCache(qc, matchId);
+    clearCallFromCache(qc, matchId, callSessionId);
   }, [qc]);
 
   useEffect(() => {
     if (!matches) return;
-    const clearedMatchIds = new Set<string>();
     for (const mid of endedMatchIdsRef.current) {
       const m = matches.find(x => x.id === mid);
       if (m && !m.callStartedAt && !m.callInitiatorId && !m.callAnswered && !m.callSessionId) {
         endedMatchIdsRef.current.delete(mid);
         clearCancelledSession(mid);
-        clearedMatchIds.add(mid);
         clearDedupeForMatch(mid);
         console.log("[CALL_SESSION] CALL_SUBSCRIPTION_REMOVED", { matchId: mid, reason: "server_confirmed_cleared" });
-      }
-    }
-    const cancelled = getCancelledSessions();
-    for (const key of cancelled) {
-      const matchById = matches.find(x => x.id === key);
-      if (matchById && !matchById.callStartedAt && !matchById.callInitiatorId && !matchById.callAnswered && !matchById.callSessionId) {
-        clearCancelledSession(key);
-        console.log("[CALL_SESSION] CALL_SUBSCRIPTION_REMOVED", { matchId: key, reason: "cancelled_session_confirmed_cleared" });
-        continue;
-      }
-      const matchBySession = matches.find(x => x.callSessionId === key);
-      if (!matchBySession) {
-        clearCancelledSession(key);
-        console.log("[CALL_SESSION] CALL_SUBSCRIPTION_REMOVED", { sessionKey: key, reason: "session_no_longer_exists" });
-      } else if (!matchBySession.callStartedAt && !matchBySession.callInitiatorId) {
-        clearCancelledSession(key);
-        console.log("[CALL_SESSION] CALL_SUBSCRIPTION_REMOVED", { sessionKey: key, matchId: matchBySession.id, reason: "session_confirmed_cleared" });
       }
     }
   }, [matches]);
 
   useEffect(() => {
-    setCallEndedHandler((matchId: string) => {
-      markCallEnded(matchId, "realtime_end_signal");
+    setCallEndedHandler((matchId: string, callSessionId?: string | null) => {
+      markCallEnded(matchId, callSessionId, "realtime_end_signal");
     });
     return () => setCallEndedHandler(null);
   }, [markCallEnded]);
@@ -264,10 +249,12 @@ function CallDetectors({ userId }: { userId: string }) {
 
   const handleActiveCallEnd = useCallback(() => {
     if (activeCall) {
-      console.log("[CALL_UI] CALL_HUNG_UP", { matchId: activeCall.id, callSessionId: activeCall.callSessionId, role: activeCall.callInitiatorId === userId ? "caller" : "receiver", source: "fullscreen_overlay" });
-      console.log("[CALL_SESSION] CALL_STAGE_EXITED", { matchId: activeCall.id, callSessionId: activeCall.callSessionId, reason: "user_hangup_overlay" });
-      console.log("[CALL_SESSION] CHAT_STATE_PRESERVED", { matchId: activeCall.id, callSessionId: activeCall.callSessionId, note: "overlay ended — chat thread intact" });
-      markCallEnded(activeCall.id, "user_hangup");
+      const { id: matchId, callSessionId } = activeCall;
+      const role = activeCall.callInitiatorId === userId ? "caller" : "receiver";
+      console.log("[CALL_UI] CALL_HUNG_UP", { matchId, callSessionId, role, source: "fullscreen_overlay" });
+      console.log("[CALL_SESSION] CALL_STAGE_EXITED", { matchId, callSessionId, reason: "user_hangup_overlay" });
+      console.log("[CALL_SESSION] CHAT_STATE_PRESERVED", { matchId, callSessionId, note: "overlay ended — chat intact" });
+      markCallEnded(matchId, callSessionId, "user_hangup");
     }
   }, [activeCall?.id, activeCall?.callSessionId, activeCall?.callInitiatorId, userId, markCallEnded]);
 

@@ -944,11 +944,10 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
       return await res.json();
     },
     onSuccess: (data: any) => {
-      console.log("[CALL_UI] CALL_SESSION_CREATED", { matchId: match.id, callSessionId: data.callSessionId });
-      console.log("[CALL_UI] CALL_STAGE_ENTERED", { matchId: match.id, callSessionId: data.callSessionId, confirmed: true });
+      console.log("[CALL_UI] CALL_REQUEST_STARTED", { matchId: match.id, callSessionId: data.callSessionId });
+      console.log("[CALL_UI] CALL_STAGE_ENTERED", { matchId: match.id, callSessionId: data.callSessionId, role: "caller" });
       iCancelledRef.current = false;
-      clearCancelledSession(match.id);
-      if (data.callSessionId) clearCancelledSession(data.callSessionId);
+      clearCancelledSession(match.id); // clears all previous sessions for this match
       queryClient.invalidateQueries({ queryKey: ["/api/matches", match.id] });
       queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
     },
@@ -960,6 +959,8 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
 
   const cancelCall = useMutation({
     mutationFn: async () => {
+      // Set immediately so a concurrent 10s poll doesn't trigger the "declined" toast
+      iCancelledRef.current = true;
       const sessionId = lastCallSessionIdRef.current;
       console.log("[CALL_UI] CALL_CANCELLED", { matchId: match.id, callSessionId: sessionId, userId: user?.id, role: "caller" });
       console.log("[CALL_UI] CALL_STAGE_EXITED", { matchId: match.id, reason: "caller_cancelled" });
@@ -968,13 +969,13 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
     },
     onSuccess: () => {
       const sessionId = lastCallSessionIdRef.current;
-      iCancelledRef.current = true;
       markCallSessionCancelled(match.id, sessionId);
       broadcastCallSignal(match.id, {
         type: "call:cancelled",
         matchId: match.id,
         userId: user!.id,
-      });
+        callSessionId: sessionId,
+      } as any);
       queryClient.setQueriesData<(Match & { profile: Profile })[]>({ queryKey: ["/api/matches"] }, (old) => {
         if (!old) return old;
         return old.map(m => m.id === match.id ? { ...m, callStartedAt: null, callInitiatorId: null, callAnswered: false, callCompleted: false, callSessionId: null } : m);
@@ -1056,7 +1057,8 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
         type: "call:declined",
         matchId: match.id,
         userId: user!.id,
-      });
+        callSessionId: sessionId,
+      } as any);
       queryClient.setQueriesData<(Match & { profile: Profile })[]>({ queryKey: ["/api/matches"] }, (old) => {
         if (!old) return old;
         return old.map(m => m.id === match.id ? { ...m, callStartedAt: null, callInitiatorId: null, callAnswered: false, callCompleted: false, callSessionId: null } : m);
@@ -1260,7 +1262,7 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
     const isRingingNow = !!(isCallRinging && iAmCaller);
     prevRingingRef.current = isRingingNow;
 
-    const selfCancelled = iCancelledRef.current || isCallSessionCancelled(match.id, lastCallSessionIdRef.current);
+    const selfCancelled = iCancelledRef.current;
     if (wasRinging && !isRingingNow && !isCallActive && !selfCancelled) {
       console.log("[CALL_UI] CALL_DECLINED", { matchId: match.id, reason: "declined_by_receiver_detected", callSessionId: lastCallSessionIdRef.current });
       toast({ title: `${match.profile.firstName} declined`, description: "They weren't available right now. Try again later." });

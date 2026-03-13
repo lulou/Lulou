@@ -1,21 +1,35 @@
-const cancelledCallSessions = new Set<string>();
+// Keys are "matchId:callSessionId" — never just matchId, which would block future calls.
+const cancelledSessions = new Set<string>();
+
+function sessionKey(matchId: string, callSessionId: string) {
+  return `${matchId}:${callSessionId}`;
+}
 
 export function markCallSessionCancelled(matchId: string, callSessionId?: string | null) {
-  cancelledCallSessions.add(matchId);
-  if (callSessionId) cancelledCallSessions.add(callSessionId);
-  console.log("[CALL_SESSION] CALL_SESSION_MARKED_CANCELLED", { matchId, callSessionId, setSize: cancelledCallSessions.size });
+  if (!callSessionId) return;
+  const key = sessionKey(matchId, callSessionId);
+  cancelledSessions.add(key);
+  console.log("[CALL_SESSION] CALL_SESSION_MARKED_CANCELLED", {
+    matchId,
+    callSessionId,
+    setSize: cancelledSessions.size,
+  });
 }
 
 export function isCallSessionCancelled(matchId: string, callSessionId?: string | null): boolean {
-  if (cancelledCallSessions.has(matchId)) return true;
-  if (callSessionId && cancelledCallSessions.has(callSessionId)) return true;
-  return false;
+  if (!callSessionId) return false;
+  return cancelledSessions.has(sessionKey(matchId, callSessionId));
 }
 
-export function clearCancelledSession(key: string) {
-  cancelledCallSessions.delete(key);
-}
-
-export function getCancelledSessions(): Set<string> {
-  return cancelledCallSessions;
+export function clearCancelledSession(matchId: string, callSessionId?: string | null) {
+  if (callSessionId) {
+    cancelledSessions.delete(sessionKey(matchId, callSessionId));
+    return;
+  }
+  // Clear all sessions for this match (used in post-cleanup sweep)
+  for (const key of cancelledSessions) {
+    if (key.startsWith(`${matchId}:`)) {
+      cancelledSessions.delete(key);
+    }
+  }
 }
