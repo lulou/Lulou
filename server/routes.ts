@@ -109,16 +109,23 @@ const isAuthenticated: RequestHandler = async (req: any, res, next) => {
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
     return res.status(401).json({ message: "Unauthorized" });
   }
-
   const token = authHeader.split(" ")[1];
-  const { data: { user }, error } = await supabase.auth.getUser(token);
-
-  if (error || !user) {
-    return res.status(401).json({ message: "Unauthorized" });
+  try {
+    const { data: { user }, error } = await supabase.auth.getUser(token);
+    if (error || !user) {
+      console.error("[AUTH] MIDDLEWARE_AUTH_REJECTED", { error: error?.message, hasUser: !!user });
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+    req.user = user;
+    next();
+  } catch (err: any) {
+    console.error("[AUTH] MIDDLEWARE_ERROR", {
+      CALL_ROUTE_ERROR: err?.message,
+      stack: err?.stack,
+      path: req.path,
+    });
+    return res.status(500).json({ message: `Auth check failed: ${err?.message || "unknown error"}` });
   }
-
-  req.user = user;
-  next();
 };
 
 function containsContactInfo(text: string): boolean {
@@ -574,15 +581,22 @@ export async function registerRoutes(
 
       res.json(match);
     } catch (error: any) {
-      console.error("[CALL_START] CALL_START_ERROR", {
+      const matchId = req.params.matchId;
+      const userId = req.user?.id;
+      console.error("[CALL_START] CALL_ROUTE_ERROR", {
         CALL_ROUTE_NAME: "POST /api/matches/:matchId/call/start",
         CALL_ROUTE_ERROR: error?.message,
         stack: error?.stack,
-        matchId: req.params.matchId,
-        userId: req.user?.id,
-        body: req.body,
+        requestPayload: req.body,
+        matchId,
+        userId,
+        callSessionId: null,
       });
-      res.status(500).json({ message: error?.message || "Failed to start call", route: "call/start" });
+      res.status(500).json({
+        message: error?.message || "Failed to start call",
+        route: "POST /api/matches/:matchId/call/start",
+        detail: error?.stack?.split("\n")[0] || null,
+      });
     }
   });
 
@@ -606,8 +620,22 @@ export async function registerRoutes(
       });
       res.json(match);
     } catch (error: any) {
-      console.error("[CALL_ANSWER] CALL_ANSWER_ERROR", { CALL_ROUTE_NAME: "POST /api/matches/:matchId/call/answer", CALL_ROUTE_ERROR: error?.message, stack: error?.stack, matchId: req.params.matchId, userId: req.user?.id });
-      res.status(500).json({ message: error?.message || "Failed to answer call", route: "call/answer" });
+      const matchId = req.params.matchId;
+      const userId = req.user?.id;
+      console.error("[CALL_ANSWER] CALL_ROUTE_ERROR", {
+        CALL_ROUTE_NAME: "POST /api/matches/:matchId/call/answer",
+        CALL_ROUTE_ERROR: error?.message,
+        stack: error?.stack,
+        requestPayload: req.body,
+        matchId,
+        userId,
+        callSessionId: null,
+      });
+      res.status(500).json({
+        message: error?.message || "Failed to answer call",
+        route: "POST /api/matches/:matchId/call/answer",
+        detail: error?.stack?.split("\n")[0] || null,
+      });
     }
   });
 
@@ -627,14 +655,14 @@ export async function registerRoutes(
       });
       res.json(match);
     } catch (error: any) {
-      console.error("[CALL_CANCEL] CALL_DECLINE_ERROR", {
-        errMessage: error?.message,
-        errStack: error?.stack,
+      console.error("[CALL_CANCEL] CALL_ROUTE_ERROR", {
+        CALL_ROUTE_NAME: "POST /api/matches/:matchId/call/cancel",
+        CALL_ROUTE_ERROR: error?.message,
+        stack: error?.stack,
+        requestPayload: req.body,
         matchId,
         userId,
-        callerId: req.body?.callerId || "unknown",
-        receiverId: userId,
-        body: req.body,
+        callSessionId: null,
       });
 
       broadcastCallEvent(matchId, {
@@ -665,9 +693,8 @@ export async function registerRoutes(
 
       res.status(500).json({
         message: error?.message || "Failed to cancel call",
-        route: "call/cancel",
-        matchId,
-        userId,
+        route: "POST /api/matches/:matchId/call/cancel",
+        detail: error?.stack?.split("\n")[0] || null,
       });
     }
   });
@@ -688,8 +715,22 @@ export async function registerRoutes(
       });
       res.json(match);
     } catch (error: any) {
-      console.error("[CALL_COMPLETE] CALL_COMPLETE_ERROR", { CALL_ROUTE_NAME: "POST /api/matches/:matchId/call/complete", CALL_ROUTE_ERROR: error?.message, stack: error?.stack, matchId: req.params.matchId, userId: req.user?.id });
-      res.status(500).json({ message: error?.message || "Failed to complete call", route: "call/complete" });
+      const matchId = req.params.matchId;
+      const userId = req.user?.id;
+      console.error("[CALL_COMPLETE] CALL_ROUTE_ERROR", {
+        CALL_ROUTE_NAME: "POST /api/matches/:matchId/call/complete",
+        CALL_ROUTE_ERROR: error?.message,
+        stack: error?.stack,
+        requestPayload: req.body,
+        matchId,
+        userId,
+        callSessionId: null,
+      });
+      res.status(500).json({
+        message: error?.message || "Failed to complete call",
+        route: "POST /api/matches/:matchId/call/complete",
+        detail: error?.stack?.split("\n")[0] || null,
+      });
     }
   });
 
@@ -721,8 +762,22 @@ export async function registerRoutes(
       console.log("[FACE_CALL_ACCEPT] CALL_API_RESPONSE", { status: 200, matchId, userId });
       res.json(match);
     } catch (error: any) {
-      console.error("[FACE_CALL_ACCEPT] FACE_CALL_ACCEPT_ERROR", { CALL_ROUTE_NAME: "POST /api/matches/:matchId/face-call/accept", CALL_ROUTE_ERROR: error?.message, stack: error?.stack, matchId: req.params.matchId, userId: req.user?.id });
-      res.status(500).json({ message: error?.message || "Failed to accept face call", route: "face-call/accept" });
+      const matchId = req.params.matchId;
+      const userId = req.user?.id;
+      console.error("[FACE_CALL_ACCEPT] CALL_ROUTE_ERROR", {
+        CALL_ROUTE_NAME: "POST /api/matches/:matchId/face-call/accept",
+        CALL_ROUTE_ERROR: error?.message,
+        stack: error?.stack,
+        requestPayload: req.body,
+        matchId,
+        userId,
+        callSessionId: null,
+      });
+      res.status(500).json({
+        message: error?.message || "Failed to accept face call",
+        route: "POST /api/matches/:matchId/face-call/accept",
+        detail: error?.stack?.split("\n")[0] || null,
+      });
     }
   });
 
@@ -739,8 +794,22 @@ export async function registerRoutes(
       console.log("[FACE_CALL_DECLINE] CALL_API_RESPONSE", { status: 200, matchId: req.params.matchId, userId });
       res.json(match);
     } catch (error: any) {
-      console.error("[FACE_CALL_DECLINE] FACE_CALL_DECLINE_ERROR", { CALL_ROUTE_NAME: "POST /api/matches/:matchId/face-call/decline", CALL_ROUTE_ERROR: error?.message, stack: error?.stack, matchId: req.params.matchId, userId: req.user?.id });
-      res.status(500).json({ message: error?.message || "Failed to decline face call", route: "face-call/decline" });
+      const matchId = req.params.matchId;
+      const userId = req.user?.id;
+      console.error("[FACE_CALL_DECLINE] CALL_ROUTE_ERROR", {
+        CALL_ROUTE_NAME: "POST /api/matches/:matchId/face-call/decline",
+        CALL_ROUTE_ERROR: error?.message,
+        stack: error?.stack,
+        requestPayload: req.body,
+        matchId,
+        userId,
+        callSessionId: null,
+      });
+      res.status(500).json({
+        message: error?.message || "Failed to decline face call",
+        route: "POST /api/matches/:matchId/face-call/decline",
+        detail: error?.stack?.split("\n")[0] || null,
+      });
     }
   });
 

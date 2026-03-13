@@ -204,8 +204,8 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss }: In
     },
     onError: (error: Error) => {
       actedRef.current = false;
-      console.error("[CALL_UI] CALL_ANSWER_FAILED", { matchId: match.id, error: error.message });
-      toast({ title: "Couldn't connect", description: error.message, variant: "destructive" });
+      console.error("[CALL_UI] CALL_ANSWER_FAILED", { matchId: match.id, route: "call/answer", error: error.message, errorObj: error });
+      toast({ title: "Couldn't connect", description: error.message || "Unknown server error", variant: "destructive" });
     },
   });
 

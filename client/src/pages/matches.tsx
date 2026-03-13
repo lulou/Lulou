@@ -577,8 +577,8 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
       queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
     },
     onError: (error: Error) => {
-      console.error("[CALL_UI] CALL_START_FAILED", { matchId: match.id, error: error.message });
-      toast({ title: "Call failed", description: error.message, variant: "destructive" });
+      console.error("[CALL_UI] CALL_START_FAILED", { matchId: match.id, route: "call/start", error: error.message, errorObj: error });
+      toast({ title: "Call failed", description: error.message || "Unknown server error", variant: "destructive" });
     },
   });
 
