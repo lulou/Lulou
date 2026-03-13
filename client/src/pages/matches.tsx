@@ -1131,11 +1131,54 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
   );
 }
 
+function MatchCard({ match, unreadCount, userId, onOpen }: {
+  match: MatchWithProfile;
+  unreadCount: number;
+  userId: string | null;
+  onOpen: () => void;
+}) {
+  return (
+    <Card
+      className="cursor-pointer hover-elevate transition-all"
+      onClick={onOpen}
+      data-testid={`button-expand-match-${match.id}`}
+    >
+      <div className="p-3.5 flex items-center gap-3">
+        <div className="relative">
+          <Avatar className="w-12 h-12">
+            <AvatarImage src={match.profile.photos?.[0]} alt={match.profile.firstName} />
+            <AvatarFallback className="bg-primary/10 text-primary font-semibold">
+              {match.profile.firstName?.[0]}
+            </AvatarFallback>
+          </Avatar>
+          {unreadCount > 0 && (
+            <span className="absolute -top-1 -right-1 bg-primary text-primary-foreground text-[10px] font-bold min-w-[18px] h-[18px] flex items-center justify-center rounded-full px-1" data-testid={`badge-unread-${match.id}`}>
+              {unreadCount}
+            </span>
+          )}
+        </div>
+        <div className="flex-1 min-w-0">
+          <h3 className="font-semibold text-sm truncate" data-testid={`text-match-name-${match.id}`}>
+            {match.profile.firstName}, {match.profile.age}
+          </h3>
+          <p className="text-xs text-muted-foreground truncate mt-0.5" data-testid={`text-last-message-${match.id}`}>
+            {match.lastMessage
+              ? (match.lastMessage.senderId === userId ? "You: " : "") + match.lastMessage.content
+              : match.profile.datingIntent || "Start the conversation"}
+          </p>
+        </div>
+        <ChevronDown className="w-4 h-4 text-muted-foreground/40 shrink-0" />
+      </div>
+    </Card>
+  );
+}
+
 export default function Matches() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const isActive = useTabActive();
   const [expandedMatchId, setExpandedMatchId] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<"new" | "active">("new");
   const { data: matches, isLoading: matchesLoading, error: matchesError } = useQuery<MatchWithProfile[]>({
     queryKey: ["/api/matches"],
   });
@@ -1157,6 +1200,10 @@ export default function Matches() {
   }, [queryClient]);
 
   const { unreadCounts, markRead } = useUnreadCounts(matchIds, user?.id || null, expandedMatchId, handleNewBackgroundMessage);
+
+  const newConnections = (matches || []).filter(m => !m.lastMessage);
+  const activeChats = (matches || []).filter(m => !!m.lastMessage);
+  const totalUnread = Object.values(unreadCounts).reduce((sum, n) => sum + n, 0);
 
   const connectionCount = matches?.length || 0;
   const atLimit = connectionCount >= MAX_CONNECTIONS;
@@ -1293,53 +1340,75 @@ export default function Matches() {
       )}
 
       {matches && matches.length > 0 && (
-        <div className="space-y-2" data-testid="section-match-list">
-          {(incomingRequests.length > 0 || outgoingPending.length > 0) && (
-            <div className="flex items-center gap-2">
-              <MessageCircle className="w-4 h-4 text-primary" />
-              <h2 className="font-semibold text-sm">Active Connections</h2>
-              <Badge variant="secondary" className="text-xs">{matches.length}</Badge>
+        <div data-testid="section-match-list">
+          <div className="flex border-b mb-4" data-testid="tabs-connections">
+            <button
+              className={`flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-px ${activeTab === "new" ? "text-primary border-primary" : "text-muted-foreground border-transparent hover:text-foreground"}`}
+              onClick={() => setActiveTab("new")}
+              data-testid="tab-new-connections"
+            >
+              New Connections
+              {newConnections.length > 0 && (
+                <Badge variant="secondary" className="text-xs px-1.5 h-4">{newConnections.length}</Badge>
+              )}
+            </button>
+            <button
+              className={`flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-px ${activeTab === "active" ? "text-primary border-primary" : "text-muted-foreground border-transparent hover:text-foreground"}`}
+              onClick={() => setActiveTab("active")}
+              data-testid="tab-active-chats"
+            >
+              Active Chats
+              {totalUnread > 0 && (
+                <Badge variant="destructive" className="text-xs px-1.5 h-4">{totalUnread}</Badge>
+              )}
+            </button>
+          </div>
+
+          {activeTab === "new" && (
+            <div className="space-y-2" data-testid="tab-panel-new">
+              {newConnections.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-6">
+                  {activeChats.length > 0 ? "All your connections have active chats." : "No new connections yet."}
+                </p>
+              ) : (
+                newConnections.map(match => (
+                  <MatchCard
+                    key={match.id}
+                    match={match}
+                    unreadCount={unreadCounts[match.id] || 0}
+                    userId={user?.id || null}
+                    onOpen={() => {
+                      console.log("[CHAT] CHAT_THREAD_SELECTED", { matchId: match.id, profileName: match.profile.firstName, tab: "new" });
+                      setExpandedMatchId(match.id);
+                    }}
+                  />
+                ))
+              )}
             </div>
           )}
-          {matches.map(match => (
-            <Card
-              key={match.id}
-              className="cursor-pointer hover-elevate transition-all"
-              onClick={() => {
-                console.log("[CHAT] CHAT_THREAD_SELECTED", { matchId: match.id, profileName: match.profile.firstName });
-                console.log("[CHAT] ACTIVE_MATCH_ID", { matchId: match.id });
-                setExpandedMatchId(match.id);
-              }}
-              data-testid={`button-expand-match-${match.id}`}
-            >
-              <div className="p-3.5 flex items-center gap-3">
-                <div className="relative">
-                  <Avatar className="w-12 h-12">
-                    <AvatarImage src={match.profile.photos?.[0]} alt={match.profile.firstName} />
-                    <AvatarFallback className="bg-primary/10 text-primary font-semibold">
-                      {match.profile.firstName?.[0]}
-                    </AvatarFallback>
-                  </Avatar>
-                  {(unreadCounts[match.id] || 0) > 0 && (
-                    <span className="absolute -top-1 -right-1 bg-primary text-primary-foreground text-[10px] font-bold min-w-[18px] h-[18px] flex items-center justify-center rounded-full px-1" data-testid={`badge-unread-${match.id}`}>
-                      {unreadCounts[match.id]}
-                    </span>
-                  )}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <h3 className="font-semibold text-sm truncate" data-testid={`text-match-name-${match.id}`}>
-                    {match.profile.firstName}, {match.profile.age}
-                  </h3>
-                  <p className="text-xs text-muted-foreground truncate mt-0.5" data-testid={`text-last-message-${match.id}`}>
-                    {match.lastMessage
-                      ? (match.lastMessage.senderId === user?.id ? "You: " : "") + match.lastMessage.content
-                      : match.profile.datingIntent || "Start the conversation"}
-                  </p>
-                </div>
-                <ChevronDown className="w-4 h-4 text-muted-foreground/40 shrink-0" />
-              </div>
-            </Card>
-          ))}
+
+          {activeTab === "active" && (
+            <div className="space-y-2" data-testid="tab-panel-active">
+              {activeChats.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-6">
+                  No active chats yet. Open a new connection to start talking.
+                </p>
+              ) : (
+                activeChats.map(match => (
+                  <MatchCard
+                    key={match.id}
+                    match={match}
+                    unreadCount={unreadCounts[match.id] || 0}
+                    userId={user?.id || null}
+                    onOpen={() => {
+                      console.log("[CHAT] CHAT_THREAD_SELECTED", { matchId: match.id, profileName: match.profile.firstName, tab: "active" });
+                      setExpandedMatchId(match.id);
+                    }}
+                  />
+                ))
+              )}
+            </div>
+          )}
         </div>
       )}
 
