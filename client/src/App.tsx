@@ -77,16 +77,22 @@ function clearCallFromCache(
 ) {
   console.log("[CALL_SESSION] CACHE_CLEARED", { matchId, callSessionId });
   if (callSessionId) markCallSessionCancelled(matchId, callSessionId);
+  const cleared = {
+    callStartedAt: null,
+    callInitiatorId: null,
+    callAnswered: false,
+    callCompleted: false,
+    callSessionId: null,
+  };
+  // Update list query — guard against detail query (non-array) being matched by the partial key
   qc.setQueriesData<MatchWithProfile[]>({ queryKey: ["/api/matches"] }, (old) => {
-    if (!old) return old;
-    return old.map(m => m.id === matchId ? {
-      ...m,
-      callStartedAt: null,
-      callInitiatorId: null,
-      callAnswered: false,
-      callCompleted: false,
-      callSessionId: null,
-    } : m);
+    if (!old || !Array.isArray(old)) return old;
+    return old.map(m => m.id === matchId ? { ...m, ...cleared } : m);
+  });
+  // Also explicitly clear the detail query so the inline call UI resets
+  qc.setQueriesData<any>({ queryKey: ["/api/matches", matchId] }, (old) => {
+    if (!old || Array.isArray(old)) return old;
+    return { ...old, ...cleared };
   });
 }
 

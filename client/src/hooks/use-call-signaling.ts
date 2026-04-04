@@ -75,9 +75,32 @@ export function useCallSignaling(matchIds: string[], userId: string) {
         let isEndSignal = false;
 
         if (event.type === "call:ring") {
-          console.log("[CALL_SIGNAL] RECEIVER_ASSIGNED", { matchId, callerId: (event as any).callerId, receiverId: userId });
+          const ring = event as any;
+          console.log("[CALL_SIGNAL] RECEIVER_ASSIGNED", { matchId, callerId: ring.callerId, receiverId: userId });
+          // Immediately update the list cache so incoming call UI shows without waiting for a refetch
+          queryClient.setQueriesData<any[]>({ queryKey: ["/api/matches"] }, (old) => {
+            if (!old || !Array.isArray(old)) return old;
+            return old.map((m: any) => m.id === matchId ? {
+              ...m,
+              callStartedAt: m.callStartedAt || new Date().toISOString(),
+              callInitiatorId: m.callInitiatorId || ring.callerId,
+              callSessionId: m.callSessionId || ring.callSessionId,
+              callAnswered: false,
+              callCompleted: false,
+            } : m);
+          });
         } else if (event.type === "call:answered") {
           console.log("[CALL_SIGNAL] CALL_ANSWERED", { matchId, answeredBy: senderId });
+          // Immediately flip callAnswered so the caller transitions from ringing to in-call
+          const answeredPatch = { callAnswered: true };
+          queryClient.setQueriesData<any[]>({ queryKey: ["/api/matches"] }, (old) => {
+            if (!old || !Array.isArray(old)) return old;
+            return old.map((m: any) => m.id === matchId ? { ...m, ...answeredPatch } : m);
+          });
+          queryClient.setQueriesData<any>({ queryKey: ["/api/matches", matchId] }, (old) => {
+            if (!old || Array.isArray(old)) return old;
+            return { ...old, ...answeredPatch };
+          });
         } else if (event.type === "call:declined") {
           const sid = (event as any).callSessionId ?? null;
           console.log("[CALL_SIGNAL] CALL_DECLINED", { matchId, declinedBy: senderId, callSessionId: sid });
