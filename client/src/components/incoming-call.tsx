@@ -61,7 +61,7 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss }: In
         callSessionId: match.callSessionId,
       } as any);
       queryClient.setQueriesData<MatchWithProfile[]>({ queryKey: ["/api/matches"] }, old => {
-        if (!old) return old;
+        if (!old || !Array.isArray(old)) return old;
         return old.map(m => m.id === match.id ? { ...m, callAnswered: true } : m);
       });
       onDismiss();
@@ -96,7 +96,7 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss }: In
       } as any);
       // Optimistically clear call fields in cache
       queryClient.setQueriesData<MatchWithProfile[]>({ queryKey: ["/api/matches"] }, old => {
-        if (!old) return old;
+        if (!old || !Array.isArray(old)) return old;
         return old.map(m =>
           m.id === match.id
             ? { ...m, callStartedAt: null, callInitiatorId: null, callAnswered: false, callCompleted: false, callSessionId: null }
@@ -122,7 +122,7 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss }: In
         callSessionId: match.callSessionId,
       } as any);
       queryClient.setQueriesData<MatchWithProfile[]>({ queryKey: ["/api/matches"] }, old => {
-        if (!old) return old;
+        if (!old || !Array.isArray(old)) return old;
         return old.map(m =>
           m.id === match.id
             ? { ...m, callStartedAt: null, callInitiatorId: null, callAnswered: false, callCompleted: false, callSessionId: null }

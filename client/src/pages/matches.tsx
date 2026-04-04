@@ -869,7 +869,7 @@ function mergeCallFields(
     if (k in data) patch[k] = data[k];
   }
   qc.setQueriesData<MatchWithProfile[]>({ queryKey: ["/api/matches"] }, (old) => {
-    if (!old) return old;
+    if (!old || !Array.isArray(old)) return old;
     return old.map(m => m.id === matchId ? { ...m, ...patch } as MatchWithProfile : m);
   });
   qc.setQueriesData<MatchDetail>({ queryKey: ["/api/matches", matchId] }, (old) => {
