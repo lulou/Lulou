@@ -60,8 +60,10 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss }: In
         userId: user!.id,
         callSessionId: match.callSessionId,
       } as any);
-      queryClient.invalidateQueries({ queryKey: ["/api/matches", match.id] });
-      queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
+      queryClient.setQueriesData<MatchWithProfile[]>({ queryKey: ["/api/matches"] }, old => {
+        if (!old) return old;
+        return old.map(m => m.id === match.id ? { ...m, callAnswered: true } : m);
+      });
       onDismiss();
     },
     onError: (error: Error) => {

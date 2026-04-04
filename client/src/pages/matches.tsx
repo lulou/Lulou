@@ -854,6 +854,30 @@ function SystemGuidanceMessage({ children, testId }: { children: ReactNode; test
   );
 }
 
+function mergeCallFields(
+  qc: ReturnType<typeof useQueryClient>,
+  matchId: string,
+  data: Record<string, any>,
+) {
+  const CALL_KEYS = [
+    "callStartedAt", "callInitiatorId", "callAnswered", "callCompleted",
+    "callSessionId", "callStage", "messageCount1", "messageCount2",
+    "faceCallUser1Accepted", "faceCallUser2Accepted",
+  ];
+  const patch: Record<string, any> = {};
+  for (const k of CALL_KEYS) {
+    if (k in data) patch[k] = data[k];
+  }
+  qc.setQueriesData<MatchWithProfile[]>({ queryKey: ["/api/matches"] }, (old) => {
+    if (!old) return old;
+    return old.map(m => m.id === matchId ? { ...m, ...patch } as MatchWithProfile : m);
+  });
+  qc.setQueriesData<MatchDetail>({ queryKey: ["/api/matches", matchId] }, (old) => {
+    if (!old) return old;
+    return { ...old, ...patch } as MatchDetail;
+  });
+}
+
 function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }: {
   match: MatchWithProfile;
   expanded: boolean;
@@ -944,12 +968,12 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
       return await res.json();
     },
     onSuccess: (data: any) => {
-      console.log("[CALL_UI] CALL_REQUEST_STARTED", { matchId: match.id, callSessionId: data.callSessionId });
-      console.log("[CALL_UI] CALL_STAGE_ENTERED", { matchId: match.id, callSessionId: data.callSessionId, role: "caller" });
+      const m = data?.match ?? data;
+      console.log("[CALL_UI] CALL_REQUEST_STARTED", { matchId: match.id, callSessionId: m?.callSessionId });
+      console.log("[CALL_UI] CALL_STAGE_ENTERED", { matchId: match.id, callSessionId: m?.callSessionId, role: "caller" });
       iCancelledRef.current = false;
-      clearCancelledSession(match.id); // clears all previous sessions for this match
-      queryClient.invalidateQueries({ queryKey: ["/api/matches", match.id] });
-      queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
+      clearCancelledSession(match.id);
+      mergeCallFields(queryClient, match.id, m);
     },
     onError: (error: Error) => {
       console.error("[CALL_UI] CALL_START_FAILED", { matchId: match.id, route: "call/start", error: error.message });
@@ -976,10 +1000,7 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
         userId: user!.id,
         callSessionId: sessionId,
       } as any);
-      queryClient.setQueriesData<(Match & { profile: Profile })[]>({ queryKey: ["/api/matches"] }, (old) => {
-        if (!old) return old;
-        return old.map(m => m.id === match.id ? { ...m, callStartedAt: null, callInitiatorId: null, callAnswered: false, callCompleted: false, callSessionId: null } : m);
-      });
+      mergeCallFields(queryClient, match.id, { callStartedAt: null, callInitiatorId: null, callAnswered: false, callCompleted: false, callSessionId: null });
       console.log("[CALL_SESSION] CHAT_STATE_PRESERVED", { matchId: match.id, reason: "caller_cancelled_inline", note: "messages and thread intact" });
       toast({ title: "Call cancelled" });
     },
@@ -1004,8 +1025,7 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
         userId: user!.id,
       });
       console.log("[CALL_UI] CALL_STATE_CLEARED", { matchId: match.id, reason: "call_completed", newStage: data.callStage });
-      queryClient.invalidateQueries({ queryKey: ["/api/matches", match.id] });
-      queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
+      mergeCallFields(queryClient, match.id, data);
       const stage = data.callStage || 0;
       if (stage === 1) {
         toast({ title: "First call completed", description: "Ready for a longer 15-minute call?" });
@@ -1034,8 +1054,7 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
         matchId: match.id,
         userId: user!.id,
       } as any);
-      queryClient.invalidateQueries({ queryKey: ["/api/matches", match.id] });
-      queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
+      mergeCallFields(queryClient, match.id, { callAnswered: true });
     },
     onError: (error: Error) => {
       console.error("[CALL_UI] CALL_ANSWER_FAILED", { matchId: match.id, error: error.message });
@@ -1059,10 +1078,7 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
         userId: user!.id,
         callSessionId: sessionId,
       } as any);
-      queryClient.setQueriesData<(Match & { profile: Profile })[]>({ queryKey: ["/api/matches"] }, (old) => {
-        if (!old) return old;
-        return old.map(m => m.id === match.id ? { ...m, callStartedAt: null, callInitiatorId: null, callAnswered: false, callCompleted: false, callSessionId: null } : m);
-      });
+      mergeCallFields(queryClient, match.id, { callStartedAt: null, callInitiatorId: null, callAnswered: false, callCompleted: false, callSessionId: null });
       console.log("[CALL_SESSION] CHAT_STATE_PRESERVED", { matchId: match.id, reason: "receiver_declined_inline", note: "messages and thread intact" });
       toast({ title: "Call declined" });
     },
@@ -1077,9 +1093,8 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
       const res = await apiRequest("POST", `/api/matches/${match.id}/face-call/accept`, {});
       return res.json();
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/matches", match.id] });
-      queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
+    onSuccess: (data: any) => {
+      mergeCallFields(queryClient, match.id, data);
       toast({ title: "Face call accepted", description: "Waiting for them to accept too..." });
     },
     onError: (error: Error) => {
@@ -1093,9 +1108,8 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
       const res = await apiRequest("POST", `/api/matches/${match.id}/face-call/decline`, {});
       return res.json();
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/matches", match.id] });
-      queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
+    onSuccess: (data: any) => {
+      mergeCallFields(queryClient, match.id, data);
       toast({ title: "Face call skipped", description: "No worries - you can always meet in person instead." });
     },
     onError: (error: Error) => {

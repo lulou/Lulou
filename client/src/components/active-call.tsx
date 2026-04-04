@@ -94,12 +94,33 @@ export function ActiveCallOverlay({
       callSessionId,
     } as any);
 
-    apiRequest("POST", endpoint).catch(e => {
-      console.error("[ActiveCall] API error:", e.message);
-    }).finally(() => {
-      queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/matches", matchId] });
-    });
+    apiRequest("POST", endpoint)
+      .then(async (res) => {
+        if (!res.ok) return;
+        const data = await res.json().catch(() => null);
+        if (!data) return;
+        const patch = {
+          callStartedAt: data.callStartedAt ?? null,
+          callInitiatorId: data.callInitiatorId ?? null,
+          callAnswered: data.callAnswered ?? false,
+          callCompleted: data.callCompleted ?? false,
+          callSessionId: data.callSessionId ?? null,
+          callStage: data.callStage,
+          messageCount1: data.messageCount1,
+          messageCount2: data.messageCount2,
+        };
+        queryClient.setQueriesData<any[]>({ queryKey: ["/api/matches"] }, (old: any[] | undefined) => {
+          if (!Array.isArray(old)) return old;
+          return old.map((m: any) => m.id === matchId ? { ...m, ...patch } : m);
+        });
+        queryClient.setQueriesData<any>({ queryKey: ["/api/matches", matchId] }, (old: any) => {
+          if (!old) return old;
+          return { ...old, ...patch };
+        });
+      })
+      .catch(e => {
+        console.error("[ActiveCall] API error:", e.message);
+      });
   }, [matchId, callSessionId, userId, isCaller, isRinging, onCallEnd, queryClient]);
 
   return (
