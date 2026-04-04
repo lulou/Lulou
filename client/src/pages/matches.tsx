@@ -950,14 +950,29 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
       }
       return { previous };
     },
+    onSuccess: (data: any) => {
+      const realMsg = data as Message;
+      queryClient.setQueryData<MatchDetail>(["/api/matches", match.id], (old) => {
+        if (!old) return old;
+        const tempIdx = old.messages.findIndex(
+          m => typeof m.id === "string" && m.id.startsWith("temp-") &&
+               m.content === realMsg.content && m.senderId === realMsg.senderId
+        );
+        if (tempIdx >= 0) {
+          const updated = [...old.messages];
+          updated[tempIdx] = realMsg;
+          return { ...old, messages: updated };
+        }
+        const exists = old.messages.some(m => m.id === realMsg.id);
+        if (exists) return old;
+        return { ...old, messages: [...old.messages, realMsg] };
+      });
+    },
     onError: (error: Error, _vars: any, context: any) => {
       if (context?.previous) {
         queryClient.setQueryData(["/api/matches", match.id], context.previous);
       }
       toast({ title: "Could not send", description: error.message, variant: "destructive" });
-    },
-    onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/matches", match.id] });
     },
   });
 

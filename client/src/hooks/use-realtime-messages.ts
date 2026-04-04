@@ -32,6 +32,7 @@ export function useRealtimeMessages(matchId: string | undefined, enabled: boolea
             matchId: row.match_id,
             senderId: row.sender_id,
             content: row.content,
+            reaction: row.reaction ?? null,
             createdAt: row.created_at,
           };
 
