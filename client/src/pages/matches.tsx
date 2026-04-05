@@ -968,6 +968,18 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
         if (exists) return old;
         return { ...old, messages: [...old.messages, realMsg] };
       });
+
+      // Immediately reflect the incremented post-call count so bothPostCallLimitReached
+      // updates without waiting for the next 10s poll
+      if (callStage === 1 && realMsg.senderId === user?.id) {
+        const current = queryClient.getQueryData<MatchDetail>(["/api/matches", match.id]);
+        if (current) {
+          const countPatch = current.user1Id === user.id
+            ? { messageCount1: (current.messageCount1 || 0) + 1 }
+            : { messageCount2: (current.messageCount2 || 0) + 1 };
+          mergeCallFields(queryClient, match.id, countPatch);
+        }
+      }
     },
     onError: (error: Error, _vars: any, context: any) => {
       if (context?.previous) {
