@@ -67,9 +67,18 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss }: In
       onDismiss();
     },
     onError: (error: Error) => {
-      actedRef.current = false;
       console.error("[CALL_UI] CALL_ANSWER_FAILED", { matchId: match.id, error: error.message });
+      markCallSessionCancelled(match.id, match.callSessionId);
+      queryClient.setQueriesData<MatchWithProfile[]>({ queryKey: ["/api/matches"] }, old => {
+        if (!old || !Array.isArray(old)) return old;
+        return old.map(m =>
+          m.id === match.id
+            ? { ...m, callStartedAt: null, callInitiatorId: null, callAnswered: false, callCompleted: false, callSessionId: null }
+            : m
+        );
+      });
       toast({ title: "Couldn't connect", description: error.message, variant: "destructive" });
+      onDismiss();
     },
   });
 

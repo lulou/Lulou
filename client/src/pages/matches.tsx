@@ -1042,13 +1042,13 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
     onError: (error: Error) => {
       const isAuth = error.message === "Unauthorized" || error.message.startsWith("401");
       console.error("[CALL_UI] CALL_CANCEL_FAILED", { matchId: match.id, error: error.message, isAuth });
-      if (isAuth) {
-        iCancelledRef.current = false;
-        toast({ title: "Session expired", description: "Please refresh and try again.", variant: "destructive" });
-        return;
-      }
       markCallSessionCancelled(match.id, lastCallSessionIdRef.current);
-      toast({ title: "Cancel failed", description: error.message, variant: "destructive" });
+      mergeCallFields(queryClient, match.id, { callStartedAt: null, callInitiatorId: null, callAnswered: false, callCompleted: false, callSessionId: null });
+      toast({
+        title: isAuth ? "Session expired" : "Cancel failed",
+        description: isAuth ? "Please refresh and try again." : error.message,
+        variant: "destructive",
+      });
     },
   });
 
@@ -1078,7 +1078,10 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
     },
     onError: (error: Error) => {
       console.error("[CALL_COMPLETE] FRONTEND_ERROR", { matchId: match.id, error: error.message });
-      toast({ title: "Complete call failed", description: error.message, variant: "destructive" });
+      markCallSessionCancelled(match.id, lastCallSessionIdRef.current);
+      mergeCallFields(queryClient, match.id, { callStartedAt: null, callInitiatorId: null, callAnswered: false, callCompleted: false, callSessionId: null });
+      broadcastCallSignal(match.id, { type: "call:ended" as any, matchId: match.id, userId: user?.id || "" });
+      toast({ title: "Call ended", description: "Connection lost. Returning to chat.", variant: "destructive" });
     },
   });
 
@@ -1099,6 +1102,8 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
     },
     onError: (error: Error) => {
       console.error("[CALL_UI] CALL_ANSWER_FAILED", { matchId: match.id, error: error.message });
+      markCallSessionCancelled(match.id, lastCallSessionIdRef.current);
+      mergeCallFields(queryClient, match.id, { callStartedAt: null, callInitiatorId: null, callAnswered: false, callCompleted: false, callSessionId: null });
       toast({ title: "Couldn't answer call", description: error.message, variant: "destructive" });
     },
   });
