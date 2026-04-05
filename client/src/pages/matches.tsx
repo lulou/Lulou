@@ -987,7 +987,9 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
       console.log("[CALL_UI] CALL_REQUEST_STARTED", { matchId: match.id, callSessionId: m?.callSessionId });
       console.log("[CALL_UI] CALL_STAGE_ENTERED", { matchId: match.id, callSessionId: m?.callSessionId, role: "caller" });
       iCancelledRef.current = false;
-      clearCancelledSession(match.id);
+      // Do NOT call clearCancelledSession here — new sessions have new IDs (no conflict).
+      // Clearing ALL sessions would let a stale/failed "reused" session bypass the cancelled guard
+      // and re-trigger the call UI, causing the call loop.
       mergeCallFields(queryClient, match.id, m);
     },
     onError: (error: Error) => {

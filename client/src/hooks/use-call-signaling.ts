@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import { supabase } from "@/lib/supabase";
 import { queryClient } from "@/lib/queryClient";
-import { markCallSessionCancelled } from "@/lib/cancelled-calls";
+import { markCallSessionCancelled, isCallSessionCancelled } from "@/lib/cancelled-calls";
 
 type CallSignalEvent =
   | { type: "call:ring"; matchId: string; callerId: string; callerName: string; callSessionId?: string }
@@ -76,19 +76,25 @@ export function useCallSignaling(matchIds: string[], userId: string) {
 
         if (event.type === "call:ring") {
           const ring = event as any;
-          console.log("[CALL_SIGNAL] RECEIVER_ASSIGNED", { matchId, callerId: ring.callerId, receiverId: userId });
-          // Immediately update the list cache so incoming call UI shows without waiting for a refetch
-          queryClient.setQueriesData<any[]>({ queryKey: ["/api/matches"] }, (old) => {
-            if (!old || !Array.isArray(old)) return old;
-            return old.map((m: any) => m.id === matchId ? {
-              ...m,
-              callStartedAt: m.callStartedAt || new Date().toISOString(),
-              callInitiatorId: m.callInitiatorId || ring.callerId,
-              callSessionId: m.callSessionId || ring.callSessionId,
-              callAnswered: false,
-              callCompleted: false,
-            } : m);
-          });
+          const ringSessionId = ring.callSessionId ?? null;
+          // Skip stale ring signals for sessions that were already cancelled
+          if (isCallSessionCancelled(matchId, ringSessionId)) {
+            console.log("[CALL_SIGNAL] STALE_RING_BLOCKED", { matchId, callSessionId: ringSessionId, reason: "session_already_cancelled" });
+          } else {
+            console.log("[CALL_SIGNAL] RECEIVER_ASSIGNED", { matchId, callerId: ring.callerId, receiverId: userId });
+            // Immediately update the list cache so incoming call UI shows without waiting for a refetch
+            queryClient.setQueriesData<any[]>({ queryKey: ["/api/matches"] }, (old) => {
+              if (!old || !Array.isArray(old)) return old;
+              return old.map((m: any) => m.id === matchId ? {
+                ...m,
+                callStartedAt: m.callStartedAt || new Date().toISOString(),
+                callInitiatorId: m.callInitiatorId || ring.callerId,
+                callSessionId: m.callSessionId || ring.callSessionId,
+                callAnswered: false,
+                callCompleted: false,
+              } : m);
+            });
+          }
         } else if (event.type === "call:answered") {
           console.log("[CALL_SIGNAL] CALL_ANSWERED", { matchId, answeredBy: senderId });
           // Immediately flip callAnswered so the caller transitions from ringing to in-call
