@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback, useMemo, type ReactNode } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo, Fragment, type ReactNode } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -845,10 +845,10 @@ function StageHint({ children }: { children: ReactNode }) {
 
 function SystemGuidanceMessage({ children, testId }: { children: ReactNode; testId?: string }) {
   return (
-    <div className="flex justify-center my-3" data-testid={testId || "system-guidance-message"}>
-      <div className="max-w-[82%] rounded-2xl px-4 py-3 bg-muted/50 border border-border/40 text-center space-y-1">
-        <p className="text-[9px] font-semibold text-muted-foreground/55 uppercase tracking-widest">Lulou</p>
-        <p className="text-[11px] text-muted-foreground leading-relaxed">{children}</p>
+    <div className="flex justify-center my-1.5" data-testid={testId || "system-guidance-message"}>
+      <div className="text-center px-3 max-w-[76%]">
+        <p className="text-[8px] font-medium text-muted-foreground/35 uppercase tracking-widest mb-0.5">Lulou</p>
+        <p className="text-[10px] text-muted-foreground/55 leading-relaxed">{children}</p>
       </div>
     </div>
   );
@@ -891,6 +891,7 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
   const isActive = useTabActive();
   const [message, setMessage] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const guidanceInsertIndexRef = useRef<Map<string, number>>(new Map());
 
   const { data: matchDetail, isLoading: matchLoading, error: matchError } = useQuery<MatchDetail>({
     queryKey: ["/api/matches", match.id],
@@ -1380,16 +1381,45 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
     return msgs;
   }, [callStage, messagesRemaining, isLimitReached, myPostCallMessages, myPostCallRemaining, myPostCallLimitReached, bothPostCallLimitReached]);
 
-  const guidanceKey = guidanceMessages.map(m => m.id).join(",");
-  useEffect(() => {
-    if (guidanceMessages.length > 0) {
-      console.log("[SYSTEM_GUIDANCE] SYSTEM_GUIDANCE_MESSAGE_INSERTED", {
-        matchId: match.id,
-        callStage,
-        messages: guidanceMessages.map(m => m.id),
-      });
+  // Track the message-list index at which each guidance message first appeared so it
+  // stays at that position and gets pushed upward naturally as new messages arrive.
+  const guidanceByIndex = useMemo(() => {
+    const visibleMsgs = allMessages.filter(
+      m => !m.content.startsWith(SCHEDULE_PREFIX) && !m.content.startsWith("__SYSTEM__:")
+    );
+
+    // Record insertion index for guidance messages appearing for the first time
+    const activeIds = new Set(guidanceMessages.map(m => m.id));
+    guidanceMessages.forEach(msg => {
+      if (!guidanceInsertIndexRef.current.has(msg.id)) {
+        guidanceInsertIndexRef.current.set(msg.id, visibleMsgs.length);
+        console.log("[SYSTEM_GUIDANCE] SYSTEM_GUIDANCE_MESSAGE_INSERTED", {
+          matchId: match.id,
+          callStage,
+          messageId: msg.id,
+          insertAfterIndex: visibleMsgs.length,
+        });
+      }
+    });
+
+    // Clean up guidance messages that are no longer active
+    for (const id of Array.from(guidanceInsertIndexRef.current.keys())) {
+      if (!activeIds.has(id)) {
+        guidanceInsertIndexRef.current.delete(id);
+      }
     }
-  }, [guidanceKey]);
+
+    // Build map: "after this many messages" → guidance list
+    const map = new Map<number, { id: string; text: string }[]>();
+    guidanceMessages.forEach(msg => {
+      const idx = guidanceInsertIndexRef.current.get(msg.id)!;
+      if (!map.has(idx)) map.set(idx, []);
+      map.get(idx)!.push(msg);
+    });
+
+    return { map, visibleMsgs };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [guidanceMessages, allMessages]);
 
   const allCallsDone = callStage >= 3;
   const isFaceCallStage = callStage === 2;
@@ -1507,43 +1537,48 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
                 <p className="text-xs text-muted-foreground">You each have {MAX_MESSAGES_PER_USER} messages. Make them count.</p>
               </div>
             )}
-            {allMessages.filter(m => !m.content.startsWith(SCHEDULE_PREFIX) && !m.content.startsWith("__SYSTEM__:")).map(msg => {
+            {guidanceByIndex.visibleMsgs.map((msg, i) => {
               const isMe = msg.senderId === user?.id;
               const hasReaction = msg.reaction && typeof msg.reaction === 'string' && msg.reaction.length > 0;
               if (hasReaction) {
                 console.log("[CHAT] MESSAGE_REACTION_RENDERED", { messageId: msg.id, reaction: msg.reaction });
               }
               return (
-                <div key={msg.id} className={`flex ${isMe ? "justify-end" : "justify-start"} ${hasReaction ? "mb-2" : ""}`}>
-                  <div className="relative">
-                    <div
-                      className={`max-w-[75vw] rounded-md px-4 py-3 text-sm select-none ${
-                        isMe
-                          ? "bg-primary text-primary-foreground"
-                          : "bg-muted cursor-pointer"
-                      } ${!isMe ? "active:scale-[0.98] transition-transform" : ""}`}
-                      onClick={() => handleMessageTap(msg)}
-                      data-testid={`message-${msg.id}`}
-                    >
-                      <p className="leading-relaxed">{msg.content}</p>
-                      <p className={`text-[10px] mt-1.5 leading-none opacity-60 ${isMe ? "text-primary-foreground" : "text-muted-foreground"}`} data-testid={`timestamp-${msg.id}`}>
-                        {formatTimestamp(msg.createdAt)}
-                      </p>
-                    </div>
-                    {hasReaction && (
-                      <span
-                        className={`absolute -bottom-2.5 ${isMe ? "left-1" : "right-1"} text-sm drop-shadow-sm`}
-                        data-testid={`reaction-${msg.id}`}
+                <Fragment key={msg.id}>
+                  <div className={`flex ${isMe ? "justify-end" : "justify-start"} ${hasReaction ? "mb-2" : ""}`}>
+                    <div className="relative">
+                      <div
+                        className={`max-w-[75vw] rounded-md px-4 py-3 text-sm select-none ${
+                          isMe
+                            ? "bg-primary text-primary-foreground"
+                            : "bg-muted cursor-pointer"
+                        } ${!isMe ? "active:scale-[0.98] transition-transform" : ""}`}
+                        onClick={() => handleMessageTap(msg)}
+                        data-testid={`message-${msg.id}`}
                       >
-                        ❤️
-                      </span>
-                    )}
+                        <p className="leading-relaxed">{msg.content}</p>
+                        <p className={`text-[10px] mt-1.5 leading-none opacity-60 ${isMe ? "text-primary-foreground" : "text-muted-foreground"}`} data-testid={`timestamp-${msg.id}`}>
+                          {formatTimestamp(msg.createdAt)}
+                        </p>
+                      </div>
+                      {hasReaction && (
+                        <span
+                          className={`absolute -bottom-2.5 ${isMe ? "left-1" : "right-1"} text-sm drop-shadow-sm`}
+                          data-testid={`reaction-${msg.id}`}
+                        >
+                          ❤️
+                        </span>
+                      )}
+                    </div>
                   </div>
-                </div>
+                  {(guidanceByIndex.map.get(i + 1) || []).map(g => (
+                    <SystemGuidanceMessage key={g.id} testId={`guidance-${g.id}`}>{g.text}</SystemGuidanceMessage>
+                  ))}
+                </Fragment>
               );
             })}
-            {guidanceMessages.map(m => (
-              <SystemGuidanceMessage key={m.id} testId={`guidance-${m.id}`}>{m.text}</SystemGuidanceMessage>
+            {(guidanceByIndex.map.get(guidanceByIndex.visibleMsgs.length) || []).map(g => (
+              <SystemGuidanceMessage key={g.id} testId={`guidance-${g.id}`}>{g.text}</SystemGuidanceMessage>
             ))}
             <div ref={messagesEndRef} />
           </div>
