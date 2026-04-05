@@ -106,7 +106,29 @@ export default function ProfilePage() {
   const queryClient = useQueryClient();
   const [expandedSection, setExpandedSection] = useState<string | null>(null);
   const [tipIndex, setTipIndex] = useState(0);
-  const [purchaseItem, setPurchaseItem] = useState<{ name: string; price: string; type: "subscription" | "one-time" } | null>(null);
+  const [purchaseItem, setPurchaseItem] = useState<{ name: string; price: string; type: "subscription" | "one-time"; benefitType?: string } | null>(null);
+  const [purchaseSuccess, setPurchaseSuccess] = useState<string | null>(null);
+
+  const grantBenefit = useMutation({
+    mutationFn: async (benefitType: string) => {
+      const res = await apiRequest("POST", "/api/benefits/grant", { type: benefitType, quantity: 1 });
+      if (!res.ok) throw new Error("Failed to complete purchase");
+      return res.json();
+    },
+    onSuccess: (_data, benefitType) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/benefits"] });
+      const labels: Record<string, string> = {
+        message_extension: "+5 message extension",
+        extra_call: "extra call",
+        video_call: "video call",
+      };
+      setPurchaseSuccess(labels[benefitType] || benefitType);
+      setPurchaseItem(null);
+    },
+    onError: () => {
+      toast({ title: "Purchase failed", description: "Something went wrong. Please try again.", variant: "destructive" });
+    },
+  });
 
   const { data: profile, isLoading } = useQuery<Profile>({
     queryKey: ["/api/profile"],
@@ -795,7 +817,7 @@ export default function ProfilePage() {
                   <p className="text-sm">+5 Messages</p>
                   <p className="text-xs text-muted-foreground">Give a conversation more room</p>
                 </div>
-                <Button size="sm" variant="outline" onClick={() => setPurchaseItem({ name: "+5 Messages", price: "$4.99", type: "one-time" })} data-testid="button-buy-messages">$4.99</Button>
+                <Button size="sm" variant="outline" onClick={() => { setPurchaseSuccess(null); setPurchaseItem({ name: "+5 Messages", price: "$4.99", type: "one-time", benefitType: "message_extension" }); }} data-testid="button-buy-messages">$4.99</Button>
               </div>
               <div className="border-t pt-2 flex items-center justify-between gap-2 flex-wrap">
                 <div>
@@ -822,6 +844,19 @@ export default function ProfilePage() {
           </Card>
         )}
 
+        {expandedSection === "extras" && purchaseSuccess && !purchaseItem && (
+          <Card className="p-5 text-center space-y-3" data-testid="section-purchase-success">
+            <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center mx-auto">
+              <Crown className="w-5 h-5 text-primary" />
+            </div>
+            <div className="space-y-1">
+              <p className="font-medium text-sm">Added to your account</p>
+              <p className="text-xs text-muted-foreground capitalize">Your {purchaseSuccess} is ready to use in any chat.</p>
+            </div>
+            <Button size="sm" variant="outline" onClick={() => setPurchaseSuccess(null)} data-testid="button-purchase-success-done">Done</Button>
+          </Card>
+        )}
+
         {expandedSection === "extras" && purchaseItem && (
           <Card className="p-5 space-y-5" data-testid="section-payment">
             <div className="flex items-center gap-2">
@@ -845,7 +880,14 @@ export default function ProfilePage() {
                 <button
                   className="w-full flex items-center gap-3 p-3 rounded-md border hover-elevate text-left"
                   data-testid="button-pay-card"
-                  onClick={() => toast({ title: "Payment processing coming soon", description: "Card payments will be available shortly." })}
+                  disabled={grantBenefit.isPending}
+                  onClick={() => {
+                    if (purchaseItem?.benefitType) {
+                      grantBenefit.mutate(purchaseItem.benefitType);
+                    } else {
+                      toast({ title: "Payment processing coming soon", description: "Card payments will be available shortly." });
+                    }
+                  }}
                 >
                   <CreditCard className="w-5 h-5 text-muted-foreground" />
                   <div>
@@ -856,7 +898,14 @@ export default function ProfilePage() {
                 <button
                   className="w-full flex items-center gap-3 p-3 rounded-md border hover-elevate text-left"
                   data-testid="button-pay-apple"
-                  onClick={() => toast({ title: "Payment processing coming soon", description: "Apple Pay will be available shortly." })}
+                  disabled={grantBenefit.isPending}
+                  onClick={() => {
+                    if (purchaseItem?.benefitType) {
+                      grantBenefit.mutate(purchaseItem.benefitType);
+                    } else {
+                      toast({ title: "Payment processing coming soon", description: "Apple Pay will be available shortly." });
+                    }
+                  }}
                 >
                   <div className="w-5 h-5 flex items-center justify-center text-muted-foreground font-bold text-sm">A</div>
                   <div>
@@ -867,7 +916,14 @@ export default function ProfilePage() {
                 <button
                   className="w-full flex items-center gap-3 p-3 rounded-md border hover-elevate text-left"
                   data-testid="button-pay-google"
-                  onClick={() => toast({ title: "Payment processing coming soon", description: "Google Pay will be available shortly." })}
+                  disabled={grantBenefit.isPending}
+                  onClick={() => {
+                    if (purchaseItem?.benefitType) {
+                      grantBenefit.mutate(purchaseItem.benefitType);
+                    } else {
+                      toast({ title: "Payment processing coming soon", description: "Google Pay will be available shortly." });
+                    }
+                  }}
                 >
                   <div className="w-5 h-5 flex items-center justify-center text-muted-foreground font-bold text-sm">G</div>
                   <div>

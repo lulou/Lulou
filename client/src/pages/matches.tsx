@@ -1220,9 +1220,39 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
       onMarkRead();
     }
   }, [expanded]);
+  const { data: benefits } = useQuery<{
+    available: Record<string, number>;
+    activated: Record<string, Record<string, number>>;
+  }>({ queryKey: ["/api/benefits"], enabled: expanded });
+
+  const [dismissedExtension, setDismissedExtension] = useState(false);
+
+  const activateExtension = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/benefits/activate", { type: "message_extension", matchId: match.id });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.message || "Failed to activate");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/benefits"] });
+      setDismissedExtension(false);
+      toast({ title: "5 more messages added", description: "Your conversation has a little more room." });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Could not activate", description: error.message, variant: "destructive" });
+    },
+  });
+
   const myMessages = matchDetail?.messages?.filter(m => m.senderId === user?.id) || [];
-  const messagesRemaining = MAX_MESSAGES_PER_USER - myMessages.length;
+  const hasMessageExtension = (benefits?.activated?.[match.id]?.message_extension || 0) > 0;
+  const hasAvailableExtension = (benefits?.available?.message_extension || 0) > 0;
+  const effectiveLimit = hasMessageExtension ? MAX_MESSAGES_PER_USER + 5 : MAX_MESSAGES_PER_USER;
+  const messagesRemaining = effectiveLimit - myMessages.length;
   const isLimitReached = messagesRemaining <= 0;
+  const rawLimitReached = myMessages.length >= MAX_MESSAGES_PER_USER;
   const allMessages = matchDetail?.messages || [];
   const callStage = detail.callStage || 0;
   const isUser1 = detail.user1Id === user?.id;
@@ -1747,6 +1777,33 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
                   </div>
                 </div>
               )}
+            </div>
+          ) : rawLimitReached && !hasMessageExtension && hasAvailableExtension && !dismissedExtension ? (
+            <div className="p-4 border-t" data-testid={`extension-offer-${match.id}`}>
+              <div className="rounded-lg border border-primary/30 bg-primary/5 p-4 space-y-3">
+                <div className="space-y-1">
+                  <p className="text-sm font-medium text-primary">Want to keep going?</p>
+                  <p className="text-xs text-muted-foreground">You have a +5 message extension. Add 5 more messages to this conversation?</p>
+                </div>
+                <div className="flex gap-2 justify-end">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => setDismissedExtension(true)}
+                    data-testid={`button-dismiss-extension-${match.id}`}
+                  >
+                    Not now
+                  </Button>
+                  <Button
+                    size="sm"
+                    onClick={() => activateExtension.mutate()}
+                    disabled={activateExtension.isPending}
+                    data-testid={`button-activate-extension-${match.id}`}
+                  >
+                    {activateExtension.isPending ? "Activating..." : "Add 5 messages"}
+                  </Button>
+                </div>
+              </div>
             </div>
           ) : isLimitReached ? (
             <CallSchedulingCard

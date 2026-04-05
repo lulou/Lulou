@@ -4,7 +4,10 @@ import { SupabaseStorage, mapMatch } from "./storage";
 import { seedDatabase } from "./seed";
 import { z } from "zod";
 import type { Profile } from "@shared/schema";
+import { userBenefits } from "@shared/schema";
 import { supabase, supabaseAdmin, createUserClient, hasServiceRoleKey } from "./supabase";
+import { db } from "./db";
+import { eq, and, isNull } from "drizzle-orm";
 
 const serverBroadcastChannels = new Map<string, ReturnType<typeof supabase.channel>>();
 const serverChannelTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -485,12 +488,22 @@ export async function registerRoutes(
 
       if (callStage === 0) {
         const messageCount = await storage.getUserMessageCount(matchId, userId);
-        if (messageCount >= 15) {
-          console.log("[CONNECTION_STAGE] POST_CALL_MESSAGE_LIMIT_REACHED", { matchId, userId, callStage: 0, count: messageCount, limit: 15 });
+        const [extension] = await db
+          .select()
+          .from(userBenefits)
+          .where(and(
+            eq(userBenefits.userId, userId),
+            eq(userBenefits.type, "message_extension"),
+            eq(userBenefits.activatedMatchId, matchId),
+          ))
+          .limit(1);
+        const limit = extension ? 20 : 15;
+        if (messageCount >= limit) {
+          console.log("[CONNECTION_STAGE] POST_CALL_MESSAGE_LIMIT_REACHED", { matchId, userId, callStage: 0, count: messageCount, limit });
           return res.status(400).json({ message: "Message limit reached. Time to call!" });
         }
-        if (messageCount === 14) {
-          console.log("[CONNECTION_STAGE] FIRST_CALL_UNLOCKED", { matchId, userId, messageCount: 14 });
+        if (messageCount === limit - 1) {
+          console.log("[CONNECTION_STAGE] FIRST_CALL_UNLOCKED", { matchId, userId, messageCount });
         }
       } else if (callStage === 1) {
         const myPostCallCount = match.user1Id === userId ? (match.messageCount1 || 0) : (match.messageCount2 || 0);
@@ -1224,6 +1237,76 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error resetting test data:", error);
       res.status(500).json({ message: "Failed to reset test data" });
+    }
+  });
+
+  // --- Benefits ---
+
+  app.get("/api/benefits", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const rows = await db.select().from(userBenefits).where(eq(userBenefits.userId, userId));
+      const available: Record<string, number> = {};
+      const activated: Record<string, Record<string, number>> = {};
+      for (const b of rows) {
+        if (!b.activatedMatchId) {
+          available[b.type] = (available[b.type] || 0) + 1;
+        } else {
+          if (!activated[b.activatedMatchId]) activated[b.activatedMatchId] = {};
+          activated[b.activatedMatchId][b.type] = (activated[b.activatedMatchId][b.type] || 0) + 1;
+        }
+      }
+      res.json({ available, activated });
+    } catch (error) {
+      console.error("Error fetching benefits:", error);
+      res.status(500).json({ message: "Failed to fetch benefits" });
+    }
+  });
+
+  app.post("/api/benefits/activate", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const { type, matchId } = req.body;
+      if (!type || !matchId) {
+        return res.status(400).json({ message: "type and matchId are required" });
+      }
+      const [benefit] = await db
+        .select()
+        .from(userBenefits)
+        .where(and(
+          eq(userBenefits.userId, userId),
+          eq(userBenefits.type, type),
+          isNull(userBenefits.activatedMatchId),
+        ))
+        .limit(1);
+      if (!benefit) {
+        return res.status(404).json({ message: "No available benefit of this type" });
+      }
+      const [updated] = await db
+        .update(userBenefits)
+        .set({ activatedMatchId: matchId })
+        .where(eq(userBenefits.id, benefit.id))
+        .returning();
+      res.json({ success: true, benefit: updated });
+    } catch (error) {
+      console.error("Error activating benefit:", error);
+      res.status(500).json({ message: "Failed to activate benefit" });
+    }
+  });
+
+  app.post("/api/benefits/grant", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const { type, quantity = 1 } = req.body;
+      if (!type) {
+        return res.status(400).json({ message: "type is required" });
+      }
+      const rows = Array.from({ length: Number(quantity) }, () => ({ userId, type: String(type) }));
+      const granted = await db.insert(userBenefits).values(rows).returning();
+      res.json({ granted });
+    } catch (error) {
+      console.error("Error granting benefit:", error);
+      res.status(500).json({ message: "Failed to grant benefit" });
     }
   });
 

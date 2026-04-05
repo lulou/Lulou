@@ -81,6 +81,13 @@ Lulou Dating is a calm, premium dating app focused on helping people move from m
 - Exchange number auto-sends phone as message via dedicated route (bypasses content filter)
 - Profile page shows age, height, location, adjustable search radius
 - Profile sections: Lulou Extras (subscriptions), Safety, Lulou Me (photo verification badge), Help Centre, What Works (dating tips)
+- **Benefit system**: `user_benefits` table in local PostgreSQL (Drizzle). Benefits are account-wide but must be intentionally activated per chat.
+  - Types: `message_extension` (+5 msgs), `extra_call`, `video_call`
+  - Owned benefits stored in `user_benefits` with `activatedMatchId = null` (unactivated) or set to a matchId
+  - When stage-0 message limit (15) is hit and user has an unactivated extension: inline offer banner appears in chat
+  - After activation, effective limit becomes 20; server enforces via `user_benefits` check in `sendMessage` route
+  - Profile page "+5 Messages" purchase calls `POST /api/benefits/grant` (simulated payment); real payment integration would gate this server-side
+  - Routes: `GET /api/benefits`, `POST /api/benefits/activate`, `POST /api/benefits/grant`
 - Location radius (5-100 miles) configurable in onboarding and profile
 - Photo verification (Lulou Me) gives profiles a verified badge
 

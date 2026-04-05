@@ -120,6 +120,21 @@ export const insertMessageSchema = createInsertSchema(messages).omit({
   createdAt: true,
 });
 
+export const BENEFIT_TYPES = ["message_extension", "extra_call", "video_call"] as const;
+export type BenefitType = typeof BENEFIT_TYPES[number];
+
+export const userBenefits = pgTable("user_benefits", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull(),
+  type: text("type").notNull(),
+  activatedMatchId: varchar("activated_match_id"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_user_benefits_user").on(table.userId),
+]);
+
+export type UserBenefit = typeof userBenefits.$inferSelect;
+
 export type Profile = typeof profiles.$inferSelect;
 export type InsertProfile = z.infer<typeof insertProfileSchema>;
 export type Interaction = typeof interactions.$inferSelect;
