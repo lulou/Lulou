@@ -993,8 +993,13 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
       mergeCallFields(queryClient, match.id, m);
     },
     onError: (error: Error) => {
-      console.error("[CALL_UI] CALL_START_FAILED", { matchId: match.id, route: "call/start", error: error.message });
-      toast({ title: "Call failed", description: error.message || "Unknown server error", variant: "destructive" });
+      const isAuth = error.message === "Unauthorized" || error.message.startsWith("401");
+      console.error("[CALL_UI] CALL_START_FAILED", { matchId: match.id, route: "call/start", error: error.message, isAuth });
+      toast({
+        title: isAuth ? "Session expired" : "Call failed",
+        description: isAuth ? "Please refresh and try again." : (error.message || "Unknown server error"),
+        variant: "destructive",
+      });
     },
   });
 
@@ -1022,8 +1027,14 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
       toast({ title: "Call cancelled" });
     },
     onError: (error: Error) => {
+      const isAuth = error.message === "Unauthorized" || error.message.startsWith("401");
+      console.error("[CALL_UI] CALL_CANCEL_FAILED", { matchId: match.id, error: error.message, isAuth });
+      if (isAuth) {
+        iCancelledRef.current = false;
+        toast({ title: "Session expired", description: "Please refresh and try again.", variant: "destructive" });
+        return;
+      }
       markCallSessionCancelled(match.id, lastCallSessionIdRef.current);
-      console.error("[CALL_UI] CALL_CANCEL_FAILED", { matchId: match.id, error: error.message });
       toast({ title: "Cancel failed", description: error.message, variant: "destructive" });
     },
   });

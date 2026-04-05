@@ -112,8 +112,14 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss }: In
       onDismiss();
     },
     onError: (error: Error) => {
-      // Even on error: mark cancelled, broadcast, optimistic clear, dismiss
-      console.error("[CALL_UI] CALL_DECLINE_FAILED", { matchId: match.id, error: error.message });
+      const isAuth = error.message === "Unauthorized" || error.message.startsWith("401");
+      console.error("[CALL_UI] CALL_DECLINE_FAILED", { matchId: match.id, error: error.message, isAuth });
+      if (isAuth) {
+        actedRef.current = false;
+        toast({ title: "Session expired", description: "Please refresh and try again.", variant: "destructive" });
+        return;
+      }
+      // Non-auth error: optimistically clear to keep UI unblocked
       markCallSessionCancelled(match.id, match.callSessionId);
       broadcastCallSignal(match.id, {
         type: "call:declined",

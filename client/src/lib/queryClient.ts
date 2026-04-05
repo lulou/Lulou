@@ -3,9 +3,25 @@ import { supabase } from "./supabase";
 
 async function getAuthHeaders(): Promise<Record<string, string>> {
   const { data: { session } } = await supabase.auth.getSession();
+
   if (session?.access_token) {
+    const expiresAt: number | undefined = (session as any).expires_at;
+    const nearExpiry = expiresAt != null && expiresAt * 1000 - Date.now() < 60_000;
+    if (nearExpiry) {
+      const { data: refreshed } = await supabase.auth.refreshSession();
+      if (refreshed.session?.access_token) {
+        return { Authorization: `Bearer ${refreshed.session.access_token}` };
+      }
+    }
     return { Authorization: `Bearer ${session.access_token}` };
   }
+
+  // No session in storage — try a passive refresh before giving up
+  const { data: refreshed } = await supabase.auth.refreshSession();
+  if (refreshed.session?.access_token) {
+    return { Authorization: `Bearer ${refreshed.session.access_token}` };
+  }
+
   return {};
 }
 
