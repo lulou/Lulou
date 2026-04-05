@@ -383,12 +383,19 @@ export class SupabaseStorage implements IStorage {
     if (match.user1Id !== userId && match.user2Id !== userId) return undefined;
 
     const otherUserId = match.user1Id === userId ? match.user2Id : match.user1Id;
-    const { data: profileData } = await this.sb
+    const { data: profileData, error: profileError } = await this.sb
       .from("profiles")
       .select("*")
       .eq("user_id", otherUserId)
       .maybeSingle();
-    if (!profileData) return undefined;
+    if (profileError) {
+      console.error("GET_MATCH_PROFILE_ERROR", { matchId, userId, otherUserId, msg: profileError.message, code: profileError.code });
+      return undefined;
+    }
+    if (!profileData) {
+      console.log("GET_MATCH_PROFILE_NOT_FOUND", { matchId, userId, otherUserId });
+      return undefined;
+    }
 
     const { data: msgData } = await this.sb
       .from("messages")

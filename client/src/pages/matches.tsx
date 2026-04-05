@@ -908,26 +908,7 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
       if (!match.id) {
         throw new Error("No match selected");
       }
-      const authHeaders: Record<string, string> = {};
-      const { data: { session } } = await (await import("@/lib/supabase")).supabase.auth.getSession();
-      if (session?.access_token) {
-        authHeaders["Authorization"] = `Bearer ${session.access_token}`;
-      }
-      const res = await fetch(`/api/matches/${match.id}/messages`, {
-        method: "POST",
-        headers: { ...authHeaders, "Content-Type": "application/json" },
-        body: JSON.stringify({ content: vars.content }),
-        credentials: "include",
-      });
-      if (!res.ok) {
-        let errMsg = `${res.status}: ${res.statusText}`;
-        try {
-          const body = await res.json();
-          errMsg = body.message || JSON.stringify(body);
-        } catch {}
-        console.error("MSG_SEND_FAIL", errMsg);
-        throw new Error(errMsg);
-      }
+      const res = await apiRequest("POST", `/api/matches/${match.id}/messages`, { content: vars.content });
       return res.json();
     },
     onMutate: async (vars: { content: string; tempId: string }) => {
@@ -1807,7 +1788,7 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
                       placeholder="Keep the momentum going..."
                       className="resize-none min-h-[44px] max-h-[80px] text-sm"
                       onKeyDown={e => {
-                        if (e.key === "Enter" && !e.shiftKey) {
+                        if (e.key === "Enter" && !e.shiftKey && !sendMessage.isPending) {
                           e.preventDefault();
                           if (message.trim()) {
                             const content = message.trim();
@@ -1908,7 +1889,7 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
                   placeholder="Write something meaningful..."
                   className="resize-none min-h-[44px] max-h-[80px] text-sm"
                   onKeyDown={e => {
-                    if (e.key === "Enter" && !e.shiftKey) {
+                    if (e.key === "Enter" && !e.shiftKey && !sendMessage.isPending) {
                       e.preventDefault();
                       if (message.trim()) {
                         const content = message.trim();
