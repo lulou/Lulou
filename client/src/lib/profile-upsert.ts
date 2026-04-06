@@ -59,7 +59,15 @@ export async function upsertProfile(fields: Record<string, unknown>) {
 }
 
 export async function initProfileOnLogin(accessToken: string) {
-  console.log("PROFILE_INIT_CALLING_SERVER with explicit token");
+  // Verify the Supabase auth session is fully ready before proceeding
+  const { data: { user }, error: userError } = await supabase.auth.getUser(accessToken);
+  if (userError || !user) {
+    // Auth not ready yet — do not insert the profile, do not sign out
+    console.warn("PROFILE_INIT_SKIPPED: getUser() returned no valid user", userError?.message);
+    return;
+  }
+
+  console.log("PROFILE_INIT_CALLING_SERVER for user:", user.id);
 
   const res = await fetch("/api/auth/init", {
     method: "POST",
@@ -78,8 +86,8 @@ export async function initProfileOnLogin(accessToken: string) {
       if (parsed?.message) msg = parsed.message;
     } catch {}
     console.error("PROFILE_INIT_SERVER_ERROR", res.status, msg);
-    throw new Error(`Profile creation failed: ${msg}`);
+    throw new Error(msg);
   }
 
-  console.log("PROFILE_INIT_SERVER_SUCCESS");
+  console.log("PROFILE_INIT_SERVER_SUCCESS for user:", user.id);
 }
