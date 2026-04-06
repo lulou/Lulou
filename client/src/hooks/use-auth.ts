@@ -9,11 +9,11 @@ export function useAuth() {
   const [profileReady, setProfileReady] = useState(false);
   const [profileInitError, setProfileInitError] = useState<string | null>(null);
 
-  const ensureProfile = useCallback(async () => {
+  const ensureProfile = useCallback(async (accessToken: string) => {
     setProfileReady(false);
     setProfileInitError(null);
     try {
-      await initProfileOnLogin();
+      await initProfileOnLogin(accessToken);
     } catch (err: any) {
       const msg = err?.message || "Unknown profile initialization error";
       console.error("PROFILE_INIT_ERROR", msg, err);
@@ -29,8 +29,8 @@ export function useAuth() {
       const u = session?.user ?? null;
       console.log("[AUTH] SESSION_CHECK_RESULT", { hasSession: !!session, userId: u?.id || null });
       setUser(u);
-      if (u) {
-        ensureProfile().then(() => setIsLoading(false));
+      if (u && session?.access_token) {
+        ensureProfile(session.access_token).then(() => setIsLoading(false));
       } else {
         setProfileReady(true);
         setIsLoading(false);
@@ -46,8 +46,8 @@ export function useAuth() {
       console.log("[AUTH] AUTH_STATE_CHANGE", { event, userId: u?.id || null });
       setUser(u);
 
-      if (event === "SIGNED_IN" && u) {
-        ensureProfile().then(() => setIsLoading(false));
+      if (event === "SIGNED_IN" && u && session?.access_token) {
+        ensureProfile(session.access_token).then(() => setIsLoading(false));
       } else {
         setProfileReady(true);
         setIsLoading(false);

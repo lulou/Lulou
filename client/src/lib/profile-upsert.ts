@@ -58,18 +58,28 @@ export async function upsertProfile(fields: Record<string, unknown>) {
   return data;
 }
 
-export async function initProfileOnLogin() {
-  const { data: { session } } = await supabase.auth.getSession();
-  if (!session) return;
+export async function initProfileOnLogin(accessToken: string) {
+  console.log("PROFILE_INIT_CALLING_SERVER with explicit token");
 
-  console.log("PROFILE_INIT_CALLING_SERVER for user:", session.user.id);
+  const res = await fetch("/api/auth/init", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    credentials: "include",
+  });
 
-  try {
-    await apiRequest("POST", "/api/auth/init");
-    console.log("PROFILE_INIT_SERVER_SUCCESS for user:", session.user.id);
-  } catch (err: any) {
-    const msg = err?.message || "Unknown error";
-    console.error("PROFILE_INIT_SERVER_ERROR", msg);
+  if (!res.ok) {
+    const text = await res.text().catch(() => res.statusText);
+    let msg = text;
+    try {
+      const parsed = JSON.parse(text);
+      if (parsed?.message) msg = parsed.message;
+    } catch {}
+    console.error("PROFILE_INIT_SERVER_ERROR", res.status, msg);
     throw new Error(`Profile creation failed: ${msg}`);
   }
+
+  console.log("PROFILE_INIT_SERVER_SUCCESS");
 }
