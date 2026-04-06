@@ -371,7 +371,7 @@ function AppContent() {
   }
 
   if (!profile || !profile.onboardingComplete) {
-    return <Onboarding />;
+    return <Onboarding existingProfile={profile} />;
   }
 
   return (

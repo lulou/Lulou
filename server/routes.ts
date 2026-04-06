@@ -266,26 +266,35 @@ export async function registerRoutes(
     try {
       const storage = getStorage(req);
       const userId = req.user.id;
-      const email = req.user.email || "";
-      const userName = email.split("@")[0] || "New User";
-      await storage.createProfile({
-        userId,
-        email,
-        firstName: userName,
-        age: 25,
-        gender: "Prefer not to say",
-        datingPreference: "Everyone",
-        location: "Not set",
-        photos: [],
-        signals: [],
-        datingIntent: "Not set",
-        greenFlags: [],
-        connectionStyle: "Not set",
-        conversationStarters: [],
-        questions: [],
-        onboardingComplete: false,
-      });
-      console.log("AUTH_INIT: Upserted profile for", userId);
+
+      // Only create a stub profile if one doesn't already exist.
+      // NEVER upsert here — that would overwrite onboarding_complete and wipe the user's real profile.
+      const existing = await storage.getProfile(userId);
+      if (!existing) {
+        const email = req.user.email || "";
+        const userName = email.split("@")[0] || "New User";
+        await storage.createProfile({
+          userId,
+          email,
+          firstName: userName,
+          age: 25,
+          gender: "Prefer not to say",
+          datingPreference: "Everyone",
+          location: "Not set",
+          photos: [],
+          signals: [],
+          datingIntent: "Not set",
+          greenFlags: [],
+          connectionStyle: "Not set",
+          conversationStarters: [],
+          questions: [],
+          onboardingComplete: false,
+        });
+        console.log("AUTH_INIT: Created stub profile for new user", userId);
+      } else {
+        console.log("AUTH_INIT: Profile already exists for", userId, "- skipping (onboardingComplete:", existing.onboardingComplete, ")");
+      }
+
       res.json({ ok: true });
     } catch (error: any) {
       const errMsg = error?.message || "Failed to init profile";

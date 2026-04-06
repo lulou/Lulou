@@ -14,36 +14,112 @@ import { apiRequest } from "@/lib/queryClient";
 import { SIGNALS, GREEN_FLAGS, DATING_INTENTS, CONNECTION_STYLES, CONVERSATION_STARTERS, PROFILE_QUESTIONS } from "@shared/schema";
 import { Loader2, ArrowRight, ArrowLeft, Check, AlertCircle } from "lucide-react";
 import { LulouFlowerIcon } from "@/components/app-layout";
+import type { Profile } from "@shared/schema";
 
 const STEPS = ["Basics", "Photos", "Starters", "Questions", "Signals", "Intent", "Green Flags", "Pace"];
 
-export default function Onboarding() {
-  const [step, setStep] = useState(0);
+// Parse stored starters ("starter text answer text") back into separate keys + answers
+function parseStoredStarters(stored: string[]): { starters: string[]; answers: Record<string, string> } {
+  const starters: string[] = [];
+  const answers: Record<string, string> = {};
+  for (const s of stored) {
+    const match = (CONVERSATION_STARTERS as readonly string[]).find(k => s.startsWith(k));
+    if (match) {
+      starters.push(match);
+      answers[match] = s.slice(match.length).trim();
+    }
+  }
+  return { starters, answers };
+}
+
+// Determine which step to resume at based on what fields are already filled
+function computeInitialStep(profile: Profile | null): number {
+  if (!profile) return 0;
+
+  const basicsOk =
+    !!profile.firstName && profile.firstName !== "New User" &&
+    (profile.age ?? 0) >= 18 &&
+    !!profile.gender && profile.gender !== "Prefer not to say" &&
+    !!profile.datingPreference && profile.datingPreference !== "Everyone" &&
+    !!profile.location && profile.location !== "Not set" &&
+    !!profile.email;
+  if (!basicsOk) return 0;
+
+  if (!profile.photos || profile.photos.length < 2) return 1;
+
+  const { starters, answers } = parseStoredStarters(profile.conversationStarters ?? []);
+  const startersOk = starters.length >= 2 && starters.every(s => answers[s]?.trim());
+  if (!startersOk) return 2;
+
+  if (!profile.questions || profile.questions.length < 2) return 3;
+  if (!profile.signals || profile.signals.length < 1) return 4;
+  if (!profile.datingIntent || profile.datingIntent === "Not set") return 5;
+  if (!profile.greenFlags || profile.greenFlags.length < 3) return 6;
+  if (!profile.connectionStyle || profile.connectionStyle === "Not set") return 7;
+
+  return 7;
+}
+
+// Build initial formData from an existing profile (partial or complete)
+function buildInitialFormData(profile: Profile | null) {
+  if (!profile) {
+    return {
+      firstName: "",
+      age: 25,
+      gender: "",
+      datingPreference: "",
+      location: "",
+      height: "",
+      locationRadius: 25,
+      photos: [] as string[],
+      signals: [] as string[],
+      datingIntent: "",
+      greenFlags: [] as string[],
+      connectionStyle: "",
+      email: "",
+      phoneNumber: "",
+      conversationStarters: [] as string[],
+      starterAnswers: {} as Record<string, string>,
+      questions: [] as string[],
+    };
+  }
+
+  const { starters, answers } = parseStoredStarters(profile.conversationStarters ?? []);
+
+  return {
+    firstName: profile.firstName && profile.firstName !== "New User" ? profile.firstName : "",
+    age: (profile.age ?? 0) >= 18 ? profile.age! : 25,
+    gender: profile.gender && profile.gender !== "Prefer not to say" ? profile.gender : "",
+    datingPreference: profile.datingPreference && profile.datingPreference !== "Everyone" ? profile.datingPreference : "",
+    location: profile.location && profile.location !== "Not set" ? profile.location : "",
+    height: profile.height ?? "",
+    locationRadius: profile.locationRadius ?? 25,
+    photos: profile.photos ?? [],
+    signals: profile.signals ?? [],
+    datingIntent: profile.datingIntent && profile.datingIntent !== "Not set" ? profile.datingIntent : "",
+    greenFlags: profile.greenFlags ?? [],
+    connectionStyle: profile.connectionStyle && profile.connectionStyle !== "Not set" ? profile.connectionStyle : "",
+    email: profile.email ?? "",
+    phoneNumber: profile.phoneNumber ?? "",
+    conversationStarters: starters,
+    starterAnswers: answers,
+    questions: profile.questions ?? [],
+  };
+}
+
+interface OnboardingProps {
+  existingProfile?: Profile | null;
+}
+
+export default function Onboarding({ existingProfile = null }: OnboardingProps) {
+  const [step, setStep] = useState(() => computeInitialStep(existingProfile));
   const [saveError, setSaveError] = useState<string | null>(null);
   const [, navigate] = useLocation();
   const { toast } = useToast();
   const { profileInitError } = useAuth();
   const queryClient = useQueryClient();
 
-  const [formData, setFormData] = useState({
-    firstName: "",
-    age: 25,
-    gender: "",
-    datingPreference: "",
-    location: "",
-    height: "",
-    locationRadius: 25,
-    photos: [] as string[],
-    signals: [] as string[],
-    datingIntent: "",
-    greenFlags: [] as string[],
-    connectionStyle: "",
-    email: "",
-    phoneNumber: "",
-    conversationStarters: [] as string[],
-    starterAnswers: {} as Record<string, string>,
-    questions: [] as string[],
-  });
+  const [formData, setFormData] = useState(() => buildInitialFormData(existingProfile));
 
   const createProfile = useMutation({
     mutationFn: async () => {
