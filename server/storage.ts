@@ -241,16 +241,24 @@ export class SupabaseStorage implements IStorage {
   async getDiscoverProfiles(userId: string, gender: string, preference: string, ageMin: number = 18, ageMax: number = 45): Promise<Profile[]> {
     const isDev = process.env.NODE_ENV === "development";
 
-    const { data: interacted } = await this.sb
+    // Fetch all UUIDs this user has already interacted with
+    const { data: interacted, error: interactedErr } = await this.sb
       .from("interactions")
       .select("to_user_id")
       .eq("from_user_id", userId);
-    const excludeIds: string[] = [userId, ...(interacted || []).map((r: any) => r.to_user_id).filter(Boolean)];
+    if (interactedErr) {
+      console.error("[DISCOVER] interactions fetch error:", interactedErr.message);
+    }
+    const interactedIds = new Set<string>(
+      [userId, ...(interacted || []).map((r: any) => r.to_user_id).filter(Boolean)]
+    );
+    console.log("[DISCOVER] userId:", userId, "interactedIds count:", interactedIds.size);
 
+    // Fetch a wide pool of profiles and filter client-side to avoid Supabase NOT IN syntax issues
     let query = this.sb
       .from("profiles")
       .select("*")
-      .not("user_id", "in", `(${excludeIds.join(",")})`)
+      .neq("user_id", userId)
       .eq("onboarding_complete", true);
 
     if (!isDev) {
@@ -265,12 +273,16 @@ export class SupabaseStorage implements IStorage {
       query = query.in("dating_preference", validPrefs);
     }
 
-    const { data, error } = await query.limit(20);
+    const { data, error } = await query.limit(100);
     if (error) {
-      console.error("getDiscoverProfiles error:", error.message);
+      console.error("[DISCOVER] profiles fetch error:", error.message, error.code);
       return [];
     }
-    return (data || []).map(mapProfile);
+
+    const all = (data || []).map(mapProfile);
+    const filtered = all.filter(p => !interactedIds.has(p.userId)).slice(0, 20);
+    console.log("[DISCOVER] pool:", all.length, "after exclusion:", filtered.length);
+    return filtered;
   }
 
   async createInteraction(data: InsertInteraction): Promise<Interaction> {

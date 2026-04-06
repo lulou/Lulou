@@ -334,12 +334,14 @@ export async function registerRoutes(
       const userId = req.user.id;
       const myProfile = await storage.getProfile(userId);
       if (!myProfile) {
+        console.log("[DISCOVER] No profile for userId:", userId);
         return res.json([]);
       }
       const discovered = await storage.getDiscoverProfiles(userId, myProfile.gender, myProfile.datingPreference, myProfile.preferredAgeMin || 18, myProfile.preferredAgeMax || 45);
+      console.log("[DISCOVER] userId:", userId, "returned:", discovered.length, "profiles");
       res.json(discovered);
-    } catch (error) {
-      console.error("Error discovering profiles:", error);
+    } catch (error: any) {
+      console.error("[DISCOVER] Error:", error?.message, error);
       res.status(500).json({ message: "Failed to discover profiles" });
     }
   });

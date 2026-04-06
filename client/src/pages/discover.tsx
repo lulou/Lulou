@@ -398,11 +398,13 @@ export default function Discover() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  const { data: profiles, isLoading } = useQuery<Profile[]>({
+  const { data: profilesData, isLoading } = useQuery<Profile[]>({
     queryKey: ["/api/discover"],
   });
 
-  const currentProfile = profiles?.[0];
+  // Guard against null (query error) so a transient server error doesn't clear the feed
+  const profiles: Profile[] = Array.isArray(profilesData) ? profilesData : [];
+  const currentProfile = profiles[0];
 
   const interact = useMutation({
     mutationFn: async (type: "open" | "close") => {
