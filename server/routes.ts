@@ -347,13 +347,19 @@ export async function registerRoutes(
   app.post("/api/interactions", isAuthenticated, async (req: any, res) => {
     try {
       const storage = getStorage(req);
-      const fromUserId = req.user.id;
+      const fromUserId = req.user?.id;
+      if (!fromUserId) {
+        return res.status(401).json({ message: "Authenticated user id missing" });
+      }
       const parsed = interactionBodySchema.safeParse(req.body);
       if (!parsed.success) {
         return res.status(400).json({ message: "Invalid interaction data" });
       }
 
       const { toUserId, type } = parsed.data;
+      if (!toUserId) {
+        return res.status(400).json({ message: "Target user id is required" });
+      }
 
       const existing = await storage.getInteraction(fromUserId, toUserId);
       if (existing) {
@@ -383,9 +389,10 @@ export async function registerRoutes(
       }
 
       res.json({ interaction, matched });
-    } catch (error) {
-      console.error("Error creating interaction:", error);
-      res.status(500).json({ message: "Failed to create interaction" });
+    } catch (error: any) {
+      const msg = error?.message || "Failed to create interaction";
+      console.error("INTERACTION_ERROR", msg, error);
+      res.status(500).json({ message: msg });
     }
   });
 
