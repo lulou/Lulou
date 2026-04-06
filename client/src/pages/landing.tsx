@@ -1,12 +1,43 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Heart, MessageCircle, Phone, Shield, RefreshCw, Loader2, Lock, Eye, EyeOff } from "lucide-react";
+import { Heart, MessageCircle, Phone, Shield, RefreshCw, Loader2, Lock, Eye, EyeOff, AlertCircle, WifiOff } from "lucide-react";
 import { LulouFlowerIcon } from "@/components/app-layout";
 import { supabase } from "@/lib/supabase";
 import { useToast } from "@/hooks/use-toast";
 
 type AuthMode = "signin" | "signup";
+type AuthErrorKind = "credentials" | "network" | "auth";
+
+interface AuthError {
+  kind: AuthErrorKind;
+  message: string;
+}
+
+function classifyAuthError(err: any): AuthError {
+  const msg: string = err?.message || "Unknown error";
+  const lower = msg.toLowerCase();
+  if (
+    lower.includes("invalid login credentials") ||
+    lower.includes("invalid_grant") ||
+    lower.includes("email not confirmed") ||
+    lower.includes("user not found") ||
+    lower.includes("wrong password")
+  ) {
+    return { kind: "credentials", message: msg };
+  }
+  if (
+    err instanceof TypeError ||
+    lower.includes("network") ||
+    lower.includes("fetch") ||
+    lower.includes("failed to fetch") ||
+    lower.includes("networkerror") ||
+    lower.includes("connection")
+  ) {
+    return { kind: "network", message: msg };
+  }
+  return { kind: "auth", message: msg };
+}
 
 export default function Landing() {
   const [email, setEmail] = useState("");
@@ -14,6 +45,7 @@ export default function Landing() {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [mode, setMode] = useState<AuthMode>("signin");
+  const [authError, setAuthError] = useState<AuthError | null>(null);
   const { toast } = useToast();
 
   function resetForm() {
@@ -21,12 +53,18 @@ export default function Landing() {
     setPassword("");
     setMode("signin");
     setShowPassword(false);
+    setAuthError(null);
+  }
+
+  function clearError() {
+    if (authError) setAuthError(null);
   }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!email.trim() || !password) return;
 
+    setAuthError(null);
     setLoading(true);
     console.log("[AUTH] AUTH_REQUEST_STARTED", { mode, email: email.trim() });
 
@@ -39,7 +77,7 @@ export default function Landing() {
         setLoading(false);
         if (error) {
           console.error("[AUTH] AUTH_REQUEST_FAILED", { mode, errorMessage: error.message, errorStatus: error.status });
-          toast({ title: "Sign up failed", description: error.message, variant: "destructive" });
+          setAuthError(classifyAuthError(error));
           return;
         }
         console.log("[AUTH] AUTH_REQUEST_SUCCESS", { mode, userId: data.user?.id });
@@ -52,7 +90,7 @@ export default function Landing() {
         setLoading(false);
         if (error) {
           console.error("[AUTH] AUTH_REQUEST_FAILED", { mode, errorMessage: error.message, errorStatus: error.status });
-          toast({ title: "Sign in failed", description: error.message, variant: "destructive" });
+          setAuthError(classifyAuthError(error));
           return;
         }
         console.log("[AUTH] AUTH_REQUEST_SUCCESS", { mode, userId: data.user?.id });
@@ -61,7 +99,7 @@ export default function Landing() {
       setLoading(false);
       const msg = err?.message || "Unknown error";
       console.error("[AUTH] AUTH_ERROR_MESSAGE", { mode, error: msg, stack: err?.stack });
-      toast({ title: `${mode === "signup" ? "Sign up" : "Sign in"} failed`, description: msg, variant: "destructive" });
+      setAuthError(classifyAuthError(err));
     }
   }
 
@@ -107,7 +145,7 @@ export default function Landing() {
                   type="email"
                   placeholder="Enter your email"
                   value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  onChange={(e) => { setEmail(e.target.value); clearError(); }}
                   required
                   data-testid="input-email"
                   className="h-12"
@@ -117,7 +155,7 @@ export default function Landing() {
                     type={showPassword ? "text" : "password"}
                     placeholder="Password"
                     value={password}
-                    onChange={(e) => setPassword(e.target.value)}
+                    onChange={(e) => { setPassword(e.target.value); clearError(); }}
                     required
                     minLength={6}
                     data-testid="input-password"
@@ -134,6 +172,37 @@ export default function Landing() {
                   </button>
                 </div>
               </div>
+
+              {authError && (
+                <div
+                  className={`flex items-start gap-2 rounded-md border px-3 py-2.5 text-sm ${
+                    authError.kind === "network"
+                      ? "bg-amber-50 border-amber-200 text-amber-800"
+                      : "bg-destructive/10 border-destructive/20 text-destructive"
+                  }`}
+                  data-testid="text-auth-error"
+                  role="alert"
+                >
+                  {authError.kind === "network" ? (
+                    <WifiOff className="w-4 h-4 mt-0.5 shrink-0" />
+                  ) : (
+                    <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
+                  )}
+                  <div className="space-y-0.5">
+                    <p className="font-medium leading-tight">
+                      {authError.kind === "credentials"
+                        ? "Incorrect email or password"
+                        : authError.kind === "network"
+                        ? "Connection problem"
+                        : mode === "signup"
+                        ? "Sign up failed"
+                        : "Sign in failed"}
+                    </p>
+                    <p className="text-xs opacity-80">{authError.message}</p>
+                  </div>
+                </div>
+              )}
+
               <Button
                 type="submit"
                 size="lg"
@@ -156,7 +225,7 @@ export default function Landing() {
               <div className="text-center pt-1">
                 <button
                   type="button"
-                  onClick={() => setMode(mode === "signup" ? "signin" : "signup")}
+                  onClick={() => { setMode(mode === "signup" ? "signin" : "signup"); setAuthError(null); }}
                   className="text-sm text-primary hover:underline"
                   data-testid="link-toggle-auth-mode"
                 >
