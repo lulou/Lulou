@@ -110,8 +110,8 @@ function mapProfile(row: any): Profile {
 function mapInteraction(row: any): Interaction {
   return {
     id: row.id,
-    fromUserId: row.from_user ?? row.from_user_id,
-    toUserId: row.to_user ?? row.to_user_id,
+    fromUserId: row.from_user_id,
+    toUserId: row.to_user_id,
     type: row.type,
     createdAt: row.created_at ? new Date(row.created_at) : null,
   };
@@ -268,8 +268,8 @@ export class SupabaseStorage implements IStorage {
     const { data: result, error } = await this.sb
       .from("interactions")
       .insert({
-        from_user: data.fromUserId,
-        to_user: data.toUserId,
+        from_user_id: data.fromUserId,
+        to_user_id: data.toUserId,
         type: data.type,
       })
       .select()
@@ -282,8 +282,8 @@ export class SupabaseStorage implements IStorage {
     const { data, error } = await this.sb
       .from("interactions")
       .select("*")
-      .eq("from_user", fromUserId)
-      .eq("to_user", toUserId)
+      .eq("from_user_id", fromUserId)
+      .eq("to_user_id", toUserId)
       .maybeSingle();
     if (error || !data) return undefined;
     return mapInteraction(data);
@@ -293,8 +293,8 @@ export class SupabaseStorage implements IStorage {
     const { data, error } = await this.sb
       .from("interactions")
       .select("id")
-      .eq("from_user", user2Id)
-      .eq("to_user", user1Id)
+      .eq("from_user_id", user2Id)
+      .eq("to_user_id", user1Id)
       .eq("type", "open")
       .maybeSingle();
     return !!data && !error;
@@ -780,12 +780,12 @@ export class SupabaseStorage implements IStorage {
   async getPopularProfiles(limit: number = 10, preference?: string, myGender?: string): Promise<Profile[]> {
     const { data: popularRows } = await this.sb
       .from("interactions")
-      .select("to_user")
+      .select("to_user_id")
       .eq("type", "open");
 
     const countMap = new Map<string, number>();
     for (const row of popularRows || []) {
-      countMap.set(row.to_user, (countMap.get(row.to_user) || 0) + 1);
+      countMap.set(row.to_user_id, (countMap.get(row.to_user_id) || 0) + 1);
     }
     const sortedIds = [...countMap.entries()]
       .sort((a, b) => b[1] - a[1])
@@ -898,7 +898,7 @@ export class SupabaseStorage implements IStorage {
     const { count } = await this.sb
       .from("interactions")
       .select("*", { count: "exact", head: true })
-      .eq("from_user", userId)
+      .eq("from_user_id", userId)
       .eq("type", "open")
       .gte("created_at", startOfDay)
       .lte("created_at", endOfDay);
@@ -921,7 +921,7 @@ export class SupabaseStorage implements IStorage {
         const { count } = await this.sb
           .from("interactions")
           .select("*", { count: "exact", head: true })
-          .eq("from_user", userId)
+          .eq("from_user_id", userId)
           .eq("type", "open")
           .gte("created_at", startOfDay)
           .lte("created_at", endOfDay);
@@ -1139,9 +1139,9 @@ export class SupabaseStorage implements IStorage {
   async getIncomingOpens(userId: string): Promise<(Interaction & { profile: Profile })[]> {
     const { data: userInteractedBack } = await this.sb
       .from("interactions")
-      .select("to_user")
-      .eq("from_user", userId);
-    const interactedBackIds = (userInteractedBack || []).map(r => r.to_user);
+      .select("to_user_id")
+      .eq("from_user_id", userId);
+    const interactedBackIds = (userInteractedBack || []).map(r => r.to_user_id);
 
     const { data: matchRows1 } = await this.sb
       .from("matches")
@@ -1163,23 +1163,22 @@ export class SupabaseStorage implements IStorage {
     let query = this.sb
       .from("interactions")
       .select("*")
-      .eq("to_user", userId)
+      .eq("to_user_id", userId)
       .eq("type", "open")
       .order("created_at", { ascending: false });
 
     if (excludeIds.length > 0) {
-      query = query.not("from_user", "in", `(${excludeIds.join(",")})`);
+      query = query.not("from_user_id", "in", `(${excludeIds.join(",")})`);
     }
 
     const { data: incomingOpens } = await query;
 
     const result: (Interaction & { profile: Profile })[] = [];
     for (const open of incomingOpens || []) {
-      const fromUser = open.from_user ?? open.from_user_id;
       const { data: profileData } = await this.sb
         .from("profiles")
         .select("*")
-        .eq("user_id", fromUser)
+        .eq("user_id", open.from_user_id)
         .maybeSingle();
       if (profileData) {
         result.push({ ...mapInteraction(open), profile: mapProfile(profileData) });
@@ -1199,7 +1198,7 @@ export class SupabaseStorage implements IStorage {
 
     await this.sb.from("matches").delete().or(`user1_id.eq.${userId},user2_id.eq.${userId}`);
 
-    await this.sb.from("interactions").delete().or(`from_user.eq.${userId},to_user.eq.${userId}`);
+    await this.sb.from("interactions").delete().or(`from_user_id.eq.${userId},to_user_id.eq.${userId}`);
 
     await this.sb.from("spin_standouts").delete().eq("user_id", userId);
 
