@@ -244,20 +244,10 @@ export class SupabaseStorage implements IStorage {
     let query = this.sb
       .from("profiles")
       .select("*")
-      .neq("user_id", userId);
+      .neq("user_id", userId)
+      .eq("onboarding_complete", true);
 
     if (!isDev) {
-      query = query.eq("onboarding_complete", true);
-
-      const { data: interacted } = await this.sb
-        .from("interactions")
-        .select("to_user_id")
-        .eq("from_user_id", userId);
-      const interactedIds = (interacted || []).map(r => r.to_user_id);
-      if (interactedIds.length > 0) {
-        query = query.not("user_id", "in", `(${interactedIds.join(",")})`);
-      }
-
       query = query.gte("age", ageMin).lte("age", ageMax);
 
       const genders = getGendersForPreference(preference);
