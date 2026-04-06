@@ -230,7 +230,11 @@ export class SupabaseStorage implements IStorage {
       .upsert(row, { onConflict: "user_id" })
       .select()
       .single();
-    if (error || !result) return undefined;
+    if (error) {
+      console.error("UPDATE_PROFILE_ERROR", { userId, msg: error.message, code: error.code, details: error.details, hint: error.hint });
+      throw new Error(error.message);
+    }
+    if (!result) return undefined;
     return mapProfile(result);
   }
 

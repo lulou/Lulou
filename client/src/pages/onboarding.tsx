@@ -10,7 +10,7 @@ import { Card } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
-import { upsertProfile } from "@/lib/profile-upsert";
+import { apiRequest } from "@/lib/queryClient";
 import { SIGNALS, GREEN_FLAGS, DATING_INTENTS, CONNECTION_STYLES, CONVERSATION_STARTERS, PROFILE_QUESTIONS } from "@shared/schema";
 import { Loader2, ArrowRight, ArrowLeft, Check, AlertCircle } from "lucide-react";
 import { LulouFlowerIcon } from "@/components/app-layout";
@@ -19,6 +19,7 @@ const STEPS = ["Basics", "Photos", "Starters", "Questions", "Signals", "Intent",
 
 export default function Onboarding() {
   const [step, setStep] = useState(0);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [, navigate] = useLocation();
   const { toast } = useToast();
   const { profileInitError } = useAuth();
@@ -55,22 +56,23 @@ export default function Onboarding() {
         conversationStarters: fullStarters,
         onboardingComplete: true,
       };
-      return upsertProfile(payload);
+      return apiRequest("POST", "/api/profile", payload);
     },
     onSuccess: () => {
+      setSaveError(null);
       queryClient.invalidateQueries({ queryKey: ["/api/profile"] });
       navigate("/discover");
     },
     onError: (error: any) => {
       const raw = error?.message || "";
-      const afterCode = raw.includes(": ") ? raw.substring(raw.indexOf(": ") + 2) : raw;
-      let errorMessage = afterCode || "Please try again.";
+      let errorMessage = raw || "Please try again.";
       try {
-        const parsed = JSON.parse(afterCode);
+        const parsed = JSON.parse(raw);
         if (parsed?.message) errorMessage = parsed.message;
       } catch {}
       console.error("PROFILE_SAVE_ERROR", errorMessage, error);
-      toast({ title: "Could not save profile", description: errorMessage, variant: "destructive" });
+      setSaveError(errorMessage);
+      toast({ title: "Could not save profile", description: errorMessage, variant: "destructive", duration: 8000 });
     },
   });
 
@@ -117,6 +119,16 @@ export default function Onboarding() {
         <div className="mx-6 mb-4 p-3 rounded-md bg-destructive/10 border border-destructive/20 flex items-start gap-2" data-testid="banner-profile-error">
           <AlertCircle className="w-4 h-4 text-destructive mt-0.5 shrink-0" />
           <p className="text-sm text-destructive">{profileInitError}</p>
+        </div>
+      )}
+
+      {saveError && (
+        <div className="mx-6 mb-4 p-3 rounded-md bg-destructive/10 border border-destructive/20 flex items-start gap-2" data-testid="banner-save-error">
+          <AlertCircle className="w-4 h-4 text-destructive mt-0.5 shrink-0" />
+          <div className="text-sm text-destructive">
+            <p className="font-medium">Could not save profile</p>
+            <p>{saveError}</p>
+          </div>
         </div>
       )}
 
