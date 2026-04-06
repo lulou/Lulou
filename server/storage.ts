@@ -241,10 +241,16 @@ export class SupabaseStorage implements IStorage {
   async getDiscoverProfiles(userId: string, gender: string, preference: string, ageMin: number = 18, ageMax: number = 45): Promise<Profile[]> {
     const isDev = process.env.NODE_ENV === "development";
 
+    const { data: interacted } = await this.sb
+      .from("interactions")
+      .select("to_user_id")
+      .eq("from_user_id", userId);
+    const excludeIds: string[] = [userId, ...(interacted || []).map((r: any) => r.to_user_id).filter(Boolean)];
+
     let query = this.sb
       .from("profiles")
       .select("*")
-      .neq("user_id", userId)
+      .not("user_id", "in", `(${excludeIds.join(",")})`)
       .eq("onboarding_complete", true);
 
     if (!isDev) {
@@ -260,7 +266,10 @@ export class SupabaseStorage implements IStorage {
     }
 
     const { data, error } = await query.limit(20);
-    if (error) return [];
+    if (error) {
+      console.error("getDiscoverProfiles error:", error.message);
+      return [];
+    }
     return (data || []).map(mapProfile);
   }
 
