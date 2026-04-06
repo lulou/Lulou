@@ -398,23 +398,29 @@ export default function Discover() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
+  // Track which profiles have been acted on this session (local queue advancement)
+  const [shownIds, setShownIds] = useState<Set<string>>(new Set());
+
   const { data: profilesData, isLoading } = useQuery<Profile[]>({
     queryKey: ["/api/discover"],
   });
 
-  // Guard against null (query error) so a transient server error doesn't clear the feed
-  const profiles: Profile[] = Array.isArray(profilesData) ? profilesData : [];
+  // All eligible profiles from server, filtered locally to exclude already-acted ones
+  const allProfiles: Profile[] = Array.isArray(profilesData) ? profilesData : [];
+  const profiles = allProfiles.filter(p => !shownIds.has(p.userId));
   const currentProfile = profiles[0];
 
   const interact = useMutation({
     mutationFn: async (type: "open" | "close") => {
       if (!currentProfile) return;
+      // Advance the feed immediately — do not wait for a server refetch
+      setShownIds(prev => new Set([...prev, currentProfile.userId]));
       try {
         const res = await apiRequest("POST", "/api/interactions", {
           toUserId: currentProfile.userId,
           type,
         });
-        return res.json();
+        return { ...(await res.json()), profileId: currentProfile.userId, interactionType: type };
       } catch (err: any) {
         console.error("INTERACTION_ERROR", type, err?.message || err);
         toast({
@@ -430,10 +436,10 @@ export default function Discover() {
       if (data?.matched) {
         toast({
           title: "It's mutual",
-          description: `You and ${currentProfile?.firstName} both opened up.`,
+          description: `You and ${data.profileId ? allProfiles.find(p => p.userId === data.profileId)?.firstName : currentProfile?.firstName} both opened up.`,
         });
+        queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
       }
-      queryClient.invalidateQueries({ queryKey: ["/api/discover"] });
     },
   });
 
