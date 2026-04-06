@@ -21,4 +21,12 @@ if (envKey && !isValidJwt(envKey)) {
   console.warn("[AUTH] VITE_SUPABASE_ANON_KEY env var is not a valid JWT, using fallback. Update Replit Secrets with the correct key.");
 }
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+  auth: {
+    persistSession: true,
+    autoRefreshToken: true,
+    detectSessionInUrl: false,
+    flowType: "implicit",
+    storageKey: "sb-lulou-auth-token",
+  },
+});

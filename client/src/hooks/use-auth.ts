@@ -24,37 +24,43 @@ export function useAuth() {
   }, []);
 
   useEffect(() => {
-    console.log("[AUTH] SESSION_CHECK_STARTED");
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      const u = session?.user ?? null;
-      console.log("[AUTH] SESSION_CHECK_RESULT", { hasSession: !!session, userId: u?.id || null });
-      setUser(u);
-      if (u && session?.access_token) {
-        ensureProfile(session.access_token).then(() => setIsLoading(false));
-      } else {
-        setProfileReady(true);
-        setIsLoading(false);
-      }
-    }).catch(err => {
-      console.error("[AUTH] SESSION_CHECK_ERROR", { error: err?.message, stack: err?.stack });
-      setProfileReady(true);
-      setIsLoading(false);
-    });
+    let mounted = true;
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+    // Use onAuthStateChange as the single source of truth.
+    // INITIAL_SESSION fires immediately on mount with the stored session (if any).
+    // SIGNED_IN fires after signup or signin.
+    // SIGNED_OUT fires after logout or session expiry.
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (!mounted) return;
+
       const u = session?.user ?? null;
       console.log("[AUTH] AUTH_STATE_CHANGE", { event, userId: u?.id || null });
       setUser(u);
 
-      if (event === "SIGNED_IN" && u && session?.access_token) {
-        ensureProfile(session.access_token).then(() => setIsLoading(false));
+      if ((event === "SIGNED_IN" || event === "INITIAL_SESSION") && u && session?.access_token) {
+        // Both initial load (with persisted session) and fresh sign-in go through ensureProfile
+        ensureProfile(session.access_token).then(() => {
+          if (mounted) setIsLoading(false);
+        });
+      } else if (event === "TOKEN_REFRESHED" && u && session?.access_token) {
+        // Token refresh — keep user logged in, no need to re-init profile
+        if (mounted) {
+          setProfileReady(true);
+          setIsLoading(false);
+        }
       } else {
-        setProfileReady(true);
-        setIsLoading(false);
+        // No session (SIGNED_OUT, INITIAL_SESSION with no stored session, etc.)
+        if (mounted) {
+          setProfileReady(true);
+          setIsLoading(false);
+        }
       }
     });
 
-    return () => subscription.unsubscribe();
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+    };
   }, [ensureProfile]);
 
   const logout = useCallback(async () => {
