@@ -224,6 +224,19 @@ export default function Landing() {
                     {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
                 </div>
+                {mode === "signin" && (
+                  <div className="text-right">
+                    <button
+                      type="button"
+                      onClick={handlePasswordReset}
+                      disabled={resetLoading || !email.trim()}
+                      className="text-xs text-primary hover:underline disabled:opacity-40 disabled:cursor-not-allowed"
+                      data-testid="link-forgot-password"
+                    >
+                      {resetLoading ? "Sending reset email…" : "Forgot password?"}
+                    </button>
+                  </div>
+                )}
               </div>
 
               {resetSent && (
