@@ -1,22 +1,37 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Heart, MessageCircle, Phone, Shield, RefreshCw, Loader2, Lock, Eye, EyeOff, AlertCircle, WifiOff } from "lucide-react";
+import { Heart, MessageCircle, Phone, Shield, RefreshCw, Loader2, Lock, Eye, EyeOff, AlertCircle, WifiOff, CheckCircle } from "lucide-react";
 import { LulouFlowerIcon } from "@/components/app-layout";
 import { supabase } from "@/lib/supabase";
 import { useToast } from "@/hooks/use-toast";
 
 type AuthMode = "signin" | "signup";
-type AuthErrorKind = "credentials" | "network" | "auth";
+type AuthErrorKind = "credentials" | "already-exists" | "network" | "auth";
 
 interface AuthError {
   kind: AuthErrorKind;
   message: string;
 }
 
-function classifyAuthError(err: any): AuthError {
+function isAlreadyExists(err: any): boolean {
+  const msg: string = (err?.message || "").toLowerCase();
+  return (
+    msg.includes("user already registered") ||
+    msg.includes("already registered") ||
+    msg.includes("already been registered") ||
+    msg.includes("email address is already taken") ||
+    msg.includes("already exists") ||
+    err?.status === 422
+  );
+}
+
+function classifyAuthError(err: any, mode: AuthMode): AuthError {
   const msg: string = err?.message || "Unknown error";
   const lower = msg.toLowerCase();
+  if (mode === "signup" && isAlreadyExists(err)) {
+    return { kind: "already-exists", message: msg };
+  }
   if (
     lower.includes("invalid login credentials") ||
     lower.includes("invalid_grant") ||
@@ -46,6 +61,8 @@ export default function Landing() {
   const [loading, setLoading] = useState(false);
   const [mode, setMode] = useState<AuthMode>("signin");
   const [authError, setAuthError] = useState<AuthError | null>(null);
+  const [resetLoading, setResetLoading] = useState(false);
+  const [resetSent, setResetSent] = useState(false);
   const { toast } = useToast();
 
   function resetForm() {
@@ -54,10 +71,39 @@ export default function Landing() {
     setMode("signin");
     setShowPassword(false);
     setAuthError(null);
+    setResetSent(false);
   }
 
   function clearError() {
     if (authError) setAuthError(null);
+    setResetSent(false);
+  }
+
+  function switchToSignIn() {
+    setMode("signin");
+    setAuthError(null);
+    setPassword("");
+    setResetSent(false);
+  }
+
+  async function handlePasswordReset() {
+    if (!email.trim()) return;
+    setResetLoading(true);
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(email.trim());
+      if (error) {
+        console.error("[AUTH] RESET_PASSWORD_FAILED", error.message);
+        toast({ title: "Reset failed", description: error.message, variant: "destructive" });
+      } else {
+        setResetSent(true);
+        setAuthError(null);
+      }
+    } catch (err: any) {
+      console.error("[AUTH] RESET_PASSWORD_ERROR", err?.message);
+      toast({ title: "Reset failed", description: err?.message || "Try again.", variant: "destructive" });
+    } finally {
+      setResetLoading(false);
+    }
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -65,6 +111,7 @@ export default function Landing() {
     if (!email.trim() || !password) return;
 
     setAuthError(null);
+    setResetSent(false);
     setLoading(true);
     console.log("[AUTH] AUTH_REQUEST_STARTED", { mode, email: email.trim() });
 
@@ -77,7 +124,13 @@ export default function Landing() {
         setLoading(false);
         if (error) {
           console.error("[AUTH] AUTH_REQUEST_FAILED", { mode, errorMessage: error.message, errorStatus: error.status });
-          setAuthError(classifyAuthError(error));
+          const classified = classifyAuthError(error, mode);
+          if (classified.kind === "already-exists") {
+            // Auto-switch to sign-in so the user can log in immediately
+            setMode("signin");
+            setPassword("");
+          }
+          setAuthError(classified);
           return;
         }
         console.log("[AUTH] AUTH_REQUEST_SUCCESS", { mode, userId: data.user?.id });
@@ -90,7 +143,7 @@ export default function Landing() {
         setLoading(false);
         if (error) {
           console.error("[AUTH] AUTH_REQUEST_FAILED", { mode, errorMessage: error.message, errorStatus: error.status });
-          setAuthError(classifyAuthError(error));
+          setAuthError(classifyAuthError(error, mode));
           return;
         }
         console.log("[AUTH] AUTH_REQUEST_SUCCESS", { mode, userId: data.user?.id });
@@ -99,7 +152,7 @@ export default function Landing() {
       setLoading(false);
       const msg = err?.message || "Unknown error";
       console.error("[AUTH] AUTH_ERROR_MESSAGE", { mode, error: msg, stack: err?.stack });
-      setAuthError(classifyAuthError(err));
+      setAuthError(classifyAuthError(err, mode));
     }
   }
 
@@ -173,7 +226,21 @@ export default function Landing() {
                 </div>
               </div>
 
-              {authError && (
+              {resetSent && (
+                <div
+                  className="flex items-start gap-2 rounded-md border border-green-200 bg-green-50 px-3 py-2.5 text-sm text-green-800"
+                  data-testid="text-reset-sent"
+                  role="alert"
+                >
+                  <CheckCircle className="w-4 h-4 mt-0.5 shrink-0" />
+                  <div className="space-y-0.5">
+                    <p className="font-medium leading-tight">Reset email sent</p>
+                    <p className="text-xs opacity-80">Check your inbox for a link to reset your password.</p>
+                  </div>
+                </div>
+              )}
+
+              {authError && !resetSent && (
                 <div
                   className={`flex items-start gap-2 rounded-md border px-3 py-2.5 text-sm ${
                     authError.kind === "network"
@@ -188,17 +255,50 @@ export default function Landing() {
                   ) : (
                     <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
                   )}
-                  <div className="space-y-0.5">
-                    <p className="font-medium leading-tight">
-                      {authError.kind === "credentials"
-                        ? "Incorrect email or password"
-                        : authError.kind === "network"
-                        ? "Connection problem"
-                        : mode === "signup"
-                        ? "Sign up failed"
-                        : "Sign in failed"}
-                    </p>
-                    <p className="text-xs opacity-80">{authError.message}</p>
+                  <div className="space-y-1 flex-1">
+                    {authError.kind === "already-exists" ? (
+                      <>
+                        <p className="font-medium leading-tight">Account already exists</p>
+                        <p className="text-xs opacity-80">
+                          An account with this email already exists. Use your password to sign in.
+                        </p>
+                        <button
+                          type="button"
+                          onClick={switchToSignIn}
+                          className="text-xs font-medium underline underline-offset-2 opacity-90 hover:opacity-100"
+                          data-testid="button-switch-to-signin"
+                        >
+                          Sign in instead
+                        </button>
+                      </>
+                    ) : authError.kind === "credentials" && mode === "signin" ? (
+                      <>
+                        <p className="font-medium leading-tight">Incorrect email or password</p>
+                        <p className="text-xs opacity-80">Double-check your details and try again.</p>
+                        <button
+                          type="button"
+                          onClick={handlePasswordReset}
+                          disabled={resetLoading || !email.trim()}
+                          className="text-xs font-medium underline underline-offset-2 opacity-90 hover:opacity-100 disabled:opacity-50"
+                          data-testid="button-reset-password"
+                        >
+                          {resetLoading ? "Sending…" : "Forgot your password?"}
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <p className="font-medium leading-tight">
+                          {authError.kind === "credentials"
+                            ? "Incorrect email or password"
+                            : authError.kind === "network"
+                            ? "Connection problem"
+                            : mode === "signup"
+                            ? "Sign up failed"
+                            : "Sign in failed"}
+                        </p>
+                        <p className="text-xs opacity-80">{authError.message}</p>
+                      </>
+                    )}
                   </div>
                 </div>
               )}
