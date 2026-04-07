@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
-import { Sparkles, Zap } from "lucide-react";
+import { Sparkles, Zap, X } from "lucide-react";
 
 const ELEVATE_PACKAGES = [
   {
@@ -147,16 +147,33 @@ export function ElevateModal({ onClose }: { onClose: () => void }) {
           maxHeight: "90dvh",
         }}
       >
-        {/* Drag handle — only this div captures drag */}
-        <div
-          ref={handleRef}
-          className="flex-shrink-0 flex flex-col items-center pt-3 pb-1 cursor-grab active:cursor-grabbing select-none touch-none"
-          onPointerDown={onPointerDown}
-          onPointerMove={onPointerMove}
-          onPointerUp={onPointerUp}
-          onPointerCancel={onPointerUp}
-        >
-          <div className="h-1.5 w-12 bg-border rounded-full" />
+        {/* Drag handle + close button row */}
+        <div className="flex-shrink-0 flex items-center px-4 pt-3 pb-1 select-none touch-none">
+          {/* spacer so pill stays centred */}
+          <div className="w-8" />
+
+          {/* draggable pill — centred */}
+          <div
+            ref={handleRef}
+            className="flex-1 flex justify-center cursor-grab active:cursor-grabbing"
+            onPointerDown={onPointerDown}
+            onPointerMove={onPointerMove}
+            onPointerUp={onPointerUp}
+            onPointerCancel={onPointerUp}
+          >
+            <div className="h-1.5 w-12 bg-border rounded-full" />
+          </div>
+
+          {/* close button */}
+          <button
+            className="w-8 h-8 flex items-center justify-center rounded-full bg-muted hover:bg-muted/80 active:bg-muted/60 transition-colors shrink-0"
+            onClick={handleClose}
+            disabled={purchasing}
+            aria-label="Close"
+            data-testid="button-elevate-close"
+          >
+            <X className="w-4 h-4 text-muted-foreground" />
+          </button>
         </div>
 
         {/* Scrollable content */}
