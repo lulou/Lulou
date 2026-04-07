@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef } from "react";
-import { useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { Sparkles, Zap, X, ChevronLeft, ShieldCheck, Lock } from "lucide-react";
@@ -67,7 +66,6 @@ type PendingPackage = {
 
 export function ElevateModal({ onClose }: { onClose: () => void }) {
   const { toast } = useToast();
-  const queryClient = useQueryClient();
   const [step, setStep] = useState<"browse" | "checkout">("browse");
   const [pending, setPending] = useState<PendingPackage | null>(null);
   const [purchasing, setPurchasing] = useState(false);
@@ -128,23 +126,16 @@ export function ElevateModal({ onClose }: { onClose: () => void }) {
     if (!pending) return;
     setPurchasing(true);
     try {
-      const res = await apiRequest("POST", "/api/elevate", { type: pending.type });
+      const res = await apiRequest("POST", "/api/stripe/elevate-checkout", { type: pending.type });
       const data = await res.json();
-      if (!data.success) throw new Error("Activation failed");
-      queryClient.invalidateQueries({ queryKey: ["/api/elevate/status"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/elevate/session-stats"] });
+      if (!res.ok || !data.url) throw new Error(data.message ?? "Failed to create checkout");
+      window.location.href = data.url;
+    } catch (err: any) {
       toast({
-        title: `${pending.label} is now live`,
-        description: `Your profile has boosted visibility for ${pending.duration}. More eyes on you now.`,
-      });
-      handleClose();
-    } catch {
-      toast({
-        title: "Payment failed",
-        description: "We couldn't complete your purchase. Please try again.",
+        title: "Couldn't open payment",
+        description: err?.message ?? "Something went wrong. Please try again.",
         variant: "destructive",
       });
-    } finally {
       setPurchasing(false);
     }
   };

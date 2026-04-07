@@ -8,6 +8,7 @@ import { userBenefits } from "@shared/schema";
 import { supabase, supabaseAdmin, createUserClient, hasServiceRoleKey } from "./supabase";
 import { db } from "./db";
 import { eq, and, isNull } from "drizzle-orm";
+import { getUncachableStripeClient, getStripePublishableKey } from "./stripeClient";
 
 const serverBroadcastChannels = new Map<string, ReturnType<typeof supabase.channel>>();
 const serverChannelTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -1352,31 +1353,104 @@ export async function registerRoutes(
     }
   });
 
-  // ── Elevate routes ──────────────────────────────────────────────────────────
+  // ── Stripe publishable key (client needs this for Stripe.js) ─────────────
 
-  app.post("/api/elevate", isAuthenticated, async (req: any, res) => {
+  app.get("/api/stripe/config", isAuthenticated, async (_req, res) => {
+    try {
+      const publishableKey = await getStripePublishableKey();
+      res.json({ publishableKey });
+    } catch (err: any) {
+      console.error("Error fetching Stripe config:", err.message);
+      res.status(500).json({ message: "Stripe not configured" });
+    }
+  });
+
+  // ── Create Stripe Checkout session for Elevate purchase ───────────────────
+  // Called when user taps "Pay $X" in the checkout step.
+  // Returns a Stripe-hosted checkout URL; on success Stripe redirects to
+  // /elevate/success?session_id=XXX which the client polls to activate.
+
+  app.post("/api/stripe/elevate-checkout", isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;
       const { type } = req.body;
       if (type !== "elevate" && type !== "super_elevate") {
         return res.status(400).json({ message: "type must be 'elevate' or 'super_elevate'" });
       }
-      const profile = await getStorage(req).activateElevate(userId, type);
+
+      const stripe = await getUncachableStripeClient();
+      const domains = process.env.REPLIT_DOMAINS?.split(",")[0] ?? "localhost:5000";
+      const baseUrl = `https://${domains}`;
+
+      const productName = type === "super_elevate" ? "Super Elevate (60 min)" : "Elevate (30 min)";
+      const unitAmount = type === "super_elevate" ? 3499 : 999;
+
+      const session = await stripe.checkout.sessions.create({
+        payment_method_types: ["card"],
+        line_items: [
+          {
+            price_data: {
+              currency: "usd",
+              unit_amount: unitAmount,
+              product_data: {
+                name: productName,
+                description:
+                  type === "super_elevate"
+                    ? "8× visibility boost in Discovery and the Intention Wheel for 60 minutes"
+                    : "3× visibility boost in Discovery and the Intention Wheel for 30 minutes",
+              },
+            },
+            quantity: 1,
+          },
+        ],
+        mode: "payment",
+        success_url: `${baseUrl}/elevate/success?session_id={CHECKOUT_SESSION_ID}&type=${type}`,
+        cancel_url: `${baseUrl}/?elevate=cancelled`,
+        metadata: { userId, elevateType: type },
+      });
+
+      res.json({ url: session.url, sessionId: session.id });
+    } catch (err: any) {
+      console.error("Error creating Stripe checkout:", err.message);
+      res.status(500).json({ message: "Failed to create checkout session" });
+    }
+  });
+
+  // ── Verify Stripe session & activate boost ────────────────────────────────
+  // Polled by /elevate/success page after redirect.
+
+  app.post("/api/stripe/elevate-activate", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const { sessionId } = req.body;
+      if (!sessionId) return res.status(400).json({ message: "sessionId required" });
+
+      const stripe = await getUncachableStripeClient();
+      const session = await stripe.checkout.sessions.retrieve(sessionId);
+
+      if (session.payment_status !== "paid") {
+        return res.status(402).json({ message: "Payment not completed", paymentStatus: session.payment_status });
+      }
+
+      const elevateType = (session.metadata?.elevateType ?? "elevate") as "elevate" | "super_elevate";
+      if (session.metadata?.userId !== userId) {
+        return res.status(403).json({ message: "Session user mismatch" });
+      }
+
+      const profile = await getStorage(req).activateElevate(userId, elevateType);
       if (!profile) {
         return res.status(404).json({ message: "Profile not found" });
       }
-      const durationMinutes = type === "super_elevate" ? 60 : 30;
-      res.json({
-        success: true,
-        elevateType: type,
-        expiresAt: profile.elevateExpiresAt,
-        durationMinutes,
-      });
-    } catch (error) {
-      console.error("Error activating elevate:", error);
-      res.status(500).json({ message: "Failed to activate elevate" });
+
+      const durationMinutes = elevateType === "super_elevate" ? 60 : 30;
+      res.json({ success: true, elevateType, durationMinutes });
+    } catch (err: any) {
+      console.error("Error activating elevate after payment:", err.message);
+      res.status(500).json({ message: "Failed to activate boost" });
     }
   });
+
+  // ── Elevate status & session-stats (unchanged) ────────────────────────────
 
   app.get("/api/elevate/status", isAuthenticated, async (req: any, res) => {
     try {

@@ -14,6 +14,7 @@ import Messaging from "@/pages/messaging";
 import ProfilePage from "@/pages/profile";
 import IntentPage from "@/pages/intent";
 import LikesPage from "@/pages/likes";
+import ElevateSuccessPage from "@/pages/elevate-success";
 import AppLayout from "@/components/app-layout";
 import IncomingCallOverlay from "@/components/incoming-call";
 import { ActiveCallOverlay } from "@/components/active-call";
@@ -377,10 +378,15 @@ function AppContent() {
   }
 
   return (
-    <AppLayout>
-      <PersistentTabs />
-      <CallDetectors userId={user.id} />
-    </AppLayout>
+    <Switch>
+      <Route path="/elevate/success" component={ElevateSuccessPage} />
+      <Route>
+        <AppLayout>
+          <PersistentTabs />
+          <CallDetectors userId={user.id} />
+        </AppLayout>
+      </Route>
+    </Switch>
   );
 }
 
