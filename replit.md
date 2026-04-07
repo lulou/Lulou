@@ -132,6 +132,19 @@ Lulou Dating is a calm, premium dating app focused on helping people move from m
 - Profiles reset after every spin (new random set of 10)
 - Server-side eligibility enforcement on POST /api/spin
 
+## Performance Optimisations
+- **Client token cache** (`queryClient.ts`): `setCachedToken` stores the Supabase JWT in memory — every API request uses the cached token instead of calling `getSession()` each time
+- **`use-auth.ts` simplified**: Removed `initProfileOnLogin` call (2 extra server round trips per page load). `profileReady` is set immediately on `onAuthStateChange` — the spinner clears instantly
+- **Server JWT cache** (`routes.ts`): `verifyJwt()` caches `supabase.auth.getUser()` results for 2 min (up to 500 entries) — auth middleware no longer hits Supabase servers on every request
+- **`getMatchesForUser` N+1 fixed**: All per-match profile + last-message queries now run via `Promise.all` — N matches costs 2 parallel batches instead of 2N sequential requests
+- **`getMatch` parallelised**: Profile and messages queries run concurrently
+- **`getDiscoverProfiles` parallelised**: Interactions and profiles queries now run concurrently instead of sequentially
+- **`getConsecutiveLikeDays` fixed**: Reduced from ≤6 sequential count queries to a single date-range query with JS processing
+- **`spin-status` parallelised**: All 4 checks run via `Promise.all` instead of sequentially
+- **`getMatchCount` simplified**: One `count: exact` query replaces N+1 profile-verification loop
+- **`getIncomingOpens` parallelised**: Pre-filter queries (3) and profile fetches all use `Promise.all`
+- **`getIncomingSpinRequests` / `getOutgoingSpinRequests` N+1 fixed**: Profile fetches now parallelised
+
 ## API Routes
 - `GET /api/profile` - Get current user's profile
 - `POST /api/profile` - Create/update profile

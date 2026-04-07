@@ -242,45 +242,40 @@ export class SupabaseStorage implements IStorage {
   async getDiscoverProfiles(userId: string, gender: string, preference: string, ageMin: number = 18, ageMax: number = 45): Promise<Profile[]> {
     const isDev = process.env.NODE_ENV === "development";
 
-    // Fetch all UUIDs this user has already interacted with
-    const { data: interacted, error: interactedErr } = await this.sb
-      .from("interactions")
-      .select("to_user_id")
-      .eq("from_user_id", userId);
-    if (interactedErr) {
-      console.error("[DISCOVER] interactions fetch error:", interactedErr.message);
-    }
-    const interactedIds = new Set<string>(
-      [userId, ...(interacted || []).map((r: any) => r.to_user_id).filter(Boolean)]
-    );
-    console.log("[DISCOVER] userId:", userId, "interactedIds count:", interactedIds.size);
-
-    // Fetch a wide pool of profiles and filter client-side to avoid Supabase NOT IN syntax issues
-    let query = this.sb
+    // Build profiles query
+    let profilesQuery = this.sb
       .from("profiles")
       .select("*")
       .neq("user_id", userId)
       .eq("onboarding_complete", true);
 
     if (!isDev) {
-      query = query.gte("age", ageMin).lte("age", ageMax);
-
+      profilesQuery = profilesQuery.gte("age", ageMin).lte("age", ageMax);
       const genders = getGendersForPreference(preference);
-      if (genders) {
-        query = query.in("gender", genders);
-      }
-
+      if (genders) profilesQuery = profilesQuery.in("gender", genders);
       const validPrefs = getPreferencesThatIncludeGender(gender);
-      query = query.in("dating_preference", validPrefs);
+      profilesQuery = profilesQuery.in("dating_preference", validPrefs);
     }
 
-    const { data, error } = await query.limit(100);
-    if (error) {
-      console.error("[DISCOVER] profiles fetch error:", error.message, error.code);
+    // Run both queries in parallel
+    const [interactedResult, profilesResult] = await Promise.all([
+      this.sb.from("interactions").select("to_user_id").eq("from_user_id", userId),
+      profilesQuery.limit(100),
+    ]);
+
+    if (interactedResult.error) {
+      console.error("[DISCOVER] interactions fetch error:", interactedResult.error.message);
+    }
+    if (profilesResult.error) {
+      console.error("[DISCOVER] profiles fetch error:", profilesResult.error.message, profilesResult.error.code);
       return [];
     }
 
-    const all = (data || []).map(mapProfile);
+    const interactedIds = new Set<string>(
+      [userId, ...(interactedResult.data || []).map((r: any) => r.to_user_id).filter(Boolean)]
+    );
+
+    const all = (profilesResult.data || []).map(mapProfile);
     const filtered = all.filter(p => !interactedIds.has(p.userId)).slice(0, 20);
     console.log("[DISCOVER] pool:", all.length, "after exclusion:", filtered.length);
     return filtered;
@@ -339,37 +334,38 @@ export class SupabaseStorage implements IStorage {
       .eq("status", "active")
       .or(`user1_id.eq.${userId},user2_id.eq.${userId}`);
 
-    if (error || !userMatches) return [];
+    if (error || !userMatches || userMatches.length === 0) return [];
 
-    const result: (Match & { profile: Profile; lastMessage: { content: string; senderId: string; createdAt: Date | null } | null })[] = [];
-    for (const row of userMatches) {
-      const match = mapMatch(row);
-      const otherUserId = match.user1Id === userId ? match.user2Id : match.user1Id;
-      const { data: profileData } = await this.sb
-        .from("profiles")
-        .select("*")
-        .eq("user_id", otherUserId)
-        .maybeSingle();
-      if (!profileData) continue;
+    // Parallelise: fetch all profiles and last messages concurrently (eliminates N+1)
+    const settled = await Promise.all(
+      userMatches.map(async (row) => {
+        const match = mapMatch(row);
+        const otherUserId = match.user1Id === userId ? match.user2Id : match.user1Id;
 
-      const { data: lastMsgRow } = await this.sb
-        .from("messages")
-        .select("content, sender_id, created_at")
-        .eq("match_id", match.id)
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
+        const [profileResult, lastMsgResult] = await Promise.all([
+          this.sb.from("profiles").select("*").eq("user_id", otherUserId).maybeSingle(),
+          this.sb.from("messages")
+            .select("content, sender_id, created_at")
+            .eq("match_id", match.id)
+            .not("content", "like", "__SCHEDULE__%")
+            .order("created_at", { ascending: false })
+            .limit(1)
+            .maybeSingle(),
+        ]);
 
-      const lastMessage = lastMsgRow
-        ? { content: lastMsgRow.content, senderId: lastMsgRow.sender_id, createdAt: lastMsgRow.created_at ? new Date(lastMsgRow.created_at) : null }
-        : null;
+        if (!profileResult.data) return null;
 
-      console.log("[CHAT] LAST_MESSAGE_UPDATED", { matchId: match.id, hasLastMessage: !!lastMessage, senderId: lastMessage?.senderId });
+        const lastMsgRow = lastMsgResult.data;
+        const lastMessage = lastMsgRow
+          ? { content: lastMsgRow.content, senderId: lastMsgRow.sender_id, createdAt: lastMsgRow.created_at ? new Date(lastMsgRow.created_at) : null }
+          : null;
 
-      result.push({ ...match, profile: mapProfile(profileData), lastMessage });
-    }
+        return { ...match, profile: mapProfile(profileResult.data), lastMessage };
+      })
+    );
 
-    // Sort by most recent activity: last message time, falling back to match creation time
+    const result = settled.filter(Boolean) as (Match & { profile: Profile; lastMessage: { content: string; senderId: string; createdAt: Date | null } | null })[];
+
     result.sort((a, b) => {
       const aTime = a.lastMessage?.createdAt?.getTime() ?? a.createdAt?.getTime() ?? 0;
       const bTime = b.lastMessage?.createdAt?.getTime() ?? b.createdAt?.getTime() ?? 0;
@@ -399,30 +395,26 @@ export class SupabaseStorage implements IStorage {
     if (match.user1Id !== userId && match.user2Id !== userId) return undefined;
 
     const otherUserId = match.user1Id === userId ? match.user2Id : match.user1Id;
-    const { data: profileData, error: profileError } = await this.sb
-      .from("profiles")
-      .select("*")
-      .eq("user_id", otherUserId)
-      .maybeSingle();
-    if (profileError) {
-      console.error("GET_MATCH_PROFILE_ERROR", { matchId, userId, otherUserId, msg: profileError.message, code: profileError.code });
+
+    // Fetch profile and messages in parallel
+    const [profileResult, msgResult] = await Promise.all([
+      this.sb.from("profiles").select("*").eq("user_id", otherUserId).maybeSingle(),
+      this.sb.from("messages").select("*").eq("match_id", matchId).order("created_at", { ascending: true }),
+    ]);
+
+    if (profileResult.error) {
+      console.error("GET_MATCH_PROFILE_ERROR", { matchId, userId, otherUserId, msg: profileResult.error.message });
       return undefined;
     }
-    if (!profileData) {
+    if (!profileResult.data) {
       console.log("GET_MATCH_PROFILE_NOT_FOUND", { matchId, userId, otherUserId });
       return undefined;
     }
 
-    const { data: msgData } = await this.sb
-      .from("messages")
-      .select("*")
-      .eq("match_id", matchId)
-      .order("created_at", { ascending: true });
-
     return {
       ...match,
-      profile: mapProfile(profileData),
-      messages: (msgData || []).map(mapMessage),
+      profile: mapProfile(profileResult.data),
+      messages: (msgResult.data || []).map(mapMessage),
     };
   }
 
@@ -928,27 +920,33 @@ export class SupabaseStorage implements IStorage {
   }
 
   async getConsecutiveLikeDays(userId: string, goal: number): Promise<number> {
+    // Single query: fetch all opens in the last 7 days, process dates in JS
     const today = new Date();
-    let bestStreak = 0;
+    const cutoff = new Date(today);
+    cutoff.setDate(today.getDate() - 6);
 
+    const { data } = await this.sb
+      .from("interactions")
+      .select("created_at")
+      .eq("from_user_id", userId)
+      .eq("type", "open")
+      .gte("created_at", `${cutoff.toISOString().slice(0, 10)}T00:00:00.000Z`);
+
+    // Count likes per calendar day (UTC)
+    const likesByDay = new Map<string, number>();
+    for (const row of data || []) {
+      const dateStr = new Date(row.created_at).toISOString().slice(0, 10);
+      likesByDay.set(dateStr, (likesByDay.get(dateStr) || 0) + 1);
+    }
+
+    let bestStreak = 0;
     for (let startOffset = 0; startOffset <= 1; startOffset++) {
       let streak = 0;
       for (let i = 0; i < 3; i++) {
         const checkDate = new Date(today);
         checkDate.setDate(today.getDate() - startOffset - i);
         const dateStr = checkDate.toISOString().slice(0, 10);
-        const startOfDay = `${dateStr}T00:00:00.000Z`;
-        const endOfDay = `${dateStr}T23:59:59.999Z`;
-
-        const { count } = await this.sb
-          .from("interactions")
-          .select("*", { count: "exact", head: true })
-          .eq("from_user_id", userId)
-          .eq("type", "open")
-          .gte("created_at", startOfDay)
-          .lte("created_at", endOfDay);
-
-        if ((count || 0) >= goal) {
+        if ((likesByDay.get(dateStr) || 0) >= goal) {
           streak++;
         } else {
           break;
@@ -956,7 +954,6 @@ export class SupabaseStorage implements IStorage {
       }
       bestStreak = Math.max(bestStreak, streak);
     }
-
     return bestStreak;
   }
 
@@ -997,18 +994,14 @@ export class SupabaseStorage implements IStorage {
       .eq("status", "pending")
       .order("created_at", { ascending: false });
 
-    const results: (SpinRequest & { profile: Profile })[] = [];
-    for (const req of requests || []) {
-      const { data: profileData } = await this.sb
-        .from("profiles")
-        .select("*")
-        .eq("user_id", req.from_user_id)
-        .maybeSingle();
-      if (profileData) {
-        results.push({ ...mapSpinRequest(req), profile: mapProfile(profileData) });
-      }
-    }
-    return results;
+    if (!requests || requests.length === 0) return [];
+    const settled = await Promise.all(
+      (requests || []).map(async (req) => {
+        const { data: profileData } = await this.sb.from("profiles").select("*").eq("user_id", req.from_user_id).maybeSingle();
+        return profileData ? { ...mapSpinRequest(req), profile: mapProfile(profileData) } : null;
+      })
+    );
+    return settled.filter(Boolean) as (SpinRequest & { profile: Profile })[];
   }
 
   async getOutgoingSpinRequests(userId: string): Promise<(SpinRequest & { profile: Profile })[]> {
@@ -1018,18 +1011,14 @@ export class SupabaseStorage implements IStorage {
       .eq("from_user_id", userId)
       .order("created_at", { ascending: false });
 
-    const results: (SpinRequest & { profile: Profile })[] = [];
-    for (const req of requests || []) {
-      const { data: profileData } = await this.sb
-        .from("profiles")
-        .select("*")
-        .eq("user_id", req.to_user_id)
-        .maybeSingle();
-      if (profileData) {
-        results.push({ ...mapSpinRequest(req), profile: mapProfile(profileData) });
-      }
-    }
-    return results;
+    if (!requests || requests.length === 0) return [];
+    const settled = await Promise.all(
+      (requests || []).map(async (req) => {
+        const { data: profileData } = await this.sb.from("profiles").select("*").eq("user_id", req.to_user_id).maybeSingle();
+        return profileData ? { ...mapSpinRequest(req), profile: mapProfile(profileData) } : null;
+      })
+    );
+    return settled.filter(Boolean) as (SpinRequest & { profile: Profile })[];
   }
 
   async respondToSpinRequest(requestId: string, userId: string, accept: boolean): Promise<SpinRequest | undefined> {
@@ -1138,24 +1127,12 @@ export class SupabaseStorage implements IStorage {
   }
 
   async getMatchCount(userId: string): Promise<number> {
-    const { data: activeMatches } = await this.sb
+    const { count } = await this.sb
       .from("matches")
-      .select("*")
+      .select("*", { count: "exact", head: true })
       .eq("status", "active")
       .or(`user1_id.eq.${userId},user2_id.eq.${userId}`);
-
-    let count = 0;
-    for (const row of activeMatches || []) {
-      const match = mapMatch(row);
-      const otherUserId = match.user1Id === userId ? match.user2Id : match.user1Id;
-      const { data: profileData } = await this.sb
-        .from("profiles")
-        .select("id")
-        .eq("user_id", otherUserId)
-        .maybeSingle();
-      if (profileData) count++;
-    }
-    return count;
+    return count || 0;
   }
 
   async findMatchBetweenUsers(userId1: string, userId2: string): Promise<Match | undefined> {
@@ -1170,25 +1147,16 @@ export class SupabaseStorage implements IStorage {
   }
 
   async getIncomingOpens(userId: string): Promise<(Interaction & { profile: Profile })[]> {
-    const { data: userInteractedBack } = await this.sb
-      .from("interactions")
-      .select("to_user_id")
-      .eq("from_user_id", userId);
-    const interactedBackIds = (userInteractedBack || []).map(r => r.to_user_id);
-
-    const { data: matchRows1 } = await this.sb
-      .from("matches")
-      .select("user1_id")
-      .eq("user2_id", userId)
-      .eq("status", "active");
-    const { data: matchRows2 } = await this.sb
-      .from("matches")
-      .select("user2_id")
-      .eq("user1_id", userId)
-      .eq("status", "active");
+    // Run all pre-filter queries in parallel
+    const [interactedResult, matchResult1, matchResult2] = await Promise.all([
+      this.sb.from("interactions").select("to_user_id").eq("from_user_id", userId),
+      this.sb.from("matches").select("user1_id").eq("user2_id", userId).eq("status", "active"),
+      this.sb.from("matches").select("user2_id").eq("user1_id", userId).eq("status", "active"),
+    ]);
+    const interactedBackIds = (interactedResult.data || []).map((r: any) => r.to_user_id);
     const matchedIds = [
-      ...(matchRows1 || []).map(r => r.user1_id),
-      ...(matchRows2 || []).map(r => r.user2_id),
+      ...(matchResult1.data || []).map((r: any) => r.user1_id),
+      ...(matchResult2.data || []).map((r: any) => r.user2_id),
     ];
 
     const excludeIds = [...new Set([...interactedBackIds, ...matchedIds])];
@@ -1205,19 +1173,15 @@ export class SupabaseStorage implements IStorage {
     }
 
     const { data: incomingOpens } = await query;
+    if (!incomingOpens || incomingOpens.length === 0) return [];
 
-    const result: (Interaction & { profile: Profile })[] = [];
-    for (const open of incomingOpens || []) {
-      const { data: profileData } = await this.sb
-        .from("profiles")
-        .select("*")
-        .eq("user_id", open.from_user_id)
-        .maybeSingle();
-      if (profileData) {
-        result.push({ ...mapInteraction(open), profile: mapProfile(profileData) });
-      }
-    }
-    return result;
+    const settled = await Promise.all(
+      incomingOpens.map(async (open) => {
+        const { data: profileData } = await this.sb.from("profiles").select("*").eq("user_id", open.from_user_id).maybeSingle();
+        return profileData ? { ...mapInteraction(open), profile: mapProfile(profileData) } : null;
+      })
+    );
+    return settled.filter(Boolean) as (Interaction & { profile: Profile })[];
   }
 
   async resetUserTestData(userId: string): Promise<void> {

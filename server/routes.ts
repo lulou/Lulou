@@ -12,6 +12,37 @@ import { eq, and, isNull } from "drizzle-orm";
 const serverBroadcastChannels = new Map<string, ReturnType<typeof supabase.channel>>();
 const serverChannelTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
+// JWT verification cache — avoids a Supabase API call on every request
+// Uses a 2-minute TTL (well within any JWT's 1h window), max 500 entries
+const _jwtCache = new Map<string, { user: any; expiresAt: number }>();
+const JWT_CACHE_TTL_MS = 2 * 60_000;
+const JWT_CACHE_MAX = 500;
+function parseJwtExp(token: string): number {
+  try {
+    const payload = JSON.parse(Buffer.from(token.split(".")[1], "base64").toString());
+    return payload.exp ? payload.exp * 1000 : 0;
+  } catch { return 0; }
+}
+async function verifyJwt(token: string): Promise<any | null> {
+  const now = Date.now();
+  const cached = _jwtCache.get(token);
+  if (cached && cached.expiresAt > now) return cached.user;
+
+  const { data: { user }, error } = await supabase.auth.getUser(token);
+  if (error || !user) return null;
+
+  const jwtExp = parseJwtExp(token);
+  const ttlExpiry = now + JWT_CACHE_TTL_MS;
+  const expiresAt = jwtExp > 0 ? Math.min(jwtExp, ttlExpiry) : ttlExpiry;
+  if (_jwtCache.size >= JWT_CACHE_MAX) {
+    // Evict oldest entries when cache is full
+    const oldest = _jwtCache.keys().next().value;
+    if (oldest) _jwtCache.delete(oldest);
+  }
+  _jwtCache.set(token, { user, expiresAt });
+  return user;
+}
+
 async function broadcastCallEvent(matchId: string, event: Record<string, any>) {
   const channelName = `call-signal:${matchId}`;
   console.log(`[CALL_BROADCAST] Sending ${event.type} on ${channelName}`);
@@ -114,19 +145,14 @@ const isAuthenticated: RequestHandler = async (req: any, res, next) => {
   }
   const token = authHeader.split(" ")[1];
   try {
-    const { data: { user }, error } = await supabase.auth.getUser(token);
-    if (error || !user) {
-      console.error("[AUTH] MIDDLEWARE_AUTH_REJECTED", { error: error?.message, hasUser: !!user });
+    const user = await verifyJwt(token);
+    if (!user) {
       return res.status(401).json({ message: "Unauthorized" });
     }
     req.user = user;
     next();
   } catch (err: any) {
-    console.error("[AUTH] MIDDLEWARE_ERROR", {
-      CALL_ROUTE_ERROR: err?.message,
-      stack: err?.stack,
-      path: req.path,
-    });
+    console.error("[AUTH] MIDDLEWARE_ERROR", { CALL_ROUTE_ERROR: err?.message, path: req.path });
     return res.status(500).json({ message: `Auth check failed: ${err?.message || "unknown error"}` });
   }
 };
@@ -924,26 +950,19 @@ export async function registerRoutes(
     try {
       const storage = getStorage(req);
       const userId = req.user.id;
-      const spinsThisWeek = await storage.getSpinsThisWeek(userId);
-      const dailyLikes = await storage.getDailyLikeCount(userId);
-      const consecutiveDays = await storage.getConsecutiveLikeDays(userId, 10);
+
+      // Run all spin-status checks in parallel
+      const [spinsThisWeek, dailyLikes, consecutiveDays, hasUnusedStreak] = await Promise.all([
+        storage.getSpinsThisWeek(userId),
+        storage.getDailyLikeCount(userId),
+        storage.getConsecutiveLikeDays(userId, 10),
+        storage.hasUnusedStreakSpin(userId),
+      ]);
+
       const streakComplete = consecutiveDays >= 3;
-      const hasUnusedStreak = await storage.hasUnusedStreakSpin(userId);
+      const canSpin = (streakComplete && hasUnusedStreak) || (!streakComplete && spinsThisWeek === 0);
 
-      let canSpin = false;
-      if (streakComplete && hasUnusedStreak) {
-        canSpin = true;
-      } else if (!streakComplete && spinsThisWeek === 0) {
-        canSpin = true;
-      }
-
-      res.json({
-        spinsThisWeek,
-        dailyLikes,
-        consecutiveDays,
-        streakComplete,
-        canSpin,
-      });
+      res.json({ spinsThisWeek, dailyLikes, consecutiveDays, streakComplete, canSpin });
     } catch (error) {
       console.error("Error fetching spin status:", error);
       res.status(500).json({ message: "Failed to fetch spin status" });
