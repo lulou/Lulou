@@ -8,25 +8,214 @@ import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { useTabActive } from "@/App";
-import { Heart, X, Eye, MapPin, Lock } from "lucide-react";
+import { Heart, X, Eye, MapPin, Lock, Sparkles, Zap, ChevronRight, Check } from "lucide-react";
 import { LulouFlowerIcon } from "@/components/app-layout";
 import type { Profile, Interaction } from "@shared/schema";
 
 type IncomingOpen = Interaction & { profile: Profile };
-
-type MatchCelebration = {
-  firstName: string;
-  photo?: string;
-};
-
+type MatchCelebration = { firstName: string; photo?: string };
 type MatchCountData = { count: number };
+
+// ─── Elevate Modal ────────────────────────────────────────────────────────────
+
+const ELEVATE_PACKAGES = [
+  {
+    id: "elevate-1",
+    label: "1 Elevate",
+    price: "$9.99",
+    description: "Boost your profile visibility once",
+    badge: null,
+    highlight: false,
+  },
+  {
+    id: "elevate-3",
+    label: "3 Elevates",
+    price: "$24.99",
+    description: "Three visibility boosts, save 17%",
+    badge: "Discounted",
+    highlight: false,
+  },
+  {
+    id: "elevate-5",
+    label: "5 Elevates",
+    price: "$34.99",
+    description: "Five boosts at the lowest price per boost",
+    badge: "Best Value",
+    highlight: true,
+  },
+] as const;
+
+const SUPER_ELEVATE = {
+  id: "super-elevate",
+  label: "Super Elevate",
+  price: "$19.99",
+  description: "Priority placement above all others for 24 hours",
+} as const;
+
+function ElevateModal({ onClose }: { onClose: () => void }) {
+  const { toast } = useToast();
+  const [selected, setSelected] = useState<string | null>(null);
+  const [purchasing, setPurchasing] = useState(false);
+
+  const handlePurchase = async (packageId: string, label: string) => {
+    setPurchasing(true);
+    setSelected(packageId);
+    await new Promise(r => setTimeout(r, 900));
+    setPurchasing(false);
+    toast({
+      title: `${label} activated`,
+      description: "Your profile is now elevated. More people will discover you.",
+    });
+    onClose();
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center"
+      onClick={e => { if (e.target === e.currentTarget) onClose(); }}
+      data-testid="modal-elevate"
+    >
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
+
+      <div className="relative w-full max-w-md mx-auto bg-background rounded-t-3xl sm:rounded-2xl shadow-2xl overflow-hidden">
+        <div
+          className="h-1.5 w-12 bg-border rounded-full mx-auto mt-3 sm:hidden"
+          aria-hidden
+        />
+
+        <div className="px-6 pt-6 pb-2">
+          <div className="flex items-center gap-2 mb-1">
+            <Sparkles className="w-5 h-5 text-primary" />
+            <h2 className="font-serif text-xl font-bold">Elevate Your Profile</h2>
+          </div>
+          <p className="text-sm text-muted-foreground leading-relaxed">
+            Increase your visibility in discovery and the Intention Wheel so more people find you, faster.
+          </p>
+        </div>
+
+        <div className="px-6 pb-2 pt-4 space-y-3">
+          {ELEVATE_PACKAGES.map(pkg => (
+            <button
+              key={pkg.id}
+              className={[
+                "w-full rounded-xl border p-4 text-left transition-all relative",
+                pkg.highlight
+                  ? "border-primary bg-primary/5 shadow-sm"
+                  : "border-border bg-card hover:border-primary/40",
+                selected === pkg.id && purchasing ? "opacity-80" : "",
+              ].join(" ")}
+              onClick={() => handlePurchase(pkg.id, pkg.label)}
+              disabled={purchasing}
+              data-testid={`button-elevate-${pkg.id}`}
+            >
+              {pkg.badge && (
+                <span
+                  className={[
+                    "absolute top-3 right-3 text-xs font-semibold px-2 py-0.5 rounded-full",
+                    pkg.highlight
+                      ? "bg-primary text-primary-foreground"
+                      : "bg-secondary text-secondary-foreground",
+                  ].join(" ")}
+                  data-testid={`badge-elevate-${pkg.id}`}
+                >
+                  {pkg.badge}
+                </span>
+              )}
+              <div className="flex items-start gap-3 pr-20">
+                <div
+                  className={[
+                    "w-9 h-9 rounded-full flex items-center justify-center shrink-0 mt-0.5",
+                    pkg.highlight ? "bg-primary/15" : "bg-muted",
+                  ].join(" ")}
+                >
+                  {selected === pkg.id && purchasing
+                    ? <div className="w-4 h-4 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+                    : <Sparkles className={["w-4 h-4", pkg.highlight ? "text-primary" : "text-muted-foreground"].join(" ")} />
+                  }
+                </div>
+                <div>
+                  <p className={["font-semibold text-sm", pkg.highlight ? "text-primary" : "text-foreground"].join(" ")}>
+                    {pkg.label}
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-0.5">{pkg.description}</p>
+                </div>
+              </div>
+              <p className={["text-lg font-bold mt-2 ml-12", pkg.highlight ? "text-primary" : "text-foreground"].join(" ")}>
+                {pkg.price}
+              </p>
+            </button>
+          ))}
+        </div>
+
+        <div className="px-6 pb-2 pt-1">
+          <div className="relative py-3">
+            <div className="absolute inset-0 flex items-center">
+              <span className="w-full border-t border-border" />
+            </div>
+            <div className="relative flex justify-center text-xs">
+              <span className="bg-background px-3 text-muted-foreground font-medium tracking-wider uppercase">
+                Premium
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <div className="px-6 pb-6">
+          <button
+            className="w-full rounded-xl border-2 border-primary/30 bg-gradient-to-br from-primary/5 to-primary/10 p-4 text-left transition-all hover:border-primary/60 disabled:opacity-70"
+            onClick={() => handlePurchase(SUPER_ELEVATE.id, SUPER_ELEVATE.label)}
+            disabled={purchasing}
+            data-testid="button-super-elevate"
+          >
+            <div className="flex items-start gap-3">
+              <div className="w-9 h-9 rounded-full bg-primary/15 flex items-center justify-center shrink-0 mt-0.5">
+                {selected === SUPER_ELEVATE.id && purchasing
+                  ? <div className="w-4 h-4 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+                  : <Zap className="w-4 h-4 text-primary" />
+                }
+              </div>
+              <div className="flex-1">
+                <div className="flex items-center gap-2">
+                  <p className="font-semibold text-sm text-primary">{SUPER_ELEVATE.label}</p>
+                  <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full font-medium">
+                    24 hrs
+                  </span>
+                </div>
+                <p className="text-xs text-muted-foreground mt-0.5">{SUPER_ELEVATE.description}</p>
+                <ul className="mt-2 space-y-1">
+                  {[
+                    "Maximum visibility in Discovery",
+                    "Top placement in the Intention Wheel",
+                    "Priority exposure over all profiles",
+                  ].map(feat => (
+                    <li key={feat} className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                      <Check className="w-3 h-3 text-primary shrink-0" />
+                      {feat}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+            <p className="text-xl font-bold text-primary mt-3 ml-12">{SUPER_ELEVATE.price}</p>
+          </button>
+
+          <p className="text-center text-xs text-muted-foreground mt-4 leading-relaxed">
+            Purchases are non-refundable. Elevates expire after 7 days if unused.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Match Overlay ─────────────────────────────────────────────────────────────
 
 function MatchOverlay({ celebration, onClose }: { celebration: MatchCelebration; onClose: () => void }) {
   const [phase, setPhase] = useState<"enter" | "visible" | "exit">("enter");
 
   useEffect(() => {
-    const enterTimer = setTimeout(() => setPhase("visible"), 50);
-    return () => clearTimeout(enterTimer);
+    const t = setTimeout(() => setPhase("visible"), 50);
+    return () => clearTimeout(t);
   }, []);
 
   const handleClose = useCallback(() => {
@@ -35,8 +224,8 @@ function MatchOverlay({ celebration, onClose }: { celebration: MatchCelebration;
   }, [onClose]);
 
   useEffect(() => {
-    const autoClose = setTimeout(handleClose, 4000);
-    return () => clearTimeout(autoClose);
+    const t = setTimeout(handleClose, 4000);
+    return () => clearTimeout(t);
   }, [handleClose]);
 
   const isVisible = phase === "visible";
@@ -79,7 +268,6 @@ function MatchOverlay({ celebration, onClose }: { celebration: MatchCelebration;
         }}
       >
         <LulouFlowerIcon className="w-14 h-14 text-white/80" />
-
         <div className="relative">
           <Avatar
             className="w-28 h-28 border-4 border-white/30"
@@ -103,7 +291,6 @@ function MatchOverlay({ celebration, onClose }: { celebration: MatchCelebration;
             <Heart className="w-5 h-5 text-white fill-white" />
           </div>
         </div>
-
         <div className="text-center space-y-2">
           <h1
             className="font-serif text-4xl font-bold text-white tracking-wide"
@@ -130,23 +317,15 @@ function MatchOverlay({ celebration, onClose }: { celebration: MatchCelebration;
             match made
           </p>
         </div>
-
         <p
           className="text-white/60 text-sm mt-2"
-          style={{
-            opacity: isVisible ? 1 : 0,
-            transition: "opacity 600ms ease 700ms",
-          }}
+          style={{ opacity: isVisible ? 1 : 0, transition: "opacity 600ms ease 700ms" }}
         >
           You and {celebration.firstName} are connected
         </p>
-
         <p
           className="text-white/40 text-xs"
-          style={{
-            opacity: isVisible ? 1 : 0,
-            transition: "opacity 600ms ease 900ms",
-          }}
+          style={{ opacity: isVisible ? 1 : 0, transition: "opacity 600ms ease 900ms" }}
         >
           Tap anywhere to continue
         </p>
@@ -162,6 +341,8 @@ function MatchOverlay({ celebration, onClose }: { celebration: MatchCelebration;
   );
 }
 
+// ─── Like Card ─────────────────────────────────────────────────────────────────
+
 function LikeCard({ open, onMatch, onConnectionFull }: { open: IncomingOpen; onMatch: (c: MatchCelebration) => void; onConnectionFull: () => void }) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -169,13 +350,9 @@ function LikeCard({ open, onMatch, onConnectionFull }: { open: IncomingOpen; onM
   const respond = useMutation({
     mutationFn: async (type: "open" | "close") => {
       try {
-        const res = await apiRequest("POST", "/api/interactions", {
-          toUserId: open.fromUserId,
-          type,
-        });
+        const res = await apiRequest("POST", "/api/interactions", { toUserId: open.fromUserId, type });
         return res.json();
       } catch (err: any) {
-        console.error("LIKE_INTERACTION_ERROR", type, err?.message || err);
         toast({
           title: type === "open" ? "Couldn't send like" : "Couldn't close",
           description: err?.message || "Something went wrong. Try again.",
@@ -190,10 +367,7 @@ function LikeCard({ open, onMatch, onConnectionFull }: { open: IncomingOpen; onM
       queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
       queryClient.invalidateQueries({ queryKey: ["/api/match-count"] });
       if (data.matched) {
-        onMatch({
-          firstName: open.profile.firstName,
-          photo: open.profile.photos?.[0],
-        });
+        onMatch({ firstName: open.profile.firstName, photo: open.profile.photos?.[0] });
       } else if (data.connectionLimitReached) {
         onConnectionFull();
       } else {
@@ -259,9 +433,12 @@ function LikeCard({ open, onMatch, onConnectionFull }: { open: IncomingOpen; onM
   );
 }
 
+// ─── Main Page ─────────────────────────────────────────────────────────────────
+
 export default function LikesPage() {
   const [celebration, setCelebration] = useState<MatchCelebration | null>(null);
   const [showFullMessage, setShowFullMessage] = useState(false);
+  const [showElevate, setShowElevate] = useState(false);
   const isActive = useTabActive();
 
   const { data: likes, isLoading } = useQuery<IncomingOpen[]>({
@@ -295,62 +472,93 @@ export default function LikesPage() {
 
   if (likesList.length === 0 && !celebration) {
     return (
-      <div className="flex-1 flex items-center justify-center p-6">
-        <div className="text-center space-y-4 max-w-sm">
-          <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center mx-auto">
-            <Eye className="w-8 h-8 text-primary" />
+      <>
+        <div className="flex-1 flex items-center justify-center p-6">
+          <div className="text-center space-y-5 max-w-xs">
+            <div className="w-20 h-20 rounded-full bg-primary/8 border border-primary/15 flex items-center justify-center mx-auto">
+              <Eye className="w-9 h-9 text-primary/60" />
+            </div>
+
+            <div className="space-y-2">
+              <h2 className="font-serif text-2xl font-bold" data-testid="text-no-likes">
+                No likes yet
+              </h2>
+              <p className="text-muted-foreground text-sm leading-relaxed">
+                Elevate your profile to be seen by more people faster
+              </p>
+            </div>
+
+            <button
+              className="w-full rounded-xl bg-primary text-primary-foreground px-5 py-3.5 font-semibold text-sm flex items-center justify-center gap-2 shadow-md hover:brightness-105 active:scale-95 transition-all"
+              onClick={() => setShowElevate(true)}
+              data-testid="button-elevate-cta"
+            >
+              <Sparkles className="w-4 h-4" />
+              Elevate Your Profile
+              <ChevronRight className="w-4 h-4 ml-auto opacity-70" />
+            </button>
+
+            <p className="text-xs text-muted-foreground">
+              When someone opens your profile, they'll appear here.
+            </p>
           </div>
-          <h2 className="font-serif text-2xl font-bold" data-testid="text-no-likes">No likes yet</h2>
-          <p className="text-muted-foreground text-sm">
-            When someone opens your profile, they'll show up here. Keep your profile fresh to attract more interest.
-          </p>
         </div>
-        {celebration && <MatchOverlay celebration={celebration} onClose={() => setCelebration(null)} />}
-      </div>
+
+        {showElevate && <ElevateModal onClose={() => setShowElevate(false)} />}
+      </>
     );
   }
 
   return (
-    <div className="flex-1 overflow-y-auto p-6 space-y-5 max-w-lg mx-auto w-full">
-      <div className="space-y-1">
-        <div className="flex items-center justify-between gap-2 flex-wrap">
-          <div className="flex items-center gap-2">
-            <Eye className="w-5 h-5 text-primary" />
-            <h1 className="font-serif text-2xl font-bold" data-testid="text-likes-title">Who Liked You</h1>
+    <>
+      <div className="flex-1 overflow-y-auto p-6 space-y-5 max-w-lg mx-auto w-full">
+        <div className="space-y-1">
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <div className="flex items-center gap-2">
+              <Eye className="w-5 h-5 text-primary" />
+              <h1 className="font-serif text-2xl font-bold" data-testid="text-likes-title">Who Liked You</h1>
+            </div>
+            <div className="flex items-center gap-2">
+              <Badge variant="secondary" className="text-xs" data-testid="badge-likes-count">
+                {likesList.length}
+              </Badge>
+              <button
+                className="flex items-center gap-1.5 text-xs font-medium text-primary border border-primary/25 bg-primary/5 px-3 py-1.5 rounded-full hover:bg-primary/10 transition-colors"
+                onClick={() => setShowElevate(true)}
+                data-testid="button-elevate-header"
+              >
+                <Sparkles className="w-3 h-3" />
+                Elevate
+              </button>
+            </div>
           </div>
-          <Badge variant="secondary" className="text-xs" data-testid="badge-likes-count">
-            {likesList.length}
-          </Badge>
-        </div>
-        <p className="text-sm text-muted-foreground">
-          These people opened your profile. Open them back to connect, or pass.
-        </p>
-      </div>
-
-      {(connectionsFull || showFullMessage) && (
-        <div
-          className="flex flex-col items-center gap-3 py-6 px-4 text-center"
-          data-testid="banner-connections-full"
-        >
-          <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center">
-            <Lock className="w-6 h-6 text-primary" />
-          </div>
-          <p className="font-serif text-base font-semibold text-foreground">
-            Connections room is full
-          </p>
           <p className="text-sm text-muted-foreground">
-            Close a connection to free up space
+            These people opened your profile. Open them back to connect, or pass.
           </p>
         </div>
-      )}
 
-      <div className="space-y-3">
-        {likesList.map(open => (
-          <LikeCard key={open.id} open={open} onMatch={setCelebration} onConnectionFull={() => setShowFullMessage(true)} />
-        ))}
+        {(connectionsFull || showFullMessage) && (
+          <div
+            className="flex flex-col items-center gap-3 py-6 px-4 text-center"
+            data-testid="banner-connections-full"
+          >
+            <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center">
+              <Lock className="w-6 h-6 text-primary" />
+            </div>
+            <p className="font-serif text-base font-semibold text-foreground">Connections room is full</p>
+            <p className="text-sm text-muted-foreground">Close a connection to free up space</p>
+          </div>
+        )}
+
+        <div className="space-y-3">
+          {likesList.map(open => (
+            <LikeCard key={open.id} open={open} onMatch={setCelebration} onConnectionFull={() => setShowFullMessage(true)} />
+          ))}
+        </div>
       </div>
 
       {celebration && <MatchOverlay celebration={celebration} onClose={() => setCelebration(null)} />}
-    </div>
+      {showElevate && <ElevateModal onClose={() => setShowElevate(false)} />}
+    </>
   );
 }
