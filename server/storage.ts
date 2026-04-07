@@ -75,6 +75,7 @@ export interface IStorage {
   exchangeNumber(matchId: string, userId: string): Promise<Match | undefined>;
   removeMatch(matchId: string, userId: string): Promise<boolean>;
   getMatchCount(userId: string): Promise<number>;
+  findMatchBetweenUsers(userId1: string, userId2: string): Promise<Match | undefined>;
   getIncomingOpens(userId: string): Promise<(Interaction & { profile: Profile })[]>;
   resetUserTestData(userId: string): Promise<void>;
 }
@@ -1155,6 +1156,17 @@ export class SupabaseStorage implements IStorage {
       if (profileData) count++;
     }
     return count;
+  }
+
+  async findMatchBetweenUsers(userId1: string, userId2: string): Promise<Match | undefined> {
+    const { data, error } = await this.sb
+      .from("matches")
+      .select("*")
+      .eq("status", "active")
+      .or(`and(user1_id.eq.${userId1},user2_id.eq.${userId2}),and(user1_id.eq.${userId2},user2_id.eq.${userId1})`)
+      .maybeSingle();
+    if (error || !data) return undefined;
+    return mapMatch(data);
   }
 
   async getIncomingOpens(userId: string): Promise<(Interaction & { profile: Profile })[]> {

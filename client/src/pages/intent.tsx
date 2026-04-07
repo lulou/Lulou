@@ -1,11 +1,11 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Loader2, RotateCw, X, MapPin, Send, Lock, Star, Crown, MessageCircle, HelpCircle } from "lucide-react";
+import { useLocation } from "wouter";
+import { Loader2, RotateCw, X, MapPin, Lock, Star, Crown, MessageCircle, HelpCircle, Heart, Moon } from "lucide-react";
 import { LulouFlowerIcon } from "@/components/app-layout";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { useTabActive } from "@/App";
@@ -28,6 +28,7 @@ export default function IntentPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const isActive = useTabActive();
+  const [, navigate] = useLocation();
 
   const { data: profiles, isLoading, isError } = useQuery<Profile[]>({
     queryKey: ["/api/popular"],
@@ -52,9 +53,6 @@ export default function IntentPage() {
   const [showProfile, setShowProfile] = useState(false);
   const [showPurchase, setShowPurchase] = useState(false);
   const [angle, setAngle] = useState(0);
-  const [message, setMessage] = useState("");
-  const [replyingTo, setReplyingTo] = useState<string | null>(null);
-  const messageInputRef = useRef<HTMLInputElement>(null);
 
   const items = profiles || [];
   const count = items.length;
@@ -135,6 +133,28 @@ export default function IntentPage() {
     },
   });
 
+  const wheelOpen = useMutation({
+    mutationFn: async (toUserId: string) => {
+      const res = await apiRequest("POST", "/api/wheel/open", { toUserId });
+      return res.json() as Promise<{ matchId: string; isExisting: boolean }>;
+    },
+    onSuccess: (data) => {
+      toast({
+        title: data.isExisting ? "Connection reopened" : "Connected!",
+        description: "Head to your matches to start the conversation.",
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
+      closeProfile();
+      navigate("/matches");
+    },
+    onError: (error: any) => {
+      const raw = error?.message || "";
+      let msg = "Something went wrong. Try again.";
+      try { const p = JSON.parse(raw); if (p?.message) msg = p.message; } catch {}
+      toast({ title: "Could not connect", description: msg, variant: "destructive" });
+    },
+  });
+
   const spinWheel = () => {
     if (isSpinning || count === 0 || !canSpin) return;
     setIsSpinning(true);
@@ -142,7 +162,6 @@ export default function IntentPage() {
     setDispersed(false);
     setShowProfile(false);
     setShowPurchase(false);
-    setMessage("");
 
     const targetIndex = Math.floor(Math.random() * count);
     const targetAngle = targetIndex * angleStep;
@@ -197,39 +216,11 @@ export default function IntentPage() {
     setShowProfile(false);
     setDispersed(false);
     setSelectedIndex(null);
-    setMessage("");
-    setReplyingTo(null);
     queryClient.invalidateQueries({ queryKey: ["/api/popular"] });
 
     setTimeout(() => setShowPurchase(true), 300);
   };
 
-  const sendSpinRequest = useMutation({
-    mutationFn: async ({ toUserId, msg }: { toUserId: string; msg: string }) => {
-      const res = await apiRequest("POST", "/api/spin-requests", {
-        toUserId,
-        message: msg,
-      });
-      return res.json();
-    },
-    onSuccess: () => {
-      const selectedProfile = selectedIndex !== null ? items[selectedIndex] : null;
-      toast({
-        title: "Message sent",
-        description: `Your message to ${selectedProfile?.firstName} is waiting for their response.`,
-      });
-      setReplyingTo(null);
-      queryClient.invalidateQueries({ queryKey: ["/api/spin-requests"] });
-      closeProfile();
-    },
-    onError: () => {
-      toast({
-        title: "Could not send",
-        description: "Something went wrong. Please try again.",
-        variant: "destructive",
-      });
-    },
-  });
 
   useEffect(() => {
     return () => cancelAnimationFrame(animFrame.current);
@@ -622,49 +613,12 @@ export default function IntentPage() {
                   </div>
                   <div className="space-y-2">
                     {selectedProfile.conversationStarters.map((starter, i) => (
-                      <div key={i} className="space-y-2">
-                        <div
-                          className={`rounded-md p-3 text-sm cursor-pointer transition-all bg-muted/50 hover-elevate ${replyingTo === `starter-${i}` ? "ring-2 ring-primary/40" : ""}`}
-                          onClick={() => {
-                            setReplyingTo(replyingTo === `starter-${i}` ? null : `starter-${i}`);
-                            setMessage("");
-                          }}
-                          data-testid={`text-detail-starter-${i}`}
-                        >
-                          <p className="italic">"{starter}"</p>
-                          <p className="text-xs text-primary mt-1.5 font-medium">Tap to reply</p>
-                        </div>
-                        {replyingTo === `starter-${i}` && (
-                          <div className="flex gap-2 items-end">
-                            <Input
-                              autoFocus
-                              value={message}
-                              onChange={e => setMessage(e.target.value.slice(0, 500))}
-                              placeholder="Reply to this..."
-                              className="text-sm"
-                              onKeyDown={e => {
-                                if (e.key === "Enter" && message.trim()) {
-                                  const fullMsg = `Re: "${starter}"\n\n${message.trim()}`;
-                                  sendSpinRequest.mutate({ toUserId: selectedProfile.userId, msg: fullMsg });
-                                }
-                              }}
-                              data-testid={`input-reply-starter-${i}`}
-                            />
-                            <Button
-                              size="icon"
-                              disabled={!message.trim() || sendSpinRequest.isPending}
-                              onClick={() => {
-                                if (message.trim()) {
-                                  const fullMsg = `Re: "${starter}"\n\n${message.trim()}`;
-                                  sendSpinRequest.mutate({ toUserId: selectedProfile.userId, msg: fullMsg });
-                                }
-                              }}
-                              data-testid={`button-reply-starter-${i}`}
-                            >
-                              <Send className="w-4 h-4" />
-                            </Button>
-                          </div>
-                        )}
+                      <div
+                        key={i}
+                        className="rounded-md p-3 text-sm bg-muted/50"
+                        data-testid={`text-detail-starter-${i}`}
+                      >
+                        <p className="italic">"{starter}"</p>
                       </div>
                     ))}
                   </div>
@@ -679,49 +633,12 @@ export default function IntentPage() {
                   </div>
                   <div className="space-y-2">
                     {selectedProfile.questions.map((question, i) => (
-                      <div key={i} className="space-y-2">
-                        <div
-                          className={`rounded-md p-3 text-sm cursor-pointer transition-all border hover-elevate ${replyingTo === `question-${i}` ? "ring-2 ring-primary/40" : ""}`}
-                          onClick={() => {
-                            setReplyingTo(replyingTo === `question-${i}` ? null : `question-${i}`);
-                            setMessage("");
-                          }}
-                          data-testid={`text-detail-question-${i}`}
-                        >
-                          <p>{question}</p>
-                          <p className="text-xs text-primary mt-1.5 font-medium">Tap to answer</p>
-                        </div>
-                        {replyingTo === `question-${i}` && (
-                          <div className="flex gap-2 items-end">
-                            <Input
-                              autoFocus
-                              value={message}
-                              onChange={e => setMessage(e.target.value.slice(0, 500))}
-                              placeholder="Share your answer..."
-                              className="text-sm"
-                              onKeyDown={e => {
-                                if (e.key === "Enter" && message.trim()) {
-                                  const fullMsg = `Re: "${question}"\n\n${message.trim()}`;
-                                  sendSpinRequest.mutate({ toUserId: selectedProfile.userId, msg: fullMsg });
-                                }
-                              }}
-                              data-testid={`input-reply-question-${i}`}
-                            />
-                            <Button
-                              size="icon"
-                              disabled={!message.trim() || sendSpinRequest.isPending}
-                              onClick={() => {
-                                if (message.trim()) {
-                                  const fullMsg = `Re: "${question}"\n\n${message.trim()}`;
-                                  sendSpinRequest.mutate({ toUserId: selectedProfile.userId, msg: fullMsg });
-                                }
-                              }}
-                              data-testid={`button-reply-question-${i}`}
-                            >
-                              <Send className="w-4 h-4" />
-                            </Button>
-                          </div>
-                        )}
+                      <div
+                        key={i}
+                        className="rounded-md p-3 text-sm border"
+                        data-testid={`text-detail-question-${i}`}
+                      >
+                        <p>{question}</p>
                       </div>
                     ))}
                   </div>
@@ -747,45 +664,32 @@ export default function IntentPage() {
             </div>
           </div>
 
-          <div className="absolute bottom-0 left-0 right-0 bg-background/95 backdrop-blur-md border-t p-4 space-y-2">
-            <p className="text-xs text-muted-foreground">
-              Send a message or tap a prompt above to reply
-            </p>
-            <div className="flex items-center gap-2">
-              <Input
-                ref={messageInputRef}
-                placeholder={`Say something meaningful to ${selectedProfile.firstName}...`}
-                value={message}
-                onChange={e => setMessage(e.target.value.slice(0, 500))}
-                onKeyDown={e => {
-                  if (e.key === "Enter" && message.trim()) {
-                    sendSpinRequest.mutate({ toUserId: selectedProfile.userId, msg: message.trim() });
-                  }
-                }}
-                className="flex-1"
-                data-testid="input-intent-message"
-              />
-              <Button
-                size="icon"
-                disabled={!message.trim() || sendSpinRequest.isPending}
-                onClick={() => {
-                  if (message.trim()) {
-                    sendSpinRequest.mutate({ toUserId: selectedProfile.userId, msg: message.trim() });
-                  }
-                }}
-                data-testid="button-intent-send"
+          <div className="absolute bottom-0 left-0 right-0 bg-background/95 backdrop-blur-md border-t p-5">
+            <div className="flex items-center justify-center gap-8">
+              <button
+                className="w-16 h-16 rounded-full flex items-center justify-center bg-muted border border-border text-2xl shadow-sm hover:scale-105 active:scale-95 transition-transform"
+                onClick={closeProfile}
+                data-testid="button-intent-skip"
+                aria-label="Skip"
               >
-                <Send className="w-4 h-4" />
-              </Button>
+                <Moon className="w-6 h-6 text-muted-foreground" />
+              </button>
+              <button
+                className="w-16 h-16 rounded-full flex items-center justify-center bg-primary text-primary-foreground text-2xl shadow-md hover:scale-105 active:scale-95 transition-transform disabled:opacity-60"
+                onClick={() => selectedProfile && wheelOpen.mutate(selectedProfile.userId)}
+                disabled={wheelOpen.isPending}
+                data-testid="button-intent-open"
+                aria-label="Connect"
+              >
+                {wheelOpen.isPending
+                  ? <Loader2 className="w-6 h-6 animate-spin" />
+                  : <Heart className="w-6 h-6 fill-current" />
+                }
+              </button>
             </div>
-            <div className="flex items-center justify-between gap-2">
-              <p className="text-xs text-muted-foreground">
-                {message.length}/500
-              </p>
-              <Button variant="ghost" size="sm" onClick={closeProfile} data-testid="button-intent-pass">
-                Not now
-              </Button>
-            </div>
+            <p className="text-xs text-center text-muted-foreground mt-3">
+              Tap ❤️ to connect · 🌙 to skip
+            </p>
           </div>
         </div>
       )}

@@ -375,6 +375,43 @@ export async function registerRoutes(
     }
   });
 
+  // Intention Wheel: directly create (or reopen) a match when user taps ❤️.
+  // Unlike discovery (which requires mutual opens), this creates the match immediately.
+  app.post("/api/wheel/open", isAuthenticated, async (req: any, res) => {
+    try {
+      const fromUserId = req.user.id;
+      const { toUserId } = req.body;
+      if (!toUserId || typeof toUserId !== "string") {
+        return res.status(400).json({ message: "toUserId is required" });
+      }
+      if (fromUserId === toUserId) {
+        return res.status(400).json({ message: "Cannot match with yourself" });
+      }
+      const storage = getStorage(req);
+
+      // Reopen existing match if one already exists
+      const existing = await storage.findMatchBetweenUsers(fromUserId, toUserId);
+      if (existing) {
+        console.log("[WHEEL] Reopened existing match", existing.id, "for", fromUserId, "→", toUserId);
+        return res.json({ matchId: existing.id, isExisting: true });
+      }
+
+      // Enforce 8-connection limit
+      const matchCount = await storage.getMatchCount(fromUserId);
+      if (matchCount >= 8) {
+        return res.status(400).json({ message: "You've reached your connection limit (max 8). Remove a connection to add a new one." });
+      }
+
+      const match = await storage.createMatch(fromUserId, toUserId);
+      console.log("[WHEEL] Created new match", match.id, "for", fromUserId, "→", toUserId);
+      res.json({ matchId: match.id, isExisting: false });
+    } catch (error: any) {
+      const msg = error?.message || "Failed to open match";
+      console.error("[WHEEL] WHEEL_OPEN_ERROR", msg, error);
+      res.status(500).json({ message: msg });
+    }
+  });
+
   app.get("/api/matches", isAuthenticated, async (req: any, res) => {
     try {
       const storage = getStorage(req);

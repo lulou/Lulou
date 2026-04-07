@@ -290,40 +290,42 @@ function CallDetectors({ userId }: { userId: string }) {
   );
 }
 
-type ProfileResult = { profile: Profile | null; fetchFailed: boolean };
+type ProfileCheckResult = { exists: boolean; fetchFailed: boolean };
 
-async function fetchProfileSafe(): Promise<ProfileResult> {
+// Query Supabase directly (same pattern as described in user requirements):
+//   const { data: profile } = await supabase.from('profiles').select('*').eq('user_id', user.id).maybeSingle();
+//   if (profile) → dashboard  else → onboarding
+// This avoids server-side RLS ambiguity and mirrors the client's own auth session.
+async function checkProfileExists(userId: string): Promise<ProfileCheckResult> {
   try {
-    const { data: { session } } = await supabase.auth.getSession();
-    const headers: Record<string, string> = {};
-    if (session?.access_token) {
-      headers["Authorization"] = `Bearer ${session.access_token}`;
+    const { data, error } = await supabase
+      .from("profiles")
+      .select("user_id")
+      .eq("user_id", userId)
+      .maybeSingle();
+    if (error) {
+      console.error("PROFILE_EXISTS_ERROR", error.message, error.code);
+      return { exists: false, fetchFailed: true };
     }
-    const res = await fetch("/api/profile", { credentials: "include", headers });
-    if (res.status === 401 || res.status === 404) return { profile: null, fetchFailed: false };
-    if (!res.ok) {
-      console.error("PROFILE_FETCH_ERROR", res.status, res.statusText);
-      return { profile: null, fetchFailed: true };
-    }
-    const data = await res.json();
-    return { profile: data, fetchFailed: false };
+    console.log("[AUTH] PROFILE_EXISTS_CHECK", { userId, exists: !!data });
+    return { exists: !!data, fetchFailed: false };
   } catch (err) {
-    console.error("PROFILE_FETCH_ERROR", err);
-    return { profile: null, fetchFailed: true };
+    console.error("PROFILE_EXISTS_ERROR", err);
+    return { exists: false, fetchFailed: true };
   }
 }
 
 function AppContent() {
   const { user, isLoading: authLoading, profileReady } = useAuth();
 
-  const { data, isLoading: profileLoading } = useQuery<ProfileResult>({
+  const { data, isLoading: profileLoading } = useQuery<ProfileCheckResult>({
     queryKey: ["/api/profile"],
-    queryFn: fetchProfileSafe,
+    queryFn: () => user ? checkProfileExists(user.id) : Promise.resolve({ exists: false, fetchFailed: false }),
     enabled: !!user && profileReady,
     retry: false,
   });
 
-  const profile = data?.profile ?? null;
+  const profileExists = data?.exists ?? false;
   const fetchFailed = data?.fetchFailed ?? false;
 
   if (authLoading) {
@@ -352,7 +354,7 @@ function AppContent() {
     );
   }
 
-  if (fetchFailed && !profile) {
+  if (fetchFailed && !profileExists) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-4 text-center px-6">
@@ -370,7 +372,7 @@ function AppContent() {
     );
   }
 
-  if (!profile) {
+  if (!profileExists) {
     return <Onboarding existingProfile={null} userEmail={user?.email ?? ""} />;
   }
 
