@@ -138,8 +138,10 @@ export const userBenefits = pgTable("user_benefits", {
 export const userElevates = pgTable("user_elevates", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   userId: varchar("user_id").notNull().unique(),
-  elevateType: text("elevate_type").notNull(),
-  expiresAt: timestamp("expires_at").notNull(),
+  elevateType: text("elevate_type").notNull().default("elevate"),
+  expiresAt: timestamp("expires_at").notNull().default(sql`now()`),
+  elevateCredits: integer("elevate_credits").notNull().default(0),
+  superElevateCredits: integer("super_elevate_credits").notNull().default(0),
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => [
   index("idx_user_elevates_user").on(table.userId),

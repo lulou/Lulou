@@ -1,44 +1,46 @@
 import { useState, useEffect, useRef } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
-import { Sparkles, Zap, X, ChevronLeft, ShieldCheck, Lock } from "lucide-react";
+import { Sparkles, Zap, X, ChevronLeft, ShieldCheck, Lock, Gift } from "lucide-react";
 
+// ── Pricing packs (IDs must match server ELEVATE_PACKS) ──────────────────────
 const ELEVATE_PACKAGES = [
   {
     id: "elevate-1",
     label: "1 Elevate",
     price: "$9.99",
     perBoost: "$9.99 per boost",
-    description: "One visibility boost in Discovery & the Intention Wheel",
+    description: "One 30-min visibility boost in Discovery & the Intention Wheel",
     badge: null as string | null,
     highlight: false,
     type: "elevate" as const,
-    duration: "30 minutes",
-    durationMin: 30,
+    duration: "30 min",
+    quantity: 1,
   },
   {
     id: "elevate-3",
     label: "3 Elevates",
     price: "$26.99",
     perBoost: "$9.00 per boost",
-    description: "Three boosts — great for staying consistently visible",
+    description: "Three 30-min boosts — great for staying consistently visible",
     badge: "Most Popular" as string | null,
     highlight: true,
     type: "elevate" as const,
-    duration: "30 minutes",
-    durationMin: 30,
+    duration: "30 min",
+    quantity: 3,
   },
   {
     id: "elevate-5",
     label: "5 Elevates",
     price: "$39.99",
     perBoost: "$8.00 per boost",
-    description: "Five boosts at the lowest price — maximum reach",
+    description: "Five 30-min boosts at the lowest price — maximum reach",
     badge: "Best Value" as string | null,
     highlight: true,
     type: "elevate" as const,
-    duration: "30 minutes",
-    durationMin: 30,
+    duration: "30 min",
+    quantity: 5,
   },
 ];
 
@@ -51,9 +53,11 @@ const SUPER_ELEVATE = {
   badge: null as string | null,
   highlight: false,
   type: "super_elevate" as const,
-  duration: "60 minutes",
-  durationMin: 60,
+  duration: "60 min",
+  quantity: 1,
 };
+
+type PackType = typeof ELEVATE_PACKAGES[0] | typeof SUPER_ELEVATE;
 
 type PendingPackage = {
   id: string;
@@ -62,13 +66,24 @@ type PendingPackage = {
   type: "elevate" | "super_elevate";
   duration: string;
   isSuper: boolean;
+  quantity: number;
+};
+
+type ElevateStatus = {
+  active: boolean;
+  type: string | null;
+  expiresAt: string | null;
+  elevateCredits: number;
+  superElevateCredits: number;
 };
 
 export function ElevateModal({ onClose }: { onClose: () => void }) {
   const { toast } = useToast();
+  const qc = useQueryClient();
   const [step, setStep] = useState<"browse" | "checkout">("browse");
   const [pending, setPending] = useState<PendingPackage | null>(null);
   const [purchasing, setPurchasing] = useState(false);
+  const [activating, setActivating] = useState<"elevate" | "super_elevate" | null>(null);
 
   const [mounted, setMounted] = useState(false);
   const [leaving, setLeaving] = useState(false);
@@ -76,6 +91,11 @@ export function ElevateModal({ onClose }: { onClose: () => void }) {
   const isDragging = useRef(false);
   const startY = useRef(0);
   const handleRef = useRef<HTMLDivElement>(null);
+
+  const { data: status } = useQuery<ElevateStatus>({
+    queryKey: ["/api/elevate/status"],
+    staleTime: 10_000,
+  });
 
   useEffect(() => {
     const id = requestAnimationFrame(() => setMounted(true));
@@ -88,7 +108,7 @@ export function ElevateModal({ onClose }: { onClose: () => void }) {
   };
 
   const onPointerDown = (e: React.PointerEvent) => {
-    if (purchasing) return;
+    if (purchasing || activating) return;
     isDragging.current = true;
     startY.current = e.clientY;
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
@@ -110,7 +130,7 @@ export function ElevateModal({ onClose }: { onClose: () => void }) {
     }
   };
 
-  const openCheckout = (pkg: typeof SUPER_ELEVATE | typeof ELEVATE_PACKAGES[0]) => {
+  const openCheckout = (pkg: PackType) => {
     setPending({
       id: pkg.id,
       label: pkg.label,
@@ -118,15 +138,17 @@ export function ElevateModal({ onClose }: { onClose: () => void }) {
       type: pkg.type,
       duration: pkg.duration,
       isSuper: pkg.type === "super_elevate",
+      quantity: pkg.quantity,
     });
     setStep("checkout");
   };
 
+  // Redirect to Stripe checkout (no immediate activation)
   const confirmPurchase = async () => {
     if (!pending) return;
     setPurchasing(true);
     try {
-      const res = await apiRequest("POST", "/api/stripe/elevate-checkout", { type: pending.type });
+      const res = await apiRequest("POST", "/api/stripe/elevate-checkout", { packId: pending.id });
       const data = await res.json();
       if (!res.ok || !data.url) throw new Error(data.message ?? "Failed to create checkout");
       window.location.href = data.url;
@@ -140,12 +162,42 @@ export function ElevateModal({ onClose }: { onClose: () => void }) {
     }
   };
 
+  // Use an existing credit to activate immediately
+  const activateNow = async (type: "elevate" | "super_elevate") => {
+    setActivating(type);
+    try {
+      const res = await apiRequest("POST", "/api/elevate/activate", { type });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.message ?? "Activation failed");
+      qc.invalidateQueries({ queryKey: ["/api/elevate/status"] });
+      qc.invalidateQueries({ queryKey: ["/api/elevate/session-stats"] });
+      const label = type === "super_elevate" ? "Super Elevate" : "Elevate";
+      const duration = type === "super_elevate" ? "60 minutes" : "30 minutes";
+      toast({
+        title: `${label} is now live`,
+        description: `Your profile has boosted visibility for ${duration}.`,
+      });
+      handleClose();
+    } catch (err: any) {
+      toast({
+        title: "Couldn't activate",
+        description: err?.message ?? "Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setActivating(null);
+    }
+  };
+
   const isOut = !mounted || leaving;
   const translateY = isOut ? "100%" : `${dragY}px`;
   const transition = isDragging.current
     ? "none"
     : "transform 300ms cubic-bezier(0.32, 0.72, 0, 1)";
   const backdropOpacity = isOut ? 0 : 1 - dragY / 400;
+
+  const elevateCredits = status?.elevateCredits ?? 0;
+  const superElevateCredits = status?.superElevateCredits ?? 0;
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center" data-testid="modal-elevate">
@@ -175,7 +227,7 @@ export function ElevateModal({ onClose }: { onClose: () => void }) {
           <button
             className="w-8 h-8 flex items-center justify-center rounded-full bg-muted hover:bg-muted/80 active:bg-muted/60 transition-colors shrink-0"
             onClick={handleClose}
-            disabled={purchasing}
+            disabled={!!(purchasing || activating)}
             aria-label="Close"
             data-testid="button-elevate-close"
           >
@@ -184,7 +236,14 @@ export function ElevateModal({ onClose }: { onClose: () => void }) {
         </div>
 
         {step === "browse" ? (
-          <BrowseStep onSelect={openCheckout} />
+          <BrowseStep
+            onBuy={openCheckout}
+            onActivate={activateNow}
+            activating={activating}
+            elevateCredits={elevateCredits}
+            superElevateCredits={superElevateCredits}
+            boostActive={!!status?.active}
+          />
         ) : pending ? (
           <CheckoutStep
             pending={pending}
@@ -200,7 +259,24 @@ export function ElevateModal({ onClose }: { onClose: () => void }) {
 
 // ── Browse step ──────────────────────────────────────────────────────────────
 
-function BrowseStep({ onSelect }: { onSelect: (pkg: any) => void }) {
+function BrowseStep({
+  onBuy,
+  onActivate,
+  activating,
+  elevateCredits,
+  superElevateCredits,
+  boostActive,
+}: {
+  onBuy: (pkg: PackType) => void;
+  onActivate: (type: "elevate" | "super_elevate") => void;
+  activating: "elevate" | "super_elevate" | null;
+  elevateCredits: number;
+  superElevateCredits: number;
+  boostActive: boolean;
+}) {
+  const hasElevateCredits = elevateCredits > 0;
+  const hasSuperCredits = superElevateCredits > 0;
+
   return (
     <div className="overflow-y-auto overscroll-contain flex-1">
       <div className="px-6 pt-4 pb-2">
@@ -213,6 +289,64 @@ function BrowseStep({ onSelect }: { onSelect: (pkg: any) => void }) {
         </p>
       </div>
 
+      {/* Credits banner — shown only when user has unused credits */}
+      {(hasElevateCredits || hasSuperCredits) && (
+        <div className="px-6 pb-2 pt-3">
+          <div className="rounded-2xl bg-primary/8 border border-primary/20 p-4 space-y-2.5">
+            <div className="flex items-center gap-2 mb-0.5">
+              <Gift className="w-4 h-4 text-primary" />
+              <p className="text-sm font-semibold text-primary">You have unused boosts</p>
+            </div>
+            {hasElevateCredits && (
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium">{elevateCredits} Elevate boost{elevateCredits > 1 ? "s" : ""}</p>
+                  <p className="text-xs text-muted-foreground">30 min · 3× visibility each</p>
+                </div>
+                <button
+                  className="px-4 py-2 rounded-xl bg-primary text-primary-foreground text-sm font-semibold disabled:opacity-60 active:scale-[0.97] transition-all"
+                  onClick={() => onActivate("elevate")}
+                  disabled={!!activating || boostActive}
+                  data-testid="button-activate-elevate-credit"
+                >
+                  {activating === "elevate" ? (
+                    <span className="flex items-center gap-1.5">
+                      <span className="w-3.5 h-3.5 rounded-full border-2 border-white/40 border-t-white animate-spin" />
+                      ...
+                    </span>
+                  ) : boostActive ? "Active" : "Activate"}
+                </button>
+              </div>
+            )}
+            {hasSuperCredits && (
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium">{superElevateCredits} Super Elevate boost{superElevateCredits > 1 ? "s" : ""}</p>
+                  <p className="text-xs text-muted-foreground">60 min · 8× visibility each</p>
+                </div>
+                <button
+                  className="px-4 py-2 rounded-xl bg-primary text-primary-foreground text-sm font-semibold disabled:opacity-60 active:scale-[0.97] transition-all"
+                  onClick={() => onActivate("super_elevate")}
+                  disabled={!!activating || boostActive}
+                  data-testid="button-activate-super-credit"
+                >
+                  {activating === "super_elevate" ? (
+                    <span className="flex items-center gap-1.5">
+                      <span className="w-3.5 h-3.5 rounded-full border-2 border-white/40 border-t-white animate-spin" />
+                      ...
+                    </span>
+                  ) : boostActive ? "Active" : "Activate"}
+                </button>
+              </div>
+            )}
+            {boostActive && (
+              <p className="text-xs text-muted-foreground pt-1">A boost is currently running. Credits will be available to use when it ends.</p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Elevate packs */}
       <div className="px-6 pb-2 pt-4 space-y-2.5">
         {ELEVATE_PACKAGES.map(pkg => (
           <button
@@ -223,7 +357,7 @@ function BrowseStep({ onSelect }: { onSelect: (pkg: any) => void }) {
                 ? "border-primary/60 bg-primary/5 shadow-sm active:bg-primary/10"
                 : "border-border bg-card active:bg-muted/60",
             ].join(" ")}
-            onClick={() => onSelect(pkg)}
+            onClick={() => onBuy(pkg)}
             data-testid={`button-elevate-${pkg.id}`}
           >
             {pkg.badge && (
@@ -263,6 +397,7 @@ function BrowseStep({ onSelect }: { onSelect: (pkg: any) => void }) {
         ))}
       </div>
 
+      {/* Divider */}
       <div className="px-6 pb-2 pt-3">
         <div className="relative py-2">
           <div className="absolute inset-0 flex items-center">
@@ -274,6 +409,7 @@ function BrowseStep({ onSelect }: { onSelect: (pkg: any) => void }) {
         </div>
       </div>
 
+      {/* Super Elevate */}
       <div className="px-6 pb-8">
         <button
           className="w-full rounded-2xl text-left transition-all overflow-hidden relative active:opacity-80"
@@ -282,7 +418,7 @@ function BrowseStep({ onSelect }: { onSelect: (pkg: any) => void }) {
             border: "1px solid hsl(350 45% 35%)",
             boxShadow: "0 4px 24px hsl(350 45% 30% / 0.25), inset 0 1px 0 hsl(350 45% 50% / 0.15)",
           }}
-          onClick={() => onSelect(SUPER_ELEVATE)}
+          onClick={() => onBuy(SUPER_ELEVATE)}
           data-testid="button-super-elevate"
         >
           <div
@@ -355,14 +491,8 @@ function CheckoutStep({
         <div
           className="rounded-2xl p-5 mb-5"
           style={pending.isSuper
-            ? {
-                background: "linear-gradient(135deg, hsl(350 45% 18%), hsl(350 45% 12%))",
-                border: "1px solid hsl(350 45% 32%)",
-              }
-            : {
-                background: "hsl(350 45% 52% / 0.06)",
-                border: "1px solid hsl(350 45% 52% / 0.25)",
-              }
+            ? { background: "linear-gradient(135deg, hsl(350 45% 18%), hsl(350 45% 12%))", border: "1px solid hsl(350 45% 32%)" }
+            : { background: "hsl(350 45% 52% / 0.06)", border: "1px solid hsl(350 45% 52% / 0.25)" }
           }
         >
           <div className="flex items-center gap-3 mb-3">
@@ -377,19 +507,27 @@ function CheckoutStep({
             </div>
             <div>
               <p className="font-semibold text-base text-primary">{pending.label}</p>
-              <p className="text-xs text-muted-foreground">{pending.duration} boost</p>
+              <p className="text-xs text-muted-foreground">
+                {pending.isSuper ? "60 min boost" : `${pending.quantity} × 30 min boost${pending.quantity > 1 ? "s" : ""}`}
+              </p>
             </div>
           </div>
 
           <div className="space-y-1.5 text-sm">
             <div className="flex justify-between">
-              <span className="text-muted-foreground">Duration</span>
+              <span className="text-muted-foreground">Duration per use</span>
               <span className="font-medium">{pending.duration}</span>
             </div>
             <div className="flex justify-between">
               <span className="text-muted-foreground">Visibility boost</span>
               <span className="font-medium">{pending.isSuper ? "8× (maximum)" : "3× (elevated)"}</span>
             </div>
+            {!pending.isSuper && pending.quantity > 1 && (
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Boosts included</span>
+                <span className="font-medium">{pending.quantity}</span>
+              </div>
+            )}
             <div className="flex justify-between border-t border-border/50 pt-2 mt-2">
               <span className="font-semibold">Total</span>
               <span className="font-bold text-lg text-primary">{pending.price}</span>
@@ -404,8 +542,8 @@ function CheckoutStep({
             Secure payment
           </div>
           <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-            <Lock className="w-3.5 h-3.5 text-muted-foreground" />
-            Instant activation
+            <Gift className="w-3.5 h-3.5 text-muted-foreground" />
+            Credits saved to your account
           </div>
         </div>
 
@@ -433,7 +571,7 @@ function CheckoutStep({
           {purchasing ? (
             <span className="flex items-center justify-center gap-2">
               <span className="w-4 h-4 rounded-full border-2 border-white/40 border-t-white animate-spin" />
-              Processing…
+              Opening Stripe…
             </span>
           ) : (
             `Pay ${pending.price}`
@@ -441,7 +579,7 @@ function CheckoutStep({
         </button>
 
         <p className="text-center text-xs text-muted-foreground mt-3">
-          By tapping Pay you agree to our terms. Boosts activate immediately.
+          You'll be redirected to Stripe. Credits are added to your account immediately after payment.
         </p>
       </div>
     </div>

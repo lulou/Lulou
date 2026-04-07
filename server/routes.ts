@@ -1370,20 +1370,31 @@ export async function registerRoutes(
   // Returns a Stripe-hosted checkout URL; on success Stripe redirects to
   // /elevate/success?session_id=XXX which the client polls to activate.
 
+  // ── Pricing table (shared between checkout and metadata) ─────────────────
+  const ELEVATE_PACKS = {
+    "elevate-1":     { type: "elevate" as const, quantity: 1, unitAmount: 999,  label: "1 Elevate (30 min)" },
+    "elevate-3":     { type: "elevate" as const, quantity: 3, unitAmount: 2699, label: "3 Elevates (30 min each)" },
+    "elevate-5":     { type: "elevate" as const, quantity: 5, unitAmount: 3999, label: "5 Elevates (30 min each)" },
+    "super-elevate": { type: "super_elevate" as const, quantity: 1, unitAmount: 3499, label: "Super Elevate (60 min)" },
+  };
+
   app.post("/api/stripe/elevate-checkout", isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;
-      const { type } = req.body;
-      if (type !== "elevate" && type !== "super_elevate") {
-        return res.status(400).json({ message: "type must be 'elevate' or 'super_elevate'" });
+      const { packId } = req.body;
+      const pack = ELEVATE_PACKS[packId as keyof typeof ELEVATE_PACKS];
+      if (!pack) {
+        return res.status(400).json({ message: "Invalid pack ID. Must be one of: elevate-1, elevate-3, elevate-5, super-elevate" });
       }
 
       const stripe = await getUncachableStripeClient();
       const domains = process.env.REPLIT_DOMAINS?.split(",")[0] ?? "localhost:5000";
       const baseUrl = `https://${domains}`;
 
-      const productName = type === "super_elevate" ? "Super Elevate (60 min)" : "Elevate (30 min)";
-      const unitAmount = type === "super_elevate" ? 3499 : 999;
+      const isSuper = pack.type === "super_elevate";
+      const description = isSuper
+        ? "8× visibility boost in Discovery and the Intention Wheel for 60 minutes"
+        : `3× visibility boost per use • ${pack.quantity} boost${pack.quantity > 1 ? "s" : ""} • 30 minutes each`;
 
       const session = await stripe.checkout.sessions.create({
         payment_method_types: ["card"],
@@ -1391,22 +1402,16 @@ export async function registerRoutes(
           {
             price_data: {
               currency: "usd",
-              unit_amount: unitAmount,
-              product_data: {
-                name: productName,
-                description:
-                  type === "super_elevate"
-                    ? "8× visibility boost in Discovery and the Intention Wheel for 60 minutes"
-                    : "3× visibility boost in Discovery and the Intention Wheel for 30 minutes",
-              },
+              unit_amount: pack.unitAmount,
+              product_data: { name: pack.label, description },
             },
             quantity: 1,
           },
         ],
         mode: "payment",
-        success_url: `${baseUrl}/elevate/success?session_id={CHECKOUT_SESSION_ID}&type=${type}`,
-        cancel_url: `${baseUrl}/?elevate=cancelled`,
-        metadata: { userId, elevateType: type },
+        success_url: `${baseUrl}/elevate/success?session_id={CHECKOUT_SESSION_ID}&pack=${packId}`,
+        cancel_url: `${baseUrl}/likes`,
+        metadata: { userId, packId, elevateType: pack.type, quantity: String(pack.quantity) },
       });
 
       res.json({ url: session.url, sessionId: session.id });
@@ -1416,8 +1421,8 @@ export async function registerRoutes(
     }
   });
 
-  // ── Verify Stripe session & activate boost ────────────────────────────────
-  // Polled by /elevate/success page after redirect.
+  // ── Verify Stripe session & add credits ───────────────────────────────────
+  // Called by /elevate/success after redirect. Awards credits, does NOT activate yet.
 
   app.post("/api/stripe/elevate-activate", isAuthenticated, async (req: any, res) => {
     try {
@@ -1431,26 +1436,51 @@ export async function registerRoutes(
       if (session.payment_status !== "paid") {
         return res.status(402).json({ message: "Payment not completed", paymentStatus: session.payment_status });
       }
-
-      const elevateType = (session.metadata?.elevateType ?? "elevate") as "elevate" | "super_elevate";
       if (session.metadata?.userId !== userId) {
         return res.status(403).json({ message: "Session user mismatch" });
       }
 
-      const profile = await getStorage(req).activateElevate(userId, elevateType);
-      if (!profile) {
-        return res.status(404).json({ message: "Profile not found" });
-      }
+      const packId = session.metadata?.packId ?? "elevate-1";
+      const pack = ELEVATE_PACKS[packId as keyof typeof ELEVATE_PACKS];
+      if (!pack) return res.status(400).json({ message: "Unknown pack" });
 
-      const durationMinutes = elevateType === "super_elevate" ? 60 : 30;
-      res.json({ success: true, elevateType, durationMinutes });
+      await getStorage(req).addElevateCredits(userId, pack.type, pack.quantity);
+
+      res.json({
+        success: true,
+        packId,
+        elevateType: pack.type,
+        quantity: pack.quantity,
+        creditsAdded: pack.quantity,
+      });
     } catch (err: any) {
-      console.error("Error activating elevate after payment:", err.message);
+      console.error("Error processing elevate payment:", err.message);
+      res.status(500).json({ message: "Failed to process payment" });
+    }
+  });
+
+  // ── Use a credit to activate a boost now ─────────────────────────────────
+
+  app.post("/api/elevate/activate", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const { type } = req.body;
+      if (type !== "elevate" && type !== "super_elevate") {
+        return res.status(400).json({ message: "type must be 'elevate' or 'super_elevate'" });
+      }
+      const result = await getStorage(req).activateElevate(userId, type);
+      if (!result.success) {
+        return res.status(402).json({ message: result.error ?? "No credits available" });
+      }
+      const durationMinutes = type === "super_elevate" ? 60 : 30;
+      res.json({ success: true, elevateType: type, durationMinutes });
+    } catch (err: any) {
+      console.error("Error activating elevate:", err.message);
       res.status(500).json({ message: "Failed to activate boost" });
     }
   });
 
-  // ── Elevate status & session-stats (unchanged) ────────────────────────────
+  // ── Elevate status & session-stats ────────────────────────────────────────
 
   app.get("/api/elevate/status", isAuthenticated, async (req: any, res) => {
     try {

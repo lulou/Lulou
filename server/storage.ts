@@ -8,7 +8,7 @@ import {
 import { supabase as defaultSupabase } from "./supabase";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { db } from "./db";
-import { eq, gt } from "drizzle-orm";
+import { eq, gt, sql } from "drizzle-orm";
 
 // ─── Elevate weights ──────────────────────────────────────────────────────────
 // Normal = 1x, Elevate = 3x, Super Elevate = 8x
@@ -140,8 +140,9 @@ export interface IStorage {
   findMatchBetweenUsers(userId1: string, userId2: string): Promise<Match | undefined>;
   getIncomingOpens(userId: string): Promise<(Interaction & { profile: Profile })[]>;
   resetUserTestData(userId: string): Promise<void>;
-  activateElevate(userId: string, type: "elevate" | "super_elevate"): Promise<Profile | undefined>;
-  getElevateStatus(userId: string): Promise<{ type: string | null; expiresAt: Date | null; active: boolean }>;
+  activateElevate(userId: string, type: "elevate" | "super_elevate"): Promise<{ success: boolean; error?: string }>;
+  addElevateCredits(userId: string, type: "elevate" | "super_elevate", quantity: number): Promise<void>;
+  getElevateStatus(userId: string): Promise<{ type: string | null; expiresAt: Date | null; active: boolean; elevateCredits: number; superElevateCredits: number }>;
   getElevateSessionStats(userId: string): Promise<{ views: number; matches: number; startedAt: Date | null; active: boolean; expiresAt: Date | null }>;
 }
 
@@ -1283,36 +1284,72 @@ export class SupabaseStorage implements IStorage {
     await this.sb.from("spin_requests").delete().or(`from_user_id.eq.${userId},to_user_id.eq.${userId}`);
   }
 
-  async activateElevate(userId: string, type: "elevate" | "super_elevate"): Promise<Profile | undefined> {
-    const durationMs = type === "super_elevate" ? 60 * 60 * 1000 : 30 * 60 * 1000;
-    const expiresAt = new Date(Date.now() + durationMs);
+  async addElevateCredits(userId: string, type: "elevate" | "super_elevate", quantity: number): Promise<void> {
+    const isSuper = type === "super_elevate";
+    const past = new Date(0);
     try {
       await db
         .insert(userElevates)
-        .values({ userId, elevateType: type, expiresAt })
+        .values({
+          userId,
+          elevateType: "elevate",
+          expiresAt: past,
+          elevateCredits: isSuper ? 0 : quantity,
+          superElevateCredits: isSuper ? quantity : 0,
+        })
         .onConflictDoUpdate({
           target: userElevates.userId,
-          set: { elevateType: type, expiresAt },
+          set: isSuper
+            ? { superElevateCredits: sql`user_elevates.super_elevate_credits + ${quantity}` }
+            : { elevateCredits: sql`user_elevates.elevate_credits + ${quantity}` },
         });
     } catch (err) {
-      console.error("[ELEVATE] local DB upsert failed:", err);
-      return undefined;
+      console.error("[ELEVATE] addElevateCredits failed:", err);
     }
-    const profile = await this.getProfile(userId);
-    if (!profile) return undefined;
-    return { ...profile, elevateType: type, elevateExpiresAt: expiresAt };
   }
 
-  async getElevateStatus(userId: string): Promise<{ type: string | null; expiresAt: Date | null; active: boolean }> {
+  async activateElevate(userId: string, type: "elevate" | "super_elevate"): Promise<{ success: boolean; error?: string }> {
+    const isSuper = type === "super_elevate";
+    const durationMs = isSuper ? 60 * 60 * 1000 : 30 * 60 * 1000;
+    const expiresAt = new Date(Date.now() + durationMs);
+
+    const rows = await db.select().from(userElevates).where(eq(userElevates.userId, userId));
+    const row = rows[0];
+    const credits = row ? (isSuper ? row.superElevateCredits : row.elevateCredits) : 0;
+
+    if (credits <= 0) {
+      return { success: false, error: "No credits available. Purchase a boost first." };
+    }
+
+    try {
+      await db
+        .update(userElevates)
+        .set(isSuper
+          ? { elevateType: type, expiresAt, superElevateCredits: sql`super_elevate_credits - 1` }
+          : { elevateType: type, expiresAt, elevateCredits: sql`elevate_credits - 1` }
+        )
+        .where(eq(userElevates.userId, userId));
+    } catch (err) {
+      console.error("[ELEVATE] activateElevate failed:", err);
+      return { success: false, error: "Database error" };
+    }
+
+    return { success: true };
+  }
+
+  async getElevateStatus(userId: string): Promise<{ type: string | null; expiresAt: Date | null; active: boolean; elevateCredits: number; superElevateCredits: number }> {
     const now = new Date();
-    const rows = await db
-      .select()
-      .from(userElevates)
-      .where(eq(userElevates.userId, userId));
-    if (rows.length === 0) return { type: null, expiresAt: null, active: false };
+    const rows = await db.select().from(userElevates).where(eq(userElevates.userId, userId));
+    if (rows.length === 0) return { type: null, expiresAt: null, active: false, elevateCredits: 0, superElevateCredits: 0 };
     const row = rows[0];
     const active = row.expiresAt > now;
-    return { type: active ? row.elevateType : null, expiresAt: row.expiresAt, active };
+    return {
+      type: active ? row.elevateType : null,
+      expiresAt: row.expiresAt,
+      active,
+      elevateCredits: row.elevateCredits,
+      superElevateCredits: row.superElevateCredits,
+    };
   }
 
   async getElevateSessionStats(userId: string): Promise<{ views: number; matches: number; startedAt: Date | null; active: boolean; expiresAt: Date | null }> {
