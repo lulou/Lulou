@@ -135,7 +135,18 @@ export const userBenefits = pgTable("user_benefits", {
   index("idx_user_benefits_user").on(table.userId),
 ]);
 
+export const userElevates = pgTable("user_elevates", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().unique(),
+  elevateType: text("elevate_type").notNull(),
+  expiresAt: timestamp("expires_at").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_user_elevates_user").on(table.userId),
+]);
+
 export type UserBenefit = typeof userBenefits.$inferSelect;
+export type UserElevate = typeof userElevates.$inferSelect;
 
 export type Profile = typeof profiles.$inferSelect;
 export type InsertProfile = z.infer<typeof insertProfileSchema>;

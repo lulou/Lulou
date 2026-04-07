@@ -3,9 +3,12 @@ import {
   type Interaction, type InsertInteraction,
   type Match, type Message, type InsertMessage,
   type SpinRequest,
+  userElevates,
 } from "@shared/schema";
 import { supabase as defaultSupabase } from "./supabase";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { db } from "./db";
+import { eq, gt } from "drizzle-orm";
 
 // ─── Elevate weights ──────────────────────────────────────────────────────────
 // Normal = 1x, Elevate = 3x, Super Elevate = 8x
@@ -43,6 +46,27 @@ function weightedSample(pool: Profile[], count: number, now: Date): Profile[] {
     remaining.splice(idx, 1);
   }
   return result;
+}
+
+async function getActiveElevatesMap(): Promise<Map<string, { type: string; expiresAt: Date }>> {
+  const now = new Date();
+  const rows = await db.select().from(userElevates).where(gt(userElevates.expiresAt, now));
+  const map = new Map<string, { type: string; expiresAt: Date }>();
+  for (const row of rows) {
+    map.set(row.userId, { type: row.elevateType, expiresAt: row.expiresAt });
+  }
+  return map;
+}
+
+function mergeElevatesIntoProfiles(
+  profiles: Profile[],
+  elevates: Map<string, { type: string; expiresAt: Date }>,
+): Profile[] {
+  return profiles.map(p => {
+    const elev = elevates.get(p.userId);
+    if (elev) return { ...p, elevateType: elev.type, elevateExpiresAt: elev.expiresAt };
+    return { ...p, elevateType: null, elevateExpiresAt: null };
+  });
 }
 
 function getGendersForPreference(preference: string): string[] | null {
@@ -319,7 +343,10 @@ export class SupabaseStorage implements IStorage {
 
     const now = new Date();
     const all = (profilesResult.data || []).map(mapProfile);
-    const filtered = all.filter(p => !interactedIds.has(p.userId));
+    const baseFiltered = all.filter(p => !interactedIds.has(p.userId));
+
+    const elevates = await getActiveElevatesMap();
+    const filtered = mergeElevatesIntoProfiles(baseFiltered, elevates);
 
     const superCount  = filtered.filter(p => p.elevateType === "super_elevate" && p.elevateExpiresAt && p.elevateExpiresAt > now).length;
     const elevCount   = filtered.filter(p => p.elevateType === "elevate" && p.elevateExpiresAt && p.elevateExpiresAt > now).length;
@@ -902,10 +929,11 @@ export class SupabaseStorage implements IStorage {
       allProfiles.push(...(extra || []).map(mapProfile));
     }
 
-    // Weighted sampling: super_elevate=8x, elevate=3x, normal=1x
-    // Elevated users appear proportionally more often but don't block everyone else.
+    // Merge live elevate status from local DB, then weighted sample
+    const elevates = await getActiveElevatesMap();
     const now = new Date();
-    return weightedSample(allProfiles, allProfiles.length, now);
+    const elevatedProfiles = mergeElevatesIntoProfiles(allProfiles, elevates);
+    return weightedSample(elevatedProfiles, elevatedProfiles.length, now);
   }
 
   async getSpinStandouts(userId: string): Promise<string[]> {
@@ -1257,27 +1285,33 @@ export class SupabaseStorage implements IStorage {
   async activateElevate(userId: string, type: "elevate" | "super_elevate"): Promise<Profile | undefined> {
     const durationMs = type === "super_elevate" ? 60 * 60 * 1000 : 30 * 60 * 1000;
     const expiresAt = new Date(Date.now() + durationMs);
-    const { data, error } = await this.sb
-      .from("profiles")
-      .update({ elevate_type: type, elevate_expires_at: expiresAt.toISOString() })
-      .eq("user_id", userId)
-      .select()
-      .single();
-    if (error || !data) return undefined;
-    return mapProfile(data);
+    try {
+      await db
+        .insert(userElevates)
+        .values({ userId, elevateType: type, expiresAt })
+        .onConflictDoUpdate({
+          target: userElevates.userId,
+          set: { elevateType: type, expiresAt },
+        });
+    } catch (err) {
+      console.error("[ELEVATE] local DB upsert failed:", err);
+      return undefined;
+    }
+    const profile = await this.getProfile(userId);
+    if (!profile) return undefined;
+    return { ...profile, elevateType: type, elevateExpiresAt: expiresAt };
   }
 
   async getElevateStatus(userId: string): Promise<{ type: string | null; expiresAt: Date | null; active: boolean }> {
-    const { data, error } = await this.sb
-      .from("profiles")
-      .select("elevate_type, elevate_expires_at")
-      .eq("user_id", userId)
-      .single();
-    if (error || !data) return { type: null, expiresAt: null, active: false };
     const now = new Date();
-    const expiresAt = data.elevate_expires_at ? new Date(data.elevate_expires_at) : null;
-    const active = !!data.elevate_type && !!expiresAt && expiresAt > now;
-    return { type: active ? data.elevate_type : null, expiresAt, active };
+    const rows = await db
+      .select()
+      .from(userElevates)
+      .where(eq(userElevates.userId, userId));
+    if (rows.length === 0) return { type: null, expiresAt: null, active: false };
+    const row = rows[0];
+    const active = row.expiresAt > now;
+    return { type: active ? row.elevateType : null, expiresAt: row.expiresAt, active };
   }
 }
 
