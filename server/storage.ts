@@ -142,6 +142,7 @@ export interface IStorage {
   resetUserTestData(userId: string): Promise<void>;
   activateElevate(userId: string, type: "elevate" | "super_elevate"): Promise<Profile | undefined>;
   getElevateStatus(userId: string): Promise<{ type: string | null; expiresAt: Date | null; active: boolean }>;
+  getElevateSessionStats(userId: string): Promise<{ views: number; matches: number; startedAt: Date | null; active: boolean; expiresAt: Date | null }>;
 }
 
 function mapProfile(row: any): Profile {
@@ -1312,6 +1313,37 @@ export class SupabaseStorage implements IStorage {
     const row = rows[0];
     const active = row.expiresAt > now;
     return { type: active ? row.elevateType : null, expiresAt: row.expiresAt, active };
+  }
+
+  async getElevateSessionStats(userId: string): Promise<{ views: number; matches: number; startedAt: Date | null; active: boolean; expiresAt: Date | null }> {
+    const now = new Date();
+    const rows = await db.select().from(userElevates).where(eq(userElevates.userId, userId));
+    if (rows.length === 0) return { views: 0, matches: 0, startedAt: null, active: false, expiresAt: null };
+    const row = rows[0];
+    const active = row.expiresAt > now;
+    const startedAt = row.createdAt ?? new Date(0);
+
+    const [viewsResult, matchesResult] = await Promise.all([
+      this.sb
+        .from("interactions")
+        .select("id", { count: "exact", head: true })
+        .eq("to_user_id", userId)
+        .eq("type", "open")
+        .gte("created_at", startedAt.toISOString()),
+      this.sb
+        .from("matches")
+        .select("id", { count: "exact", head: true })
+        .or(`user1_id.eq.${userId},user2_id.eq.${userId}`)
+        .gte("created_at", startedAt.toISOString()),
+    ]);
+
+    return {
+      views: viewsResult.count ?? 0,
+      matches: matchesResult.count ?? 0,
+      startedAt,
+      active,
+      expiresAt: row.expiresAt,
+    };
   }
 }
 

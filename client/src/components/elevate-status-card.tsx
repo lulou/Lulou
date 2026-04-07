@@ -1,0 +1,266 @@
+import { useState, useEffect, useRef } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { Sparkles, Zap, Eye, Heart } from "lucide-react";
+import { useTabActive } from "@/App";
+
+type SessionStats = {
+  views: number;
+  matches: number;
+  active: boolean;
+  expiresAt: string | null;
+  startedAt: string | null;
+};
+
+// ── Hooks ────────────────────────────────────────────────────────────────────
+
+function useCountdown(expiresAt: Date | null) {
+  const [secs, setSecs] = useState(0);
+  useEffect(() => {
+    if (!expiresAt) { setSecs(0); return; }
+    const tick = () => setSecs(Math.max(0, Math.round((expiresAt.getTime() - Date.now()) / 1000)));
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [expiresAt]);
+  return secs;
+}
+
+function useAnimatedCount(target: number) {
+  const [display, setDisplay] = useState(0);
+  const prevTarget = useRef(0);
+  useEffect(() => {
+    if (target === prevTarget.current) return;
+    const from = prevTarget.current;
+    prevTarget.current = target;
+    const diff = target - from;
+    const steps = Math.min(Math.abs(diff) * 2, 24);
+    if (steps === 0) { setDisplay(target); return; }
+    let step = 0;
+    const id = setInterval(() => {
+      step++;
+      setDisplay(Math.round(from + (diff * step) / steps));
+      if (step >= steps) clearInterval(id);
+    }, 40);
+    return () => clearInterval(id);
+  }, [target]);
+  return display;
+}
+
+function formatCountdown(secs: number): string {
+  if (secs <= 0) return "0:00";
+  const m = Math.floor(secs / 60);
+  const s = secs % 60;
+  return `${m}:${s.toString().padStart(2, "0")}`;
+}
+
+// ── Pulsing dot ───────────────────────────────────────────────────────────────
+
+function PulseDot({ isSuper }: { isSuper: boolean }) {
+  return (
+    <span className="relative inline-flex h-2 w-2 shrink-0">
+      <span
+        className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-60"
+        style={{ background: isSuper ? "hsl(350 45% 62%)" : "hsl(350 45% 52%)" }}
+      />
+      <span
+        className="relative inline-flex rounded-full h-2 w-2"
+        style={{ background: isSuper ? "hsl(350 45% 65%)" : "hsl(350 45% 55%)" }}
+      />
+    </span>
+  );
+}
+
+// ── Stat chip ─────────────────────────────────────────────────────────────────
+
+function StatChip({
+  icon: Icon,
+  value,
+  label,
+  isSuper,
+}: {
+  icon: React.ElementType;
+  value: number;
+  label: string;
+  isSuper: boolean;
+}) {
+  const displayed = useAnimatedCount(value);
+  return (
+    <div
+      className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl"
+      style={isSuper
+        ? { background: "hsl(350 45% 52% / 0.15)", border: "1px solid hsl(350 45% 52% / 0.2)" }
+        : { background: "hsl(350 45% 52% / 0.08)", border: "1px solid hsl(350 45% 52% / 0.15)" }
+      }
+    >
+      <Icon className="w-3.5 h-3.5 text-primary shrink-0" />
+      <span className="font-bold text-sm tabular-nums text-primary">{displayed}</span>
+      <span className="text-xs text-muted-foreground">{label}</span>
+    </div>
+  );
+}
+
+// ── Main component ────────────────────────────────────────────────────────────
+
+export function ElevateStatusCard({
+  elevateType,
+  expiresAt: expiresAtStr,
+}: {
+  elevateType: string;
+  expiresAt: string | null;
+}) {
+  const isSuper = elevateType === "super_elevate";
+  const isActive = useTabActive();
+  const expiresAt = expiresAtStr ? new Date(expiresAtStr) : null;
+  const secs = useCountdown(expiresAt);
+
+  const { data: stats } = useQuery<SessionStats>({
+    queryKey: ["/api/elevate/session-stats"],
+    refetchInterval: isActive ? 30_000 : false,
+    staleTime: 0,
+  });
+
+  const views = stats?.views ?? 0;
+  const matches = stats?.matches ?? 0;
+
+  // Shimmer keyframe injected once
+  useEffect(() => {
+    const id = "elevate-shimmer-style";
+    if (document.getElementById(id)) return;
+    const style = document.createElement("style");
+    style.id = id;
+    style.textContent = `
+      @keyframes elevate-shimmer {
+        0%   { background-position: -200% center; }
+        100% { background-position: 200% center; }
+      }
+      .elevate-shimmer-text {
+        background: linear-gradient(
+          90deg,
+          hsl(350 45% 62%) 0%,
+          hsl(350 55% 80%) 40%,
+          hsl(350 45% 62%) 60%,
+          hsl(350 55% 75%) 100%
+        );
+        background-size: 200% auto;
+        -webkit-background-clip: text;
+        background-clip: text;
+        -webkit-text-fill-color: transparent;
+        animation: elevate-shimmer 3s linear infinite;
+      }
+      .super-shimmer-text {
+        background: linear-gradient(
+          90deg,
+          hsl(350 45% 72%) 0%,
+          hsl(30 80% 85%) 35%,
+          hsl(350 45% 72%) 60%,
+          hsl(30 60% 80%) 100%
+        );
+        background-size: 200% auto;
+        -webkit-background-clip: text;
+        background-clip: text;
+        -webkit-text-fill-color: transparent;
+        animation: elevate-shimmer 2.4s linear infinite;
+      }
+      @keyframes elevate-glow-pulse {
+        0%, 100% { box-shadow: 0 0 0 0 hsl(350 45% 52% / 0); }
+        50%       { box-shadow: 0 0 20px 4px hsl(350 45% 52% / 0.18); }
+      }
+      @keyframes super-glow-pulse {
+        0%, 100% { box-shadow: 0 4px 24px hsl(350 45% 30% / 0.3), 0 0 0 0 hsl(350 45% 52% / 0); }
+        50%       { box-shadow: 0 4px 32px hsl(350 45% 30% / 0.45), 0 0 24px 6px hsl(350 45% 52% / 0.22); }
+      }
+    `;
+    document.head.appendChild(style);
+  }, []);
+
+  return (
+    <div
+      data-testid="elevate-status-card"
+      className="rounded-2xl overflow-hidden relative"
+      style={isSuper
+        ? {
+            background: "linear-gradient(135deg, hsl(350 45% 17%), hsl(350 45% 11%))",
+            border: "1px solid hsl(350 45% 32%)",
+            animation: "super-glow-pulse 3s ease-in-out infinite",
+          }
+        : {
+            background: "hsl(350 45% 52% / 0.07)",
+            border: "1px solid hsl(350 45% 52% / 0.28)",
+            animation: "elevate-glow-pulse 3.5s ease-in-out infinite",
+          }
+      }
+    >
+      {/* Decorative radial for Super */}
+      {isSuper && (
+        <div
+          className="absolute top-0 right-0 w-48 h-48 pointer-events-none opacity-[0.07]"
+          style={{
+            background: "radial-gradient(circle, hsl(350 60% 70%), transparent)",
+            transform: "translate(30%, -30%)",
+          }}
+        />
+      )}
+
+      <div className="relative p-4">
+        {/* Header row */}
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2">
+            <div
+              className="w-7 h-7 rounded-full flex items-center justify-center shrink-0"
+              style={isSuper
+                ? { background: "hsl(350 45% 52% / 0.25)", border: "1px solid hsl(350 45% 52% / 0.35)" }
+                : { background: "hsl(350 45% 52% / 0.15)" }
+              }
+            >
+              {isSuper
+                ? <Zap className="w-3.5 h-3.5 text-primary" />
+                : <Sparkles className="w-3.5 h-3.5 text-primary" />
+              }
+            </div>
+
+            <div className="flex items-center gap-2">
+              <span
+                className={isSuper ? "super-shimmer-text" : "elevate-shimmer-text"}
+                style={{ fontFamily: "inherit", fontWeight: 700, fontSize: "0.875rem" }}
+              >
+                {isSuper ? "Super Elevate" : "Elevate"}
+              </span>
+              <PulseDot isSuper={isSuper} />
+              <span className="text-xs font-medium text-primary/80">Live</span>
+            </div>
+          </div>
+
+          {/* Countdown */}
+          <div
+            className="flex items-center gap-1 px-2.5 py-1 rounded-lg"
+            style={isSuper
+              ? { background: "hsl(350 45% 52% / 0.18)", border: "1px solid hsl(350 45% 52% / 0.25)" }
+              : { background: "hsl(350 45% 52% / 0.1)" }
+            }
+          >
+            <span className="text-xs tabular-nums font-bold text-primary">
+              {formatCountdown(secs)}
+            </span>
+          </div>
+        </div>
+
+        {/* Stats row */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <StatChip icon={Eye} value={views} label="views" isSuper={isSuper} />
+          <StatChip icon={Heart} value={matches} label="matches" isSuper={isSuper} />
+          <span className="text-xs text-muted-foreground ml-auto hidden sm:block">
+            {isSuper ? "8× priority" : "3× visibility"}
+          </span>
+        </div>
+
+        {/* Tagline */}
+        <p className="text-xs mt-2.5" style={{ color: isSuper ? "hsl(350 45% 55%)" : "hsl(350 45% 55%)" }}>
+          {isSuper
+            ? "You're at the top of Discovery and the Intention Wheel"
+            : "You're being discovered by more people right now"
+          }
+        </p>
+      </div>
+    </div>
+  );
+}

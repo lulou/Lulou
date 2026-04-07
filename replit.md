@@ -34,10 +34,11 @@ Lulou Dating employs a modern web architecture:
 -   **Message Reactions**: Double-tap to toggle a heart reaction on received messages.
 -   **Content Filtering**: Server-side filtering to block sensitive information (phone numbers, emails, social media handles) in regular messages.
 -   **Benefit System**: Account-wide benefits (e.g., message extensions, extra calls) stored in `user_benefits` table, activated per chat.
--   **Elevate System**: `elevateType` and `elevateExpiresAt` fields on `profiles` table provide temporary visibility boosts in Discovery and Intention Wheel.
-    -   **Weighted algorithm** (`weightedSample` in `server/storage.ts`): Normal=1x, Elevate=3x, Super Elevate=8x per slot draw. Each position in the result list is sampled probabilistically — elevated users appear proportionally more often without monopolising every slot. Multiple elevated users rotate fairly within their weight class. Routes: `POST /api/elevate` · `GET /api/elevate/status`
-    -   Elevate = 30-minute boost; Super Elevate = 60-minute boost. Expired boosts ignored at query time.
-    -   Active boost shown as live countdown banner on the Likes screen; Elevate button hidden while a boost is active.
+-   **Elevate System**: Stores boost state in the local `user_elevates` table (not Supabase, since Supabase `profiles` lacks those columns).
+    -   **Weighted algorithm** (`weightedSample` in `server/storage.ts`): Normal=1x, Elevate=3x, Super Elevate=8x per slot draw. Each position in the result list is sampled probabilistically. `getActiveElevatesMap()` pulls live elevate rows from local DB and `mergeElevatesIntoProfiles()` injects them before sampling runs. Routes: `POST /api/elevate` · `GET /api/elevate/status` · `GET /api/elevate/session-stats`
+    -   Elevate = 30-minute boost; Super Elevate = 60-minute boost.
+    -   **Two-step purchase flow** in `ElevateModal`: Browse step (pricing) → Checkout step (order summary + "Pay [price]" button). Activation only happens after the pay button is pressed.
+    -   **`ElevateStatusCard`** (`client/src/components/elevate-status-card.tsx`): Premium live status shown on Likes screen. Features shimmer/glow animations, live MM:SS countdown (updates every second), animated profile-view and match counters sourced from `/api/elevate/session-stats` (polls every 30s). Two variants: Elevate (warm rose) and Super Elevate (deep dark with radial glow).
 -   **Location Radius**: Configurable search radius (5-100 miles).
 -   **Photo Verification**: Provides a verified badge on profiles.
 -   **Spin Economy**: Manages eligibility and usage of "spins" for the Intention Wheel, with earning conditions and purchase options.

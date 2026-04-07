@@ -8,51 +8,16 @@ import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { useTabActive } from "@/App";
-import { Heart, X, Eye, MapPin, Lock, Sparkles, Zap, ChevronRight, Timer } from "lucide-react";
+import { Heart, X, Eye, MapPin, Lock, Sparkles, ChevronRight } from "lucide-react";
 import { LulouFlowerIcon } from "@/components/app-layout";
 import { ElevateModal } from "@/components/elevate-modal";
+import { ElevateStatusCard } from "@/components/elevate-status-card";
 import type { Profile, Interaction } from "@shared/schema";
 
 type IncomingOpen = Interaction & { profile: Profile };
 type MatchCelebration = { firstName: string; photo?: string };
 type MatchCountData = { count: number };
 type ElevateStatus = { type: string | null; expiresAt: string | null; active: boolean };
-
-function ElevateBanner({ status }: { status: ElevateStatus }) {
-  const isSuper = status.type === "super_elevate";
-  const expiresAt = status.expiresAt ? new Date(status.expiresAt) : null;
-  const remaining = expiresAt ? Math.max(0, Math.round((expiresAt.getTime() - Date.now()) / 60000)) : 0;
-
-  return (
-    <div
-      className="rounded-2xl px-4 py-3 flex items-center gap-3"
-      style={isSuper
-        ? { background: "linear-gradient(135deg, hsl(350 45% 18%), hsl(350 45% 12%))", border: "1px solid hsl(350 45% 32%)" }
-        : { background: "hsl(350 45% 52% / 0.08)", border: "1px solid hsl(350 45% 52% / 0.25)" }
-      }
-      data-testid="banner-elevate-active"
-    >
-      <div className={[
-        "w-8 h-8 rounded-full flex items-center justify-center shrink-0",
-        isSuper ? "bg-primary/20" : "bg-primary/15",
-      ].join(" ")}>
-        {isSuper ? <Zap className="w-4 h-4 text-primary" /> : <Sparkles className="w-4 h-4 text-primary" />}
-      </div>
-      <div className="flex-1 min-w-0">
-        <p className={["text-xs font-semibold", isSuper ? "text-primary" : "text-primary"].join(" ")}>
-          {isSuper ? "Super Elevate active" : "Elevate active"}
-        </p>
-        <p className="text-xs text-muted-foreground">
-          {remaining > 0 ? `~${remaining} min remaining — you're being seen more` : "Expires soon"}
-        </p>
-      </div>
-      <div className="flex items-center gap-1 text-xs text-muted-foreground shrink-0">
-        <Timer className="w-3 h-3" />
-        <span>{remaining}m</span>
-      </div>
-    </div>
-  );
-}
 
 // ─── Match Overlay ─────────────────────────────────────────────────────────────
 
@@ -326,9 +291,12 @@ export default function LikesPage() {
     return (
       <>
         <div className="flex-1 flex flex-col items-center justify-center p-6 gap-4 max-w-xs mx-auto w-full">
-          {elevateActive && elevateStatus && (
+          {elevateActive && elevateStatus?.type && (
             <div className="w-full">
-              <ElevateBanner status={elevateStatus} />
+              <ElevateStatusCard
+                elevateType={elevateStatus.type}
+                expiresAt={elevateStatus.expiresAt}
+              />
             </div>
           )}
 
@@ -399,8 +367,11 @@ export default function LikesPage() {
           </p>
         </div>
 
-        {elevateActive && elevateStatus && (
-          <ElevateBanner status={elevateStatus} />
+        {elevateActive && elevateStatus?.type && (
+          <ElevateStatusCard
+            elevateType={elevateStatus.type}
+            expiresAt={elevateStatus.expiresAt}
+          />
         )}
 
         {(connectionsFull || showFullMessage) && (

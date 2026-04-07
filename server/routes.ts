@@ -1389,6 +1389,21 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/elevate/session-stats", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const stats = await getStorage(req).getElevateSessionStats(userId);
+      res.json({
+        ...stats,
+        expiresAt: stats.expiresAt?.toISOString() ?? null,
+        startedAt: stats.startedAt?.toISOString() ?? null,
+      });
+    } catch (error) {
+      console.error("Error fetching elevate session stats:", error);
+      res.status(500).json({ message: "Failed to fetch session stats" });
+    }
+  });
+
   await seedDatabase();
 
   return httpServer;
