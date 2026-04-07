@@ -23,23 +23,26 @@ const ELEVATE_PACKAGES = [
     id: "elevate-1",
     label: "1 Elevate",
     price: "$9.99",
-    description: "Boost your profile visibility once",
+    perBoost: "$9.99 per boost",
+    description: "One visibility boost in Discovery & the Intention Wheel",
     badge: null,
     highlight: false,
   },
   {
     id: "elevate-3",
     label: "3 Elevates",
-    price: "$24.99",
-    description: "Three visibility boosts, save 17%",
-    badge: "Discounted",
-    highlight: false,
+    price: "$26.99",
+    perBoost: "$9.00 per boost",
+    description: "Three boosts — great for staying consistently visible",
+    badge: "Most Popular",
+    highlight: true,
   },
   {
     id: "elevate-5",
     label: "5 Elevates",
-    price: "$34.99",
-    description: "Five boosts at the lowest price per boost",
+    price: "$39.99",
+    perBoost: "$8.00 per boost",
+    description: "Five boosts at the lowest price — maximum reach",
     badge: "Best Value",
     highlight: true,
   },
@@ -48,8 +51,8 @@ const ELEVATE_PACKAGES = [
 const SUPER_ELEVATE = {
   id: "super-elevate",
   label: "Super Elevate",
-  price: "$19.99",
-  description: "Priority placement above all others for 24 hours",
+  price: "$34.99",
+  description: "Priority placement above all users for a full 24 hours",
 } as const;
 
 function ElevateModal({ onClose }: { onClose: () => void }) {
@@ -83,26 +86,26 @@ function ElevateModal({ onClose }: { onClose: () => void }) {
           aria-hidden
         />
 
-        <div className="px-6 pt-6 pb-2">
+        <div className="px-6 pt-5 pb-2">
           <div className="flex items-center gap-2 mb-1">
             <Sparkles className="w-5 h-5 text-primary" />
             <h2 className="font-serif text-xl font-bold">Elevate Your Profile</h2>
           </div>
           <p className="text-sm text-muted-foreground leading-relaxed">
-            Increase your visibility in discovery and the Intention Wheel so more people find you, faster.
+            Boost your visibility in Discovery and the Intention Wheel. More eyes on your profile, faster connections.
           </p>
         </div>
 
-        <div className="px-6 pb-2 pt-4 space-y-3">
+        <div className="px-6 pb-2 pt-4 space-y-2.5">
           {ELEVATE_PACKAGES.map(pkg => (
             <button
               key={pkg.id}
               className={[
-                "w-full rounded-xl border p-4 text-left transition-all relative",
+                "w-full rounded-2xl border text-left transition-all relative overflow-hidden",
                 pkg.highlight
-                  ? "border-primary bg-primary/5 shadow-sm"
-                  : "border-border bg-card hover:border-primary/40",
-                selected === pkg.id && purchasing ? "opacity-80" : "",
+                  ? "border-primary/60 bg-primary/5 shadow-sm hover:bg-primary/8"
+                  : "border-border bg-card hover:border-primary/30 hover:bg-muted/40",
+                selected === pkg.id && purchasing ? "opacity-70" : "",
               ].join(" ")}
               onClick={() => handlePurchase(pkg.id, pkg.label)}
               disabled={purchasing}
@@ -111,50 +114,51 @@ function ElevateModal({ onClose }: { onClose: () => void }) {
               {pkg.badge && (
                 <span
                   className={[
-                    "absolute top-3 right-3 text-xs font-semibold px-2 py-0.5 rounded-full",
-                    pkg.highlight
+                    "absolute top-3.5 right-3.5 text-xs font-semibold px-2.5 py-0.5 rounded-full",
+                    pkg.badge === "Most Popular"
                       ? "bg-primary text-primary-foreground"
-                      : "bg-secondary text-secondary-foreground",
+                      : "bg-foreground text-background",
                   ].join(" ")}
                   data-testid={`badge-elevate-${pkg.id}`}
                 >
                   {pkg.badge}
                 </span>
               )}
-              <div className="flex items-start gap-3 pr-20">
-                <div
-                  className={[
-                    "w-9 h-9 rounded-full flex items-center justify-center shrink-0 mt-0.5",
+              <div className="p-4">
+                <div className="flex items-center gap-3 pr-28">
+                  <div className={[
+                    "w-8 h-8 rounded-full flex items-center justify-center shrink-0",
                     pkg.highlight ? "bg-primary/15" : "bg-muted",
-                  ].join(" ")}
-                >
-                  {selected === pkg.id && purchasing
-                    ? <div className="w-4 h-4 rounded-full border-2 border-primary border-t-transparent animate-spin" />
-                    : <Sparkles className={["w-4 h-4", pkg.highlight ? "text-primary" : "text-muted-foreground"].join(" ")} />
-                  }
-                </div>
-                <div>
+                  ].join(" ")}>
+                    {selected === pkg.id && purchasing
+                      ? <div className="w-3.5 h-3.5 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+                      : <Sparkles className={["w-3.5 h-3.5", pkg.highlight ? "text-primary" : "text-muted-foreground"].join(" ")} />
+                    }
+                  </div>
                   <p className={["font-semibold text-sm", pkg.highlight ? "text-primary" : "text-foreground"].join(" ")}>
                     {pkg.label}
                   </p>
-                  <p className="text-xs text-muted-foreground mt-0.5">{pkg.description}</p>
+                </div>
+                <p className="text-xs text-muted-foreground mt-1.5 ml-11">{pkg.description}</p>
+                <div className="flex items-baseline gap-2 mt-2 ml-11">
+                  <span className={["text-xl font-bold", pkg.highlight ? "text-primary" : "text-foreground"].join(" ")}>
+                    {pkg.price}
+                  </span>
+                  <span className="text-xs text-muted-foreground">{pkg.perBoost}</span>
                 </div>
               </div>
-              <p className={["text-lg font-bold mt-2 ml-12", pkg.highlight ? "text-primary" : "text-foreground"].join(" ")}>
-                {pkg.price}
-              </p>
             </button>
           ))}
         </div>
 
-        <div className="px-6 pb-2 pt-1">
-          <div className="relative py-3">
+        <div className="px-6 pb-2 pt-3">
+          <div className="relative py-2">
             <div className="absolute inset-0 flex items-center">
               <span className="w-full border-t border-border" />
             </div>
             <div className="relative flex justify-center text-xs">
-              <span className="bg-background px-3 text-muted-foreground font-medium tracking-wider uppercase">
-                Premium
+              <span className="bg-background px-3 text-muted-foreground font-medium tracking-widest uppercase">
+                Super
               </span>
             </div>
           </div>
@@ -162,41 +166,53 @@ function ElevateModal({ onClose }: { onClose: () => void }) {
 
         <div className="px-6 pb-6">
           <button
-            className="w-full rounded-xl border-2 border-primary/30 bg-gradient-to-br from-primary/5 to-primary/10 p-4 text-left transition-all hover:border-primary/60 disabled:opacity-70"
+            className="w-full rounded-2xl text-left transition-all disabled:opacity-70 overflow-hidden relative"
+            style={{
+              background: "linear-gradient(135deg, hsl(350 45% 20%), hsl(350 45% 14%))",
+              border: "1px solid hsl(350 45% 35%)",
+              boxShadow: "0 4px 24px hsl(350 45% 30% / 0.25), inset 0 1px 0 hsl(350 45% 50% / 0.15)",
+            }}
             onClick={() => handlePurchase(SUPER_ELEVATE.id, SUPER_ELEVATE.label)}
             disabled={purchasing}
             data-testid="button-super-elevate"
           >
-            <div className="flex items-start gap-3">
-              <div className="w-9 h-9 rounded-full bg-primary/15 flex items-center justify-center shrink-0 mt-0.5">
-                {selected === SUPER_ELEVATE.id && purchasing
-                  ? <div className="w-4 h-4 rounded-full border-2 border-primary border-t-transparent animate-spin" />
-                  : <Zap className="w-4 h-4 text-primary" />
-                }
-              </div>
-              <div className="flex-1">
-                <div className="flex items-center gap-2">
-                  <p className="font-semibold text-sm text-primary">{SUPER_ELEVATE.label}</p>
-                  <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full font-medium">
-                    24 hrs
-                  </span>
+            <div className="absolute top-0 right-0 w-40 h-40 rounded-full opacity-10 pointer-events-none"
+              style={{ background: "radial-gradient(circle, hsl(350 45% 70%), transparent)", transform: "translate(30%, -30%)" }}
+            />
+            <div className="p-5">
+              <div className="flex items-start gap-3">
+                <div className="w-9 h-9 rounded-full flex items-center justify-center shrink-0 mt-0.5"
+                  style={{ background: "hsl(350 45% 52% / 0.25)", border: "1px solid hsl(350 45% 52% / 0.4)" }}>
+                  {selected === SUPER_ELEVATE.id && purchasing
+                    ? <div className="w-4 h-4 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+                    : <Zap className="w-4 h-4 text-primary" />
+                  }
                 </div>
-                <p className="text-xs text-muted-foreground mt-0.5">{SUPER_ELEVATE.description}</p>
-                <ul className="mt-2 space-y-1">
-                  {[
-                    "Maximum visibility in Discovery",
-                    "Top placement in the Intention Wheel",
-                    "Priority exposure over all profiles",
-                  ].map(feat => (
-                    <li key={feat} className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                      <Check className="w-3 h-3 text-primary shrink-0" />
-                      {feat}
-                    </li>
-                  ))}
-                </ul>
+                <div className="flex-1">
+                  <div className="flex items-center gap-2.5 flex-wrap">
+                    <p className="font-serif font-bold text-base text-primary">{SUPER_ELEVATE.label}</p>
+                    <span className="text-xs font-semibold px-2 py-0.5 rounded-full text-primary"
+                      style={{ background: "hsl(350 45% 52% / 0.2)", border: "1px solid hsl(350 45% 52% / 0.3)" }}>
+                      24 hours
+                    </span>
+                  </div>
+                  <p className="text-xs mt-1" style={{ color: "hsl(350 20% 70%)" }}>{SUPER_ELEVATE.description}</p>
+                  <ul className="mt-3 space-y-1.5">
+                    {[
+                      "Maximum visibility across all of Discovery",
+                      "Top placement in the Intention Wheel",
+                      "Priority above every other profile",
+                    ].map(feat => (
+                      <li key={feat} className="flex items-center gap-2 text-xs" style={{ color: "hsl(350 20% 65%)" }}>
+                        <Check className="w-3 h-3 text-primary shrink-0" />
+                        {feat}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
               </div>
+              <p className="text-2xl font-bold text-primary mt-4 ml-12">{SUPER_ELEVATE.price}</p>
             </div>
-            <p className="text-xl font-bold text-primary mt-3 ml-12">{SUPER_ELEVATE.price}</p>
           </button>
 
           <p className="text-center text-xs text-muted-foreground mt-4 leading-relaxed">
