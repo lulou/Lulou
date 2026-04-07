@@ -28,6 +28,8 @@ export const profiles = pgTable("profiles", {
   phoneNumber: text("phone_number"),
   photoVerified: boolean("photo_verified").default(false),
   onboardingComplete: boolean("onboarding_complete").default(false),
+  elevateType: text("elevate_type"),
+  elevateExpiresAt: timestamp("elevate_expires_at"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 

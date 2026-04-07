@@ -78,6 +78,8 @@ export interface IStorage {
   findMatchBetweenUsers(userId1: string, userId2: string): Promise<Match | undefined>;
   getIncomingOpens(userId: string): Promise<(Interaction & { profile: Profile })[]>;
   resetUserTestData(userId: string): Promise<void>;
+  activateElevate(userId: string, type: "elevate" | "super_elevate"): Promise<Profile | undefined>;
+  getElevateStatus(userId: string): Promise<{ type: string | null; expiresAt: Date | null; active: boolean }>;
 }
 
 function mapProfile(row: any): Profile {
@@ -104,6 +106,8 @@ function mapProfile(row: any): Profile {
     phoneNumber: row.phone_number,
     photoVerified: row.photo_verified,
     onboardingComplete: row.onboarding_complete,
+    elevateType: row.elevate_type ?? null,
+    elevateExpiresAt: row.elevate_expires_at ? new Date(row.elevate_expires_at) : null,
     createdAt: row.created_at ? new Date(row.created_at) : null,
   };
 }
@@ -275,10 +279,22 @@ export class SupabaseStorage implements IStorage {
       [userId, ...(interactedResult.data || []).map((r: any) => r.to_user_id).filter(Boolean)]
     );
 
+    const now = new Date();
     const all = (profilesResult.data || []).map(mapProfile);
-    const filtered = all.filter(p => !interactedIds.has(p.userId)).slice(0, 20);
-    console.log("[DISCOVER] pool:", all.length, "after exclusion:", filtered.length);
-    return filtered;
+    const filtered = all.filter(p => !interactedIds.has(p.userId));
+
+    const isActiveElevate = (p: Profile) =>
+      !!p.elevateType && !!p.elevateExpiresAt && p.elevateExpiresAt > now;
+
+    const superGroup = filtered.filter(p => isActiveElevate(p) && p.elevateType === "super_elevate");
+    const elevGroup  = filtered.filter(p => isActiveElevate(p) && p.elevateType === "elevate");
+    const normalGroup = filtered.filter(p => !isActiveElevate(p));
+
+    const shuffle = <T>(arr: T[]): T[] => arr.map(v => [Math.random(), v] as [number, T]).sort((a, b) => a[0] - b[0]).map(([, v]) => v);
+
+    const sorted = [...shuffle(superGroup), ...shuffle(elevGroup), ...normalGroup].slice(0, 20);
+    console.log("[DISCOVER] pool:", all.length, "after exclusion:", filtered.length, "super:", superGroup.length, "elevate:", elevGroup.length);
+    return sorted;
   }
 
   async createInteraction(data: InsertInteraction): Promise<Interaction> {
@@ -855,7 +871,17 @@ export class SupabaseStorage implements IStorage {
       allProfiles.push(...(extra || []).map(mapProfile));
     }
 
-    return allProfiles;
+    // Re-sort: super_elevate → elevate → normal (preserve popularity within each tier)
+    const now = new Date();
+    const elevRank = (p: Profile): number => {
+      if (!p.elevateType || !p.elevateExpiresAt || p.elevateExpiresAt <= now) return 2;
+      return p.elevateType === "super_elevate" ? 0 : 1;
+    };
+    const shuffle = <T>(arr: T[]): T[] => arr.map(v => [Math.random(), v] as [number, T]).sort((a, b) => a[0] - b[0]).map(([, v]) => v);
+    const superElevated = shuffle(allProfiles.filter(p => elevRank(p) === 0));
+    const elevated      = shuffle(allProfiles.filter(p => elevRank(p) === 1));
+    const normal        = allProfiles.filter(p => elevRank(p) === 2);
+    return [...superElevated, ...elevated, ...normal];
   }
 
   async getSpinStandouts(userId: string): Promise<string[]> {
@@ -1202,6 +1228,32 @@ export class SupabaseStorage implements IStorage {
     await this.sb.from("spin_usage").delete().eq("user_id", userId);
 
     await this.sb.from("spin_requests").delete().or(`from_user_id.eq.${userId},to_user_id.eq.${userId}`);
+  }
+
+  async activateElevate(userId: string, type: "elevate" | "super_elevate"): Promise<Profile | undefined> {
+    const durationMs = type === "super_elevate" ? 60 * 60 * 1000 : 30 * 60 * 1000;
+    const expiresAt = new Date(Date.now() + durationMs);
+    const { data, error } = await this.sb
+      .from("profiles")
+      .update({ elevate_type: type, elevate_expires_at: expiresAt.toISOString() })
+      .eq("user_id", userId)
+      .select()
+      .single();
+    if (error || !data) return undefined;
+    return mapProfile(data);
+  }
+
+  async getElevateStatus(userId: string): Promise<{ type: string | null; expiresAt: Date | null; active: boolean }> {
+    const { data, error } = await this.sb
+      .from("profiles")
+      .select("elevate_type, elevate_expires_at")
+      .eq("user_id", userId)
+      .single();
+    if (error || !data) return { type: null, expiresAt: null, active: false };
+    const now = new Date();
+    const expiresAt = data.elevate_expires_at ? new Date(data.elevate_expires_at) : null;
+    const active = !!data.elevate_type && !!expiresAt && expiresAt > now;
+    return { type: active ? data.elevate_type : null, expiresAt, active };
   }
 }
 

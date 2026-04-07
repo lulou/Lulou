@@ -1,167 +1,63 @@
 # Lulou Dating - Intentional Dating App
 
 ## Overview
-Lulou Dating is a calm, premium dating app focused on helping people move from matching to conversation to real-life meeting. It reduces endless texting, ghosting, and casual dating culture.
+Lulou Dating is a premium dating app designed to foster intentional connections, moving users from initial matches to real-life meetings. It aims to reduce common dating app frustrations like endless texting, ghosting, and the pervasive casual dating culture, promoting meaningful interactions instead. The platform focuses on a structured progression through conversation and calls to facilitate genuine connections.
 
-## Architecture
-- **Frontend**: React + Vite + Tailwind CSS + shadcn/ui
-- **Backend**: Express.js with Supabase token verification middleware
-- **Database**: Supabase (PostgreSQL) via @supabase/supabase-js client
-- **Auth**: Supabase Auth (email + password via `signUp` / `signInWithPassword`)
+## User Preferences
+No explicit user preferences were provided in the original `replit.md` file.
 
-## Key Features
-- Profile creation with personality signals, green flags, dating intent, connection style, optional height
-- Discovery page showing one profile at a time with bubble-style photo layout
-  - Single scrollable card: photos at top, about section below, name/age/location/height at bottom
-  - No tabs - all info visible in one scroll
-  - Photo bubbles with dynamic focus (centered photo grows, side photos shrink)
-  - Open button (heart + "Open" label) overlaid on focused photo
-  - Close button (moon) fixed at bottom-right of screen
-- Intention Wheel (Intent tab) - horizontal spinning wheel of top 10 most popular profiles
-  - Spin button triggers animated wheel spin with eased deceleration
-  - Lands on a random profile, shows their details (photo, name, age, location, signals, starters)
-  - Popularity ranked by number of "opens" received
-  - Manual drag scrolling with momentum physics
-- Mutual matching system
-- Matches page with expandable inline chatrooms (only one chat open at a time)
-- Unread message counts per conversation via Supabase Realtime (badge on match card)
-- Unread counts clear automatically when opening a thread
-- Real-time messaging via Supabase Realtime subscriptions (with 10s polling fallback)
-- Typing indicators via Supabase Realtime broadcast (no DB writes) — "{Name} is typing..." shown in active thread with animated dots; disappears on send or after 3.5s timeout; throttled to one broadcast per 2s
-- Optimistic message updates (sender sees message instantly)
-- Limited messaging (15 messages per person, 500 chars max)
-- Structured connection progression (5 steps: Match → Chat → 1st Call → 2nd Call → Meet)
-  - Spark progress bar in chat header shows current step
-  - Stage hint banners appear in input area as limits approach
-- System guidance messages appear inline in the chat thread at key stage transitions (styled as centered "Lulou" bubbles, not counted toward message limits, computed from state — no DB writes)
-  - Stage 0 (5 msgs left): "first call coming up soon" nudge
-  - Stage 0 (1 msg left or limit reached): "you've reached your call stage" prompt
-  - Stage 1 entry: "nice call" + "6 messages each" info
-  - Stage 1 halfway (3+ post-call msgs): second call approaching hint
-  - Stage 1 near limit (≤2 left): "just a couple messages left" nudge
-  - Stage 1 both limit reached: "second call unlocked" prompt
-- Call scheduling: both calls require mutual agreement on a time before starting
-  - States: not scheduled → proposed → accepted → ready to start
-  - Quick times: Available now / In 30 min / In 1 hr / In 2 hrs / Pick specific time
-  - Receiver can accept, decline, or suggest a different time
-  - Seed users auto-accept proposals (1.5-3s delay)
-  - Scheduling state derived from `__SCHEDULE__:` system messages in messages table (no new columns)
-  - `__SCHEDULE__:` messages are hidden from the chat display
-  - Start Call button only appears when schedule is accepted + time is within 5 min
-- Multi-call progression after message limit:
-  1. First voice call (10 minutes) - prompted after 15 messages (stage 0)
-  2. Post-call messaging (6 messages per user) - after first call (stage 1)
-  3. Second voice call (15 minutes) - unlocked when both users hit 6 post-call messages (stage 1→2)
-  4. Optional face/video call (10 minutes) - both users must accept; either can skip (stage 2→3)
-- Call stages tracked via `callStage` (0=pre-call, 1=first done, 2=second done, 3=face done/skipped)
-- `message_count_1/2` reset to 0 when first call completes — reused as post-call message counters (0-6)
-- Call sessions tracked via `callSessionId` derived from `call_started_at` (no DB column)
-- **Call system active** — stable baseline with stale checks, duplicate-call guards, cancelled-session guards, and full chat state preservation; no WebRTC audio/video yet (use-webrtc.ts exists but is not imported)
-- Call signaling via Supabase Realtime broadcast (5 signal types: ring, answered, declined, cancelled, ended)
-- Server broadcasts ring on start, cancelled on cancel, ended on complete
-- Client broadcasts declined (on decline), cancelled (on caller cancel), ended (on hang up)
-- Incoming call overlay: full-screen phone-call-style screen with caller photo, drag-up-to-answer (green knob) + tap-to-decline (red button)
-- Active call overlay: full-screen UI with call timer and end-call button (no audio/video controls)
-- CallDetectors in App.tsx polls matches every 10s and shows incoming or active call overlays
-- Staleness protection: ringing calls >120s and answered calls >30min are ignored (prevents stale re-entry)
-- Cancelled call session tracking via `client/src/lib/cancelled-calls.ts` — prevents stale call data from re-showing call UI after decline/cancel
-- After decline/cancel, optimistic cache clear sticks (no immediate refetch); 10s poll refreshes naturally
-- End signals (declined/cancelled/ended) in use-call-signaling.ts mark sessions as cancelled and do NOT invalidate queries (prevents stale data flip-flop)
-- Both CallDetectors (App.tsx) and inline call UI (matches.tsx) check `isCallSessionCancelled` before showing call overlays/ringing state
-- Call routes use `getCallStorage(req)` — uses admin client if service role key exists, falls back to user JWT client
-- `cancelCall` in storage.ts never throws on DB update failure — returns pre-read data with cleared fields
-- Duplicate call prevention via `.is("call_started_at", null)` guard in DB update
-- Caller gets "declined" notification when receiver declines their call
-- Face call requires mutual acceptance (`faceCallUser1Accepted`, `faceCallUser2Accepted`)
-- After all calls: "Ready to Meet" button shows date/time picker (next 7 days, 4 time slots each)
-- Meet availability tracked per user (`meetAvailability1`, `meetAvailability2` as JSON)
-- Phone number exchange only unlocked after both users confirm matching date/time availability
-- Message reactions: double-tap a received message to toggle ❤️ reaction (stored in DB, visible to both users)
-- Message content filtered server-side to block phone numbers, emails, and social media handles in regular messages
-- Exchange number auto-sends phone as message via dedicated route (bypasses content filter)
-- Profile page shows age, height, location, adjustable search radius
-- Profile sections: Lulou Extras (subscriptions), Safety, Lulou Me (photo verification badge), Help Centre, What Works (dating tips)
-- **Benefit system**: `user_benefits` table in local PostgreSQL (Drizzle). Benefits are account-wide but must be intentionally activated per chat.
-  - Types: `message_extension` (+5 msgs), `extra_call`, `video_call`
-  - Owned benefits stored in `user_benefits` with `activatedMatchId = null` (unactivated) or set to a matchId
-  - When stage-0 message limit (15) is hit and user has an unactivated extension: inline offer banner appears in chat
-  - After activation, effective limit becomes 20; server enforces via `user_benefits` check in `sendMessage` route
-  - Profile page "+5 Messages" purchase calls `POST /api/benefits/grant` (simulated payment); real payment integration would gate this server-side
-  - Routes: `GET /api/benefits`, `POST /api/benefits/activate`, `POST /api/benefits/grant`
-- Location radius (5-100 miles) configurable in onboarding and profile
-- Photo verification (Lulou Me) gives profiles a verified badge
+## System Architecture
+Lulou Dating employs a modern web architecture:
+-   **Frontend**: Built with React, Vite, Tailwind CSS, and shadcn/ui for a responsive and aesthetically pleasing user interface.
+-   **Backend**: Powered by Express.js, featuring Supabase token verification middleware for secure API access.
+-   **Database**: Utilizes PostgreSQL via Supabase, with `@supabase/supabase-js` for client-side interactions.
+-   **Authentication**: Managed by Supabase Auth, supporting email and password-based sign-up and sign-in.
 
-## Design Language
-- Color scheme: Warm rose-blush primary (HSL 350 45% 52%), sage green accents (HSL 155 25%), warm cream backgrounds
-- Fonts: Playfair Display (serif headings), Plus Jakarta Sans (body)
-- Calm, spacious, minimal - "luxury boutique hotel" feel
-- No gamification, no casino mechanics
+**Key Features**:
+-   **Profile Creation**: Comprehensive profiles include personality signals, green flags, dating intent, connection style, and optional height.
+-   **Discovery**: Displays one profile at a time in a bubble-style photo layout, with all information visible in a single scrollable card. Features dynamic photo focus and clear interaction buttons.
+-   **Intention Wheel**: A horizontal spinning wheel showcasing the top 10 most popular profiles, allowing users to discover new matches. Popularity is based on "opens received."
+-   **Matching System**: A mutual matching mechanism.
+-   **Matches & Chat**: A dedicated matches page with expandable inline chatrooms.
+    -   **Real-time Messaging**: Implemented with Supabase Realtime subscriptions and a 10s polling fallback. Includes unread message counts and typing indicators.
+    -   **Optimistic Updates**: Messages appear instantly for the sender.
+    -   **Limited Messaging**: Conversations are structured with a limit of 15 messages per person (500 characters max) in the initial stage.
+-   **Structured Connection Progression**: A 5-step process (Match → Chat → 1st Call → 2nd Call → Meet) guided by a "Spark progress bar" and system messages in chat.
+    -   **Call Scheduling**: Both first and second calls require mutual agreement on a time, with proposed, accepted, and ready states. Uses system messages for tracking without additional DB columns.
+    -   **Multi-Call Progression**:
+        1.  First voice call (10 minutes) after 15 messages.
+        2.  Post-call messaging (6 messages per user).
+        3.  Second voice call (15 minutes) after post-call messages are exchanged.
+        4.  Optional face/video call (10 minutes) with mutual acceptance.
+    -   **Call System**: Active call signaling via Supabase Realtime broadcast for ring, answered, declined, cancelled, and ended states. Features incoming and active call overlays, staleness protection, and cancelled session tracking.
+-   **Post-Call Actions**: "Ready to Meet" button unlocks after all calls, allowing users to propose meet-up availability. Phone number exchange is unlocked only after mutual meet-up confirmation.
+-   **Message Reactions**: Double-tap to toggle a heart reaction on received messages.
+-   **Content Filtering**: Server-side filtering to block sensitive information (phone numbers, emails, social media handles) in regular messages.
+-   **Benefit System**: Account-wide benefits (e.g., message extensions, extra calls) stored in `user_benefits` table, activated per chat.
+-   **Elevate System**: `elevateType` and `elevateExpiresAt` fields on `profiles` table provide temporary visibility boosts (Elevate for medium, Super Elevate for top-tier) in Discovery and Intention Wheel.
+-   **Location Radius**: Configurable search radius (5-100 miles).
+-   **Photo Verification**: Provides a verified badge on profiles.
+-   **Spin Economy**: Manages eligibility and usage of "spins" for the Intention Wheel, with earning conditions and purchase options.
 
-## Project Structure
-- `client/src/pages/` - Landing, Onboarding, Discover, Intent, Likes, Matches, Messaging, Profile
-- `client/src/components/` - AppLayout (bottom nav), IncomingCallOverlay, UI components
-- `server/routes.ts` - API endpoints
-- `server/storage.ts` - Database operations
-- `server/seed.ts` - Seed data with 5 demo profiles
-- `shared/schema.ts` - Drizzle schema definitions
-- `client/src/lib/supabase.ts` - Frontend Supabase client
-- `client/src/lib/profile-upsert.ts` - Frontend profile upsert helper (writes directly to Supabase with user_id = user.id, onConflict: "user_id")
-- `client/src/hooks/use-auth.ts` - Supabase Auth hook (session, login, logout)
-- `client/src/hooks/use-realtime-messages.ts` - Supabase Realtime subscription for instant message delivery
-- `client/src/hooks/use-unread-counts.ts` - Per-match unread message tracking via Supabase Realtime
-- `client/src/hooks/use-typing-indicator.ts` - Typing indicator via Supabase Realtime broadcast (ephemeral, no DB writes)
-- `client/src/lib/cancelled-calls.ts` - Cancelled call session tracking (prevents stale call UI reappearance)
-- `client/src/hooks/use-webrtc.ts` - WebRTC peer connection hook with Supabase Realtime signaling
-- `client/src/components/active-call.tsx` - Active call overlay (voice/video) with WebRTC streams
-- `server/supabase.ts` - Server Supabase client
+**Design Language**:
+-   **Color Scheme**: Warm rose-blush primary (HSL 350 45% 52%), sage green accents (HSL 155 25%), and warm cream backgrounds.
+-   **Typography**: Playfair Display for headings and Plus Jakarta Sans for body text.
+-   **Aesthetics**: Calm, spacious, minimal, aiming for a "luxury boutique hotel" feel. Explicitly avoids gamification and casino mechanics.
 
-## Database Tables
-- `profiles` - Dating profiles with signals, flags, photos (user_id = Supabase auth user.id, id auto-generated)
-- `interactions` - Open/Close actions between users
-- `matches` - Mutual connections
-- `messages` - Conversation messages
-- `spin_standouts` - Tracks which profiles a user has already seen via Intention Wheel spin (prevents repeats)
-- `spin_usage` - Tracks spins per user per date for daily/weekly limits
+**Performance Optimisations**:
+-   **Client-side Token Caching**: `setCachedToken` stores Supabase JWT in memory to reduce redundant `getSession()` calls.
+-   **Server-side JWT Caching**: `verifyJwt()` caches Supabase user results for 2 minutes to minimize authentication overhead.
+-   **Parallelized Database Queries**: Extensive use of `Promise.all` across multiple API routes (e.g., `getMatchesForUser`, `getMatch`, `getDiscoverProfiles`, `getConsecutiveLikeDays`, `spin-status`) to reduce N+1 problems and improve response times.
+-   **Optimised Supabase Integration**: Streamlined `use-auth.ts` hook and simplified `getMatchCount` for efficiency.
 
-## Spin Economy
-- Free spin earned by sending 10+ likes ("opens") on 3 consecutive days
-- Otherwise 1 free spin per week (Monday-Sunday)
-- Spins do NOT accumulate - user must use their spin before earning another
-- Purchase options: 1 spin/$1.49, 2 spins/$2.49 (coming soon)
-- Wheel always shows 10 profiles, shuffled fresh each time
-- Profiles reset after every spin (new random set of 10)
-- Server-side eligibility enforcement on POST /api/spin
-
-## Performance Optimisations
-- **Client token cache** (`queryClient.ts`): `setCachedToken` stores the Supabase JWT in memory — every API request uses the cached token instead of calling `getSession()` each time
-- **`use-auth.ts` simplified**: Removed `initProfileOnLogin` call (2 extra server round trips per page load). `profileReady` is set immediately on `onAuthStateChange` — the spinner clears instantly
-- **Server JWT cache** (`routes.ts`): `verifyJwt()` caches `supabase.auth.getUser()` results for 2 min (up to 500 entries) — auth middleware no longer hits Supabase servers on every request
-- **`getMatchesForUser` N+1 fixed**: All per-match profile + last-message queries now run via `Promise.all` — N matches costs 2 parallel batches instead of 2N sequential requests
-- **`getMatch` parallelised**: Profile and messages queries run concurrently
-- **`getDiscoverProfiles` parallelised**: Interactions and profiles queries now run concurrently instead of sequentially
-- **`getConsecutiveLikeDays` fixed**: Reduced from ≤6 sequential count queries to a single date-range query with JS processing
-- **`spin-status` parallelised**: All 4 checks run via `Promise.all` instead of sequentially
-- **`getMatchCount` simplified**: One `count: exact` query replaces N+1 profile-verification loop
-- **`getIncomingOpens` parallelised**: Pre-filter queries (3) and profile fetches all use `Promise.all`
-- **`getIncomingSpinRequests` / `getOutgoingSpinRequests` N+1 fixed**: Profile fetches now parallelised
-
-## API Routes
-- `GET /api/profile` - Get current user's profile
-- `POST /api/profile` - Create/update profile
-- `GET /api/discover` - Get discoverable profiles
-- `POST /api/interactions` - Create open/close interaction
-- `GET /api/matches` - Get user's matches
-- `GET /api/matches/:id` - Get match details with messages
-- `POST /api/matches/:id/messages` - Send message
-- `GET /api/popular` - Get top 10 most popular profiles (by opens received)
-- `GET /api/spin-status` - Get spin eligibility (spins today/week, daily likes, canSpin)
-- `POST /api/spin` - Record a spin and standout (server-side eligibility enforced)
-- `POST /api/matches/:id/call/start` - Start a call (voice or face)
-- `POST /api/matches/:id/call/answer` - Answer an incoming call
-- `POST /api/matches/:id/call/cancel` - Cancel a ringing call
-- `POST /api/matches/:id/call/complete` - Complete call and advance callStage
-- `POST /api/matches/:id/face-call/accept` - Accept optional face call (after 2nd voice call)
-- `POST /api/matches/:id/face-call/decline` - Decline/skip face call (advances to stage 3)
-- `POST /api/messages/:messageId/reaction` - Toggle ❤️ reaction on a message (server validates ownership + received-only)
-- `POST /api/matches/:id/schedule-call` - Propose/accept/decline/reschedule a call time (action + proposedTime)
-- `POST /api/matches/:id/meet-availability` - Set date/time availability slots (after all calls done)
+## External Dependencies
+-   **Supabase**:
+    -   **Supabase Auth**: For user authentication (email/password).
+    -   **Supabase Database (PostgreSQL)**: The primary data store.
+    -   **Supabase Realtime**: For real-time features like messaging, unread counts, typing indicators, and call signaling.
+-   **Vite**: Frontend build tool.
+-   **React**: Frontend JavaScript library.
+-   **Tailwind CSS**: Utility-first CSS framework.
+-   **shadcn/ui**: UI component library.
+-   **Express.js**: Backend web framework.
+-   **Drizzle ORM**: Used for defining database schemas (`user_benefits` table in local PostgreSQL).

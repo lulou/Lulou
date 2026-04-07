@@ -1352,6 +1352,43 @@ export async function registerRoutes(
     }
   });
 
+  // ── Elevate routes ──────────────────────────────────────────────────────────
+
+  app.post("/api/elevate", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const { type } = req.body;
+      if (type !== "elevate" && type !== "super_elevate") {
+        return res.status(400).json({ message: "type must be 'elevate' or 'super_elevate'" });
+      }
+      const profile = await getStorage(req).activateElevate(userId, type);
+      if (!profile) {
+        return res.status(404).json({ message: "Profile not found" });
+      }
+      const durationMinutes = type === "super_elevate" ? 60 : 30;
+      res.json({
+        success: true,
+        elevateType: type,
+        expiresAt: profile.elevateExpiresAt,
+        durationMinutes,
+      });
+    } catch (error) {
+      console.error("Error activating elevate:", error);
+      res.status(500).json({ message: "Failed to activate elevate" });
+    }
+  });
+
+  app.get("/api/elevate/status", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const status = await getStorage(req).getElevateStatus(userId);
+      res.json(status);
+    } catch (error) {
+      console.error("Error fetching elevate status:", error);
+      res.status(500).json({ message: "Failed to fetch elevate status" });
+    }
+  });
+
   await seedDatabase();
 
   return httpServer;

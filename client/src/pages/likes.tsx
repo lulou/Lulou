@@ -8,13 +8,50 @@ import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { useTabActive } from "@/App";
-import { Heart, X, Eye, MapPin, Lock, Sparkles, Zap, ChevronRight, Check } from "lucide-react";
+import { Heart, X, Eye, MapPin, Lock, Sparkles, Zap, ChevronRight, Check, Timer } from "lucide-react";
 import { LulouFlowerIcon } from "@/components/app-layout";
 import type { Profile, Interaction } from "@shared/schema";
 
 type IncomingOpen = Interaction & { profile: Profile };
 type MatchCelebration = { firstName: string; photo?: string };
 type MatchCountData = { count: number };
+type ElevateStatus = { type: string | null; expiresAt: string | null; active: boolean };
+
+function ElevateBanner({ status }: { status: ElevateStatus }) {
+  const isSuper = status.type === "super_elevate";
+  const expiresAt = status.expiresAt ? new Date(status.expiresAt) : null;
+  const remaining = expiresAt ? Math.max(0, Math.round((expiresAt.getTime() - Date.now()) / 60000)) : 0;
+
+  return (
+    <div
+      className="rounded-2xl px-4 py-3 flex items-center gap-3"
+      style={isSuper
+        ? { background: "linear-gradient(135deg, hsl(350 45% 18%), hsl(350 45% 12%))", border: "1px solid hsl(350 45% 32%)" }
+        : { background: "hsl(350 45% 52% / 0.08)", border: "1px solid hsl(350 45% 52% / 0.25)" }
+      }
+      data-testid="banner-elevate-active"
+    >
+      <div className={[
+        "w-8 h-8 rounded-full flex items-center justify-center shrink-0",
+        isSuper ? "bg-primary/20" : "bg-primary/15",
+      ].join(" ")}>
+        {isSuper ? <Zap className="w-4 h-4 text-primary" /> : <Sparkles className="w-4 h-4 text-primary" />}
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className={["text-xs font-semibold", isSuper ? "text-primary" : "text-primary"].join(" ")}>
+          {isSuper ? "Super Elevate active" : "Elevate active"}
+        </p>
+        <p className="text-xs text-muted-foreground">
+          {remaining > 0 ? `~${remaining} min remaining — you're being seen more` : "Expires soon"}
+        </p>
+      </div>
+      <div className="flex items-center gap-1 text-xs text-muted-foreground shrink-0">
+        <Timer className="w-3 h-3" />
+        <span>{remaining}m</span>
+      </div>
+    </div>
+  );
+}
 
 // ─── Elevate Modal ────────────────────────────────────────────────────────────
 
@@ -57,19 +94,35 @@ const SUPER_ELEVATE = {
 
 function ElevateModal({ onClose }: { onClose: () => void }) {
   const { toast } = useToast();
+  const queryClient = useQueryClient();
   const [selected, setSelected] = useState<string | null>(null);
   const [purchasing, setPurchasing] = useState(false);
 
   const handlePurchase = async (packageId: string, label: string) => {
+    const elevateType = packageId === "super-elevate" ? "super_elevate" : "elevate";
     setPurchasing(true);
     setSelected(packageId);
-    await new Promise(r => setTimeout(r, 900));
-    setPurchasing(false);
-    toast({
-      title: `${label} activated`,
-      description: "Your profile is now elevated. More people will discover you.",
-    });
-    onClose();
+    try {
+      const res = await apiRequest("POST", "/api/elevate", { type: elevateType });
+      const data = await res.json();
+      if (!data.success) throw new Error("Activation failed");
+      const durationLabel = data.durationMinutes === 60 ? "60 minutes" : "30 minutes";
+      queryClient.invalidateQueries({ queryKey: ["/api/elevate/status"] });
+      toast({
+        title: `${label} is now live`,
+        description: `Your profile has boosted visibility for ${durationLabel}. More people will find you.`,
+      });
+      onClose();
+    } catch {
+      toast({
+        title: "Something went wrong",
+        description: "Couldn't activate your boost. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setPurchasing(false);
+      setSelected(null);
+    }
   };
 
   return (
@@ -466,7 +519,13 @@ export default function LikesPage() {
     queryKey: ["/api/match-count"],
   });
 
+  const { data: elevateStatus } = useQuery<ElevateStatus>({
+    queryKey: ["/api/elevate/status"],
+    refetchInterval: isActive ? 60000 : false,
+  });
+
   const connectionsFull = (matchCountData?.count ?? 0) >= 8;
+  const elevateActive = elevateStatus?.active === true;
 
   useEffect(() => {
     if (!connectionsFull) setShowFullMessage(false);
@@ -489,8 +548,14 @@ export default function LikesPage() {
   if (likesList.length === 0 && !celebration) {
     return (
       <>
-        <div className="flex-1 flex items-center justify-center p-6">
-          <div className="text-center space-y-5 max-w-xs">
+        <div className="flex-1 flex flex-col items-center justify-center p-6 gap-4 max-w-xs mx-auto w-full">
+          {elevateActive && elevateStatus && (
+            <div className="w-full">
+              <ElevateBanner status={elevateStatus} />
+            </div>
+          )}
+
+          <div className="text-center space-y-5 w-full">
             <div className="w-20 h-20 rounded-full bg-primary/8 border border-primary/15 flex items-center justify-center mx-auto">
               <Eye className="w-9 h-9 text-primary/60" />
             </div>
@@ -504,15 +569,17 @@ export default function LikesPage() {
               </p>
             </div>
 
-            <button
-              className="w-full rounded-xl bg-primary text-primary-foreground px-5 py-3.5 font-semibold text-sm flex items-center justify-center gap-2 shadow-md hover:brightness-105 active:scale-95 transition-all"
-              onClick={() => setShowElevate(true)}
-              data-testid="button-elevate-cta"
-            >
-              <Sparkles className="w-4 h-4" />
-              Elevate Your Profile
-              <ChevronRight className="w-4 h-4 ml-auto opacity-70" />
-            </button>
+            {!elevateActive && (
+              <button
+                className="w-full rounded-xl bg-primary text-primary-foreground px-5 py-3.5 font-semibold text-sm flex items-center justify-center gap-2 shadow-md hover:brightness-105 active:scale-95 transition-all"
+                onClick={() => setShowElevate(true)}
+                data-testid="button-elevate-cta"
+              >
+                <Sparkles className="w-4 h-4" />
+                Elevate Your Profile
+                <ChevronRight className="w-4 h-4 ml-auto opacity-70" />
+              </button>
+            )}
 
             <p className="text-xs text-muted-foreground">
               When someone opens your profile, they'll appear here.
@@ -538,20 +605,26 @@ export default function LikesPage() {
               <Badge variant="secondary" className="text-xs" data-testid="badge-likes-count">
                 {likesList.length}
               </Badge>
-              <button
-                className="flex items-center gap-1.5 text-xs font-medium text-primary border border-primary/25 bg-primary/5 px-3 py-1.5 rounded-full hover:bg-primary/10 transition-colors"
-                onClick={() => setShowElevate(true)}
-                data-testid="button-elevate-header"
-              >
-                <Sparkles className="w-3 h-3" />
-                Elevate
-              </button>
+              {!elevateActive && (
+                <button
+                  className="flex items-center gap-1.5 text-xs font-medium text-primary border border-primary/25 bg-primary/5 px-3 py-1.5 rounded-full hover:bg-primary/10 transition-colors"
+                  onClick={() => setShowElevate(true)}
+                  data-testid="button-elevate-header"
+                >
+                  <Sparkles className="w-3 h-3" />
+                  Elevate
+                </button>
+              )}
             </div>
           </div>
           <p className="text-sm text-muted-foreground">
             These people opened your profile. Open them back to connect, or pass.
           </p>
         </div>
+
+        {elevateActive && elevateStatus && (
+          <ElevateBanner status={elevateStatus} />
+        )}
 
         {(connectionsFull || showFullMessage) && (
           <div
