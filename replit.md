@@ -34,7 +34,10 @@ Lulou Dating employs a modern web architecture:
 -   **Message Reactions**: Double-tap to toggle a heart reaction on received messages.
 -   **Content Filtering**: Server-side filtering to block sensitive information (phone numbers, emails, social media handles) in regular messages.
 -   **Benefit System**: Account-wide benefits (e.g., message extensions, extra calls) stored in `user_benefits` table, activated per chat.
--   **Elevate System**: `elevateType` and `elevateExpiresAt` fields on `profiles` table provide temporary visibility boosts (Elevate for medium, Super Elevate for top-tier) in Discovery and Intention Wheel.
+-   **Elevate System**: `elevateType` and `elevateExpiresAt` fields on `profiles` table provide temporary visibility boosts in Discovery and Intention Wheel.
+    -   **Weighted algorithm** (`weightedSample` in `server/storage.ts`): Normal=1x, Elevate=3x, Super Elevate=8x per slot draw. Each position in the result list is sampled probabilistically — elevated users appear proportionally more often without monopolising every slot. Multiple elevated users rotate fairly within their weight class. Routes: `POST /api/elevate` · `GET /api/elevate/status`
+    -   Elevate = 30-minute boost; Super Elevate = 60-minute boost. Expired boosts ignored at query time.
+    -   Active boost shown as live countdown banner on the Likes screen; Elevate button hidden while a boost is active.
 -   **Location Radius**: Configurable search radius (5-100 miles).
 -   **Photo Verification**: Provides a verified badge on profiles.
 -   **Spin Economy**: Manages eligibility and usage of "spins" for the Intention Wheel, with earning conditions and purchase options.

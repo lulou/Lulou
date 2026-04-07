@@ -7,6 +7,44 @@ import {
 import { supabase as defaultSupabase } from "./supabase";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+// ─── Elevate weights ──────────────────────────────────────────────────────────
+// Normal = 1x, Elevate = 3x, Super Elevate = 8x
+const ELEVATE_WEIGHT: Record<string, number> = {
+  super_elevate: 8,
+  elevate: 3,
+};
+const NORMAL_WEIGHT = 1;
+
+function elevateWeight(p: Profile, now: Date): number {
+  if (!p.elevateType || !p.elevateExpiresAt || p.elevateExpiresAt <= now) return NORMAL_WEIGHT;
+  return ELEVATE_WEIGHT[p.elevateType] ?? NORMAL_WEIGHT;
+}
+
+/**
+ * Weighted sampling without replacement.
+ * Profiles with higher weights are proportionally more likely to appear early
+ * in the result list, but every profile eventually gets a fair chance.
+ * Multiple elevated users rotate fairly — no single user blocks everyone else.
+ */
+function weightedSample(pool: Profile[], count: number, now: Date): Profile[] {
+  if (pool.length === 0) return [];
+  const result: Profile[] = [];
+  const remaining = pool.map(p => ({ p, w: elevateWeight(p, now) }));
+
+  while (result.length < count && remaining.length > 0) {
+    const total = remaining.reduce((s, r) => s + r.w, 0);
+    let r = Math.random() * total;
+    let idx = 0;
+    for (let i = 0; i < remaining.length; i++) {
+      r -= remaining[i].w;
+      if (r <= 0) { idx = i; break; }
+    }
+    result.push(remaining[idx].p);
+    remaining.splice(idx, 1);
+  }
+  return result;
+}
+
 function getGendersForPreference(preference: string): string[] | null {
   switch (preference) {
     case "women": return ["woman", "trans woman"];
@@ -283,18 +321,11 @@ export class SupabaseStorage implements IStorage {
     const all = (profilesResult.data || []).map(mapProfile);
     const filtered = all.filter(p => !interactedIds.has(p.userId));
 
-    const isActiveElevate = (p: Profile) =>
-      !!p.elevateType && !!p.elevateExpiresAt && p.elevateExpiresAt > now;
+    const superCount  = filtered.filter(p => p.elevateType === "super_elevate" && p.elevateExpiresAt && p.elevateExpiresAt > now).length;
+    const elevCount   = filtered.filter(p => p.elevateType === "elevate" && p.elevateExpiresAt && p.elevateExpiresAt > now).length;
+    console.log("[DISCOVER] pool:", all.length, "after exclusion:", filtered.length, "super:", superCount, "elevate:", elevCount);
 
-    const superGroup = filtered.filter(p => isActiveElevate(p) && p.elevateType === "super_elevate");
-    const elevGroup  = filtered.filter(p => isActiveElevate(p) && p.elevateType === "elevate");
-    const normalGroup = filtered.filter(p => !isActiveElevate(p));
-
-    const shuffle = <T>(arr: T[]): T[] => arr.map(v => [Math.random(), v] as [number, T]).sort((a, b) => a[0] - b[0]).map(([, v]) => v);
-
-    const sorted = [...shuffle(superGroup), ...shuffle(elevGroup), ...normalGroup].slice(0, 20);
-    console.log("[DISCOVER] pool:", all.length, "after exclusion:", filtered.length, "super:", superGroup.length, "elevate:", elevGroup.length);
-    return sorted;
+    return weightedSample(filtered, 20, now);
   }
 
   async createInteraction(data: InsertInteraction): Promise<Interaction> {
@@ -871,17 +902,10 @@ export class SupabaseStorage implements IStorage {
       allProfiles.push(...(extra || []).map(mapProfile));
     }
 
-    // Re-sort: super_elevate → elevate → normal (preserve popularity within each tier)
+    // Weighted sampling: super_elevate=8x, elevate=3x, normal=1x
+    // Elevated users appear proportionally more often but don't block everyone else.
     const now = new Date();
-    const elevRank = (p: Profile): number => {
-      if (!p.elevateType || !p.elevateExpiresAt || p.elevateExpiresAt <= now) return 2;
-      return p.elevateType === "super_elevate" ? 0 : 1;
-    };
-    const shuffle = <T>(arr: T[]): T[] => arr.map(v => [Math.random(), v] as [number, T]).sort((a, b) => a[0] - b[0]).map(([, v]) => v);
-    const superElevated = shuffle(allProfiles.filter(p => elevRank(p) === 0));
-    const elevated      = shuffle(allProfiles.filter(p => elevRank(p) === 1));
-    const normal        = allProfiles.filter(p => elevRank(p) === 2);
-    return [...superElevated, ...elevated, ...normal];
+    return weightedSample(allProfiles, allProfiles.length, now);
   }
 
   async getSpinStandouts(userId: string): Promise<string[]> {
