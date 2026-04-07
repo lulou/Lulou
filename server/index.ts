@@ -98,6 +98,14 @@ app.use((req, res, next) => {
     console.error("Stripe init error (non-fatal):", err.message);
   }
 
+  // Warm up Stripe price IDs (creates products/prices once if missing)
+  try {
+    const { warmupStripePrices } = await import("./stripePrices");
+    await warmupStripePrices();
+  } catch (err: any) {
+    console.warn("Stripe price warmup failed (non-fatal):", err.message);
+  }
+
   await registerRoutes(httpServer, app);
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {

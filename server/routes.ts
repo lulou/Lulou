@@ -9,6 +9,7 @@ import { supabase, supabaseAdmin, createUserClient, hasServiceRoleKey } from "./
 import { db } from "./db";
 import { eq, and, isNull } from "drizzle-orm";
 import { getUncachableStripeClient, getStripePublishableKey } from "./stripeClient";
+import { getPriceId } from "./stripePrices";
 
 const serverBroadcastChannels = new Map<string, ReturnType<typeof supabase.channel>>();
 const serverChannelTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -1396,18 +1397,12 @@ export async function registerRoutes(
         ? "8× visibility boost in Discovery and the Intention Wheel for 60 minutes"
         : `3× visibility boost per use • ${pack.quantity} boost${pack.quantity > 1 ? "s" : ""} • 30 minutes each`;
 
+      // Resolve the Stripe Price ID (creates product+price once if not yet existing)
+      const priceId = await getPriceId(packId);
+
       const session = await stripe.checkout.sessions.create({
         payment_method_types: ["card"],
-        line_items: [
-          {
-            price_data: {
-              currency: "usd",
-              unit_amount: pack.unitAmount,
-              product_data: { name: pack.label, description },
-            },
-            quantity: 1,
-          },
-        ],
+        line_items: [{ price: priceId, quantity: 1 }],
         mode: "payment",
         success_url: `${baseUrl}/elevate/success?session_id={CHECKOUT_SESSION_ID}&pack=${packId}`,
         cancel_url: `${baseUrl}/likes`,
@@ -1416,8 +1411,15 @@ export async function registerRoutes(
 
       res.json({ url: session.url, sessionId: session.id });
     } catch (err: any) {
-      console.error("Error creating Stripe checkout:", err.message);
-      res.status(500).json({ message: "Failed to create checkout session" });
+      const stripeErr = err as any;
+      console.error("[STRIPE] Checkout session creation failed:", {
+        message: stripeErr.message,
+        type: stripeErr.type,
+        code: stripeErr.code,
+        statusCode: stripeErr.statusCode,
+        raw: stripeErr.raw ?? stripeErr,
+      });
+      res.status(500).json({ message: "Failed to create checkout session", detail: stripeErr.message });
     }
   });
 
