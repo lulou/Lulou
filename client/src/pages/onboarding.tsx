@@ -61,7 +61,7 @@ function computeInitialStep(profile: Profile | null): number {
 }
 
 // Build initial formData from an existing profile (partial or complete)
-function buildInitialFormData(profile: Profile | null) {
+function buildInitialFormData(profile: Profile | null, userEmail = "") {
   if (!profile) {
     return {
       firstName: "",
@@ -76,7 +76,7 @@ function buildInitialFormData(profile: Profile | null) {
       datingIntent: "",
       greenFlags: [] as string[],
       connectionStyle: "",
-      email: "",
+      email: userEmail,
       phoneNumber: "",
       conversationStarters: [] as string[],
       starterAnswers: {} as Record<string, string>,
@@ -109,9 +109,10 @@ function buildInitialFormData(profile: Profile | null) {
 
 interface OnboardingProps {
   existingProfile?: Profile | null;
+  userEmail?: string;
 }
 
-export default function Onboarding({ existingProfile = null }: OnboardingProps) {
+export default function Onboarding({ existingProfile = null, userEmail = "" }: OnboardingProps) {
   const [step, setStep] = useState(() => computeInitialStep(existingProfile));
   const [saveError, setSaveError] = useState<string | null>(null);
   const [, navigate] = useLocation();
@@ -119,7 +120,7 @@ export default function Onboarding({ existingProfile = null }: OnboardingProps) 
   const { profileInitError } = useAuth();
   const queryClient = useQueryClient();
 
-  const [formData, setFormData] = useState(() => buildInitialFormData(existingProfile));
+  const [formData, setFormData] = useState(() => buildInitialFormData(existingProfile, userEmail));
 
   const createProfile = useMutation({
     mutationFn: async () => {

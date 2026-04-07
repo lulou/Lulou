@@ -370,8 +370,8 @@ function AppContent() {
     );
   }
 
-  if (!profile || !profile.onboardingComplete) {
-    return <Onboarding existingProfile={profile} />;
+  if (!profile) {
+    return <Onboarding existingProfile={null} userEmail={user?.email ?? ""} />;
   }
 
   return (

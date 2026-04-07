@@ -263,53 +263,12 @@ export async function registerRoutes(
   });
 
   app.post("/api/auth/init", isAuthenticated, async (req: any, res) => {
-    try {
-      const userId = req.user.id;
-      const email = req.user.email || "";
-      const userName = email.split("@")[0] || "New User";
-
-      // Use INSERT ... ON CONFLICT (user_id) DO NOTHING.
-      // This is the only safe way to ensure a stub row exists without ever overwriting
-      // an existing profile (especially the onboarding_complete flag).
-      // A read-then-upsert pattern is unreliable because the read can return undefined
-      // on transient errors or RLS mismatches, causing a destructive overwrite.
-      const auth = req.headers.authorization;
-      const sb = auth ? createUserClient(auth) : supabase;
-      const { error } = await sb
-        .from("profiles")
-        .upsert(
-          {
-            user_id: userId,
-            email,
-            first_name: userName,
-            age: 25,
-            gender: "Prefer not to say",
-            dating_preference: "Everyone",
-            location: "Not set",
-            photos: [],
-            signals: [],
-            dating_intent: "Not set",
-            green_flags: [],
-            connection_style: "Not set",
-            conversation_starters: [],
-            questions: [],
-            onboarding_complete: false,
-          },
-          { onConflict: "user_id", ignoreDuplicates: true }
-        );
-
-      if (error) {
-        console.error("AUTH_INIT_ERROR", error.message, error.code, error.details, error.hint);
-        return res.status(500).json({ message: `Profile init failed: ${error.message}` });
-      }
-
-      console.log("AUTH_INIT: Ensured stub profile exists for", userId, "(insert-or-ignore)");
-      res.json({ ok: true });
-    } catch (error: any) {
-      const errMsg = error?.message || "Failed to init profile";
-      console.error("AUTH_INIT_ERROR", errMsg);
-      res.status(500).json({ message: `Profile init failed: ${errMsg}` });
-    }
+    // Auth is already verified by isAuthenticated middleware.
+    // Profile creation is handled by the onboarding flow — we do NOT create stub
+    // profiles here because a stub row with onboarding_complete=false would be
+    // indistinguishable from a real profile, breaking the "profile exists → app" routing.
+    console.log("AUTH_INIT: Verified session for", req.user.id);
+    res.json({ ok: true });
   });
 
   app.get("/api/profile", isAuthenticated, async (req: any, res) => {
