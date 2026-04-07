@@ -37,7 +37,10 @@ import {
   ImagePlus,
   MessageSquare,
   Check,
+  Sparkles,
+  Zap,
 } from "lucide-react";
+import { ElevateModal } from "@/components/elevate-modal";
 import { DragScrollRow } from "@/components/drag-scroll-row";
 import { CONVERSATION_STARTERS, PROFILE_QUESTIONS } from "@shared/schema";
 import type { Profile } from "@shared/schema";
@@ -108,6 +111,7 @@ export default function ProfilePage() {
   const [tipIndex, setTipIndex] = useState(0);
   const [purchaseItem, setPurchaseItem] = useState<{ name: string; price: string; type: "subscription" | "one-time"; benefitType?: string } | null>(null);
   const [purchaseSuccess, setPurchaseSuccess] = useState<string | null>(null);
+  const [showElevate, setShowElevate] = useState(false);
 
   const grantBenefit = useMutation({
     mutationFn: async (benefitType: string) => {
@@ -812,7 +816,48 @@ export default function ProfilePage() {
               <p className="text-xs text-muted-foreground">One-time purchases</p>
             </div>
             <div className="space-y-2">
-              <div className="flex items-center justify-between gap-2 flex-wrap">
+              {/* ── Elevate ── */}
+              <button
+                className="w-full flex items-center justify-between gap-2 p-3 rounded-xl border border-primary/30 bg-primary/5 text-left hover-elevate"
+                onClick={() => setShowElevate(true)}
+                data-testid="button-open-elevate"
+              >
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-full bg-primary/15 flex items-center justify-center shrink-0">
+                    <Sparkles className="w-4 h-4 text-primary" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-primary">Elevate</p>
+                    <p className="text-xs text-muted-foreground">Boost your visibility in Discovery &amp; the Intention Wheel</p>
+                  </div>
+                </div>
+                <span className="text-sm font-semibold text-primary shrink-0">from $9.99</span>
+              </button>
+              {/* ── Super Elevate ── */}
+              <button
+                className="w-full flex items-center justify-between gap-2 p-3 rounded-xl text-left"
+                style={{
+                  background: "linear-gradient(135deg, hsl(350 45% 20%), hsl(350 45% 14%))",
+                  border: "1px solid hsl(350 45% 35%)",
+                }}
+                onClick={() => setShowElevate(true)}
+                data-testid="button-open-super-elevate"
+              >
+                <div className="flex items-center gap-2.5">
+                  <div
+                    className="w-8 h-8 rounded-full flex items-center justify-center shrink-0"
+                    style={{ background: "hsl(350 45% 52% / 0.25)", border: "1px solid hsl(350 45% 52% / 0.4)" }}
+                  >
+                    <Zap className="w-4 h-4 text-primary" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-primary">Super Elevate</p>
+                    <p className="text-xs" style={{ color: "hsl(350 20% 65%)" }}>Maximum priority — 8× visibility for 60 minutes</p>
+                  </div>
+                </div>
+                <span className="text-sm font-semibold text-primary shrink-0">$34.99</span>
+              </button>
+              <div className="border-t pt-2 flex items-center justify-between gap-2 flex-wrap">
                 <div>
                   <p className="text-sm">+5 Messages</p>
                   <p className="text-xs text-muted-foreground">Give a conversation more room</p>
@@ -1113,6 +1158,8 @@ export default function ProfilePage() {
         <LogOut className="w-4 h-4 mr-2" /> Sign Out
       </Button>
       </div>
+
+      {showElevate && <ElevateModal onClose={() => setShowElevate(false)} />}
     </div>
   );
 }
