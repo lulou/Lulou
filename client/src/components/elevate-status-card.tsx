@@ -1,7 +1,8 @@
-import { useState, useEffect, useRef } from "react";
+import { useEffect, type ElementType } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Sparkles, Zap, Eye, Heart } from "lucide-react";
 import { useTabActive } from "@/App";
+import { useCountdownSecs, useAnimatedCount, formatCountdown } from "@/lib/elevate-utils";
 
 type SessionStats = {
   views: number;
@@ -10,48 +11,6 @@ type SessionStats = {
   expiresAt: string | null;
   startedAt: string | null;
 };
-
-// ── Hooks ────────────────────────────────────────────────────────────────────
-
-function useCountdown(expiresAt: Date | null) {
-  const [secs, setSecs] = useState(0);
-  useEffect(() => {
-    if (!expiresAt) { setSecs(0); return; }
-    const tick = () => setSecs(Math.max(0, Math.round((expiresAt.getTime() - Date.now()) / 1000)));
-    tick();
-    const id = setInterval(tick, 1000);
-    return () => clearInterval(id);
-  }, [expiresAt]);
-  return secs;
-}
-
-function useAnimatedCount(target: number) {
-  const [display, setDisplay] = useState(0);
-  const prevTarget = useRef(0);
-  useEffect(() => {
-    if (target === prevTarget.current) return;
-    const from = prevTarget.current;
-    prevTarget.current = target;
-    const diff = target - from;
-    const steps = Math.min(Math.abs(diff) * 2, 24);
-    if (steps === 0) { setDisplay(target); return; }
-    let step = 0;
-    const id = setInterval(() => {
-      step++;
-      setDisplay(Math.round(from + (diff * step) / steps));
-      if (step >= steps) clearInterval(id);
-    }, 40);
-    return () => clearInterval(id);
-  }, [target]);
-  return display;
-}
-
-function formatCountdown(secs: number): string {
-  if (secs <= 0) return "0:00";
-  const m = Math.floor(secs / 60);
-  const s = secs % 60;
-  return `${m}:${s.toString().padStart(2, "0")}`;
-}
 
 // ── Pulsing dot ───────────────────────────────────────────────────────────────
 
@@ -78,7 +37,7 @@ function StatChip({
   label,
   isSuper,
 }: {
-  icon: React.ElementType;
+  icon: ElementType;
   value: number;
   label: string;
   isSuper: boolean;
@@ -111,7 +70,7 @@ export function ElevateStatusCard({
   const isSuper = elevateType === "super_elevate";
   const isActive = useTabActive();
   const expiresAt = expiresAtStr ? new Date(expiresAtStr) : null;
-  const secs = useCountdown(expiresAt);
+  const secs = useCountdownSecs(expiresAt);
 
   const { data: stats } = useQuery<SessionStats>({
     queryKey: ["/api/elevate/session-stats"],

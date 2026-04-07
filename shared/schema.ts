@@ -140,6 +140,7 @@ export const userElevates = pgTable("user_elevates", {
   userId: varchar("user_id").notNull().unique(),
   elevateType: text("elevate_type").notNull().default("elevate"),
   expiresAt: timestamp("expires_at").notNull().default(sql`now()`),
+  activatedAt: timestamp("activated_at"),
   elevateCredits: integer("elevate_credits").notNull().default(0),
   superElevateCredits: integer("super_elevate_credits").notNull().default(0),
   createdAt: timestamp("created_at").defaultNow(),

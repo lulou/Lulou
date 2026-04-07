@@ -1321,12 +1321,13 @@ export class SupabaseStorage implements IStorage {
       return { success: false, error: "No credits available. Purchase a boost first." };
     }
 
+    const activatedAt = new Date();
     try {
       await db
         .update(userElevates)
         .set(isSuper
-          ? { elevateType: type, expiresAt, superElevateCredits: sql`super_elevate_credits - 1` }
-          : { elevateType: type, expiresAt, elevateCredits: sql`elevate_credits - 1` }
+          ? { elevateType: type, expiresAt, activatedAt, superElevateCredits: sql`super_elevate_credits - 1` }
+          : { elevateType: type, expiresAt, activatedAt, elevateCredits: sql`elevate_credits - 1` }
         )
         .where(eq(userElevates.userId, userId));
     } catch (err) {
@@ -1358,7 +1359,19 @@ export class SupabaseStorage implements IStorage {
     if (rows.length === 0) return { views: 0, matches: 0, startedAt: null, active: false, expiresAt: null };
     const row = rows[0];
     const active = row.expiresAt > now;
-    const startedAt = row.createdAt ?? new Date(0);
+
+    // Use activatedAt for accurate session window; fall back to (expiresAt - duration)
+    let startedAt: Date;
+    if (row.activatedAt) {
+      startedAt = row.activatedAt;
+    } else {
+      const durationMs = row.elevateType === "super_elevate" ? 60 * 60 * 1000 : 30 * 60 * 1000;
+      startedAt = new Date(row.expiresAt.getTime() - durationMs);
+    }
+
+    if (!active) {
+      return { views: 0, matches: 0, startedAt, active: false, expiresAt: row.expiresAt };
+    }
 
     const [viewsResult, matchesResult] = await Promise.all([
       this.sb

@@ -1444,7 +1444,15 @@ export async function registerRoutes(
       const pack = ELEVATE_PACKS[packId as keyof typeof ELEVATE_PACKS];
       if (!pack) return res.status(400).json({ message: "Unknown pack" });
 
+      // Award all credits from the pack
       await getStorage(req).addElevateCredits(userId, pack.type, pack.quantity);
+
+      // Auto-activate one boost immediately so user sees it live right away
+      const activateResult = await getStorage(req).activateElevate(userId, pack.type);
+      const durationMinutes = pack.type === "super_elevate" ? 60 : 30;
+      const expiresAt = activateResult.success
+        ? new Date(Date.now() + durationMinutes * 60 * 1000).toISOString()
+        : null;
 
       res.json({
         success: true,
@@ -1452,6 +1460,10 @@ export async function registerRoutes(
         elevateType: pack.type,
         quantity: pack.quantity,
         creditsAdded: pack.quantity,
+        // boost immediately live
+        boostActive: activateResult.success,
+        expiresAt,
+        durationMinutes,
       });
     } catch (err: any) {
       console.error("Error processing elevate payment:", err.message);
