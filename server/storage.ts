@@ -307,23 +307,41 @@ export class SupabaseStorage implements IStorage {
     return mapProfile(result);
   }
 
-  async getDiscoverProfiles(userId: string, gender: string, preference: string, ageMin: number = 18, ageMax: number = 45): Promise<Profile[]> {
+  async getDiscoverProfiles(userId: string, gender: string, preference: string, ageMin: number = 18, ageMax: number = 99): Promise<Profile[]> {
     const isDev = process.env.NODE_ENV === "development";
 
-    // Build profiles query
+    // Base query: exclude own profile, require onboarding complete
     let profilesQuery = this.sb
       .from("profiles")
       .select("*")
       .neq("user_id", userId)
       .eq("onboarding_complete", true);
 
-    if (!isDev) {
-      profilesQuery = profilesQuery.gte("age", ageMin).lte("age", ageMax);
-      const genders = getGendersForPreference(preference);
-      if (genders) profilesQuery = profilesQuery.in("gender", genders);
-      const validPrefs = getPreferencesThatIncludeGender(gender);
-      profilesQuery = profilesQuery.in("dating_preference", validPrefs);
+    // Apply preference-based filters in both dev and production.
+    // We only filter by what the CURRENT USER wants to see (their preference → target gender).
+    // We intentionally do NOT filter by whether the target prefers the current user's gender —
+    // that mutual-compatibility check is too restrictive when there are few users and is
+    // not needed for discovery (it would only matter for auto-matching).
+    const genders = getGendersForPreference(preference);
+    if (genders && genders.length > 0) {
+      profilesQuery = profilesQuery.in("gender", genders);
     }
+
+    // Age filter: only apply when the user has explicitly narrowed the range.
+    // Use very wide defaults (18-99) so new users with no preference set see everyone.
+    const effectiveAgeMin = Math.max(18, ageMin);
+    const effectiveAgeMax = Math.min(99, ageMax);
+    const hasNarrowAgeRange = effectiveAgeMin > 18 || effectiveAgeMax < 99;
+    if (!isDev && hasNarrowAgeRange) {
+      profilesQuery = profilesQuery.gte("age", effectiveAgeMin).lte("age", effectiveAgeMax);
+    }
+
+    console.log(
+      "[DISCOVER] filters — userId:", userId,
+      "| preference:", preference,
+      "| genders:", genders ?? "all",
+      "| age:", effectiveAgeMin, "–", effectiveAgeMax,
+    );
 
     // Run both queries in parallel
     const [interactedResult, profilesResult] = await Promise.all([
@@ -340,11 +358,13 @@ export class SupabaseStorage implements IStorage {
     }
 
     const interactedIds = new Set<string>(
-      [userId, ...(interactedResult.data || []).map((r: any) => r.to_user_id).filter(Boolean)]
+      (interactedResult.data || []).map((r: any) => r.to_user_id).filter(Boolean)
     );
 
     const now = new Date();
     const all = (profilesResult.data || []).map(mapProfile);
+    // Exclude only profiles the user has already interacted with (skipped/opened).
+    // Own profile is already excluded by the .neq("user_id", userId) DB filter.
     const baseFiltered = all.filter(p => !interactedIds.has(p.userId));
 
     const elevates = await getActiveElevatesMap();
@@ -352,7 +372,32 @@ export class SupabaseStorage implements IStorage {
 
     const superCount  = filtered.filter(p => p.elevateType === "super_elevate" && p.elevateExpiresAt && p.elevateExpiresAt > now).length;
     const elevCount   = filtered.filter(p => p.elevateType === "elevate" && p.elevateExpiresAt && p.elevateExpiresAt > now).length;
-    console.log("[DISCOVER] pool:", all.length, "after exclusion:", filtered.length, "super:", superCount, "elevate:", elevCount);
+    console.log(
+      "[DISCOVER] DB pool:", all.length,
+      "| after interaction exclusion:", baseFiltered.length,
+      "| after elevate merge:", filtered.length,
+      "| super:", superCount, "elevate:", elevCount,
+    );
+
+    // If the filtered pool is empty after applying preferences, fall back to showing
+    // anyone with onboarding complete (minus own profile and already-interacted users).
+    // This prevents a blank screen for new users in early-stage apps with few users.
+    if (filtered.length === 0 && genders && genders.length > 0) {
+      console.log("[DISCOVER] Preference-filtered pool is empty — falling back to unfiltered pool");
+      const { data: fallbackData, error: fallbackErr } = await this.sb
+        .from("profiles")
+        .select("*")
+        .neq("user_id", userId)
+        .eq("onboarding_complete", true)
+        .limit(100);
+      if (!fallbackErr && fallbackData && fallbackData.length > 0) {
+        const fallbackAll = fallbackData.map(mapProfile);
+        const fallbackFiltered = fallbackAll.filter(p => !interactedIds.has(p.userId));
+        const fallbackWithElevates = mergeElevatesIntoProfiles(fallbackFiltered, elevates);
+        console.log("[DISCOVER] Fallback pool:", fallbackWithElevates.length, "profiles");
+        return weightedSample(fallbackWithElevates, 20, now);
+      }
+    }
 
     return weightedSample(filtered, 20, now);
   }

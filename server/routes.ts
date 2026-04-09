@@ -14,6 +14,10 @@ import { getPriceId } from "./stripePrices";
 const serverBroadcastChannels = new Map<string, ReturnType<typeof supabase.channel>>();
 const serverChannelTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
+// Seed user IDs all start with this UUID prefix (see server/seed.ts)
+const SEED_UUID_PREFIX = "10000000-0000-4000-a000-";
+const isSeedUser = (id: string) => id.startsWith(SEED_UUID_PREFIX);
+
 // JWT verification cache — avoids a Supabase API call on every request
 // Uses a 2-minute TTL (well within any JWT's 1h window), max 500 entries
 const _jwtCache = new Map<string, { user: any; expiresAt: number }>();
@@ -342,7 +346,7 @@ export async function registerRoutes(
         console.log("[DISCOVER] No profile for userId:", userId);
         return res.json([]);
       }
-      const discovered = await storage.getDiscoverProfiles(userId, myProfile.gender, myProfile.datingPreference, myProfile.preferredAgeMin || 18, myProfile.preferredAgeMax || 45);
+      const discovered = await storage.getDiscoverProfiles(userId, myProfile.gender, myProfile.datingPreference, myProfile.preferredAgeMin || 18, myProfile.preferredAgeMax || 99);
       console.log("[DISCOVER] userId:", userId, "returned:", discovered.length, "profiles");
       res.json(discovered);
     } catch (error: any) {
@@ -589,7 +593,7 @@ export async function registerRoutes(
       }
 
       const otherUserId = match.user1Id === userId ? match.user2Id : match.user1Id;
-      if (otherUserId.startsWith("seed-")) {
+      if (isSeedUser(otherUserId)) {
         const otherProfile = await storage.getProfile(otherUserId);
         const replyStorage = storage;
         if (callStage === 0) {
@@ -678,7 +682,7 @@ export async function registerRoutes(
         callSessionId: match.callSessionId,
       });
 
-      if (otherUserId.startsWith("seed-")) {
+      if (isSeedUser(otherUserId)) {
         setTimeout(async () => {
           try {
             await serverStorage.answerCall(matchId, otherUserId);
@@ -864,7 +868,7 @@ export async function registerRoutes(
 
       const isDev = process.env.NODE_ENV === "development";
       const otherUserId = match.user1Id === userId ? match.user2Id : match.user1Id;
-      if (isDev || otherUserId.startsWith("seed-")) {
+      if (isDev || isSeedUser(otherUserId)) {
         setTimeout(async () => {
           try {
             await serverStorage.acceptFaceCall(matchId, otherUserId);
@@ -1198,7 +1202,7 @@ export async function registerRoutes(
       }
 
       const otherUserId = match.user1Id === userId ? match.user2Id : match.user1Id;
-      if (["propose", "reschedule"].includes(action) && otherUserId.startsWith("seed-")) {
+      if (["propose", "reschedule"].includes(action) && isSeedUser(otherUserId)) {
         const replyStorage = storage;
         setTimeout(async () => {
           try {

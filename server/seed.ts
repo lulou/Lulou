@@ -1,8 +1,8 @@
-import { supabase } from "./supabase";
+import { supabaseAdmin, hasServiceRoleKey } from "./supabase";
 
 const SEED_PROFILES = [
   {
-    userId: "seed-user-1",
+    userId: "10000000-0000-4000-a000-000000000001",
     firstName: "Maya",
     age: 28,
     gender: "woman",
@@ -19,7 +19,7 @@ const SEED_PROFILES = [
     onboardingComplete: true,
   },
   {
-    userId: "seed-user-2",
+    userId: "10000000-0000-4000-a000-000000000002",
     firstName: "James",
     age: 31,
     gender: "man",
@@ -36,7 +36,7 @@ const SEED_PROFILES = [
     onboardingComplete: true,
   },
   {
-    userId: "seed-user-3",
+    userId: "10000000-0000-4000-a000-000000000003",
     firstName: "Priya",
     age: 26,
     gender: "woman",
@@ -53,7 +53,7 @@ const SEED_PROFILES = [
     onboardingComplete: true,
   },
   {
-    userId: "seed-user-4",
+    userId: "10000000-0000-4000-a000-000000000004",
     firstName: "Ethan",
     age: 29,
     gender: "man",
@@ -70,7 +70,7 @@ const SEED_PROFILES = [
     onboardingComplete: true,
   },
   {
-    userId: "seed-user-5",
+    userId: "10000000-0000-4000-a000-000000000005",
     firstName: "Sophie",
     age: 30,
     gender: "woman",
@@ -87,7 +87,7 @@ const SEED_PROFILES = [
     onboardingComplete: true,
   },
   {
-    userId: "seed-user-6",
+    userId: "10000000-0000-4000-a000-000000000006",
     firstName: "Olivia",
     age: 27,
     gender: "woman",
@@ -104,7 +104,7 @@ const SEED_PROFILES = [
     onboardingComplete: true,
   },
   {
-    userId: "seed-user-7",
+    userId: "10000000-0000-4000-a000-000000000007",
     firstName: "Marcus",
     age: 33,
     gender: "man",
@@ -121,7 +121,7 @@ const SEED_PROFILES = [
     onboardingComplete: true,
   },
   {
-    userId: "seed-user-8",
+    userId: "10000000-0000-4000-a000-000000000008",
     firstName: "Ava",
     age: 25,
     gender: "woman",
@@ -138,7 +138,7 @@ const SEED_PROFILES = [
     onboardingComplete: true,
   },
   {
-    userId: "seed-user-9",
+    userId: "10000000-0000-4000-a000-000000000009",
     firstName: "Daniel",
     age: 30,
     gender: "man",
@@ -155,7 +155,7 @@ const SEED_PROFILES = [
     onboardingComplete: true,
   },
   {
-    userId: "seed-user-10",
+    userId: "10000000-0000-4000-a000-000000000010",
     firstName: "Luna",
     age: 24,
     gender: "woman",
@@ -172,7 +172,7 @@ const SEED_PROFILES = [
     onboardingComplete: true,
   },
   {
-    userId: "seed-user-11",
+    userId: "10000000-0000-4000-a000-000000000011",
     firstName: "Noah",
     age: 28,
     gender: "man",
@@ -189,7 +189,7 @@ const SEED_PROFILES = [
     onboardingComplete: true,
   },
   {
-    userId: "seed-user-12",
+    userId: "10000000-0000-4000-a000-000000000012",
     firstName: "Isla",
     age: 29,
     gender: "woman",
@@ -206,7 +206,7 @@ const SEED_PROFILES = [
     onboardingComplete: true,
   },
   {
-    userId: "seed-user-13",
+    userId: "10000000-0000-4000-a000-000000000013",
     firstName: "Leo",
     age: 32,
     gender: "man",
@@ -223,7 +223,7 @@ const SEED_PROFILES = [
     onboardingComplete: true,
   },
   {
-    userId: "seed-user-14",
+    userId: "10000000-0000-4000-a000-000000000014",
     firstName: "Zara",
     age: 26,
     gender: "woman",
@@ -240,7 +240,7 @@ const SEED_PROFILES = [
     onboardingComplete: true,
   },
   {
-    userId: "seed-user-15",
+    userId: "10000000-0000-4000-a000-000000000015",
     firstName: "Caleb",
     age: 27,
     gender: "man",
@@ -257,7 +257,7 @@ const SEED_PROFILES = [
     onboardingComplete: true,
   },
   {
-    userId: "seed-user-16",
+    userId: "10000000-0000-4000-a000-000000000016",
     firstName: "Amara",
     age: 27,
     gender: "woman",
@@ -274,7 +274,7 @@ const SEED_PROFILES = [
     onboardingComplete: true,
   },
   {
-    userId: "seed-user-17",
+    userId: "10000000-0000-4000-a000-000000000017",
     firstName: "Kai",
     age: 29,
     gender: "man",
@@ -291,7 +291,7 @@ const SEED_PROFILES = [
     onboardingComplete: true,
   },
   {
-    userId: "seed-user-18",
+    userId: "10000000-0000-4000-a000-000000000018",
     firstName: "Valentina",
     age: 25,
     gender: "woman",
@@ -308,7 +308,7 @@ const SEED_PROFILES = [
     onboardingComplete: true,
   },
   {
-    userId: "seed-user-19",
+    userId: "10000000-0000-4000-a000-000000000019",
     firstName: "Rayan",
     age: 31,
     gender: "man",
@@ -325,7 +325,7 @@ const SEED_PROFILES = [
     onboardingComplete: true,
   },
   {
-    userId: "seed-user-20",
+    userId: "10000000-0000-4000-a000-000000000020",
     firstName: "Aisha",
     age: 28,
     gender: "woman",
@@ -342,7 +342,7 @@ const SEED_PROFILES = [
     onboardingComplete: true,
   },
   {
-    userId: "seed-user-21",
+    userId: "10000000-0000-4000-a000-000000000021",
     firstName: "Theo",
     age: 26,
     gender: "man",
@@ -359,7 +359,7 @@ const SEED_PROFILES = [
     onboardingComplete: true,
   },
   {
-    userId: "seed-user-22",
+    userId: "10000000-0000-4000-a000-000000000022",
     firstName: "Sienna",
     age: 30,
     gender: "woman",
@@ -376,7 +376,7 @@ const SEED_PROFILES = [
     onboardingComplete: true,
   },
   {
-    userId: "seed-user-23",
+    userId: "10000000-0000-4000-a000-000000000023",
     firstName: "Andre",
     age: 34,
     gender: "man",
@@ -393,7 +393,7 @@ const SEED_PROFILES = [
     onboardingComplete: true,
   },
   {
-    userId: "seed-user-24",
+    userId: "10000000-0000-4000-a000-000000000024",
     firstName: "Nadia",
     age: 24,
     gender: "woman",
@@ -410,7 +410,7 @@ const SEED_PROFILES = [
     onboardingComplete: true,
   },
   {
-    userId: "seed-user-25",
+    userId: "10000000-0000-4000-a000-000000000025",
     firstName: "Miles",
     age: 28,
     gender: "man",
@@ -427,7 +427,7 @@ const SEED_PROFILES = [
     onboardingComplete: true,
   },
   {
-    userId: "seed-user-26",
+    userId: "10000000-0000-4000-a000-000000000026",
     firstName: "Jasmine",
     age: 29,
     gender: "woman",
@@ -444,7 +444,7 @@ const SEED_PROFILES = [
     onboardingComplete: true,
   },
   {
-    userId: "seed-user-27",
+    userId: "10000000-0000-4000-a000-000000000027",
     firstName: "Xavier",
     age: 30,
     gender: "man",
@@ -461,7 +461,7 @@ const SEED_PROFILES = [
     onboardingComplete: true,
   },
   {
-    userId: "seed-user-28",
+    userId: "10000000-0000-4000-a000-000000000028",
     firstName: "Elena",
     age: 26,
     gender: "woman",
@@ -478,7 +478,7 @@ const SEED_PROFILES = [
     onboardingComplete: true,
   },
   {
-    userId: "seed-user-29",
+    userId: "10000000-0000-4000-a000-000000000029",
     firstName: "Omar",
     age: 33,
     gender: "man",
@@ -495,7 +495,7 @@ const SEED_PROFILES = [
     onboardingComplete: true,
   },
   {
-    userId: "seed-user-30",
+    userId: "10000000-0000-4000-a000-000000000030",
     firstName: "Mila",
     age: 25,
     gender: "woman",
@@ -512,7 +512,7 @@ const SEED_PROFILES = [
     onboardingComplete: true,
   },
   {
-    userId: "seed-user-31",
+    userId: "10000000-0000-4000-a000-000000000031",
     firstName: "Camille",
     age: 27,
     gender: "woman",
@@ -529,7 +529,7 @@ const SEED_PROFILES = [
     onboardingComplete: true,
   },
   {
-    userId: "seed-user-32",
+    userId: "10000000-0000-4000-a000-000000000032",
     firstName: "Darius",
     age: 30,
     gender: "man",
@@ -546,7 +546,7 @@ const SEED_PROFILES = [
     onboardingComplete: true,
   },
   {
-    userId: "seed-user-33",
+    userId: "10000000-0000-4000-a000-000000000033",
     firstName: "River",
     age: 26,
     gender: "non-binary",
@@ -563,7 +563,7 @@ const SEED_PROFILES = [
     onboardingComplete: true,
   },
   {
-    userId: "seed-user-34",
+    userId: "10000000-0000-4000-a000-000000000034",
     firstName: "Haruki",
     age: 28,
     gender: "man",
@@ -580,7 +580,7 @@ const SEED_PROFILES = [
     onboardingComplete: true,
   },
   {
-    userId: "seed-user-35",
+    userId: "10000000-0000-4000-a000-000000000035",
     firstName: "Sage",
     age: 24,
     gender: "genderqueer",
@@ -597,7 +597,7 @@ const SEED_PROFILES = [
     onboardingComplete: true,
   },
   {
-    userId: "seed-user-36",
+    userId: "10000000-0000-4000-a000-000000000036",
     firstName: "Celeste",
     age: 31,
     gender: "woman",
@@ -614,7 +614,7 @@ const SEED_PROFILES = [
     onboardingComplete: true,
   },
   {
-    userId: "seed-user-37",
+    userId: "10000000-0000-4000-a000-000000000037",
     firstName: "Felix",
     age: 29,
     gender: "man",
@@ -631,7 +631,7 @@ const SEED_PROFILES = [
     onboardingComplete: true,
   },
   {
-    userId: "seed-user-38",
+    userId: "10000000-0000-4000-a000-000000000038",
     firstName: "Leila",
     age: 27,
     gender: "woman",
@@ -648,7 +648,7 @@ const SEED_PROFILES = [
     onboardingComplete: true,
   },
   {
-    userId: "seed-user-39",
+    userId: "10000000-0000-4000-a000-000000000039",
     firstName: "Mateo",
     age: 32,
     gender: "man",
@@ -665,7 +665,7 @@ const SEED_PROFILES = [
     onboardingComplete: true,
   },
   {
-    userId: "seed-user-40",
+    userId: "10000000-0000-4000-a000-000000000040",
     firstName: "Wren",
     age: 25,
     gender: "non-binary",
@@ -682,7 +682,7 @@ const SEED_PROFILES = [
     onboardingComplete: true,
   },
   {
-    userId: "seed-user-41",
+    userId: "10000000-0000-4000-a000-000000000041",
     firstName: "Serena",
     age: 28,
     gender: "woman",
@@ -699,7 +699,7 @@ const SEED_PROFILES = [
     onboardingComplete: true,
   },
   {
-    userId: "seed-user-42",
+    userId: "10000000-0000-4000-a000-000000000042",
     firstName: "Idris",
     age: 31,
     gender: "man",
@@ -716,7 +716,7 @@ const SEED_PROFILES = [
     onboardingComplete: true,
   },
   {
-    userId: "seed-user-43",
+    userId: "10000000-0000-4000-a000-000000000043",
     firstName: "Iris",
     age: 26,
     gender: "woman",
@@ -733,7 +733,7 @@ const SEED_PROFILES = [
     onboardingComplete: true,
   },
   {
-    userId: "seed-user-44",
+    userId: "10000000-0000-4000-a000-000000000044",
     firstName: "Ezra",
     age: 27,
     gender: "man",
@@ -750,7 +750,7 @@ const SEED_PROFILES = [
     onboardingComplete: true,
   },
   {
-    userId: "seed-user-45",
+    userId: "10000000-0000-4000-a000-000000000045",
     firstName: "Yara",
     age: 29,
     gender: "woman",
@@ -767,7 +767,7 @@ const SEED_PROFILES = [
     onboardingComplete: true,
   },
   {
-    userId: "seed-user-46",
+    userId: "10000000-0000-4000-a000-000000000046",
     firstName: "Rowan",
     age: 30,
     gender: "genderfluid",
@@ -784,7 +784,7 @@ const SEED_PROFILES = [
     onboardingComplete: true,
   },
   {
-    userId: "seed-user-47",
+    userId: "10000000-0000-4000-a000-000000000047",
     firstName: "Lucia",
     age: 25,
     gender: "woman",
@@ -801,7 +801,7 @@ const SEED_PROFILES = [
     onboardingComplete: true,
   },
   {
-    userId: "seed-user-48",
+    userId: "10000000-0000-4000-a000-000000000048",
     firstName: "Kieran",
     age: 33,
     gender: "man",
@@ -818,7 +818,7 @@ const SEED_PROFILES = [
     onboardingComplete: true,
   },
   {
-    userId: "seed-user-49",
+    userId: "10000000-0000-4000-a000-000000000049",
     firstName: "Amira",
     age: 28,
     gender: "woman",
@@ -835,7 +835,7 @@ const SEED_PROFILES = [
     onboardingComplete: true,
   },
   {
-    userId: "seed-user-50",
+    userId: "10000000-0000-4000-a000-000000000050",
     firstName: "Nikolai",
     age: 29,
     gender: "man",
@@ -853,25 +853,34 @@ const SEED_PROFILES = [
   },
 ];
 
-export async function seedDatabase() {
-  try {
-    const { count, error: countError } = await supabase
-      .from("profiles")
-      .select("*", { count: "exact", head: true })
-      .like("user_id", "seed-%");
+// The first seed user's UUID — used to detect whether seeds are already present
+const SEED_USER_1_UUID = "10000000-0000-4000-a000-000000000001";
 
-    if (countError) {
-      console.error("Error checking profiles count:", countError);
+export async function seedDatabase() {
+  if (!hasServiceRoleKey) {
+    console.warn("[SEED] SUPABASE_SERVICE_ROLE_KEY not set — seed profiles require the service role key to bypass RLS. Skipping.");
+    return;
+  }
+
+  try {
+    const { data: existing, error: checkError } = await supabaseAdmin
+      .from("profiles")
+      .select("user_id")
+      .eq("user_id", SEED_USER_1_UUID)
+      .maybeSingle();
+
+    if (checkError) {
+      console.error("Error checking for seed profiles:", checkError.message);
       return;
     }
 
-    if (count && count > 0) {
+    if (existing) {
       console.log("Database already has seed profiles, skipping seed");
       return;
     }
 
     for (const profile of SEED_PROFILES) {
-      const { error } = await supabase.from("profiles").insert({
+      const { error } = await supabaseAdmin.from("profiles").insert({
         user_id: profile.userId,
         first_name: profile.firstName,
         age: profile.age,
