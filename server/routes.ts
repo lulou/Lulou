@@ -1529,7 +1529,11 @@ export async function registerRoutes(
     }
   });
 
-  await seedDatabase();
+  if (process.env.NODE_ENV !== "production") {
+    seedDatabase().catch((err) =>
+      console.warn("Seed error (non-fatal):", err.message)
+    );
+  }
 
   return httpServer;
 }
