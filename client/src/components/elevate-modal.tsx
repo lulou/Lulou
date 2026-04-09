@@ -150,9 +150,13 @@ export function ElevateModal({ onClose }: { onClose: () => void }) {
     try {
       const res = await apiRequest("POST", "/api/stripe/elevate-checkout", { packId: pending.id });
       const data = await res.json();
-      if (!res.ok || !data.url) throw new Error(data.message ?? "Failed to create checkout");
+      if (!res.ok || !data.url) {
+        // Use the detailed Stripe error if available
+        throw new Error(data.detail ?? data.message ?? "Failed to create checkout");
+      }
       window.location.href = data.url;
     } catch (err: any) {
+      console.error("[ELEVATE] Checkout error:", err?.message);
       toast({
         title: "Couldn't open payment",
         description: err?.message ?? "Something went wrong. Please try again.",

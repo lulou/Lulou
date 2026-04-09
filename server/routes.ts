@@ -1400,26 +1400,33 @@ export async function registerRoutes(
       // Resolve the Stripe Price ID (creates product+price once if not yet existing)
       const priceId = await getPriceId(packId);
 
+      // NOTE: The 2025-08-27.basil API handles payment methods automatically.
+      // Do NOT pass payment_method_types or automatic_payment_methods — both are
+      // rejected as unknown parameters in this API version.
       const session = await stripe.checkout.sessions.create({
-        payment_method_types: ["card"],
         line_items: [{ price: priceId, quantity: 1 }],
         mode: "payment",
         success_url: `${baseUrl}/elevate/success?session_id={CHECKOUT_SESSION_ID}&pack=${packId}`,
         cancel_url: `${baseUrl}/likes`,
         metadata: { userId, packId, elevateType: pack.type, quantity: String(pack.quantity) },
-      });
+      } as any);
 
+      console.log(`[STRIPE] Checkout session created: ${session.id} for user ${userId} pack ${packId}`);
       res.json({ url: session.url, sessionId: session.id });
     } catch (err: any) {
-      const stripeErr = err as any;
       console.error("[STRIPE] Checkout session creation failed:", {
-        message: stripeErr.message,
-        type: stripeErr.type,
-        code: stripeErr.code,
-        statusCode: stripeErr.statusCode,
-        raw: stripeErr.raw ?? stripeErr,
+        message: err.message,
+        type: err.type,
+        code: err.code,
+        statusCode: err.statusCode,
+        stripeCode: err.raw?.code,
+        stripeMessage: err.raw?.message,
+        declineCode: err.raw?.decline_code,
       });
-      res.status(500).json({ message: "Failed to create checkout session", detail: stripeErr.message });
+      res.status(500).json({
+        message: "Failed to create checkout session",
+        detail: err.raw?.message ?? err.message,
+      });
     }
   });
 
