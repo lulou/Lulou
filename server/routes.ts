@@ -9,7 +9,6 @@ import { supabase, supabaseAdmin, createUserClient, hasServiceRoleKey } from "./
 import { db } from "./db";
 import { eq, and, isNull } from "drizzle-orm";
 import { getUncachableStripeClient, getStripePublishableKey } from "./stripeClient";
-import { getPriceId } from "./stripePrices";
 
 const serverBroadcastChannels = new Map<string, ReturnType<typeof supabase.channel>>();
 const serverChannelTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -1400,7 +1399,7 @@ export async function registerRoutes(
       const baseUrl = `https://${domains}`;
 
       const priceData: Record<string, unknown> = {
-        currency: "usd",
+        currency: "aud",
         product_data: { name: item.name },
         unit_amount: item.unitAmount,
       };
@@ -1519,19 +1518,22 @@ export async function registerRoutes(
         ? "8× visibility boost in Discovery and the Intention Wheel for 60 minutes"
         : `3× visibility boost per use • ${pack.quantity} boost${pack.quantity > 1 ? "s" : ""} • 30 minutes each`;
 
-      // Resolve the Stripe Price ID (creates product+price once if not yet existing)
-      const priceId = await getPriceId(packId);
+      const elevatePriceData = {
+        currency: "aud",
+        product_data: { name: pack.label, description },
+        unit_amount: pack.unitAmount,
+      };
 
       // NOTE: The 2025-08-27.basil API handles payment methods automatically.
       // Do NOT pass payment_method_types or automatic_payment_methods — both are
       // rejected as unknown parameters in this API version.
-      const session = await stripe.checkout.sessions.create({
-        line_items: [{ price: priceId, quantity: 1 }],
+      const session = await (stripe.checkout.sessions.create as Function)({
+        line_items: [{ price_data: elevatePriceData, quantity: 1 }],
         mode: "payment",
         success_url: `${baseUrl}/elevate/success?session_id={CHECKOUT_SESSION_ID}&pack=${packId}`,
         cancel_url: `${baseUrl}/likes?checkout=cancelled`,
         metadata: { userId, packId, elevateType: pack.type, quantity: String(pack.quantity) },
-      } as any);
+      });
 
       console.log(`[STRIPE] Checkout session created: ${session.id} for user ${userId} pack ${packId}`);
       res.json({ url: session.url, sessionId: session.id });
