@@ -237,8 +237,9 @@ export default function ProfilePage() {
       setEditingPhotos(false);
       setEditPhotos([]);
     },
-    onError: () => {
-      toast({ title: "Could not save photos", variant: "destructive" });
+    onError: (err: any) => {
+      console.error("[PHOTOS] Failed to save photos:", err?.message ?? err);
+      toast({ title: "Could not save photos", description: "Please try again.", variant: "destructive" });
     },
   });
 
@@ -414,15 +415,23 @@ export default function ProfilePage() {
               {profile.age}
             </span>
             {profile.height && (
-              <span className="flex items-center gap-1" data-testid="text-profile-height">
+              <button
+                className="flex items-center gap-1 hover:text-foreground transition-colors"
+                onClick={() => toggle("settings")}
+                data-testid="button-edit-height"
+              >
                 <Ruler className="w-3.5 h-3.5" />
                 {profile.height}
-              </span>
+              </button>
             )}
-            <span className="flex items-center gap-1" data-testid="text-profile-location">
+            <button
+              className="flex items-center gap-1 hover:text-foreground transition-colors"
+              onClick={() => toggle("settings")}
+              data-testid="button-edit-location"
+            >
               <MapPin className="w-3.5 h-3.5" />
               {profile.location}
-            </span>
+            </button>
           </div>
         </div>
       </div>
@@ -591,12 +600,13 @@ export default function ProfilePage() {
         {showPhotos && (editingPhotos ? (
           <div className="grid grid-cols-3 gap-3">
             {editPhotos.map((photo, i) => (
-              <div key={i} className="aspect-[3/4] overflow-hidden relative group" style={{ borderRadius: 18 }}>
+              <div key={i} className="aspect-[3/4] overflow-hidden relative" style={{ borderRadius: 18 }}>
                 <img src={photo} alt={`Photo ${i + 1}`} className="w-full h-full object-cover" data-testid={`img-edit-photo-${i}`} />
                 <button
                   onClick={() => removeEditPhoto(i)}
-                  className="absolute top-1.5 right-1.5 w-6 h-6 rounded-full bg-destructive text-destructive-foreground flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                  className="absolute top-1.5 right-1.5 w-7 h-7 rounded-full bg-destructive text-destructive-foreground flex items-center justify-center shadow-md active:scale-95 transition-transform"
                   data-testid={`button-remove-photo-${i}`}
+                  aria-label={`Remove photo ${i + 1}`}
                 >
                   <X className="w-3.5 h-3.5" />
                 </button>
