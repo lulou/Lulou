@@ -1375,6 +1375,107 @@ export async function registerRoutes(
     }
   });
 
+  // ── Extras / Membership Stripe checkout ───────────────────────────────────
+
+  const EXTRAS_ITEMS = {
+    "messages-5": { name: "+5 Messages",      unitAmount: 499,  mode: "payment"      as const, benefitType: "message_extension", quantity: 1 },
+    "extra-call":  { name: "Extra Call",       unitAmount: 499,  mode: "payment"      as const, benefitType: "extra_call",         quantity: 1 },
+    "video-call":  { name: "Video Call",       unitAmount: 699,  mode: "payment"      as const, benefitType: "video_call",         quantity: 1 },
+    "undo-close":  { name: "Undo Last Close",  unitAmount: 299,  mode: "payment"      as const, benefitType: "undo_close",         quantity: 1 },
+    "membership":  { name: "Lulou Membership", unitAmount: 1999, mode: "subscription" as const, benefitType: null,                 quantity: 1 },
+  } as const;
+
+  type ExtrasItemId = keyof typeof EXTRAS_ITEMS;
+
+  app.post("/api/stripe/extras-checkout", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const { itemId } = req.body;
+      const item = EXTRAS_ITEMS[itemId as ExtrasItemId];
+      if (!item) {
+        return res.status(400).json({ message: `Invalid item. Must be one of: ${Object.keys(EXTRAS_ITEMS).join(", ")}` });
+      }
+      const stripe = await getUncachableStripeClient();
+      const domains = process.env.REPLIT_DOMAINS?.split(",")[0] ?? "localhost:5000";
+      const baseUrl = `https://${domains}`;
+
+      const priceData: Record<string, unknown> = {
+        currency: "usd",
+        product_data: { name: item.name },
+        unit_amount: item.unitAmount,
+      };
+      if (item.mode === "subscription") {
+        priceData.recurring = { interval: "month" };
+      }
+
+      const session = await (stripe.checkout.sessions.create as Function)({
+        line_items: [{ price_data: priceData, quantity: 1 }],
+        mode: item.mode,
+        success_url: `${baseUrl}/extras/success?session_id={CHECKOUT_SESSION_ID}&item=${itemId}`,
+        cancel_url: `${baseUrl}/profile?checkout=cancelled`,
+        metadata: { userId, itemId, benefitType: item.benefitType ?? "", mode: item.mode },
+      });
+
+      console.log(`[STRIPE] Extras checkout session created: ${session.id} for user ${userId} item ${itemId}`);
+      res.json({ url: session.url, sessionId: session.id });
+    } catch (err: any) {
+      const detail = err.raw?.message ?? err.message ?? "Unknown error";
+      console.error("[STRIPE] Extras checkout failed:", { message: err.message, type: err.type, code: err.code, itemId: req.body?.itemId });
+      res.status(500).json({ message: detail, code: err.code ?? err.raw?.code, type: err.type });
+    }
+  });
+
+  app.post("/api/stripe/extras-activate", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const { sessionId } = req.body;
+      if (!sessionId) return res.status(400).json({ message: "sessionId required" });
+
+      const stripe = await getUncachableStripeClient();
+      const session = await stripe.checkout.sessions.retrieve(sessionId);
+
+      const isPaid = session.mode === "subscription"
+        ? session.status === "complete"
+        : session.payment_status === "paid";
+
+      if (!isPaid) {
+        return res.status(402).json({ message: "Payment not completed", status: session.status, paymentStatus: session.payment_status });
+      }
+      if (session.metadata?.userId !== userId) {
+        return res.status(403).json({ message: "Session user mismatch" });
+      }
+
+      const itemId = session.metadata?.itemId as ExtrasItemId | undefined;
+      const item = itemId ? EXTRAS_ITEMS[itemId] : undefined;
+      if (!item) return res.status(400).json({ message: "Unknown item in session metadata" });
+
+      let grantedTypes: string[] = [];
+
+      if (itemId === "membership") {
+        const membershipRows = [
+          { userId, type: "message_extension" },
+          { userId, type: "message_extension" },
+          { userId, type: "extra_call" },
+          { userId, type: "video_call" },
+          { userId, type: "undo_close" },
+        ];
+        await db.insert(userBenefits).values(membershipRows);
+        grantedTypes = membershipRows.map(r => r.type);
+      } else if (item.benefitType) {
+        const rows = Array.from({ length: item.quantity }, () => ({ userId, type: item.benefitType! }));
+        await db.insert(userBenefits).values(rows);
+        grantedTypes = rows.map(r => r.type);
+      }
+
+      console.log(`[STRIPE] Extras activated for user ${userId}: ${grantedTypes.join(", ")}`);
+      res.json({ success: true, itemId, name: item.name, granted: grantedTypes, mode: item.mode });
+    } catch (err: any) {
+      const detail = err.raw?.message ?? err.message ?? "Unknown error";
+      console.error("[STRIPE] extras-activate error:", { message: err.message, type: err.type, code: err.code });
+      res.status(500).json({ message: detail });
+    }
+  });
+
   // ── Stripe publishable key (client needs this for Stripe.js) ─────────────
 
   app.get("/api/stripe/config", isAuthenticated, async (_req, res) => {

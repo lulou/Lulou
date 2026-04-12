@@ -15,6 +15,7 @@ import ProfilePage from "@/pages/profile";
 import IntentPage from "@/pages/intent";
 import LikesPage from "@/pages/likes";
 import ElevateSuccessPage from "@/pages/elevate-success";
+import ExtrasSuccessPage from "@/pages/extras-success";
 import AppLayout from "@/components/app-layout";
 import IncomingCallOverlay from "@/components/incoming-call";
 import { ActiveCallOverlay } from "@/components/active-call";
@@ -380,6 +381,7 @@ function AppContent() {
   return (
     <Switch>
       <Route path="/elevate/success" component={ElevateSuccessPage} />
+      <Route path="/extras/success" component={ExtrasSuccessPage} />
       <Route>
         <AppLayout>
           <PersistentTabs />
