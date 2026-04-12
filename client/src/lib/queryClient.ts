@@ -11,7 +11,7 @@ export function setCachedToken(token: string | null, expiresAt?: number) {
   _tokenExpiresAt = expiresAt ?? 0;
 }
 
-async function getAuthHeaders(): Promise<Record<string, string>> {
+export async function getAuthHeaders(): Promise<Record<string, string>> {
   // Fast path: return cached token if still valid (>60s remaining)
   if (_cachedToken && _tokenExpiresAt * 1000 - Date.now() > 60_000) {
     return { Authorization: `Bearer ${_cachedToken}` };

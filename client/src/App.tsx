@@ -1,6 +1,6 @@
 import { Switch, Route, useLocation } from "wouter";
 import { createContext, useContext, useState, useCallback, useEffect, useRef } from "react";
-import { queryClient } from "./lib/queryClient";
+import { queryClient, getAuthHeaders } from "./lib/queryClient";
 import { QueryClientProvider, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -23,7 +23,6 @@ import { useCallSignaling, setCallEndedHandler, clearDedupeForMatch } from "@/ho
 import { markCallSessionCancelled, isCallSessionCancelled, clearCancelledSession } from "@/lib/cancelled-calls";
 import type { Profile, Match } from "@shared/schema";
 import { Loader2 } from "lucide-react";
-import { supabase } from "@/lib/supabase";
 
 const TabActiveContext = createContext(true);
 export function useTabActive() { return useContext(TabActiveContext); }
@@ -294,25 +293,37 @@ function CallDetectors({ userId }: { userId: string }) {
 
 type ProfileCheckResult = { exists: boolean; fetchFailed: boolean };
 
-// Query Supabase directly (same pattern as described in user requirements):
-//   const { data: profile } = await supabase.from('profiles').select('*').eq('user_id', user.id).maybeSingle();
-//   if (profile) → dashboard  else → onboarding
-// This avoids server-side RLS ambiguity and mirrors the client's own auth session.
-async function checkProfileExists(userId: string): Promise<ProfileCheckResult> {
+// Check profile existence via the server's /api/profile endpoint.
+// Using the server avoids client-side Supabase auth dependency and keeps
+// the single source of truth for profile state on the backend.
+async function checkProfileExists(): Promise<ProfileCheckResult> {
   try {
-    const { data, error } = await supabase
-      .from("profiles")
-      .select("user_id")
-      .eq("user_id", userId)
-      .maybeSingle();
-    if (error) {
-      console.error("PROFILE_EXISTS_ERROR", error.message, error.code);
+    const authHeaders = await getAuthHeaders();
+    const res = await fetch("/api/profile", {
+      credentials: "include",
+      headers: authHeaders,
+    });
+
+    if (res.status === 404) {
+      console.log("[AUTH] PROFILE_EXISTS_CHECK: no profile found (onboarding needed)");
+      return { exists: false, fetchFailed: false };
+    }
+
+    if (res.status === 401) {
+      console.warn("[AUTH] PROFILE_EXISTS_CHECK: unauthenticated (401)");
+      return { exists: false, fetchFailed: false };
+    }
+
+    if (!res.ok) {
+      const text = await res.text().catch(() => res.statusText);
+      console.error("PROFILE_EXISTS_ERROR", res.status, text);
       return { exists: false, fetchFailed: true };
     }
-    console.log("[AUTH] PROFILE_EXISTS_CHECK", { userId, exists: !!data });
-    return { exists: !!data, fetchFailed: false };
-  } catch (err) {
-    console.error("PROFILE_EXISTS_ERROR", err);
+
+    console.log("[AUTH] PROFILE_EXISTS_CHECK: profile found");
+    return { exists: true, fetchFailed: false };
+  } catch (err: any) {
+    console.error("PROFILE_EXISTS_ERROR", err?.message ?? err);
     return { exists: false, fetchFailed: true };
   }
 }
@@ -322,7 +333,7 @@ function AppContent() {
 
   const { data, isLoading: profileLoading } = useQuery<ProfileCheckResult>({
     queryKey: ["/api/profile"],
-    queryFn: () => user ? checkProfileExists(user.id) : Promise.resolve({ exists: false, fetchFailed: false }),
+    queryFn: () => user ? checkProfileExists() : Promise.resolve({ exists: false, fetchFailed: false }),
     enabled: !!user && profileReady,
     retry: false,
   });
