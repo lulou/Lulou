@@ -302,10 +302,13 @@ export class SupabaseStorage implements IStorage {
 
   async updateProfile(userId: string, data: Partial<InsertProfile>): Promise<Profile | undefined> {
     const row = profileToDbRow(data);
-    row.user_id = userId;
+    // Use UPDATE (not upsert) so only the provided columns are changed.
+    // Upsert would INSERT a new row when the user_id doesn't conflict, which fails
+    // with NOT NULL violations on required columns like first_name.
     const { data: result, error } = await this.sb
       .from("profiles")
-      .upsert(row, { onConflict: "user_id" })
+      .update(row)
+      .eq("user_id", userId)
       .select()
       .single();
     if (error) {
