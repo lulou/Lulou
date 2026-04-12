@@ -9,8 +9,11 @@ const envKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 if (!envUrl) {
   throw new Error("Missing required environment variable: VITE_SUPABASE_URL");
 }
+if (!envKey) {
+  throw new Error("Missing required environment variable: VITE_SUPABASE_ANON_KEY");
+}
 if (!isValidJwt(envKey)) {
-  throw new Error("Missing or invalid required environment variable: VITE_SUPABASE_ANON_KEY");
+  console.warn("[AUTH] WARNING: VITE_SUPABASE_ANON_KEY does not appear to be a valid JWT (length=" + envKey.length + "). Auth may not work correctly.");
 }
 
 const supabaseUrl = envUrl;

@@ -10,12 +10,15 @@ const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 if (!envUrl) {
   throw new Error("Missing required environment variable: VITE_SUPABASE_URL");
 }
+if (!envKey) {
+  throw new Error("Missing required environment variable: VITE_SUPABASE_ANON_KEY");
+}
 if (!isValidJwt(envKey)) {
-  throw new Error("Missing or invalid required environment variable: VITE_SUPABASE_ANON_KEY");
+  console.warn("[SERVER_AUTH] WARNING: VITE_SUPABASE_ANON_KEY does not appear to be a valid JWT (length=" + envKey.length + "). Supabase calls may fail.");
 }
 
 const supabaseUrl = envUrl;
-const supabaseAnonKey = envKey!;
+const supabaseAnonKey = envKey;
 
 console.log("[SERVER_AUTH] SUPABASE_URL:", supabaseUrl.substring(0, 30) + "...");
 console.log("[SERVER_AUTH] SUPABASE_KEY: length=" + supabaseAnonKey.length);
