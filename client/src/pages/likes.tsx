@@ -251,6 +251,21 @@ export default function LikesPage() {
   const [showFullMessage, setShowFullMessage] = useState(false);
   const [showElevate, setShowElevate] = useState(false);
   const isActive = useTabActive();
+  const { toast } = useToast();
+
+  // Detect return from a cancelled Stripe checkout session
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("checkout") === "cancelled") {
+      console.log("[ELEVATE] Stripe checkout was cancelled — user returned to Likes");
+      toast({
+        title: "Checkout cancelled",
+        description: "No payment was made. You can boost your profile whenever you're ready.",
+      });
+      window.history.replaceState({}, "", "/likes");
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const { data: likes, isLoading } = useQuery<IncomingOpen[]>({
     queryKey: ["/api/who-liked-you"],

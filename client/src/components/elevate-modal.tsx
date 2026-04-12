@@ -102,6 +102,31 @@ export function ElevateModal({ onClose }: { onClose: () => void }) {
     return () => cancelAnimationFrame(id);
   }, []);
 
+  // ── Bfcache / Stripe cancel recovery ─────────────────────────────────────
+  // When the user navigates to Stripe then presses back, the browser restores
+  // this page from its back-forward cache with React state intact — including
+  // `purchasing: true`. The `pageshow` event with persisted=true signals this;
+  // we reset the purchasing state so the modal is interactive again.
+  useEffect(() => {
+    const handlePageShow = (e: PageTransitionEvent) => {
+      if (e.persisted) {
+        console.log("[ELEVATE] Page restored from bfcache (back from Stripe) — resetting purchase state");
+        setPurchasing(false);
+        setStep("browse");
+        setPending(null);
+      }
+    };
+    const handlePageHide = () => {
+      console.log("[ELEVATE] Page hidden — navigating to Stripe checkout");
+    };
+    window.addEventListener("pageshow", handlePageShow);
+    window.addEventListener("pagehide", handlePageHide);
+    return () => {
+      window.removeEventListener("pageshow", handlePageShow);
+      window.removeEventListener("pagehide", handlePageHide);
+    };
+  }, []);
+
   const handleClose = () => {
     setLeaving(true);
     setTimeout(onClose, 300);

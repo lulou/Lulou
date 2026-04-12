@@ -1428,7 +1428,7 @@ export async function registerRoutes(
         line_items: [{ price: priceId, quantity: 1 }],
         mode: "payment",
         success_url: `${baseUrl}/elevate/success?session_id={CHECKOUT_SESSION_ID}&pack=${packId}`,
-        cancel_url: `${baseUrl}/likes`,
+        cancel_url: `${baseUrl}/likes?checkout=cancelled`,
         metadata: { userId, packId, elevateType: pack.type, quantity: String(pack.quantity) },
       } as any);
 
