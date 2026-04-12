@@ -17,7 +17,7 @@ const SLOT_W = 180;
 const SLOT_H = 280;
 const UNFOCUSED_SCALE = 0.78;
 
-function PhotoBubbles({ photos, name, onOpen, isDisabled }: { photos: string[]; name: string; onOpen: () => void; isDisabled?: boolean }) {
+function PhotoBubbles({ photos, name, onOpen, isDisabled, isPhotosLoading }: { photos: string[]; name: string; onOpen: () => void; isDisabled?: boolean; isPhotosLoading?: boolean }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const itemRefs = useRef<(HTMLDivElement | null)[]>([]);
   const focusedRef = useRef(0);
@@ -55,10 +55,30 @@ function PhotoBubbles({ photos, name, onOpen, isDisabled }: { photos: string[]; 
     return () => cancelAnimationFrame(rafId.current);
   }, []);
 
+  if (isPhotosLoading) {
+    return (
+      <div className="h-80 bg-muted/60 rounded-md animate-pulse flex items-center justify-center" data-testid="photo-loading-skeleton">
+        <LulouFlowerIcon className="w-10 h-10 text-muted-foreground/30" />
+      </div>
+    );
+  }
+
   if (photos.length === 0) {
     return (
-      <div className="h-80 bg-muted rounded-md flex items-center justify-center">
-        <p className="text-muted-foreground text-sm">No photos</p>
+      <div className="flex justify-center py-4 px-4" data-testid="photo-bubbles-empty">
+        <div className="relative rounded-2xl overflow-hidden shadow-md bg-muted flex items-center justify-center" style={{ width: SLOT_W, height: SLOT_H }}>
+          <LulouFlowerIcon className="w-16 h-16 text-muted-foreground/40" />
+          <button
+            style={{ position: "absolute", bottom: 12, left: "50%", transform: "translateX(-50%)", zIndex: 10 }}
+            className="flex items-center gap-1.5 bg-primary text-white rounded-full pl-3 pr-4 py-2 shadow-lg active:scale-95"
+            onClick={onOpen}
+            disabled={isDisabled}
+            data-testid="button-open"
+          >
+            <span className="text-lg">❤️</span>
+            <span className="text-sm font-semibold">Open</span>
+          </button>
+        </div>
       </div>
     );
   }
@@ -433,11 +453,22 @@ export default function Discover() {
   }, [visibleProfiles.length]);
 
   // Lazy-load photos for the current card (photos are excluded from the pool query to avoid timeouts)
-  const { data: photoData } = useQuery<{ photos: string[] }>({
+  const { data: photoData, isLoading: isPhotosLoading } = useQuery<{ photos: string[] }>({
     queryKey: ["/api/profiles", currentProfile?.userId, "photos"],
     enabled: !!currentProfile?.userId,
     staleTime: 5 * 60 * 1000,
   });
+
+  // Debug logging: log photo state for each profile card
+  useEffect(() => {
+    if (!currentProfile?.userId) return;
+    if (isPhotosLoading) {
+      console.log("[DISCOVER] Photos loading for userId:", currentProfile.userId);
+    } else {
+      const count = photoData?.photos?.length ?? 0;
+      console.log("[DISCOVER] Photos resolved for userId:", currentProfile.userId, "— count:", count, photoData?.photos?.[0] ? "(first url length:" + photoData.photos[0].length + ")" : "(none)");
+    }
+  }, [currentProfile?.userId, isPhotosLoading, photoData]);
 
   // Pre-fetch the next card's photos in the background for instant display
   useEffect(() => {
@@ -450,6 +481,7 @@ export default function Discover() {
   }, [nextProfile?.userId]);
 
   // Merge photos into the pool profile for rendering
+  // Note: when isPhotosLoading is true, photos stays empty — PhotoBubbles shows skeleton instead of "No photos"
   const displayProfile = currentProfile
     ? { ...currentProfile, photos: photoData?.photos ?? [] }
     : undefined;
@@ -556,7 +588,7 @@ export default function Discover() {
             data-testid="profile-container"
           >
             <Card className="overflow-hidden" data-testid="card-profile">
-              <PhotoBubbles photos={photos} name={displayProfile.firstName} onOpen={() => interact.mutate("open")} isDisabled={interact.isPending} />
+              <PhotoBubbles photos={photos} name={displayProfile.firstName} onOpen={() => interact.mutate("open")} isDisabled={interact.isPending} isPhotosLoading={isPhotosLoading} />
 
               <div className="px-5 pb-5 pt-3 space-y-5" data-testid="profile-about-section">
                 {conversationStarters.length > 0 && (

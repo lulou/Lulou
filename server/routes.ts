@@ -328,6 +328,7 @@ export async function registerRoutes(
       const { userId } = req.params;
       if (!userId) return res.status(400).json({ message: "Missing userId" });
       const photos = await storage.getProfilePhotos(userId);
+      console.log(`[PHOTOS] userId=${userId} returned ${photos.length} photo(s)${photos.length > 0 ? ` (first url length: ${photos[0].length})` : ""}`);
       res.json({ photos });
     } catch (error: any) {
       console.error("[PHOTOS] Route error for userId:", req.params?.userId, "—", error?.message);
