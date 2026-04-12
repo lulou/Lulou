@@ -78,8 +78,11 @@ function PhotoBubbles({ photos, name, onOpen, isDisabled, isPhotosLoading }: { p
   if (photos.length === 0) {
     return (
       <div className="flex justify-center py-4 px-4" data-testid="photo-bubbles-empty">
-        <div className="relative rounded-2xl overflow-hidden shadow-md bg-muted flex items-center justify-center" style={{ width: SLOT_W, height: SLOT_H }}>
-          <LulouFlowerIcon className="w-16 h-16 text-muted-foreground/40" />
+        <div className="relative rounded-2xl overflow-hidden shadow-md flex items-center justify-center" style={{ width: SLOT_W, height: SLOT_H, background: "linear-gradient(160deg, hsl(var(--muted)) 0%, hsl(var(--muted-foreground)/0.12) 100%)" }}>
+          <svg viewBox="0 0 80 80" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ width: 56, height: 56, opacity: 0.25 }}>
+            <circle cx="40" cy="28" r="14" fill="currentColor" />
+            <ellipse cx="40" cy="62" rx="24" ry="16" fill="currentColor" />
+          </svg>
           <button
             style={{ position: "absolute", bottom: 12, left: "50%", transform: "translateX(-50%)", zIndex: 10 }}
             className="flex items-center gap-1.5 bg-primary text-white rounded-full pl-3 pr-4 py-2 shadow-lg active:scale-95"

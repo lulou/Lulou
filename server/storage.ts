@@ -147,6 +147,14 @@ export interface IStorage {
   getElevateSessionStats(userId: string): Promise<{ views: number; matches: number; startedAt: Date | null; active: boolean; expiresAt: Date | null }>;
 }
 
+/** Remove HEIC/HEIF data-URLs — most browsers cannot decode them. */
+function filterPhotos(raw: string[]): string[] {
+  return (raw || []).filter(url => {
+    const prefix = url.substring(0, 30).toLowerCase();
+    return !prefix.startsWith("data:image/heic") && !prefix.startsWith("data:image/heif");
+  });
+}
+
 function mapProfile(row: any): Profile {
   return {
     id: row.id,
@@ -157,7 +165,7 @@ function mapProfile(row: any): Profile {
     datingPreference: row.dating_preference,
     location: row.location,
     height: row.height,
-    photos: row.photos || [],
+    photos: filterPhotos(row.photos),
     signals: row.signals,
     datingIntent: row.dating_intent,
     greenFlags: row.green_flags,
@@ -310,6 +318,7 @@ export class SupabaseStorage implements IStorage {
 
   // Fetches ONLY the photos column for a single profile. Fast — avoids fetching all other fields.
   // Used by the per-card photo endpoint to prevent statement timeouts from large base64 images.
+  // Filters out HEIC data-URLs which most browsers cannot decode.
   async getProfilePhotos(userId: string): Promise<string[]> {
     const { data, error } = await this.sb
       .from("profiles")
@@ -324,9 +333,21 @@ export class SupabaseStorage implements IStorage {
       console.warn("[PHOTOS] No profile row found for userId:", userId);
       return [];
     }
-    const photos: string[] = data.photos || [];
-    if (photos.length === 0) {
+    const raw: string[] = data.photos || [];
+    // Filter out HEIC/HEIF data-URLs — most browsers (Chrome, Firefox) cannot decode them.
+    // These are leftover from iPhone uploads before the JPEG conversion fix.
+    const photos = raw.filter((url) => {
+      const lower = url.substring(0, 30).toLowerCase();
+      const isHeic = lower.startsWith("data:image/heic") || lower.startsWith("data:image/heif");
+      if (isHeic) console.warn("[PHOTOS] Filtered HEIC photo for userId:", userId, "url prefix:", url.substring(0, 35));
+      return !isHeic;
+    });
+    if (raw.length > 0 && photos.length === 0) {
+      console.warn("[PHOTOS] All photos for userId:", userId, "were HEIC format — returning empty. User should re-upload photos.");
+    } else if (photos.length === 0) {
       console.warn("[PHOTOS] Profile exists but photos array is empty for userId:", userId);
+    } else {
+      console.log(`[PHOTOS] userId=${userId} returning ${photos.length}/${raw.length} photo(s) (first url length: ${photos[0].length})`);
     }
     return photos;
   }

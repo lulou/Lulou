@@ -13,15 +13,19 @@ import type { Profile } from "@shared/schema";
 
 // Lazy-loads a single photo for a wheel item or profile card.
 // Photos are excluded from the pool queries to prevent DB statement timeouts.
+// Cycles through the photos array on render failure rather than showing the app logo.
 function ProfilePhoto({ userId, className }: { userId: string; className?: string }) {
   const { data, isLoading } = useQuery<{ photos: string[] }>({
     queryKey: ["/api/profiles", userId, "photos"],
     staleTime: 5 * 60 * 1000,
   });
-  const [imgError, setImgError] = useState(false);
+  // Track the index of the photo we are currently attempting to show.
+  // Reset to 0 whenever userId changes (e.g., selecting a different profile in the detail view).
+  const [photoIndex, setPhotoIndex] = useState(0);
+  useEffect(() => { setPhotoIndex(0); }, [userId]);
 
   const photos = data?.photos ?? [];
-  const photo = !imgError ? photos[0] : photos.find((p, i) => i > 0);
+  const photo = photos[photoIndex] ?? null;
 
   if (isLoading) {
     return (
@@ -37,9 +41,16 @@ function ProfilePhoto({ userId, className }: { userId: string; className?: strin
   }
 
   if (!photo) {
+    // No renderable photo — show a neutral silhouette placeholder, never the app logo.
     return (
-      <div className={`bg-muted flex items-center justify-center ${className ?? ""}`}>
-        <LulouFlowerIcon className="w-8 h-8 text-muted-foreground/40" />
+      <div
+        className={`flex items-center justify-center ${className ?? ""}`}
+        style={{ background: "linear-gradient(160deg, hsl(var(--muted)) 0%, hsl(var(--muted-foreground)/0.12) 100%)" }}
+      >
+        <svg viewBox="0 0 80 80" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ width: "40%", height: "40%", opacity: 0.22 }}>
+          <circle cx="40" cy="28" r="14" fill="currentColor" />
+          <ellipse cx="40" cy="62" rx="24" ry="16" fill="currentColor" />
+        </svg>
       </div>
     );
   }
@@ -51,8 +62,8 @@ function ProfilePhoto({ userId, className }: { userId: string; className?: strin
       className={`object-cover ${className ?? ""}`}
       draggable={false}
       onError={() => {
-        console.warn("[ProfilePhoto] Image failed to render for userId:", userId, "type:", photo.substring(0, 30));
-        setImgError(true);
+        console.warn("[ProfilePhoto] Image failed to render for userId:", userId, "index:", photoIndex, "type:", photo.substring(0, 35));
+        setPhotoIndex(i => i + 1);
       }}
     />
   );
