@@ -319,14 +319,38 @@ export class SupabaseStorage implements IStorage {
   // Fetches ONLY the photos column for a single profile. Fast — avoids fetching all other fields.
   // Used by the per-card photo endpoint to prevent statement timeouts from large base64 images.
   // Filters out HEIC data-URLs which most browsers cannot decode.
+  // Uses a 6-second abort signal so oversized legacy photos fail fast instead of hanging 17+ seconds.
   async getProfilePhotos(userId: string): Promise<string[]> {
-    const { data, error } = await this.sb
-      .from("profiles")
-      .select("photos")
-      .eq("user_id", userId)
-      .maybeSingle();
+    const controller = new AbortController();
+    const timer = setTimeout(() => {
+      controller.abort();
+      console.warn("[PHOTOS] Aborting slow photo query for userId:", userId, "(>6s — photos may be oversized, user should re-upload)");
+    }, 6000);
+
+    let data: any = null;
+    let error: any = null;
+    try {
+      const result = await (this.sb
+        .from("profiles")
+        .select("photos")
+        .eq("user_id", userId)
+        .abortSignal(controller.signal) as any)
+        .maybeSingle();
+      data  = result.data;
+      error = result.error;
+    } catch (e: any) {
+      error = e;
+    } finally {
+      clearTimeout(timer);
+    }
+
     if (error) {
-      console.error("[PHOTOS] Query error for userId:", userId, "—", error.message, "(code:", error.code, ")");
+      const isAbort = error?.name === "AbortError" || String(error?.message).includes("abort") || error?.code === "57014";
+      if (isAbort) {
+        console.error("[PHOTOS] Query timed out for userId:", userId, "— photos are too large in DB. User should re-upload via profile editor.");
+      } else {
+        console.error("[PHOTOS] Query error for userId:", userId, "—", error.message, "(code:", error.code, ")");
+      }
       return [];
     }
     if (!data) {

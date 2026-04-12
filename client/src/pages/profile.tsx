@@ -11,7 +11,7 @@ import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { useToast } from "@/hooks/use-toast";
 import { upsertProfile } from "@/lib/profile-upsert";
 import { apiRequest } from "@/lib/queryClient";
-import { convertPhotoToJpeg } from "@/lib/photo-utils";
+import { convertPhotoToJpeg, recompressPhotoDataUrl, OVERSIZED_THRESHOLD } from "@/lib/photo-utils";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -163,8 +163,23 @@ export default function ProfilePage() {
   const [showPhotos, setShowPhotos] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const startEditingPhotos = () => {
-    setEditPhotos([...(profile?.photos || [])]);
+  const startEditingPhotos = async () => {
+    const existing = [...(profile?.photos || [])];
+    const oversized = existing.some(p => p.length > OVERSIZED_THRESHOLD);
+
+    if (oversized) {
+      toast({
+        title: "Optimising photos…",
+        description: "Your photos are being compressed to improve loading speed.",
+      });
+      const recompressed = await Promise.all(
+        existing.map(p => p.length > OVERSIZED_THRESHOLD ? recompressPhotoDataUrl(p) : Promise.resolve(p))
+      );
+      setEditPhotos(recompressed);
+      toast({ title: "Photos ready", description: "Save to apply the optimised versions." });
+    } else {
+      setEditPhotos(existing);
+    }
     setEditingPhotos(true);
   };
 
