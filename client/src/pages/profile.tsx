@@ -178,8 +178,20 @@ export default function ProfilePage() {
   const [editPhotos, setEditPhotos] = useState<string[]>([]);
   const [showPhotos, setShowPhotos] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const replaceIndexRef = useRef<number | null>(null);
+
+  const openFilePicker = (replaceIndex?: number) => {
+    replaceIndexRef.current = replaceIndex ?? null;
+    console.log("[PHOTOS] Opening file picker", replaceIndex != null ? `to replace slot ${replaceIndex}` : "to add new photo");
+    if (fileInputRef.current) {
+      fileInputRef.current.click();
+    } else {
+      console.error("[PHOTOS] fileInputRef is null — file picker could not open");
+    }
+  };
 
   const startEditingPhotos = async () => {
+    console.log("[PHOTOS] Entering edit mode");
     const existing = [...(profile?.photos || [])];
     const oversized = existing.some(p => p.length > OVERSIZED_THRESHOLD);
 
@@ -196,40 +208,86 @@ export default function ProfilePage() {
     } else {
       setEditPhotos(existing);
     }
+    setShowPhotos(true);
     setEditingPhotos(true);
+    console.log("[PHOTOS] Edit mode active, existing photos:", existing.length);
   };
 
   const cancelEditingPhotos = () => {
     setEditingPhotos(false);
     setEditPhotos([]);
+    replaceIndexRef.current = null;
   };
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files) return;
+    const rawFiles = e.target.files;
+    if (!rawFiles || rawFiles.length === 0) {
+      console.log("[PHOTOS] No files selected");
+      return;
+    }
+    // Convert to Array BEFORE clearing the input — clearing can invalidate the FileList on some mobile browsers
+    const fileArray = Array.from(rawFiles);
     if (fileInputRef.current) fileInputRef.current.value = "";
-    const fileArray = Array.from(files).slice(0, 6 - editPhotos.length);
-    for (const file of fileArray) {
+
+    const isReplacing = replaceIndexRef.current !== null;
+    const replaceIdx = replaceIndexRef.current;
+    replaceIndexRef.current = null;
+
+    console.log("[PHOTOS] Files selected:", fileArray.length, isReplacing ? `replacing slot ${replaceIdx}` : "adding new");
+
+    if (isReplacing && replaceIdx !== null) {
+      const file = fileArray[0];
       try {
+        console.log("[PHOTOS] Converting replacement photo:", file.name, `(${(file.size / 1024).toFixed(0)} KB)`);
         const jpeg = await convertPhotoToJpeg(file);
-        setEditPhotos(prev => prev.length < 6 ? [...prev, jpeg] : prev);
+        console.log("[PHOTOS] Replacement ready:", (jpeg.length / 1024).toFixed(0), "KB base64");
+        setEditPhotos(prev => {
+          const updated = [...prev];
+          updated[replaceIdx] = jpeg;
+          return updated;
+        });
       } catch (err: any) {
+        console.error("[PHOTOS] Replacement failed:", err?.message);
         toast({
-          title: "Photo not added",
+          title: "Photo not replaced",
           description: err?.message || "Could not process this photo. Try a JPEG or PNG.",
           variant: "destructive",
         });
+      }
+    } else {
+      const slots = 6 - editPhotos.length;
+      const toProcess = fileArray.slice(0, slots);
+      console.log("[PHOTOS] Adding", toProcess.length, "new photo(s), slots available:", slots);
+      for (const file of toProcess) {
+        try {
+          console.log("[PHOTOS] Converting:", file.name, `(${(file.size / 1024).toFixed(0)} KB)`);
+          const jpeg = await convertPhotoToJpeg(file);
+          console.log("[PHOTOS] Converted:", (jpeg.length / 1024).toFixed(0), "KB base64");
+          setEditPhotos(prev => prev.length < 6 ? [...prev, jpeg] : prev);
+        } catch (err: any) {
+          console.error("[PHOTOS] Conversion failed:", file.name, err?.message);
+          toast({
+            title: "Photo not added",
+            description: err?.message || "Could not process this photo. Try a JPEG or PNG.",
+            variant: "destructive",
+          });
+        }
       }
     }
   };
 
   const removeEditPhoto = (index: number) => {
+    console.log("[PHOTOS] Removing photo at index", index);
     setEditPhotos(prev => prev.filter((_, i) => i !== index));
   };
 
   const savePhotos = useMutation({
     mutationFn: async () => {
-      return upsertProfile({ photos: editPhotos });
+      console.log("[PHOTOS] Saving", editPhotos.length, "photo(s) via server API");
+      const res = await apiRequest("POST", "/api/profile", { photos: editPhotos });
+      const data = await res.json();
+      console.log("[PHOTOS] Server save response: ok, photos in DB:", data?.photos?.length ?? "unknown");
+      return data;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/profile"] });
@@ -238,8 +296,8 @@ export default function ProfilePage() {
       setEditPhotos([]);
     },
     onError: (err: any) => {
-      console.error("[PHOTOS] Failed to save photos:", err?.message ?? err);
-      toast({ title: "Could not save photos", description: "Please try again.", variant: "destructive" });
+      console.error("[PHOTOS] Save failed:", err?.message ?? err);
+      toast({ title: "Could not save photos", description: err?.message || "Please try again.", variant: "destructive" });
     },
   });
 
@@ -387,19 +445,27 @@ export default function ProfilePage() {
       </div>
       <div className="p-6 space-y-5 max-w-lg mx-auto w-full pb-28">
       <div className="flex items-center gap-4">
-        <div className="relative">
+        <button
+          className="relative shrink-0 group"
+          onClick={startEditingPhotos}
+          data-testid="button-avatar-edit"
+          aria-label="Edit profile photos"
+        >
           <Avatar className="w-20 h-20">
             <AvatarImage src={profile.photos?.[0]} alt={profile.firstName} />
             <AvatarFallback className="bg-primary/10 text-primary text-2xl font-semibold">
               {profile.firstName?.[0]}
             </AvatarFallback>
           </Avatar>
+          <div className="absolute inset-0 rounded-full bg-black/30 flex items-center justify-center opacity-0 group-hover:opacity-100 group-active:opacity-100 transition-opacity">
+            <Camera className="w-6 h-6 text-white" />
+          </div>
           {profile.photoVerified && (
             <div className="absolute -bottom-1 -right-1 w-6 h-6 bg-primary rounded-full flex items-center justify-center" data-testid="icon-verified-badge">
               <BadgeCheck className="w-4 h-4 text-primary-foreground" />
             </div>
           )}
-        </div>
+        </button>
         <div className="flex-1">
           <div className="flex items-center justify-between gap-2">
             <h1 className="font-serif text-2xl font-bold" data-testid="text-profile-name">
@@ -601,7 +667,18 @@ export default function ProfilePage() {
           <div className="grid grid-cols-3 gap-3">
             {editPhotos.map((photo, i) => (
               <div key={i} className="aspect-[3/4] overflow-hidden relative" style={{ borderRadius: 18 }}>
-                <img src={photo} alt={`Photo ${i + 1}`} className="w-full h-full object-cover" data-testid={`img-edit-photo-${i}`} />
+                <img
+                  src={photo}
+                  alt={`Photo ${i + 1}`}
+                  className="w-full h-full object-cover cursor-pointer"
+                  onClick={() => openFilePicker(i)}
+                  data-testid={`img-edit-photo-${i}`}
+                />
+                <div className="absolute bottom-0 inset-x-0 flex items-center justify-center pb-1.5 pointer-events-none">
+                  <span className="text-white text-[10px] font-medium bg-black/50 px-2 py-0.5 rounded-full leading-none">
+                    tap to replace
+                  </span>
+                </div>
                 <button
                   onClick={() => removeEditPhoto(i)}
                   className="absolute top-1.5 right-1.5 w-7 h-7 rounded-full bg-destructive text-destructive-foreground flex items-center justify-center shadow-md active:scale-95 transition-transform"
@@ -614,24 +691,15 @@ export default function ProfilePage() {
             ))}
             {editPhotos.length < 6 && (
               <button
-                onClick={() => fileInputRef.current?.click()}
+                onClick={() => openFilePicker()}
                 className="aspect-[3/4] border-2 border-dashed border-muted-foreground/30 flex flex-col items-center justify-center gap-1 hover-elevate transition-colors"
                 style={{ borderRadius: 18 }}
                 data-testid="button-add-photo"
               >
                 <ImagePlus className="w-6 h-6 text-muted-foreground/50" />
-                <span className="text-xs text-muted-foreground/50">Add</span>
+                <span className="text-xs text-muted-foreground/50">Add photo</span>
               </button>
             )}
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*"
-              multiple
-              className="hidden"
-              onChange={handleFileSelect}
-              data-testid="input-photo-file"
-            />
           </div>
         ) : profile.photos && profile.photos.length > 0 ? (
           <div className="flex gap-3 overflow-x-auto scrollbar-hide py-2 px-1" style={{ WebkitOverflowScrolling: "touch" }}>
@@ -1164,6 +1232,17 @@ export default function ProfilePage() {
         <LogOut className="w-4 h-4 mr-2" /> Sign Out
       </Button>
       </div>
+
+      {/* File input always mounted so fileInputRef is valid when openFilePicker() is called */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        multiple
+        className="hidden"
+        onChange={handleFileSelect}
+        data-testid="input-photo-file"
+      />
 
       {showElevate && <ElevateModal onClose={() => setShowElevate(false)} cancelPath="/profile" />}
     </div>
