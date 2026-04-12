@@ -119,7 +119,8 @@ export interface IStorage {
   completeCall(matchId: string, userId: string): Promise<Match | undefined>;
   acceptFaceCall(matchId: string, userId: string): Promise<Match | undefined>;
   declineFaceCall(matchId: string, userId: string): Promise<Match | undefined>;
-  getPopularProfiles(limit?: number, preference?: string, myGender?: string): Promise<Profile[]>;
+  getProfilePhotos(userId: string): Promise<string[]>;
+  getPopularProfiles(limit?: number, preference?: string): Promise<Profile[]>;
   getSpinStandouts(userId: string): Promise<string[]>;
   addSpinStandout(userId: string, standoutUserId: string): Promise<void>;
   getSpinsToday(userId: string): Promise<number>;
@@ -305,6 +306,29 @@ export class SupabaseStorage implements IStorage {
     }
     if (!result) return undefined;
     return mapProfile(result);
+  }
+
+  // Fetches ONLY the photos column for a single profile. Fast — avoids fetching all other fields.
+  // Used by the per-card photo endpoint to prevent statement timeouts from large base64 images.
+  async getProfilePhotos(userId: string): Promise<string[]> {
+    const { data, error } = await this.sb
+      .from("profiles")
+      .select("photos")
+      .eq("user_id", userId)
+      .maybeSingle();
+    if (error) {
+      console.error("[PHOTOS] Query error for userId:", userId, "—", error.message, "(code:", error.code, ")");
+      return [];
+    }
+    if (!data) {
+      console.warn("[PHOTOS] No profile row found for userId:", userId);
+      return [];
+    }
+    const photos: string[] = data.photos || [];
+    if (photos.length === 0) {
+      console.warn("[PHOTOS] Profile exists but photos array is empty for userId:", userId);
+    }
+    return photos;
   }
 
   async getDiscoverProfiles(userId: string, gender: string, preference: string, ageMin: number = 18, ageMax: number = 99): Promise<Profile[]> {
@@ -923,7 +947,18 @@ export class SupabaseStorage implements IStorage {
     return updated ? mapMatch(updated) : undefined;
   }
 
-  async getPopularProfiles(limit: number = 10, preference?: string, myGender?: string): Promise<Profile[]> {
+  async getPopularProfiles(limit: number = 10, preference?: string): Promise<Profile[]> {
+    // Photos excluded from this query — same reasoning as getDiscoverProfiles.
+    // Intent page lazy-loads photos per wheel item via GET /api/profiles/:userId/photos.
+    const WHEEL_COLS = [
+      "id", "user_id", "first_name", "age", "gender", "dating_preference",
+      "location", "height", "signals", "dating_intent", "green_flags",
+      "connection_style", "conversation_starters", "questions",
+      "location_radius", "preferred_age_min", "preferred_age_max",
+      "email", "phone_number", "photo_verified", "onboarding_complete", "created_at",
+    ].join(", ");
+
+    // Count opens per user to rank by popularity
     const { data: popularRows } = await this.sb
       .from("interactions")
       .select("to_user_id")
@@ -938,37 +973,40 @@ export class SupabaseStorage implements IStorage {
       .slice(0, limit)
       .map(([id]) => id);
 
+    console.log("[WHEEL] interactions pool:", popularRows?.length ?? 0, "| popular ids:", sortedIds.length);
+
     let allProfiles: Profile[] = [];
 
     if (sortedIds.length > 0) {
       let query = this.sb
         .from("profiles")
-        .select("*")
+        .select(WHEEL_COLS)
         .eq("onboarding_complete", true)
         .in("user_id", sortedIds);
 
+      // Only filter by what the CURRENT USER wants to see (their preference → target gender).
+      // Do NOT apply mutual-compatibility filter (myGender) — it's too restrictive on small user bases.
       if (preference) {
         const genders = getGendersForPreference(preference);
-        if (genders) query = query.in("gender", genders);
-      }
-      if (myGender) {
-        const validPrefs = getPreferencesThatIncludeGender(myGender);
-        query = query.in("dating_preference", validPrefs);
+        if (genders && genders.length > 0) query = query.in("gender", genders);
       }
 
-      const { data } = await query;
+      const { data, error } = await query;
+      if (error) console.error("[WHEEL] popular query error:", error.message);
       allProfiles = (data || []).map(mapProfile);
 
       const orderMap = new Map(sortedIds.map((id, i) => [id, i]));
       allProfiles.sort((a, b) => (orderMap.get(a.userId) ?? 99) - (orderMap.get(b.userId) ?? 99));
     }
 
+    // Fill remaining slots from any eligible profile (most recently joined first)
     if (allProfiles.length < limit) {
       const existingIds = allProfiles.map(r => r.userId);
       let query = this.sb
         .from("profiles")
-        .select("*")
+        .select(WHEEL_COLS)
         .eq("onboarding_complete", true)
+        .order("created_at", { ascending: false })
         .limit(limit - allProfiles.length);
 
       if (existingIds.length > 0) {
@@ -976,15 +1014,27 @@ export class SupabaseStorage implements IStorage {
       }
       if (preference) {
         const genders = getGendersForPreference(preference);
-        if (genders) query = query.in("gender", genders);
-      }
-      if (myGender) {
-        const validPrefs = getPreferencesThatIncludeGender(myGender);
-        query = query.in("dating_preference", validPrefs);
+        if (genders && genders.length > 0) query = query.in("gender", genders);
       }
 
-      const { data: extra } = await query;
+      const { data: extra, error: fallbackError } = await query;
+      if (fallbackError) console.error("[WHEEL] fallback query error:", fallbackError.message);
       allProfiles.push(...(extra || []).map(mapProfile));
+    }
+
+    console.log("[WHEEL] total profiles before elevate:", allProfiles.length, "| preference:", preference ?? "any");
+
+    // If still empty, show anyone with onboarding complete (no gender filter)
+    if (allProfiles.length === 0) {
+      console.log("[WHEEL] no profiles after preference filter — falling back to any completed profile");
+      const { data: fallback } = await this.sb
+        .from("profiles")
+        .select(WHEEL_COLS)
+        .eq("onboarding_complete", true)
+        .order("created_at", { ascending: false })
+        .limit(limit);
+      allProfiles = (fallback || []).map(mapProfile);
+      console.log("[WHEEL] fallback pool:", allProfiles.length);
     }
 
     // Merge live elevate status from local DB, then weighted sample

@@ -432,9 +432,9 @@ export default function Discover() {
     }
   }, [visibleProfiles.length]);
 
-  // Lazy-load photos for the current card (photos are excluded from the pool query)
-  const { data: currentProfileFull } = useQuery<Profile>({
-    queryKey: ["/api/profiles", currentProfile?.userId],
+  // Lazy-load photos for the current card (photos are excluded from the pool query to avoid timeouts)
+  const { data: photoData } = useQuery<{ photos: string[] }>({
+    queryKey: ["/api/profiles", currentProfile?.userId, "photos"],
     enabled: !!currentProfile?.userId,
     staleTime: 5 * 60 * 1000,
   });
@@ -443,15 +443,15 @@ export default function Discover() {
   useEffect(() => {
     if (nextProfile?.userId) {
       queryClient.prefetchQuery({
-        queryKey: ["/api/profiles", nextProfile.userId],
+        queryKey: ["/api/profiles", nextProfile.userId, "photos"],
         staleTime: 5 * 60 * 1000,
       });
     }
   }, [nextProfile?.userId]);
 
-  // Merge photos from full profile into the pool metadata
+  // Merge photos into the pool profile for rendering
   const displayProfile = currentProfile
-    ? { ...currentProfile, photos: currentProfileFull?.photos ?? [] }
+    ? { ...currentProfile, photos: photoData?.photos ?? [] }
     : undefined;
 
   const interact = useMutation({

@@ -11,6 +11,24 @@ import { apiRequest } from "@/lib/queryClient";
 import { useTabActive } from "@/App";
 import type { Profile } from "@shared/schema";
 
+// Lazy-loads a single photo for a wheel item or profile card.
+// Photos are excluded from the pool queries to prevent DB statement timeouts.
+function ProfilePhoto({ userId, className }: { userId: string; className?: string }) {
+  const { data } = useQuery<{ photos: string[] }>({
+    queryKey: ["/api/profiles", userId, "photos"],
+    staleTime: 5 * 60 * 1000,
+  });
+  const photo = data?.photos?.[0];
+  if (!photo) {
+    return (
+      <div className={`bg-muted flex items-center justify-center ${className ?? ""}`}>
+        <LulouFlowerIcon className="w-8 h-8 text-muted-foreground" />
+      </div>
+    );
+  }
+  return <img src={photo} alt="" className={`object-cover ${className ?? ""}`} draggable={false} />;
+}
+
 const ITEM_WIDTH = 130;
 const ITEM_HEIGHT = 170;
 const DAILY_LIKE_GOAL = 10;
@@ -326,7 +344,6 @@ export default function IntentPage() {
           >
             {items.map((profile, i) => {
               const itemAngle = i * angleStep;
-              const photo = profile.photos?.[0];
               const isSelected = i === selectedIndex;
 
               const relativeAngle = ((((-angle + itemAngle) % 360) + 360) % 360);
@@ -357,18 +374,7 @@ export default function IntentPage() {
                   }}
                   data-testid={`intent-profile-${i}`}
                 >
-                  {photo ? (
-                    <img
-                      src={photo}
-                      alt={profile.firstName}
-                      className="w-full h-full object-cover pointer-events-none"
-                      draggable={false}
-                    />
-                  ) : (
-                    <div className="w-full h-full bg-muted flex items-center justify-center">
-                      <LulouFlowerIcon className="w-8 h-8 text-muted-foreground" />
-                    </div>
-                  )}
+                  <ProfilePhoto userId={profile.userId} className="w-full h-full pointer-events-none" />
                   <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-2">
                     <p className="text-white text-xs font-medium truncate">
                       {profile.firstName}{profile.age ? `, ${profile.age}` : ""}
@@ -530,18 +536,9 @@ export default function IntentPage() {
 
           <div className="flex-1 overflow-y-auto">
             <div className="relative">
-              {selectedProfile.photos?.[0] ? (
-                <img
-                  src={selectedProfile.photos[0]}
-                  alt={selectedProfile.firstName}
-                  className="w-full aspect-[3/4] max-h-[50vh] object-cover"
-                  data-testid="img-intent-detail-photo"
-                />
-              ) : (
-                <div className="w-full aspect-[3/4] max-h-[50vh] bg-muted flex items-center justify-center">
-                  <LulouFlowerIcon className="w-16 h-16 text-muted-foreground" />
-                </div>
-              )}
+              <div data-testid="img-intent-detail-photo" className="w-full aspect-[3/4] max-h-[50vh] overflow-hidden">
+                <ProfilePhoto userId={selectedProfile.userId} className="w-full h-full" />
+              </div>
               <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-background via-background/80 to-transparent h-24" />
 
               <Button

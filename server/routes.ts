@@ -319,17 +319,19 @@ export async function registerRoutes(
     }
   });
 
-  // Fetch any user's full profile (including photos) by userId — used by discover to lazy-load photos per card
-  app.get("/api/profiles/:userId", isAuthenticated, async (req: any, res) => {
+  // Returns ONLY the photos array for a given user — fast single-column fetch.
+  // Profiles in the discover pool / wheel pool don't carry photos (they'd cause statement timeouts).
+  // The client calls this per-card to lazy-load photos without fetching the full profile row.
+  app.get("/api/profiles/:userId/photos", isAuthenticated, async (req: any, res) => {
     try {
       const storage = getStorage(req);
       const { userId } = req.params;
       if (!userId) return res.status(400).json({ message: "Missing userId" });
-      const profile = await storage.getProfile(userId);
-      if (!profile) return res.status(404).json({ message: "Profile not found" });
-      res.json(profile);
+      const photos = await storage.getProfilePhotos(userId);
+      res.json({ photos });
     } catch (error: any) {
-      res.status(500).json({ message: "Failed to fetch profile" });
+      console.error("[PHOTOS] Route error for userId:", req.params?.userId, "—", error?.message);
+      res.json({ photos: [] });
     }
   });
 
@@ -953,7 +955,7 @@ export async function registerRoutes(
       const userId = req.user.id;
       const myProfile = await storage.getProfile(userId);
       const preference = myProfile?.datingPreference;
-      const popular = await storage.getPopularProfiles(30, preference, myProfile?.gender);
+      const popular = await storage.getPopularProfiles(30, preference);
 
       const selfFiltered = popular.filter(p => p.userId !== userId);
 
