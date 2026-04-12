@@ -1435,6 +1435,7 @@ export async function registerRoutes(
       console.log(`[STRIPE] Checkout session created: ${session.id} for user ${userId} pack ${packId}`);
       res.json({ url: session.url, sessionId: session.id });
     } catch (err: any) {
+      const stripeDetail = err.raw?.message ?? err.message ?? "Unknown error";
       console.error("[STRIPE] Checkout session creation failed:", {
         message: err.message,
         type: err.type,
@@ -1443,10 +1444,14 @@ export async function registerRoutes(
         stripeCode: err.raw?.code,
         stripeMessage: err.raw?.message,
         declineCode: err.raw?.decline_code,
+        packId,
+        userId,
       });
+      // Put the real Stripe error in `message` so the client toast shows it
       res.status(500).json({
-        message: "Failed to create checkout session",
-        detail: err.raw?.message ?? err.message,
+        message: stripeDetail,
+        code: err.code ?? err.raw?.code,
+        type: err.type,
       });
     }
   });
@@ -1496,8 +1501,9 @@ export async function registerRoutes(
         durationMinutes,
       });
     } catch (err: any) {
-      console.error("Error processing elevate payment:", err.message);
-      res.status(500).json({ message: "Failed to process payment" });
+      const detail = err.raw?.message ?? err.message ?? "Unknown error";
+      console.error("[STRIPE] elevate-activate error:", { message: err.message, type: err.type, code: err.code, sessionId, userId });
+      res.status(500).json({ message: detail });
     }
   });
 
