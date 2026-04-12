@@ -398,17 +398,61 @@ export default function Discover() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  // Track which profiles have been acted on this session (local queue advancement)
+  // Track which profiles have been shown this session (local queue advancement)
   const [shownIds, setShownIds] = useState<Set<string>>(new Set());
+  // Accumulate profiles across refetches so the feed doesn't reset
+  const [accumulatedProfiles, setAccumulatedProfiles] = useState<Profile[]>([]);
+  const refetchInProgress = useRef(false);
 
-  const { data: profilesData, isLoading } = useQuery<Profile[]>({
+  const { data: profilesData, isLoading, isFetching, refetch } = useQuery<Profile[]>({
     queryKey: ["/api/discover"],
+    staleTime: Infinity, // only refetch on explicit demand
   });
 
-  // All eligible profiles from server, filtered locally to exclude already-acted ones
-  const allProfiles: Profile[] = Array.isArray(profilesData) ? profilesData : [];
-  const profiles = allProfiles.filter(p => !shownIds.has(p.userId));
-  const currentProfile = profiles[0];
+  // Merge newly fetched profiles into the accumulated pool (no duplicates)
+  useEffect(() => {
+    if (!profilesData || !Array.isArray(profilesData)) return;
+    setAccumulatedProfiles(prev => {
+      const existingIds = new Set(prev.map(p => p.userId));
+      const newOnes = profilesData.filter(p => !existingIds.has(p.userId));
+      return newOnes.length > 0 ? [...prev, ...newOnes] : prev;
+    });
+  }, [profilesData]);
+
+  // Profiles not yet shown in this session
+  const visibleProfiles = accumulatedProfiles.filter(p => !shownIds.has(p.userId));
+  const currentProfile = visibleProfiles[0];
+  const nextProfile = visibleProfiles[1];
+
+  // When pool runs low (≤ 2 remaining), silently fetch more from the server
+  useEffect(() => {
+    if (visibleProfiles.length <= 2 && accumulatedProfiles.length > 0 && !refetchInProgress.current) {
+      refetchInProgress.current = true;
+      refetch().finally(() => { refetchInProgress.current = false; });
+    }
+  }, [visibleProfiles.length]);
+
+  // Lazy-load photos for the current card (photos are excluded from the pool query)
+  const { data: currentProfileFull } = useQuery<Profile>({
+    queryKey: ["/api/profiles", currentProfile?.userId],
+    enabled: !!currentProfile?.userId,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  // Pre-fetch the next card's photos in the background for instant display
+  useEffect(() => {
+    if (nextProfile?.userId) {
+      queryClient.prefetchQuery({
+        queryKey: ["/api/profiles", nextProfile.userId],
+        staleTime: 5 * 60 * 1000,
+      });
+    }
+  }, [nextProfile?.userId]);
+
+  // Merge photos from full profile into the pool metadata
+  const displayProfile = currentProfile
+    ? { ...currentProfile, photos: currentProfileFull?.photos ?? [] }
+    : undefined;
 
   const interact = useMutation({
     mutationFn: async (type: "open" | "close") => {
@@ -436,7 +480,7 @@ export default function Discover() {
       if (data?.matched) {
         toast({
           title: "It's mutual",
-          description: `You and ${data.profileId ? allProfiles.find(p => p.userId === data.profileId)?.firstName : currentProfile?.firstName} both opened up.`,
+          description: `You and ${data.profileId ? accumulatedProfiles.find(p => p.userId === data.profileId)?.firstName : currentProfile?.firstName} both opened up.`,
         });
         queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
       }
@@ -450,7 +494,9 @@ export default function Discover() {
     });
   };
 
-  if (isLoading) {
+  // Show skeleton on initial load OR when pool is empty and more are being fetched
+  const isLoadingMore = isFetching && accumulatedProfiles.length > 0 && visibleProfiles.length === 0;
+  if (isLoading || isLoadingMore) {
     return (
       <div className="flex-1 flex items-center justify-center p-6">
         <div className="w-full max-w-md space-y-4">
@@ -462,7 +508,7 @@ export default function Discover() {
     );
   }
 
-  if (!currentProfile) {
+  if (!displayProfile) {
     return (
       <div className="flex-1 flex items-center justify-center p-6">
         <div className="text-center space-y-4 max-w-sm">
@@ -478,23 +524,23 @@ export default function Discover() {
     );
   }
 
-  const photos = currentProfile.photos || [];
-  const signals = currentProfile.signals || [];
-  const greenFlags = currentProfile.greenFlags || [];
-  const conversationStarters = currentProfile.conversationStarters || [];
-  const questions = currentProfile.questions || [];
+  const photos = displayProfile.photos || [];
+  const signals = displayProfile.signals || [];
+  const greenFlags = displayProfile.greenFlags || [];
+  const conversationStarters = displayProfile.conversationStarters || [];
+  const questions = displayProfile.questions || [];
 
   return (
     <div className="flex-1 overflow-y-auto">
       <div className="sticky top-0 z-30 bg-background/95 backdrop-blur-sm border-b px-5 py-3">
         <div className="max-w-md mx-auto flex items-center gap-2">
           <h1 className="font-serif text-lg font-bold truncate" data-testid="text-discover-sticky-name">
-            {currentProfile.firstName}, {currentProfile.age}
+            {displayProfile.firstName}, {displayProfile.age}
           </h1>
-          {currentProfile.location && (
+          {displayProfile.location && (
             <span className="text-xs text-muted-foreground flex items-center gap-1 shrink-0">
               <MapPin className="w-3 h-3" />
-              {currentProfile.location}
+              {displayProfile.location}
             </span>
           )}
         </div>
@@ -502,7 +548,7 @@ export default function Discover() {
       <div className="max-w-md mx-auto p-4 md:p-6 space-y-5 pb-6">
         <AnimatePresence mode="wait">
           <motion.div
-            key={currentProfile.id}
+            key={displayProfile.id}
             initial={{ opacity: 0, scale: 0.96 }}
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, y: -20 }}
@@ -510,7 +556,7 @@ export default function Discover() {
             data-testid="profile-container"
           >
             <Card className="overflow-hidden" data-testid="card-profile">
-              <PhotoBubbles photos={photos} name={currentProfile.firstName} onOpen={() => interact.mutate("open")} isDisabled={interact.isPending} />
+              <PhotoBubbles photos={photos} name={displayProfile.firstName} onOpen={() => interact.mutate("open")} isDisabled={interact.isPending} />
 
               <div className="px-5 pb-5 pt-3 space-y-5" data-testid="profile-about-section">
                 {conversationStarters.length > 0 && (
@@ -535,17 +581,17 @@ export default function Discover() {
 
                 <div className="flex items-baseline gap-2 flex-wrap">
                   <h2 className="font-serif text-2xl font-bold" data-testid="text-profile-name">
-                    {currentProfile.firstName}, {currentProfile.age}
+                    {displayProfile.firstName}, {displayProfile.age}
                   </h2>
-                  {currentProfile.height && (
+                  {displayProfile.height && (
                     <div className="flex items-center gap-1 text-muted-foreground text-sm">
                       <Ruler className="w-3.5 h-3.5" />
-                      <span data-testid="text-profile-height">{currentProfile.height}</span>
+                      <span data-testid="text-profile-height">{displayProfile.height}</span>
                     </div>
                   )}
                   <div className="flex items-center gap-1 text-muted-foreground text-sm">
                     <MapPin className="w-3.5 h-3.5" />
-                    <span data-testid="text-profile-location">{currentProfile.location}</span>
+                    <span data-testid="text-profile-location">{displayProfile.location}</span>
                   </div>
                 </div>
 
@@ -562,7 +608,7 @@ export default function Discover() {
 
                 <div className="space-y-2">
                   <p className="text-xs font-medium tracking-wider uppercase text-primary">Looking for</p>
-                  <p className="font-medium" data-testid="text-profile-intent">{currentProfile.datingIntent}</p>
+                  <p className="font-medium" data-testid="text-profile-intent">{displayProfile.datingIntent}</p>
                 </div>
 
                 <div className="space-y-2">
@@ -578,7 +624,7 @@ export default function Discover() {
 
                 <div className="space-y-2">
                   <p className="text-xs font-medium tracking-wider uppercase text-primary">Pace</p>
-                  <p className="font-medium" data-testid="text-profile-style">{currentProfile.connectionStyle}</p>
+                  <p className="font-medium" data-testid="text-profile-style">{displayProfile.connectionStyle}</p>
                 </div>
               </div>
             </Card>

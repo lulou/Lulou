@@ -156,7 +156,7 @@ function mapProfile(row: any): Profile {
     datingPreference: row.dating_preference,
     location: row.location,
     height: row.height,
-    photos: row.photos,
+    photos: row.photos || [],
     signals: row.signals,
     datingIntent: row.dating_intent,
     greenFlags: row.green_flags,
@@ -310,10 +310,21 @@ export class SupabaseStorage implements IStorage {
   async getDiscoverProfiles(userId: string, gender: string, preference: string, ageMin: number = 18, ageMax: number = 99): Promise<Profile[]> {
     const isDev = process.env.NODE_ENV === "development";
 
+    // Select all columns EXCEPT photos — base64 images in photos make rows huge (100s KB each).
+    // Fetching photos for 100 profiles at once transfers 50–100 MB and causes a statement timeout.
+    // Photos are fetched individually per-card by the client via GET /api/profiles/:userId.
+    const POOL_COLS = [
+      "id", "user_id", "first_name", "age", "gender", "dating_preference",
+      "location", "height", "signals", "dating_intent", "green_flags",
+      "connection_style", "conversation_starters", "questions",
+      "location_radius", "preferred_age_min", "preferred_age_max",
+      "email", "phone_number", "photo_verified", "onboarding_complete", "created_at",
+    ].join(", ");
+
     // Base query: exclude own profile, require onboarding complete
     let profilesQuery = this.sb
       .from("profiles")
-      .select("*")
+      .select(POOL_COLS)
       .neq("user_id", userId)
       .eq("onboarding_complete", true);
 
@@ -386,7 +397,7 @@ export class SupabaseStorage implements IStorage {
       console.log("[DISCOVER] Preference-filtered pool is empty — falling back to unfiltered pool");
       const { data: fallbackData, error: fallbackErr } = await this.sb
         .from("profiles")
-        .select("*")
+        .select(POOL_COLS)
         .neq("user_id", userId)
         .eq("onboarding_complete", true)
         .limit(100);

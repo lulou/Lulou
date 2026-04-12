@@ -319,6 +319,20 @@ export async function registerRoutes(
     }
   });
 
+  // Fetch any user's full profile (including photos) by userId — used by discover to lazy-load photos per card
+  app.get("/api/profiles/:userId", isAuthenticated, async (req: any, res) => {
+    try {
+      const storage = getStorage(req);
+      const { userId } = req.params;
+      if (!userId) return res.status(400).json({ message: "Missing userId" });
+      const profile = await storage.getProfile(userId);
+      if (!profile) return res.status(404).json({ message: "Profile not found" });
+      res.json(profile);
+    } catch (error: any) {
+      res.status(500).json({ message: "Failed to fetch profile" });
+    }
+  });
+
   app.post("/api/profile", isAuthenticated, async (req: any, res) => {
     try {
       const storage = getStorage(req);
