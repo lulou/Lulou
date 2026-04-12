@@ -24,6 +24,12 @@ function PhotoBubbles({ photos, name, onOpen, isDisabled, isPhotosLoading }: { p
   const [focusedIndex, setFocusedIndex] = useState(0);
   const rafId = useRef(0);
   const ticking = useRef(false);
+  const [failedIndices, setFailedIndices] = useState<Set<number>>(new Set());
+
+  const handleImgError = (i: number, url: string) => {
+    console.warn("[PhotoBubbles] Image failed to render index:", i, "type:", url.substring(0, 35));
+    setFailedIndices(prev => new Set([...prev, i]));
+  };
 
   const commitFocus = useCallback(() => {
     ticking.current = false;
@@ -57,9 +63,15 @@ function PhotoBubbles({ photos, name, onOpen, isDisabled, isPhotosLoading }: { p
 
   if (isPhotosLoading) {
     return (
-      <div className="h-80 bg-muted/60 rounded-md animate-pulse flex items-center justify-center" data-testid="photo-loading-skeleton">
-        <LulouFlowerIcon className="w-10 h-10 text-muted-foreground/30" />
-      </div>
+      <div
+        className="h-80 rounded-md overflow-hidden"
+        style={{
+          background: "linear-gradient(90deg, hsl(var(--muted)) 25%, hsl(var(--muted-foreground)/0.08) 50%, hsl(var(--muted)) 75%)",
+          backgroundSize: "200% 100%",
+          animation: "shimmer 1.4s infinite linear",
+        }}
+        data-testid="photo-loading-skeleton"
+      />
     );
   }
 
@@ -84,16 +96,20 @@ function PhotoBubbles({ photos, name, onOpen, isDisabled, isPhotosLoading }: { p
   }
 
   if (photos.length === 1) {
+    const failed0 = failedIndices.has(0);
     return (
       <div className="flex justify-center py-4 px-4" data-testid="photo-bubbles">
-        <div className="relative rounded-2xl overflow-hidden shadow-lg" style={{ width: SLOT_W, height: SLOT_H }}>
-          <img
-            src={photos[0]}
-            alt={`${name} photo 1`}
-            className="w-full h-full object-cover pointer-events-none"
-            draggable={false}
-            data-testid="img-profile-photo-0"
-          />
+        <div className="relative rounded-2xl overflow-hidden shadow-lg bg-muted flex items-center justify-center" style={{ width: SLOT_W, height: SLOT_H }}>
+          {!failed0 && (
+            <img
+              src={photos[0]}
+              alt={`${name} photo 1`}
+              className="w-full h-full object-cover pointer-events-none absolute inset-0"
+              draggable={false}
+              onError={() => handleImgError(0, photos[0])}
+              data-testid="img-profile-photo-0"
+            />
+          )}
           <div
             style={{
               position: "absolute",
@@ -146,6 +162,7 @@ function PhotoBubbles({ photos, name, onOpen, isDisabled, isPhotosLoading }: { p
         >
           {photos.map((photo, i) => {
             const isFocused = i === focusedIndex;
+            const hasFailed = failedIndices.has(i);
             return (
               <div
                 key={i}
@@ -155,6 +172,7 @@ function PhotoBubbles({ photos, name, onOpen, isDisabled, isPhotosLoading }: { p
                   width: SLOT_W,
                   height: SLOT_H,
                   scrollSnapAlign: "center",
+                  display: hasFailed ? "none" : "block",
                 }}
                 data-testid={`photo-bubble-${i}`}
               >
@@ -165,6 +183,7 @@ function PhotoBubbles({ photos, name, onOpen, isDisabled, isPhotosLoading }: { p
                     height: "100%",
                     borderRadius: 16,
                     overflow: "hidden",
+                    background: "hsl(var(--muted))",
                     transform: isFocused
                       ? "translateZ(0) scale(1)"
                       : `translateZ(0) scale(${UNFOCUSED_SCALE})`,
@@ -190,6 +209,7 @@ function PhotoBubbles({ photos, name, onOpen, isDisabled, isPhotosLoading }: { p
                     draggable={false}
                     loading="eager"
                     decoding="async"
+                    onError={() => handleImgError(i, photo)}
                     data-testid={`img-profile-photo-${i}`}
                   />
                   <div

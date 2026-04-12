@@ -15,6 +15,7 @@ import { SIGNALS, GREEN_FLAGS, DATING_INTENTS, CONNECTION_STYLES, CONVERSATION_S
 import { Loader2, ArrowRight, ArrowLeft, Check, AlertCircle } from "lucide-react";
 import { LulouFlowerIcon } from "@/components/app-layout";
 import type { Profile } from "@shared/schema";
+import { convertPhotoToJpeg } from "@/lib/photo-utils";
 
 const STEPS = ["Basics", "Photos", "Starters", "Questions", "Signals", "Intent", "Green Flags", "Pace"];
 
@@ -583,25 +584,40 @@ function PhotoSlot({ index, photo, onSelect, onRemove }: {
   onSelect: (url: string) => void;
   onRemove: () => void;
 }) {
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const { toast } = useToast();
+  const [converting, setConverting] = useState(false);
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      onSelect(reader.result as string);
-    };
-    reader.readAsDataURL(file);
+    e.target.value = "";
+    setConverting(true);
+    try {
+      const jpeg = await convertPhotoToJpeg(file);
+      onSelect(jpeg);
+    } catch (err: any) {
+      toast({
+        title: "Photo not added",
+        description: err?.message || "Could not process this photo. Try a JPEG or PNG.",
+        variant: "destructive",
+      });
+    } finally {
+      setConverting(false);
+    }
   };
 
   return (
     <div className="relative aspect-[3/4] rounded-md bg-muted border-2 border-dashed border-muted-foreground/20 overflow-hidden group" data-testid={`photo-slot-${index}`}>
-      {photo ? (
+      {converting ? (
+        <div className="flex items-center justify-center w-full h-full">
+          <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+        </div>
+      ) : photo ? (
         <>
           <img src={photo} alt={`Photo ${index + 1}`} className="w-full h-full object-cover" />
           <button
             onClick={onRemove}
             className="absolute top-1 right-1 w-6 h-6 rounded-full bg-background/80 flex items-center justify-center text-xs text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity"
-            style={{ visibility: photo ? "visible" : "hidden" }}
             data-testid={`button-remove-photo-${index}`}
           >
             x

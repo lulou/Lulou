@@ -10,6 +10,11 @@
   display: none;
 }
 
+@keyframes shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
 /* LIGHT MODE - Lulou: Warm Rose-Blush, Botanical, Romantic */
 :root {
   --button-outline: rgba(0,0,0, .10);

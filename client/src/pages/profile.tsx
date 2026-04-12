@@ -11,6 +11,7 @@ import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { useToast } from "@/hooks/use-toast";
 import { upsertProfile } from "@/lib/profile-upsert";
 import { apiRequest } from "@/lib/queryClient";
+import { convertPhotoToJpeg } from "@/lib/photo-utils";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -172,19 +173,23 @@ export default function ProfilePage() {
     setEditPhotos([]);
   };
 
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files) return;
-    Array.from(files).forEach(file => {
-      if (editPhotos.length >= 6) return;
-      const reader = new FileReader();
-      reader.onload = () => {
-        const result = reader.result as string;
-        setEditPhotos(prev => prev.length < 6 ? [...prev, result] : prev);
-      };
-      reader.readAsDataURL(file);
-    });
     if (fileInputRef.current) fileInputRef.current.value = "";
+    const fileArray = Array.from(files).slice(0, 6 - editPhotos.length);
+    for (const file of fileArray) {
+      try {
+        const jpeg = await convertPhotoToJpeg(file);
+        setEditPhotos(prev => prev.length < 6 ? [...prev, jpeg] : prev);
+      } catch (err: any) {
+        toast({
+          title: "Photo not added",
+          description: err?.message || "Could not process this photo. Try a JPEG or PNG.",
+          variant: "destructive",
+        });
+      }
+    }
   };
 
   const removeEditPhoto = (index: number) => {

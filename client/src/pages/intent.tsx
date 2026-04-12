@@ -14,19 +14,48 @@ import type { Profile } from "@shared/schema";
 // Lazy-loads a single photo for a wheel item or profile card.
 // Photos are excluded from the pool queries to prevent DB statement timeouts.
 function ProfilePhoto({ userId, className }: { userId: string; className?: string }) {
-  const { data } = useQuery<{ photos: string[] }>({
+  const { data, isLoading } = useQuery<{ photos: string[] }>({
     queryKey: ["/api/profiles", userId, "photos"],
     staleTime: 5 * 60 * 1000,
   });
-  const photo = data?.photos?.[0];
+  const [imgError, setImgError] = useState(false);
+
+  const photos = data?.photos ?? [];
+  const photo = !imgError ? photos[0] : photos.find((p, i) => i > 0);
+
+  if (isLoading) {
+    return (
+      <div
+        className={`${className ?? ""}`}
+        style={{
+          background: "linear-gradient(90deg, hsl(var(--muted)) 25%, hsl(var(--muted-foreground)/0.08) 50%, hsl(var(--muted)) 75%)",
+          backgroundSize: "200% 100%",
+          animation: "shimmer 1.4s infinite linear",
+        }}
+      />
+    );
+  }
+
   if (!photo) {
     return (
       <div className={`bg-muted flex items-center justify-center ${className ?? ""}`}>
-        <LulouFlowerIcon className="w-8 h-8 text-muted-foreground" />
+        <LulouFlowerIcon className="w-8 h-8 text-muted-foreground/40" />
       </div>
     );
   }
-  return <img src={photo} alt="" className={`object-cover ${className ?? ""}`} draggable={false} />;
+
+  return (
+    <img
+      src={photo}
+      alt=""
+      className={`object-cover ${className ?? ""}`}
+      draggable={false}
+      onError={() => {
+        console.warn("[ProfilePhoto] Image failed to render for userId:", userId, "type:", photo.substring(0, 30));
+        setImgError(true);
+      }}
+    />
+  );
 }
 
 const ITEM_WIDTH = 130;
