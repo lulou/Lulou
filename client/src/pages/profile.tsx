@@ -117,12 +117,14 @@ export default function ProfilePage() {
   const [purchasing, setPurchasing] = useState(false);
 
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    if (params.get("checkout") === "cancelled") {
-      toast({ title: "Payment cancelled", description: "Your purchase was not completed." });
-      const url = new URL(window.location.href);
-      url.searchParams.delete("checkout");
-      window.history.replaceState({}, "", url.toString());
+    if (window.location.pathname === "/profile") {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get("checkout") === "cancelled") {
+        toast({ title: "Payment cancelled", description: "Your purchase was not completed." });
+        const url = new URL(window.location.href);
+        url.searchParams.delete("checkout");
+        window.history.replaceState({}, "", url.toString());
+      }
     }
     const handlePageshow = (e: PageTransitionEvent) => {
       if (e.persisted) setPurchasing(false);

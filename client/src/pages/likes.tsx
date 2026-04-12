@@ -253,8 +253,9 @@ export default function LikesPage() {
   const isActive = useTabActive();
   const { toast } = useToast();
 
-  // Detect return from a cancelled Stripe checkout session
+  // Detect return from a cancelled Stripe checkout session (only when actually on /likes)
   useEffect(() => {
+    if (window.location.pathname !== "/likes") return;
     const params = new URLSearchParams(window.location.search);
     if (params.get("checkout") === "cancelled") {
       console.log("[ELEVATE] Stripe checkout was cancelled — user returned to Likes");
