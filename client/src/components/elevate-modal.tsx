@@ -77,7 +77,7 @@ type ElevateStatus = {
   superElevateCredits: number;
 };
 
-export function ElevateModal({ onClose }: { onClose: () => void }) {
+export function ElevateModal({ onClose, cancelPath = "/likes" }: { onClose: () => void; cancelPath?: string }) {
   const { toast } = useToast();
   const qc = useQueryClient();
   const [step, setStep] = useState<"browse" | "checkout">("browse");
@@ -173,7 +173,7 @@ export function ElevateModal({ onClose }: { onClose: () => void }) {
     if (!pending) return;
     setPurchasing(true);
     try {
-      const res = await apiRequest("POST", "/api/stripe/elevate-checkout", { packId: pending.id });
+      const res = await apiRequest("POST", "/api/stripe/elevate-checkout", { packId: pending.id, cancelPath });
       const data = await res.json();
       if (!data.url) {
         throw new Error(data.message ?? "No checkout URL returned");

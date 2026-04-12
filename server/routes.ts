@@ -1503,11 +1503,15 @@ export async function registerRoutes(
   app.post("/api/stripe/elevate-checkout", isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;
-      const { packId } = req.body;
+      const { packId, cancelPath } = req.body;
       const pack = ELEVATE_PACKS[packId as keyof typeof ELEVATE_PACKS];
       if (!pack) {
         return res.status(400).json({ message: "Invalid pack ID. Must be one of: elevate-1, elevate-3, elevate-5, super-elevate" });
       }
+
+      // Only allow known safe cancel paths — default to /likes
+      const allowedCancelPaths = ["/likes", "/profile"];
+      const safeCancelPath = allowedCancelPaths.includes(cancelPath) ? cancelPath : "/likes";
 
       const stripe = await getUncachableStripeClient();
       const domains = process.env.REPLIT_DOMAINS?.split(",")[0] ?? "localhost:5000";
@@ -1531,7 +1535,7 @@ export async function registerRoutes(
         line_items: [{ price_data: elevatePriceData, quantity: 1 }],
         mode: "payment",
         success_url: `${baseUrl}/elevate/success?session_id={CHECKOUT_SESSION_ID}&pack=${packId}`,
-        cancel_url: `${baseUrl}/likes?checkout=cancelled`,
+        cancel_url: `${baseUrl}${safeCancelPath}?checkout=cancelled`,
         metadata: { userId, packId, elevateType: pack.type, quantity: String(pack.quantity) },
       });
 

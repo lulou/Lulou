@@ -1153,7 +1153,7 @@ export default function ProfilePage() {
       </Button>
       </div>
 
-      {showElevate && <ElevateModal onClose={() => setShowElevate(false)} />}
+      {showElevate && <ElevateModal onClose={() => setShowElevate(false)} cancelPath="/profile" />}
     </div>
   );
 }
