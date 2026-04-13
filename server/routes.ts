@@ -120,6 +120,60 @@ async function broadcastCallEvent(matchId: string, event: Record<string, any>) {
   }
 }
 
+async function broadcastMessage(matchId: string, message: {
+  id: string; matchId: string; senderId: string; content: string;
+  reaction: string | null; createdAt: string | Date | null;
+}) {
+  const channelName = `chat:${matchId}`;
+  const existing = serverBroadcastChannels.get(channelName);
+  if (existing) {
+    const existingTimer = serverChannelTimers.get(channelName);
+    if (existingTimer) clearTimeout(existingTimer);
+    try {
+      await existing.send({ type: "broadcast", event: "new-message", payload: message });
+      console.log(`[MSG_BROADCAST] Sent via existing channel ${channelName}`);
+    } catch (err) {
+      console.error(`[MSG_BROADCAST] Send failed:`, err);
+    }
+    const timer = setTimeout(() => {
+      supabase.removeChannel(existing);
+      serverBroadcastChannels.delete(channelName);
+      serverChannelTimers.delete(channelName);
+    }, 60000);
+    serverChannelTimers.set(channelName, timer);
+    return;
+  }
+  try {
+    const channel = supabase.channel(channelName, { config: { broadcast: { self: false } } });
+    const subscribeTimeout = setTimeout(() => {
+      console.error(`[MSG_BROADCAST] Subscribe TIMEOUT for ${channelName}`);
+      supabase.removeChannel(channel);
+    }, 8000);
+    channel.subscribe((status) => {
+      if (status === "SUBSCRIBED") {
+        clearTimeout(subscribeTimeout);
+        serverBroadcastChannels.set(channelName, channel);
+        channel.send({ type: "broadcast", event: "new-message", payload: message })
+          .then(() => console.log(`[MSG_BROADCAST] Sent on new channel ${channelName}`))
+          .catch((err: any) => console.error(`[MSG_BROADCAST] Send error:`, err));
+        const timer = setTimeout(() => {
+          supabase.removeChannel(channel);
+          serverBroadcastChannels.delete(channelName);
+          serverChannelTimers.delete(channelName);
+        }, 60000);
+        serverChannelTimers.set(channelName, timer);
+      } else if (status === "CLOSED" || status === "CHANNEL_ERROR") {
+        clearTimeout(subscribeTimeout);
+        console.error(`[MSG_BROADCAST] Channel ${status} for ${channelName}`);
+        supabase.removeChannel(channel);
+        serverBroadcastChannels.delete(channelName);
+      }
+    });
+  } catch (err) {
+    console.error(`[MSG_BROADCAST] Failed to create channel for ${channelName}:`, err);
+  }
+}
+
 function getStorage(req: any): SupabaseStorage {
   const auth = req.headers.authorization;
   if (auth) {
@@ -590,6 +644,16 @@ export async function registerRoutes(
         matchId,
         senderId: userId,
         content: content.trim(),
+      });
+
+      // Broadcast immediately via Supabase Broadcast (fire-and-forget — ~50ms vs WAL's ~300ms)
+      broadcastMessage(matchId, {
+        id: message.id,
+        matchId: message.matchId,
+        senderId: message.senderId,
+        content: message.content,
+        reaction: message.reaction,
+        createdAt: message.createdAt,
       });
 
       await storage.incrementMessageCount(matchId, userId);

@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useCallback } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import type { Match, Profile, Message } from "@shared/schema";
@@ -9,14 +9,94 @@ type MatchWithProfile = Match & { profile: Profile; lastMessage: LastMessage | n
 
 export function useRealtimeMessages(matchId: string | undefined, enabled: boolean) {
   const queryClient = useQueryClient();
-  const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+  const broadcastChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+  const pgChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+
+  // Shared handler — called by both broadcast and postgres_changes
+  const handleNewMessage = useCallback((row: any) => {
+    if (!row || !matchId) return;
+
+    const newMsg: Message = {
+      id: row.id,
+      matchId: row.match_id ?? row.matchId,
+      senderId: row.sender_id ?? row.senderId,
+      content: row.content,
+      reaction: row.reaction ?? null,
+      createdAt: row.created_at ?? row.createdAt,
+    };
+
+    // 1. Update the open chat detail — append or replace temp optimistic message
+    queryClient.setQueryData<MatchDetail>(
+      ["/api/matches", matchId],
+      (old) => {
+        if (!old) {
+          queryClient.invalidateQueries({ queryKey: ["/api/matches", matchId] });
+          return old;
+        }
+        // Already have this real message id
+        if (old.messages?.some((m) => m.id === newMsg.id)) return old;
+
+        // Try to replace a matching temp (optimistic) message
+        const tempIdx = old.messages?.findIndex(
+          (m) =>
+            typeof m.id === "string" &&
+            m.id.startsWith("temp-") &&
+            m.content === newMsg.content &&
+            m.senderId === newMsg.senderId
+        );
+        if (tempIdx !== undefined && tempIdx >= 0) {
+          const updated = [...old.messages];
+          updated[tempIdx] = newMsg;
+          return { ...old, messages: updated };
+        }
+
+        return { ...old, messages: [...(old.messages || []), newMsg] };
+      }
+    );
+
+    // 2. Update last-message preview in the matches list
+    if (!newMsg.content.startsWith("__SCHEDULE__")) {
+      queryClient.setQueryData<MatchWithProfile[]>(["/api/matches"], (list) => {
+        if (!list) return list;
+        return list.map((m) =>
+          m.id === matchId
+            ? {
+                ...m,
+                lastMessage: {
+                  content: newMsg.content,
+                  senderId: newMsg.senderId,
+                  createdAt: newMsg.createdAt ? new Date(newMsg.createdAt as string) : null,
+                },
+              }
+            : m
+        );
+      });
+    }
+  }, [matchId, queryClient]);
 
   useEffect(() => {
     if (!matchId || !enabled) return;
 
-    const channelName = `messages:${matchId}`;
-    const channel = supabase
-      .channel(channelName)
+    // ── Channel 1: Supabase Broadcast — instant delivery from server (~50ms) ──
+    // Server calls broadcastMessage() right after inserting, no WAL delay.
+    const broadcastChannelName = `chat:${matchId}`;
+    const broadcastChannel = supabase
+      .channel(broadcastChannelName, { config: { broadcast: { self: true } } })
+      .on("broadcast", { event: "new-message" }, ({ payload }) => {
+        console.log("[REALTIME] BROADCAST_MSG_RECEIVED", { matchId, id: payload?.id });
+        handleNewMessage(payload);
+      })
+      .subscribe((status) => {
+        console.log("[REALTIME] BROADCAST_STATUS", { matchId, status });
+      });
+
+    broadcastChannelRef.current = broadcastChannel;
+
+    // ── Channel 2: postgres_changes — WAL-based fallback/reconciliation (~200-500ms) ──
+    // Catches any messages the broadcast might miss (e.g. server channel not yet subscribed).
+    const pgChannelName = `messages:${matchId}`;
+    const pgChannel = supabase
+      .channel(pgChannelName)
       .on(
         "postgres_changes" as any,
         {
@@ -26,74 +106,25 @@ export function useRealtimeMessages(matchId: string | undefined, enabled: boolea
           filter: `match_id=eq.${matchId}`,
         },
         (payload: any) => {
-          const row = payload.new;
-          if (!row) return;
-
-          const newMsg: Message = {
-            id: row.id,
-            matchId: row.match_id,
-            senderId: row.sender_id,
-            content: row.content,
-            reaction: row.reaction ?? null,
-            createdAt: row.created_at,
-          };
-
-          // 1. Update the open chat detail — append or replace temp optimistic message
-          queryClient.setQueryData<MatchDetail>(
-            ["/api/matches", matchId],
-            (old) => {
-              if (!old) {
-                queryClient.invalidateQueries({ queryKey: ["/api/matches", matchId] });
-                return old;
-              }
-              const exists = old.messages?.some((m) => m.id === newMsg.id);
-              if (exists) return old;
-              const tempIdx = old.messages?.findIndex(
-                (m) =>
-                  typeof m.id === "string" &&
-                  m.id.startsWith("temp-") &&
-                  m.content === newMsg.content &&
-                  m.senderId === newMsg.senderId
-              );
-              if (tempIdx !== undefined && tempIdx >= 0) {
-                const updated = [...old.messages];
-                updated[tempIdx] = newMsg;
-                return { ...old, messages: updated };
-              }
-              return {
-                ...old,
-                messages: [...(old.messages || []), newMsg],
-              };
-            }
-          );
-
-          // 2. Update last-message preview in the matches list (skip internal schedule messages)
-          if (!newMsg.content.startsWith("__SCHEDULE__")) {
-            queryClient.setQueryData<MatchWithProfile[]>(["/api/matches"], (list) => {
-              if (!list) return list;
-              return list.map((m) =>
-                m.id === matchId
-                  ? {
-                      ...m,
-                      lastMessage: {
-                        content: newMsg.content,
-                        senderId: newMsg.senderId,
-                        createdAt: newMsg.createdAt ? new Date(newMsg.createdAt as string) : null,
-                      },
-                    }
-                  : m
-              );
-            });
-          }
+          console.log("[REALTIME] PG_MSG_RECEIVED", { matchId, id: payload.new?.id });
+          handleNewMessage(payload.new);
         }
       )
-      .subscribe();
+      .subscribe((status) => {
+        console.log("[REALTIME] PG_STATUS", { matchId, status });
+      });
 
-    channelRef.current = channel;
+    pgChannelRef.current = pgChannel;
 
     return () => {
-      supabase.removeChannel(channel);
-      channelRef.current = null;
+      if (broadcastChannelRef.current) {
+        supabase.removeChannel(broadcastChannelRef.current);
+        broadcastChannelRef.current = null;
+      }
+      if (pgChannelRef.current) {
+        supabase.removeChannel(pgChannelRef.current);
+        pgChannelRef.current = null;
+      }
     };
-  }, [matchId, enabled, queryClient]);
+  }, [matchId, enabled, handleNewMessage]);
 }
