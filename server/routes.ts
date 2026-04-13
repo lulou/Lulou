@@ -829,8 +829,8 @@ export async function registerRoutes(
       console.log("[CALL_ANSWER] CALL_API_REQUEST", { path: "/api/matches/:matchId/call/answer", matchId, userId, timestamp: new Date().toISOString() });
       const match = await serverStorage.answerCall(matchId, userId);
       if (!match) {
-        console.log("[CALL_ANSWER] CALL_API_RESPONSE", { status: 404, matchId, userId });
-        return res.status(404).json({ message: "Match not found or you cannot answer your own call" });
+        console.log("[CALL_ANSWER] CALL_API_RESPONSE_404", { matchId, userId, reason: "answerCall returned null — match not found, user not in match, no active call, or trying to answer own call" });
+        return res.status(404).json({ message: "No active call to answer — it may have been cancelled" });
       }
       console.log("[CALL_ANSWER] CALL_API_RESPONSE", { status: 200, matchId, CALL_SESSION_ID: match.callSessionId, userId });
       broadcastCallEvent(matchId, {
