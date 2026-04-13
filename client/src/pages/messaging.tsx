@@ -318,7 +318,7 @@ export default function Messaging() {
   const queryClient = useQueryClient();
   const [message, setMessage] = useState("");
   const [showCloseConfirm, setShowCloseConfirm] = useState(false);
-  const [showProfile, setShowProfile] = useState(false);
+  const [activeTab, setActiveTab] = useState<"chat" | "profile">("chat");
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const isAtBottomRef = useRef(true);
@@ -508,164 +508,79 @@ export default function Messaging() {
   const profile = matchDetail.profile;
 
   return (
-    <div className="relative flex-1 flex flex-col h-full">
-      {/* ── Profile overlay — slides over the chat when tapping name/avatar ── */}
-      {showProfile && (
-        <div className="absolute inset-0 z-20 bg-background flex flex-col overflow-hidden">
-          <div className="p-4 border-b flex items-center gap-3 bg-background">
-            <Button variant="ghost" size="icon" onClick={() => setShowProfile(false)} data-testid="button-back-to-chat">
-              <ArrowLeft className="w-5 h-5" />
-            </Button>
-            <h2 className="font-semibold flex-1 truncate">{profile.firstName}</h2>
-          </div>
+    <div className="flex-1 flex flex-col overflow-hidden">
+      {/* ── Header ── */}
+      <div className="px-4 pt-3 pb-0 border-b bg-background">
+        <div className="flex items-center gap-3 pb-3">
+          <Button variant="ghost" size="icon" onClick={() => navigate("/matches")} data-testid="button-back-to-matches">
+            <ArrowLeft className="w-5 h-5" />
+          </Button>
 
-          <div className="flex-1 overflow-y-auto">
-            {/* Photos — horizontal scroll */}
-            {profile.photos?.length > 0 && (
-              <div className="flex gap-2 overflow-x-auto px-4 pt-4 pb-1 snap-x snap-mandatory">
-                {profile.photos.map((photo, i) => (
-                  <img
-                    key={i}
-                    src={photo}
-                    alt={`${profile.firstName} photo ${i + 1}`}
-                    className="w-64 h-80 object-cover rounded-xl flex-shrink-0 snap-start"
-                    data-testid={`img-profile-photo-${i}`}
-                  />
-                ))}
-              </div>
-            )}
-
-            <div className="px-4 pt-4 pb-8 space-y-5">
-              {/* Name + age + basics */}
-              <div>
-                <h3 className="text-xl font-semibold">{profile.firstName}, {profile.age}</h3>
-                <div className="flex flex-wrap gap-x-3 gap-y-1 mt-1">
-                  {profile.location && (
-                    <p className="text-sm text-muted-foreground flex items-center gap-1">
-                      <MapPin className="w-3.5 h-3.5 flex-shrink-0" />{profile.location}
-                    </p>
-                  )}
-                  {profile.height && (
-                    <p className="text-sm text-muted-foreground flex items-center gap-1">
-                      <Ruler className="w-3.5 h-3.5 flex-shrink-0" />{profile.height}
-                    </p>
-                  )}
-                </div>
-              </div>
-
-              {/* Here for */}
-              {profile.datingIntent && (
-                <div>
-                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">Here for</p>
-                  <Badge variant="secondary" className="text-sm">{profile.datingIntent}</Badge>
-                </div>
-              )}
-
-              {/* Signals / vibe */}
-              {profile.signals?.length > 0 && (
-                <div>
-                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">Vibe</p>
-                  <div className="flex flex-wrap gap-1.5">
-                    {profile.signals.map((s, i) => (
-                      <Badge key={i} variant="outline" className="text-xs">{s}</Badge>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Green flags */}
-              {profile.greenFlags?.length > 0 && (
-                <div>
-                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">Green flags</p>
-                  <div className="flex flex-col gap-1">
-                    {profile.greenFlags.map((f, i) => (
-                      <p key={i} className="text-sm flex items-start gap-1.5">
-                        <span className="text-emerald-500 mt-0.5">✓</span>{f}
-                      </p>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Connection style */}
-              {profile.connectionStyle && (
-                <div>
-                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1">Connection style</p>
-                  <p className="text-sm">{profile.connectionStyle}</p>
-                </div>
-              )}
-
-              {/* Conversation starters */}
-              {profile.conversationStarters && profile.conversationStarters.length > 0 && (
-                <div>
-                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">Ask me about</p>
-                  <div className="space-y-1.5">
-                    {profile.conversationStarters.map((cs, i) => (
-                      <p key={i} className="text-sm text-muted-foreground italic">"{cs}"</p>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Back to chat CTA */}
-          <div className="p-4 border-t bg-background">
-            <Button className="w-full" onClick={() => setShowProfile(false)} data-testid="button-return-to-chat">
-              <MessageCircle className="w-4 h-4 mr-2" /> Back to chat
-            </Button>
-          </div>
-        </div>
-      )}
-
-      {/* ── Chat header ── */}
-      <div className="p-4 border-b flex items-center gap-3 bg-background">
-        <Button variant="ghost" size="icon" onClick={() => navigate("/matches")} data-testid="button-back-to-matches">
-          <ArrowLeft className="w-5 h-5" />
-        </Button>
-
-        {/* Tappable profile link */}
-        <button
-          className="flex items-center gap-2.5 flex-1 min-w-0 py-1 -my-1 rounded-lg hover:bg-muted/50 active:bg-muted/70 transition-colors text-left"
-          onClick={() => setShowProfile(true)}
-          data-testid="button-view-match-profile"
-        >
           <Avatar className="w-9 h-9 flex-shrink-0">
             <AvatarImage src={profile.photos?.[0]} alt={profile.firstName} />
             <AvatarFallback className="bg-primary/10 text-primary text-sm font-semibold">
               {profile.firstName?.[0]}
             </AvatarFallback>
           </Avatar>
+
           <div className="min-w-0 flex-1">
             <h3 className="font-semibold text-sm leading-tight truncate" data-testid="text-chat-name">{profile.firstName}</h3>
-            <p className="text-xs text-muted-foreground">View profile</p>
           </div>
-          <ChevronRight className="w-4 h-4 text-muted-foreground flex-shrink-0" />
-        </button>
 
-        <Badge variant="outline" className="text-xs flex-shrink-0" data-testid="badge-messages-remaining">
-          {statusLabel}
-        </Badge>
-        {!showCloseConfirm ? (
-          <Button variant="ghost" size="icon" onClick={() => setShowCloseConfirm(true)} data-testid="button-close-connection">
-            <Moon className="w-4 h-4 text-muted-foreground" />
-          </Button>
-        ) : (
-          <div className="flex items-center gap-1">
-            <Button
-              size="sm"
-              variant="destructive"
-              onClick={() => closeConnection.mutate()}
-              disabled={closeConnection.isPending}
-              data-testid="button-confirm-close"
-            >
-              {closeConnection.isPending ? "Closing..." : "Close Connection"}
+          <Badge variant="outline" className="text-xs flex-shrink-0" data-testid="badge-messages-remaining">
+            {statusLabel}
+          </Badge>
+          {!showCloseConfirm ? (
+            <Button variant="ghost" size="icon" onClick={() => setShowCloseConfirm(true)} data-testid="button-close-connection">
+              <Moon className="w-4 h-4 text-muted-foreground" />
             </Button>
-            <Button size="sm" variant="outline" onClick={() => setShowCloseConfirm(false)} data-testid="button-cancel-close">
-              Keep
-            </Button>
-          </div>
-        )}
+          ) : (
+            <div className="flex items-center gap-1">
+              <Button
+                size="sm"
+                variant="destructive"
+                onClick={() => closeConnection.mutate()}
+                disabled={closeConnection.isPending}
+                data-testid="button-confirm-close"
+              >
+                {closeConnection.isPending ? "Closing..." : "Close"}
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => setShowCloseConfirm(false)} data-testid="button-cancel-close">
+                Keep
+              </Button>
+            </div>
+          )}
+        </div>
+
+        {/* ── Chat / Profile tab bar ── */}
+        <div className="flex" role="tablist">
+          <button
+            role="tab"
+            aria-selected={activeTab === "chat"}
+            onClick={() => setActiveTab("chat")}
+            className={`flex-1 py-2 text-sm font-medium border-b-2 transition-colors ${
+              activeTab === "chat"
+                ? "border-primary text-primary"
+                : "border-transparent text-muted-foreground hover:text-foreground"
+            }`}
+            data-testid="tab-chat"
+          >
+            Chat
+          </button>
+          <button
+            role="tab"
+            aria-selected={activeTab === "profile"}
+            onClick={() => setActiveTab("profile")}
+            className={`flex-1 py-2 text-sm font-medium border-b-2 transition-colors ${
+              activeTab === "profile"
+                ? "border-primary text-primary"
+                : "border-transparent text-muted-foreground hover:text-foreground"
+            }`}
+            data-testid="tab-profile"
+          >
+            Profile
+          </button>
+        </div>
       </div>
 
       {showCloseConfirm && (
@@ -676,110 +591,210 @@ export default function Messaging() {
         </div>
       )}
 
-      <div ref={messagesContainerRef} onScroll={handleMessagesScroll} className="flex-1 overflow-y-auto p-4 space-y-3" data-testid="messages-container">
-        {matchDetail.messages?.length === 0 && (
-          <div className="text-center py-12 space-y-2">
-            <p className="text-muted-foreground text-sm">This is the beginning of your conversation</p>
-            <p className="text-xs text-muted-foreground">You each have {MAX_MESSAGES_PER_USER} messages. Make them count.</p>
-          </div>
-        )}
-        {matchDetail.messages?.map(msg => {
-          const isMe = msg.senderId === user?.id;
-          const hasReaction = msg.reaction && typeof msg.reaction === 'string' && msg.reaction.length > 0;
-          if (hasReaction) {
-            console.log("[CHAT] MESSAGE_REACTION_RENDERED", { messageId: msg.id, reaction: msg.reaction });
-          }
-          return (
-            <div key={msg.id} className={`flex ${isMe ? "justify-end" : "justify-start"} ${hasReaction ? "mb-2" : ""}`}>
-              <div className="relative">
-                <div
-                  className={`max-w-[75vw] rounded-md px-4 py-3 text-sm select-none ${
-                    isMe
-                      ? "bg-primary text-primary-foreground"
-                      : "bg-card border cursor-pointer"
-                  } ${!isMe ? "active:scale-[0.98] transition-transform" : ""}`}
-                  onClick={() => handleMessageTap(msg)}
-                  data-testid={`message-${msg.id}`}
-                >
-                  <p className="leading-relaxed">{msg.content}</p>
-                  <p className={`text-[10px] mt-1.5 leading-none opacity-60 ${isMe ? "text-primary-foreground" : "text-muted-foreground"}`}>
-                    {msg.createdAt ? new Date(msg.createdAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : ""}
-                  </p>
+      {/* ── Chat tab ── */}
+      {activeTab === "chat" && (
+        <>
+          <div ref={messagesContainerRef} onScroll={handleMessagesScroll} className="flex-1 overflow-y-auto p-4 space-y-3 min-h-0" data-testid="messages-container">
+            {matchDetail.messages?.length === 0 && (
+              <div className="text-center py-12 space-y-2">
+                <p className="text-muted-foreground text-sm">This is the beginning of your conversation</p>
+                <p className="text-xs text-muted-foreground">You each have {MAX_MESSAGES_PER_USER} messages. Make them count.</p>
+              </div>
+            )}
+            {matchDetail.messages?.map(msg => {
+              const isMe = msg.senderId === user?.id;
+              const hasReaction = msg.reaction && typeof msg.reaction === 'string' && msg.reaction.length > 0;
+              if (hasReaction) {
+                console.log("[CHAT] MESSAGE_REACTION_RENDERED", { messageId: msg.id, reaction: msg.reaction });
+              }
+              return (
+                <div key={msg.id} className={`flex ${isMe ? "justify-end" : "justify-start"} ${hasReaction ? "mb-2" : ""}`}>
+                  <div className="relative">
+                    <div
+                      className={`max-w-[75vw] rounded-md px-4 py-3 text-sm select-none ${
+                        isMe
+                          ? "bg-primary text-primary-foreground"
+                          : "bg-card border cursor-pointer"
+                      } ${!isMe ? "active:scale-[0.98] transition-transform" : ""}`}
+                      onClick={() => handleMessageTap(msg)}
+                      data-testid={`message-${msg.id}`}
+                    >
+                      <p className="leading-relaxed">{msg.content}</p>
+                      <p className={`text-[10px] mt-1.5 leading-none opacity-60 ${isMe ? "text-primary-foreground" : "text-muted-foreground"}`}>
+                        {msg.createdAt ? new Date(msg.createdAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : ""}
+                      </p>
+                    </div>
+                    {hasReaction && (
+                      <span
+                        className={`absolute -bottom-2.5 ${isMe ? "left-1" : "right-1"} text-sm drop-shadow-sm`}
+                        data-testid={`reaction-${msg.id}`}
+                      >
+                        ❤️
+                      </span>
+                    )}
+                  </div>
                 </div>
-                {hasReaction && (
-                  <span
-                    className={`absolute -bottom-2.5 ${isMe ? "left-1" : "right-1"} text-sm drop-shadow-sm`}
-                    data-testid={`reaction-${msg.id}`}
-                  >
-                    ❤️
-                  </span>
+              );
+            })}
+            <div ref={messagesEndRef} />
+          </div>
+
+          {(isLimitReached || callStage > 0) && !allCallsDone ? (
+            <div className="p-4 border-t">
+              <Card className="p-5 text-center space-y-3 bg-primary/5 border-primary/20">
+                <callPrompt.icon className="w-6 h-6 text-primary mx-auto" />
+                <p className="font-medium text-sm">{callPrompt.title}</p>
+                <p className="text-xs text-muted-foreground">{callPrompt.desc}</p>
+                {callStage === 2 ? (
+                  <Button size="sm" onClick={() => navigate("/matches")} data-testid="button-go-to-connections">
+                    <Video className="w-4 h-4 mr-2" /> Go to Connections
+                  </Button>
+                ) : callPrompt.button ? (
+                  <Button size="sm" onClick={() => navigate("/matches")} data-testid="button-call-prompt">
+                    <Phone className="w-4 h-4 mr-2" /> {callPrompt.button}
+                  </Button>
+                ) : null}
+              </Card>
+            </div>
+          ) : allCallsDone ? (
+            <ReadyToMeetSection matchDetail={matchDetail} matchId={matchId!} />
+          ) : (
+            <div className="p-4 border-t">
+              <div className="flex gap-2 items-end">
+                <Textarea
+                  value={message}
+                  onChange={e => setMessage(e.target.value.slice(0, MAX_CHARS))}
+                  placeholder="Write something meaningful..."
+                  className="resize-none min-h-[44px] max-h-[120px] text-sm"
+                  onKeyDown={e => {
+                    if (e.key === "Enter" && !e.shiftKey) {
+                      e.preventDefault();
+                      if (message.trim()) {
+                        const content = message.trim();
+                        setMessage("");
+                        forceScrollRef.current = true;
+                        sendMessage.mutate({ content, tempId: `temp-${Date.now()}-${Math.random().toString(36).slice(2)}` });
+                      }
+                    }
+                  }}
+                  data-testid="input-message"
+                />
+                <Button
+                  size="icon"
+                  onClick={() => {
+                    if (message.trim()) {
+                      const content = message.trim();
+                      setMessage("");
+                      forceScrollRef.current = true;
+                      sendMessage.mutate({ content, tempId: `temp-${Date.now()}-${Math.random().toString(36).slice(2)}` });
+                    }
+                  }}
+                  disabled={!message.trim()}
+                  data-testid="button-send"
+                >
+                  <Send className="w-4 h-4" />
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground mt-1 text-right">
+                {message.length}/{MAX_CHARS}
+              </p>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* ── Profile tab ── */}
+      {activeTab === "profile" && (
+        <div className="flex-1 overflow-y-auto min-h-0" data-testid="profile-tab-content">
+          {profile.photos?.length > 0 && (
+            <div className="flex gap-2 overflow-x-auto px-4 pt-4 pb-1 snap-x snap-mandatory">
+              {profile.photos.map((photo, i) => (
+                <img
+                  key={i}
+                  src={photo}
+                  alt={`${profile.firstName} photo ${i + 1}`}
+                  className="w-64 h-80 object-cover rounded-xl flex-shrink-0 snap-start"
+                  data-testid={`img-profile-photo-${i}`}
+                />
+              ))}
+            </div>
+          )}
+
+          <div className="px-4 pt-4 pb-8 space-y-5">
+            <div>
+              <h3 className="text-xl font-semibold">{profile.firstName}, {profile.age}</h3>
+              <div className="flex flex-wrap gap-x-3 gap-y-1 mt-1">
+                {profile.location && (
+                  <p className="text-sm text-muted-foreground flex items-center gap-1">
+                    <MapPin className="w-3.5 h-3.5 flex-shrink-0" />{profile.location}
+                  </p>
+                )}
+                {profile.height && (
+                  <p className="text-sm text-muted-foreground flex items-center gap-1">
+                    <Ruler className="w-3.5 h-3.5 flex-shrink-0" />{profile.height}
+                  </p>
                 )}
               </div>
             </div>
-          );
-        })}
-        <div ref={messagesEndRef} />
-      </div>
 
-      {(isLimitReached || callStage > 0) && !allCallsDone ? (
-        <div className="p-4 border-t">
-          <Card className="p-5 text-center space-y-3 bg-primary/5 border-primary/20">
-            <callPrompt.icon className="w-6 h-6 text-primary mx-auto" />
-            <p className="font-medium text-sm">{callPrompt.title}</p>
-            <p className="text-xs text-muted-foreground">{callPrompt.desc}</p>
-            {callStage === 2 ? (
-              <Button size="sm" onClick={() => navigate("/matches")} data-testid="button-go-to-connections">
-                <Video className="w-4 h-4 mr-2" /> Go to Connections
-              </Button>
-            ) : callPrompt.button ? (
-              <Button size="sm" onClick={() => navigate("/matches")} data-testid="button-call-prompt">
-                <Phone className="w-4 h-4 mr-2" /> {callPrompt.button}
-              </Button>
-            ) : null}
-          </Card>
-        </div>
-      ) : allCallsDone ? (
-        <ReadyToMeetSection matchDetail={matchDetail} matchId={matchId!} />
-      ) : (
-        <div className="p-4 border-t">
-          <div className="flex gap-2 items-end">
-            <Textarea
-              value={message}
-              onChange={e => setMessage(e.target.value.slice(0, MAX_CHARS))}
-              placeholder="Write something meaningful..."
-              className="resize-none min-h-[44px] max-h-[120px] text-sm"
-              onKeyDown={e => {
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  if (message.trim()) {
-                    const content = message.trim();
-                    setMessage("");
-                    forceScrollRef.current = true;
-                    sendMessage.mutate({ content, tempId: `temp-${Date.now()}-${Math.random().toString(36).slice(2)}` });
-                  }
-                }
-              }}
-              data-testid="input-message"
-            />
+            {profile.datingIntent && (
+              <div>
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">Here for</p>
+                <Badge variant="secondary" className="text-sm">{profile.datingIntent}</Badge>
+              </div>
+            )}
+
+            {profile.signals?.length > 0 && (
+              <div>
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">Vibe</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {profile.signals.map((s, i) => (
+                    <Badge key={i} variant="outline" className="text-xs">{s}</Badge>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {profile.greenFlags?.length > 0 && (
+              <div>
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">Green flags</p>
+                <div className="flex flex-col gap-1">
+                  {profile.greenFlags.map((f, i) => (
+                    <p key={i} className="text-sm flex items-start gap-1.5">
+                      <span className="text-emerald-500 mt-0.5">✓</span>{f}
+                    </p>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {profile.connectionStyle && (
+              <div>
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1">Connection style</p>
+                <p className="text-sm">{profile.connectionStyle}</p>
+              </div>
+            )}
+
+            {profile.conversationStarters && profile.conversationStarters.length > 0 && (
+              <div>
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">Ask me about</p>
+                <div className="space-y-1.5">
+                  {profile.conversationStarters.map((cs, i) => (
+                    <p key={i} className="text-sm text-muted-foreground italic">"{cs}"</p>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <Button
-              size="icon"
-              onClick={() => {
-                if (message.trim()) {
-                  const content = message.trim();
-                  setMessage("");
-                  forceScrollRef.current = true;
-                  sendMessage.mutate({ content, tempId: `temp-${Date.now()}-${Math.random().toString(36).slice(2)}` });
-                }
-              }}
-              disabled={!message.trim()}
-              data-testid="button-send"
+              variant="outline"
+              className="w-full"
+              onClick={() => setActiveTab("chat")}
+              data-testid="button-return-to-chat"
             >
-              <Send className="w-4 h-4" />
+              <MessageCircle className="w-4 h-4 mr-2" /> Back to chat
             </Button>
           </div>
-          <p className="text-xs text-muted-foreground mt-1 text-right">
-            {message.length}/{MAX_CHARS}
-          </p>
         </div>
       )}
     </div>
