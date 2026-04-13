@@ -117,13 +117,20 @@ export default function ProfilePage() {
   const [purchasing, setPurchasing] = useState(false);
 
   useEffect(() => {
+    // Only detect Stripe cancel when the URL actually has ?checkout=cancelled.
+    // This effect runs once on mount — if ProfilePage is incorrectly unmounted/remounted
+    // due to a routing bug, this will fire again. The [STRIPE_CANCEL] log below will
+    // reveal if that is happening. Routing fixes in App.tsx should prevent remounting.
     if (window.location.pathname === "/profile") {
       const params = new URLSearchParams(window.location.search);
       if (params.get("checkout") === "cancelled") {
+        console.log("[STRIPE_CANCEL] Detected ?checkout=cancelled on /profile — showing toast and clearing param");
         toast({ title: "Payment cancelled", description: "Your purchase was not completed." });
         const url = new URL(window.location.href);
         url.searchParams.delete("checkout");
         window.history.replaceState({}, "", url.toString());
+      } else {
+        console.log("[STRIPE_CANCEL] ProfilePage mounted on /profile — no cancel param present, no toast shown");
       }
     }
     const handlePageshow = (e: PageTransitionEvent) => {
@@ -289,14 +296,22 @@ export default function ProfilePage() {
       console.log("[PHOTOS] Server save response: ok, photos in DB:", data?.photos?.length ?? "unknown");
       return data;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/profile"] });
+    onSuccess: (data) => {
+      // Update the profile data cache directly — do NOT invalidate.
+      // Invalidating ["/api/profile"] previously caused a race condition where
+      // AppContent's existence-check query and ProfilePage's data query both tried to
+      // refetch the same key. If the data fetcher won the race it would store a real
+      // Profile object under the key that AppContent reads as ProfileCheckResult, making
+      // profileExists evaluate to false and sending the user to onboarding.
+      // setQueryData avoids any refetch and keeps the user on the Profile page.
+      console.log("[PHOTOS] Save successful — updating profile cache directly, staying on Profile page");
+      queryClient.setQueryData(["/api/profile"], data);
       toast({ title: "Photos updated" });
       setEditingPhotos(false);
       setEditPhotos([]);
     },
     onError: (err: any) => {
-      console.error("[PHOTOS] Save failed:", err?.message ?? err);
+      console.error("[PHOTOS] Save failed — staying on Profile page:", err?.message ?? err);
       toast({ title: "Could not save photos", description: err?.message || "Please try again.", variant: "destructive" });
     },
   });

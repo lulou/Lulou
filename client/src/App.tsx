@@ -331,9 +331,20 @@ async function checkProfileExists(): Promise<ProfileCheckResult> {
 function AppContent() {
   const { user, isLoading: authLoading, profileReady } = useAuth();
 
+  // IMPORTANT: This query uses a dedicated key "profile-exists-check" that is intentionally
+  // separate from the "/api/profile" key used by ProfilePage for data.
+  // Sharing the same key caused cache contamination: ProfilePage's default fetcher would
+  // write a real Profile object into the cache, this component would read it as
+  // ProfileCheckResult and see exists=undefined (falsy) → routing to onboarding.
+  // Never invalidate "profile-exists-check" from within the authenticated app — it only
+  // needs to run once on login. Profile edits should invalidate "/api/profile" only.
   const { data, isLoading: profileLoading } = useQuery<ProfileCheckResult>({
-    queryKey: ["/api/profile"],
-    queryFn: () => user ? checkProfileExists() : Promise.resolve({ exists: false, fetchFailed: false }),
+    queryKey: ["profile-exists-check"],
+    queryFn: () => {
+      if (!user) return Promise.resolve({ exists: false, fetchFailed: false });
+      console.log("[ROUTING] Checking profile existence (dedicated key)");
+      return checkProfileExists();
+    },
     enabled: !!user && profileReady,
     retry: false,
   });
@@ -386,8 +397,11 @@ function AppContent() {
   }
 
   if (!profileExists) {
+    console.log("[ROUTING] Rendering Onboarding — profileExists=false, fetchFailed=", fetchFailed, "profileLoading=", profileLoading);
     return <Onboarding existingProfile={null} userEmail={user?.email ?? ""} />;
   }
+
+  console.log("[ROUTING] Rendering app tabs — profile confirmed to exist");
 
   return (
     <Switch>
