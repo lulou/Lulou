@@ -1052,8 +1052,10 @@ export async function registerRoutes(
     try {
       const storage = getStorage(req);
       const userId = req.user.id;
-      const incoming = await storage.getIncomingSpinRequests(userId);
-      const outgoing = await storage.getOutgoingSpinRequests(userId);
+      const [incoming, outgoing] = await Promise.all([
+        storage.getIncomingSpinRequests(userId),
+        storage.getOutgoingSpinRequests(userId),
+      ]);
       res.json({ incoming, outgoing });
     } catch (error) {
       console.error("Error fetching spin requests:", error);

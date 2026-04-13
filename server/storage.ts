@@ -532,43 +532,89 @@ export class SupabaseStorage implements IStorage {
   }
 
   async getMatchesForUser(userId: string): Promise<(Match & { profile: Profile; lastMessage: { content: string; senderId: string; createdAt: Date | null } | null })[]> {
+    const t0 = Date.now();
+
     const { data: userMatches, error } = await this.sb
       .from("matches")
       .select("*")
       .eq("status", "active")
       .or(`user1_id.eq.${userId},user2_id.eq.${userId}`);
 
-    if (error || !userMatches || userMatches.length === 0) return [];
+    if (error || !userMatches || userMatches.length === 0) {
+      console.log("[CHAT] CONNECTIONS_EMPTY", { userId, error: error?.message, ms: Date.now() - t0 });
+      return [];
+    }
 
-    // Parallelise: fetch all profiles and last messages concurrently (eliminates N+1)
-    const settled = await Promise.all(
-      userMatches.map(async (row) => {
-        const match = mapMatch(row);
-        const otherUserId = match.user1Id === userId ? match.user2Id : match.user1Id;
+    // Collect all other user IDs and match IDs in one pass
+    const otherUserIds: string[] = [];
+    const matchIds: string[] = [];
+    for (const row of userMatches) {
+      otherUserIds.push(row.user1_id === userId ? row.user2_id : row.user1_id);
+      matchIds.push(row.id);
+    }
 
-        const [profileResult, lastMsgResult] = await Promise.all([
-          this.sb.from("profiles").select("*").eq("user_id", otherUserId).maybeSingle(),
-          this.sb.from("messages")
-            .select("content, sender_id, created_at")
-            .eq("match_id", match.id)
-            .not("content", "like", "__SCHEDULE__%")
-            .order("created_at", { ascending: false })
-            .limit(1)
-            .maybeSingle(),
-        ]);
+    // --- 2 parallel batch queries instead of 2N individual queries ---
+    // Profiles: ONE .in() query, no photos (same POOL_COLS used by discover — avoids 900KB/profile transfer)
+    // Messages: ONE .in() query returning recent messages for all matches, pick last per match in JS
+    const LIST_PROFILE_COLS = [
+      "id", "user_id", "first_name", "age", "gender", "dating_preference",
+      "location", "height", "signals", "dating_intent", "green_flags",
+      "connection_style", "conversation_starters", "questions",
+      "location_radius", "preferred_age_min", "preferred_age_max",
+      "email", "phone_number", "photo_verified", "onboarding_complete",
+      "elevate_type", "elevate_expires_at", "created_at",
+    ].join(", ");
 
-        if (!profileResult.data) return null;
+    const [profilesResult, messagesResult] = await Promise.all([
+      this.sb.from("profiles")
+        .select(LIST_PROFILE_COLS)
+        .in("user_id", otherUserIds),
+      this.sb.from("messages")
+        .select("match_id, content, sender_id, created_at")
+        .in("match_id", matchIds)
+        .not("content", "like", "__SCHEDULE__%")
+        .order("created_at", { ascending: false }),
+    ]);
 
-        const lastMsgRow = lastMsgResult.data;
-        const lastMessage = lastMsgRow
-          ? { content: lastMsgRow.content, senderId: lastMsgRow.sender_id, createdAt: lastMsgRow.created_at ? new Date(lastMsgRow.created_at) : null }
-          : null;
+    console.log("[CHAT] CONNECTIONS_FETCHED", {
+      userId,
+      matchCount: userMatches.length,
+      profilesReturned: profilesResult.data?.length ?? 0,
+      profilesError: profilesResult.error?.message,
+      msTotal: Date.now() - t0,
+    });
 
-        return { ...match, profile: mapProfile(profileResult.data), lastMessage };
-      })
+    // Build O(1) lookup maps
+    const profileMap = new Map<string, any>(
+      (profilesResult.data ?? []).map(p => [p.user_id, p])
     );
 
-    const result = settled.filter(Boolean) as (Match & { profile: Profile; lastMessage: { content: string; senderId: string; createdAt: Date | null } | null })[];
+    // Pick the most recent non-schedule message per match (messages are ordered DESC already)
+    const lastMsgMap = new Map<string, { content: string; senderId: string; createdAt: Date | null }>();
+    for (const row of messagesResult.data ?? []) {
+      if (!lastMsgMap.has(row.match_id)) {
+        lastMsgMap.set(row.match_id, {
+          content: row.content,
+          senderId: row.sender_id,
+          createdAt: row.created_at ? new Date(row.created_at) : null,
+        });
+      }
+    }
+
+    const result: (Match & { profile: Profile; lastMessage: { content: string; senderId: string; createdAt: Date | null } | null })[] = [];
+
+    for (const row of userMatches) {
+      const match = mapMatch(row);
+      const otherUserId = match.user1Id === userId ? match.user2Id : match.user1Id;
+      const profileRaw = profileMap.get(otherUserId);
+      if (!profileRaw) continue;
+
+      result.push({
+        ...match,
+        profile: mapProfile(profileRaw),
+        lastMessage: lastMsgMap.get(match.id) ?? null,
+      });
+    }
 
     result.sort((a, b) => {
       const aTime = a.lastMessage?.createdAt?.getTime() ?? a.createdAt?.getTime() ?? 0;
@@ -576,7 +622,7 @@ export class SupabaseStorage implements IStorage {
       return bTime - aTime;
     });
 
-    console.log("[CHAT] CONNECTIONS_SORTED", { count: result.length, userId });
+    console.log("[CHAT] CONNECTIONS_SORTED", { count: result.length, userId, msTotal: Date.now() - t0 });
     return result;
   }
 
@@ -1220,6 +1266,15 @@ export class SupabaseStorage implements IStorage {
     return mapSpinRequest(result);
   }
 
+  private static readonly SPIN_PROFILE_COLS = [
+    "id", "user_id", "first_name", "age", "gender", "dating_preference",
+    "location", "height", "signals", "dating_intent", "green_flags",
+    "connection_style", "conversation_starters", "questions",
+    "location_radius", "preferred_age_min", "preferred_age_max",
+    "email", "phone_number", "photo_verified", "onboarding_complete",
+    "elevate_type", "elevate_expires_at", "created_at",
+  ].join(", ");
+
   async getIncomingSpinRequests(userId: string): Promise<(SpinRequest & { profile: Profile })[]> {
     const { data: requests } = await this.sb
       .from("spin_requests")
@@ -1229,13 +1284,20 @@ export class SupabaseStorage implements IStorage {
       .order("created_at", { ascending: false });
 
     if (!requests || requests.length === 0) return [];
-    const settled = await Promise.all(
-      (requests || []).map(async (req) => {
-        const { data: profileData } = await this.sb.from("profiles").select("*").eq("user_id", req.from_user_id).maybeSingle();
-        return profileData ? { ...mapSpinRequest(req), profile: mapProfile(profileData) } : null;
-      })
-    );
-    return settled.filter(Boolean) as (SpinRequest & { profile: Profile })[];
+
+    const fromIds = [...new Set(requests.map(r => r.from_user_id))];
+    const { data: profileRows } = await this.sb
+      .from("profiles")
+      .select(SupabaseStorage.SPIN_PROFILE_COLS)
+      .in("user_id", fromIds);
+
+    const profileMap = new Map<string, any>((profileRows ?? []).map(p => [p.user_id, p]));
+    const result: (SpinRequest & { profile: Profile })[] = [];
+    for (const req of requests) {
+      const p = profileMap.get(req.from_user_id);
+      if (p) result.push({ ...mapSpinRequest(req), profile: mapProfile(p) });
+    }
+    return result;
   }
 
   async getOutgoingSpinRequests(userId: string): Promise<(SpinRequest & { profile: Profile })[]> {
@@ -1246,13 +1308,20 @@ export class SupabaseStorage implements IStorage {
       .order("created_at", { ascending: false });
 
     if (!requests || requests.length === 0) return [];
-    const settled = await Promise.all(
-      (requests || []).map(async (req) => {
-        const { data: profileData } = await this.sb.from("profiles").select("*").eq("user_id", req.to_user_id).maybeSingle();
-        return profileData ? { ...mapSpinRequest(req), profile: mapProfile(profileData) } : null;
-      })
-    );
-    return settled.filter(Boolean) as (SpinRequest & { profile: Profile })[];
+
+    const toIds = [...new Set(requests.map(r => r.to_user_id))];
+    const { data: profileRows } = await this.sb
+      .from("profiles")
+      .select(SupabaseStorage.SPIN_PROFILE_COLS)
+      .in("user_id", toIds);
+
+    const profileMap = new Map<string, any>((profileRows ?? []).map(p => [p.user_id, p]));
+    const result: (SpinRequest & { profile: Profile })[] = [];
+    for (const req of requests) {
+      const p = profileMap.get(req.to_user_id);
+      if (p) result.push({ ...mapSpinRequest(req), profile: mapProfile(p) });
+    }
+    return result;
   }
 
   async respondToSpinRequest(requestId: string, userId: string, accept: boolean): Promise<SpinRequest | undefined> {

@@ -1974,15 +1974,18 @@ export default function Matches() {
   const [activeTab, setActiveTab] = useState<"new" | "active">("new");
   const { data: matches, isLoading: matchesLoading, error: matchesError } = useQuery<MatchWithProfile[]>({
     queryKey: ["/api/matches"],
+    staleTime: 30_000,
   });
 
   const { data: spinRequestsData, isLoading: requestsLoading, error: requestsError } = useQuery<SpinRequestsData>({
     queryKey: ["/api/spin-requests"],
-    refetchInterval: isActive ? 10000 : false,
+    refetchInterval: isActive ? 30_000 : false,
+    staleTime: 30_000,
   });
 
-  const isLoading = matchesLoading || requestsLoading;
-  const fetchFailed = !!matchesError || !!requestsError;
+  // Only block on matches loading — spin-requests show a skeleton in their section independently
+  const isLoading = matchesLoading;
+  const fetchFailed = !!matchesError;
   const incomingRequests = spinRequestsData?.incoming || [];
   const outgoingPending = spinRequestsData?.outgoing?.filter(r => r.status === "pending") || [];
   const matchIds = (matches || []).map(m => m.id);
@@ -2000,7 +2003,7 @@ export default function Matches() {
 
   const connectionCount = matches?.length || 0;
   const atLimit = connectionCount >= MAX_CONNECTIONS;
-  const hasContent = (matches && matches.length > 0) || incomingRequests.length > 0 || outgoingPending.length > 0;
+  const hasContent = (matches && matches.length > 0) || incomingRequests.length > 0 || outgoingPending.length > 0 || requestsLoading;
 
   const debugLine = (extra?: string) => (
     <div className="px-4 py-1.5 text-[10px] text-muted-foreground/60 font-mono bg-muted/30 border-b" data-testid="debug-line">
@@ -2103,7 +2106,14 @@ export default function Matches() {
         </p>
       </div>
 
-      {incomingRequests.length > 0 && (
+      {requestsLoading && (
+        <div className="space-y-3" data-testid="section-requests-loading">
+          <Skeleton className="h-5 w-36" />
+          <Skeleton className="h-20 w-full rounded-md" />
+        </div>
+      )}
+
+      {!requestsLoading && incomingRequests.length > 0 && (
         <div className="space-y-3" data-testid="section-incoming-requests">
           <div className="flex items-center gap-2">
             <Sparkles className="w-4 h-4 text-primary" />
@@ -2119,7 +2129,7 @@ export default function Matches() {
         </div>
       )}
 
-      {outgoingPending.length > 0 && (
+      {!requestsLoading && outgoingPending.length > 0 && (
         <div className="space-y-3" data-testid="section-outgoing-requests">
           <div className="flex items-center gap-2">
             <Send className="w-4 h-4 text-muted-foreground" />
