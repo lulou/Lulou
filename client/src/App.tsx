@@ -310,8 +310,12 @@ async function checkProfileExists(): Promise<ProfileCheckResult> {
     }
 
     if (res.status === 401) {
-      console.warn("[AUTH] PROFILE_EXISTS_CHECK: unauthenticated (401)");
-      return { exists: false, fetchFailed: false };
+      // 401 here means the server JWT verification failed (often a cold-start delay).
+      // The client IS authenticated (Supabase confirmed it), so throw rather than
+      // returning gracefully — this lets TanStack Query's retry logic kick in and
+      // retry automatically, instead of routing an existing user to Onboarding.
+      console.warn("[AUTH] PROFILE_EXISTS_CHECK: server returned 401 (JWT cold-start?) — throwing for retry");
+      throw new Error("JWT_VERIFY_FAILED");
     }
 
     if (!res.ok) {
@@ -323,6 +327,9 @@ async function checkProfileExists(): Promise<ProfileCheckResult> {
     console.log("[AUTH] PROFILE_EXISTS_CHECK: profile found");
     return { exists: true, fetchFailed: false };
   } catch (err: any) {
+    // Re-throw the JWT failure so TanStack Query's retry logic fires.
+    // All other errors are caught and returned as fetchFailed.
+    if (err?.message === "JWT_VERIFY_FAILED") throw err;
     console.error("PROFILE_EXISTS_ERROR", err?.message ?? err);
     return { exists: false, fetchFailed: true };
   }
@@ -338,7 +345,7 @@ function AppContent() {
   // ProfileCheckResult and see exists=undefined (falsy) → routing to onboarding.
   // Never invalidate "profile-exists-check" from within the authenticated app — it only
   // needs to run once on login. Profile edits should invalidate "/api/profile" only.
-  const { data, isLoading: profileLoading } = useQuery<ProfileCheckResult>({
+  const { data, isLoading: profileLoading, isError: profileError } = useQuery<ProfileCheckResult>({
     queryKey: ["profile-exists-check"],
     queryFn: () => {
       if (!user) return Promise.resolve({ exists: false, fetchFailed: false });
@@ -346,11 +353,17 @@ function AppContent() {
       return checkProfileExists();
     },
     enabled: !!user && profileReady,
-    retry: false,
+    // Retry up to 3 times — the most common failure is a cold-start JWT delay
+    // on the server. Giving a few automatic retries usually resolves it without
+    // the user seeing an error screen at all.
+    retry: 3,
+    retryDelay: (attempt) => Math.min(2000 * 2 ** attempt, 10000),
   });
 
   const profileExists = data?.exists ?? false;
-  const fetchFailed = data?.fetchFailed ?? false;
+  // fetchFailed is true if the data explicitly says so, OR if the query threw
+  // after all retries (isError=true) — happens when the server persistently rejects the JWT.
+  const fetchFailed = (data?.fetchFailed ?? false) || profileError;
 
   if (authLoading) {
     return (
@@ -386,7 +399,7 @@ function AppContent() {
           <p className="text-sm text-muted-foreground">We couldn't load your profile right now. You're still signed in — this is just a temporary issue.</p>
           <button
             className="px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:brightness-110 transition-all"
-            onClick={() => queryClient.invalidateQueries({ queryKey: ["/api/profile"] })}
+            onClick={() => queryClient.invalidateQueries({ queryKey: ["profile-exists-check"] })}
             data-testid="button-retry-profile"
           >
             Try Again

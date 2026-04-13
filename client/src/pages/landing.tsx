@@ -27,7 +27,21 @@ function isAlreadyExists(err: any): boolean {
 }
 
 function classifyAuthError(err: any, mode: AuthMode): AuthError {
-  const msg: string = err?.message || "Unknown error";
+  // Supabase sometimes returns {} or a raw JSON string as the error body.
+  // Unwrap it to extract a human-readable message before classifying.
+  let raw: string = err?.message ?? "";
+  if (!raw || raw === "{}" || (raw.startsWith("{") && raw.endsWith("}"))) {
+    try {
+      const parsed = JSON.parse(raw);
+      raw =
+        parsed?.error_description ||
+        parsed?.message ||
+        parsed?.msg ||
+        parsed?.error ||
+        "";
+    } catch { /* raw stays as-is */ }
+  }
+  const msg: string = raw || "Something went wrong. Please try again.";
   const lower = msg.toLowerCase();
   if (mode === "signup" && isAlreadyExists(err)) {
     return { kind: "already-exists", message: msg };

@@ -33,7 +33,28 @@ async function verifyJwt(token: string): Promise<any | null> {
   const cached = _jwtCache.get(token);
   if (cached && cached.expiresAt > now) return cached.user;
 
-  const { data: { user }, error } = await supabase.auth.getUser(token);
+  // Race the Supabase API call against a 7-second timeout.
+  // On cold-start, the Supabase auth service can take 30-60s to respond;
+  // failing fast (7s) lets the client retry rather than holding the connection open.
+  const VERIFY_TIMEOUT_MS = 7000;
+  let result: Awaited<ReturnType<typeof supabase.auth.getUser>>;
+  try {
+    result = await Promise.race([
+      supabase.auth.getUser(token),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("JWT_VERIFY_TIMEOUT")), VERIFY_TIMEOUT_MS)
+      ),
+    ]);
+  } catch (err: any) {
+    if (err?.message === "JWT_VERIFY_TIMEOUT") {
+      console.warn(`[AUTH] JWT verification timed out after ${VERIFY_TIMEOUT_MS}ms — returning null`);
+    } else {
+      console.error("[AUTH] JWT verification threw:", err?.message);
+    }
+    return null;
+  }
+
+  const { data: { user }, error } = result;
   if (error || !user) return null;
 
   const jwtExp = parseJwtExp(token);
