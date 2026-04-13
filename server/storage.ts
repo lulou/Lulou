@@ -155,6 +155,17 @@ function filterPhotos(raw: string[]): string[] {
   });
 }
 
+// Profile columns for list views — excludes `photos` (base64, ~900 KB per profile) and
+// `elevate_type`/`elevate_expires_at` (handled by user_elevates drizzle table for discover).
+// mapProfile handles missing columns gracefully (falls back to null / empty array).
+const MATCH_PROFILE_COLS = [
+  "id", "user_id", "first_name", "age", "gender", "dating_preference",
+  "location", "height", "signals", "dating_intent", "green_flags",
+  "connection_style", "conversation_starters", "questions",
+  "location_radius", "preferred_age_min", "preferred_age_max",
+  "email", "phone_number", "photo_verified", "onboarding_complete", "created_at",
+].join(", ");
+
 function mapProfile(row: any): Profile {
   return {
     id: row.id,
@@ -545,31 +556,26 @@ export class SupabaseStorage implements IStorage {
       return [];
     }
 
-    // Collect all other user IDs and match IDs in one pass
-    const otherUserIds: string[] = [];
-    const matchIds: string[] = [];
-    for (const row of userMatches) {
-      otherUserIds.push(row.user1_id === userId ? row.user2_id : row.user1_id);
-      matchIds.push(row.id);
-    }
+    const matchIds = userMatches.map(row => row.id);
 
-    // --- 2 parallel batch queries instead of 2N individual queries ---
-    // Profiles: ONE .in() query, no photos (same POOL_COLS used by discover — avoids 900KB/profile transfer)
-    // Messages: ONE .in() query returning recent messages for all matches, pick last per match in JS
-    const LIST_PROFILE_COLS = [
-      "id", "user_id", "first_name", "age", "gender", "dating_preference",
-      "location", "height", "signals", "dating_intent", "green_flags",
-      "connection_style", "conversation_starters", "questions",
-      "location_radius", "preferred_age_min", "preferred_age_max",
-      "email", "phone_number", "photo_verified", "onboarding_complete",
-      "elevate_type", "elevate_expires_at", "created_at",
-    ].join(", ");
-
-    const [profilesResult, messagesResult] = await Promise.all([
-      this.sb.from("profiles")
-        .select(LIST_PROFILE_COLS)
-        .in("user_id", otherUserIds),
-      this.sb.from("messages")
+    // Fetch all profiles in parallel (one per match, no photos — MATCH_PROFILE_COLS).
+    // Individual queries are robust: a single profile failure only drops that connection,
+    // not the entire list.
+    // Simultaneously, batch-fetch the last message across all matches in one query.
+    const [profileResults, messagesResult] = await Promise.all([
+      Promise.all(
+        userMatches.map(row => {
+          const otherUserId = row.user1_id === userId ? row.user2_id : row.user1_id;
+          return this.sb
+            .from("profiles")
+            .select(MATCH_PROFILE_COLS)
+            .eq("user_id", otherUserId)
+            .maybeSingle()
+            .then(res => ({ matchId: row.id, otherUserId, data: res.data, error: res.error }));
+        })
+      ),
+      this.sb
+        .from("messages")
         .select("match_id, content, sender_id, created_at")
         .in("match_id", matchIds)
         .not("content", "like", "__SCHEDULE__%")
@@ -579,17 +585,13 @@ export class SupabaseStorage implements IStorage {
     console.log("[CHAT] CONNECTIONS_FETCHED", {
       userId,
       matchCount: userMatches.length,
-      profilesReturned: profilesResult.data?.length ?? 0,
-      profilesError: profilesResult.error?.message,
+      profilesFound: profileResults.filter(r => !!r.data).length,
+      profileErrors: profileResults.filter(r => !!r.error).map(r => r.error?.message),
+      messagesError: messagesResult.error?.message,
       msTotal: Date.now() - t0,
     });
 
-    // Build O(1) lookup maps
-    const profileMap = new Map<string, any>(
-      (profilesResult.data ?? []).map(p => [p.user_id, p])
-    );
-
-    // Pick the most recent non-schedule message per match (messages are ordered DESC already)
+    // Build last-message map: messages are already ordered DESC, first per match_id = latest
     const lastMsgMap = new Map<string, { content: string; senderId: string; createdAt: Date | null }>();
     for (const row of messagesResult.data ?? []) {
       if (!lastMsgMap.has(row.match_id)) {
@@ -603,16 +605,16 @@ export class SupabaseStorage implements IStorage {
 
     const result: (Match & { profile: Profile; lastMessage: { content: string; senderId: string; createdAt: Date | null } | null })[] = [];
 
-    for (const row of userMatches) {
-      const match = mapMatch(row);
-      const otherUserId = match.user1Id === userId ? match.user2Id : match.user1Id;
-      const profileRaw = profileMap.get(otherUserId);
-      if (!profileRaw) continue;
-
+    for (const r of profileResults) {
+      if (!r.data) {
+        if (r.error) console.warn("[CHAT] PROFILE_FETCH_ERROR", { matchId: r.matchId, otherUserId: r.otherUserId, error: r.error.message });
+        continue;
+      }
+      const matchRow = userMatches.find(m => m.id === r.matchId)!;
       result.push({
-        ...match,
-        profile: mapProfile(profileRaw),
-        lastMessage: lastMsgMap.get(match.id) ?? null,
+        ...mapMatch(matchRow),
+        profile: mapProfile(r.data),
+        lastMessage: lastMsgMap.get(r.matchId) ?? null,
       });
     }
 
@@ -1266,14 +1268,6 @@ export class SupabaseStorage implements IStorage {
     return mapSpinRequest(result);
   }
 
-  private static readonly SPIN_PROFILE_COLS = [
-    "id", "user_id", "first_name", "age", "gender", "dating_preference",
-    "location", "height", "signals", "dating_intent", "green_flags",
-    "connection_style", "conversation_starters", "questions",
-    "location_radius", "preferred_age_min", "preferred_age_max",
-    "email", "phone_number", "photo_verified", "onboarding_complete",
-    "elevate_type", "elevate_expires_at", "created_at",
-  ].join(", ");
 
   async getIncomingSpinRequests(userId: string): Promise<(SpinRequest & { profile: Profile })[]> {
     const { data: requests } = await this.sb
@@ -1288,7 +1282,7 @@ export class SupabaseStorage implements IStorage {
     const fromIds = [...new Set(requests.map(r => r.from_user_id))];
     const { data: profileRows } = await this.sb
       .from("profiles")
-      .select(SupabaseStorage.SPIN_PROFILE_COLS)
+      .select(MATCH_PROFILE_COLS)
       .in("user_id", fromIds);
 
     const profileMap = new Map<string, any>((profileRows ?? []).map(p => [p.user_id, p]));
@@ -1312,7 +1306,7 @@ export class SupabaseStorage implements IStorage {
     const toIds = [...new Set(requests.map(r => r.to_user_id))];
     const { data: profileRows } = await this.sb
       .from("profiles")
-      .select(SupabaseStorage.SPIN_PROFILE_COLS)
+      .select(MATCH_PROFILE_COLS)
       .in("user_id", toIds);
 
     const profileMap = new Map<string, any>((profileRows ?? []).map(p => [p.user_id, p]));
