@@ -36,6 +36,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();
   const { logout, isLoggingOut } = useAuth();
 
+  // Hide navigation when inside a chat room — focus mode
+  const isChatRoom = location.startsWith("/messages/");
+
   const { data: likes } = useQuery<IncomingOpen[]>({
     queryKey: ["/api/who-liked-you"],
     refetchInterval: 15000,
@@ -53,28 +56,31 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="flex flex-col h-screen w-full bg-background">
-      <header className="flex items-center justify-between gap-4 px-5 py-3 border-b bg-background/80 backdrop-blur-md z-30 flex-wrap">
-        <Link href="/discover">
-          <div className="flex items-center gap-2 cursor-pointer">
-            <LulouFlowerIcon className="w-6 h-6 text-primary" />
-            <span className="font-serif text-lg font-semibold tracking-tight" data-testid="text-app-logo">Lulou</span>
-          </div>
-        </Link>
-        <button
-          onClick={() => logout()}
-          disabled={isLoggingOut}
-          className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-destructive transition-colors px-2 py-1.5 rounded-md"
-          data-testid="button-header-logout"
-        >
-          <LogOut className="w-4 h-4" />
-          <span className="hidden sm:inline">Sign Out</span>
-        </button>
-      </header>
+      {!isChatRoom && (
+        <header className="flex items-center justify-between gap-4 px-5 py-3 border-b bg-background/80 backdrop-blur-md z-30 flex-wrap">
+          <Link href="/discover">
+            <div className="flex items-center gap-2 cursor-pointer">
+              <LulouFlowerIcon className="w-6 h-6 text-primary" />
+              <span className="font-serif text-lg font-semibold tracking-tight" data-testid="text-app-logo">Lulou</span>
+            </div>
+          </Link>
+          <button
+            onClick={() => logout()}
+            disabled={isLoggingOut}
+            className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-destructive transition-colors px-2 py-1.5 rounded-md"
+            data-testid="button-header-logout"
+          >
+            <LogOut className="w-4 h-4" />
+            <span className="hidden sm:inline">Sign Out</span>
+          </button>
+        </header>
+      )}
 
       <main className="flex-1 overflow-hidden flex flex-col">
         {children}
       </main>
 
+      {!isChatRoom && (
       <nav className="border-t bg-background/95 backdrop-blur-md z-30">
         <div className="flex items-center justify-around py-2">
           {navItems.map(item => {
@@ -106,6 +112,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           })}
         </div>
       </nav>
+      )}
     </div>
   );
 }

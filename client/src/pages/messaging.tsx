@@ -11,7 +11,7 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
 import { useRealtimeMessages } from "@/hooks/use-realtime-messages";
-import { ArrowLeft, Send, Phone, Video, Check, Clock, Calendar, Heart, PhoneForwarded, X, Moon } from "lucide-react";
+import { ArrowLeft, Send, Phone, Video, Check, Clock, Calendar, Heart, PhoneForwarded, X, Moon, ChevronRight, MapPin, Ruler, MessageCircle } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import type { Message, Match, Profile } from "@shared/schema";
 
@@ -318,6 +318,7 @@ export default function Messaging() {
   const queryClient = useQueryClient();
   const [message, setMessage] = useState("");
   const [showCloseConfirm, setShowCloseConfirm] = useState(false);
+  const [showProfile, setShowProfile] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const isAtBottomRef = useRef(true);
@@ -504,23 +505,145 @@ export default function Messaging() {
     ? { icon: Video, title: "Ready to see each other?", desc: "Both of you need to accept for a 10-minute face call.", button: "View on Connections" }
     : { icon: Check, title: "All calls completed", desc: "You've had wonderful conversations. Ready to meet in real life?", button: "" };
 
+  const profile = matchDetail.profile;
+
   return (
-    <div className="flex-1 flex flex-col h-full">
-      <div className="p-4 border-b flex items-center gap-3">
+    <div className="relative flex-1 flex flex-col h-full">
+      {/* ── Profile overlay — slides over the chat when tapping name/avatar ── */}
+      {showProfile && (
+        <div className="absolute inset-0 z-20 bg-background flex flex-col overflow-hidden">
+          <div className="p-4 border-b flex items-center gap-3 bg-background">
+            <Button variant="ghost" size="icon" onClick={() => setShowProfile(false)} data-testid="button-back-to-chat">
+              <ArrowLeft className="w-5 h-5" />
+            </Button>
+            <h2 className="font-semibold flex-1 truncate">{profile.firstName}</h2>
+          </div>
+
+          <div className="flex-1 overflow-y-auto">
+            {/* Photos — horizontal scroll */}
+            {profile.photos?.length > 0 && (
+              <div className="flex gap-2 overflow-x-auto px-4 pt-4 pb-1 snap-x snap-mandatory">
+                {profile.photos.map((photo, i) => (
+                  <img
+                    key={i}
+                    src={photo}
+                    alt={`${profile.firstName} photo ${i + 1}`}
+                    className="w-64 h-80 object-cover rounded-xl flex-shrink-0 snap-start"
+                    data-testid={`img-profile-photo-${i}`}
+                  />
+                ))}
+              </div>
+            )}
+
+            <div className="px-4 pt-4 pb-8 space-y-5">
+              {/* Name + age + basics */}
+              <div>
+                <h3 className="text-xl font-semibold">{profile.firstName}, {profile.age}</h3>
+                <div className="flex flex-wrap gap-x-3 gap-y-1 mt-1">
+                  {profile.location && (
+                    <p className="text-sm text-muted-foreground flex items-center gap-1">
+                      <MapPin className="w-3.5 h-3.5 flex-shrink-0" />{profile.location}
+                    </p>
+                  )}
+                  {profile.height && (
+                    <p className="text-sm text-muted-foreground flex items-center gap-1">
+                      <Ruler className="w-3.5 h-3.5 flex-shrink-0" />{profile.height}
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              {/* Here for */}
+              {profile.datingIntent && (
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">Here for</p>
+                  <Badge variant="secondary" className="text-sm">{profile.datingIntent}</Badge>
+                </div>
+              )}
+
+              {/* Signals / vibe */}
+              {profile.signals?.length > 0 && (
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">Vibe</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {profile.signals.map((s, i) => (
+                      <Badge key={i} variant="outline" className="text-xs">{s}</Badge>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Green flags */}
+              {profile.greenFlags?.length > 0 && (
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">Green flags</p>
+                  <div className="flex flex-col gap-1">
+                    {profile.greenFlags.map((f, i) => (
+                      <p key={i} className="text-sm flex items-start gap-1.5">
+                        <span className="text-emerald-500 mt-0.5">✓</span>{f}
+                      </p>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Connection style */}
+              {profile.connectionStyle && (
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1">Connection style</p>
+                  <p className="text-sm">{profile.connectionStyle}</p>
+                </div>
+              )}
+
+              {/* Conversation starters */}
+              {profile.conversationStarters && profile.conversationStarters.length > 0 && (
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">Ask me about</p>
+                  <div className="space-y-1.5">
+                    {profile.conversationStarters.map((cs, i) => (
+                      <p key={i} className="text-sm text-muted-foreground italic">"{cs}"</p>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Back to chat CTA */}
+          <div className="p-4 border-t bg-background">
+            <Button className="w-full" onClick={() => setShowProfile(false)} data-testid="button-return-to-chat">
+              <MessageCircle className="w-4 h-4 mr-2" /> Back to chat
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Chat header ── */}
+      <div className="p-4 border-b flex items-center gap-3 bg-background">
         <Button variant="ghost" size="icon" onClick={() => navigate("/matches")} data-testid="button-back-to-matches">
           <ArrowLeft className="w-5 h-5" />
         </Button>
-        <Avatar className="w-9 h-9">
-          <AvatarImage src={matchDetail.profile.photos?.[0]} alt={matchDetail.profile.firstName} />
-          <AvatarFallback className="bg-primary/10 text-primary text-sm font-semibold">
-            {matchDetail.profile.firstName?.[0]}
-          </AvatarFallback>
-        </Avatar>
-        <div className="flex-1 min-w-0">
-          <h3 className="font-semibold text-sm" data-testid="text-chat-name">{matchDetail.profile.firstName}</h3>
-          <p className="text-xs text-muted-foreground">{matchDetail.profile.datingIntent}</p>
-        </div>
-        <Badge variant="outline" className="text-xs" data-testid="badge-messages-remaining">
+
+        {/* Tappable profile link */}
+        <button
+          className="flex items-center gap-2.5 flex-1 min-w-0 py-1 -my-1 rounded-lg hover:bg-muted/50 active:bg-muted/70 transition-colors text-left"
+          onClick={() => setShowProfile(true)}
+          data-testid="button-view-match-profile"
+        >
+          <Avatar className="w-9 h-9 flex-shrink-0">
+            <AvatarImage src={profile.photos?.[0]} alt={profile.firstName} />
+            <AvatarFallback className="bg-primary/10 text-primary text-sm font-semibold">
+              {profile.firstName?.[0]}
+            </AvatarFallback>
+          </Avatar>
+          <div className="min-w-0 flex-1">
+            <h3 className="font-semibold text-sm leading-tight truncate" data-testid="text-chat-name">{profile.firstName}</h3>
+            <p className="text-xs text-muted-foreground">View profile</p>
+          </div>
+          <ChevronRight className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+        </button>
+
+        <Badge variant="outline" className="text-xs flex-shrink-0" data-testid="badge-messages-remaining">
           {statusLabel}
         </Badge>
         {!showCloseConfirm ? (
