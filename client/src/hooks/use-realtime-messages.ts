@@ -4,6 +4,8 @@ import { supabase } from "@/lib/supabase";
 import type { Match, Profile, Message } from "@shared/schema";
 
 type MatchDetail = Match & { profile: Profile; messages: Message[] };
+type LastMessage = { content: string; senderId: string; createdAt: Date | null };
+type MatchWithProfile = Match & { profile: Profile; lastMessage: LastMessage | null };
 
 export function useRealtimeMessages(matchId: string | undefined, enabled: boolean) {
   const queryClient = useQueryClient();
@@ -36,6 +38,7 @@ export function useRealtimeMessages(matchId: string | undefined, enabled: boolea
             createdAt: row.created_at,
           };
 
+          // 1. Update the open chat detail — append or replace temp optimistic message
           queryClient.setQueryData<MatchDetail>(
             ["/api/matches", matchId],
             (old) => {
@@ -63,6 +66,25 @@ export function useRealtimeMessages(matchId: string | undefined, enabled: boolea
               };
             }
           );
+
+          // 2. Update last-message preview in the matches list (skip internal schedule messages)
+          if (!newMsg.content.startsWith("__SCHEDULE__")) {
+            queryClient.setQueryData<MatchWithProfile[]>(["/api/matches"], (list) => {
+              if (!list) return list;
+              return list.map((m) =>
+                m.id === matchId
+                  ? {
+                      ...m,
+                      lastMessage: {
+                        content: newMsg.content,
+                        senderId: newMsg.senderId,
+                        createdAt: newMsg.createdAt ? new Date(newMsg.createdAt as string) : null,
+                      },
+                    }
+                  : m
+              );
+            });
+          }
         }
       )
       .subscribe();

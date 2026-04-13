@@ -338,7 +338,7 @@ export default function Messaging() {
   const { data: matchDetail, isLoading } = useQuery<MatchDetail>({
     queryKey: ["/api/matches", matchId],
     enabled: !!matchId,
-    refetchInterval: 10000,
+    // No polling — incoming messages arrive via real-time subscription (useRealtimeMessages)
   });
 
   useRealtimeMessages(matchId, !!matchId);
@@ -366,6 +366,15 @@ export default function Messaging() {
           messages: [...(previous.messages || []), optimisticMsg],
         });
       }
+      // Optimistically update last-message preview in the matches list
+      queryClient.setQueryData<any[]>(["/api/matches"], (list) => {
+        if (!list) return list;
+        return list.map((m: any) =>
+          m.id === matchId
+            ? { ...m, lastMessage: { content: vars.content, senderId: user?.id || "", createdAt: new Date() } }
+            : m
+        );
+      });
       return { previous };
     },
     onError: (error: Error, _vars: any, context: any) => {
@@ -373,9 +382,6 @@ export default function Messaging() {
         queryClient.setQueryData(["/api/matches", matchId], context.previous);
       }
       toast({ title: "Could not send", description: error.message, variant: "destructive" });
-    },
-    onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/matches", matchId] });
     },
   });
 
@@ -614,7 +620,7 @@ export default function Messaging() {
                   sendMessage.mutate({ content, tempId: `temp-${Date.now()}-${Math.random().toString(36).slice(2)}` });
                 }
               }}
-              disabled={!message.trim() || sendMessage.isPending}
+              disabled={!message.trim()}
               data-testid="button-send"
             >
               <Send className="w-4 h-4" />

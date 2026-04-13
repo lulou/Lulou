@@ -896,7 +896,7 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
   const { data: matchDetail, isLoading: matchLoading, error: matchError } = useQuery<MatchDetail>({
     queryKey: ["/api/matches", match.id],
     enabled: expanded,
-    refetchInterval: expanded && isActive ? 10000 : false,
+    // No polling — incoming messages arrive via real-time subscription (useRealtimeMessages)
   });
 
   useRealtimeMessages(match.id, expanded);
@@ -930,6 +930,15 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
           messages: [...(previous.messages || []), optimisticMsg],
         });
       }
+      // Optimistically update last-message preview in the matches list
+      queryClient.setQueryData<MatchWithProfile[]>(["/api/matches"], (list) => {
+        if (!list) return list;
+        return list.map(m =>
+          m.id === match.id
+            ? { ...m, lastMessage: { content: vars.content, senderId: user?.id || "", createdAt: new Date() } }
+            : m
+        );
+      });
       return { previous };
     },
     onSuccess: (data: any) => {
@@ -1788,7 +1797,7 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
                       placeholder="Keep the momentum going..."
                       className="resize-none min-h-[44px] max-h-[80px] text-sm"
                       onKeyDown={e => {
-                        if (e.key === "Enter" && !e.shiftKey && !sendMessage.isPending) {
+                        if (e.key === "Enter" && !e.shiftKey) {
                           e.preventDefault();
                           if (message.trim()) {
                             const content = message.trim();
@@ -1812,7 +1821,7 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
                             sendMessage.mutate({ content, tempId: `temp-${Date.now()}-${Math.random().toString(36).slice(2)}` });
                           }
                         }}
-                        disabled={!message.trim() || sendMessage.isPending}
+                        disabled={!message.trim()}
                         data-testid={`button-send-postcall-${match.id}`}
                       >
                         <Send className="w-4 h-4" />
@@ -1889,7 +1898,7 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
                   placeholder="Write something meaningful..."
                   className="resize-none min-h-[44px] max-h-[80px] text-sm"
                   onKeyDown={e => {
-                    if (e.key === "Enter" && !e.shiftKey && !sendMessage.isPending) {
+                    if (e.key === "Enter" && !e.shiftKey) {
                       e.preventDefault();
                       if (message.trim()) {
                         const content = message.trim();
@@ -1909,7 +1918,7 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
                       sendMessage.mutate({ content, tempId: `temp-${Date.now()}-${Math.random().toString(36).slice(2)}` });
                     }
                   }}
-                  disabled={!message.trim() || sendMessage.isPending}
+                  disabled={!message.trim()}
                   data-testid={`button-send-${match.id}`}
                 >
                   <Send className="w-4 h-4" />
