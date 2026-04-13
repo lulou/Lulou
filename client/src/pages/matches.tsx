@@ -45,7 +45,7 @@ function formatTime(seconds: number): string {
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
-function CallTimer({ match, onComplete, isFaceCall }: { match: MatchDetail; onComplete: () => void; isFaceCall?: boolean }) {
+function CallTimer({ match, onComplete, isFaceCall }: { match: MatchDetail; onComplete: (connectedDurationMs: number) => void; isFaceCall?: boolean }) {
   const callStage = match.callStage || 0;
   const duration = getCallDuration(callStage);
   const CallIcon = isFaceCall ? Video : Phone;
@@ -115,7 +115,7 @@ function CallTimer({ match, onComplete, isFaceCall }: { match: MatchDetail; onCo
             <Button
               size="sm"
               variant="outline"
-              onClick={onComplete}
+              onClick={() => onComplete((duration - remaining) * 1000)}
               data-testid={`button-end-call-${match.id}`}
             >
               <PhoneOff className="w-4 h-4 mr-2" /> End Call
@@ -127,7 +127,7 @@ function CallTimer({ match, onComplete, isFaceCall }: { match: MatchDetail; onCo
             <p className="text-xs text-muted-foreground">{completeMessage}</p>
             <Button
               size="sm"
-              onClick={onComplete}
+              onClick={() => onComplete(duration * 1000)}
               data-testid={`button-finish-call-${match.id}`}
             >
               Complete Call
@@ -1053,10 +1053,15 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
   });
 
   const completeCall = useMutation({
-    mutationFn: async () => {
-      console.log("[CALL_UI] CALL_HUNG_UP", { matchId: match.id, callSessionId: lastCallSessionIdRef.current, userId: user?.id, isCaller: iAmCaller, source: "inline_chat" });
-      console.log("[CALL_UI] CALL_STAGE_EXITED", { matchId: match.id, reason: "call_completed" });
-      const res = await apiRequest("POST", `/api/matches/${match.id}/call/complete`, {});
+    mutationFn: async (vars: { connectedDurationMs: number; callState?: string } = { connectedDurationMs: 0 }) => {
+      const body = {
+        // CallTimer only shows when the call is active in the DB — treat as connected
+        connected: vars.connectedDurationMs > 0,
+        connectedDurationMs: vars.connectedDurationMs,
+        callState: vars.callState ?? "ended",
+      };
+      console.log("[CALL_UI] CALL_STATE:ended", { matchId: match.id, callSessionId: lastCallSessionIdRef.current, userId: user?.id, isCaller: iAmCaller, source: "inline_chat", ...body });
+      const res = await apiRequest("POST", `/api/matches/${match.id}/call/complete`, body);
       return res.json();
     },
     onSuccess: (data: any) => {
@@ -1065,15 +1070,19 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
         matchId: match.id,
         userId: user!.id,
       });
-      console.log("[CALL_UI] CALL_STATE_CLEARED", { matchId: match.id, reason: "call_completed", newStage: data.callStage });
+      console.log("[CALL_UI] CALL_STATE_CLEARED", { matchId: match.id, newStage: data.callStage, callCounted: data.callCounted });
       mergeCallFields(queryClient, match.id, data);
-      const stage = data.callStage || 0;
-      if (stage === 1) {
-        toast({ title: "First call completed", description: "Ready for a longer 15-minute call?" });
-      } else if (stage === 2) {
-        toast({ title: "Second call completed", description: "Would you like a face-to-face call?" });
+      if (!data.callCounted) {
+        toast({ title: "Call ended", description: "The call didn't connect long enough to count — your call slot has been returned." });
       } else {
-        toast({ title: "Call completed", description: "Great conversation! Ready to meet in person?" });
+        const stage = data.callStage || 0;
+        if (stage === 1) {
+          toast({ title: "First call completed", description: "Ready for a longer 15-minute call?" });
+        } else if (stage === 2) {
+          toast({ title: "Second call completed", description: "Would you like a face-to-face call?" });
+        } else {
+          toast({ title: "Call completed", description: "Great conversation! Ready to meet in person?" });
+        }
       }
     },
     onError: (error: Error) => {
@@ -1694,7 +1703,7 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
               </div>
             </div>
           ) : isCallActive && matchDetail ? (
-            <CallTimer match={matchDetail} onComplete={() => completeCall.mutate()} isFaceCall={isFaceCallStage && !!bothAcceptedFaceCall} />
+            <CallTimer match={matchDetail} onComplete={(durationMs) => completeCall.mutate({ connectedDurationMs: durationMs, callState: "ended" })} isFaceCall={isFaceCallStage && !!bothAcceptedFaceCall} />
           ) : allCallsDone && matchDetail ? (
             <ReadyToMeetInline detail={matchDetail} matchId={match.id} profileName={match.profile.firstName} />
           ) : allCallsDone ? (

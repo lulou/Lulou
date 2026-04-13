@@ -1,6 +1,6 @@
 import type { Express, RequestHandler } from "express";
 import { createServer, type Server } from "http";
-import { SupabaseStorage, mapMatch } from "./storage";
+import { SupabaseStorage, mapMatch, type CompleteCallOptions } from "./storage";
 import { seedDatabase } from "./seed";
 import { z } from "zod";
 import type { Profile } from "@shared/schema";
@@ -925,16 +925,35 @@ export async function registerRoutes(
       const serverStorage = getCallStorage(req);
       const userId = req.user.id;
       const matchId = req.params.matchId;
-      const match = await serverStorage.completeCall(matchId, userId);
-      if (!match) {
+
+      // Parse connection quality info sent by the client
+      const { connected, connectedDurationMs, callState } = req.body || {};
+      const options: CompleteCallOptions = {
+        connected: connected !== undefined ? Boolean(connected) : undefined,
+        connectedDurationMs: connectedDurationMs !== undefined ? Number(connectedDurationMs) : undefined,
+        callState: typeof callState === "string" ? callState : undefined,
+      };
+
+      console.log("[CALL_COMPLETE] CALL_REQUEST_RECEIVED", {
+        matchId, userId,
+        connected: options.connected,
+        connectedDurationMs: options.connectedDurationMs,
+        callState: options.callState,
+      });
+
+      const result = await serverStorage.completeCall(matchId, userId, options);
+      if (!result) {
         return res.status(404).json({ message: "Match not found" });
       }
+
       broadcastCallEvent(matchId, {
         type: "call:ended",
         matchId,
         userId,
+        callCounted: result.counted,
       });
-      res.json(match);
+
+      res.json({ ...result.match, callCounted: result.counted });
     } catch (error: any) {
       const matchId = req.params.matchId;
       const userId = req.user?.id;

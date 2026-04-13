@@ -73,6 +73,8 @@ export function ActiveCallOverlay({
   const queryClient = useQueryClient();
   const endedRef = useRef(false);
   const [speakerOn, setSpeakerOn] = useState(true);
+  // Track exactly when WebRTC first reached "connected" so we can measure live duration
+  const connectedAtRef = useRef<number | null>(null);
 
   const remoteAudioRef = useRef<HTMLAudioElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
@@ -130,11 +132,15 @@ export function ActiveCallOverlay({
     if (!webrtcEnabled) return;
     console.log("[WebRTC] CONNECTION_STATE_CHANGED", { matchId, connectionState, isCaller, isVideo });
     if (connectionState === "connected") {
-      console.log("[CALL_UI] CALL_AUDIO_CONNECTED", { matchId, callSessionId, isCaller });
+      // Record the first moment we were live — used to compute connectedDurationMs in finishCall
+      if (connectedAtRef.current === null) {
+        connectedAtRef.current = Date.now();
+        console.log("[CALL_UI] CALL_STATE:connected", { matchId, callSessionId, isCaller, timestamp: connectedAtRef.current });
+      }
     } else if (connectionState === "failed") {
-      console.error("[CALL_UI] CALL_CONNECTION_FAILED", { matchId, callSessionId, isCaller });
+      console.error("[CALL_UI] CALL_STATE:failed", { matchId, callSessionId, isCaller, hadConnection: connectedAtRef.current !== null });
     } else if (connectionState === "reconnecting") {
-      console.warn("[CALL_UI] CALL_RECONNECTING", { matchId, callSessionId });
+      console.warn("[CALL_UI] CALL_STATE:reconnecting", { matchId, callSessionId, connectedDurationSoFar: connectedAtRef.current ? Date.now() - connectedAtRef.current : 0 });
     }
   }, [connectionState, webrtcEnabled]);
 
@@ -171,16 +177,29 @@ export function ActiveCallOverlay({
       : `/api/matches/${matchId}/call/complete`;
     const signalType = isCancelRinging ? "call:cancelled" : "call:ended";
 
-    console.log("[CALL_UI] CALL_FINISHED", {
+    // Compute how long WebRTC was actually live
+    const connectedDurationMs = connectedAtRef.current ? Date.now() - connectedAtRef.current : 0;
+    const connected = connectedDurationMs > 0;
+
+    // Map reason to a clean call-state label for server-side logging
+    const callState = reason === "connection_failed" ? "failed"
+      : reason === "remote_hangup" ? "ended"
+      : reason === "permission_denied" ? "failed"
+      : reason === "caller_cancelled" ? "cancelled"
+      : "ended";
+
+    console.log("[CALL_UI] CALL_STATE:ended", {
       matchId,
       callSessionId,
       userId,
       reason,
+      callState,
       endpoint,
-      signalType,
+      connected,
+      connectedDurationMs,
       webrtcConnectionState: connectionState,
     });
-    console.log("[CALL_SESSION] CALL_STAGE_EXITED", { matchId, callSessionId, reason });
+    console.log("[CALL_SESSION] CALL_STAGE_EXITED", { matchId, callSessionId, reason, connected, connectedDurationMs });
 
     // Hang up WebRTC before UI teardown
     if (webrtcEnabled) {
@@ -196,7 +215,10 @@ export function ActiveCallOverlay({
       callSessionId,
     } as any);
 
-    apiRequest("POST", endpoint)
+    // Only /call/complete receives connection quality data; /call/cancel gets no body
+    const body = isCancelRinging ? undefined : { connected, connectedDurationMs, callState };
+
+    apiRequest("POST", endpoint, body)
       .then(async (res) => {
         if (!res.ok) return;
         const data = await res.json().catch(() => null);
@@ -219,12 +241,16 @@ export function ActiveCallOverlay({
           if (!old) return old;
           return { ...old, ...patch };
         });
-        console.log("[CALL_UI] CALL_API_SUCCESS", { matchId, endpoint, reason, newStage: data.callStage });
+        console.log("[CALL_UI] CALL_API_SUCCESS", {
+          matchId, endpoint, reason, callState,
+          newStage: data.callStage, callCounted: data.callCounted,
+          connected, connectedDurationMs,
+        });
       })
       .catch((e) => {
         // Overlay is already dismissed — don't show an error toast for user-initiated ends.
         // Log with full context so we can diagnose any server-side issues.
-        console.error("[CALL_UI] CALL_API_ERROR", { matchId, endpoint, reason, error: e.message });
+        console.error("[CALL_UI] CALL_API_ERROR", { matchId, endpoint, reason, callState, connected, connectedDurationMs, error: e.message });
         // Force a cache refresh so the match card reflects the true DB state
         queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
         queryClient.invalidateQueries({ queryKey: ["/api/matches", matchId] });

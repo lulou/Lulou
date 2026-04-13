@@ -99,6 +99,25 @@ function getPreferencesThatIncludeGender(gender: string): string[] {
   return prefs;
 }
 
+// Minimum WebRTC-connected duration (ms) for a call to consume a slot.
+// Calls shorter than this are refunded — the stage is NOT advanced.
+const MIN_VALID_CALL_MS = 20_000;
+
+export interface CompleteCallOptions {
+  /** Whether WebRTC audio/video actually connected (ICE state reached "connected"). */
+  connected?: boolean;
+  /** How many milliseconds the WebRTC connection was live. 0 if it never connected. */
+  connectedDurationMs?: number;
+  /** Diagnostic state name at the time the call ended (e.g. "failed", "ended", "connection_failed"). */
+  callState?: string;
+}
+
+export interface CompleteCallResult {
+  match: Match;
+  /** True if the call was long enough to count — stage was advanced. False = slot refunded. */
+  counted: boolean;
+}
+
 export interface IStorage {
   getProfile(userId: string): Promise<Profile | undefined>;
   createProfile(data: InsertProfile): Promise<Profile>;
@@ -116,7 +135,7 @@ export interface IStorage {
   startCall(matchId: string, userId: string): Promise<{ match: Match; status: "created" | "reused" | "blocked" } | undefined>;
   answerCall(matchId: string, userId: string): Promise<Match | undefined>;
   cancelCall(matchId: string, userId: string): Promise<Match | undefined>;
-  completeCall(matchId: string, userId: string): Promise<Match | undefined>;
+  completeCall(matchId: string, userId: string, options?: CompleteCallOptions): Promise<CompleteCallResult | undefined>;
   acceptFaceCall(matchId: string, userId: string): Promise<Match | undefined>;
   declineFaceCall(matchId: string, userId: string): Promise<Match | undefined>;
   getProfilePhotos(userId: string): Promise<string[]>;
@@ -974,7 +993,7 @@ export class SupabaseStorage implements IStorage {
     return match;
   }
 
-  async completeCall(matchId: string, userId: string): Promise<Match | undefined> {
+  async completeCall(matchId: string, userId: string, options?: CompleteCallOptions): Promise<CompleteCallResult | undefined> {
     const { data: matchData, error: readError } = await this.sb
       .from("matches")
       .select("*")
@@ -991,11 +1010,11 @@ export class SupabaseStorage implements IStorage {
     // Idempotency guard: if the call is already cleared, nothing to do
     if (!match.callStartedAt && !match.callAnswered && !match.callInitiatorId) {
       console.log("[completeCall] Already cleared — returning current state (idempotent)", { matchId, userId });
-      return match;
+      return { match, counted: false };
     }
 
     if (!match.callAnswered) {
-      // Call was never answered — just clear it
+      // Call was never answered — just clear it, no stage advance
       const { data: updated, error: clearError } = await this.sb
         .from("matches")
         .update({
@@ -1011,14 +1030,55 @@ export class SupabaseStorage implements IStorage {
         console.error("[completeCall] DB clear error (unanswered):", { matchId, userId, message: clearError.message, code: clearError.code });
         throw new Error(`completeCall clear failed: ${clearError.message} (code: ${clearError.code})`);
       }
-      console.log("[completeCall] CALL_SESSION_CLEARED (unanswered)", { matchId, userId });
-      return updated ? mapMatch(updated) : match;
+      console.log("[completeCall] CALL_STATE:accepted→cleared (never connected, no stage advance)", { matchId, userId });
+      return { match: updated ? mapMatch(updated) : match, counted: false };
     }
 
+    // ──────────────────────────────────────────────────────────────
+    // Call was answered. Determine whether it counts as a used slot.
+    //
+    // A call COUNTS only if WebRTC actually connected AND stayed live
+    // for at least MIN_VALID_CALL_MS. Anything shorter (connection
+    // failure, immediate drop, network error) is a refund — we clear
+    // the call fields but do NOT advance the stage.
+    // ──────────────────────────────────────────────────────────────
+    const connected = options?.connected !== false; // default true (backward-compat for callers without WebRTC context)
+    const connectedDurationMs = options?.connectedDurationMs ?? (connected ? MIN_VALID_CALL_MS : 0);
+    const callState = options?.callState ?? "ended";
+    const callCounts = connected && connectedDurationMs >= MIN_VALID_CALL_MS;
+
+    console.log("[completeCall] CALL_COMPLETION_EVALUATION", {
+      matchId, userId, callState,
+      connected, connectedDurationMs, MIN_VALID_CALL_MS, callCounts,
+    });
+
+    if (!callCounts) {
+      // Not enough live connection — clear without advancing stage (refund)
+      const reason = !connected ? "no_webrtc_connection" : `below_minimum_duration(${connectedDurationMs}ms<${MIN_VALID_CALL_MS}ms)`;
+      console.log("[completeCall] CALL_STATE:accepted→cleared SLOT_REFUNDED", { matchId, userId, reason, callState });
+      const { data: updated, error: clearError } = await this.sb
+        .from("matches")
+        .update({
+          call_started_at: null,
+          call_initiator_id: null,
+          call_answered: false,
+          call_completed: false,
+        })
+        .eq("id", matchId)
+        .select()
+        .maybeSingle();
+      if (clearError) {
+        console.error("[completeCall] DB clear error (not counted):", { matchId, userId, message: clearError.message });
+        throw new Error(`completeCall clear failed: ${clearError.message} (code: ${clearError.code})`);
+      }
+      return { match: updated ? mapMatch(updated) : match, counted: false };
+    }
+
+    // Call counts — advance the stage
     const currentStage = match.callStage || 0;
     if (currentStage >= 3) {
       console.log("[completeCall] All stages already completed", { matchId, userId, currentStage });
-      return match;
+      return { match, counted: false };
     }
     const nextStage = Math.min(currentStage + 1, 3);
 
@@ -1033,10 +1093,10 @@ export class SupabaseStorage implements IStorage {
     if (currentStage === 0) {
       stageUpdate.message_count_1 = 0;
       stageUpdate.message_count_2 = 0;
-      console.log("[CONNECTION_STAGE] FIRST_CALL_ENDED", { matchId, userId, newStage: nextStage });
+      console.log("[CONNECTION_STAGE] FIRST_CALL_ENDED", { matchId, userId, newStage: nextStage, connectedDurationMs });
       console.log("[CONNECTION_STAGE] CONNECTION_STAGE_CHANGED", { matchId, from: "first_call", to: "post_call_messaging", nextStage });
     } else if (currentStage === 1) {
-      console.log("[CONNECTION_STAGE] SECOND_CALL_ENDED", { matchId, userId, newStage: nextStage });
+      console.log("[CONNECTION_STAGE] SECOND_CALL_ENDED", { matchId, userId, newStage: nextStage, connectedDurationMs });
       console.log("[CONNECTION_STAGE] CONNECTION_STAGE_CHANGED", { matchId, from: "second_call", to: "face_call_or_meeting", nextStage });
     }
 
@@ -1050,8 +1110,8 @@ export class SupabaseStorage implements IStorage {
       console.error("[completeCall] DB update error:", { matchId, userId, message: updateError.message, code: updateError.code, details: updateError.details });
       throw new Error(`completeCall update failed: ${updateError.message} (code: ${updateError.code})`);
     }
-    console.log("[completeCall] CALL_SESSION_CLEARED", { matchId, userId, newStage: nextStage });
-    return updated ? mapMatch(updated) : match;
+    console.log("[completeCall] CALL_STATE:connected→ended STAGE_ADVANCED", { matchId, userId, newStage: nextStage, connectedDurationMs });
+    return { match: updated ? mapMatch(updated) : match, counted: true };
   }
 
   async acceptFaceCall(matchId: string, userId: string): Promise<Match | undefined> {
