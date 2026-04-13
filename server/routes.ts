@@ -351,10 +351,58 @@ function generateAutoReply(profile: Profile | undefined, msgIndex: number): stri
   return AUTO_REPLIES[msgIndex % AUTO_REPLIES.length];
 }
 
+async function clearStaleCallsOnStartup(): Promise<void> {
+  try {
+    const STALE_RINGING_MS = 2 * 60 * 1000;
+    const STALE_ANSWERED_MS = 30 * 60 * 1000;
+    const now = new Date();
+
+    const { data: matches, error: readError } = await supabaseAdmin
+      .from("matches")
+      .select("id, call_started_at, call_answered")
+      .not("call_started_at", "is", null);
+
+    if (readError) {
+      console.error("[STARTUP] Failed to read matches for stale call cleanup:", readError.message);
+      return;
+    }
+
+    const staleIds: string[] = [];
+    for (const m of matches ?? []) {
+      if (!m.call_started_at) continue;
+      const age = now.getTime() - new Date(m.call_started_at).getTime();
+      const isStale = (!m.call_answered && age > STALE_RINGING_MS) || (m.call_answered && age > STALE_ANSWERED_MS);
+      if (isStale) staleIds.push(m.id);
+    }
+
+    if (staleIds.length === 0) {
+      console.log("[STARTUP] No stale calls to clear");
+      return;
+    }
+
+    for (const id of staleIds) {
+      const { error } = await supabaseAdmin
+        .from("matches")
+        .update({ call_started_at: null, call_initiator_id: null, call_answered: false, call_completed: false })
+        .eq("id", id);
+      if (error) {
+        console.error("[STARTUP] Failed to clear stale call for match", id.slice(0, 8), ":", error.message);
+      } else {
+        console.log("[STARTUP] Cleared stale call for match", id.slice(0, 8));
+      }
+    }
+    console.log(`[STARTUP] Stale call cleanup complete — cleared ${staleIds.length} stale call(s)`);
+  } catch (err: any) {
+    console.error("[STARTUP] Stale call cleanup threw:", err?.message);
+  }
+}
+
 export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
+  clearStaleCallsOnStartup().catch((err) => console.error("[STARTUP] clearStaleCallsOnStartup failed:", err?.message));
+
   app.get("/api/auth/user", isAuthenticated, async (req: any, res) => {
     try {
       const user = req.user;
