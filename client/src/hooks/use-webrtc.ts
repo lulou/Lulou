@@ -43,6 +43,7 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
   const cleanedUpRef = useRef(false);
   const onRemoteHangupRef = useRef(onRemoteHangup);
   const disconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const connectionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const readyReceivedRef = useRef(false);
   onRemoteHangupRef.current = onRemoteHangup;
 
@@ -53,6 +54,10 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
     if (disconnectTimerRef.current) {
       clearTimeout(disconnectTimerRef.current);
       disconnectTimerRef.current = null;
+    }
+    if (connectionTimeoutRef.current) {
+      clearTimeout(connectionTimeoutRef.current);
+      connectionTimeoutRef.current = null;
     }
     if (localStreamRef.current) {
       localStreamRef.current.getTracks().forEach((t) => t.stop());
@@ -267,11 +272,19 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
       pc.oniceconnectionstatechange = () => {
         if (cleanedUpRef.current) return;
         const state = pc.iceConnectionState;
-        console.log("[WebRTC] ICE connection state:", state);
+        console.log("[WebRTC] ICE connection state:", state, {
+          matchId,
+          signalingState: pc.signalingState,
+          connectionState: pc.connectionState,
+        });
         if (state === "connected" || state === "completed") {
           if (disconnectTimerRef.current) {
             clearTimeout(disconnectTimerRef.current);
             disconnectTimerRef.current = null;
+          }
+          if (connectionTimeoutRef.current) {
+            clearTimeout(connectionTimeoutRef.current);
+            connectionTimeoutRef.current = null;
           }
           setConnectionState("connected");
         } else if (state === "disconnected") {
@@ -279,10 +292,17 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
           if (disconnectTimerRef.current) clearTimeout(disconnectTimerRef.current);
           disconnectTimerRef.current = setTimeout(() => {
             if (!cleanedUpRef.current && pcRef.current?.iceConnectionState === "disconnected") {
+              console.error("[WebRTC] ICE disconnect timeout — marking failed", { matchId });
               setConnectionState("failed");
             }
           }, 15000);
         } else if (state === "failed") {
+          console.error("[WebRTC] ICE connection failed", {
+            matchId,
+            signalingState: pc.signalingState,
+            connectionState: pc.connectionState,
+            note: "STUN-only — may fail on mobile data or symmetric NAT. TURN server recommended.",
+          });
           setConnectionState("failed");
         } else if (state === "closed") {
           setConnectionState("closed");
@@ -290,6 +310,20 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
       };
 
       setConnectionState("connecting");
+
+      // 30-second hard timeout — if ICE hasn't connected by then, mark as failed
+      connectionTimeoutRef.current = setTimeout(() => {
+        if (cleanedUpRef.current) return;
+        const iceState = pcRef.current?.iceConnectionState;
+        if (iceState !== "connected" && iceState !== "completed") {
+          console.error("[WebRTC] Connection timeout after 30s — marking failed", {
+            matchId,
+            iceState,
+            note: "STUN-only peer connection likely failed due to NAT/firewall",
+          });
+          setConnectionState("failed");
+        }
+      }, 30000);
 
       if (isCaller) {
         await sendOffer();
@@ -355,6 +389,10 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
     if (disconnectTimerRef.current) {
       clearTimeout(disconnectTimerRef.current);
       disconnectTimerRef.current = null;
+    }
+    if (connectionTimeoutRef.current) {
+      clearTimeout(connectionTimeoutRef.current);
+      connectionTimeoutRef.current = null;
     }
     setLocalStream(null);
     setRemoteStream(null);

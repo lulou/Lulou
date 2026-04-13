@@ -29,7 +29,7 @@ Lulou Dating employs a modern web architecture:
         2.  Post-call messaging (6 messages per user).
         3.  Second voice call (15 minutes) after post-call messages are exchanged.
         4.  Optional face/video call (10 minutes) with mutual acceptance.
-    -   **Call System**: Active call signaling via Supabase Realtime broadcast for ring, answered, declined, cancelled, and ended states. Features incoming and active call overlays, staleness protection, and cancelled session tracking.
+    -   **Call System**: Active call signaling via Supabase Realtime broadcast for ring, answered, declined, cancelled, and ended states. Features incoming and active call overlays, staleness protection, and cancelled session tracking. WebRTC peer-to-peer audio/video is fully wired into `ActiveCallOverlay` via `useWebRTC`. Controls: mute, speaker, camera (video calls). Connection states: requesting-media → connecting → connected → reconnecting/failed. Permission-denied and connection-failed screens shown with clear messaging. 30-second hard connection timeout (STUN-only). Timer only runs while `connectionState === "connected"`. Remote stream attached to `<audio>` (always) and `<video>` (video calls).
 -   **Post-Call Actions**: "Ready to Meet" button unlocks after all calls, allowing users to propose meet-up availability. Phone number exchange is unlocked only after mutual meet-up confirmation.
 -   **Message Reactions**: Double-tap to toggle a heart reaction on received messages.
 -   **Content Filtering**: Server-side filtering to block sensitive information (phone numbers, emails, social media handles) in regular messages.
