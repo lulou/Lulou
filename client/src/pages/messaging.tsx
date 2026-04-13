@@ -319,7 +319,17 @@ export default function Messaging() {
   const [message, setMessage] = useState("");
   const [showCloseConfirm, setShowCloseConfirm] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
+  const isAtBottomRef = useRef(true);
+  const forceScrollRef = useRef(false);
+  const initialScrollDoneRef = useRef(false);
   const matchId = params?.matchId;
+
+  const handleMessagesScroll = useCallback(() => {
+    const el = messagesContainerRef.current;
+    if (!el) return;
+    isAtBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+  }, []);
 
   const closeConnection = useMutation({
     mutationFn: async () => {
@@ -431,8 +441,24 @@ export default function Messaging() {
   }, [user?.id, toggleReaction]);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [matchDetail?.messages]);
+    if (!matchDetail?.messages) return;
+    const el = messagesContainerRef.current;
+    if (!el) return;
+
+    if (!initialScrollDoneRef.current) {
+      // First load — jump instantly to the bottom
+      el.scrollTop = el.scrollHeight;
+      initialScrollDoneRef.current = true;
+    } else if (forceScrollRef.current) {
+      // User just sent a message — jump to bottom
+      el.scrollTop = el.scrollHeight;
+      forceScrollRef.current = false;
+    } else if (isAtBottomRef.current) {
+      // New message arrived and user is at the bottom — smooth follow
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
+    // If user is scrolled up reading history: do nothing
+  }, [matchDetail?.messages?.length]);
 
   if (isLoading) {
     return (
@@ -527,7 +553,7 @@ export default function Messaging() {
         </div>
       )}
 
-      <div className="flex-1 overflow-y-auto p-4 space-y-3" data-testid="messages-container">
+      <div ref={messagesContainerRef} onScroll={handleMessagesScroll} className="flex-1 overflow-y-auto p-4 space-y-3" data-testid="messages-container">
         {matchDetail.messages?.length === 0 && (
           <div className="text-center py-12 space-y-2">
             <p className="text-muted-foreground text-sm">This is the beginning of your conversation</p>
@@ -605,6 +631,7 @@ export default function Messaging() {
                   if (message.trim()) {
                     const content = message.trim();
                     setMessage("");
+                    forceScrollRef.current = true;
                     sendMessage.mutate({ content, tempId: `temp-${Date.now()}-${Math.random().toString(36).slice(2)}` });
                   }
                 }
@@ -617,6 +644,7 @@ export default function Messaging() {
                 if (message.trim()) {
                   const content = message.trim();
                   setMessage("");
+                  forceScrollRef.current = true;
                   sendMessage.mutate({ content, tempId: `temp-${Date.now()}-${Math.random().toString(36).slice(2)}` });
                 }
               }}

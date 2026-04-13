@@ -891,7 +891,17 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
   const isActive = useTabActive();
   const [message, setMessage] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
+  const isAtBottomRef = useRef(true);
+  const forceScrollRef = useRef(false);
+  const wasExpandedRef = useRef(false);
   const guidanceInsertIndexRef = useRef<Map<string, number>>(new Map());
+
+  const handleMessagesScroll = useCallback(() => {
+    const el = messagesContainerRef.current;
+    if (!el) return;
+    isAtBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+  }, []);
 
   const { data: matchDetail, isLoading: matchLoading, error: matchError } = useQuery<MatchDetail>({
     queryKey: ["/api/matches", match.id],
@@ -1223,10 +1233,24 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
   const detail = matchDetail || match as unknown as MatchDetail;
 
   useEffect(() => {
-    if (expanded) {
+    const justExpanded = expanded && !wasExpandedRef.current;
+    wasExpandedRef.current = expanded;
+
+    if (!expanded) return;
+
+    const el = messagesContainerRef.current;
+    if (!el) return;
+
+    if (justExpanded || forceScrollRef.current) {
+      // Chat just opened or user just sent a message — jump to bottom instantly
+      el.scrollTop = el.scrollHeight;
+      forceScrollRef.current = false;
+    } else if (isAtBottomRef.current) {
+      // New message arrived and user is already at the bottom — smooth follow
       messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     }
-  }, [matchDetail?.messages, expanded]);
+    // If user has scrolled up to read history: do nothing
+  }, [matchDetail?.messages?.length, expanded]);
 
   useEffect(() => {
     if (detail.callSessionId) {
@@ -1518,7 +1542,7 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
 
       {expanded && <SparkProgressBar sparkStep={sparkStep} />}
 
-      <div className="flex-1 overflow-y-auto p-4 space-y-3" data-testid={`messages-container-${match.id}`}>
+      <div ref={messagesContainerRef} onScroll={handleMessagesScroll} className="flex-1 overflow-y-auto p-4 space-y-3" data-testid={`messages-container-${match.id}`}>
             {expanded && matchLoading && !matchDetail && (
               <div className="flex flex-col items-center justify-center py-10 gap-3" data-testid={`chat-loading-${match.id}`}>
                 <div className="w-8 h-8 rounded-full border-2 border-primary border-t-transparent animate-spin" />
@@ -1802,6 +1826,7 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
                           if (message.trim()) {
                             const content = message.trim();
                             stopTyping();
+                            forceScrollRef.current = true;
                             sendMessage.mutate({ content, tempId: `temp-${Date.now()}-${Math.random().toString(36).slice(2)}` });
                           }
                         }
@@ -1818,6 +1843,7 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
                           if (message.trim()) {
                             const content = message.trim();
                             stopTyping();
+                            forceScrollRef.current = true;
                             sendMessage.mutate({ content, tempId: `temp-${Date.now()}-${Math.random().toString(36).slice(2)}` });
                           }
                         }}
@@ -1903,6 +1929,7 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
                       if (message.trim()) {
                         const content = message.trim();
                         stopTyping();
+                        forceScrollRef.current = true;
                         sendMessage.mutate({ content, tempId: `temp-${Date.now()}-${Math.random().toString(36).slice(2)}` });
                       }
                     }
@@ -1915,6 +1942,7 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
                     if (message.trim()) {
                       const content = message.trim();
                       stopTyping();
+                      forceScrollRef.current = true;
                       sendMessage.mutate({ content, tempId: `temp-${Date.now()}-${Math.random().toString(36).slice(2)}` });
                     }
                   }}
