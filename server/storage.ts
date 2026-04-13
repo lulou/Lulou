@@ -975,17 +975,28 @@ export class SupabaseStorage implements IStorage {
   }
 
   async completeCall(matchId: string, userId: string): Promise<Match | undefined> {
-    const { data: matchData } = await this.sb
+    const { data: matchData, error: readError } = await this.sb
       .from("matches")
       .select("*")
       .eq("id", matchId)
       .maybeSingle();
+    if (readError) {
+      console.error("[completeCall] DB read error:", { matchId, userId, message: readError.message, code: readError.code });
+      throw new Error(`completeCall read failed: ${readError.message} (code: ${readError.code})`);
+    }
     if (!matchData) return undefined;
     const match = mapMatch(matchData);
     if (match.user1Id !== userId && match.user2Id !== userId) return undefined;
 
+    // Idempotency guard: if the call is already cleared, nothing to do
+    if (!match.callStartedAt && !match.callAnswered && !match.callInitiatorId) {
+      console.log("[completeCall] Already cleared — returning current state (idempotent)", { matchId, userId });
+      return match;
+    }
+
     if (!match.callAnswered) {
-      const { data: updated } = await this.sb
+      // Call was never answered — just clear it
+      const { data: updated, error: clearError } = await this.sb
         .from("matches")
         .update({
           call_started_at: null,
@@ -995,13 +1006,20 @@ export class SupabaseStorage implements IStorage {
         })
         .eq("id", matchId)
         .select()
-        .single();
-      if (updated) console.log("[completeCall] CALL_SESSION_CLEARED (unanswered)", { matchId, userId });
-      return updated ? mapMatch(updated) : undefined;
+        .maybeSingle();
+      if (clearError) {
+        console.error("[completeCall] DB clear error (unanswered):", { matchId, userId, message: clearError.message, code: clearError.code });
+        throw new Error(`completeCall clear failed: ${clearError.message} (code: ${clearError.code})`);
+      }
+      console.log("[completeCall] CALL_SESSION_CLEARED (unanswered)", { matchId, userId });
+      return updated ? mapMatch(updated) : match;
     }
 
     const currentStage = match.callStage || 0;
-    if (currentStage >= 3) return undefined;
+    if (currentStage >= 3) {
+      console.log("[completeCall] All stages already completed", { matchId, userId, currentStage });
+      return match;
+    }
     const nextStage = Math.min(currentStage + 1, 3);
 
     const stageUpdate: Record<string, any> = {
@@ -1022,14 +1040,18 @@ export class SupabaseStorage implements IStorage {
       console.log("[CONNECTION_STAGE] CONNECTION_STAGE_CHANGED", { matchId, from: "second_call", to: "face_call_or_meeting", nextStage });
     }
 
-    const { data: updated } = await this.sb
+    const { data: updated, error: updateError } = await this.sb
       .from("matches")
       .update(stageUpdate)
       .eq("id", matchId)
       .select()
-      .single();
-    if (updated) console.log("[completeCall] CALL_SESSION_CLEARED", { matchId, userId, newStage: nextStage });
-    return updated ? mapMatch(updated) : undefined;
+      .maybeSingle();
+    if (updateError) {
+      console.error("[completeCall] DB update error:", { matchId, userId, message: updateError.message, code: updateError.code, details: updateError.details });
+      throw new Error(`completeCall update failed: ${updateError.message} (code: ${updateError.code})`);
+    }
+    console.log("[completeCall] CALL_SESSION_CLEARED", { matchId, userId, newStage: nextStage });
+    return updated ? mapMatch(updated) : match;
   }
 
   async acceptFaceCall(matchId: string, userId: string): Promise<Match | undefined> {

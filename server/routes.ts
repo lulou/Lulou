@@ -1756,5 +1756,22 @@ export async function registerRoutes(
     );
   }
 
+  // Global error handler — catches any unhandled errors that escape route try/catch blocks.
+  // Without this, Express would return an HTML error page instead of JSON, causing clients
+  // to display a literal "Internal Server Error" string from the HTTP status text.
+  app.use((err: any, _req: any, res: any, _next: any) => {
+    console.error("[EXPRESS_GLOBAL_ERROR]", {
+      message: err?.message,
+      stack: err?.stack,
+      code: err?.code,
+    });
+    if (!res.headersSent) {
+      res.status(err?.status || 500).json({
+        message: err?.message || "An unexpected server error occurred",
+        code: err?.code || "INTERNAL_ERROR",
+      });
+    }
+  });
+
   return httpServer;
 }

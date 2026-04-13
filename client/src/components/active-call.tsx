@@ -219,9 +219,15 @@ export function ActiveCallOverlay({
           if (!old) return old;
           return { ...old, ...patch };
         });
+        console.log("[CALL_UI] CALL_API_SUCCESS", { matchId, endpoint, reason, newStage: data.callStage });
       })
       .catch((e) => {
-        console.error("[CALL_UI] CALL_API_ERROR", { matchId, endpoint, error: e.message });
+        // Overlay is already dismissed — don't show an error toast for user-initiated ends.
+        // Log with full context so we can diagnose any server-side issues.
+        console.error("[CALL_UI] CALL_API_ERROR", { matchId, endpoint, reason, error: e.message });
+        // Force a cache refresh so the match card reflects the true DB state
+        queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/matches", matchId] });
       });
   }, [matchId, callSessionId, userId, isCaller, isRinging, onCallEnd, queryClient, hangup, webrtcEnabled, connectionState]);
 
