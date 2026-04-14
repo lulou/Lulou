@@ -194,6 +194,7 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
             console.warn("Ignoring answer in state:", pc.signalingState);
             return;
           }
+          console.log("Received answer:", msg.sdp);
           await pc.setRemoteDescription(new RTCSessionDescription({ type: "answer", sdp: msg.sdp }));
           hasSetRemoteDescRef.current = true;
           const queued = pendingCandidatesRef.current.splice(0);
@@ -202,7 +203,10 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
           }
         } else if (msg.type === "webrtc:ice") {
           if (hasSetRemoteDescRef.current) {
-            try { await pc.addIceCandidate(new RTCIceCandidate(msg.candidate)); } catch {}
+            if (msg.candidate && pc) {
+              console.log("Adding ICE candidate:", msg.candidate);
+              try { await pc.addIceCandidate(new RTCIceCandidate(msg.candidate)); } catch {}
+            }
           } else {
             pendingCandidatesRef.current.push(msg.candidate);
           }
@@ -286,6 +290,7 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
       stream.getTracks().forEach((track) => pc.addTrack(track, stream));
 
       pc.ontrack = (event) => {
+        console.log("Remote track received:", event.streams);
         event.streams[0]?.getTracks().forEach((track) => {
           if (!remote.getTrackById(track.id)) {
             remote.addTrack(track);
@@ -296,8 +301,13 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
 
       pc.onicecandidate = (event) => {
         if (event.candidate) {
+          console.log("Sending ICE candidate:", event.candidate);
           broadcastOnChannel({ type: "webrtc:ice", candidate: event.candidate.toJSON() });
         }
+      };
+
+      pc.onconnectionstatechange = () => {
+        console.log("connectionState:", pc.connectionState);
       };
 
       pc.oniceconnectionstatechange = () => {
