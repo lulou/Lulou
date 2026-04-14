@@ -172,39 +172,56 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
             clearInterval(readyRetryIntervalRef.current);
             readyRetryIntervalRef.current = null;
           }
+          console.log("[WebRTC] OFFER received — before setRemoteDescription, signalingState:", pc.signalingState);
           await pc.setRemoteDescription(new RTCSessionDescription({ type: "offer", sdp: msg.sdp }));
+          console.log("[WebRTC] OFFER — after setRemoteDescription, signalingState:", pc.signalingState);
           hasSetRemoteDescRef.current = true;
           const queued = pendingCandidatesRef.current.splice(0);
+          if (queued.length > 0) {
+            console.log("[WebRTC] OFFER — draining", queued.length, "queued ICE candidates");
+          }
           for (const c of queued) {
             try { await pc.addIceCandidate(new RTCIceCandidate(c)); } catch {}
           }
+          console.log("[WebRTC] OFFER — before createAnswer");
           const answer = await pc.createAnswer();
+          console.log("[WebRTC] OFFER — after createAnswer, before setLocalDescription");
           await pc.setLocalDescription(answer);
+          console.log("[WebRTC] OFFER — after setLocalDescription, signalingState:", pc.signalingState, "— sending answer");
           broadcastOnChannel({ type: "webrtc:answer", sdp: answer.sdp! });
         } else if (msg.type === "webrtc:answer" && isCaller) {
           if (pc.signalingState !== "have-local-offer") {
             console.warn("Ignoring answer in state:", pc.signalingState);
             return;
           }
-          console.log("Received answer:", msg.sdp);
+          console.log("[WebRTC] ANSWER received — before setRemoteDescription, signalingState:", pc.signalingState);
           await pc.setRemoteDescription(new RTCSessionDescription({ type: "answer", sdp: msg.sdp }));
+          console.log("[WebRTC] ANSWER — after setRemoteDescription, signalingState:", pc.signalingState);
           hasSetRemoteDescRef.current = true;
           const queued = pendingCandidatesRef.current.splice(0);
+          if (queued.length > 0) {
+            console.log("[WebRTC] ANSWER — draining", queued.length, "queued ICE candidates");
+          }
           for (const c of queued) {
             try { await pc.addIceCandidate(new RTCIceCandidate(c)); } catch {}
           }
         } else if (msg.type === "webrtc:ice") {
           if (hasSetRemoteDescRef.current) {
             if (msg.candidate && pc) {
-              console.log("Adding ICE candidate:", msg.candidate);
+              console.log("[WebRTC] ICE candidate received — adding:", {
+                type: (msg.candidate as any).type,
+                protocol: (msg.candidate as any).protocol,
+                candidateString: msg.candidate.candidate,
+              });
               try { await pc.addIceCandidate(new RTCIceCandidate(msg.candidate)); } catch {}
             }
           } else {
+            console.log("[WebRTC] ICE candidate received — queuing (no remote desc yet):", msg.candidate.candidate);
             pendingCandidatesRef.current.push(msg.candidate);
           }
         }
       } catch (e) {
-        console.error("Signal handling error:", e);
+        console.error("[WebRTC] FAILURE_TRIGGER: signal_handling_exception", e);
         setConnectionState("failed");
       }
     };
@@ -276,13 +293,34 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
       const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
       pcRef.current = pc;
 
+      console.log("[WebRTC] PC created — initial states:", {
+        connectionState: pc.connectionState,
+        iceConnectionState: pc.iceConnectionState,
+        iceGatheringState: pc.iceGatheringState,
+        signalingState: pc.signalingState,
+        iceServers: ICE_SERVERS.map(s => s.urls),
+      });
+
       const remote = new MediaStream();
       setRemoteStream(remote);
 
-      stream.getTracks().forEach((track) => pc.addTrack(track, stream));
+      stream.getTracks().forEach((track) => {
+        pc.addTrack(track, stream);
+        console.log("[WebRTC] Local track added:", {
+          kind: track.kind,
+          enabled: track.enabled,
+          readyState: track.readyState,
+          id: track.id,
+        });
+      });
 
       pc.ontrack = (event) => {
-        console.log("Remote track received:", event.streams);
+        console.log("[WebRTC] Remote track received:", {
+          trackKind: event.track.kind,
+          trackEnabled: event.track.enabled,
+          trackReadyState: event.track.readyState,
+          streams: event.streams.length,
+        });
         event.streams[0]?.getTracks().forEach((track) => {
           if (!remote.getTrackById(track.id)) {
             remote.addTrack(track);
@@ -293,13 +331,29 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
 
       pc.onicecandidate = (event) => {
         if (event.candidate) {
-          console.log("Sending ICE candidate:", event.candidate);
+          console.log("[WebRTC] ICE candidate generated:", {
+            type: event.candidate.type,
+            protocol: event.candidate.protocol,
+            address: event.candidate.address,
+            port: event.candidate.port,
+            candidateString: event.candidate.candidate,
+          });
           broadcastOnChannel({ type: "webrtc:ice", candidate: event.candidate.toJSON() });
+        } else {
+          console.log("[WebRTC] ICE gathering complete (null candidate)");
         }
       };
 
+      pc.onicegatheringstatechange = () => {
+        console.log("[WebRTC] iceGatheringState:", pc.iceGatheringState);
+      };
+
       pc.onconnectionstatechange = () => {
-        console.log("connectionState:", pc.connectionState);
+        console.log("[WebRTC] connectionState:", pc.connectionState, {
+          iceConnectionState: pc.iceConnectionState,
+          iceGatheringState: pc.iceGatheringState,
+          signalingState: pc.signalingState,
+        });
       };
 
       pc.oniceconnectionstatechange = () => {
@@ -325,7 +379,7 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
           if (disconnectTimerRef.current) clearTimeout(disconnectTimerRef.current);
           disconnectTimerRef.current = setTimeout(() => {
             if (!cleanedUpRef.current && pcRef.current?.iceConnectionState === "disconnected") {
-              console.error("[WebRTC] ICE disconnect timeout — marking failed", { matchId });
+              console.error("[WebRTC] FAILURE_TRIGGER: ice_disconnect_timeout (15s) — iceConnectionState still disconnected", { matchId });
               // Close the peer connection and channel immediately so re-delivered
               // WebRTC signals (webrtc:ready / webrtc:offer) can't restart the call
               // when the network recovers and Supabase channels reconnect.
@@ -344,10 +398,11 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
             }
           }, 15000);
         } else if (state === "failed") {
-          console.error("[WebRTC] ICE connection failed", {
+          console.error("[WebRTC] FAILURE_TRIGGER: iceConnectionState=failed", {
             matchId,
             signalingState: pc.signalingState,
             connectionState: pc.connectionState,
+            iceGatheringState: pc.iceGatheringState,
           });
           // Close the peer connection and channel immediately — prevents
           // WebRTC signals re-delivered by Supabase on reconnect from
@@ -376,9 +431,11 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
         if (cleanedUpRef.current) return;
         const iceState = pcRef.current?.iceConnectionState;
         if (iceState !== "connected" && iceState !== "completed") {
-          console.error("[WebRTC] Connection timeout after 30s — marking failed", {
+          console.error("[WebRTC] FAILURE_TRIGGER: connection_timeout_30s — ICE never connected", {
             matchId,
             iceState,
+            signalingState: pcRef.current?.signalingState,
+            connectionState: pcRef.current?.connectionState,
           });
           // Close peer connection and channel to prevent restart on network recovery
           if (pcRef.current) {
