@@ -3,6 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { broadcastCallSignal } from "@/hooks/use-call-signaling";
 import { useWebRTC } from "@/hooks/use-webrtc";
+import { useCallRingtone } from "@/hooks/use-call-ringtone";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { PhoneOff, Mic, MicOff, Volume2, VolumeX, Camera, CameraOff, Loader2, WifiOff, AlertTriangle } from "lucide-react";
 
@@ -115,6 +116,10 @@ export function ActiveCallOverlay({
   const isReconnecting = connectionState === "reconnecting";
   const isFailed = connectionState === "failed";
   const timerLabel = useElapsedTimer(isConnected);
+
+  // Outgoing ringback tone: play only while the caller is waiting for an answer.
+  // Stops automatically when isRinging becomes false (answered) or on unmount.
+  useCallRingtone("outgoing", isRinging && isCaller);
 
   // Log overlay entry and WebRTC state changes
   useEffect(() => {

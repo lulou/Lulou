@@ -8,6 +8,7 @@ import { broadcastCallSignal } from "@/hooks/use-call-signaling";
 import { useAuth } from "@/hooks/use-auth";
 import type { Profile, Match } from "@shared/schema";
 import { markCallSessionCancelled } from "@/lib/cancelled-calls";
+import { useCallRingtone } from "@/hooks/use-call-ringtone";
 
 type MatchWithProfile = Match & { profile: Profile };
 
@@ -150,6 +151,11 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss }: In
   });
 
   const isPending = answerCall.isPending || declineCall.isPending;
+
+  // Incoming ringtone — rings while the overlay is open, stops immediately when
+  // the user taps Answer or Decline (isPending becomes true).
+  useCallRingtone("incoming", !isPending);
+
   const photo = match.profile.photos?.[0];
 
   return (
