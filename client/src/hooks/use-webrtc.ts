@@ -1,30 +1,22 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { supabase } from "@/lib/supabase";
 
-// STUN servers for direct peer discovery + TURN relays for restricted networks
-// TURN relays (openrelay.metered.ca) allow calls to work through symmetric NAT
-// and firewalls that block direct UDP — covers most mobile networks.
+const _turnUrl = import.meta.env.VITE_TURN_URL;
+const _turnUsername = import.meta.env.VITE_TURN_USERNAME;
+const _turnCredential = import.meta.env.VITE_TURN_CREDENTIAL;
+
 const ICE_SERVERS: RTCIceServer[] = [
   { urls: "stun:stun.l.google.com:19302" },
   { urls: "stun:stun1.l.google.com:19302" },
   { urls: "stun:stun2.l.google.com:19302" },
-  // Free open TURN relays — allow traversal of symmetric NAT and strict firewalls
-  {
-    urls: "turn:openrelay.metered.ca:80",
-    username: "openrelayproject",
-    credential: "openrelayproject",
-  },
-  {
-    urls: "turn:openrelay.metered.ca:443",
-    username: "openrelayproject",
-    credential: "openrelayproject",
-  },
-  {
-    urls: "turn:openrelay.metered.ca:443?transport=tcp",
-    username: "openrelayproject",
-    credential: "openrelayproject",
-  },
+  ...(_turnUrl && _turnUsername && _turnCredential
+    ? [{ urls: _turnUrl, username: _turnUsername, credential: _turnCredential }]
+    : []),
 ];
+
+if (!_turnUrl || !_turnUsername || !_turnCredential) {
+  console.warn("TURN not configured - calls may fail on restricted networks");
+}
 
 type SignalMessage =
   | { type: "webrtc:offer"; sdp: string; from: string }
