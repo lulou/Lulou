@@ -62,12 +62,17 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
   const disconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const connectionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const readyReceivedRef = useRef(false);
+  const readyRetryIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   onRemoteHangupRef.current = onRemoteHangup;
 
   const cleanup = useCallback(() => {
     if (cleanedUpRef.current) return;
     cleanedUpRef.current = true;
 
+    if (readyRetryIntervalRef.current) {
+      clearInterval(readyRetryIntervalRef.current);
+      readyRetryIntervalRef.current = null;
+    }
     if (disconnectTimerRef.current) {
       clearTimeout(disconnectTimerRef.current);
       disconnectTimerRef.current = null;
@@ -103,6 +108,10 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
     hasSetRemoteDescRef.current = false;
     pendingCandidatesRef.current = [];
     readyReceivedRef.current = false;
+    if (readyRetryIntervalRef.current) {
+      clearInterval(readyRetryIntervalRef.current);
+      readyRetryIntervalRef.current = null;
+    }
 
     const broadcastOnChannel = (msg: Omit<SignalMessage, "from">) => {
       const channel = channelRef.current;
@@ -165,6 +174,11 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
           if (pc.signalingState !== "stable") {
             console.warn("Ignoring offer in state:", pc.signalingState);
             return;
+          }
+          // Stop the ready-retry interval — the caller received our webrtc:ready
+          if (readyRetryIntervalRef.current) {
+            clearInterval(readyRetryIntervalRef.current);
+            readyRetryIntervalRef.current = null;
           }
           await pc.setRemoteDescription(new RTCSessionDescription({ type: "offer", sdp: msg.sdp }));
           hasSetRemoteDescRef.current = true;
@@ -383,7 +397,16 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
       if (isCaller) {
         await sendOffer();
       } else {
-        broadcastOnChannel({ type: "webrtc:ready" });
+        // Send webrtc:ready immediately, then retry every 2s until the caller
+        // responds with an offer. This handles the race condition where the caller
+        // subscribes to the signaling channel AFTER the receiver's first ready signal.
+        const sendReady = () => {
+          if (cleanedUpRef.current || hasSetRemoteDescRef.current) return;
+          console.log("[WebRTC] Sending webrtc:ready (retry if offer not yet received)");
+          broadcastOnChannel({ type: "webrtc:ready" });
+        };
+        sendReady();
+        readyRetryIntervalRef.current = setInterval(sendReady, 2000);
       }
     };
 
@@ -429,6 +452,10 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
         payload: { type: "webrtc:hangup", from: userId },
       });
       console.log("[WebRTC] CALL_END_SENT - webrtc:hangup broadcast");
+    }
+    if (readyRetryIntervalRef.current) {
+      clearInterval(readyRetryIntervalRef.current);
+      readyRetryIntervalRef.current = null;
     }
     if (localStreamRef.current) {
       localStreamRef.current.getTracks().forEach((t) => t.stop());
