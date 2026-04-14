@@ -1,6 +1,32 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { supabase } from "@/lib/supabase";
 
+declare global {
+  interface Window {
+    webrtcLogs: string[];
+  }
+}
+
+if (typeof window !== "undefined") {
+  if (!window.webrtcLogs) window.webrtcLogs = [];
+  const _pushLog = (...args: any[]) => {
+    const msg = args
+      .map(a => (typeof a === "object" && a !== null ? JSON.stringify(a) : String(a)))
+      .join(" ");
+    const ts = new Date().toISOString().slice(11, 23);
+    window.webrtcLogs.push(`${ts} ${msg}`);
+    if (window.webrtcLogs.length > 300) window.webrtcLogs.splice(0, window.webrtcLogs.length - 300);
+  };
+  const _intercept = (orig: (...a: any[]) => void) =>
+    (...args: any[]) => {
+      orig(...args);
+      if (typeof args[0] === "string" && args[0].includes("[WebRTC]")) _pushLog(...args);
+    };
+  console.log = _intercept(console.log.bind(console));
+  console.error = _intercept(console.error.bind(console));
+  console.warn = _intercept(console.warn.bind(console));
+}
+
 const _turnUrl = import.meta.env.VITE_TURN_URL;
 const _turnUsername = import.meta.env.VITE_TURN_USERNAME;
 const _turnCredential = import.meta.env.VITE_TURN_CREDENTIAL;

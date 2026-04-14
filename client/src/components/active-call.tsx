@@ -74,6 +74,7 @@ export function ActiveCallOverlay({
   const queryClient = useQueryClient();
   const endedRef = useRef(false);
   const [speakerOn, setSpeakerOn] = useState(true);
+  const [debugLogs, setDebugLogs] = useState<string[]>([]);
   // Track exactly when WebRTC first reached "connected" so we can measure live duration
   const connectedAtRef = useRef<number | null>(null);
 
@@ -187,6 +188,17 @@ export function ActiveCallOverlay({
     if (!localStream || !isVideo || !localVideoRef.current) return;
     localVideoRef.current.srcObject = localStream;
   }, [localStream, isVideo]);
+
+  // Poll window.webrtcLogs every 500ms and show last 20 lines in the debug panel
+  useEffect(() => {
+    const iv = setInterval(() => {
+      const all = (window as any).webrtcLogs as string[] | undefined;
+      if (all && all.length > 0) {
+        setDebugLogs(all.slice(-20));
+      }
+    }, 500);
+    return () => clearInterval(iv);
+  }, []);
 
   const finishCall = useCallback((reason: string = "user_hangup") => {
     if (endedRef.current) return;
@@ -488,6 +500,33 @@ export function ActiveCallOverlay({
           </span>
         </div>
       </div>
+
+      {/* WebRTC debug panel — live on-screen log viewer */}
+      {debugLogs.length > 0 && (
+        <div
+          style={{
+            position: "fixed",
+            bottom: 0,
+            left: 0,
+            width: "100%",
+            maxHeight: "200px",
+            overflowY: "auto",
+            background: "black",
+            color: "#00ff00",
+            fontSize: "11px",
+            fontFamily: "monospace",
+            zIndex: 9999,
+            padding: "4px 6px",
+            boxSizing: "border-box",
+            lineHeight: "1.4",
+          }}
+          data-testid="webrtc-debug-panel"
+        >
+          {debugLogs.map((line, i) => (
+            <div key={i}>{line}</div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
