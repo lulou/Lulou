@@ -1486,7 +1486,7 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
   if (!expanded) return null;
 
   return (
-    <div className="flex flex-col h-full" data-testid={`card-match-${match.id}`}>
+    <div className="flex flex-col h-full min-h-0" data-testid={`card-match-${match.id}`}>
       <div className="flex items-center gap-3 px-4 py-3 border-b bg-background/95 backdrop-blur-sm sticky top-0 z-10">
         <Button
           size="icon"
@@ -1551,7 +1551,7 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
 
       {expanded && <SparkProgressBar sparkStep={sparkStep} />}
 
-      <div ref={messagesContainerRef} onScroll={handleMessagesScroll} className="flex-1 overflow-y-auto p-4 space-y-3" data-testid={`messages-container-${match.id}`}>
+      <div ref={messagesContainerRef} onScroll={handleMessagesScroll} className="flex-1 overflow-y-auto min-h-0 p-4 space-y-3" data-testid={`messages-container-${match.id}`}>
             {expanded && matchLoading && !matchDetail && (
               <div className="flex flex-col items-center justify-center py-10 gap-3" data-testid={`chat-loading-${match.id}`}>
                 <div className="w-8 h-8 rounded-full border-2 border-primary border-t-transparent animate-spin" />
