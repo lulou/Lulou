@@ -2121,7 +2121,7 @@ export default function Matches() {
   if (selectedMatch) {
     console.log("[CHAT] CHAT_THREAD_FOCUSED", { matchId: selectedMatch.id, profileName: selectedMatch.profile.firstName });
     return (
-      <div className="flex-1 flex flex-col" data-testid="chat-focused-view">
+      <div className="fixed inset-0 z-50 bg-background flex flex-col" data-testid="chat-focused-view">
         <MatchChat
           match={selectedMatch}
           expanded={true}
