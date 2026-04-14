@@ -139,4 +139,19 @@ app.use((req, res, next) => {
       log(`serving on port ${port}`);
     },
   );
+
+  const shutdown = () => {
+    log("Received shutdown signal, closing server gracefully...");
+    httpServer.close(() => {
+      log("Server closed.");
+      process.exit(0);
+    });
+    setTimeout(() => {
+      log("Graceful shutdown timed out, forcing exit.");
+      process.exit(1);
+    }, 10_000);
+  };
+
+  process.on("SIGTERM", shutdown);
+  process.on("SIGINT", shutdown);
 })();

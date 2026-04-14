@@ -749,24 +749,30 @@ export class SupabaseStorage implements IStorage {
   }
 
   async incrementMessageCount(matchId: string, userId: string): Promise<void> {
-    const { data: matchData } = await this.sb
+    const { data: matchData, error: fetchError } = await this.sb
       .from("matches")
       .select("*")
       .eq("id", matchId)
       .maybeSingle();
+    if (fetchError) {
+      console.error("INCREMENT_MSG_COUNT_FETCH_ERROR", { matchId, userId, error: fetchError.message, code: fetchError.code });
+      return;
+    }
     if (!matchData) return;
     const match = mapMatch(matchData);
 
     if (match.user1Id === userId) {
-      await this.sb
+      const { error } = await this.sb
         .from("matches")
         .update({ message_count_1: (match.messageCount1 || 0) + 1 })
         .eq("id", matchId);
+      if (error) console.error("INCREMENT_MSG_COUNT_UPDATE_ERROR", { matchId, userId, field: "message_count_1", error: error.message, code: error.code });
     } else {
-      await this.sb
+      const { error } = await this.sb
         .from("matches")
         .update({ message_count_2: (match.messageCount2 || 0) + 1 })
         .eq("id", matchId);
+      if (error) console.error("INCREMENT_MSG_COUNT_UPDATE_ERROR", { matchId, userId, field: "message_count_2", error: error.message, code: error.code });
     }
   }
 
