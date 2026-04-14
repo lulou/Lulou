@@ -649,7 +649,8 @@ export async function registerRoutes(
 
   app.post("/api/matches/:matchId/messages", isAuthenticated, async (req: any, res) => {
     try {
-      const storage = getStorage(req);
+      const storage = getStorage(req);   // user-scoped: used for reads (RLS ensures correct access)
+      const adminStorage = getAdminStorage(); // admin: used for writes (auth already verified above)
       const userId = req.user.id;
       const { matchId } = req.params;
 
@@ -709,7 +710,8 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Messaging is locked at this stage." });
       }
 
-      const message = await storage.createMessage({
+      // Use admin storage for the write — auth already verified, bypasses RLS
+      const message = await adminStorage.createMessage({
         matchId,
         senderId: userId,
         content: content.trim(),
@@ -725,7 +727,7 @@ export async function registerRoutes(
         createdAt: message.createdAt,
       });
 
-      await storage.incrementMessageCount(matchId, userId);
+      await adminStorage.incrementMessageCount(matchId, userId);
 
       if (callStage === 1) {
         const updatedMatch = await storage.getMatch(matchId, userId);
@@ -743,31 +745,30 @@ export async function registerRoutes(
 
       const otherUserId = match.user1Id === userId ? match.user2Id : match.user1Id;
       if (isSeedUser(otherUserId)) {
-        const otherProfile = await storage.getProfile(otherUserId);
-        const replyStorage = storage;
+        const otherProfile = await adminStorage.getProfile(otherUserId);
         if (callStage === 0) {
-          const otherCount = await storage.getUserMessageCount(matchId, otherUserId);
+          const otherCount = await adminStorage.getUserMessageCount(matchId, otherUserId);
           if (otherCount < 15) {
             setTimeout(async () => {
               try {
                 const reply = generateAutoReply(otherProfile, otherCount);
-                await replyStorage.createMessage({ matchId, senderId: otherUserId, content: reply });
-                await replyStorage.incrementMessageCount(matchId, otherUserId);
+                await adminStorage.createMessage({ matchId, senderId: otherUserId, content: reply });
+                await adminStorage.incrementMessageCount(matchId, otherUserId);
               } catch (err) {
                 console.error("Auto-reply error:", err);
               }
             }, 1500 + Math.random() * 2000);
           }
         } else if (callStage === 1) {
-          const freshMatch = await storage.getMatch(matchId, otherUserId);
+          const freshMatch = await adminStorage.getMatch(matchId, otherUserId);
           if (freshMatch) {
             const otherPostCallCount = freshMatch.user1Id === otherUserId ? (freshMatch.messageCount1 || 0) : (freshMatch.messageCount2 || 0);
             if (otherPostCallCount < 6) {
               setTimeout(async () => {
                 try {
                   const reply = generateAutoReply(otherProfile, 30 + otherPostCallCount);
-                  await replyStorage.createMessage({ matchId, senderId: otherUserId, content: reply });
-                  await replyStorage.incrementMessageCount(matchId, otherUserId);
+                  await adminStorage.createMessage({ matchId, senderId: otherUserId, content: reply });
+                  await adminStorage.incrementMessageCount(matchId, otherUserId);
                 } catch (err) {
                   console.error("Auto-reply (post-call) error:", err);
                 }
@@ -778,9 +779,11 @@ export async function registerRoutes(
       }
 
       res.json(message);
-    } catch (error) {
-      console.error("Error sending message:", error);
-      res.status(500).json({ message: "Failed to send message" });
+    } catch (error: any) {
+      const errMsg = error?.message || String(error);
+      const errCode = error?.code;
+      console.error("MSG_SEND_ERROR", { errMsg, errCode, stack: error?.stack?.split("\n")[0] });
+      res.status(500).json({ message: `Failed to send message: ${errMsg}` });
     }
   });
 
