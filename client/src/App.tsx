@@ -1,6 +1,6 @@
 import { Switch, Route, useLocation } from "wouter";
 import { createContext, useContext, useState, useCallback, useEffect, useRef } from "react";
-import { queryClient, getAuthHeaders } from "./lib/queryClient";
+import { queryClient, getAuthHeaders, apiRequest } from "./lib/queryClient";
 import { QueryClientProvider, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -105,11 +105,27 @@ function CallDetectors({ userId }: { userId: string }) {
 
   const { data: matches } = useQuery<MatchWithProfile[]>({
     queryKey: ["/api/matches"],
-    refetchInterval: 10000,
+    refetchInterval: 3000,
   });
 
   const matchIds = (matches || []).map(m => m.id);
   useCallSignaling(matchIds, userId);
+
+  const rerMatch = matches?.find(m =>
+    !!(m.callStartedAt && m.callSessionId && !m.callAnswered && !m.callCompleted && m.callInitiatorId === userId)
+  );
+  const rerMatchId = rerMatch?.id;
+  const rerSessionId = rerMatch?.callSessionId;
+  useEffect(() => {
+    if (!rerMatchId || !rerSessionId) return;
+    const send = () => {
+      apiRequest("POST", `/api/matches/${rerMatchId}/call/rering`)
+        .then(() => console.log("[CALL_UI] RERING_SENT", { matchId: rerMatchId, callSessionId: rerSessionId }))
+        .catch(() => console.warn("[CALL_UI] RERING_FAILED", { matchId: rerMatchId }));
+    };
+    const interval = setInterval(send, 5000);
+    return () => clearInterval(interval);
+  }, [rerMatchId, rerSessionId]);
 
   const markCallEnded = useCallback((matchId: string, callSessionId?: string | null, reason?: string) => {
     console.log("[CALL_SESSION] CALL_SESSION_CLEANUP_REASON", { matchId, callSessionId, reason: reason || "signal_or_hangup" });

@@ -67,9 +67,13 @@ export function useCallSignaling(matchIds: string[], userId: string) {
       });
 
       channel.on("broadcast", { event: "call-signal" }, ({ payload }) => {
+        console.log("[CALL_SIGNAL] BROADCAST_RECEIVED", { matchId, payloadType: payload?.type, senderId: payload?.userId || payload?.callerId, isSelf: (payload?.userId || payload?.callerId) === userId });
         if (!payload) return;
         const senderId = payload.userId || payload.callerId;
-        if (senderId === userId) return;
+        if (senderId === userId) {
+          console.log("[CALL_SIGNAL] BROADCAST_SELF_FILTERED", { matchId, type: payload?.type });
+          return;
+        }
         const event = payload as CallSignalEvent;
 
         let isEndSignal = false;
@@ -143,7 +147,15 @@ export function useCallSignaling(matchIds: string[], userId: string) {
         }
       });
 
-      channel.subscribe();
+      channel.subscribe((status) => {
+        if (status === "SUBSCRIBED") {
+          console.log("[CALL_SIGNAL] CHANNEL_SUBSCRIBED", { matchId, channelName: getChannelName(matchId) });
+        } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
+          console.error("[CALL_SIGNAL] CHANNEL_SUBSCRIPTION_FAILED", { matchId, status });
+        } else {
+          console.log("[CALL_SIGNAL] CHANNEL_STATUS", { matchId, status });
+        }
+      });
       subscribedChannels.set(matchId, channel);
     }
 

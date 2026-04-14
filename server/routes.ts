@@ -744,13 +744,30 @@ export async function registerRoutes(
         console.log("[CONNECTION_STAGE] CONNECTION_STAGE_CHANGED", { matchId, from: "post_call_messaging", to: "second_call" });
       }
 
-      broadcastCallEvent(matchId, {
+      const ringPayload = {
         type: "call:ring",
         matchId,
         callerId: userId,
         callerName,
         callSessionId: match.callSessionId,
-      });
+      };
+      broadcastCallEvent(matchId, ringPayload);
+
+      const scheduleRering = (delayMs: number) => {
+        setTimeout(async () => {
+          try {
+            const { data: recheck } = await supabaseAdmin.from("matches").select("call_answered,call_completed,call_initiator_id,call_started_at").eq("id", matchId).maybeSingle();
+            if (recheck && recheck.call_initiator_id === userId && recheck.call_started_at && !recheck.call_answered && !recheck.call_completed) {
+              console.log("[CALL_START] DELAYED_RERING", { matchId, delayMs, callSessionId: match.callSessionId });
+              broadcastCallEvent(matchId, ringPayload);
+            }
+          } catch (err: any) {
+            console.warn("[CALL_START] DELAYED_RERING_ERROR", { matchId, delayMs, error: err?.message });
+          }
+        }, delayMs);
+      };
+      scheduleRering(4000);
+      scheduleRering(9000);
 
       if (isSeedUser(otherUserId)) {
         setTimeout(async () => {
@@ -787,6 +804,39 @@ export async function registerRoutes(
         route: "POST /api/matches/:matchId/call/start",
         detail: error?.stack?.split("\n")[0] || null,
       });
+    }
+  });
+
+  app.post("/api/matches/:matchId/call/rering", isAuthenticated, async (req: any, res) => {
+    const matchId = req.params.matchId;
+    const userId = req.user.id;
+    try {
+      const { data, error } = await supabaseAdmin.from("matches").select("*").eq("id", matchId).maybeSingle();
+      if (error || !data) {
+        return res.json({ status: "noop", reason: "not_found" });
+      }
+      const m = mapMatch(data);
+      if (m.callInitiatorId !== userId) {
+        return res.json({ status: "noop", reason: "not_initiator" });
+      }
+      if (!m.callStartedAt || m.callAnswered || m.callCompleted) {
+        return res.json({ status: "noop", reason: "not_ringing" });
+      }
+      const adminStorage = getAdminStorage();
+      const callerProfile = await adminStorage.getProfile(userId);
+      const callerName = callerProfile?.firstName || "Someone";
+      console.log("[CALL_RERING] REBROADCAST_SENT", { matchId, callerId: userId, callSessionId: m.callSessionId });
+      await broadcastCallEvent(matchId, {
+        type: "call:ring",
+        matchId,
+        callerId: userId,
+        callerName,
+        callSessionId: m.callSessionId,
+      });
+      res.json({ status: "rebroadcast" });
+    } catch (err: any) {
+      console.error("[CALL_RERING] ERROR", { matchId, error: err?.message });
+      res.status(500).json({ message: err?.message });
     }
   });
 
