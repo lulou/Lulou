@@ -143,7 +143,7 @@ function CallDetectors({ userId }: { userId: string }) {
   }, [endedTick]);
 
   const STALE_RINGING_MS = 120_000;
-  const STALE_ANSWERED_MS = 30 * 60_000;
+  const STALE_ANSWERED_MS = 5 * 60_000;
 
   function isStaleCall(m: MatchWithProfile): boolean {
     if (!m.callStartedAt) return false;

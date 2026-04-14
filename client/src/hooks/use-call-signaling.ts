@@ -164,6 +164,14 @@ export function broadcastCallSignal(matchId: string, event: CallSignalEvent) {
       type: "broadcast",
       event: "call-signal",
       payload: event,
+    }).then((result) => {
+      if (result !== "ok") {
+        console.warn(`[CALL_SIGNAL] Client broadcast ${event.type} result=${result} matchId=${matchId}`);
+      } else {
+        console.log(`[CALL_SIGNAL] Client broadcast ${event.type} ok matchId=${matchId}`);
+      }
+    }).catch((err: any) => {
+      console.error(`[CALL_SIGNAL] Client broadcast ${event.type} failed matchId=${matchId}:`, err?.message);
     });
     return;
   }
@@ -174,6 +182,7 @@ export function broadcastCallSignal(matchId: string, event: CallSignalEvent) {
   });
 
   const timeout = setTimeout(() => {
+    console.warn(`[CALL_SIGNAL] Temp channel subscribe timeout for ${event.type} matchId=${matchId}`);
     supabase.removeChannel(tempChannel);
   }, 5000);
 
@@ -184,8 +193,13 @@ export function broadcastCallSignal(matchId: string, event: CallSignalEvent) {
         type: "broadcast",
         event: "call-signal",
         payload: event,
+      }).then((result) => {
+        console.log(`[CALL_SIGNAL] Temp channel broadcast ${event.type} result=${result} matchId=${matchId}`);
+        setTimeout(() => supabase.removeChannel(tempChannel), 2000);
+      }).catch((err: any) => {
+        console.error(`[CALL_SIGNAL] Temp channel broadcast ${event.type} failed matchId=${matchId}:`, err?.message);
+        supabase.removeChannel(tempChannel);
       });
-      setTimeout(() => supabase.removeChannel(tempChannel), 2000);
     }
   });
 }

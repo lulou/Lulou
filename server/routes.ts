@@ -10,8 +10,6 @@ import { db } from "./db";
 import { eq, and, isNull } from "drizzle-orm";
 import { getUncachableStripeClient, getStripePublishableKey } from "./stripeClient";
 
-const serverBroadcastChannels = new Map<string, ReturnType<typeof supabase.channel>>();
-const serverChannelTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
 // Seed user IDs all start with this UUID prefix (see server/seed.ts)
 const SEED_UUID_PREFIX = "10000000-0000-4000-a000-";
@@ -69,76 +67,42 @@ async function verifyJwt(token: string): Promise<any | null> {
   return user;
 }
 
+async function broadcastViaHttpApi(topic: string, event: string, payload: Record<string, any>): Promise<void> {
+  const supabaseUrl = process.env.VITE_SUPABASE_URL;
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!supabaseUrl || !serviceKey) {
+    console.error(`[BROADCAST] Missing Supabase URL or service key — cannot deliver ${event} on ${topic}`);
+    return;
+  }
+  try {
+    const res = await fetch(`${supabaseUrl}/realtime/v1/api/broadcast`, {
+      method: "POST",
+      headers: {
+        "apikey": serviceKey,
+        "Authorization": `Bearer ${serviceKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        messages: [
+          { topic: `realtime:${topic}`, event, payload },
+        ],
+      }),
+    });
+    if (res.ok) {
+      console.log(`[BROADCAST] HTTP delivered ${event} on ${topic}, status=${res.status}`);
+    } else {
+      const body = await res.text().catch(() => "");
+      console.error(`[BROADCAST] HTTP error: status=${res.status} topic=${topic} event=${event} body=${body}`);
+    }
+  } catch (err: any) {
+    console.error(`[BROADCAST] HTTP fetch threw: ${err?.message} — topic=${topic} event=${event}`);
+  }
+}
+
 async function broadcastCallEvent(matchId: string, event: Record<string, any>) {
   const channelName = `call-signal:${matchId}`;
   console.log(`[CALL_BROADCAST] Sending ${event.type} on ${channelName}`);
-
-  const existingTimer = serverChannelTimers.get(channelName);
-  if (existingTimer) clearTimeout(existingTimer);
-
-  const existing = serverBroadcastChannels.get(channelName);
-  if (existing) {
-    try {
-      const result = await existing.send({
-        type: "broadcast",
-        event: "call-signal",
-        payload: event,
-      });
-      console.log(`[CALL_BROADCAST] Sent ${event.type} via existing channel, result=${result}`);
-    } catch (err) {
-      console.error(`[CALL_BROADCAST] Send failed on existing channel:`, err);
-    }
-    const timer = setTimeout(() => {
-      supabase.removeChannel(existing);
-      serverBroadcastChannels.delete(channelName);
-      serverChannelTimers.delete(channelName);
-      console.log(`[CALL_BROADCAST] Cleaned up server channel ${channelName}`);
-    }, 30000);
-    serverChannelTimers.set(channelName, timer);
-    return;
-  }
-
-  try {
-    const channel = supabase.channel(channelName, {
-      config: { broadcast: { self: false } },
-    });
-
-    const subscribeTimeout = setTimeout(() => {
-      console.error(`[CALL_BROADCAST] Subscription TIMEOUT for ${channelName} - ${event.type} NOT delivered`);
-      supabase.removeChannel(channel);
-    }, 8000);
-
-    channel.subscribe((status) => {
-      if (status === "SUBSCRIBED") {
-        clearTimeout(subscribeTimeout);
-        console.log(`[CALL_BROADCAST] Server channel ${channelName} subscribed`);
-        serverBroadcastChannels.set(channelName, channel);
-
-        channel.send({
-          type: "broadcast",
-          event: "call-signal",
-          payload: event,
-        }).then((result) => {
-          console.log(`[CALL_BROADCAST] Sent ${event.type}, result=${result}`);
-        });
-
-        const timer = setTimeout(() => {
-          supabase.removeChannel(channel);
-          serverBroadcastChannels.delete(channelName);
-          serverChannelTimers.delete(channelName);
-          console.log(`[CALL_BROADCAST] Cleaned up server channel ${channelName}`);
-        }, 30000);
-        serverChannelTimers.set(channelName, timer);
-      } else if (status === "CLOSED" || status === "CHANNEL_ERROR") {
-        clearTimeout(subscribeTimeout);
-        console.error(`[CALL_BROADCAST] Channel ${status} for ${event.type} - NOT delivered`);
-        supabase.removeChannel(channel);
-        serverBroadcastChannels.delete(channelName);
-      }
-    });
-  } catch (err) {
-    console.error(`[CALL_BROADCAST] Failed to create channel for ${event.type}:`, err);
-  }
+  await broadcastViaHttpApi(channelName, "call-signal", event);
 }
 
 async function broadcastMessage(matchId: string, message: {
@@ -146,53 +110,7 @@ async function broadcastMessage(matchId: string, message: {
   reaction: string | null; createdAt: string | Date | null;
 }) {
   const channelName = `chat:${matchId}`;
-  const existing = serverBroadcastChannels.get(channelName);
-  if (existing) {
-    const existingTimer = serverChannelTimers.get(channelName);
-    if (existingTimer) clearTimeout(existingTimer);
-    try {
-      await existing.send({ type: "broadcast", event: "new-message", payload: message });
-      console.log(`[MSG_BROADCAST] Sent via existing channel ${channelName}`);
-    } catch (err) {
-      console.error(`[MSG_BROADCAST] Send failed:`, err);
-    }
-    const timer = setTimeout(() => {
-      supabase.removeChannel(existing);
-      serverBroadcastChannels.delete(channelName);
-      serverChannelTimers.delete(channelName);
-    }, 60000);
-    serverChannelTimers.set(channelName, timer);
-    return;
-  }
-  try {
-    const channel = supabase.channel(channelName, { config: { broadcast: { self: false } } });
-    const subscribeTimeout = setTimeout(() => {
-      console.error(`[MSG_BROADCAST] Subscribe TIMEOUT for ${channelName}`);
-      supabase.removeChannel(channel);
-    }, 8000);
-    channel.subscribe((status) => {
-      if (status === "SUBSCRIBED") {
-        clearTimeout(subscribeTimeout);
-        serverBroadcastChannels.set(channelName, channel);
-        channel.send({ type: "broadcast", event: "new-message", payload: message })
-          .then(() => console.log(`[MSG_BROADCAST] Sent on new channel ${channelName}`))
-          .catch((err: any) => console.error(`[MSG_BROADCAST] Send error:`, err));
-        const timer = setTimeout(() => {
-          supabase.removeChannel(channel);
-          serverBroadcastChannels.delete(channelName);
-          serverChannelTimers.delete(channelName);
-        }, 60000);
-        serverChannelTimers.set(channelName, timer);
-      } else if (status === "CLOSED" || status === "CHANNEL_ERROR") {
-        clearTimeout(subscribeTimeout);
-        console.error(`[MSG_BROADCAST] Channel ${status} for ${channelName}`);
-        supabase.removeChannel(channel);
-        serverBroadcastChannels.delete(channelName);
-      }
-    });
-  } catch (err) {
-    console.error(`[MSG_BROADCAST] Failed to create channel for ${channelName}:`, err);
-  }
+  await broadcastViaHttpApi(channelName, "new-message", message);
 }
 
 function getStorage(req: any): SupabaseStorage {
