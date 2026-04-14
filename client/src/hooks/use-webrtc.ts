@@ -310,6 +310,20 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
           disconnectTimerRef.current = setTimeout(() => {
             if (!cleanedUpRef.current && pcRef.current?.iceConnectionState === "disconnected") {
               console.error("[WebRTC] ICE disconnect timeout — marking failed", { matchId });
+              // Close the peer connection and channel immediately so re-delivered
+              // WebRTC signals (webrtc:ready / webrtc:offer) can't restart the call
+              // when the network recovers and Supabase channels reconnect.
+              if (pcRef.current) {
+                pcRef.current.ontrack = null;
+                pcRef.current.onicecandidate = null;
+                pcRef.current.oniceconnectionstatechange = null;
+                pcRef.current.close();
+                pcRef.current = null;
+              }
+              if (channelRef.current) {
+                supabase.removeChannel(channelRef.current);
+                channelRef.current = null;
+              }
               setConnectionState("failed");
             }
           }, 15000);
@@ -318,8 +332,21 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
             matchId,
             signalingState: pc.signalingState,
             connectionState: pc.connectionState,
-            note: "STUN-only — may fail on mobile data or symmetric NAT. TURN server recommended.",
           });
+          // Close the peer connection and channel immediately — prevents
+          // WebRTC signals re-delivered by Supabase on reconnect from
+          // restarting the negotiation after a network drop.
+          if (pcRef.current) {
+            pcRef.current.ontrack = null;
+            pcRef.current.onicecandidate = null;
+            pcRef.current.oniceconnectionstatechange = null;
+            pcRef.current.close();
+            pcRef.current = null;
+          }
+          if (channelRef.current) {
+            supabase.removeChannel(channelRef.current);
+            channelRef.current = null;
+          }
           setConnectionState("failed");
         } else if (state === "closed") {
           setConnectionState("closed");
@@ -336,8 +363,19 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
           console.error("[WebRTC] Connection timeout after 30s — marking failed", {
             matchId,
             iceState,
-            note: "STUN-only peer connection likely failed due to NAT/firewall",
           });
+          // Close peer connection and channel to prevent restart on network recovery
+          if (pcRef.current) {
+            pcRef.current.ontrack = null;
+            pcRef.current.onicecandidate = null;
+            pcRef.current.oniceconnectionstatechange = null;
+            pcRef.current.close();
+            pcRef.current = null;
+          }
+          if (channelRef.current) {
+            supabase.removeChannel(channelRef.current);
+            channelRef.current = null;
+          }
           setConnectionState("failed");
         }
       }, 30000);

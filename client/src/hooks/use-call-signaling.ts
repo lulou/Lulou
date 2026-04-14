@@ -90,8 +90,12 @@ export function useCallSignaling(matchIds: string[], userId: string) {
                 callStartedAt: m.callStartedAt || new Date().toISOString(),
                 callInitiatorId: m.callInitiatorId || ring.callerId,
                 callSessionId: m.callSessionId || ring.callSessionId,
-                callAnswered: false,
-                callCompleted: false,
+                // Never reset callAnswered from true → false: a stale ring signal
+                // arriving after the call is answered (e.g. Supabase channel
+                // reconnect) would flip isRinging to true, stop WebRTC, then the
+                // next poll would flip it back, causing a full renegotiation loop.
+                callAnswered: m.callAnswered ?? false,
+                callCompleted: m.callCompleted ?? false,
               } : m);
             });
           }

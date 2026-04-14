@@ -144,6 +144,22 @@ export function ActiveCallOverlay({
     }
   }, [connectionState, webrtcEnabled]);
 
+  // Auto-end call when connection fails — prevents restart loop on network recovery.
+  // The "Connection failed" screen is shown for 3s so the user sees what happened,
+  // then finishCall cleans up server state, broadcasts call:ended to the peer,
+  // and calls onCallEnd() so the overlay is dismissed and the call cannot re-trigger.
+  useEffect(() => {
+    if (!isFailed || !webrtcEnabled) return;
+    console.log("[CALL_UI] AUTO_END_SCHEDULED", { matchId, callSessionId, delayMs: 3000 });
+    const t = setTimeout(() => {
+      if (!endedRef.current) {
+        console.log("[CALL_UI] AUTO_END_EXECUTING connection_failed", { matchId, callSessionId });
+        finishCallRef.current?.("connection_failed");
+      }
+    }, 3000);
+    return () => clearTimeout(t);
+  }, [isFailed, webrtcEnabled, matchId, callSessionId]);
+
   // Attach remote stream to audio element (voice calls) and video element
   useEffect(() => {
     if (!remoteStream) return;
