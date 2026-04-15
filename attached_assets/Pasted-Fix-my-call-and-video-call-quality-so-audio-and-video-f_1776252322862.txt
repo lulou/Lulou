@@ -1,0 +1,84 @@
+Fix my call and video call quality so audio and video feel polished and production-ready.
+
+Current behavior:
+- Audio calls work
+- Video/FaceTime calls work
+- But there is still background noise, beeping, echo risk, and overall call quality is not polished enough
+
+Goal:
+Make both audio calls and video calls feel clean, stable, and high quality in all aspects:
+- audio clarity
+- no beeping/ring tones after connect
+- no echo/self-playback
+- clean video rendering
+- stable local/remote media attachment
+
+Tasks:
+
+1. Inspect the full call media flow for both audio and video calls.
+
+2. Fix audio quality issues:
+- make sure local microphone audio is NOT played back to the same user
+- make sure only the remote stream is played through the speaker
+- confirm there is no duplicate remote audio playback
+- confirm no duplicate audio elements are being created
+- make sure ringtone/ringback/beep sounds stop immediately once call state becomes connected
+
+3. Improve getUserMedia audio constraints safely:
+Use audio constraints that help reduce echo and noise where supported:
+{
+ audio: {
+   echoCancellation: true,
+   noiseSuppression: true,
+   autoGainControl: true
+ },
+ video: isVideo ? { facingMode: "user" } : false
+}
+
+4. Make Safari-safe fallbacks:
+- if advanced constraints fail, gracefully fall back to:
+ { audio: true, video: isVideo ? true : false }
+
+5. Inspect video quality/rendering:
+- ensure local stream is attached only once
+- ensure remote stream is attached only once
+- ensure local preview is muted, autoplay, and playsInline
+- ensure remote video is autoplay and playsInline
+- ensure no duplicate video/audio attachment happens on rerenders
+
+6. Inspect all call sounds:
+- ringtone
+- ringback
+- call-status beep
+- any reconnect/failure sounds
+
+Make sure each one:
+- starts only when appropriate
+- stops immediately when call connects
+- stops on hangup
+- does not continue under active call audio
+
+7. Add guards so media elements are not recreated repeatedly during state changes.
+
+8. Add precise logs for:
+- local stream attached
+- remote stream attached
+- local audio playback blocked/prevented
+- ringtone start
+- ringtone stop
+- ringback start
+- ringback stop
+- beep start
+- beep stop
+- duplicate media attachment prevented
+
+9. Do not refactor unrelated code.
+Do not break the current working call connection.
+Only improve media quality, sound handling, and video/audio presentation.
+
+10. After making changes, explain:
+- what caused the beeping/background audio issues
+- whether any local audio was feeding back
+- whether any ringtone/ringback sound was continuing after connect
+- what exact files/lines were changed
+- how audio/video quality was improved for both call types
