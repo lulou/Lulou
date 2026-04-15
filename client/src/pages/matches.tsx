@@ -926,9 +926,16 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
     },
     onMutate: async (vars: { content: string; tempId: string }) => {
       if (!match.id) return {};
-      setMessage("");
-      await queryClient.cancelQueries({ queryKey: ["/api/matches", match.id] });
+
+      // Snapshot current state for error rollback FIRST
       const previous = queryClient.getQueryData<MatchDetail>(["/api/matches", match.id]);
+
+      // Fire cancel signal immediately (no await) — the abort goes out now,
+      // but we don't block on it so the optimistic update renders in the same tick.
+      queryClient.cancelQueries({ queryKey: ["/api/matches", match.id] });
+
+      // Clear input and show optimistic message SYNCHRONOUSLY (no async gap = instant UI)
+      setMessage("");
       if (previous) {
         const optimisticMsg = {
           id: vars.tempId,
