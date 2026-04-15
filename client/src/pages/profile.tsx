@@ -9,7 +9,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Slider } from "@/components/ui/slider";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { useToast } from "@/hooks/use-toast";
-import { upsertProfile } from "@/lib/profile-upsert";
+import { upsertProfile, cleanErrorMessage, withRetry } from "@/lib/profile-upsert";
 import { apiRequest } from "@/lib/queryClient";
 import { convertPhotoToJpeg, recompressPhotoDataUrl, OVERSIZED_THRESHOLD } from "@/lib/photo-utils";
 import { Input } from "@/components/ui/input";
@@ -169,6 +169,11 @@ export default function ProfilePage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/profile"] });
     },
+    onError: (err: any) => {
+      const msg = cleanErrorMessage(err);
+      console.error("[PROFILE_SAVE] updateProfileField FAILED", { rawError: err?.message, cleanedError: msg });
+      toast({ title: "Couldn't save change", description: msg, variant: "destructive" });
+    },
   });
 
   const requestVerification = useMutation({
@@ -178,6 +183,11 @@ export default function ProfilePage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/profile"] });
       toast({ title: "Verified!", description: "Your profile now has a verification badge." });
+    },
+    onError: (err: any) => {
+      const msg = cleanErrorMessage(err);
+      console.error("[PROFILE_SAVE] requestVerification FAILED", { rawError: err?.message, cleanedError: msg });
+      toast({ title: "Verification failed", description: msg, variant: "destructive" });
     },
   });
 
@@ -290,10 +300,16 @@ export default function ProfilePage() {
 
   const savePhotos = useMutation({
     mutationFn: async () => {
-      console.log("[PHOTOS] Saving", editPhotos.length, "photo(s) via server API");
-      const res = await apiRequest("POST", "/api/profile", { photos: editPhotos });
+      console.log("[PROFILE_SAVE] START", { label: "savePhotos", photoCount: editPhotos.length });
+      // withRetry retries up to 2 times on transient network/5xx errors.
+      // Photos are large (base64) so the backoff (1 s + 2 s) is long enough to
+      // survive a brief Cloudflare 520 without hammering the server.
+      const res = await withRetry(
+        () => apiRequest("POST", "/api/profile", { photos: editPhotos }),
+        "savePhotos",
+      );
       const data = await res.json();
-      console.log("[PHOTOS] Server save response: ok, photos in DB:", data?.photos?.length ?? "unknown");
+      console.log("[PROFILE_SAVE] SUCCESS", { label: "savePhotos", photosInDb: data?.photos?.length ?? "unknown" });
       return data;
     },
     onSuccess: (data) => {
@@ -311,8 +327,11 @@ export default function ProfilePage() {
       setEditPhotos([]);
     },
     onError: (err: any) => {
-      console.error("[PHOTOS] Save failed — staying on Profile page:", err?.message ?? err);
-      toast({ title: "Could not save photos", description: err?.message || "Please try again.", variant: "destructive" });
+      const msg = cleanErrorMessage(err);
+      console.error("[PROFILE_SAVE] savePhotos FAILED", { rawError: err?.message, cleanedError: msg });
+      // editPhotos is intentionally NOT cleared here — the user's selected
+      // photos are preserved so they can retry without re-selecting them.
+      toast({ title: "Could not save photos", description: msg, variant: "destructive" });
     },
   });
 
@@ -345,6 +364,12 @@ export default function ProfilePage() {
       queryClient.invalidateQueries({ queryKey: ["/api/profile"] });
       toast({ title: "Settings saved" });
       setExpandedSection(null);
+    },
+    onError: (err: any) => {
+      const msg = cleanErrorMessage(err);
+      console.error("[PROFILE_SAVE] saveSettings FAILED", { rawError: err?.message, cleanedError: msg });
+      // settingsForm is intentionally NOT cleared — user's edits are preserved for retry.
+      toast({ title: "Settings couldn't be saved", description: msg, variant: "destructive" });
     },
   });
 
@@ -404,6 +429,12 @@ export default function ProfilePage() {
       toast({ title: "Conversation starters updated" });
       setEditingStarters(false);
     },
+    onError: (err: any) => {
+      const msg = cleanErrorMessage(err);
+      console.error("[PROFILE_SAVE] saveStarters FAILED", { rawError: err?.message, cleanedError: msg });
+      // editStarters / editStarterAnswers are intentionally NOT cleared — user's selections are preserved.
+      toast({ title: "Couldn't save starters", description: msg, variant: "destructive" });
+    },
   });
 
   const saveQuestionsMut = useMutation({
@@ -414,6 +445,12 @@ export default function ProfilePage() {
       queryClient.invalidateQueries({ queryKey: ["/api/profile"] });
       toast({ title: "Questions updated" });
       setEditingQuestions(false);
+    },
+    onError: (err: any) => {
+      const msg = cleanErrorMessage(err);
+      console.error("[PROFILE_SAVE] saveQuestionsMut FAILED", { rawError: err?.message, cleanedError: msg });
+      // editQuestions is intentionally NOT cleared — user's selections are preserved.
+      toast({ title: "Couldn't save questions", description: msg, variant: "destructive" });
     },
   });
 

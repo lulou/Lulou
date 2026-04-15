@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { apiRequest } from "@/lib/queryClient";
+import { cleanErrorMessage, withRetry } from "@/lib/profile-upsert";
 import { SIGNALS, GREEN_FLAGS, DATING_INTENTS, CONNECTION_STYLES, CONVERSATION_STARTERS, PROFILE_QUESTIONS } from "@shared/schema";
 import { Loader2, ArrowRight, ArrowLeft, Check, AlertCircle } from "lucide-react";
 import { LulouFlowerIcon } from "@/components/app-layout";
@@ -134,7 +135,15 @@ export default function Onboarding({ existingProfile = null, userEmail = "" }: O
         conversationStarters: fullStarters,
         onboardingComplete: true,
       };
-      return apiRequest("POST", "/api/profile", payload);
+      console.log("[PROFILE_SAVE] START", { label: "createProfile", fieldKeys: Object.keys(payload) });
+      // withRetry retries up to 2 times (1 s + 2 s backoff) on transient
+      // network/5xx errors.  4xx validation errors are not retried.
+      const result = await withRetry(
+        () => apiRequest("POST", "/api/profile", payload),
+        "createProfile",
+      );
+      console.log("[PROFILE_SAVE] SUCCESS", { label: "createProfile" });
+      return result;
     },
     onSuccess: () => {
       setSaveError(null);
@@ -142,15 +151,11 @@ export default function Onboarding({ existingProfile = null, userEmail = "" }: O
       navigate("/discover");
     },
     onError: (error: any) => {
-      const raw = error?.message || "";
-      let errorMessage = raw || "Please try again.";
-      try {
-        const parsed = JSON.parse(raw);
-        if (parsed?.message) errorMessage = parsed.message;
-      } catch {}
-      console.error("PROFILE_SAVE_ERROR", errorMessage, error);
-      setSaveError(errorMessage);
-      toast({ title: "Could not save profile", description: errorMessage, variant: "destructive", duration: 8000 });
+      const msg = cleanErrorMessage(error);
+      console.error("[PROFILE_SAVE] FAILURE", { label: "createProfile", rawError: error?.message, cleanedError: msg });
+      // formData is NOT cleared — the user's entered data is preserved for retry.
+      setSaveError(msg);
+      toast({ title: "Could not save profile", description: msg, variant: "destructive", duration: 8000 });
     },
   });
 
