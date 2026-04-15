@@ -253,6 +253,22 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
       }
     };
 
+    // Wraps getUserMedia with a 20-second timeout so a hung permission dialog
+    // produces a clear MEDIA_TIMEOUT log instead of hanging silently.
+    const getUserMediaWithTimeout = (constraints: MediaStreamConstraints): Promise<MediaStream> => {
+      return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => {
+          console.error("[WebRTC] MEDIA_ACQUIRE_FAILED: getUserMedia timed out after 20 s — device may be in use or permission dialog hung");
+          reject(new DOMException("getUserMedia timed out after 20 s", "TimeoutError"));
+        }, 20_000);
+
+        navigator.mediaDevices.getUserMedia(constraints).then(
+          (stream) => { clearTimeout(timer); resolve(stream); },
+          (err)    => { clearTimeout(timer); reject(err); },
+        );
+      });
+    };
+
     const init = async () => {
       console.log("[WebRTC] Initializing:", { matchId, isCaller, isVideo });
       setConnectionState("requesting-media");
@@ -268,11 +284,16 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
         }
       });
 
+      // Use minimal constraints — strict resolution values can throw
+      // OverconstrainedError on Safari/iOS and some Android devices.
+      const mediaConstraints: MediaStreamConstraints = {
+        audio: true,
+        video: isVideo ? { facingMode: "user" } : false,
+      };
+      console.log("[WebRTC] MEDIA_ACQUIRE_START: calling getUserMedia with constraints:", JSON.stringify(mediaConstraints));
+
       const [mediaResult, channelResult] = await Promise.allSettled([
-        navigator.mediaDevices.getUserMedia({
-          audio: true,
-          video: isVideo ? { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } } : false,
-        }),
+        getUserMediaWithTimeout(mediaConstraints),
         channel.subscribe(),
       ]);
 
@@ -285,14 +306,34 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
 
       if (mediaResult.status === "rejected") {
         const err = mediaResult.reason;
-        console.error("getUserMedia error:", err);
+        // Log every property so the debug panel captures the exact failure.
+        console.error(
+          "[WebRTC] MEDIA_ACQUIRE_FAILED: getUserMedia rejected —",
+          "name:", err?.name ?? "(no name)",
+          "message:", err?.message ?? "(no message)",
+          "constraint:", (err as any)?.constraint ?? "(none)",
+        );
         if (err?.name === "NotAllowedError" || err?.name === "PermissionDeniedError") {
+          console.error("[WebRTC] MEDIA_ACQUIRE_FAILED: microphone/camera permission was denied by the user or OS");
           setPermissionDenied(true);
+        } else if (err?.name === "NotFoundError" || err?.name === "DevicesNotFoundError") {
+          console.error("[WebRTC] MEDIA_ACQUIRE_FAILED: no microphone/camera device found on this device");
+        } else if (err?.name === "NotReadableError" || err?.name === "TrackStartError") {
+          console.error("[WebRTC] MEDIA_ACQUIRE_FAILED: device is already in use by another application");
+        } else if (err?.name === "OverconstrainedError") {
+          console.error("[WebRTC] MEDIA_ACQUIRE_FAILED: constraints too strict — failed constraint:", (err as any)?.constraint);
+        } else if (err?.name === "TimeoutError") {
+          console.error("[WebRTC] MEDIA_ACQUIRE_FAILED: getUserMedia timed out — permission dialog may be hidden");
+        } else {
+          console.error("[WebRTC] MEDIA_ACQUIRE_FAILED: unexpected error type — full object:", JSON.stringify(err, Object.getOwnPropertyNames(err)));
         }
+        console.error("[WebRTC] FAILURE_TRIGGER: setting connectionState=failed from media acquisition step");
         cleanup();
         setConnectionState("failed");
         return;
       }
+
+      console.log("[WebRTC] MEDIA_ACQUIRE_SUCCESS: stream tracks:", mediaResult.value.getTracks().map(t => ({ kind: t.kind, enabled: t.enabled, readyState: t.readyState })));
 
       const stream = mediaResult.value;
       localStreamRef.current = stream;
