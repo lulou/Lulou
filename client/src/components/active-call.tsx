@@ -176,15 +176,24 @@ export function ActiveCallOverlay({
     return () => clearTimeout(t);
   }, [isFailed, webrtcEnabled, matchId, callSessionId]);
 
-  // Attach remote stream to audio element (voice calls) and video element.
-  // Guard: only reassign srcObject when the track set actually changes so the
-  // audio element is not interrupted mid-playback every time ontrack fires and
-  // creates a new MediaStream wrapper around the same underlying tracks.
-  // isConnected is in deps so this re-runs when the remote video element mounts
-  // (it is conditionally rendered only after isConnected becomes true).
+  // ── Remote stream → audio + video ────────────────────────────────────────
+  // Audio comes ONLY from the hidden <audio> element (see JSX below).
+  // The remote <video> element is explicitly muted so the same audio is
+  // never played twice (double-audio would cause a chorus/echo effect and
+  // confuse echo-cancellation in the peer's microphone path).
+  //
+  // isConnected is in deps so this re-runs when the <video> element mounts.
+  // The <video> is conditionally rendered on (isVideo && isConnected && remoteStream),
+  // so without isConnected in deps the effect would fire while the element is
+  // still absent, find a null ref, and never re-fire when the element appears.
+  //
+  // Guard: compare track-ID sets before re-assigning srcObject so rapid
+  // ontrack events (which create a new MediaStream wrapper each time) don't
+  // cause unnecessary flicker or audio interruption.
   useEffect(() => {
     if (!remoteStream) return;
 
+    // ── Audio element (always present; handles voice for both call types) ──
     if (remoteAudioRef.current) {
       const el = remoteAudioRef.current;
       const existing = el.srcObject as MediaStream | null;
@@ -192,6 +201,9 @@ export function ActiveCallOverlay({
       const incomingIds = remoteStream.getTracks().map(t => t.id).sort().join(",");
       if (existingIds !== incomingIds) {
         el.srcObject = remoteStream;
+        // Explicit .play() handles iOS Safari where autoPlay alone can be blocked
+        // after srcObject assignment even when the audio context is already unlocked.
+        el.play().catch(() => {});
         console.log("[WebRTC] REMOTE_AUDIO_ATTACHED", {
           matchId,
           audioTracks: remoteStream.getAudioTracks().length,
@@ -199,34 +211,52 @@ export function ActiveCallOverlay({
           trackIds: incomingIds,
         });
       } else {
-        console.log("[WebRTC] REMOTE_AUDIO_SKIP: track set unchanged, not re-attaching");
+        console.log("[WebRTC] REMOTE_AUDIO_SKIP: track set unchanged, not re-attaching", { matchId });
       }
     }
 
+    // ── Video element (video calls only; muted — audio handled above) ──
     if (isVideo && remoteVideoRef.current) {
-      remoteVideoRef.current.srcObject = remoteStream;
-      console.log("[WebRTC] REMOTE_MAIN_VIDEO_ATTACHED", {
-        matchId,
-        audioTracks: remoteStream.getAudioTracks().length,
-        videoTracks: remoteStream.getVideoTracks().length,
-      });
+      const videoEl = remoteVideoRef.current;
+      const existing = videoEl.srcObject as MediaStream | null;
+      const existingIds = existing?.getTracks().map(t => t.id).sort().join(",") ?? "";
+      const incomingIds = remoteStream.getTracks().map(t => t.id).sort().join(",");
+      if (existingIds !== incomingIds) {
+        videoEl.srcObject = remoteStream;
+        videoEl.play().catch(() => {});
+        console.log("[WebRTC] REMOTE_MAIN_VIDEO_ATTACHED", {
+          matchId,
+          videoTracks: remoteStream.getVideoTracks().length,
+          audioTracks: remoteStream.getAudioTracks().length,
+        });
+      } else {
+        console.log("[WebRTC] REMOTE_MAIN_VIDEO_SKIP: track set unchanged, not re-attaching", { matchId });
+      }
     } else if (isVideo) {
       // Element not mounted yet — will be re-triggered when isConnected becomes true
       console.log("[WebRTC] REMOTE_MAIN_VIDEO_PENDING: element not yet mounted", { matchId, isConnected });
     }
   }, [remoteStream, isVideo, matchId, isConnected]);
 
-  // Attach local stream to local video (mirrored self-view pip for video calls).
-  // Local stream is NEVER attached to an audio element — only to the muted
-  // video pip — so there is no local mic playback / self-monitoring path.
-  // isConnected is in deps because the local video element is conditionally rendered
-  // only when isConnected is true. Without it, this effect fires when localStream
-  // first becomes available but the element doesn't exist yet (localVideoRef.current
-  // is null), and never re-fires when the element eventually mounts — causing the
-  // self-view to stay blank on mobile where renders are strictly sequential.
+  // ── Local stream → self-view pip ─────────────────────────────────────────
+  // The local stream is NEVER routed to an audio element — only to this muted
+  // video pip.  This is the only element that shows the user their own camera,
+  // and it must be muted to prevent microphone feedback / self-monitoring.
+  //
+  // isConnected is in deps for the same reason as above (element is conditionally
+  // rendered behind isConnected).  A reference-equality guard prevents redundant
+  // srcObject reassignment when the component re-renders without a stream change.
   useEffect(() => {
     if (!localStream || !isVideo || !localVideoRef.current) return;
-    localVideoRef.current.srcObject = localStream;
+    const videoEl = localVideoRef.current;
+    // Guard: skip if the exact same stream object is already attached
+    if (videoEl.srcObject === localStream) {
+      console.log("[WebRTC] LOCAL_SELF_VIEW_SKIP: same stream already attached", { matchId });
+      return;
+    }
+    console.log("[WebRTC] LOCAL_AUDIO_PLAYBACK_BLOCKED: local mic is muted in self-view, no self-monitoring", { matchId });
+    videoEl.srcObject = localStream;
+    videoEl.play().catch(() => {});
     console.log("[WebRTC] LOCAL_SELF_VIEW_ATTACHED", {
       matchId,
       audioTracks: localStream.getAudioTracks().length,
@@ -435,12 +465,17 @@ export function ActiveCallOverlay({
         data-testid="audio-remote"
       />
 
-      {/* Full-screen remote video (video calls only, once connected) */}
+      {/* Full-screen remote video (video calls only, once connected).
+          muted=true: audio is handled exclusively by the hidden <audio> element
+          above. Muting here prevents the remote voice from playing twice
+          (once from this <video> and once from <audio>), which would cause a
+          chorus/doubling effect and confuse the local echo-cancellation path. */}
       {isVideo && isConnected && remoteStream && (
         <video
           ref={remoteVideoRef}
           autoPlay
           playsInline
+          muted
           className="absolute inset-0 w-full h-full object-cover"
           data-testid="video-remote"
         />

@@ -343,23 +343,61 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
         }
       });
 
-      // Explicit echo / noise / gain constraints are required for WebRTC voice
-      // calls. Without them the browser uses OS defaults, which may omit echo
-      // cancellation — the speaker output then bleeds into the mic and is
-      // transmitted to the remote peer, causing the audible echo / feedback.
-      const mediaConstraints: MediaStreamConstraints = {
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-        },
-        video: isVideo ? { facingMode: "user" } : false,
+      // Attempt getUserMedia with the full echo/noise/gain constraints first.
+      // If the browser rejects them (OverconstrainedError / NotSupportedError —
+      // common on older iOS Safari), fall back through progressively simpler
+      // constraint sets so the call still connects without echoCancellation
+      // being a hard blocker.  A log is emitted at each fallback tier.
+      const getUserMediaWithFallback = async (): Promise<MediaStream> => {
+        const tiers: MediaStreamConstraints[] = [
+          // Tier 1 — full quality (Chrome, Firefox, modern Safari)
+          {
+            audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+            video: isVideo ? { facingMode: "user" } : false,
+          },
+          // Tier 2 — drop autoGainControl (unsupported on some older Safari)
+          {
+            audio: { echoCancellation: true, noiseSuppression: true },
+            video: isVideo ? { facingMode: "user" } : false,
+          },
+          // Tier 3 — basic audio only (maximum compatibility)
+          {
+            audio: true,
+            video: isVideo ? { facingMode: "user" } : false,
+          },
+        ];
+
+        let lastErr: unknown;
+        for (let i = 0; i < tiers.length; i++) {
+          const constraints = tiers[i];
+          try {
+            console.log("[WebRTC] MEDIA_ACQUIRE_START tier", i + 1, ":", JSON.stringify(constraints));
+            const stream = await getUserMediaWithTimeout(constraints);
+            if (i > 0) {
+              console.warn("[WebRTC] MEDIA_CONSTRAINT_FALLBACK: succeeded on tier", i + 1,
+                "— echo cancellation may be reduced");
+            }
+            return stream;
+          } catch (err: any) {
+            lastErr = err;
+            const isConstraintError = err?.name === "OverconstrainedError" ||
+              err?.name === "NotSupportedError" ||
+              err?.name === "TypeError";
+            if (!isConstraintError || i === tiers.length - 1) {
+              // Non-constraint error (permission denied, no device, timeout) or
+              // exhausted all tiers — rethrow so the caller handles it properly.
+              throw err;
+            }
+            console.warn("[WebRTC] MEDIA_CONSTRAINT_FALLBACK: tier", i + 1, "failed (", err?.name, ") — trying simpler constraints");
+          }
+        }
+        throw lastErr;
       };
-      console.log("[WebRTC] MEDIA_ACQUIRE_START: calling getUserMedia with constraints:", JSON.stringify(mediaConstraints));
+
       console.log("[WebRTC] CHANNEL_SUBSCRIBE_START: subscribing to signaling channel:", channelName);
 
       const [mediaResult, channelResult] = await Promise.allSettled([
-        getUserMediaWithTimeout(mediaConstraints),
+        getUserMediaWithFallback(),
         subscribeChannel(channel),
       ]);
 
