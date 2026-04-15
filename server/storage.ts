@@ -1102,8 +1102,11 @@ export class SupabaseStorage implements IStorage {
       console.log("[CONNECTION_STAGE] FIRST_CALL_ENDED", { matchId, userId, newStage: nextStage, connectedDurationMs });
       console.log("[CONNECTION_STAGE] CONNECTION_STAGE_CHANGED", { matchId, from: "first_call", to: "post_call_messaging", nextStage });
     } else if (currentStage === 1) {
+      // Reset per-user counters so stage 2 starts at 0/0 (20-message allowance).
+      stageUpdate.message_count_1 = 0;
+      stageUpdate.message_count_2 = 0;
       console.log("[CONNECTION_STAGE] SECOND_CALL_ENDED", { matchId, userId, newStage: nextStage, connectedDurationMs });
-      console.log("[CONNECTION_STAGE] CONNECTION_STAGE_CHANGED", { matchId, from: "second_call", to: "face_call_or_meeting", nextStage });
+      console.log("[CONNECTION_STAGE] CONNECTION_STAGE_CHANGED", { matchId, from: "second_call", to: "post_second_call_messaging", nextStage });
     }
 
     const { data: updated, error: updateError } = await this.sb
