@@ -699,7 +699,17 @@ export async function registerRoutes(
           const myNewCount = updatedMatch.user1Id === userId ? pc1 : pc2;
           console.log("[CONNECTION_STAGE] POST_SECOND_CALL_MESSAGE_SENT", { matchId, userId, callStage, myPostCallCount: myNewCount });
           if (pc1 >= 20 && pc2 >= 20) {
-            console.log("[CONNECTION_STAGE] FACE_CALL_UNLOCKED", { matchId, pc1, pc2 });
+            // Both users have reached the stage 2 limit — advance to face call stage.
+            const { error: advErr } = await supabaseAdmin
+              .from("matches")
+              .update({ call_stage: 3 })
+              .eq("id", matchId);
+            if (advErr) {
+              console.error("[CONNECTION_STAGE] STAGE2_ADVANCE_ERROR", { matchId, error: advErr.message });
+            } else {
+              console.log("[CONNECTION_STAGE] FACE_CALL_UNLOCKED", { matchId, pc1, pc2 });
+              console.log("[CONNECTION_STAGE] CONNECTION_STAGE_CHANGED", { matchId, from: "post_second_call_messaging", to: "face_call_stage", nextStage: 3 });
+            }
           }
         }
       }

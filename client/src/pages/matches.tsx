@@ -21,7 +21,8 @@ import { broadcastCallSignal } from "@/hooks/use-call-signaling";
 import type { Profile, Match, Message, SpinRequest } from "@shared/schema";
 
 const MAX_MESSAGES_PER_USER = 15;
-const MAX_POST_CALL_MESSAGES = 6;
+const MAX_POST_CALL_MESSAGES = 12;
+const MAX_POST_STAGE2_MESSAGES = 20;
 const MAX_CHARS = 500;
 
 const CALL_DURATIONS = [10 * 60, 15 * 60, 10 * 60];
@@ -969,9 +970,9 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
         return { ...old, messages: [...old.messages, realMsg] };
       });
 
-      // Immediately reflect the incremented post-call count so bothPostCallLimitReached
+      // Immediately reflect the incremented post-call count so bothPostCallLimitReached / bothStage2LimitReached
       // updates without waiting for the next 10s poll
-      if (callStage === 1 && realMsg.senderId === user?.id) {
+      if ((callStage === 1 || callStage === 2) && realMsg.senderId === user?.id) {
         const current = queryClient.getQueryData<MatchDetail>(["/api/matches", match.id]);
         if (current) {
           const countPatch = current.user1Id === user.id
@@ -1085,9 +1086,11 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
       } else {
         const stage = data.callStage || 0;
         if (stage === 1) {
-          toast({ title: "First call completed", description: "Ready for a longer 15-minute call?" });
+          toast({ title: "First call completed", description: "You now have 12 messages each before your next call." });
         } else if (stage === 2) {
-          toast({ title: "Second call completed", description: "Would you like a face-to-face call?" });
+          toast({ title: "Second call completed", description: "You each have 20 messages before the face call unlocks." });
+        } else if (stage === 3) {
+          toast({ title: "Face call stage unlocked", description: "Would you like a face-to-face video call?" });
         } else {
           toast({ title: "Call completed", description: "Great conversation! Ready to meet in person?" });
         }
@@ -1317,6 +1320,7 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
   const callStage = detail.callStage || 0;
   const isUser1 = detail.user1Id === user?.id;
 
+  // Stage 1: post-first-call messaging (12 each)
   const myPostCallMessages = callStage === 1
     ? (isUser1 ? (detail.messageCount1 || 0) : (detail.messageCount2 || 0))
     : 0;
@@ -1328,7 +1332,19 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
   const theirPostCallLimitReached = theirPostCallMessages >= MAX_POST_CALL_MESSAGES;
   const bothPostCallLimitReached = myPostCallLimitReached && theirPostCallLimitReached;
 
-  const sparkStep = callStage >= 3 ? 4 : callStage >= 2 ? 3 : callStage === 1 ? 2 : 1;
+  // Stage 2: post-second-call messaging (20 each)
+  const myStage2Messages = callStage === 2
+    ? (isUser1 ? (detail.messageCount1 || 0) : (detail.messageCount2 || 0))
+    : 0;
+  const theirStage2Messages = callStage === 2
+    ? (isUser1 ? (detail.messageCount2 || 0) : (detail.messageCount1 || 0))
+    : 0;
+  const myStage2Remaining = MAX_POST_STAGE2_MESSAGES - myStage2Messages;
+  const myStage2LimitReached = myStage2Messages >= MAX_POST_STAGE2_MESSAGES;
+  const theirStage2LimitReached = theirStage2Messages >= MAX_POST_STAGE2_MESSAGES;
+  const bothStage2LimitReached = myStage2LimitReached && theirStage2LimitReached;
+
+  const sparkStep = callStage >= 4 ? 4 : callStage >= 2 ? 3 : callStage === 1 ? 2 : 1;
 
   const callCancelled = isCallSessionCancelled(match.id, detail.callSessionId);
 
@@ -1415,8 +1431,8 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
     }
     if (callStage === 1) {
       msgs.push({ id: "stage1-welcome", text: "Nice call! Head back to chat and continue getting to know each other." });
-      msgs.push({ id: "stage1-info", text: "You can now send 6 messages each before your next call unlocks." });
-      if (myPostCallMessages >= 3 && !myPostCallLimitReached) {
+      msgs.push({ id: "stage1-info", text: "You can now send 12 messages each before your next call unlocks." });
+      if (myPostCallMessages >= 6 && !myPostCallLimitReached) {
         msgs.push({ id: "stage1-approaching", text: "Your next call stage is getting close. Start thinking about when you'd like to talk again." });
       }
       if (myPostCallRemaining <= 2 && !myPostCallLimitReached) {
@@ -1426,8 +1442,20 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
         msgs.push({ id: "stage1-unlocked", text: "You've unlocked your second call. Pick a time that suits you both." });
       }
     }
+    if (callStage === 2) {
+      msgs.push({ id: "stage2-welcome", text: "Great second call! You each have 20 messages before the face call unlocks." });
+      if (myStage2Messages >= 10 && !myStage2LimitReached) {
+        msgs.push({ id: "stage2-approaching", text: "Getting close — keep the conversation going." });
+      }
+      if (myStage2Remaining <= 3 && !myStage2LimitReached) {
+        msgs.push({ id: "stage2-near-limit", text: `Just ${myStage2Remaining} message${myStage2Remaining !== 1 ? "s" : ""} left before the face call unlocks.` });
+      }
+      if (bothStage2LimitReached) {
+        msgs.push({ id: "stage2-unlocked", text: "Face call unlocked! Opt in when you're both ready to see each other." });
+      }
+    }
     return msgs;
-  }, [callStage, messagesRemaining, isLimitReached, myPostCallMessages, myPostCallRemaining, myPostCallLimitReached, bothPostCallLimitReached]);
+  }, [callStage, messagesRemaining, isLimitReached, myPostCallMessages, myPostCallRemaining, myPostCallLimitReached, bothPostCallLimitReached, myStage2Messages, myStage2Remaining, myStage2LimitReached, bothStage2LimitReached]);
 
   // Track the message-list index at which each guidance message first appeared so it
   // stays at that position and gets pushed upward naturally as new messages arrive.
@@ -1469,8 +1497,8 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [guidanceMessages, allMessages]);
 
-  const allCallsDone = callStage >= 3;
-  const isFaceCallStage = callStage === 2;
+  const allCallsDone = callStage >= 4;
+  const isFaceCallStage = callStage === 3;
   const myFaceCallAccepted = detail.user1Id === user?.id ? detail.faceCallUser1Accepted : detail.faceCallUser2Accepted;
   const theirFaceCallAccepted = detail.user1Id === user?.id ? detail.faceCallUser2Accepted : detail.faceCallUser1Accepted;
   const bothAcceptedFaceCall = detail.faceCallUser1Accepted && detail.faceCallUser2Accepted;
@@ -1519,7 +1547,7 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
         </div>
         <div className="flex items-center gap-1.5 shrink-0">
           <Badge variant="outline" className="text-[10px] px-1.5 py-0" data-testid={`badge-messages-remaining-${match.id}`}>
-            {allCallsDone ? "All calls done" : callStage === 2 ? "Face call stage" : callStage === 1 && bothPostCallLimitReached ? "2nd call ready" : callStage === 1 ? `${myPostCallRemaining} post-call left` : messagesRemaining > 0 ? `${messagesRemaining} left` : "Call time"}
+            {allCallsDone ? "All calls done" : callStage === 3 ? "Face call stage" : callStage === 2 && bothStage2LimitReached ? "Face call ready" : callStage === 2 ? `${myStage2Remaining} left (20 msg)` : callStage === 1 && bothPostCallLimitReached ? "2nd call ready" : callStage === 1 ? `${myPostCallRemaining} post-call left` : messagesRemaining > 0 ? `${messagesRemaining} left` : "Call time"}
           </Badge>
           {showRemoveConfirm ? (
             <div className="flex items-center gap-0.5">
@@ -1823,9 +1851,9 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
               ) : (
                 <div className="p-3 space-y-2">
                   {myPostCallMessages === 0 && (
-                    <StageHint>Great call! You each have 6 messages before your second call unlocks.</StageHint>
+                    <StageHint>Great call! You each have 12 messages before your second call unlocks.</StageHint>
                   )}
-                  {myPostCallMessages >= 4 && myPostCallMessages < 6 && (
+                  {myPostCallMessages >= 8 && myPostCallMessages < 12 && (
                     <StageHint>Almost there — {myPostCallRemaining} message{myPostCallRemaining !== 1 ? "s" : ""} left before your second call is ready.</StageHint>
                   )}
                   <div className="flex gap-2 items-end">
@@ -1866,6 +1894,81 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
                         }}
                         disabled={!message.trim()}
                         data-testid={`button-send-postcall-${match.id}`}
+                      >
+                        <Send className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : callStage === 2 ? (
+            <div className="border-t" data-testid={`post-second-call-messaging-${match.id}`}>
+              {isOtherTyping && (
+                <div className="flex items-center gap-1.5 px-4 pt-2 text-xs text-muted-foreground" data-testid="text-typing-indicator-stage2">
+                  <span className="flex gap-0.5 items-center">
+                    <span className="w-1.5 h-1.5 bg-muted-foreground/50 rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
+                    <span className="w-1.5 h-1.5 bg-muted-foreground/50 rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
+                    <span className="w-1.5 h-1.5 bg-muted-foreground/50 rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
+                  </span>
+                  <span>{match.profile.firstName} is typing...</span>
+                </div>
+              )}
+              {myStage2LimitReached ? (
+                <div className="p-4 text-center space-y-1" data-testid={`waiting-their-stage2-${match.id}`}>
+                  <p className="text-sm font-medium text-primary">Your messages are sent!</p>
+                  <p className="text-xs text-muted-foreground">
+                    {theirStage2LimitReached
+                      ? "The face call stage is now unlocked."
+                      : `Waiting for ${match.profile.firstName} to finish their messages before the face call unlocks.`}
+                  </p>
+                </div>
+              ) : (
+                <div className="p-3 space-y-2">
+                  {myStage2Messages === 0 && (
+                    <StageHint>Great second call! You each have 20 messages before the face call unlocks.</StageHint>
+                  )}
+                  {myStage2Messages >= 16 && myStage2Messages < 20 && (
+                    <StageHint>Almost there — {myStage2Remaining} message{myStage2Remaining !== 1 ? "s" : ""} left before the face call is ready.</StageHint>
+                  )}
+                  <div className="flex gap-2 items-end">
+                    <Textarea
+                      value={message}
+                      onChange={e => {
+                        setMessage(e.target.value.slice(0, MAX_CHARS));
+                        if (e.target.value.trim()) sendTyping();
+                      }}
+                      placeholder="Keep getting to know each other..."
+                      className="resize-none min-h-[44px] max-h-[80px] text-sm"
+                      onKeyDown={e => {
+                        if (e.key === "Enter" && !e.shiftKey) {
+                          e.preventDefault();
+                          if (message.trim()) {
+                            const content = message.trim();
+                            stopTyping();
+                            forceScrollRef.current = true;
+                            sendMessage.mutate({ content, tempId: `temp-${Date.now()}-${Math.random().toString(36).slice(2)}` });
+                          }
+                        }
+                      }}
+                      data-testid={`input-message-stage2-${match.id}`}
+                    />
+                    <div className="flex flex-col items-end gap-1 shrink-0">
+                      <span className="text-[10px] text-muted-foreground tabular-nums" data-testid={`text-stage2-counter-${match.id}`}>
+                        {myStage2Messages}/{MAX_POST_STAGE2_MESSAGES}
+                      </span>
+                      <Button
+                        size="sm"
+                        onClick={() => {
+                          if (message.trim()) {
+                            const content = message.trim();
+                            stopTyping();
+                            forceScrollRef.current = true;
+                            sendMessage.mutate({ content, tempId: `temp-${Date.now()}-${Math.random().toString(36).slice(2)}` });
+                          }
+                        }}
+                        disabled={!message.trim()}
+                        data-testid={`button-send-stage2-${match.id}`}
                       >
                         <Send className="w-4 h-4" />
                       </Button>

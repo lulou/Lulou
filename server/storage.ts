@@ -797,11 +797,15 @@ export class SupabaseStorage implements IStorage {
       return undefined;
     }
     const stage = match.callStage || 0;
-    if (stage >= 3) {
+    if (stage >= 4) {
       console.log("[startCall] All call stages completed:", { matchId, callStage: stage });
       return undefined;
     }
-    if (stage === 2 && !(match.faceCallUser1Accepted && match.faceCallUser2Accepted)) {
+    if (stage === 2) {
+      console.log("[startCall] Stage 2 is post-second-call messaging — no calls allowed:", { matchId, stage });
+      return undefined;
+    }
+    if (stage === 3 && !(match.faceCallUser1Accepted && match.faceCallUser2Accepted)) {
       console.log("[startCall] Face call not mutually accepted:", { matchId, stage, fc1: match.faceCallUser1Accepted, fc2: match.faceCallUser2Accepted });
       return undefined;
     }
@@ -1082,11 +1086,16 @@ export class SupabaseStorage implements IStorage {
 
     // Call counts — advance the stage
     const currentStage = match.callStage || 0;
-    if (currentStage >= 3) {
+    if (currentStage >= 4) {
       console.log("[completeCall] All stages already completed", { matchId, userId, currentStage });
       return { match, counted: false };
     }
-    const nextStage = Math.min(currentStage + 1, 3);
+    if (currentStage === 2) {
+      // Stage 2 is the post-second-call messaging phase — no calls happen here.
+      console.log("[completeCall] Unexpected completeCall at messaging stage 2, ignoring", { matchId, userId });
+      return { match, counted: false };
+    }
+    const nextStage = Math.min(currentStage + 1, 4);
 
     const stageUpdate: Record<string, any> = {
       call_completed: false,
@@ -1107,6 +1116,9 @@ export class SupabaseStorage implements IStorage {
       stageUpdate.message_count_2 = 0;
       console.log("[CONNECTION_STAGE] SECOND_CALL_ENDED", { matchId, userId, newStage: nextStage, connectedDurationMs });
       console.log("[CONNECTION_STAGE] CONNECTION_STAGE_CHANGED", { matchId, from: "second_call", to: "post_second_call_messaging", nextStage });
+    } else if (currentStage === 3) {
+      console.log("[CONNECTION_STAGE] FACE_CALL_ENDED", { matchId, userId, newStage: nextStage, connectedDurationMs });
+      console.log("[CONNECTION_STAGE] CONNECTION_STAGE_CHANGED", { matchId, from: "face_call", to: "all_done", nextStage });
     }
 
     const { data: updated, error: updateError } = await this.sb
@@ -1132,7 +1144,7 @@ export class SupabaseStorage implements IStorage {
     if (!matchData) return undefined;
     const match = mapMatch(matchData);
     if (match.user1Id !== userId && match.user2Id !== userId) return undefined;
-    if ((match.callStage || 0) !== 2) return undefined;
+    if ((match.callStage || 0) !== 3) return undefined;
 
     const updates: Record<string, any> = {};
     if (match.user1Id === userId) {
@@ -1159,12 +1171,12 @@ export class SupabaseStorage implements IStorage {
     if (!matchData) return undefined;
     const match = mapMatch(matchData);
     if (match.user1Id !== userId && match.user2Id !== userId) return undefined;
-    if ((match.callStage || 0) !== 2) return undefined;
+    if ((match.callStage || 0) !== 3) return undefined;
 
     const { data: updated } = await this.sb
       .from("matches")
       .update({
-        call_stage: 3,
+        call_stage: 4,
         face_call_user1_accepted: false,
         face_call_user2_accepted: false,
       })
@@ -1486,7 +1498,7 @@ export class SupabaseStorage implements IStorage {
     if (!matchData) return undefined;
     const match = mapMatch(matchData);
     if (match.user1Id !== userId && match.user2Id !== userId) return undefined;
-    if ((match.callStage || 0) < 3) return undefined;
+    if ((match.callStage || 0) < 4) return undefined;
 
     const updates: Record<string, any> = {};
     if (match.user1Id === userId) {
@@ -1513,7 +1525,7 @@ export class SupabaseStorage implements IStorage {
     if (!matchData) return undefined;
     const match = mapMatch(matchData);
     if (match.user1Id !== userId && match.user2Id !== userId) return undefined;
-    if ((match.callStage || 0) < 3) return undefined;
+    if ((match.callStage || 0) < 4) return undefined;
     if (!match.meetAvailability1 || !match.meetAvailability2) return undefined;
 
     const mySlots: string[] = JSON.parse(match.user1Id === userId ? match.meetAvailability1 : match.meetAvailability2);

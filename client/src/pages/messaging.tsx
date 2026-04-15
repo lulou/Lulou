@@ -489,10 +489,11 @@ export default function Messaging() {
   const messagesRemaining = MAX_MESSAGES_PER_USER - myMessages.length;
   const isLimitReached = messagesRemaining <= 0;
   const callStage = matchDetail.callStage || 0;
-  const allCallsDone = callStage >= 3;
+  const allCallsDone = callStage >= 4;
 
   const statusLabel = allCallsDone ? "Ready to meet"
-    : callStage === 2 ? "Face call stage"
+    : callStage === 3 ? "Face call stage"
+    : callStage === 2 ? "20 msg stage"
     : callStage === 1 ? "2nd call ready"
     : messagesRemaining > 0 ? `${messagesRemaining} left`
     : "Call time";
@@ -502,6 +503,8 @@ export default function Messaging() {
     : callStage === 1
     ? { icon: Phone, title: "First call went great!", desc: "Ready for a longer 15-minute call?", button: "Start Second Call" }
     : callStage === 2
+    ? { icon: Phone, title: "Keep getting to know each other", desc: "You have 20 messages each before the face call unlocks.", button: "View on Connections" }
+    : callStage === 3
     ? { icon: Video, title: "Ready to see each other?", desc: "Both of you need to accept for a 10-minute face call.", button: "View on Connections" }
     : { icon: Check, title: "All calls completed", desc: "You've had wonderful conversations. Ready to meet in real life?", button: "" };
 
@@ -645,7 +648,7 @@ export default function Messaging() {
                 <callPrompt.icon className="w-6 h-6 text-primary mx-auto" />
                 <p className="font-medium text-sm">{callPrompt.title}</p>
                 <p className="text-xs text-muted-foreground">{callPrompt.desc}</p>
-                {callStage === 2 ? (
+                {callStage === 3 ? (
                   <Button size="sm" onClick={() => navigate("/matches")} data-testid="button-go-to-connections">
                     <Video className="w-4 h-4 mr-2" /> Go to Connections
                   </Button>
