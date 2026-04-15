@@ -7,7 +7,8 @@ declare global {
   }
 }
 
-if (typeof window !== "undefined") {
+if (typeof window !== "undefined" && !(window as any).__webrtcPatched) {
+  (window as any).__webrtcPatched = true;
   if (!window.webrtcLogs) window.webrtcLogs = [];
   const _pushLog = (...args: any[]) => {
     const msg = args

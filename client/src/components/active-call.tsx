@@ -199,11 +199,14 @@ export function ActiveCallOverlay({
     localVideoRef.current.srcObject = localStream;
   }, [localStream, isVideo]);
 
-  // Poll window.webrtcLogs every 500ms and show last 20 lines in the debug panel
+  // Poll window.webrtcLogs every 500ms and show last 20 lines in the debug panel.
+  // Only update state when the log count changes to avoid constant re-renders.
+  const debugLogLenRef = useRef(0);
   useEffect(() => {
     const iv = setInterval(() => {
       const all = (window as any).webrtcLogs as string[] | undefined;
-      if (all && all.length > 0) {
+      if (all && all.length !== debugLogLenRef.current) {
+        debugLogLenRef.current = all.length;
         setDebugLogs(all.slice(-20));
       }
     }, 500);
