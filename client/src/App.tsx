@@ -336,7 +336,7 @@ async function checkProfileExists(): Promise<ProfileCheckResult> {
 
     if (!res.ok) {
       const text = await res.text().catch(() => res.statusText);
-      console.error("PROFILE_EXISTS_ERROR", res.status, text);
+      console.error("[AUTH] PROFILE_LOAD_FAILED: HTTP", res.status, "—", text);
       return { exists: false, fetchFailed: true };
     }
 
