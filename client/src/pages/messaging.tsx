@@ -349,7 +349,9 @@ export default function Messaging() {
   const { data: matchDetail, isLoading } = useQuery<MatchDetail>({
     queryKey: ["/api/matches", matchId],
     enabled: !!matchId,
-    // No polling — incoming messages arrive via real-time subscription (useRealtimeMessages)
+    // Primary delivery: real-time subscription (useRealtimeMessages) — ~50ms
+    // Fallback: poll every 5 s in case a broadcast packet is dropped
+    refetchInterval: matchId ? 5000 : false,
   });
 
   useRealtimeMessages(matchId, !!matchId);
@@ -387,6 +389,24 @@ export default function Messaging() {
         );
       });
       return { previous };
+    },
+    onSuccess: (data: any) => {
+      const realMsg = data as Message;
+      queryClient.setQueryData<MatchDetail>(["/api/matches", matchId], (old) => {
+        if (!old) return old;
+        const tempIdx = old.messages.findIndex(
+          m => typeof m.id === "string" && m.id.startsWith("temp-") &&
+               m.content === realMsg.content && m.senderId === realMsg.senderId
+        );
+        if (tempIdx >= 0) {
+          const updated = [...old.messages];
+          updated[tempIdx] = realMsg;
+          return { ...old, messages: updated };
+        }
+        const exists = old.messages.some(m => m.id === realMsg.id);
+        if (exists) return old;
+        return { ...old, messages: [...old.messages, realMsg] };
+      });
     },
     onError: (error: Error, _vars: any, context: any) => {
       if (context?.previous) {

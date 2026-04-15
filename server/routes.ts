@@ -677,95 +677,104 @@ export async function registerRoutes(
         createdAt: message.createdAt,
       });
 
-      await adminStorage.incrementMessageCount(matchId, userId);
-
-      if (callStage === 1) {
-        const updatedMatch = await storage.getMatch(matchId, userId);
-        if (updatedMatch) {
-          const pc1 = updatedMatch.messageCount1 || 0;
-          const pc2 = updatedMatch.messageCount2 || 0;
-          const myNewCount = updatedMatch.user1Id === userId ? pc1 : pc2;
-          console.log("[CONNECTION_STAGE] POST_CALL_MESSAGE_SENT", { matchId, userId, callStage, myPostCallCount: myNewCount });
-          if (pc1 >= 12 && pc2 >= 12) {
-            console.log("[CONNECTION_STAGE] SECOND_CALL_UNLOCKED", { matchId, pc1, pc2 });
-            console.log("[CONNECTION_STAGE] CONNECTION_STAGE_CHANGED", { matchId, from: "post_call_messaging", to: "second_call_ready" });
-          }
-        }
-      } else if (callStage === 2) {
-        const updatedMatch = await storage.getMatch(matchId, userId);
-        if (updatedMatch) {
-          const pc1 = updatedMatch.messageCount1 || 0;
-          const pc2 = updatedMatch.messageCount2 || 0;
-          const myNewCount = updatedMatch.user1Id === userId ? pc1 : pc2;
-          console.log("[CONNECTION_STAGE] POST_SECOND_CALL_MESSAGE_SENT", { matchId, userId, callStage, myPostCallCount: myNewCount });
-          if (pc1 >= 20 && pc2 >= 20) {
-            // Both users have reached the stage 2 limit — advance to face call stage.
-            const { error: advErr } = await supabaseAdmin
-              .from("matches")
-              .update({ call_stage: 3 })
-              .eq("id", matchId);
-            if (advErr) {
-              console.error("[CONNECTION_STAGE] STAGE2_ADVANCE_ERROR", { matchId, error: advErr.message });
-            } else {
-              console.log("[CONNECTION_STAGE] FACE_CALL_UNLOCKED", { matchId, pc1, pc2 });
-              console.log("[CONNECTION_STAGE] CONNECTION_STAGE_CHANGED", { matchId, from: "post_second_call_messaging", to: "face_call_stage", nextStage: 3 });
-            }
-          }
-        }
-      }
-
-      const otherUserId = match.user1Id === userId ? match.user2Id : match.user1Id;
-      if (isSeedUser(otherUserId)) {
-        const otherProfile = await adminStorage.getProfile(otherUserId);
-        if (callStage === 0) {
-          const otherCount = await adminStorage.getUserMessageCount(matchId, otherUserId);
-          if (otherCount < 15) {
-            setTimeout(async () => {
-              try {
-                const reply = generateAutoReply(otherProfile, otherCount);
-                await adminStorage.createMessage({ matchId, senderId: otherUserId, content: reply });
-                await adminStorage.incrementMessageCount(matchId, otherUserId);
-              } catch (err) {
-                console.error("Auto-reply error:", err);
-              }
-            }, 1500 + Math.random() * 2000);
-          }
-        } else if (callStage === 1) {
-          const freshMatch = await adminStorage.getMatch(matchId, otherUserId);
-          if (freshMatch) {
-            const otherPostCallCount = freshMatch.user1Id === otherUserId ? (freshMatch.messageCount1 || 0) : (freshMatch.messageCount2 || 0);
-            if (otherPostCallCount < 12) {
-              setTimeout(async () => {
-                try {
-                  const reply = generateAutoReply(otherProfile, 30 + otherPostCallCount);
-                  await adminStorage.createMessage({ matchId, senderId: otherUserId, content: reply });
-                  await adminStorage.incrementMessageCount(matchId, otherUserId);
-                } catch (err) {
-                  console.error("Auto-reply (post-call) error:", err);
-                }
-              }, 1500 + Math.random() * 2000);
-            }
-          }
-        } else if (callStage === 2) {
-          const freshMatch = await adminStorage.getMatch(matchId, otherUserId);
-          if (freshMatch) {
-            const otherPostCallCount = freshMatch.user1Id === otherUserId ? (freshMatch.messageCount1 || 0) : (freshMatch.messageCount2 || 0);
-            if (otherPostCallCount < 20) {
-              setTimeout(async () => {
-                try {
-                  const reply = generateAutoReply(otherProfile, 50 + otherPostCallCount);
-                  await adminStorage.createMessage({ matchId, senderId: otherUserId, content: reply });
-                  await adminStorage.incrementMessageCount(matchId, otherUserId);
-                } catch (err) {
-                  console.error("Auto-reply (post-second-call) error:", err);
-                }
-              }, 1500 + Math.random() * 2000);
-            }
-          }
-        }
-      }
-
+      // Respond to the client immediately — message is in DB and broadcast is fired.
+      // All subsequent work (count increment, stage advance, seed reply) runs in the
+      // background so the sender's UI confirms within ~500ms instead of 4–5 seconds.
       res.json(message);
+
+      // ── Background post-processing (does not block the HTTP response) ──
+      (async () => {
+        try {
+          await adminStorage.incrementMessageCount(matchId, userId);
+
+          if (callStage === 1) {
+            const updatedMatch = await adminStorage.getMatch(matchId, userId);
+            if (updatedMatch) {
+              const pc1 = updatedMatch.messageCount1 || 0;
+              const pc2 = updatedMatch.messageCount2 || 0;
+              const myNewCount = updatedMatch.user1Id === userId ? pc1 : pc2;
+              console.log("[CONNECTION_STAGE] POST_CALL_MESSAGE_SENT", { matchId, userId, callStage, myPostCallCount: myNewCount });
+              if (pc1 >= 12 && pc2 >= 12) {
+                console.log("[CONNECTION_STAGE] SECOND_CALL_UNLOCKED", { matchId, pc1, pc2 });
+                console.log("[CONNECTION_STAGE] CONNECTION_STAGE_CHANGED", { matchId, from: "post_call_messaging", to: "second_call_ready" });
+              }
+            }
+          } else if (callStage === 2) {
+            const updatedMatch = await adminStorage.getMatch(matchId, userId);
+            if (updatedMatch) {
+              const pc1 = updatedMatch.messageCount1 || 0;
+              const pc2 = updatedMatch.messageCount2 || 0;
+              const myNewCount = updatedMatch.user1Id === userId ? pc1 : pc2;
+              console.log("[CONNECTION_STAGE] POST_SECOND_CALL_MESSAGE_SENT", { matchId, userId, callStage, myPostCallCount: myNewCount });
+              if (pc1 >= 20 && pc2 >= 20) {
+                const { error: advErr } = await supabaseAdmin
+                  .from("matches")
+                  .update({ call_stage: 3 })
+                  .eq("id", matchId);
+                if (advErr) {
+                  console.error("[CONNECTION_STAGE] STAGE2_ADVANCE_ERROR", { matchId, error: advErr.message });
+                } else {
+                  console.log("[CONNECTION_STAGE] FACE_CALL_UNLOCKED", { matchId, pc1, pc2 });
+                  console.log("[CONNECTION_STAGE] CONNECTION_STAGE_CHANGED", { matchId, from: "post_second_call_messaging", to: "face_call_stage", nextStage: 3 });
+                }
+              }
+            }
+          }
+
+          const otherUserId = match.user1Id === userId ? match.user2Id : match.user1Id;
+          if (isSeedUser(otherUserId)) {
+            const otherProfile = await adminStorage.getProfile(otherUserId);
+            if (callStage === 0) {
+              const otherCount = await adminStorage.getUserMessageCount(matchId, otherUserId);
+              if (otherCount < 15) {
+                setTimeout(async () => {
+                  try {
+                    const reply = generateAutoReply(otherProfile, otherCount);
+                    await adminStorage.createMessage({ matchId, senderId: otherUserId, content: reply });
+                    await adminStorage.incrementMessageCount(matchId, otherUserId);
+                  } catch (err) {
+                    console.error("Auto-reply error:", err);
+                  }
+                }, 1500 + Math.random() * 2000);
+              }
+            } else if (callStage === 1) {
+              const freshMatch = await adminStorage.getMatch(matchId, otherUserId);
+              if (freshMatch) {
+                const otherPostCallCount = freshMatch.user1Id === otherUserId ? (freshMatch.messageCount1 || 0) : (freshMatch.messageCount2 || 0);
+                if (otherPostCallCount < 12) {
+                  setTimeout(async () => {
+                    try {
+                      const reply = generateAutoReply(otherProfile, 30 + otherPostCallCount);
+                      await adminStorage.createMessage({ matchId, senderId: otherUserId, content: reply });
+                      await adminStorage.incrementMessageCount(matchId, otherUserId);
+                    } catch (err) {
+                      console.error("Auto-reply (post-call) error:", err);
+                    }
+                  }, 1500 + Math.random() * 2000);
+                }
+              }
+            } else if (callStage === 2) {
+              const freshMatch = await adminStorage.getMatch(matchId, otherUserId);
+              if (freshMatch) {
+                const otherPostCallCount = freshMatch.user1Id === otherUserId ? (freshMatch.messageCount1 || 0) : (freshMatch.messageCount2 || 0);
+                if (otherPostCallCount < 20) {
+                  setTimeout(async () => {
+                    try {
+                      const reply = generateAutoReply(otherProfile, 50 + otherPostCallCount);
+                      await adminStorage.createMessage({ matchId, senderId: otherUserId, content: reply });
+                      await adminStorage.incrementMessageCount(matchId, otherUserId);
+                    } catch (err) {
+                      console.error("Auto-reply (post-second-call) error:", err);
+                    }
+                  }, 1500 + Math.random() * 2000);
+                }
+              }
+            }
+          }
+        } catch (bgErr: any) {
+          console.error("MSG_POST_SEND_BG_ERROR", { matchId, userId, error: bgErr?.message });
+        }
+      })();
     } catch (error: any) {
       const errMsg = error?.message || String(error);
       const errCode = error?.code;

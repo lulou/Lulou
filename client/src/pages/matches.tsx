@@ -907,7 +907,9 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
   const { data: matchDetail, isLoading: matchLoading, error: matchError } = useQuery<MatchDetail>({
     queryKey: ["/api/matches", match.id],
     enabled: expanded,
-    // No polling — incoming messages arrive via real-time subscription (useRealtimeMessages)
+    // Primary delivery: real-time subscription (useRealtimeMessages) — ~50ms
+    // Fallback: poll every 5 s in case a broadcast packet is dropped
+    refetchInterval: expanded ? 5000 : false,
   });
 
   useRealtimeMessages(match.id, expanded);
