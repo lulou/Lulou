@@ -145,17 +145,23 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
     const sendOffer = async () => {
       const pc = pcRef.current;
       if (!pc || cleanedUpRef.current) return;
-      if (pc.signalingState !== "stable") return;
+      if (pc.signalingState !== "stable") {
+        console.warn("[WebRTC] SEND_OFFER_SKIPPED: signalingState is", pc.signalingState, "(expected stable)");
+        return;
+      }
       try {
-        console.log("[WebRTC] Creating and sending offer");
+        console.log("[WebRTC] SEND_OFFER_START: calling createOffer, signalingState:", pc.signalingState);
         hasSetRemoteDescRef.current = false;
         pendingCandidatesRef.current = [];
         const offer = await pc.createOffer();
+        console.log("[WebRTC] SEND_OFFER_CREATED: offer type:", offer.type, "sdp length:", offer.sdp?.length);
+        console.log("[WebRTC] SEND_OFFER_SLD: calling setLocalDescription");
         await pc.setLocalDescription(offer);
+        console.log("[WebRTC] SEND_OFFER_SLD_DONE: signalingState after setLocalDescription:", pc.signalingState);
         broadcastOnChannel({ type: "webrtc:offer", sdp: offer.sdp! });
-        console.log("[WebRTC] Offer sent");
-      } catch (e) {
-        console.error("[WebRTC] Failed to create offer:", e);
+        console.log("[WebRTC] SEND_OFFER_BROADCAST: webrtc:offer sent on channel");
+      } catch (e: any) {
+        console.error("[WebRTC] FAILURE_TRIGGER: send_offer_exception —", e?.name ?? "", e?.message ?? e);
         setConnectionState("failed");
       }
     };
@@ -253,6 +259,30 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
       }
     };
 
+    // Wraps channel.subscribe() (callback-based in Supabase JS v2) into a
+    // promise. subscribe() returns the channel object synchronously — the
+    // "SUBSCRIBED" status is delivered asynchronously via callback, so awaiting
+    // subscribe() directly always resolves to the channel object and can never
+    // equal the string "SUBSCRIBED". This wrapper fixes that.
+    const subscribeChannel = (ch: ReturnType<typeof supabase.channel>, timeoutMs = 20_000): Promise<void> =>
+      new Promise((resolve, reject) => {
+        const timer = setTimeout(() => {
+          console.error("[WebRTC] CHANNEL_SUBSCRIBE_FAILED: timed out after 20 s waiting for SUBSCRIBED status");
+          reject(new Error("CHANNEL_SUBSCRIBE_TIMEOUT"));
+        }, timeoutMs);
+        ch.subscribe((status: string, err?: Error) => {
+          console.log("[WebRTC] CHANNEL_STATUS_CHANGED:", status, err ? `err=${err.message}` : "");
+          if (status === "SUBSCRIBED") {
+            clearTimeout(timer);
+            resolve();
+          } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
+            clearTimeout(timer);
+            console.error("[WebRTC] CHANNEL_SUBSCRIBE_FAILED: terminal status received:", status, err?.message ?? "");
+            reject(err ?? new Error(`channel_${status}`));
+          }
+        });
+      });
+
     // Wraps getUserMedia with a 20-second timeout so a hung permission dialog
     // produces a clear MEDIA_TIMEOUT log instead of hanging silently.
     const getUserMediaWithTimeout = (constraints: MediaStreamConstraints): Promise<MediaStream> => {
@@ -291,10 +321,11 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
         video: isVideo ? { facingMode: "user" } : false,
       };
       console.log("[WebRTC] MEDIA_ACQUIRE_START: calling getUserMedia with constraints:", JSON.stringify(mediaConstraints));
+      console.log("[WebRTC] CHANNEL_SUBSCRIBE_START: subscribing to signaling channel:", channelName);
 
       const [mediaResult, channelResult] = await Promise.allSettled([
         getUserMediaWithTimeout(mediaConstraints),
-        channel.subscribe(),
+        subscribeChannel(channel),
       ]);
 
       if (cleanedUpRef.current) {
@@ -335,33 +366,28 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
 
       console.log("[WebRTC] MEDIA_ACQUIRE_SUCCESS: stream tracks:", mediaResult.value.getTracks().map(t => ({ kind: t.kind, enabled: t.enabled, readyState: t.readyState })));
 
+      if (channelResult.status === "rejected") {
+        const err = channelResult.reason;
+        console.error("[WebRTC] CHANNEL_SUBSCRIBE_FAILED: signaling channel never reached SUBSCRIBED —", err?.message ?? "(no message)");
+        console.error("[WebRTC] FAILURE_TRIGGER: setting connectionState=failed from channel subscribe step");
+        cleanup();
+        setConnectionState("failed");
+        return;
+      }
+
+      console.log("[WebRTC] CHANNEL_SUBSCRIBE_SUCCESS: signaling channel is ready");
+
       const stream = mediaResult.value;
       localStreamRef.current = stream;
       setLocalStream(stream);
 
-      if (channelResult.status === "rejected" || channelResult.value !== "SUBSCRIBED") {
-        let subscribed = false;
-        for (let i = 0; i < 5 && !cleanedUpRef.current; i++) {
-          await new Promise(r => setTimeout(r, 1000));
-          try {
-            const s = await channel.subscribe();
-            if (s === "SUBSCRIBED") { subscribed = true; break; }
-          } catch {}
-        }
-        if (!subscribed && !cleanedUpRef.current) {
-          console.error("Channel subscription failed after retries");
-          cleanup();
-          setConnectionState("failed");
-          return;
-        }
-      }
-
       if (cleanedUpRef.current) return;
 
+      console.log("[WebRTC] PC_CREATE_START: creating RTCPeerConnection with", ICE_SERVERS.length, "ICE server(s)");
       const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
       pcRef.current = pc;
 
-      console.log("[WebRTC] PC created — initial states:", {
+      console.log("[WebRTC] PC_CREATE_DONE — initial states:", {
         connectionState: pc.connectionState,
         iceConnectionState: pc.iceConnectionState,
         iceGatheringState: pc.iceGatheringState,
