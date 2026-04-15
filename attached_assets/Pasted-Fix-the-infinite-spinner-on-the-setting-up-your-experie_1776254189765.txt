@@ -1,0 +1,61 @@
+Fix the infinite spinner on the "setting up your experience" page without changing unrelated code.
+
+Current problem:
+- The app gets stuck spinning on the "setting up your experience" page
+- It does not finish loading
+- The user cannot get past onboarding/profile setup
+
+Tasks:
+
+1. Find the exact code path that controls the "setting up your experience" loading screen.
+
+2. Identify what condition keeps the spinner active forever.
+Check for:
+- loading state never being set to false
+- profile save promise never resolving cleanly
+- profile fetch/create retry loop
+- waiting on Supabase response without timeout handling
+- raw 520/network error not being handled properly
+- onboarding completion flag never being set
+- thrown error swallowed in catch/finally
+- auth/profile race condition
+
+3. Find the exact profile save/create/load flow used on this page.
+
+4. Fix it so that:
+- loading always exits on success or failure
+- transient Supabase/network errors do not trap the user forever
+- the user sees a clean error message instead of an endless spinner
+- form data is preserved if save fails
+- onboarding/profile state updates correctly after a successful save
+
+5. Add a timeout safeguard:
+- if setup takes too long, stop the spinner
+- show the exact reason in logs
+- show a retry option or clean error state
+
+6. Add precise logs for:
+- onboarding setup start
+- profile save start
+- profile save success
+- profile save failure
+- profile fetch/create start
+- profile fetch/create success
+- loading state set true/false
+- exact reason spinner remains active
+
+7. Inspect any recent changes related to:
+- profile save handling
+- auth/session loading
+- onboarding screen
+- startup/profile gating
+
+8. Do not refactor unrelated code.
+Do not change messaging/call logic.
+Only fix the onboarding/profile setup spinner and blocked loading flow.
+
+9. After fixing, explain:
+- the exact file and line causing the endless spinner
+- whether it was a save failure, fetch failure, retry loop, or loading-state bug
+- what exact code you changed
+- why the app was getting stuck

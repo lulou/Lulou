@@ -346,8 +346,13 @@ async function checkProfileExists(): Promise<ProfileCheckResult> {
   return { exists: true, fetchFailed: false };
 }
 
+// How long the "Setting up your experience" spinner is allowed to show before
+// we cut it off and display a retry screen.  Covers the worst-case Supabase
+// cold-start window (5 retries × 5 s = 25 s) without trapping users forever.
+const SPINNER_TIMEOUT_MS = 15_000;
+
 function AppContent() {
-  const { user, isLoading: authLoading, profileReady } = useAuth();
+  const { user, isLoading: authLoading, profileReady, clearingCache } = useAuth();
 
   // IMPORTANT: This query uses a dedicated key "profile-exists-check" that is intentionally
   // separate from the "/api/profile" key used by ProfilePage for data.
@@ -356,38 +361,104 @@ function AppContent() {
   // ProfileCheckResult and see exists=undefined (falsy) → routing to onboarding.
   // Never invalidate "profile-exists-check" from within the authenticated app — it only
   // needs to run once on login. Profile edits should invalidate "/api/profile" only.
+  //
+  // clearingCache blocks the query while queryClient.clear() is pending (the
+  // setTimeout in use-auth.ts).  Without this guard the fetch starts, clear()
+  // destroys it mid-flight, and isLoading resets to true — causing the spinner
+  // to restart from zero every time the user logs in.
   const { data, isLoading: profileLoading, isError: profileError } = useQuery<ProfileCheckResult>({
     queryKey: ["profile-exists-check"],
     queryFn: () => {
       if (!user) return Promise.resolve({ exists: false, fetchFailed: false });
-      console.log("[AUTH] PROFILE_FETCH_START", { userId: user.id });
+      console.log("[SETUP] PROFILE_FETCH_START", { userId: user.id });
       return checkProfileExists().then(result => {
-        console.log("[AUTH] PROFILE_FETCH_SUCCESS", { userId: user.id, profileExists: result.exists });
+        console.log("[SETUP] PROFILE_FETCH_SUCCESS", { userId: user.id, profileExists: result.exists });
         return result;
       });
     },
-    enabled: !!user && profileReady,
-    // 5 retries at 5 s each (25 s total) covers the typical Supabase cold-start
-    // window where the DB returns 522/503 before becoming available.
-    retry: 5,
-    retryDelay: 5000,
+    enabled: !!user && profileReady && !clearingCache,
+    // 3 retries at 4 s each (12 s total) — enough to survive a Supabase
+    // cold-start blip.  The SPINNER_TIMEOUT_MS guard above catches anything
+    // that still takes too long and gives the user a retry button.
+    retry: 3,
+    retryDelay: 4000,
   });
 
   const profileExists = data?.exists ?? false;
-  // fetchFailed is true only after all 5 retries are exhausted (isError=true).
-  // checkProfileExists no longer returns fetchFailed:true — it always throws so
-  // TanStack Query's retry loop runs before we give up.
+  // fetchFailed is true only after all retries are exhausted (isError=true).
   const fetchFailed = profileError;
 
-  // When all retries are exhausted, auto-retry every 10 s so the user doesn't
-  // have to manually click "Try Again" while Supabase is starting up.
+  // ── Spinner timeout safeguard ────────────────────────────────────────────────
+  // If the spinner has been visible for longer than SPINNER_TIMEOUT_MS, stop it
+  // and show the error/retry screen so the user is never trapped indefinitely.
+  const [spinnerTimedOut, setSpinnerTimedOut] = useState(false);
+  const spinnerStartRef = useRef<number | null>(null);
+
+  const isSpinning = !authLoading && !!user && (clearingCache || profileLoading || !profileReady);
+
   useEffect(() => {
-    if (!fetchFailed) return;
+    if (!isSpinning) {
+      if (spinnerStartRef.current !== null) {
+        console.log("[SETUP] SPINNER_STOP", {
+          userId: user?.id,
+          elapsedMs: Date.now() - spinnerStartRef.current,
+          clearingCache,
+          profileLoading,
+          profileReady,
+        });
+      }
+      spinnerStartRef.current = null;
+      setSpinnerTimedOut(false);
+      return;
+    }
+
+    // Spinner just turned on — start the clock.
+    if (spinnerStartRef.current === null) {
+      spinnerStartRef.current = Date.now();
+      console.log("[SETUP] SPINNER_START", {
+        userId: user?.id,
+        clearingCache,
+        profileLoading,
+        profileReady,
+      });
+    }
+
     const timer = setTimeout(() => {
+      const elapsed = Date.now() - (spinnerStartRef.current ?? 0);
+      const reason = clearingCache
+        ? "cache_still_clearing"
+        : !profileReady
+          ? "auth_not_ready"
+          : "profile_fetch_pending";
+      console.error("[SETUP] SPINNER_TIMEOUT", {
+        userId: user?.id,
+        elapsedMs: elapsed,
+        reason,
+        clearingCache,
+        profileLoading,
+        profileReady,
+      });
+      setSpinnerTimedOut(true);
+    }, SPINNER_TIMEOUT_MS);
+
+    return () => clearTimeout(timer);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isSpinning]);
+
+  // ── Auto-retry after fetch failure ───────────────────────────────────────────
+  // When all retries are exhausted the "Try Again" screen is shown.  After 10 s
+  // we reset the query so it retries automatically (covers the Supabase startup
+  // window).  The spinnerTimedOut guard prevents re-running the cycle forever:
+  // once the timeout has fired we stop auto-retrying and let the user decide.
+  useEffect(() => {
+    if (!fetchFailed || spinnerTimedOut) return;
+    console.log("[SETUP] FETCH_FAILED: scheduling auto-retry in 10 s");
+    const timer = setTimeout(() => {
+      console.log("[SETUP] AUTO_RETRY: resetting profile-exists-check query");
       queryClient.resetQueries({ queryKey: ["profile-exists-check"] });
     }, 10_000);
     return () => clearTimeout(timer);
-  }, [fetchFailed]);
+  }, [fetchFailed, spinnerTimedOut]);
 
   if (authLoading) {
     return (
@@ -404,7 +475,31 @@ function AppContent() {
     return <Landing />;
   }
 
-  if (profileLoading || !profileReady) {
+  // Show spinner while cache is clearing, profile ready flag is not set, or
+  // the profile-exists-check fetch is in progress.
+  if (isSpinning) {
+    if (spinnerTimedOut) {
+      // The spinner ran past SPINNER_TIMEOUT_MS — abort and show retry screen.
+      return (
+        <div className="min-h-screen flex items-center justify-center bg-background">
+          <div className="flex flex-col items-center gap-4 text-center px-6">
+            <p className="text-lg font-serif font-semibold">Taking longer than expected</p>
+            <p className="text-sm text-muted-foreground">We couldn't finish setting up your experience. You're still signed in — this is usually a temporary issue.</p>
+            <button
+              className="px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:brightness-110 transition-all"
+              onClick={() => {
+                setSpinnerTimedOut(false);
+                spinnerStartRef.current = null;
+                queryClient.resetQueries({ queryKey: ["profile-exists-check"] });
+              }}
+              data-testid="button-retry-setup"
+            >
+              Try Again
+            </button>
+          </div>
+        </div>
+      );
+    }
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-3">

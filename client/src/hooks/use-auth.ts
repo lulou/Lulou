@@ -7,6 +7,11 @@ export function useAuth() {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [profileReady, setProfileReady] = useState(false);
+  // When true, the query cache is being cleared after an account change.
+  // AppContent must not start the profile-exists-check query until this is false,
+  // otherwise queryClient.clear() fires mid-flight and resets the in-progress
+  // fetch back to isLoading:true — the root cause of the "endless spinner" bug.
+  const [clearingCache, setClearingCache] = useState(false);
 
   // Track the previous auth user ID so we can detect actual account changes
   // (as opposed to token-refresh events which keep the same user).
@@ -39,12 +44,34 @@ export function useAuth() {
       // finished committing.  Calling queryClient.clear() synchronously inside
       // onAuthStateChange can fire while React is mid-render (updating hook
       // queues), which produces a "Should have a queue" React error.
+      //
+      // clearingCache is set to true BEFORE the setTimeout so AppContent's
+      // profile-exists-check query is disabled during the gap.  Without this
+      // guard, the query starts fetching on the same render that sets the user,
+      // then queryClient.clear() destroys it mid-flight and resets isLoading:true,
+      // causing the spinner to restart from zero (the "endless spinner" bug).
       if (prevUserId !== newUserId) {
-        console.log("[AUTH] USER_CHANGED: clearing query cache to prevent stale data contamination", {
+        console.log("[AUTH] USER_CHANGED: blocking profile query while cache clears", {
           from: prevUserId ? prevUserId.slice(0, 8) + "…" : "none",
           to:   newUserId  ? newUserId.slice(0, 8)  + "…" : "none",
         });
-        setTimeout(() => queryClient.clear(), 0);
+        // Two-tick defer — avoids calling setState or queryClient.clear()
+        // synchronously inside onAuthStateChange while React is mid-render
+        // (which causes "Should have a queue" errors).
+        //
+        // Tick 1: setClearingCache(true) disables the profile-exists-check query
+        //         so no fetch can start before the cache is cleared.
+        // Tick 2: After React has committed the disabled state, queryClient.clear()
+        //         is safe (no in-flight query to interrupt), then setClearingCache(false)
+        //         re-enables the query and a fresh, clean fetch begins.
+        setTimeout(() => {
+          if (mounted) setClearingCache(true);
+          setTimeout(() => {
+            queryClient.clear();
+            console.log("[AUTH] CACHE_CLEARED: profile query can now start");
+            if (mounted) setClearingCache(false);
+          }, 0);
+        }, 0);
       }
       prevUserIdRef.current = newUserId;
 
@@ -103,5 +130,6 @@ export function useAuth() {
     isLoggingOut: false,
     profileInitError: null,
     profileReady,
+    clearingCache,
   };
 }
