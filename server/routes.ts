@@ -376,9 +376,12 @@ export async function registerRoutes(
       }
       res.json(profile);
     } catch (error: any) {
-      const errMsg = error?.message || "Unknown error";
-      console.error("PROFILE_FETCH_ERROR", { userId: req.user?.id, error: errMsg, code: error?.code, details: error?.details });
-      res.status(500).json({ message: `Profile load error: ${errMsg}` });
+      const errMsg = (error?.message || "Unknown error").slice(0, 200);
+      // 503 = Service Unavailable — signals the client to retry.
+      // This catch fires when the Supabase DB is unreachable (e.g. 522 connection
+      // timeout during cold-start). The client treats 503 as retryable; 500 as permanent.
+      console.error("[AUTH] PROFILE_FETCH_ERROR: root cause =", errMsg, "| userId =", req.user?.id);
+      res.status(503).json({ message: `Profile temporarily unavailable: ${errMsg}` });
     }
   });
 

@@ -313,42 +313,35 @@ type ProfileCheckResult = { exists: boolean; fetchFailed: boolean };
 // Using the server avoids client-side Supabase auth dependency and keeps
 // the single source of truth for profile state on the backend.
 async function checkProfileExists(): Promise<ProfileCheckResult> {
+  // Separate fetch from response handling so network errors are clearly retryable.
+  let res: Response;
   try {
     const authHeaders = await getAuthHeaders();
-    const res = await fetch("/api/profile", {
-      credentials: "include",
-      headers: authHeaders,
-    });
-
-    if (res.status === 404) {
-      console.log("[AUTH] PROFILE_EXISTS_CHECK: no profile found (onboarding needed)");
-      return { exists: false, fetchFailed: false };
-    }
-
-    if (res.status === 401) {
-      // 401 here means the server JWT verification failed (often a cold-start delay).
-      // The client IS authenticated (Supabase confirmed it), so throw rather than
-      // returning gracefully — this lets TanStack Query's retry logic kick in and
-      // retry automatically, instead of routing an existing user to Onboarding.
-      console.warn("[AUTH] PROFILE_EXISTS_CHECK: server returned 401 (JWT cold-start?) — throwing for retry");
-      throw new Error("JWT_VERIFY_FAILED");
-    }
-
-    if (!res.ok) {
-      const text = await res.text().catch(() => res.statusText);
-      console.error("[AUTH] PROFILE_LOAD_FAILED: HTTP", res.status, "—", text);
-      return { exists: false, fetchFailed: true };
-    }
-
-    console.log("[AUTH] PROFILE_EXISTS_CHECK: profile found");
-    return { exists: true, fetchFailed: false };
+    res = await fetch("/api/profile", { credentials: "include", headers: authHeaders });
   } catch (err: any) {
-    // Re-throw the JWT failure so TanStack Query's retry logic fires.
-    // All other errors are caught and returned as fetchFailed.
-    if (err?.message === "JWT_VERIFY_FAILED") throw err;
-    console.error("PROFILE_EXISTS_ERROR", err?.message ?? err);
-    return { exists: false, fetchFailed: true };
+    // fetch() itself threw — network unreachable, DNS failure, etc.
+    console.error("[AUTH] PROFILE_LOAD_FAILED: network error —", err?.message);
+    throw new Error("NETWORK_ERROR");
   }
+
+  if (res.status === 404) {
+    // Profile row does not exist → user needs to complete onboarding.
+    console.log("[AUTH] PROFILE_EXISTS_CHECK: no profile found (onboarding needed)");
+    return { exists: false, fetchFailed: false };
+  }
+
+  if (!res.ok) {
+    // 401 = JWT invalid/expired, 503 = Supabase DB unreachable during cold-start,
+    // anything else = unexpected server error. All are treated as retryable so
+    // TanStack Query's retry loop handles transient failures automatically.
+    const text = await res.text().catch(() => res.statusText);
+    const trimmed = text.replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim().slice(0, 120);
+    console.error(`[AUTH] PROFILE_LOAD_FAILED: HTTP ${res.status} — root cause: ${trimmed}`);
+    throw new Error(`HTTP_${res.status}`);
+  }
+
+  console.log("[AUTH] PROFILE_EXISTS_CHECK: profile found");
+  return { exists: true, fetchFailed: false };
 }
 
 function AppContent() {
@@ -369,17 +362,27 @@ function AppContent() {
       return checkProfileExists();
     },
     enabled: !!user && profileReady,
-    // Retry up to 3 times — the most common failure is a cold-start JWT delay
-    // on the server. Giving a few automatic retries usually resolves it without
-    // the user seeing an error screen at all.
-    retry: 3,
-    retryDelay: (attempt) => Math.min(2000 * 2 ** attempt, 10000),
+    // 5 retries at 5 s each (25 s total) covers the typical Supabase cold-start
+    // window where the DB returns 522/503 before becoming available.
+    retry: 5,
+    retryDelay: 5000,
   });
 
   const profileExists = data?.exists ?? false;
-  // fetchFailed is true if the data explicitly says so, OR if the query threw
-  // after all retries (isError=true) — happens when the server persistently rejects the JWT.
-  const fetchFailed = (data?.fetchFailed ?? false) || profileError;
+  // fetchFailed is true only after all 5 retries are exhausted (isError=true).
+  // checkProfileExists no longer returns fetchFailed:true — it always throws so
+  // TanStack Query's retry loop runs before we give up.
+  const fetchFailed = profileError;
+
+  // When all retries are exhausted, auto-retry every 10 s so the user doesn't
+  // have to manually click "Try Again" while Supabase is starting up.
+  useEffect(() => {
+    if (!fetchFailed) return;
+    const timer = setTimeout(() => {
+      queryClient.resetQueries({ queryKey: ["profile-exists-check"] });
+    }, 10_000);
+    return () => clearTimeout(timer);
+  }, [fetchFailed]);
 
   if (authLoading) {
     return (
