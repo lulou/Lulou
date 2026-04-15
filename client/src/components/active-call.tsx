@@ -75,6 +75,7 @@ export function ActiveCallOverlay({
   const endedRef = useRef(false);
   const [speakerOn, setSpeakerOn] = useState(true);
   const [debugLogs, setDebugLogs] = useState<string[]>([]);
+  const [failureReason, setFailureReason] = useState<string>("");
   // Track exactly when WebRTC first reached "connected" so we can measure live duration
   const connectedAtRef = useRef<number | null>(null);
 
@@ -151,18 +152,27 @@ export function ActiveCallOverlay({
   }, [connectionState, webrtcEnabled]);
 
   // Auto-end call when connection fails — prevents restart loop on network recovery.
-  // The "Connection failed" screen is shown for 3s so the user sees what happened,
+  // The "Connection failed" screen is shown for 10s so the failure reason is readable,
   // then finishCall cleans up server state, broadcasts call:ended to the peer,
   // and calls onCallEnd() so the overlay is dismissed and the call cannot re-trigger.
   useEffect(() => {
     if (!isFailed || !webrtcEnabled) return;
-    console.log("[CALL_UI] AUTO_END_SCHEDULED", { matchId, callSessionId, delayMs: 3000 });
+    // Extract the exact FAILURE_TRIGGER label from the on-screen log array
+    const logs: string[] = (window as any).webrtcLogs ?? [];
+    const triggerLine = [...logs].reverse().find(l => l.includes("FAILURE_TRIGGER"));
+    if (triggerLine) {
+      const match = triggerLine.match(/FAILURE_TRIGGER:\s*([^\s{(]+)/);
+      setFailureReason(match ? match[1] : "unknown");
+    } else {
+      setFailureReason("unknown");
+    }
+    console.log("[CALL_UI] AUTO_END_SCHEDULED", { matchId, callSessionId, delayMs: 10000 });
     const t = setTimeout(() => {
       if (!endedRef.current) {
         console.log("[CALL_UI] AUTO_END_EXECUTING connection_failed", { matchId, callSessionId });
         finishCallRef.current?.("connection_failed");
       }
-    }, 3000);
+    }, 10000);
     return () => clearTimeout(t);
   }, [isFailed, webrtcEnabled, matchId, callSessionId]);
 
@@ -308,6 +318,9 @@ export function ActiveCallOverlay({
             The call couldn't connect. This usually happens on mobile data or restricted Wi-Fi.
             Try moving to a better connection and starting a new call.
           </p>
+          <p className="text-green-400 text-xs font-mono mt-1" data-testid="text-failure-reason">
+            Failure reason: {failureReason || "detecting…"}
+          </p>
         </div>
         <button
           className="w-16 h-16 rounded-full flex items-center justify-center bg-red-600 active:scale-95 transition-all shadow-lg"
@@ -317,7 +330,7 @@ export function ActiveCallOverlay({
         >
           <PhoneOff className="w-7 h-7 text-white" />
         </button>
-        <span className="text-white/30 text-xs">Tap to end</span>
+        <span className="text-white/30 text-xs">Tap to end (auto-closes in 10s)</span>
       </div>
     );
   }
