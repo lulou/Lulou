@@ -82,6 +82,11 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
   const connectionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const readyReceivedRef = useRef(false);
   const readyRetryIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Guards against concurrent offer creation. createOffer() is async and the
+  // signalingState doesn't change to "have-local-offer" until setLocalDescription
+  // completes — so a second sendOffer() can slip through the signalingState check
+  // while the first createOffer() is still pending.
+  const isNegotiatingRef = useRef(false);
   onRemoteHangupRef.current = onRemoteHangup;
 
   const cleanup = useCallback(() => {
@@ -127,6 +132,7 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
     hasSetRemoteDescRef.current = false;
     pendingCandidatesRef.current = [];
     readyReceivedRef.current = false;
+    isNegotiatingRef.current = false;
     if (readyRetryIntervalRef.current) {
       clearInterval(readyRetryIntervalRef.current);
       readyRetryIntervalRef.current = null;
@@ -145,10 +151,20 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
     const sendOffer = async () => {
       const pc = pcRef.current;
       if (!pc || cleanedUpRef.current) return;
+      // Guard 1: signalingState must be stable before we can create a new offer.
       if (pc.signalingState !== "stable") {
         console.warn("[WebRTC] SEND_OFFER_SKIPPED: signalingState is", pc.signalingState, "(expected stable)");
         return;
       }
+      // Guard 2: isNegotiatingRef prevents a second concurrent sendOffer() from
+      // slipping past guard 1. createOffer() is async and signalingState stays
+      // "stable" until setLocalDescription() resolves, so a webrtc:ready signal
+      // arriving while createOffer() is in-flight would otherwise pass guard 1.
+      if (isNegotiatingRef.current) {
+        console.warn("[WebRTC] SEND_OFFER_SKIPPED: negotiation already in progress (isNegotiating=true)");
+        return;
+      }
+      isNegotiatingRef.current = true;
       try {
         console.log("[WebRTC] SEND_OFFER_START: calling createOffer, signalingState:", pc.signalingState);
         hasSetRemoteDescRef.current = false;
@@ -163,6 +179,8 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
       } catch (e: any) {
         console.error("[WebRTC] FAILURE_TRIGGER: send_offer_exception —", e?.name ?? "", e?.message ?? e);
         setConnectionState("failed");
+      } finally {
+        isNegotiatingRef.current = false;
       }
     };
 
@@ -187,6 +205,17 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
           console.log("[WebRTC] Remote peer ready, isCaller:", isCaller, "pcExists:", !!pcRef.current);
           readyReceivedRef.current = true;
           if (isCaller && pcRef.current) {
+            // Skip if ICE is already connected — a duplicate webrtc:ready from the
+            // receiver's 2-second retry interval must not trigger a second offer
+            // after the first offer/answer cycle already completed successfully.
+            const iceState = pcRef.current.iceConnectionState;
+            if (iceState === "connected" || iceState === "completed") {
+              console.warn("[WebRTC] READY_SIGNAL_IGNORED: ICE already", iceState, "— skipping redundant sendOffer");
+              return;
+            }
+            // sendOffer() itself is guarded by isNegotiatingRef, but log here
+            // so it's visible when the signal arrives mid-negotiation too.
+            console.log("[WebRTC] READY_SIGNAL_SENDOFFER: iceState=", iceState, "triggering sendOffer from webrtc:ready");
             await sendOffer();
           }
           return;

@@ -522,19 +522,21 @@ export function ActiveCallOverlay({
         <div
           style={{
             position: "fixed",
-            bottom: 0,
+            top: 0,
             left: 0,
             width: "100%",
-            maxHeight: "200px",
+            maxHeight: "35vh",
             overflowY: "auto",
-            background: "black",
+            background: "rgba(0,0,0,0.82)",
             color: "#00ff00",
             fontSize: "11px",
             fontFamily: "monospace",
-            zIndex: 9999,
+            zIndex: 9000,
             padding: "4px 6px",
             boxSizing: "border-box",
             lineHeight: "1.4",
+            // Never intercept pointer events — call controls must remain tappable.
+            pointerEvents: "none",
           }}
           data-testid="webrtc-debug-panel"
         >
