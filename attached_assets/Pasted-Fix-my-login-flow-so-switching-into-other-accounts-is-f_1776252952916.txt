@@ -1,0 +1,57 @@
+Fix my login flow so switching into other accounts is fast and reliable.
+
+Current problem:
+- Logging into other accounts is very slow
+- Sometimes login does not complete properly
+- Users may enter credentials, wait a long time, and still not get fully logged in
+
+Tasks:
+
+1. Find the exact login/authentication flow used when a user signs in or switches accounts.
+
+2. Identify what is causing slow or unreliable login.
+Check for:
+- duplicate auth/session requests
+- repeated profile fetches
+- blocking startup logic after login
+- waiting on profile creation/loading too long
+- auth state listeners firing multiple times
+- redirect loops
+- stale session state
+- race conditions between login, session restore, and profile fetch
+- realtime subscriptions starting too early and blocking login
+- unnecessary retries or timeouts
+
+3. Make login feel fast and reliable:
+- sign-in should complete immediately after auth succeeds
+- do not block the app unnecessarily on slow profile loading
+- if profile data is needed, load it safely after login without hanging the whole app
+- if profile row is missing, create it safely without trapping the user in loading
+
+4. Ensure switching between accounts works correctly:
+- clear stale state from the previous account
+- do not reuse the wrong cached profile/session
+- make sure the newly logged-in user’s data is loaded correctly
+
+5. Add precise logs for:
+- login start
+- auth success
+- session received
+- profile fetch start
+- profile fetch success/failure
+- profile creation if needed
+- final login complete
+- exact failure reason if login does not complete
+
+6. If there is a loading spinner or gate, make sure it always exits cleanly on success or failure.
+Do not allow infinite loading.
+
+7. Do not refactor unrelated code.
+Do not change unrelated messaging/call logic.
+Only fix login speed and reliability.
+
+8. After making changes, explain:
+- the exact cause of the slow login
+- the exact cause of failed login completion
+- what files/lines were changed
+- how login and account switching now work more reliably

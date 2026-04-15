@@ -360,8 +360,11 @@ function AppContent() {
     queryKey: ["profile-exists-check"],
     queryFn: () => {
       if (!user) return Promise.resolve({ exists: false, fetchFailed: false });
-      console.log("[ROUTING] Checking profile existence (dedicated key)");
-      return checkProfileExists();
+      console.log("[AUTH] PROFILE_FETCH_START", { userId: user.id });
+      return checkProfileExists().then(result => {
+        console.log("[AUTH] PROFILE_FETCH_SUCCESS", { userId: user.id, profileExists: result.exists });
+        return result;
+      });
     },
     enabled: !!user && profileReady,
     // 5 retries at 5 s each (25 s total) covers the typical Supabase cold-start
@@ -431,11 +434,21 @@ function AppContent() {
   }
 
   if (!profileExists) {
-    console.log("[ROUTING] Rendering Onboarding — profileExists=false, fetchFailed=", fetchFailed, "profileLoading=", profileLoading);
+    console.log("[AUTH] LOGIN_COMPLETE", {
+      userId: user?.id,
+      outcome: "onboarding",
+      profileExists: false,
+      fetchFailed,
+      profileLoading,
+    });
     return <Onboarding existingProfile={null} userEmail={user?.email ?? ""} />;
   }
 
-  console.log("[ROUTING] Rendering app tabs — profile confirmed to exist");
+  console.log("[AUTH] LOGIN_COMPLETE", {
+    userId: user?.id,
+    outcome: "app",
+    profileExists: true,
+  });
 
   return (
     <Switch>
