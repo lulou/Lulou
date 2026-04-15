@@ -176,28 +176,49 @@ export function ActiveCallOverlay({
     return () => clearTimeout(t);
   }, [isFailed, webrtcEnabled, matchId, callSessionId]);
 
-  // Attach remote stream to audio element (voice calls) and video element
+  // Attach remote stream to audio element (voice calls) and video element.
+  // Guard: only reassign srcObject when the track set actually changes so the
+  // audio element is not interrupted mid-playback every time ontrack fires and
+  // creates a new MediaStream wrapper around the same underlying tracks.
   useEffect(() => {
     if (!remoteStream) return;
+
     if (remoteAudioRef.current) {
-      remoteAudioRef.current.srcObject = remoteStream;
-      console.log("[WebRTC] REMOTE_AUDIO_ATTACHED", {
-        matchId,
-        audioTracks: remoteStream.getAudioTracks().length,
-        videoTracks: remoteStream.getVideoTracks().length,
-      });
+      const el = remoteAudioRef.current;
+      const existing = el.srcObject as MediaStream | null;
+      const existingIds = existing?.getTracks().map(t => t.id).sort().join(",") ?? "";
+      const incomingIds = remoteStream.getTracks().map(t => t.id).sort().join(",");
+      if (existingIds !== incomingIds) {
+        el.srcObject = remoteStream;
+        console.log("[WebRTC] REMOTE_AUDIO_ATTACHED", {
+          matchId,
+          audioTracks: remoteStream.getAudioTracks().length,
+          videoTracks: remoteStream.getVideoTracks().length,
+          trackIds: incomingIds,
+        });
+      } else {
+        console.log("[WebRTC] REMOTE_AUDIO_SKIP: track set unchanged, not re-attaching");
+      }
     }
+
     if (isVideo && remoteVideoRef.current) {
       remoteVideoRef.current.srcObject = remoteStream;
       console.log("[WebRTC] REMOTE_VIDEO_ATTACHED", { matchId });
     }
   }, [remoteStream, isVideo, matchId]);
 
-  // Attach local stream to local video (mirrored preview for video calls)
+  // Attach local stream to local video (mirrored preview for video calls).
+  // Local stream is NEVER attached to an audio element — only to the muted
+  // video pip — so there is no local mic playback / self-monitoring path.
   useEffect(() => {
     if (!localStream || !isVideo || !localVideoRef.current) return;
     localVideoRef.current.srcObject = localStream;
-  }, [localStream, isVideo]);
+    console.log("[WebRTC] LOCAL_VIDEO_ATTACHED", {
+      matchId,
+      audioTracks: localStream.getAudioTracks().length,
+      videoTracks: localStream.getVideoTracks().length,
+    });
+  }, [localStream, isVideo, matchId]);
 
   // Poll window.webrtcLogs every 500ms and show last 20 lines in the debug panel.
   // Only update state when the log count changes to avoid constant re-renders.

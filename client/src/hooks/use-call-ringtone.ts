@@ -16,6 +16,8 @@ export function useCallRingtone(type: RingtoneType, enabled: boolean) {
   const stateRef = useRef<{
     ctx: AudioContext;
     timers: ReturnType<typeof setTimeout>[];
+    // Live oscillators and their gain nodes so we can stop them immediately.
+    activeNodes: { osc: OscillatorNode; gain: GainNode }[];
     dead: boolean;
   } | null>(null);
 
@@ -29,7 +31,14 @@ export function useCallRingtone(type: RingtoneType, enabled: boolean) {
       return;
     }
 
-    const state = { ctx, timers: [] as ReturnType<typeof setTimeout>[], dead: false };
+    console.log("[RINGTONE] START type=", type);
+
+    const state = {
+      ctx,
+      timers: [] as ReturnType<typeof setTimeout>[],
+      activeNodes: [] as { osc: OscillatorNode; gain: GainNode }[],
+      dead: false,
+    };
     stateRef.current = state;
 
     const addTimer = (fn: () => void, ms: number) => {
@@ -42,13 +51,27 @@ export function useCallRingtone(type: RingtoneType, enabled: boolean) {
       state.dead = true;
       state.timers.forEach(clearTimeout);
       state.timers.length = 0;
+      // Stop every live oscillator immediately so the tone cuts off right away.
+      // Without this, oscillators already started play until their scheduled
+      // .stop() fires (up to 2 s later) — the mic picks up these residual tones
+      // and transmits them to the remote peer as "beeping".
+      for (const { osc, gain } of state.activeNodes) {
+        try {
+          gain.gain.cancelScheduledValues(ctx.currentTime);
+          gain.gain.setValueAtTime(0, ctx.currentTime);
+          osc.stop(ctx.currentTime);
+        } catch {}
+      }
+      state.activeNodes.length = 0;
       state.ctx.close().catch(() => {});
       stateRef.current = null;
+      console.log("[RINGTONE] STOP type=", type);
     };
 
     /**
      * Play a single burst of two blended sine waves (440 Hz + 480 Hz).
      * Smooth 25 ms fade-in / fade-out prevents clicking artefacts.
+     * Live nodes are tracked so clearAll() can stop them immediately.
      */
     const playBurst = (durationMs: number) => {
       if (state.dead) return;
@@ -71,6 +94,12 @@ export function useCallRingtone(type: RingtoneType, enabled: boolean) {
         osc.connect(gain);
         osc.start(now);
         osc.stop(now + dur);
+        state.activeNodes.push({ osc, gain });
+        // Remove from tracking list once the oscillator ends naturally.
+        osc.onended = () => {
+          const idx = state.activeNodes.findIndex(n => n.osc === osc);
+          if (idx !== -1) state.activeNodes.splice(idx, 1);
+        };
       }
     };
 

@@ -343,10 +343,16 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
         }
       });
 
-      // Use minimal constraints — strict resolution values can throw
-      // OverconstrainedError on Safari/iOS and some Android devices.
+      // Explicit echo / noise / gain constraints are required for WebRTC voice
+      // calls. Without them the browser uses OS defaults, which may omit echo
+      // cancellation — the speaker output then bleeds into the mic and is
+      // transmitted to the remote peer, causing the audible echo / feedback.
       const mediaConstraints: MediaStreamConstraints = {
-        audio: true,
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
         video: isVideo ? { facingMode: "user" } : false,
       };
       console.log("[WebRTC] MEDIA_ACQUIRE_START: calling getUserMedia with constraints:", JSON.stringify(mediaConstraints));
