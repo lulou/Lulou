@@ -180,6 +180,8 @@ export function ActiveCallOverlay({
   // Guard: only reassign srcObject when the track set actually changes so the
   // audio element is not interrupted mid-playback every time ontrack fires and
   // creates a new MediaStream wrapper around the same underlying tracks.
+  // isConnected is in deps so this re-runs when the remote video element mounts
+  // (it is conditionally rendered only after isConnected becomes true).
   useEffect(() => {
     if (!remoteStream) return;
 
@@ -203,22 +205,35 @@ export function ActiveCallOverlay({
 
     if (isVideo && remoteVideoRef.current) {
       remoteVideoRef.current.srcObject = remoteStream;
-      console.log("[WebRTC] REMOTE_VIDEO_ATTACHED", { matchId });
+      console.log("[WebRTC] REMOTE_MAIN_VIDEO_ATTACHED", {
+        matchId,
+        audioTracks: remoteStream.getAudioTracks().length,
+        videoTracks: remoteStream.getVideoTracks().length,
+      });
+    } else if (isVideo) {
+      // Element not mounted yet — will be re-triggered when isConnected becomes true
+      console.log("[WebRTC] REMOTE_MAIN_VIDEO_PENDING: element not yet mounted", { matchId, isConnected });
     }
-  }, [remoteStream, isVideo, matchId]);
+  }, [remoteStream, isVideo, matchId, isConnected]);
 
-  // Attach local stream to local video (mirrored preview for video calls).
+  // Attach local stream to local video (mirrored self-view pip for video calls).
   // Local stream is NEVER attached to an audio element — only to the muted
   // video pip — so there is no local mic playback / self-monitoring path.
+  // isConnected is in deps because the local video element is conditionally rendered
+  // only when isConnected is true. Without it, this effect fires when localStream
+  // first becomes available but the element doesn't exist yet (localVideoRef.current
+  // is null), and never re-fires when the element eventually mounts — causing the
+  // self-view to stay blank on mobile where renders are strictly sequential.
   useEffect(() => {
     if (!localStream || !isVideo || !localVideoRef.current) return;
     localVideoRef.current.srcObject = localStream;
-    console.log("[WebRTC] LOCAL_VIDEO_ATTACHED", {
+    console.log("[WebRTC] LOCAL_SELF_VIEW_ATTACHED", {
       matchId,
       audioTracks: localStream.getAudioTracks().length,
       videoTracks: localStream.getVideoTracks().length,
+      isConnected,
     });
-  }, [localStream, isVideo, matchId]);
+  }, [localStream, isVideo, matchId, isConnected]);
 
   // Poll window.webrtcLogs every 500ms and show last 20 lines in the debug panel.
   // Only update state when the log count changes to avoid constant re-renders.
