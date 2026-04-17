@@ -92,15 +92,26 @@ function DebugOverlay() {
           </div>
 
           {/* Auth-flow trace column */}
-          <div style={{ minWidth: 200 }}>
+          <div style={{ minWidth: 220 }}>
             <div style={{ color: "#94a3b8", marginBottom: 4 }}>AUTH FLOW</div>
-            {row("loginStarted", s.loginStarted)}
+            {row("submittedIdentifier", s.submittedIdentifier ?? "null")}
+            {row("submittedPasswordPresent", s.submittedPasswordPresent)}
+            {row("signInStarted", s.signInStarted)}
             {row("signInReturnedUser", s.signInReturnedUser)}
             {row("signInReturnedSession", s.signInReturnedSession)}
-            <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-              <span style={{ color: "#94a3b8", minWidth: 140 }}>exactAuthError</span>
-              <span style={{ color: s.exactAuthError ? "#f87171" : "#475569", wordBreak: "break-all" }}>
-                {s.exactAuthError ?? "null"}
+            <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 2 }}>
+              <span style={{ color: "#94a3b8", minWidth: 140 }}>signInErrorMessage</span>
+              <span style={{ color: s.signInErrorMessage ? "#f87171" : "#475569", wordBreak: "break-all" }}>
+                {s.signInErrorMessage ?? "null"}
+              </span>
+            </div>
+            {row("signInErrorStatus", s.signInErrorStatus ?? "null")}
+            {row("signInErrorName", s.signInErrorName ?? "null")}
+            {row("signInErrorCode", s.signInErrorCode ?? "null")}
+            <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 2 }}>
+              <span style={{ color: "#94a3b8", minWidth: 140 }}>exactAuthPayload</span>
+              <span style={{ color: "#e2e8f0", wordBreak: "break-all", fontSize: 9 }}>
+                {s.exactAuthPayloadUsed ?? "null"}
               </span>
             </div>
             {row("authEvent", s.authEvent ?? "null")}

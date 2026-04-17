@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Heart, MessageCircle, Phone, Shield, RefreshCw, Loader2, Lock, Eye, EyeOff, AlertCircle, WifiOff, CheckCircle } from "lucide-react";
+import { Heart, MessageCircle, Phone, Shield, RefreshCw, Loader2, Lock, Eye, EyeOff, AlertCircle, WifiOff, CheckCircle, ChevronDown, ChevronUp } from "lucide-react";
 import { LulouFlowerIcon } from "@/components/app-layout";
 import { supabase } from "@/lib/supabase";
 import { useToast } from "@/hooks/use-toast";
@@ -77,6 +77,15 @@ function classifyAuthError(err: any, mode: AuthMode): AuthError {
   return { kind: "auth", message: msg };
 }
 
+// Raw error detail captured directly from the Supabase error/exception object.
+// Shown verbatim in the UI so the user can see exactly what came back.
+interface RawAuthError {
+  message: string;
+  status: string;
+  name: string;
+  code: string;
+}
+
 export default function Landing() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -84,6 +93,8 @@ export default function Landing() {
   const [loading, setLoading] = useState(false);
   const [mode, setMode] = useState<AuthMode>("signin");
   const [authError, setAuthError] = useState<AuthError | null>(null);
+  const [rawAuthError, setRawAuthError] = useState<RawAuthError | null>(null);
+  const [showRawError, setShowRawError] = useState(false);
   const [resetLoading, setResetLoading] = useState(false);
   const [resetSent, setResetSent] = useState(false);
   const { toast } = useToast();
@@ -94,11 +105,14 @@ export default function Landing() {
     setMode("signin");
     setShowPassword(false);
     setAuthError(null);
+    setRawAuthError(null);
+    setShowRawError(false);
     setResetSent(false);
   }
 
   function clearError() {
     if (authError) setAuthError(null);
+    if (rawAuthError) setRawAuthError(null);
     setResetSent(false);
   }
 
@@ -132,8 +146,10 @@ export default function Landing() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
 
+    const trimmedEmail = email.trim();
+
     // Show explicit errors for empty fields rather than silently blocking.
-    if (!email.trim()) {
+    if (!trimmedEmail) {
       console.warn("[AUTH] SUBMIT_BLOCKED: email empty");
       setAuthError({ kind: "auth", message: "Please enter your email address." });
       return;
@@ -145,32 +161,56 @@ export default function Landing() {
     }
 
     setAuthError(null);
+    setRawAuthError(null);
+    setShowRawError(false);
     setResetSent(false);
     setLoading(true);
-    console.log("[AUTH] AUTH_REQUEST_STARTED", { mode, email: email.trim() });
-    // Reset auth-flow debug fields so the overlay always shows the current attempt.
+
+    // ── Write pre-call debug state ──────────────────────────────────────────
+    const payloadDesc = `email="${trimmedEmail}" password=${password ? "present(" + password.length + "chars)" : "EMPTY"}`;
+    console.log("[AUTH] AUTH_REQUEST_STARTED", { mode, email: trimmedEmail, payloadDesc });
     writeDebug({
       loginStarted: true,
+      signInStarted: true,
+      submittedIdentifier: trimmedEmail,
+      submittedPasswordPresent: !!password,
+      exactAuthPayloadUsed: payloadDesc,
       signInReturnedUser: false,
       signInReturnedSession: false,
+      signInErrorMessage: null,
+      signInErrorStatus: null,
+      signInErrorName: null,
+      signInErrorCode: null,
       exactAuthError: null,
     });
 
     try {
       if (mode === "signup") {
         const { data, error } = await supabase.auth.signUp({
-          email: email.trim(),
+          email: trimmedEmail,
           password,
         });
         setLoading(false);
         if (error) {
-          console.error("[AUTH] AUTH_REQUEST_FAILED", { mode, errorMessage: error.message, errorStatus: error.status });
-          const errMsg = `signup: ${error.message} (status=${error.status ?? "?"})`;
-          writeDebug({ exactAuthError: errMsg });
+          const raw: RawAuthError = {
+            message: error.message ?? "(none)",
+            status:  String(error.status ?? "?"),
+            name:    (error as any).name ?? "(none)",
+            code:    (error as any).code ?? "(none)",
+          };
+          const errMsg = `signup: ${raw.message} (status=${raw.status} code=${raw.code})`;
+          console.error("[AUTH] AUTH_REQUEST_FAILED", { mode, ...raw });
+          writeDebug({
+            signInErrorMessage: raw.message,
+            signInErrorStatus:  raw.status,
+            signInErrorName:    raw.name,
+            signInErrorCode:    raw.code,
+            exactAuthError: errMsg,
+          });
           pushDebugError(errMsg);
+          setRawAuthError(raw);
           const classified = classifyAuthError(error, mode);
           if (classified.kind === "already-exists") {
-            // Auto-switch to sign-in so the user can log in immediately
             setMode("signin");
             setPassword("");
           }
@@ -186,15 +226,30 @@ export default function Landing() {
         toast({ title: "Account created", description: "You're now signed in." });
       } else {
         const { data, error } = await supabase.auth.signInWithPassword({
-          email: email.trim(),
+          email: trimmedEmail,
           password,
         });
         setLoading(false);
         if (error) {
-          console.error("[AUTH] AUTH_REQUEST_FAILED", { mode, errorMessage: error.message, errorStatus: error.status });
-          const errMsg = `signIn: ${error.message} (status=${error.status ?? "?"})`;
-          writeDebug({ exactAuthError: errMsg });
+          const raw: RawAuthError = {
+            message: error.message ?? "(none)",
+            status:  String(error.status ?? "?"),
+            name:    (error as any).name ?? "(none)",
+            code:    (error as any).code ?? "(none)",
+          };
+          const errMsg = `signIn: ${raw.message} (status=${raw.status} code=${raw.code})`;
+          console.error("[AUTH] AUTH_REQUEST_FAILED", { mode, ...raw });
+          writeDebug({
+            signInReturnedUser: false,
+            signInReturnedSession: false,
+            signInErrorMessage: raw.message,
+            signInErrorStatus:  raw.status,
+            signInErrorName:    raw.name,
+            signInErrorCode:    raw.code,
+            exactAuthError: errMsg,
+          });
           pushDebugError(errMsg);
+          setRawAuthError(raw);
           setAuthError(classifyAuthError(error, mode));
           return;
         }
@@ -202,16 +257,32 @@ export default function Landing() {
           signInReturnedUser: !!data.user,
           signInReturnedSession: !!data.session,
           exactAuthError: null,
+          signInErrorMessage: null,
+          signInErrorStatus: null,
+          signInErrorName: null,
+          signInErrorCode: null,
         });
         console.log("[AUTH] AUTH_REQUEST_SUCCESS", { mode, userId: data.user?.id });
       }
     } catch (err: any) {
       setLoading(false);
-      const msg = err?.message || "Unknown error";
-      console.error("[AUTH] AUTH_ERROR_MESSAGE", { mode, error: msg, stack: err?.stack });
-      const errMsg = `throw: ${msg}`;
-      writeDebug({ exactAuthError: errMsg });
+      const raw: RawAuthError = {
+        message: err?.message ?? "(none)",
+        status:  String(err?.status ?? "?"),
+        name:    err?.name ?? "(none)",
+        code:    err?.code ?? "(none)",
+      };
+      const errMsg = `throw: ${raw.message} (status=${raw.status} name=${raw.name})`;
+      console.error("[AUTH] AUTH_ERROR_MESSAGE", { mode, ...raw, stack: err?.stack });
+      writeDebug({
+        signInErrorMessage: raw.message,
+        signInErrorStatus:  raw.status,
+        signInErrorName:    raw.name,
+        signInErrorCode:    raw.code,
+        exactAuthError: errMsg,
+      });
       pushDebugError(errMsg);
+      setRawAuthError(raw);
       setAuthError(classifyAuthError(err, mode));
     }
   }
@@ -343,10 +414,36 @@ export default function Landing() {
                           ? "Sign up failed"
                           : "Sign in failed"}
                       </p>
-                      {/* Raw error message — always visible at readable size */}
+                      {/* Classified message */}
                       <p className="text-sm leading-snug break-words" data-testid="text-auth-error-detail">
                         {authError.message}
                       </p>
+                      {/* Raw error details — always expanded, so the exact Supabase
+                          error is visible on screen without opening the debug panel */}
+                      {rawAuthError && (
+                        <div className="mt-1.5">
+                          <button
+                            type="button"
+                            onClick={() => setShowRawError(v => !v)}
+                            className="flex items-center gap-1 text-xs font-medium opacity-70 hover:opacity-100"
+                            data-testid="button-toggle-raw-error"
+                          >
+                            {showRawError ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                            {showRawError ? "Hide" : "Show"} exact error
+                          </button>
+                          {showRawError && (
+                            <pre
+                              className="mt-1 text-[10px] leading-relaxed font-mono opacity-80 whitespace-pre-wrap break-all bg-black/10 rounded px-2 py-1.5"
+                              data-testid="text-raw-auth-error"
+                            >
+{`message: ${rawAuthError.message}
+status:  ${rawAuthError.status}
+name:    ${rawAuthError.name}
+code:    ${rawAuthError.code}`}
+                            </pre>
+                          )}
+                        </div>
+                      )}
                       {/* Action links */}
                       {authError.kind === "already-exists" && (
                         <button

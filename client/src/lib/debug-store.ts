@@ -18,9 +18,17 @@ export interface DebugSnapshot {
   finalGateDecision: string;
   phase: string;
   // Auth-flow trace (written by landing.tsx + use-auth.ts)
+  submittedIdentifier: string | null;
+  submittedPasswordPresent: boolean;
+  signInStarted: boolean;
   loginStarted: boolean;
   signInReturnedUser: boolean;
   signInReturnedSession: boolean;
+  signInErrorMessage: string | null;
+  signInErrorStatus: string | null;
+  signInErrorName: string | null;
+  signInErrorCode: string | null;
+  exactAuthPayloadUsed: string | null;
   exactAuthError: string | null;
   authEvent: string | null;
   currentSessionUserId: string | null;
@@ -34,7 +42,12 @@ export const _dbg: DebugSnapshot = {
   fetchFailed: false, spinnerTimedOut: false, forceProceed: false,
   onboardingComplete: false, route: "/", finalGateDecision: "init",
   phase: "init",
-  loginStarted: false, signInReturnedUser: false, signInReturnedSession: false,
+  submittedIdentifier: null, submittedPasswordPresent: false,
+  signInStarted: false, loginStarted: false,
+  signInReturnedUser: false, signInReturnedSession: false,
+  signInErrorMessage: null, signInErrorStatus: null,
+  signInErrorName: null, signInErrorCode: null,
+  exactAuthPayloadUsed: null,
   exactAuthError: null, authEvent: null, currentSessionUserId: null,
   errors: [],
 };
