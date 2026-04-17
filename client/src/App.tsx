@@ -366,7 +366,12 @@ function AppContent() {
   // setTimeout in use-auth.ts).  Without this guard the fetch starts, clear()
   // destroys it mid-flight, and isLoading resets to true — causing the spinner
   // to restart from zero every time the user logs in.
-  const { data, isLoading: profileLoading, isError: profileError } = useQuery<ProfileCheckResult>({
+  // isPending is true whenever the query has no data yet — including the brief
+  // window between the query being enabled and the fetch actually starting.
+  // isLoading (isPending && isFetching) would be false on that first render
+  // because isFetching hasn't flipped to true yet, causing the app to fall
+  // through to `if (!profileExists)` and briefly flash the Onboarding screen.
+  const { data, isPending: profilePending, isError: profileError } = useQuery<ProfileCheckResult>({
     queryKey: ["profile-exists-check"],
     queryFn: () => {
       if (!user) return Promise.resolve({ exists: false, fetchFailed: false });
@@ -378,8 +383,7 @@ function AppContent() {
     },
     enabled: !!user && profileReady && !clearingCache,
     // 3 retries at 4 s each (12 s total) — enough to survive a Supabase
-    // cold-start blip.  The SPINNER_TIMEOUT_MS guard above catches anything
-    // that still takes too long and gives the user a retry button.
+    // cold-start blip.
     retry: 3,
     retryDelay: 4000,
   });
@@ -390,11 +394,15 @@ function AppContent() {
 
   // ── Spinner timeout safeguard ────────────────────────────────────────────────
   // If the spinner has been visible for longer than SPINNER_TIMEOUT_MS, stop it
-  // and show the error/retry screen so the user is never trapped indefinitely.
+  // and show an error/retry screen so the user is never trapped indefinitely.
+  // This covers the case where the fetch hangs without timing out (e.g. a long
+  // network stall that doesn't trigger a TCP reset within the retry window).
   const [spinnerTimedOut, setSpinnerTimedOut] = useState(false);
   const spinnerStartRef = useRef<number | null>(null);
 
-  const isSpinning = !authLoading && !!user && (clearingCache || profileLoading || !profileReady);
+  // profilePending = query has no data yet (covers the gap between "enabled"
+  // and "fetch started" that caused isLoading to briefly be false).
+  const isSpinning = !authLoading && !!user && (clearingCache || profilePending || !profileReady);
 
   useEffect(() => {
     if (!isSpinning) {
@@ -403,7 +411,7 @@ function AppContent() {
           userId: user?.id,
           elapsedMs: Date.now() - spinnerStartRef.current,
           clearingCache,
-          profileLoading,
+          profilePending,
           profileReady,
         });
       }
@@ -418,7 +426,7 @@ function AppContent() {
       console.log("[SETUP] SPINNER_START", {
         userId: user?.id,
         clearingCache,
-        profileLoading,
+        profilePending,
         profileReady,
       });
     }
@@ -435,7 +443,7 @@ function AppContent() {
         elapsedMs: elapsed,
         reason,
         clearingCache,
-        profileLoading,
+        profilePending,
         profileReady,
       });
       setSpinnerTimedOut(true);
@@ -445,20 +453,19 @@ function AppContent() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isSpinning]);
 
-  // ── Auto-retry after fetch failure ───────────────────────────────────────────
-  // When all retries are exhausted the "Try Again" screen is shown.  After 10 s
-  // we reset the query so it retries automatically (covers the Supabase startup
-  // window).  The spinnerTimedOut guard prevents re-running the cycle forever:
-  // once the timeout has fired we stop auto-retrying and let the user decide.
+  // ── Fetch failure log ────────────────────────────────────────────────────────
+  // Log when all TanStack Query retries are exhausted.  No auto-retry loop here
+  // because it creates an infinite spinner cycle: after 12 s of retries the
+  // spinner stops (isError=true → isPending=false), which cancels the 15 s
+  // timeout timer before it can set spinnerTimedOut=true, so the circuit
+  // breaker never engages and the loop repeats forever.
+  // The "Try Again" button on the error screen lets the user retry manually.
   useEffect(() => {
-    if (!fetchFailed || spinnerTimedOut) return;
-    console.log("[SETUP] FETCH_FAILED: scheduling auto-retry in 10 s");
-    const timer = setTimeout(() => {
-      console.log("[SETUP] AUTO_RETRY: resetting profile-exists-check query");
-      queryClient.resetQueries({ queryKey: ["profile-exists-check"] });
-    }, 10_000);
-    return () => clearTimeout(timer);
-  }, [fetchFailed, spinnerTimedOut]);
+    if (!fetchFailed) return;
+    console.error("[SETUP] FETCH_FAILED: all retries exhausted — showing error screen", {
+      userId: user?.id,
+    });
+  }, [fetchFailed, user?.id]);
 
   if (authLoading) {
     return (
