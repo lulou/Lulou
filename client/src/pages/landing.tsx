@@ -336,6 +336,22 @@ export default function Landing() {
           writeDebug({ submitHandlerReturnedEarly: true });
           return;
         }
+        // ── No-session silent failure (signup) ────────────────────────────────
+        // During an outage Supabase can return no error but also no user/session.
+        // Catch it explicitly so the outage banner fires instead of a silent hang.
+        if (!data.user && !data.session) {
+          const syntheticErr = new Error("Auth service returned no session and no error (signup) — possible outage");
+          (syntheticErr as any).code = "no-session";
+          const raw = makeRaw(syntheticErr, "no-session");
+          recordError(raw, "no-session");
+          setAuthError({
+            kind: "network",
+            message: "Lulou is having trouble reaching the login service right now. Please try again shortly.",
+          });
+          writeDebug({ submitHandlerNoSession: true, noSessionSilentFailure: true });
+          console.error("[AUTH] NO_SESSION_SILENT_FAILURE (signup) — treating as outage");
+          return;
+        }
         writeDebug({ signInReturnedUser: !!data.user, signInReturnedSession: !!data.session });
         console.log("[AUTH] AUTH_REQUEST_SUCCESS", { mode, userId: data.user?.id });
         toast({ title: "Account created", description: "You're now signed in." });
@@ -372,6 +388,26 @@ export default function Landing() {
           recordError(raw, "signIn");
           setAuthError(classifyAuthError(error, mode));
           writeDebug({ submitHandlerReturnedEarly: true });
+          return;
+        }
+
+        // ── No-session silent failure ──────────────────────────────────────────
+        // Supabase can return { data: { user: null, session: null }, error: null }
+        // during an auth-service outage or degraded path. There is no thrown error
+        // and no error object, so the code would fall through and leave the user
+        // on the landing page with nothing visible. Treat this explicitly as a
+        // network/outage failure so the outage banner is shown.
+        if (!data.session && !data.user) {
+          const syntheticErr = new Error("Auth service returned no session and no error — possible outage");
+          (syntheticErr as any).code = "no-session";
+          const raw = makeRaw(syntheticErr, "no-session");
+          recordError(raw, "no-session");
+          setAuthError({
+            kind: "network",
+            message: "Lulou is having trouble reaching the login service right now. Please try again shortly.",
+          });
+          writeDebug({ submitHandlerNoSession: true, noSessionSilentFailure: true });
+          console.error("[AUTH] NO_SESSION_SILENT_FAILURE — treating as outage");
           return;
         }
 
