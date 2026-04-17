@@ -34,7 +34,7 @@ function classifyAuthError(err: any, mode: AuthMode): AuthError {
   if (err?.code === "timeout") {
     return {
       kind: "network",
-      message: "Lulou couldn't reach the login server. This is usually temporary — please try again.",
+      message: "Lulou is having trouble reaching the login service right now. Please try again shortly.",
     };
   }
 
@@ -560,6 +560,45 @@ export default function Landing() {
                 </div>
               </div>
 
+              {/* ── Outage banner ────────────────────────────────────────────────────
+                  Shown when the auth service is unreachable (timeout or no
+                  network). This sits ABOVE the inputs so it is the first thing
+                  the user sees — it is clearly not a credentials problem.
+                  The inputs remain enabled so the user can retry immediately. */}
+              {authError?.kind === "network" && (
+                <div
+                  role="alert"
+                  data-testid="banner-auth-outage"
+                  className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 flex flex-col gap-2 animate-in fade-in slide-in-from-top-1 duration-200"
+                >
+                  <div className="flex items-start gap-2">
+                    <WifiOff className="w-4 h-4 mt-0.5 shrink-0 text-amber-700" />
+                    <div className="space-y-1">
+                      <p className="font-semibold text-amber-900 text-sm leading-snug" data-testid="text-outage-heading">
+                        {rawAuthError?.code === "timeout"
+                          ? "Login server didn't respond"
+                          : "Connection problem"}
+                      </p>
+                      <p className="text-sm text-amber-800 leading-snug" data-testid="text-outage-message">
+                        Lulou is having trouble reaching the login service right now. Please try again shortly.
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    data-testid="button-try-login-again-banner"
+                    onClick={() => {
+                      setAuthError(null);
+                      setRawAuthError(null);
+                      formRef.current?.requestSubmit();
+                    }}
+                    className="self-start inline-flex items-center gap-1.5 rounded-md bg-amber-700 hover:bg-amber-800 text-white px-4 py-2 text-xs font-semibold transition-colors"
+                  >
+                    Try Login Again
+                  </button>
+                </div>
+              )}
+
               <div className="space-y-2">
                 <Input
                   ref={emailRef}
@@ -689,7 +728,7 @@ export default function Landing() {
                           }}
                           className="mt-1 inline-flex items-center gap-1.5 rounded-md bg-amber-800/20 hover:bg-amber-800/30 px-3 py-1.5 text-xs font-semibold text-amber-900 transition-colors"
                         >
-                          Try Again
+                          Try Login Again
                         </button>
                       )}
                       {/* Raw error details — collapsible, keeps exact Supabase
