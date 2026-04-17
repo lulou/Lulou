@@ -1,0 +1,72 @@
+The bypass fix still does not let users into the app. Find and fix the exact remaining gate now.
+
+Current problem:
+- Auth/session may succeed
+- Continue to App or bypass still does nothing
+- Users still cannot enter the app
+- There is still a hidden blocker after login/profile load failure
+
+Tasks:
+
+1. Find the FINAL gate that still blocks app entry even when:
+- auth is ok
+- forceProceed is true
+- profile fetch failed or timed out
+
+2. Search App.tsx and related auth/profile gating code for every condition that can still prevent rendering the main app:
+- profileExists
+- effectiveProfileExists
+- fetchFailed
+- spinnerTimedOut
+- isSpinning
+- onboardingComplete
+- setup required
+- protected route guard
+- redirect effect
+- null user/session race
+- loading booleans still true
+
+3. Add one visible on-screen debug line on the blocked screen showing these exact values:
+- user id
+- auth ready
+- session exists
+- profileExists
+- effectiveProfileExists
+- fetchFailed
+- spinnerTimedOut
+- forceProceed
+- onboardingComplete
+- finalGateDecision
+
+4. Find the exact place where the app decides:
+- render loading/setup/error screen
+OR
+- render main app
+
+5. Fix it so that when:
+- auth is valid
+- forceProceed is true
+the main app always renders, even if profile fetch failed.
+
+6. Make sure no later redirect/useEffect immediately sends the user back to setup/loading after bypass.
+
+7. If a protected route or onboarding guard still uses old profileExists logic, update it to use the bypass-safe logic.
+
+8. Add one log immediately before the final render decision:
+FINAL_APP_GATE: <reason>
+
+Examples:
+- FINAL_APP_GATE: render_main_app
+- FINAL_APP_GATE: blocked_by_onboarding_guard
+- FINAL_APP_GATE: blocked_by_loading_state
+- FINAL_APP_GATE: blocked_by_profile_gate
+
+9. Do not refactor unrelated code.
+Do not change messaging/call logic.
+Only fix the final app-entry blocker.
+
+10. After fixing, explain:
+- the exact file and line of the final blocker
+- what condition was still blocking entry
+- what exact code you changed
+- why Continue to App was still doing nothing

@@ -489,37 +489,74 @@ function AppContent() {
   }
 
   if (!user) {
+    console.log("[SETUP] FINAL_APP_GATE: no_user — showing landing");
     return <Landing />;
   }
 
-  // Show spinner while cache is clearing, profile ready flag is not set, or
-  // the profile-exists-check fetch is in progress.
-  // ── Status snapshot used by all blocked screens ──────────────────────────────
-  const phaseLabel = forceProceed
-    ? "bypassed — entering app"
-    : clearingCache
+  // ── EARLY BYPASS EXIT ─────────────────────────────────────────────────────
+  // forceProceed=true means the user explicitly tapped "Continue to App" on a
+  // blocked screen.  This guard is placed BEFORE every other intermediate gate
+  // (spinner, fetchFailed, onboarding) so that no TanStack Query state flip,
+  // retry cycle, or effect batching can prevent the main app from rendering.
+  // Auth is already confirmed above (user is non-null, authLoading=false).
+  if (forceProceed) {
+    console.warn("[SETUP] FINAL_APP_GATE: render_main_app (force_proceed_early_exit)", {
+      userId: user.id,
+      profileExists,
+      fetchFailed,
+      isSpinning,
+      spinnerTimedOut,
+      profilePending,
+      clearingCache,
+      profileReady,
+    });
+    return (
+      <Switch>
+        <Route path="/elevate/success" component={ElevateSuccessPage} />
+        <Route path="/extras/success" component={ExtrasSuccessPage} />
+        <Route>
+          <AppLayout>
+            <PersistentTabs />
+            <CallDetectors userId={user.id} />
+          </AppLayout>
+        </Route>
+      </Switch>
+    );
+  }
+
+  // ── Status snapshot used by all blocked screens ───────────────────────────
+  // forceProceed is always false here (handled above). Shows every gating value
+  // so blocked-screen debug panel is self-contained.
+  const phaseLabel = clearingCache
     ? "switching accounts…"
     : !profileReady
     ? "verifying session…"
     : profilePending
     ? "loading profile…"
     : profileError
-    ? `profile error (${(profileFetchError as Error | null)?.message ?? "unknown"})`
+    ? `error: ${(profileFetchError as Error | null)?.message ?? "unknown"}`
     : "ready";
 
   const statusPanel = (
     <div className="w-full max-w-xs text-left bg-muted/40 border border-muted rounded-md p-3 space-y-1 text-xs text-muted-foreground font-mono mt-2">
-      <p data-testid="debug-user">user: {user?.id ? `${user.id.slice(0, 8)}…` : "none"}</p>
-      <p data-testid="debug-auth">auth: {authLoading ? "loading" : user ? "ok" : "signed out"}</p>
-      <p data-testid="debug-cache">cache: {clearingCache ? "clearing" : "ok"}</p>
-      <p data-testid="debug-profile">profile: {phaseLabel}</p>
-      <p data-testid="debug-bypass">bypass: {forceProceed ? "active — entering app without profile" : "off"}</p>
+      <p data-testid="debug-user">user: {user.id.slice(0, 8)}…</p>
+      <p data-testid="debug-auth">auth-ready: {authLoading ? "no" : "yes"}</p>
+      <p data-testid="debug-session">session: {user ? "yes" : "no"}</p>
+      <p data-testid="debug-profile-exists">profileExists: {String(profileExists)}</p>
+      <p data-testid="debug-effective">effectiveProfileExists: {String(effectiveProfileExists)}</p>
+      <p data-testid="debug-fetch-failed">fetchFailed: {String(fetchFailed)}</p>
+      <p data-testid="debug-spinner-timed-out">spinnerTimedOut: {String(spinnerTimedOut)}</p>
+      <p data-testid="debug-force-proceed">forceProceed: {String(forceProceed)}</p>
+      <p data-testid="debug-phase">phase: {phaseLabel}</p>
     </div>
   );
 
   if (isSpinning) {
     if (spinnerTimedOut) {
       // The spinner ran past SPINNER_TIMEOUT_MS — abort and show retry screen.
+      console.warn("[SETUP] FINAL_APP_GATE: blocked_by_loading_state (spinner_timeout)", {
+        userId: user.id, clearingCache, profilePending, profileReady, spinnerTimedOut,
+      });
       return (
         <div className="min-h-screen flex items-center justify-center bg-background">
           <div className="flex flex-col items-center gap-4 text-center px-6 max-w-sm w-full">
@@ -565,6 +602,9 @@ function AppContent() {
       : !profileReady
       ? "Verifying session…"
       : "Loading your profile…";
+    console.log("[SETUP] FINAL_APP_GATE: blocked_by_loading_state (spinner_running)", {
+      userId: user.id, clearingCache, profilePending, profileReady,
+    });
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-3">
@@ -576,6 +616,9 @@ function AppContent() {
   }
 
   if (fetchFailed && !effectiveProfileExists) {
+    console.warn("[SETUP] FINAL_APP_GATE: blocked_by_profile_gate", {
+      userId: user.id, fetchFailed, profileExists, effectiveProfileExists, forceProceed,
+    });
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-4 text-center px-6 max-w-sm w-full">
@@ -614,22 +657,14 @@ function AppContent() {
   }
 
   if (!effectiveProfileExists) {
-    console.log("[AUTH] LOGIN_COMPLETE", {
-      userId: user?.id,
-      outcome: "onboarding",
-      profileExists: false,
-      forceProceed,
-      fetchFailed,
-      profilePending,
+    console.log("[SETUP] FINAL_APP_GATE: blocked_by_onboarding_guard", {
+      userId: user.id, profileExists, effectiveProfileExists, fetchFailed, profilePending,
     });
     return <Onboarding existingProfile={null} userEmail={user?.email ?? ""} />;
   }
 
-  console.log("[AUTH] LOGIN_COMPLETE", {
-    userId: user?.id,
-    outcome: "app",
-    profileExists: true,
-    forceProceed,
+  console.log("[SETUP] FINAL_APP_GATE: render_main_app", {
+    userId: user.id, profileExists, fetchFailed, forceProceed,
   });
 
   return (
