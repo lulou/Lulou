@@ -92,6 +92,10 @@ interface RawAuthError {
 const BUILD_STAMP = "2026-04-17T13:35:00Z • client/src/pages/landing.tsx";
 
 export default function Landing() {
+  // ── RAW INPUT STATE TEST — brand-new isolated state, no custom component ──
+  const [debugEmail, setDebugEmail] = useState("");
+  const [debugPassword, setDebugPassword] = useState("");
+
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -420,6 +424,64 @@ export default function Landing() {
               <p className="text-lg text-muted-foreground leading-relaxed max-w-lg" data-testid="text-hero-description">
                 Move beyond endless swiping. Lulou guides you from matching to meaningful conversations to meeting in real life.
               </p>
+            </div>
+
+            {/* ══════════════════════════════════════════════════════════════════
+                RAW INPUT STATE TEST
+                Two plain native <input> elements wired to brand-new local state.
+                No custom component. If these update, React state works fine.
+                If these also don't update, the issue is above the form.
+                ══════════════════════════════════════════════════════════════════ */}
+            <div
+              data-testid="raw-input-test"
+              style={{
+                border: "3px solid #f59e0b",
+                borderRadius: 8,
+                padding: "12px 14px",
+                background: "#1c1917",
+                marginBottom: 16,
+                maxWidth: 384,
+                fontFamily: "monospace",
+              }}
+            >
+              <div style={{ color: "#f59e0b", fontWeight: 900, fontSize: 13, marginBottom: 8, letterSpacing: 1 }}>
+                ⚡ RAW INPUT STATE TEST
+              </div>
+
+              <input
+                type="text"
+                placeholder="raw email — type here"
+                value={debugEmail}
+                onChange={(e) => setDebugEmail(e.target.value)}
+                data-testid="raw-input-email"
+                style={{
+                  display: "block", width: "100%", marginBottom: 6,
+                  padding: "6px 8px", borderRadius: 4, border: "1px solid #6b7280",
+                  background: "#374151", color: "#f9fafb", fontSize: 13,
+                  boxSizing: "border-box",
+                }}
+              />
+
+              <input
+                type="password"
+                placeholder="raw password — type here"
+                value={debugPassword}
+                onChange={(e) => setDebugPassword(e.target.value)}
+                data-testid="raw-input-password"
+                style={{
+                  display: "block", width: "100%", marginBottom: 8,
+                  padding: "6px 8px", borderRadius: 4, border: "1px solid #6b7280",
+                  background: "#374151", color: "#f9fafb", fontSize: 13,
+                  boxSizing: "border-box",
+                }}
+              />
+
+              <div style={{ color: debugEmail ? "#86efac" : "#9ca3af", fontWeight: 700, fontSize: 12 }}>
+                DEBUG EMAIL: {debugEmail || "empty"}
+              </div>
+              <div style={{ color: debugPassword ? "#86efac" : "#9ca3af", fontWeight: 700, fontSize: 12 }}>
+                DEBUG PASSWORD LENGTH: {debugPassword.length}
+              </div>
             </div>
 
             <form onSubmit={handleSubmit} className="max-w-sm space-y-3" data-testid="form-login" noValidate>
