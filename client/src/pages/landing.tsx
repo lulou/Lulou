@@ -86,6 +86,11 @@ interface RawAuthError {
   code: string;
 }
 
+// ── BUILD MARKER ─────────────────────────────────────────────────────────────
+// Set once when the JS bundle is evaluated. If this timestamp doesn't change
+// on reload, the browser is serving a stale bundle.
+const BUILD_STAMP = "2026-04-17T13:35:00Z • client/src/pages/landing.tsx";
+
 export default function Landing() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -370,7 +375,20 @@ export default function Landing() {
 
   return (
     <div className="min-h-screen bg-background">
-      <nav className="fixed top-0 left-0 right-0 z-50 backdrop-blur-md bg-background/80 border-b">
+      {/* ── MARKER 1: Build stamp — fixed top of screen, visible above everything ── */}
+      <div
+        data-testid="build-marker"
+        style={{
+          position: "fixed", top: 0, left: 0, right: 0, zIndex: 99998,
+          background: "#facc15", color: "#000", fontFamily: "monospace",
+          fontWeight: 900, fontSize: 14, padding: "6px 12px",
+          textAlign: "center", letterSpacing: 1,
+        }}
+      >
+        🔴 LIVE BUILD MARKER: {BUILD_STAMP}
+      </div>
+
+      <nav style={{ marginTop: 34 }} className="fixed top-0 left-0 right-0 z-50 backdrop-blur-md bg-background/80 border-b">
         <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between gap-4 flex-wrap">
           <div className="flex items-center gap-2">
             <LulouFlowerIcon className="w-6 h-6 text-primary" />
@@ -405,6 +423,33 @@ export default function Landing() {
             </div>
 
             <form onSubmit={handleSubmit} className="max-w-sm space-y-3" data-testid="form-login" noValidate>
+              {/* ── MARKER 2: Login form version + file path ── */}
+              <div
+                data-testid="login-form-marker"
+                style={{
+                  background: "#1e40af", color: "#fff", fontFamily: "monospace",
+                  fontSize: 11, padding: "5px 8px", borderRadius: 4,
+                  lineHeight: 1.5,
+                }}
+              >
+                <div style={{ fontWeight: 700 }}>LOGIN FORM VERSION: A</div>
+                <div>FILE: client/src/pages/landing.tsx</div>
+                <div>BUILD: {BUILD_STAMP}</div>
+              </div>
+
+              {/* ── MARKER 3: Live input echo — updates from React state ── */}
+              <div
+                data-testid="input-echo-marker"
+                style={{
+                  background: email ? "#14532d" : "#374151",
+                  color: email ? "#86efac" : "#9ca3af",
+                  fontFamily: "monospace", fontSize: 12,
+                  padding: "4px 8px", borderRadius: 4, fontWeight: 700,
+                }}
+              >
+                INPUT TEST: {email || "empty — type in the field above to confirm React state updates"}
+              </div>
+
               <div className="space-y-2">
                 <Input
                   ref={emailRef}
