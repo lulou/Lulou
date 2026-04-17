@@ -25,46 +25,9 @@ import type { Profile, Match } from "@shared/schema";
 import { Loader2 } from "lucide-react";
 
 // ── Global debug store ───────────────────────────────────────────────────────
-// Written by AppContent on every render; read by DebugOverlay (outside the
-// component tree so it survives all early returns and re-mounts).
-interface DebugSnapshot {
-  userId: string | null;
-  authReady: boolean;
-  sessionExists: boolean;
-  profileExists: boolean;
-  effectiveProfileExists: boolean;
-  fetchFailed: boolean;
-  spinnerTimedOut: boolean;
-  forceProceed: boolean;
-  onboardingComplete: boolean;
-  route: string;
-  finalGateDecision: string;
-  phase: string;
-  errors: string[];
-}
-
-const _dbg: DebugSnapshot = {
-  userId: null, authReady: false, sessionExists: false,
-  profileExists: false, effectiveProfileExists: false,
-  fetchFailed: false, spinnerTimedOut: false, forceProceed: false,
-  onboardingComplete: false, route: "/", finalGateDecision: "init",
-  phase: "init", errors: [],
-};
-const _dbgListeners = new Set<() => void>();
-
-function writeDebug(patch: Partial<DebugSnapshot>) {
-  Object.assign(_dbg, patch);
-  // Defer listener notification so it doesn't fire during a React render
-  // (calling setState of DebugOverlay while AppContent is still rendering
-  // triggers React's "update during render" warning).
-  queueMicrotask(() => _dbgListeners.forEach(fn => fn()));
-}
-
-export function pushDebugError(msg: string) {
-  const ts = new Date().toISOString().slice(11, 19);
-  _dbg.errors = [`${ts} ${msg}`, ..._dbg.errors].slice(0, 12);
-  _dbgListeners.forEach(fn => fn());
-}
+// Imported from a shared module so landing.tsx and use-auth.ts can also write
+// to it without creating circular dependencies.
+import { _dbg, _dbgListeners, writeDebug } from "@/lib/debug-store";
 
 function DebugOverlay() {
   const [, tick] = useReducer(n => n + 1, 0);
@@ -126,6 +89,24 @@ function DebugOverlay() {
             {row("phase", s.phase)}
             {row("finalGateDecision", s.finalGateDecision, true)}
             {row("storage[bypass]", sessionStorage.getItem("lulou-bypass") ?? "null")}
+          </div>
+
+          {/* Auth-flow trace column */}
+          <div style={{ minWidth: 200 }}>
+            <div style={{ color: "#94a3b8", marginBottom: 4 }}>AUTH FLOW</div>
+            {row("loginStarted", s.loginStarted)}
+            {row("signInReturnedUser", s.signInReturnedUser)}
+            {row("signInReturnedSession", s.signInReturnedSession)}
+            <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+              <span style={{ color: "#94a3b8", minWidth: 140 }}>exactAuthError</span>
+              <span style={{ color: s.exactAuthError ? "#f87171" : "#475569", wordBreak: "break-all" }}>
+                {s.exactAuthError ?? "null"}
+              </span>
+            </div>
+            {row("authEvent", s.authEvent ?? "null")}
+            {row("currentSessionUserId", s.currentSessionUserId
+              ? s.currentSessionUserId.slice(0, 12) + "…"
+              : "null")}
           </div>
 
           {/* Errors column */}

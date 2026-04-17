@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { supabase } from "@/lib/supabase";
 import { setCachedToken, queryClient } from "@/lib/queryClient";
+import { writeDebug } from "@/lib/debug-store";
 import type { User } from "@supabase/supabase-js";
 
 export function useAuth() {
@@ -33,6 +34,8 @@ export function useAuth() {
         prevUserId,
         userChanged: prevUserId !== newUserId,
       });
+      // Mirror into debug overlay so it's visible on-screen.
+      writeDebug({ authEvent: event, currentSessionUserId: newUserId });
 
       // When the authenticated user changes (different account, or sign-out),
       // clear the entire query cache so the new user never sees stale data from

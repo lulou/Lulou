@@ -5,6 +5,7 @@ import { Heart, MessageCircle, Phone, Shield, RefreshCw, Loader2, Lock, Eye, Eye
 import { LulouFlowerIcon } from "@/components/app-layout";
 import { supabase } from "@/lib/supabase";
 import { useToast } from "@/hooks/use-toast";
+import { writeDebug, pushDebugError } from "@/lib/debug-store";
 
 type AuthMode = "signin" | "signup";
 type AuthErrorKind = "credentials" | "already-exists" | "network" | "auth";
@@ -147,6 +148,13 @@ export default function Landing() {
     setResetSent(false);
     setLoading(true);
     console.log("[AUTH] AUTH_REQUEST_STARTED", { mode, email: email.trim() });
+    // Reset auth-flow debug fields so the overlay always shows the current attempt.
+    writeDebug({
+      loginStarted: true,
+      signInReturnedUser: false,
+      signInReturnedSession: false,
+      exactAuthError: null,
+    });
 
     try {
       if (mode === "signup") {
@@ -157,6 +165,9 @@ export default function Landing() {
         setLoading(false);
         if (error) {
           console.error("[AUTH] AUTH_REQUEST_FAILED", { mode, errorMessage: error.message, errorStatus: error.status });
+          const errMsg = `signup: ${error.message} (status=${error.status ?? "?"})`;
+          writeDebug({ exactAuthError: errMsg });
+          pushDebugError(errMsg);
           const classified = classifyAuthError(error, mode);
           if (classified.kind === "already-exists") {
             // Auto-switch to sign-in so the user can log in immediately
@@ -166,6 +177,11 @@ export default function Landing() {
           setAuthError(classified);
           return;
         }
+        writeDebug({
+          signInReturnedUser: !!data.user,
+          signInReturnedSession: !!data.session,
+          exactAuthError: null,
+        });
         console.log("[AUTH] AUTH_REQUEST_SUCCESS", { mode, userId: data.user?.id });
         toast({ title: "Account created", description: "You're now signed in." });
       } else {
@@ -176,15 +192,26 @@ export default function Landing() {
         setLoading(false);
         if (error) {
           console.error("[AUTH] AUTH_REQUEST_FAILED", { mode, errorMessage: error.message, errorStatus: error.status });
+          const errMsg = `signIn: ${error.message} (status=${error.status ?? "?"})`;
+          writeDebug({ exactAuthError: errMsg });
+          pushDebugError(errMsg);
           setAuthError(classifyAuthError(error, mode));
           return;
         }
+        writeDebug({
+          signInReturnedUser: !!data.user,
+          signInReturnedSession: !!data.session,
+          exactAuthError: null,
+        });
         console.log("[AUTH] AUTH_REQUEST_SUCCESS", { mode, userId: data.user?.id });
       }
     } catch (err: any) {
       setLoading(false);
       const msg = err?.message || "Unknown error";
       console.error("[AUTH] AUTH_ERROR_MESSAGE", { mode, error: msg, stack: err?.stack });
+      const errMsg = `throw: ${msg}`;
+      writeDebug({ exactAuthError: errMsg });
+      pushDebugError(errMsg);
       setAuthError(classifyAuthError(err, mode));
     }
   }

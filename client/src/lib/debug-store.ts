@@ -1,0 +1,55 @@
+// Shared module-level debug store — written by AppContent, landing.tsx, and
+// use-auth.ts; read by DebugOverlay (which lives outside all those trees).
+// Keeping it here avoids circular imports and fixes the Vite HMR warning that
+// appeared when pushDebugError was exported directly from App.tsx.
+
+export interface DebugSnapshot {
+  // Core app-gate state (written by AppContent)
+  userId: string | null;
+  authReady: boolean;
+  sessionExists: boolean;
+  profileExists: boolean;
+  effectiveProfileExists: boolean;
+  fetchFailed: boolean;
+  spinnerTimedOut: boolean;
+  forceProceed: boolean;
+  onboardingComplete: boolean;
+  route: string;
+  finalGateDecision: string;
+  phase: string;
+  // Auth-flow trace (written by landing.tsx + use-auth.ts)
+  loginStarted: boolean;
+  signInReturnedUser: boolean;
+  signInReturnedSession: boolean;
+  exactAuthError: string | null;
+  authEvent: string | null;
+  currentSessionUserId: string | null;
+  // Error log
+  errors: string[];
+}
+
+export const _dbg: DebugSnapshot = {
+  userId: null, authReady: false, sessionExists: false,
+  profileExists: false, effectiveProfileExists: false,
+  fetchFailed: false, spinnerTimedOut: false, forceProceed: false,
+  onboardingComplete: false, route: "/", finalGateDecision: "init",
+  phase: "init",
+  loginStarted: false, signInReturnedUser: false, signInReturnedSession: false,
+  exactAuthError: null, authEvent: null, currentSessionUserId: null,
+  errors: [],
+};
+
+export const _dbgListeners = new Set<() => void>();
+
+export function writeDebug(patch: Partial<DebugSnapshot>): void {
+  Object.assign(_dbg, patch);
+  // Defer so listeners never fire during a React render (avoids
+  // "update during render" React warning from DebugOverlay).
+  queueMicrotask(() => _dbgListeners.forEach(fn => fn()));
+}
+
+export function pushDebugError(msg: string): void {
+  const ts = new Date().toISOString().slice(11, 19);
+  _dbg.errors = [`${ts} ${msg}`, ..._dbg.errors].slice(0, 12);
+  _dbgListeners.forEach(fn => fn());
+}
