@@ -206,7 +206,7 @@ export default function Landing() {
               </p>
             </div>
 
-            <form onSubmit={handleSubmit} className="max-w-sm space-y-3" data-testid="form-login">
+            <form onSubmit={handleSubmit} className="max-w-sm space-y-3" data-testid="form-login" noValidate>
               <div className="space-y-2">
                 <Input
                   type="email"
@@ -224,7 +224,6 @@ export default function Landing() {
                     value={password}
                     onChange={(e) => { setPassword(e.target.value); clearError(); }}
                     required
-                    minLength={6}
                     data-testid="input-password"
                     className="h-12 pr-10"
                   />
