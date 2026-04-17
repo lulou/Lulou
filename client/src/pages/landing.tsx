@@ -28,8 +28,17 @@ function isAlreadyExists(err: any): boolean {
 }
 
 function classifyAuthError(err: any, mode: AuthMode): AuthError {
-  // Supabase sometimes returns {} or a raw JSON string as the error body.
-  // Unwrap it to extract a human-readable message before classifying.
+  // ── Timeout: the 15s Promise.race fired — Supabase never answered ─────────
+  // Detected by the explicit code set on the timeout Error object.
+  // Always treated as a connection problem, never as a credentials error.
+  if (err?.code === "timeout") {
+    return {
+      kind: "network",
+      message: "Lulou couldn't reach the login server. This is usually temporary — please try again.",
+    };
+  }
+
+  // ── Supabase sometimes returns {} or a raw JSON string as the error body ──
   let raw: string = err?.message ?? "";
   if (!raw || raw === "{}" || (raw.startsWith("{") && raw.endsWith("}"))) {
     try {
@@ -44,6 +53,7 @@ function classifyAuthError(err: any, mode: AuthMode): AuthError {
   }
   const msg: string = raw || "Something went wrong. Please try again.";
   const lower = msg.toLowerCase();
+
   if (mode === "signup" && isAlreadyExists(err)) {
     return { kind: "already-exists", message: msg };
   }
@@ -68,10 +78,10 @@ function classifyAuthError(err: any, mode: AuthMode): AuthError {
     lower.includes("timeout") ||
     lower.includes("timed out")
   ) {
-    // Give users a concrete action rather than the raw browser error string.
-    const detail = msg === "Load failed" || msg === "Failed to fetch"
-      ? "Could not reach Lulou's servers. Check your internet connection and try again."
-      : `Could not connect: ${msg}`;
+    const detail =
+      msg === "Load failed" || msg === "Failed to fetch"
+        ? "Lulou couldn't reach the login server. Check your internet connection and try again."
+        : "Lulou couldn't reach the login server. Please try again.";
     return { kind: "network", message: detail };
   }
   return { kind: "auth", message: msg };
@@ -122,6 +132,9 @@ export default function Landing() {
   // browser autofill which sets the DOM value without firing React's onChange.
   const emailRef = useRef<HTMLInputElement>(null);
   const passwordRef = useRef<HTMLInputElement>(null);
+  // Ref to the <form> — used by the "Try Again" button in the error panel to
+  // re-trigger form submission without the user having to scroll to the submit button.
+  const formRef = useRef<HTMLFormElement>(null);
 
   // Track render count to detect unexpected remounts/re-renders.
   const renderCountRef = useRef(0);
@@ -515,7 +528,7 @@ export default function Landing() {
               </div>
             </div>
 
-            <form onSubmit={handleSubmit} className="max-w-sm space-y-3" data-testid="form-login" noValidate>
+            <form ref={formRef} onSubmit={handleSubmit} className="max-w-sm space-y-3" data-testid="form-login" noValidate>
               {/* ── MARKER 2: Login form version + file path ── */}
               <div
                 data-testid="login-form-marker"
@@ -637,26 +650,50 @@ export default function Landing() {
                       <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
                     )}
                     <div className="space-y-1 flex-1 min-w-0">
-                      {/* Human-readable heading */}
-                      <p className="font-semibold leading-tight">
+                      {/* Human-readable heading
+                          ── network/timeout → amber box, WifiOff icon
+                          ── credentials     → red box, AlertCircle icon
+                          ── auth/other      → red box, AlertCircle icon       */}
+                      <p className="font-semibold leading-tight" data-testid="text-auth-error-heading">
                         {authError.kind === "already-exists"
                           ? "Account already exists"
                           : authError.kind === "credentials"
                           ? "Incorrect email or password"
                           : authError.kind === "network"
-                          ? "Connection problem"
+                          ? (rawAuthError?.code === "timeout"
+                              ? "Login server didn't respond"
+                              : "Connection problem")
                           : authError.kind === "auth"
                           ? "Cannot sign in"
                           : mode === "signup"
                           ? "Sign up failed"
                           : "Sign in failed"}
                       </p>
-                      {/* Classified message */}
+                      {/* Classified message — friendly, no raw technical strings */}
                       <p className="text-sm leading-snug break-words" data-testid="text-auth-error-detail">
                         {authError.message}
                       </p>
-                      {/* Raw error details — always expanded, so the exact Supabase
-                          error is visible on screen without opening the debug panel */}
+                      {/* Try Again button — only for network/timeout failures.
+                          Uses formRef.requestSubmit() so it re-runs the full
+                          handleSubmit (including DOM-value fallback, validation,
+                          and the 15s timeout race) without the user having to
+                          scroll down to the main Sign In button.               */}
+                      {authError.kind === "network" && (
+                        <button
+                          type="button"
+                          data-testid="button-try-again"
+                          onClick={() => {
+                            setAuthError(null);
+                            setRawAuthError(null);
+                            formRef.current?.requestSubmit();
+                          }}
+                          className="mt-1 inline-flex items-center gap-1.5 rounded-md bg-amber-800/20 hover:bg-amber-800/30 px-3 py-1.5 text-xs font-semibold text-amber-900 transition-colors"
+                        >
+                          Try Again
+                        </button>
+                      )}
+                      {/* Raw error details — collapsible, keeps exact Supabase
+                          error visible for debugging without cluttering UI     */}
                       {rawAuthError && (
                         <div className="mt-1.5">
                           <button
@@ -666,7 +703,7 @@ export default function Landing() {
                             data-testid="button-toggle-raw-error"
                           >
                             {showRawError ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-                            {showRawError ? "Hide" : "Show"} exact error
+                            {showRawError ? "Hide" : "Show"} technical details
                           </button>
                           {showRawError && (
                             <pre
@@ -681,7 +718,7 @@ code:    ${rawAuthError.code}`}
                           )}
                         </div>
                       )}
-                      {/* Action links */}
+                      {/* Credentials action: offer password reset */}
                       {authError.kind === "already-exists" && (
                         <button
                           type="button"
