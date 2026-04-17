@@ -513,6 +513,7 @@ function AppContent() {
       <p data-testid="debug-auth">auth: {authLoading ? "loading" : user ? "ok" : "signed out"}</p>
       <p data-testid="debug-cache">cache: {clearingCache ? "clearing" : "ok"}</p>
       <p data-testid="debug-profile">profile: {phaseLabel}</p>
+      <p data-testid="debug-bypass">bypass: {forceProceed ? "active — entering app without profile" : "off"}</p>
     </div>
   );
 
