@@ -22,6 +22,17 @@ export interface DebugSnapshot {
   submittedPasswordPresent: boolean;
   signInStarted: boolean;
   loginStarted: boolean;
+  // Per-call trace — written before/after the Supabase await
+  signInCallEntered: boolean;
+  signInAwaitCompleted: boolean;
+  rawSignInResultExists: boolean;
+  rawSignInDataExists: boolean;
+  rawSignInErrorExists: boolean;
+  rawSignInResultString: string | null;
+  rawSignInErrorString: string | null;
+  submitHandlerReturnedEarly: boolean;
+  submitHandlerCatchTriggered: boolean;
+  // Post-call results
   signInReturnedUser: boolean;
   signInReturnedSession: boolean;
   signInErrorMessage: string | null;
@@ -44,6 +55,10 @@ export const _dbg: DebugSnapshot = {
   phase: "init",
   submittedIdentifier: null, submittedPasswordPresent: false,
   signInStarted: false, loginStarted: false,
+  signInCallEntered: false, signInAwaitCompleted: false,
+  rawSignInResultExists: false, rawSignInDataExists: false, rawSignInErrorExists: false,
+  rawSignInResultString: null, rawSignInErrorString: null,
+  submitHandlerReturnedEarly: false, submitHandlerCatchTriggered: false,
   signInReturnedUser: false, signInReturnedSession: false,
   signInErrorMessage: null, signInErrorStatus: null,
   signInErrorName: null, signInErrorCode: null,

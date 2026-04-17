@@ -1,0 +1,72 @@
+Find and fix the exact bug where Supabase sign-in starts but returns neither a user/session nor an error.
+
+Current live debug panel shows:
+- submittedIdentifier is present
+- submittedPasswordPresent is true
+- exactAuthPayload is correct
+- signInStarted is true
+- signInReturnedUser is false
+- signInReturnedSession is false
+- signInErrorMessage is null
+- signInErrorStatus is null
+- signInErrorName is null
+- signInErrorCode is null
+- authEvent is only INITIAL_SESSION
+- finalGateDecision is blocked_missing_session
+
+This proves:
+- the login flow starts
+- the payload is built
+- but the signIn result is not being surfaced correctly
+
+Tasks:
+
+1. Find the exact login submit handler and the exact Supabase auth call.
+
+2. Inspect whether the sign-in call is:
+- not awaited
+- wrapped incorrectly
+- returning undefined
+- swallowed by a try/catch
+- exiting early before the response is processed
+- followed by a premature return
+- using the wrong destructuring for Supabase response
+
+3. Add visible on-screen debug values for:
+- signInCallEntered
+- signInAwaitCompleted
+- rawSignInResultExists
+- rawSignInDataExists
+- rawSignInErrorExists
+- rawSignInResultString
+- rawSignInErrorString
+- submitHandlerReturnedEarly
+- submitHandlerCatchTriggered
+
+4. Right after the Supabase signIn call, explicitly capture and display the raw result shape.
+For example, show whether the returned object has:
+- data.user
+- data.session
+- error
+
+5. Verify the code is using the correct Supabase v2 pattern for sign-in response handling.
+
+6. If the code is destructuring the response incorrectly, fix it.
+
+7. If the handler returns early before processing the auth response, remove/fix that exact early return.
+
+8. If there is a try/catch swallowing the result or exception, surface it visibly on screen.
+
+9. Do not refactor unrelated code.
+Do not change messaging/call logic.
+Only fix the sign-in result handling bug.
+
+10. After fixing, explain only:
+- the exact file and line where the signIn response was mishandled
+- whether it was not awaited, destructured wrong, or returned early
+- what exact code you changed
+- what the live debug panel now shows for:
+ - signInAwaitCompleted
+ - rawSignInResultExists
+ - rawSignInErrorString
+ - signInReturnedSession

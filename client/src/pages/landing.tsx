@@ -166,7 +166,7 @@ export default function Landing() {
     setResetSent(false);
     setLoading(true);
 
-    // ── Write pre-call debug state ──────────────────────────────────────────
+    // ── Write pre-call debug state (reset all per-attempt fields) ─────────────
     const payloadDesc = `email="${trimmedEmail}" password=${password ? "present(" + password.length + "chars)" : "EMPTY"}`;
     console.log("[AUTH] AUTH_REQUEST_STARTED", { mode, email: trimmedEmail, payloadDesc });
     writeDebug({
@@ -175,6 +175,17 @@ export default function Landing() {
       submittedIdentifier: trimmedEmail,
       submittedPasswordPresent: !!password,
       exactAuthPayloadUsed: payloadDesc,
+      // Per-call trace — reset so old values from a previous attempt don't persist
+      signInCallEntered: false,
+      signInAwaitCompleted: false,
+      rawSignInResultExists: false,
+      rawSignInDataExists: false,
+      rawSignInErrorExists: false,
+      rawSignInResultString: null,
+      rawSignInErrorString: null,
+      submitHandlerReturnedEarly: false,
+      submitHandlerCatchTriggered: false,
+      // Post-call results — reset
       signInReturnedUser: false,
       signInReturnedSession: false,
       signInErrorMessage: null,
@@ -184,75 +195,113 @@ export default function Landing() {
       exactAuthError: null,
     });
 
+    // Helper: build a RawAuthError from any error-like object.
+    function makeRaw(err: any, prefix: string): RawAuthError {
+      return {
+        message: err?.message ?? "(none)",
+        status:  String(err?.status ?? err?.statusCode ?? "?"),
+        name:    err?.name ?? "(none)",
+        code:    err?.code ?? "(none)",
+      };
+    }
+
+    // Helper: write error fields + push to overlay ERRORS column.
+    function recordError(raw: RawAuthError, prefix: string) {
+      const errMsg = `${prefix}: ${raw.message} (status=${raw.status} code=${raw.code} name=${raw.name})`;
+      writeDebug({
+        signInReturnedUser: false,
+        signInReturnedSession: false,
+        signInErrorMessage: raw.message,
+        signInErrorStatus:  raw.status,
+        signInErrorName:    raw.name,
+        signInErrorCode:    raw.code,
+        exactAuthError: errMsg,
+      });
+      pushDebugError(errMsg);
+      setRawAuthError(raw);
+      console.error(`[AUTH] AUTH_REQUEST_FAILED (${prefix})`, raw);
+      return errMsg;
+    }
+
+    // 15-second timeout: if Supabase auth server never responds, the await
+    // hangs indefinitely. Promise.race surfaces the hang as an explicit error.
+    const SIGNIN_TIMEOUT_MS = 15_000;
+    const timeoutPromise: Promise<never> = new Promise((_, reject) =>
+      setTimeout(() => {
+        const e = new Error(`Supabase auth server did not respond after ${SIGNIN_TIMEOUT_MS / 1000}s — possible 522/network outage`);
+        (e as any).code = "timeout";
+        reject(e);
+      }, SIGNIN_TIMEOUT_MS)
+    );
+
     try {
       if (mode === "signup") {
-        const { data, error } = await supabase.auth.signUp({
-          email: trimmedEmail,
-          password,
+        writeDebug({ signInCallEntered: true });
+        const signUpResult = await Promise.race([
+          supabase.auth.signUp({ email: trimmedEmail, password }),
+          timeoutPromise,
+        ]);
+        const { data, error } = signUpResult;
+        writeDebug({
+          signInAwaitCompleted: true,
+          rawSignInResultExists: signUpResult != null,
+          rawSignInDataExists: data != null,
+          rawSignInErrorExists: error != null,
+          rawSignInResultString: JSON.stringify({ hasUser: !!data?.user, hasSession: !!data?.session, hasError: !!error }),
+          rawSignInErrorString: error ? JSON.stringify({ msg: error.message, status: error.status, code: (error as any).code }) : "null",
         });
         setLoading(false);
         if (error) {
-          const raw: RawAuthError = {
-            message: error.message ?? "(none)",
-            status:  String(error.status ?? "?"),
-            name:    (error as any).name ?? "(none)",
-            code:    (error as any).code ?? "(none)",
-          };
-          const errMsg = `signup: ${raw.message} (status=${raw.status} code=${raw.code})`;
-          console.error("[AUTH] AUTH_REQUEST_FAILED", { mode, ...raw });
-          writeDebug({
-            signInErrorMessage: raw.message,
-            signInErrorStatus:  raw.status,
-            signInErrorName:    raw.name,
-            signInErrorCode:    raw.code,
-            exactAuthError: errMsg,
-          });
-          pushDebugError(errMsg);
-          setRawAuthError(raw);
+          const raw = makeRaw(error, "signup");
+          recordError(raw, "signup");
           const classified = classifyAuthError(error, mode);
           if (classified.kind === "already-exists") {
             setMode("signin");
             setPassword("");
           }
           setAuthError(classified);
+          writeDebug({ submitHandlerReturnedEarly: true });
           return;
         }
-        writeDebug({
-          signInReturnedUser: !!data.user,
-          signInReturnedSession: !!data.session,
-          exactAuthError: null,
-        });
+        writeDebug({ signInReturnedUser: !!data.user, signInReturnedSession: !!data.session });
         console.log("[AUTH] AUTH_REQUEST_SUCCESS", { mode, userId: data.user?.id });
         toast({ title: "Account created", description: "You're now signed in." });
+
       } else {
-        const { data, error } = await supabase.auth.signInWithPassword({
-          email: trimmedEmail,
-          password,
+        // ── sign-in ───────────────────────────────────────────────────────────
+        writeDebug({ signInCallEntered: true });
+        const signInResult = await Promise.race([
+          supabase.auth.signInWithPassword({ email: trimmedEmail, password }),
+          timeoutPromise,
+        ]);
+
+        // ── Immediately capture raw result shape ──────────────────────────────
+        const { data, error } = signInResult;
+        writeDebug({
+          signInAwaitCompleted: true,
+          rawSignInResultExists: signInResult != null,
+          rawSignInDataExists: data != null,
+          rawSignInErrorExists: error != null,
+          rawSignInResultString: JSON.stringify({
+            hasUser: !!data?.user,
+            hasSession: !!data?.session,
+            hasError: !!error,
+          }),
+          rawSignInErrorString: error
+            ? JSON.stringify({ msg: error.message, status: error.status, code: (error as any).code, name: (error as any).name })
+            : "null",
         });
+
         setLoading(false);
+
         if (error) {
-          const raw: RawAuthError = {
-            message: error.message ?? "(none)",
-            status:  String(error.status ?? "?"),
-            name:    (error as any).name ?? "(none)",
-            code:    (error as any).code ?? "(none)",
-          };
-          const errMsg = `signIn: ${raw.message} (status=${raw.status} code=${raw.code})`;
-          console.error("[AUTH] AUTH_REQUEST_FAILED", { mode, ...raw });
-          writeDebug({
-            signInReturnedUser: false,
-            signInReturnedSession: false,
-            signInErrorMessage: raw.message,
-            signInErrorStatus:  raw.status,
-            signInErrorName:    raw.name,
-            signInErrorCode:    raw.code,
-            exactAuthError: errMsg,
-          });
-          pushDebugError(errMsg);
-          setRawAuthError(raw);
+          const raw = makeRaw(error, "signIn");
+          recordError(raw, "signIn");
           setAuthError(classifyAuthError(error, mode));
+          writeDebug({ submitHandlerReturnedEarly: true });
           return;
         }
+
         writeDebug({
           signInReturnedUser: !!data.user,
           signInReturnedSession: !!data.session,
@@ -264,25 +313,16 @@ export default function Landing() {
         });
         console.log("[AUTH] AUTH_REQUEST_SUCCESS", { mode, userId: data.user?.id });
       }
+
     } catch (err: any) {
       setLoading(false);
-      const raw: RawAuthError = {
-        message: err?.message ?? "(none)",
-        status:  String(err?.status ?? "?"),
-        name:    err?.name ?? "(none)",
-        code:    err?.code ?? "(none)",
-      };
-      const errMsg = `throw: ${raw.message} (status=${raw.status} name=${raw.name})`;
-      console.error("[AUTH] AUTH_ERROR_MESSAGE", { mode, ...raw, stack: err?.stack });
+      const raw = makeRaw(err, "throw");
+      const errMsg = recordError(raw, err?.code === "timeout" ? "timeout" : "throw");
       writeDebug({
-        signInErrorMessage: raw.message,
-        signInErrorStatus:  raw.status,
-        signInErrorName:    raw.name,
-        signInErrorCode:    raw.code,
-        exactAuthError: errMsg,
+        signInAwaitCompleted: false,
+        submitHandlerCatchTriggered: true,
       });
-      pushDebugError(errMsg);
-      setRawAuthError(raw);
+      console.error("[AUTH] AUTH_ERROR_MESSAGE", { mode, error: raw.message, stack: err?.stack });
       setAuthError(classifyAuthError(err, mode));
     }
   }

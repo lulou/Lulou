@@ -97,6 +97,25 @@ function DebugOverlay() {
             {row("submittedIdentifier", s.submittedIdentifier ?? "null")}
             {row("submittedPasswordPresent", s.submittedPasswordPresent)}
             {row("signInStarted", s.signInStarted)}
+            {row("signInCallEntered", s.signInCallEntered)}
+            {row("signInAwaitCompleted", s.signInAwaitCompleted)}
+            {row("rawSignInResultExists", s.rawSignInResultExists)}
+            {row("rawSignInDataExists", s.rawSignInDataExists)}
+            {row("rawSignInErrorExists", s.rawSignInErrorExists)}
+            <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 2 }}>
+              <span style={{ color: "#94a3b8", minWidth: 140 }}>rawSignInResult</span>
+              <span style={{ color: "#e2e8f0", wordBreak: "break-all", fontSize: 9 }}>
+                {s.rawSignInResultString ?? "null"}
+              </span>
+            </div>
+            <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 2 }}>
+              <span style={{ color: "#94a3b8", minWidth: 140 }}>rawSignInError</span>
+              <span style={{ color: s.rawSignInErrorString && s.rawSignInErrorString !== "null" ? "#f87171" : "#475569", wordBreak: "break-all", fontSize: 9 }}>
+                {s.rawSignInErrorString ?? "null"}
+              </span>
+            </div>
+            {row("submitHandlerReturnedEarly", s.submitHandlerReturnedEarly)}
+            {row("submitHandlerCatchTriggered", s.submitHandlerCatchTriggered)}
             {row("signInReturnedUser", s.signInReturnedUser)}
             {row("signInReturnedSession", s.signInReturnedSession)}
             <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 2 }}>
@@ -108,12 +127,6 @@ function DebugOverlay() {
             {row("signInErrorStatus", s.signInErrorStatus ?? "null")}
             {row("signInErrorName", s.signInErrorName ?? "null")}
             {row("signInErrorCode", s.signInErrorCode ?? "null")}
-            <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 2 }}>
-              <span style={{ color: "#94a3b8", minWidth: 140 }}>exactAuthPayload</span>
-              <span style={{ color: "#e2e8f0", wordBreak: "break-all", fontSize: 9 }}>
-                {s.exactAuthPayloadUsed ?? "null"}
-              </span>
-            </div>
             {row("authEvent", s.authEvent ?? "null")}
             {row("currentSessionUserId", s.currentSessionUserId
               ? s.currentSessionUserId.slice(0, 12) + "…"
