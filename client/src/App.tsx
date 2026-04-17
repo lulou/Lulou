@@ -398,11 +398,21 @@ function AppContent() {
   // This covers the case where the fetch hangs without timing out (e.g. a long
   // network stall that doesn't trigger a TCP reset within the retry window).
   const [spinnerTimedOut, setSpinnerTimedOut] = useState(false);
+  // forceProceed=true: user tapped "Continue to App" on a blocked screen.
+  // Routes directly to the main app, treating effectiveProfileExists=true,
+  // without waiting for a profile fetch that may never complete.
+  const [forceProceed, setForceProceed] = useState(false);
   const spinnerStartRef = useRef<number | null>(null);
+
+  // effectiveProfileExists: either confirmed by the server, or the user
+  // chose to bypass a failed/stuck profile fetch via "Continue to App".
+  // Declared after forceProceed useState to avoid TDZ reference error.
+  const effectiveProfileExists = profileExists || forceProceed;
 
   // profilePending = query has no data yet (covers the gap between "enabled"
   // and "fetch started" that caused isLoading to briefly be false).
-  const isSpinning = !authLoading && !!user && (clearingCache || profilePending || !profileReady);
+  // forceProceed collapses the spinner immediately when the user bypasses.
+  const isSpinning = !forceProceed && !authLoading && !!user && (clearingCache || profilePending || !profileReady);
 
   useEffect(() => {
     if (!isSpinning) {
@@ -485,7 +495,9 @@ function AppContent() {
   // Show spinner while cache is clearing, profile ready flag is not set, or
   // the profile-exists-check fetch is in progress.
   // ── Status snapshot used by all blocked screens ──────────────────────────────
-  const phaseLabel = clearingCache
+  const phaseLabel = forceProceed
+    ? "bypassed — entering app"
+    : clearingCache
     ? "switching accounts…"
     : !profileReady
     ? "verifying session…"
@@ -513,7 +525,7 @@ function AppContent() {
             <p className="text-lg font-serif font-semibold">Taking longer than expected</p>
             <p className="text-sm text-muted-foreground">We couldn't finish loading your profile. You're still signed in — this is usually a temporary server issue.</p>
             {statusPanel}
-            <div className="flex gap-3 pt-1">
+            <div className="flex flex-wrap justify-center gap-3 pt-1">
               <button
                 className="px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:brightness-110 transition-all"
                 onClick={() => {
@@ -524,6 +536,16 @@ function AppContent() {
                 data-testid="button-retry-setup"
               >
                 Try Again
+              </button>
+              <button
+                className="px-4 py-2 rounded-md bg-primary/80 text-primary-foreground text-sm font-medium hover:brightness-110 transition-all"
+                onClick={() => {
+                  console.warn("[SETUP] FORCE_PROCEED: user bypassed timeout screen", { userId: user?.id });
+                  setForceProceed(true);
+                }}
+                data-testid="button-continue-app-timeout"
+              >
+                Continue to App
               </button>
               <button
                 className="px-4 py-2 rounded-md border text-sm font-medium hover:bg-muted transition-all"
@@ -552,20 +574,30 @@ function AppContent() {
     );
   }
 
-  if (fetchFailed && !profileExists) {
+  if (fetchFailed && !effectiveProfileExists) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-4 text-center px-6 max-w-sm w-full">
           <p className="text-lg font-serif font-semibold">Couldn't load your profile</p>
           <p className="text-sm text-muted-foreground">Your account is fine — the server returned an error when fetching your profile. This is temporary.</p>
           {statusPanel}
-          <div className="flex gap-3 pt-1">
+          <div className="flex flex-wrap justify-center gap-3 pt-1">
             <button
               className="px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:brightness-110 transition-all"
               onClick={() => queryClient.invalidateQueries({ queryKey: ["profile-exists-check"] })}
               data-testid="button-retry-profile"
             >
               Try Again
+            </button>
+            <button
+              className="px-4 py-2 rounded-md bg-primary/80 text-primary-foreground text-sm font-medium hover:brightness-110 transition-all"
+              onClick={() => {
+                console.warn("[SETUP] FORCE_PROCEED: user bypassed profile-fetch-failed screen", { userId: user?.id });
+                setForceProceed(true);
+              }}
+              data-testid="button-continue-app-error"
+            >
+              Continue to App
             </button>
             <button
               className="px-4 py-2 rounded-md border text-sm font-medium hover:bg-muted transition-all"
@@ -580,11 +612,12 @@ function AppContent() {
     );
   }
 
-  if (!profileExists) {
+  if (!effectiveProfileExists) {
     console.log("[AUTH] LOGIN_COMPLETE", {
       userId: user?.id,
       outcome: "onboarding",
       profileExists: false,
+      forceProceed,
       fetchFailed,
       profilePending,
     });
@@ -595,6 +628,7 @@ function AppContent() {
     userId: user?.id,
     outcome: "app",
     profileExists: true,
+    forceProceed,
   });
 
   return (
