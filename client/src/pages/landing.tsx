@@ -122,7 +122,18 @@ export default function Landing() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!email.trim() || !password) return;
+
+    // Show explicit errors for empty fields rather than silently blocking.
+    if (!email.trim()) {
+      console.warn("[AUTH] SUBMIT_BLOCKED: email empty");
+      setAuthError({ kind: "auth", message: "Please enter your email address." });
+      return;
+    }
+    if (!password) {
+      console.warn("[AUTH] SUBMIT_BLOCKED: password empty");
+      setAuthError({ kind: "auth", message: "Please enter your password." });
+      return;
+    }
 
     setAuthError(null);
     setResetSent(false);
@@ -268,63 +279,62 @@ export default function Landing() {
 
               {authError && !resetSent && (
                 <div
-                  className={`flex items-start gap-2 rounded-md border px-3 py-2.5 text-sm ${
+                  className={`rounded-md border px-3 py-3 text-sm ${
                     authError.kind === "network"
-                      ? "bg-amber-50 border-amber-200 text-amber-800"
-                      : "bg-destructive/10 border-destructive/20 text-destructive"
+                      ? "bg-amber-50 border-amber-200 text-amber-900"
+                      : "bg-destructive/10 border-destructive/30 text-destructive"
                   }`}
                   data-testid="text-auth-error"
                   role="alert"
                 >
-                  {authError.kind === "network" ? (
-                    <WifiOff className="w-4 h-4 mt-0.5 shrink-0" />
-                  ) : (
-                    <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
-                  )}
-                  <div className="space-y-1 flex-1">
-                    {authError.kind === "already-exists" ? (
-                      <>
-                        <p className="font-medium leading-tight">Account already exists</p>
-                        <p className="text-xs opacity-80">
-                          An account with this email already exists. Use your password to sign in.
-                        </p>
+                  <div className="flex items-start gap-2">
+                    {authError.kind === "network" ? (
+                      <WifiOff className="w-4 h-4 mt-0.5 shrink-0" />
+                    ) : (
+                      <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
+                    )}
+                    <div className="space-y-1 flex-1 min-w-0">
+                      {/* Human-readable heading */}
+                      <p className="font-semibold leading-tight">
+                        {authError.kind === "already-exists"
+                          ? "Account already exists"
+                          : authError.kind === "credentials"
+                          ? "Incorrect email or password"
+                          : authError.kind === "network"
+                          ? "Connection problem"
+                          : authError.kind === "auth"
+                          ? "Cannot sign in"
+                          : mode === "signup"
+                          ? "Sign up failed"
+                          : "Sign in failed"}
+                      </p>
+                      {/* Raw error message — always visible at readable size */}
+                      <p className="text-sm leading-snug break-words" data-testid="text-auth-error-detail">
+                        {authError.message}
+                      </p>
+                      {/* Action links */}
+                      {authError.kind === "already-exists" && (
                         <button
                           type="button"
                           onClick={switchToSignIn}
-                          className="text-xs font-medium underline underline-offset-2 opacity-90 hover:opacity-100"
+                          className="text-xs font-medium underline underline-offset-2 mt-0.5"
                           data-testid="button-switch-to-signin"
                         >
                           Sign in instead
                         </button>
-                      </>
-                    ) : authError.kind === "credentials" && mode === "signin" ? (
-                      <>
-                        <p className="font-medium leading-tight">Incorrect email or password</p>
-                        <p className="text-xs opacity-80">Double-check your details and try again.</p>
+                      )}
+                      {authError.kind === "credentials" && mode === "signin" && (
                         <button
                           type="button"
                           onClick={handlePasswordReset}
                           disabled={resetLoading || !email.trim()}
-                          className="text-xs font-medium underline underline-offset-2 opacity-90 hover:opacity-100 disabled:opacity-50"
+                          className="text-xs font-medium underline underline-offset-2 mt-0.5 disabled:opacity-50"
                           data-testid="button-reset-password"
                         >
                           {resetLoading ? "Sending…" : "Forgot your password?"}
                         </button>
-                      </>
-                    ) : (
-                      <>
-                        <p className="font-medium leading-tight">
-                          {authError.kind === "credentials"
-                            ? "Incorrect email or password"
-                            : authError.kind === "network"
-                            ? "Connection problem"
-                            : mode === "signup"
-                            ? "Sign up failed"
-                            : "Sign in failed"}
-                        </p>
-                        <p className="text-xs opacity-80">{authError.message}</p>
-                      </>
-                    )}
+                      )}
+                    </div>
                   </div>
                 </div>
               )}
