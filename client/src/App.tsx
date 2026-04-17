@@ -541,7 +541,7 @@ function AppContent() {
       outcome: "onboarding",
       profileExists: false,
       fetchFailed,
-      profileLoading,
+      profilePending,
     });
     return <Onboarding existingProfile={null} userEmail={user?.email ?? ""} />;
   }

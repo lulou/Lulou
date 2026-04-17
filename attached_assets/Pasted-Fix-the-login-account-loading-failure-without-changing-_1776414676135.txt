@@ -1,0 +1,62 @@
+Fix the login/account-loading failure without changing unrelated code.
+
+Current problem:
+- Users cannot log into the Lulou app properly
+- User accounts are not loading in
+- Login may appear to succeed, but the app does not finish loading the user account
+- Some users may get stuck on loading/spinner/setup screens
+
+Tasks:
+
+1. Find the exact login/auth/account-loading flow.
+
+2. Identify the exact blocking failure.
+Check for:
+- auth succeeds but profile fetch fails
+- profile row missing
+- onboarding/profile query stuck loading
+- Supabase 520/network/server error not handled properly
+- loading state never set back to false
+- auth/session race condition
+- stale cached user/session state
+- account switch logic not clearing previous user state
+- retry loop or redirect loop
+- swallowed errors in catch/finally
+
+3. Find the exact code path that decides whether a logged-in user can enter the app.
+
+4. Fix it so that:
+- login completes cleanly when auth succeeds
+- profile/account loading does not trap the user forever
+- loading always exits on success or failure
+- missing profile rows are handled safely
+- network/server failures show a clean error instead of endless loading
+- users can retry cleanly
+
+5. Add precise logs for:
+- login start
+- auth success
+- session received
+- profile fetch start
+- profile fetch success/failure
+- profile creation start/success/failure
+- final app entry allowed
+- exact reason app entry was blocked
+
+6. Add a timeout safeguard so account loading cannot spin forever.
+
+7. Inspect recent changes related to:
+- onboarding/setup page
+- profile saving/loading
+- auth/session provider
+- startup app gating
+
+8. Do not refactor unrelated code.
+Do not change messaging/call logic.
+Only fix login and account-loading reliability.
+
+9. After fixing, explain:
+- the exact file and line causing the login/account-loading failure
+- whether the bug was auth, profile loading, onboarding gating, or loading-state handling
+- what exact code you changed
+- why users could not enter the app
