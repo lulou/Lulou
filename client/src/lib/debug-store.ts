@@ -20,12 +20,15 @@ export interface DebugSnapshot {
   // Form-wiring trace (written by onChange + handleSubmit)
   identifierInputState: string | null;
   passwordInputLength: number;
+  identifierValuePropName: string;
+  passwordValuePropName: string;
   onChangeIdentifierFiring: boolean;
   onChangePasswordFiring: boolean;
   submitButtonClicked: boolean;
   formOnSubmitFired: boolean;
   submitHandlerEntered: boolean;
   submitBlockedReason: string | null;
+  renderCount: number;
   // Auth-flow trace (written by landing.tsx + use-auth.ts)
   submittedIdentifier: string | null;
   submittedPasswordPresent: boolean;
@@ -63,9 +66,10 @@ export const _dbg: DebugSnapshot = {
   onboardingComplete: false, route: "/", finalGateDecision: "init",
   phase: "init",
   identifierInputState: null, passwordInputLength: 0,
+  identifierValuePropName: "email", passwordValuePropName: "password",
   onChangeIdentifierFiring: false, onChangePasswordFiring: false,
   submitButtonClicked: false, formOnSubmitFired: false,
-  submitHandlerEntered: false, submitBlockedReason: null,
+  submitHandlerEntered: false, submitBlockedReason: null, renderCount: 0,
   submittedIdentifier: null, submittedPasswordPresent: false,
   signInStarted: false, loginStarted: false,
   signInCallEntered: false, signInAwaitCompleted: false,

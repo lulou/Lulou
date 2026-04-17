@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
-import { useTabActive } from "@/App";
+import { useTabActive } from "@/hooks/use-tab-active";
 import type { Profile } from "@shared/schema";
 
 // Lazy-loads a single photo for a wheel item or profile card.

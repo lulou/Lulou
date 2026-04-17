@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Heart, MessageCircle, Phone, Shield, RefreshCw, Loader2, Lock, Eye, EyeOff, AlertCircle, WifiOff, CheckCircle, ChevronDown, ChevronUp } from "lucide-react";
@@ -99,6 +99,23 @@ export default function Landing() {
   const [resetSent, setResetSent] = useState(false);
   const { toast } = useToast();
 
+  // Refs to the actual DOM inputs — read directly in handleSubmit to cover
+  // browser autofill which sets the DOM value without firing React's onChange.
+  const emailRef = useRef<HTMLInputElement>(null);
+  const passwordRef = useRef<HTMLInputElement>(null);
+
+  // Track render count to detect unexpected remounts/re-renders.
+  const renderCountRef = useRef(0);
+  renderCountRef.current += 1;
+
+  useEffect(() => {
+    writeDebug({
+      renderCount: renderCountRef.current,
+      identifierValuePropName: "email",
+      passwordValuePropName: "password",
+    });
+  });
+
   function resetForm() {
     setEmail("");
     setPassword("");
@@ -147,10 +164,28 @@ export default function Landing() {
     e.preventDefault();
 
     // ── FORM WIRING TRACE — written before any validation or early return ─────
-    writeDebug({ formOnSubmitFired: true, submitHandlerEntered: true, submitBlockedReason: null });
-    console.log("[AUTH] SUBMIT_HANDLER_ENTERED", { emailLen: email.length, passwordLen: password.length });
+    // Read the actual DOM values as fallback: browser autofill populates the DOM
+    // input value without always triggering React's synthetic onChange, leaving
+    // React state at "" even though the field visually shows text. The ref gives
+    // us the ground-truth value the user sees.
+    const domEmail = emailRef.current?.value ?? "";
+    const domPassword = passwordRef.current?.value ?? "";
+    const effectiveEmail = email || domEmail;
+    const effectivePassword = password || domPassword;
+    if (domEmail && !email) { setEmail(domEmail); }
+    if (domPassword && !password) { setPassword(domPassword); }
 
-    const trimmedEmail = email.trim();
+    writeDebug({
+      formOnSubmitFired: true, submitHandlerEntered: true, submitBlockedReason: null,
+      identifierInputState: effectiveEmail || null,
+      passwordInputLength: effectivePassword.length,
+    });
+    console.log("[AUTH] SUBMIT_HANDLER_ENTERED", {
+      emailState: email.length, emailDOM: domEmail.length,
+      passwordState: password.length, passwordDOM: domPassword.length,
+    });
+
+    const trimmedEmail = effectiveEmail.trim();
 
     // Show explicit errors for empty fields rather than silently blocking.
     if (!trimmedEmail) {
@@ -159,7 +194,7 @@ export default function Landing() {
       setAuthError({ kind: "auth", message: "Please enter your email address." });
       return;
     }
-    if (!password) {
+    if (!effectivePassword) {
       console.warn("[AUTH] SUBMIT_BLOCKED: password empty");
       writeDebug({ submitBlockedReason: "password_empty" });
       setAuthError({ kind: "auth", message: "Please enter your password." });
@@ -173,13 +208,13 @@ export default function Landing() {
     setLoading(true);
 
     // ── Write pre-call debug state (reset all per-attempt fields) ─────────────
-    const payloadDesc = `email="${trimmedEmail}" password=${password ? "present(" + password.length + "chars)" : "EMPTY"}`;
+    const payloadDesc = `email="${trimmedEmail}" password=${effectivePassword ? "present(" + effectivePassword.length + "chars)" : "EMPTY"}`;
     console.log("[AUTH] AUTH_REQUEST_STARTED", { mode, email: trimmedEmail, payloadDesc });
     writeDebug({
       loginStarted: true,
       signInStarted: true,
       submittedIdentifier: trimmedEmail,
-      submittedPasswordPresent: !!password,
+      submittedPasswordPresent: !!effectivePassword,
       exactAuthPayloadUsed: payloadDesc,
       // Per-call trace — reset so old values from a previous attempt don't persist
       signInCallEntered: false,
@@ -244,7 +279,7 @@ export default function Landing() {
       if (mode === "signup") {
         writeDebug({ signInCallEntered: true });
         const signUpResult = await Promise.race([
-          supabase.auth.signUp({ email: trimmedEmail, password }),
+          supabase.auth.signUp({ email: trimmedEmail, password: effectivePassword }),
           timeoutPromise,
         ]);
         const { data, error } = signUpResult;
@@ -277,7 +312,7 @@ export default function Landing() {
         // ── sign-in ───────────────────────────────────────────────────────────
         writeDebug({ signInCallEntered: true });
         const signInResult = await Promise.race([
-          supabase.auth.signInWithPassword({ email: trimmedEmail, password }),
+          supabase.auth.signInWithPassword({ email: trimmedEmail, password: effectivePassword }),
           timeoutPromise,
         ]);
 
@@ -372,6 +407,7 @@ export default function Landing() {
             <form onSubmit={handleSubmit} className="max-w-sm space-y-3" data-testid="form-login" noValidate>
               <div className="space-y-2">
                 <Input
+                  ref={emailRef}
                   type="email"
                   placeholder="Enter your email"
                   value={email}
@@ -380,12 +416,19 @@ export default function Landing() {
                     clearError();
                     writeDebug({ onChangeIdentifierFiring: true, identifierInputState: e.target.value });
                   }}
+                  onInput={(e) => {
+                    const v = (e.target as HTMLInputElement).value;
+                    if (v !== email) { setEmail(v); }
+                    writeDebug({ onChangeIdentifierFiring: true, identifierInputState: v });
+                  }}
                   required
+                  autoComplete="email"
                   data-testid="input-email"
                   className="h-12"
                 />
                 <div className="relative">
                   <Input
+                    ref={passwordRef}
                     type={showPassword ? "text" : "password"}
                     placeholder="Password"
                     value={password}
@@ -394,7 +437,13 @@ export default function Landing() {
                       clearError();
                       writeDebug({ onChangePasswordFiring: true, passwordInputLength: e.target.value.length });
                     }}
+                    onInput={(e) => {
+                      const v = (e.target as HTMLInputElement).value;
+                      if (v !== password) { setPassword(v); }
+                      writeDebug({ onChangePasswordFiring: true, passwordInputLength: v.length });
+                    }}
                     required
+                    autoComplete="current-password"
                     data-testid="input-password"
                     className="h-12 pr-10"
                   />

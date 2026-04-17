@@ -28,6 +28,7 @@ import { Loader2 } from "lucide-react";
 // Imported from a shared module so landing.tsx and use-auth.ts can also write
 // to it without creating circular dependencies.
 import { _dbg, _dbgListeners, writeDebug } from "@/lib/debug-store";
+import { TabActiveContext } from "@/hooks/use-tab-active";
 
 function DebugOverlay() {
   const [, tick] = useReducer(n => n + 1, 0);
@@ -100,6 +101,9 @@ function DebugOverlay() {
                 {s.identifierInputState ?? "null"}
               </span>
             </div>
+            {row("identifierValuePropName", s.identifierValuePropName)}
+            {row("passwordValuePropName", s.passwordValuePropName)}
+            {row("renderCount", s.renderCount)}
             {row("passwordInputLength", s.passwordInputLength)}
             {row("onChangeIdentifierFiring", s.onChangeIdentifierFiring)}
             {row("onChangePasswordFiring", s.onChangePasswordFiring)}
@@ -171,9 +175,6 @@ function DebugOverlay() {
     </div>
   );
 }
-
-const TabActiveContext = createContext(true);
-export function useTabActive() { return useContext(TabActiveContext); }
 
 const TAB_PAGES = [
   { path: "/discover", Component: Discover },

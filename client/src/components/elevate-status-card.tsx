@@ -1,7 +1,7 @@
 import { useEffect, type ElementType } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Sparkles, Zap, Eye, Heart } from "lucide-react";
-import { useTabActive } from "@/App";
+import { useTabActive } from "@/hooks/use-tab-active";
 import { useCountdownSecs, useAnimatedCount, formatCountdown } from "@/lib/elevate-utils";
 
 type SessionStats = {
