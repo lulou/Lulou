@@ -441,13 +441,17 @@ export default function Landing() {
               <div
                 data-testid="input-echo-marker"
                 style={{
-                  background: email ? "#14532d" : "#374151",
-                  color: email ? "#86efac" : "#9ca3af",
+                  background: "#1f2937", color: "#e5e7eb",
                   fontFamily: "monospace", fontSize: 12,
-                  padding: "4px 8px", borderRadius: 4, fontWeight: 700,
+                  padding: "6px 8px", borderRadius: 4, lineHeight: 1.7,
                 }}
               >
-                INPUT TEST: {email || "empty — type in the field above to confirm React state updates"}
+                <div style={{ color: email ? "#86efac" : "#9ca3af", fontWeight: 700 }}>
+                  INPUT TEST: {email || "empty — type in email field below"}
+                </div>
+                <div style={{ color: password ? "#86efac" : "#9ca3af", fontWeight: 700 }}>
+                  PASSWORD LENGTH: {password.length}
+                </div>
               </div>
 
               <div className="space-y-2">
@@ -457,13 +461,9 @@ export default function Landing() {
                   placeholder="Enter your email"
                   value={email}
                   onChange={(e) => {
-                    setEmail(e.target.value);
+                    const v = e.target.value;
+                    setEmail(v);
                     clearError();
-                    writeDebug({ onChangeIdentifierFiring: true, identifierInputState: e.target.value });
-                  }}
-                  onInput={(e) => {
-                    const v = (e.target as HTMLInputElement).value;
-                    if (v !== email) { setEmail(v); }
                     writeDebug({ onChangeIdentifierFiring: true, identifierInputState: v });
                   }}
                   required
@@ -478,13 +478,9 @@ export default function Landing() {
                     placeholder="Password"
                     value={password}
                     onChange={(e) => {
-                      setPassword(e.target.value);
+                      const v = e.target.value;
+                      setPassword(v);
                       clearError();
-                      writeDebug({ onChangePasswordFiring: true, passwordInputLength: e.target.value.length });
-                    }}
-                    onInput={(e) => {
-                      const v = (e.target as HTMLInputElement).value;
-                      if (v !== password) { setPassword(v); }
                       writeDebug({ onChangePasswordFiring: true, passwordInputLength: v.length });
                     }}
                     required
