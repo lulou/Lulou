@@ -38,6 +38,33 @@ function classifyAuthError(err: any, mode: AuthMode): AuthError {
     };
   }
 
+  // ── HTML / non-JSON response from Supabase or a proxy ──────────────────────
+  // When the Supabase auth server is degraded, Cloudflare (or the server) can
+  // return an HTML error page instead of JSON. The Supabase JS SDK internally
+  // calls response.json(), fails, and surfaces the error as:
+  //   "Failed to create user: unexpected token '<', "<!DOCTYPE"... is not valid JSON"
+  //   "unexpected token '<' at position 0"
+  // These do NOT match credentials keywords, so without this check they fall
+  // through to kind:"auth" and show a raw parse-error string to the user.
+  // Detect the HTML/parse-error signature and reclassify as a network outage.
+  const _rawMsg: string = (err?.message ?? "").toLowerCase();
+  if (
+    _rawMsg.includes("unexpected token") ||
+    _rawMsg.includes("not valid json") ||
+    _rawMsg.includes("<!doctype") ||
+    _rawMsg.includes("<html") ||
+    _rawMsg.includes("failed to create user") ||
+    _rawMsg.includes("failed to sign up") ||
+    _rawMsg.includes("failed to sign in") ||
+    _rawMsg.includes("json.parse") ||
+    _rawMsg.includes("syntaxerror")
+  ) {
+    return {
+      kind: "network",
+      message: "Lulou is having trouble reaching the login service right now. Please try again shortly.",
+    };
+  }
+
   // ── Supabase sometimes returns {} or a raw JSON string as the error body ──
   let raw: string = err?.message ?? "";
   if (!raw || raw === "{}" || (raw.startsWith("{") && raw.endsWith("}"))) {
@@ -613,6 +640,10 @@ export default function Landing() {
                       <p className="font-semibold text-amber-900 text-sm leading-snug" data-testid="text-outage-heading">
                         {rawAuthError?.code === "timeout"
                           ? "Login server didn't respond"
+                          : rawAuthError?.code === "no-session"
+                          ? "Login service unavailable"
+                          : rawAuthError?.name === "SyntaxError" || rawAuthError?.message?.toLowerCase().includes("unexpected token")
+                          ? "Login server returned an unexpected response"
                           : "Connection problem"}
                       </p>
                       <p className="text-sm text-amber-800 leading-snug" data-testid="text-outage-message">
@@ -737,6 +768,10 @@ export default function Landing() {
                           : authError.kind === "network"
                           ? (rawAuthError?.code === "timeout"
                               ? "Login server didn't respond"
+                              : rawAuthError?.code === "no-session"
+                              ? "Login service unavailable"
+                              : rawAuthError?.name === "SyntaxError" || rawAuthError?.message?.toLowerCase().includes("unexpected token")
+                              ? "Login server returned an unexpected response"
                               : "Connection problem")
                           : authError.kind === "auth"
                           ? "Cannot sign in"
