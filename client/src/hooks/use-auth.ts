@@ -106,6 +106,8 @@ export function useAuth() {
 
   const logout = useCallback(async () => {
     console.log("[AUTH] LOGOUT_STARTED");
+    // Clear the bypass flag so the next login starts from scratch.
+    sessionStorage.removeItem("lulou-bypass");
     // Clear the cached token immediately so no in-flight request can sneak
     // through with the old credentials after sign-out is initiated.
     setCachedToken(null);

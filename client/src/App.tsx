@@ -399,9 +399,17 @@ function AppContent() {
   // network stall that doesn't trigger a TCP reset within the retry window).
   const [spinnerTimedOut, setSpinnerTimedOut] = useState(false);
   // forceProceed=true: user tapped "Continue to App" on a blocked screen.
-  // Routes directly to the main app, treating effectiveProfileExists=true,
-  // without waiting for a profile fetch that may never complete.
-  const [forceProceed, setForceProceed] = useState(false);
+  // Backed by sessionStorage so it survives AppContent remounts (which reset
+  // plain useState to false) and auth-event cycles triggered by Supabase when
+  // the DB is down.  Cleared on logout so each new login starts clean.
+  const [forceProceed, setForceProceedState] = useState(
+    () => sessionStorage.getItem("lulou-bypass") === "1"
+  );
+  const setForceProceed = (v: boolean) => {
+    if (v) sessionStorage.setItem("lulou-bypass", "1");
+    else sessionStorage.removeItem("lulou-bypass");
+    setForceProceedState(v);
+  };
   const spinnerStartRef = useRef<number | null>(null);
 
   // effectiveProfileExists: either confirmed by the server, or the user
@@ -509,18 +517,44 @@ function AppContent() {
       profilePending,
       clearingCache,
       profileReady,
+      sessionStorage: sessionStorage.getItem("lulou-bypass"),
     });
     return (
-      <Switch>
-        <Route path="/elevate/success" component={ElevateSuccessPage} />
-        <Route path="/extras/success" component={ExtrasSuccessPage} />
-        <Route>
-          <AppLayout>
-            <PersistentTabs />
-            <CallDetectors userId={user.id} />
-          </AppLayout>
-        </Route>
-      </Switch>
+      <>
+        <div
+          data-testid="bypass-banner"
+          style={{
+            position: "fixed", top: 0, left: 0, right: 0, zIndex: 9999,
+            background: "#fef3c7", borderBottom: "1px solid #f59e0b",
+            padding: "4px 12px", fontSize: 11, fontFamily: "monospace",
+            display: "flex", gap: 8, alignItems: "center",
+          }}
+        >
+          <span style={{ fontWeight: 700 }}>BYPASS ACTIVE</span>
+          <span>user:{user.id.slice(0,8)}</span>
+          <span>profile:{String(profileExists)}</span>
+          <span>fetchFailed:{String(fetchFailed)}</span>
+          <span>storage:{sessionStorage.getItem("lulou-bypass") ?? "null"}</span>
+          <button
+            style={{ marginLeft: "auto", fontSize: 11, cursor: "pointer" }}
+            onClick={() => setForceProceed(false)}
+          >
+            clear bypass
+          </button>
+        </div>
+        <div style={{ paddingTop: 24 }}>
+          <Switch>
+            <Route path="/elevate/success" component={ElevateSuccessPage} />
+            <Route path="/extras/success" component={ExtrasSuccessPage} />
+            <Route>
+              <AppLayout>
+                <PersistentTabs />
+                <CallDetectors userId={user.id} />
+              </AppLayout>
+            </Route>
+          </Switch>
+        </div>
+      </>
     );
   }
 
@@ -537,17 +571,29 @@ function AppContent() {
     ? `error: ${(profileFetchError as Error | null)?.message ?? "unknown"}`
     : "ready";
 
+  const finalGateDecision = isSpinning
+    ? (spinnerTimedOut ? "blocked_by_loading_state (spinner_timeout)" : "blocked_by_loading_state (spinner_running)")
+    : (fetchFailed && !effectiveProfileExists)
+      ? "blocked_by_profile_gate"
+      : !effectiveProfileExists
+        ? "blocked_by_onboarding_guard"
+        : "render_main_app";
+
   const statusPanel = (
     <div className="w-full max-w-xs text-left bg-muted/40 border border-muted rounded-md p-3 space-y-1 text-xs text-muted-foreground font-mono mt-2">
       <p data-testid="debug-user">user: {user.id.slice(0, 8)}…</p>
-      <p data-testid="debug-auth">auth-ready: {authLoading ? "no" : "yes"}</p>
-      <p data-testid="debug-session">session: {user ? "yes" : "no"}</p>
+      <p data-testid="debug-auth">authReady: {authLoading ? "no" : "yes"}</p>
+      <p data-testid="debug-session">sessionExists: {user ? "yes" : "no"}</p>
       <p data-testid="debug-profile-exists">profileExists: {String(profileExists)}</p>
       <p data-testid="debug-effective">effectiveProfileExists: {String(effectiveProfileExists)}</p>
       <p data-testid="debug-fetch-failed">fetchFailed: {String(fetchFailed)}</p>
       <p data-testid="debug-spinner-timed-out">spinnerTimedOut: {String(spinnerTimedOut)}</p>
       <p data-testid="debug-force-proceed">forceProceed: {String(forceProceed)}</p>
+      <p data-testid="debug-onboarding-complete">onboardingComplete: {String(profileExists)}</p>
+      <p data-testid="debug-route">route: {location}</p>
+      <p data-testid="debug-final-gate">finalGateDecision: {finalGateDecision}</p>
       <p data-testid="debug-phase">phase: {phaseLabel}</p>
+      <p data-testid="debug-storage">storage[lulou-bypass]: {sessionStorage.getItem("lulou-bypass") ?? "null"}</p>
     </div>
   );
 

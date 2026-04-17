@@ -1,0 +1,72 @@
+Stop patching around this. Find the single final blocker that prevents the app from rendering after login.
+
+Current problem:
+- Login/session may succeed
+- Profile load may fail
+- Continue to App / bypass still does nothing
+- Users still cannot enter the app
+
+I do NOT want another partial fix.
+I want you to trace the exact final render path and identify the one condition or redirect still blocking entry.
+
+Tasks:
+
+1. Start from the top-level app render in App.tsx and trace the exact order of all gates and returns.
+
+2. List every branch that can prevent the main app from rendering, including:
+- loading screen
+- setup/onboarding screen
+- profile error screen
+- timeout screen
+- auth guard
+- protected route
+- redirect effect
+- missing profile check
+- onboardingComplete check
+- session/user null check
+
+3. Add a visible on-screen debug panel at the top-level app render showing these exact live values:
+- user id
+- authReady
+- sessionExists
+- profileExists
+- effectiveProfileExists
+- fetchFailed
+- spinnerTimedOut
+- forceProceed
+- onboardingComplete
+- route/pathname
+- finalGateDecision
+
+4. Add a single log and visible label immediately before EVERY early return in App.tsx:
+FINAL_APP_GATE: <exact reason>
+
+Examples:
+- FINAL_APP_GATE: render_main_app
+- FINAL_APP_GATE: blocked_loading
+- FINAL_APP_GATE: blocked_profile_error
+- FINAL_APP_GATE: blocked_onboarding
+- FINAL_APP_GATE: blocked_missing_session
+- FINAL_APP_GATE: blocked_redirect_effect
+
+5. Search for any useEffect, navigate, redirect, or conditional route logic that runs AFTER bypass and sends the user away from the app.
+Log each one before it fires.
+
+6. If forceProceed is true and auth/session is valid, make the main app render unconditionally.
+Do not allow any later profile/onboarding/loading gate to override that.
+
+7. Search for any component below App.tsx that still uses old logic like:
+- !profileExists
+- !onboardingComplete
+- loading === true
+and blocks entry even after the top-level gate is passed.
+
+8. Fix the exact final blocker only.
+Do not make broad refactors.
+Do not change messaging/call logic.
+
+9. After fixing, explain only:
+- the exact file and line of the final blocker
+- the exact condition that was still preventing app render
+- the exact code changed
+- what FINAL_APP_GATE now shows when app entry works
