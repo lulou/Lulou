@@ -1,5 +1,5 @@
 import { Switch, Route, useLocation } from "wouter";
-import { createContext, useContext, useState, useCallback, useEffect, useRef } from "react";
+import { createContext, useContext, useState, useCallback, useEffect, useRef, useReducer } from "react";
 import { queryClient, getAuthHeaders, apiRequest } from "./lib/queryClient";
 import { QueryClientProvider, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -23,6 +23,126 @@ import { useCallSignaling, setCallEndedHandler, clearDedupeForMatch } from "@/ho
 import { markCallSessionCancelled, isCallSessionCancelled, clearCancelledSession } from "@/lib/cancelled-calls";
 import type { Profile, Match } from "@shared/schema";
 import { Loader2 } from "lucide-react";
+
+// ── Global debug store ───────────────────────────────────────────────────────
+// Written by AppContent on every render; read by DebugOverlay (outside the
+// component tree so it survives all early returns and re-mounts).
+interface DebugSnapshot {
+  userId: string | null;
+  authReady: boolean;
+  sessionExists: boolean;
+  profileExists: boolean;
+  effectiveProfileExists: boolean;
+  fetchFailed: boolean;
+  spinnerTimedOut: boolean;
+  forceProceed: boolean;
+  onboardingComplete: boolean;
+  route: string;
+  finalGateDecision: string;
+  phase: string;
+  errors: string[];
+}
+
+const _dbg: DebugSnapshot = {
+  userId: null, authReady: false, sessionExists: false,
+  profileExists: false, effectiveProfileExists: false,
+  fetchFailed: false, spinnerTimedOut: false, forceProceed: false,
+  onboardingComplete: false, route: "/", finalGateDecision: "init",
+  phase: "init", errors: [],
+};
+const _dbgListeners = new Set<() => void>();
+
+function writeDebug(patch: Partial<DebugSnapshot>) {
+  Object.assign(_dbg, patch);
+  // Defer listener notification so it doesn't fire during a React render
+  // (calling setState of DebugOverlay while AppContent is still rendering
+  // triggers React's "update during render" warning).
+  queueMicrotask(() => _dbgListeners.forEach(fn => fn()));
+}
+
+export function pushDebugError(msg: string) {
+  const ts = new Date().toISOString().slice(11, 19);
+  _dbg.errors = [`${ts} ${msg}`, ..._dbg.errors].slice(0, 12);
+  _dbgListeners.forEach(fn => fn());
+}
+
+function DebugOverlay() {
+  const [, tick] = useReducer(n => n + 1, 0);
+  const [open, setOpen] = useState(true);
+
+  useEffect(() => {
+    _dbgListeners.add(tick);
+    return () => { _dbgListeners.delete(tick); };
+  }, []);
+
+  const s = _dbg;
+  const gateColor = s.finalGateDecision.startsWith("render_main_app") ? "#22c55e" : "#f97316";
+
+  const row = (label: string, value: string | boolean | null, highlight?: boolean) => (
+    <div style={{ display: "flex", gap: 4 }}>
+      <span style={{ color: "#94a3b8", minWidth: 140 }}>{label}</span>
+      <span style={{ color: highlight ? gateColor : typeof value === "boolean" ? (value ? "#86efac" : "#fca5a5") : "#e2e8f0", fontWeight: highlight ? 700 : 400 }}>
+        {String(value ?? "null")}
+      </span>
+    </div>
+  );
+
+  return (
+    <div
+      data-testid="debug-overlay"
+      style={{
+        position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 99999,
+        background: "rgba(15,23,42,0.97)", borderTop: "1px solid #334155",
+        fontFamily: "monospace", fontSize: 10, color: "#e2e8f0",
+        maxHeight: open ? 280 : 22, overflow: "hidden", transition: "max-height 0.2s",
+      }}
+    >
+      {/* Header bar — always visible */}
+      <div
+        style={{ display: "flex", alignItems: "center", gap: 8, padding: "3px 8px",
+          background: "rgba(30,41,59,0.98)", cursor: "pointer", borderBottom: open ? "1px solid #334155" : "none" }}
+        onClick={() => setOpen(o => !o)}
+      >
+        <span style={{ color: gateColor, fontWeight: 700 }}>{s.finalGateDecision}</span>
+        {s.errors.length > 0 && <span style={{ color: "#f87171", marginLeft: 8 }}>⚠ {s.errors.length} error{s.errors.length > 1 ? "s" : ""}</span>}
+        <span style={{ marginLeft: "auto", color: "#64748b" }}>{open ? "▼ hide" : "▲ debug"}</span>
+      </div>
+
+      {/* Body */}
+      {open && (
+        <div style={{ display: "flex", gap: 16, padding: "6px 10px", overflowX: "auto" }}>
+          {/* State column */}
+          <div style={{ minWidth: 220 }}>
+            {row("userId", s.userId ? s.userId.slice(0, 12) + "…" : null)}
+            {row("authReady", s.authReady)}
+            {row("sessionExists", s.sessionExists)}
+            {row("profileExists", s.profileExists)}
+            {row("effectiveProfileExists", s.effectiveProfileExists)}
+            {row("fetchFailed", s.fetchFailed)}
+            {row("spinnerTimedOut", s.spinnerTimedOut)}
+            {row("forceProceed", s.forceProceed)}
+            {row("onboardingComplete", s.onboardingComplete)}
+            {row("route", s.route)}
+            {row("phase", s.phase)}
+            {row("finalGateDecision", s.finalGateDecision, true)}
+            {row("storage[bypass]", sessionStorage.getItem("lulou-bypass") ?? "null")}
+          </div>
+
+          {/* Errors column */}
+          <div style={{ flex: 1, minWidth: 200 }}>
+            <div style={{ color: "#94a3b8", marginBottom: 4 }}>ERRORS ({s.errors.length})</div>
+            {s.errors.length === 0
+              ? <div style={{ color: "#475569" }}>none</div>
+              : s.errors.map((e, i) => (
+                <div key={i} style={{ color: "#f87171", marginBottom: 2, wordBreak: "break-all" }}>{e}</div>
+              ))
+            }
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 const TabActiveContext = createContext(true);
 export function useTabActive() { return useContext(TabActiveContext); }
@@ -352,6 +472,7 @@ async function checkProfileExists(): Promise<ProfileCheckResult> {
 const SPINNER_TIMEOUT_MS = 15_000;
 
 function AppContent() {
+  const [location] = useLocation();
   const { user, isLoading: authLoading, profileReady, clearingCache, logout } = useAuth();
 
   // IMPORTANT: This query uses a dedicated key "profile-exists-check" that is intentionally
@@ -485,12 +606,59 @@ function AppContent() {
     });
   }, [fetchFailed, user?.id]);
 
+  // ── Pre-gate: compute phase/decision and write to debug store ────────────
+  // This runs on EVERY render before any early return so the DebugOverlay
+  // always shows the current live state, regardless of which screen is shown.
+  const phaseLabel = authLoading
+    ? "auth loading…"
+    : !user
+    ? "no session"
+    : clearingCache
+    ? "switching accounts…"
+    : !profileReady
+    ? "verifying session…"
+    : profilePending
+    ? "loading profile…"
+    : profileError
+    ? `error: ${(profileFetchError as Error | null)?.message ?? "unknown"}`
+    : "ready";
+
+  const finalGateDecision = authLoading
+    ? "blocked_auth_loading"
+    : !user
+      ? "blocked_missing_session"
+      : forceProceed
+        ? "render_main_app (force_proceed)"
+        : isSpinning
+          ? (spinnerTimedOut ? "blocked_spinner_timeout" : "blocked_spinner_running")
+          : (fetchFailed && !effectiveProfileExists)
+            ? "blocked_profile_gate"
+            : !effectiveProfileExists
+              ? "blocked_onboarding_guard"
+              : "render_main_app";
+
+  writeDebug({
+    userId: user?.id ?? null,
+    authReady: !authLoading,
+    sessionExists: !!user,
+    profileExists,
+    effectiveProfileExists,
+    fetchFailed,
+    spinnerTimedOut,
+    forceProceed,
+    onboardingComplete: profileExists,
+    route: location,
+    finalGateDecision,
+    phase: phaseLabel,
+  });
+
   if (authLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-3">
           <Loader2 className="w-8 h-8 text-primary animate-spin" />
-          <p className="text-sm text-muted-foreground">Loading...</p>
+          <p className="text-sm text-muted-foreground">Loading…</p>
+          <p className="text-xs text-muted-foreground font-mono">FINAL_APP_GATE: blocked_auth_loading</p>
         </div>
       </div>
     );
@@ -557,27 +725,6 @@ function AppContent() {
       </>
     );
   }
-
-  // ── Status snapshot used by all blocked screens ───────────────────────────
-  // forceProceed is always false here (handled above). Shows every gating value
-  // so blocked-screen debug panel is self-contained.
-  const phaseLabel = clearingCache
-    ? "switching accounts…"
-    : !profileReady
-    ? "verifying session…"
-    : profilePending
-    ? "loading profile…"
-    : profileError
-    ? `error: ${(profileFetchError as Error | null)?.message ?? "unknown"}`
-    : "ready";
-
-  const finalGateDecision = isSpinning
-    ? (spinnerTimedOut ? "blocked_by_loading_state (spinner_timeout)" : "blocked_by_loading_state (spinner_running)")
-    : (fetchFailed && !effectiveProfileExists)
-      ? "blocked_by_profile_gate"
-      : !effectiveProfileExists
-        ? "blocked_by_onboarding_guard"
-        : "render_main_app";
 
   const statusPanel = (
     <div className="w-full max-w-xs text-left bg-muted/40 border border-muted rounded-md p-3 space-y-1 text-xs text-muted-foreground font-mono mt-2">
@@ -728,11 +875,28 @@ function AppContent() {
 }
 
 function App() {
+  useEffect(() => {
+    const onError = (e: ErrorEvent) => {
+      pushDebugError(`onerror: ${e.message} (${e.filename?.split("/").pop() ?? "?"}:${e.lineno})`);
+    };
+    const onUnhandled = (e: PromiseRejectionEvent) => {
+      const msg = e.reason instanceof Error ? e.reason.message : String(e.reason);
+      pushDebugError(`unhandled: ${msg}`);
+    };
+    window.addEventListener("error", onError);
+    window.addEventListener("unhandledrejection", onUnhandled);
+    return () => {
+      window.removeEventListener("error", onError);
+      window.removeEventListener("unhandledrejection", onUnhandled);
+    };
+  }, []);
+
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
         <Toaster />
         <AppContent />
+        <DebugOverlay />
       </TooltipProvider>
     </QueryClientProvider>
   );
