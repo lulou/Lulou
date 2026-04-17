@@ -352,7 +352,7 @@ async function checkProfileExists(): Promise<ProfileCheckResult> {
 const SPINNER_TIMEOUT_MS = 15_000;
 
 function AppContent() {
-  const { user, isLoading: authLoading, profileReady, clearingCache } = useAuth();
+  const { user, isLoading: authLoading, profileReady, clearingCache, logout } = useAuth();
 
   // IMPORTANT: This query uses a dedicated key "profile-exists-check" that is intentionally
   // separate from the "/api/profile" key used by ProfilePage for data.
@@ -371,7 +371,7 @@ function AppContent() {
   // isLoading (isPending && isFetching) would be false on that first render
   // because isFetching hasn't flipped to true yet, causing the app to fall
   // through to `if (!profileExists)` and briefly flash the Onboarding screen.
-  const { data, isPending: profilePending, isError: profileError } = useQuery<ProfileCheckResult>({
+  const { data, isPending: profilePending, isError: profileError, error: profileFetchError } = useQuery<ProfileCheckResult>({
     queryKey: ["profile-exists-check"],
     queryFn: () => {
       if (!user) return Promise.resolve({ exists: false, fetchFailed: false });
@@ -484,34 +484,69 @@ function AppContent() {
 
   // Show spinner while cache is clearing, profile ready flag is not set, or
   // the profile-exists-check fetch is in progress.
+  // ── Status snapshot used by all blocked screens ──────────────────────────────
+  const phaseLabel = clearingCache
+    ? "switching accounts…"
+    : !profileReady
+    ? "verifying session…"
+    : profilePending
+    ? "loading profile…"
+    : profileError
+    ? `profile error (${(profileFetchError as Error | null)?.message ?? "unknown"})`
+    : "ready";
+
+  const statusPanel = (
+    <div className="w-full max-w-xs text-left bg-muted/40 border border-muted rounded-md p-3 space-y-1 text-xs text-muted-foreground font-mono mt-2">
+      <p data-testid="debug-user">user: {user?.id ? `${user.id.slice(0, 8)}…` : "none"}</p>
+      <p data-testid="debug-auth">auth: {authLoading ? "loading" : user ? "ok" : "signed out"}</p>
+      <p data-testid="debug-cache">cache: {clearingCache ? "clearing" : "ok"}</p>
+      <p data-testid="debug-profile">profile: {phaseLabel}</p>
+    </div>
+  );
+
   if (isSpinning) {
     if (spinnerTimedOut) {
       // The spinner ran past SPINNER_TIMEOUT_MS — abort and show retry screen.
       return (
         <div className="min-h-screen flex items-center justify-center bg-background">
-          <div className="flex flex-col items-center gap-4 text-center px-6">
+          <div className="flex flex-col items-center gap-4 text-center px-6 max-w-sm w-full">
             <p className="text-lg font-serif font-semibold">Taking longer than expected</p>
-            <p className="text-sm text-muted-foreground">We couldn't finish setting up your experience. You're still signed in — this is usually a temporary issue.</p>
-            <button
-              className="px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:brightness-110 transition-all"
-              onClick={() => {
-                setSpinnerTimedOut(false);
-                spinnerStartRef.current = null;
-                queryClient.resetQueries({ queryKey: ["profile-exists-check"] });
-              }}
-              data-testid="button-retry-setup"
-            >
-              Try Again
-            </button>
+            <p className="text-sm text-muted-foreground">We couldn't finish loading your profile. You're still signed in — this is usually a temporary server issue.</p>
+            {statusPanel}
+            <div className="flex gap-3 pt-1">
+              <button
+                className="px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:brightness-110 transition-all"
+                onClick={() => {
+                  setSpinnerTimedOut(false);
+                  spinnerStartRef.current = null;
+                  queryClient.resetQueries({ queryKey: ["profile-exists-check"] });
+                }}
+                data-testid="button-retry-setup"
+              >
+                Try Again
+              </button>
+              <button
+                className="px-4 py-2 rounded-md border text-sm font-medium hover:bg-muted transition-all"
+                onClick={logout}
+                data-testid="button-signout-setup"
+              >
+                Sign Out
+              </button>
+            </div>
           </div>
         </div>
       );
     }
+    const spinnerMsg = clearingCache
+      ? "Switching accounts…"
+      : !profileReady
+      ? "Verifying session…"
+      : "Loading your profile…";
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-3">
           <Loader2 className="w-8 h-8 text-primary animate-spin" />
-          <p className="text-sm text-muted-foreground">Setting up your experience...</p>
+          <p className="text-sm text-muted-foreground" data-testid="text-spinner-phase">{spinnerMsg}</p>
         </div>
       </div>
     );
@@ -520,16 +555,26 @@ function AppContent() {
   if (fetchFailed && !profileExists) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
-        <div className="flex flex-col items-center gap-4 text-center px-6">
-          <p className="text-lg font-serif font-semibold">Something went wrong</p>
-          <p className="text-sm text-muted-foreground">We couldn't load your profile right now. You're still signed in — this is just a temporary issue.</p>
-          <button
-            className="px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:brightness-110 transition-all"
-            onClick={() => queryClient.invalidateQueries({ queryKey: ["profile-exists-check"] })}
-            data-testid="button-retry-profile"
-          >
-            Try Again
-          </button>
+        <div className="flex flex-col items-center gap-4 text-center px-6 max-w-sm w-full">
+          <p className="text-lg font-serif font-semibold">Couldn't load your profile</p>
+          <p className="text-sm text-muted-foreground">Your account is fine — the server returned an error when fetching your profile. This is temporary.</p>
+          {statusPanel}
+          <div className="flex gap-3 pt-1">
+            <button
+              className="px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:brightness-110 transition-all"
+              onClick={() => queryClient.invalidateQueries({ queryKey: ["profile-exists-check"] })}
+              data-testid="button-retry-profile"
+            >
+              Try Again
+            </button>
+            <button
+              className="px-4 py-2 rounded-md border text-sm font-medium hover:bg-muted transition-all"
+              onClick={logout}
+              data-testid="button-signout-profile"
+            >
+              Sign Out
+            </button>
+          </div>
         </div>
       </div>
     );

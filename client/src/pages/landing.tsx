@@ -60,10 +60,18 @@ function classifyAuthError(err: any, mode: AuthMode): AuthError {
     lower.includes("network") ||
     lower.includes("fetch") ||
     lower.includes("failed to fetch") ||
+    lower.includes("load failed") ||       // Safari equivalent of "Failed to fetch"
     lower.includes("networkerror") ||
-    lower.includes("connection")
+    lower.includes("connection") ||
+    lower.includes("abort") ||
+    lower.includes("timeout") ||
+    lower.includes("timed out")
   ) {
-    return { kind: "network", message: msg };
+    // Give users a concrete action rather than the raw browser error string.
+    const detail = msg === "Load failed" || msg === "Failed to fetch"
+      ? "Could not reach Lulou's servers. Check your internet connection and try again."
+      : `Could not connect: ${msg}`;
+    return { kind: "network", message: detail };
   }
   return { kind: "auth", message: msg };
 }
@@ -279,7 +287,7 @@ export default function Landing() {
 
               {authError && !resetSent && (
                 <div
-                  className={`rounded-md border px-3 py-3 text-sm ${
+                  className={`rounded-md border px-3 py-3 text-sm animate-in fade-in slide-in-from-top-1 duration-150 ${
                     authError.kind === "network"
                       ? "bg-amber-50 border-amber-200 text-amber-900"
                       : "bg-destructive/10 border-destructive/30 text-destructive"
