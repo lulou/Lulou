@@ -95,6 +95,16 @@ export default function Landing() {
   // ── RAW INPUT STATE TEST — brand-new isolated state, no custom component ──
   const [debugEmail, setDebugEmail] = useState("");
   const [debugPassword, setDebugPassword] = useState("");
+  // Ref to the event-log div — written directly in handlers, bypasses React state
+  // so we can prove events fire even if setState is somehow broken.
+  const rawEvtRef = useRef<HTMLDivElement>(null);
+  const markRawEvt = (label: string) => {
+    if (rawEvtRef.current) {
+      const ts = new Date().toISOString().slice(11, 23);
+      rawEvtRef.current.textContent = `${label} @ ${ts}`;
+      rawEvtRef.current.style.color = "#86efac";
+    }
+  };
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -428,13 +438,17 @@ export default function Landing() {
 
             {/* ══════════════════════════════════════════════════════════════════
                 RAW INPUT STATE TEST
-                Two plain native <input> elements wired to brand-new local state.
-                No custom component. If these update, React state works fine.
-                If these also don't update, the issue is above the form.
+                rawEvtRef + markRawEvt are defined at component top-level (above).
+                The event-log div is updated via direct DOM write — no React state
+                involved — so it proves events fire even if setState is broken.
+                z-index: 100001 lifts this above the debug overlay (zIndex 99999).
                 ══════════════════════════════════════════════════════════════════ */}
             <div
               data-testid="raw-input-test"
               style={{
+                position: "relative",
+                zIndex: 100001,
+                pointerEvents: "auto",
                 border: "3px solid #f59e0b",
                 borderRadius: 8,
                 padding: "12px 14px",
@@ -448,32 +462,49 @@ export default function Landing() {
                 ⚡ RAW INPUT STATE TEST
               </div>
 
+              {/* Ref-based event log — direct DOM mutation, bypasses React state */}
+              <div
+                ref={rawEvtRef}
+                data-testid="raw-event-log"
+                style={{ color: "#9ca3af", fontSize: 11, marginBottom: 6, minHeight: 16 }}
+              >
+                no events yet — click or type below
+              </div>
+
               <input
                 type="text"
                 placeholder="raw email — type here"
                 value={debugEmail}
-                onChange={(e) => setDebugEmail(e.target.value)}
                 data-testid="raw-input-email"
                 style={{
                   display: "block", width: "100%", marginBottom: 6,
-                  padding: "6px 8px", borderRadius: 4, border: "1px solid #6b7280",
-                  background: "#374151", color: "#f9fafb", fontSize: 13,
+                  padding: "8px 10px", borderRadius: 4,
+                  border: "2px solid #f59e0b",
+                  background: "#292524", color: "#f9fafb", fontSize: 14,
                   boxSizing: "border-box",
+                  position: "relative", zIndex: 100002, pointerEvents: "auto",
                 }}
+                onFocus={() => markRawEvt("FOCUS")}
+                onClick={() => markRawEvt("CLICK")}
+                onKeyDown={() => markRawEvt("KEYDOWN")}
+                onInput={(e) => markRawEvt("INPUT: " + (e.target as HTMLInputElement).value)}
+                onChange={(e) => { markRawEvt("CHANGE: " + e.target.value); setDebugEmail(e.target.value); }}
               />
 
               <input
                 type="password"
                 placeholder="raw password — type here"
                 value={debugPassword}
-                onChange={(e) => setDebugPassword(e.target.value)}
                 data-testid="raw-input-password"
                 style={{
                   display: "block", width: "100%", marginBottom: 8,
-                  padding: "6px 8px", borderRadius: 4, border: "1px solid #6b7280",
-                  background: "#374151", color: "#f9fafb", fontSize: 13,
+                  padding: "8px 10px", borderRadius: 4,
+                  border: "2px solid #6b7280",
+                  background: "#292524", color: "#f9fafb", fontSize: 14,
                   boxSizing: "border-box",
+                  position: "relative", zIndex: 100002, pointerEvents: "auto",
                 }}
+                onChange={(e) => setDebugPassword(e.target.value)}
               />
 
               <div style={{ color: debugEmail ? "#86efac" : "#9ca3af", fontWeight: 700, fontSize: 12 }}>

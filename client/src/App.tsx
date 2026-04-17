@@ -32,7 +32,7 @@ import { TabActiveContext } from "@/hooks/use-tab-active";
 
 function DebugOverlay() {
   const [, tick] = useReducer(n => n + 1, 0);
-  const [open, setOpen] = useState(true);
+  const [open, setOpen] = useState(false); // collapsed by default — stops it from covering form inputs
 
   useEffect(() => {
     _dbgListeners.add(tick);

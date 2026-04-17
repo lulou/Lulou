@@ -1,0 +1,67 @@
+Find and fix why typing does not update even in raw native inputs on the live landing page.
+
+What is already proven:
+- The live page is definitely using client/src/pages/landing.tsx
+- RAW INPUT STATE TEST is visible
+- But even the plain native inputs do not update:
+ - DEBUG EMAIL stays empty
+ - DEBUG PASSWORD LENGTH stays 0
+
+This means the problem is not just the login form wiring.
+Something is preventing real typing/input events from reaching React state.
+
+Tasks:
+
+1. In client/src/pages/landing.tsx, inspect the raw native test inputs and the surrounding containers.
+
+2. Identify whether anything is blocking interaction with the inputs:
+- overlay covering the form
+- parent/container intercepting pointer events
+- z-index/layering issue
+- disabled inputs
+- readOnly inputs
+- form inside an element with pointer-events: none
+- transparent element sitting above the fields
+- animation/transition wrapper breaking focus
+- mobile Safari focus/input issue
+
+3. Add visible on-screen debug values for the raw inputs:
+- rawInputFocused
+- rawInputClicked
+- rawInputKeydown
+- rawInputChangeFired
+- rawInputDisabled
+- rawInputReadOnly
+- topElementAtInputPoint
+
+4. Add simple native event handlers directly on the raw email input:
+- onFocus
+- onClick
+- onKeyDown
+- onInput
+- onChange
+and show whether each one fires on screen.
+
+5. Inspect the DOM/layout around the form and identify the topmost clickable element over the input area.
+Show its tag/class/name visibly on screen as:
+TOP ELEMENT OVER INPUT: ...
+
+6. If any overlay or wrapper is blocking interaction, remove/fix only that blocker.
+
+7. Temporarily give the raw test input extremely obvious styles:
+- high z-index
+- position relative
+- pointer-events: auto
+- border
+- background
+to ensure it is interactable
+
+8. Do not change auth logic yet.
+Do not refactor unrelated code.
+Only fix the input interaction problem.
+
+9. After fixing, explain only:
+- the exact file and line causing the input interaction block
+- whether it was overlay, pointer-events, disabled/readOnly, or something else
+- what exact code you changed
+- whether raw input events now fire and state updates while typing
