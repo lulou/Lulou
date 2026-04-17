@@ -146,16 +146,22 @@ export default function Landing() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
 
+    // ── FORM WIRING TRACE — written before any validation or early return ─────
+    writeDebug({ formOnSubmitFired: true, submitHandlerEntered: true, submitBlockedReason: null });
+    console.log("[AUTH] SUBMIT_HANDLER_ENTERED", { emailLen: email.length, passwordLen: password.length });
+
     const trimmedEmail = email.trim();
 
     // Show explicit errors for empty fields rather than silently blocking.
     if (!trimmedEmail) {
       console.warn("[AUTH] SUBMIT_BLOCKED: email empty");
+      writeDebug({ submitBlockedReason: "email_empty" });
       setAuthError({ kind: "auth", message: "Please enter your email address." });
       return;
     }
     if (!password) {
       console.warn("[AUTH] SUBMIT_BLOCKED: password empty");
+      writeDebug({ submitBlockedReason: "password_empty" });
       setAuthError({ kind: "auth", message: "Please enter your password." });
       return;
     }
@@ -369,7 +375,11 @@ export default function Landing() {
                   type="email"
                   placeholder="Enter your email"
                   value={email}
-                  onChange={(e) => { setEmail(e.target.value); clearError(); }}
+                  onChange={(e) => {
+                    setEmail(e.target.value);
+                    clearError();
+                    writeDebug({ onChangeIdentifierFiring: true, identifierInputState: e.target.value });
+                  }}
                   required
                   data-testid="input-email"
                   className="h-12"
@@ -379,7 +389,11 @@ export default function Landing() {
                     type={showPassword ? "text" : "password"}
                     placeholder="Password"
                     value={password}
-                    onChange={(e) => { setPassword(e.target.value); clearError(); }}
+                    onChange={(e) => {
+                      setPassword(e.target.value);
+                      clearError();
+                      writeDebug({ onChangePasswordFiring: true, passwordInputLength: e.target.value.length });
+                    }}
                     required
                     data-testid="input-password"
                     className="h-12 pr-10"
@@ -517,6 +531,7 @@ code:    ${rawAuthError.code}`}
                 className="w-full text-base"
                 disabled={loading || !email.trim() || !password}
                 data-testid="button-submit-auth"
+                onClick={() => writeDebug({ submitButtonClicked: true })}
               >
                 {loading ? (
                   <>

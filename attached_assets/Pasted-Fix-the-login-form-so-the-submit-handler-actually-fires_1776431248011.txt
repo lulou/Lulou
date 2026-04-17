@@ -1,0 +1,71 @@
+Fix the login form so the submit handler actually fires and receives the typed values.
+
+Current live debug panel shows:
+- submittedIdentifier: null
+- submittedPasswordPresent: false
+- signInStarted: false
+- signInCallEntered: false
+
+This proves the login attempt is NOT reaching the real sign-in code.
+The problem is now in the login form wiring itself:
+- field state is not updating
+- submit handler is not firing
+- or the form/button is not connected correctly
+
+Tasks:
+
+1. Find the login form component and the exact input fields for:
+- email/identifier
+- password
+
+2. Verify the input fields are correctly bound to state:
+- value prop
+- onChange handler
+- state variable names
+
+3. Verify the submit button and form are wired correctly:
+- onSubmit fires on the form
+- button type is submit
+- no preventDefault issue blocks the real handler
+- no overlay/div is intercepting clicks
+- no disabled state permanently blocks submit
+
+4. Add visible on-screen debug values for:
+- identifierInputState
+- passwordInputLength
+- onChangeIdentifierFiring
+- onChangePasswordFiring
+- submitButtonClicked
+- formOnSubmitFired
+- submitHandlerEntered
+- submitBlockedReason
+
+5. If the UI uses a custom button component, verify it actually passes through:
+- onClick
+- type="submit"
+
+6. If the form uses controlled inputs, fix any mismatch where:
+- displayed text changes visually
+- but React state stays null/empty
+
+7. If the shake animation is firing before submit, identify that exact branch and show the reason on screen.
+
+8. Make the login form show a visible line for each stage:
+- typing identifier detected
+- typing password detected
+- submit clicked
+- submit handler entered
+
+9. Do not refactor unrelated code.
+Do not change messaging/call logic.
+Only fix the login form wiring so typed values reach the submit handler.
+
+10. After fixing, explain only:
+- the exact file and line where the login form was broken
+- whether it was input binding, button wiring, or submit wiring
+- what exact code you changed
+- what the live debug panel now shows for:
+ - identifierInputState
+ - passwordInputLength
+ - formOnSubmitFired
+ - submitHandlerEntered

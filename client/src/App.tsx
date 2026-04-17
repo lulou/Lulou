@@ -91,6 +91,29 @@ function DebugOverlay() {
             {row("storage[bypass]", sessionStorage.getItem("lulou-bypass") ?? "null")}
           </div>
 
+          {/* Form-wiring column */}
+          <div style={{ minWidth: 200 }}>
+            <div style={{ color: "#94a3b8", marginBottom: 4 }}>FORM WIRING</div>
+            <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 2 }}>
+              <span style={{ color: "#94a3b8", minWidth: 140 }}>identifierInputState</span>
+              <span style={{ color: s.identifierInputState ? "#4ade80" : "#475569", wordBreak: "break-all" }}>
+                {s.identifierInputState ?? "null"}
+              </span>
+            </div>
+            {row("passwordInputLength", s.passwordInputLength)}
+            {row("onChangeIdentifierFiring", s.onChangeIdentifierFiring)}
+            {row("onChangePasswordFiring", s.onChangePasswordFiring)}
+            {row("submitButtonClicked", s.submitButtonClicked)}
+            {row("formOnSubmitFired", s.formOnSubmitFired)}
+            {row("submitHandlerEntered", s.submitHandlerEntered)}
+            <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 2 }}>
+              <span style={{ color: "#94a3b8", minWidth: 140 }}>submitBlockedReason</span>
+              <span style={{ color: s.submitBlockedReason ? "#f87171" : "#475569" }}>
+                {s.submitBlockedReason ?? "null"}
+              </span>
+            </div>
+          </div>
+
           {/* Auth-flow trace column */}
           <div style={{ minWidth: 220 }}>
             <div style={{ color: "#94a3b8", marginBottom: 4 }}>AUTH FLOW</div>
