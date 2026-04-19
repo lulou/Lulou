@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Heart, MessageCircle, Phone, Shield, RefreshCw, Loader2, Lock, Eye, EyeOff, AlertCircle, WifiOff, CheckCircle, ChevronDown, ChevronUp } from "lucide-react";
@@ -209,6 +210,84 @@ export default function Landing() {
     return () => document.removeEventListener("keydown", onDocKey, true);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // ── Full keyboard-reach diagnostics ────────────────────────────────────────
+  // Attaches listeners at window / document / body covering every keyboard
+  // event type.  All writes go directly to the DOM — no React state.
+  const kbdPanelRef  = useRef<HTMLDivElement>(null);
+  const kbdNoEvtRef  = useRef<HTMLDivElement>(null);   // "not reaching page" message
+  const kbdCounters  = useRef({
+    windowKeydownSeen:      0,
+    documentKeydownSeen:    0,
+    bodyKeydownSeen:        0,
+    inputKeydownSeen:       0,
+    keypressSeen:           0,
+    beforeInputSeen:        0,
+    compositionStartSeen:   0,
+    compositionUpdateSeen:  0,
+    compositionEndSeen:     0,
+    pasteSeen:              0,
+  });
+  const flushKbd = () => {
+    if (!kbdPanelRef.current) return;
+    const c = kbdCounters.current;
+    const anyKey = Object.values(c).some(v => v > 0);
+    // Show/hide the "not reaching page" banner
+    if (kbdNoEvtRef.current) {
+      kbdNoEvtRef.current.style.display = anyKey ? "none" : "block";
+    }
+    const row = (label: string, count: number) =>
+      `<div>${label}: <span style="color:${count > 0 ? "#4ade80" : "#f87171"}">${count > 0 ? "true" : "false"}</span> (${count}x)</div>`;
+    kbdPanelRef.current.innerHTML = [
+      row("windowKeydownSeen",     c.windowKeydownSeen),
+      row("documentKeydownSeen",   c.documentKeydownSeen),
+      row("bodyKeydownSeen",       c.bodyKeydownSeen),
+      row("inputKeydownSeen",      c.inputKeydownSeen),
+      row("keypressSeen",          c.keypressSeen),
+      row("beforeInputSeen",       c.beforeInputSeen),
+      row("compositionStartSeen",  c.compositionStartSeen),
+      row("compositionUpdateSeen", c.compositionUpdateSeen),
+      row("compositionEndSeen",    c.compositionEndSeen),
+      row("pasteSeen",             c.pasteSeen),
+    ].join("");
+  };
+
+  useEffect(() => {
+    const bump = (key: keyof typeof kbdCounters.current) => () => {
+      (kbdCounters.current as Record<string, number>)[key]++;
+      flushKbd();
+    };
+    const listeners: [EventTarget, string, EventListenerOrEventListenerObject, boolean][] = [
+      [window,         "keydown",          bump("windowKeydownSeen"),     true],
+      [window,         "keydown",          bump("windowKeydownSeen"),     false],
+      [document,       "keydown",          bump("documentKeydownSeen"),   true],
+      [document.body,  "keydown",          bump("bodyKeydownSeen"),       true],
+      [window,         "keypress",         bump("keypressSeen"),          true],
+      [window,         "beforeinput",      bump("beforeInputSeen"),       true],
+      [window,         "compositionstart", bump("compositionStartSeen"),  true],
+      [window,         "compositionupdate",bump("compositionUpdateSeen"), true],
+      [window,         "compositionend",   bump("compositionEndSeen"),    true],
+      [window,         "paste",            bump("pasteSeen"),             true],
+    ];
+    listeners.forEach(([t, ev, fn, cap]) => t.addEventListener(ev, fn, cap));
+    return () => listeners.forEach(([t, ev, fn, cap]) => t.removeEventListener(ev, fn, cap));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ── Portal textarea state ───────────────────────────────────────────────────
+  const portalPanelRef = useRef<HTMLDivElement>(null);
+  const portalCounters = useRef({ kd: 0, inp: 0, ch: 0, len: 0 });
+  const flushPortal = (len?: number) => {
+    if (!portalPanelRef.current) return;
+    const p = portalCounters.current;
+    if (len !== undefined) p.len = len;
+    const b = (v: number) => `<span style="color:${v > 0 ? "#4ade80" : "#f87171"}">${v > 0}</span> (${v}x)`;
+    portalPanelRef.current.innerHTML =
+      `<div>PORTAL TEXT LENGTH : <span style="color:#e2e8f0">${p.len}</span></div>` +
+      `<div>portalKeydownSeen  : ${b(p.kd)}</div>` +
+      `<div>portalInputSeen    : ${b(p.inp)}</div>` +
+      `<div>portalChangeSeen   : ${b(p.ch)}</div>`;
+  };
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -647,6 +726,46 @@ export default function Landing() {
               <p className="text-lg text-muted-foreground leading-relaxed max-w-lg" data-testid="text-hero-description">
                 Move beyond endless swiping. Lulou guides you from matching to meaningful conversations to meeting in real life.
               </p>
+            </div>
+
+            {/* ══ KEYBOARD-REACH DIAGNOSTICS ════════════════════════════════════
+                All counts go to 0 until a key is pressed.
+                documentKeydownSeen staying 0 = page not receiving keyboard events.
+                ══════════════════════════════════════════════════════════════════ */}
+            <div
+              data-testid="kbd-diagnostics"
+              style={{
+                position: "relative", zIndex: 100003, pointerEvents: "auto",
+                border: "3px solid #3b82f6", borderRadius: 8,
+                padding: "10px 14px", background: "#0f172a",
+                marginBottom: 12, maxWidth: 384, fontFamily: "monospace", fontSize: 11,
+              }}
+            >
+              <div style={{ color: "#60a5fa", fontWeight: 900, fontSize: 12, marginBottom: 6, letterSpacing: 1 }}>
+                ⌨ KEYBOARD REACH DIAGNOSTICS — press any key
+              </div>
+              {/* Banner shown while no key events detected */}
+              <div
+                ref={kbdNoEvtRef}
+                style={{
+                  background: "#7f1d1d", color: "#fca5a5", fontWeight: 700,
+                  padding: "6px 8px", borderRadius: 4, marginBottom: 6, fontSize: 12,
+                }}
+              >
+                ⚠ Keyboard input is not reaching the page in this browser session.
+              </div>
+              <div ref={kbdPanelRef} style={{ lineHeight: 1.8, color: "#e2e8f0" }}>
+                <div>windowKeydownSeen     : <span style={{ color: "#f87171" }}>false</span> (0x)</div>
+                <div>documentKeydownSeen   : <span style={{ color: "#f87171" }}>false</span> (0x)</div>
+                <div>bodyKeydownSeen       : <span style={{ color: "#f87171" }}>false</span> (0x)</div>
+                <div>inputKeydownSeen      : <span style={{ color: "#f87171" }}>false</span> (0x)</div>
+                <div>keypressSeen          : <span style={{ color: "#f87171" }}>false</span> (0x)</div>
+                <div>beforeInputSeen       : <span style={{ color: "#f87171" }}>false</span> (0x)</div>
+                <div>compositionStartSeen  : <span style={{ color: "#f87171" }}>false</span> (0x)</div>
+                <div>compositionUpdateSeen : <span style={{ color: "#f87171" }}>false</span> (0x)</div>
+                <div>compositionEndSeen    : <span style={{ color: "#f87171" }}>false</span> (0x)</div>
+                <div>pasteSeen             : <span style={{ color: "#f87171" }}>false</span> (0x)</div>
+              </div>
             </div>
 
             {/* ══════════════════════════════════════════════════════════════════
@@ -1164,6 +1283,61 @@ code:    ${rawAuthError.code}`}
           <p>Designed for real connection.</p>
         </div>
       </footer>
+
+      {/* ── BODY PORTAL INPUT TEST — rendered directly to document.body ─────────
+          Bypasses the entire React component tree and page layout.
+          If THIS textarea receives key events but the in-page input does not,
+          the in-page layout/wrapper is the blocker.
+          If this also receives no key events, the issue is at the browser level.
+          ────────────────────────────────────────────────────────────────────── */}
+      {createPortal(
+        <div
+          data-testid="body-portal-container"
+          style={{
+            position: "fixed", top: 10, left: 10,
+            zIndex: 2147483647, pointerEvents: "auto",
+            fontFamily: "monospace", fontSize: 12,
+          }}
+        >
+          <div style={{
+            background: "#000", color: "#fff", fontWeight: 900, fontSize: 11,
+            padding: "2px 6px", borderRadius: "4px 4px 0 0", letterSpacing: 1,
+          }}>
+            BODY PORTAL INPUT TEST
+          </div>
+          <textarea
+            data-testid="portal-textarea"
+            placeholder="type here — portal test"
+            rows={2}
+            style={{
+              display: "block", width: 260,
+              padding: "6px 8px",
+              background: "#ffffff", color: "#000000",
+              border: "3px solid red", borderTop: "none",
+              fontSize: 13, resize: "none", outline: "none",
+              pointerEvents: "auto",
+            }}
+            onKeyDown={() => { portalCounters.current.kd++;  flushPortal(); }}
+            onInput={(e) => { portalCounters.current.inp++; flushPortal((e.target as HTMLTextAreaElement).value.length); }}
+            onChange={(e) => { portalCounters.current.ch++;  flushPortal((e.target as HTMLTextAreaElement).value.length); }}
+          />
+          <div
+            ref={portalPanelRef}
+            style={{
+              background: "#1e1b4b", color: "#e2e8f0",
+              padding: "4px 8px", borderRadius: "0 0 4px 4px",
+              border: "1px solid #6366f1", borderTop: "none",
+              lineHeight: 1.7,
+            }}
+          >
+            <div>PORTAL TEXT LENGTH : <span style={{ color: "#e2e8f0" }}>0</span></div>
+            <div>portalKeydownSeen  : <span style={{ color: "#f87171" }}>false</span> (0x)</div>
+            <div>portalInputSeen    : <span style={{ color: "#f87171" }}>false</span> (0x)</div>
+            <div>portalChangeSeen   : <span style={{ color: "#f87171" }}>false</span> (0x)</div>
+          </div>
+        </div>,
+        document.body
+      )}
     </div>
   );
 }

@@ -1,0 +1,76 @@
+The input is focused, but no keyboard events reach the page at all.
+
+Current confirmed live values:
+- rawInputFocused: true
+- rawInputKeydown: false
+- rawInputInputFired: false
+- rawInputChangeFired: false
+- documentKeydownSeen: false
+- parentKeydownBlocked: false
+- nearestBlockingWrapper: none
+- activeElementTag: INPUT
+
+This proves:
+- the input is real and focused
+- React is not the blocker
+- no parent wrapper is blocking events
+- keyboard input is not reaching the page at all
+
+Tasks:
+
+1. Stop debugging the login form itself.
+The issue is now at the browser/page integration level.
+
+2. Add a top-level keyboard diagnostics panel to the live page showing:
+- windowKeydownSeen
+- documentKeydownSeen
+- bodyKeydownSeen
+- inputKeydownSeen
+- keypressSeen
+- beforeInputSeen
+- compositionStartSeen
+- compositionUpdateSeen
+- compositionEndSeen
+- pasteSeen
+
+3. Attach temporary listeners directly to:
+- window
+- document
+- document.body
+- the raw email input
+using both capture and bubble phase where possible.
+
+4. Render a second plain textarea at the absolute top of the page using a portal directly to document.body.
+Style it very obviously and label it:
+BODY PORTAL INPUT TEST
+
+5. Make that portal textarea:
+- position: fixed
+- top: 10px
+- left: 10px
+- z-index: 2147483647
+- pointer-events: auto
+- background: white
+- color: black
+- border: 3px solid red
+
+6. Show live values under the portal textarea:
+- PORTAL TEXT LENGTH
+- portalKeydownSeen
+- portalInputSeen
+- portalChangeSeen
+
+7. If the portal textarea works but the in-page input does not, identify what page/layout layer causes the difference.
+
+8. If the portal textarea also does NOT receive key events, conclude this is a Safari/browser-level issue outside React and show a visible message on screen:
+"Keyboard input is not reaching the page in this browser session."
+
+9. Do not change auth logic.
+Do not refactor unrelated code.
+Only diagnose whether keyboard events reach the page at all.
+
+10. After making the change, explain only:
+- whether the body portal textarea receives input
+- whether window/document/body receive key events
+- whether the issue is inside React or outside React
+- what exact file/line was changed
