@@ -1,0 +1,64 @@
+The raw input can receive focus, but keyboard/input events do not fire.
+
+Current live values:
+- rawInputFocused: true
+- rawInputClicked: false
+- rawInputKeydown: false
+- rawInputInputFired: false
+- rawInputChangeFired: false
+- rawInputDisabled: false
+- rawInputReadOnly: false
+- TOP ELEMENT OVER INPUT: DIV
+
+This proves:
+- the input can be focused
+- but keyboard input events are being blocked before they reach the input
+- something in the surrounding page/layout is intercepting or suppressing typing
+
+Tasks:
+
+1. In client/src/pages/landing.tsx and any directly wrapping layout/container for this page, inspect all parent wrappers around the login form and raw test input.
+
+2. Find any element or code that could suppress keyboard/input events:
+- onKeyDown/onKeyPress/onBeforeInput handlers on parent DIVs
+- preventDefault on keyboard events
+- focus trap logic
+- modal/dialog wrapper behavior
+- overlay wrapper
+- contenteditable/focus manager
+- global key listener intercepting input
+- touch/click handler interfering on mobile Safari
+- transform/animation wrapper affecting text input on Safari
+
+3. Add visible on-screen debug values:
+- parentKeydownBlocked
+- parentPreventDefaultTriggered
+- nearestBlockingWrapper
+- activeElementTag
+- activeElementClass
+- documentKeydownSeen
+
+4. Add temporary listeners to:
+- the raw input
+- document
+- nearest parent wrapper
+and show whether keydown/input events fire at each level.
+
+5. If a parent wrapper or global handler is preventing default, remove/fix ONLY that blocker.
+
+6. If this page is wrapped in a custom dialog/modal/sheet component, verify it is not trapping or suppressing keyboard input.
+
+7. If Safari/mobile layout wrappers are involved, temporarily simplify the raw input area:
+- render it outside the current form wrapper if needed
+- place it in a plain top-level div near the top of the page
+to prove whether the wrapper is the blocker
+
+8. Do NOT change auth logic.
+Do NOT refactor unrelated code.
+Only find and fix the exact wrapper/event blocker preventing typing.
+
+9. After fixing, explain only:
+- the exact file and line causing keyboard/input suppression
+- whether it was a parent key handler, preventDefault, wrapper, or modal/focus trap
+- what exact code you changed
+- whether rawInputKeydown/rawInputInputFired now become true

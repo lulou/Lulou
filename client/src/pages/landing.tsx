@@ -157,14 +157,21 @@ export default function Landing() {
   // ── 8-field raw debug panel — direct DOM writes, zero React state ─────────
   const rawDbgRef = useRef<HTMLDivElement>(null);
   const rawDbgVal = useRef({
-    rawInputFocused:     false as boolean,
-    rawInputClicked:     false as boolean,
-    rawInputKeydown:     false as boolean,
-    rawInputInputFired:  false as boolean,
-    rawInputChangeFired: false as boolean,
-    rawInputDisabled:    false as boolean,
-    rawInputReadOnly:    false as boolean,
-    topElementOverInput: "— (focus input to compute)" as string,
+    rawInputFocused:              false as boolean,
+    rawInputClicked:              false as boolean,
+    rawInputKeydown:              false as boolean,
+    rawInputInputFired:           false as boolean,
+    rawInputChangeFired:          false as boolean,
+    rawInputDisabled:             false as boolean,
+    rawInputReadOnly:             false as boolean,
+    topElementOverInput:          "— (focus input to compute)" as string,
+    // ── Level-2 diagnostics ──────────────────────────────────────────────────
+    documentKeydownSeen:          false as boolean,   // any key reached document at all?
+    documentKeydownCount:         0     as number,    // total count so stale=false is obvious
+    parentKeydownBlocked:         false as boolean,   // parent div captured + stopped propagation
+    nearestBlockingWrapper:       "none" as string,
+    activeElementTag:             "—"   as string,   // document.activeElement.tagName after focus
+    activeElementClass:           "—"   as string,
   });
   const flushRawDbg = (patch: Partial<typeof rawDbgVal.current>) => {
     Object.assign(rawDbgVal.current, patch);
@@ -173,16 +180,35 @@ export default function Landing() {
     const b = (v: boolean) =>
       `<span style="color:${v ? "#4ade80" : "#f87171"}">${v}</span>`;
     rawDbgRef.current.innerHTML = [
-      `rawInputFocused     : ${b(s.rawInputFocused)}`,
-      `rawInputClicked     : ${b(s.rawInputClicked)}`,
-      `rawInputKeydown     : ${b(s.rawInputKeydown)}`,
-      `rawInputInputFired  : ${b(s.rawInputInputFired)}`,
-      `rawInputChangeFired : ${b(s.rawInputChangeFired)}`,
-      `rawInputDisabled    : ${b(s.rawInputDisabled)}`,
-      `rawInputReadOnly    : ${b(s.rawInputReadOnly)}`,
-      `<span style="color:#fb923c;font-weight:700">TOP ELEMENT OVER INPUT: ${s.topElementOverInput}</span>`,
+      `rawInputFocused          : ${b(s.rawInputFocused)}`,
+      `rawInputClicked          : ${b(s.rawInputClicked)}`,
+      `rawInputKeydown          : ${b(s.rawInputKeydown)}`,
+      `rawInputInputFired       : ${b(s.rawInputInputFired)}`,
+      `rawInputChangeFired      : ${b(s.rawInputChangeFired)}`,
+      `rawInputDisabled         : ${b(s.rawInputDisabled)}`,
+      `rawInputReadOnly         : ${b(s.rawInputReadOnly)}`,
+      `<span style="color:#fb923c;font-weight:700">TOP ELEMENT OVER INPUT  : ${s.topElementOverInput}</span>`,
+      `──────────────────────────────────────────`,
+      `documentKeydownSeen      : ${b(s.documentKeydownSeen)} (count: ${s.documentKeydownCount})`,
+      `parentKeydownBlocked     : ${b(s.parentKeydownBlocked)}`,
+      `nearestBlockingWrapper   : <span style="color:#fb923c">${s.nearestBlockingWrapper}</span>`,
+      `activeElementTag         : <span style="color:#93c5fd">${s.activeElementTag}</span>`,
+      `activeElementClass       : <span style="color:#93c5fd">${s.activeElementClass}</span>`,
     ].map(line => `<div>${line}</div>`).join("");
   };
+
+  // Attach a document-level keydown listener to detect whether ANY keystroke
+  // reaches the page at all.  Runs once on mount; cleans up on unmount.
+  useEffect(() => {
+    const onDocKey = (e: KeyboardEvent) => {
+      rawDbgVal.current.documentKeydownSeen  = true;
+      rawDbgVal.current.documentKeydownCount += 1;
+      flushRawDbg({});   // re-render the panel with no patch (values already mutated above)
+    };
+    document.addEventListener("keydown", onDocKey, true);   // capture phase
+    return () => document.removeEventListener("keydown", onDocKey, true);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -682,11 +708,27 @@ export default function Landing() {
                   const topDesc = beneath
                     ? `${beneath.tagName}${beneath.id ? "#" + beneath.id : ""}${beneath.className && typeof beneath.className === "string" ? "." + beneath.className.trim().split(/\s+/).slice(0, 3).join(".") : ""}`
                     : "none";
+                  // Walk up the DOM to find any parent with a keydown handler
+                  let blockingWrapper = "none";
+                  let node: HTMLElement | null = el.parentElement;
+                  while (node && node !== document.body) {
+                    if ((node as any).onkeydown) {
+                      blockingWrapper = `${node.tagName}${node.id ? "#" + node.id : ""}${node.className ? "." + node.className.trim().split(/\s+/).slice(0, 2).join(".") : ""}`;
+                      break;
+                    }
+                    node = node.parentElement;
+                  }
+                  const ae = document.activeElement as HTMLElement | null;
                   flushRawDbg({
-                    rawInputFocused: true,
-                    rawInputDisabled: el.disabled,
-                    rawInputReadOnly: el.readOnly,
-                    topElementOverInput: topDesc,
+                    rawInputFocused:        true,
+                    rawInputDisabled:       el.disabled,
+                    rawInputReadOnly:       el.readOnly,
+                    topElementOverInput:    topDesc,
+                    nearestBlockingWrapper: blockingWrapper,
+                    activeElementTag:       ae?.tagName ?? "—",
+                    activeElementClass:     (ae?.className && typeof ae.className === "string")
+                                            ? ae.className.trim().split(/\s+/).slice(0, 4).join(" ") || "(empty)"
+                                            : "—",
                   });
                   markRawEvt("FOCUS");
                 }}
@@ -707,14 +749,20 @@ export default function Landing() {
                   border: "1px solid #334155",
                 }}
               >
-                <div>rawInputFocused     : <span style={{ color: "#f87171" }}>false</span></div>
-                <div>rawInputClicked     : <span style={{ color: "#f87171" }}>false</span></div>
-                <div>rawInputKeydown     : <span style={{ color: "#f87171" }}>false</span></div>
-                <div>rawInputInputFired  : <span style={{ color: "#f87171" }}>false</span></div>
-                <div>rawInputChangeFired : <span style={{ color: "#f87171" }}>false</span></div>
-                <div>rawInputDisabled    : <span style={{ color: "#f87171" }}>false</span></div>
-                <div>rawInputReadOnly    : <span style={{ color: "#f87171" }}>false</span></div>
-                <div><span style={{ color: "#fb923c", fontWeight: 700 }}>TOP ELEMENT OVER INPUT: — (focus input to compute)</span></div>
+                <div>rawInputFocused          : <span style={{ color: "#f87171" }}>false</span></div>
+                <div>rawInputClicked          : <span style={{ color: "#f87171" }}>false</span></div>
+                <div>rawInputKeydown          : <span style={{ color: "#f87171" }}>false</span></div>
+                <div>rawInputInputFired       : <span style={{ color: "#f87171" }}>false</span></div>
+                <div>rawInputChangeFired      : <span style={{ color: "#f87171" }}>false</span></div>
+                <div>rawInputDisabled         : <span style={{ color: "#f87171" }}>false</span></div>
+                <div>rawInputReadOnly         : <span style={{ color: "#f87171" }}>false</span></div>
+                <div><span style={{ color: "#fb923c", fontWeight: 700 }}>TOP ELEMENT OVER INPUT  : — (focus input to compute)</span></div>
+                <div>──────────────────────────────────────────</div>
+                <div>documentKeydownSeen      : <span style={{ color: "#f87171" }}>false</span> (count: 0)</div>
+                <div>parentKeydownBlocked     : <span style={{ color: "#f87171" }}>false</span></div>
+                <div>nearestBlockingWrapper   : <span style={{ color: "#fb923c" }}>none</span></div>
+                <div>activeElementTag         : <span style={{ color: "#93c5fd" }}>—</span></div>
+                <div>activeElementClass       : <span style={{ color: "#93c5fd" }}>—</span></div>
               </div>
 
               <input
