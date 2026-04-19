@@ -26,6 +26,8 @@ console.log("[AUTH] SUPABASE_KEY_PRESENT:", true, `(length: ${supabaseAnonKey.le
 // Written by safeFetch on every /auth/v1/ call. Reset at the start of each
 // handleSubmit so the panel always shows the most recent attempt's values.
 export interface AuthFetchDebug {
+  authFetchStarted:        boolean;       // true once safeFetch begins the real fetch()
+  authFetchCallCount:      number;        // increments each time safeFetch is called for /auth/v1/
   authResponseStatus:      number | null;
   authResponseContentType: string | null;
   authParseMode:           "json" | "text" | null;
@@ -34,6 +36,8 @@ export interface AuthFetchDebug {
 }
 
 export let lastAuthFetchDebug: AuthFetchDebug = {
+  authFetchStarted:        false,
+  authFetchCallCount:      0,
   authResponseStatus:      null,
   authResponseContentType: null,
   authParseMode:           null,
@@ -43,6 +47,8 @@ export let lastAuthFetchDebug: AuthFetchDebug = {
 
 export function resetAuthFetchDebug(): void {
   lastAuthFetchDebug = {
+    authFetchStarted:        false,
+    authFetchCallCount:      0,
     authResponseStatus:      null,
     authResponseContentType: null,
     authParseMode:           null,
@@ -50,6 +56,11 @@ export function resetAuthFetchDebug(): void {
     authUserFacingError:     null,
   };
 }
+
+// Exported so landing.tsx can read the config used by the client.
+export const SUPABASE_URL      = supabaseUrl;
+export const SUPABASE_KEY_LEN  = supabaseAnonKey.length;
+export const AUTH_ENDPOINT     = `${supabaseUrl}/auth/v1/token?grant_type=password`;
 
 // ── safeFetch ─────────────────────────────────────────────────────────────────
 // Passed to createClient as global.fetch so it intercepts every HTTP call the
@@ -79,6 +90,10 @@ async function safeFetch(
   if (!isAuthRequest) {
     return fetch(input, init);
   }
+
+  // Mark that an auth fetch was attempted.
+  lastAuthFetchDebug.authFetchStarted   = true;
+  lastAuthFetchDebug.authFetchCallCount += 1;
 
   const response = await fetch(input, init);
 

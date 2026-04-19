@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Heart, MessageCircle, Phone, Shield, RefreshCw, Loader2, Lock, Eye, EyeOff, AlertCircle, WifiOff, CheckCircle, ChevronDown, ChevronUp } from "lucide-react";
 import { LulouFlowerIcon } from "@/components/app-layout";
-import { supabase, lastAuthFetchDebug, resetAuthFetchDebug } from "@/lib/supabase";
+import { supabase, lastAuthFetchDebug, resetAuthFetchDebug, SUPABASE_URL, SUPABASE_KEY_LEN, AUTH_ENDPOINT } from "@/lib/supabase";
 import { useToast } from "@/hooks/use-toast";
 import { writeDebug, pushDebugError } from "@/lib/debug-store";
 
@@ -320,6 +320,49 @@ export default function Landing() {
       passwordValuePropName: "password",
     });
   });
+
+  // ── Supabase reachability test ────────────────────────────────────────────
+  type ReachResult = {
+    running:     boolean;
+    resolved:    boolean | null;
+    timedOut:    boolean;
+    status:      number | null;
+    contentType: string | null;
+    body:        string;
+    error:       string | null;
+    endpointHit: string;
+  };
+  const [reachResult, setReachResult] = useState<ReachResult>({
+    running: false, resolved: null, timedOut: false,
+    status: null, contentType: null, body: "", error: null, endpointHit: "",
+  });
+
+  async function runReachabilityTest() {
+    const endpoint = `${SUPABASE_URL}/auth/v1/health`;
+    setReachResult(r => ({ ...r, running: true, resolved: null, timedOut: false,
+      status: null, contentType: null, body: "", error: null, endpointHit: endpoint }));
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 10_000);
+    try {
+      const resp = await window.fetch(endpoint, {
+        method: "GET",
+        headers: { apikey: import.meta.env.VITE_SUPABASE_ANON_KEY ?? "" },
+        signal: ctrl.signal,
+      });
+      clearTimeout(timer);
+      const ct = resp.headers.get("content-type") ?? "(none)";
+      let body = "";
+      try { body = (await resp.text()).slice(0, 300); } catch { body = "(body read failed)"; }
+      setReachResult({ running: false, resolved: true, timedOut: false,
+        status: resp.status, contentType: ct, body, error: null, endpointHit: endpoint });
+    } catch (err: any) {
+      clearTimeout(timer);
+      const isAbort = err?.name === "AbortError";
+      setReachResult({ running: false, resolved: false, timedOut: isAbort,
+        status: null, contentType: null, body: "",
+        error: `${err?.name}: ${err?.message}`, endpointHit: endpoint });
+    }
+  }
 
   function resetForm() {
     setEmail("");
@@ -726,6 +769,75 @@ export default function Landing() {
               <p className="text-lg text-muted-foreground leading-relaxed max-w-lg" data-testid="text-hero-description">
                 Move beyond endless swiping. Lulou guides you from matching to meaningful conversations to meeting in real life.
               </p>
+            </div>
+
+            {/* ══ SUPABASE AUTH DIAGNOSTICS ═════════════════════════════════════ */}
+            <div
+              data-testid="supabase-diagnostics"
+              style={{
+                position: "relative", zIndex: 100003, pointerEvents: "auto",
+                border: "3px solid #a855f7", borderRadius: 8,
+                padding: "10px 14px", background: "#0f172a",
+                marginBottom: 12, maxWidth: 450, fontFamily: "monospace", fontSize: 11,
+              }}
+            >
+              <div style={{ color: "#c084fc", fontWeight: 900, fontSize: 12, marginBottom: 8, letterSpacing: 1 }}>
+                🔌 SUPABASE AUTH DIAGNOSTICS
+              </div>
+
+              {/* Static config values */}
+              <div style={{ lineHeight: 1.8, color: "#e2e8f0", marginBottom: 8 }}>
+                <div>supabaseUrl          : <span style={{ color: "#93c5fd", wordBreak: "break-all" }}>{SUPABASE_URL}</span></div>
+                <div>hasAnonKey           : <span style={{ color: "#4ade80" }}>true</span></div>
+                <div>anonKeyLength        : <span style={{ color: "#4ade80" }}>{SUPABASE_KEY_LEN}</span></div>
+                <div>authRequestMethod    : <span style={{ color: "#e2e8f0" }}>POST</span></div>
+                <div>authRequestEndpoint  : <span style={{ color: "#93c5fd", wordBreak: "break-all" }}>{AUTH_ENDPOINT}</span></div>
+                <div>authTimeoutMs        : <span style={{ color: "#fbbf24" }}>30000</span></div>
+                <div>navigatorOnline      : <span style={{ color: navigator.onLine ? "#4ade80" : "#f87171" }}>{String(navigator.onLine)}</span></div>
+                <div>currentOrigin        : <span style={{ color: "#93c5fd" }}>{window.location.origin}</span></div>
+                <div>authFetchCallCount   : <span style={{ color: lastAuthFetchDebug.authFetchCallCount > 0 ? "#4ade80" : "#f87171" }}>{lastAuthFetchDebug.authFetchCallCount}</span> (increments when login is attempted)</div>
+                <div>authFetchStarted     : <span style={{ color: lastAuthFetchDebug.authFetchStarted ? "#4ade80" : "#f87171" }}>{String(lastAuthFetchDebug.authFetchStarted)}</span></div>
+                <div>authResponseStatus   : <span style={{ color: lastAuthFetchDebug.authResponseStatus !== null ? "#4ade80" : "#94a3b8" }}>{String(lastAuthFetchDebug.authResponseStatus ?? "null — no response yet")}</span></div>
+                <div>authLowLevelError    : <span style={{ color: lastAuthFetchDebug.authUserFacingError ? "#f87171" : "#94a3b8" }}>{lastAuthFetchDebug.authUserFacingError ?? "none"}</span></div>
+              </div>
+
+              {/* Reachability test button */}
+              <button
+                data-testid="btn-supabase-reachability"
+                onClick={runReachabilityTest}
+                disabled={reachResult.running}
+                style={{
+                  background: reachResult.running ? "#475569" : "#7c3aed",
+                  color: "#fff", border: "none", borderRadius: 4,
+                  padding: "5px 12px", fontSize: 11, fontWeight: 700,
+                  cursor: reachResult.running ? "default" : "pointer",
+                  marginBottom: 8, fontFamily: "monospace",
+                }}
+              >
+                {reachResult.running ? "⏳ testing…" : "▶ Test Supabase Auth Reachability"}
+              </button>
+
+              {/* Test results */}
+              {reachResult.endpointHit && (
+                <div style={{
+                  background: "#1e293b", border: "1px solid #334155",
+                  borderRadius: 4, padding: "6px 8px", lineHeight: 1.7,
+                  color: "#e2e8f0",
+                }}>
+                  <div>endpoint    : <span style={{ color: "#93c5fd", wordBreak: "break-all" }}>{reachResult.endpointHit}</span></div>
+                  <div>resolved    : <span style={{ color: reachResult.resolved ? "#4ade80" : "#f87171" }}>{String(reachResult.resolved ?? "pending…")}</span></div>
+                  <div>timedOut    : <span style={{ color: reachResult.timedOut ? "#f87171" : "#4ade80" }}>{String(reachResult.timedOut)}</span></div>
+                  <div>status      : <span style={{ color: reachResult.status !== null ? (reachResult.status < 400 ? "#4ade80" : "#fb923c") : "#94a3b8" }}>{reachResult.status ?? "—"}</span></div>
+                  <div>contentType : <span style={{ color: "#e2e8f0" }}>{reachResult.contentType ?? "—"}</span></div>
+                  {reachResult.error && <div>error       : <span style={{ color: "#f87171" }}>{reachResult.error}</span></div>}
+                  {reachResult.body && (
+                    <div style={{ marginTop: 4 }}>
+                      <div style={{ color: "#94a3b8" }}>body preview:</div>
+                      <div style={{ color: "#fbbf24", wordBreak: "break-all", whiteSpace: "pre-wrap", maxHeight: 80, overflow: "auto" }}>{reachResult.body}</div>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* ══ KEYBOARD-REACH DIAGNOSTICS ════════════════════════════════════
