@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Heart, MessageCircle, Phone, Shield, RefreshCw, Loader2, Lock, Eye, EyeOff, AlertCircle, WifiOff, CheckCircle, ChevronDown, ChevronUp } from "lucide-react";
 import { LulouFlowerIcon } from "@/components/app-layout";
-import { supabase } from "@/lib/supabase";
+import { supabase, lastAuthFetchDebug, resetAuthFetchDebug } from "@/lib/supabase";
 import { useToast } from "@/hooks/use-toast";
 import { writeDebug, pushDebugError } from "@/lib/debug-store";
 
@@ -32,6 +32,17 @@ function classifyAuthError(err: any, mode: AuthMode): AuthError {
   // Detected by the explicit code set on the timeout Error object.
   // Always treated as a connection problem, never as a credentials error.
   if (err?.code === "timeout") {
+    return {
+      kind: "network",
+      message: "Lulou is having trouble reaching the login service right now. Please try again shortly.",
+    };
+  }
+
+  // ── HTML / non-JSON response intercepted by safeFetch ────────────────────
+  // When safeFetch detects a non-JSON body from /auth/v1/, it returns a
+  // synthetic JSON response containing code "html_response_outage" so the SDK
+  // surfaces a clean AuthApiError instead of a SyntaxError.
+  if (err?.code === "html_response_outage") {
     return {
       kind: "network",
       message: "Lulou is having trouble reaching the login service right now. Please try again shortly.",
@@ -293,7 +304,16 @@ export default function Landing() {
       signInErrorName: null,
       signInErrorCode: null,
       exactAuthError: null,
+      // safeFetch debug fields — reset before each attempt
+      authResponseStatus:      null,
+      authResponseContentType: null,
+      authParseMode:           null,
+      authReturnedHtml:        false,
+      authUserFacingError:     null,
     });
+
+    // Reset the safeFetch debug capture so we see fresh values for this attempt
+    resetAuthFetchDebug();
 
     // Helper: build a RawAuthError from any error-like object.
     function makeRaw(err: any, prefix: string): RawAuthError {
@@ -351,6 +371,7 @@ export default function Landing() {
           rawSignInErrorString: error ? JSON.stringify({ msg: error.message, status: error.status, code: (error as any).code }) : "null",
         });
         setLoading(false);
+        writeDebug({ ...lastAuthFetchDebug });
         if (error) {
           const raw = makeRaw(error, "signup");
           recordError(raw, "signup");
@@ -409,6 +430,7 @@ export default function Landing() {
         });
 
         setLoading(false);
+        writeDebug({ ...lastAuthFetchDebug });
 
         if (error) {
           const raw = makeRaw(error, "signIn");
@@ -452,6 +474,7 @@ export default function Landing() {
 
     } catch (err: any) {
       setLoading(false);
+      writeDebug({ ...lastAuthFetchDebug });
       const raw = makeRaw(err, "throw");
       const errMsg = recordError(raw, err?.code === "timeout" ? "timeout" : "throw");
       writeDebug({
@@ -642,6 +665,8 @@ export default function Landing() {
                           ? "Login server didn't respond"
                           : rawAuthError?.code === "no-session"
                           ? "Login service unavailable"
+                          : rawAuthError?.code === "html_response_outage"
+                          ? "Login server returned an HTML error page"
                           : rawAuthError?.name === "SyntaxError" || rawAuthError?.message?.toLowerCase().includes("unexpected token")
                           ? "Login server returned an unexpected response"
                           : "Connection problem"}
@@ -770,6 +795,8 @@ export default function Landing() {
                               ? "Login server didn't respond"
                               : rawAuthError?.code === "no-session"
                               ? "Login service unavailable"
+                              : rawAuthError?.code === "html_response_outage"
+                              ? "Login server returned an HTML error page"
                               : rawAuthError?.name === "SyntaxError" || rawAuthError?.message?.toLowerCase().includes("unexpected token")
                               ? "Login server returned an unexpected response"
                               : "Connection problem")

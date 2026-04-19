@@ -22,12 +22,127 @@ const supabaseAnonKey = envKey;
 console.log("[AUTH] SUPABASE_URL_PRESENT:", true, `(${supabaseUrl.substring(0, 30)}...)`);
 console.log("[AUTH] SUPABASE_KEY_PRESENT:", true, `(length: ${supabaseAnonKey.length})`);
 
+// ── Auth fetch debug ─────────────────────────────────────────────────────────
+// Written by safeFetch on every /auth/v1/ call. Reset at the start of each
+// handleSubmit so the panel always shows the most recent attempt's values.
+export interface AuthFetchDebug {
+  authResponseStatus:      number | null;
+  authResponseContentType: string | null;
+  authParseMode:           "json" | "text" | null;
+  authReturnedHtml:        boolean;
+  authUserFacingError:     string | null;
+}
+
+export let lastAuthFetchDebug: AuthFetchDebug = {
+  authResponseStatus:      null,
+  authResponseContentType: null,
+  authParseMode:           null,
+  authReturnedHtml:        false,
+  authUserFacingError:     null,
+};
+
+export function resetAuthFetchDebug(): void {
+  lastAuthFetchDebug = {
+    authResponseStatus:      null,
+    authResponseContentType: null,
+    authParseMode:           null,
+    authReturnedHtml:        false,
+    authUserFacingError:     null,
+  };
+}
+
+// ── safeFetch ─────────────────────────────────────────────────────────────────
+// Passed to createClient as global.fetch so it intercepts every HTTP call the
+// Supabase SDK makes. For /auth/v1/ requests it checks content-type BEFORE the
+// SDK calls response.json(). If the server returned an HTML error page (e.g. a
+// Cloudflare 522 during an outage), the SDK would throw:
+//   "Failed to create user: unexpected token '<', "<!DOCTYPE"... is not valid JSON"
+// We prevent that by:
+//   1. Reading the body as text (safe — we control the body consumption)
+//   2. Detecting HTML by content-type or by the first bytes of the body
+//   3. Returning a synthetic JSON response the SDK CAN parse, whose error code
+//      "html_response_outage" is then caught by classifyAuthError in landing.tsx
+// Non-auth requests pass through completely untouched.
+async function safeFetch(
+  input: RequestInfo | URL,
+  init?: RequestInit,
+): Promise<Response> {
+  const url =
+    typeof input === "string"
+      ? input
+      : input instanceof URL
+      ? input.href
+      : (input as Request).url;
+
+  // Pass non-auth requests straight through — no body consumption, no overhead.
+  const isAuthRequest = url.includes("/auth/v1/");
+  if (!isAuthRequest) {
+    return fetch(input, init);
+  }
+
+  const response = await fetch(input, init);
+
+  const contentType = response.headers.get("content-type") ?? "";
+  const status      = response.status;
+
+  lastAuthFetchDebug.authResponseStatus      = status;
+  lastAuthFetchDebug.authResponseContentType = contentType || "(none)";
+
+  // If the response is already JSON, let the SDK handle it normally.
+  // We return the original Response without touching the body.
+  if (contentType.includes("application/json")) {
+    lastAuthFetchDebug.authParseMode    = "json";
+    lastAuthFetchDebug.authReturnedHtml = false;
+    return response;
+  }
+
+  // ── Non-JSON body: read as text, check for HTML ───────────────────────────
+  // This is the ONLY place the body is consumed. We own the body from here.
+  lastAuthFetchDebug.authParseMode = "text";
+  let bodyText = "";
+  try {
+    bodyText = await response.text();
+  } catch {
+    bodyText = "";
+  }
+  const trimmed  = bodyText.trimStart().toLowerCase();
+  const isHtml   = trimmed.startsWith("<!doctype") || trimmed.startsWith("<html");
+  lastAuthFetchDebug.authReturnedHtml    = isHtml;
+  lastAuthFetchDebug.authUserFacingError =
+    "Lulou is having trouble reaching the login service right now. Please try again shortly.";
+
+  console.error(
+    "[AUTH] SAFE_FETCH: non-JSON response from auth server",
+    { url, status, contentType, isHtml, bodyPreview: bodyText.slice(0, 120) },
+  );
+
+  // Return a synthetic JSON error the SDK can parse cleanly.
+  // The code "html_response_outage" is detected by classifyAuthError in landing.tsx
+  // and mapped to kind:"network" with the friendly outage message.
+  const syntheticBody = JSON.stringify({
+    error_description: "html-response-outage",
+    code:              "html_response_outage",
+    message:           "html-response-outage",
+    msg:               "html-response-outage",
+  });
+
+  return new Response(syntheticBody, {
+    status:  status >= 400 ? status : 502,
+    headers: { "content-type": "application/json" },
+  });
+}
+
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
-    persistSession: true,
-    autoRefreshToken: true,
-    detectSessionInUrl: false,
-    flowType: "implicit",
-    storageKey: "sb-lulou-auth-token",
+    persistSession:      true,
+    autoRefreshToken:    true,
+    detectSessionInUrl:  false,
+    flowType:            "implicit",
+    storageKey:          "sb-lulou-auth-token",
+  },
+  global: {
+    // safeFetch intercepts /auth/v1/ responses to prevent the SDK from
+    // throwing a SyntaxError when the server returns an HTML error page.
+    fetch: safeFetch,
   },
 });
