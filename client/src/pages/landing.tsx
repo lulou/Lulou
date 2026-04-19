@@ -296,6 +296,17 @@ export default function Landing() {
       rawSignInErrorString: null,
       submitHandlerReturnedEarly: false,
       submitHandlerCatchTriggered: false,
+      // Timing / race debug — reset before each attempt
+      authTimeoutPathEntered:  false,
+      authAbortControllerUsed: false,   // always false — we use Promise.race, not AbortController
+      authAbortTriggered:      false,   // always false — we use Promise.race, not AbortController
+      authRequestStartedAt:    null,
+      authRequestEndedAt:      null,
+      authElapsedMs:           null,
+      supabaseSignInResolved:  false,
+      supabaseSignInRejected:  false,
+      rawSupabaseAuthError:    null,
+      timeoutMessageSource:    null,
       // Post-call results — reset
       signInReturnedUser: false,
       signInReturnedSession: false,
@@ -343,16 +354,29 @@ export default function Landing() {
       return errMsg;
     }
 
-    // 15-second timeout: if Supabase auth server never responds, the await
+    // 30-second timeout: if Supabase auth server never responds, the await
     // hangs indefinitely. Promise.race surfaces the hang as an explicit error.
-    const SIGNIN_TIMEOUT_MS = 15_000;
+    // 30 s (previously 15 s) — gives Supabase more room when the service is
+    // slow but not fully down.  Not an AbortController: the fetch continues
+    // running in the background after the race is lost.
+    const SIGNIN_TIMEOUT_MS = 30_000;
     const timeoutPromise: Promise<never> = new Promise((_, reject) =>
       setTimeout(() => {
         const e = new Error(`Supabase auth server did not respond after ${SIGNIN_TIMEOUT_MS / 1000}s — possible 522/network outage`);
-        (e as any).code = "timeout";
+        (e as any).code    = "timeout";
+        (e as any).source  = "Promise.race setTimeout in landing.tsx handleSubmit";
         reject(e);
       }, SIGNIN_TIMEOUT_MS)
     );
+
+    // ── Start-of-request timing stamp ──────────────────────────────────────────
+    const authRequestStartedAt = Date.now();
+    writeDebug({
+      authRequestStartedAt,
+      authAbortControllerUsed: false,
+      authAbortTriggered:      false,
+      timeoutMessageSource:    `Promise.race with ${SIGNIN_TIMEOUT_MS / 1000}s setTimeout (landing.tsx handleSubmit)`,
+    });
 
     try {
       if (mode === "signup") {
@@ -372,6 +396,16 @@ export default function Landing() {
         });
         setLoading(false);
         writeDebug({ ...lastAuthFetchDebug });
+        {
+          const _end = Date.now();
+          writeDebug({
+            authRequestEndedAt:    _end,
+            authElapsedMs:         _end - authRequestStartedAt,
+            supabaseSignInResolved: true,
+            supabaseSignInRejected: false,
+            rawSupabaseAuthError:  error ? `${error.message} (code=${(error as any).code})` : null,
+          });
+        }
         if (error) {
           const raw = makeRaw(error, "signup");
           recordError(raw, "signup");
@@ -431,6 +465,16 @@ export default function Landing() {
 
         setLoading(false);
         writeDebug({ ...lastAuthFetchDebug });
+        {
+          const _end = Date.now();
+          writeDebug({
+            authRequestEndedAt:     _end,
+            authElapsedMs:          _end - authRequestStartedAt,
+            supabaseSignInResolved:  true,
+            supabaseSignInRejected:  false,
+            rawSupabaseAuthError:   error ? `${error.message} (code=${(error as any).code})` : null,
+          });
+        }
 
         if (error) {
           const raw = makeRaw(error, "signIn");
@@ -473,10 +517,24 @@ export default function Landing() {
       }
 
     } catch (err: any) {
+      const _catchEnd = Date.now();
       setLoading(false);
       writeDebug({ ...lastAuthFetchDebug });
+      const isTimeout = err?.code === "timeout";
+      writeDebug({
+        authRequestEndedAt:     _catchEnd,
+        authElapsedMs:          _catchEnd - authRequestStartedAt,
+        supabaseSignInResolved: false,
+        supabaseSignInRejected: true,
+        authTimeoutPathEntered: isTimeout,
+        authAbortTriggered:     false,   // Promise.race never aborts the fetch
+        rawSupabaseAuthError:   `${err?.message ?? "(none)"} (code=${err?.code ?? "(none)"})`,
+        timeoutMessageSource:   isTimeout
+          ? `Promise.race setTimeout fired after ${SIGNIN_TIMEOUT_MS / 1000}s — landing.tsx handleSubmit line ~${365}`
+          : `Supabase SDK threw: ${err?.name ?? "Error"}`,
+      });
       const raw = makeRaw(err, "throw");
-      const errMsg = recordError(raw, err?.code === "timeout" ? "timeout" : "throw");
+      const errMsg = recordError(raw, isTimeout ? "timeout" : "throw");
       writeDebug({
         signInAwaitCompleted: false,
         submitHandlerCatchTriggered: true,

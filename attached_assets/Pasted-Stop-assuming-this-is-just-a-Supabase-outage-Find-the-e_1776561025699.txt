@@ -1,0 +1,62 @@
+Stop assuming this is just a Supabase outage. Find the exact code path in my app that creates the 15-second auth timeout and fix it.
+
+What is now known:
+- The app shows:
+ "Supabase auth server did not respond after 15s"
+- Supabase status is no longer in active incident state
+- So I need to find the exact timeout/failure logic in my code, not add more generic outage messaging
+
+Tasks:
+
+1. Search the codebase for all auth timeout logic, including:
+- 15000
+- 15_000
+- timeout
+- AbortController
+- Promise.race
+- setTimeout
+- "did not respond after 15s"
+- "timeout"
+
+2. Find the exact login/sign-in code path that produces this message.
+
+3. Identify whether the real failure is:
+- a custom timeout wrapper around Supabase sign-in
+- an AbortController aborting too early
+- a fetch wrapper timing out
+- a request that never resolves because response handling is broken
+- a catch block replacing the real error with the generic 15s message
+
+4. Add visible live debug values on the login screen for:
+- authTimeoutPathEntered
+- authAbortControllerUsed
+- authAbortTriggered
+- authRequestStartedAt
+- authRequestEndedAt
+- authElapsedMs
+- supabaseSignInResolved
+- supabaseSignInRejected
+- rawSupabaseAuthError
+- timeoutMessageSource
+
+5. If there is a custom 15-second timeout around sign-in:
+- temporarily increase it to 30 seconds
+- and show whether the request eventually resolves
+
+6. If the timeout message is being thrown manually before the real Supabase response is read, fix that exact logic.
+
+7. If a catch block is masking the true error, surface the original error visibly on screen.
+
+8. Do not refactor unrelated code.
+Do not change messaging/call logic.
+Only fix the exact auth timeout path.
+
+9. After fixing, explain only:
+- the exact file and line where the 15-second timeout is created
+- whether it was AbortController, Promise.race, fetch wrapper, or manual throw
+- what exact code you changed
+- what the live debug panel now shows for:
+ - authAbortTriggered
+ - authElapsedMs
+ - supabaseSignInResolved
+ - rawSupabaseAuthError
