@@ -1,5 +1,4 @@
 import { useState, useRef, useEffect } from "react";
-import { createPortal } from "react-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Heart, MessageCircle, Phone, Shield, RefreshCw, Loader2, Lock, Eye, EyeOff, AlertCircle, WifiOff, CheckCircle, ChevronDown, ChevronUp } from "lucide-react";
@@ -141,235 +140,6 @@ interface RawAuthError {
 const BUILD_STAMP = "2026-04-17T13:35:00Z • client/src/pages/landing.tsx";
 
 export default function Landing() {
-  // ── RAW INPUT STATE TEST — brand-new isolated state, no custom component ──
-  const [debugEmail, setDebugEmail] = useState("");
-  const [debugPassword, setDebugPassword] = useState("");
-  // Ref to the event-log div — written directly in handlers, bypasses React state
-  // so we can prove events fire even if setState is somehow broken.
-  const rawEvtRef = useRef<HTMLDivElement>(null);
-  const markRawEvt = (label: string) => {
-    if (rawEvtRef.current) {
-      const ts = new Date().toISOString().slice(11, 23);
-      rawEvtRef.current.textContent = `${label} @ ${ts}`;
-      rawEvtRef.current.style.color = "#86efac";
-    }
-  };
-
-  // ── 8-field raw debug panel — direct DOM writes, zero React state ─────────
-  const rawDbgRef = useRef<HTMLDivElement>(null);
-  const rawDbgVal = useRef({
-    rawInputFocused:              false as boolean,
-    rawInputClicked:              false as boolean,
-    rawInputKeydown:              false as boolean,
-    rawInputInputFired:           false as boolean,
-    rawInputChangeFired:          false as boolean,
-    rawInputDisabled:             false as boolean,
-    rawInputReadOnly:             false as boolean,
-    topElementOverInput:          "— (focus input to compute)" as string,
-    // ── Level-2 diagnostics ──────────────────────────────────────────────────
-    documentKeydownSeen:          false as boolean,   // any key reached document at all?
-    documentKeydownCount:         0     as number,    // total count so stale=false is obvious
-    parentKeydownBlocked:         false as boolean,   // parent div captured + stopped propagation
-    nearestBlockingWrapper:       "none" as string,
-    activeElementTag:             "—"   as string,   // document.activeElement.tagName after focus
-    activeElementClass:           "—"   as string,
-  });
-  const flushRawDbg = (patch: Partial<typeof rawDbgVal.current>) => {
-    Object.assign(rawDbgVal.current, patch);
-    if (!rawDbgRef.current) return;
-    const s = rawDbgVal.current;
-    const b = (v: boolean) =>
-      `<span style="color:${v ? "#4ade80" : "#f87171"}">${v}</span>`;
-    rawDbgRef.current.innerHTML = [
-      `rawInputFocused          : ${b(s.rawInputFocused)}`,
-      `rawInputClicked          : ${b(s.rawInputClicked)}`,
-      `rawInputKeydown          : ${b(s.rawInputKeydown)}`,
-      `rawInputInputFired       : ${b(s.rawInputInputFired)}`,
-      `rawInputChangeFired      : ${b(s.rawInputChangeFired)}`,
-      `rawInputDisabled         : ${b(s.rawInputDisabled)}`,
-      `rawInputReadOnly         : ${b(s.rawInputReadOnly)}`,
-      `<span style="color:#fb923c;font-weight:700">TOP ELEMENT OVER INPUT (FULL) : ${s.topElementOverInput}</span>`,
-      `──────────────────────────────────────────`,
-      `documentKeydownSeen      : ${b(s.documentKeydownSeen)} (count: ${s.documentKeydownCount})`,
-      `parentKeydownBlocked     : ${b(s.parentKeydownBlocked)}`,
-      `nearestBlockingWrapper   : <span style="color:#fb923c">${s.nearestBlockingWrapper}</span>`,
-      `activeElementTag         : <span style="color:#93c5fd">${s.activeElementTag}</span>`,
-      `activeElementClass       : <span style="color:#93c5fd">${s.activeElementClass}</span>`,
-    ].map(line => `<div>${line}</div>`).join("");
-  };
-
-  // Attach a document-level keydown listener to detect whether ANY keystroke
-  // reaches the page at all.  Runs once on mount; cleans up on unmount.
-  useEffect(() => {
-    const onDocKey = (e: KeyboardEvent) => {
-      rawDbgVal.current.documentKeydownSeen  = true;
-      rawDbgVal.current.documentKeydownCount += 1;
-      flushRawDbg({});   // re-render the panel with no patch (values already mutated above)
-    };
-    document.addEventListener("keydown", onDocKey, true);   // capture phase
-    return () => document.removeEventListener("keydown", onDocKey, true);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // ── Full keyboard-reach diagnostics ────────────────────────────────────────
-  // Attaches listeners at window / document / body covering every keyboard
-  // event type.  All writes go directly to the DOM — no React state.
-  const kbdPanelRef  = useRef<HTMLDivElement>(null);
-  const kbdNoEvtRef  = useRef<HTMLDivElement>(null);   // "not reaching page" message
-  const kbdCounters  = useRef({
-    windowKeydownSeen:      0,
-    documentKeydownSeen:    0,
-    bodyKeydownSeen:        0,
-    inputKeydownSeen:       0,
-    keypressSeen:           0,
-    beforeInputSeen:        0,
-    compositionStartSeen:   0,
-    compositionUpdateSeen:  0,
-    compositionEndSeen:     0,
-    pasteSeen:              0,
-  });
-  const flushKbd = () => {
-    if (!kbdPanelRef.current) return;
-    const c = kbdCounters.current;
-    const anyKey = Object.values(c).some(v => v > 0);
-    // Show/hide the "not reaching page" banner
-    if (kbdNoEvtRef.current) {
-      kbdNoEvtRef.current.style.display = anyKey ? "none" : "block";
-    }
-    const row = (label: string, count: number) =>
-      `<div>${label}: <span style="color:${count > 0 ? "#4ade80" : "#f87171"}">${count > 0 ? "true" : "false"}</span> (${count}x)</div>`;
-    kbdPanelRef.current.innerHTML = [
-      row("windowKeydownSeen",     c.windowKeydownSeen),
-      row("documentKeydownSeen",   c.documentKeydownSeen),
-      row("bodyKeydownSeen",       c.bodyKeydownSeen),
-      row("inputKeydownSeen",      c.inputKeydownSeen),
-      row("keypressSeen",          c.keypressSeen),
-      row("beforeInputSeen",       c.beforeInputSeen),
-      row("compositionStartSeen",  c.compositionStartSeen),
-      row("compositionUpdateSeen", c.compositionUpdateSeen),
-      row("compositionEndSeen",    c.compositionEndSeen),
-      row("pasteSeen",             c.pasteSeen),
-    ].join("");
-  };
-
-  useEffect(() => {
-    const bump = (key: keyof typeof kbdCounters.current) => () => {
-      (kbdCounters.current as Record<string, number>)[key]++;
-      flushKbd();
-    };
-    const listeners: [EventTarget, string, EventListenerOrEventListenerObject, boolean][] = [
-      [window,         "keydown",          bump("windowKeydownSeen"),     true],
-      [window,         "keydown",          bump("windowKeydownSeen"),     false],
-      [document,       "keydown",          bump("documentKeydownSeen"),   true],
-      [document.body,  "keydown",          bump("bodyKeydownSeen"),       true],
-      [window,         "keypress",         bump("keypressSeen"),          true],
-      [window,         "beforeinput",      bump("beforeInputSeen"),       true],
-      [window,         "compositionstart", bump("compositionStartSeen"),  true],
-      [window,         "compositionupdate",bump("compositionUpdateSeen"), true],
-      [window,         "compositionend",   bump("compositionEndSeen"),    true],
-      [window,         "paste",            bump("pasteSeen"),             true],
-    ];
-    listeners.forEach(([t, ev, fn, cap]) => t.addEventListener(ev, fn, cap));
-    return () => listeners.forEach(([t, ev, fn, cap]) => t.removeEventListener(ev, fn, cap));
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // ── Isolated portal input (new, second portal) ────────────────────────────
-  const isoInputRef  = useRef<HTMLInputElement>(null);
-  const isoStatsRef  = useRef<HTMLDivElement>(null);
-  const isoConcRef   = useRef<HTMLDivElement>(null);
-  const isoCounters  = useRef({
-    focused: false, clicked: false, kdCount: 0,
-    inpCount: 0, chCount: 0, value: "", aeTag: "", efp: "",
-    realFormEfp: "" as string,   // elementFromPoint at the real email input's center
-    formRect: "" as string,      // getBoundingClientRect summary for the email input
-  });
-
-  const flushIso = () => {
-    const c = isoCounters.current;
-    if (isoStatsRef.current) {
-      const b  = (v: boolean) => `<span style="color:${v ? "#4ade80" : "#f87171"}">${v}</span>`;
-      const n  = (v: number)  => `<span style="color:${v > 0 ? "#4ade80" : "#f87171"}">${v > 0}</span> (${v}x)`;
-      isoStatsRef.current.innerHTML = [
-        `portalFocused            : ${b(c.focused)}`,
-        `portalClicked            : ${b(c.clicked)}`,
-        `portalKeydownSeen        : ${n(c.kdCount)}`,
-        `portalInputSeen          : ${n(c.inpCount)}`,
-        `portalChangeSeen         : ${n(c.chCount)}`,
-        `portalValue              : <span style="color:#fbbf24">${c.value || "(empty)"}</span>`,
-        `portalActiveElementTag   : <span style="color:#93c5fd">${c.aeTag || "—"}</span>`,
-        `portalElementFromPoint   : <span style="color:#93c5fd">${c.efp  || "—"}</span>`,
-        `──────────────────────────────────────`,
-        `realFormElementFromPoint : <span style="color:${c.realFormEfp.startsWith("INPUT") ? "#4ade80" : "#f87171"}">${c.realFormEfp || "— (press PROBE FORM)"}</span>`,
-        `formInputViewportRect    : <span style="color:#e2e8f0">${c.formRect || "—"}</span>`,
-      ].map(l => `<div>${l}</div>`).join("");
-    }
-    if (isoConcRef.current) {
-      const show = c.focused && c.kdCount === 0;
-      isoConcRef.current.style.display = show ? "block" : "none";
-    }
-  };
-
-  const forceFocusIso = () => {
-    const el = isoInputRef.current;
-    if (!el) return;
-    el.focus();
-    const ae  = document.activeElement as HTMLElement | null;
-    const rect = el.getBoundingClientRect();
-    el.style.pointerEvents = "none";
-    const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
-    el.style.pointerEvents = "auto";
-    isoCounters.current.focused = document.activeElement === el;
-    isoCounters.current.aeTag   = ae?.tagName ?? "—";
-    isoCounters.current.efp     = hit
-      ? `${hit.tagName}${hit.id ? "#" + hit.id : ""}${hit.className && typeof hit.className === "string" && hit.className.trim() ? " [" + hit.className.trim().slice(0, 80) + "]" : ""}`
-      : "none";
-    flushIso();
-  };
-
-  const probeFormInput = () => {
-    const el = emailRef.current;
-    if (!el) { isoCounters.current.realFormEfp = "emailRef is null"; flushIso(); return; }
-    el.scrollIntoView({ block: "center" });
-    // Give browser a frame to scroll before probing
-    requestAnimationFrame(() => {
-      const rect = el.getBoundingClientRect();
-      const cx   = rect.left + rect.width  / 2;
-      const cy   = rect.top  + rect.height / 2;
-      el.style.pointerEvents = "none";
-      const hit = document.elementFromPoint(cx, cy);
-      el.style.pointerEvents = "";
-      isoCounters.current.realFormEfp =
-        hit
-          ? `${hit.tagName}${hit.id ? "#" + hit.id : ""}${hit.className && typeof hit.className === "string" && hit.className.trim() ? " [" + hit.className.trim().slice(0, 100) + "]" : ""}`
-          : "none";
-      isoCounters.current.formRect =
-        `x:${Math.round(rect.left)} y:${Math.round(rect.top)} w:${Math.round(rect.width)} h:${Math.round(rect.height)}`;
-      flushIso();
-    });
-  };
-
-  useEffect(() => {
-    const timer = setTimeout(forceFocusIso, 600);
-    return () => clearTimeout(timer);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // ── Portal textarea state ───────────────────────────────────────────────────
-  const portalPanelRef = useRef<HTMLDivElement>(null);
-  const portalCounters = useRef({ kd: 0, inp: 0, ch: 0, len: 0 });
-  const flushPortal = (len?: number) => {
-    if (!portalPanelRef.current) return;
-    const p = portalCounters.current;
-    if (len !== undefined) p.len = len;
-    const b = (v: number) => `<span style="color:${v > 0 ? "#4ade80" : "#f87171"}">${v > 0}</span> (${v}x)`;
-    portalPanelRef.current.innerHTML =
-      `<div>PORTAL TEXT LENGTH : <span style="color:#e2e8f0">${p.len}</span></div>` +
-      `<div>portalKeydownSeen  : ${b(p.kd)}</div>` +
-      `<div>portalInputSeen    : ${b(p.inp)}</div>` +
-      `<div>portalChangeSeen   : ${b(p.ch)}</div>`;
-  };
-
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -866,39 +636,72 @@ export default function Landing() {
                 🔌 SUPABASE AUTH DIAGNOSTICS
               </div>
 
-              {/* Static config values */}
+              {/* Diagnostic values */}
               <div style={{ lineHeight: 1.8, color: "#e2e8f0", marginBottom: 8 }}>
-                <div>supabaseUrl          : <span style={{ color: "#93c5fd", wordBreak: "break-all" }}>{SUPABASE_URL}</span></div>
-                <div>hasAnonKey           : <span style={{ color: "#4ade80" }}>true</span></div>
-                <div>anonKeyLength        : <span style={{ color: "#4ade80" }}>{SUPABASE_KEY_LEN}</span></div>
-                <div>authRequestMethod    : <span style={{ color: "#e2e8f0" }}>POST</span></div>
-                <div>authRequestEndpoint  : <span style={{ color: "#93c5fd", wordBreak: "break-all" }}>{AUTH_ENDPOINT}</span></div>
-                <div>authTimeoutMs        : <span style={{ color: "#fbbf24" }}>30000</span></div>
-                <div>navigatorOnline      : <span style={{ color: navigator.onLine ? "#4ade80" : "#f87171" }}>{String(navigator.onLine)}</span></div>
-                <div>currentOrigin        : <span style={{ color: "#93c5fd" }}>{window.location.origin}</span></div>
                 <div>authFetchCallCount   : <span style={{ color: lastAuthFetchDebug.authFetchCallCount > 0 ? "#4ade80" : "#f87171" }}>{lastAuthFetchDebug.authFetchCallCount}</span> (increments when login is attempted)</div>
                 <div>authFetchStarted     : <span style={{ color: lastAuthFetchDebug.authFetchStarted ? "#4ade80" : "#f87171" }}>{String(lastAuthFetchDebug.authFetchStarted)}</span></div>
+                <div>authRequestEndpoint  : <span style={{ color: "#93c5fd", wordBreak: "break-all" }}>{AUTH_ENDPOINT}</span></div>
+                <div>authTimeoutMs        : <span style={{ color: "#fbbf24" }}>30000</span></div>
                 <div>authResponseStatus   : <span style={{ color: lastAuthFetchDebug.authResponseStatus !== null ? "#4ade80" : "#94a3b8" }}>{String(lastAuthFetchDebug.authResponseStatus ?? "null — no response yet")}</span></div>
                 <div>authLowLevelError    : <span style={{ color: lastAuthFetchDebug.authUserFacingError ? "#f87171" : "#94a3b8" }}>{lastAuthFetchDebug.authUserFacingError ?? "none"}</span></div>
+                <div>navigatorOnline      : <span style={{ color: navigator.onLine ? "#4ade80" : "#f87171" }}>{String(navigator.onLine)}</span></div>
+                <div>currentOrigin        : <span style={{ color: "#93c5fd" }}>{window.location.origin}</span></div>
+                <div>authTimedOut         : <span style={{ color: rawAuthError?.code === "timeout" ? "#f87171" : "#94a3b8" }}>{String(rawAuthError?.code === "timeout")}</span></div>
               </div>
 
-              {/* Reachability test button */}
-              <button
-                data-testid="btn-supabase-reachability"
-                onClick={runReachabilityTest}
-                disabled={reachResult.running}
-                style={{
-                  background: reachResult.running ? "#475569" : "#7c3aed",
-                  color: "#fff", border: "none", borderRadius: 4,
-                  padding: "5px 12px", fontSize: 11, fontWeight: 700,
-                  cursor: reachResult.running ? "default" : "pointer",
-                  marginBottom: 8, fontFamily: "monospace",
-                }}
-              >
-                {reachResult.running ? "⏳ testing…" : "▶ Test Supabase Auth Reachability"}
-              </button>
+              {/* Action buttons row */}
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
+                <button
+                  data-testid="btn-supabase-reachability"
+                  onClick={runReachabilityTest}
+                  disabled={reachResult.running}
+                  style={{
+                    background: reachResult.running ? "#475569" : "#7c3aed",
+                    color: "#fff", border: "none", borderRadius: 4,
+                    padding: "5px 12px", fontSize: 11, fontWeight: 700,
+                    cursor: reachResult.running ? "default" : "pointer",
+                    fontFamily: "monospace",
+                  }}
+                >
+                  {reachResult.running ? "⏳ testing…" : "▶ Test Reachability"}
+                </button>
+                <button
+                  data-testid="btn-copy-auth-diagnostics"
+                  onClick={() => {
+                    const lines = [
+                      `authFetchCallCount  : ${lastAuthFetchDebug.authFetchCallCount}`,
+                      `authFetchStarted    : ${lastAuthFetchDebug.authFetchStarted}`,
+                      `authRequestEndpoint : ${AUTH_ENDPOINT}`,
+                      `authTimeoutMs       : 30000`,
+                      `authResponseStatus  : ${lastAuthFetchDebug.authResponseStatus ?? "null — no response yet"}`,
+                      `authLowLevelError   : ${lastAuthFetchDebug.authUserFacingError ?? "none"}`,
+                      `navigatorOnline     : ${navigator.onLine}`,
+                      `currentOrigin       : ${window.location.origin}`,
+                      `authTimedOut        : ${rawAuthError?.code === "timeout"}`,
+                      reachResult.endpointHit ? [
+                        `reachEndpoint       : ${reachResult.endpointHit}`,
+                        `reachResolved       : ${reachResult.resolved}`,
+                        `reachTimedOut       : ${reachResult.timedOut}`,
+                        `reachStatus         : ${reachResult.status ?? "—"}`,
+                        `reachContentType    : ${reachResult.contentType ?? "—"}`,
+                        reachResult.error ? `reachError          : ${reachResult.error}` : null,
+                        reachResult.body  ? `reachBodyPreview    : ${reachResult.body.slice(0, 200)}` : null,
+                      ].filter(Boolean).join("\n") : null,
+                    ].filter(Boolean).join("\n");
+                    navigator.clipboard.writeText(lines).catch(() => {});
+                  }}
+                  style={{
+                    background: "#0f766e",
+                    color: "#fff", border: "none", borderRadius: 4,
+                    padding: "5px 12px", fontSize: 11, fontWeight: 700,
+                    cursor: "pointer", fontFamily: "monospace",
+                  }}
+                >
+                  📋 Copy Auth Diagnostics
+                </button>
+              </div>
 
-              {/* Test results */}
+              {/* Reachability test results */}
               {reachResult.endpointHit && (
                 <div style={{
                   background: "#1e293b", border: "1px solid #334155",
@@ -919,194 +722,6 @@ export default function Landing() {
                   )}
                 </div>
               )}
-            </div>
-
-            {/* ══ KEYBOARD-REACH DIAGNOSTICS ════════════════════════════════════
-                All counts go to 0 until a key is pressed.
-                documentKeydownSeen staying 0 = page not receiving keyboard events.
-                ══════════════════════════════════════════════════════════════════ */}
-            <div
-              data-testid="kbd-diagnostics"
-              style={{
-                position: "relative", zIndex: 100003, pointerEvents: "auto",
-                border: "3px solid #3b82f6", borderRadius: 8,
-                padding: "10px 14px", background: "#0f172a",
-                marginBottom: 12, maxWidth: 384, fontFamily: "monospace", fontSize: 11,
-              }}
-            >
-              <div style={{ color: "#60a5fa", fontWeight: 900, fontSize: 12, marginBottom: 6, letterSpacing: 1 }}>
-                ⌨ KEYBOARD REACH DIAGNOSTICS — press any key
-              </div>
-              {/* Banner shown while no key events detected */}
-              <div
-                ref={kbdNoEvtRef}
-                style={{
-                  background: "#7f1d1d", color: "#fca5a5", fontWeight: 700,
-                  padding: "6px 8px", borderRadius: 4, marginBottom: 6, fontSize: 12,
-                }}
-              >
-                ⚠ Keyboard input is not reaching the page in this browser session.
-              </div>
-              <div ref={kbdPanelRef} style={{ lineHeight: 1.8, color: "#e2e8f0" }}>
-                <div>windowKeydownSeen     : <span style={{ color: "#f87171" }}>false</span> (0x)</div>
-                <div>documentKeydownSeen   : <span style={{ color: "#f87171" }}>false</span> (0x)</div>
-                <div>bodyKeydownSeen       : <span style={{ color: "#f87171" }}>false</span> (0x)</div>
-                <div>inputKeydownSeen      : <span style={{ color: "#f87171" }}>false</span> (0x)</div>
-                <div>keypressSeen          : <span style={{ color: "#f87171" }}>false</span> (0x)</div>
-                <div>beforeInputSeen       : <span style={{ color: "#f87171" }}>false</span> (0x)</div>
-                <div>compositionStartSeen  : <span style={{ color: "#f87171" }}>false</span> (0x)</div>
-                <div>compositionUpdateSeen : <span style={{ color: "#f87171" }}>false</span> (0x)</div>
-                <div>compositionEndSeen    : <span style={{ color: "#f87171" }}>false</span> (0x)</div>
-                <div>pasteSeen             : <span style={{ color: "#f87171" }}>false</span> (0x)</div>
-              </div>
-            </div>
-
-            {/* ══════════════════════════════════════════════════════════════════
-                RAW INPUT STATE TEST
-                rawEvtRef + markRawEvt are defined at component top-level (above).
-                The event-log div is updated via direct DOM write — no React state
-                involved — so it proves events fire even if setState is broken.
-                z-index: 100001 lifts this above the debug overlay (zIndex 99999).
-                ══════════════════════════════════════════════════════════════════ */}
-            <div
-              data-testid="raw-input-test"
-              style={{
-                position: "relative",
-                zIndex: 100001,
-                pointerEvents: "auto",
-                border: "3px solid #f59e0b",
-                borderRadius: 8,
-                padding: "12px 14px",
-                background: "#1c1917",
-                marginBottom: 16,
-                maxWidth: 384,
-                fontFamily: "monospace",
-              }}
-            >
-              <div style={{ color: "#f59e0b", fontWeight: 900, fontSize: 13, marginBottom: 8, letterSpacing: 1 }}>
-                ⚡ RAW INPUT STATE TEST
-              </div>
-
-              {/* Ref-based event log — direct DOM mutation, bypasses React state */}
-              <div
-                ref={rawEvtRef}
-                data-testid="raw-event-log"
-                style={{ color: "#9ca3af", fontSize: 11, marginBottom: 6, minHeight: 16 }}
-              >
-                no events yet — click or type below
-              </div>
-
-              {/* ── raw-input-email: FORCED to fixed top-layer, outside all layout stacking ── */}
-              <input
-                type="text"
-                placeholder="raw email — type here"
-                value={debugEmail}
-                data-testid="raw-input-email"
-                style={{
-                  position: "fixed", top: 80, left: 20,
-                  width: 300, zIndex: 2147483647, pointerEvents: "auto",
-                  padding: "8px 10px", borderRadius: 4,
-                  border: "3px solid #000000",
-                  background: "#ffffff", color: "#000000", fontSize: 14,
-                  boxSizing: "border-box",
-                }}
-                onFocus={(e) => {
-                  const el = e.target as HTMLInputElement;
-                  const rect = el.getBoundingClientRect();
-                  const cx = rect.left + rect.width / 2;
-                  const cy = rect.top + rect.height / 2;
-                  el.style.pointerEvents = "none";
-                  const beneath = document.elementFromPoint(cx, cy);
-                  el.style.pointerEvents = "auto";
-                  // Full descriptor: tag + id + ALL classes
-                  const topDesc = beneath
-                    ? `${beneath.tagName}${beneath.id ? "#" + beneath.id : ""}${beneath.className && typeof beneath.className === "string" && beneath.className.trim() ? " [class=" + beneath.className.trim() + "]" : ""}`
-                    : "none";
-                  // Walk up the DOM to find any parent with a keydown handler
-                  let blockingWrapper = "none";
-                  let node: HTMLElement | null = el.parentElement;
-                  while (node && node !== document.body) {
-                    if ((node as any).onkeydown) {
-                      const cls = typeof node.className === "string" ? node.className.trim() : "";
-                      blockingWrapper = `${node.tagName}${node.id ? "#" + node.id : ""}${cls ? " [class=" + cls + "]" : ""}`;
-                      break;
-                    }
-                    node = node.parentElement;
-                  }
-                  const ae = document.activeElement as HTMLElement | null;
-                  flushRawDbg({
-                    rawInputFocused:        true,
-                    rawInputDisabled:       el.disabled,
-                    rawInputReadOnly:       el.readOnly,
-                    topElementOverInput:    topDesc,
-                    nearestBlockingWrapper: blockingWrapper,
-                    activeElementTag:       ae?.tagName ?? "—",
-                    activeElementClass:     (ae?.className && typeof ae.className === "string")
-                                            ? ae.className.trim() || "(empty)"
-                                            : "—",
-                  });
-                  markRawEvt("FOCUS");
-                }}
-                onClick={() => { flushRawDbg({ rawInputClicked: true }); markRawEvt("CLICK"); }}
-                onKeyDown={(e) => {
-                  kbdCounters.current.inputKeydownSeen++;
-                  flushKbd();
-                  flushRawDbg({ rawInputKeydown: true });
-                  markRawEvt("KEYDOWN: " + e.key);
-                }}
-                onInput={(e) => { flushRawDbg({ rawInputInputFired: true }); markRawEvt("INPUT: " + (e.target as HTMLInputElement).value); }}
-                onChange={(e) => { flushRawDbg({ rawInputChangeFired: true }); markRawEvt("CHANGE: " + e.target.value); setDebugEmail(e.target.value); }}
-              />
-
-              {/* 8-field debug status — direct DOM writes via rawDbgRef */}
-              <div
-                ref={rawDbgRef}
-                data-testid="raw-dbg-fields"
-                style={{
-                  fontFamily: "monospace", fontSize: 11, lineHeight: 1.7,
-                  marginBottom: 8, padding: "6px 8px",
-                  background: "#0f172a", borderRadius: 4, color: "#e2e8f0",
-                  border: "1px solid #334155",
-                }}
-              >
-                <div>rawInputFocused          : <span style={{ color: "#f87171" }}>false</span></div>
-                <div>rawInputClicked          : <span style={{ color: "#f87171" }}>false</span></div>
-                <div>rawInputKeydown          : <span style={{ color: "#f87171" }}>false</span></div>
-                <div>rawInputInputFired       : <span style={{ color: "#f87171" }}>false</span></div>
-                <div>rawInputChangeFired      : <span style={{ color: "#f87171" }}>false</span></div>
-                <div>rawInputDisabled         : <span style={{ color: "#f87171" }}>false</span></div>
-                <div>rawInputReadOnly         : <span style={{ color: "#f87171" }}>false</span></div>
-                <div><span style={{ color: "#fb923c", fontWeight: 700 }}>TOP ELEMENT OVER INPUT (FULL) : — (focus input to compute)</span></div>
-                <div>──────────────────────────────────────────</div>
-                <div>documentKeydownSeen      : <span style={{ color: "#f87171" }}>false</span> (count: 0)</div>
-                <div>parentKeydownBlocked     : <span style={{ color: "#f87171" }}>false</span></div>
-                <div>nearestBlockingWrapper   : <span style={{ color: "#fb923c" }}>none</span></div>
-                <div>activeElementTag         : <span style={{ color: "#93c5fd" }}>—</span></div>
-                <div>activeElementClass       : <span style={{ color: "#93c5fd" }}>—</span></div>
-              </div>
-
-              <input
-                type="password"
-                placeholder="raw password — type here"
-                value={debugPassword}
-                data-testid="raw-input-password"
-                style={{
-                  display: "block", width: "100%", marginBottom: 8,
-                  padding: "8px 10px", borderRadius: 4,
-                  border: "2px solid #6b7280",
-                  background: "#292524", color: "#f9fafb", fontSize: 14,
-                  boxSizing: "border-box",
-                  position: "relative", zIndex: 100002, pointerEvents: "auto",
-                }}
-                onChange={(e) => setDebugPassword(e.target.value)}
-              />
-
-              <div style={{ color: debugEmail ? "#86efac" : "#9ca3af", fontWeight: 700, fontSize: 12 }}>
-                DEBUG EMAIL: {debugEmail || "empty"}
-              </div>
-              <div style={{ color: debugPassword ? "#86efac" : "#9ca3af", fontWeight: 700, fontSize: 12 }}>
-                DEBUG PASSWORD LENGTH: {debugPassword.length}
-              </div>
             </div>
 
             <form ref={formRef} onSubmit={handleSubmit} className="max-w-sm space-y-3" data-testid="form-login" noValidate>
@@ -1501,203 +1116,6 @@ code:    ${rawAuthError.code}`}
         </div>
       </footer>
 
-      {/* ── BODY PORTAL INPUT TEST — rendered directly to document.body ─────────
-          Bypasses the entire React component tree and page layout.
-          If THIS textarea receives key events but the in-page input does not,
-          the in-page layout/wrapper is the blocker.
-          If this also receives no key events, the issue is at the browser level.
-          ────────────────────────────────────────────────────────────────────── */}
-      {/* ── ISOLATED PORTAL INPUT TEST (second portal) ─────────────────────────
-           Rendered directly to document.body at maximum z-index.
-           Auto-focused on mount; FORCE FOCUS button re-runs focus + probes.
-           Positioned to the right of the existing portal to avoid overlap.   */}
-      {createPortal(
-        <div
-          data-testid="iso-portal-container"
-          style={{
-            position: "fixed", top: 20, right: 20,
-            zIndex: 2147483647, pointerEvents: "auto",
-            fontFamily: "monospace", fontSize: 11,
-            background: "#0f172a", border: "2px solid #ef4444",
-            borderRadius: 6, padding: "6px 8px", width: 340,
-          }}
-        >
-          <div style={{ color: "#ef4444", fontWeight: 900, fontSize: 12, marginBottom: 4, letterSpacing: 1 }}>
-            🔴 ISOLATED PORTAL INPUT TEST
-          </div>
-
-          {/* The test input itself */}
-          <input
-            ref={isoInputRef}
-            data-testid="iso-portal-input"
-            type="text"
-            placeholder="Click or press FORCE FOCUS, then type"
-            style={{
-              display: "block",
-              width: "100%", height: 48,
-              background: "#ffffff", color: "#000000",
-              border: "4px solid red", borderRadius: 4,
-              fontSize: 14, padding: "0 10px",
-              boxSizing: "border-box",
-              marginBottom: 4,
-              pointerEvents: "auto",
-            }}
-            onFocus={() => {
-              const ae = document.activeElement as HTMLElement | null;
-              isoCounters.current.focused = true;
-              isoCounters.current.aeTag   = ae?.tagName ?? "—";
-              flushIso();
-            }}
-            onClick={() => {
-              isoCounters.current.clicked = true;
-              flushIso();
-            }}
-            onKeyDown={(e) => {
-              isoCounters.current.kdCount++;
-              flushIso();
-            }}
-            onInput={(e) => {
-              isoCounters.current.inpCount++;
-              isoCounters.current.value = (e.target as HTMLInputElement).value;
-              flushIso();
-            }}
-            onChange={(e) => {
-              isoCounters.current.chCount++;
-              isoCounters.current.value = e.target.value;
-              flushIso();
-            }}
-          />
-
-          {/* FORCE FOCUS button */}
-          <button
-            data-testid="btn-iso-force-focus"
-            onClick={forceFocusIso}
-            style={{
-              display: "block", width: "100%",
-              background: "#dc2626", color: "#fff",
-              border: "none", borderRadius: 4,
-              padding: "8px 0", fontWeight: 900,
-              fontSize: 13, letterSpacing: 1,
-              cursor: "pointer", marginBottom: 4,
-              fontFamily: "monospace",
-              pointerEvents: "auto",
-            }}
-          >
-            FORCE FOCUS INPUT
-          </button>
-
-          {/* PROBE FORM INPUT button — scrolls to real email input, probes elementFromPoint */}
-          <button
-            data-testid="btn-iso-probe-form"
-            onClick={probeFormInput}
-            style={{
-              display: "block", width: "100%",
-              background: "#1d4ed8", color: "#fff",
-              border: "none", borderRadius: 4,
-              padding: "8px 0", fontWeight: 900,
-              fontSize: 13, letterSpacing: 1,
-              cursor: "pointer", marginBottom: 6,
-              fontFamily: "monospace",
-              pointerEvents: "auto",
-            }}
-          >
-            PROBE FORM INPUT
-          </button>
-
-          {/* Live stats — direct DOM writes */}
-          <div
-            ref={isoStatsRef}
-            data-testid="iso-portal-stats"
-            style={{ lineHeight: 1.7, color: "#e2e8f0" }}
-          >
-            <div>portalFocused            : <span style={{ color: "#f87171" }}>false</span></div>
-            <div>portalClicked            : <span style={{ color: "#f87171" }}>false</span></div>
-            <div>portalKeydownSeen        : <span style={{ color: "#f87171" }}>false</span> (0x)</div>
-            <div>portalInputSeen          : <span style={{ color: "#f87171" }}>false</span> (0x)</div>
-            <div>portalChangeSeen         : <span style={{ color: "#f87171" }}>false</span> (0x)</div>
-            <div>portalValue              : <span style={{ color: "#94a3b8" }}>(empty)</span></div>
-            <div>portalActiveElementTag   : <span style={{ color: "#94a3b8" }}>—</span></div>
-            <div>portalElementFromPoint   : <span style={{ color: "#94a3b8" }}>—</span></div>
-            <div>──────────────────────────────────────</div>
-            <div>realFormElementFromPoint : <span style={{ color: "#94a3b8" }}>— (press PROBE FORM)</span></div>
-            <div>formInputViewportRect    : <span style={{ color: "#94a3b8" }}>—</span></div>
-          </div>
-
-          {/* Conclusion banner — shown only when focused but no keydown fires */}
-          <div
-            ref={isoConcRef}
-            data-testid="iso-portal-conclusion"
-            style={{
-              display: "none",
-              marginTop: 6,
-              background: "#7f1d1d", color: "#fca5a5",
-              fontWeight: 700, fontSize: 12,
-              padding: "6px 8px", borderRadius: 4,
-              lineHeight: 1.5,
-            }}
-          >
-            ⚠ Keyboard events are not reaching focused inputs in this browser session.
-          </div>
-        </div>,
-        document.body
-      )}
-
-      {createPortal(
-        <div
-          data-testid="body-portal-container"
-          style={{
-            /* MOVED from top:10/left:10 → bottom:250px/left:10 so it cannot
-               overlap with form inputs as the user scrolls to them.
-               pointer-events:none on the container so only the textarea
-               itself intercepts clicks — label/stats divs no longer block
-               anything behind them.                                          */
-            position: "fixed", bottom: 250, left: 10,
-            zIndex: 2147483647,
-            pointerEvents: "none",          /* ← was "auto" — THE FIX */
-            fontFamily: "monospace", fontSize: 12,
-          }}
-        >
-          <div style={{
-            background: "#000", color: "#fff", fontWeight: 900, fontSize: 11,
-            padding: "2px 6px", borderRadius: "4px 4px 0 0", letterSpacing: 1,
-            pointerEvents: "none",
-          }}>
-            BODY PORTAL INPUT TEST
-          </div>
-          <textarea
-            data-testid="portal-textarea"
-            placeholder="type here — portal test"
-            rows={2}
-            style={{
-              display: "block", width: 260,
-              padding: "6px 8px",
-              background: "#ffffff", color: "#000000",
-              border: "3px solid red", borderTop: "none",
-              fontSize: 13, resize: "none", outline: "none",
-              pointerEvents: "auto",        /* textarea stays interactive */
-            }}
-            onKeyDown={() => { portalCounters.current.kd++;  flushPortal(); }}
-            onInput={(e) => { portalCounters.current.inp++; flushPortal((e.target as HTMLTextAreaElement).value.length); }}
-            onChange={(e) => { portalCounters.current.ch++;  flushPortal((e.target as HTMLTextAreaElement).value.length); }}
-          />
-          <div
-            ref={portalPanelRef}
-            style={{
-              background: "#1e1b4b", color: "#e2e8f0",
-              padding: "4px 8px", borderRadius: "0 0 4px 4px",
-              border: "1px solid #6366f1", borderTop: "none",
-              lineHeight: 1.7,
-              pointerEvents: "none",
-            }}
-          >
-            <div>PORTAL TEXT LENGTH : <span style={{ color: "#e2e8f0" }}>0</span></div>
-            <div>portalKeydownSeen  : <span style={{ color: "#f87171" }}>false</span> (0x)</div>
-            <div>portalInputSeen    : <span style={{ color: "#f87171" }}>false</span> (0x)</div>
-            <div>portalChangeSeen   : <span style={{ color: "#f87171" }}>false</span> (0x)</div>
-          </div>
-        </div>,
-        document.body
-      )}
     </div>
   );
 }
