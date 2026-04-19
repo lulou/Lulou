@@ -274,6 +274,60 @@ export default function Landing() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // ── Isolated portal input (new, second portal) ────────────────────────────
+  const isoInputRef  = useRef<HTMLInputElement>(null);
+  const isoStatsRef  = useRef<HTMLDivElement>(null);
+  const isoConcRef   = useRef<HTMLDivElement>(null);
+  const isoCounters  = useRef({
+    focused: false, clicked: false, kdCount: 0,
+    inpCount: 0, chCount: 0, value: "", aeTag: "", efp: "",
+  });
+
+  const flushIso = () => {
+    const c = isoCounters.current;
+    if (isoStatsRef.current) {
+      const b  = (v: boolean) => `<span style="color:${v ? "#4ade80" : "#f87171"}">${v}</span>`;
+      const n  = (v: number)  => `<span style="color:${v > 0 ? "#4ade80" : "#f87171"}">${v > 0}</span> (${v}x)`;
+      isoStatsRef.current.innerHTML = [
+        `portalFocused           : ${b(c.focused)}`,
+        `portalClicked           : ${b(c.clicked)}`,
+        `portalKeydownSeen       : ${n(c.kdCount)}`,
+        `portalInputSeen         : ${n(c.inpCount)}`,
+        `portalChangeSeen        : ${n(c.chCount)}`,
+        `portalValue             : <span style="color:#fbbf24">${c.value || "(empty)"}</span>`,
+        `portalActiveElementTag  : <span style="color:#93c5fd">${c.aeTag || "—"}</span>`,
+        `portalElementFromPoint  : <span style="color:#93c5fd">${c.efp  || "—"}</span>`,
+      ].map(l => `<div>${l}</div>`).join("");
+    }
+    if (isoConcRef.current) {
+      const show = c.focused && c.kdCount === 0;
+      isoConcRef.current.style.display = show ? "block" : "none";
+    }
+  };
+
+  const forceFocusIso = () => {
+    const el = isoInputRef.current;
+    if (!el) return;
+    el.focus();
+    const ae  = document.activeElement as HTMLElement | null;
+    const rect = el.getBoundingClientRect();
+    el.style.pointerEvents = "none";
+    const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+    el.style.pointerEvents = "auto";
+    isoCounters.current.focused = document.activeElement === el;
+    isoCounters.current.aeTag   = ae?.tagName ?? "—";
+    isoCounters.current.efp     = hit
+      ? `${hit.tagName}${hit.id ? "#" + hit.id : ""}${hit.className && typeof hit.className === "string" && hit.className.trim() ? " [" + hit.className.trim().slice(0, 80) + "]" : ""}`
+      : "none";
+    flushIso();
+  };
+
+  useEffect(() => {
+    const timer = setTimeout(forceFocusIso, 600);
+    return () => clearTimeout(timer);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // ── Portal textarea state ───────────────────────────────────────────────────
   const portalPanelRef = useRef<HTMLDivElement>(null);
   const portalCounters = useRef({ kd: 0, inp: 0, ch: 0, len: 0 });
@@ -1410,6 +1464,120 @@ code:    ${rawAuthError.code}`}
           the in-page layout/wrapper is the blocker.
           If this also receives no key events, the issue is at the browser level.
           ────────────────────────────────────────────────────────────────────── */}
+      {/* ── ISOLATED PORTAL INPUT TEST (second portal) ─────────────────────────
+           Rendered directly to document.body at maximum z-index.
+           Auto-focused on mount; FORCE FOCUS button re-runs focus + probes.
+           Positioned to the right of the existing portal to avoid overlap.   */}
+      {createPortal(
+        <div
+          data-testid="iso-portal-container"
+          style={{
+            position: "fixed", top: 20, right: 20,
+            zIndex: 2147483647, pointerEvents: "auto",
+            fontFamily: "monospace", fontSize: 11,
+            background: "#0f172a", border: "2px solid #ef4444",
+            borderRadius: 6, padding: "6px 8px", width: 340,
+          }}
+        >
+          <div style={{ color: "#ef4444", fontWeight: 900, fontSize: 12, marginBottom: 4, letterSpacing: 1 }}>
+            🔴 ISOLATED PORTAL INPUT TEST
+          </div>
+
+          {/* The test input itself */}
+          <input
+            ref={isoInputRef}
+            data-testid="iso-portal-input"
+            type="text"
+            placeholder="Click or press FORCE FOCUS, then type"
+            style={{
+              display: "block",
+              width: "100%", height: 48,
+              background: "#ffffff", color: "#000000",
+              border: "4px solid red", borderRadius: 4,
+              fontSize: 14, padding: "0 10px",
+              boxSizing: "border-box",
+              marginBottom: 4,
+              pointerEvents: "auto",
+            }}
+            onFocus={() => {
+              const ae = document.activeElement as HTMLElement | null;
+              isoCounters.current.focused = true;
+              isoCounters.current.aeTag   = ae?.tagName ?? "—";
+              flushIso();
+            }}
+            onClick={() => {
+              isoCounters.current.clicked = true;
+              flushIso();
+            }}
+            onKeyDown={(e) => {
+              isoCounters.current.kdCount++;
+              flushIso();
+            }}
+            onInput={(e) => {
+              isoCounters.current.inpCount++;
+              isoCounters.current.value = (e.target as HTMLInputElement).value;
+              flushIso();
+            }}
+            onChange={(e) => {
+              isoCounters.current.chCount++;
+              isoCounters.current.value = e.target.value;
+              flushIso();
+            }}
+          />
+
+          {/* FORCE FOCUS button */}
+          <button
+            data-testid="btn-iso-force-focus"
+            onClick={forceFocusIso}
+            style={{
+              display: "block", width: "100%",
+              background: "#dc2626", color: "#fff",
+              border: "none", borderRadius: 4,
+              padding: "8px 0", fontWeight: 900,
+              fontSize: 13, letterSpacing: 1,
+              cursor: "pointer", marginBottom: 6,
+              fontFamily: "monospace",
+              pointerEvents: "auto",
+            }}
+          >
+            FORCE FOCUS INPUT
+          </button>
+
+          {/* Live stats — direct DOM writes */}
+          <div
+            ref={isoStatsRef}
+            data-testid="iso-portal-stats"
+            style={{ lineHeight: 1.7, color: "#e2e8f0" }}
+          >
+            <div>portalFocused           : <span style={{ color: "#f87171" }}>false</span></div>
+            <div>portalClicked           : <span style={{ color: "#f87171" }}>false</span></div>
+            <div>portalKeydownSeen       : <span style={{ color: "#f87171" }}>false</span> (0x)</div>
+            <div>portalInputSeen         : <span style={{ color: "#f87171" }}>false</span> (0x)</div>
+            <div>portalChangeSeen        : <span style={{ color: "#f87171" }}>false</span> (0x)</div>
+            <div>portalValue             : <span style={{ color: "#94a3b8" }}>(empty)</span></div>
+            <div>portalActiveElementTag  : <span style={{ color: "#94a3b8" }}>—</span></div>
+            <div>portalElementFromPoint  : <span style={{ color: "#94a3b8" }}>—</span></div>
+          </div>
+
+          {/* Conclusion banner — shown only when focused but no keydown fires */}
+          <div
+            ref={isoConcRef}
+            data-testid="iso-portal-conclusion"
+            style={{
+              display: "none",
+              marginTop: 6,
+              background: "#7f1d1d", color: "#fca5a5",
+              fontWeight: 700, fontSize: 12,
+              padding: "6px 8px", borderRadius: 4,
+              lineHeight: 1.5,
+            }}
+          >
+            ⚠ Keyboard events are not reaching focused inputs in this browser session.
+          </div>
+        </div>,
+        document.body
+      )}
+
       {createPortal(
         <div
           data-testid="body-portal-container"
