@@ -28,7 +28,7 @@ function isAlreadyExists(err: any): boolean {
 }
 
 function classifyAuthError(err: any, mode: AuthMode): AuthError {
-  // ── Timeout: the 15s Promise.race fired — Supabase never answered ─────────
+  // ── Timeout: the 30s Promise.race fired — Supabase never answered ─────────
   // Detected by the explicit code set on the timeout Error object.
   // Always treated as a connection problem, never as a credentials error.
   if (err?.code === "timeout") {
