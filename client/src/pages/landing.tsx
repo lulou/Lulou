@@ -281,6 +281,8 @@ export default function Landing() {
   const isoCounters  = useRef({
     focused: false, clicked: false, kdCount: 0,
     inpCount: 0, chCount: 0, value: "", aeTag: "", efp: "",
+    realFormEfp: "" as string,   // elementFromPoint at the real email input's center
+    formRect: "" as string,      // getBoundingClientRect summary for the email input
   });
 
   const flushIso = () => {
@@ -289,14 +291,17 @@ export default function Landing() {
       const b  = (v: boolean) => `<span style="color:${v ? "#4ade80" : "#f87171"}">${v}</span>`;
       const n  = (v: number)  => `<span style="color:${v > 0 ? "#4ade80" : "#f87171"}">${v > 0}</span> (${v}x)`;
       isoStatsRef.current.innerHTML = [
-        `portalFocused           : ${b(c.focused)}`,
-        `portalClicked           : ${b(c.clicked)}`,
-        `portalKeydownSeen       : ${n(c.kdCount)}`,
-        `portalInputSeen         : ${n(c.inpCount)}`,
-        `portalChangeSeen        : ${n(c.chCount)}`,
-        `portalValue             : <span style="color:#fbbf24">${c.value || "(empty)"}</span>`,
-        `portalActiveElementTag  : <span style="color:#93c5fd">${c.aeTag || "—"}</span>`,
-        `portalElementFromPoint  : <span style="color:#93c5fd">${c.efp  || "—"}</span>`,
+        `portalFocused            : ${b(c.focused)}`,
+        `portalClicked            : ${b(c.clicked)}`,
+        `portalKeydownSeen        : ${n(c.kdCount)}`,
+        `portalInputSeen          : ${n(c.inpCount)}`,
+        `portalChangeSeen         : ${n(c.chCount)}`,
+        `portalValue              : <span style="color:#fbbf24">${c.value || "(empty)"}</span>`,
+        `portalActiveElementTag   : <span style="color:#93c5fd">${c.aeTag || "—"}</span>`,
+        `portalElementFromPoint   : <span style="color:#93c5fd">${c.efp  || "—"}</span>`,
+        `──────────────────────────────────────`,
+        `realFormElementFromPoint : <span style="color:${c.realFormEfp.startsWith("INPUT") ? "#4ade80" : "#f87171"}">${c.realFormEfp || "— (press PROBE FORM)"}</span>`,
+        `formInputViewportRect    : <span style="color:#e2e8f0">${c.formRect || "—"}</span>`,
       ].map(l => `<div>${l}</div>`).join("");
     }
     if (isoConcRef.current) {
@@ -320,6 +325,28 @@ export default function Landing() {
       ? `${hit.tagName}${hit.id ? "#" + hit.id : ""}${hit.className && typeof hit.className === "string" && hit.className.trim() ? " [" + hit.className.trim().slice(0, 80) + "]" : ""}`
       : "none";
     flushIso();
+  };
+
+  const probeFormInput = () => {
+    const el = emailRef.current;
+    if (!el) { isoCounters.current.realFormEfp = "emailRef is null"; flushIso(); return; }
+    el.scrollIntoView({ block: "center" });
+    // Give browser a frame to scroll before probing
+    requestAnimationFrame(() => {
+      const rect = el.getBoundingClientRect();
+      const cx   = rect.left + rect.width  / 2;
+      const cy   = rect.top  + rect.height / 2;
+      el.style.pointerEvents = "none";
+      const hit = document.elementFromPoint(cx, cy);
+      el.style.pointerEvents = "";
+      isoCounters.current.realFormEfp =
+        hit
+          ? `${hit.tagName}${hit.id ? "#" + hit.id : ""}${hit.className && typeof hit.className === "string" && hit.className.trim() ? " [" + hit.className.trim().slice(0, 100) + "]" : ""}`
+          : "none";
+      isoCounters.current.formRect =
+        `x:${Math.round(rect.left)} y:${Math.round(rect.top)} w:${Math.round(rect.width)} h:${Math.round(rect.height)}`;
+      flushIso();
+    });
   };
 
   useEffect(() => {
@@ -1165,6 +1192,22 @@ export default function Landing() {
                   type="email"
                   placeholder="Enter your email"
                   value={email}
+                  onFocus={(e) => {
+                    // Capture what element is at the input's center — confirms
+                    // whether any overlay is blocking the input in the form.
+                    const el   = e.target as HTMLInputElement;
+                    const rect = el.getBoundingClientRect();
+                    el.style.pointerEvents = "none";
+                    const hit = document.elementFromPoint(
+                      rect.left + rect.width  / 2,
+                      rect.top  + rect.height / 2,
+                    );
+                    el.style.pointerEvents = "";
+                    const desc = hit
+                      ? `${hit.tagName}${hit.id ? "#" + hit.id : ""}${hit.className && typeof hit.className === "string" && hit.className.trim() ? " [" + hit.className.trim().slice(0, 80) + "]" : ""}`
+                      : "none";
+                    writeDebug({ realEmailInputFocused: true, realEmailEfp: desc });
+                  }}
                   onChange={(e) => {
                     const v = e.target.value;
                     setEmail(v);
@@ -1535,12 +1578,30 @@ code:    ${rawAuthError.code}`}
               border: "none", borderRadius: 4,
               padding: "8px 0", fontWeight: 900,
               fontSize: 13, letterSpacing: 1,
-              cursor: "pointer", marginBottom: 6,
+              cursor: "pointer", marginBottom: 4,
               fontFamily: "monospace",
               pointerEvents: "auto",
             }}
           >
             FORCE FOCUS INPUT
+          </button>
+
+          {/* PROBE FORM INPUT button — scrolls to real email input, probes elementFromPoint */}
+          <button
+            data-testid="btn-iso-probe-form"
+            onClick={probeFormInput}
+            style={{
+              display: "block", width: "100%",
+              background: "#1d4ed8", color: "#fff",
+              border: "none", borderRadius: 4,
+              padding: "8px 0", fontWeight: 900,
+              fontSize: 13, letterSpacing: 1,
+              cursor: "pointer", marginBottom: 6,
+              fontFamily: "monospace",
+              pointerEvents: "auto",
+            }}
+          >
+            PROBE FORM INPUT
           </button>
 
           {/* Live stats — direct DOM writes */}
@@ -1549,14 +1610,17 @@ code:    ${rawAuthError.code}`}
             data-testid="iso-portal-stats"
             style={{ lineHeight: 1.7, color: "#e2e8f0" }}
           >
-            <div>portalFocused           : <span style={{ color: "#f87171" }}>false</span></div>
-            <div>portalClicked           : <span style={{ color: "#f87171" }}>false</span></div>
-            <div>portalKeydownSeen       : <span style={{ color: "#f87171" }}>false</span> (0x)</div>
-            <div>portalInputSeen         : <span style={{ color: "#f87171" }}>false</span> (0x)</div>
-            <div>portalChangeSeen        : <span style={{ color: "#f87171" }}>false</span> (0x)</div>
-            <div>portalValue             : <span style={{ color: "#94a3b8" }}>(empty)</span></div>
-            <div>portalActiveElementTag  : <span style={{ color: "#94a3b8" }}>—</span></div>
-            <div>portalElementFromPoint  : <span style={{ color: "#94a3b8" }}>—</span></div>
+            <div>portalFocused            : <span style={{ color: "#f87171" }}>false</span></div>
+            <div>portalClicked            : <span style={{ color: "#f87171" }}>false</span></div>
+            <div>portalKeydownSeen        : <span style={{ color: "#f87171" }}>false</span> (0x)</div>
+            <div>portalInputSeen          : <span style={{ color: "#f87171" }}>false</span> (0x)</div>
+            <div>portalChangeSeen         : <span style={{ color: "#f87171" }}>false</span> (0x)</div>
+            <div>portalValue              : <span style={{ color: "#94a3b8" }}>(empty)</span></div>
+            <div>portalActiveElementTag   : <span style={{ color: "#94a3b8" }}>—</span></div>
+            <div>portalElementFromPoint   : <span style={{ color: "#94a3b8" }}>—</span></div>
+            <div>──────────────────────────────────────</div>
+            <div>realFormElementFromPoint : <span style={{ color: "#94a3b8" }}>— (press PROBE FORM)</span></div>
+            <div>formInputViewportRect    : <span style={{ color: "#94a3b8" }}>—</span></div>
           </div>
 
           {/* Conclusion banner — shown only when focused but no keydown fires */}
@@ -1582,14 +1646,21 @@ code:    ${rawAuthError.code}`}
         <div
           data-testid="body-portal-container"
           style={{
-            position: "fixed", top: 10, left: 10,
-            zIndex: 2147483647, pointerEvents: "auto",
+            /* MOVED from top:10/left:10 → bottom:250px/left:10 so it cannot
+               overlap with form inputs as the user scrolls to them.
+               pointer-events:none on the container so only the textarea
+               itself intercepts clicks — label/stats divs no longer block
+               anything behind them.                                          */
+            position: "fixed", bottom: 250, left: 10,
+            zIndex: 2147483647,
+            pointerEvents: "none",          /* ← was "auto" — THE FIX */
             fontFamily: "monospace", fontSize: 12,
           }}
         >
           <div style={{
             background: "#000", color: "#fff", fontWeight: 900, fontSize: 11,
             padding: "2px 6px", borderRadius: "4px 4px 0 0", letterSpacing: 1,
+            pointerEvents: "none",
           }}>
             BODY PORTAL INPUT TEST
           </div>
@@ -1603,7 +1674,7 @@ code:    ${rawAuthError.code}`}
               background: "#ffffff", color: "#000000",
               border: "3px solid red", borderTop: "none",
               fontSize: 13, resize: "none", outline: "none",
-              pointerEvents: "auto",
+              pointerEvents: "auto",        /* textarea stays interactive */
             }}
             onKeyDown={() => { portalCounters.current.kd++;  flushPortal(); }}
             onInput={(e) => { portalCounters.current.inp++; flushPortal((e.target as HTMLTextAreaElement).value.length); }}
@@ -1616,6 +1687,7 @@ code:    ${rawAuthError.code}`}
               padding: "4px 8px", borderRadius: "0 0 4px 4px",
               border: "1px solid #6366f1", borderTop: "none",
               lineHeight: 1.7,
+              pointerEvents: "none",
             }}
           >
             <div>PORTAL TEXT LENGTH : <span style={{ color: "#e2e8f0" }}>0</span></div>
