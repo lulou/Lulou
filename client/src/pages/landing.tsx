@@ -154,6 +154,36 @@ export default function Landing() {
     }
   };
 
+  // ── 8-field raw debug panel — direct DOM writes, zero React state ─────────
+  const rawDbgRef = useRef<HTMLDivElement>(null);
+  const rawDbgVal = useRef({
+    rawInputFocused:     false as boolean,
+    rawInputClicked:     false as boolean,
+    rawInputKeydown:     false as boolean,
+    rawInputInputFired:  false as boolean,
+    rawInputChangeFired: false as boolean,
+    rawInputDisabled:    false as boolean,
+    rawInputReadOnly:    false as boolean,
+    topElementOverInput: "— (focus input to compute)" as string,
+  });
+  const flushRawDbg = (patch: Partial<typeof rawDbgVal.current>) => {
+    Object.assign(rawDbgVal.current, patch);
+    if (!rawDbgRef.current) return;
+    const s = rawDbgVal.current;
+    const b = (v: boolean) =>
+      `<span style="color:${v ? "#4ade80" : "#f87171"}">${v}</span>`;
+    rawDbgRef.current.innerHTML = [
+      `rawInputFocused     : ${b(s.rawInputFocused)}`,
+      `rawInputClicked     : ${b(s.rawInputClicked)}`,
+      `rawInputKeydown     : ${b(s.rawInputKeydown)}`,
+      `rawInputInputFired  : ${b(s.rawInputInputFired)}`,
+      `rawInputChangeFired : ${b(s.rawInputChangeFired)}`,
+      `rawInputDisabled    : ${b(s.rawInputDisabled)}`,
+      `rawInputReadOnly    : ${b(s.rawInputReadOnly)}`,
+      `<span style="color:#fb923c;font-weight:700">TOP ELEMENT OVER INPUT: ${s.topElementOverInput}</span>`,
+    ].map(line => `<div>${line}</div>`).join("");
+  };
+
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -636,17 +666,56 @@ export default function Landing() {
                 style={{
                   display: "block", width: "100%", marginBottom: 6,
                   padding: "8px 10px", borderRadius: 4,
-                  border: "2px solid #f59e0b",
-                  background: "#292524", color: "#f9fafb", fontSize: 14,
+                  border: "3px solid #000000",
+                  background: "#ffffff", color: "#000000", fontSize: 14,
                   boxSizing: "border-box",
                   position: "relative", zIndex: 100002, pointerEvents: "auto",
                 }}
-                onFocus={() => markRawEvt("FOCUS")}
-                onClick={() => markRawEvt("CLICK")}
-                onKeyDown={() => markRawEvt("KEYDOWN")}
-                onInput={(e) => markRawEvt("INPUT: " + (e.target as HTMLInputElement).value)}
-                onChange={(e) => { markRawEvt("CHANGE: " + e.target.value); setDebugEmail(e.target.value); }}
+                onFocus={(e) => {
+                  const el = e.target as HTMLInputElement;
+                  const rect = el.getBoundingClientRect();
+                  const cx = rect.left + rect.width / 2;
+                  const cy = rect.top + rect.height / 2;
+                  el.style.pointerEvents = "none";
+                  const beneath = document.elementFromPoint(cx, cy);
+                  el.style.pointerEvents = "auto";
+                  const topDesc = beneath
+                    ? `${beneath.tagName}${beneath.id ? "#" + beneath.id : ""}${beneath.className && typeof beneath.className === "string" ? "." + beneath.className.trim().split(/\s+/).slice(0, 3).join(".") : ""}`
+                    : "none";
+                  flushRawDbg({
+                    rawInputFocused: true,
+                    rawInputDisabled: el.disabled,
+                    rawInputReadOnly: el.readOnly,
+                    topElementOverInput: topDesc,
+                  });
+                  markRawEvt("FOCUS");
+                }}
+                onClick={() => { flushRawDbg({ rawInputClicked: true }); markRawEvt("CLICK"); }}
+                onKeyDown={() => { flushRawDbg({ rawInputKeydown: true }); markRawEvt("KEYDOWN"); }}
+                onInput={(e) => { flushRawDbg({ rawInputInputFired: true }); markRawEvt("INPUT: " + (e.target as HTMLInputElement).value); }}
+                onChange={(e) => { flushRawDbg({ rawInputChangeFired: true }); markRawEvt("CHANGE: " + e.target.value); setDebugEmail(e.target.value); }}
               />
+
+              {/* 8-field debug status — direct DOM writes via rawDbgRef */}
+              <div
+                ref={rawDbgRef}
+                data-testid="raw-dbg-fields"
+                style={{
+                  fontFamily: "monospace", fontSize: 11, lineHeight: 1.7,
+                  marginBottom: 8, padding: "6px 8px",
+                  background: "#0f172a", borderRadius: 4, color: "#e2e8f0",
+                  border: "1px solid #334155",
+                }}
+              >
+                <div>rawInputFocused     : <span style={{ color: "#f87171" }}>false</span></div>
+                <div>rawInputClicked     : <span style={{ color: "#f87171" }}>false</span></div>
+                <div>rawInputKeydown     : <span style={{ color: "#f87171" }}>false</span></div>
+                <div>rawInputInputFired  : <span style={{ color: "#f87171" }}>false</span></div>
+                <div>rawInputChangeFired : <span style={{ color: "#f87171" }}>false</span></div>
+                <div>rawInputDisabled    : <span style={{ color: "#f87171" }}>false</span></div>
+                <div>rawInputReadOnly    : <span style={{ color: "#f87171" }}>false</span></div>
+                <div><span style={{ color: "#fb923c", fontWeight: 700 }}>TOP ELEMENT OVER INPUT: — (focus input to compute)</span></div>
+              </div>
 
               <input
                 type="password"
