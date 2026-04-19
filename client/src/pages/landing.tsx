@@ -188,7 +188,7 @@ export default function Landing() {
       `rawInputChangeFired      : ${b(s.rawInputChangeFired)}`,
       `rawInputDisabled         : ${b(s.rawInputDisabled)}`,
       `rawInputReadOnly         : ${b(s.rawInputReadOnly)}`,
-      `<span style="color:#fb923c;font-weight:700">TOP ELEMENT OVER INPUT  : ${s.topElementOverInput}</span>`,
+      `<span style="color:#fb923c;font-weight:700">TOP ELEMENT OVER INPUT (FULL) : ${s.topElementOverInput}</span>`,
       `──────────────────────────────────────────`,
       `documentKeydownSeen      : ${b(s.documentKeydownSeen)} (count: ${s.documentKeydownCount})`,
       `parentKeydownBlocked     : ${b(s.parentKeydownBlocked)}`,
@@ -915,18 +915,19 @@ export default function Landing() {
                 no events yet — click or type below
               </div>
 
+              {/* ── raw-input-email: FORCED to fixed top-layer, outside all layout stacking ── */}
               <input
                 type="text"
                 placeholder="raw email — type here"
                 value={debugEmail}
                 data-testid="raw-input-email"
                 style={{
-                  display: "block", width: "100%", marginBottom: 6,
+                  position: "fixed", top: 80, left: 20,
+                  width: 300, zIndex: 2147483647, pointerEvents: "auto",
                   padding: "8px 10px", borderRadius: 4,
                   border: "3px solid #000000",
                   background: "#ffffff", color: "#000000", fontSize: 14,
                   boxSizing: "border-box",
-                  position: "relative", zIndex: 100002, pointerEvents: "auto",
                 }}
                 onFocus={(e) => {
                   const el = e.target as HTMLInputElement;
@@ -936,15 +937,17 @@ export default function Landing() {
                   el.style.pointerEvents = "none";
                   const beneath = document.elementFromPoint(cx, cy);
                   el.style.pointerEvents = "auto";
+                  // Full descriptor: tag + id + ALL classes
                   const topDesc = beneath
-                    ? `${beneath.tagName}${beneath.id ? "#" + beneath.id : ""}${beneath.className && typeof beneath.className === "string" ? "." + beneath.className.trim().split(/\s+/).slice(0, 3).join(".") : ""}`
+                    ? `${beneath.tagName}${beneath.id ? "#" + beneath.id : ""}${beneath.className && typeof beneath.className === "string" && beneath.className.trim() ? " [class=" + beneath.className.trim() + "]" : ""}`
                     : "none";
                   // Walk up the DOM to find any parent with a keydown handler
                   let blockingWrapper = "none";
                   let node: HTMLElement | null = el.parentElement;
                   while (node && node !== document.body) {
                     if ((node as any).onkeydown) {
-                      blockingWrapper = `${node.tagName}${node.id ? "#" + node.id : ""}${node.className ? "." + node.className.trim().split(/\s+/).slice(0, 2).join(".") : ""}`;
+                      const cls = typeof node.className === "string" ? node.className.trim() : "";
+                      blockingWrapper = `${node.tagName}${node.id ? "#" + node.id : ""}${cls ? " [class=" + cls + "]" : ""}`;
                       break;
                     }
                     node = node.parentElement;
@@ -958,13 +961,18 @@ export default function Landing() {
                     nearestBlockingWrapper: blockingWrapper,
                     activeElementTag:       ae?.tagName ?? "—",
                     activeElementClass:     (ae?.className && typeof ae.className === "string")
-                                            ? ae.className.trim().split(/\s+/).slice(0, 4).join(" ") || "(empty)"
+                                            ? ae.className.trim() || "(empty)"
                                             : "—",
                   });
                   markRawEvt("FOCUS");
                 }}
                 onClick={() => { flushRawDbg({ rawInputClicked: true }); markRawEvt("CLICK"); }}
-                onKeyDown={() => { flushRawDbg({ rawInputKeydown: true }); markRawEvt("KEYDOWN"); }}
+                onKeyDown={(e) => {
+                  kbdCounters.current.inputKeydownSeen++;
+                  flushKbd();
+                  flushRawDbg({ rawInputKeydown: true });
+                  markRawEvt("KEYDOWN: " + e.key);
+                }}
                 onInput={(e) => { flushRawDbg({ rawInputInputFired: true }); markRawEvt("INPUT: " + (e.target as HTMLInputElement).value); }}
                 onChange={(e) => { flushRawDbg({ rawInputChangeFired: true }); markRawEvt("CHANGE: " + e.target.value); setDebugEmail(e.target.value); }}
               />
@@ -987,7 +995,7 @@ export default function Landing() {
                 <div>rawInputChangeFired      : <span style={{ color: "#f87171" }}>false</span></div>
                 <div>rawInputDisabled         : <span style={{ color: "#f87171" }}>false</span></div>
                 <div>rawInputReadOnly         : <span style={{ color: "#f87171" }}>false</span></div>
-                <div><span style={{ color: "#fb923c", fontWeight: 700 }}>TOP ELEMENT OVER INPUT  : — (focus input to compute)</span></div>
+                <div><span style={{ color: "#fb923c", fontWeight: 700 }}>TOP ELEMENT OVER INPUT (FULL) : — (focus input to compute)</span></div>
                 <div>──────────────────────────────────────────</div>
                 <div>documentKeydownSeen      : <span style={{ color: "#f87171" }}>false</span> (count: 0)</div>
                 <div>parentKeydownBlocked     : <span style={{ color: "#f87171" }}>false</span></div>
