@@ -147,13 +147,23 @@ async function safeFetch(
   });
 }
 
+// Derive the storage key from the project ref in the URL so it automatically
+// changes when VITE_SUPABASE_URL is pointed at a different project.
+// e.g. https://abcxyz.supabase.co → "sb-abcxyz-auth-token"
+// If the URL is malformed the fallback keeps behaviour identical to before.
+const _projectRef = (() => {
+  try { return new URL(supabaseUrl).hostname.split(".")[0]; }
+  catch { return "lulou"; }
+})();
+const _storageKey = `sb-${_projectRef}-auth-token`;
+
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
     persistSession:      true,
     autoRefreshToken:    true,
     detectSessionInUrl:  false,
     flowType:            "implicit",
-    storageKey:          "sb-lulou-auth-token",
+    storageKey:          _storageKey,   // derived from VITE_SUPABASE_URL, not hardcoded
   },
   global: {
     // safeFetch intercepts /auth/v1/ responses to prevent the SDK from
