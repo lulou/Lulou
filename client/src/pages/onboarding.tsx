@@ -140,17 +140,28 @@ export default function Onboarding({ existingProfile = null, userEmail = "" }: O
       writeDebug({ profileInsertAttempted: true, profileInsertSucceeded: false, profileErrorMessage: null });
       // withRetry retries up to 2 times (1 s + 2 s backoff) on transient
       // network/5xx errors.  4xx validation errors are not retried.
-      const result = await withRetry(
+      const response = await withRetry(
         () => apiRequest("POST", "/api/profile", payload),
         "createProfile",
       );
-      console.log("[PROFILE_SAVE] SUCCESS", { label: "createProfile" });
+      // Parse the returned profile row so onSuccess can pre-populate the cache.
+      const profileData = await response.json();
+      console.log("[PROFILE_SAVE] SUCCESS", { label: "createProfile", userId: profileData?.userId });
       writeDebug({ profileInsertSucceeded: true });
-      return result;
+      return profileData;
     },
-    onSuccess: () => {
+    onSuccess: (profileData) => {
       setSaveError(null);
-      queryClient.invalidateQueries({ queryKey: ["/api/profile"] });
+      // Pre-populate the /api/profile data cache with the just-created row so
+      // the Profile page renders without a skeleton flash on first visit.
+      queryClient.setQueryData(["/api/profile"], profileData);
+      // CRITICAL: tell AppContent the profile now exists.
+      // Without this, AppContent's gate keeps effectiveProfileExists=false and
+      // continues rendering <Onboarding> — trapping the user in an infinite loop
+      // even after profile creation succeeds.  The navigate("/discover") below
+      // only works once the gate switches to "render_main_app".
+      queryClient.setQueryData(["profile-exists-check"], { exists: true, fetchFailed: false });
+      console.log("[PROFILE_SAVE] GATE_UNBLOCKED", { profileExists: true });
       navigate("/discover");
     },
     onError: (error: any) => {
