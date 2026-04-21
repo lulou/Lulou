@@ -158,6 +158,9 @@ function DebugOverlay() {
             {row("currentSessionUserId", s.currentSessionUserId
               ? s.currentSessionUserId.slice(0, 12) + "…"
               : "null")}
+            {row("noSessionAutoSignIn", s.signupNoSessionAttemptingAutoSignIn)}
+            {row("autoSignInAfterSignup", s.autoSignInAfterSignup)}
+            {row("emailConfirmRequired", s.emailConfirmationRequired)}
           </div>
 
           {/* Errors column */}

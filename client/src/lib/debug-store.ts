@@ -55,6 +55,10 @@ export interface DebugSnapshot {
   exactAuthError: string | null;
   authEvent: string | null;
   currentSessionUserId: string | null;
+  // Signup-specific trace
+  signupNoSessionAttemptingAutoSignIn: boolean;
+  autoSignInAfterSignup: boolean;
+  emailConfirmationRequired: boolean;
   // Error log
   errors: string[];
 }
@@ -81,6 +85,9 @@ export const _dbg: DebugSnapshot = {
   signInErrorName: null, signInErrorCode: null,
   exactAuthPayloadUsed: null,
   exactAuthError: null, authEvent: null, currentSessionUserId: null,
+  signupNoSessionAttemptingAutoSignIn: false,
+  autoSignInAfterSignup: false,
+  emailConfirmationRequired: false,
   errors: [],
 };
 

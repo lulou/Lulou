@@ -463,6 +463,69 @@ export default function Landing() {
           console.error("[AUTH] NO_SESSION_SILENT_FAILURE (signup) — treating as outage");
           return;
         }
+
+        // ── User returned but no session ──────────────────────────────────────
+        // Supabase returns {user, session:null} when "Confirm email" is enabled
+        // (the project default). The auth listener (use-auth.ts) will NOT fire
+        // SIGNED_IN without a session, so the app stays stuck on the landing page
+        // even though signup technically succeeded.
+        //
+        // Fix: immediately attempt signInWithPassword with the same credentials.
+        //   • Confirm email OFF (intended config): sign-in succeeds → session is
+        //     created → auth listener fires SIGNED_IN → AppContent transitions to
+        //     onboarding. ✓
+        //   • Confirm email ON: sign-in fails "Email not confirmed" → show a
+        //     clear message directing the user to their inbox instead of the
+        //     false "You're now signed in" toast. ✓
+        if (data.user && !data.session) {
+          writeDebug({
+            signInReturnedUser: true,
+            signInReturnedSession: false,
+            signupNoSessionAttemptingAutoSignIn: true,
+            emailConfirmationRequired: false,
+            autoSignInAfterSignup: false,
+          });
+          console.log("[AUTH] SIGNUP_NO_SESSION: attempting immediate sign-in", { userId: data.user.id });
+          const autoSignIn = await Promise.race([
+            supabase.auth.signInWithPassword({ email: trimmedEmail, password: effectivePassword }),
+            timeoutPromise,
+          ]);
+          const { data: siData, error: siError } = autoSignIn;
+          if (siError) {
+            const lower = (siError.message || "").toLowerCase();
+            if (lower.includes("email not confirmed")) {
+              writeDebug({ emailConfirmationRequired: true });
+              console.warn("[AUTH] SIGNUP_EMAIL_CONFIRMATION_REQUIRED", { userId: data.user.id });
+              setAuthError({
+                kind: "auth",
+                message: `Almost there! We sent a confirmation link to ${trimmedEmail}. Click it to activate your account, then sign in here.`,
+              });
+            } else {
+              const raw = makeRaw(siError, "signup-auto-signin");
+              recordError(raw, "signup-auto-signin");
+              setAuthError(classifyAuthError(siError, "signin"));
+            }
+            return;
+          }
+          if (!siData.session) {
+            writeDebug({ emailConfirmationRequired: true });
+            console.warn("[AUTH] SIGNUP_AUTO_SIGNIN_NO_SESSION", { userId: data.user.id });
+            setAuthError({
+              kind: "auth",
+              message: `Almost there! We sent a confirmation link to ${trimmedEmail}. Click it to activate your account, then sign in here.`,
+            });
+            return;
+          }
+          // Auto sign-in succeeded — session is now live.
+          // The Supabase auth listener will fire SIGNED_IN, set user state,
+          // and AppContent will re-render past the landing gate → onboarding.
+          writeDebug({ signInReturnedUser: true, signInReturnedSession: true, autoSignInAfterSignup: true });
+          console.log("[AUTH] SIGNUP_AUTO_SIGNIN_SUCCESS", { userId: data.user.id });
+          toast({ title: "Account created", description: "You're now signed in." });
+          return;
+        }
+
+        // ── Session returned directly from signUp (confirm email is OFF) ──────
         writeDebug({ signInReturnedUser: !!data.user, signInReturnedSession: !!data.session });
         console.log("[AUTH] AUTH_REQUEST_SUCCESS", { mode, userId: data.user?.id });
         toast({ title: "Account created", description: "You're now signed in." });
