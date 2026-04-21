@@ -338,6 +338,22 @@ export async function registerRoutes(
 ): Promise<Server> {
   clearStaleCallsOnStartup().catch((err) => console.error("[STARTUP] clearStaleCallsOnStartup failed:", err?.message));
 
+  // ── Request timing middleware ─────────────────────────────────────────────
+  // Logs routes that take longer than 500 ms so slow queries are easy to spot.
+  app.use((req, res, next) => {
+    if (!req.path.startsWith("/api/")) return next();
+    const t0 = Date.now();
+    res.on("finish", () => {
+      const ms = Date.now() - t0;
+      if (ms > 500) {
+        console.warn(`[SLOW_ROUTE] ${req.method} ${req.path} took ${ms}ms (status=${res.statusCode})`);
+      } else if (ms > 200) {
+        console.log(`[ROUTE_TIMING] ${req.method} ${req.path} ${ms}ms`);
+      }
+    });
+    next();
+  });
+
 
   app.get("/api/auth/user", isAuthenticated, async (req: any, res) => {
     try {
@@ -419,7 +435,7 @@ export async function registerRoutes(
     try {
       const storage = getStorage(req);
       const userId = req.user.id;
-      const myProfile = await storage.getProfile(userId);
+      const myProfile = await storage.getProfileMeta(userId);
       if (!myProfile) {
         console.log("[DISCOVER] No profile for userId:", userId);
         return res.json([]);
@@ -718,7 +734,7 @@ export async function registerRoutes(
 
           const otherUserId = match.user1Id === userId ? match.user2Id : match.user1Id;
           if (isSeedUser(otherUserId)) {
-            const otherProfile = await adminStorage.getProfile(otherUserId);
+            const otherProfile = await adminStorage.getProfileMeta(otherUserId);
             if (callStage === 0) {
               const otherCount = await adminStorage.getUserMessageCount(matchId, otherUserId);
               if (otherCount < 15) {
@@ -804,7 +820,7 @@ export async function registerRoutes(
       }
 
       const otherUserId = match.user1Id === userId ? match.user2Id : match.user1Id;
-      const callerProfile = await serverStorage.getProfile(userId);
+      const callerProfile = await serverStorage.getProfileMeta(userId);
       const callerName = callerProfile?.firstName || "Someone";
       console.log("[CALL_START] CALL_SESSION_CREATED", { matchId, callSessionId: match.callSessionId, SESSION_PARTICIPANTS_COUNT: 2 });
       console.log("[CALL_START] CALLER_ASSIGNED", { matchId, callerId: userId, callerName });
@@ -896,7 +912,7 @@ export async function registerRoutes(
         return res.json({ status: "noop", reason: "not_ringing" });
       }
       const adminStorage = getAdminStorage();
-      const callerProfile = await adminStorage.getProfile(userId);
+      const callerProfile = await adminStorage.getProfileMeta(userId);
       const callerName = callerProfile?.firstName || "Someone";
       console.log("[CALL_RERING] REBROADCAST_SENT", { matchId, callerId: userId, callSessionId: m.callSessionId });
       await broadcastCallEvent(matchId, {
@@ -1149,7 +1165,7 @@ export async function registerRoutes(
     try {
       const storage = getStorage(req);
       const userId = req.user.id;
-      const myProfile = await storage.getProfile(userId);
+      const myProfile = await storage.getProfileMeta(userId);
       const preference = myProfile?.datingPreference;
       const gender = myProfile?.gender;
       const popular = await storage.getPopularProfiles(30, preference, gender);
@@ -1465,7 +1481,7 @@ export async function registerRoutes(
       const userId = req.user.id;
       const { matchId } = req.params;
 
-      const profile = await storage.getProfile(userId);
+      const profile = await storage.getProfileMeta(userId);
       if (!profile?.phoneNumber) {
         return res.status(400).json({ message: "Please add your phone number first" });
       }

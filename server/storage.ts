@@ -148,6 +148,7 @@ export interface CompleteCallResult {
 
 export interface IStorage {
   getProfile(userId: string): Promise<Profile | undefined>;
+  getProfileMeta(userId: string): Promise<Profile | undefined>;
   createProfile(data: InsertProfile): Promise<Profile>;
   updateProfile(userId: string, data: Partial<InsertProfile>): Promise<Profile | undefined>;
   getDiscoverProfiles(userId: string, gender: string, preference: string, ageMin?: number, ageMax?: number): Promise<Profile[]>;
@@ -344,6 +345,19 @@ export class SupabaseStorage implements IStorage {
       .maybeSingle();
     if (error || !data) return undefined;
     return mapProfile(data);
+  }
+
+  // Lightweight profile fetch — excludes the `photos` column (base64, up to 900 KB).
+  // Use this in server-side routes that only need profile metadata (gender, preference, name, etc.).
+  // Never return this to the frontend when the profile page needs to show/edit photos.
+  async getProfileMeta(userId: string): Promise<Profile | undefined> {
+    const { data, error } = await this.sb
+      .from("profiles")
+      .select(MATCH_PROFILE_COLS)
+      .eq("user_id", userId)
+      .maybeSingle();
+    if (error || !data) return undefined;
+    return mapProfile(data); // photos will be [] since the column wasn't selected
   }
 
   async createProfile(data: InsertProfile): Promise<Profile> {
@@ -1704,13 +1718,25 @@ export class SupabaseStorage implements IStorage {
     const { data: incomingOpens } = await query;
     if (!incomingOpens || incomingOpens.length === 0) return [];
 
-    const settled = await Promise.all(
-      incomingOpens.map(async (open) => {
-        const { data: profileData } = await this.sb.from("profiles").select("*").eq("user_id", open.from_user_id).maybeSingle();
+    // Batch-fetch all profiles in a single query (no photos — MATCH_PROFILE_COLS).
+    // This replaces the previous N separate select("*") round-trips (one per incoming like).
+    const fromUserIds = incomingOpens.map(o => o.from_user_id);
+    const { data: profileRows } = await this.sb
+      .from("profiles")
+      .select(MATCH_PROFILE_COLS)
+      .in("user_id", fromUserIds);
+
+    const profileMap = new Map<string, any>();
+    for (const row of profileRows ?? []) {
+      profileMap.set(row.user_id, row);
+    }
+
+    return incomingOpens
+      .map(open => {
+        const profileData = profileMap.get(open.from_user_id);
         return profileData ? { ...mapInteraction(open), profile: mapProfile(profileData) } : null;
       })
-    );
-    return settled.filter(Boolean) as (Interaction & { profile: Profile })[];
+      .filter(Boolean) as (Interaction & { profile: Profile })[];
   }
 
   async resetUserTestData(userId: string): Promise<void> {

@@ -1,0 +1,82 @@
+Important clue:
+
+The Likes page loads at a decent speed.
+Almost every other page is still very slow.
+
+Please use this as a diagnostic clue and compare the Likes page against the slow pages.
+
+I want you to investigate why the Likes page is fast and why the other pages are slow.
+
+Focus on these pages/features:
+- home/discovery page
+- messages page
+- chat thread page
+- profile page
+- dashboard/main navigation
+- any page that feels slow except Likes
+
+Please do the following:
+
+1. COMPARE FAST VS SLOW PAGES
+- Inspect how the Likes page fetches data
+- Compare that to the fetch logic on the slow pages
+- Identify differences in:
+ - number of queries
+ - amount of data fetched
+ - repeated profile/session fetches
+ - subscriptions/polling
+ - component re-renders
+ - blocking useEffect chains
+
+2. FIND THE BOTTLENECKS
+Check for:
+- multiple Supabase queries running on page mount
+- repeated auth/session/profile lookups on every page
+- N+1 query patterns
+- select * instead of selecting only needed columns
+- missing limits/pagination
+- slow joins or nested fetches
+- message lists loading too much data
+- chat threads reloading entire history unnecessarily
+- unnecessary real-time subscriptions
+- React re-render loops
+- useEffect dependency mistakes
+- route changes causing full data refetches
+
+3. USE THE LIKES PAGE AS THE MODEL
+If the Likes page is implemented more efficiently, refactor the slow pages to follow the same approach:
+- minimal queries
+- fetch only required fields
+- avoid duplicate requests
+- cache/reuse profile/session data
+- reduce render-blocking logic
+- keep navigation responsive
+
+4. OPTIMIZE THE SLOW PAGES
+Please implement fixes for:
+- home/discovery page
+- messages list page
+- individual chat page
+- profile-related loading
+- navigation/page transition delays
+
+5. DATABASE REVIEW
+- inspect all Supabase queries used by slow pages
+- add missing indexes for the most common filters/order clauses
+- reduce over-fetching
+- improve query efficiency
+- list any indexes added
+
+6. DEBUG OUTPUT
+Add logging/timing so we can see:
+- which page is slowest
+- which query is slowest
+- which component is re-rendering too much
+- how the Likes page differs from the slow pages
+
+Then give me:
+1. the root causes found
+2. exact code changed
+3. indexes added
+4. why the Likes page is faster
+5. the highest-impact fixes you made first
