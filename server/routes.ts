@@ -298,21 +298,19 @@ async function clearStaleCallsOnStartup(): Promise<void> {
     const STALE_ANSWERED_MS = 30 * 60 * 1000;
     const now = new Date();
 
-    const { data: matches, error: readError } = await supabaseAdmin
-      .from("matches")
-      .select("id, call_started_at, call_answered")
-      .not("call_started_at", "is", null);
+    const { matches: matchesTable } = await import("@shared/schema");
+    const { isNotNull } = await import("drizzle-orm");
 
-    if (readError) {
-      console.error("[STARTUP] Failed to read matches for stale call cleanup:", readError.message);
-      return;
-    }
+    const activeMatches = await db
+      .select({ id: matchesTable.id, callStartedAt: matchesTable.callStartedAt, callAnswered: matchesTable.callAnswered })
+      .from(matchesTable)
+      .where(isNotNull(matchesTable.callStartedAt));
 
     const staleIds: string[] = [];
-    for (const m of matches ?? []) {
-      if (!m.call_started_at) continue;
-      const age = now.getTime() - new Date(m.call_started_at).getTime();
-      const isStale = (!m.call_answered && age > STALE_RINGING_MS) || (m.call_answered && age > STALE_ANSWERED_MS);
+    for (const m of activeMatches) {
+      if (!m.callStartedAt) continue;
+      const age = now.getTime() - new Date(m.callStartedAt).getTime();
+      const isStale = (!m.callAnswered && age > STALE_RINGING_MS) || (m.callAnswered && age > STALE_ANSWERED_MS);
       if (isStale) staleIds.push(m.id);
     }
 
@@ -322,15 +320,11 @@ async function clearStaleCallsOnStartup(): Promise<void> {
     }
 
     for (const id of staleIds) {
-      const { error } = await supabaseAdmin
-        .from("matches")
-        .update({ call_started_at: null, call_initiator_id: null, call_answered: false, call_completed: false })
-        .eq("id", id);
-      if (error) {
-        console.error("[STARTUP] Failed to clear stale call for match", id.slice(0, 8), ":", error.message);
-      } else {
-        console.log("[STARTUP] Cleared stale call for match", id.slice(0, 8));
-      }
+      await db
+        .update(matchesTable)
+        .set({ callStartedAt: null, callInitiatorId: null, callAnswered: false, callCompleted: false })
+        .where(eq(matchesTable.id, id));
+      console.log("[STARTUP] Cleared stale call for match", id.slice(0, 8));
     }
     console.log(`[STARTUP] Stale call cleanup complete — cleared ${staleIds.length} stale call(s)`);
   } catch (err: any) {

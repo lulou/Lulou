@@ -1,4 +1,6 @@
-import { supabaseAdmin, hasServiceRoleKey } from "./supabase";
+import { db } from "./db";
+import { profiles } from "@shared/schema";
+import { eq } from "drizzle-orm";
 
 const SEED_PROFILES = [
   {
@@ -857,49 +859,36 @@ const SEED_PROFILES = [
 const SEED_USER_1_UUID = "10000000-0000-4000-a000-000000000001";
 
 export async function seedDatabase() {
-  if (!hasServiceRoleKey) {
-    console.warn("[SEED] SUPABASE_SERVICE_ROLE_KEY not set — seed profiles require the service role key to bypass RLS. Skipping.");
-    return;
-  }
-
   try {
-    const { data: existing, error: checkError } = await supabaseAdmin
-      .from("profiles")
-      .select("user_id")
-      .eq("user_id", SEED_USER_1_UUID)
-      .maybeSingle();
+    const existing = await db
+      .select({ userId: profiles.userId })
+      .from(profiles)
+      .where(eq(profiles.userId, SEED_USER_1_UUID))
+      .limit(1);
 
-    if (checkError) {
-      console.error("Error checking for seed profiles:", checkError.message);
-      return;
-    }
-
-    if (existing) {
+    if (existing.length > 0) {
       console.log("Database already has seed profiles, skipping seed");
       return;
     }
 
     for (const profile of SEED_PROFILES) {
-      const { error } = await supabaseAdmin.from("profiles").insert({
-        user_id: profile.userId,
-        first_name: profile.firstName,
+      await db.insert(profiles).values({
+        userId: profile.userId,
+        firstName: profile.firstName,
         age: profile.age,
         gender: profile.gender,
-        dating_preference: profile.datingPreference,
+        datingPreference: profile.datingPreference,
         location: profile.location,
         height: profile.height || null,
         photos: profile.photos,
         signals: profile.signals,
-        dating_intent: profile.datingIntent,
-        green_flags: profile.greenFlags,
-        connection_style: profile.connectionStyle,
-        conversation_starters: profile.conversationStarters || [],
+        datingIntent: profile.datingIntent,
+        greenFlags: profile.greenFlags,
+        connectionStyle: profile.connectionStyle,
+        conversationStarters: profile.conversationStarters || [],
         questions: profile.questions || [],
-        onboarding_complete: profile.onboardingComplete,
-      });
-      if (error) {
-        console.error(`Error seeding profile ${profile.userId}:`, error);
-      }
+        onboardingComplete: profile.onboardingComplete,
+      }).onConflictDoNothing();
     }
 
     console.log(`Seeded ${SEED_PROFILES.length} profiles`);
