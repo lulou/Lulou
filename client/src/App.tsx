@@ -533,7 +533,10 @@ type ProfileCheckResult = { exists: boolean; fetchFailed: boolean };
 // Check profile existence via the server's /api/profile endpoint.
 // Using the server avoids client-side Supabase auth dependency and keeps
 // the single source of truth for profile state on the backend.
-async function checkProfileExists(userId?: string): Promise<ProfileCheckResult> {
+async function checkProfileExists(
+  userId?: string,
+  onProfileData?: (data: unknown) => void,
+): Promise<ProfileCheckResult> {
   writeDebug({
     postAuthProfileFetchStarted: true,
     postAuthProfileFetchSucceeded: false,
@@ -572,8 +575,19 @@ async function checkProfileExists(userId?: string): Promise<ProfileCheckResult> 
     throw new Error(`HTTP_${res.status}`);
   }
 
-  console.log("[AUTH] PROFILE_EXISTS_CHECK: profile found");
-  writeDebug({ postAuthProfileFetchSucceeded: true, profileRowFound: true });
+  // Parse the profile body and hand it back to the caller so it can be pre-cached.
+  // This eliminates the extra /api/profile fetch that the Profile page would otherwise
+  // make on every login, which was the root cause of the Profile tab showing a loading
+  // skeleton forever (the second SELECT * on the photos-heavy profiles table was slow).
+  try {
+    const profileData = await res.json();
+    onProfileData?.(profileData);
+    console.log("[AUTH] PROFILE_EXISTS_CHECK: profile found and data cached");
+    writeDebug({ postAuthProfileFetchSucceeded: true, profileRowFound: true });
+  } catch {
+    console.log("[AUTH] PROFILE_EXISTS_CHECK: profile found (body parse failed, cache not populated)");
+    writeDebug({ postAuthProfileFetchSucceeded: true, profileRowFound: true });
+  }
   return { exists: true, fetchFailed: false };
 }
 
@@ -608,7 +622,14 @@ function AppContent() {
     queryFn: () => {
       if (!user) return Promise.resolve({ exists: false, fetchFailed: false });
       console.log("[SETUP] PROFILE_FETCH_START", { userId: user.id });
-      return checkProfileExists(user.id).then(result => {
+      return checkProfileExists(user.id, (profileData) => {
+        // Pre-populate the Profile page's data cache with the body we already fetched.
+        // Without this, ProfilePage fires a second GET /api/profile on every login —
+        // that second SELECT * (which includes large base64 photos) can be slow enough
+        // to keep isLoading=true indefinitely, causing the skeleton to show forever.
+        queryClient.setQueryData(["/api/profile"], profileData);
+        console.log("[SETUP] PROFILE_DATA_PRE_CACHED", { userId: user.id });
+      }).then(result => {
         console.log("[SETUP] PROFILE_FETCH_SUCCESS", { userId: user.id, profileExists: result.exists });
         return result;
       });

@@ -158,9 +158,37 @@ export default function ProfilePage() {
     }
   };
 
-  const { data: profile, isLoading } = useQuery<Profile>({
+  useEffect(() => {
+    console.log("[PROFILE_PAGE] mounted");
+    return () => console.log("[PROFILE_PAGE] unmounted");
+  }, []);
+
+  const { data: profile, isLoading, isError, error, refetch } = useQuery<Profile>({
     queryKey: ["/api/profile"],
+    queryFn: async () => {
+      console.log("[PROFILE_PAGE] fetch start — /api/profile");
+      const { getAuthHeaders } = await import("@/lib/queryClient");
+      const authHeaders = await getAuthHeaders();
+      const res = await fetch("/api/profile", { credentials: "include", headers: authHeaders });
+      console.log("[PROFILE_PAGE] fetch response:", res.status);
+      if (res.status === 404) {
+        console.warn("[PROFILE_PAGE] 404 — no profile row found");
+        return null;
+      }
+      if (!res.ok) {
+        const text = await res.text().catch(() => res.statusText);
+        console.error("[PROFILE_PAGE] fetch error:", res.status, text.slice(0, 200));
+        throw new Error(`${res.status}: ${text.slice(0, 120)}`);
+      }
+      const data = await res.json();
+      console.log("[PROFILE_PAGE] data received, userId:", data?.userId, "firstName:", data?.firstName);
+      return data;
+    },
   });
+
+  useEffect(() => {
+    console.log("[PROFILE_PAGE] query state — isLoading:", isLoading, "isError:", isError, "hasData:", !!profile);
+  }, [isLoading, isError, profile]);
 
   const updateProfileField = useMutation({
     mutationFn: async (data: Record<string, unknown>) => {
@@ -473,6 +501,23 @@ export default function ProfilePage() {
           </div>
         </div>
         <Skeleton className="h-40 w-full rounded-md" />
+      </div>
+    );
+  }
+
+  if (isError) {
+    const errMsg = (error as Error)?.message ?? "Could not load profile";
+    console.error("[PROFILE_PAGE] render error state:", errMsg);
+    return (
+      <div className="flex-1 flex items-center justify-center p-6" data-testid="profile-error-state">
+        <div className="text-center space-y-4 max-w-xs">
+          <LulouFlowerIcon className="w-12 h-12 text-primary mx-auto" />
+          <p className="font-medium">Couldn't load your profile</p>
+          <p className="text-sm text-muted-foreground">{errMsg}</p>
+          <Button onClick={() => refetch()} variant="outline" data-testid="button-profile-retry">
+            Try again
+          </Button>
+        </div>
       </div>
     );
   }
