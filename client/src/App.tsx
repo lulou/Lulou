@@ -163,6 +163,31 @@ function DebugOverlay() {
             {row("emailConfirmRequired", s.emailConfirmationRequired)}
           </div>
 
+          {/* Signup trace column */}
+          <div style={{ minWidth: 200 }}>
+            <div style={{ color: "#94a3b8", marginBottom: 4 }}>SIGNUP TRACE</div>
+            {row("signUpStarted", s.signUpStarted)}
+            {row("signUpReturnedUser", s.signUpReturnedUser)}
+            {row("signUpReturnedSession", s.signUpReturnedSession)}
+            <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 2 }}>
+              <span style={{ color: "#94a3b8", minWidth: 140 }}>signUpErrMsg</span>
+              <span style={{ color: s.signUpErrorMessage ? "#f87171" : "#475569", wordBreak: "break-all", fontSize: 9 }}>
+                {s.signUpErrorMessage ?? "null"}
+              </span>
+            </div>
+            {row("signUpErrStatus", s.signUpErrorStatus ?? "null")}
+            {row("signUpErrCode", s.signUpErrorCode ?? "null")}
+            {row("postSignupNavigate", s.postSignupNavigateCalled)}
+            {row("profileCreateStart", s.postSignupProfileCreateStarted)}
+            {row("profileCreateOK", s.postSignupProfileCreateSucceeded)}
+            {row("authStateChangeEvt", s.authEvent ?? "null")}
+            {row("currentSessionUID", s.currentSessionUserId
+              ? s.currentSessionUserId.slice(0, 12) + "…"
+              : "null")}
+            {row("sessionExists", s.sessionExists)}
+            {row("finalGateDecision", s.finalGateDecision, true)}
+          </div>
+
           {/* Errors column */}
           <div style={{ flex: 1, minWidth: 200 }}>
             <div style={{ color: "#94a3b8", marginBottom: 4 }}>ERRORS ({s.errors.length})</div>

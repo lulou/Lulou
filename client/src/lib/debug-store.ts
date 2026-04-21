@@ -59,6 +59,16 @@ export interface DebugSnapshot {
   signupNoSessionAttemptingAutoSignIn: boolean;
   autoSignInAfterSignup: boolean;
   emailConfirmationRequired: boolean;
+  // Explicit signup result trace (separate from sign-in fields)
+  signUpStarted: boolean;
+  signUpReturnedUser: boolean;
+  signUpReturnedSession: boolean;
+  signUpErrorMessage: string | null;
+  signUpErrorStatus: string | null;
+  signUpErrorCode: string | null;
+  postSignupNavigateCalled: boolean;
+  postSignupProfileCreateStarted: boolean;
+  postSignupProfileCreateSucceeded: boolean;
   // Error log
   errors: string[];
 }
@@ -88,6 +98,15 @@ export const _dbg: DebugSnapshot = {
   signupNoSessionAttemptingAutoSignIn: false,
   autoSignInAfterSignup: false,
   emailConfirmationRequired: false,
+  signUpStarted: false,
+  signUpReturnedUser: false,
+  signUpReturnedSession: false,
+  signUpErrorMessage: null,
+  signUpErrorStatus: null,
+  signUpErrorCode: null,
+  postSignupNavigateCalled: false,
+  postSignupProfileCreateStarted: false,
+  postSignupProfileCreateSucceeded: false,
   errors: [],
 };
 

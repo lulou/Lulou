@@ -361,6 +361,16 @@ export default function Landing() {
       signInErrorName: null,
       signInErrorCode: null,
       exactAuthError: null,
+      // Signup-specific fields — reset
+      signUpStarted: false,
+      signUpReturnedUser: false,
+      signUpReturnedSession: false,
+      signUpErrorMessage: null,
+      signUpErrorStatus: null,
+      signUpErrorCode: null,
+      postSignupNavigateCalled: false,
+      postSignupProfileCreateStarted: false,
+      postSignupProfileCreateSucceeded: false,
       // safeFetch debug fields — reset before each attempt
       authResponseStatus:      null,
       authResponseContentType: null,
@@ -426,7 +436,7 @@ export default function Landing() {
 
     try {
       if (mode === "signup") {
-        writeDebug({ signInCallEntered: true });
+        writeDebug({ signInCallEntered: true, signUpStarted: true });
         const signUpResult = await Promise.race([
           supabase.auth.signUp({ email: trimmedEmail, password: effectivePassword }),
           timeoutPromise,
@@ -439,6 +449,11 @@ export default function Landing() {
           rawSignInErrorExists: error != null,
           rawSignInResultString: JSON.stringify({ hasUser: !!data?.user, hasSession: !!data?.session, hasError: !!error }),
           rawSignInErrorString: error ? JSON.stringify({ msg: error.message, status: error.status, code: (error as any).code }) : "null",
+          signUpReturnedUser: !!data?.user,
+          signUpReturnedSession: !!data?.session,
+          signUpErrorMessage: error ? (error.message ?? null) : null,
+          signUpErrorStatus: error ? String((error as any).status ?? "?") : null,
+          signUpErrorCode: error ? ((error as any).code ?? null) : null,
         });
         setLoading(false);
         writeDebug({ ...lastAuthFetchDebug });
@@ -534,17 +549,49 @@ export default function Landing() {
             return;
           }
           // Auto sign-in succeeded — session is now live.
-          // The Supabase auth listener will fire SIGNED_IN, set user state,
-          // and AppContent will re-render past the landing gate → onboarding.
-          writeDebug({ signInReturnedUser: true, signInReturnedSession: true, autoSignInAfterSignup: true });
-          console.log("[AUTH] SIGNUP_AUTO_SIGNIN_SUCCESS", { userId: data.user.id });
+          // Explicitly store the session via setSession to guarantee
+          // onAuthStateChange fires SIGNED_IN even if the SDK's internal
+          // trigger was missed.  This is the critical path that moves the
+          // user from the landing page into onboarding.
+          writeDebug({ signInReturnedUser: true, signInReturnedSession: true, autoSignInAfterSignup: true, postSignupProfileCreateStarted: true });
+          console.log("[AUTH] SIGNUP_AUTO_SIGNIN_SUCCESS: setting session explicitly", { userId: data.user.id });
+          try {
+            await supabase.auth.setSession({
+              access_token: siData.session.access_token,
+              refresh_token: siData.session.refresh_token,
+            });
+            writeDebug({ postSignupNavigateCalled: true, postSignupProfileCreateSucceeded: true });
+            console.log("[AUTH] SIGNUP_SET_SESSION_COMPLETE (auto-signin path)");
+          } catch (setSessionErr: any) {
+            console.error("[AUTH] SIGNUP_SET_SESSION_FAILED (auto-signin path)", setSessionErr);
+            pushDebugError(`setSession failed: ${setSessionErr?.message ?? "unknown"}`);
+          }
           toast({ title: "Account created", description: "You're now signed in." });
           return;
         }
 
         // ── Session returned directly from signUp (confirm email is OFF) ──────
-        writeDebug({ signInReturnedUser: !!data.user, signInReturnedSession: !!data.session });
-        console.log("[AUTH] AUTH_REQUEST_SUCCESS", { mode, userId: data.user?.id });
+        // Explicitly call setSession so onAuthStateChange fires SIGNED_IN
+        // and AppContent transitions from landing → onboarding.
+        // Without this, some Supabase SDK versions fire the event synchronously
+        // before signUp returns, meaning the listener may have already been
+        // called; setSession is idempotent — calling it again is safe and
+        // guarantees the auth state is current.
+        writeDebug({ signInReturnedUser: !!data.user, signInReturnedSession: !!data.session, postSignupProfileCreateStarted: true });
+        console.log("[AUTH] AUTH_REQUEST_SUCCESS (signup direct session): setting session explicitly", { userId: data.user?.id });
+        if (data.session) {
+          try {
+            await supabase.auth.setSession({
+              access_token: data.session.access_token,
+              refresh_token: data.session.refresh_token,
+            });
+            writeDebug({ postSignupNavigateCalled: true, postSignupProfileCreateSucceeded: true });
+            console.log("[AUTH] SIGNUP_SET_SESSION_COMPLETE (direct-session path)");
+          } catch (setSessionErr: any) {
+            console.error("[AUTH] SIGNUP_SET_SESSION_FAILED (direct-session path)", setSessionErr);
+            pushDebugError(`setSession failed: ${setSessionErr?.message ?? "unknown"}`);
+          }
+        }
         toast({ title: "Account created", description: "You're now signed in." });
 
       } else {
