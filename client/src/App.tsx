@@ -164,8 +164,20 @@ function DebugOverlay() {
           </div>
 
           {/* Signup trace column */}
-          <div style={{ minWidth: 200 }}>
+          <div style={{ minWidth: 220 }}>
             <div style={{ color: "#94a3b8", marginBottom: 4 }}>SIGNUP TRACE</div>
+            <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 2 }}>
+              <span style={{ color: "#94a3b8", minWidth: 140 }}>signupMethodUsed</span>
+              <span style={{ color: s.signupMethodUsed ? "#4ade80" : "#475569", wordBreak: "break-all", fontSize: 9 }}>
+                {s.signupMethodUsed ?? "null"}
+              </span>
+            </div>
+            <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 2 }}>
+              <span style={{ color: "#94a3b8", minWidth: 140 }}>signupEndpoint</span>
+              <span style={{ color: s.signupEndpointCalled ? "#4ade80" : "#475569", wordBreak: "break-all", fontSize: 9 }}>
+                {s.signupEndpointCalled ?? "null"}
+              </span>
+            </div>
             {row("signUpStarted", s.signUpStarted)}
             {row("signUpReturnedUser", s.signUpReturnedUser)}
             {row("signUpReturnedSession", s.signUpReturnedSession)}

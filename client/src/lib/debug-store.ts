@@ -69,6 +69,9 @@ export interface DebugSnapshot {
   postSignupNavigateCalled: boolean;
   postSignupProfileCreateStarted: boolean;
   postSignupProfileCreateSucceeded: boolean;
+  // Method/endpoint tracing — so it's visible whether the right function was called
+  signupMethodUsed: string | null;
+  signupEndpointCalled: string | null;
   // Error log
   errors: string[];
 }
@@ -107,6 +110,8 @@ export const _dbg: DebugSnapshot = {
   postSignupNavigateCalled: false,
   postSignupProfileCreateStarted: false,
   postSignupProfileCreateSucceeded: false,
+  signupMethodUsed: null,
+  signupEndpointCalled: null,
   errors: [],
 };
 
