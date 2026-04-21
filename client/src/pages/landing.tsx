@@ -112,10 +112,23 @@ function classifyAuthError(err: any, mode: AuthMode): AuthError {
   if (mode === "signup" && isAlreadyExists(err)) {
     return { kind: "already-exists", message: "Account may already exist. Try signing in instead." };
   }
+
+  // ── Email not confirmed ───────────────────────────────────────────────────
+  // Supabase returns "Email not confirmed" when the user signed up with email
+  // confirmation ON but hasn't clicked the link yet.
+  // This is NOT a credentials error — the password is correct.  Showing
+  // "Incorrect email or password" would completely mislead the user.
+  // Must be checked BEFORE the generic credentials block below.
+  if (lower.includes("email not confirmed")) {
+    return {
+      kind: "auth",
+      message: "Your email hasn't been confirmed yet. Check your inbox for the confirmation link, then try signing in again.",
+    };
+  }
+
   if (
     lower.includes("invalid login credentials") ||
     lower.includes("invalid_grant") ||
-    lower.includes("email not confirmed") ||
     lower.includes("user not found") ||
     lower.includes("wrong password")
   ) {
@@ -626,8 +639,26 @@ export default function Landing() {
         if (error) {
           const raw = makeRaw(error, "signIn");
           recordError(raw, "signIn");
+          // Write the error fields to the overlay BEFORE classifying/returning
+          // so the operator can see the raw Supabase error reason immediately.
+          writeDebug({
+            signInErrorMessage: error.message ?? null,
+            signInErrorStatus:  String((error as any).status ?? "?"),
+            signInErrorName:    (error as any).name ?? null,
+            signInErrorCode:    (error as any).code ?? null,
+            exactAuthError:     error.message ?? null,
+            signInReturnedUser: false,
+            signInReturnedSession: false,
+            authReturnedUser: false,
+            authReturnedSession: false,
+            submitHandlerReturnedEarly: true,
+          });
+          console.warn("[AUTH] SIGNIN_ERROR", {
+            message: error.message,
+            status: (error as any).status,
+            code: (error as any).code,
+          });
           setAuthError(classifyAuthError(error, mode));
-          writeDebug({ submitHandlerReturnedEarly: true });
           return;
         }
 
