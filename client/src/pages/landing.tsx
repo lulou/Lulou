@@ -8,7 +8,7 @@ import { useToast } from "@/hooks/use-toast";
 import { writeDebug, pushDebugError } from "@/lib/debug-store";
 
 type AuthMode = "signin" | "signup";
-type AuthErrorKind = "credentials" | "already-exists" | "network" | "auth";
+type AuthErrorKind = "credentials" | "already-exists" | "network" | "rate-limit" | "auth";
 
 interface AuthError {
   kind: AuthErrorKind;
@@ -73,6 +73,23 @@ function classifyAuthError(err: any, mode: AuthMode): AuthError {
     return {
       kind: "network",
       message: "Lulou is having trouble reaching the login service right now. Please try again shortly.",
+    };
+  }
+
+  // ── Email rate limit (429) ────────────────────────────────────────────────
+  // Supabase returns status 429 with code "over_email_send_rate_limit" when too
+  // many signup/magic-link emails have been sent in a short window. This is NOT
+  // a credentials error — classify it separately so the UI shows a calm, clear
+  // message and never triggers credential-error styling.
+  if (
+    err?.status === 429 ||
+    err?.code === "over_email_send_rate_limit" ||
+    (err?.message ?? "").toLowerCase().includes("email rate limit") ||
+    (err?.message ?? "").toLowerCase().includes("over_email_send_rate_limit")
+  ) {
+    return {
+      kind: "rate-limit",
+      message: "Too many email attempts were made. Please wait a little and try again.",
     };
   }
 
@@ -956,7 +973,7 @@ export default function Landing() {
               {authError && !resetSent && (
                 <div
                   className={`rounded-md border px-3 py-3 text-sm animate-in fade-in slide-in-from-top-1 duration-150 ${
-                    authError.kind === "network"
+                    authError.kind === "network" || authError.kind === "rate-limit"
                       ? "bg-amber-50 border-amber-200 text-amber-900"
                       : "bg-destructive/10 border-destructive/30 text-destructive"
                   }`}
@@ -979,6 +996,8 @@ export default function Landing() {
                           ? "Account already exists"
                           : authError.kind === "credentials"
                           ? "Incorrect email or password"
+                          : authError.kind === "rate-limit"
+                          ? "Too many attempts"
                           : authError.kind === "network"
                           ? (rawAuthError?.code === "timeout"
                               ? "Login server didn't respond"
