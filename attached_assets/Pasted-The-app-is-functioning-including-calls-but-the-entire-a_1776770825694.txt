@@ -1,0 +1,66 @@
+The app is functioning, including calls, but the entire app is very slow.
+
+Please do a full performance optimization pass focused on:
+- page load speed
+- navigation speed
+- messaging speed
+- profile loading speed
+- overall responsiveness
+
+Audit and optimize the following areas:
+
+1. DATABASE / SUPABASE
+- Check for repeated queries firing on every render
+- Check for duplicate profile fetches
+- Check if message queries are requesting too much data
+- Add missing indexes for common lookups
+- Limit columns selected instead of using select *
+- Add pagination or limits where needed
+- Ensure queries are filtered efficiently
+- Reduce N+1 query patterns
+
+2. FRONTEND / REACT
+- Find unnecessary re-renders
+- Check useEffect dependencies for loops or repeated fetches
+- Prevent fetching the same data multiple times
+- Memoize expensive computations/components where useful
+- Lazy load heavy pages/components if needed
+- Improve state handling so page changes feel instant
+- Reduce blocking work during initial render
+
+3. MESSAGING
+- Check whether messages are being re-fetched too often
+- Optimize subscriptions / polling
+- Only load the current conversation messages needed
+- Avoid reloading entire chat threads unnecessarily
+- Make sending and receiving messages feel fast
+
+4. AUTH / PROFILE LOADING
+- Make sure user profile is fetched once and reused
+- Cache session/profile data appropriately
+- Remove repeated auth checks on every page transition if unnecessary
+
+5. LOGGING / DEBUGGING
+- Add timing logs around slow operations
+- Identify the slowest page loads, queries, and components
+- Show me which specific files/functions were causing the biggest slowdown
+
+6. USER EXPERIENCE
+- Add loading skeletons/spinners where appropriate
+- Make navigation feel immediate even while data is loading
+- Improve perceived performance as well as actual performance
+
+Please specifically:
+- inspect all page-level data fetching
+- inspect messaging fetch/subscription logic
+- inspect dashboard/home/profile navigation
+- inspect Supabase queries and schema usage
+- check for missing database indexes
+- check for unnecessary full reloads or refetches
+
+Then:
+1. implement the optimizations
+2. explain the main bottlenecks found
+3. show the exact code changed
+4. list any indexes added
+5. tell me the highest-impact improvements made first

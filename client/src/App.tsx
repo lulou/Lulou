@@ -324,7 +324,9 @@ function CallDetectors({ userId }: { userId: string }) {
 
   const { data: matches } = useQuery<MatchWithProfile[]>({
     queryKey: ["/api/matches"],
-    refetchInterval: 3000,
+    // Realtime call signals (useCallSignaling) handle call detection instantly.
+    // This poll is only a safety net for missed signals — 30s is fine.
+    refetchInterval: 30000,
   });
 
   const matchIds = (matches || []).map(m => m.id);

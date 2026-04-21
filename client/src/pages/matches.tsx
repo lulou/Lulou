@@ -908,8 +908,8 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
     queryKey: ["/api/matches", match.id],
     enabled: expanded,
     // Primary delivery: real-time subscription (useRealtimeMessages) — ~50ms
-    // Fallback: poll every 5 s in case a broadcast packet is dropped
-    refetchInterval: expanded ? 5000 : false,
+    // Fallback: poll every 30 s in case a broadcast packet is dropped.
+    refetchInterval: expanded ? 30000 : false,
   });
 
   useRealtimeMessages(match.id, expanded);

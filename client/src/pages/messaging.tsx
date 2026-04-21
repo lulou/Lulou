@@ -350,8 +350,9 @@ export default function Messaging() {
     queryKey: ["/api/matches", matchId],
     enabled: !!matchId,
     // Primary delivery: real-time subscription (useRealtimeMessages) — ~50ms
-    // Fallback: poll every 5 s in case a broadcast packet is dropped
-    refetchInterval: matchId ? 5000 : false,
+    // Fallback: poll every 30 s in case a broadcast packet is dropped.
+    // The realtime hook handles ~99% of deliveries so polling is rarely needed.
+    refetchInterval: matchId ? 30000 : false,
   });
 
   useRealtimeMessages(matchId, !!matchId);

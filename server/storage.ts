@@ -633,38 +633,43 @@ export class SupabaseStorage implements IStorage {
 
     const matchIds = userMatches.map(row => row.id);
 
-    // Fetch all profiles in parallel (one per match, no photos — MATCH_PROFILE_COLS).
-    // Individual queries are robust: a single profile failure only drops that connection,
-    // not the entire list.
-    // Simultaneously, batch-fetch the last message across all matches in one query.
-    const [profileResults, messagesResult] = await Promise.all([
-      Promise.all(
-        userMatches.map(row => {
-          const otherUserId = row.user1_id === userId ? row.user2_id : row.user1_id;
-          return this.sb
-            .from("profiles")
-            .select(MATCH_PROFILE_COLS)
-            .eq("user_id", otherUserId)
-            .maybeSingle()
-            .then(res => ({ matchId: row.id, otherUserId, data: res.data, error: res.error }));
-        })
-      ),
+    // Build a deduplicated list of other-user IDs to batch-fetch profiles in ONE query.
+    const otherUserIdMap = new Map<string, string>(); // matchId → otherUserId
+    for (const row of userMatches) {
+      otherUserIdMap.set(row.id, row.user1_id === userId ? row.user2_id : row.user1_id);
+    }
+    const otherUserIds = [...new Set(otherUserIdMap.values())];
+
+    // Single batch profile query + last-message query in parallel.
+    // This replaces the previous N-round-trip pattern (one query per match).
+    const [profilesResult, messagesResult] = await Promise.all([
+      this.sb
+        .from("profiles")
+        .select(MATCH_PROFILE_COLS)
+        .in("user_id", otherUserIds),
       this.sb
         .from("messages")
         .select("match_id, content, sender_id, created_at")
         .in("match_id", matchIds)
         .not("content", "like", "__SCHEDULE__%")
-        .order("created_at", { ascending: false }),
+        .order("created_at", { ascending: false })
+        .limit(500),       // cap: last ~50 messages per match on average
     ]);
 
     console.log("[CHAT] CONNECTIONS_FETCHED", {
       userId,
       matchCount: userMatches.length,
-      profilesFound: profileResults.filter(r => !!r.data).length,
-      profileErrors: profileResults.filter(r => !!r.error).map(r => r.error?.message),
+      profilesFound: profilesResult.data?.length ?? 0,
+      profilesError: profilesResult.error?.message,
       messagesError: messagesResult.error?.message,
       msTotal: Date.now() - t0,
     });
+
+    // Build profile lookup: user_id → profile row
+    const profileByUserId = new Map<string, any>();
+    for (const p of profilesResult.data ?? []) {
+      profileByUserId.set(p.user_id, p);
+    }
 
     // Build last-message map: messages are already ordered DESC, first per match_id = latest
     const lastMsgMap = new Map<string, { content: string; senderId: string; createdAt: Date | null }>();
@@ -680,16 +685,17 @@ export class SupabaseStorage implements IStorage {
 
     const result: (Match & { profile: Profile; lastMessage: { content: string; senderId: string; createdAt: Date | null } | null })[] = [];
 
-    for (const r of profileResults) {
-      if (!r.data) {
-        if (r.error) console.warn("[CHAT] PROFILE_FETCH_ERROR", { matchId: r.matchId, otherUserId: r.otherUserId, error: r.error.message });
+    for (const matchRow of userMatches) {
+      const otherUserId = otherUserIdMap.get(matchRow.id)!;
+      const profileData = profileByUserId.get(otherUserId);
+      if (!profileData) {
+        console.warn("[CHAT] PROFILE_NOT_FOUND", { matchId: matchRow.id, otherUserId });
         continue;
       }
-      const matchRow = userMatches.find(m => m.id === r.matchId)!;
       result.push({
         ...mapMatch(matchRow),
-        profile: mapProfile(r.data),
-        lastMessage: lastMsgMap.get(r.matchId) ?? null,
+        profile: mapProfile(profileData),
+        lastMessage: lastMsgMap.get(matchRow.id) ?? null,
       });
     }
 
@@ -723,10 +729,14 @@ export class SupabaseStorage implements IStorage {
 
     const otherUserId = match.user1Id === userId ? match.user2Id : match.user1Id;
 
-    // Fetch profile and messages in parallel
+    // Fetch profile (no photos) and last 100 messages in parallel.
+    // Messages are fetched DESC so we get the most recent 100, then reversed to
+    // present them in chronological order. Photos are lazy-loaded separately.
+    const MSG_COLS = "id, match_id, sender_id, content, reaction, created_at";
     const [profileResult, msgResult] = await Promise.all([
-      this.sb.from("profiles").select("*").eq("user_id", otherUserId).maybeSingle(),
-      this.sb.from("messages").select("*").eq("match_id", matchId).order("created_at", { ascending: true }),
+      this.sb.from("profiles").select(MATCH_PROFILE_COLS).eq("user_id", otherUserId).maybeSingle(),
+      this.sb.from("messages").select(MSG_COLS).eq("match_id", matchId)
+        .order("created_at", { ascending: false }).limit(100),
     ]);
 
     if (profileResult.error) {
@@ -738,10 +748,13 @@ export class SupabaseStorage implements IStorage {
       return undefined;
     }
 
+    // Reverse so messages are in ascending (oldest-first) order for the chat view.
+    const messages = (msgResult.data || []).reverse().map(mapMessage);
+
     return {
       ...match,
       profile: mapProfile(profileResult.data),
-      messages: (msgResult.data || []).map(mapMessage),
+      messages,
     };
   }
 
@@ -807,7 +820,7 @@ export class SupabaseStorage implements IStorage {
   async incrementMessageCount(matchId: string, userId: string): Promise<void> {
     const { data: matchData, error: fetchError } = await this.sb
       .from("matches")
-      .select("*")
+      .select("id, user1_id, user2_id, message_count_1, message_count_2")
       .eq("id", matchId)
       .maybeSingle();
     if (fetchError) {
@@ -1275,11 +1288,14 @@ export class SupabaseStorage implements IStorage {
       return q;
     };
 
-    // Count opens per user to rank by popularity
+    // Count opens per user to rank by popularity.
+    // Limit to 2000 most-recent interactions — enough for accurate ranking
+    // without loading the entire table on each wheel load.
     const { data: popularRows } = await this.sb
       .from("interactions")
       .select("to_user_id")
-      .eq("type", "open");
+      .eq("type", "open")
+      .limit(2000);
 
     const countMap = new Map<string, number>();
     for (const row of popularRows || []) {
