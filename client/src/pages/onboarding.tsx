@@ -12,6 +12,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { apiRequest } from "@/lib/queryClient";
 import { cleanErrorMessage, withRetry } from "@/lib/profile-upsert";
+import { writeDebug } from "@/lib/debug-store";
 import { SIGNALS, GREEN_FLAGS, DATING_INTENTS, CONNECTION_STYLES, CONVERSATION_STARTERS, PROFILE_QUESTIONS } from "@shared/schema";
 import { Loader2, ArrowRight, ArrowLeft, Check, AlertCircle } from "lucide-react";
 import { LulouFlowerIcon } from "@/components/app-layout";
@@ -136,6 +137,7 @@ export default function Onboarding({ existingProfile = null, userEmail = "" }: O
         onboardingComplete: true,
       };
       console.log("[PROFILE_SAVE] START", { label: "createProfile", fieldKeys: Object.keys(payload) });
+      writeDebug({ profileInsertAttempted: true, profileInsertSucceeded: false, profileErrorMessage: null });
       // withRetry retries up to 2 times (1 s + 2 s backoff) on transient
       // network/5xx errors.  4xx validation errors are not retried.
       const result = await withRetry(
@@ -143,6 +145,7 @@ export default function Onboarding({ existingProfile = null, userEmail = "" }: O
         "createProfile",
       );
       console.log("[PROFILE_SAVE] SUCCESS", { label: "createProfile" });
+      writeDebug({ profileInsertSucceeded: true });
       return result;
     },
     onSuccess: () => {
@@ -153,6 +156,7 @@ export default function Onboarding({ existingProfile = null, userEmail = "" }: O
     onError: (error: any) => {
       const msg = cleanErrorMessage(error);
       console.error("[PROFILE_SAVE] FAILURE", { label: "createProfile", rawError: error?.message, cleanedError: msg });
+      writeDebug({ profileErrorMessage: msg });
       // formData is NOT cleared — the user's entered data is preserved for retry.
       setSaveError(msg);
       toast({ title: "Could not save profile", description: msg, variant: "destructive", duration: 8000 });

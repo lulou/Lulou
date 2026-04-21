@@ -82,6 +82,13 @@ export interface DebugSnapshot {
   // Post-auth profile check — written by AppContent's checkProfileExists
   postAuthProfileFetchStarted: boolean;
   postAuthProfileFetchSucceeded: boolean;
+  // Profile query/save debug — written by checkProfileExists + onboarding createProfile mutation
+  profileQueryUserId: string | null;
+  profileRowFound: boolean | null;
+  profileInsertAttempted: boolean;
+  profileInsertSucceeded: boolean;
+  profileFetchMethodUsed: string | null;
+  profileErrorMessage: string | null;
   // Error log
   errors: string[];
 }
@@ -129,6 +136,12 @@ export const _dbg: DebugSnapshot = {
   authReturnedSession: false,
   postAuthProfileFetchStarted: false,
   postAuthProfileFetchSucceeded: false,
+  profileQueryUserId: null,
+  profileRowFound: null,
+  profileInsertAttempted: false,
+  profileInsertSucceeded: false,
+  profileFetchMethodUsed: null,
+  profileErrorMessage: null,
   errors: [],
 };
 

@@ -332,13 +332,17 @@ export class SupabaseStorage implements IStorage {
 
   async updateProfile(userId: string, data: Partial<InsertProfile>): Promise<Profile | undefined> {
     const row = profileToDbRow(data);
-    // Use UPDATE (not upsert) so only the provided columns are changed.
-    // Upsert would INSERT a new row when the user_id doesn't conflict, which fails
-    // with NOT NULL violations on required columns like first_name.
+    // Always include user_id so PostgREST can detect the ON CONFLICT target.
+    row.user_id = userId;
+    // Use upsert instead of plain UPDATE so the first-ever save (no existing row)
+    // performs an INSERT rather than a no-op UPDATE that returns 0 rows.
+    // ON CONFLICT (user_id) DO UPDATE only touches the columns present in `row`,
+    // leaving all other columns unchanged for existing rows.
+    // All NOT NULL columns in public.profiles have DEFAULT values so a partial
+    // INSERT (first save with only some fields) never violates NOT NULL.
     const { data: result, error } = await this.sb
       .from("profiles")
-      .update(row)
-      .eq("user_id", userId)
+      .upsert(row, { onConflict: "user_id" })
       .select()
       .single();
     if (error) {

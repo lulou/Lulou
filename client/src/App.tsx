@@ -214,6 +214,22 @@ function DebugOverlay() {
             {row("finalGateDecision", s.finalGateDecision, true)}
           </div>
 
+          {/* Profile save debug column */}
+          <div style={{ minWidth: 200 }}>
+            <div style={{ color: "#94a3b8", marginBottom: 4 }}>PROFILE SAVE</div>
+            {row("profileQueryUserId", s.profileQueryUserId ? s.profileQueryUserId.slice(0, 12) + "…" : null)}
+            {row("profileRowFound", s.profileRowFound === null ? "null" : s.profileRowFound)}
+            {row("profileInsertAttempted", s.profileInsertAttempted)}
+            {row("profileInsertSucceeded", s.profileInsertSucceeded, s.profileInsertSucceeded)}
+            {row("profileFetchMethod", s.profileFetchMethodUsed ?? "null")}
+            <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 2 }}>
+              <span style={{ color: "#94a3b8", minWidth: 140 }}>profileErrorMsg</span>
+              <span style={{ color: s.profileErrorMessage ? "#f87171" : "#475569", wordBreak: "break-all", fontSize: 9 }}>
+                {s.profileErrorMessage ?? "null"}
+              </span>
+            </div>
+          </div>
+
           {/* Errors column */}
           <div style={{ flex: 1, minWidth: 200 }}>
             <div style={{ color: "#94a3b8", marginBottom: 4 }}>ERRORS ({s.errors.length})</div>
@@ -517,8 +533,15 @@ type ProfileCheckResult = { exists: boolean; fetchFailed: boolean };
 // Check profile existence via the server's /api/profile endpoint.
 // Using the server avoids client-side Supabase auth dependency and keeps
 // the single source of truth for profile state on the backend.
-async function checkProfileExists(): Promise<ProfileCheckResult> {
-  writeDebug({ postAuthProfileFetchStarted: true, postAuthProfileFetchSucceeded: false });
+async function checkProfileExists(userId?: string): Promise<ProfileCheckResult> {
+  writeDebug({
+    postAuthProfileFetchStarted: true,
+    postAuthProfileFetchSucceeded: false,
+    profileFetchMethodUsed: "maybeSingle",
+    profileQueryUserId: userId ?? null,
+    profileRowFound: null,
+    profileErrorMessage: null,
+  });
   // Separate fetch from response handling so network errors are clearly retryable.
   let res: Response;
   try {
@@ -527,13 +550,14 @@ async function checkProfileExists(): Promise<ProfileCheckResult> {
   } catch (err: any) {
     // fetch() itself threw — network unreachable, DNS failure, etc.
     console.error("[AUTH] PROFILE_LOAD_FAILED: network error —", err?.message);
+    writeDebug({ profileErrorMessage: err?.message ?? "NETWORK_ERROR" });
     throw new Error("NETWORK_ERROR");
   }
 
   if (res.status === 404) {
     // Profile row does not exist → user needs to complete onboarding.
     console.log("[AUTH] PROFILE_EXISTS_CHECK: no profile found (onboarding needed)");
-    writeDebug({ postAuthProfileFetchSucceeded: true });
+    writeDebug({ postAuthProfileFetchSucceeded: true, profileRowFound: false });
     return { exists: false, fetchFailed: false };
   }
 
@@ -544,11 +568,12 @@ async function checkProfileExists(): Promise<ProfileCheckResult> {
     const text = await res.text().catch(() => res.statusText);
     const trimmed = text.replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim().slice(0, 120);
     console.error(`[AUTH] PROFILE_LOAD_FAILED: HTTP ${res.status} — root cause: ${trimmed}`);
+    writeDebug({ profileErrorMessage: `HTTP_${res.status}: ${trimmed}` });
     throw new Error(`HTTP_${res.status}`);
   }
 
   console.log("[AUTH] PROFILE_EXISTS_CHECK: profile found");
-  writeDebug({ postAuthProfileFetchSucceeded: true });
+  writeDebug({ postAuthProfileFetchSucceeded: true, profileRowFound: true });
   return { exists: true, fetchFailed: false };
 }
 
@@ -583,7 +608,7 @@ function AppContent() {
     queryFn: () => {
       if (!user) return Promise.resolve({ exists: false, fetchFailed: false });
       console.log("[SETUP] PROFILE_FETCH_START", { userId: user.id });
-      return checkProfileExists().then(result => {
+      return checkProfileExists(user.id).then(result => {
         console.log("[SETUP] PROFILE_FETCH_SUCCESS", { userId: user.id, profileExists: result.exists });
         return result;
       });
