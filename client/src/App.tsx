@@ -166,6 +166,15 @@ function DebugOverlay() {
           {/* Signup trace column */}
           <div style={{ minWidth: 220 }}>
             <div style={{ color: "#94a3b8", marginBottom: 4 }}>SIGNUP TRACE</div>
+            {/* In-flight guard fields */}
+            {row("authInProgress", s.authRequestInProgress, true)}
+            {row("authCallsThisAttempt", s.authCallsThisAttempt, s.authCallsThisAttempt > 1)}
+            <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 2 }}>
+              <span style={{ color: "#94a3b8", minWidth: 140 }}>lastAuthAction</span>
+              <span style={{ color: s.lastAuthAction ? "#4ade80" : "#475569", wordBreak: "break-all", fontSize: 9 }}>
+                {s.lastAuthAction ?? "null"}
+              </span>
+            </div>
             <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 2 }}>
               <span style={{ color: "#94a3b8", minWidth: 140 }}>signupMethodUsed</span>
               <span style={{ color: s.signupMethodUsed ? "#4ade80" : "#475569", wordBreak: "break-all", fontSize: 9 }}>

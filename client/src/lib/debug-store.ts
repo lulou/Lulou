@@ -72,6 +72,10 @@ export interface DebugSnapshot {
   // Method/endpoint tracing — so it's visible whether the right function was called
   signupMethodUsed: string | null;
   signupEndpointCalled: string | null;
+  // In-flight guard — one call per user action
+  authRequestInProgress: boolean;
+  authCallsThisAttempt: number;
+  lastAuthAction: string | null;
   // Error log
   errors: string[];
 }
@@ -112,6 +116,9 @@ export const _dbg: DebugSnapshot = {
   postSignupProfileCreateSucceeded: false,
   signupMethodUsed: null,
   signupEndpointCalled: null,
+  authRequestInProgress: false,
+  authCallsThisAttempt: 0,
+  lastAuthAction: null,
   errors: [],
 };
 

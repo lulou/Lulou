@@ -177,6 +177,13 @@ export default function Landing() {
   // re-trigger form submission without the user having to scroll to the submit button.
   const formRef = useRef<HTMLFormElement>(null);
 
+  // In-flight guard — prevents duplicate auth calls from double-clicks or
+  // rapid "Try Again" presses.  useRef so the check is synchronous (React
+  // state updates are async and can't be read back in the same event tick).
+  const authInProgressRef = useRef(false);
+  // Counter for how many auth SDK calls fire per user action — shown in overlay.
+  const authCallCountRef = useRef(0);
+
   // Track render count to detect unexpected remounts/re-renders.
   const renderCountRef = useRef(0);
   renderCountRef.current += 1;
@@ -279,6 +286,20 @@ export default function Landing() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
 
+    // ── In-flight guard ───────────────────────────────────────────────────────
+    // Synchronous ref check — blocks duplicate calls from double-clicks or rapid
+    // "Try Again" button presses that fire before React re-renders the disabled
+    // state.  Must be the very first thing in the handler.
+    if (authInProgressRef.current) {
+      const ts = new Date().toISOString().slice(11, 23);
+      console.warn(`[AUTH] DUPLICATE_SUBMIT_BLOCKED at ${ts} — authInProgressRef already true`);
+      writeDebug({ authRequestInProgress: true });
+      return;
+    }
+    authInProgressRef.current = true;
+    authCallCountRef.current  = 0;          // reset per-attempt call counter
+    writeDebug({ authRequestInProgress: true, authCallsThisAttempt: 0 });
+
     // ── FORM WIRING TRACE — written before any validation or early return ─────
     // Read the actual DOM values as fallback: browser autofill populates the DOM
     // input value without always triggering React's synthetic onChange, leaving
@@ -304,15 +325,18 @@ export default function Landing() {
     const trimmedEmail = effectiveEmail.trim();
 
     // Show explicit errors for empty fields rather than silently blocking.
+    // Reset the in-flight guard before each early return so future clicks work.
     if (!trimmedEmail) {
+      authInProgressRef.current = false;
+      writeDebug({ authRequestInProgress: false, submitBlockedReason: "email_empty" });
       console.warn("[AUTH] SUBMIT_BLOCKED: email empty");
-      writeDebug({ submitBlockedReason: "email_empty" });
       setAuthError({ kind: "auth", message: "Please enter your email address." });
       return;
     }
     if (!effectivePassword) {
+      authInProgressRef.current = false;
+      writeDebug({ authRequestInProgress: false, submitBlockedReason: "password_empty" });
       console.warn("[AUTH] SUBMIT_BLOCKED: password empty");
-      writeDebug({ submitBlockedReason: "password_empty" });
       setAuthError({ kind: "auth", message: "Please enter your password." });
       return;
     }
@@ -373,6 +397,8 @@ export default function Landing() {
       postSignupProfileCreateSucceeded: false,
       signupMethodUsed: null,
       signupEndpointCalled: null,
+      authCallsThisAttempt: 0,
+      lastAuthAction: null,
       // safeFetch debug fields — reset before each attempt
       authResponseStatus:      null,
       authResponseContentType: null,
@@ -439,11 +465,16 @@ export default function Landing() {
     try {
       if (mode === "signup") {
         // signUp → /auth/v1/signup  (NOT /auth/v1/token?grant_type=password)
+        authCallCountRef.current += 1;
+        const _signUpTs = new Date().toISOString().slice(11, 23);
+        console.log(`[AUTH] CALL#${authCallCountRef.current} supabase.auth.signUp at ${_signUpTs}`);
         writeDebug({
           signInCallEntered: true,
           signUpStarted: true,
           signupMethodUsed: "supabase.auth.signUp",
           signupEndpointCalled: "/auth/v1/signup",
+          lastAuthAction: "signup",
+          authCallsThisAttempt: authCallCountRef.current,
         });
         const signUpResult = await Promise.race([
           supabase.auth.signUp({ email: trimmedEmail, password: effectivePassword }),
@@ -526,32 +557,29 @@ export default function Landing() {
         }
 
         // ── Session returned directly from signUp (confirm email is OFF) ──────
-        // Explicitly call setSession so onAuthStateChange fires SIGNED_IN
-        // and AppContent transitions from landing → onboarding.
-        // Without this, some Supabase SDK versions fire the event synchronously
-        // before signUp returns, meaning the listener may have already been
-        // called; setSession is idempotent — calling it again is safe and
-        // guarantees the auth state is current.
-        writeDebug({ signInReturnedUser: !!data.user, signInReturnedSession: !!data.session, postSignupProfileCreateStarted: true });
-        console.log("[AUTH] AUTH_REQUEST_SUCCESS (signup direct session): setting session explicitly", { userId: data.user?.id });
-        if (data.session) {
-          try {
-            await supabase.auth.setSession({
-              access_token: data.session.access_token,
-              refresh_token: data.session.refresh_token,
-            });
-            writeDebug({ postSignupNavigateCalled: true, postSignupProfileCreateSucceeded: true });
-            console.log("[AUTH] SIGNUP_SET_SESSION_COMPLETE (direct-session path)");
-          } catch (setSessionErr: any) {
-            console.error("[AUTH] SIGNUP_SET_SESSION_FAILED (direct-session path)", setSessionErr);
-            pushDebugError(`setSession failed: ${setSessionErr?.message ?? "unknown"}`);
-          }
-        }
+        // The Supabase SDK already stored the session and fired onAuthStateChange
+        // (SIGNED_IN) internally when signUp resolved.  No extra setSession call
+        // is needed — that would hit the auth API a second time and risk 429s.
+        writeDebug({
+          signInReturnedUser: !!data.user,
+          signInReturnedSession: !!data.session,
+          postSignupNavigateCalled: true,
+          postSignupProfileCreateStarted: true,
+          postSignupProfileCreateSucceeded: true,
+        });
+        console.log("[AUTH] SIGNUP_DIRECT_SESSION_SUCCESS", { userId: data.user?.id, authCalls: authCallCountRef.current });
         toast({ title: "Account created", description: "You're now signed in." });
 
       } else {
         // ── sign-in ───────────────────────────────────────────────────────────
-        writeDebug({ signInCallEntered: true });
+        authCallCountRef.current += 1;
+        const _signInTs = new Date().toISOString().slice(11, 23);
+        console.log(`[AUTH] CALL#${authCallCountRef.current} supabase.auth.signInWithPassword at ${_signInTs}`);
+        writeDebug({
+          signInCallEntered: true,
+          lastAuthAction: "signin",
+          authCallsThisAttempt: authCallCountRef.current,
+        });
         const signInResult = await Promise.race([
           supabase.auth.signInWithPassword({ email: trimmedEmail, password: effectivePassword }),
           timeoutPromise,
@@ -652,6 +680,10 @@ export default function Landing() {
       });
       console.error("[AUTH] AUTH_ERROR_MESSAGE", { mode, error: raw.message, stack: err?.stack });
       setAuthError(classifyAuthError(err, mode));
+    } finally {
+      // Always release the in-flight guard so the next user action is accepted.
+      authInProgressRef.current = false;
+      writeDebug({ authRequestInProgress: false, authCallsThisAttempt: authCallCountRef.current });
     }
   }
 
