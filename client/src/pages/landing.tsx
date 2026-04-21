@@ -110,7 +110,7 @@ function classifyAuthError(err: any, mode: AuthMode): AuthError {
   const lower = msg.toLowerCase();
 
   if (mode === "signup" && isAlreadyExists(err)) {
-    return { kind: "already-exists", message: msg };
+    return { kind: "already-exists", message: "Account may already exist. Try signing in instead." };
   }
   if (
     lower.includes("invalid login credentials") ||
@@ -399,6 +399,10 @@ export default function Landing() {
       signupEndpointCalled: null,
       authCallsThisAttempt: 0,
       lastAuthAction: null,
+      authReturnedUser: false,
+      authReturnedSession: false,
+      postAuthProfileFetchStarted: false,
+      postAuthProfileFetchSucceeded: false,
       // safeFetch debug fields — reset before each attempt
       authResponseStatus:      null,
       authResponseContentType: null,
@@ -547,6 +551,8 @@ export default function Landing() {
             signInReturnedSession: false,
             signupNoSessionAttemptingAutoSignIn: false,
             emailConfirmationRequired: true,
+            authReturnedUser: true,
+            authReturnedSession: false,
           });
           console.warn("[AUTH] SIGNUP_NO_SESSION: email confirmation required", { userId: data.user.id });
           setAuthError({
@@ -566,6 +572,8 @@ export default function Landing() {
           postSignupNavigateCalled: true,
           postSignupProfileCreateStarted: true,
           postSignupProfileCreateSucceeded: true,
+          authReturnedUser: !!data.user,
+          authReturnedSession: !!data.session,
         });
         console.log("[AUTH] SIGNUP_DIRECT_SESSION_SUCCESS", { userId: data.user?.id, authCalls: authCallCountRef.current });
         toast({ title: "Account created", description: "You're now signed in." });
@@ -651,6 +659,8 @@ export default function Landing() {
           signInErrorStatus: null,
           signInErrorName: null,
           signInErrorCode: null,
+          authReturnedUser: !!data.user,
+          authReturnedSession: !!data.session,
         });
         console.log("[AUTH] AUTH_REQUEST_SUCCESS", { mode, userId: data.user?.id });
       }

@@ -187,6 +187,11 @@ function DebugOverlay() {
                 {s.signupEndpointCalled ?? "null"}
               </span>
             </div>
+            {/* Unified post-auth result */}
+            {row("authReturnedUser", s.authReturnedUser, s.authReturnedUser)}
+            {row("authReturnedSession", s.authReturnedSession, s.authReturnedSession)}
+            {row("profileFetchStarted", s.postAuthProfileFetchStarted, s.postAuthProfileFetchStarted)}
+            {row("profileFetchOK", s.postAuthProfileFetchSucceeded, s.postAuthProfileFetchSucceeded)}
             {row("signUpStarted", s.signUpStarted)}
             {row("signUpReturnedUser", s.signUpReturnedUser)}
             {row("signUpReturnedSession", s.signUpReturnedSession)}
@@ -513,6 +518,7 @@ type ProfileCheckResult = { exists: boolean; fetchFailed: boolean };
 // Using the server avoids client-side Supabase auth dependency and keeps
 // the single source of truth for profile state on the backend.
 async function checkProfileExists(): Promise<ProfileCheckResult> {
+  writeDebug({ postAuthProfileFetchStarted: true, postAuthProfileFetchSucceeded: false });
   // Separate fetch from response handling so network errors are clearly retryable.
   let res: Response;
   try {
@@ -527,6 +533,7 @@ async function checkProfileExists(): Promise<ProfileCheckResult> {
   if (res.status === 404) {
     // Profile row does not exist → user needs to complete onboarding.
     console.log("[AUTH] PROFILE_EXISTS_CHECK: no profile found (onboarding needed)");
+    writeDebug({ postAuthProfileFetchSucceeded: true });
     return { exists: false, fetchFailed: false };
   }
 
@@ -541,6 +548,7 @@ async function checkProfileExists(): Promise<ProfileCheckResult> {
   }
 
   console.log("[AUTH] PROFILE_EXISTS_CHECK: profile found");
+  writeDebug({ postAuthProfileFetchSucceeded: true });
   return { exists: true, fetchFailed: false };
 }
 

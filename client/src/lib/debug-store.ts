@@ -76,6 +76,12 @@ export interface DebugSnapshot {
   authRequestInProgress: boolean;
   authCallsThisAttempt: number;
   lastAuthAction: string | null;
+  // Unified post-auth result — written for BOTH signup and signin success paths
+  authReturnedUser: boolean;
+  authReturnedSession: boolean;
+  // Post-auth profile check — written by AppContent's checkProfileExists
+  postAuthProfileFetchStarted: boolean;
+  postAuthProfileFetchSucceeded: boolean;
   // Error log
   errors: string[];
 }
@@ -119,6 +125,10 @@ export const _dbg: DebugSnapshot = {
   authRequestInProgress: false,
   authCallsThisAttempt: 0,
   lastAuthAction: null,
+  authReturnedUser: false,
+  authReturnedSession: false,
+  postAuthProfileFetchStarted: false,
+  postAuthProfileFetchSucceeded: false,
   errors: [],
 };
 
