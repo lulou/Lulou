@@ -69,8 +69,36 @@ function mergeElevatesIntoProfiles(
   });
 }
 
+// ── Gender / preference normalisation ────────────────────────────────────────
+// Converts free-text variants (male/man/men, female/woman/women) to the
+// canonical Zod-enum values used in the `profiles` table so filter lookups
+// always hit the right rows even when data comes from seed scripts or
+// older clients that used different capitalisations or synonyms.
+
+function normalizeGender(value: string | null | undefined): string {
+  if (!value) return "";
+  const v = value.toLowerCase().trim();
+  if (["male", "man"].includes(v)) return "man";
+  if (["female", "woman"].includes(v)) return "woman";
+  if (["trans female", "trans woman"].includes(v)) return "trans woman";
+  if (["trans male", "trans man"].includes(v)) return "trans man";
+  return v;
+}
+
+function normalizeDatingPreference(value: string | null | undefined): string {
+  if (!value) return "";
+  const v = value.toLowerCase().trim();
+  if (["men", "man", "male"].includes(v)) return "men";
+  if (["women", "woman", "female"].includes(v)) return "women";
+  if (["trans women", "trans woman", "trans female"].includes(v)) return "trans women";
+  if (["trans men", "trans man", "trans male"].includes(v)) return "trans men";
+  return v;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 function getGendersForPreference(preference: string): string[] | null {
-  switch (preference) {
+  switch (normalizeDatingPreference(preference)) {
     case "women": return ["woman", "trans woman"];
     case "men": return ["man", "trans man"];
     case "non-binary people": return ["non-binary", "genderqueer", "genderfluid", "agender", "two-spirit", "other"];
@@ -83,7 +111,7 @@ function getGendersForPreference(preference: string): string[] | null {
 
 function getPreferencesThatIncludeGender(gender: string): string[] {
   const prefs = ["everyone"];
-  switch (gender) {
+  switch (normalizeGender(gender)) {
     case "woman": prefs.push("women"); break;
     case "man": prefs.push("men"); break;
     case "trans woman": prefs.push("women", "trans women"); break;
@@ -139,7 +167,7 @@ export interface IStorage {
   acceptFaceCall(matchId: string, userId: string): Promise<Match | undefined>;
   declineFaceCall(matchId: string, userId: string): Promise<Match | undefined>;
   getProfilePhotos(userId: string): Promise<string[]>;
-  getPopularProfiles(limit?: number, preference?: string): Promise<Profile[]>;
+  getPopularProfiles(limit?: number, preference?: string, gender?: string): Promise<Profile[]>;
   getSpinStandouts(userId: string): Promise<string[]>;
   addSpinStandout(userId: string, standoutUserId: string): Promise<void>;
   getSpinsToday(userId: string): Promise<number>;
@@ -434,14 +462,26 @@ export class SupabaseStorage implements IStorage {
       .neq("user_id", userId)
       .eq("onboarding_complete", true);
 
-    // Apply preference-based filters in both dev and production.
-    // We only filter by what the CURRENT USER wants to see (their preference → target gender).
-    // We intentionally do NOT filter by whether the target prefers the current user's gender —
-    // that mutual-compatibility check is too restrictive when there are few users and is
-    // not needed for discovery (it would only matter for auto-matching).
-    const genders = getGendersForPreference(preference);
-    if (genders && genders.length > 0) {
-      profilesQuery = profilesQuery.in("gender", genders);
+    // ── Mutual-compatibility filters ────────────────────────────────────────
+    // Both conditions must hold:
+    //   1. candidate.gender matches what the current user wants to see
+    //   2. candidate.dating_preference includes the current user's gender
+    // This ensures discovery is reciprocal — neither party wastes a slot
+    // on someone who wouldn't be interested in them.
+
+    const normGender = normalizeGender(gender);
+    const normPref   = normalizeDatingPreference(preference);
+
+    // 1. Filter by what the current user wants to see (their preference → target gender)
+    const targetGenders = getGendersForPreference(normPref);
+    if (targetGenders && targetGenders.length > 0) {
+      profilesQuery = profilesQuery.in("gender", targetGenders);
+    }
+
+    // 2. Mutual filter: candidate must also be interested in the current user's gender
+    const candidateMustPrefer = getPreferencesThatIncludeGender(normGender);
+    if (candidateMustPrefer.length > 0) {
+      profilesQuery = profilesQuery.in("dating_preference", candidateMustPrefer);
     }
 
     // Age filter: only apply when the user has explicitly narrowed the range.
@@ -453,12 +493,16 @@ export class SupabaseStorage implements IStorage {
       profilesQuery = profilesQuery.gte("age", effectiveAgeMin).lte("age", effectiveAgeMax);
     }
 
-    console.log(
-      "[DISCOVER] filters — userId:", userId,
-      "| preference:", preference,
-      "| genders:", genders ?? "all",
-      "| age:", effectiveAgeMin, "–", effectiveAgeMax,
-    );
+    console.log("[DISCOVER] mutual-compat filters:", {
+      userId,
+      myGender: gender,
+      myGenderNorm: normGender,
+      myPreference: preference,
+      myPrefNorm: normPref,
+      targetGenders: targetGenders ?? "all",
+      candidateMustPrefer,
+      ageRange: `${effectiveAgeMin}–${effectiveAgeMax}`,
+    });
 
     // Run both queries in parallel
     const [interactedResult, profilesResult] = await Promise.all([
@@ -496,22 +540,30 @@ export class SupabaseStorage implements IStorage {
       "| super:", superCount, "elevate:", elevCount,
     );
 
-    // If the filtered pool is empty after applying preferences, fall back to showing
-    // anyone with onboarding complete (minus own profile and already-interacted users).
-    // This prevents a blank screen for new users in early-stage apps with few users.
-    if (filtered.length === 0 && genders && genders.length > 0) {
-      console.log("[DISCOVER] Preference-filtered pool is empty — falling back to unfiltered pool");
-      const { data: fallbackData, error: fallbackErr } = await this.sb
+    // Fallback tier 1: both mutual filters applied but pool is still empty.
+    // Relax the mutual filter and try again with ONLY the gender-preference filter
+    // (candidate.gender matches what user wants) so the discover screen is never
+    // completely blank on a small user base.  The mutual filter remains the primary
+    // path — this only kicks in when there are genuinely no mutually-compatible profiles.
+    if (filtered.length === 0) {
+      console.log("[DISCOVER] Mutual-compat pool empty — relaxing to gender-only filter for fallback");
+      let fallbackQuery = this.sb
         .from("profiles")
         .select(POOL_COLS)
         .neq("user_id", userId)
         .eq("onboarding_complete", true)
         .limit(100);
+
+      if (targetGenders && targetGenders.length > 0) {
+        fallbackQuery = fallbackQuery.in("gender", targetGenders);
+      }
+
+      const { data: fallbackData, error: fallbackErr } = await fallbackQuery;
       if (!fallbackErr && fallbackData && fallbackData.length > 0) {
         const fallbackAll = fallbackData.map(mapProfile);
         const fallbackFiltered = fallbackAll.filter(p => !interactedIds.has(p.userId));
         const fallbackWithElevates = mergeElevatesIntoProfiles(fallbackFiltered, elevates);
-        console.log("[DISCOVER] Fallback pool:", fallbackWithElevates.length, "profiles");
+        console.log("[DISCOVER] Gender-only fallback pool:", fallbackWithElevates.length, "profiles");
         return weightedSample(fallbackWithElevates, 20, now);
       }
     }
@@ -1190,7 +1242,7 @@ export class SupabaseStorage implements IStorage {
     return updated ? mapMatch(updated) : undefined;
   }
 
-  async getPopularProfiles(limit: number = 10, preference?: string): Promise<Profile[]> {
+  async getPopularProfiles(limit: number = 10, preference?: string, gender?: string): Promise<Profile[]> {
     // Photos excluded from this query — same reasoning as getDiscoverProfiles.
     // Intent page lazy-loads photos per wheel item via GET /api/profiles/:userId/photos.
     const WHEEL_COLS = [
@@ -1200,6 +1252,28 @@ export class SupabaseStorage implements IStorage {
       "location_radius", "preferred_age_min", "preferred_age_max",
       "email", "phone_number", "photo_verified", "onboarding_complete", "created_at",
     ].join(", ");
+
+    // Pre-compute mutual-compat filter values (same logic as getDiscoverProfiles)
+    const normGender = normalizeGender(gender);
+    const normPref   = normalizeDatingPreference(preference);
+    const targetGenders       = getGendersForPreference(normPref);
+    const candidateMustPrefer = gender ? getPreferencesThatIncludeGender(normGender) : [];
+
+    console.log("[WHEEL] mutual-compat filters:", {
+      myGender: gender ?? "(none)",
+      myGenderNorm: normGender,
+      myPreference: preference ?? "(none)",
+      myPrefNorm: normPref,
+      targetGenders: targetGenders ?? "all",
+      candidateMustPrefer: candidateMustPrefer.length ? candidateMustPrefer : "any",
+    });
+
+    // Helper: apply both mutual-compat filters to a Supabase query builder
+    const applyFilters = (q: any): any => {
+      if (targetGenders && targetGenders.length > 0) q = q.in("gender", targetGenders);
+      if (candidateMustPrefer.length > 0) q = q.in("dating_preference", candidateMustPrefer);
+      return q;
+    };
 
     // Count opens per user to rank by popularity
     const { data: popularRows } = await this.sb
@@ -1227,12 +1301,8 @@ export class SupabaseStorage implements IStorage {
         .eq("onboarding_complete", true)
         .in("user_id", sortedIds);
 
-      // Only filter by what the CURRENT USER wants to see (their preference → target gender).
-      // Do NOT apply mutual-compatibility filter (myGender) — it's too restrictive on small user bases.
-      if (preference) {
-        const genders = getGendersForPreference(preference);
-        if (genders && genders.length > 0) query = query.in("gender", genders);
-      }
+      // Apply mutual-compatibility filters (both gender + preference)
+      query = applyFilters(query);
 
       const { data, error } = await query;
       if (error) console.error("[WHEEL] popular query error:", error.message);
@@ -1255,17 +1325,16 @@ export class SupabaseStorage implements IStorage {
       if (existingIds.length > 0) {
         query = query.not("user_id", "in", `(${existingIds.join(",")})`);
       }
-      if (preference) {
-        const genders = getGendersForPreference(preference);
-        if (genders && genders.length > 0) query = query.in("gender", genders);
-      }
+
+      // Apply mutual-compatibility filters (both gender + preference)
+      query = applyFilters(query);
 
       const { data: extra, error: fallbackError } = await query;
       if (fallbackError) console.error("[WHEEL] fallback query error:", fallbackError.message);
       allProfiles.push(...(extra || []).map(mapProfile));
     }
 
-    console.log("[WHEEL] total profiles before elevate:", allProfiles.length, "| preference:", preference ?? "any");
+    console.log("[WHEEL] total profiles before elevate:", allProfiles.length, "| preference:", preference ?? "any", "| gender:", gender ?? "any");
 
     // If still empty, show anyone with onboarding complete (no gender filter)
     if (allProfiles.length === 0) {

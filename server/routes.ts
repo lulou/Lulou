@@ -1151,7 +1151,8 @@ export async function registerRoutes(
       const userId = req.user.id;
       const myProfile = await storage.getProfile(userId);
       const preference = myProfile?.datingPreference;
-      const popular = await storage.getPopularProfiles(30, preference);
+      const gender = myProfile?.gender;
+      const popular = await storage.getPopularProfiles(30, preference, gender);
 
       const selfFiltered = popular.filter(p => p.userId !== userId);
 
