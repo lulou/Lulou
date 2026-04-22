@@ -299,6 +299,23 @@ function PersistentTabs() {
   const isTabRoute = TAB_PAGES.some(t => activeTab.startsWith(t.path));
   const isSubRoute = location.startsWith("/messages/");
 
+  // Navigation trace — logs every time the active tab changes so we can pinpoint
+  // which tab is shown and confirm the display switch is happening.
+  const prevActiveRef = useRef<string | null>(null);
+  useEffect(() => {
+    const current = isSubRoute ? "/messages" : activeTab;
+    if (current !== prevActiveRef.current) {
+      console.log("[NAV] TAB_CHANGED", {
+        from: prevActiveRef.current,
+        to: current,
+        location,
+        isTabRoute,
+        isSubRoute,
+      });
+      prevActiveRef.current = current;
+    }
+  });
+
   return (
     <>
       {TAB_PAGES.map(({ path, Component }) => {

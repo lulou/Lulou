@@ -1,0 +1,112 @@
+The previous fix did not work.
+
+Stop making general changes and directly trace the exact reason pages are not rendering after navigation.
+
+Current symptom:
+- app shell loads
+- when I navigate to pages, they do not load properly
+- previous routing/loading fixes did not solve it
+
+I need you to do a deep debugging pass and identify the exact failure point in the navigation/render chain.
+
+Please debug in this order:
+
+1. TRACE THE NAVIGATION FLOW STEP BY STEP
+For each broken page:
+- click/navigation event fires
+- route changes
+- target component mounts
+- auth/session check runs
+- profile/data fetch runs
+- page leaves loading state
+- page renders UI
+
+Identify the exact step where it breaks.
+
+2. ADD TEMP DEBUG LOGS
+Add console logs to show:
+- current pathname
+- route component mounting
+- auth/session value
+- profile fetch start/end
+- Supabase query start/end/error
+- loading state changes
+- render entry for each page
+- whether an exception is thrown before render
+
+I want logs in:
+- router / route guard
+- main layout
+- protected route wrapper
+- home page
+- messages page
+- chat page
+- profile page
+- dashboard/tabs container
+
+3. CHECK FOR THESE SPECIFIC FAILURE MODES
+- route changes but component never mounts
+- component mounts but stays stuck in loading=true
+- auth/session is null forever
+- profile fetch never resolves
+- Supabase promise rejects silently
+- useEffect dependency loop
+- redirect loop
+- parent layout returns null and blocks children
+- suspense/lazy import failure
+- error boundary swallowing crash
+- state mismatch after login
+- blank page caused by undefined data access
+
+4. MAKE PAGES FAIL OPEN, NOT FAIL CLOSED
+Do not let the whole page stay blank just because one fetch fails.
+
+Implement defensive behavior:
+- route renders shell immediately
+- loading fallback is visible
+- failed profile fetch shows error and retry
+- failed secondary query does not block main page render
+- add null guards everywhere needed
+- remove infinite loading states
+
+5. CHECK PROTECTED ROUTES CAREFULLY
+I strongly suspect route guarding/auth/profile gating is blocking render.
+
+Inspect:
+- ProtectedRoute logic
+- redirect logic
+- session loading logic
+- profile completion checks
+- onboarding checks
+- any condition that returns loading spinner forever
+- any condition that returns null instead of rendering
+
+6. CHECK PAGE-SPECIFIC BLOCKERS
+Inspect each broken page for:
+- awaiting too many async calls before first render
+- message page loading all conversations/messages at once
+- profile page waiting on unavailable data
+- chat page expecting route params that are missing
+- discovery/home page crashing on undefined profile/preferences
+
+7. TEMPORARILY SIMPLIFY TO ISOLATE
+If needed:
+- bypass nonessential profile-completion checks
+- stub page data with minimal fallback
+- render page structure before async data completes
+- disable noncritical real-time subscriptions temporarily
+- remove any blocking Promise.all on first render
+
+8. GIVE ME A REAL ROOT CAUSE REPORT
+Do not just say "fixed routing."
+I want:
+- exact file(s) causing the issue
+- exact condition/query/hook blocking render
+- exact reason the page was not loading
+- exact code changed
+- whether the failure was router, auth, data loading, or component crash
+
+Priority:
+Get pages to render successfully when navigating, even if some secondary data loads later.
+
+Please make the fix now and show the exact code changes.

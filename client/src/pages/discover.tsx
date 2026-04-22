@@ -447,7 +447,7 @@ export default function Discover() {
   const [accumulatedProfiles, setAccumulatedProfiles] = useState<Profile[]>([]);
   const refetchInProgress = useRef(false);
 
-  const { data: profilesData, isLoading, isFetching, refetch } = useQuery<Profile[]>({
+  const { data: profilesData, isLoading, isFetching, isError: isDiscoverError, refetch } = useQuery<Profile[]>({
     queryKey: ["/api/discover"],
     staleTime: Infinity, // only refetch on explicit demand
   });
@@ -558,6 +558,27 @@ export default function Discover() {
           <Skeleton className="h-72 w-full rounded-md" />
           <Skeleton className="h-8 w-2/3" />
           <Skeleton className="h-4 w-1/2" />
+        </div>
+      </div>
+    );
+  }
+
+  if (isDiscoverError && accumulatedProfiles.length === 0) {
+    return (
+      <div className="flex-1 flex items-center justify-center p-6">
+        <div className="text-center space-y-4 max-w-sm">
+          <div className="w-16 h-16 rounded-full bg-destructive/10 flex items-center justify-center mx-auto">
+            <LulouFlowerIcon className="w-8 h-8 text-primary/60" />
+          </div>
+          <h2 className="font-serif text-xl font-bold" data-testid="text-discover-error">Couldn't load profiles</h2>
+          <p className="text-muted-foreground text-sm">Something went wrong loading discovery. Your connection is fine.</p>
+          <button
+            className="px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm font-medium"
+            onClick={() => refetch()}
+            data-testid="button-retry-discover"
+          >
+            Try Again
+          </button>
         </div>
       </div>
     );

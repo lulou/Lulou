@@ -84,30 +84,44 @@ export const getQueryFn: <T>(options: {
 }) => QueryFunction<T> =
   ({ on401: unauthorizedBehavior }) =>
   async ({ queryKey }) => {
-    try {
-      const authHeaders = await getAuthHeaders();
-      const url = queryKey.join("/") as string;
-      const res = await fetch(url, {
-        credentials: "include",
-        headers: authHeaders,
-      });
+    const url = queryKey.join("/") as string;
+    const authHeaders = await getAuthHeaders();
 
-      if (res.status === 401) {
-        if (unauthorizedBehavior === "returnNull") return null;
-        throw new Error("Unauthorized");
-      }
+    console.log(`[QUERY_FETCH] → ${url}`);
 
-      if (!res.ok) {
-        const text = (await res.text()) || res.statusText;
-        console.error(`QUERY_ERROR [${url}]`, res.status, text);
-        return null;
-      }
+    const res = await fetch(url, {
+      credentials: "include",
+      headers: authHeaders,
+    });
 
-      return await res.json();
-    } catch (err) {
-      console.error(`QUERY_ERROR [${queryKey.join("/")}]`, err);
-      return null;
+    if (res.status === 401) {
+      console.warn(`[QUERY_FETCH] 401 Unauthorized for ${url} — auth token may not have propagated yet`);
+      if (unauthorizedBehavior === "returnNull") return null as any;
+      throw new Error("Unauthorized");
     }
+
+    if (!res.ok) {
+      let message = `${res.status}`;
+      try {
+        const text = await res.text();
+        const trimmed = text.slice(0, 300);
+        try {
+          const parsed = JSON.parse(trimmed);
+          message = parsed.message || parsed.error || `${res.status}: ${trimmed}`;
+        } catch {
+          message = `${res.status}: ${trimmed}`;
+        }
+      } catch {}
+      console.error(`[QUERY_FETCH] ✗ ${url} — HTTP ${res.status}: ${message}`);
+      // Throw so TanStack Query sets isError=true and pages can show error/retry UI.
+      // Previously this returned null, which made queries appear "successful" even when
+      // the server returned an error — pages silently showed empty states forever.
+      throw new Error(message);
+    }
+
+    const json = await res.json();
+    console.log(`[QUERY_FETCH] ✓ ${url} — ${Array.isArray(json) ? json.length + " items" : typeof json}`);
+    return json;
   };
 
 export const queryClient = new QueryClient({
@@ -117,7 +131,11 @@ export const queryClient = new QueryClient({
       refetchInterval: false,
       refetchOnWindowFocus: false,
       staleTime: Infinity,
-      retry: false,
+      // Allow one automatic retry for transient failures (cold-start, auth race,
+      // network blip).  Previously retry: false meant a single failed fetch on
+      // first mount was cached as success(null) forever.
+      retry: 1,
+      retryDelay: 2000,
     },
     mutations: {
       retry: false,

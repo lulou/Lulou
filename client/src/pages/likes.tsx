@@ -268,7 +268,7 @@ export default function LikesPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const { data: likes, isLoading } = useQuery<IncomingOpen[]>({
+  const { data: likes, isLoading, isError: isLikesError, refetch: refetchLikes } = useQuery<IncomingOpen[]>({
     queryKey: ["/api/who-liked-you"],
     refetchInterval: isActive ? 15000 : false,
   });
@@ -297,6 +297,25 @@ export default function LikesPage() {
         {[1, 2, 3].map(i => (
           <Skeleton key={i} className="h-20 w-full rounded-md" />
         ))}
+      </div>
+    );
+  }
+
+  if (isLikesError) {
+    return (
+      <div className="flex-1 flex items-center justify-center p-6">
+        <div className="text-center space-y-4 max-w-sm">
+          <Eye className="w-10 h-10 text-muted-foreground/40 mx-auto" />
+          <h2 className="font-serif text-xl font-bold" data-testid="text-likes-error">Couldn't load likes</h2>
+          <p className="text-sm text-muted-foreground">Something went wrong. Your account is fine.</p>
+          <button
+            className="px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm font-medium"
+            onClick={() => refetchLikes()}
+            data-testid="button-retry-likes"
+          >
+            Try Again
+          </button>
+        </div>
       </div>
     );
   }
