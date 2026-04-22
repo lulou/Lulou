@@ -567,7 +567,7 @@ export default function Discover() {
 
   // ─── STEP 2: Minimal render — confirms routing/layout works ─────────────────
   // Set STEP2_MINIMAL = false once we confirm this page renders (Step 4 restore).
-  const STEP2_MINIMAL = true;
+  const STEP2_MINIMAL = false;
   if (STEP2_MINIMAL) {
     return (
       <div className="flex-1 p-6 space-y-3" data-testid="discover-diagnostic">

@@ -8,41 +8,78 @@ let _tokenExpiresAt: number = 0;
 /** Called by use-auth.ts whenever the session changes */
 export function setCachedToken(token: string | null, expiresAt?: number) {
   _cachedToken = token;
-  _tokenExpiresAt = expiresAt ?? 0;
+  // Never store 0 — a missing expiresAt means "treat as valid for 1 hour"
+  // so the fast path in getAuthHeaders() still fires and avoids a slow
+  // supabase.auth.getSession() call on every query.
+  _tokenExpiresAt = (expiresAt && expiresAt > 0)
+    ? expiresAt
+    : Math.floor(Date.now() / 1000) + 3600;
+  console.log("[AUTH_HEADERS] TOKEN_CACHED", {
+    hasToken: !!token,
+    expiresAtRaw: expiresAt,
+    expiresAtUsed: _tokenExpiresAt,
+    remainingMs: _tokenExpiresAt * 1000 - Date.now(),
+  });
 }
 
 export async function getAuthHeaders(): Promise<Record<string, string>> {
-  // Fast path: return cached token if still valid (>60s remaining)
+  const t0 = Date.now();
+
+  // Fast path: if a token is cached AND still valid (>60 s remaining), return it
+  // immediately without any async Supabase SDK call.
+  // This is the ONLY path that should ever be taken for in-app queries —
+  // Supabase's autoRefreshToken fires TOKEN_REFRESHED events that update
+  // _cachedToken before expiry, so this value is always the latest valid JWT.
   if (_cachedToken && _tokenExpiresAt * 1000 - Date.now() > 60_000) {
+    console.log("[AUTH_HEADERS] FAST_PATH — token valid", { remainingMs: _tokenExpiresAt * 1000 - Date.now() });
     return { Authorization: `Bearer ${_cachedToken}` };
   }
 
-  // Slow path: read from Supabase storage (only on first load or near expiry)
-  const { data: { session } } = await supabase.auth.getSession();
-  if (session?.access_token) {
-    const expiresAt: number | undefined = (session as any).expires_at;
-    if (expiresAt != null && expiresAt * 1000 - Date.now() < 60_000) {
-      const { data: refreshed } = await supabase.auth.refreshSession();
-      if (refreshed.session?.access_token) {
-        _cachedToken = refreshed.session.access_token;
-        _tokenExpiresAt = (refreshed.session as any).expires_at ?? 0;
-        return { Authorization: `Bearer ${_cachedToken}` };
-      }
+  // If we have a cached token but the expiry check just failed (e.g. expiry was
+  // stored as 0 from an earlier bug, or we're within the 60-s window), still
+  // use the cached token rather than hitting the network.  The server will return
+  // a 401 if the JWT is genuinely expired, and TanStack Query will retry.
+  if (_cachedToken) {
+    console.warn("[AUTH_HEADERS] CACHED_TOKEN_EXPIRY_BYPASS — using token despite expiry check failure", {
+      tokenExpiresAt: _tokenExpiresAt,
+      remainingMs: _tokenExpiresAt * 1000 - Date.now(),
+    });
+    return { Authorization: `Bearer ${_cachedToken}` };
+  }
+
+  // Slow path: only reached on initial page load (before INITIAL_SESSION event)
+  // or immediately after logout cleared _cachedToken.
+  // Guard with a 5-second timeout to prevent a Supabase cold-start or outage
+  // from keeping isLoading:true forever.
+  console.log("[AUTH_HEADERS] SLOW_PATH — no cached token, calling getSession()");
+  try {
+    const sessionPromise = supabase.auth.getSession();
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error("getSession timeout after 5 s")), 5000)
+    );
+
+    const { data: { session } } = await Promise.race([sessionPromise, timeoutPromise]);
+
+    if (session?.access_token) {
+      const expiresAt: number | undefined = (session as any).expires_at;
+      // Don't refresh within getAuthHeaders — Supabase handles refresh automatically.
+      // Just cache and return what we have.
+      _cachedToken = session.access_token;
+      _tokenExpiresAt = (expiresAt && expiresAt > 0)
+        ? expiresAt
+        : Math.floor(Date.now() / 1000) + 3600;
+      console.log("[AUTH_HEADERS] SLOW_PATH_SUCCESS", {
+        elapsedMs: Date.now() - t0,
+        expiresAt,
+      });
+      return { Authorization: `Bearer ${session.access_token}` };
     }
-    _cachedToken = session.access_token;
-    _tokenExpiresAt = expiresAt ?? 0;
-    return { Authorization: `Bearer ${session.access_token}` };
-  }
-
-  // No session — try a passive refresh once
-  const { data: refreshed } = await supabase.auth.refreshSession();
-  if (refreshed.session?.access_token) {
-    _cachedToken = refreshed.session.access_token;
-    _tokenExpiresAt = (refreshed.session as any).expires_at ?? 0;
-    return { Authorization: `Bearer ${_cachedToken}` };
+  } catch (err: any) {
+    console.error("[AUTH_HEADERS] SLOW_PATH_FAILED", { error: err?.message, elapsedMs: Date.now() - t0 });
   }
 
   _cachedToken = null;
+  console.warn("[AUTH_HEADERS] NO_TOKEN — returning empty headers");
   return {};
 }
 
@@ -85,9 +122,12 @@ export const getQueryFn: <T>(options: {
   ({ on401: unauthorizedBehavior }) =>
   async ({ queryKey }) => {
     const url = queryKey.join("/") as string;
-    const authHeaders = await getAuthHeaders();
 
-    console.log(`[QUERY_FETCH] → ${url}`);
+    console.log(`[QUERY_FETCH] START → ${url}`);
+    const t0 = Date.now();
+
+    const authHeaders = await getAuthHeaders();
+    console.log(`[QUERY_FETCH] HEADERS_READY → ${url} (${Date.now() - t0} ms)`);
 
     const res = await fetch(url, {
       credentials: "include",
@@ -113,32 +153,21 @@ export const getQueryFn: <T>(options: {
         }
       } catch {}
       console.error(`[QUERY_FETCH] ✗ ${url} — HTTP ${res.status}: ${message}`);
-      // Throw so TanStack Query sets isError=true and pages can show error/retry UI.
-      // Previously this returned null, which made queries appear "successful" even when
-      // the server returned an error — pages silently showed empty states forever.
       throw new Error(message);
     }
 
     const json = await res.json();
-    console.log(`[QUERY_FETCH] ✓ ${url} — ${Array.isArray(json) ? json.length + " items" : typeof json}`);
+    console.log(`[QUERY_FETCH] ✓ ${url} — ${Array.isArray(json) ? json.length + " items" : typeof json} (${Date.now() - t0} ms total)`);
     return json;
   };
 
 export const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      // on401: "throw" — treats a 401 response as a real error so TanStack Query's
-      // retry logic (retry:1 / retryDelay:2000) fires instead of silently caching
-      // null as "successful" data (staleTime:Infinity would lock null in forever).
-      // Safe: AppContent gates all tab queries behind auth — by the time PersistentTabs
-      // mounts, the Supabase token is already set via setCachedToken().
       queryFn: getQueryFn({ on401: "throw" }),
       refetchInterval: false,
       refetchOnWindowFocus: false,
       staleTime: Infinity,
-      // Allow one automatic retry for transient failures (cold-start, auth race,
-      // network blip).  Previously retry: false meant a single failed fetch on
-      // first mount was cached as success(null) forever.
       retry: 1,
       retryDelay: 2000,
     },
