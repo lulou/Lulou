@@ -1,5 +1,5 @@
 import { Switch, Route, useLocation } from "wouter";
-import { createContext, useContext, useState, useCallback, useEffect, useRef, useReducer } from "react";
+import { createContext, useContext, useState, useCallback, useEffect, useRef, useReducer, Component, type ReactNode, type ErrorInfo } from "react";
 import { queryClient, getAuthHeaders, apiRequest } from "./lib/queryClient";
 import { QueryClientProvider, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -27,7 +27,7 @@ import { Loader2 } from "lucide-react";
 // ── Global debug store ───────────────────────────────────────────────────────
 // Imported from a shared module so landing.tsx and use-auth.ts can also write
 // to it without creating circular dependencies.
-import { _dbg, _dbgListeners, writeDebug } from "@/lib/debug-store";
+import { _dbg, _dbgListeners, writeDebug, pushDebugError } from "@/lib/debug-store";
 import { TabActiveContext } from "@/hooks/use-tab-active";
 
 function DebugOverlay() {
@@ -246,6 +246,44 @@ function DebugOverlay() {
   );
 }
 
+// ── Per-tab error boundary ────────────────────────────────────────────────────
+// Wraps each persistent tab so a crash in one tab does not kill the others.
+// Without this, React propagates the error up the tree and ALL tabs go blank.
+type EBState = { hasError: boolean; error: Error | null };
+class PageErrorBoundary extends Component<{ name: string; children: ReactNode }, EBState> {
+  constructor(props: { name: string; children: ReactNode }) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+  static getDerivedStateFromError(error: Error): EBState {
+    return { hasError: true, error };
+  }
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    console.error(`[PAGE_ERROR_BOUNDARY] crash in tab "${this.props.name}":`, error.message, info.componentStack?.slice(0, 300));
+    pushDebugError(`tab:${this.props.name} — ${error.message}`);
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="flex-1 flex flex-col items-center justify-center gap-4 p-8 text-center">
+          <p className="text-lg font-serif font-semibold">Something went wrong</p>
+          <p className="text-sm text-muted-foreground max-w-xs">
+            This page crashed. Your other tabs are still working.
+          </p>
+          <p className="text-xs text-muted-foreground/60 font-mono">{this.state.error?.message}</p>
+          <button
+            className="px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm font-medium"
+            onClick={() => this.setState({ hasError: false, error: null })}
+          >
+            Try again
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 const TAB_PAGES = [
   { path: "/discover", Component: Discover },
   { path: "/intent", Component: IntentPage },
@@ -273,15 +311,19 @@ function PersistentTabs() {
             }}
           >
             <TabActiveContext.Provider value={isActive}>
-              <Component />
+              <PageErrorBoundary name={path}>
+                <Component />
+              </PageErrorBoundary>
             </TabActiveContext.Provider>
           </div>
         );
       })}
       {isSubRoute && (
-        <Switch>
-          <Route path="/messages/:matchId" component={Messaging} />
-        </Switch>
+        <PageErrorBoundary name="/messages">
+          <Switch>
+            <Route path="/messages/:matchId" component={Messaging} />
+          </Switch>
+        </PageErrorBoundary>
       )}
       {!isTabRoute && !isSubRoute && location !== "/" && <NotFound />}
     </>

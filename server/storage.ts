@@ -1718,12 +1718,13 @@ export class SupabaseStorage implements IStorage {
     const { data: incomingOpens } = await query;
     if (!incomingOpens || incomingOpens.length === 0) return [];
 
-    // Batch-fetch all profiles in a single query (no photos — MATCH_PROFILE_COLS).
-    // This replaces the previous N separate select("*") round-trips (one per incoming like).
+    // Batch-fetch all profiles in a single query — includes photos because the
+    // Likes tab shows profile pictures.  This replaces the previous N separate
+    // round-trips (one per incoming like) with a single IN query.
     const fromUserIds = incomingOpens.map(o => o.from_user_id);
     const { data: profileRows } = await this.sb
       .from("profiles")
-      .select(MATCH_PROFILE_COLS)
+      .select("*")
       .in("user_id", fromUserIds);
 
     const profileMap = new Map<string, any>();
