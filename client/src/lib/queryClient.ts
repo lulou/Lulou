@@ -127,7 +127,12 @@ export const getQueryFn: <T>(options: {
 export const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      queryFn: getQueryFn({ on401: "returnNull" }),
+      // on401: "throw" — treats a 401 response as a real error so TanStack Query's
+      // retry logic (retry:1 / retryDelay:2000) fires instead of silently caching
+      // null as "successful" data (staleTime:Infinity would lock null in forever).
+      // Safe: AppContent gates all tab queries behind auth — by the time PersistentTabs
+      // mounts, the Supabase token is already set via setCachedToken().
+      queryFn: getQueryFn({ on401: "throw" }),
       refetchInterval: false,
       refetchOnWindowFocus: false,
       staleTime: Infinity,
