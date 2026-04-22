@@ -284,6 +284,36 @@ export default function IntentPage() {
     return () => cancelAnimationFrame(animFrame.current);
   }, []);
 
+  // ─── STEP 7: Hard debug logs ────────────────────────────────────────────────
+  useEffect(() => {
+    console.log("[INTENT] MOUNTED");
+    return () => console.log("[INTENT] UNMOUNTED");
+  }, []);
+
+  console.log("[INTENT] RENDER_REACHED", {
+    isLoading,
+    isError,
+    profileCount: items.length,
+    canSpin: spinStatus?.canSpin,
+    selectedIndex,
+  });
+
+  // ─── STEP 2: Minimal render — confirms routing/layout works ─────────────────
+  const STEP2_MINIMAL = true;
+  if (STEP2_MINIMAL) {
+    return (
+      <div className="flex-1 p-6 space-y-3" data-testid="intent-diagnostic">
+        <h2 className="text-lg font-semibold">Intent Wheel — Page Rendered ✓</h2>
+        <div className="text-xs font-mono text-muted-foreground space-y-0.5">
+          <div>isLoading: {String(isLoading)}</div>
+          <div>isError: {String(isError)}</div>
+          <div>profiles: {items.length}</div>
+          <div>canSpin: {String(spinStatus?.canSpin)}</div>
+        </div>
+      </div>
+    );
+  }
+
   if (isLoading) {
     return (
       <div className="flex-1 flex items-center justify-center">

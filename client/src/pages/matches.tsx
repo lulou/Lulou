@@ -2163,6 +2163,37 @@ export default function Matches() {
 
   const { unreadCounts, markRead } = useUnreadCounts(matchIds, user?.id || null, expandedMatchId, handleNewBackgroundMessage);
 
+  // ─── STEP 7: Hard debug logs ────────────────────────────────────────────────
+  useEffect(() => {
+    console.log("[MATCHES] MOUNTED");
+    return () => console.log("[MATCHES] UNMOUNTED");
+  }, []);
+
+  console.log("[MATCHES] RENDER_REACHED", {
+    userId: user?.id,
+    matchesLoading,
+    matchesError: matchesError?.message,
+    matchCount: matches?.length,
+    requestsLoading,
+    expandedMatchId,
+  });
+
+  // ─── STEP 2: Minimal render — confirms routing/layout works ─────────────────
+  const STEP2_MINIMAL = true;
+  if (STEP2_MINIMAL) {
+    return (
+      <div className="flex-1 p-6 space-y-3" data-testid="matches-diagnostic">
+        <h2 className="text-lg font-semibold">Matches — Page Rendered ✓</h2>
+        <div className="text-xs font-mono text-muted-foreground space-y-0.5">
+          <div>userId: {user?.id?.slice(0, 8) ?? "—"}</div>
+          <div>isLoading: {String(matchesLoading)}</div>
+          <div>isError: {String(!!matchesError)}</div>
+          <div>matches: {matches?.length ?? "—"}</div>
+        </div>
+      </div>
+    );
+  }
+
   const newConnections = (matches || []).filter(m => !m.lastMessage);
   const activeChats = (matches || []).filter(m => !!m.lastMessage);
   const totalUnread = Object.values(unreadCounts).reduce((sum, n) => sum + n, 0);

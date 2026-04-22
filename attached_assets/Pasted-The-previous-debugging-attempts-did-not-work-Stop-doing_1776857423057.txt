@@ -1,0 +1,167 @@
+The previous debugging attempts did not work.
+
+Stop doing broad analysis.
+We need to isolate and fix this by forcing the broken pages to render one by one.
+
+Facts:
+- The Likes page loads correctly
+- Other main pages do not load correctly
+- Therefore the app shell is not the main issue
+- The problem is likely in shared route guards, shared layout logic, shared hooks, or blocking page-level data loading
+
+Your task:
+Use the Likes page as the known-good baseline and make the other pages render using the same minimal pattern.
+
+Follow this exact process.
+
+STEP 1 — IDENTIFY DIFFERENCE FROM LIKES
+Inspect the Likes page and compare it against:
+- Home / Discovery
+- Messages list
+- Chat page
+- Profile page
+- Dashboard / tab container
+
+Find what the broken pages use that Likes does not use, including:
+- ProtectedRoute
+- shared layout
+- shared hooks
+- profile gating
+- onboarding checks
+- route params
+- page-level queries
+- realtime subscriptions
+- Promise.all
+- redirect logic
+
+STEP 2 — FORCE A MINIMAL RENDER
+For each broken page, temporarily strip it down so it renders a simple placeholder first.
+
+Example:
+return (
+ <div style={{ padding: 24 }}>
+   <h1>Messages Page Loaded</h1>
+ </div>
+);
+
+Do this for:
+- Home
+- Messages
+- Chat
+- Profile
+
+Then verify whether navigation works to those pages.
+
+This tells us whether the issue is:
+- routing/layout/guard level
+or
+- page logic level
+
+STEP 3 — IF PLACEHOLDER STILL DOES NOT RENDER
+Then the problem is NOT page content.
+In that case inspect and fix, in this order:
+1. router path definitions
+2. parent layout rendering
+3. Outlet / children rendering
+4. ProtectedRoute
+5. auth loading state
+6. redirect loops
+7. dashboard/tab wrapper
+
+Specifically check for:
+- Outlet missing
+- children not returned
+- loading spinner shown forever
+- route guard returning null
+- redirect loop
+- profile check blocking render forever
+
+STEP 4 — IF PLACEHOLDER DOES RENDER
+Then the problem IS inside page logic.
+In that case, rebuild each page gradually:
+
+Phase A:
+Render page shell only
+
+Phase B:
+Add static content only
+
+Phase C:
+Add auth/session read only
+
+Phase D:
+Add one query only
+
+Phase E:
+Add secondary queries after first render
+
+Do NOT reintroduce everything at once.
+
+STEP 5 — REMOVE ALL BLOCKING FIRST-RENDER LOGIC
+Broken pages must not wait on multiple async operations before first paint.
+
+Rules:
+- render page shell immediately
+- show loading UI inside the page
+- do not block whole page on profile fetch
+- do not block whole page on secondary queries
+- no Promise.all for first render unless absolutely required
+- no returning null silently
+- no infinite loading state
+- no page-level crash on undefined data
+
+STEP 6 — TEMPORARILY BYPASS SHARED GATING
+If needed, temporarily bypass:
+- profile completion checks
+- onboarding checks
+- nonessential redirects
+- noncritical realtime subscriptions
+- secondary data fetches
+
+Goal:
+prove the page can render first, then add logic back safely.
+
+STEP 7 — ADD HARD DEBUG LOGS
+Add logs in these exact places:
+- router
+- ProtectedRoute
+- main layout
+- Likes page
+- Home page
+- Messages page
+- Chat page
+- Profile page
+
+Log:
+- pathname
+- component mounted
+- ProtectedRoute entered
+- session value
+- profile value
+- loading state
+- redirect target
+- query started
+- query succeeded
+- query failed
+- render reached
+
+STEP 8 — FIX PAGES IN THIS PRIORITY ORDER
+1. Home
+2. Messages
+3. Profile
+4. Chat
+
+Do not try to solve all pages abstractly.
+Make each page render successfully before moving to the next.
+
+STEP 9 — GIVE A REAL REPORT
+When finished, provide:
+1. the exact root cause
+2. the exact file(s) causing it
+3. whether the blocker was routing, layout, ProtectedRoute, shared hook, or page logic
+4. the exact code changed
+5. why Likes worked while the others failed
+
+Important:
+Do not just describe possible causes.
+Actually modify the code so the broken pages render successfully.

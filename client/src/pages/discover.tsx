@@ -441,6 +441,12 @@ export default function Discover() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
+  // ─── STEP 7: Hard debug logs ────────────────────────────────────────────────
+  useEffect(() => {
+    console.log("[DISCOVER] MOUNTED");
+    return () => console.log("[DISCOVER] UNMOUNTED");
+  }, []);
+
   // Track which profiles have been shown this session (local queue advancement)
   const [shownIds, setShownIds] = useState<Set<string>>(new Set());
   // Accumulate profiles across refetches so the feed doesn't reset
@@ -548,6 +554,33 @@ export default function Discover() {
       description: `When you match with ${currentProfile?.firstName}, your reply will be sent as your first message.`,
     });
   };
+
+  // ─── STEP 7: Render-phase log ───────────────────────────────────────────────
+  console.log("[DISCOVER] RENDER_REACHED", {
+    isLoading,
+    isFetching,
+    isDiscoverError,
+    accumulatedCount: accumulatedProfiles.length,
+    visibleCount: visibleProfiles.length,
+    hasCurrentProfile: !!currentProfile,
+  });
+
+  // ─── STEP 2: Minimal render — confirms routing/layout works ─────────────────
+  // Set STEP2_MINIMAL = false once we confirm this page renders (Step 4 restore).
+  const STEP2_MINIMAL = true;
+  if (STEP2_MINIMAL) {
+    return (
+      <div className="flex-1 p-6 space-y-3" data-testid="discover-diagnostic">
+        <h2 className="text-lg font-semibold">Discover — Page Rendered ✓</h2>
+        <div className="text-xs font-mono text-muted-foreground space-y-0.5">
+          <div>isLoading: {String(isLoading)}</div>
+          <div>isError: {String(isDiscoverError)}</div>
+          <div>profiles accumulated: {accumulatedProfiles.length}</div>
+          <div>visible: {visibleProfiles.length}</div>
+        </div>
+      </div>
+    );
+  }
 
   // Show skeleton on initial load OR when pool is empty and more are being fetched
   const isLoadingMore = isFetching && accumulatedProfiles.length > 0 && visibleProfiles.length === 0;
