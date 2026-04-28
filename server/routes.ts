@@ -577,6 +577,26 @@ export async function registerRoutes(
     }
   });
 
+  // Paginated older messages — cursor-based, used by "Load older messages" button.
+  app.get("/api/matches/:matchId/messages", isAuthenticated, async (req: any, res) => {
+    const t0 = Date.now();
+    try {
+      const storage = getStorage(req);
+      const userId = req.user.id;
+      const { matchId } = req.params;
+      const limit = Math.min(parseInt((req.query.limit as string) || "40", 10), 100);
+      const before = (req.query.before as string) || undefined;
+      const meta = await storage.getMatchMeta(matchId, userId);
+      if (!meta) return res.status(404).json({ message: "Match not found" });
+      const result = await storage.getMessagesPage(matchId, limit, before);
+      console.log(`[MSG_PAGE_ROUTE] ${matchId} limit=${limit} before=${before?.slice(0,20)} got=${result.messages.length} hasMore=${result.hasMore} ms=${Date.now()-t0}`);
+      res.json(result);
+    } catch (error: any) {
+      console.error("[MSG_PAGE_ROUTE] error:", error?.message);
+      res.status(500).json({ message: "Failed to fetch messages" });
+    }
+  });
+
   app.post("/api/messages/:messageId/reaction", isAuthenticated, async (req: any, res) => {
     try {
       const storage = getStorage(req);

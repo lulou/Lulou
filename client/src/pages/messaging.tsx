@@ -8,10 +8,10 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
 import { useRealtimeMessages } from "@/hooks/use-realtime-messages";
-import { ArrowLeft, Send, Phone, Video, Check, Clock, Calendar, Heart, PhoneForwarded, X, Moon, MapPin, Ruler, MessageCircle } from "lucide-react";
+import { ArrowLeft, Send, Phone, Video, Check, Clock, Calendar, Heart, PhoneForwarded, X, Moon, MapPin, Ruler, MessageCircle, Loader2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import type { Message, Match, Profile } from "@shared/schema";
 
@@ -326,6 +326,23 @@ export default function Messaging() {
   const initialScrollDoneRef = useRef(false);
   const matchId = params?.matchId;
 
+  // ── Timing (perf diagnostics) ──────────────────────────────────────────────
+  const mountedAtRef = useRef(Date.now());
+
+  // ── Immediate shell data from matches-list cache ────────────────────────────
+  // ["/api/matches"] is already in memory when navigating from the matches list.
+  // We use it so the header (name, avatar) renders at 0ms instead of blocking
+  // on the full detail fetch.
+  const cachedMatches = queryClient.getQueryData<any[]>(["/api/matches"]);
+  const cachedEntry = cachedMatches?.find((m: any) => m.id === matchId) ?? null;
+
+  // ── Pagination state ────────────────────────────────────────────────────────
+  const [olderMessages, setOlderMessages] = useState<Message[]>([]);
+  const [hasMoreMessages, setHasMoreMessages] = useState(false);
+  const [isLoadingOlder, setIsLoadingOlder] = useState(false);
+  const oldestCursorRef = useRef<string | null>(null);
+  const scrollAnchorRef = useRef<number | null>(null);
+
   const handleMessagesScroll = useCallback(() => {
     const el = messagesContainerRef.current;
     if (!el) return;
@@ -346,13 +363,12 @@ export default function Messaging() {
     },
   });
 
-  const { data: matchDetail, isLoading } = useQuery<MatchDetail>({
+  const { data: matchDetail, isLoading: isDetailLoading } = useQuery<MatchDetail>({
     queryKey: ["/api/matches", matchId],
     enabled: !!matchId,
-    // Primary delivery: real-time subscription (useRealtimeMessages) — ~50ms
-    // Fallback: poll every 30 s in case a broadcast packet is dropped.
-    // The realtime hook handles ~99% of deliveries so polling is rarely needed.
-    refetchInterval: matchId ? 30000 : false,
+    // Realtime subscription handles new messages — no polling needed.
+    // Global defaults: retry:1, retryDelay:2000, staleTime:Infinity.
+    // staleTime:Infinity means returning to this chat reuses cache instantly.
   });
 
   useRealtimeMessages(matchId, !!matchId);
@@ -488,23 +504,82 @@ export default function Messaging() {
     // If user is scrolled up reading history: do nothing
   }, [matchDetail?.messages?.length]);
 
-  if (isLoading) {
+  // ── Timing + hasMoreMessages detection ─────────────────────────────────────
+  useEffect(() => {
+    console.log("[CHAT_LOAD] page_mount", { matchId, hasCachedEntry: !!cachedEntry, ms: 0 });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (matchDetail) {
+      const ms = Date.now() - mountedAtRef.current;
+      const msgCount = matchDetail.messages?.length ?? 0;
+      console.log("[CHAT_LOAD] detail_loaded", { matchId, msgCount, ms });
+      // If the server returned a full page (40), there may be older messages
+      if (msgCount >= 40 && matchDetail.messages?.[0]?.createdAt) {
+        setHasMoreMessages(true);
+        oldestCursorRef.current = matchDetail.messages[0].createdAt as string;
+      }
+    }
+  }, [matchDetail]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Restore scroll position after older messages are prepended ──────────────
+  useEffect(() => {
+    if (scrollAnchorRef.current !== null) {
+      const el = messagesContainerRef.current;
+      if (el) el.scrollTop = el.scrollHeight - scrollAnchorRef.current;
+      scrollAnchorRef.current = null;
+    }
+  }, [olderMessages]);
+
+  // ── Load older messages (cursor pagination) ─────────────────────────────────
+  const loadOlderMessages = useCallback(async () => {
+    if (!matchId || isLoadingOlder || !hasMoreMessages) return;
+    const cursor = oldestCursorRef.current;
+    if (!cursor) return;
+    const el = messagesContainerRef.current;
+    const savedScrollHeight = el?.scrollHeight ?? 0;
+    setIsLoadingOlder(true);
+    console.log("[CHAT_LOAD] load_older_start", { matchId, cursor: cursor.slice(0, 20) });
+    try {
+      const res = await apiRequest("GET", `/api/matches/${matchId}/messages?limit=40&before=${encodeURIComponent(cursor)}`);
+      const { messages: older, hasMore } = await res.json();
+      setOlderMessages(prev => [...older, ...prev]);
+      setHasMoreMessages(hasMore);
+      if (older.length > 0) oldestCursorRef.current = (older[0].createdAt as string) ?? null;
+      scrollAnchorRef.current = savedScrollHeight;
+      console.log("[CHAT_LOAD] load_older_done", { matchId, got: older.length, hasMore });
+    } catch (err: any) {
+      console.warn("[CHAT_LOAD] load_older_failed", { err: err?.message });
+    } finally {
+      setIsLoadingOlder(false);
+    }
+  }, [matchId, isLoadingOlder, hasMoreMessages]);
+
+  // ── Resolve profile for immediate shell render ──────────────────────────────
+  // Uses matches-list cache so the header shows name/avatar at 0ms.
+  const shellProfile = matchDetail?.profile ?? (cachedEntry as any)?.profile ?? null;
+
+  // If nothing at all (no cache + not yet loaded): show minimal skeleton.
+  // This is rare — usually cache has data from the matches list.
+  if (!shellProfile) {
     return (
       <div className="flex-1 flex flex-col">
         <div className="p-4 border-b flex items-center gap-3">
-          <Skeleton className="w-10 h-10 rounded-full" />
+          <Button variant="ghost" size="icon" onClick={() => navigate("/matches")} data-testid="button-back-to-matches">
+            <ArrowLeft className="w-5 h-5" />
+          </Button>
+          <Skeleton className="w-9 h-9 rounded-full" />
           <Skeleton className="h-5 w-24" />
         </div>
         <div className="flex-1 p-4 space-y-3">
-          {[1, 2, 3].map(i => (
-            <Skeleton key={i} className="h-12 w-2/3 rounded-md" />
-          ))}
+          {[1, 2, 3].map(i => <Skeleton key={i} className="h-12 w-2/3 rounded-md" />)}
         </div>
       </div>
     );
   }
 
-  if (!matchDetail) {
+  // Loaded but match not found (user not a participant or match deleted)
+  if (!isDetailLoading && !matchDetail) {
     return (
       <div className="flex-1 flex items-center justify-center">
         <p className="text-muted-foreground">Connection not found</p>
@@ -512,10 +587,13 @@ export default function Messaging() {
     );
   }
 
-  const myMessages = matchDetail.messages?.filter(m => m.senderId === user?.id) || [];
+  // Combined messages: older pages (paginated) + current page from detail.
+  // olderMessages is prepended on demand; matchDetail.messages is the latest window.
+  const allMessages = [...olderMessages, ...(matchDetail?.messages ?? [])];
+  const myMessages = allMessages.filter(m => m.senderId === user?.id);
   const messagesRemaining = MAX_MESSAGES_PER_USER - myMessages.length;
   const isLimitReached = messagesRemaining <= 0;
-  const callStage = matchDetail.callStage || 0;
+  const callStage = matchDetail?.callStage ?? 0;
   const allCallsDone = callStage >= 4;
 
   const statusLabel = allCallsDone ? "Ready to meet"
@@ -535,7 +613,8 @@ export default function Messaging() {
     ? { icon: Video, title: "Ready to see each other?", desc: "Both of you need to accept for a 10-minute face call.", button: "View on Connections" }
     : { icon: Check, title: "All calls completed", desc: "You've had wonderful conversations. Ready to meet in real life?", button: "" };
 
-  const profile = matchDetail.profile;
+  // shellProfile is always non-null here (guaranteed by the guard above)
+  const profile = shellProfile;
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
@@ -616,7 +695,7 @@ export default function Messaging() {
       {showCloseConfirm && (
         <div className="px-4 py-2 bg-destructive/5 border-b">
           <p className="text-xs text-center text-muted-foreground">
-            Close your connection with {matchDetail.profile.firstName}? This frees a spot for a new connection.
+            Close your connection with {profile.firstName}? This frees a spot for a new connection.
           </p>
         </div>
       )}
@@ -625,13 +704,39 @@ export default function Messaging() {
       {activeTab === "chat" && (
         <>
           <div ref={messagesContainerRef} onScroll={handleMessagesScroll} className="flex-1 overflow-y-auto p-4 space-y-3 min-h-0" data-testid="messages-container">
-            {matchDetail.messages?.length === 0 && (
+            {/* Load older messages button — only visible when there are earlier msgs */}
+            {hasMoreMessages && (
+              <div className="flex justify-center pt-1 pb-3">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={loadOlderMessages}
+                  disabled={isLoadingOlder}
+                  data-testid="button-load-older-messages"
+                  className="text-xs text-muted-foreground gap-1"
+                >
+                  {isLoadingOlder ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
+                  {isLoadingOlder ? "Loading…" : "Load older messages"}
+                </Button>
+              </div>
+            )}
+            {/* Messages skeleton while first fetch in progress (no cache) */}
+            {isDetailLoading && allMessages.length === 0 && (
+              <div className="space-y-3 pt-2">
+                {[1, 2, 3].map(i => (
+                  <div key={i} className={`flex ${i % 2 === 0 ? "justify-end" : "justify-start"}`}>
+                    <Skeleton className={`h-10 rounded-md ${i % 2 === 0 ? "w-1/2" : "w-2/3"}`} />
+                  </div>
+                ))}
+              </div>
+            )}
+            {allMessages.length === 0 && !isDetailLoading && (
               <div className="text-center py-12 space-y-2">
                 <p className="text-muted-foreground text-sm">This is the beginning of your conversation</p>
                 <p className="text-xs text-muted-foreground">You each have {MAX_MESSAGES_PER_USER} messages. Make them count.</p>
               </div>
             )}
-            {matchDetail.messages?.map(msg => {
+            {allMessages.map(msg => {
               const isMe = msg.senderId === user?.id;
               const hasReaction = msg.reaction && typeof msg.reaction === 'string' && msg.reaction.length > 0;
               if (hasReaction) {
@@ -686,7 +791,7 @@ export default function Messaging() {
                 ) : null}
               </Card>
             </div>
-          ) : allCallsDone ? (
+          ) : allCallsDone && matchDetail ? (
             <ReadyToMeetSection matchDetail={matchDetail} matchId={matchId!} />
           ) : (
             <div className="p-4 border-t">

@@ -158,6 +158,7 @@ export interface IStorage {
   createMatch(user1Id: string, user2Id: string): Promise<Match>;
   getMatchesForUser(userId: string): Promise<(Match & { profile: Profile; lastMessage: { content: string; senderId: string; createdAt: Date | null } | null })[]>;
   getMatch(matchId: string, userId: string): Promise<(Match & { profile: Profile; messages: Message[] }) | undefined>;
+  getMessagesPage(matchId: string, limit: number, before?: string): Promise<{ messages: Message[]; hasMore: boolean }>;
   createMessage(data: InsertMessage): Promise<Message>;
   getUserMessageCount(matchId: string, userId: string): Promise<number>;
   incrementMessageCount(matchId: string, userId: string): Promise<void>;
@@ -752,15 +753,17 @@ export class SupabaseStorage implements IStorage {
 
     const otherUserId = match.user1Id === userId ? match.user2Id : match.user1Id;
 
-    // Fetch profile (no photos) and last 100 messages in parallel.
-    // Messages are fetched DESC so we get the most recent 100, then reversed to
-    // present them in chronological order. Photos are lazy-loaded separately.
+    // Fetch profile (no photos) and latest 40 messages in parallel.
+    // Limit is 40 for fast mobile load; older messages are paginated via getMessagesPage().
+    // Messages fetched DESC so we get the most recent first, then reversed to ASC for chat.
     const MSG_COLS = "id, match_id, sender_id, content, reaction, created_at";
+    const t1 = Date.now();
     const [profileResult, msgResult] = await Promise.all([
       this.sb.from("profiles").select(MATCH_PROFILE_COLS).eq("user_id", otherUserId).maybeSingle(),
       this.sb.from("messages").select(MSG_COLS).eq("match_id", matchId)
-        .order("created_at", { ascending: false }).limit(100),
+        .order("created_at", { ascending: false }).limit(40),
     ]);
+    console.log(`[GET_MATCH] profile+msgs parallel: ${Date.now() - t1}ms | msgs=${msgResult.data?.length ?? 0}`);
 
     if (profileResult.error) {
       console.error("GET_MATCH_PROFILE_ERROR", { matchId, userId, otherUserId, msg: profileResult.error.message });
@@ -779,6 +782,31 @@ export class SupabaseStorage implements IStorage {
       profile: mapProfile(profileResult.data),
       messages,
     };
+  }
+
+  // Paginated messages — fetches `limit` messages before the `before` ISO cursor.
+  // Uses the compound index idx_messages_match_id_created_at for fast lookup.
+  async getMessagesPage(
+    matchId: string,
+    limit: number,
+    before?: string,
+  ): Promise<{ messages: Message[]; hasMore: boolean }> {
+    const MSG_COLS = "id, match_id, sender_id, content, reaction, created_at";
+    const t0 = Date.now();
+    let q = this.sb
+      .from("messages")
+      .select(MSG_COLS)
+      .eq("match_id", matchId)
+      .order("created_at", { ascending: false })
+      .limit(limit + 1);
+    if (before) q = (q as any).lt("created_at", before);
+    const { data, error } = await q;
+    if (error) throw new Error(`getMessagesPage: ${error.message}`);
+    const rows = data ?? [];
+    const hasMore = rows.length > limit;
+    const messages = rows.slice(0, limit).reverse().map(mapMessage);
+    console.log(`[MSG_PAGE] matchId=${matchId} before=${before?.slice(0,20)} limit=${limit} got=${messages.length} hasMore=${hasMore} ms=${Date.now()-t0}`);
+    return { messages, hasMore };
   }
 
   async createMessage(data: InsertMessage): Promise<Message> {
