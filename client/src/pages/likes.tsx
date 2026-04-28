@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -8,7 +8,10 @@ import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { useTabActive } from "@/hooks/use-tab-active";
-import { Heart, X, Eye, MapPin, Lock, Sparkles, ChevronRight } from "lucide-react";
+import {
+  Heart, X, Eye, MapPin, Lock, Sparkles, ChevronRight,
+  ChevronLeft, Ruler,
+} from "lucide-react";
 import { LulouFlowerIcon } from "@/components/app-layout";
 import { ElevateModal } from "@/components/elevate-modal";
 import { ElevateStatusCard } from "@/components/elevate-status-card";
@@ -43,7 +46,7 @@ function MatchOverlay({ celebration, onClose }: { celebration: MatchCelebration;
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center cursor-pointer"
+      className="fixed inset-0 z-[60] flex items-center justify-center cursor-pointer"
       onClick={handleClose}
       data-testid="overlay-match-celebration"
       style={{
@@ -152,9 +155,379 @@ function MatchOverlay({ celebration, onClose }: { celebration: MatchCelebration;
   );
 }
 
+// ─── Full-Screen Profile Modal ─────────────────────────────────────────────────
+
+function ProfileModal({
+  open,
+  onClose,
+  onMatch,
+  onConnectionFull,
+}: {
+  open: IncomingOpen;
+  onClose: () => void;
+  onMatch: (c: MatchCelebration) => void;
+  onConnectionFull: () => void;
+}) {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const [photoIndex, setPhotoIndex] = useState(0);
+  const [visible, setVisible] = useState(false);
+  const touchStartXRef = useRef<number | null>(null);
+
+  // Slide in from bottom on mount
+  useEffect(() => {
+    const t = requestAnimationFrame(() => setVisible(true));
+    return () => cancelAnimationFrame(t);
+  }, []);
+
+  const handleClose = useCallback(() => {
+    setVisible(false);
+    setTimeout(onClose, 300);
+  }, [onClose]);
+
+  // Close on Escape
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") handleClose();
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [handleClose]);
+
+  // Prevent background scroll while modal is open
+  useEffect(() => {
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = prev; };
+  }, []);
+
+  const profile = open.profile;
+  const photos = profile.photos ?? [];
+  const signals = profile.signals ?? [];
+  const greenFlags = profile.greenFlags ?? [];
+  const conversationStarters = profile.conversationStarters ?? [];
+  const questions = profile.questions ?? [];
+
+  const prevPhoto = () => setPhotoIndex(i => Math.max(0, i - 1));
+  const nextPhoto = () => setPhotoIndex(i => Math.min(photos.length - 1, i + 1));
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    touchStartXRef.current = e.touches[0].clientX;
+  };
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    if (touchStartXRef.current === null) return;
+    const delta = touchStartXRef.current - e.changedTouches[0].clientX;
+    if (Math.abs(delta) > 50) {
+      if (delta > 0) nextPhoto();
+      else prevPhoto();
+    }
+    touchStartXRef.current = null;
+  };
+
+  const respond = useMutation({
+    mutationFn: async (type: "open" | "close") => {
+      try {
+        const res = await apiRequest("POST", "/api/interactions", { toUserId: open.fromUserId, type });
+        return res.json();
+      } catch (err: any) {
+        toast({
+          title: type === "open" ? "Couldn't send like" : "Couldn't close",
+          description: err?.message || "Something went wrong. Try again.",
+          variant: "destructive",
+        });
+        return { skipped: true };
+      }
+    },
+    onSuccess: (data: any) => {
+      if (data?.skipped) return;
+      queryClient.invalidateQueries({ queryKey: ["/api/who-liked-you"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/match-count"] });
+      handleClose();
+      if (data.matched) {
+        onMatch({ firstName: profile.firstName, photo: photos[0] });
+      } else if (data.connectionLimitReached) {
+        onConnectionFull();
+      } else {
+        toast({ title: "Passed", description: `You passed on ${profile.firstName}.` });
+      }
+    },
+  });
+
+  return (
+    <div
+      className="fixed inset-0 z-50"
+      data-testid={`modal-profile-${open.fromUserId}`}
+      style={{
+        background: "hsl(var(--background))",
+        transform: visible ? "translateY(0)" : "translateY(100%)",
+        transition: "transform 0.32s cubic-bezier(0.32, 0.72, 0, 1)",
+        overflowY: "auto",
+        WebkitOverflowScrolling: "touch",
+      }}
+    >
+      {/* ── Photo Carousel ──────────────────────────────────────────────────── */}
+      <div
+        className="relative w-full bg-muted"
+        style={{ height: "60vh", minHeight: 300, maxHeight: 520 }}
+        onTouchStart={handleTouchStart}
+        onTouchEnd={handleTouchEnd}
+      >
+        {photos.length > 0 ? (
+          <img
+            key={photoIndex}
+            src={photos[photoIndex]}
+            alt={`${profile.firstName} photo ${photoIndex + 1}`}
+            className="absolute inset-0 w-full h-full object-cover"
+            style={{ transition: "opacity 0.2s ease" }}
+            data-testid={`img-modal-photo-${photoIndex}`}
+          />
+        ) : (
+          <div
+            className="absolute inset-0 flex items-center justify-center"
+            style={{ background: "linear-gradient(135deg, hsl(350 45% 92%), hsl(350 45% 82%))" }}
+          >
+            <span className="font-serif text-9xl font-bold" style={{ color: "hsl(350 45% 52%)" }}>
+              {profile.firstName?.[0]}
+            </span>
+          </div>
+        )}
+
+        {/* Bottom gradient */}
+        <div className="absolute inset-x-0 bottom-0 h-44 bg-gradient-to-t from-black/80 via-black/25 to-transparent pointer-events-none" />
+
+        {/* Close button */}
+        <button
+          className="absolute top-4 left-4 z-10 w-10 h-10 rounded-full flex items-center justify-center active:scale-90 transition-all"
+          style={{ background: "hsl(0 0% 0% / 0.4)", backdropFilter: "blur(8px)" }}
+          onClick={handleClose}
+          data-testid="button-close-profile-modal"
+          aria-label="Close profile"
+        >
+          <ChevronLeft className="w-5 h-5 text-white" />
+        </button>
+
+        {/* Photo count badge */}
+        {photos.length > 1 && (
+          <div
+            className="absolute top-4 right-4 z-10 px-2.5 py-1 rounded-full text-white text-xs font-medium"
+            style={{ background: "hsl(0 0% 0% / 0.4)", backdropFilter: "blur(8px)" }}
+          >
+            {photoIndex + 1} / {photos.length}
+          </div>
+        )}
+
+        {/* Prev / Next arrows */}
+        {photos.length > 1 && (
+          <>
+            <button
+              className="absolute left-3 top-1/2 -translate-y-1/2 z-10 w-9 h-9 rounded-full flex items-center justify-center disabled:opacity-25 active:scale-90 transition-all"
+              style={{ background: "hsl(0 0% 0% / 0.35)", backdropFilter: "blur(6px)" }}
+              onClick={prevPhoto}
+              disabled={photoIndex === 0}
+              data-testid="button-modal-prev-photo"
+              aria-label="Previous photo"
+            >
+              <ChevronLeft className="w-4 h-4 text-white" />
+            </button>
+            <button
+              className="absolute right-3 top-1/2 -translate-y-1/2 z-10 w-9 h-9 rounded-full flex items-center justify-center disabled:opacity-25 active:scale-90 transition-all"
+              style={{ background: "hsl(0 0% 0% / 0.35)", backdropFilter: "blur(6px)" }}
+              onClick={nextPhoto}
+              disabled={photoIndex === photos.length - 1}
+              data-testid="button-modal-next-photo"
+              aria-label="Next photo"
+            >
+              <ChevronRight className="w-4 h-4 text-white" />
+            </button>
+          </>
+        )}
+
+        {/* Dot indicators */}
+        {photos.length > 1 && (
+          <div className="absolute bottom-[5.5rem] inset-x-0 flex justify-center gap-1.5 z-10 pointer-events-none">
+            {photos.map((_, i) => (
+              <div
+                key={i}
+                className="rounded-full transition-all duration-200"
+                style={{
+                  width: i === photoIndex ? 20 : 6,
+                  height: 6,
+                  background: i === photoIndex ? "white" : "rgba(255,255,255,0.45)",
+                }}
+              />
+            ))}
+          </div>
+        )}
+
+        {/* Name / age / location overlay */}
+        <div className="absolute bottom-4 left-5 right-5 z-10">
+          <div className="flex items-end justify-between gap-2">
+            <div>
+              <h2
+                className="text-white font-serif text-3xl font-bold leading-tight drop-shadow-xl"
+                data-testid="text-modal-name"
+              >
+                {profile.firstName}{profile.age ? `, ${profile.age}` : ""}
+              </h2>
+              {profile.location && (
+                <div className="flex items-center gap-1 mt-1">
+                  <MapPin className="w-3.5 h-3.5 text-white/70" />
+                  <span className="text-white/80 text-sm">{profile.location}</span>
+                </div>
+              )}
+            </div>
+            {profile.photoVerified && (
+              <Badge
+                variant="secondary"
+                className="text-xs px-2 py-0.5 bg-white/20 text-white border-white/30 backdrop-blur-sm shrink-0"
+              >
+                Verified
+              </Badge>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* ── Profile Content ──────────────────────────────────────────────────── */}
+      <div className="px-5 pt-5 pb-36 space-y-6 max-w-lg mx-auto">
+
+        {/* Intent + height row */}
+        <div className="flex flex-wrap items-center gap-3">
+          {profile.datingIntent && (
+            <div
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium"
+              style={{ background: "hsl(350 45% 52% / 0.1)", color: "hsl(350 45% 42%)" }}
+            >
+              <Heart className="w-3.5 h-3.5" />
+              {profile.datingIntent}
+            </div>
+          )}
+          {profile.height && (
+            <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
+              <Ruler className="w-3.5 h-3.5" />
+              {profile.height}
+            </div>
+          )}
+        </div>
+
+        {/* Signals / Interests */}
+        {signals.length > 0 && (
+          <div className="space-y-2.5">
+            <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-widest">Interests</p>
+            <div className="flex flex-wrap gap-2">
+              {signals.map((s: string) => (
+                <Badge key={s} variant="outline" className="text-sm px-3 py-1 rounded-full">
+                  {s}
+                </Badge>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Connection style */}
+        {profile.connectionStyle && (
+          <div className="space-y-1.5">
+            <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-widest">Connection Style</p>
+            <p className="text-sm leading-relaxed">{profile.connectionStyle}</p>
+          </div>
+        )}
+
+        {/* Green flags */}
+        {greenFlags.length > 0 && (
+          <div className="space-y-2.5">
+            <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-widest">Green Flags</p>
+            <div className="flex flex-wrap gap-2">
+              {greenFlags.map((g: string) => (
+                <Badge key={g} variant="secondary" className="text-sm px-3 py-1 rounded-full">
+                  {g}
+                </Badge>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Conversation starters */}
+        {conversationStarters.length > 0 && (
+          <div className="space-y-2.5">
+            <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-widest">Conversation Starters</p>
+            <div className="space-y-2">
+              {conversationStarters.map((s: string, i: number) => (
+                <div
+                  key={i}
+                  className="text-sm leading-relaxed rounded-xl px-4 py-3"
+                  style={{ background: "hsl(var(--muted) / 0.5)" }}
+                >
+                  {s}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Profile questions */}
+        {questions.length > 0 && (
+          <div className="space-y-2.5">
+            <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-widest">About Me</p>
+            <div className="space-y-2">
+              {questions.map((q: string, i: number) => (
+                <div
+                  key={i}
+                  className="text-sm leading-relaxed rounded-xl px-4 py-3"
+                  style={{ background: "hsl(var(--muted) / 0.5)" }}
+                >
+                  {q}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* ── Sticky Action Bar ────────────────────────────────────────────────── */}
+      <div
+        className="fixed bottom-0 inset-x-0 z-10 px-5 py-4 border-t"
+        style={{ background: "hsl(var(--background))" }}
+      >
+        <div className="flex gap-3 max-w-lg mx-auto">
+          <Button
+            variant="outline"
+            className="flex-1 gap-2 h-12 text-sm font-medium"
+            onClick={() => respond.mutate("close")}
+            disabled={respond.isPending}
+            data-testid={`button-modal-pass-${open.fromUserId}`}
+          >
+            <X className="w-4 h-4" />
+            Pass
+          </Button>
+          <Button
+            className="flex-1 gap-2 h-12 text-sm font-medium"
+            onClick={() => respond.mutate("open")}
+            disabled={respond.isPending}
+            data-testid={`button-modal-like-back-${open.fromUserId}`}
+          >
+            <Heart className="w-4 h-4" />
+            Like Back
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Like Card ─────────────────────────────────────────────────────────────────
 
-function LikeCard({ open, onMatch, onConnectionFull }: { open: IncomingOpen; onMatch: (c: MatchCelebration) => void; onConnectionFull: () => void }) {
+function LikeCard({
+  open,
+  onMatch,
+  onConnectionFull,
+  onOpenProfile,
+}: {
+  open: IncomingOpen;
+  onMatch: (c: MatchCelebration) => void;
+  onConnectionFull: () => void;
+  onOpenProfile: () => void;
+}) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -190,7 +563,11 @@ function LikeCard({ open, onMatch, onConnectionFull }: { open: IncomingOpen; onM
   const photo = open.profile.photos?.[0];
 
   return (
-    <Card className="overflow-hidden shadow-sm" data-testid={`card-liked-${open.fromUserId}`}>
+    <Card
+      className="overflow-hidden shadow-sm cursor-pointer active:scale-[0.99] transition-transform"
+      data-testid={`card-liked-${open.fromUserId}`}
+      onClick={onOpenProfile}
+    >
       {/* Photo header with gradient overlay */}
       <div className="relative h-52 bg-primary/8">
         {photo ? (
@@ -198,6 +575,7 @@ function LikeCard({ open, onMatch, onConnectionFull }: { open: IncomingOpen; onM
             src={photo}
             alt={open.profile.firstName}
             className="w-full h-full object-cover"
+            loading="lazy"
           />
         ) : (
           <div
@@ -211,6 +589,15 @@ function LikeCard({ open, onMatch, onConnectionFull }: { open: IncomingOpen; onM
         )}
         {/* Bottom gradient for text legibility */}
         <div className="absolute inset-x-0 bottom-0 h-28 bg-gradient-to-t from-black/75 via-black/30 to-transparent" />
+        {/* Photo count hint */}
+        {(open.profile.photos?.length ?? 0) > 1 && (
+          <div
+            className="absolute top-3 right-3 px-2 py-0.5 rounded-full text-white text-[11px] font-medium"
+            style={{ background: "rgba(0,0,0,0.4)", backdropFilter: "blur(4px)" }}
+          >
+            {open.profile.photos!.length} photos
+          </div>
+        )}
         {/* Name + age overlay */}
         <div className="absolute bottom-3 left-4 right-4">
           <div className="flex items-end justify-between gap-2">
@@ -251,18 +638,21 @@ function LikeCard({ open, onMatch, onConnectionFull }: { open: IncomingOpen; onM
               </Badge>
             ))}
             {open.profile.datingIntent && (
-              <Badge
-                variant="secondary"
-                className="text-xs px-2.5 py-0.5 rounded-full"
-              >
+              <Badge variant="secondary" className="text-xs px-2.5 py-0.5 rounded-full">
                 {open.profile.datingIntent}
               </Badge>
             )}
           </div>
         )}
 
-        {/* Action buttons — full width, side by side */}
-        <div className="flex gap-3">
+        {/* View full profile hint */}
+        <p className="text-xs text-muted-foreground flex items-center gap-1">
+          <Eye className="w-3 h-3" />
+          Tap to view full profile
+        </p>
+
+        {/* Action buttons — stop propagation so they don't open the modal */}
+        <div className="flex gap-3" onClick={e => e.stopPropagation()}>
           <Button
             variant="outline"
             className="flex-1 gap-2 h-11 text-sm font-medium"
@@ -294,6 +684,7 @@ export default function LikesPage() {
   const [celebration, setCelebration] = useState<MatchCelebration | null>(null);
   const [showFullMessage, setShowFullMessage] = useState(false);
   const [showElevate, setShowElevate] = useState(false);
+  const [selectedLike, setSelectedLike] = useState<IncomingOpen | null>(null);
   const isActive = useTabActive();
   const { toast } = useToast();
 
@@ -442,7 +833,7 @@ export default function LikesPage() {
             </div>
           </div>
           <p className="text-sm text-muted-foreground">
-            These people opened your profile. Open them back to connect, or pass.
+            These people opened your profile. Tap a card to see their full profile.
           </p>
         </div>
 
@@ -468,10 +859,26 @@ export default function LikesPage() {
 
         <div className="space-y-3">
           {likesList.map(open => (
-            <LikeCard key={open.id} open={open} onMatch={setCelebration} onConnectionFull={() => setShowFullMessage(true)} />
+            <LikeCard
+              key={open.id}
+              open={open}
+              onMatch={setCelebration}
+              onConnectionFull={() => setShowFullMessage(true)}
+              onOpenProfile={() => setSelectedLike(open)}
+            />
           ))}
         </div>
       </div>
+
+      {/* Full-screen profile modal */}
+      {selectedLike && (
+        <ProfileModal
+          open={selectedLike}
+          onClose={() => setSelectedLike(null)}
+          onMatch={setCelebration}
+          onConnectionFull={() => { setShowFullMessage(true); setSelectedLike(null); }}
+        />
+      )}
 
       {celebration && <MatchOverlay celebration={celebration} onClose={() => setCelebration(null)} />}
       {showElevate && <ElevateModal onClose={() => setShowElevate(false)} />}
