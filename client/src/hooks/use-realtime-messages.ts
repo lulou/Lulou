@@ -3,16 +3,18 @@ import { useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import type { Match, Profile, Message } from "@shared/schema";
 
-type MatchDetail = Match & { profile: Profile; messages: Message[] };
 type LastMessage = { content: string; senderId: string; createdAt: Date | null };
 type MatchWithProfile = Match & { profile: Profile; lastMessage: LastMessage | null };
+type MsgsCache = { messages: Message[]; hasMore: boolean };
 
 export function useRealtimeMessages(matchId: string | undefined, enabled: boolean) {
   const queryClient = useQueryClient();
   const broadcastChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const pgChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
 
-  // Shared handler — called by both broadcast and postgres_changes
+  // Shared handler — called by both broadcast and postgres_changes.
+  // Writes to the dedicated messages cache (["/api/matches", matchId, "messages"])
+  // which is the sole source of truth for the chat message list.
   const handleNewMessage = useCallback((row: any) => {
     if (!row || !matchId) return;
 
@@ -25,12 +27,13 @@ export function useRealtimeMessages(matchId: string | undefined, enabled: boolea
       createdAt: row.created_at ?? row.createdAt,
     };
 
-    // 1. Update the open chat detail — append or replace temp optimistic message
-    queryClient.setQueryData<MatchDetail>(
-      ["/api/matches", matchId],
+    // 1. Update the messages cache (fast path — renders immediately)
+    queryClient.setQueryData<MsgsCache>(
+      ["/api/matches", matchId, "messages"],
       (old) => {
         if (!old) {
-          queryClient.invalidateQueries({ queryKey: ["/api/matches", matchId] });
+          // Cache not yet populated — trigger a refetch
+          queryClient.invalidateQueries({ queryKey: ["/api/matches", matchId, "messages"] });
           return old;
         }
         // Already have this real message id
@@ -78,7 +81,6 @@ export function useRealtimeMessages(matchId: string | undefined, enabled: boolea
     if (!matchId || !enabled) return;
 
     // ── Channel 1: Supabase Broadcast — instant delivery from server (~50ms) ──
-    // Server calls broadcastMessage() right after inserting, no WAL delay.
     const broadcastChannelName = `chat:${matchId}`;
     const broadcastChannel = supabase
       .channel(broadcastChannelName, { config: { broadcast: { self: true } } })
@@ -93,7 +95,6 @@ export function useRealtimeMessages(matchId: string | undefined, enabled: boolea
     broadcastChannelRef.current = broadcastChannel;
 
     // ── Channel 2: postgres_changes — WAL-based fallback/reconciliation (~200-500ms) ──
-    // Catches any messages the broadcast might miss (e.g. server channel not yet subscribed).
     const pgChannelName = `messages:${matchId}`;
     const pgChannel = supabase
       .channel(pgChannelName)

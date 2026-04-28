@@ -363,12 +363,21 @@ export default function Messaging() {
     },
   });
 
+  // ── Fast messages query (no profile) ───────────────────────────────────────
+  // Hits GET /api/matches/:matchId/messages — only fetches messages rows.
+  // Renders the chat list immediately without waiting for profile/stage/calls.
+  const { data: msgsData, isLoading: isMsgsLoading } = useQuery<{ messages: Message[]; hasMore: boolean }>({
+    queryKey: ["/api/matches", matchId, "messages"],
+    enabled: !!matchId,
+  });
+
+  // ── Slow detail query (profile + stage + call-status) ───────────────────────
+  // Fires in parallel with the messages query. Used only for header, stage
+  // prompts, and call status. Messages field in this response is intentionally
+  // ignored — the dedicated messages cache above is the source of truth.
   const { data: matchDetail, isLoading: isDetailLoading } = useQuery<MatchDetail>({
     queryKey: ["/api/matches", matchId],
     enabled: !!matchId,
-    // Realtime subscription handles new messages — no polling needed.
-    // Global defaults: retry:1, retryDelay:2000, staleTime:Infinity.
-    // staleTime:Infinity means returning to this chat reuses cache instantly.
   });
 
   useRealtimeMessages(matchId, !!matchId);
@@ -380,28 +389,29 @@ export default function Messaging() {
       return res.json();
     },
     onMutate: async (vars: { content: string; tempId: string }) => {
-      // Snapshot current state for error rollback FIRST
-      const previous = queryClient.getQueryData<MatchDetail>(["/api/matches", matchId]);
+      const msgsKey = ["/api/matches", matchId, "messages"];
+      // Snapshot messages cache for rollback
+      const previousMsgs = queryClient.getQueryData<{ messages: Message[]; hasMore: boolean }>(msgsKey);
 
-      // Fire cancel signal immediately (no await) — the abort goes out now,
-      // but we don't block on it so the optimistic update renders in the same tick.
-      queryClient.cancelQueries({ queryKey: ["/api/matches", matchId] });
+      queryClient.cancelQueries({ queryKey: msgsKey });
 
-      // Show optimistic message SYNCHRONOUSLY (no async gap = instant UI)
-      if (previous) {
-        const optimisticMsg = {
-          id: vars.tempId,
-          matchId: matchId!,
-          senderId: user?.id || "",
-          content: vars.content,
-          reaction: null,
-          createdAt: new Date().toISOString(),
-        };
-        queryClient.setQueryData<MatchDetail>(["/api/matches", matchId], {
-          ...previous,
-          messages: [...(previous.messages || []), optimisticMsg],
+      const optimisticMsg: Message = {
+        id: vars.tempId,
+        matchId: matchId!,
+        senderId: user?.id || "",
+        content: vars.content,
+        reaction: null,
+        createdAt: new Date().toISOString(),
+      };
+
+      // Optimistic append to messages cache
+      if (previousMsgs) {
+        queryClient.setQueryData<{ messages: Message[]; hasMore: boolean }>(msgsKey, {
+          ...previousMsgs,
+          messages: [...previousMsgs.messages, optimisticMsg],
         });
       }
+
       // Optimistically update last-message preview in the matches list
       queryClient.setQueryData<any[]>(["/api/matches"], (list) => {
         if (!list) return list;
@@ -411,11 +421,12 @@ export default function Messaging() {
             : m
         );
       });
-      return { previous };
+      return { previousMsgs };
     },
     onSuccess: (data: any) => {
       const realMsg = data as Message;
-      queryClient.setQueryData<MatchDetail>(["/api/matches", matchId], (old) => {
+      const msgsKey = ["/api/matches", matchId, "messages"];
+      queryClient.setQueryData<{ messages: Message[]; hasMore: boolean }>(msgsKey, (old) => {
         if (!old) return old;
         const tempIdx = old.messages.findIndex(
           m => typeof m.id === "string" && m.id.startsWith("temp-") &&
@@ -426,14 +437,13 @@ export default function Messaging() {
           updated[tempIdx] = realMsg;
           return { ...old, messages: updated };
         }
-        const exists = old.messages.some(m => m.id === realMsg.id);
-        if (exists) return old;
+        if (old.messages.some(m => m.id === realMsg.id)) return old;
         return { ...old, messages: [...old.messages, realMsg] };
       });
     },
     onError: (error: Error, _vars: any, context: any) => {
-      if (context?.previous) {
-        queryClient.setQueryData(["/api/matches", matchId], context.previous);
+      if (context?.previousMsgs) {
+        queryClient.setQueryData(["/api/matches", matchId, "messages"], context.previousMsgs);
       }
       toast({ title: "Could not send", description: error.message, variant: "destructive" });
     },
@@ -447,11 +457,11 @@ export default function Messaging() {
       return res.json();
     },
     onMutate: async ({ messageId, currentReaction }) => {
-      const key = ["/api/matches", matchId];
-      await queryClient.cancelQueries({ queryKey: key });
-      const prev = queryClient.getQueryData<MatchDetail>(key);
+      const msgsKey = ["/api/matches", matchId, "messages"];
+      await queryClient.cancelQueries({ queryKey: msgsKey });
+      const prev = queryClient.getQueryData<{ messages: Message[]; hasMore: boolean }>(msgsKey);
       if (prev) {
-        queryClient.setQueryData<MatchDetail>(key, {
+        queryClient.setQueryData<{ messages: Message[]; hasMore: boolean }>(msgsKey, {
           ...prev,
           messages: prev.messages.map(m =>
             m.id === messageId ? { ...m, reaction: currentReaction ? null : "❤️" } : m
@@ -462,11 +472,11 @@ export default function Messaging() {
     },
     onError: (_err: any, _vars: any, context: any) => {
       if (context?.prev) {
-        queryClient.setQueryData(["/api/matches", matchId], context.prev);
+        queryClient.setQueryData(["/api/matches", matchId, "messages"], context.prev);
       }
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/matches", matchId] });
+      queryClient.invalidateQueries({ queryKey: ["/api/matches", matchId, "messages"] });
     },
   });
 
@@ -485,7 +495,7 @@ export default function Messaging() {
   }, [user?.id, toggleReaction]);
 
   useEffect(() => {
-    if (!matchDetail?.messages) return;
+    if (!msgsData?.messages) return;
     const el = messagesContainerRef.current;
     if (!el) return;
 
@@ -502,23 +512,28 @@ export default function Messaging() {
       messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     }
     // If user is scrolled up reading history: do nothing
-  }, [matchDetail?.messages?.length]);
+  }, [msgsData?.messages?.length]);
 
   // ── Timing + hasMoreMessages detection ─────────────────────────────────────
   useEffect(() => {
     console.log("[CHAT_LOAD] page_mount", { matchId, hasCachedEntry: !!cachedEntry, ms: 0 });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Messages arrive first — detect hasMore and set the oldest cursor for pagination
+  useEffect(() => {
+    if (msgsData) {
+      const ms = Date.now() - mountedAtRef.current;
+      const msgCount = msgsData.messages?.length ?? 0;
+      console.log("[CHAT_LOAD] msgs_loaded", { matchId, msgCount, hasMore: msgsData.hasMore, ms });
+      setHasMoreMessages(msgsData.hasMore);
+      if (msgCount > 0) oldestCursorRef.current = msgsData.messages[0].createdAt as string;
+    }
+  }, [msgsData]); // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => {
     if (matchDetail) {
       const ms = Date.now() - mountedAtRef.current;
-      const msgCount = matchDetail.messages?.length ?? 0;
-      console.log("[CHAT_LOAD] detail_loaded", { matchId, msgCount, ms });
-      // If the server returned a full page (40), there may be older messages
-      if (msgCount >= 40 && matchDetail.messages?.[0]?.createdAt) {
-        setHasMoreMessages(true);
-        oldestCursorRef.current = matchDetail.messages[0].createdAt as string;
-      }
+      console.log("[CHAT_LOAD] detail_loaded", { matchId, callStage: matchDetail.callStage, ms });
     }
   }, [matchDetail]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -587,9 +602,9 @@ export default function Messaging() {
     );
   }
 
-  // Combined messages: older pages (paginated) + current page from detail.
-  // olderMessages is prepended on demand; matchDetail.messages is the latest window.
-  const allMessages = [...olderMessages, ...(matchDetail?.messages ?? [])];
+  // Combined messages: older pages (paginated) + current page from messages query.
+  // Both are independent of profile/stage — chat renders without waiting for matchDetail.
+  const allMessages = [...olderMessages, ...(msgsData?.messages ?? [])];
   const myMessages = allMessages.filter(m => m.senderId === user?.id);
   const messagesRemaining = MAX_MESSAGES_PER_USER - myMessages.length;
   const isLimitReached = messagesRemaining <= 0;
@@ -721,7 +736,7 @@ export default function Messaging() {
               </div>
             )}
             {/* Messages skeleton while first fetch in progress (no cache) */}
-            {isDetailLoading && allMessages.length === 0 && (
+            {isMsgsLoading && allMessages.length === 0 && (
               <div className="space-y-3 pt-2">
                 {[1, 2, 3].map(i => (
                   <div key={i} className={`flex ${i % 2 === 0 ? "justify-end" : "justify-start"}`}>
