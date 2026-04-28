@@ -1470,6 +1470,15 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
   }>({ queryKey: ["/api/benefits"], enabled: expanded });
 
   const [dismissedExtension, setDismissedExtension] = useState(false);
+  const [nextStepChoice, setNextStepChoice] = useState<null | 'call' | 'end' | 'date'>(null);
+  const [finalChoice, setFinalChoice] = useState<null | 'date' | 'chat' | 'end'>(null);
+
+  const { data: elevateStatus } = useQuery<{ active: boolean; elevateCredits: number; superElevateCredits: number }>({
+    queryKey: ["/api/elevate/status"],
+    enabled: expanded,
+    staleTime: 60_000,
+  });
+  const hasElevate = !!(elevateStatus?.active || (elevateStatus?.elevateCredits ?? 0) > 0 || (elevateStatus?.superElevateCredits ?? 0) > 0);
 
   const activateExtension = useMutation({
     mutationFn: async () => {
@@ -1951,16 +1960,97 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
             </div>
           ) : isCallActive && matchDetail ? (
             <CallTimer match={matchDetail} onComplete={(durationMs) => completeCall.mutate({ connectedDurationMs: durationMs, callState: "ended" })} isFaceCall={isFaceCallStage && !!bothAcceptedFaceCall} />
-          ) : allCallsDone && matchDetail ? (
-            <ReadyToMeetInline detail={matchDetail} matchId={match.id} profileName={match.profile.firstName} />
-          ) : allCallsDone ? (
-            <div className="p-4 border-t">
-              <Card className="p-4 text-center space-y-2 bg-primary/5 border-primary/20">
-                <Check className="w-5 h-5 text-primary mx-auto" />
-                <p className="font-medium text-sm">All calls completed</p>
-                <p className="text-xs text-muted-foreground">Ready to meet in real life?</p>
-              </Card>
-            </div>
+          ) : allCallsDone && finalChoice !== 'chat' ? (
+            finalChoice === 'date' ? (
+              <div>
+                <div className="px-4 pt-3 pb-1">
+                  <button onClick={() => setFinalChoice(null)} className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors" data-testid="button-back-to-final-options">
+                    <ChevronLeft className="w-3 h-3" /> Back
+                  </button>
+                </div>
+                {matchDetail ? (
+                  <ReadyToMeetInline detail={matchDetail} matchId={match.id} profileName={match.profile.firstName} />
+                ) : (
+                  <div className="p-4 flex justify-center"><div className="w-5 h-5 rounded-full border-2 border-primary border-t-transparent animate-spin" /></div>
+                )}
+              </div>
+            ) : finalChoice === 'end' ? (
+              <div className="p-4 border-t" data-testid={`final-end-confirm-${match.id}`}>
+                <div className="rounded-2xl border border-destructive/15 bg-destructive/5 p-4 space-y-3">
+                  <button onClick={() => setFinalChoice(null)} className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors">
+                    <ChevronLeft className="w-3 h-3" /> Back
+                  </button>
+                  <div className="text-center space-y-1">
+                    <p className="font-semibold text-sm">End this conversation?</p>
+                    <p className="text-xs text-muted-foreground">{match.profile.firstName} will be removed from your matches. This can't be undone.</p>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button size="sm" variant="outline" className="flex-1" onClick={() => setFinalChoice(null)} data-testid={`button-cancel-end-final-${match.id}`}>Keep</Button>
+                    <Button size="sm" variant="destructive" className="flex-1" onClick={() => removeMatch.mutate()} disabled={removeMatch.isPending} data-testid={`button-confirm-end-final-${match.id}`}>
+                      {removeMatch.isPending ? "Removing…" : "End Conversation"}
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="p-4 border-t" data-testid={`final-stage-card-${match.id}`}>
+                <style>{`
+                  @keyframes finalCardIn { from { opacity: 0; transform: translateY(7px); } to { opacity: 1; transform: translateY(0); } }
+                  .final-card-anim { animation: finalCardIn 0.26s ease both; }
+                `}</style>
+                <div className="final-card-anim space-y-3">
+                  <div className="text-center space-y-1">
+                    <Sparkles className="w-4 h-4 text-primary mx-auto" />
+                    <p className="font-semibold text-sm">What's next with {match.profile.firstName}?</p>
+                    <p className="text-xs text-muted-foreground">You've completed all your calls together.</p>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    <button
+                      onClick={() => setFinalChoice('date')}
+                      className="flex flex-col items-center gap-2 rounded-2xl p-3 text-center transition-all active:scale-[0.97]"
+                      style={{ background: "hsl(155 25% 88%)", border: "1px solid hsl(155 25% 75%)" }}
+                      data-testid={`button-plan-date-final-${match.id}`}
+                    >
+                      <div className="w-9 h-9 rounded-full flex items-center justify-center" style={{ background: "rgba(255,255,255,0.65)" }}>
+                        <Calendar className="w-4 h-4 text-green-700" />
+                      </div>
+                      <div>
+                        <p className="text-xs font-semibold text-green-700 leading-tight">Plan a Date</p>
+                        <p className="text-[10px] mt-0.5" style={{ color: "hsl(155 25% 40%)" }}>Free</p>
+                      </div>
+                    </button>
+                    <button
+                      onClick={() => setFinalChoice('chat')}
+                      className="flex flex-col items-center gap-2 rounded-2xl p-3 text-center transition-all active:scale-[0.97]"
+                      style={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))" }}
+                      data-testid={`button-keep-chatting-final-${match.id}`}
+                    >
+                      <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center">
+                        <MessageCircle className="w-4 h-4 text-primary" />
+                      </div>
+                      <div>
+                        <p className="text-xs font-semibold leading-tight">Keep Chatting</p>
+                        <p className="text-[10px] text-muted-foreground mt-0.5">Continue</p>
+                      </div>
+                    </button>
+                    <button
+                      onClick={() => setFinalChoice('end')}
+                      className="flex flex-col items-center gap-2 rounded-2xl p-3 text-center transition-all active:scale-[0.97]"
+                      style={{ background: "hsl(var(--muted))", border: "1px solid hsl(var(--border))" }}
+                      data-testid={`button-end-conversation-final-${match.id}`}
+                    >
+                      <div className="w-9 h-9 rounded-full flex items-center justify-center" style={{ background: "hsl(var(--background)/0.6)" }}>
+                        <X className="w-4 h-4 text-muted-foreground" />
+                      </div>
+                      <div>
+                        <p className="text-xs font-semibold text-muted-foreground leading-tight">End</p>
+                        <p className="text-[10px] text-muted-foreground mt-0.5">Leave gracefully</p>
+                      </div>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )
           ) : isFaceCallStage && !bothAcceptedFaceCall ? (
             <div className="p-4 border-t">
               <Card className="p-4 text-center space-y-3 bg-primary/5 border-primary/20">
@@ -2216,17 +2306,159 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
               </div>
             </div>
           ) : isLimitReached ? (
-            <CallSchedulingCard
-              matchId={match.id}
-              matchName={match.profile.firstName}
-              allMessages={allMessages}
-              callStage={0}
-              startCallPending={startCall.isPending}
-              onStartCall={() => {
-                console.log("[CALL_UI] CALL_REQUEST_STARTED", { matchId: match.id, callStage: 0, callType: "voice_1", role: "caller" });
-                startCall.mutate();
-              }}
-            />
+            nextStepChoice === 'call' ? (
+              hasElevate ? (
+                <div>
+                  <div className="px-4 pt-3 pb-1">
+                    <button onClick={() => setNextStepChoice(null)} className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors" data-testid="button-back-to-next-step">
+                      <ChevronLeft className="w-3 h-3" /> Back
+                    </button>
+                  </div>
+                  <CallSchedulingCard
+                    matchId={match.id}
+                    matchName={match.profile.firstName}
+                    allMessages={allMessages}
+                    callStage={0}
+                    startCallPending={startCall.isPending}
+                    onStartCall={() => {
+                      console.log("[CALL_UI] CALL_REQUEST_STARTED", { matchId: match.id, callStage: 0, callType: "voice_1", role: "caller" });
+                      startCall.mutate();
+                    }}
+                  />
+                </div>
+              ) : (
+                <div className="p-4 border-t">
+                  <div className="rounded-2xl border border-primary/15 bg-primary/5 p-4 space-y-3">
+                    <button onClick={() => setNextStepChoice(null)} className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors" data-testid="button-back-premium-gate">
+                      <ChevronLeft className="w-3 h-3" /> Back
+                    </button>
+                    <div className="text-center space-y-2 pt-1">
+                      <div className="w-11 h-11 rounded-full bg-primary/10 flex items-center justify-center mx-auto">
+                        <Phone className="w-5 h-5 text-primary" />
+                      </div>
+                      <p className="font-semibold text-sm">Voice calls are a premium feature</p>
+                      <p className="text-xs text-muted-foreground leading-relaxed">
+                        Upgrade to Elevate to unlock timed voice calls and deeper connection with your matches.
+                      </p>
+                    </div>
+                    <Button size="sm" className="w-full" onClick={() => window.location.href = "/"} data-testid="button-upgrade-for-calls">
+                      <Sparkles className="w-3.5 h-3.5 mr-2" /> Explore Premium
+                    </Button>
+                    <Button size="sm" variant="ghost" className="w-full text-muted-foreground" onClick={() => setNextStepChoice(null)} data-testid="button-premium-later">
+                      Maybe later
+                    </Button>
+                  </div>
+                </div>
+              )
+            ) : nextStepChoice === 'end' ? (
+              <div className="p-4 border-t" data-testid={`next-step-end-confirm-${match.id}`}>
+                <div className="rounded-2xl border border-destructive/15 bg-destructive/5 p-4 space-y-3">
+                  <button onClick={() => setNextStepChoice(null)} className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors">
+                    <ChevronLeft className="w-3 h-3" /> Back
+                  </button>
+                  <div className="text-center space-y-1">
+                    <p className="font-semibold text-sm">End this conversation?</p>
+                    <p className="text-xs text-muted-foreground">{match.profile.firstName} will be removed from your matches.</p>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button size="sm" variant="outline" className="flex-1" onClick={() => setNextStepChoice(null)} data-testid={`button-cancel-end-nextstep-${match.id}`}>Cancel</Button>
+                    <Button size="sm" variant="destructive" className="flex-1" onClick={() => removeMatch.mutate()} disabled={removeMatch.isPending} data-testid={`button-confirm-end-nextstep-${match.id}`}>
+                      {removeMatch.isPending ? "Removing…" : "End Conversation"}
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            ) : nextStepChoice === 'date' ? (
+              <div>
+                <div className="px-4 pt-3 pb-1">
+                  <button onClick={() => setNextStepChoice(null)} className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors" data-testid="button-back-from-date">
+                    <ChevronLeft className="w-3 h-3" /> Back
+                  </button>
+                </div>
+                {matchDetail ? (
+                  <ReadyToMeetInline detail={matchDetail} matchId={match.id} profileName={match.profile.firstName} />
+                ) : (
+                  <div className="p-4 flex justify-center"><div className="w-5 h-5 rounded-full border-2 border-primary border-t-transparent animate-spin" /></div>
+                )}
+              </div>
+            ) : (
+              <div className="p-4 border-t" data-testid={`next-step-card-${match.id}`}>
+                <style>{`
+                  @keyframes nextStepIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+                  .next-step-anim { animation: nextStepIn 0.26s ease both; }
+                `}</style>
+                <div className="next-step-anim space-y-3">
+                  <div className="text-center space-y-1">
+                    <Sparkles className="w-4 h-4 text-primary mx-auto" />
+                    <p className="font-semibold text-sm">You've had a great conversation!</p>
+                    <p className="text-xs text-muted-foreground">What would you like to do next with {match.profile.firstName}?</p>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      onClick={() => setNextStepChoice('call')}
+                      className="flex flex-col items-center gap-1.5 rounded-2xl p-3 text-center transition-all active:scale-[0.97]"
+                      style={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", boxShadow: "0 1px 4px rgba(0,0,0,0.05)" }}
+                      data-testid={`button-next-start-call-${match.id}`}
+                    >
+                      <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center">
+                        <Phone className="w-4 h-4 text-primary" />
+                      </div>
+                      <p className="text-xs font-semibold leading-tight">Start a Call</p>
+                      <span className="text-[10px] text-primary font-medium flex items-center gap-0.5">
+                        <Sparkles className="w-2.5 h-2.5" />{hasElevate ? "Schedule now" : "Premium"}
+                      </span>
+                    </button>
+                    <button
+                      onClick={() => {
+                        if (hasAvailableExtension) {
+                          activateExtension.mutate();
+                        } else {
+                          toast({ title: "Unlock more messages", description: "Purchase a message extension to keep the conversation going.", duration: 4000 });
+                        }
+                      }}
+                      disabled={activateExtension.isPending}
+                      className="flex flex-col items-center gap-1.5 rounded-2xl p-3 text-center transition-all active:scale-[0.97]"
+                      style={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", boxShadow: "0 1px 4px rgba(0,0,0,0.05)" }}
+                      data-testid={`button-next-keep-chat-${match.id}`}
+                    >
+                      <div className="w-9 h-9 rounded-full bg-accent flex items-center justify-center">
+                        <MessageCircle className="w-4 h-4 text-accent-foreground" />
+                      </div>
+                      <p className="text-xs font-semibold leading-tight">
+                        {activateExtension.isPending ? "Adding…" : "Keep Chatting"}
+                      </p>
+                      <span className="text-[10px] text-muted-foreground">
+                        {hasAvailableExtension ? "+5 messages" : "Unlock"}
+                      </span>
+                    </button>
+                    <button
+                      onClick={() => setNextStepChoice('date')}
+                      className="flex flex-col items-center gap-1.5 rounded-2xl p-3 text-center transition-all active:scale-[0.97]"
+                      style={{ background: "hsl(155 25% 88%)", border: "1px solid hsl(155 25% 75%)" }}
+                      data-testid={`button-next-plan-date-${match.id}`}
+                    >
+                      <div className="w-9 h-9 rounded-full flex items-center justify-center" style={{ background: "rgba(255,255,255,0.65)" }}>
+                        <Calendar className="w-4 h-4 text-green-700" />
+                      </div>
+                      <p className="text-xs font-semibold text-green-700 leading-tight">Plan a Date</p>
+                      <span className="text-[10px]" style={{ color: "hsl(155 25% 40%)" }}>Free</span>
+                    </button>
+                    <button
+                      onClick={() => setNextStepChoice('end')}
+                      className="flex flex-col items-center gap-1.5 rounded-2xl p-3 text-center transition-all active:scale-[0.97]"
+                      style={{ background: "hsl(var(--muted))", border: "1px solid hsl(var(--border))" }}
+                      data-testid={`button-next-end-${match.id}`}
+                    >
+                      <div className="w-9 h-9 rounded-full flex items-center justify-center" style={{ background: "hsl(var(--background)/0.6)" }}>
+                        <X className="w-4 h-4 text-muted-foreground" />
+                      </div>
+                      <p className="text-xs font-semibold text-muted-foreground leading-tight">End Conversation</p>
+                      <span className="text-[10px] text-muted-foreground">Leave gracefully</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )
           ) : (
             <div className="p-3 border-t">
               {isOtherTyping && (
@@ -2240,10 +2472,10 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
                 </div>
               )}
               {messagesRemaining <= 5 && messagesRemaining > 1 && (
-                <StageHint>Your first call is approaching — start thinking about when you'd like to talk.</StageHint>
+                <StageHint>You two are really connecting! A few messages left before you can choose what's next.</StageHint>
               )}
               {messagesRemaining === 1 && (
-                <StageHint>Just 1 message left before your first call unlocks.</StageHint>
+                <StageHint>This is your last message — make it count. You'll choose what's next after.</StageHint>
               )}
               <div className="flex gap-2 items-end">
                 <Textarea
