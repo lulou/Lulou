@@ -2353,49 +2353,24 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
             </div>
           ) : isLimitReached ? (
             nextStepChoice === 'call' ? (
-              hasElevate ? (
-                <div>
-                  <div className="px-4 pt-3 pb-1">
-                    <button onClick={() => setNextStepChoice(null)} className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors" data-testid="button-back-to-next-step">
-                      <ChevronLeft className="w-3 h-3" /> Back
-                    </button>
-                  </div>
-                  <CallSchedulingCard
-                    matchId={match.id}
-                    matchName={match.profile.firstName}
-                    allMessages={allMessages}
-                    callStage={0}
-                    startCallPending={startCall.isPending}
-                    onStartCall={() => {
-                      console.log("[CALL_UI] CALL_REQUEST_STARTED", { matchId: match.id, callStage: 0, callType: "voice_1", role: "caller" });
-                      startCall.mutate();
-                    }}
-                  />
+              <div>
+                <div className="px-4 pt-3 pb-1">
+                  <button onClick={() => setNextStepChoice(null)} className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors" data-testid="button-back-to-next-step">
+                    <ChevronLeft className="w-3 h-3" /> Back
+                  </button>
                 </div>
-              ) : (
-                <div className="p-4 border-t">
-                  <div className="rounded-2xl border border-primary/15 bg-primary/5 p-4 space-y-3">
-                    <button onClick={() => setNextStepChoice(null)} className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors" data-testid="button-back-premium-gate">
-                      <ChevronLeft className="w-3 h-3" /> Back
-                    </button>
-                    <div className="text-center space-y-2 pt-1">
-                      <div className="w-11 h-11 rounded-full bg-primary/10 flex items-center justify-center mx-auto">
-                        <Phone className="w-5 h-5 text-primary" />
-                      </div>
-                      <p className="font-semibold text-sm">Voice calls are a premium feature</p>
-                      <p className="text-xs text-muted-foreground leading-relaxed">
-                        Upgrade to Elevate to unlock timed voice calls and deeper connection with your matches.
-                      </p>
-                    </div>
-                    <Button size="sm" className="w-full" onClick={() => window.location.href = "/"} data-testid="button-upgrade-for-calls">
-                      <Sparkles className="w-3.5 h-3.5 mr-2" /> Explore Premium
-                    </Button>
-                    <Button size="sm" variant="ghost" className="w-full text-muted-foreground" onClick={() => setNextStepChoice(null)} data-testid="button-premium-later">
-                      Maybe later
-                    </Button>
-                  </div>
-                </div>
-              )
+                <CallSchedulingCard
+                  matchId={match.id}
+                  matchName={match.profile.firstName}
+                  allMessages={allMessages}
+                  callStage={0}
+                  startCallPending={startCall.isPending}
+                  onStartCall={() => {
+                    console.log("[CALL_UI] CALL_REQUEST_STARTED", { matchId: match.id, callStage: 0, callType: "voice_1", role: "caller" });
+                    startCall.mutate();
+                  }}
+                />
+              </div>
             ) : nextStepChoice === 'end' ? (
               <div className="p-4 border-t" data-testid={`next-step-end-confirm-${match.id}`}>
                 <div className="rounded-2xl border border-destructive/15 bg-destructive/5 p-4 space-y-3">
@@ -2437,9 +2412,7 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
                         <Phone className="w-4 h-4 text-primary" />
                       </div>
                       <p className="text-xs font-semibold leading-tight">Start a Call</p>
-                      <span className="text-[10px] text-primary font-medium flex items-center gap-0.5">
-                        <Sparkles className="w-2.5 h-2.5" />{hasElevate ? "Schedule now" : "Premium"}
-                      </span>
+                      <span className="text-[10px] text-muted-foreground">Free</span>
                     </button>
                     <button
                       onClick={() => setNextStepChoice('end')}
