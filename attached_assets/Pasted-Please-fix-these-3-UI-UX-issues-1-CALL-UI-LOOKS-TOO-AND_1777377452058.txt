@@ -1,0 +1,91 @@
+Please fix these 3 UI/UX issues.
+
+1. CALL UI LOOKS TOO ANDROID
+
+The outgoing and incoming call screens look too much like a default Android system UI.
+
+Please redesign them so they feel custom, premium, and native to Lulou.
+
+Improve:
+- incoming call screen
+- outgoing/ringing screen
+- active call screen
+- accept/decline buttons
+- call avatar/photo
+- name display
+- countdown timer styling
+- mute/speaker/end controls
+
+Design direction:
+- soft gradients
+- glassmorphism / blurred background
+- large circular profile photo
+- elegant ringing animation
+- custom Lulou-style accept/decline buttons
+- premium dating app feel
+- not default Android-looking
+- mobile-first polish
+
+Keep functionality:
+- incoming call still rings
+- accept works
+- decline works
+- first call is free
+- second call is free
+- countdown starts after accepted
+- speaker is optional, not default
+
+2. CONNECTIONS MATCH BADGE
+
+When a match is made, show a badge on Connections.
+
+Example:
+- if 1 new match: show “+1”
+- if 2 new matches: show “+2”
+
+The badge should appear on:
+- Connections tab/button/navigation item
+- wherever users access Connections
+
+Requirements:
+- badge updates when new match is created
+- badge clears or reduces when user views Connections
+- should not show stale numbers
+- should work after app refresh
+- should be visually polished and noticeable
+
+Check:
+- match creation logic
+- connections count
+- unread/new match state
+- navigation/tab badge component
+- Supabase query for unseen/new connections
+
+3. LIKES PAGE PROFILE CARD TOO SMALL
+
+The user profile shown on the Likes page looks too small.
+
+Please enlarge and improve the Likes page profile card.
+
+Improve:
+- profile photo size
+- name/age visibility
+- bio/intent preview
+- card spacing
+- action buttons
+- mobile layout
+- overall visual hierarchy
+
+Make the Likes profile feel more like a proper dating profile preview, not a tiny thumbnail.
+
+Keep:
+- Like/match actions working
+- reject/pass actions working
+- page speed fast
+
+Show me:
+1. exact files changed
+2. exact code changed
+3. how the call UI was redesigned
+4. how the Connections +1 badge works
+5. how the Likes profile card was improved

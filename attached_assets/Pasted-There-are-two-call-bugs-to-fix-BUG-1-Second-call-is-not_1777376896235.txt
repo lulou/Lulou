@@ -1,0 +1,69 @@
+There are two call bugs to fix.
+
+BUG 1 — Second call is not acting like a real call
+
+Current issue:
+- Second call stage only shows a timer
+- It does not actually start/ring/connect a real call
+
+Correct behavior:
+- Second call stage must behave exactly like the first call stage
+- User taps Start Call
+- Other user receives incoming call/ring
+- Call connects when accepted
+- Audio works
+- Countdown starts only after the call is accepted
+
+Second call duration:
+- 15 minute countdown after accepted
+- auto-end at 0:00
+- mark second call stage completed after successful call
+
+Please inspect:
+- first call start logic
+- second call start logic
+- call stage detection
+- call room creation
+- WebRTC connection logic
+- incoming call/ringing logic
+- accepted call handler
+- countdown start trigger
+
+Refactor if needed so first call and second call use the same real call flow, with only the duration changing:
+- first_call = 10 minutes
+- second_call = 15 minutes
+
+BUG 2 — Calls default to speakerphone
+
+Current issue:
+- calls go straight to speakerphone
+- this should not happen by default
+
+Correct behavior:
+- call audio should default to normal earpiece/phone audio
+- speakerphone should be an optional toggle button
+- user can tap Speaker to switch speakerphone on/off
+
+Please update mobile call audio behavior:
+- default speakerphone = false
+- add speaker toggle UI
+- label states clearly:
+ - Speaker Off
+ - Speaker On
+- do not force speakerphone on call start
+- preserve mute/end call controls
+
+Important:
+- Do not break the existing first call
+- Second call must ring/connect like a real call
+- Countdown should only start once call is accepted/connected
+- First and second stage calls remain free
+- Premium/Elevate only applies to extra calls outside the required stages
+
+Show me:
+1. exact root cause for why second call only showed a timer
+2. exact files changed
+3. exact code changed
+4. how first and second calls now share the same call flow
+5. how speaker toggle works
+6. how to test first call and second call separately

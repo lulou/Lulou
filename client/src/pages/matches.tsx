@@ -2004,8 +2004,25 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
                 </div>
               </div>
             </div>
-          ) : isCallActive && matchDetail ? (
-            <CallTimer match={matchDetail} onComplete={(durationMs) => completeCall.mutate({ connectedDurationMs: durationMs, callState: "ended" })} isFaceCall={isFaceCallStage && !!bothAcceptedFaceCall} />
+          ) : isCallActive ? (
+            <div className="p-5 border-t" data-testid={`call-active-banner-${match.id}`}>
+              <div className="text-center space-y-3">
+                <div className="relative w-16 h-16 mx-auto">
+                  <div className="absolute inset-0 rounded-full bg-green-500/15 animate-pulse" />
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    {isFaceCallStage && bothAcceptedFaceCall
+                      ? <Video className="w-6 h-6 text-green-600" />
+                      : <Phone className="w-6 h-6 text-green-600" />}
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  <p className="font-medium text-sm" data-testid={`text-call-active-label-${match.id}`}>
+                    {isFaceCallStage && bothAcceptedFaceCall ? "Face call in progress" : callStage === 1 ? "Second call in progress" : "First call in progress"}
+                  </p>
+                  <p className="text-xs text-muted-foreground">Use the call overlay to manage your call</p>
+                </div>
+              </div>
+            </div>
           ) : allCallsDone && finalChoice !== 'chat' ? (
             finalChoice === 'date' ? (
               <div>

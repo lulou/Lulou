@@ -62,12 +62,14 @@ function ControlButton({
   active,
   icon,
   disabled = false,
+  testId,
 }: {
   onClick: () => void;
   label: string;
   active: boolean;
   icon: React.ReactNode;
   disabled?: boolean;
+  testId?: string;
 }) {
   return (
     <div className="flex flex-col items-center gap-2">
@@ -76,6 +78,7 @@ function ControlButton({
         onClick={onClick}
         disabled={disabled}
         aria-label={label}
+        data-testid={testId}
       >
         {icon}
       </button>
@@ -98,7 +101,7 @@ export function ActiveCallOverlay({
 }: ActiveCallProps) {
   const queryClient = useQueryClient();
   const endedRef = useRef(false);
-  const [speakerOn, setSpeakerOn] = useState(true);
+  const [speakerOn, setSpeakerOn] = useState(false);
   const [debugLogs, setDebugLogs] = useState<string[]>([]);
   const [failureReason, setFailureReason] = useState<string>("");
   const [timerExpiredMsg, setTimerExpiredMsg] = useState("");
@@ -108,6 +111,23 @@ export function ActiveCallOverlay({
   const remoteAudioRef = useRef<HTMLAudioElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
   const localVideoRef = useRef<HTMLVideoElement>(null);
+
+  // Route audio to speaker or earpiece when the toggle changes.
+  // setSinkId is supported in Chrome/Edge/Android; silently ignored on iOS Safari.
+  useEffect(() => {
+    const el = remoteAudioRef.current as any;
+    if (!el || typeof el.setSinkId !== "function") return;
+    if (speakerOn) {
+      // Route to the default loudspeaker output
+      navigator.mediaDevices.enumerateDevices().then(devices => {
+        const speaker = devices.find(d => d.kind === "audiooutput" && /speaker|loudspeaker|headphone/i.test(d.label));
+        el.setSinkId(speaker?.deviceId || "default").catch(() => {});
+      }).catch(() => { el.setSinkId("default").catch(() => {}); });
+    } else {
+      // Route to earpiece / communications device (empty string = system default = earpiece on mobile)
+      el.setSinkId("").catch(() => {});
+    }
+  }, [speakerOn]);
 
   // WebRTC only starts when call is answered (not while ringing/waiting)
   const webrtcEnabled = !isRinging;
@@ -660,11 +680,12 @@ export function ActiveCallOverlay({
 
             <ControlButton
               onClick={() => setSpeakerOn(s => !s)}
-              label={speakerOn ? "Speaker" : "Earpiece"}
+              label={speakerOn ? "Speaker On" : "Speaker"}
               active={speakerOn}
+              testId="button-toggle-speaker"
               icon={speakerOn
                 ? <Volume2 className="w-6 h-6 text-white" />
-                : <VolumeX className="w-6 h-6 text-white" />}
+                : <Volume2 className="w-6 h-6 text-white opacity-50" />}
             />
 
             {isVideo && (
