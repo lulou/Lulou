@@ -2678,6 +2678,14 @@ export default function Matches() {
   const queryClient = useQueryClient();
   const isActive = useTabActive();
   const [expandedMatchId, setExpandedMatchId] = useState<string | null>(null);
+  // Perf: log first render time
+  const _mountRef = useRef(true);
+  useEffect(() => {
+    if (_mountRef.current) {
+      _mountRef.current = false;
+      console.log("[PERF] MATCHES_FIRST_RENDER", { ms: Math.round(performance.now()) });
+    }
+  }, []);
   const [activeTab, setActiveTab] = useState<"new" | "active">("new");
   const { data: matches, isLoading: matchesLoading, error: matchesError } = useQuery<MatchWithProfile[]>({
     queryKey: ["/api/matches"],

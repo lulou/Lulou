@@ -210,7 +210,7 @@ function PhotoBubbles({ photos, name, onOpen, isDisabled, isPhotosLoading }: { p
                       pointerEvents: "none",
                     }}
                     draggable={false}
-                    loading="eager"
+                    loading={i === 0 ? "eager" : "lazy"}
                     decoding="async"
                     onError={() => handleImgError(i, photo)}
                     data-testid={`img-profile-photo-${i}`}
@@ -443,8 +443,8 @@ export default function Discover() {
 
   useEffect(() => {
     const t0 = performance.now();
-    console.log("[DISCOVER] MOUNTED");
-    return () => console.log("[DISCOVER] UNMOUNTED — was visible for", Math.round(performance.now() - t0), "ms");
+    console.log("[PERF] DISCOVER_FIRST_RENDER", { ms: Math.round(t0) });
+    return () => console.log("[PERF] DISCOVER_UNMOUNTED", { visibleMs: Math.round(performance.now() - t0) });
   }, []);
 
   // Track which profiles have been shown this session (local queue advancement)

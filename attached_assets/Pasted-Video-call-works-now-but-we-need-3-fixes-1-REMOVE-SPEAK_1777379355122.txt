@@ -1,0 +1,137 @@
+Video call works now, but we need 3 fixes.
+
+1. REMOVE SPEAKER BUTTON FROM VIDEO CALL
+
+On video calls, there should be NO speakerphone button.
+
+Reason:
+- video calls are naturally loudspeaker/out-loud
+- speaker toggle is only needed for audio calls
+
+Correct logic:
+- first call / audio call: show speaker button
+- second call / video call: hide speaker button
+
+Do not remove speaker toggle from audio calls.
+
+2. VIDEO CALL CONTROLS SHOULD AUTO-HIDE
+
+Current issue:
+- mute/camera/end buttons stay on screen the whole time
+- they block the video and make the call feel clunky
+
+Correct behavior:
+- controls are visible when video call starts
+- if user taps the screen, controls hide
+- if user taps again, controls show
+- controls should also auto-hide after 3 seconds of no interaction
+- when controls are hidden, user should mainly see the person they are speaking to
+- keep countdown timer subtle, or hide it with controls except near warnings
+
+Implementation:
+- add state like showControls
+- on screen tap, toggle showControls
+- reset auto-hide timer when user interacts
+- fade controls in/out smoothly
+- keep emergency/end call accessible after tap
+- do not affect audio call controls unless appropriate
+
+Video call UI should feel like FaceTime:
+- clean full-screen remote video
+- small self-preview
+- controls fade away
+- tap to reveal controls
+
+3. APP-WIDE SPEED MUST BE IMMEDIATE
+
+The app still takes far too long to load.
+It should feel like a light switch: tap → screen appears immediately.
+
+Stop doing general performance guesses.
+Implement an app-wide performance architecture pass.
+
+Rules:
+- every page shell must render immediately
+- no page should wait for full profile data before rendering
+- no page should block on photos before showing UI
+- no page should run huge queries before first paint
+- no blank screens
+- no endless loading states
+- load secondary data after initial render
+- cache current user/session/profile globally
+- reuse cached data across pages
+- avoid duplicate Supabase calls on every route change
+
+Please implement:
+
+A. ROUTE / PAGE SPEED
+- render page layout instantly on navigation
+- show skeletons/placeholders inside the page while data loads
+- lazy-load heavy components
+- do not block route transitions on data fetches
+
+B. PROFILE / AUTH CACHE
+- fetch session once
+- fetch current user profile once
+- store it in a global provider/store
+- reuse it everywhere
+- do not refetch profile on every page
+
+C. SUPABASE QUERY OPTIMIZATION
+- remove select *
+- select only required fields
+- add limits/pagination
+- load latest 30–50 records only where relevant
+- avoid N+1 queries
+- do not use Promise.all to block first render with nonessential queries
+
+D. MESSAGING SPEED
+- chat room shell renders instantly
+- message list fetches latest 30–50 messages only
+- realtime subscription starts immediately
+- send message uses optimistic UI
+- receiving message uses realtime insert, not 30-second polling
+- profile/sidebar loads after messages
+
+E. DISCOVER / CONNECTIONS SPEED
+- load initial cards immediately
+- paginate/batch profiles
+- show cached profiles first if available
+- filtering must not freeze UI
+- always exit loading states
+- show empty/error states correctly
+
+F. IMAGES
+- lazy load profile photos
+- do not load full photo galleries until profile is opened
+- use thumbnails/previews where possible
+- avoid huge images blocking pages
+
+G. MEASURE EVERYTHING
+Add performance logs:
+- app startup
+- route navigation time
+- page first render time
+- auth load time
+- profile load time
+- each Supabase query time
+- chat room first render
+- message query time
+- discover query time
+- connections query time
+- image/profile loading delays
+
+Use console.time / console.timeEnd.
+
+Then report:
+1. exact video call UI changes
+2. exact files changed
+3. how speaker button is hidden only on video calls
+4. how tap-to-hide controls work
+5. top 5 slowest app operations found
+6. exact optimizations made
+7. before/after timing logs
+8. any indexes added
+
+Priority:
+Make the app feel immediate. Page shell should appear instantly, then data fills in.

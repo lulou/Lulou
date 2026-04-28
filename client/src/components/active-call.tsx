@@ -5,7 +5,7 @@ import { broadcastCallSignal } from "@/hooks/use-call-signaling";
 import { useWebRTC } from "@/hooks/use-webrtc";
 import { useCallRingtone } from "@/hooks/use-call-ringtone";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
-import { PhoneOff, Mic, MicOff, Volume2, VolumeX, Camera, CameraOff, Loader2, WifiOff, AlertTriangle } from "lucide-react";
+import { PhoneOff, Mic, MicOff, Volume2, Camera, CameraOff, Loader2, WifiOff, AlertTriangle } from "lucide-react";
 
 // Duration in seconds for each call stage.
 // stage 0 = first voice call (10 min), stage 1 = second voice call (15 min),
@@ -114,6 +114,39 @@ export function ActiveCallOverlay({
   const [timerExpiredMsg, setTimerExpiredMsg] = useState("");
   // Track exactly when WebRTC first reached "connected" so we can measure live duration
   const connectedAtRef = useRef<number | null>(null);
+
+  // ── Video call: FaceTime-like auto-hide controls ──────────────────────────
+  // Controls start visible, then auto-hide after 3 s of inactivity.
+  // Any tap on the overlay resets the timer and shows controls again.
+  const [showControls, setShowControls] = useState(true);
+  const controlsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const startHideTimer = useCallback(() => {
+    if (controlsTimerRef.current) clearTimeout(controlsTimerRef.current);
+    controlsTimerRef.current = setTimeout(() => setShowControls(false), 3000);
+  }, []);
+
+  const showAndResetTimer = useCallback(() => {
+    if (!isVideo || !isConnected) return;
+    setShowControls(true);
+    startHideTimer();
+  }, [isVideo, isConnected, startHideTimer]);
+
+  // Begin auto-hide as soon as a video call connects
+  useEffect(() => {
+    if (!isVideo || !isConnected) return;
+    startHideTimer();
+    return () => { if (controlsTimerRef.current) clearTimeout(controlsTimerRef.current); };
+  }, [isVideo, isConnected]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Force-show controls on any countdown warning so user sees time running out
+  useEffect(() => {
+    if (!isVideo || !isConnected) return;
+    if (warning !== "none") {
+      setShowControls(true);
+      if (controlsTimerRef.current) clearTimeout(controlsTimerRef.current);
+    }
+  }, [warning, isVideo, isConnected]);
 
   const remoteAudioRef = useRef<HTMLAudioElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
@@ -536,10 +569,14 @@ export function ActiveCallOverlay({
 
   const showSpinner = isRinging || isConnecting || isReconnecting;
 
+  // Derived visibility flags for video auto-hide
+  const videoControlsVisible = !isVideo || !isConnected || showControls;
+
   return (
     <div
       className="fixed inset-0 z-[100] flex flex-col overflow-hidden"
       data-testid="overlay-voice-call"
+      onClick={showAndResetTimer}
     >
       {/* Background — blurred photo or Lulou rose gradient */}
       {callerPhoto && !isVideo ? (
@@ -609,8 +646,15 @@ export function ActiveCallOverlay({
         />
       )}
 
-      {/* Main content */}
-      <div className="flex-1 flex flex-col items-center justify-center gap-5 relative z-10 px-6">
+      {/* Main content — fades with controls on video calls */}
+      <div
+        className="flex-1 flex flex-col items-center justify-center gap-5 relative z-10 px-6"
+        style={isVideo && isConnected ? {
+          opacity: videoControlsVisible ? 1 : 0,
+          transition: "opacity 0.35s ease",
+          pointerEvents: videoControlsVisible ? "auto" : "none",
+        } : undefined}
+      >
         {/* Avatar — hidden when remote video is visible */}
         {(!isVideo || !isConnected) && (
           <div className="relative flex items-center justify-center">
@@ -753,9 +797,16 @@ export function ActiveCallOverlay({
         )}
       </div>
 
-      {/* Controls + end button */}
-      <div className="relative z-10 pb-14">
-        {/* Mute / Speaker / Camera — only after the call is answered */}
+      {/* Controls + end button — fades on video calls, always visible on audio */}
+      <div
+        className="relative z-10 pb-14"
+        style={isVideo && isConnected ? {
+          opacity: videoControlsVisible ? 1 : 0,
+          transition: "opacity 0.35s ease",
+          pointerEvents: videoControlsVisible ? "auto" : "none",
+        } : undefined}
+      >
+        {/* Mute / Speaker (audio only) / Camera — only after the call is answered */}
         {!isRinging && (
           <div className="flex justify-center gap-10 mb-10">
             <ControlButton
@@ -768,15 +819,16 @@ export function ActiveCallOverlay({
                 : <Mic className="w-6 h-6 text-white" />}
             />
 
-            <ControlButton
-              onClick={() => setSpeakerOn(s => !s)}
-              label={speakerOn ? "Speaker On" : "Speaker"}
-              active={speakerOn}
-              testId="button-toggle-speaker"
-              icon={speakerOn
-                ? <Volume2 className="w-6 h-6 text-white" />
-                : <Volume2 className="w-6 h-6 text-white/60" />}
-            />
+            {/* Speaker toggle only shown on audio calls — video is always loudspeaker */}
+            {!isVideo && (
+              <ControlButton
+                onClick={() => setSpeakerOn(s => !s)}
+                label={speakerOn ? "Speaker On" : "Speaker"}
+                active={speakerOn}
+                testId="button-toggle-speaker"
+                icon={<Volume2 className={`w-6 h-6 ${speakerOn ? "text-white" : "text-white/60"}`} />}
+              />
+            )}
 
             {isVideo && (
               <ControlButton

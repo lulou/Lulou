@@ -734,9 +734,11 @@ export class SupabaseStorage implements IStorage {
   }
 
   async getMatch(matchId: string, userId: string): Promise<(Match & { profile: Profile; messages: Message[] }) | undefined> {
+    const t0 = Date.now();
+    const MATCH_COLS = "id,user1_id,user2_id,message_count_1,message_count_2,call_completed,call_started_at,call_answered,call_initiator_id,call_stage,face_call_user1_accepted,face_call_user2_accepted,meet_availability_1,meet_availability_2,number_exchanged_1,number_exchanged_2,status,created_at";
     const { data: matchData, error } = await this.sb
       .from("matches")
-      .select("*")
+      .select(MATCH_COLS)
       .eq("id", matchId)
       .maybeSingle();
     if (error) {
@@ -777,6 +779,7 @@ export class SupabaseStorage implements IStorage {
     // Reverse so messages are in ascending (oldest-first) order for the chat view.
     const messages = (msgResult.data || []).reverse().map(mapMessage);
 
+    console.log("[PERF] GET_MATCH_DONE", { matchId, msgCount: messages.length, ms: Date.now() - t0 });
     return {
       ...match,
       profile: mapProfile(profileResult.data),

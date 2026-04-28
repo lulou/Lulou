@@ -305,12 +305,14 @@ function PersistentTabs() {
   useEffect(() => {
     const current = isSubRoute ? "/messages" : activeTab;
     if (current !== prevActiveRef.current) {
-      console.log("[NAV] TAB_CHANGED", {
+      const navMs = Math.round(performance.now());
+      console.log("[PERF] NAV_TAB_CHANGED", {
         from: prevActiveRef.current,
         to: current,
         location,
         isTabRoute,
         isSubRoute,
+        navMs,
       });
       prevActiveRef.current = current;
     }
@@ -1091,8 +1093,16 @@ function AppContent() {
   );
 }
 
+// Module-level startup mark — records the moment this bundle starts executing.
+const _appStartMs = performance.now();
+console.log("[PERF] APP_BUNDLE_EXECUTED", { ms: Math.round(_appStartMs) });
+
 function App() {
   useEffect(() => {
+    // First-paint timing — this fires after React mounts the root for the first time.
+    const mountMs = Math.round(performance.now());
+    console.log("[PERF] APP_FIRST_MOUNT", { mountMs, sinceStartMs: Math.round(performance.now() - _appStartMs) });
+
     const onError = (e: ErrorEvent) => {
       pushDebugError(`onerror: ${e.message} (${e.filename?.split("/").pop() ?? "?"}:${e.lineno})`);
     };
