@@ -441,7 +441,6 @@ export default function Discover() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  // ─── STEP 7: Hard debug logs ────────────────────────────────────────────────
   useEffect(() => {
     console.log("[DISCOVER] MOUNTED");
     return () => console.log("[DISCOVER] UNMOUNTED");
@@ -453,17 +452,53 @@ export default function Discover() {
   const [accumulatedProfiles, setAccumulatedProfiles] = useState<Profile[]>([]);
   const refetchInProgress = useRef(false);
 
+  // Track how long the loading skeleton has been visible so we can show a
+  // "still loading" fallback after 8 seconds instead of a blank skeleton forever.
+  const [loadingTooLong, setLoadingTooLong] = useState(false);
+  const loadingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const { data: profilesData, isLoading, isFetching, isError: isDiscoverError, refetch } = useQuery<Profile[]>({
     queryKey: ["/api/discover"],
     staleTime: Infinity, // only refetch on explicit demand
   });
 
+  // Start/stop the "loading too long" timer based on isLoading state
+  useEffect(() => {
+    if (isLoading) {
+      console.log("[DISCOVER] QUERY_LOADING_START");
+      setLoadingTooLong(false);
+      loadingTimerRef.current = setTimeout(() => {
+        console.warn("[DISCOVER] QUERY_LOADING_SLOW: still loading after 8 s — showing retry UI");
+        setLoadingTooLong(true);
+      }, 8_000);
+    } else {
+      if (loadingTimerRef.current) {
+        clearTimeout(loadingTimerRef.current);
+        loadingTimerRef.current = null;
+      }
+      setLoadingTooLong(false);
+      console.log("[DISCOVER] QUERY_LOADING_END", {
+        isError: isDiscoverError,
+        rawCount: Array.isArray(profilesData) ? profilesData.length : 0,
+      });
+    }
+    return () => {
+      if (loadingTimerRef.current) clearTimeout(loadingTimerRef.current);
+    };
+  }, [isLoading]);
+
   // Merge newly fetched profiles into the accumulated pool (no duplicates)
   useEffect(() => {
     if (!profilesData || !Array.isArray(profilesData)) return;
+    const rawCount = profilesData.length;
     setAccumulatedProfiles(prev => {
       const existingIds = new Set(prev.map(p => p.userId));
       const newOnes = profilesData.filter(p => !existingIds.has(p.userId));
+      console.log("[DISCOVER] PROFILES_MERGED", {
+        rawCount,
+        newCount: newOnes.length,
+        totalAccumulated: prev.length + newOnes.length,
+      });
       return newOnes.length > 0 ? [...prev, ...newOnes] : prev;
     });
   }, [profilesData]);
@@ -555,12 +590,14 @@ export default function Discover() {
     });
   };
 
-  // ─── STEP 7: Render-phase log ───────────────────────────────────────────────
   console.log("[DISCOVER] RENDER_REACHED", {
     isLoading,
     isFetching,
     isDiscoverError,
+    loadingTooLong,
+    rawCount: Array.isArray(profilesData) ? profilesData.length : "no data",
     accumulatedCount: accumulatedProfiles.length,
+    shownCount: shownIds.size,
     visibleCount: visibleProfiles.length,
     hasCurrentProfile: !!currentProfile,
   });
@@ -585,6 +622,26 @@ export default function Discover() {
   // Show skeleton on initial load OR when pool is empty and more are being fetched
   const isLoadingMore = isFetching && accumulatedProfiles.length > 0 && visibleProfiles.length === 0;
   if (isLoading || isLoadingMore) {
+    if (loadingTooLong) {
+      return (
+        <div className="flex-1 flex items-center justify-center p-6">
+          <div className="text-center space-y-4 max-w-sm">
+            <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center mx-auto">
+              <LulouFlowerIcon className="w-8 h-8 text-primary/60" />
+            </div>
+            <h2 className="font-serif text-xl font-bold" data-testid="text-discover-slow">Still loading profiles…</h2>
+            <p className="text-muted-foreground text-sm">This is taking longer than usual. Tap retry to try again.</p>
+            <button
+              className="px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm font-medium"
+              onClick={() => { setLoadingTooLong(false); refetch(); }}
+              data-testid="button-retry-discover-slow"
+            >
+              Retry
+            </button>
+          </div>
+        </div>
+      );
+    }
     return (
       <div className="flex-1 flex items-center justify-center p-6">
         <div className="w-full max-w-md space-y-4">

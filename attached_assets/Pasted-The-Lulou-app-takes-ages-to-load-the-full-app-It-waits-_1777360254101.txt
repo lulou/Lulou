@@ -1,0 +1,78 @@
+The Lulou app takes ages to load the full app. It waits too long for user profiles and app data to load, and sometimes profiles never load through at all.
+
+We need to fix the app-wide loading architecture.
+
+Current issue:
+- app shell eventually loads
+- pages wait too long for profiles/session/data
+- sometimes user profiles never load
+- Discover showed this before:
+ isLoading: true
+ isError: false
+ profiles accumulated: 0
+ visible: 0
+
+Please stop relying on one big blocking app load.
+
+Fix the app so it loads progressively:
+1. App shell renders immediately
+2. Auth/session loads separately
+3. Current user profile loads separately
+4. Page data loads separately
+5. Failed/slow profile fetches must not freeze the whole app
+
+Please inspect and fix:
+
+AUTH / PROFILE LOADING
+- find where the app waits for session/profile before rendering
+- remove any infinite loading states
+- make sure profile loading has success, error, and timeout handling
+- cache/reuse current profile instead of fetching repeatedly
+- prevent duplicate profile fetches on every route change
+- add fallback UI if profile is missing or slow
+
+DISCOVER / PROFILES
+- ensure profile fetching always completes or errors
+- always call setIsLoading(false) in finally
+- do not let gender/preference filters block loading forever
+- show empty state if no profiles
+- show error state if query fails
+- log raw profile count and filtered profile count
+
+SUPABASE
+- check slow profile queries
+- stop using select * where unnecessary
+- add limits/pagination
+- add indexes for common profile queries
+- check RLS policies are not causing queries to hang/fail silently
+- log Supabase errors clearly
+
+REACT / STATE
+- check for useEffect dependency loops
+- remove repeated fetches
+- avoid Promise.all blocking the entire first render
+- split app loading state from page loading state
+- make pages render their shell before data completes
+
+UX
+- show skeletons/loading sections instead of freezing the whole app
+- if profiles take too long, show “Still loading profiles…” with retry
+- if no profiles return, show a no-profiles state
+- never leave users on a blank or endless loading screen
+
+Add logs for:
+- app mounted
+- session loaded
+- current profile fetch started/ended/error
+- Discover profile query started/ended/error
+- raw profiles count
+- filtered profiles count
+- isLoading true/false changes
+- route changes
+
+Then implement the fix and show:
+1. root cause
+2. exact files changed
+3. exact code changed
+4. whether the issue was profile loading, Supabase query speed, RLS, filters, or React state
+5. what you changed so the app can never stay stuck loading forever

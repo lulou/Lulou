@@ -88,9 +88,22 @@ export default function IntentPage() {
   const isActive = useTabActive();
   const [, navigate] = useLocation();
 
-  const { data: profiles, isLoading, isError } = useQuery<Profile[]>({
+  const { data: profiles, isLoading, isError, refetch: refetchProfiles } = useQuery<Profile[]>({
     queryKey: ["/api/popular"],
   });
+
+  const [intentLoadingTooLong, setIntentLoadingTooLong] = useState(false);
+  const intentLoadingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (isLoading) {
+      setIntentLoadingTooLong(false);
+      intentLoadingTimerRef.current = setTimeout(() => setIntentLoadingTooLong(true), 8_000);
+    } else {
+      if (intentLoadingTimerRef.current) { clearTimeout(intentLoadingTimerRef.current); intentLoadingTimerRef.current = null; }
+      setIntentLoadingTooLong(false);
+    }
+    return () => { if (intentLoadingTimerRef.current) clearTimeout(intentLoadingTimerRef.current); };
+  }, [isLoading]);
 
   const { data: spinStatus } = useQuery<SpinStatus>({
     queryKey: ["/api/spin-status"],
@@ -315,6 +328,24 @@ export default function IntentPage() {
   }
 
   if (isLoading) {
+    if (intentLoadingTooLong) {
+      return (
+        <div className="flex-1 flex items-center justify-center p-6">
+          <div className="text-center space-y-4 max-w-sm">
+            <LulouFlowerIcon className="w-10 h-10 text-primary/60 mx-auto" />
+            <p className="font-serif text-lg font-semibold">Still loading profiles…</p>
+            <p className="text-muted-foreground text-sm">This is taking longer than usual.</p>
+            <button
+              className="px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm font-medium"
+              onClick={() => refetchProfiles()}
+              data-testid="button-retry-intent"
+            >
+              Retry
+            </button>
+          </div>
+        </div>
+      );
+    }
     return (
       <div className="flex-1 flex items-center justify-center">
         <div className="flex flex-col items-center gap-3">

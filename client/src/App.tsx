@@ -607,15 +607,31 @@ async function checkProfileExists(
     profileErrorMessage: null,
   });
   // Separate fetch from response handling so network errors are clearly retryable.
+  // The 6-second AbortController timeout prevents the profile check from hanging
+  // indefinitely on a slow Supabase cold-start (which would keep the spinner up
+  // forever even after the SPINNER_TIMEOUT_MS circuit-breaker fires).
   let res: Response;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => {
+    controller.abort();
+    console.error("[AUTH] PROFILE_LOAD_FAILED: network timeout after 6 s");
+  }, 6_000);
   try {
+    console.log("[SETUP] PROFILE_FETCH_NETWORK_START", { userId });
     const authHeaders = await getAuthHeaders();
-    res = await fetch("/api/profile", { credentials: "include", headers: authHeaders });
+    res = await fetch("/api/profile", {
+      credentials: "include",
+      headers: authHeaders,
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+    console.log("[SETUP] PROFILE_FETCH_NETWORK_DONE", { status: res.status, userId });
   } catch (err: any) {
-    // fetch() itself threw — network unreachable, DNS failure, etc.
-    console.error("[AUTH] PROFILE_LOAD_FAILED: network error —", err?.message);
-    writeDebug({ profileErrorMessage: err?.message ?? "NETWORK_ERROR" });
-    throw new Error("NETWORK_ERROR");
+    clearTimeout(timeoutId);
+    const isTimeout = err?.name === "AbortError";
+    console.error("[AUTH] PROFILE_LOAD_FAILED:", isTimeout ? "timeout" : "network error", "—", err?.message);
+    writeDebug({ profileErrorMessage: isTimeout ? "TIMEOUT_6S" : (err?.message ?? "NETWORK_ERROR") });
+    throw new Error(isTimeout ? "TIMEOUT" : "NETWORK_ERROR");
   }
 
   if (res.status === 404) {
@@ -652,10 +668,11 @@ async function checkProfileExists(
   return { exists: true, fetchFailed: false };
 }
 
-// How long the "Setting up your experience" spinner is allowed to show before
-// we cut it off and display a retry screen.  Covers the worst-case Supabase
-// cold-start window (5 retries × 5 s = 25 s) without trapping users forever.
-const SPINNER_TIMEOUT_MS = 15_000;
+// How long the loading spinner is allowed to show before we cut it off and
+// display a retry/bypass screen.  Kept short (5 s) because the profile-exists-
+// check fetch now has its own 6-second network timeout — if the server hasn't
+// responded by then the query will error and the spinner collapses anyway.
+const SPINNER_TIMEOUT_MS = 5_000;
 
 function AppContent() {
   const [location] = useLocation();
@@ -696,10 +713,13 @@ function AppContent() {
       });
     },
     enabled: !!user && profileReady && !clearingCache,
-    // 3 retries at 4 s each (12 s total) — enough to survive a Supabase
-    // cold-start blip.
-    retry: 3,
-    retryDelay: 4000,
+    // 1 retry at 2 s — the fetch itself now has a 6-second AbortController
+    // timeout, so a hanging request errors out fast.  Combined with the
+    // SPINNER_TIMEOUT_MS=5s circuit-breaker, worst-case wait is ~8 s before
+    // the user sees "Try Again / Continue to App" instead of a blank spinner.
+    retry: 1,
+    retryDelay: 2000,
+    staleTime: Infinity,
   });
 
   const profileExists = data?.exists ?? false;
