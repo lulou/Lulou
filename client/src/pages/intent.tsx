@@ -69,8 +69,8 @@ function ProfilePhoto({ userId, className }: { userId: string; className?: strin
   );
 }
 
-const ITEM_WIDTH = 130;
-const ITEM_HEIGHT = 170;
+const ITEM_WIDTH = 148;
+const ITEM_HEIGHT = 196;
 const DAILY_LIKE_GOAL = 10;
 const STREAK_GOAL = 3;
 
@@ -421,8 +421,8 @@ export default function IntentPage() {
           className="relative select-none touch-manipulation"
           style={{
             width: "100%",
-            height: ITEM_HEIGHT + 140,
-            perspective: "800px",
+            height: ITEM_HEIGHT + 160,
+            perspective: "900px",
             transition: dispersed ? "opacity 0.5s ease" : undefined,
             opacity: dispersed ? 0 : 1,
             pointerEvents: dispersed ? "none" : "auto",
@@ -450,72 +450,195 @@ export default function IntentPage() {
               const relativeAngle = ((((-angle + itemAngle) % 360) + 360) % 360);
               const cosVal = Math.cos((relativeAngle * Math.PI) / 180);
               const depthFactor = (cosVal + 1) / 2;
-              const cardScale = 0.7 + depthFactor * 0.3;
+              const cardScale = 0.62 + depthFactor * 0.38;
+              const glowAlpha = Math.max(0, Math.pow(cosVal, 3));
 
               const disperseX = dispersed && !isSelected ? (Math.random() - 0.5) * 800 : 0;
               const disperseY = dispersed && !isSelected ? (Math.random() - 0.5) * 600 : 0;
               const disperseScale = dispersed && !isSelected ? 0 : cardScale;
-              const disperseOpacity = dispersed && !isSelected ? 0 : (0.4 + depthFactor * 0.6);
+              const disperseOpacity = dispersed && !isSelected ? 0 : (0.18 + depthFactor * 0.82);
+
+              const boxShadow = isSelected && !dispersed
+                ? "0 0 0 2.5px rgba(255,255,255,0.9), 0 0 0 5px rgba(188,78,96,0.85), 0 0 40px 16px rgba(188,78,96,0.5), 0 12px 32px rgba(0,0,0,0.45)"
+                : depthFactor > 0.8 && !dispersed
+                ? `0 0 ${Math.round(glowAlpha * 24)}px ${Math.round(glowAlpha * 10)}px rgba(188,78,96,${(glowAlpha * 0.32).toFixed(2)}), 0 8px 20px rgba(0,0,0,0.3)`
+                : "0 4px 16px rgba(0,0,0,0.22)";
 
               return (
                 <div
                   key={profile.id}
-                  className={`absolute left-0 top-0 rounded-md overflow-hidden ${
-                    isSelected && !dispersed ? "ring-2 ring-primary" : ""
-                  }`}
                   style={{
                     width: ITEM_WIDTH,
                     height: ITEM_HEIGHT,
+                    borderRadius: 18,
+                    overflow: "hidden",
+                    position: "absolute",
+                    left: 0,
+                    top: 0,
                     transform: dispersed && !isSelected
                       ? `rotateY(${itemAngle}deg) translateZ(${radius}px) translate(${disperseX}px, ${disperseY}px) scale(${disperseScale})`
                       : `rotateY(${itemAngle}deg) translateZ(${radius}px) scale(${cardScale})`,
                     opacity: disperseOpacity,
                     zIndex: Math.round(depthFactor * 100),
-                    transition: dispersed ? "all 0.6s cubic-bezier(0.4, 0, 0.2, 1)" : undefined,
+                    boxShadow,
+                    transition: dispersed
+                      ? "all 0.65s cubic-bezier(0.4, 0, 0.2, 1)"
+                      : "box-shadow 0.35s ease",
                   }}
                   data-testid={`intent-profile-${i}`}
                 >
                   <ProfilePhoto userId={profile.userId} className="w-full h-full pointer-events-none" />
-                  <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-2">
-                    <p className="text-white text-xs font-medium truncate">
+
+                  <div style={{
+                    position: "absolute",
+                    inset: 0,
+                    background: "linear-gradient(170deg, rgba(0,0,0,0) 38%, rgba(0,0,0,0.12) 62%, rgba(0,0,0,0.78) 100%)",
+                    pointerEvents: "none",
+                  }} />
+
+                  <div style={{
+                    position: "absolute",
+                    bottom: 0,
+                    left: 0,
+                    right: 0,
+                    padding: "10px 12px 12px",
+                    pointerEvents: "none",
+                  }}>
+                    <p style={{
+                      color: "#fff",
+                      fontSize: 13,
+                      fontWeight: 600,
+                      letterSpacing: "0.01em",
+                      whiteSpace: "nowrap",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      textShadow: "0 1px 6px rgba(0,0,0,0.6)",
+                    }}>
                       {profile.firstName}{profile.age ? `, ${profile.age}` : ""}
                     </p>
                   </div>
+
+                  {isSelected && !dispersed && (
+                    <div style={{
+                      position: "absolute",
+                      inset: 0,
+                      borderRadius: 18,
+                      boxShadow: "inset 0 0 0 2px rgba(255,255,255,0.75)",
+                      pointerEvents: "none",
+                    }} />
+                  )}
                 </div>
               );
             })}
           </div>
+
+          {!dispersed && (
+            <div
+              style={{
+                position: "absolute",
+                left: "50%",
+                top: "50%",
+                transform: "translateX(-50%) translateY(-50%)",
+                width: ITEM_WIDTH + 12,
+                height: ITEM_HEIGHT + 12,
+                borderRadius: 22,
+                border: "1.5px solid rgba(188,78,96,0.2)",
+                boxShadow: "0 0 28px 6px rgba(188,78,96,0.10), inset 0 0 20px rgba(188,78,96,0.06)",
+                pointerEvents: "none",
+                zIndex: 200,
+              }}
+            />
+          )}
         </div>
 
         {!dispersed && !showPurchase && (
-          <div className="flex flex-col items-center gap-2 px-6 w-full max-w-xs mx-auto">
+          <div className="flex flex-col items-center gap-3 px-6 w-full max-w-xs mx-auto">
+            <style>{`
+              @keyframes spinBtn { to { transform: rotate(360deg); } }
+              @keyframes spinBtnPulse {
+                0%, 100% { box-shadow: 0 0 0 6px rgba(188,78,96,0.12), 0 0 22px 6px rgba(188,78,96,0.22), 0 6px 18px rgba(0,0,0,0.22); }
+                50% { box-shadow: 0 0 0 8px rgba(188,78,96,0.18), 0 0 36px 12px rgba(188,78,96,0.35), 0 8px 24px rgba(0,0,0,0.28); }
+              }
+            `}</style>
+
             {canSpin ? (
-              <Button
-                onClick={spinWheel}
-                disabled={isSpinning || items.length === 0}
-                className="rounded-full px-8 gap-2"
-                size="lg"
-                data-testid="button-spin"
-              >
-                <RotateCw className={`w-5 h-5 ${isSpinning ? "animate-spin" : ""}`} />
-                {isSpinning ? "Spinning..." : "Spin"}
-              </Button>
+              <div className="flex flex-col items-center gap-2">
+                <button
+                  onClick={spinWheel}
+                  disabled={isSpinning || items.length === 0}
+                  style={{
+                    width: 100,
+                    height: 100,
+                    borderRadius: "50%",
+                    border: "none",
+                    background: isSpinning
+                      ? "radial-gradient(circle at 50% 35%, #e06278, #a83c55)"
+                      : "radial-gradient(circle at 50% 35%, #d45c74, #9d3550)",
+                    color: "#fff",
+                    cursor: isSpinning ? "default" : "pointer",
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: 4,
+                    animation: !isSpinning && canSpin ? "spinBtnPulse 2.4s ease-in-out infinite" : "none",
+                    transition: "background 0.3s ease, transform 0.15s ease",
+                    outline: "none",
+                    WebkitTapHighlightColor: "transparent",
+                  }}
+                  onMouseEnter={e => { if (!isSpinning) (e.currentTarget as HTMLElement).style.transform = "scale(1.07)"; }}
+                  onMouseLeave={e => { (e.currentTarget as HTMLElement).style.transform = "scale(1)"; }}
+                  onMouseDown={e => { (e.currentTarget as HTMLElement).style.transform = "scale(0.96)"; }}
+                  onMouseUp={e => { (e.currentTarget as HTMLElement).style.transform = "scale(1.07)"; }}
+                  data-testid="button-spin"
+                >
+                  <RotateCw
+                    style={{
+                      width: 28,
+                      height: 28,
+                      animation: isSpinning ? "spinBtn 0.7s linear infinite" : "none",
+                    }}
+                  />
+                  <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase", opacity: 0.92 }}>
+                    {isSpinning ? "..." : "Spin"}
+                  </span>
+                </button>
+              </div>
             ) : (
-              <Button
-                onClick={() => setShowPurchase(true)}
-                variant="outline"
-                className="rounded-full px-8 gap-2"
-                size="lg"
-                data-testid="button-spin-locked"
-              >
-                <Lock className="w-4 h-4" />
-                Spin used
-              </Button>
+              <div className="flex flex-col items-center gap-2">
+                <button
+                  onClick={() => setShowPurchase(true)}
+                  style={{
+                    width: 100,
+                    height: 100,
+                    borderRadius: "50%",
+                    border: "1.5px solid hsl(var(--border))",
+                    background: "linear-gradient(145deg, hsl(var(--muted)), hsl(var(--muted-foreground)/0.08))",
+                    color: "hsl(var(--muted-foreground))",
+                    cursor: "pointer",
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: 4,
+                    boxShadow: "0 4px 12px rgba(0,0,0,0.08)",
+                    transition: "transform 0.15s ease, box-shadow 0.15s ease",
+                    outline: "none",
+                    WebkitTapHighlightColor: "transparent",
+                  }}
+                  onMouseEnter={e => { (e.currentTarget as HTMLElement).style.transform = "scale(1.05)"; }}
+                  onMouseLeave={e => { (e.currentTarget as HTMLElement).style.transform = "scale(1)"; }}
+                  data-testid="button-spin-locked"
+                >
+                  <Lock style={{ width: 22, height: 22 }} />
+                  <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", opacity: 0.7 }}>Used</span>
+                </button>
+              </div>
             )}
 
             {!streakComplete && (
-              <div className="w-full mt-1">
-                <div className="flex items-center gap-1.5">
+              <div className="w-full space-y-1.5">
+                <div className="flex items-center gap-2">
                   {Array.from({ length: STREAK_GOAL }).map((_, i) => {
                     const isCurrentDay = i === consecutiveDays;
                     const isDone = i < consecutiveDays;
@@ -526,18 +649,21 @@ export default function IntentPage() {
                             <div className="w-full h-full bg-primary rounded-full" />
                           ) : isCurrentDay ? (
                             <div
-                              className="h-full bg-primary/50 rounded-full transition-all duration-500"
+                              className="h-full bg-primary/60 rounded-full transition-all duration-500"
                               style={{ width: `${Math.min(dailyLikes / DAILY_LIKE_GOAL, 1) * 100}%` }}
                             />
                           ) : null}
                         </div>
                         <span className="text-[10px] text-muted-foreground">
-                          {isDone ? "Done" : isCurrentDay ? `${dailyLikes}/${DAILY_LIKE_GOAL}` : `Day ${i + 1}`}
+                          {isDone ? "✓" : isCurrentDay ? `${dailyLikes}/${DAILY_LIKE_GOAL}` : `Day ${i + 1}`}
                         </span>
                       </div>
                     );
                   })}
                 </div>
+                <p className="text-[10px] text-muted-foreground text-center">
+                  Like {DAILY_LIKE_GOAL}× daily for {STREAK_GOAL} days to earn a free spin
+                </p>
               </div>
             )}
           </div>

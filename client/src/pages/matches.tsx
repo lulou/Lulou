@@ -15,7 +15,7 @@ import { useRealtimeMessages } from "@/hooks/use-realtime-messages";
 import { useUnreadCounts } from "@/hooks/use-unread-counts";
 import { useTypingIndicator } from "@/hooks/use-typing-indicator";
 import { Input } from "@/components/ui/input";
-import { MessageCircle, Send, Phone, Video, ChevronDown, ChevronUp, ChevronLeft, PhoneOff, Clock, Check, X, Sparkles, Calendar, Heart, PhoneForwarded, Moon } from "lucide-react";
+import { MessageCircle, Send, Phone, Video, ChevronDown, ChevronUp, ChevronLeft, PhoneOff, Clock, Check, X, Sparkles, Calendar, Heart, PhoneForwarded, Moon, User, MapPin } from "lucide-react";
 import { LulouFlowerIcon } from "@/components/app-layout";
 import { broadcastCallSignal } from "@/hooks/use-call-signaling";
 import type { Profile, Match, Message, SpinRequest } from "@shared/schema";
@@ -855,6 +855,123 @@ function SystemGuidanceMessage({ children, testId }: { children: ReactNode; test
   );
 }
 
+function ProfilePanel({ profile, onClose }: { profile: Profile; onClose: () => void }) {
+  const { data: photoData } = useQuery<{ photos: string[] }>({
+    queryKey: ["/api/profiles", profile.userId, "photos"],
+    staleTime: 5 * 60 * 1000,
+  });
+  const photos = photoData?.photos ?? profile.photos ?? [];
+  const [photoIdx, setPhotoIdx] = useState(0);
+
+  return (
+    <div className="flex flex-col h-full" data-testid="profile-panel">
+      <div className="flex items-center justify-between px-4 py-3 border-b sticky top-0 bg-background/95 backdrop-blur-sm z-10">
+        <h3 className="font-semibold text-sm" data-testid="text-profile-panel-heading">Profile</h3>
+        <Button size="icon" variant="ghost" className="w-8 h-8" onClick={onClose} data-testid="button-close-profile-panel">
+          <X className="w-4 h-4" />
+        </Button>
+      </div>
+
+      <div className="relative bg-muted overflow-hidden flex-shrink-0" style={{ aspectRatio: "3/4", maxHeight: "52%" }}>
+        {photos.length > 0 ? (
+          <img
+            src={photos[photoIdx]}
+            className="w-full h-full object-cover"
+            alt={profile.firstName}
+            data-testid="img-profile-panel-photo"
+          />
+        ) : (
+          <div className="w-full h-full flex items-center justify-center">
+            <svg viewBox="0 0 80 80" fill="none" className="w-16 h-16 opacity-20">
+              <circle cx="40" cy="28" r="14" fill="currentColor" />
+              <ellipse cx="40" cy="62" rx="24" ry="16" fill="currentColor" />
+            </svg>
+          </div>
+        )}
+        <div className="absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-background to-transparent pointer-events-none" />
+        {photos.length > 1 && (
+          <div className="absolute bottom-2 left-0 right-0 flex justify-center gap-1.5 z-10">
+            {photos.map((_, i) => (
+              <button
+                key={i}
+                className={`w-1.5 h-1.5 rounded-full transition-all ${i === photoIdx ? "bg-white scale-125" : "bg-white/55"}`}
+                onClick={() => setPhotoIdx(i)}
+                data-testid={`button-profile-photo-dot-${i}`}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="flex-1 overflow-y-auto p-4 space-y-4 pb-6">
+        <div>
+          <h2 className="font-serif text-xl font-bold leading-tight" data-testid="text-profile-panel-name">
+            {profile.firstName}{profile.age ? `, ${profile.age}` : ""}
+          </h2>
+          {profile.location && (
+            <div className="flex items-center gap-1 mt-1 text-muted-foreground text-xs">
+              <MapPin className="w-3 h-3" />
+              <span data-testid="text-profile-panel-location">{profile.location}</span>
+            </div>
+          )}
+          {profile.height && (
+            <p className="text-xs text-muted-foreground mt-0.5" data-testid="text-profile-panel-height">{profile.height}</p>
+          )}
+        </div>
+
+        {profile.datingIntent && (
+          <div>
+            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Intention</p>
+            <Badge variant="secondary" data-testid="badge-profile-panel-intent">{profile.datingIntent}</Badge>
+          </div>
+        )}
+
+        {profile.signals && profile.signals.length > 0 && (
+          <div>
+            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Signals</p>
+            <div className="flex flex-wrap gap-1.5">
+              {profile.signals.map((s, i) => (
+                <Badge key={i} variant="outline" className="text-xs" data-testid={`badge-profile-panel-signal-${i}`}>{s}</Badge>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {profile.greenFlags && profile.greenFlags.length > 0 && (
+          <div>
+            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Green Flags</p>
+            <div className="flex flex-wrap gap-1.5">
+              {profile.greenFlags.map((f, i) => (
+                <Badge key={i} variant="outline" className="text-xs" data-testid={`badge-profile-panel-flag-${i}`}>{f}</Badge>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {profile.connectionStyle && (
+          <div>
+            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Connection Style</p>
+            <p className="text-sm leading-relaxed" data-testid="text-profile-panel-connection-style">{profile.connectionStyle}</p>
+          </div>
+        )}
+
+        {profile.conversationStarters && profile.conversationStarters.length > 0 && (
+          <div>
+            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Conversation Starters</p>
+            <div className="space-y-2">
+              {profile.conversationStarters.map((s, i) => (
+                <p key={i} className="text-sm bg-muted rounded-lg px-3 py-2 leading-relaxed" data-testid={`text-profile-panel-starter-${i}`}>
+                  "{s}"
+                </p>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function mergeCallFields(
   qc: ReturnType<typeof useQueryClient>,
   matchId: string,
@@ -891,6 +1008,7 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
   const queryClient = useQueryClient();
   const isActive = useTabActive();
   const [message, setMessage] = useState("");
+  const [showProfilePanel, setShowProfilePanel] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const isAtBottomRef = useRef(true);
@@ -1531,7 +1649,8 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
   if (!expanded) return null;
 
   return (
-    <div className="flex flex-col h-full min-h-0" data-testid={`card-match-${match.id}`}>
+    <div className="flex h-full min-h-0 overflow-hidden" data-testid={`card-match-${match.id}`}>
+      <div className="flex flex-col flex-1 min-w-0 min-h-0">
       <div className="flex items-center gap-3 px-4 py-3 border-b bg-background/95 backdrop-blur-sm sticky top-0 z-10">
         <Button
           size="icon"
@@ -1542,18 +1661,27 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
         >
           <ChevronLeft className="w-5 h-5" />
         </Button>
-        <Avatar className="w-10 h-10 shrink-0">
-          <AvatarImage src={match.profile.photos?.[0]} alt={match.profile.firstName} />
-          <AvatarFallback className="bg-primary/10 text-primary font-semibold text-sm">
-            {match.profile.firstName?.[0]}
-          </AvatarFallback>
-        </Avatar>
-        <div className="flex-1 min-w-0">
-          <h3 className="font-semibold text-sm truncate" data-testid={`text-match-name-${match.id}`}>
-            {match.profile.firstName}, {match.profile.age}
-          </h3>
-          <p className="text-xs text-muted-foreground truncate">{match.profile.datingIntent}</p>
-        </div>
+        <button
+          className="flex items-center gap-3 flex-1 min-w-0 text-left hover:opacity-80 active:opacity-60 transition-opacity"
+          onClick={() => setShowProfilePanel(p => !p)}
+          data-testid={`button-view-profile-${match.id}`}
+        >
+          <Avatar className="w-10 h-10 shrink-0">
+            <AvatarImage src={match.profile.photos?.[0]} alt={match.profile.firstName} />
+            <AvatarFallback className="bg-primary/10 text-primary font-semibold text-sm">
+              {match.profile.firstName?.[0]}
+            </AvatarFallback>
+          </Avatar>
+          <div className="flex-1 min-w-0">
+            <h3 className="font-semibold text-sm truncate" data-testid={`text-match-name-${match.id}`}>
+              {match.profile.firstName}, {match.profile.age}
+            </h3>
+            <p className="text-xs text-muted-foreground truncate flex items-center gap-1">
+              <User className="w-2.5 h-2.5 shrink-0" />
+              View profile
+            </p>
+          </div>
+        </button>
         <div className="flex items-center gap-1.5 shrink-0">
           <Badge variant="outline" className="text-[10px] px-1.5 py-0" data-testid={`badge-messages-remaining-${match.id}`}>
             {allCallsDone ? "All calls done" : callStage === 3 ? "Face call stage" : callStage === 2 && bothStage2LimitReached ? "Face call ready" : callStage === 2 ? `${myStage2Remaining} left (20 msg)` : callStage === 1 && bothPostCallLimitReached ? "2nd call ready" : callStage === 1 ? `${myPostCallRemaining} post-call left` : messagesRemaining > 0 ? `${messagesRemaining} left` : "Call time"}
@@ -2086,6 +2214,29 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
               </p>
             </div>
           )}
+      </div>
+
+      {showProfilePanel && (
+        <div className="hidden lg:flex flex-col w-80 border-l overflow-hidden flex-shrink-0">
+          <ProfilePanel profile={match.profile} onClose={() => setShowProfilePanel(false)} />
+        </div>
+      )}
+
+      {showProfilePanel && (
+        <div className="lg:hidden fixed inset-0 z-[60]" data-testid="profile-panel-mobile-sheet">
+          <div
+            className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+            onClick={() => setShowProfilePanel(false)}
+          />
+          <div
+            className="absolute inset-x-0 bottom-0 bg-background rounded-t-2xl overflow-hidden"
+            style={{ maxHeight: "85dvh" }}
+          >
+            <div className="w-10 h-1 bg-muted-foreground/20 rounded-full mx-auto mt-3 mb-1 flex-shrink-0" />
+            <ProfilePanel profile={match.profile} onClose={() => setShowProfilePanel(false)} />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
