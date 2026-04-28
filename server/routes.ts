@@ -615,13 +615,12 @@ export async function registerRoutes(
   });
 
   app.post("/api/matches/:matchId/messages", isAuthenticated, async (req: any, res) => {
+    const t0 = Date.now();
     try {
-      const storage = getStorage(req);   // user-scoped: used for reads (RLS ensures correct access)
-      const adminStorage = getAdminStorage(); // admin: used for writes (auth already verified above)
+      const storage = getStorage(req);
+      const adminStorage = getAdminStorage();
       const userId = req.user.id;
       const { matchId } = req.params;
-
-      console.log("MSG_SEND", { matchId, userId, body: req.body });
 
       if (!matchId) {
         return res.status(400).json({ message: "Missing match_id in request" });
@@ -630,7 +629,6 @@ export async function registerRoutes(
       const parsed = messageBodySchema.safeParse(req.body);
       if (!parsed.success) {
         const fieldErrors = parsed.error.flatten().fieldErrors;
-        console.log("MSG_VALIDATION_FAIL", fieldErrors);
         return res.status(400).json({ message: "Invalid message: content is required (1-500 chars)", errors: fieldErrors });
       }
 
@@ -640,25 +638,29 @@ export async function registerRoutes(
         return res.status(400).json({ message: "No exchange of information until a date has been agreed upon. Complete your calls and match your availability first!" });
       }
 
-      const match = await storage.getMatch(matchId, userId);
+      // ── Step 1: Validate match membership + read stage (lightweight — 6 cols, no profile/messages) ──
+      const tMeta0 = Date.now();
+      const match = await storage.getMatchMeta(matchId, userId);
+      console.log(`[MSG] getMatchMeta: ${Date.now() - tMeta0} ms`);
       if (!match) {
         console.log("MSG_MATCH_NOT_FOUND", { matchId, userId });
         return res.status(404).json({ message: "Match not found" });
       }
 
-      const callStage = match.callStage || 0;
+      const { callStage, user1Id, user2Id } = match;
 
+      // ── Step 2: Stage-based message limit checks ──
       if (callStage === 0) {
-        const messageCount = await storage.getUserMessageCount(matchId, userId);
-        const [extension] = await db
-          .select()
-          .from(userBenefits)
-          .where(and(
+        const tCount0 = Date.now();
+        const [messageCount, [extension]] = await Promise.all([
+          storage.getUserMessageCount(matchId, userId),
+          db.select().from(userBenefits).where(and(
             eq(userBenefits.userId, userId),
             eq(userBenefits.type, "message_extension"),
             eq(userBenefits.activatedMatchId, matchId),
-          ))
-          .limit(1);
+          )).limit(1),
+        ]);
+        console.log(`[MSG] count+extension parallel: ${Date.now() - tCount0} ms | count=${messageCount} ext=${!!extension}`);
         const limit = extension ? 20 : 15;
         if (messageCount >= limit) {
           console.log("[CONNECTION_STAGE] POST_CALL_MESSAGE_LIMIT_REACHED", { matchId, userId, callStage: 0, count: messageCount, limit });
@@ -668,13 +670,13 @@ export async function registerRoutes(
           console.log("[CONNECTION_STAGE] FIRST_CALL_UNLOCKED", { matchId, userId, messageCount });
         }
       } else if (callStage === 1) {
-        const myPostCallCount = match.user1Id === userId ? (match.messageCount1 || 0) : (match.messageCount2 || 0);
+        const myPostCallCount = user1Id === userId ? match.messageCount1 : match.messageCount2;
         if (myPostCallCount >= 12) {
           console.log("[CONNECTION_STAGE] POST_CALL_MESSAGE_LIMIT_REACHED", { matchId, userId, callStage: 1, count: myPostCallCount, limit: 12 });
           return res.status(400).json({ message: "Post-call message limit reached. Your second call is ready!" });
         }
       } else if (callStage === 2) {
-        const myPostCallCount = match.user1Id === userId ? (match.messageCount1 || 0) : (match.messageCount2 || 0);
+        const myPostCallCount = user1Id === userId ? match.messageCount1 : match.messageCount2;
         if (myPostCallCount >= 20) {
           console.log("[CONNECTION_STAGE] POST_CALL_MESSAGE_LIMIT_REACHED", { matchId, userId, callStage: 2, count: myPostCallCount, limit: 20 });
           return res.status(400).json({ message: "Post-call message limit reached. Time to meet in person!" });
@@ -683,15 +685,18 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Messaging is locked at this stage." });
       }
 
-      // Use admin storage for the write — auth already verified, bypasses RLS
+      // ── Step 3: Insert message ──
+      const tInsert0 = Date.now();
       const message = await adminStorage.createMessage({
         matchId,
         senderId: userId,
         content: content.trim(),
       });
+      console.log(`[MSG] insert: ${Date.now() - tInsert0} ms`);
 
-      // Broadcast immediately via Supabase Broadcast (fire-and-forget — ~50ms vs WAL's ~300ms)
-      broadcastMessage(matchId, {
+      // ── Step 4: Broadcast to recipient (awaited so the log appears before response) ──
+      const tBcast0 = Date.now();
+      await broadcastMessage(matchId, {
         id: message.id,
         matchId: message.matchId,
         senderId: message.senderId,
@@ -699,10 +704,10 @@ export async function registerRoutes(
         reaction: message.reaction,
         createdAt: message.createdAt,
       });
+      console.log(`[MSG] broadcast: ${Date.now() - tBcast0} ms`);
 
-      // Respond to the client immediately — message is in DB and broadcast is fired.
-      // All subsequent work (count increment, stage advance, seed reply) runs in the
-      // background so the sender's UI confirms within ~500ms instead of 4–5 seconds.
+      // ── Respond — sender UI confirms delivery ──
+      console.log(`[MSG] total send route: ${Date.now() - t0} ms`);
       res.json(message);
 
       // ── Background post-processing (does not block the HTTP response) ──

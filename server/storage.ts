@@ -817,6 +817,31 @@ export class SupabaseStorage implements IStorage {
     return { user1Id: data.user1_id, user2Id: data.user2_id };
   }
 
+  // Lightweight match validation for the message send route.
+  // Only fetches the 6 columns needed to validate sender + check stage/limits.
+  // Avoids the full getMatch() which fetches profile + 100 messages (~500ms wasted).
+  async getMatchMeta(matchId: string, userId: string): Promise<{
+    user1Id: string; user2Id: string;
+    callStage: number;
+    messageCount1: number; messageCount2: number;
+  } | null> {
+    const { data, error } = await this.sb
+      .from("matches")
+      .select("id, user1_id, user2_id, call_stage, message_count_1, message_count_2")
+      .eq("id", matchId)
+      .eq("status", "active")
+      .maybeSingle();
+    if (error || !data) return null;
+    if (data.user1_id !== userId && data.user2_id !== userId) return null;
+    return {
+      user1Id: data.user1_id,
+      user2Id: data.user2_id,
+      callStage: data.call_stage || 0,
+      messageCount1: data.message_count_1 || 0,
+      messageCount2: data.message_count_2 || 0,
+    };
+  }
+
   async reactToMessage(messageId: string, reaction: string | null): Promise<Message> {
     const { data: result, error } = await this.sb
       .from("messages")
