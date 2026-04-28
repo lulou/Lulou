@@ -299,8 +299,9 @@ export default function IntentPage() {
 
   // ─── STEP 7: Hard debug logs ────────────────────────────────────────────────
   useEffect(() => {
+    const t0 = performance.now();
     console.log("[INTENT] MOUNTED");
-    return () => console.log("[INTENT] UNMOUNTED");
+    return () => console.log("[INTENT] UNMOUNTED — was visible for", Math.round(performance.now() - t0), "ms");
   }, []);
 
   console.log("[INTENT] RENDER_REACHED", {

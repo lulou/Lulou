@@ -378,20 +378,23 @@ export async function registerRoutes(
   });
 
   app.get("/api/profile", isAuthenticated, async (req: any, res) => {
+    const t0 = Date.now();
     try {
       const storage = getStorage(req);
       const userId = req.user.id;
       const profile = await storage.getProfile(userId);
       if (!profile) {
+        console.log(`[PROFILE] not found for userId=${userId} in ${Date.now() - t0} ms`);
         return res.status(404).json({ message: "Profile not found. Please complete onboarding to create your profile." });
       }
+      console.log(`[PROFILE] fetched userId=${userId} in ${Date.now() - t0} ms`);
       res.json(profile);
     } catch (error: any) {
       const errMsg = (error?.message || "Unknown error").slice(0, 200);
       // 503 = Service Unavailable — signals the client to retry.
       // This catch fires when the Supabase DB is unreachable (e.g. 522 connection
       // timeout during cold-start). The client treats 503 as retryable; 500 as permanent.
-      console.error("[AUTH] PROFILE_FETCH_ERROR: root cause =", errMsg, "| userId =", req.user?.id);
+      console.error("[AUTH] PROFILE_FETCH_ERROR: root cause =", errMsg, "| userId =", req.user?.id, `| ${Date.now() - t0} ms`);
       res.status(503).json({ message: `Profile temporarily unavailable: ${errMsg}` });
     }
   });
@@ -400,15 +403,16 @@ export async function registerRoutes(
   // Profiles in the discover pool / wheel pool don't carry photos (they'd cause statement timeouts).
   // The client calls this per-card to lazy-load photos without fetching the full profile row.
   app.get("/api/profiles/:userId/photos", isAuthenticated, async (req: any, res) => {
+    const t0 = Date.now();
     try {
       const storage = getStorage(req);
       const { userId } = req.params;
       if (!userId) return res.status(400).json({ message: "Missing userId" });
       const photos = await storage.getProfilePhotos(userId);
-      console.log(`[PHOTOS] userId=${userId} returned ${photos.length} photo(s)${photos.length > 0 ? ` (first url length: ${photos[0].length})` : ""}`);
+      console.log(`[PHOTOS] userId=${userId} returned ${photos.length} photo(s) in ${Date.now() - t0} ms${photos.length > 0 ? ` (first url length: ${photos[0].length})` : ""}`);
       res.json({ photos });
     } catch (error: any) {
-      console.error("[PHOTOS] Route error for userId:", req.params?.userId, "—", error?.message);
+      console.error("[PHOTOS] Route error for userId:", req.params?.userId, "—", error?.message, `(${Date.now() - t0} ms)`);
       res.json({ photos: [] });
     }
   });
@@ -432,19 +436,22 @@ export async function registerRoutes(
   });
 
   app.get("/api/discover", isAuthenticated, async (req: any, res) => {
+    const t0 = Date.now();
     try {
       const storage = getStorage(req);
       const userId = req.user.id;
       const myProfile = await storage.getProfileMeta(userId);
+      console.log(`[DISCOVER] getProfileMeta: ${Date.now() - t0} ms`);
       if (!myProfile) {
         console.log("[DISCOVER] No profile for userId:", userId);
         return res.json([]);
       }
+      const t1 = Date.now();
       const discovered = await storage.getDiscoverProfiles(userId, myProfile.gender, myProfile.datingPreference, myProfile.preferredAgeMin || 18, myProfile.preferredAgeMax || 99);
-      console.log("[DISCOVER] userId:", userId, "returned:", discovered.length, "profiles");
+      console.log(`[DISCOVER] getDiscoverProfiles: ${Date.now() - t1} ms | total route: ${Date.now() - t0} ms | returned: ${discovered.length} profiles`);
       res.json(discovered);
     } catch (error: any) {
-      console.error("[DISCOVER] Error:", error?.message, error);
+      console.error("[DISCOVER] Error:", error?.message, `(${Date.now() - t0} ms)`);
       res.status(500).json({ message: "Failed to discover profiles" });
     }
   });
@@ -539,28 +546,33 @@ export async function registerRoutes(
   });
 
   app.get("/api/matches", isAuthenticated, async (req: any, res) => {
+    const t0 = Date.now();
     try {
       const storage = getStorage(req);
       const userId = req.user.id;
       const userMatches = await storage.getMatchesForUser(userId);
+      console.log(`[MATCHES_LIST] ${userMatches.length} matches in ${Date.now() - t0} ms`);
       res.json(userMatches);
     } catch (error) {
-      console.error("Error fetching matches:", error);
+      console.error(`[MATCHES_LIST] Error after ${Date.now() - t0} ms:`, error);
       res.status(500).json({ message: "Failed to fetch matches" });
     }
   });
 
   app.get("/api/matches/:matchId", isAuthenticated, async (req: any, res) => {
+    const t0 = Date.now();
     try {
       const storage = getStorage(req);
       const userId = req.user.id;
       const match = await storage.getMatch(req.params.matchId, userId);
       if (!match) {
+        console.log(`[MATCH_DETAIL] not found ${req.params.matchId} in ${Date.now() - t0} ms`);
         return res.status(404).json({ message: "Match not found" });
       }
+      console.log(`[MATCH_DETAIL] ${req.params.matchId} — ${match.messages?.length ?? 0} msgs in ${Date.now() - t0} ms`);
       res.json(match);
     } catch (error) {
-      console.error("Error fetching match:", error);
+      console.error(`[MATCH_DETAIL] Error after ${Date.now() - t0} ms:`, error);
       res.status(500).json({ message: "Failed to fetch match" });
     }
   });
@@ -1162,19 +1174,20 @@ export async function registerRoutes(
   });
 
   app.get("/api/popular", isAuthenticated, async (req: any, res) => {
+    const t0 = Date.now();
     try {
       const storage = getStorage(req);
       const userId = req.user.id;
       const myProfile = await storage.getProfileMeta(userId);
+      console.log(`[WHEEL] getProfileMeta: ${Date.now() - t0} ms`);
       const preference = myProfile?.datingPreference;
       const gender = myProfile?.gender;
 
       console.log("[WHEEL] /api/popular called:", { userId, preference, gender });
 
-      // Pass userId so getPopularProfiles can exclude already-interacted profiles,
-      // keeping the wheel consistent with Discover (no more "wheel has users but
-      // Discover says you've seen everyone" mismatch).
+      const t1 = Date.now();
       const popular = await storage.getPopularProfiles(30, preference, gender, userId);
+      console.log(`[WHEEL] getPopularProfiles: ${Date.now() - t1} ms | total route: ${Date.now() - t0} ms`);
 
       // Exclude own profile (safety guard — storage already excludes via interaction logic)
       const selfFiltered = popular.filter(p => p.userId !== userId);
@@ -1183,12 +1196,13 @@ export async function registerRoutes(
       console.log("[WHEEL] /api/popular returning:", result.length, "profiles to userId:", userId);
       res.json(result);
     } catch (error) {
-      console.error("[WHEEL] Error fetching popular profiles:", error);
+      console.error(`[WHEEL] Error fetching popular profiles after ${Date.now() - t0} ms:`, error);
       res.status(500).json({ message: "Failed to fetch popular profiles" });
     }
   });
 
   app.get("/api/spin-status", isAuthenticated, async (req: any, res) => {
+    const t0 = Date.now();
     try {
       const storage = getStorage(req);
       const userId = req.user.id;
@@ -1204,9 +1218,10 @@ export async function registerRoutes(
       const streakComplete = consecutiveDays >= 3;
       const canSpin = (streakComplete && hasUnusedStreak) || (!streakComplete && spinsThisWeek === 0);
 
+      console.log(`[SPIN_STATUS] userId=${userId} in ${Date.now() - t0} ms`);
       res.json({ spinsThisWeek, dailyLikes, consecutiveDays, streakComplete, canSpin });
     } catch (error) {
-      console.error("Error fetching spin status:", error);
+      console.error(`[SPIN_STATUS] Error after ${Date.now() - t0} ms:`, error);
       res.status(500).json({ message: "Failed to fetch spin status" });
     }
   });
@@ -1860,12 +1875,14 @@ export async function registerRoutes(
   // ── Elevate status & session-stats ────────────────────────────────────────
 
   app.get("/api/elevate/status", isAuthenticated, async (req: any, res) => {
+    const t0 = Date.now();
     try {
       const userId = req.user.id;
       const status = await getStorage(req).getElevateStatus(userId);
+      console.log(`[ELEVATE_STATUS] userId=${userId} in ${Date.now() - t0} ms`);
       res.json(status);
     } catch (error) {
-      console.error("Error fetching elevate status:", error);
+      console.error(`[ELEVATE_STATUS] Error after ${Date.now() - t0} ms:`, error);
       res.status(500).json({ message: "Failed to fetch elevate status" });
     }
   });

@@ -518,11 +518,14 @@ export class SupabaseStorage implements IStorage {
       ageRange: `${effectiveAgeMin}–${effectiveAgeMax}`,
     });
 
-    // Run both queries in parallel
-    const [interactedResult, profilesResult] = await Promise.all([
+    const t1 = Date.now();
+    // Run all three queries in parallel — elevates used to be sequential after profiles/interactions
+    const [interactedResult, profilesResult, elevates] = await Promise.all([
       this.sb.from("interactions").select("to_user_id").eq("from_user_id", userId),
       profilesQuery.limit(100),
+      getActiveElevatesMap(),
     ]);
+    console.log(`[DISCOVER] parallel queries done in ${Date.now() - t1} ms`);
 
     if (interactedResult.error) {
       console.error("[DISCOVER] interactions fetch error:", interactedResult.error.message);
@@ -548,7 +551,6 @@ export class SupabaseStorage implements IStorage {
       return true;
     });
 
-    const elevates = await getActiveElevatesMap();
     const filtered = mergeElevatesIntoProfiles(baseFiltered, elevates);
 
     const superCount  = filtered.filter(p => p.elevateType === "super_elevate" && p.elevateExpiresAt && p.elevateExpiresAt > now).length;
@@ -1310,32 +1312,26 @@ export class SupabaseStorage implements IStorage {
       return q;
     };
 
-    // Fetch the current user's interactions so we can exclude already-swiped profiles.
-    // This keeps the wheel consistent with Discover — users who have been liked/closed
-    // won't appear in the wheel either, preventing the confusing "wheel shows someone
-    // but Discover says you've seen everyone" mismatch.
+    // Run user's-own-interactions and global popularity interactions in parallel.
+    // Previously sequential: first user interactions, then popularity count — this adds ~200ms.
+    const twPopT0 = Date.now();
+    const [userInteractedResult, popularRowsResult] = await Promise.all([
+      userId
+        ? this.sb.from("interactions").select("to_user_id").eq("from_user_id", userId)
+        : Promise.resolve({ data: [] as { to_user_id: string }[], error: null }),
+      this.sb.from("interactions").select("to_user_id").eq("type", "open").limit(2000),
+    ]);
+    console.log(`[WHEEL] parallel interaction queries done in ${Date.now() - twPopT0} ms`);
+
     let interactedIds = new Set<string>();
-    if (userId) {
-      const { data: interactedRows, error: interactedErr } = await this.sb
-        .from("interactions")
-        .select("to_user_id")
-        .eq("from_user_id", userId);
-      if (interactedErr) {
-        console.error("[WHEEL] interactions fetch error:", interactedErr.message);
-      } else {
-        interactedIds = new Set((interactedRows || []).map((r: any) => r.to_user_id).filter(Boolean));
-        console.log("[WHEEL] interacted profile count:", interactedIds.size);
-      }
+    if (userInteractedResult.error) {
+      console.error("[WHEEL] interactions fetch error:", (userInteractedResult as any).error?.message);
+    } else {
+      interactedIds = new Set((userInteractedResult.data || []).map((r: any) => r.to_user_id).filter(Boolean));
+      console.log("[WHEEL] interacted profile count:", interactedIds.size);
     }
 
-    // Count opens per user to rank by popularity.
-    // Limit to 2000 most-recent interactions — enough for accurate ranking
-    // without loading the entire table on each wheel load.
-    const { data: popularRows } = await this.sb
-      .from("interactions")
-      .select("to_user_id")
-      .eq("type", "open")
-      .limit(2000);
+    const popularRows = popularRowsResult.data;
 
     const countMap = new Map<string, number>();
     for (const row of popularRows || []) {

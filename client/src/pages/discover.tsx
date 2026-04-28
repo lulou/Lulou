@@ -442,8 +442,9 @@ export default function Discover() {
   const queryClient = useQueryClient();
 
   useEffect(() => {
+    const t0 = performance.now();
     console.log("[DISCOVER] MOUNTED");
-    return () => console.log("[DISCOVER] UNMOUNTED");
+    return () => console.log("[DISCOVER] UNMOUNTED — was visible for", Math.round(performance.now() - t0), "ms");
   }, []);
 
   // Track which profiles have been shown this session (local queue advancement)

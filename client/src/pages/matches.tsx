@@ -2695,8 +2695,9 @@ export default function Matches() {
 
   // ─── STEP 7: Hard debug logs ────────────────────────────────────────────────
   useEffect(() => {
+    const t0 = performance.now();
     console.log("[MATCHES] MOUNTED");
-    return () => console.log("[MATCHES] UNMOUNTED");
+    return () => console.log("[MATCHES] UNMOUNTED — was visible for", Math.round(performance.now() - t0), "ms");
   }, []);
 
   console.log("[MATCHES] RENDER_REACHED", {
