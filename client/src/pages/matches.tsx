@@ -864,37 +864,73 @@ function ProfilePanel({ profile, onClose }: { profile: Profile; onClose: () => v
   const [photoIdx, setPhotoIdx] = useState(0);
 
   return (
-    <div className="flex flex-col h-full" data-testid="profile-panel">
-      <div className="flex items-center justify-between px-4 py-3 border-b sticky top-0 bg-background/95 backdrop-blur-sm z-10">
-        <h3 className="font-semibold text-sm" data-testid="text-profile-panel-heading">Profile</h3>
-        <Button size="icon" variant="ghost" className="w-8 h-8" onClick={onClose} data-testid="button-close-profile-panel">
-          <X className="w-4 h-4" />
-        </Button>
-      </div>
+    <div className="flex flex-col h-full bg-background" data-testid="profile-panel">
+      <style>{`
+        @keyframes profilePanelIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+        .profile-panel-body { animation: profilePanelIn 0.22s ease both; }
+      `}</style>
 
-      <div className="relative bg-muted overflow-hidden flex-shrink-0" style={{ aspectRatio: "3/4", maxHeight: "52%" }}>
+      <div className="relative flex-shrink-0 bg-muted overflow-hidden" style={{ height: 300 }}>
         {photos.length > 0 ? (
           <img
             src={photos[photoIdx]}
-            className="w-full h-full object-cover"
+            className="w-full h-full object-cover object-center"
             alt={profile.firstName}
             data-testid="img-profile-panel-photo"
           />
         ) : (
-          <div className="w-full h-full flex items-center justify-center">
-            <svg viewBox="0 0 80 80" fill="none" className="w-16 h-16 opacity-20">
-              <circle cx="40" cy="28" r="14" fill="currentColor" />
-              <ellipse cx="40" cy="62" rx="24" ry="16" fill="currentColor" />
+          <div className="w-full h-full flex items-center justify-center bg-secondary/40">
+            <svg viewBox="0 0 80 80" fill="none" className="w-20 h-20 text-muted-foreground/20">
+              <circle cx="40" cy="28" r="15" fill="currentColor" />
+              <ellipse cx="40" cy="64" rx="26" ry="17" fill="currentColor" />
             </svg>
           </div>
         )}
-        <div className="absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-background to-transparent pointer-events-none" />
+
+        <div
+          className="absolute inset-x-0 bottom-0 pointer-events-none"
+          style={{ height: "60%", background: "linear-gradient(to top, rgba(0,0,0,0.72) 0%, rgba(0,0,0,0.28) 55%, transparent 100%)" }}
+        />
+
+        <button
+          onClick={onClose}
+          className="absolute top-3 right-3 z-20 flex items-center justify-center rounded-full transition-all active:scale-90"
+          style={{
+            width: 34, height: 34,
+            background: "rgba(0,0,0,0.38)",
+            backdropFilter: "blur(8px)",
+            WebkitBackdropFilter: "blur(8px)",
+            border: "1px solid rgba(255,255,255,0.18)",
+          }}
+          data-testid="button-close-profile-panel"
+        >
+          <X className="w-4 h-4 text-white" />
+        </button>
+
+        <div className="absolute inset-x-0 bottom-0 z-10 px-4 pb-4">
+          <h2 className="font-serif font-bold text-white leading-tight" style={{ fontSize: 22, textShadow: "0 1px 8px rgba(0,0,0,0.5)" }} data-testid="text-profile-panel-name">
+            {profile.firstName}{profile.age ? `, ${profile.age}` : ""}
+          </h2>
+          <div className="flex items-center gap-3 mt-0.5 flex-wrap">
+            {profile.location && (
+              <span className="flex items-center gap-1 text-white/80 text-xs" data-testid="text-profile-panel-location">
+                <MapPin className="w-3 h-3" />
+                {profile.location}
+              </span>
+            )}
+            {profile.height && (
+              <span className="text-white/70 text-xs" data-testid="text-profile-panel-height">{profile.height}</span>
+            )}
+          </div>
+        </div>
+
         {photos.length > 1 && (
-          <div className="absolute bottom-2 left-0 right-0 flex justify-center gap-1.5 z-10">
+          <div className="absolute top-3 left-0 right-10 flex gap-1 px-3 z-20">
             {photos.map((_, i) => (
               <button
                 key={i}
-                className={`w-1.5 h-1.5 rounded-full transition-all ${i === photoIdx ? "bg-white scale-125" : "bg-white/55"}`}
+                className="flex-1 rounded-full transition-all active:scale-95"
+                style={{ height: 3, background: i === photoIdx ? "rgba(255,255,255,0.96)" : "rgba(255,255,255,0.38)" }}
                 onClick={() => setPhotoIdx(i)}
                 data-testid={`button-profile-photo-dot-${i}`}
               />
@@ -903,70 +939,88 @@ function ProfilePanel({ profile, onClose }: { profile: Profile; onClose: () => v
         )}
       </div>
 
-      <div className="flex-1 overflow-y-auto p-4 space-y-4 pb-6">
-        <div>
-          <h2 className="font-serif text-xl font-bold leading-tight" data-testid="text-profile-panel-name">
-            {profile.firstName}{profile.age ? `, ${profile.age}` : ""}
-          </h2>
-          {profile.location && (
-            <div className="flex items-center gap-1 mt-1 text-muted-foreground text-xs">
-              <MapPin className="w-3 h-3" />
-              <span data-testid="text-profile-panel-location">{profile.location}</span>
+      <div className="flex-1 overflow-y-auto profile-panel-body" style={{ paddingBottom: "env(safe-area-inset-bottom, 16px)" }}>
+        {profile.datingIntent && (
+          <div className="px-4 pt-4">
+            <span
+              className="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold"
+              style={{
+                background: "linear-gradient(135deg, hsl(350 45% 52% / 0.13), hsl(350 45% 52% / 0.07))",
+                color: "hsl(350 45% 44%)",
+                border: "1px solid hsl(350 45% 52% / 0.22)",
+              }}
+              data-testid="badge-profile-panel-intent"
+            >
+              <Heart className="w-3 h-3" />
+              {profile.datingIntent}
+            </span>
+          </div>
+        )}
+
+        <div className="px-4 pt-4 space-y-5 pb-6">
+          {profile.signals && profile.signals.length > 0 && (
+            <div>
+              <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-2">Vibes</p>
+              <div className="flex flex-wrap gap-1.5">
+                {profile.signals.map((s, i) => (
+                  <span
+                    key={i}
+                    className="rounded-full px-3 py-1 text-xs font-medium"
+                    style={{ background: "hsl(var(--muted))", color: "hsl(var(--foreground))", border: "1px solid hsl(var(--border))" }}
+                    data-testid={`badge-profile-panel-signal-${i}`}
+                  >
+                    {s}
+                  </span>
+                ))}
+              </div>
             </div>
           )}
-          {profile.height && (
-            <p className="text-xs text-muted-foreground mt-0.5" data-testid="text-profile-panel-height">{profile.height}</p>
+
+          {profile.greenFlags && profile.greenFlags.length > 0 && (
+            <div>
+              <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-2">Green Flags</p>
+              <div className="flex flex-wrap gap-1.5">
+                {profile.greenFlags.map((f, i) => (
+                  <span
+                    key={i}
+                    className="rounded-full px-3 py-1 text-xs font-medium"
+                    style={{ background: "hsl(155 25% 88%)", color: "hsl(155 30% 26%)", border: "1px solid hsl(155 25% 78%)" }}
+                    data-testid={`badge-profile-panel-flag-${i}`}
+                  >
+                    {f}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {profile.connectionStyle && (
+            <div>
+              <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-2">Connection Style</p>
+              <p className="text-sm leading-relaxed text-foreground/85 font-serif italic" data-testid="text-profile-panel-connection-style">
+                "{profile.connectionStyle}"
+              </p>
+            </div>
+          )}
+
+          {profile.conversationStarters && profile.conversationStarters.length > 0 && (
+            <div>
+              <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-2">Ask me about</p>
+              <div className="space-y-2">
+                {profile.conversationStarters.map((s, i) => (
+                  <div
+                    key={i}
+                    className="rounded-2xl px-4 py-3"
+                    style={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", boxShadow: "0 1px 4px rgba(0,0,0,0.04)" }}
+                    data-testid={`text-profile-panel-starter-${i}`}
+                  >
+                    <p className="text-sm leading-relaxed text-foreground/80">{s}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
           )}
         </div>
-
-        {profile.datingIntent && (
-          <div>
-            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Intention</p>
-            <Badge variant="secondary" data-testid="badge-profile-panel-intent">{profile.datingIntent}</Badge>
-          </div>
-        )}
-
-        {profile.signals && profile.signals.length > 0 && (
-          <div>
-            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Signals</p>
-            <div className="flex flex-wrap gap-1.5">
-              {profile.signals.map((s, i) => (
-                <Badge key={i} variant="outline" className="text-xs" data-testid={`badge-profile-panel-signal-${i}`}>{s}</Badge>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {profile.greenFlags && profile.greenFlags.length > 0 && (
-          <div>
-            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Green Flags</p>
-            <div className="flex flex-wrap gap-1.5">
-              {profile.greenFlags.map((f, i) => (
-                <Badge key={i} variant="outline" className="text-xs" data-testid={`badge-profile-panel-flag-${i}`}>{f}</Badge>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {profile.connectionStyle && (
-          <div>
-            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Connection Style</p>
-            <p className="text-sm leading-relaxed" data-testid="text-profile-panel-connection-style">{profile.connectionStyle}</p>
-          </div>
-        )}
-
-        {profile.conversationStarters && profile.conversationStarters.length > 0 && (
-          <div>
-            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Conversation Starters</p>
-            <div className="space-y-2">
-              {profile.conversationStarters.map((s, i) => (
-                <p key={i} className="text-sm bg-muted rounded-lg px-3 py-2 leading-relaxed" data-testid={`text-profile-panel-starter-${i}`}>
-                  "{s}"
-                </p>
-              ))}
-            </div>
-          </div>
-        )}
       </div>
     </div>
   );
@@ -1662,24 +1716,44 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
           <ChevronLeft className="w-5 h-5" />
         </Button>
         <button
-          className="flex items-center gap-3 flex-1 min-w-0 text-left hover:opacity-80 active:opacity-60 transition-opacity"
+          className="flex items-center gap-3 flex-1 min-w-0 text-left rounded-xl transition-all active:scale-[0.98]"
+          style={{ WebkitTapHighlightColor: "transparent", outline: "none" }}
           onClick={() => setShowProfilePanel(p => !p)}
           data-testid={`button-view-profile-${match.id}`}
         >
-          <Avatar className="w-10 h-10 shrink-0">
-            <AvatarImage src={match.profile.photos?.[0]} alt={match.profile.firstName} />
-            <AvatarFallback className="bg-primary/10 text-primary font-semibold text-sm">
-              {match.profile.firstName?.[0]}
-            </AvatarFallback>
-          </Avatar>
+          <div className="relative shrink-0">
+            <Avatar className="w-10 h-10">
+              <AvatarImage src={match.profile.photos?.[0]} alt={match.profile.firstName} />
+              <AvatarFallback className="bg-primary/10 text-primary font-semibold text-sm">
+                {match.profile.firstName?.[0]}
+              </AvatarFallback>
+            </Avatar>
+            <span
+              className="absolute -bottom-0.5 -right-0.5 flex items-center justify-center rounded-full bg-background"
+              style={{ width: 15, height: 15 }}
+            >
+              <span className="w-2.5 h-2.5 rounded-full bg-green-400 border border-background" />
+            </span>
+          </div>
           <div className="flex-1 min-w-0">
-            <h3 className="font-semibold text-sm truncate" data-testid={`text-match-name-${match.id}`}>
-              {match.profile.firstName}, {match.profile.age}
+            <h3 className="font-semibold text-sm truncate leading-tight" data-testid={`text-match-name-${match.id}`}>
+              {match.profile.firstName}{match.profile.age ? `, ${match.profile.age}` : ""}
             </h3>
-            <p className="text-xs text-muted-foreground truncate flex items-center gap-1">
-              <User className="w-2.5 h-2.5 shrink-0" />
-              View profile
-            </p>
+            <span
+              className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 mt-0.5 text-[10px] font-semibold transition-all"
+              style={showProfilePanel ? {
+                background: "linear-gradient(135deg, hsl(350 45% 52% / 0.18), hsl(350 45% 52% / 0.10))",
+                color: "hsl(350 45% 44%)",
+                border: "1px solid hsl(350 45% 52% / 0.3)",
+              } : {
+                background: "hsl(var(--muted))",
+                color: "hsl(var(--muted-foreground))",
+                border: "1px solid hsl(var(--border))",
+              }}
+            >
+              <User className="w-2.5 h-2.5" />
+              {showProfilePanel ? "Hide profile" : "View profile"}
+            </span>
           </div>
         </button>
         <div className="flex items-center gap-1.5 shrink-0">
@@ -2217,23 +2291,50 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
       </div>
 
       {showProfilePanel && (
-        <div className="hidden lg:flex flex-col w-80 border-l overflow-hidden flex-shrink-0">
+        <div
+          className="hidden lg:flex flex-col overflow-hidden flex-shrink-0"
+          style={{
+            width: 320,
+            borderLeft: "1px solid hsl(var(--border))",
+            animation: "sidebarSlideIn 0.22s cubic-bezier(0.22,1,0.36,1) both",
+          }}
+        >
+          <style>{`
+            @keyframes sidebarSlideIn { from { opacity: 0; transform: translateX(20px); } to { opacity: 1; transform: translateX(0); } }
+            @keyframes sheetSlideUp { from { opacity: 0; transform: translateY(100%); } to { opacity: 1; transform: translateY(0); } }
+            @keyframes sheetFadeIn { from { opacity: 0; } to { opacity: 1; } }
+          `}</style>
           <ProfilePanel profile={match.profile} onClose={() => setShowProfilePanel(false)} />
         </div>
       )}
 
       {showProfilePanel && (
-        <div className="lg:hidden fixed inset-0 z-[60]" data-testid="profile-panel-mobile-sheet">
+        <div
+          className="lg:hidden fixed inset-0 z-[60]"
+          data-testid="profile-panel-mobile-sheet"
+          style={{ animation: "sheetFadeIn 0.18s ease both" }}
+        >
           <div
-            className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+            className="absolute inset-0"
+            style={{ background: "rgba(0,0,0,0.48)", backdropFilter: "blur(4px)", WebkitBackdropFilter: "blur(4px)" }}
             onClick={() => setShowProfilePanel(false)}
           />
           <div
-            className="absolute inset-x-0 bottom-0 bg-background rounded-t-2xl overflow-hidden"
-            style={{ maxHeight: "85dvh" }}
+            className="absolute inset-x-0 bottom-0 overflow-hidden"
+            style={{
+              maxHeight: "88dvh",
+              borderRadius: "20px 20px 0 0",
+              background: "hsl(var(--background))",
+              boxShadow: "0 -8px 40px rgba(0,0,0,0.18)",
+              animation: "sheetSlideUp 0.28s cubic-bezier(0.22,1,0.36,1) both",
+            }}
           >
-            <div className="w-10 h-1 bg-muted-foreground/20 rounded-full mx-auto mt-3 mb-1 flex-shrink-0" />
-            <ProfilePanel profile={match.profile} onClose={() => setShowProfilePanel(false)} />
+            <div className="flex justify-center pt-2.5 pb-1 flex-shrink-0">
+              <div className="w-10 h-1 rounded-full" style={{ background: "hsl(var(--muted-foreground)/0.25)" }} />
+            </div>
+            <div style={{ maxHeight: "calc(88dvh - 20px)", overflow: "hidden", display: "flex", flexDirection: "column" }}>
+              <ProfilePanel profile={match.profile} onClose={() => setShowProfilePanel(false)} />
+            </div>
           </div>
         </div>
       )}
