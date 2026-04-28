@@ -1,0 +1,63 @@
+The app can still be made faster, but the main broken page now is Connections.
+
+Connections page issue:
+- Connections does not fully load
+- It says “that’s all the people to view for now”
+- But the intent wheel shows there are still a couple of users
+- So the app thinks I have already seen everyone, even though users still exist
+
+Please debug Connections specifically.
+
+Likely issue:
+The Connections page is filtering out valid users incorrectly, probably because of:
+- wrong “already seen” / swiped / viewed logic
+- bad exclusion query
+- over-filtering by gender/preference
+- excluding users from the intent wheel incorrectly
+- stale local state/cache
+- loading ending before all users are fetched
+- mismatch between Discover users and Connections users
+
+Please inspect:
+1. Connections page fetch logic
+2. intent wheel user source
+3. “already seen” / “viewed” / “swiped” table logic
+4. likes/dislikes/pass filtering
+5. gender/preference compatibility filter
+6. blocked/reported user filtering
+7. local cached profiles state
+8. Supabase query limits and ordering
+
+Add logs showing:
+- current user id
+- raw users returned from Supabase
+- users in intent wheel
+- users excluded as already seen
+- users excluded by gender/preference
+- users excluded by likes/swipes/passes
+- users excluded by blocks/reports
+- final visible users
+- reason each user was filtered out
+
+Fix the logic so Connections only shows “that’s all the people to view for now” when:
+- Supabase returns no valid unseen compatible users
+- after all filters are correctly applied
+- and intent wheel also has no available users
+
+If the intent wheel has users, Connections must not show the empty state unless those exact users are correctly excluded with a logged reason.
+
+Also improve speed:
+- reduce duplicate profile fetches
+- avoid select *
+- add query limits/pagination
+- cache current user/profile once
+- avoid repeated Supabase calls on every render
+- make Connections render shell immediately
+- show loading/empty/error states correctly
+
+Then report:
+1. exact root cause
+2. exact files changed
+3. exact code changed
+4. why intent wheel had users but Connections showed empty
+5. what speed improvements were made

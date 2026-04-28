@@ -1168,15 +1168,22 @@ export async function registerRoutes(
       const myProfile = await storage.getProfileMeta(userId);
       const preference = myProfile?.datingPreference;
       const gender = myProfile?.gender;
-      const popular = await storage.getPopularProfiles(30, preference, gender);
 
+      console.log("[WHEEL] /api/popular called:", { userId, preference, gender });
+
+      // Pass userId so getPopularProfiles can exclude already-interacted profiles,
+      // keeping the wheel consistent with Discover (no more "wheel has users but
+      // Discover says you've seen everyone" mismatch).
+      const popular = await storage.getPopularProfiles(30, preference, gender, userId);
+
+      // Exclude own profile (safety guard — storage already excludes via interaction logic)
       const selfFiltered = popular.filter(p => p.userId !== userId);
 
-      const shuffled = selfFiltered.sort(() => Math.random() - 0.5);
-      const result = shuffled.slice(0, 10);
+      const result = selfFiltered.slice(0, 10);
+      console.log("[WHEEL] /api/popular returning:", result.length, "profiles to userId:", userId);
       res.json(result);
     } catch (error) {
-      console.error("Error fetching popular profiles:", error);
+      console.error("[WHEEL] Error fetching popular profiles:", error);
       res.status(500).json({ message: "Failed to fetch popular profiles" });
     }
   });

@@ -168,7 +168,7 @@ export interface IStorage {
   acceptFaceCall(matchId: string, userId: string): Promise<Match | undefined>;
   declineFaceCall(matchId: string, userId: string): Promise<Match | undefined>;
   getProfilePhotos(userId: string): Promise<string[]>;
-  getPopularProfiles(limit?: number, preference?: string, gender?: string): Promise<Profile[]>;
+  getPopularProfiles(limit?: number, preference?: string, gender?: string, userId?: string): Promise<Profile[]>;
   getSpinStandouts(userId: string): Promise<string[]>;
   addSpinStandout(userId: string, standoutUserId: string): Promise<void>;
   getSpinsToday(userId: string): Promise<number>;
@@ -540,7 +540,13 @@ export class SupabaseStorage implements IStorage {
     const all = (profilesResult.data || []).map(mapProfile);
     // Exclude only profiles the user has already interacted with (skipped/opened).
     // Own profile is already excluded by the .neq("user_id", userId) DB filter.
-    const baseFiltered = all.filter(p => !interactedIds.has(p.userId));
+    const baseFiltered = all.filter(p => {
+      if (interactedIds.has(p.userId)) {
+        console.log(`[DISCOVER] EXCLUDED userId=${p.userId} (${p.firstName}) — already interacted`);
+        return false;
+      }
+      return true;
+    });
 
     const elevates = await getActiveElevatesMap();
     const filtered = mergeElevatesIntoProfiles(baseFiltered, elevates);
@@ -552,6 +558,7 @@ export class SupabaseStorage implements IStorage {
       "| after interaction exclusion:", baseFiltered.length,
       "| after elevate merge:", filtered.length,
       "| super:", superCount, "elevate:", elevCount,
+      "| interactedIds count:", interactedIds.size,
     );
 
     // Fallback tier 1: both mutual filters applied but pool is still empty.
@@ -1269,7 +1276,7 @@ export class SupabaseStorage implements IStorage {
     return updated ? mapMatch(updated) : undefined;
   }
 
-  async getPopularProfiles(limit: number = 10, preference?: string, gender?: string): Promise<Profile[]> {
+  async getPopularProfiles(limit: number = 10, preference?: string, gender?: string, userId?: string): Promise<Profile[]> {
     // Photos excluded from this query — same reasoning as getDiscoverProfiles.
     // Intent page lazy-loads photos per wheel item via GET /api/profiles/:userId/photos.
     const WHEEL_COLS = [
@@ -1287,6 +1294,7 @@ export class SupabaseStorage implements IStorage {
     const candidateMustPrefer = gender ? getPreferencesThatIncludeGender(normGender) : [];
 
     console.log("[WHEEL] mutual-compat filters:", {
+      userId: userId ?? "(none)",
       myGender: gender ?? "(none)",
       myGenderNorm: normGender,
       myPreference: preference ?? "(none)",
@@ -1301,6 +1309,24 @@ export class SupabaseStorage implements IStorage {
       if (candidateMustPrefer.length > 0) q = q.in("dating_preference", candidateMustPrefer);
       return q;
     };
+
+    // Fetch the current user's interactions so we can exclude already-swiped profiles.
+    // This keeps the wheel consistent with Discover — users who have been liked/closed
+    // won't appear in the wheel either, preventing the confusing "wheel shows someone
+    // but Discover says you've seen everyone" mismatch.
+    let interactedIds = new Set<string>();
+    if (userId) {
+      const { data: interactedRows, error: interactedErr } = await this.sb
+        .from("interactions")
+        .select("to_user_id")
+        .eq("from_user_id", userId);
+      if (interactedErr) {
+        console.error("[WHEEL] interactions fetch error:", interactedErr.message);
+      } else {
+        interactedIds = new Set((interactedRows || []).map((r: any) => r.to_user_id).filter(Boolean));
+        console.log("[WHEEL] interacted profile count:", interactedIds.size);
+      }
+    }
 
     // Count opens per user to rank by popularity.
     // Limit to 2000 most-recent interactions — enough for accurate ranking
@@ -1317,7 +1343,7 @@ export class SupabaseStorage implements IStorage {
     }
     const sortedIds = [...countMap.entries()]
       .sort((a, b) => b[1] - a[1])
-      .slice(0, limit)
+      .slice(0, limit * 3) // fetch more to account for interaction exclusions
       .map(([id]) => id);
 
     console.log("[WHEEL] interactions pool:", popularRows?.length ?? 0, "| popular ids:", sortedIds.length);
@@ -1342,7 +1368,8 @@ export class SupabaseStorage implements IStorage {
       allProfiles.sort((a, b) => (orderMap.get(a.userId) ?? 99) - (orderMap.get(b.userId) ?? 99));
     }
 
-    // Fill remaining slots from any eligible profile (most recently joined first)
+    // Fill remaining slots from any eligible profile (most recently joined first).
+    // Fetch limit*3 to ensure enough remain after interaction filtering below.
     if (allProfiles.length < limit) {
       const existingIds = allProfiles.map(r => r.userId);
       let query = this.sb
@@ -1350,7 +1377,7 @@ export class SupabaseStorage implements IStorage {
         .select(WHEEL_COLS)
         .eq("onboarding_complete", true)
         .order("created_at", { ascending: false })
-        .limit(limit - allProfiles.length);
+        .limit(limit * 3);
 
       if (existingIds.length > 0) {
         query = query.not("user_id", "in", `(${existingIds.join(",")})`);
@@ -1364,25 +1391,45 @@ export class SupabaseStorage implements IStorage {
       allProfiles.push(...(extra || []).map(mapProfile));
     }
 
-    console.log("[WHEEL] total profiles before elevate:", allProfiles.length, "| preference:", preference ?? "any", "| gender:", gender ?? "any");
+    console.log("[WHEEL] total profiles before interaction filter:", allProfiles.length, "| preference:", preference ?? "any", "| gender:", gender ?? "any");
 
-    // If still empty, show anyone with onboarding complete (no gender filter)
+    // Exclude profiles the current user has already interacted with.
+    // This makes the wheel consistent with Discover — the user won't see people
+    // they've already liked or closed anywhere else in the app.
+    if (userId && interactedIds.size > 0) {
+      const beforeCount = allProfiles.length;
+      allProfiles = allProfiles.filter(p => {
+        if (interactedIds.has(p.userId)) {
+          console.log(`[WHEEL] EXCLUDED userId=${p.userId} (${p.firstName}) — already interacted`);
+          return false;
+        }
+        return true;
+      });
+      console.log(`[WHEEL] after interaction exclusion: ${allProfiles.length} (removed ${beforeCount - allProfiles.length})`);
+    }
+
+    // If still empty after interaction filter, show anyone with onboarding complete (no gender filter).
+    // This last-resort fallback shows any uninteracted user to prevent a completely empty wheel.
     if (allProfiles.length === 0) {
-      console.log("[WHEEL] no profiles after preference filter — falling back to any completed profile");
+      console.log("[WHEEL] no profiles after all filters — falling back to any non-interacted completed profile");
       const { data: fallback } = await this.sb
         .from("profiles")
         .select(WHEEL_COLS)
         .eq("onboarding_complete", true)
         .order("created_at", { ascending: false })
-        .limit(limit);
-      allProfiles = (fallback || []).map(mapProfile);
-      console.log("[WHEEL] fallback pool:", allProfiles.length);
+        .limit(limit * 3);
+      const fallbackMapped = (fallback || []).map(mapProfile).filter(p =>
+        p.userId !== userId && !interactedIds.has(p.userId)
+      );
+      allProfiles = fallbackMapped;
+      console.log("[WHEEL] fallback pool after interaction filter:", allProfiles.length);
     }
 
     // Merge live elevate status from local DB, then weighted sample
     const elevates = await getActiveElevatesMap();
     const now = new Date();
     const elevatedProfiles = mergeElevatesIntoProfiles(allProfiles, elevates);
+    console.log("[WHEEL] final pool returned:", elevatedProfiles.length);
     return weightedSample(elevatedProfiles, elevatedProfiles.length, now);
   }
 
