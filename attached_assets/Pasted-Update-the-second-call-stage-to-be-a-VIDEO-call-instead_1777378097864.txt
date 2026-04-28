@@ -1,0 +1,85 @@
+Update the second call stage to be a VIDEO call instead of a normal audio call.
+
+Current issues:
+- second call does not behave like a real call (already identified)
+- it must now be upgraded to a full video call stage
+
+Correct behavior:
+
+FIRST CALL STAGE:
+- audio call only (voice)
+- 10 minute countdown
+- no video
+
+SECOND CALL STAGE:
+- video call (camera + audio)
+- 15 minute countdown
+- real incoming call + accept flow
+- behaves like a proper video call (not just timer)
+
+Implementation requirements:
+
+1. VIDEO ENABLED CALL
+- use WebRTC video + audio streams
+- enable camera + microphone
+- display local video (self view)
+- display remote user video
+- handle permissions (camera + mic)
+
+2. CALL FLOW (must match first call but with video)
+- user taps “Start Video Call”
+- other user receives incoming video call screen
+- user accepts → call connects
+- countdown starts AFTER connection
+- call ends automatically at 0:00
+
+3. UI REQUIREMENTS
+- show both video feeds (local + remote)
+- include controls:
+ - mute/unmute mic
+ - toggle camera on/off
+ - switch camera (front/back on mobile)
+ - speaker toggle
+ - end call
+- clean layout:
+ - main video = other user
+ - small corner preview = self
+
+4. PERFORMANCE
+- do not block call setup with heavy UI
+- load video stream only after accepted
+- handle slow connections gracefully
+- fallback if camera fails (audio-only fallback)
+
+5. STAGE LOGIC
+- detect stage:
+ - first_call → audio only (10 min)
+ - second_call → video call (15 min)
+- reuse existing call system but extend for video
+- ensure second call uses SAME call infrastructure, not separate broken logic
+
+6. PERMISSIONS
+- request camera + microphone when starting video call
+- handle denied permissions gracefully:
+ - show message
+ - fallback to audio if needed
+
+7. IMPORTANT
+- first call remains audio only
+- second call is video only
+- both remain FREE
+- premium/Elevate only applies to extra calls
+
+8. DEBUG
+Show:
+- whether second call now uses video stream
+- how call type is determined by stage
+- how countdown starts after connection
+- how call ends at 0:00
+
+Return:
+1. exact files changed
+2. exact code changed
+3. how video call is implemented
+4. how stage determines audio vs video
+5. how to test both stages

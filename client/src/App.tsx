@@ -531,18 +531,21 @@ function CallDetectors({ userId }: { userId: string }) {
     prevActiveRef.current = activeKey;
   }, [activeCall?.id, activeCall?.callSessionId, userId]);
 
-  // Face calls happen at callStage === 3 (after both users accept the face call opt-in).
-  // Stage 2 is the post-second-call messaging phase — no calls are allowed there.
+  // Stage 1 = second call = video (camera + audio, 15 min).
+  // Stage 3 = face call = video (requires both-user opt-in).
+  // Stage 2 is post-second-call messaging — no calls allowed there.
   const isFaceCall = incomingCall
-    ? (incomingCall.callStage || 0) === 3 &&
-      !!incomingCall.faceCallUser1Accepted &&
-      !!incomingCall.faceCallUser2Accepted
+    ? (incomingCall.callStage || 0) === 1 ||   // second call is always video
+      ((incomingCall.callStage || 0) === 3 &&
+        !!incomingCall.faceCallUser1Accepted &&
+        !!incomingCall.faceCallUser2Accepted)
     : false;
 
   const isActiveVideo = activeCall
-    ? (activeCall.callStage || 0) === 3 &&
-      !!activeCall.faceCallUser1Accepted &&
-      !!activeCall.faceCallUser2Accepted
+    ? (activeCall.callStage || 0) === 1 ||   // second call is always video
+      ((activeCall.callStage || 0) === 3 &&
+        !!activeCall.faceCallUser1Accepted &&
+        !!activeCall.faceCallUser2Accepted)
     : false;
 
   const handleDismiss = useCallback(() => {

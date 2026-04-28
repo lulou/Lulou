@@ -175,7 +175,7 @@ export function ActiveCallOverlay({
   const stageDuration = getStageDuration(callStage);
   const { display: countdownDisplay, remaining, warning } = useCountdownTimer(isConnected, stageDuration);
 
-  const stageLabel = callStage === 0 ? "First call" : callStage === 1 ? "Second call" : "Face call";
+  const stageLabel = callStage === 0 ? "First call · Audio" : callStage === 1 ? "Second call · Video" : "Face call · Video";
 
   // Outgoing ringback tone: play only while the caller is waiting for an answer.
   // Stops automatically when isRinging becomes false (answered) or on unmount.

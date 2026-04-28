@@ -616,6 +616,7 @@ function CallSchedulingCard({
   const isReadyToStart = scheduleData?.type === "accept" && scheduledTime && scheduledTime.getTime() <= now + 5 * 60 * 1000;
   const callLabel = callStage === 0 ? "first" : "second";
   const callDuration = callStage === 0 ? "10-minute" : "15-minute";
+  const isVideoCall = callStage === 1; // Second call is video
 
   const quickTimes = [
     { label: "Available now", value: new Date().toISOString() },
@@ -632,12 +633,26 @@ function CallSchedulingCard({
       <div className="p-4 border-t" data-testid={`call-schedule-ready-${matchId}`}>
         <Card className="p-4 text-center space-y-3 bg-green-50/60 dark:bg-green-950/20 border-green-200/50 dark:border-green-800/40">
           <div className="flex items-center justify-center gap-2">
-            <Phone className="w-5 h-5 text-green-600 dark:text-green-400" />
-            <p className="font-semibold text-sm text-green-700 dark:text-green-400">It's time to talk!</p>
+            {isVideoCall ? (
+              <Video className="w-5 h-5 text-green-600 dark:text-green-400" />
+            ) : (
+              <Phone className="w-5 h-5 text-green-600 dark:text-green-400" />
+            )}
+            <p className="font-semibold text-sm text-green-700 dark:text-green-400">
+              {isVideoCall ? "It's time to see each other!" : "It's time to talk!"}
+            </p>
           </div>
-          <p className="text-xs text-muted-foreground">Your {callLabel} call is ready. Start when you're both on.</p>
+          <p className="text-xs text-muted-foreground">
+            {isVideoCall
+              ? "Your second call is a video call. Start when you're both ready."
+              : `Your ${callLabel} call is ready. Start when you're both on.`}
+          </p>
           <Button size="sm" onClick={onStartCall} disabled={startCallPending} className="bg-green-600 hover:bg-green-700 text-white" data-testid={`button-start-scheduled-call-${matchId}`}>
-            <Phone className="w-4 h-4 mr-2" /> Start {callLabel === "first" ? "First" : "Second"} Call
+            {isVideoCall ? (
+              <><Video className="w-4 h-4 mr-2" /> Start Video Call</>
+            ) : (
+              <><Phone className="w-4 h-4 mr-2" /> Start {callLabel === "first" ? "First" : "Second"} Call</>
+            )}
           </Button>
         </Card>
       </div>
@@ -703,8 +718,14 @@ function CallSchedulingCard({
       <div className="p-4 border-t" data-testid={`call-schedule-incoming-${matchId}`}>
         <Card className="p-4 space-y-3 bg-primary/5 border-primary/20">
           <div className="flex items-center gap-2">
-            <Phone className="w-4 h-4 text-primary shrink-0" />
-            <p className="font-medium text-sm">{matchName} wants to schedule your {callLabel} call</p>
+            {isVideoCall ? (
+              <Video className="w-4 h-4 text-primary shrink-0" />
+            ) : (
+              <Phone className="w-4 h-4 text-primary shrink-0" />
+            )}
+            <p className="font-medium text-sm">
+              {matchName} wants to schedule your {isVideoCall ? "video call" : `${callLabel} call`}
+            </p>
           </div>
           {scheduledTime && (
             <p className="text-xs text-muted-foreground">Proposed: {formatScheduledTime(scheduledTime, now)} ({scheduledTime.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })})</p>
@@ -764,12 +785,18 @@ function CallSchedulingCard({
   return (
     <div className="p-4 border-t" data-testid={`call-schedule-initial-${matchId}`}>
       <Card className="p-4 space-y-3 bg-primary/5 border-primary/20">
-        <Phone className="w-5 h-5 text-primary mx-auto" />
+        {isVideoCall ? (
+          <Video className="w-5 h-5 text-primary mx-auto" />
+        ) : (
+          <Phone className="w-5 h-5 text-primary mx-auto" />
+        )}
         <p className="font-medium text-sm text-center">
-          {callStage === 0 ? "Ready for your first call?" : "Ready for your second call?"}
+          {callStage === 0 ? "Ready for your first call?" : "Ready for your video call?"}
         </p>
         <p className="text-xs text-muted-foreground text-center">
-          Schedule your {callDuration} {callLabel} call. Pick a time that works for you.
+          {isVideoCall
+            ? `Schedule your ${callDuration} video call — camera and mic will be used.`
+            : `Schedule your ${callDuration} ${callLabel} call. Pick a time that works for you.`}
         </p>
         {!showPicker ? (
           <div className="space-y-2">
@@ -1946,7 +1973,7 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
                     className="w-16 h-16 rounded-full flex items-center justify-center"
                     style={{ background: "hsl(350 45% 52% / 0.18)", border: "1.5px solid hsl(350 45% 52% / 0.3)" }}
                   >
-                    {isFaceCallStage && bothAcceptedFaceCall ? (
+                    {(isFaceCallStage && bothAcceptedFaceCall) || callStage === 1 ? (
                       <Video className="w-6 h-6 animate-pulse" style={{ color: "hsl(350 45% 72%)" }} />
                     ) : (
                       <Phone className="w-6 h-6 animate-pulse" style={{ color: "hsl(350 45% 72%)" }} />
@@ -2000,7 +2027,7 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
                     className="w-16 h-16 rounded-full flex items-center justify-center"
                     style={{ background: "hsl(145 60% 35% / 0.2)", border: "1.5px solid hsl(145 60% 45% / 0.35)" }}
                   >
-                    {isFaceCallStage && bothAcceptedFaceCall ? (
+                    {(isFaceCallStage && bothAcceptedFaceCall) || callStage === 1 ? (
                       <Video className="w-6 h-6 animate-pulse" style={{ color: "hsl(145 60% 60%)" }} />
                     ) : (
                       <Phone className="w-6 h-6 animate-pulse" style={{ color: "hsl(145 60% 60%)" }} />
@@ -2059,7 +2086,7 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
                 </div>
                 <div className="space-y-1">
                   <p className="font-medium text-sm" data-testid={`text-call-active-label-${match.id}`}>
-                    {isFaceCallStage && bothAcceptedFaceCall ? "Face call in progress" : callStage === 1 ? "Second call in progress" : "First call in progress"}
+                    {isFaceCallStage && bothAcceptedFaceCall ? "Face call in progress" : callStage === 1 ? "Video call in progress" : "First call in progress"}
                   </p>
                   <p className="text-xs text-muted-foreground">Use the call overlay to manage your call</p>
                 </div>
@@ -2231,7 +2258,7 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
               callStage={1}
               startCallPending={startCall.isPending}
               onStartCall={() => {
-                console.log("[CALL_UI] CALL_REQUEST_STARTED", { matchId: match.id, callStage: 1, callType: "voice_2", role: "caller" });
+                console.log("[CALL_UI] CALL_REQUEST_STARTED", { matchId: match.id, callStage: 1, callType: "video_2", role: "caller" });
                 startCall.mutate();
               }}
             />
