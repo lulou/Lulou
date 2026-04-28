@@ -1,0 +1,67 @@
+Messaging is far too slow.
+
+Current issue:
+- user sends a message
+- the other user receives it around 30 seconds later
+- messaging must feel instantaneous, ideally under 1 second
+
+Please debug and fix real-time messaging specifically.
+
+Check:
+
+1. REALTIME SUBSCRIPTIONS
+- confirm Supabase Realtime is being used for messages
+- confirm the chat page subscribes to INSERT events on the messages table
+- confirm the subscription filter is for the current conversation_id
+- confirm subscription is created once, not repeatedly
+- confirm subscription is cleaned up on unmount
+- confirm Realtime is enabled for the messages table in Supabase
+
+2. CURRENT MESSAGE FLOW
+Trace:
+- message send clicked
+- message inserted into Supabase
+- local UI updates immediately
+- Realtime INSERT received by other user
+- message appears in recipient chat
+
+Add timing logs for each step.
+
+3. OPTIMISTIC UI
+Implement optimistic message sending:
+- message appears instantly for sender before Supabase confirms
+- if insert fails, show failed state/retry
+- do not wait for refetch to show sent message
+
+4. REMOVE SLOW POLLING / REFETCHING
+If messaging is relying on polling every 30 seconds, replace it with Supabase Realtime.
+Do not wait for full conversation refetch after every message.
+
+5. QUERY SPEED
+- only fetch messages for the current conversation
+- order by created_at ascending
+- limit/paginate older messages
+- do not reload all chats/messages after sending
+- select only needed message fields
+
+6. DATABASE INDEXES
+Add/check indexes for:
+- messages.conversation_id
+- messages.created_at
+- messages.conversation_id + created_at
+
+7. RECIPIENT UPDATE
+Make sure the recipient’s open chat updates instantly.
+Also make sure messages list preview/unread count updates quickly.
+
+8. REPORT
+Show me:
+- root cause of 30-second delay
+- whether it was polling, missing realtime, subscription bug, slow query, or refetch issue
+- exact files changed
+- exact code changed
+- indexes added
+- before/after timing logs
+
+Priority:
+Messages should appear instantly for sender and within 1 second for recipient.
