@@ -582,6 +582,7 @@ function CallDetectors({ userId }: { userId: string }) {
           isRinging={!activeCall.callAnswered}
           callerName={activeCall.profile?.name || activeCall.profile?.firstName || "Unknown"}
           callerPhoto={activeCall.profile?.photos?.[0] || undefined}
+          callStage={activeCall.callStage || 0}
           onCallEnd={handleActiveCallEnd}
         />
       )}

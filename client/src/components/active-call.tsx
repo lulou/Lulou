@@ -7,6 +7,42 @@ import { useCallRingtone } from "@/hooks/use-call-ringtone";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { PhoneOff, Mic, MicOff, Volume2, VolumeX, Camera, CameraOff, Loader2, WifiOff, AlertTriangle } from "lucide-react";
 
+// Duration in seconds for each call stage.
+// stage 0 = first voice call (10 min), stage 1 = second voice call (15 min),
+// stage 3 = face call (10 min). All others default to 10 min.
+const CALL_DURATIONS_SEC: Record<number, number> = { 0: 10 * 60, 1: 15 * 60, 3: 10 * 60 };
+function getStageDuration(callStage: number): number {
+  return CALL_DURATIONS_SEC[callStage] ?? 10 * 60;
+}
+
+type WarningLevel = "none" | "two_min" | "one_min" | "ten_sec";
+interface CountdownState { display: string; remaining: number; warning: WarningLevel }
+
+function useCountdownTimer(running: boolean, totalSeconds: number): CountdownState {
+  const [remaining, setRemaining] = useState(totalSeconds);
+
+  // Reset to full duration whenever the call type changes or the call starts
+  useEffect(() => { setRemaining(totalSeconds); }, [totalSeconds]);
+
+  useEffect(() => {
+    if (!running || remaining <= 0) return;
+    const interval = setInterval(() => {
+      setRemaining(r => (r <= 1 ? 0 : r - 1));
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [running, remaining <= 0]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const mins = Math.floor(remaining / 60);
+  const secs = remaining % 60;
+  const display = `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
+  const warning: WarningLevel =
+    remaining <= 10 ? "ten_sec" :
+    remaining <= 60 ? "one_min" :
+    remaining <= 120 ? "two_min" : "none";
+
+  return { display, remaining, warning };
+}
+
 interface ActiveCallProps {
   matchId: string;
   callSessionId: string;
@@ -16,20 +52,8 @@ interface ActiveCallProps {
   isRinging: boolean;
   callerName: string;
   callerPhoto?: string;
+  callStage: number;
   onCallEnd: () => void;
-}
-
-function useElapsedTimer(running: boolean) {
-  const [elapsed, setElapsed] = useState(0);
-  useEffect(() => {
-    if (!running) return;
-    setElapsed(0);
-    const interval = setInterval(() => setElapsed(e => e + 1), 1000);
-    return () => clearInterval(interval);
-  }, [running]);
-  const mins = Math.floor(elapsed / 60);
-  const secs = elapsed % 60;
-  return `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
 }
 
 function ControlButton({
@@ -69,6 +93,7 @@ export function ActiveCallOverlay({
   isRinging,
   callerName,
   callerPhoto,
+  callStage,
   onCallEnd,
 }: ActiveCallProps) {
   const queryClient = useQueryClient();
@@ -76,6 +101,7 @@ export function ActiveCallOverlay({
   const [speakerOn, setSpeakerOn] = useState(true);
   const [debugLogs, setDebugLogs] = useState<string[]>([]);
   const [failureReason, setFailureReason] = useState<string>("");
+  const [timerExpiredMsg, setTimerExpiredMsg] = useState("");
   // Track exactly when WebRTC first reached "connected" so we can measure live duration
   const connectedAtRef = useRef<number | null>(null);
 
@@ -117,7 +143,12 @@ export function ActiveCallOverlay({
   const isConnecting = connectionState === "connecting" || connectionState === "requesting-media";
   const isReconnecting = connectionState === "reconnecting";
   const isFailed = connectionState === "failed";
-  const timerLabel = useElapsedTimer(isConnected);
+
+  // Countdown timer — starts when WebRTC connects, counts down to 0 then auto-ends.
+  const stageDuration = getStageDuration(callStage);
+  const { display: countdownDisplay, remaining, warning } = useCountdownTimer(isConnected, stageDuration);
+
+  const stageLabel = callStage === 0 ? "First call" : callStage === 1 ? "Second call" : "Face call";
 
   // Outgoing ringback tone: play only while the caller is waiting for an answer.
   // Stops automatically when isRinging becomes false (answered) or on unmount.
@@ -150,6 +181,26 @@ export function ActiveCallOverlay({
       console.warn("[CALL_UI] CALL_STATE:reconnecting", { matchId, callSessionId, connectedDurationSoFar: connectedAtRef.current ? Date.now() - connectedAtRef.current : 0 });
     }
   }, [connectionState, webrtcEnabled]);
+
+  // ── Auto-end when countdown reaches 0 ────────────────────────────────────────
+  // Only fire when we're actively connected (not ringing/connecting) and the
+  // call hasn't already been ended by some other path (endedRef guard).
+  useEffect(() => {
+    if (remaining === 0 && isConnected && !endedRef.current) {
+      const completeMsg = callStage === 0
+        ? "First call time completed"
+        : callStage === 1
+        ? "Second call time completed"
+        : "Call time completed";
+      setTimerExpiredMsg(completeMsg);
+      console.log("[CALL_UI] TIMER_EXPIRED — auto-ending call", { matchId, callSessionId, callStage, stageDuration });
+      // Brief delay so the user sees "Time's up" before the overlay closes
+      const t = setTimeout(() => {
+        finishCallRef.current?.("timer_expired");
+      }, 2500);
+      return () => clearTimeout(t);
+    }
+  }, [remaining, isConnected, callStage, matchId, callSessionId, stageDuration]);
 
   // Auto-end call when connection fails — prevents restart loop on network recovery.
   // The "Connection failed" screen is shown for 10s so the failure reason is readable,
@@ -293,11 +344,13 @@ export function ActiveCallOverlay({
     const connectedDurationMs = connectedAtRef.current ? Date.now() - connectedAtRef.current : 0;
     const connected = connectedDurationMs > 0;
 
-    // Map reason to a clean call-state label for server-side logging
+    // Map reason to a clean call-state label for server-side logging.
+    // "timer_expired" = call ran to full duration = counts as completed.
     const callState = reason === "connection_failed" ? "failed"
       : reason === "remote_hangup" ? "ended"
       : reason === "permission_denied" ? "failed"
       : reason === "caller_cancelled" ? "cancelled"
+      : reason === "timer_expired" ? "ended"
       : "ended";
 
     console.log("[CALL_UI] CALL_STATE:ended", {
@@ -444,9 +497,15 @@ export function ActiveCallOverlay({
     if (connectionState === "requesting-media") return isVideo ? "Starting camera…" : "Starting microphone…";
     if (connectionState === "connecting") return "Connecting…";
     if (connectionState === "reconnecting") return "Reconnecting…";
-    if (isConnected) return timerLabel;
+    if (isConnected) return remaining === 0 ? "00:00" : countdownDisplay;
     return "Connected";
   })();
+
+  // Warning color for the countdown — escalates as time runs out
+  const timerColor = warning === "ten_sec" ? "text-red-400"
+    : warning === "one_min" ? "text-red-400"
+    : warning === "two_min" ? "text-amber-400"
+    : "text-white/80";
 
   const showSpinner = isRinging || isConnecting || isReconnecting;
 
@@ -514,16 +573,66 @@ export function ActiveCallOverlay({
           {callerName}
         </h2>
 
-        {/* Status line */}
-        <div className="flex items-center gap-2" data-testid="text-call-status">
-          {showSpinner && <Loader2 className="w-4 h-4 text-white/60 animate-spin" />}
-          <span
-            className={`font-mono tabular-nums ${isConnected ? "text-white/80 text-xl" : "text-white/55 text-sm"}`}
-            data-testid="text-call-timer"
-          >
-            {statusLabel}
-          </span>
-        </div>
+        {/* Timer-expired full-call notice */}
+        {timerExpiredMsg ? (
+          <div className="text-center space-y-1" data-testid="text-timer-expired">
+            <p className="text-white text-xl font-semibold">{timerExpiredMsg}</p>
+            <p className="text-white/50 text-sm">Ending call…</p>
+          </div>
+        ) : (
+          <>
+            {/* Stage label — shown only while connected */}
+            {isConnected && !isRinging && (
+              <p className="text-white/40 text-xs tracking-wide uppercase" data-testid="text-call-stage-label">
+                {stageLabel}
+              </p>
+            )}
+
+            {/* Countdown / status line */}
+            <div className="flex items-center gap-2" data-testid="text-call-status">
+              {showSpinner && <Loader2 className="w-4 h-4 text-white/60 animate-spin" />}
+              <span
+                className={`font-mono tabular-nums ${isConnected ? `${timerColor} text-4xl font-bold` : "text-white/55 text-sm"}`}
+                data-testid="text-call-timer"
+              >
+                {statusLabel}
+              </span>
+            </div>
+
+            {/* Time-remaining label while connected */}
+            {isConnected && remaining > 0 && (
+              <p className={`text-xs ${warning !== "none" ? timerColor : "text-white/40"}`} data-testid="text-call-remaining">
+                {warning === "ten_sec"
+                  ? "10 seconds remaining!"
+                  : warning === "one_min"
+                  ? "Less than a minute remaining"
+                  : warning === "two_min"
+                  ? "2 minutes remaining"
+                  : `${Math.ceil(remaining / 60)} min remaining`}
+              </p>
+            )}
+          </>
+        )}
+
+        {/* Warning banners */}
+        {isConnected && warning === "two_min" && remaining > 60 && !timerExpiredMsg && (
+          <div className="flex items-center gap-2 bg-amber-500/20 border border-amber-400/30 rounded-full px-4 py-1.5" data-testid="banner-two-min-warning">
+            <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
+            <span className="text-amber-300 text-xs">2 minutes remaining</span>
+          </div>
+        )}
+        {isConnected && warning === "one_min" && remaining > 10 && !timerExpiredMsg && (
+          <div className="flex items-center gap-2 bg-red-500/20 border border-red-400/30 rounded-full px-4 py-1.5" data-testid="banner-one-min-warning">
+            <AlertTriangle className="w-3.5 h-3.5 text-red-400" />
+            <span className="text-red-300 text-xs">Less than a minute remaining</span>
+          </div>
+        )}
+        {isConnected && warning === "ten_sec" && !timerExpiredMsg && (
+          <div className="flex items-center gap-2 bg-red-600/30 border border-red-500/50 rounded-full px-4 py-1.5 animate-pulse" data-testid="banner-ten-sec-warning">
+            <AlertTriangle className="w-3.5 h-3.5 text-red-300" />
+            <span className="text-red-200 text-xs font-medium">10 seconds remaining!</span>
+          </div>
+        )}
 
         {/* Weak-connection banner */}
         {isReconnecting && (
