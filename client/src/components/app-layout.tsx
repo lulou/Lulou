@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { useLocation, Link } from "wouter";
 import { Compass, Heart, User, CircleDot, Eye, LogOut } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
@@ -6,6 +7,11 @@ import { useAuth } from "@/hooks/use-auth";
 interface IncomingOpen {
   id: string;
   fromUserId: string;
+}
+
+interface MatchItem {
+  id: string;
+  lastMessage?: string | null;
 }
 
 export function LulouFlowerIcon({ className }: { className?: string }) {
@@ -44,7 +50,30 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     refetchInterval: 15000,
   });
 
+  const { data: matchesData } = useQuery<MatchItem[]>({
+    queryKey: ["/api/matches"],
+    refetchInterval: 20000,
+  });
+
   const likesCount = likes?.length ?? 0;
+
+  // New connections = matches with no messages yet
+  const newConnectionsCount = (matchesData ?? []).filter(m => !m.lastMessage).length;
+
+  // Track how many new connections the user has acknowledged (persisted across refresh)
+  const [seenConnectionsCount, setSeenConnectionsCount] = useState<number>(() => {
+    try { return parseInt(localStorage.getItem("lulou_seen_connections") ?? "0", 10) || 0; } catch { return 0; }
+  });
+
+  // When user visits /matches, mark all current new connections as seen
+  useEffect(() => {
+    if (!location.startsWith("/matches")) return;
+    try { localStorage.setItem("lulou_seen_connections", String(newConnectionsCount)); } catch { /* noop */ }
+    setSeenConnectionsCount(newConnectionsCount);
+  }, [location, newConnectionsCount]);
+
+  // Badge count = how many new connections appeared since user last visited
+  const newConnectionsBadge = Math.max(0, newConnectionsCount - seenConnectionsCount);
 
   const navItems = [
     { path: "/discover", icon: Compass, label: "Discover" },
@@ -86,6 +115,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           {navItems.map(item => {
             const isActive = location.startsWith(item.path);
             const isLikes = item.path === "/likes";
+            const isConnections = item.path === "/matches";
             return (
               <Link key={item.path} href={item.path}>
                 <button
@@ -102,6 +132,14 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                         data-testid="badge-likes-count"
                       >
                         +{likesCount}
+                      </span>
+                    )}
+                    {isConnections && newConnectionsBadge > 0 && (
+                      <span
+                        className="absolute -top-1.5 -right-3.5 flex items-center gap-px bg-primary text-primary-foreground text-[9px] font-bold rounded-full px-1 min-w-[16px] h-4 justify-center leading-none"
+                        data-testid="badge-connections-count"
+                      >
+                        +{newConnectionsBadge}
                       </span>
                     )}
                   </div>

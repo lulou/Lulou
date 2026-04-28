@@ -187,56 +187,100 @@ function LikeCard({ open, onMatch, onConnectionFull }: { open: IncomingOpen; onM
     },
   });
 
+  const photo = open.profile.photos?.[0];
+
   return (
-    <Card className="p-4" data-testid={`card-liked-${open.fromUserId}`}>
-      <div className="flex items-start gap-3">
-        <Avatar className="w-14 h-14 flex-shrink-0">
-          <AvatarImage src={open.profile.photos?.[0]} alt={open.profile.firstName} />
-          <AvatarFallback className="bg-primary/10 text-primary font-semibold text-lg">
-            {open.profile.firstName?.[0]}
-          </AvatarFallback>
-        </Avatar>
-        <div className="flex-1 min-w-0 space-y-1">
-          <div className="flex items-center gap-2 flex-wrap">
-            <h3 className="font-semibold text-sm" data-testid={`text-liked-name-${open.fromUserId}`}>
-              {open.profile.firstName}, {open.profile.age}
-            </h3>
-            {open.profile.photoVerified && (
-              <Badge variant="secondary" className="text-xs">Verified</Badge>
-            )}
+    <Card className="overflow-hidden shadow-sm" data-testid={`card-liked-${open.fromUserId}`}>
+      {/* Photo header with gradient overlay */}
+      <div className="relative h-52 bg-primary/8">
+        {photo ? (
+          <img
+            src={photo}
+            alt={open.profile.firstName}
+            className="w-full h-full object-cover"
+          />
+        ) : (
+          <div
+            className="w-full h-full flex items-center justify-center"
+            style={{ background: "linear-gradient(135deg, hsl(350 45% 92%), hsl(350 45% 82%))" }}
+          >
+            <span className="font-serif text-7xl font-bold" style={{ color: "hsl(350 45% 52%)" }}>
+              {open.profile.firstName?.[0]}
+            </span>
           </div>
-          {open.profile.location && (
-            <div className="flex items-center gap-1 text-xs text-muted-foreground">
-              <MapPin className="w-3 h-3" />
-              <span>{open.profile.location}</span>
+        )}
+        {/* Bottom gradient for text legibility */}
+        <div className="absolute inset-x-0 bottom-0 h-28 bg-gradient-to-t from-black/75 via-black/30 to-transparent" />
+        {/* Name + age overlay */}
+        <div className="absolute bottom-3 left-4 right-4">
+          <div className="flex items-end justify-between gap-2">
+            <div>
+              <h3
+                className="text-white font-serif text-2xl font-bold leading-tight drop-shadow-lg"
+                data-testid={`text-liked-name-${open.fromUserId}`}
+              >
+                {open.profile.firstName}{open.profile.age ? `, ${open.profile.age}` : ""}
+              </h3>
+              {open.profile.location && (
+                <div className="flex items-center gap-1 mt-0.5">
+                  <MapPin className="w-3 h-3 text-white/70" />
+                  <span className="text-white/70 text-xs">{open.profile.location}</span>
+                </div>
+              )}
             </div>
-          )}
-          <div className="flex items-center gap-1 flex-wrap">
-            {open.profile.signals?.slice(0, 2).map((signal: string) => (
-              <Badge key={signal} variant="outline" className="text-xs">{signal}</Badge>
-            ))}
-            {open.profile.datingIntent && (
-              <Badge variant="secondary" className="text-xs">{open.profile.datingIntent}</Badge>
+            {open.profile.photoVerified && (
+              <Badge
+                variant="secondary"
+                className="text-[10px] px-2 py-0.5 bg-white/20 text-white border-white/30 backdrop-blur-sm flex-shrink-0"
+              >
+                Verified
+              </Badge>
             )}
           </div>
         </div>
-        <div className="flex items-center gap-1 flex-shrink-0">
+      </div>
+
+      {/* Details + actions */}
+      <div className="p-4 space-y-4">
+        {/* Tags row */}
+        {(open.profile.signals?.length > 0 || open.profile.datingIntent) && (
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {open.profile.signals?.slice(0, 3).map((signal: string) => (
+              <Badge key={signal} variant="outline" className="text-xs px-2.5 py-0.5 rounded-full">
+                {signal}
+              </Badge>
+            ))}
+            {open.profile.datingIntent && (
+              <Badge
+                variant="secondary"
+                className="text-xs px-2.5 py-0.5 rounded-full"
+              >
+                {open.profile.datingIntent}
+              </Badge>
+            )}
+          </div>
+        )}
+
+        {/* Action buttons — full width, side by side */}
+        <div className="flex gap-3">
           <Button
-            size="icon"
-            variant="ghost"
+            variant="outline"
+            className="flex-1 gap-2 h-11 text-sm font-medium"
             onClick={() => respond.mutate("close")}
             disabled={respond.isPending}
             data-testid={`button-pass-${open.fromUserId}`}
           >
-            <X className="w-4 h-4 text-muted-foreground" />
+            <X className="w-4 h-4" />
+            Pass
           </Button>
           <Button
-            size="icon"
+            className="flex-1 gap-2 h-11 text-sm font-medium"
             onClick={() => respond.mutate("open")}
             disabled={respond.isPending}
             data-testid={`button-open-back-${open.fromUserId}`}
           >
             <Heart className="w-4 h-4" />
+            Like Back
           </Button>
         </div>
       </div>

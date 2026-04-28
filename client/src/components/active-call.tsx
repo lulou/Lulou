@@ -72,9 +72,16 @@ function ControlButton({
   testId?: string;
 }) {
   return (
-    <div className="flex flex-col items-center gap-2">
+    <div className="flex flex-col items-center gap-2.5">
       <button
-        className={`w-14 h-14 rounded-full flex items-center justify-center active:scale-95 transition-all shadow-md disabled:opacity-40 ${active ? "bg-white/35" : "bg-white/10"}`}
+        className="w-[60px] h-[60px] rounded-full flex items-center justify-center active:scale-90 transition-all disabled:opacity-40"
+        style={{
+          background: active ? "hsl(350 45% 52% / 0.3)" : "hsl(0 0% 100% / 0.1)",
+          backdropFilter: "blur(14px)",
+          WebkitBackdropFilter: "blur(14px)",
+          border: `1.5px solid ${active ? "hsl(350 45% 65% / 0.45)" : "hsl(0 0% 100% / 0.14)"}`,
+          boxShadow: "0 2px 18px hsl(0 0% 0% / 0.22)",
+        }}
         onClick={onClick}
         disabled={disabled}
         aria-label={label}
@@ -82,7 +89,7 @@ function ControlButton({
       >
         {icon}
       </button>
-      <span className="text-white/50 text-xs">{label}</span>
+      <span className="text-white/45 text-[11px] tracking-wide">{label}</span>
     </div>
   );
 }
@@ -450,7 +457,7 @@ export function ActiveCallOverlay({
     return (
       <div
         className="fixed inset-0 z-[100] flex flex-col items-center justify-center gap-6 px-8"
-        style={{ background: "linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%)" }}
+        style={{ background: "linear-gradient(160deg, hsl(350 45% 18%) 0%, hsl(350 40% 10%) 60%, hsl(350 30% 6%) 100%)" }}
         data-testid="overlay-call-failed"
       >
         <WifiOff className="w-14 h-14 text-red-400" />
@@ -482,7 +489,7 @@ export function ActiveCallOverlay({
     return (
       <div
         className="fixed inset-0 z-[100] flex flex-col items-center justify-center gap-6 px-8"
-        style={{ background: "linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%)" }}
+        style={{ background: "linear-gradient(160deg, hsl(350 45% 18%) 0%, hsl(350 40% 10%) 60%, hsl(350 30% 6%) 100%)" }}
         data-testid="overlay-permission-denied"
       >
         <AlertTriangle className="w-14 h-14 text-amber-400" />
@@ -531,10 +538,39 @@ export function ActiveCallOverlay({
 
   return (
     <div
-      className="fixed inset-0 z-[100] flex flex-col"
-      style={{ background: "linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%)" }}
+      className="fixed inset-0 z-[100] flex flex-col overflow-hidden"
       data-testid="overlay-voice-call"
     >
+      {/* Background — blurred photo or Lulou rose gradient */}
+      {callerPhoto && !isVideo ? (
+        <>
+          <div
+            className="absolute inset-0"
+            style={{
+              backgroundImage: `url(${callerPhoto})`,
+              backgroundSize: "cover",
+              backgroundPosition: "center",
+              filter: "blur(30px) brightness(0.3) saturate(1.3)",
+              transform: "scale(1.1)",
+            }}
+          />
+          <div
+            className="absolute inset-0"
+            style={{ background: "linear-gradient(180deg, hsl(350 45% 10% / 0.5) 0%, hsl(350 45% 6% / 0.9) 100%)" }}
+          />
+        </>
+      ) : !isVideo ? (
+        <div
+          className="absolute inset-0"
+          style={{ background: "linear-gradient(160deg, hsl(350 45% 18%) 0%, hsl(350 40% 10%) 60%, hsl(350 30% 6%) 100%)" }}
+        />
+      ) : (
+        <div
+          className="absolute inset-0"
+          style={{ background: "linear-gradient(160deg, #0f1117 0%, #0a0a0f 100%)" }}
+        />
+      )}
+
       {/* Remote audio — always present so voice comes through even in video mode */}
       <audio
         ref={remoteAudioRef}
@@ -577,86 +613,140 @@ export function ActiveCallOverlay({
       <div className="flex-1 flex flex-col items-center justify-center gap-5 relative z-10 px-6">
         {/* Avatar — hidden when remote video is visible */}
         {(!isVideo || !isConnected) && (
-          <div className="relative">
-            <div
-              className={`absolute inset-0 rounded-full ${isConnected ? "border-2 border-green-400/40 -inset-2" : "bg-white/10 animate-ping"}`}
-              style={!isConnected ? { animationDuration: "2s" } : undefined}
-            />
-            <Avatar className="w-32 h-32 border-4 border-white/30">
+          <div className="relative flex items-center justify-center">
+            {/* Ambient glow rings */}
+            {!isConnected && (
+              <>
+                <div
+                  className="absolute rounded-full animate-ping"
+                  style={{ inset: -22, background: "hsl(350 45% 52% / 0.1)", animationDuration: "2s" }}
+                />
+                <div
+                  className="absolute rounded-full animate-ping"
+                  style={{ inset: -8, background: "hsl(350 45% 52% / 0.15)", animationDuration: "2.5s", animationDelay: "0.3s" }}
+                />
+              </>
+            )}
+            {isConnected && (
+              <div
+                className="absolute rounded-full"
+                style={{
+                  inset: -6,
+                  border: "2px solid hsl(145 60% 45% / 0.5)",
+                  boxShadow: "0 0 24px hsl(145 60% 40% / 0.25)",
+                }}
+              />
+            )}
+            <Avatar
+              className="border-[3px] shadow-2xl"
+              style={{
+                width: 152,
+                height: 152,
+                borderColor: isConnected ? "hsl(145 60% 45% / 0.5)" : "hsl(350 45% 52% / 0.4)",
+              }}
+            >
               <AvatarImage src={callerPhoto} alt={callerName} />
-              <AvatarFallback className="text-3xl bg-white/20 text-white">{callerName[0]}</AvatarFallback>
+              <AvatarFallback
+                className="font-serif text-5xl"
+                style={{ background: "hsl(350 45% 25%)", color: "hsl(350 45% 85%)" }}
+              >
+                {callerName[0]}
+              </AvatarFallback>
             </Avatar>
           </div>
         )}
 
-        <h2 className="text-white text-2xl font-semibold drop-shadow-lg" data-testid="text-call-name">
+        {/* Stage label above name */}
+        {isConnected && !isRinging && (
+          <p className="text-white/35 text-[10px] tracking-[0.25em] uppercase font-medium -mb-2" data-testid="text-call-stage-label">
+            {stageLabel}
+          </p>
+        )}
+
+        <h2 className="text-white font-serif text-3xl font-bold drop-shadow-xl tracking-tight" data-testid="text-call-name">
           {callerName}
         </h2>
 
         {/* Timer-expired full-call notice */}
         {timerExpiredMsg ? (
-          <div className="text-center space-y-1" data-testid="text-timer-expired">
-            <p className="text-white text-xl font-semibold">{timerExpiredMsg}</p>
-            <p className="text-white/50 text-sm">Ending call…</p>
+          <div className="text-center space-y-1.5 mt-1" data-testid="text-timer-expired">
+            <p className="text-white text-2xl font-serif font-bold">{timerExpiredMsg}</p>
+            <p className="text-white/45 text-sm">Ending call…</p>
           </div>
         ) : (
           <>
-            {/* Stage label — shown only while connected */}
-            {isConnected && !isRinging && (
-              <p className="text-white/40 text-xs tracking-wide uppercase" data-testid="text-call-stage-label">
-                {stageLabel}
-              </p>
-            )}
-
             {/* Countdown / status line */}
-            <div className="flex items-center gap-2" data-testid="text-call-status">
-              {showSpinner && <Loader2 className="w-4 h-4 text-white/60 animate-spin" />}
-              <span
-                className={`font-mono tabular-nums ${isConnected ? `${timerColor} text-4xl font-bold` : "text-white/55 text-sm"}`}
-                data-testid="text-call-timer"
-              >
-                {statusLabel}
-              </span>
+            <div className="flex flex-col items-center gap-1 mt-1" data-testid="text-call-status">
+              {showSpinner && (
+                <div className="flex items-center gap-2">
+                  <Loader2 className="w-4 h-4 text-white/50 animate-spin" />
+                  <span className="text-white/45 text-sm" data-testid="text-call-timer">{statusLabel}</span>
+                </div>
+              )}
+              {!showSpinner && (
+                <span
+                  className={`font-mono tabular-nums tracking-tight ${isConnected ? `${timerColor} text-6xl font-bold` : "text-white/45 text-sm"}`}
+                  style={isConnected ? { textShadow: "0 0 32px currentColor, 0 2px 16px hsl(0 0% 0% / 0.4)" } : undefined}
+                  data-testid="text-call-timer"
+                >
+                  {statusLabel}
+                </span>
+              )}
+
+              {/* Time-remaining hint */}
+              {isConnected && remaining > 0 && !showSpinner && (
+                <p className={`text-xs ${warning !== "none" ? timerColor : "text-white/35"}`} data-testid="text-call-remaining">
+                  {warning === "ten_sec"
+                    ? "10 seconds remaining!"
+                    : warning === "one_min"
+                    ? "Less than a minute remaining"
+                    : warning === "two_min"
+                    ? "2 minutes remaining"
+                    : `${Math.ceil(remaining / 60)} min remaining`}
+                </p>
+              )}
             </div>
 
-            {/* Time-remaining label while connected */}
-            {isConnected && remaining > 0 && (
-              <p className={`text-xs ${warning !== "none" ? timerColor : "text-white/40"}`} data-testid="text-call-remaining">
-                {warning === "ten_sec"
-                  ? "10 seconds remaining!"
-                  : warning === "one_min"
-                  ? "Less than a minute remaining"
-                  : warning === "two_min"
-                  ? "2 minutes remaining"
-                  : `${Math.ceil(remaining / 60)} min remaining`}
-              </p>
+            {/* Warning banners */}
+            {isConnected && warning === "two_min" && remaining > 60 && !timerExpiredMsg && (
+              <div
+                className="flex items-center gap-2 rounded-full px-4 py-1.5"
+                style={{ background: "hsl(38 90% 50% / 0.15)", border: "1px solid hsl(38 90% 50% / 0.3)" }}
+                data-testid="banner-two-min-warning"
+              >
+                <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
+                <span className="text-amber-300 text-xs">2 minutes remaining</span>
+              </div>
+            )}
+            {isConnected && warning === "one_min" && remaining > 10 && !timerExpiredMsg && (
+              <div
+                className="flex items-center gap-2 rounded-full px-4 py-1.5"
+                style={{ background: "hsl(0 75% 50% / 0.15)", border: "1px solid hsl(0 75% 50% / 0.3)" }}
+                data-testid="banner-one-min-warning"
+              >
+                <AlertTriangle className="w-3.5 h-3.5 text-red-400" />
+                <span className="text-red-300 text-xs">Less than a minute remaining</span>
+              </div>
+            )}
+            {isConnected && warning === "ten_sec" && !timerExpiredMsg && (
+              <div
+                className="flex items-center gap-2 rounded-full px-4 py-1.5 animate-pulse"
+                style={{ background: "hsl(0 75% 50% / 0.2)", border: "1px solid hsl(0 75% 50% / 0.45)" }}
+                data-testid="banner-ten-sec-warning"
+              >
+                <AlertTriangle className="w-3.5 h-3.5 text-red-300" />
+                <span className="text-red-200 text-xs font-medium">10 seconds remaining!</span>
+              </div>
             )}
           </>
         )}
 
-        {/* Warning banners */}
-        {isConnected && warning === "two_min" && remaining > 60 && !timerExpiredMsg && (
-          <div className="flex items-center gap-2 bg-amber-500/20 border border-amber-400/30 rounded-full px-4 py-1.5" data-testid="banner-two-min-warning">
-            <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
-            <span className="text-amber-300 text-xs">2 minutes remaining</span>
-          </div>
-        )}
-        {isConnected && warning === "one_min" && remaining > 10 && !timerExpiredMsg && (
-          <div className="flex items-center gap-2 bg-red-500/20 border border-red-400/30 rounded-full px-4 py-1.5" data-testid="banner-one-min-warning">
-            <AlertTriangle className="w-3.5 h-3.5 text-red-400" />
-            <span className="text-red-300 text-xs">Less than a minute remaining</span>
-          </div>
-        )}
-        {isConnected && warning === "ten_sec" && !timerExpiredMsg && (
-          <div className="flex items-center gap-2 bg-red-600/30 border border-red-500/50 rounded-full px-4 py-1.5 animate-pulse" data-testid="banner-ten-sec-warning">
-            <AlertTriangle className="w-3.5 h-3.5 text-red-300" />
-            <span className="text-red-200 text-xs font-medium">10 seconds remaining!</span>
-          </div>
-        )}
-
         {/* Weak-connection banner */}
         {isReconnecting && (
-          <div className="flex items-center gap-2 bg-amber-500/20 border border-amber-400/30 rounded-full px-4 py-1.5 mt-1">
+          <div
+            className="flex items-center gap-2 rounded-full px-4 py-1.5 mt-1"
+            style={{ background: "hsl(38 90% 50% / 0.15)", border: "1px solid hsl(38 90% 50% / 0.3)" }}
+          >
             <WifiOff className="w-3.5 h-3.5 text-amber-400" />
             <span className="text-amber-300 text-xs">Weak connection — reconnecting</span>
           </div>
@@ -664,10 +754,10 @@ export function ActiveCallOverlay({
       </div>
 
       {/* Controls + end button */}
-      <div className="relative z-10 pb-12">
+      <div className="relative z-10 pb-14">
         {/* Mute / Speaker / Camera — only after the call is answered */}
         {!isRinging && (
-          <div className="flex justify-center gap-8 mb-8">
+          <div className="flex justify-center gap-10 mb-10">
             <ControlButton
               onClick={toggleMute}
               label={isMuted ? "Unmute" : "Mute"}
@@ -685,7 +775,7 @@ export function ActiveCallOverlay({
               testId="button-toggle-speaker"
               icon={speakerOn
                 ? <Volume2 className="w-6 h-6 text-white" />
-                : <Volume2 className="w-6 h-6 text-white opacity-50" />}
+                : <Volume2 className="w-6 h-6 text-white/60" />}
             />
 
             {isVideo && (
@@ -703,16 +793,21 @@ export function ActiveCallOverlay({
         )}
 
         {/* End / Cancel button */}
-        <div className="flex flex-col items-center gap-2">
+        <div className="flex flex-col items-center gap-2.5">
           <button
-            className="w-16 h-16 rounded-full flex items-center justify-center bg-red-600 active:scale-95 transition-all shadow-lg"
+            className="w-[76px] h-[76px] rounded-full flex items-center justify-center active:scale-90 transition-all"
+            style={{
+              background: "linear-gradient(145deg, hsl(0 70% 44%), hsl(0 65% 34%))",
+              boxShadow: "0 6px 32px hsl(0 65% 38% / 0.55), inset 0 1px 0 hsl(0 0% 100% / 0.12)",
+              border: "1.5px solid hsl(0 65% 58% / 0.3)",
+            }}
             onClick={() => finishCall(isRinging && isCaller ? "caller_cancelled" : "user_hangup")}
             data-testid="button-end-call"
             aria-label={isRinging && isCaller ? "Cancel call" : "End call"}
           >
-            <PhoneOff className="w-7 h-7 text-white" />
+            <PhoneOff className="w-8 h-8 text-white" />
           </button>
-          <span className="text-white/30 text-xs">
+          <span className="text-white/30 text-[11px] tracking-wide">
             {isRinging && isCaller ? "Cancel" : "End call"}
           </span>
         </div>

@@ -1926,27 +1926,46 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
           </div>
 
           {isCallRinging && iAmCaller ? (
-            <div className="p-5 border-t" data-testid={`call-ringing-${match.id}`}>
-              <div className="text-center space-y-4">
-                <div className="relative w-20 h-20 mx-auto">
-                  <div className="absolute inset-0 rounded-full bg-primary/10 animate-ping" />
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    <div className="w-16 h-16 rounded-full bg-primary/15 flex items-center justify-center">
-                      {isFaceCallStage && bothAcceptedFaceCall ? (
-                        <Video className="w-6 h-6 text-primary animate-pulse" />
-                      ) : (
-                        <Phone className="w-6 h-6 text-primary animate-pulse" />
-                      )}
-                    </div>
+            <div
+              className="border-t"
+              style={{ background: "linear-gradient(160deg, hsl(350 45% 14%) 0%, hsl(350 40% 9%) 100%)" }}
+              data-testid={`call-ringing-${match.id}`}
+            >
+              <div className="flex flex-col items-center gap-4 py-7 px-5">
+                {/* Pulsing icon */}
+                <div className="relative flex items-center justify-center w-20 h-20">
+                  <div
+                    className="absolute inset-0 rounded-full animate-ping"
+                    style={{ background: "hsl(350 45% 52% / 0.12)", animationDuration: "1.8s" }}
+                  />
+                  <div
+                    className="absolute inset-0 rounded-full animate-ping"
+                    style={{ background: "hsl(350 45% 52% / 0.08)", animationDuration: "2.4s", animationDelay: "0.3s" }}
+                  />
+                  <div
+                    className="w-16 h-16 rounded-full flex items-center justify-center"
+                    style={{ background: "hsl(350 45% 52% / 0.18)", border: "1.5px solid hsl(350 45% 52% / 0.3)" }}
+                  >
+                    {isFaceCallStage && bothAcceptedFaceCall ? (
+                      <Video className="w-6 h-6 animate-pulse" style={{ color: "hsl(350 45% 72%)" }} />
+                    ) : (
+                      <Phone className="w-6 h-6 animate-pulse" style={{ color: "hsl(350 45% 72%)" }} />
+                    )}
                   </div>
                 </div>
-                <div className="space-y-1">
-                  <p className="font-medium text-sm" data-testid={`text-outgoing-call-${match.id}`}>Calling {match.profile.firstName}...</p>
-                  <p className="text-xs text-muted-foreground">Waiting for them to pick up</p>
+                <div className="text-center space-y-1">
+                  <p className="text-white font-serif font-semibold text-base" data-testid={`text-outgoing-call-${match.id}`}>
+                    Calling {match.profile.firstName}…
+                  </p>
+                  <p className="text-white/40 text-xs">Waiting for them to pick up</p>
                 </div>
-                <Button
-                  size="sm"
-                  variant="outline"
+                <button
+                  className="flex items-center gap-2 px-5 py-2 rounded-full text-sm font-medium active:scale-95 transition-all"
+                  style={{
+                    background: "hsl(0 60% 25% / 0.5)",
+                    border: "1.5px solid hsl(0 60% 45% / 0.4)",
+                    color: "hsl(0 60% 75%)",
+                  }}
                   onClick={() => {
                     console.log("[MatchChat] CANCEL_CALL_REQUESTED", { matchId: match.id });
                     cancelCall.mutate();
@@ -1954,53 +1973,76 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
                   disabled={cancelCall.isPending}
                   data-testid={`button-cancel-call-${match.id}`}
                 >
-                  <PhoneOff className="w-4 h-4 mr-2" /> {cancelCall.isPending ? "Cancelling..." : "Cancel Call"}
-                </Button>
-                <p className="text-xs text-muted-foreground">If they don't pick up, it won't count as your call</p>
+                  <PhoneOff className="w-3.5 h-3.5" />
+                  {cancelCall.isPending ? "Cancelling…" : "Cancel Call"}
+                </button>
+                <p className="text-white/25 text-[11px]">If they don't pick up, it won't count as your call</p>
               </div>
             </div>
           ) : isCallRinging && !iAmCaller ? (
-            <div className="p-5 border-t" data-testid={`call-incoming-inline-${match.id}`}>
-              <div className="text-center space-y-4">
-                <div className="relative w-20 h-20 mx-auto">
-                  <div className="absolute inset-0 rounded-full bg-green-500/10 animate-ping" />
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    <div className="w-16 h-16 rounded-full bg-green-500/15 flex items-center justify-center">
-                      {isFaceCallStage && bothAcceptedFaceCall ? (
-                        <Video className="w-6 h-6 text-green-600 animate-pulse" />
-                      ) : (
-                        <Phone className="w-6 h-6 text-green-600 animate-pulse" />
-                      )}
-                    </div>
+            <div
+              className="border-t"
+              style={{ background: "linear-gradient(160deg, hsl(145 45% 12%) 0%, hsl(145 40% 8%) 100%)" }}
+              data-testid={`call-incoming-inline-${match.id}`}
+            >
+              <div className="flex flex-col items-center gap-4 py-7 px-5">
+                {/* Pulsing icon */}
+                <div className="relative flex items-center justify-center w-20 h-20">
+                  <div
+                    className="absolute inset-0 rounded-full animate-ping"
+                    style={{ background: "hsl(145 60% 40% / 0.12)", animationDuration: "1.8s" }}
+                  />
+                  <div
+                    className="absolute inset-0 rounded-full animate-ping"
+                    style={{ background: "hsl(145 60% 40% / 0.08)", animationDuration: "2.4s", animationDelay: "0.3s" }}
+                  />
+                  <div
+                    className="w-16 h-16 rounded-full flex items-center justify-center"
+                    style={{ background: "hsl(145 60% 35% / 0.2)", border: "1.5px solid hsl(145 60% 45% / 0.35)" }}
+                  >
+                    {isFaceCallStage && bothAcceptedFaceCall ? (
+                      <Video className="w-6 h-6 animate-pulse" style={{ color: "hsl(145 60% 60%)" }} />
+                    ) : (
+                      <Phone className="w-6 h-6 animate-pulse" style={{ color: "hsl(145 60% 60%)" }} />
+                    )}
                   </div>
                 </div>
-                <div className="space-y-1">
-                  <p className="font-medium text-sm" data-testid={`text-incoming-call-${match.id}`}>
-                    {match.profile.firstName} is calling you
+                <div className="text-center space-y-1">
+                  <p className="text-white font-serif font-semibold text-base" data-testid={`text-incoming-call-${match.id}`}>
+                    {match.profile.firstName} is calling
                   </p>
-                  <p className="text-xs text-muted-foreground">Answer to start your conversation</p>
+                  <p className="text-white/40 text-xs">Answer to start your conversation</p>
                 </div>
-                <div className="flex justify-center gap-3">
-                  <Button
-                    size="sm"
-                    variant="outline"
+                <div className="flex items-center gap-3">
+                  <button
+                    className="flex items-center gap-2 px-5 py-2.5 rounded-full text-sm font-medium active:scale-95 transition-all"
+                    style={{
+                      background: "hsl(0 60% 22% / 0.5)",
+                      border: "1.5px solid hsl(0 60% 42% / 0.4)",
+                      color: "hsl(0 60% 72%)",
+                    }}
                     onClick={() => inlineDeclineCall.mutate()}
                     disabled={inlineAnswerCall.isPending || inlineDeclineCall.isPending}
                     data-testid={`button-decline-inline-${match.id}`}
                   >
-                    <PhoneOff className="w-4 h-4 mr-2 text-red-500" />
+                    <PhoneOff className="w-3.5 h-3.5" />
                     Decline
-                  </Button>
-                  <Button
-                    size="sm"
-                    className="bg-green-600 hover:bg-green-700 text-white"
+                  </button>
+                  <button
+                    className="flex items-center gap-2 px-6 py-2.5 rounded-full text-sm font-semibold active:scale-95 transition-all"
+                    style={{
+                      background: "linear-gradient(135deg, hsl(145 60% 36%), hsl(145 60% 28%))",
+                      boxShadow: "0 4px 20px hsl(145 60% 32% / 0.45)",
+                      border: "1.5px solid hsl(145 60% 52% / 0.3)",
+                      color: "white",
+                    }}
                     onClick={() => inlineAnswerCall.mutate()}
                     disabled={inlineAnswerCall.isPending || inlineDeclineCall.isPending}
                     data-testid={`button-answer-inline-${match.id}`}
                   >
-                    <Phone className="w-4 h-4 mr-2" />
-                    {inlineAnswerCall.isPending ? "Answering..." : "Answer"}
-                  </Button>
+                    <Phone className="w-3.5 h-3.5" />
+                    {inlineAnswerCall.isPending ? "Answering…" : "Answer"}
+                  </button>
                 </div>
               </div>
             </div>
