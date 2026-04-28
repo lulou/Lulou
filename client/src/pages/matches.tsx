@@ -15,7 +15,7 @@ import { useRealtimeMessages } from "@/hooks/use-realtime-messages";
 import { useUnreadCounts } from "@/hooks/use-unread-counts";
 import { useTypingIndicator } from "@/hooks/use-typing-indicator";
 import { Input } from "@/components/ui/input";
-import { MessageCircle, Send, Phone, Video, ChevronDown, ChevronUp, ChevronLeft, PhoneOff, Clock, Check, X, Sparkles, Calendar, Heart, PhoneForwarded, Moon, User, MapPin } from "lucide-react";
+import { MessageCircle, Send, Phone, Video, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, PhoneOff, Clock, Check, X, Sparkles, Calendar, Heart, PhoneForwarded, Moon, User, MapPin } from "lucide-react";
 import { LulouFlowerIcon } from "@/components/app-layout";
 import { broadcastCallSignal } from "@/hooks/use-call-signaling";
 import type { Profile, Match, Message, SpinRequest } from "@shared/schema";
@@ -862,19 +862,43 @@ function ProfilePanel({ profile, onClose }: { profile: Profile; onClose: () => v
   });
   const photos = photoData?.photos ?? profile.photos ?? [];
   const [photoIdx, setPhotoIdx] = useState(0);
+  const touchStartX = useRef<number | null>(null);
+
+  const goNext = () => setPhotoIdx(i => Math.min(i + 1, photos.length - 1));
+  const goPrev = () => setPhotoIdx(i => Math.max(i - 1, 0));
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    touchStartX.current = e.touches[0].clientX;
+  };
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    if (touchStartX.current === null) return;
+    const dx = e.changedTouches[0].clientX - touchStartX.current;
+    touchStartX.current = null;
+    if (Math.abs(dx) < 40) return;
+    if (dx < 0) goNext();
+    else goPrev();
+  };
 
   return (
     <div className="flex flex-col h-full bg-background" data-testid="profile-panel">
       <style>{`
         @keyframes profilePanelIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
         .profile-panel-body { animation: profilePanelIn 0.22s ease both; }
+        @keyframes photoFadeIn { from { opacity: 0; } to { opacity: 1; } }
+        .photo-fade { animation: photoFadeIn 0.22s ease both; }
       `}</style>
 
-      <div className="relative flex-shrink-0 bg-muted overflow-hidden" style={{ height: 300 }}>
+      <div
+        className="relative flex-shrink-0 bg-muted overflow-hidden select-none"
+        style={{ height: 300 }}
+        onTouchStart={handleTouchStart}
+        onTouchEnd={handleTouchEnd}
+      >
         {photos.length > 0 ? (
           <img
+            key={photoIdx}
             src={photos[photoIdx]}
-            className="w-full h-full object-cover object-center"
+            className="w-full h-full object-cover object-center photo-fade"
             alt={profile.firstName}
             data-testid="img-profile-panel-photo"
           />
@@ -891,6 +915,28 @@ function ProfilePanel({ profile, onClose }: { profile: Profile; onClose: () => v
           className="absolute inset-x-0 bottom-0 pointer-events-none"
           style={{ height: "60%", background: "linear-gradient(to top, rgba(0,0,0,0.72) 0%, rgba(0,0,0,0.28) 55%, transparent 100%)" }}
         />
+
+        {photos.length > 1 && photoIdx > 0 && (
+          <button
+            onClick={goPrev}
+            className="absolute left-2 top-1/2 -translate-y-1/2 z-20 flex items-center justify-center rounded-full transition-all active:scale-90"
+            style={{ width: 32, height: 32, background: "rgba(0,0,0,0.38)", backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)", border: "1px solid rgba(255,255,255,0.18)" }}
+            data-testid="button-profile-photo-prev"
+          >
+            <ChevronLeft className="w-4 h-4 text-white" />
+          </button>
+        )}
+
+        {photos.length > 1 && photoIdx < photos.length - 1 && (
+          <button
+            onClick={goNext}
+            className="absolute right-10 top-1/2 -translate-y-1/2 z-20 flex items-center justify-center rounded-full transition-all active:scale-90"
+            style={{ width: 32, height: 32, background: "rgba(0,0,0,0.38)", backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)", border: "1px solid rgba(255,255,255,0.18)" }}
+            data-testid="button-profile-photo-next"
+          >
+            <ChevronRight className="w-4 h-4 text-white" />
+          </button>
+        )}
 
         <button
           onClick={onClose}
@@ -939,7 +985,7 @@ function ProfilePanel({ profile, onClose }: { profile: Profile; onClose: () => v
         )}
       </div>
 
-      <div className="flex-1 overflow-y-auto profile-panel-body" style={{ paddingBottom: "env(safe-area-inset-bottom, 16px)" }}>
+      <div className="flex-1 min-h-0 overflow-y-auto profile-panel-body" style={{ paddingBottom: "env(safe-area-inset-bottom, 16px)" }}>
         {profile.datingIntent && (
           <div className="px-4 pt-4">
             <span
@@ -2564,7 +2610,7 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
             <div className="flex justify-center pt-2.5 pb-1 flex-shrink-0">
               <div className="w-10 h-1 rounded-full" style={{ background: "hsl(var(--muted-foreground)/0.25)" }} />
             </div>
-            <div style={{ maxHeight: "calc(88dvh - 20px)", overflow: "hidden", display: "flex", flexDirection: "column" }}>
+            <div style={{ height: "calc(88dvh - 20px)", overflow: "hidden", display: "flex", flexDirection: "column" }}>
               <ProfilePanel profile={match.profile} onClose={() => setShowProfilePanel(false)} />
             </div>
           </div>
