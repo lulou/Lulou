@@ -11,6 +11,16 @@ import { apiRequest } from "@/lib/queryClient";
 import { useTabActive } from "@/hooks/use-tab-active";
 import type { Profile } from "@shared/schema";
 
+/** Fisher-Yates shuffle — returns a new array, does not mutate input. */
+function shuffleArray<T>(arr: T[]): T[] {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
 // Lazy-loads a single photo for a wheel item or profile card.
 // Photos are excluded from the pool queries to prevent DB statement timeouts.
 // Cycles through the photos array on render failure rather than showing the app logo.
@@ -118,14 +128,30 @@ export default function IntentPage() {
   const velocity = useRef(0);
   const angleRef = useRef(0);
 
+  // Shuffled wheel order — re-shuffled once whenever the profiles array reference changes.
+  // Prevents the API sort order from biasing which profile sits at the visual front.
+  const prevProfilesRef = useRef<Profile[] | null>(null);
+  const shuffledItemsRef = useRef<Profile[]>([]);
+  if (profiles !== prevProfilesRef.current) {
+    prevProfilesRef.current = profiles ?? null;
+    shuffledItemsRef.current = profiles ? shuffleArray(profiles) : [];
+    console.log(
+      "[INTENT] PROFILES_SHUFFLED total:", shuffledItemsRef.current.length,
+      "order:", shuffledItemsRef.current.map((p, i) => `[${i}]${p.firstName}`).join(" "),
+    );
+  }
+
   const [isSpinning, setIsSpinning] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
+  // selectedProfile is stored directly (not derived from items[selectedIndex]) so that
+  // a mid-animation query refetch cannot silently swap the profile at that index.
+  const [selectedProfile, setSelectedProfile] = useState<Profile | null>(null);
   const [dispersed, setDispersed] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
   const [showPurchase, setShowPurchase] = useState(false);
   const [angle, setAngle] = useState(0);
 
-  const items = profiles || [];
+  const items = shuffledItemsRef.current.length > 0 ? shuffledItemsRef.current : (profiles || []);
   const count = items.length;
   const angleStep = count > 0 ? 360 / count : 0;
   const radius = count > 4 ? Math.max(200, count * 28) : 180;
@@ -230,17 +256,34 @@ export default function IntentPage() {
     if (isSpinning || count === 0 || !canSpin) return;
     setIsSpinning(true);
     setSelectedIndex(null);
+    setSelectedProfile(null);
     setDispersed(false);
     setShowProfile(false);
     setShowPurchase(false);
 
+    // ── TRUE RANDOM: pick winner FIRST, animate TO them ──────────────────────
     const targetIndex = Math.floor(Math.random() * count);
-    const targetAngle = targetIndex * angleStep;
+    const landedProfile = items[targetIndex]; // captured from closure — immune to refetch reorder
 
+    console.log("[INTENT] SPIN_START", {
+      totalUsers: count,
+      renderOrder: items.map((p, i) => `[${i}]${p.firstName}(${p.userId.slice(0, 8)})`).join(" "),
+    });
+    console.log("[INTENT] SPIN_SELECTED", {
+      selectedIndex: targetIndex,
+      selectedUserId: landedProfile?.userId,
+      selectedName: landedProfile?.firstName,
+    });
+
+    const targetAngle = targetIndex * angleStep;
     const currentAngle = angleRef.current;
     const fullSpins = (3 + Math.floor(Math.random() * 2)) * 360;
     const normalizedCurrent = ((currentAngle % 360) + 360) % 360;
-    const diff = targetAngle - normalizedCurrent;
+    // Ensure diff is always a forward (positive) rotation toward targetAngle.
+    // Without this, targetIndex 0 with normalizedCurrent near 360 could produce
+    // a tiny negative diff that makes the wheel barely spin.
+    let diff = targetAngle - normalizedCurrent;
+    if (diff < 0) diff += 360; // always go forward
     const totalRotation = fullSpins + diff;
 
     const duration = 3000 + Math.random() * 1000;
@@ -263,19 +306,28 @@ export default function IntentPage() {
       } else {
         angleRef.current = startAngle + totalRotation;
         setAngle(angleRef.current);
+
+        // Use the profile captured from the closure — not items[targetIndex] from a
+        // potentially re-rendered items array after an in-flight refetch.
         setSelectedIndex(targetIndex);
+        setSelectedProfile(landedProfile ?? null);
         setIsSpinning(false);
 
-        const landedProfile = items[targetIndex];
+        console.log("[INTENT] SPIN_COMPLETE", {
+          selectedIndex: targetIndex,
+          selectedUserId: landedProfile?.userId,
+          selectedName: landedProfile?.firstName,
+        });
+
         if (landedProfile) {
           recordSpin.mutate(landedProfile.userId);
         }
 
         setTimeout(() => setDispersed(true), 300);
         setTimeout(() => setShowProfile(true), 700);
-        setTimeout(() => {
-          queryClient.invalidateQueries({ queryKey: ["/api/popular"] });
-        }, 1200);
+        // Intentionally NOT invalidating profiles here — doing so at 1200ms would
+        // re-fetch during the dispersal animation, potentially reordering items and
+        // mismatching selectedIndex → profile. closeProfile handles the invalidation.
       }
     };
 
@@ -287,7 +339,9 @@ export default function IntentPage() {
     setShowProfile(false);
     setDispersed(false);
     setSelectedIndex(null);
+    setSelectedProfile(null);
     queryClient.invalidateQueries({ queryKey: ["/api/popular"] });
+    console.log("[INTENT] PROFILE_CLOSED — invalidating popular profiles for next spin");
 
     setTimeout(() => setShowPurchase(true), 300);
   };
@@ -379,7 +433,6 @@ export default function IntentPage() {
     );
   }
 
-  const selectedProfile = selectedIndex !== null ? items[selectedIndex] : null;
   const dailyLikes = spinStatus?.dailyLikes ?? 0;
   const consecutiveDays = spinStatus?.consecutiveDays ?? 0;
   const streakComplete = spinStatus?.streakComplete ?? false;
