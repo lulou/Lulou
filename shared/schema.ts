@@ -64,7 +64,10 @@ export const matches = pgTable("matches", {
   numberExchanged2: boolean("number_exchanged_2").default(false),
   status: text("status").default("active"),
   createdAt: timestamp("created_at").defaultNow(),
-});
+}, (table) => [
+  index("idx_matches_user1_id").on(table.user1Id),
+  index("idx_matches_user2_id").on(table.user2Id),
+]);
 
 export const messages = pgTable("messages", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -75,6 +78,7 @@ export const messages = pgTable("messages", {
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => [
   index("idx_messages_match").on(table.matchId),
+  index("idx_messages_match_created").on(table.matchId, table.createdAt),
 ]);
 
 export const insertProfileSchema = createInsertSchema(profiles).omit({

@@ -1401,13 +1401,15 @@ export async function registerRoutes(
   });
 
   app.get("/api/who-liked-you", isAuthenticated, async (req: any, res) => {
+    const t0 = Date.now();
     try {
       const storage = getStorage(req);
       const userId = req.user.id;
       const incomingOpens = await storage.getIncomingOpens(userId);
+      console.log(`[WHO_LIKED_YOU] userId=${userId.slice(0, 8)} count=${incomingOpens.length} ms=${Date.now() - t0}`);
       res.json(incomingOpens);
     } catch (error) {
-      console.error("Error fetching who liked you:", error);
+      console.error(`[WHO_LIKED_YOU] error after ${Date.now() - t0} ms:`, error);
       res.status(500).json({ message: "Failed to fetch likes" });
     }
   });

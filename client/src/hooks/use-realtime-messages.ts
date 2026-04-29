@@ -82,6 +82,7 @@ export function useRealtimeMessages(matchId: string | undefined, enabled: boolea
 
     // ── Channel 1: Supabase Broadcast — instant delivery from server (~50ms) ──
     const broadcastChannelName = `chat:${matchId}`;
+    const broadcastT0 = Date.now();
     const broadcastChannel = supabase
       .channel(broadcastChannelName, { config: { broadcast: { self: true } } })
       .on("broadcast", { event: "new-message" }, ({ payload }) => {
@@ -89,13 +90,15 @@ export function useRealtimeMessages(matchId: string | undefined, enabled: boolea
         handleNewMessage(payload);
       })
       .subscribe((status) => {
-        console.log("[REALTIME] BROADCAST_STATUS", { matchId, status });
+        const ms = Date.now() - broadcastT0;
+        console.log("[REALTIME] BROADCAST_STATUS", { matchId, status, ms });
       });
 
     broadcastChannelRef.current = broadcastChannel;
 
     // ── Channel 2: postgres_changes — WAL-based fallback/reconciliation (~200-500ms) ──
     const pgChannelName = `messages:${matchId}`;
+    const pgT0 = Date.now();
     const pgChannel = supabase
       .channel(pgChannelName)
       .on(
@@ -112,7 +115,8 @@ export function useRealtimeMessages(matchId: string | undefined, enabled: boolea
         }
       )
       .subscribe((status) => {
-        console.log("[REALTIME] PG_STATUS", { matchId, status });
+        const ms = Date.now() - pgT0;
+        console.log("[REALTIME] PG_STATUS", { matchId, status, ms });
       });
 
     pgChannelRef.current = pgChannel;

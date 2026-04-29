@@ -116,6 +116,12 @@ export default function ProfilePage() {
   const [showElevate, setShowElevate] = useState(false);
   const [purchasing, setPurchasing] = useState(false);
 
+  const _mountMs = useRef(performance.now());
+  useEffect(() => {
+    console.log("[PERF] PROFILE_FIRST_RENDER", { ms: Math.round(_mountMs.current) });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   useEffect(() => {
     // Only detect Stripe cancel when the URL actually has ?checkout=cancelled.
     // This effect runs once on mount — if ProfilePage is incorrectly unmounted/remounted

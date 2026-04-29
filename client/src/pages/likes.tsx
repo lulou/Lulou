@@ -688,6 +688,12 @@ export default function LikesPage() {
   const isActive = useTabActive();
   const { toast } = useToast();
 
+  const _mountMs = useRef(performance.now());
+  useEffect(() => {
+    console.log("[PERF] LIKES_FIRST_RENDER", { ms: Math.round(_mountMs.current) });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Detect return from a cancelled Stripe checkout session (only when actually on /likes)
   useEffect(() => {
     if (window.location.pathname !== "/likes") return;
