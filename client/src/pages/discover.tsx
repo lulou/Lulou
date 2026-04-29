@@ -8,40 +8,19 @@ import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { DragScrollRow } from "@/components/drag-scroll-row";
+import { PhotoCarousel } from "@/components/photo-carousel";
 import type { Profile } from "@shared/schema";
 import { MapPin, Ruler, MessageCircle, HelpCircle, Send } from "lucide-react";
 import { LulouFlowerIcon } from "@/components/app-layout";
 import { AnimatePresence, motion } from "framer-motion";
 
-// Full-width photo card — replaces the old 180×280 bubble carousel.
-// Tap left-half to go to previous photo, tap right-half for next.
-// Photos lazy-load (only first is eager); gallery photos fetch on card mount.
+// Full-width draggable photo card.
+// Uses PhotoCarousel: photos follow finger, spring-settle on release, gap between slides.
+// Gallery photos fetch on card mount; carousel lazy-loads ±1 from current.
 const PHOTO_HEIGHT = 440;
 
-function PhotoBubbles({ photos, name, onOpen, isDisabled, isPhotosLoading }: { photos: string[]; name: string; onOpen: () => void; isDisabled?: boolean; isPhotosLoading?: boolean }) {
+function PhotoBubbles({ photos, name: _name, onOpen, isDisabled, isPhotosLoading }: { photos: string[]; name: string; onOpen: () => void; isDisabled?: boolean; isPhotosLoading?: boolean }) {
   const [photoIndex, setPhotoIndex] = useState(0);
-  const [failedIndices, setFailedIndices] = useState<Set<number>>(new Set());
-
-  const handleImgError = (i: number) => {
-    console.warn("[PhotoCard] img error index:", i);
-    setFailedIndices(prev => { const s = new Set(prev); s.add(i); return s; });
-  };
-
-  const validPhotos = photos.filter((_, i) => !failedIndices.has(i));
-  const clampedIndex = Math.min(photoIndex, Math.max(0, validPhotos.length - 1));
-
-  const handleTap = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-    if (validPhotos.length <= 1) return;
-    const rect = e.currentTarget.getBoundingClientRect();
-    const y = e.clientY - rect.top;
-    if (y > rect.height * 0.78) return; // bottom area reserved for Open button
-    const x = e.clientX - rect.left;
-    if (x < rect.width / 2) {
-      setPhotoIndex(prev => Math.max(0, prev - 1));
-    } else {
-      setPhotoIndex(prev => Math.min(validPhotos.length - 1, prev + 1));
-    }
-  }, [validPhotos.length]);
 
   if (isPhotosLoading) {
     return (
@@ -58,7 +37,7 @@ function PhotoBubbles({ photos, name, onOpen, isDisabled, isPhotosLoading }: { p
     );
   }
 
-  if (validPhotos.length === 0) {
+  if (photos.length === 0) {
     return (
       <div
         className="w-full relative flex items-center justify-center bg-muted"
@@ -83,62 +62,31 @@ function PhotoBubbles({ photos, name, onOpen, isDisabled, isPhotosLoading }: { p
   }
 
   return (
-    <div
-      className="relative w-full overflow-hidden select-none"
-      style={{ height: PHOTO_HEIGHT, cursor: validPhotos.length > 1 ? "pointer" : "default" }}
-      onClick={handleTap}
-      data-testid="photo-bubbles"
+    <PhotoCarousel
+      photos={photos}
+      height={PHOTO_HEIGHT}
+      showArrows={false}
+      showDots={false}
+      onIndexChange={setPhotoIndex}
     >
-      {validPhotos.map((photo, i) => (
-        <img
-          key={i}
-          src={photo}
-          alt={`${name} photo ${i + 1}`}
-          className="absolute inset-0 w-full h-full object-cover"
-          style={{
-            opacity: i === clampedIndex ? 1 : 0,
-            transition: "opacity 0.22s ease",
-            pointerEvents: "none",
-            willChange: "opacity",
-          }}
-          draggable={false}
-          loading={i === 0 ? "eager" : "lazy"}
-          decoding="async"
-          onError={() => handleImgError(i)}
-          data-testid={`img-profile-photo-${i}`}
-        />
-      ))}
-
       {/* Bottom gradient */}
       <div
         className="absolute inset-0 pointer-events-none"
         style={{ background: "linear-gradient(to top, rgba(0,0,0,0.62) 0%, rgba(0,0,0,0.1) 48%, transparent 68%)" }}
       />
 
-      {/* Navigation arrows (subtle, non-interactive — just visual cue) */}
-      {validPhotos.length > 1 && clampedIndex > 0 && (
-        <div className="absolute left-3 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-black/30 flex items-center justify-center pointer-events-none" style={{ zIndex: 4 }}>
-          <svg viewBox="0 0 16 16" fill="none" className="w-4 h-4"><path d="M10 3L5 8l5 5" stroke="white" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"/></svg>
-        </div>
-      )}
-      {validPhotos.length > 1 && clampedIndex < validPhotos.length - 1 && (
-        <div className="absolute right-3 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-black/30 flex items-center justify-center pointer-events-none" style={{ zIndex: 4 }}>
-          <svg viewBox="0 0 16 16" fill="none" className="w-4 h-4"><path d="M6 3l5 5-5 5" stroke="white" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"/></svg>
-        </div>
-      )}
-
-      {/* Bottom bar: dot indicator + Open button */}
+      {/* Bottom bar: dot indicators (left) + Open button (right) */}
       <div className="absolute bottom-0 left-0 right-0 px-4 pb-4 flex items-end justify-between" style={{ zIndex: 10 }}>
-        {validPhotos.length > 1 ? (
+        {photos.length > 1 ? (
           <div className="flex items-center gap-1.5 pb-0.5">
-            {validPhotos.map((_, i) => (
+            {photos.map((_, i) => (
               <div
                 key={i}
                 style={{
-                  width: i === clampedIndex ? 24 : 7,
+                  width: i === photoIndex ? 24 : 7,
                   height: 7,
                   borderRadius: 3.5,
-                  backgroundColor: i === clampedIndex ? "white" : "rgba(255,255,255,0.42)",
+                  backgroundColor: i === photoIndex ? "white" : "rgba(255,255,255,0.42)",
                   transition: "width 0.25s ease, background-color 0.25s ease",
                   flexShrink: 0,
                 }}
@@ -158,7 +106,7 @@ function PhotoBubbles({ photos, name, onOpen, isDisabled, isPhotosLoading }: { p
           Open
         </button>
       </div>
-    </div>
+    </PhotoCarousel>
   );
 }
 

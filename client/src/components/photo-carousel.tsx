@@ -22,6 +22,12 @@ interface PhotoCarouselProps {
   onIndexChange?: (idx: number) => void;
   showArrows?: boolean;
   showDots?: boolean;
+  /**
+   * Pixel gap between slides. Creates visible separation — the container background
+   * shows briefly between the exiting and entering cards during the spring animation.
+   * Default 16. Pass 0 for a seamless strip.
+   */
+  gap?: number;
   className?: string;
   style?: React.CSSProperties;
   /** Absolute-positioned overlay content (close button, name, gradients…) */
@@ -35,6 +41,7 @@ export function PhotoCarousel({
   onIndexChange,
   showArrows = true,
   showDots = true,
+  gap = 16,
   className = "",
   style,
   children,
@@ -50,27 +57,32 @@ export function PhotoCarousel({
   // Refs for stale-closure safety in event handlers — updated synchronously during render
   const idxRef = useRef(idx);
   const nRef = useRef(photos.length);
+  const gapRef = useRef(gap);
   const isMounted = useRef(false);
   const skipNextLayoutEffect = useRef(false); // set when drag handler pre-animates
 
   // Update inline during render so they're current before any useLayoutEffect runs
   idxRef.current = idx;
   nRef.current = photos.length;
+  gapRef.current = gap;
 
   /**
    * Apply CSS transforms to all slides directly.
-   * Each slide: translateX(calc((i – currentIdx) * 100%) + dragOffsetPx)
-   * "100%" = 100% of the slide's own width = container width (position:absolute; width:100%)
-   * → no JavaScript size measurement needed.
+   * Each slide: translateX(calc((i – currentIdx) * (100% + gap)) + dragOffsetPx)
+   * "100%" = slide's own width = container width (position:absolute; width:100%).
+   * The gap adds visible space between cards during the spring animation so each
+   * photo feels like a separate card entering/exiting, not a connected strip.
    */
   const applyPositions = useCallback((currentIdx: number, dragOffset: number, animated: boolean) => {
+    const g = gapRef.current;
     const transition = animated ? "transform 0.35s cubic-bezier(0.25, 1, 0.5, 1)" : "none";
+    const step = g === 0 ? "100%" : `(100% + ${g}px)`;
     slideRefs.current.forEach((el, i) => {
       if (!el) return;
       el.style.transition = transition;
       el.style.transform = dragOffset === 0
-        ? `translateX(calc(${i - currentIdx} * 100%))`
-        : `translateX(calc(${i - currentIdx} * 100% + ${dragOffset}px))`;
+        ? `translateX(calc(${i - currentIdx} * ${step}))`
+        : `translateX(calc(${i - currentIdx} * ${step} + ${dragOffset}px))`;
     });
   }, []);
 
@@ -236,7 +248,7 @@ export function PhotoCarousel({
     <div
       ref={containerRef}
       className={`relative overflow-hidden select-none ${className}`}
-      style={{ height, touchAction: "pan-y", ...style }}
+      style={{ height, touchAction: "pan-y", background: "hsl(var(--muted))", ...style }}
       data-testid="photo-carousel"
     >
       {n === 0 && (
