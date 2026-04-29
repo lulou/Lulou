@@ -109,7 +109,6 @@ export function ActiveCallOverlay({
   const queryClient = useQueryClient();
   const endedRef = useRef(false);
   const [speakerOn, setSpeakerOn] = useState(false);
-  const [debugLogs, setDebugLogs] = useState<string[]>([]);
   const [failureReason, setFailureReason] = useState<string>("");
   const [timerExpiredMsg, setTimerExpiredMsg] = useState("");
   // Track exactly when WebRTC first reached "connected" so we can measure live duration
@@ -387,20 +386,6 @@ export function ActiveCallOverlay({
       isConnected,
     });
   }, [localStream, isVideo, matchId, isConnected]);
-
-  // Poll window.webrtcLogs every 500ms and show last 20 lines in the debug panel.
-  // Only update state when the log count changes to avoid constant re-renders.
-  const debugLogLenRef = useRef(0);
-  useEffect(() => {
-    const iv = setInterval(() => {
-      const all = (window as any).webrtcLogs as string[] | undefined;
-      if (all && all.length !== debugLogLenRef.current) {
-        debugLogLenRef.current = all.length;
-        setDebugLogs(all.slice(-20));
-      }
-    }, 500);
-    return () => clearInterval(iv);
-  }, []);
 
   const finishCall = useCallback((reason: string = "user_hangup") => {
     if (endedRef.current) return;
@@ -877,34 +862,6 @@ export function ActiveCallOverlay({
         </div>
       </div>
 
-      {/* WebRTC debug panel — live on-screen log viewer */}
-      {debugLogs.length > 0 && (
-        <div
-          style={{
-            position: "fixed",
-            top: 0,
-            left: 0,
-            width: "100%",
-            maxHeight: "35vh",
-            overflowY: "auto",
-            background: "rgba(0,0,0,0.82)",
-            color: "#00ff00",
-            fontSize: "11px",
-            fontFamily: "monospace",
-            zIndex: 9000,
-            padding: "4px 6px",
-            boxSizing: "border-box",
-            lineHeight: "1.4",
-            // Never intercept pointer events — call controls must remain tappable.
-            pointerEvents: "none",
-          }}
-          data-testid="webrtc-debug-panel"
-        >
-          {debugLogs.map((line, i) => (
-            <div key={i}>{line}</div>
-          ))}
-        </div>
-      )}
     </div>
   );
 }

@@ -164,11 +164,6 @@ interface RawAuthError {
   code: string;
 }
 
-// ── BUILD MARKER ─────────────────────────────────────────────────────────────
-// Set once when the JS bundle is evaluated. If this timestamp doesn't change
-// on reload, the browser is serving a stale bundle.
-const BUILD_STAMP = "2026-04-17T13:35:00Z • client/src/pages/landing.tsx";
-
 export default function Landing() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -730,20 +725,7 @@ export default function Landing() {
 
   return (
     <div className="min-h-screen bg-background">
-      {/* ── MARKER 1: Build stamp — fixed top of screen, visible above everything ── */}
-      <div
-        data-testid="build-marker"
-        style={{
-          position: "fixed", top: 0, left: 0, right: 0, zIndex: 99998,
-          background: "#facc15", color: "#000", fontFamily: "monospace",
-          fontWeight: 900, fontSize: 14, padding: "6px 12px",
-          textAlign: "center", letterSpacing: 1,
-        }}
-      >
-        🔴 LIVE BUILD MARKER: {BUILD_STAMP}
-      </div>
-
-      <nav style={{ marginTop: 34 }} className="fixed top-0 left-0 right-0 z-50 backdrop-blur-md bg-background/80 border-b">
+      <nav className="fixed top-0 left-0 right-0 z-50 backdrop-blur-md bg-background/80 border-b">
         <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between gap-4 flex-wrap">
           <div className="flex items-center gap-2">
             <LulouFlowerIcon className="w-6 h-6 text-primary" />
@@ -777,140 +759,7 @@ export default function Landing() {
               </p>
             </div>
 
-            {/* ══ SUPABASE AUTH DIAGNOSTICS ═════════════════════════════════════ */}
-            <div
-              data-testid="supabase-diagnostics"
-              style={{
-                position: "relative", zIndex: 100003, pointerEvents: "auto",
-                border: "3px solid #a855f7", borderRadius: 8,
-                padding: "10px 14px", background: "#0f172a",
-                marginBottom: 12, maxWidth: 450, fontFamily: "monospace", fontSize: 11,
-              }}
-            >
-              <div style={{ color: "#c084fc", fontWeight: 900, fontSize: 12, marginBottom: 8, letterSpacing: 1 }}>
-                🔌 SUPABASE AUTH DIAGNOSTICS
-              </div>
-
-              {/* Diagnostic values */}
-              <div style={{ lineHeight: 1.8, color: "#e2e8f0", marginBottom: 8 }}>
-                <div>authFetchCallCount   : <span style={{ color: lastAuthFetchDebug.authFetchCallCount > 0 ? "#4ade80" : "#f87171" }}>{lastAuthFetchDebug.authFetchCallCount}</span> (increments when login is attempted)</div>
-                <div>authFetchStarted     : <span style={{ color: lastAuthFetchDebug.authFetchStarted ? "#4ade80" : "#f87171" }}>{String(lastAuthFetchDebug.authFetchStarted)}</span></div>
-                <div>authRequestEndpoint  : <span style={{ color: "#93c5fd", wordBreak: "break-all" }}>{AUTH_ENDPOINT}</span></div>
-                <div>authTimeoutMs        : <span style={{ color: "#fbbf24" }}>30000</span></div>
-                <div>authResponseStatus   : <span style={{ color: lastAuthFetchDebug.authResponseStatus !== null ? "#4ade80" : "#94a3b8" }}>{String(lastAuthFetchDebug.authResponseStatus ?? "null — no response yet")}</span></div>
-                <div>authLowLevelError    : <span style={{ color: lastAuthFetchDebug.authUserFacingError ? "#f87171" : "#94a3b8" }}>{lastAuthFetchDebug.authUserFacingError ?? "none"}</span></div>
-                <div>navigatorOnline      : <span style={{ color: navigator.onLine ? "#4ade80" : "#f87171" }}>{String(navigator.onLine)}</span></div>
-                <div>currentOrigin        : <span style={{ color: "#93c5fd" }}>{window.location.origin}</span></div>
-                <div>authTimedOut         : <span style={{ color: rawAuthError?.code === "timeout" ? "#f87171" : "#94a3b8" }}>{String(rawAuthError?.code === "timeout")}</span></div>
-              </div>
-
-              {/* Action buttons row */}
-              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
-                <button
-                  data-testid="btn-supabase-reachability"
-                  onClick={runReachabilityTest}
-                  disabled={reachResult.running}
-                  style={{
-                    background: reachResult.running ? "#475569" : "#7c3aed",
-                    color: "#fff", border: "none", borderRadius: 4,
-                    padding: "5px 12px", fontSize: 11, fontWeight: 700,
-                    cursor: reachResult.running ? "default" : "pointer",
-                    fontFamily: "monospace",
-                  }}
-                >
-                  {reachResult.running ? "⏳ testing…" : "▶ Test Reachability"}
-                </button>
-                <button
-                  data-testid="btn-copy-auth-diagnostics"
-                  onClick={() => {
-                    const lines = [
-                      `authFetchCallCount  : ${lastAuthFetchDebug.authFetchCallCount}`,
-                      `authFetchStarted    : ${lastAuthFetchDebug.authFetchStarted}`,
-                      `authRequestEndpoint : ${AUTH_ENDPOINT}`,
-                      `authTimeoutMs       : 30000`,
-                      `authResponseStatus  : ${lastAuthFetchDebug.authResponseStatus ?? "null — no response yet"}`,
-                      `authLowLevelError   : ${lastAuthFetchDebug.authUserFacingError ?? "none"}`,
-                      `navigatorOnline     : ${navigator.onLine}`,
-                      `currentOrigin       : ${window.location.origin}`,
-                      `authTimedOut        : ${rawAuthError?.code === "timeout"}`,
-                      reachResult.endpointHit ? [
-                        `reachEndpoint       : ${reachResult.endpointHit}`,
-                        `reachResolved       : ${reachResult.resolved}`,
-                        `reachTimedOut       : ${reachResult.timedOut}`,
-                        `reachStatus         : ${reachResult.status ?? "—"}`,
-                        `reachContentType    : ${reachResult.contentType ?? "—"}`,
-                        reachResult.error ? `reachError          : ${reachResult.error}` : null,
-                        reachResult.body  ? `reachBodyPreview    : ${reachResult.body.slice(0, 200)}` : null,
-                      ].filter(Boolean).join("\n") : null,
-                    ].filter(Boolean).join("\n");
-                    navigator.clipboard.writeText(lines).catch(() => {});
-                  }}
-                  style={{
-                    background: "#0f766e",
-                    color: "#fff", border: "none", borderRadius: 4,
-                    padding: "5px 12px", fontSize: 11, fontWeight: 700,
-                    cursor: "pointer", fontFamily: "monospace",
-                  }}
-                >
-                  📋 Copy Auth Diagnostics
-                </button>
-              </div>
-
-              {/* Reachability test results */}
-              {reachResult.endpointHit && (
-                <div style={{
-                  background: "#1e293b", border: "1px solid #334155",
-                  borderRadius: 4, padding: "6px 8px", lineHeight: 1.7,
-                  color: "#e2e8f0",
-                }}>
-                  <div>endpoint    : <span style={{ color: "#93c5fd", wordBreak: "break-all" }}>{reachResult.endpointHit}</span></div>
-                  <div>resolved    : <span style={{ color: reachResult.resolved ? "#4ade80" : "#f87171" }}>{String(reachResult.resolved ?? "pending…")}</span></div>
-                  <div>timedOut    : <span style={{ color: reachResult.timedOut ? "#f87171" : "#4ade80" }}>{String(reachResult.timedOut)}</span></div>
-                  <div>status      : <span style={{ color: reachResult.status !== null ? (reachResult.status < 400 ? "#4ade80" : "#fb923c") : "#94a3b8" }}>{reachResult.status ?? "—"}</span></div>
-                  <div>contentType : <span style={{ color: "#e2e8f0" }}>{reachResult.contentType ?? "—"}</span></div>
-                  {reachResult.error && <div>error       : <span style={{ color: "#f87171" }}>{reachResult.error}</span></div>}
-                  {reachResult.body && (
-                    <div style={{ marginTop: 4 }}>
-                      <div style={{ color: "#94a3b8" }}>body preview:</div>
-                      <div style={{ color: "#fbbf24", wordBreak: "break-all", whiteSpace: "pre-wrap", maxHeight: 80, overflow: "auto" }}>{reachResult.body}</div>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-
             <form ref={formRef} onSubmit={handleSubmit} className="max-w-sm space-y-3" data-testid="form-login" noValidate>
-              {/* ── MARKER 2: Login form version + file path ── */}
-              <div
-                data-testid="login-form-marker"
-                style={{
-                  background: "#1e40af", color: "#fff", fontFamily: "monospace",
-                  fontSize: 11, padding: "5px 8px", borderRadius: 4,
-                  lineHeight: 1.5,
-                }}
-              >
-                <div style={{ fontWeight: 700 }}>LOGIN FORM VERSION: A</div>
-                <div>FILE: client/src/pages/landing.tsx</div>
-                <div>BUILD: {BUILD_STAMP}</div>
-              </div>
-
-              {/* ── MARKER 3: Live input echo — updates from React state ── */}
-              <div
-                data-testid="input-echo-marker"
-                style={{
-                  background: "#1f2937", color: "#e5e7eb",
-                  fontFamily: "monospace", fontSize: 12,
-                  padding: "6px 8px", borderRadius: 4, lineHeight: 1.7,
-                }}
-              >
-                <div style={{ color: email ? "#86efac" : "#9ca3af", fontWeight: 700 }}>
-                  INPUT TEST: {email || "empty — type in email field below"}
-                </div>
-                <div style={{ color: password ? "#86efac" : "#9ca3af", fontWeight: 700 }}>
-                  PASSWORD LENGTH: {password.length}
-                </div>
-              </div>
-
               {/* ── Outage banner ────────────────────────────────────────────────────
                   Shown when the auth service is unreachable (timeout or no
                   network). This sits ABOVE the inputs so it is the first thing
