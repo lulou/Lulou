@@ -1573,7 +1573,10 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
     },
   });
 
-  const myMessages = matchDetail?.messages?.filter(m => m.senderId === user?.id) || [];
+  const myMessages = useMemo(
+    () => matchDetail?.messages?.filter(m => m.senderId === user?.id) || [],
+    [matchDetail?.messages, user?.id],
+  );
   const hasMessageExtension = (benefits?.activated?.[match.id]?.message_extension || 0) > 0;
   const hasAvailableExtension = (benefits?.available?.message_extension || 0) > 0;
   const effectiveLimit = hasMessageExtension ? MAX_MESSAGES_PER_USER + 5 : MAX_MESSAGES_PER_USER;
@@ -2735,8 +2738,11 @@ export default function Matches() {
   const isLoading = matchesLoading;
   const fetchFailed = !!matchesError;
   const incomingRequests = spinRequestsData?.incoming || [];
-  const outgoingPending = spinRequestsData?.outgoing?.filter(r => r.status === "pending") || [];
-  const matchIds = (matches || []).map(m => m.id);
+  const outgoingPending = useMemo(
+    () => spinRequestsData?.outgoing?.filter(r => r.status === "pending") || [],
+    [spinRequestsData],
+  );
+  const matchIds = useMemo(() => (matches || []).map(m => m.id), [matches]);
 
   const handleNewBackgroundMessage = useCallback((matchId: string) => {
     console.log("[CHAT] BACKGROUND_MESSAGE_RECEIVED_INVALIDATING", { matchId });
@@ -2777,9 +2783,9 @@ export default function Matches() {
     );
   }
 
-  const newConnections = (matches || []).filter(m => !m.lastMessage);
-  const activeChats = (matches || []).filter(m => !!m.lastMessage);
-  const totalUnread = Object.values(unreadCounts).reduce((sum, n) => sum + n, 0);
+  const newConnections = useMemo(() => (matches || []).filter(m => !m.lastMessage), [matches]);
+  const activeChats    = useMemo(() => (matches || []).filter(m => !!m.lastMessage), [matches]);
+  const totalUnread    = useMemo(() => Object.values(unreadCounts).reduce((sum, n) => sum + n, 0), [unreadCounts]);
 
   const connectionCount = matches?.length || 0;
   const atLimit = connectionCount >= MAX_CONNECTIONS;
