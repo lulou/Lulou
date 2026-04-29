@@ -18,6 +18,7 @@ import { Input } from "@/components/ui/input";
 import { MessageCircle, Send, Phone, Video, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, PhoneOff, Clock, Check, X, Sparkles, Calendar, Heart, PhoneForwarded, Moon, User, MapPin } from "lucide-react";
 import { LulouFlowerIcon } from "@/components/app-layout";
 import { broadcastCallSignal } from "@/hooks/use-call-signaling";
+import { PhotoCarousel } from "@/components/photo-carousel";
 import type { Profile, Match, Message, SpinRequest } from "@shared/schema";
 
 const MAX_MESSAGES_PER_USER = 15;
@@ -889,63 +890,34 @@ function ProfilePanel({ profile, onClose }: { profile: Profile; onClose: () => v
   });
   const photos = photoData?.photos ?? profile.photos ?? [];
   const [photoIdx, setPhotoIdx] = useState(0);
-  const touchStartX = useRef<number | null>(null);
-
-  const goNext = () => setPhotoIdx(i => Math.min(i + 1, photos.length - 1));
-  const goPrev = () => setPhotoIdx(i => Math.max(i - 1, 0));
-
-  const handleTouchStart = (e: React.TouchEvent) => {
-    touchStartX.current = e.touches[0].clientX;
-  };
-  const handleTouchEnd = (e: React.TouchEvent) => {
-    if (touchStartX.current === null) return;
-    const dx = e.changedTouches[0].clientX - touchStartX.current;
-    touchStartX.current = null;
-    if (Math.abs(dx) < 40) return;
-    if (dx < 0) goNext();
-    else goPrev();
-  };
 
   return (
     <div className="flex flex-col h-full bg-background" data-testid="profile-panel">
       <style>{`
         @keyframes profilePanelIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
         .profile-panel-body { animation: profilePanelIn 0.22s ease both; }
-        @keyframes photoFadeIn { from { opacity: 0; } to { opacity: 1; } }
-        .photo-fade { animation: photoFadeIn 0.22s ease both; }
       `}</style>
 
-      <div
-        className="relative flex-shrink-0 bg-muted overflow-hidden select-none"
-        style={{ height: 300 }}
-        onTouchStart={handleTouchStart}
-        onTouchEnd={handleTouchEnd}
+      {/* PhotoCarousel handles swipe/drag — overlays injected as children */}
+      <PhotoCarousel
+        photos={photos}
+        height={300}
+        currentIndex={photoIdx}
+        onIndexChange={setPhotoIdx}
+        showArrows={false}
+        showDots={false}
+        className="flex-shrink-0"
       >
-        {photos.length > 0 ? (
-          <img
-            key={photoIdx}
-            src={photos[photoIdx]}
-            className="w-full h-full object-cover object-center photo-fade"
-            alt={profile.firstName}
-            data-testid="img-profile-panel-photo"
-          />
-        ) : (
-          <div className="w-full h-full flex items-center justify-center bg-secondary/40">
-            <svg viewBox="0 0 80 80" fill="none" className="w-20 h-20 text-muted-foreground/20">
-              <circle cx="40" cy="28" r="15" fill="currentColor" />
-              <ellipse cx="40" cy="64" rx="26" ry="17" fill="currentColor" />
-            </svg>
-          </div>
-        )}
-
+        {/* Bottom gradient */}
         <div
-          className="absolute inset-x-0 bottom-0 pointer-events-none"
+          className="absolute inset-x-0 bottom-0 pointer-events-none z-10"
           style={{ height: "60%", background: "linear-gradient(to top, rgba(0,0,0,0.72) 0%, rgba(0,0,0,0.28) 55%, transparent 100%)" }}
         />
 
+        {/* Left arrow */}
         {photos.length > 1 && photoIdx > 0 && (
           <button
-            onClick={goPrev}
+            onClick={() => setPhotoIdx(i => Math.max(i - 1, 0))}
             className="absolute left-2 top-1/2 -translate-y-1/2 z-20 flex items-center justify-center rounded-full transition-all active:scale-90"
             style={{ width: 32, height: 32, background: "rgba(0,0,0,0.38)", backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)", border: "1px solid rgba(255,255,255,0.18)" }}
             data-testid="button-profile-photo-prev"
@@ -954,9 +926,10 @@ function ProfilePanel({ profile, onClose }: { profile: Profile; onClose: () => v
           </button>
         )}
 
+        {/* Right arrow (offset from close button) */}
         {photos.length > 1 && photoIdx < photos.length - 1 && (
           <button
-            onClick={goNext}
+            onClick={() => setPhotoIdx(i => Math.min(i + 1, photos.length - 1))}
             className="absolute right-10 top-1/2 -translate-y-1/2 z-20 flex items-center justify-center rounded-full transition-all active:scale-90"
             style={{ width: 32, height: 32, background: "rgba(0,0,0,0.38)", backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)", border: "1px solid rgba(255,255,255,0.18)" }}
             data-testid="button-profile-photo-next"
@@ -965,21 +938,17 @@ function ProfilePanel({ profile, onClose }: { profile: Profile; onClose: () => v
           </button>
         )}
 
+        {/* Close button */}
         <button
           onClick={onClose}
           className="absolute top-3 right-3 z-20 flex items-center justify-center rounded-full transition-all active:scale-90"
-          style={{
-            width: 34, height: 34,
-            background: "rgba(0,0,0,0.38)",
-            backdropFilter: "blur(8px)",
-            WebkitBackdropFilter: "blur(8px)",
-            border: "1px solid rgba(255,255,255,0.18)",
-          }}
+          style={{ width: 34, height: 34, background: "rgba(0,0,0,0.38)", backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)", border: "1px solid rgba(255,255,255,0.18)" }}
           data-testid="button-close-profile-panel"
         >
           <X className="w-4 h-4 text-white" />
         </button>
 
+        {/* Name + location overlay */}
         <div className="absolute inset-x-0 bottom-0 z-10 px-4 pb-4">
           <h2 className="font-serif font-bold text-white leading-tight" style={{ fontSize: 22, textShadow: "0 1px 8px rgba(0,0,0,0.5)" }} data-testid="text-profile-panel-name">
             {profile.firstName}{profile.age ? `, ${profile.age}` : ""}
@@ -997,6 +966,7 @@ function ProfilePanel({ profile, onClose }: { profile: Profile; onClose: () => v
           </div>
         </div>
 
+        {/* Top story-bar indicators */}
         {photos.length > 1 && (
           <div className="absolute top-3 left-0 right-10 flex gap-1 px-3 z-20">
             {photos.map((_, i) => (
@@ -1010,7 +980,7 @@ function ProfilePanel({ profile, onClose }: { profile: Profile; onClose: () => v
             ))}
           </div>
         )}
-      </div>
+      </PhotoCarousel>
 
       <div className="flex-1 min-h-0 overflow-y-auto profile-panel-body" style={{ paddingBottom: "env(safe-area-inset-bottom, 16px)" }}>
         {profile.datingIntent && (

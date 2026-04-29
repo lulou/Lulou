@@ -13,6 +13,7 @@ import {
   ChevronLeft, Ruler,
 } from "lucide-react";
 import { LulouFlowerIcon } from "@/components/app-layout";
+import { PhotoCarousel } from "@/components/photo-carousel";
 import { ElevateModal } from "@/components/elevate-modal";
 import { ElevateStatusCard } from "@/components/elevate-status-card";
 import type { Profile, Interaction } from "@shared/schema";
@@ -172,7 +173,6 @@ function ProfileModal({
   const queryClient = useQueryClient();
   const [photoIndex, setPhotoIndex] = useState(0);
   const [visible, setVisible] = useState(false);
-  const touchStartXRef = useRef<number | null>(null);
 
   // Slide in from bottom on mount
   useEffect(() => {
@@ -207,22 +207,6 @@ function ProfileModal({
   const greenFlags = profile.greenFlags ?? [];
   const conversationStarters = profile.conversationStarters ?? [];
   const questions = profile.questions ?? [];
-
-  const prevPhoto = () => setPhotoIndex(i => Math.max(0, i - 1));
-  const nextPhoto = () => setPhotoIndex(i => Math.min(photos.length - 1, i + 1));
-
-  const handleTouchStart = (e: React.TouchEvent) => {
-    touchStartXRef.current = e.touches[0].clientX;
-  };
-  const handleTouchEnd = (e: React.TouchEvent) => {
-    if (touchStartXRef.current === null) return;
-    const delta = touchStartXRef.current - e.changedTouches[0].clientX;
-    if (Math.abs(delta) > 50) {
-      if (delta > 0) nextPhoto();
-      else prevPhoto();
-    }
-    touchStartXRef.current = null;
-  };
 
   const respond = useMutation({
     mutationFn: async (type: "open" | "close") => {
@@ -266,25 +250,19 @@ function ProfileModal({
         WebkitOverflowScrolling: "touch",
       }}
     >
-      {/* ── Photo Carousel ──────────────────────────────────────────────────── */}
-      <div
-        className="relative w-full bg-muted"
+      {/* ── Photo Carousel — PhotoCarousel handles swipe/drag, overlays as children */}
+      <PhotoCarousel
+        photos={photos}
+        currentIndex={photoIndex}
+        onIndexChange={setPhotoIndex}
+        showArrows={false}
+        showDots={false}
         style={{ height: "60vh", minHeight: 300, maxHeight: 520 }}
-        onTouchStart={handleTouchStart}
-        onTouchEnd={handleTouchEnd}
       >
-        {photos.length > 0 ? (
-          <img
-            key={photoIndex}
-            src={photos[photoIndex]}
-            alt={`${profile.firstName} photo ${photoIndex + 1}`}
-            className="absolute inset-0 w-full h-full object-cover"
-            style={{ transition: "opacity 0.2s ease" }}
-            data-testid={`img-modal-photo-${photoIndex}`}
-          />
-        ) : (
+        {/* Empty state (no photos) */}
+        {photos.length === 0 && (
           <div
-            className="absolute inset-0 flex items-center justify-center"
+            className="absolute inset-0 flex items-center justify-center z-10"
             style={{ background: "linear-gradient(135deg, hsl(350 45% 92%), hsl(350 45% 82%))" }}
           >
             <span className="font-serif text-9xl font-bold" style={{ color: "hsl(350 45% 52%)" }}>
@@ -294,11 +272,11 @@ function ProfileModal({
         )}
 
         {/* Bottom gradient */}
-        <div className="absolute inset-x-0 bottom-0 h-44 bg-gradient-to-t from-black/80 via-black/25 to-transparent pointer-events-none" />
+        <div className="absolute inset-x-0 bottom-0 h-44 bg-gradient-to-t from-black/80 via-black/25 to-transparent pointer-events-none z-10" />
 
-        {/* Close button */}
+        {/* Close / back button */}
         <button
-          className="absolute top-4 left-4 z-10 w-10 h-10 rounded-full flex items-center justify-center active:scale-90 transition-all"
+          className="absolute top-4 left-4 z-20 w-10 h-10 rounded-full flex items-center justify-center active:scale-90 transition-all"
           style={{ background: "hsl(0 0% 0% / 0.4)", backdropFilter: "blur(8px)" }}
           onClick={handleClose}
           data-testid="button-close-profile-modal"
@@ -310,50 +288,52 @@ function ProfileModal({
         {/* Photo count badge */}
         {photos.length > 1 && (
           <div
-            className="absolute top-4 right-4 z-10 px-2.5 py-1 rounded-full text-white text-xs font-medium"
+            className="absolute top-4 right-4 z-20 px-2.5 py-1 rounded-full text-white text-xs font-medium"
             style={{ background: "hsl(0 0% 0% / 0.4)", backdropFilter: "blur(8px)" }}
           >
             {photoIndex + 1} / {photos.length}
           </div>
         )}
 
-        {/* Prev / Next arrows */}
-        {photos.length > 1 && (
-          <>
-            <button
-              className="absolute left-3 top-1/2 -translate-y-1/2 z-10 w-9 h-9 rounded-full flex items-center justify-center disabled:opacity-25 active:scale-90 transition-all"
-              style={{ background: "hsl(0 0% 0% / 0.35)", backdropFilter: "blur(6px)" }}
-              onClick={prevPhoto}
-              disabled={photoIndex === 0}
-              data-testid="button-modal-prev-photo"
-              aria-label="Previous photo"
-            >
-              <ChevronLeft className="w-4 h-4 text-white" />
-            </button>
-            <button
-              className="absolute right-3 top-1/2 -translate-y-1/2 z-10 w-9 h-9 rounded-full flex items-center justify-center disabled:opacity-25 active:scale-90 transition-all"
-              style={{ background: "hsl(0 0% 0% / 0.35)", backdropFilter: "blur(6px)" }}
-              onClick={nextPhoto}
-              disabled={photoIndex === photos.length - 1}
-              data-testid="button-modal-next-photo"
-              aria-label="Next photo"
-            >
-              <ChevronRight className="w-4 h-4 text-white" />
-            </button>
-          </>
+        {/* Prev arrow */}
+        {photos.length > 1 && photoIndex > 0 && (
+          <button
+            className="absolute left-3 top-1/2 -translate-y-1/2 z-20 w-9 h-9 rounded-full flex items-center justify-center active:scale-90 transition-all"
+            style={{ background: "hsl(0 0% 0% / 0.35)", backdropFilter: "blur(6px)" }}
+            onClick={() => setPhotoIndex(i => Math.max(0, i - 1))}
+            data-testid="button-modal-prev-photo"
+            aria-label="Previous photo"
+          >
+            <ChevronLeft className="w-4 h-4 text-white" />
+          </button>
+        )}
+
+        {/* Next arrow */}
+        {photos.length > 1 && photoIndex < photos.length - 1 && (
+          <button
+            className="absolute right-3 top-1/2 -translate-y-1/2 z-20 w-9 h-9 rounded-full flex items-center justify-center active:scale-90 transition-all"
+            style={{ background: "hsl(0 0% 0% / 0.35)", backdropFilter: "blur(6px)" }}
+            onClick={() => setPhotoIndex(i => Math.min(photos.length - 1, i + 1))}
+            data-testid="button-modal-next-photo"
+            aria-label="Next photo"
+          >
+            <ChevronRight className="w-4 h-4 text-white" />
+          </button>
         )}
 
         {/* Dot indicators */}
         {photos.length > 1 && (
-          <div className="absolute bottom-[5.5rem] inset-x-0 flex justify-center gap-1.5 z-10 pointer-events-none">
+          <div className="absolute bottom-[5.5rem] inset-x-0 flex justify-center gap-1.5 z-20 pointer-events-none">
             {photos.map((_, i) => (
               <div
                 key={i}
-                className="rounded-full transition-all duration-200"
                 style={{
                   width: i === photoIndex ? 20 : 6,
                   height: 6,
+                  borderRadius: 3,
                   background: i === photoIndex ? "white" : "rgba(255,255,255,0.45)",
+                  transition: "width 0.25s ease, background 0.25s ease",
+                  flexShrink: 0,
                 }}
               />
             ))}
@@ -361,7 +341,7 @@ function ProfileModal({
         )}
 
         {/* Name / age / location overlay */}
-        <div className="absolute bottom-4 left-5 right-5 z-10">
+        <div className="absolute bottom-4 left-5 right-5 z-20">
           <div className="flex items-end justify-between gap-2">
             <div>
               <h2
@@ -387,7 +367,7 @@ function ProfileModal({
             )}
           </div>
         </div>
-      </div>
+      </PhotoCarousel>
 
       {/* ── Profile Content ──────────────────────────────────────────────────── */}
       <div className="px-5 pt-5 pb-36 space-y-6 max-w-lg mx-auto">
