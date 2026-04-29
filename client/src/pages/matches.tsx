@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback, useMemo, Fragment, type ReactNode } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo, memo, Fragment, type ReactNode } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -2660,16 +2660,16 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
   );
 }
 
-function MatchCard({ match, unreadCount, userId, onOpen }: {
+const MatchCard = memo(function MatchCard({ match, unreadCount, userId, onOpen }: {
   match: MatchWithProfile;
   unreadCount: number;
   userId: string | null;
-  onOpen: () => void;
+  onOpen: (matchId: string) => void;
 }) {
   return (
     <Card
       className="cursor-pointer hover-elevate transition-all"
-      onClick={onOpen}
+      onClick={() => onOpen(match.id)}
       data-testid={`button-expand-match-${match.id}`}
     >
       <div className="p-3.5 flex items-center gap-3">
@@ -2700,13 +2700,17 @@ function MatchCard({ match, unreadCount, userId, onOpen }: {
       </div>
     </Card>
   );
-}
+});
 
 export default function Matches() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const isActive = useTabActive();
   const [expandedMatchId, setExpandedMatchId] = useState<string | null>(null);
+  // Stable handler — won't change across renders, so React.memo on MatchCard actually skips re-renders
+  const handleMatchOpen = useCallback((matchId: string) => {
+    setExpandedMatchId(matchId);
+  }, []);
   // Perf: log first render time
   const _mountRef = useRef(true);
   useEffect(() => {
@@ -2956,10 +2960,7 @@ export default function Matches() {
                     match={match}
                     unreadCount={unreadCounts[match.id] || 0}
                     userId={user?.id || null}
-                    onOpen={() => {
-                      console.log("[CHAT] CHAT_THREAD_SELECTED", { matchId: match.id, profileName: match.profile.firstName, tab: "new" });
-                      setExpandedMatchId(match.id);
-                    }}
+                    onOpen={handleMatchOpen}
                   />
                 ))
               )}
@@ -2979,10 +2980,7 @@ export default function Matches() {
                     match={match}
                     unreadCount={unreadCounts[match.id] || 0}
                     userId={user?.id || null}
-                    onOpen={() => {
-                      console.log("[CHAT] CHAT_THREAD_SELECTED", { matchId: match.id, profileName: match.profile.firstName, tab: "active" });
-                      setExpandedMatchId(match.id);
-                    }}
+                    onOpen={handleMatchOpen}
                   />
                 ))
               )}

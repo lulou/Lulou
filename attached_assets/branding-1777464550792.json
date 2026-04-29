@@ -1,0 +1,112 @@
+{
+  "colorScheme": "light",
+  "fonts": [
+    {
+      "family": "Inter",
+      "role": "body"
+    }
+  ],
+  "colors": {
+    "primary": "#4B5563",
+    "accent": "#306DE5",
+    "background": "#F9F9F9",
+    "textPrimary": "#306DE5",
+    "link": "#306DE5"
+  },
+  "typography": {
+    "fontFamilies": {
+      "primary": "Inter",
+      "heading": "Inter"
+    },
+    "fontStacks": {
+      "heading": [
+        "Inter"
+      ],
+      "body": [
+        "Inter"
+      ],
+      "paragraph": [
+        "Inter"
+      ]
+    },
+    "fontSizes": {
+      "h1": "60px",
+      "h2": "24px",
+      "body": "16px"
+    }
+  },
+  "spacing": {
+    "baseUnit": 8,
+    "borderRadius": "4px"
+  },
+  "components": {
+    "buttonPrimary": {
+      "background": "#306DE5",
+      "textColor": "#FFFFFF",
+      "borderRadius": "14px",
+      "borderRadiusCorners": {
+        "topLeft": "14px",
+        "topRight": "14px",
+        "bottomRight": "14px",
+        "bottomLeft": "14px"
+      },
+      "shadow": "none"
+    },
+    "buttonSecondary": {
+      "background": "#F9F9F9",
+      "textColor": "#000000",
+      "borderColor": "#E8E8E8",
+      "borderRadius": "14px",
+      "borderRadiusCorners": {
+        "topLeft": "14px",
+        "topRight": "14px",
+        "bottomRight": "14px",
+        "bottomLeft": "14px"
+      },
+      "shadow": "none"
+    }
+  },
+  "images": {
+    "logo": null,
+    "favicon": "File saved at: attached_assets/favicon.png",
+    "ogImage": "https://use.ai/en/opengraph-image?8e92ff252e707dbe"
+  },
+  "__llm_button_reasoning": {
+    "primary": {
+      "index": 0,
+      "text": "Go to Homepage",
+      "reasoning": "The 'Go to Homepage' button is the primary CTA because it uses a vibrant blue color (#306DE5), which is typically associated with primary actions. The color is consistent with the brand's accent color, making it stand out as the main call-to-action."
+    },
+    "secondary": {
+      "index": 1,
+      "text": "Go to Chat",
+      "reasoning": "The 'Go to Chat' button is secondary as it uses a light background color (#F9F9F9) with a border, making it less prominent than the primary button. It serves as an alternative action, typical for secondary buttons."
+    },
+    "confidence": 0.95
+  },
+  "personality": {
+    "tone": "modern",
+    "energy": "medium",
+    "targetAudience": "tech-savvy professionals"
+  },
+  "designSystem": {
+    "framework": "tailwind",
+    "componentLibrary": ""
+  },
+  "confidence": {
+    "buttons": 0.95,
+    "colors": 0.9,
+    "overall": 0.925
+  },
+  "__llm_metadata": {
+    "logoSelection": {
+      "llmCalled": false,
+      "llmSucceeded": false,
+      "finalSource": "none"
+    },
+    "buttonClassification": {
+      "llmCalled": true,
+      "llmSucceeded": true
+    }
+  }
+}
