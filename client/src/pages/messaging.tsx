@@ -12,6 +12,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
 import { useRealtimeMessages } from "@/hooks/use-realtime-messages";
 import { ArrowLeft, Send, Phone, Video, Check, Clock, Calendar, Heart, PhoneForwarded, X, Moon, MapPin, Ruler, MessageCircle, Loader2 } from "lucide-react";
+import { PhotoCarousel } from "@/components/photo-carousel";
 import { Input } from "@/components/ui/input";
 import type { Message, Match, Profile } from "@shared/schema";
 
@@ -857,17 +858,12 @@ export default function Messaging() {
       {activeTab === "profile" && (
         <div className="flex-1 overflow-y-auto min-h-0" data-testid="profile-tab-content">
           {profile.photos?.length > 0 && (
-            <div className="flex gap-2 overflow-x-auto px-4 pt-4 pb-1 snap-x snap-mandatory">
-              {profile.photos.map((photo, i) => (
-                <img
-                  key={i}
-                  src={photo}
-                  alt={`${profile.firstName} photo ${i + 1}`}
-                  className="w-64 h-80 object-cover rounded-xl flex-shrink-0 snap-start"
-                  data-testid={`img-profile-photo-${i}`}
-                />
-              ))}
-            </div>
+            <PhotoCarousel
+              photos={profile.photos}
+              height={400}
+              showArrows={profile.photos.length > 1}
+              showDots={profile.photos.length > 1}
+            />
           )}
 
           <div className="px-4 pt-4 pb-8 space-y-5">

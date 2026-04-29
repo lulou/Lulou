@@ -1,41 +1,37 @@
-import { useState, useRef, useEffect, useLayoutEffect, useCallback, ReactNode } from "react";
+import { useState, useRef, useEffect, useLayoutEffect, useCallback, type ReactNode } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 
 /**
- * Smooth sliding photo carousel.
+ * Tactile photo carousel — photos physically follow the finger/mouse in real-time.
  *
- * Features:
- * - CSS transform sliding strip — no abrupt image swaps
- * - Touch swipe with live drag feedback (non-passive touchmove via addEventListener)
- * - Mouse/pointer drag support
- * - Direction detection: horizontal drag slides photos, vertical drag scrolls page
- * - Only loads photos ±1 from current index (lazy loads the rest)
- * - Optional built-in arrow buttons + dot indicators
- * - `children` prop for absolute-positioned overlays (close button, name, etc.)
+ * Design mirrors discover.tsx SlideCards and intent.tsx wheel drag:
+ *   - Slides: position:absolute so translateX(calc((i–idx)*100%)) needs no JS measurement
+ *   - Drag: direct DOM transform manipulation (zero React re-renders = 60fps)
+ *   - Release: spring to next/prev from wherever drag left off, or snap back
+ *   - Non-passive touchmove via addEventListener → preventDefault during horizontal drag
+ *     prevents page scroll without breaking vertical profile scrolling
+ *   - skipAnimation flag prevents useLayoutEffect from restarting an animation that
+ *     the drag handler already initiated
  */
 
 interface PhotoCarouselProps {
   photos: string[];
-  /** CSS height of the carousel container */
   height?: number | string;
-  /** Controlled index — if provided, also pass onIndexChange */
+  /** Controlled index. If provided, also pass onIndexChange. */
   currentIndex?: number;
-  /** Called when the user swipes/taps to a new photo */
   onIndexChange?: (idx: number) => void;
-  /** Show built-in arrow buttons (default true, auto-hidden when ≤1 photo) */
   showArrows?: boolean;
-  /** Show built-in pill dot indicators (default true, auto-hidden when ≤1 photo) */
   showDots?: boolean;
   className?: string;
   style?: React.CSSProperties;
-  /** Absolute-positioned overlay content (close button, name, gradients, etc.) */
+  /** Absolute-positioned overlay content (close button, name, gradients…) */
   children?: ReactNode;
 }
 
 export function PhotoCarousel({
   photos,
   height = 300,
-  currentIndex,
+  currentIndex: controlledIdx,
   onIndexChange,
   showArrows = true,
   showDots = true,
@@ -44,190 +40,252 @@ export function PhotoCarousel({
   children,
 }: PhotoCarouselProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const [containerW, setContainerW] = useState(0);
+  const slideRefs = useRef<(HTMLDivElement | null)[]>([]);
+
   const [internalIdx, setInternalIdx] = useState(0);
-  const [dragDx, setDragDx] = useState(0);
+  const [dotIdx, setDotIdx] = useState(0); // drives dot/arrow render only
 
-  // Touch state
-  const touchActive = useRef(false);
-  const touchDir = useRef<"h" | "v" | null>(null);
-  const touchStartX = useRef(0);
-  const touchStartY = useRef(0);
+  const idx = controlledIdx !== undefined ? controlledIdx : internalIdx;
 
-  // Pointer (mouse) state
-  const pointerActive = useRef(false);
-  const pointerMoved = useRef(false);
-  const pointerStartX = useRef(0);
-  const pointerStartY = useRef(0);
+  // Refs for stale-closure safety in event handlers
+  const idxRef = useRef(idx);
+  const nRef = useRef(photos.length);
+  const isMounted = useRef(false);
+  const skipNextLayoutEffect = useRef(false); // set when drag handler pre-animates
 
-  const idx = currentIndex !== undefined ? currentIndex : internalIdx;
-  const n = photos.length;
+  useEffect(() => { idxRef.current = idx; }, [idx]);
+  useEffect(() => { nRef.current = photos.length; }, [photos.length]);
 
-  const setIdx = useCallback((newIdx: number) => {
-    const clamped = Math.max(0, Math.min((photos.length || 1) - 1, newIdx));
-    if (currentIndex === undefined) setInternalIdx(clamped);
-    onIndexChange?.(clamped);
-  }, [currentIndex, photos.length, onIndexChange]);
-
-  // Measure container width synchronously before first paint
-  useLayoutEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
-    const measure = () => setContainerW(el.offsetWidth);
-    measure();
-    const ro = new ResizeObserver(measure);
-    ro.observe(el);
-    return () => ro.disconnect();
+  /**
+   * Apply CSS transforms to all slides directly.
+   * Each slide: translateX(calc((i – currentIdx) * 100%) + dragOffsetPx)
+   * "100%" = 100% of the slide's own width = container width (position:absolute; width:100%)
+   * → no JavaScript size measurement needed.
+   */
+  const applyPositions = useCallback((currentIdx: number, dragOffset: number, animated: boolean) => {
+    const transition = animated ? "transform 0.35s cubic-bezier(0.25, 1, 0.5, 1)" : "none";
+    slideRefs.current.forEach((el, i) => {
+      if (!el) return;
+      el.style.transition = transition;
+      el.style.transform = dragOffset === 0
+        ? `translateX(calc(${i - currentIdx} * 100%))`
+        : `translateX(calc(${i - currentIdx} * 100% + ${dragOffset}px))`;
+    });
   }, []);
 
-  // Non-passive touchmove so we can call preventDefault during horizontal drag
+  /**
+   * Commit a new photo index.
+   * alreadyAnimated = true when the drag handler called applyPositions first —
+   * tells useLayoutEffect to skip re-animating to the same destination.
+   */
+  const commitIdx = useCallback((newIdx: number, alreadyAnimated = false) => {
+    const clamped = Math.max(0, Math.min(nRef.current - 1, newIdx));
+    idxRef.current = clamped;
+    skipNextLayoutEffect.current = alreadyAnimated;
+    if (controlledIdx === undefined) setInternalIdx(clamped);
+    onIndexChange?.(clamped);
+    setDotIdx(clamped); // immediate dot/arrow update
+  }, [controlledIdx, onIndexChange]);
+
+  // Sync position whenever committed index changes
+  useLayoutEffect(() => {
+    const shouldAnimate = isMounted.current; // capture BEFORE setting to true
+    isMounted.current = true;
+    setDotIdx(idx);
+    if (skipNextLayoutEffect.current) {
+      // Drag handler already animated to this position — don't restart it
+      skipNextLayoutEffect.current = false;
+      return;
+    }
+    applyPositions(idx, 0, shouldAnimate); // false on first mount → no animation
+  }, [idx, applyPositions]);
+
+  // ── Drag / swipe via native event listeners ──────────────────────────────
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
-    const onMove = (e: TouchEvent) => {
-      if (!touchActive.current) return;
-      const dx = e.touches[0].clientX - touchStartX.current;
-      const dy = e.touches[0].clientY - touchStartY.current;
-      if (!touchDir.current) {
-        if (Math.abs(dx) < 4 && Math.abs(dy) < 4) return;
-        touchDir.current = Math.abs(dx) >= Math.abs(dy) ? "h" : "v";
+
+    // ── Touch ──────────────────────────────────────────────────────────────
+    let tStartX = 0, tStartY = 0;
+    let tDir: "h" | "v" | null = null;
+    let tActive = false;
+
+    const onTouchStart = (e: TouchEvent) => {
+      tStartX = e.touches[0].clientX;
+      tStartY = e.touches[0].clientY;
+      tDir = null;
+      tActive = true;
+      applyPositions(idxRef.current, 0, false); // cancel any ongoing spring
+    };
+
+    const onTouchMove = (e: TouchEvent) => {
+      if (!tActive) return;
+      const dx = e.touches[0].clientX - tStartX;
+      const dy = e.touches[0].clientY - tStartY;
+      if (!tDir) {
+        if (Math.abs(dx) < 5 && Math.abs(dy) < 5) return;
+        tDir = Math.abs(dx) >= Math.abs(dy) ? "h" : "v";
       }
-      if (touchDir.current === "h") {
-        e.preventDefault(); // stop page scroll during horizontal swipe
-        setDragDx(dx);
+      if (tDir === "h") {
+        e.preventDefault(); // block page scroll only during horizontal swipe
+        applyPositions(idxRef.current, dx, false); // photo follows finger
       }
     };
-    el.addEventListener("touchmove", onMove, { passive: false });
-    return () => el.removeEventListener("touchmove", onMove);
-  }, []);
 
-  const handleTouchStart = (e: React.TouchEvent) => {
-    touchStartX.current = e.touches[0].clientX;
-    touchStartY.current = e.touches[0].clientY;
-    touchDir.current = null;
-    touchActive.current = true;
-  };
+    const settle = (finalDx: number, dir: "h" | "v" | null) => {
+      if (dir !== "h") return;
+      const w = el.offsetWidth || 1;
+      const threshold = Math.max(44, w * 0.22);
+      if (Math.abs(finalDx) >= threshold) {
+        const newIdx = finalDx < 0
+          ? Math.min(idxRef.current + 1, nRef.current - 1)
+          : Math.max(idxRef.current - 1, 0);
+        if (newIdx !== idxRef.current) {
+          // Animate naturally from current drag position to final position
+          applyPositions(newIdx, 0, true);
+          commitIdx(newIdx, true); // skip useLayoutEffect re-animation
+          return;
+        }
+      }
+      applyPositions(idxRef.current, 0, true); // spring back
+    };
 
-  const handleTouchEnd = (e: React.TouchEvent) => {
-    touchActive.current = false;
-    const dx = e.changedTouches[0].clientX - touchStartX.current;
-    setDragDx(0);
-    if (touchDir.current === "h" && Math.abs(dx) >= 40) {
-      setIdx(dx < 0 ? idx + 1 : idx - 1);
-    }
-    touchDir.current = null;
-  };
+    const onTouchEnd = (e: TouchEvent) => {
+      if (!tActive) return;
+      tActive = false;
+      settle(e.changedTouches[0].clientX - tStartX, tDir);
+      tDir = null;
+    };
+    const onTouchCancel = () => {
+      if (!tActive) return;
+      tActive = false;
+      applyPositions(idxRef.current, 0, true);
+      tDir = null;
+    };
 
-  const handlePointerDown = (e: React.PointerEvent) => {
-    if (e.pointerType === "touch") return;
-    pointerStartX.current = e.clientX;
-    pointerStartY.current = e.clientY;
-    pointerActive.current = true;
-    pointerMoved.current = false;
-    e.currentTarget.setPointerCapture(e.pointerId);
-  };
+    // ── Pointer (mouse drag) ───────────────────────────────────────────────
+    let pStartX = 0, pStartY = 0;
+    let pDir: "h" | "v" | null = null;
+    let pId: number | null = null;
 
-  const handlePointerMove = (e: React.PointerEvent) => {
-    if (!pointerActive.current || e.pointerType === "touch") return;
-    const dx = e.clientX - pointerStartX.current;
-    const dy = e.clientY - pointerStartY.current;
-    if (!pointerMoved.current) {
-      if (Math.abs(dx) < 5) return;
-      if (Math.abs(dy) > Math.abs(dx)) { pointerActive.current = false; return; }
-      pointerMoved.current = true;
-    }
-    setDragDx(dx);
-  };
+    const onPointerDown = (e: PointerEvent) => {
+      if (e.pointerType === "touch") return;
+      pStartX = e.clientX;
+      pStartY = e.clientY;
+      pDir = null;
+      pId = e.pointerId;
+      el.setPointerCapture(e.pointerId);
+      applyPositions(idxRef.current, 0, false);
+    };
 
-  const handlePointerUp = (e: React.PointerEvent) => {
-    if (!pointerActive.current || e.pointerType === "touch") return;
-    const dx = e.clientX - pointerStartX.current;
-    pointerActive.current = false;
-    setDragDx(0);
-    if (pointerMoved.current && Math.abs(dx) >= 40) {
-      setIdx(dx < 0 ? idx + 1 : idx - 1);
-    }
-    pointerMoved.current = false;
-  };
+    const onPointerMove = (e: PointerEvent) => {
+      if (e.pointerType === "touch" || e.pointerId !== pId) return;
+      const dx = e.clientX - pStartX;
+      const dy = e.clientY - pStartY;
+      if (!pDir) {
+        if (Math.abs(dx) < 5) return;
+        pDir = Math.abs(dx) >= Math.abs(dy) ? "h" : "v";
+        if (pDir === "v") { pId = null; return; }
+      }
+      if (pDir === "h") applyPositions(idxRef.current, dx, false);
+    };
 
-  const isInteracting = touchActive.current || pointerActive.current;
-  const tx = containerW > 0 ? -(idx * containerW) + dragDx : 0;
+    const onPointerUp = (e: PointerEvent) => {
+      if (e.pointerType === "touch" || e.pointerId !== pId) return;
+      const capturedDir = pDir;
+      const capturedDx = e.clientX - pStartX;
+      pId = null;
+      pDir = null;
+      settle(capturedDx, capturedDir);
+    };
+
+    el.addEventListener("touchstart",  onTouchStart,  { passive: true  });
+    el.addEventListener("touchmove",   onTouchMove,   { passive: false });
+    el.addEventListener("touchend",    onTouchEnd,    { passive: true  });
+    el.addEventListener("touchcancel", onTouchCancel, { passive: true  });
+    el.addEventListener("pointerdown", onPointerDown);
+    el.addEventListener("pointermove", onPointerMove);
+    el.addEventListener("pointerup",   onPointerUp);
+    el.addEventListener("pointerleave",onPointerUp);
+
+    return () => {
+      el.removeEventListener("touchstart",  onTouchStart);
+      el.removeEventListener("touchmove",   onTouchMove);
+      el.removeEventListener("touchend",    onTouchEnd);
+      el.removeEventListener("touchcancel", onTouchCancel);
+      el.removeEventListener("pointerdown", onPointerDown);
+      el.removeEventListener("pointermove", onPointerMove);
+      el.removeEventListener("pointerup",   onPointerUp);
+      el.removeEventListener("pointerleave",onPointerUp);
+    };
+  }, [applyPositions, commitIdx]); // stable callbacks → registers once
+
+  const n = photos.length;
 
   return (
     <div
       ref={containerRef}
       className={`relative overflow-hidden select-none ${className}`}
-      style={{ height, ...style }}
-      onTouchStart={handleTouchStart}
-      onTouchEnd={handleTouchEnd}
-      onPointerDown={handlePointerDown}
-      onPointerMove={handlePointerMove}
-      onPointerUp={handlePointerUp}
-      onPointerLeave={handlePointerUp}
+      style={{ height, touchAction: "pan-y", ...style }}
       data-testid="photo-carousel"
     >
-      {n === 0 ? (
+      {n === 0 && (
         <div className="absolute inset-0 flex items-center justify-center bg-muted">
           <svg viewBox="0 0 80 80" fill="none" className="w-16 h-16 opacity-20">
             <circle cx="40" cy="28" r="14" fill="currentColor" />
             <ellipse cx="40" cy="62" rx="24" ry="16" fill="currentColor" />
           </svg>
         </div>
-      ) : (
-        /* Sliding strip */
-        <div
-          style={{
-            display: "flex",
-            height: "100%",
-            transform: `translateX(${tx}px)`,
-            transition: isInteracting ? "none" : "transform 0.3s cubic-bezier(0.25, 1, 0.5, 1)",
-            willChange: "transform",
-          }}
-        >
-          {photos.map((photo, i) => (
-            <div
-              key={i}
-              style={{
-                flexShrink: 0,
-                width: containerW || "100%",
-                height: "100%",
-                background: "hsl(var(--muted))",
-              }}
-              data-testid={`carousel-slide-${i}`}
-            >
-              {/* Only render photos ±1 from current to save memory / network */}
-              {Math.abs(i - idx) <= 1 && (
-                <img
-                  src={photo}
-                  alt={`Photo ${i + 1}`}
-                  loading={i === idx ? "eager" : "lazy"}
-                  decoding="async"
-                  style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "center top" }}
-                  data-testid={`img-carousel-photo-${i}`}
-                />
-              )}
-            </div>
-          ))}
-        </div>
       )}
 
-      {/* Built-in arrow buttons */}
-      {showArrows && n > 1 && idx > 0 && (
+      {/* Slides — position:absolute so 100% == container width, no JS measurement */}
+      {photos.map((photo, i) => (
+        <div
+          key={i}
+          ref={el => { slideRefs.current[i] = el; }}
+          style={{
+            position: "absolute",
+            inset: 0,
+            width: "100%",
+            height: "100%",
+            background: "hsl(var(--muted))",
+            willChange: "transform",
+            // transform NOT set in JSX — owned entirely by applyPositions
+          }}
+          data-testid={`carousel-slide-${i}`}
+        >
+          {/* Load ±1 from current index; everything else is an unloaded placeholder */}
+          {Math.abs(i - dotIdx) <= 1 && (
+            <img
+              src={photo}
+              alt={`Photo ${i + 1}`}
+              loading={i === dotIdx ? "eager" : "lazy"}
+              decoding="async"
+              draggable={false}
+              style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "center top" }}
+              data-testid={`img-carousel-photo-${i}`}
+            />
+          )}
+        </div>
+      ))}
+
+      {/* Optional built-in arrow buttons */}
+      {showArrows && n > 1 && dotIdx > 0 && (
         <button
           className="absolute left-2.5 top-1/2 -translate-y-1/2 z-20 w-9 h-9 rounded-full flex items-center justify-center active:scale-90 transition-transform"
           style={{ background: "rgba(0,0,0,0.38)", backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)", border: "1px solid rgba(255,255,255,0.18)" }}
-          onClick={(e) => { e.stopPropagation(); setIdx(idx - 1); }}
+          onClick={() => commitIdx(dotIdx - 1)}
           data-testid="button-carousel-prev"
           aria-label="Previous photo"
         >
           <ChevronLeft className="w-4 h-4 text-white" />
         </button>
       )}
-      {showArrows && n > 1 && idx < n - 1 && (
+      {showArrows && n > 1 && dotIdx < n - 1 && (
         <button
           className="absolute right-2.5 top-1/2 -translate-y-1/2 z-20 w-9 h-9 rounded-full flex items-center justify-center active:scale-90 transition-transform"
           style={{ background: "rgba(0,0,0,0.38)", backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)", border: "1px solid rgba(255,255,255,0.18)" }}
-          onClick={(e) => { e.stopPropagation(); setIdx(idx + 1); }}
+          onClick={() => commitIdx(dotIdx + 1)}
           data-testid="button-carousel-next"
           aria-label="Next photo"
         >
@@ -235,17 +293,17 @@ export function PhotoCarousel({
         </button>
       )}
 
-      {/* Built-in pill dot indicators */}
+      {/* Optional built-in pill dot indicators */}
       {showDots && n > 1 && (
         <div className="absolute bottom-3 inset-x-0 flex justify-center gap-1.5 pointer-events-none z-20">
           {photos.map((_, i) => (
             <div
               key={i}
               style={{
-                width: i === idx ? 22 : 7,
+                width: i === dotIdx ? 22 : 7,
                 height: 7,
                 borderRadius: 3.5,
-                background: i === idx ? "white" : "rgba(255,255,255,0.42)",
+                background: i === dotIdx ? "white" : "rgba(255,255,255,0.42)",
                 transition: "width 0.25s ease, background 0.25s ease",
                 flexShrink: 0,
               }}
@@ -254,7 +312,7 @@ export function PhotoCarousel({
         </div>
       )}
 
-      {/* Caller-supplied overlay content (close button, name, gradients, etc.) */}
+      {/* Caller-supplied overlay content (close buttons, name, gradients…) */}
       {children}
     </div>
   );
