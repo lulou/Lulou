@@ -115,6 +115,63 @@ export function ActiveCallOverlay({
   // Track exactly when WebRTC first reached "connected" so we can measure live duration
   const connectedAtRef = useRef<number | null>(null);
 
+  // ─────────────────────────────────────────────────────────────────────────────
+  // IMPORTANT: useWebRTC and derived booleans (isConnected, warning, etc.) MUST
+  // be declared BEFORE any useCallback/useEffect that references them in deps
+  // arrays. Accessing a `const` in a deps array before its declaration in the
+  // same function scope is a Temporal Dead Zone (TDZ) ReferenceError at runtime,
+  // crashing the component and — because CallDetectors has no ErrorBoundary —
+  // the entire app. The previous ordering (video controls section before useWebRTC)
+  // was the root cause of the "both screens go white on call accept" crash.
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  // WebRTC only starts when call is answered (not while ringing/waiting)
+  const webrtcEnabled = !isRinging;
+
+  // Stable remote-hangup ref so finishCall (defined below) can be called
+  // from useWebRTC without circular dep issues. Updated after finishCall is defined.
+  const finishCallRef = useRef<((reason: string) => void) | null>(null);
+  const stableRemoteHangup = useCallback(() => {
+    console.log("[CALL_UI] REMOTE_HANGUP_RECEIVED — ending call");
+    finishCallRef.current?.("remote_hangup");
+  }, []);
+
+  const {
+    localStream,
+    remoteStream,
+    connectionState,
+    permissionDenied,
+    isMuted,
+    isCameraOff,
+    toggleMute,
+    toggleCamera,
+    hangup,
+  } = useWebRTC({
+    matchId,
+    userId,
+    isCaller,
+    isVideo,
+    enabled: webrtcEnabled,
+    onRemoteHangup: stableRemoteHangup,
+  });
+
+  // Derived booleans from connectionState — must be here (after useWebRTC) so
+  // they are in scope for every useCallback/useEffect deps array that follows.
+  const isConnected = connectionState === "connected";
+  const isConnecting = connectionState === "connecting" || connectionState === "requesting-media";
+  const isReconnecting = connectionState === "reconnecting";
+  const isFailed = connectionState === "failed";
+
+  // Countdown timer — starts when WebRTC connects, counts down to 0 then auto-ends.
+  const stageDuration = getStageDuration(callStage);
+  const { display: countdownDisplay, remaining, warning } = useCountdownTimer(isConnected, stageDuration);
+
+  const stageLabel = callStage === 0 ? "First call · Audio" : callStage === 1 ? "Second call · Video" : "Face call · Video";
+
+  // Outgoing ringback tone: play only while the caller is waiting for an answer.
+  // Stops automatically when isRinging becomes false (answered) or on unmount.
+  useCallRingtone("outgoing", isRinging && isCaller);
+
   // ── Video call: FaceTime-like auto-hide controls ──────────────────────────
   // Controls start visible, then auto-hide after 3 s of inactivity.
   // Any tap on the overlay resets the timer and shows controls again.
@@ -168,51 +225,6 @@ export function ActiveCallOverlay({
       el.setSinkId("").catch(() => {});
     }
   }, [speakerOn]);
-
-  // WebRTC only starts when call is answered (not while ringing/waiting)
-  const webrtcEnabled = !isRinging;
-
-  // Stable remote-hangup ref so finishCall (defined below) can be called
-  // from useWebRTC without circular dep issues. Updated after finishCall is defined.
-  const finishCallRef = useRef<((reason: string) => void) | null>(null);
-  const stableRemoteHangup = useCallback(() => {
-    console.log("[CALL_UI] REMOTE_HANGUP_RECEIVED — ending call");
-    finishCallRef.current?.("remote_hangup");
-  }, []);
-
-  const {
-    localStream,
-    remoteStream,
-    connectionState,
-    permissionDenied,
-    isMuted,
-    isCameraOff,
-    toggleMute,
-    toggleCamera,
-    hangup,
-  } = useWebRTC({
-    matchId,
-    userId,
-    isCaller,
-    isVideo,
-    enabled: webrtcEnabled,
-    onRemoteHangup: stableRemoteHangup,
-  });
-
-  const isConnected = connectionState === "connected";
-  const isConnecting = connectionState === "connecting" || connectionState === "requesting-media";
-  const isReconnecting = connectionState === "reconnecting";
-  const isFailed = connectionState === "failed";
-
-  // Countdown timer — starts when WebRTC connects, counts down to 0 then auto-ends.
-  const stageDuration = getStageDuration(callStage);
-  const { display: countdownDisplay, remaining, warning } = useCountdownTimer(isConnected, stageDuration);
-
-  const stageLabel = callStage === 0 ? "First call · Audio" : callStage === 1 ? "Second call · Video" : "Face call · Video";
-
-  // Outgoing ringback tone: play only while the caller is waiting for an answer.
-  // Stops automatically when isRinging becomes false (answered) or on unmount.
-  useCallRingtone("outgoing", isRinging && isCaller);
 
   // Log overlay entry and WebRTC state changes
   useEffect(() => {

@@ -42,7 +42,17 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss }: In
 
   const answerCall = useMutation({
     mutationFn: async () => {
+      if (actedRef.current) {
+        throw new Error("already_acted");
+      }
       actedRef.current = true;
+      const acceptedAt = new Date().toISOString();
+      console.log("[CALL_TIMING] ACCEPT_PRESSED", {
+        matchId: match.id,
+        callSessionId: match.callSessionId,
+        userId: user?.id,
+        ts: acceptedAt,
+      });
       console.log("[CALL_UI] CALL_ANSWERED", {
         matchId: match.id,
         callSessionId: match.callSessionId,
@@ -52,6 +62,11 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss }: In
       });
       console.log("[CALL_UI] CALL_STAGE_ENTERED", { matchId: match.id, role: "receiver" });
       const res = await apiRequest("POST", `/api/matches/${match.id}/call/answer`, {});
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({ message: `HTTP ${res.status}` }));
+        throw new Error(body?.message || `HTTP ${res.status}`);
+      }
+      console.log("[CALL_TIMING] ANSWER_API_OK", { matchId: match.id, callSessionId: match.callSessionId, ts: new Date().toISOString() });
       return await res.json();
     },
     onSuccess: () => {

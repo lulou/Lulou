@@ -329,6 +329,7 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
     };
 
     const init = async () => {
+      console.log("[CALL_TIMING] WEBRTC_INIT_START", { matchId, isCaller, isVideo, ts: new Date().toISOString() });
       console.log("[WebRTC] Initializing:", { matchId, isCaller, isVideo });
       setConnectionState("requesting-media");
       setPermissionDenied(false);
@@ -437,6 +438,7 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
         return;
       }
 
+      console.log("[CALL_TIMING] MEDIA_ACQUIRED", { matchId, isCaller, ts: new Date().toISOString() });
       console.log("[WebRTC] MEDIA_ACQUIRE_SUCCESS: stream tracks:", mediaResult.value.getTracks().map(t => ({ kind: t.kind, enabled: t.enabled, readyState: t.readyState })));
 
       if (channelResult.status === "rejected") {
@@ -482,6 +484,7 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
       });
 
       pc.ontrack = (event) => {
+        console.log("[CALL_TIMING] REMOTE_TRACK_RECEIVED", { matchId, isCaller, trackKind: event.track.kind, ts: new Date().toISOString() });
         console.log("[WebRTC] Remote track received:", {
           trackKind: event.track.kind,
           trackEnabled: event.track.enabled,
@@ -516,6 +519,7 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
       };
 
       pc.onconnectionstatechange = () => {
+        console.log("[CALL_TIMING] PC_STATE_CHANGE", { matchId, isCaller, state: pc.connectionState, ts: new Date().toISOString() });
         console.log("[WebRTC] connectionState:", pc.connectionState, {
           iceConnectionState: pc.iceConnectionState,
           iceGatheringState: pc.iceGatheringState,
@@ -526,6 +530,7 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
       pc.oniceconnectionstatechange = () => {
         if (cleanedUpRef.current) return;
         const state = pc.iceConnectionState;
+        console.log("[CALL_TIMING] ICE_STATE_CHANGE", { matchId, isCaller, state, ts: new Date().toISOString() });
         console.log("[WebRTC] ICE connection state:", state, {
           matchId,
           signalingState: pc.signalingState,

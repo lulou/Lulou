@@ -351,6 +351,32 @@ function PersistentTabs() {
 
 type MatchWithProfile = Match & { profile: Profile };
 
+// Error boundary specifically for call overlay components.
+// If ActiveCallOverlay or IncomingCallOverlay crash, this catches the error,
+// logs it, calls onError() to clean up server/cache state, and renders nothing
+// instead of propagating the crash to the app root (which would white-screen).
+type CallEBState = { crashed: boolean };
+class CallOverlayErrorBoundary extends Component<
+  { matchId?: string; callSessionId?: string | null; onError: (matchId?: string, sessionId?: string | null) => void; children: ReactNode },
+  CallEBState
+> {
+  constructor(props: any) {
+    super(props);
+    this.state = { crashed: false };
+  }
+  static getDerivedStateFromError(): CallEBState {
+    return { crashed: true };
+  }
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    console.error("[CALL_OVERLAY_BOUNDARY] crash caught — dismissing overlay:", error.message, info.componentStack?.slice(0, 200));
+    this.props.onError(this.props.matchId, this.props.callSessionId);
+  }
+  render() {
+    if (this.state.crashed) return null;
+    return this.props.children;
+  }
+}
+
 function clearCallFromCache(
   qc: ReturnType<typeof useQueryClient>,
   matchId: string,
@@ -401,11 +427,14 @@ function CallDetectors({ userId }: { userId: string }) {
   useEffect(() => {
     if (!rerMatchId || !rerSessionId) return;
     const send = () => {
+      const ts = new Date().toISOString();
+      console.log("[CALL_TIMING] RERING_ATTEMPT", { matchId: rerMatchId, callSessionId: rerSessionId, ts });
       apiRequest("POST", `/api/matches/${rerMatchId}/call/rering`)
-        .then(() => console.log("[CALL_UI] RERING_SENT", { matchId: rerMatchId, callSessionId: rerSessionId }))
+        .then(() => console.log("[CALL_TIMING] RERING_SENT", { matchId: rerMatchId, callSessionId: rerSessionId, ts: new Date().toISOString() }))
         .catch(() => console.warn("[CALL_UI] RERING_FAILED", { matchId: rerMatchId }));
     };
-    const interval = setInterval(send, 5000);
+    send();
+    const interval = setInterval(send, 2000);
     return () => clearInterval(interval);
   }, [rerMatchId, rerSessionId]);
 
@@ -568,28 +597,47 @@ function CallDetectors({ userId }: { userId: string }) {
     }
   }, [activeCall?.id, activeCall?.callSessionId, activeCall?.callInitiatorId, userId, markCallEnded]);
 
+  const handleOverlayError = useCallback((matchId?: string, sessionId?: string | null) => {
+    console.error("[CALL_OVERLAY_BOUNDARY] overlay_crash — clearing call state", { matchId, sessionId });
+    if (matchId) {
+      markCallEnded(matchId, sessionId, "overlay_crash");
+    }
+  }, [markCallEnded]);
+
   return (
     <>
       {incomingCall && !activeCall && (
-        <IncomingCallOverlay
-          match={incomingCall}
-          isFaceCall={isFaceCall}
-          onDismiss={handleDismiss}
-        />
+        <CallOverlayErrorBoundary
+          matchId={incomingCall.id}
+          callSessionId={incomingCall.callSessionId}
+          onError={handleOverlayError}
+        >
+          <IncomingCallOverlay
+            match={incomingCall}
+            isFaceCall={isFaceCall}
+            onDismiss={handleDismiss}
+          />
+        </CallOverlayErrorBoundary>
       )}
       {activeCall && (
-        <ActiveCallOverlay
+        <CallOverlayErrorBoundary
           matchId={activeCall.id}
-          callSessionId={activeCall.callSessionId || ""}
-          userId={userId}
-          isCaller={activeCall.callInitiatorId === userId}
-          isVideo={isActiveVideo}
-          isRinging={!activeCall.callAnswered}
-          callerName={activeCall.profile?.name || activeCall.profile?.firstName || "Unknown"}
-          callerPhoto={activeCall.profile?.photos?.[0] || undefined}
-          callStage={activeCall.callStage || 0}
-          onCallEnd={handleActiveCallEnd}
-        />
+          callSessionId={activeCall.callSessionId}
+          onError={handleOverlayError}
+        >
+          <ActiveCallOverlay
+            matchId={activeCall.id}
+            callSessionId={activeCall.callSessionId || ""}
+            userId={userId}
+            isCaller={activeCall.callInitiatorId === userId}
+            isVideo={isActiveVideo}
+            isRinging={!activeCall.callAnswered}
+            callerName={activeCall.profile?.name || activeCall.profile?.firstName || "Unknown"}
+            callerPhoto={activeCall.profile?.photos?.[0] || undefined}
+            callStage={activeCall.callStage || 0}
+            onCallEnd={handleActiveCallEnd}
+          />
+        </CallOverlayErrorBoundary>
       )}
     </>
   );

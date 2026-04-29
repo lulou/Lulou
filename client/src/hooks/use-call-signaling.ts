@@ -85,6 +85,7 @@ export function useCallSignaling(matchIds: string[], userId: string) {
           if (isCallSessionCancelled(matchId, ringSessionId)) {
             console.log("[CALL_SIGNAL] STALE_RING_BLOCKED", { matchId, callSessionId: ringSessionId, reason: "session_already_cancelled" });
           } else {
+            console.log("[CALL_TIMING] RING_RECEIVED", { matchId, callSessionId: ringSessionId, callerId: ring.callerId, receiverId: userId, ts: new Date().toISOString() });
             console.log("[CALL_SIGNAL] RECEIVER_ASSIGNED", { matchId, callerId: ring.callerId, receiverId: userId });
             // Immediately update the list cache so incoming call UI shows without waiting for a refetch
             queryClient.setQueriesData<any[]>({ queryKey: ["/api/matches"] }, (old) => {
