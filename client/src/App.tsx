@@ -1,5 +1,5 @@
 import { Switch, Route, useLocation } from "wouter";
-import { createContext, useContext, useState, useCallback, useEffect, useRef, Component, type ReactNode, type ErrorInfo } from "react";
+import { createContext, useContext, useState, useCallback, useEffect, useRef, lazy, Suspense, Component, type ReactNode, type ErrorInfo } from "react";
 import { queryClient, getAuthHeaders, apiRequest } from "./lib/queryClient";
 import { QueryClientProvider, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -7,16 +7,19 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { useAuth } from "@/hooks/use-auth";
 import NotFound from "@/pages/not-found";
 import Landing from "@/pages/landing";
-import Onboarding from "@/pages/onboarding";
-import Discover from "@/pages/discover";
-import Matches from "@/pages/matches";
-import Messaging from "@/pages/messaging";
-import ProfilePage from "@/pages/profile";
-import IntentPage from "@/pages/intent";
-import LikesPage from "@/pages/likes";
-import ElevateSuccessPage from "@/pages/elevate-success";
-import ExtrasSuccessPage from "@/pages/extras-success";
 import AppLayout from "@/components/app-layout";
+
+// Route-level code splitting — each page downloads only when first needed.
+// Landing, AppLayout, and the call overlays stay eager (needed on first render).
+const Onboarding       = lazy(() => import("@/pages/onboarding"));
+const Discover         = lazy(() => import("@/pages/discover"));
+const Matches          = lazy(() => import("@/pages/matches"));
+const Messaging        = lazy(() => import("@/pages/messaging"));
+const ProfilePage      = lazy(() => import("@/pages/profile"));
+const IntentPage       = lazy(() => import("@/pages/intent"));
+const LikesPage        = lazy(() => import("@/pages/likes"));
+const ElevateSuccessPage = lazy(() => import("@/pages/elevate-success"));
+const ExtrasSuccessPage  = lazy(() => import("@/pages/extras-success"));
 import IncomingCallOverlay from "@/components/incoming-call";
 import { ActiveCallOverlay } from "@/components/active-call";
 import { useCallSignaling, setCallEndedHandler, clearDedupeForMatch } from "@/hooks/use-call-signaling";
@@ -68,13 +71,22 @@ class PageErrorBoundary extends Component<{ name: string; children: ReactNode },
   }
 }
 
+// Shared fallback for all lazy-loaded pages
+function PageLoader() {
+  return (
+    <div className="flex-1 flex items-center justify-center">
+      <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+    </div>
+  );
+}
+
 const TAB_PAGES = [
   { path: "/discover", Component: Discover },
   { path: "/intent", Component: IntentPage },
   { path: "/likes", Component: LikesPage },
   { path: "/matches", Component: Matches },
   { path: "/profile", Component: ProfilePage },
-] as const;
+];
 
 function PersistentTabs() {
   const [location] = useLocation();
@@ -115,7 +127,9 @@ function PersistentTabs() {
           >
             <TabActiveContext.Provider value={isActive}>
               <PageErrorBoundary name={path}>
-                <Component />
+                <Suspense fallback={<PageLoader />}>
+                  <Component />
+                </Suspense>
               </PageErrorBoundary>
             </TabActiveContext.Provider>
           </div>
@@ -123,9 +137,11 @@ function PersistentTabs() {
       })}
       {isSubRoute && (
         <PageErrorBoundary name="/messages">
-          <Switch>
-            <Route path="/messages/:matchId" component={Messaging} />
-          </Switch>
+          <Suspense fallback={<PageLoader />}>
+            <Switch>
+              <Route path="/messages/:matchId" component={Messaging} />
+            </Switch>
+          </Suspense>
         </PageErrorBoundary>
       )}
       {!isTabRoute && !isSubRoute && location !== "/" && <NotFound />}
@@ -752,16 +768,18 @@ function AppContent() {
           </button>
         </div>
         <div style={{ paddingTop: 24 }}>
-          <Switch>
-            <Route path="/elevate/success" component={ElevateSuccessPage} />
-            <Route path="/extras/success" component={ExtrasSuccessPage} />
-            <Route>
-              <AppLayout>
-                <PersistentTabs />
-                <CallDetectors userId={user.id} />
-              </AppLayout>
-            </Route>
-          </Switch>
+          <Suspense fallback={<PageLoader />}>
+            <Switch>
+              <Route path="/elevate/success" component={ElevateSuccessPage} />
+              <Route path="/extras/success" component={ExtrasSuccessPage} />
+              <Route>
+                <AppLayout>
+                  <PersistentTabs />
+                  <CallDetectors userId={user.id} />
+                </AppLayout>
+              </Route>
+            </Switch>
+          </Suspense>
         </div>
       </>
     );
@@ -894,7 +912,11 @@ function AppContent() {
     console.log("[SETUP] FINAL_APP_GATE: blocked_by_onboarding_guard", {
       userId: user.id, profileExists, effectiveProfileExists, fetchFailed, profilePending,
     });
-    return <Onboarding existingProfile={null} userEmail={user?.email ?? ""} />;
+    return (
+      <Suspense fallback={<PageLoader />}>
+        <Onboarding existingProfile={null} userEmail={user?.email ?? ""} />
+      </Suspense>
+    );
   }
 
   console.log("[SETUP] FINAL_APP_GATE: render_main_app", {
@@ -902,16 +924,18 @@ function AppContent() {
   });
 
   return (
-    <Switch>
-      <Route path="/elevate/success" component={ElevateSuccessPage} />
-      <Route path="/extras/success" component={ExtrasSuccessPage} />
-      <Route>
-        <AppLayout>
-          <PersistentTabs />
-          <CallDetectors userId={user.id} />
-        </AppLayout>
-      </Route>
-    </Switch>
+    <Suspense fallback={<PageLoader />}>
+      <Switch>
+        <Route path="/elevate/success" component={ElevateSuccessPage} />
+        <Route path="/extras/success" component={ExtrasSuccessPage} />
+        <Route>
+          <AppLayout>
+            <PersistentTabs />
+            <CallDetectors userId={user.id} />
+          </AppLayout>
+        </Route>
+      </Switch>
+    </Suspense>
   );
 }
 
