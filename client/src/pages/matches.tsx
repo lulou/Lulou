@@ -1249,6 +1249,37 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
     },
   });
 
+  const repairCall = useMutation({
+    mutationFn: async () => {
+      const sessionId = lastCallSessionIdRef.current ?? detail.callSessionId;
+      console.log("[CALL_REPAIR] REPAIR_REQUESTED", { matchId: match.id, callSessionId: sessionId, userId: user?.id, callAgeMs });
+      const res = await apiRequest("POST", `/api/matches/${match.id}/call/repair`, {});
+      const data = await res.json();
+      console.log("[CALL_REPAIR] REPAIR_RESPONSE", { matchId: match.id, status: data.status, reason: data.reason, callAgeMs });
+      return data;
+    },
+    onSuccess: (data: any) => {
+      const patchMatch = data?.match ?? data;
+      mergeCallFields(queryClient, match.id, {
+        callStartedAt: patchMatch?.callStartedAt ?? null,
+        callInitiatorId: patchMatch?.callInitiatorId ?? null,
+        callAnswered: patchMatch?.callAnswered ?? false,
+        callCompleted: patchMatch?.callCompleted ?? false,
+        callSessionId: patchMatch?.callSessionId ?? null,
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/matches", match.id] });
+      if (data?.status === "repaired") {
+        toast({ title: "Call cleared", description: "You can now retry your call." });
+      }
+    },
+    onError: (error: Error) => {
+      console.error("[CALL_REPAIR] REPAIR_FAILED", { matchId: match.id, error: error.message });
+      queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
+      toast({ title: "Couldn't clear call", description: "Please try again in a moment.", variant: "destructive" });
+    },
+  });
+
   const cancelCall = useMutation({
     mutationFn: async () => {
       // Set immediately so a concurrent 10s poll doesn't trigger the "declined" toast
@@ -1581,19 +1612,24 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
 
   const callCancelled = isCallSessionCancelled(match.id, detail.callSessionId);
 
+  const callAgeMs = detail.callStartedAt ? Date.now() - new Date(detail.callStartedAt).getTime() : 0;
+
   const isCallStale = (() => {
     if (!detail.callStartedAt) return false;
-    const age = Date.now() - new Date(detail.callStartedAt).getTime();
-    if (!detail.callAnswered && age > 120_000) {
-      console.log("[CALL_SESSION] STALE_CALL_BLOCKED", { matchId: match.id, callSessionId: detail.callSessionId, ageMs: age, answered: false, source: "inline_chat" });
+    if (!detail.callAnswered && callAgeMs > 120_000) {
+      console.log("[CALL_SESSION] STALE_CALL_BLOCKED", { matchId: match.id, callSessionId: detail.callSessionId, ageMs: callAgeMs, answered: false, source: "inline_chat" });
       return true;
     }
-    if (detail.callAnswered && age > 30 * 60_000) {
-      console.log("[CALL_SESSION] STALE_CALL_BLOCKED", { matchId: match.id, callSessionId: detail.callSessionId, ageMs: age, answered: true, source: "inline_chat" });
+    if (detail.callAnswered && callAgeMs > 5 * 60_000) {
+      console.log("[CALL_SESSION] STALE_CALL_BLOCKED", { matchId: match.id, callSessionId: detail.callSessionId, ageMs: callAgeMs, answered: true, source: "inline_chat" });
       return true;
     }
     return false;
   })();
+
+  // An answered call that has been "in progress" for > 2 min without completing
+  // means WebRTC never connected or the overlay was lost — show a repair button.
+  const isCallAnsweredStuck = !!detail.callAnswered && !detail.callCompleted && !!detail.callStartedAt && callAgeMs > 2 * 60_000;
 
   const isCallRinging = (
     !!detail.callStartedAt &&
@@ -2045,22 +2081,45 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
             </div>
           ) : isCallActive ? (
             <div className="p-5 border-t" data-testid={`call-active-banner-${match.id}`}>
-              <div className="text-center space-y-3">
-                <div className="relative w-16 h-16 mx-auto">
-                  <div className="absolute inset-0 rounded-full bg-green-500/15 animate-pulse" />
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    {isFaceCallStage && bothAcceptedFaceCall
-                      ? <Video className="w-6 h-6 text-green-600" />
-                      : <Phone className="w-6 h-6 text-green-600" />}
+              {isCallAnsweredStuck ? (
+                <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 space-y-3 text-center" data-testid={`call-stuck-banner-${match.id}`}>
+                  <div className="space-y-1">
+                    <p className="font-medium text-sm text-amber-900" data-testid={`text-call-stuck-label-${match.id}`}>
+                      Call seems stuck
+                    </p>
+                    <p className="text-xs text-amber-700">
+                      The call overlay was lost or didn't connect. You can clear it and retry for free.
+                    </p>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="border-amber-400 text-amber-900 hover:bg-amber-100 w-full"
+                    disabled={repairCall.isPending}
+                    onClick={() => repairCall.mutate()}
+                    data-testid={`button-repair-call-${match.id}`}
+                  >
+                    {repairCall.isPending ? "Clearing…" : "Clear & Retry Call"}
+                  </Button>
+                </div>
+              ) : (
+                <div className="text-center space-y-3">
+                  <div className="relative w-16 h-16 mx-auto">
+                    <div className="absolute inset-0 rounded-full bg-green-500/15 animate-pulse" />
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      {isFaceCallStage && bothAcceptedFaceCall
+                        ? <Video className="w-6 h-6 text-green-600" />
+                        : <Phone className="w-6 h-6 text-green-600" />}
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    <p className="font-medium text-sm" data-testid={`text-call-active-label-${match.id}`}>
+                      {isFaceCallStage && bothAcceptedFaceCall ? "Face call in progress" : callStage === 1 ? "Video call in progress" : "First call in progress"}
+                    </p>
+                    <p className="text-xs text-muted-foreground">Use the call overlay to manage your call</p>
                   </div>
                 </div>
-                <div className="space-y-1">
-                  <p className="font-medium text-sm" data-testid={`text-call-active-label-${match.id}`}>
-                    {isFaceCallStage && bothAcceptedFaceCall ? "Face call in progress" : callStage === 1 ? "Video call in progress" : "First call in progress"}
-                  </p>
-                  <p className="text-xs text-muted-foreground">Use the call overlay to manage your call</p>
-                </div>
-              </div>
+              )}
             </div>
           ) : allCallsDone && finalChoice !== 'chat' ? (
             finalChoice === 'date' ? (

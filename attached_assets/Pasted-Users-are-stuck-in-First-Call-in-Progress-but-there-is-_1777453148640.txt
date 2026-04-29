@@ -1,0 +1,66 @@
+Users are stuck in “First Call in Progress”, but there is no live call.
+
+This means the call/stage state is not being cleaned up when the call fails, disconnects, is abandoned, or never actually connects.
+
+Please fix the stuck call state.
+
+Current issue:
+- both users are stuck at First Call in Progress
+- there is no active/live call
+- app thinks call is still happening
+- users cannot move forward or restart properly
+
+Required behavior:
+- if call fails, times out, crashes, disconnects, or never connects, stage must not stay stuck forever
+- users should be able to retry the first call
+- call status should reset safely if no live call exists
+
+Please inspect:
+1. calls table / call_sessions table
+2. conversation stage table/state
+3. first_call status
+4. active call flags
+5. WebRTC cleanup logic
+6. call accepted handler
+7. call ended handler
+8. call timeout logic
+9. disconnect cleanup
+10. app crash recovery after failed call
+
+Add logic:
+- if call status is “in_progress” but no live connection exists, mark call as failed/ended after timeout
+- add timeout for unanswered/unconnected calls
+- add cleanup when either user leaves call screen
+- add cleanup on WebRTC disconnect/failure
+- add retry button for stuck first call
+- do not advance stage unless call genuinely connected and completed enough to count
+
+Important:
+- “First Call in Progress” should only show when there is a real active call
+- if no active call exists, show “Start Call” or “Retry Call”
+- do not require premium/Elevate for first call retry
+- first call remains free
+- countdown should only start after accepted/connected
+- stage should only mark complete after valid call completion
+
+Please add a safe repair function:
+- detect conversations stuck in first_call in_progress
+- if no active call session or updated_at is older than 2–5 minutes, reset status to pending/failed
+- allow users to retry
+
+Also add logs:
+- call session id
+- call status
+- stage status
+- WebRTC connection state
+- call connected timestamp
+- call ended timestamp
+- cleanup reason
+- retry availability
+
+Return:
+1. exact root cause
+2. exact files changed
+3. exact code changed
+4. how stuck first-call states are repaired
+5. how future stuck states are prevented

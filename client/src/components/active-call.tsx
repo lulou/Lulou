@@ -482,6 +482,21 @@ export function ActiveCallOverlay({
   // Keep finishCallRef pointing to latest finishCall
   finishCallRef.current = finishCall;
 
+  // Safety net: if the component unmounts without finishCall having been called
+  // (e.g. React parent crash, forced navigation, error boundary), call /complete so the
+  // server state is cleaned up and neither user is left stuck in "in progress".
+  useEffect(() => {
+    return () => {
+      if (!endedRef.current) {
+        endedRef.current = true;
+        console.warn("[CALL_UI] UNMOUNT_SAFETY_NET triggered — calling /complete to prevent stuck state", { matchId, callSessionId });
+        apiRequest("POST", `/api/matches/${matchId}/call/complete`, { connected: false, connectedDurationMs: 0, callState: "failed" })
+          .catch((e) => console.error("[CALL_UI] UNMOUNT_SAFETY_NET /complete failed", { matchId, error: e.message }));
+      }
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [matchId]);
+
   // Show clear failed-connection screen
   if (isFailed && webrtcEnabled) {
     return (

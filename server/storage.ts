@@ -972,7 +972,7 @@ export class SupabaseStorage implements IStorage {
     if (match.callStartedAt && match.callInitiatorId) {
       const callAge = Date.now() - new Date(match.callStartedAt).getTime();
       const STALE_RINGING_MS = 2 * 60 * 1000;
-      const STALE_ANSWERED_MS = 30 * 60 * 1000;
+      const STALE_ANSWERED_MS = 5 * 60 * 1000;
       const isStale = (!match.callAnswered && callAge > STALE_RINGING_MS) || (match.callAnswered && callAge > STALE_ANSWERED_MS);
 
       if (isStale) {

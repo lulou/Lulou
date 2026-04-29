@@ -295,7 +295,7 @@ function generateAutoReply(profile: Profile | undefined, msgIndex: number): stri
 async function clearStaleCallsOnStartup(): Promise<void> {
   try {
     const STALE_RINGING_MS = 2 * 60 * 1000;
-    const STALE_ANSWERED_MS = 30 * 60 * 1000;
+    const STALE_ANSWERED_MS = 5 * 60 * 1000;
     const now = new Date();
 
     const { matches: matchesTable } = await import("@shared/schema");
@@ -984,6 +984,47 @@ export async function registerRoutes(
       res.json({ status: "rebroadcast" });
     } catch (err: any) {
       console.error("[CALL_RERING] ERROR", { matchId, error: err?.message });
+      res.status(500).json({ message: err?.message });
+    }
+  });
+
+  app.post("/api/matches/:matchId/call/repair", isAuthenticated, async (req: any, res) => {
+    const matchId = req.params.matchId;
+    const userId = req.user.id;
+    try {
+      const { data, error } = await supabaseAdmin.from("matches").select("*").eq("id", matchId).maybeSingle();
+      if (error || !data) return res.status(404).json({ message: "Match not found" });
+      const m = mapMatch(data);
+      if (m.user1Id !== userId && m.user2Id !== userId) {
+        return res.status(403).json({ message: "Not in this match" });
+      }
+      if (!m.callStartedAt) {
+        return res.json({ status: "noop", reason: "no_active_call", match: m });
+      }
+      const callAge = Date.now() - new Date(m.callStartedAt).getTime();
+      const REPAIR_RINGING_MS = 2 * 60 * 1000;
+      const REPAIR_ANSWERED_MS = 5 * 60 * 1000;
+      const isStuck = (!m.callAnswered && callAge > REPAIR_RINGING_MS) || (m.callAnswered && callAge > REPAIR_ANSWERED_MS);
+      if (!isStuck) {
+        console.log("[CALL_REPAIR] NOT_YET_STUCK", { matchId, userId, callAgeMs: callAge, callAnswered: m.callAnswered, callSessionId: m.callSessionId });
+        return res.json({ status: "noop", reason: "call_still_fresh", callAgeMs: callAge, callAnswered: m.callAnswered, match: m });
+      }
+      console.log("[CALL_REPAIR] STUCK_CALL_CLEARING", { matchId, userId, callAgeMs: callAge, callAnswered: m.callAnswered, callSessionId: m.callSessionId });
+      const { data: cleared, error: clearError } = await supabaseAdmin
+        .from("matches")
+        .update({ call_started_at: null, call_initiator_id: null, call_answered: false, call_completed: false })
+        .eq("id", matchId)
+        .select()
+        .maybeSingle();
+      if (clearError || !cleared) {
+        console.error("[CALL_REPAIR] DB_ERROR", { matchId, error: clearError?.message });
+        return res.status(500).json({ message: "Failed to clear stuck call" });
+      }
+      console.log("[CALL_REPAIR] STUCK_CALL_CLEARED", { matchId, userId, callAgeMs: callAge, callAnswered: m.callAnswered, callSessionId: m.callSessionId });
+      await broadcastCallEvent(matchId, { type: "call:ended", matchId, userId, callSessionId: m.callSessionId });
+      return res.json({ status: "repaired", match: mapMatch(cleared) });
+    } catch (err: any) {
+      console.error("[CALL_REPAIR] ERROR", { matchId, error: err?.message });
       res.status(500).json({ message: err?.message });
     }
   });
