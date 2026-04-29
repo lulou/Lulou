@@ -47,14 +47,15 @@ export function PhotoCarousel({
 
   const idx = controlledIdx !== undefined ? controlledIdx : internalIdx;
 
-  // Refs for stale-closure safety in event handlers
+  // Refs for stale-closure safety in event handlers — updated synchronously during render
   const idxRef = useRef(idx);
   const nRef = useRef(photos.length);
   const isMounted = useRef(false);
   const skipNextLayoutEffect = useRef(false); // set when drag handler pre-animates
 
-  useEffect(() => { idxRef.current = idx; }, [idx]);
-  useEffect(() => { nRef.current = photos.length; }, [photos.length]);
+  // Update inline during render so they're current before any useLayoutEffect runs
+  idxRef.current = idx;
+  nRef.current = photos.length;
 
   /**
    * Apply CSS transforms to all slides directly.
@@ -87,7 +88,16 @@ export function PhotoCarousel({
     setDotIdx(clamped); // immediate dot/arrow update
   }, [controlledIdx, onIndexChange]);
 
-  // Sync position whenever committed index changes
+  // Re-position slides whenever the photos array is populated or its length changes.
+  // This is the critical fix for async photo loading: photos start as [] then arrive
+  // as [url1, url2, ...]. The slide <div>s are created in that render but idx hasn't
+  // changed, so the [idx] effect below would NOT fire. Without this effect all slides
+  // sit stacked at translateX(0) — the last one renders on top looking like a wrong photo.
+  useLayoutEffect(() => {
+    applyPositions(idxRef.current, 0, false); // instant, no animation
+  }, [photos.length, applyPositions]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Sync position whenever committed index changes (animated except on first mount)
   useLayoutEffect(() => {
     const shouldAnimate = isMounted.current; // capture BEFORE setting to true
     isMounted.current = true;
