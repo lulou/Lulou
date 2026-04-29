@@ -377,6 +377,28 @@ export async function registerRoutes(
     res.json({ ok: true });
   });
 
+  // Fast startup check — returns profile WITHOUT photos (base64 photos skipped).
+  // Used by the client's profile-exists-check on every app launch.
+  // Avoids transferring up to 5 MB of base64 photos just to determine onboarding status.
+  app.get("/api/profile/meta", isAuthenticated, async (req: any, res) => {
+    const t0 = Date.now();
+    try {
+      const storage = getStorage(req);
+      const userId = req.user.id;
+      const profile = await storage.getProfileMeta(userId);
+      if (!profile) {
+        console.log(`[PROFILE_META] not found userId=${userId} in ${Date.now() - t0} ms`);
+        return res.status(404).json({ message: "Profile not found." });
+      }
+      console.log(`[PROFILE_META] fetched userId=${userId} in ${Date.now() - t0} ms`);
+      res.json(profile);
+    } catch (error: any) {
+      const errMsg = (error?.message || "Unknown error").slice(0, 200);
+      console.error("[PROFILE_META] FETCH_ERROR:", errMsg, `| ${Date.now() - t0} ms`);
+      res.status(503).json({ message: `Profile temporarily unavailable: ${errMsg}` });
+    }
+  });
+
   app.get("/api/profile", isAuthenticated, async (req: any, res) => {
     const t0 = Date.now();
     try {

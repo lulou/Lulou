@@ -624,14 +624,17 @@ async function checkProfileExists(
   }, 6_000);
   try {
     console.log("[SETUP] PROFILE_FETCH_NETWORK_START", { userId });
+    const t0 = performance.now();
     const authHeaders = await getAuthHeaders();
-    res = await fetch("/api/profile", {
+    // Use /api/profile/meta (no photos) — avoids transferring up to 5 MB of base64
+    // photos just to check onboarding status on every app launch.
+    res = await fetch("/api/profile/meta", {
       credentials: "include",
       headers: authHeaders,
       signal: controller.signal,
     });
     clearTimeout(timeoutId);
-    console.log("[SETUP] PROFILE_FETCH_NETWORK_DONE", { status: res.status, userId });
+    console.log("[SETUP] PROFILE_FETCH_NETWORK_DONE", { status: res.status, userId, ms: Math.round(performance.now() - t0) });
   } catch (err: any) {
     clearTimeout(timeoutId);
     const isTimeout = err?.name === "AbortError";
@@ -658,19 +661,13 @@ async function checkProfileExists(
     throw new Error(`HTTP_${res.status}`);
   }
 
-  // Parse the profile body and hand it back to the caller so it can be pre-cached.
-  // This eliminates the extra /api/profile fetch that the Profile page would otherwise
-  // make on every login, which was the root cause of the Profile tab showing a loading
-  // skeleton forever (the second SELECT * on the photos-heavy profiles table was slow).
-  try {
-    const profileData = await res.json();
-    onProfileData?.(profileData);
-    console.log("[AUTH] PROFILE_EXISTS_CHECK: profile found and data cached");
-    writeDebug({ postAuthProfileFetchSucceeded: true, profileRowFound: true });
-  } catch {
-    console.log("[AUTH] PROFILE_EXISTS_CHECK: profile found (body parse failed, cache not populated)");
-    writeDebug({ postAuthProfileFetchSucceeded: true, profileRowFound: true });
-  }
+  // Profile exists — no need to parse the body (no pre-caching).
+  // The Profile page fetches /api/profile (with photos) lazily on first visit.
+  // We intentionally do NOT pre-cache ["/api/profile"] here because /api/profile/meta
+  // omits photos — caching the no-photos response would break the Profile tab
+  // (staleTime:Infinity means it would never re-fetch to get the actual photos).
+  console.log("[AUTH] PROFILE_EXISTS_CHECK: profile found");
+  writeDebug({ postAuthProfileFetchSucceeded: true, profileRowFound: true });
   return { exists: true, fetchFailed: false };
 }
 
@@ -706,14 +703,7 @@ function AppContent() {
     queryFn: () => {
       if (!user) return Promise.resolve({ exists: false, fetchFailed: false });
       console.log("[SETUP] PROFILE_FETCH_START", { userId: user.id });
-      return checkProfileExists(user.id, (profileData) => {
-        // Pre-populate the Profile page's data cache with the body we already fetched.
-        // Without this, ProfilePage fires a second GET /api/profile on every login —
-        // that second SELECT * (which includes large base64 photos) can be slow enough
-        // to keep isLoading=true indefinitely, causing the skeleton to show forever.
-        queryClient.setQueryData(["/api/profile"], profileData);
-        console.log("[SETUP] PROFILE_DATA_PRE_CACHED", { userId: user.id });
-      }).then(result => {
+      return checkProfileExists(user.id).then(result => {
         console.log("[SETUP] PROFILE_FETCH_SUCCESS", { userId: user.id, profileExists: result.exists });
         return result;
       });

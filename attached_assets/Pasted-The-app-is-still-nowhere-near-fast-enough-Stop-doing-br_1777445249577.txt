@@ -1,0 +1,78 @@
+The app is still nowhere near fast enough. Stop doing broad “performance improvements” and fix the actual bottlenecks with measured proof.
+
+Also: Discovery profile pictures need to be bigger.
+
+TASK 1 — SPEED: MAKE IT FEEL INSTANT
+
+Required:
+- app shell appears immediately
+- page changes feel instant
+- no page waits for full profiles/photos before rendering
+- no endless loading
+- no duplicate Supabase calls
+- no select *
+- no massive queries before first render
+
+Please specifically inspect and fix:
+- app startup
+- route navigation
+- Discover
+- Connections
+- Chat
+- Messages
+- Profile loading
+- image loading
+
+Add timing logs and return before/after numbers for:
+- app startup
+- auth load
+- current profile fetch
+- Discover query
+- Connections query
+- Chat first render
+- messages fetch
+- image loading
+- route navigation
+
+Find the top 5 slowest operations and fix those first.
+
+Likely fixes:
+- global cache current user/profile
+- render page shell before data
+- fetch only needed columns
+- limit/paginate results
+- lazy load full profile/photos
+- load thumbnails first
+- avoid refetching profile/session on every page
+- remove useEffect loops
+- avoid blocking Promise.all before render
+- add indexes for common queries
+- make chat use realtime + optimistic UI
+
+TASK 2 — DISCOVERY PROFILE PHOTOS BIGGER
+
+The profile pictures/cards on the Discovery page are too small.
+
+Please increase the visual size of Discovery profile photos/cards:
+- larger main photo
+- better full-card layout
+- stronger name/age visibility
+- bigger image area on mobile
+- maintain good spacing for buttons
+- keep swipe/like/pass actions working
+- do not make performance worse
+
+Important:
+Use optimized image loading:
+- lazy load offscreen images
+- do not load every full-resolution photo at once
+- use only the first/main photo on card load
+- load gallery photos only when profile opens
+
+Report back with:
+1. exact bottlenecks found
+2. before/after timing logs
+3. exact files changed
+4. exact code changed
+5. indexes added
+6. Discovery photo/card size changes
