@@ -2829,18 +2829,7 @@ export default function Matches() {
     );
   }
 
-  if (isLoading) {
-    return (
-      <div className="flex-1 p-6 space-y-4">
-        <Skeleton className="h-8 w-48" />
-        {[1, 2, 3].map(i => (
-          <Skeleton key={i} className="h-20 w-full rounded-md" />
-        ))}
-      </div>
-    );
-  }
-
-  if (!hasContent) {
+  if (!isLoading && !hasContent) {
     return (
       <div className="flex-1 flex flex-col">
         {debugLine()}
@@ -2894,6 +2883,15 @@ export default function Matches() {
           {!atLimit && matches && matches.length > 0 && `${matches.length} ${matches.length === 1 ? "connection" : "connections"}`}
         </p>
       </div>
+
+      {/* Inline skeleton while /api/matches loads — page header is always visible */}
+      {isLoading && (
+        <div className="space-y-3" data-testid="section-matches-loading">
+          {[1, 2, 3].map(i => (
+            <Skeleton key={i} className="h-20 w-full rounded-md" />
+          ))}
+        </div>
+      )}
 
       {requestsLoading && (
         <div className="space-y-3" data-testid="section-requests-loading">

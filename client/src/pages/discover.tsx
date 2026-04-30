@@ -488,8 +488,13 @@ export default function Discover() {
       );
     }
     return (
-      <div className="flex-1 flex items-center justify-center p-6">
-        <div className="w-full max-w-md space-y-4">
+      <div className="flex-1 overflow-y-auto">
+        <div className="sticky top-0 z-30 bg-background/95 backdrop-blur-sm border-b px-5 py-3">
+          <div className="max-w-md mx-auto">
+            <Skeleton className="h-6 w-40" />
+          </div>
+        </div>
+        <div className="max-w-md mx-auto p-4 md:p-6 space-y-5 pb-6">
           <Skeleton className="h-72 w-full rounded-md" />
           <Skeleton className="h-8 w-2/3" />
           <Skeleton className="h-4 w-1/2" />

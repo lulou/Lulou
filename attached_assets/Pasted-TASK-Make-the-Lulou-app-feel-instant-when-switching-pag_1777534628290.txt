@@ -1,0 +1,109 @@
+TASK:
+Make the Lulou app feel instant when switching pages, especially Discovery and Connections.
+
+CONTEXT:
+The app has improved slightly, but it is still not App Store-ready. Discovery still takes too long to load users. Likes loads relatively fast. Connections is slow. I need the whole app to feel instant when navigating between pages.
+
+PROBLEM:
+The app likely waits for Supabase requests before rendering page content. Discovery and Connections may be fetching too much data, refetching repeatedly, loading full profile/photo data too late, or blocking UI while data loads.
+
+GOAL:
+Make page transitions feel instant, even if data is still loading in the background.
+
+PRIORITY PAGES:
+
+1. Discovery
+2. Connections
+3. Likes
+4. Profile
+5. Messages
+
+SOLUTION REQUIREMENTS:
+
+1. Audit loading bottlenecks
+
+* Inspect Discovery page data fetching
+* Inspect Connections page data fetching
+* Inspect Likes page data fetching and compare why it is faster
+* Check for duplicate Supabase calls
+* Check for unnecessary profile/photo joins
+* Check for blocking loading states
+* Check whether pages refetch data every time they mount
+
+2. Add instant-feeling UX
+
+* Render page shell immediately
+* Show skeleton cards instantly while data loads
+* Do not show blank white screens
+* Do not block navigation while Supabase fetches
+* Keep previous data visible while refreshing where safe
+* Cache already-loaded Discovery and Connections data during the session
+
+3. Optimise Discovery
+
+* Fetch only required columns for profile cards
+* Limit initial results
+* Load first batch fast
+* Preload next batch after first render
+* Optimise profile image URLs
+* Lazy-load non-visible images
+* Do not fetch full user details until profile is opened
+
+4. Optimise Connections
+
+* Fetch only matches connected to the current user
+* Avoid loading every profile field if only name/photo/last message is needed
+* Avoid nested or repeated profile lookups inside loops
+* Use one efficient Supabase query where possible
+* Cache connections after first load
+
+5. Improve shared data strategy
+
+* Use existing auth/profile context instead of refetching current user repeatedly
+* Add lightweight session cache/state for Discovery, Likes, Connections, and Messages
+* Only refetch when user performs an action or data is stale
+* Prevent unnecessary component remounting on route changes
+
+6. Performance rules
+
+* No full page reloads
+* No duplicate Supabase calls for same data
+* No blocking route transitions
+* No fetching unnecessary columns
+* No loading full-resolution images
+* No sequential profile fetches inside maps/loops
+
+7. Preserve existing functionality
+
+* Do not break auth
+* Do not break routing
+* Do not break profile editing
+* Do not break likes
+* Do not break matching
+* Do not break messaging
+* Do not break Stripe/Elevate
+* Do not break WebRTC
+* Do not change Supabase schema or RLS unless absolutely necessary
+
+CONSTRAINTS:
+
+* Do not rewrite the entire app
+* Do not restructure the whole project
+* Make focused performance fixes
+* Keep code simple and stable
+* Use current project structure
+* Do not add new packages unless essential
+
+OUTPUT:
+
+1. First identify exactly why Discovery is slow.
+2. Then identify exactly why Connections is slow.
+3. Compare with Likes and explain why Likes is faster.
+4. List the files that need changes.
+5. Update only the necessary files.
+6. Return full updated files, not snippets.
+7. Explain how each change improves perceived speed.
+8. Explain how to test that pages now feel instant.
+
+IMPORTANT:
+The goal is not just “faster Supabase queries.” The goal is that the app feels instant to the user. Page shells, skeletons, cached previous data, smaller queries, optimized images, and background refreshes are all acceptable. Blank loading screens are not acceptable.
