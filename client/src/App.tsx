@@ -1,5 +1,5 @@
 import { Switch, Route, useLocation } from "wouter";
-import { createContext, useContext, useState, useCallback, useEffect, useRef, lazy, Suspense, Component, type ReactNode, type ErrorInfo } from "react";
+import { createContext, useContext, useState, useCallback, useEffect, useRef, useMemo, lazy, Suspense, Component, type ReactNode, type ErrorInfo } from "react";
 import { queryClient, getAuthHeaders, apiRequest } from "./lib/queryClient";
 import { QueryClientProvider, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -216,12 +216,12 @@ function CallDetectors({ userId }: { userId: string }) {
     refetchInterval: 30000,
   });
 
-  const matchIds = (matches || []).map(m => m.id);
+  const matchIds = useMemo(() => (matches || []).map(m => m.id), [matches]);
   useCallSignaling(matchIds, userId);
 
-  const rerMatch = matches?.find(m =>
+  const rerMatch = useMemo(() => matches?.find(m =>
     !!(m.callStartedAt && m.callSessionId && !m.callAnswered && !m.callCompleted && m.callInitiatorId === userId)
-  );
+  ), [matches, userId]);
   const rerMatchId = rerMatch?.id;
   const rerSessionId = rerMatch?.callSessionId;
   useEffect(() => {
@@ -286,7 +286,7 @@ function CallDetectors({ userId }: { userId: string }) {
     return false;
   }
 
-  const incomingCall = matches?.find(m => {
+  const incomingCall = useMemo(() => matches?.find(m => {
     if (!m.callStartedAt || m.callAnswered || m.callCompleted) return false;
     if (!m.callSessionId) return false;
     if (!m.callInitiatorId || m.callInitiatorId === userId) return false;
@@ -298,9 +298,9 @@ function CallDetectors({ userId }: { userId: string }) {
     }
     const callKey = `${m.id}:${m.callSessionId}`;
     return callKey !== dismissedCallKey;
-  });
+  }), [matches, userId, isEndedCall, dismissedCallKey]);
 
-  const answeredCall = matches?.find(m => {
+  const answeredCall = useMemo(() => matches?.find(m => {
     if (!(m.callStartedAt && m.callSessionId && m.callAnswered === true && m.callCompleted === false &&
       (m.user1Id === userId || m.user2Id === userId))) return false;
     if (isEndedCall(m)) return false;
@@ -310,9 +310,9 @@ function CallDetectors({ userId }: { userId: string }) {
       return false;
     }
     return true;
-  });
+  }), [matches, userId, isEndedCall]);
 
-  const callerRingingCall = matches?.find(m => {
+  const callerRingingCall = useMemo(() => matches?.find(m => {
     if (!(m.callStartedAt && m.callSessionId && !m.callAnswered && !m.callCompleted &&
       m.callInitiatorId === userId)) return false;
     if (isEndedCall(m)) return false;
@@ -322,7 +322,7 @@ function CallDetectors({ userId }: { userId: string }) {
       return false;
     }
     return true;
-  });
+  }), [matches, userId, isEndedCall]);
 
   const activeCall = answeredCall || callerRingingCall;
 
