@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { useToast } from "@/hooks/use-toast";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, batchPrefetchPhotos } from "@/lib/queryClient";
 import { useTabActive } from "@/hooks/use-tab-active";
 import {
   Heart, X, Eye, MapPin, Lock, Sparkles, ChevronRight,
@@ -718,6 +718,15 @@ export default function LikesPage() {
     queryKey: ["/api/who-liked-you"],
     refetchInterval: isActive ? 15000 : false,
   });
+
+  // Batch-prefetch photos for the first 10 visible likes the moment the list
+  // arrives.  Converts N individual card photo requests into a single round-trip
+  // so avatars appear all at once rather than trickling in one by one.
+  useEffect(() => {
+    if (!likes || likes.length === 0) return;
+    const ids = likes.slice(0, 10).map(l => l.profile?.userId).filter(Boolean) as string[];
+    if (ids.length > 0) batchPrefetchPhotos(ids);
+  }, [likes]);
 
   const { data: matchCountData } = useQuery<MatchCountData>({
     queryKey: ["/api/match-count"],

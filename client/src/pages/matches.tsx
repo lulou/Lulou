@@ -7,7 +7,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { useToast } from "@/hooks/use-toast";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, batchPrefetchPhotos } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
 import { useTabActive } from "@/hooks/use-tab-active";
 import { isCallSessionCancelled, markCallSessionCancelled, clearCancelledSession } from "@/lib/cancelled-calls";
@@ -2739,6 +2739,14 @@ export default function Matches() {
     placeholderData: (prev) => prev,
   });
 
+  // Batch-prefetch avatars for the first 10 connections the moment the list
+  // arrives so MatchCard components find photos in cache immediately on mount.
+  useEffect(() => {
+    if (!matches || matches.length === 0) return;
+    const ids = matches.slice(0, 10).map(m => m.profile?.userId).filter(Boolean) as string[];
+    if (ids.length > 0) batchPrefetchPhotos(ids);
+  }, [matches]);
+
   const { data: spinRequestsData, isLoading: requestsLoading, error: requestsError } = useQuery<SpinRequestsData>({
     queryKey: ["/api/spin-requests"],
     refetchInterval: isActive ? 30_000 : false,
@@ -2771,14 +2779,6 @@ export default function Matches() {
     return () => console.log("[MATCHES] UNMOUNTED — was visible for", Math.round(performance.now() - t0), "ms");
   }, []);
 
-  console.log("[MATCHES] RENDER_REACHED", {
-    userId: user?.id,
-    matchesLoading,
-    matchesError: matchesError?.message,
-    matchCount: matches?.length,
-    requestsLoading,
-    expandedMatchId,
-  });
 
   // ─── STEP 2: Minimal render — confirms routing/layout works ─────────────────
   const STEP2_MINIMAL = false;

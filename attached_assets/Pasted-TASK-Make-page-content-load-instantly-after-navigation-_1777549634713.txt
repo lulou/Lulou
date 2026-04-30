@@ -1,0 +1,134 @@
+TASK:
+Make page content load instantly after navigation, not just the page shell.
+
+CONTEXT:
+Lulou now switches between pages faster, but the content inside each page is still slow to appear. The route/page shell loads quickly, but the actual profiles, photos, matches, messages, avatars, and cards arrive too late.
+
+PROBLEM:
+The app likely renders the destination page before its critical data/photos are ready. This creates fast navigation but slow content appearance.
+
+GOAL:
+When a user taps a page/tab, the visible content should already be prefetched or hydrated so it appears immediately.
+
+PAGES TO FIX:
+
+* Discovery
+* Connections / Matches
+* Likes
+* Messages / Conversations
+* Profile
+
+REQUIREMENTS:
+
+1. Audit above-the-fold data per page
+   For each page identify the minimum critical content needed immediately:
+
+* Discovery: current card + next 2 cards + their first photos
+* Connections: first 10 visible connections + avatars
+* Likes: first 10 visible likes + avatars
+* Messages: first 10 conversations + avatars + last message preview
+* Profile: own profile + photos
+
+2. Prefetch page data before navigation
+   In the main layout/bottom nav:
+
+* When the app loads after auth/profile is ready, prefetch all first-screen data
+* When user hovers/touches/presses a nav item, prefetch that page’s critical data before route transition if possible
+* Keep prefetch lightweight
+
+3. Hydrate destination page from cache
+   Each page must:
+
+* Read cached data immediately
+* Render cached data instantly if available
+* Refresh in background only
+* Never wait for a fresh request if cached data exists
+
+4. Prefetch images with the data
+   For each page’s above-the-fold records:
+
+* Batch fetch needed photos
+* Write them into existing query cache keys
+* Preload the first visible image/avatar URLs
+* Do not preload full lists
+* Do not preload offscreen content
+
+5. Avoid duplicate fetches
+
+* If data is already cached and fresh, do not refetch on navigation
+* If photos are already cached, do not request them again
+* Keep `/api/profiles/:id/photos` as fallback only
+* Use batch photo prefetch for visible content
+
+6. Improve skeleton behaviour
+
+* Skeletons should only appear on true first-ever load
+* If cached data exists, show cached content instead of skeleton
+* If refreshing, show a small subtle refresh indicator, not a blank/loading page
+
+7. Page-specific requirements
+
+Discovery:
+
+* Current card and next 2 profiles/photos must be ready before/when page appears
+* Do not wait for full discovery pool
+* Keep card stack small
+
+Connections:
+
+* First 10 connection avatars must be prefetched
+* List should show names and avatars immediately from cache
+
+Likes:
+
+* First 10 like avatars must be prefetched
+* Cards should not wait individually if batch cache exists
+
+Messages:
+
+* First 10 conversation avatars and last message previews must be ready
+* Do not wait for full thread messages until a thread is opened
+
+Profile:
+
+* Own profile should already be cached globally
+* Own photos should be cached/preloaded after login
+
+8. Preserve existing functionality
+
+* Do not break routing
+* Do not break auth
+* Do not break Discovery
+* Do not break Connections
+* Do not break Likes
+* Do not break Messages
+* Do not break Profile/Edit Profile
+* Do not break photo upload
+* Do not reintroduce photo arrays into list endpoints
+* Do not break Stripe/Elevate/WebRTC
+
+CONSTRAINTS:
+
+* Do not rewrite the app
+* Do not change database schema
+* Do not change RLS
+* No new packages unless absolutely necessary
+* Keep changes surgical
+* Return full updated files, not snippets
+
+OUTPUT:
+
+1. List the critical above-the-fold data for each page.
+2. Identify which pages currently wait for content after navigation.
+3. Add prefetching for page data and first visible photos.
+4. Ensure destination pages hydrate from cache immediately.
+5. Return full updated files.
+6. Explain how to test:
+
+   * Open app fresh
+   * Tap Discovery, Connections, Likes, Messages, Profile
+   * Confirm page content appears immediately, not just shell
+7. Confirm skeletons only appear when no cached data exists.
+
+IMPORTANT:
+The issue is no longer route speed. The issue is content readiness. The fix is to prefetch, cache, and hydrate the visible content before the user sees the page.

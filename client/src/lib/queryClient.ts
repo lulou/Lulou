@@ -149,3 +149,48 @@ export const queryClient = new QueryClient({
     },
   },
 });
+
+// ── Batch photo prefetcher ────────────────────────────────────────────────────
+// Fetches photos for multiple profiles in a single HTTP request (server runs
+// all Supabase lookups in parallel), then writes each result into its own
+// ["/api/profiles", userId, "photos"] cache slot.
+//
+// This converts the per-card waterfall (N individual requests that fire after
+// each card mounts) into a single pre-population step that fires as soon as the
+// list data arrives.  Individual card useQuery hooks then read from cache
+// immediately and never issue a network request.
+//
+// The function is idempotent: profiles whose photo cache is still fresh
+// (< 5 minutes old) are silently skipped so it is safe to call on every
+// list update without triggering duplicate fetches.
+const PHOTO_CACHE_STALE_MS = 5 * 60 * 1000;
+
+export async function batchPrefetchPhotos(userIds: string[]): Promise<void> {
+  if (!userIds.length) return;
+
+  const now = Date.now();
+  const missing = userIds.filter(id => {
+    if (!id) return false;
+    const state = queryClient.getQueryState(["/api/profiles", id, "photos"]);
+    if (!state || state.dataUpdatedAt === 0) return true;
+    return now - state.dataUpdatedAt > PHOTO_CACHE_STALE_MS;
+  });
+
+  if (!missing.length) return;
+
+  try {
+    const headers = await getAuthHeaders();
+    const res = await fetch(`/api/profiles/photos/batch?ids=${missing.join(",")}`, {
+      headers,
+      credentials: "include",
+    });
+    if (!res.ok) return;
+
+    const data: Record<string, string[]> = await res.json();
+    for (const [userId, photos] of Object.entries(data)) {
+      queryClient.setQueryData(["/api/profiles", userId, "photos"], { photos });
+    }
+  } catch {
+    // Best-effort — individual card useQuery hooks serve as the guaranteed fallback
+  }
+}

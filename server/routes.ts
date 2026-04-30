@@ -421,6 +421,36 @@ export async function registerRoutes(
     }
   });
 
+  // Batch photo fetch — returns photos for up to 20 profiles in a single request.
+  // All Supabase lookups run in parallel; responds with { userId: photos[] }.
+  // Used by the client batch prefetcher to hydrate photo caches before cards render,
+  // converting N individual HTTP requests into 1 and eliminating the per-card waterfall.
+  // IMPORTANT: this literal-path route must be registered BEFORE the :userId param route below.
+  app.get("/api/profiles/photos/batch", isAuthenticated, async (req: any, res) => {
+    const t0 = Date.now();
+    try {
+      const storage = getStorage(req);
+      const idsParam = (req.query.ids as string) || "";
+      const ids = idsParam.split(",").map((s: string) => s.trim()).filter(Boolean).slice(0, 20);
+      if (ids.length === 0) return res.json({});
+      const settled = await Promise.allSettled(
+        ids.map(async (id: string) => {
+          const photos = await storage.getProfilePhotos(id);
+          return { id, photos };
+        })
+      );
+      const output: Record<string, string[]> = {};
+      for (const r of settled) {
+        if (r.status === "fulfilled") output[r.value.id] = r.value.photos;
+      }
+      console.log(`[PHOTOS] batch: ${ids.length} profiles in ${Date.now() - t0} ms`);
+      res.json(output);
+    } catch (error: any) {
+      console.error("[PHOTOS] Batch route error —", error?.message, `(${Date.now() - t0} ms)`);
+      res.json({});
+    }
+  });
+
   // Returns ONLY the photos array for a given user — fast single-column fetch.
   // Profiles in the discover pool / wheel pool don't carry photos (they'd cause statement timeouts).
   // The client calls this per-card to lazy-load photos without fetching the full profile row.

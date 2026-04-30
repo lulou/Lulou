@@ -6,7 +6,7 @@ import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, batchPrefetchPhotos } from "@/lib/queryClient";
 import { DragScrollRow } from "@/components/drag-scroll-row";
 import { PhotoCarousel } from "@/components/photo-carousel";
 import type { Profile } from "@shared/schema";
@@ -388,15 +388,15 @@ export default function Discover() {
     staleTime: 5 * 60 * 1000,
   });
 
-  // Pre-fetch the next card's photos in the background for instant display
+  // Batch-prefetch photos for the current card and the next 2 profiles so
+  // the full card stack is ready before the user reaches any card.
+  // Replaces the old single-next-card prefetch — batchPrefetchPhotos skips
+  // profiles whose cache is already fresh so this is safe to call on every
+  // visible-pool change.
   useEffect(() => {
-    if (nextProfile?.userId) {
-      queryClient.prefetchQuery({
-        queryKey: ["/api/profiles", nextProfile.userId, "photos"],
-        staleTime: 5 * 60 * 1000,
-      });
-    }
-  }, [nextProfile?.userId]);
+    const ids = visibleProfiles.slice(0, 3).map(p => p.userId).filter(Boolean);
+    if (ids.length > 0) batchPrefetchPhotos(ids);
+  }, [visibleProfiles]);
 
   // Merge photos into the pool profile for rendering.
   // Memoised so re-renders from mutation isPending state don't recreate the
