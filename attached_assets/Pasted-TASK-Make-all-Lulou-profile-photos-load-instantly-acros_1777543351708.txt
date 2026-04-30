@@ -1,0 +1,174 @@
+TASK:
+Make all Lulou profile photos load instantly across every page.
+
+CONTEXT:
+The app pages now load faster, but profile photos still take too long to appear on Discovery, Connections, Likes, Messages, Profile, and any carousel/profile-card views. The page shell may appear quickly, but the image loading delay still makes the app feel slow.
+
+PROBLEM:
+Profile photos may still be loading full-size Supabase Storage images, not using consistent optimized URLs, not being cached/preloaded across pages, or not using placeholders correctly. Images need to feel instant after the first load.
+
+GOAL:
+Make profile photos feel instant by:
+
+* Using optimized image URLs everywhere
+* Preloading important images before the user reaches the page
+* Reusing cached/decoded images across pages
+* Showing blur/placeholder/skeleton instantly until the real image appears
+* Never downloading full-size originals for card/list views
+
+PRIORITY PAGES:
+
+1. Discovery profile cards/carousel
+2. Connections page
+3. Likes page
+4. Messages/conversations list
+5. Profile page
+6. Edit profile page
+
+SOLUTION REQUIREMENTS:
+
+1. Audit every image render
+   Find every component that renders profile photos, including:
+
+* Discovery cards
+* Photo carousel
+* Connections cards
+* Likes cards
+* Message list avatars
+* Chat header avatar
+* Profile page photos
+* Edit profile preview photos
+* Any shared Avatar/ProfileImage component
+
+Identify:
+
+* Which components still use raw photo URLs
+* Which components use optimized URLs
+* Which components do not lazy-load images
+* Which components do not show placeholders
+* Which components reload images unnecessarily after navigation
+
+2. Create one shared image helper
+   Create or reuse a single helper function:
+
+getOptimizedImageUrl(url: string, width?: number, quality?: number): string
+
+Rules:
+
+* Return empty URL unchanged
+* If URL cannot be parsed, return original URL
+* If Supabase public Storage URL, add transform params
+* Preserve existing query params
+* Do not duplicate transform params
+* Use width/quality appropriate to context
+
+Suggested sizes:
+
+* Avatar/message thumbnails: width 96–160, quality 70
+* Connection/like cards: width 300–500, quality 75
+* Discovery main card: width 600–800, quality 75
+* Full profile photo view: width 900–1200, quality 80
+
+3. Use optimized URLs everywhere
+   Replace raw profile photo URLs with optimized URLs in all image components.
+
+Important:
+
+* Do not mutate original photo arrays
+* Only transform at render/preload/cache level
+* Keep existing behaviour unchanged
+
+4. Add shared image preloading
+   Create or improve a lightweight image preloader.
+
+It should preload:
+
+* First few Discovery profile photos after app load
+* First few Connections photos after connections data loads
+* First few Likes photos after likes data loads
+* Message avatars after conversations load
+* Current, previous, and next carousel images only
+
+Rules:
+
+* Do not preload every image in the app
+* Limit preloading to visible/likely-next images
+* Avoid slowing down initial app render
+* Preload after page shell renders or in background
+
+5. Add decoded image cache
+   Use a shared in-memory Set/Map for decoded image URLs.
+
+Rules:
+
+* If optimized image URL has already loaded/decoded, render it immediately without fade delay
+* Use optimized URL as cache key
+* Cache should survive page navigation during the session
+* Do not store huge binary data, only URL strings
+
+6. Improve placeholders
+   Every image should show an instant placeholder while loading:
+
+* Avatar: initials or neutral placeholder circle
+* Card/profile photo: blurred gradient/skeleton
+* Carousel: keep previous image visible until next image is ready if possible
+
+Rules:
+
+* No blank image boxes
+* No layout shifting
+* Retry should not appear for normal image loading
+* Broken image icon should not show
+
+7. Handle image errors correctly
+   If image fails:
+
+* Hide broken image icon
+* Show fallback placeholder
+* Store failed URL temporarily so it does not retry endlessly during same session
+* Do not show page-level Retry just because an image failed
+
+8. Prevent repeated reloads
+   Check that:
+
+* Image src value is stable
+* Optimized URL is memoized where needed
+* Components are not remounting unnecessarily
+* Cache keys use optimized URLs consistently
+* Preload uses the same optimized URL as img src
+
+9. Preserve existing functionality
+
+* Do not break Discovery swiping/carousel
+* Do not break Connections
+* Do not break Likes
+* Do not break Messages
+* Do not break Profile/Edit Profile
+* Do not break upload functionality
+* Do not change database schema
+* Do not change RLS
+* Do not change Stripe/Elevate
+* Do not change WebRTC
+
+CONSTRAINTS:
+
+* Do not rewrite the app
+* Do not restructure the entire project
+* Keep changes focused on image loading only
+* Keep code simple
+* No new packages unless absolutely necessary
+* Return full updated files, not snippets
+
+OUTPUT:
+
+1. List every file/component that renders profile images.
+2. Identify which ones were using raw or oversized URLs.
+3. Add or update the shared image optimization helper.
+4. Add or update shared preloading/decoded image cache.
+5. Update all necessary image components.
+6. Return full updated files.
+7. Explain how images now load faster.
+8. Explain how to test image speed across Discovery, Connections, Likes, Messages, Profile, and Edit Profile.
+
+IMPORTANT:
+The app data may now load faster, but photo loading still makes the app feel slow. Focus only on making profile images appear instantly and consistently across the entire app.

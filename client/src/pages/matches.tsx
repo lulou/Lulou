@@ -19,6 +19,7 @@ import { MessageCircle, Send, Phone, Video, ChevronDown, ChevronUp, ChevronLeft,
 import { LulouFlowerIcon } from "@/components/app-layout";
 import { broadcastCallSignal } from "@/hooks/use-call-signaling";
 import { PhotoCarousel } from "@/components/photo-carousel";
+import { preloadPhoto } from "@/lib/image-utils";
 import type { Profile, Match, Message, SpinRequest } from "@shared/schema";
 
 const MAX_MESSAGES_PER_USER = 15;
@@ -2749,6 +2750,15 @@ export default function Matches() {
     [spinRequestsData],
   );
   const matchIds = useMemo(() => (matches || []).map(m => m.id), [matches]);
+
+  // Preload first 3 spin-request photos so AvatarImage renders from bitmap cache.
+  useEffect(() => {
+    if (!incomingRequests.length) return;
+    incomingRequests.slice(0, 3).forEach(req => {
+      const photo = req.profile.photos?.[0];
+      if (photo) preloadPhoto(photo);
+    });
+  }, [incomingRequests]);
 
   const handleNewBackgroundMessage = useCallback((matchId: string) => {
     console.log("[CHAT] BACKGROUND_MESSAGE_RECEIVED_INVALIDATING", { matchId });

@@ -1,46 +1,6 @@
 import { useRef, useEffect, useLayoutEffect, useCallback, useState, type ReactNode } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
-
-/**
- * Module-level decoded-bitmap cache.
- * Tracks every base64/URL photo that this browser session has already decoded.
- * Persists across component mounts so returning to the same profile is instant.
- */
-const decodedPhotos = new Set<string>();
-
-/**
- * Returns a Supabase Storage image-transform URL with width and quality appended.
- * Non-Supabase URLs (base64 data URIs, external URLs) are returned unchanged.
- * Already-transformed URLs (query already has a `width` param) are also unchanged.
- */
-function getOptimizedImageUrl(url: string, width = 600): string {
-  if (!url) return url;
-  let parsed: URL;
-  try {
-    parsed = new URL(url);
-  } catch {
-    return url;
-  }
-  // Only transform Supabase Storage public object URLs
-  if (!parsed.pathname.includes("/storage/v1/object/public/")) return url;
-  // Don't override an existing transform
-  if (parsed.searchParams.has("width")) return url;
-  parsed.searchParams.set("width", String(width));
-  if (!parsed.searchParams.has("quality")) parsed.searchParams.set("quality", "75");
-  return parsed.toString();
-}
-
-/**
- * Fire-and-forget preload: creates a temporary Image element so the browser
- * decodes the photo into its bitmap cache in the background.  When an <img>
- * element later renders with the same src it paints from cache with no decode lag.
- */
-function preloadPhoto(src: string): void {
-  if (!src || decodedPhotos.has(src)) return;
-  const img = new Image();
-  img.onload = () => decodedPhotos.add(src);
-  img.src = src;
-}
+import { decodedPhotos, getOptimizedImageUrl, preloadPhoto } from "@/lib/image-utils";
 
 /**
  * Tactile photo carousel — photos physically follow the finger/mouse in real-time.

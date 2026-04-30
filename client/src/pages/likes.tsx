@@ -16,6 +16,7 @@ import { LulouFlowerIcon } from "@/components/app-layout";
 import { PhotoCarousel } from "@/components/photo-carousel";
 import { ElevateModal } from "@/components/elevate-modal";
 import { ElevateStatusCard } from "@/components/elevate-status-card";
+import { preloadPhoto, decodedPhotos } from "@/lib/image-utils";
 import type { Profile, Interaction } from "@shared/schema";
 
 type IncomingOpen = Interaction & { profile: Profile };
@@ -555,7 +556,14 @@ function LikeCard({
             src={photo}
             alt={open.profile.firstName}
             className="w-full h-full object-cover"
-            loading="lazy"
+            style={{
+              opacity: decodedPhotos.has(photo) ? 1 : 0,
+              transition: "opacity 200ms ease",
+            }}
+            onLoad={e => {
+              decodedPhotos.add(photo);
+              (e.currentTarget as HTMLImageElement).style.opacity = "1";
+            }}
           />
         ) : (
           <div
@@ -709,6 +717,17 @@ export default function LikesPage() {
   useEffect(() => {
     if (!connectionsFull) setShowFullMessage(false);
   }, [connectionsFull]);
+
+  // Preload the first 5 like card photos as soon as data arrives.
+  // This decodes each base64 image into the browser's bitmap cache so that
+  // when LikeCard renders it, the browser paints from cache (no decode lag).
+  useEffect(() => {
+    if (!likes) return;
+    likes.slice(0, 5).forEach(open => {
+      const photo = open.profile.photos?.[0];
+      if (photo) preloadPhoto(photo);
+    });
+  }, [likes]);
 
   if (isLikesError) {
     return (
