@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback, useMemo } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo, memo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -20,7 +20,9 @@ import { EMPTY_PHOTOS } from "@/lib/image-utils";
 // Gallery photos fetch on card mount; carousel lazy-loads ±1 from current.
 const PHOTO_HEIGHT = 440;
 
-function PhotoBubbles({ photos, name: _name, onOpen, isDisabled, isPhotosLoading }: { photos: string[]; name: string; onOpen: () => void; isDisabled?: boolean; isPhotosLoading?: boolean }) {
+// Memoised: only re-renders when photos/name/disabled/loading state actually changes.
+// This isolates it from parent mutation-pending state changes that don't affect the photo area.
+const PhotoBubbles = memo(function PhotoBubbles({ photos, name: _name, onOpen, isDisabled, isPhotosLoading }: { photos: string[]; name: string; onOpen: () => void; isDisabled?: boolean; isPhotosLoading?: boolean }) {
   const [photoIndex, setPhotoIndex] = useState(0);
 
   if (isPhotosLoading) {
@@ -109,9 +111,11 @@ function PhotoBubbles({ photos, name: _name, onOpen, isDisabled, isPhotosLoading
       </div>
     </PhotoCarousel>
   );
-}
+});
 
-function SlideCards({ items, type, onReply }: { items: string[]; type: "starter" | "question"; onReply: (text: string, reply: string) => void }) {
+// Memoised: only re-renders when items/type/onReply actually change.
+// Prevents re-render when parent mutation isPending state toggles (2× per tap).
+const SlideCards = memo(function SlideCards({ items, type, onReply }: { items: string[]; type: "starter" | "question"; onReply: (text: string, reply: string) => void }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const isDragging = useRef(false);
   const didDrag = useRef(false);
@@ -247,40 +251,50 @@ function SlideCards({ items, type, onReply }: { items: string[]; type: "starter"
         </div>
       </div>
 
-      <AnimatePresence>
-        {activeIndex !== null && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: "auto", opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.2 }}
+      {/*
+        Reply input — CSS max-height/opacity transition instead of framer-motion
+        height:"auto" animation. The height:"auto" approach requires a layout
+        measurement (getBoundingClientRect) on every frame, causing a synchronous
+        reflow. max-height transition is compositor-only and zero-layout-cost.
+        The input is always rendered so the transition can play in both directions.
+      */}
+      <div
+        style={{
+          maxHeight: activeIndex !== null ? 64 : 0,
+          opacity: activeIndex !== null ? 1 : 0,
+          overflow: "hidden",
+          transition: "max-height 0.18s ease, opacity 0.15s ease",
+          pointerEvents: activeIndex !== null ? "auto" : "none",
+        }}
+      >
+        <div className="flex gap-2 items-end px-1 pt-1">
+          <Input
+            value={reply}
+            onChange={e => setReply(e.target.value.slice(0, 200))}
+            placeholder={isStarter ? "Reply to this..." : "Share your answer..."}
+            className="text-sm"
+            onKeyDown={e => {
+              if (e.key === "Enter" && reply.trim() && activeIndex !== null) handleSend(items[activeIndex]);
+            }}
+            data-testid={`input-reply-${type}`}
+          />
+          <Button
+            size="icon"
+            disabled={!reply.trim()}
+            onClick={() => activeIndex !== null && handleSend(items[activeIndex])}
+            data-testid={`button-reply-send-${type}`}
           >
-            <div className="flex gap-2 items-end px-1">
-              <Input
-                value={reply}
-                onChange={e => setReply(e.target.value.slice(0, 200))}
-                placeholder={isStarter ? "Reply to this..." : "Share your answer..."}
-                className="text-sm"
-                onKeyDown={e => {
-                  if (e.key === "Enter" && reply.trim()) handleSend(items[activeIndex]);
-                }}
-                data-testid={`input-reply-${type}`}
-              />
-              <Button
-                size="icon"
-                disabled={!reply.trim()}
-                onClick={() => handleSend(items[activeIndex!])}
-                data-testid={`button-reply-send-${type}`}
-              >
-                <Send className="w-4 h-4" />
-              </Button>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+            <Send className="w-4 h-4" />
+          </Button>
+        </div>
+      </div>
     </div>
   );
-}
+});
+
+// Max profiles to keep in the accumulated pool. Profiles already dismissed
+// are pruned once the pool exceeds this threshold, bounding the useMemo filter cost.
+const MAX_POOL_SIZE = 60;
 
 export default function Discover() {
   const { toast } = useToast();
@@ -311,41 +325,42 @@ export default function Discover() {
   // Start/stop the "loading too long" timer based on isLoading state
   useEffect(() => {
     if (isLoading) {
-      console.log("[DISCOVER] QUERY_LOADING_START");
       setLoadingTooLong(false);
-      loadingTimerRef.current = setTimeout(() => {
-        console.warn("[DISCOVER] QUERY_LOADING_SLOW: still loading after 8 s — showing retry UI");
-        setLoadingTooLong(true);
-      }, 8_000);
+      loadingTimerRef.current = setTimeout(() => setLoadingTooLong(true), 8_000);
     } else {
       if (loadingTimerRef.current) {
         clearTimeout(loadingTimerRef.current);
         loadingTimerRef.current = null;
       }
       setLoadingTooLong(false);
-      console.log("[DISCOVER] QUERY_LOADING_END", {
-        isError: isDiscoverError,
-        rawCount: Array.isArray(profilesData) ? profilesData.length : 0,
-      });
     }
     return () => {
       if (loadingTimerRef.current) clearTimeout(loadingTimerRef.current);
     };
   }, [isLoading]);
 
-  // Merge newly fetched profiles into the accumulated pool (no duplicates)
+  // Keep a ref mirror of shownIds so the merge effect can prune without
+  // needing shownIds as a dependency (which would cause the effect to re-run on
+  // every tap and re-merge unnecessarily).
+  const shownIdsRef = useRef<Set<string>>(new Set());
+  useEffect(() => { shownIdsRef.current = shownIds; }, [shownIds]);
+
+  // Merge newly fetched profiles into the accumulated pool (no duplicates).
+  // When the pool grows past MAX_POOL_SIZE, prune already-shown profiles to keep
+  // the array small — this bounds the visibleProfiles useMemo filter cost.
   useEffect(() => {
     if (!profilesData || !Array.isArray(profilesData)) return;
-    const rawCount = profilesData.length;
     setAccumulatedProfiles(prev => {
       const existingIds = new Set(prev.map(p => p.userId));
       const newOnes = profilesData.filter(p => !existingIds.has(p.userId));
-      console.log("[DISCOVER] PROFILES_MERGED", {
-        rawCount,
-        newCount: newOnes.length,
-        totalAccumulated: prev.length + newOnes.length,
-      });
-      return newOnes.length > 0 ? [...prev, ...newOnes] : prev;
+      if (newOnes.length === 0) return prev;
+      const combined = [...prev, ...newOnes];
+      if (combined.length > MAX_POOL_SIZE) {
+        // Prune profiles already dismissed to keep the array bounded.
+        const pruned = combined.filter(p => !shownIdsRef.current.has(p.userId));
+        return pruned.length > 0 ? pruned : combined;
+      }
+      return combined;
     });
   }, [profilesData]);
 
@@ -366,23 +381,12 @@ export default function Discover() {
     }
   }, [visibleProfiles.length]);
 
-  // Lazy-load photos for the current card (photos are excluded from the pool query to avoid timeouts)
+  // Lazy-load photos for the current card (photos are excluded from the pool query)
   const { data: photoData, isLoading: isPhotosLoading } = useQuery<{ photos: string[] }>({
     queryKey: ["/api/profiles", currentProfile?.userId, "photos"],
     enabled: !!currentProfile?.userId,
     staleTime: 5 * 60 * 1000,
   });
-
-  // Debug logging: log photo state for each profile card
-  useEffect(() => {
-    if (!currentProfile?.userId) return;
-    if (isPhotosLoading) {
-      console.log("[DISCOVER] Photos loading for userId:", currentProfile.userId);
-    } else {
-      const count = photoData?.photos?.length ?? 0;
-      console.log("[DISCOVER] Photos resolved for userId:", currentProfile.userId, "— count:", count, photoData?.photos?.[0] ? "(first url length:" + photoData.photos[0].length + ")" : "(none)");
-    }
-  }, [currentProfile?.userId, isPhotosLoading, photoData]);
 
   // Pre-fetch the next card's photos in the background for instant display
   useEffect(() => {
@@ -395,12 +399,14 @@ export default function Discover() {
   }, [nextProfile?.userId]);
 
   // Merge photos into the pool profile for rendering.
-  // EMPTY_PHOTOS is a stable module-level reference — avoids creating a new []
-  // literal on every render while photos are loading, which would otherwise cause
-  // the PhotoCarousel preload useEffect to re-fire on every render cycle.
-  const displayProfile = currentProfile
-    ? { ...currentProfile, photos: photoData?.photos ?? EMPTY_PHOTOS }
-    : undefined;
+  // Memoised so re-renders from mutation isPending state don't recreate the
+  // object and thrash child component prop comparisons.
+  // EMPTY_PHOTOS is a stable module-level reference — avoids a new [] on every
+  // render while photos are loading.
+  const displayProfile = useMemo(() => {
+    if (!currentProfile) return undefined;
+    return { ...currentProfile, photos: photoData?.photos ?? EMPTY_PHOTOS };
+  }, [currentProfile, photoData?.photos]);
 
   const interact = useMutation({
     mutationFn: async (type: "open" | "close") => {
@@ -436,15 +442,18 @@ export default function Discover() {
     },
   });
 
-  const handleReply = (promptText: string, reply: string) => {
+  // Stable callbacks — prevent SlideCards / PhotoBubbles from re-rendering
+  // when parent mutation state changes but these handlers haven't changed.
+  const handleOpen = useCallback(() => interact.mutate("open"), [interact.mutate]);
+
+  const handleReply = useCallback((_promptText: string, _reply: string) => {
     toast({
       title: "Reply noted",
       description: `When you match with ${currentProfile?.firstName}, your reply will be sent as your first message.`,
     });
-  };
+  }, [toast, currentProfile?.firstName]);
 
   // ─── STEP 2: Minimal render — confirms routing/layout works ─────────────────
-  // Set STEP2_MINIMAL = false once we confirm this page renders (Step 4 restore).
   const STEP2_MINIMAL = false;
   if (STEP2_MINIMAL) {
     return (
@@ -536,7 +545,7 @@ export default function Discover() {
     );
   }
 
-  const photos = displayProfile.photos || [];
+  const photos = displayProfile.photos;
   const signals = displayProfile.signals || [];
   const greenFlags = displayProfile.greenFlags || [];
   const conversationStarters = displayProfile.conversationStarters || [];
@@ -558,17 +567,30 @@ export default function Discover() {
         </div>
       </div>
       <div className="max-w-md mx-auto p-4 md:p-6 space-y-5 pb-6">
+        {/*
+          AnimatePresence mode="wait": sequential exit → enter prevents two cards
+          being in the layout flow simultaneously (which would cause a height jump).
+          Duration reduced from 0.3s to 0.12s per phase (0.24s total vs 0.6s before).
+          Pure opacity — no scale or y-translate — uses only the compositor thread,
+          zero layout cost.
+        */}
         <AnimatePresence mode="wait">
           <motion.div
             key={displayProfile.id}
-            initial={{ opacity: 0, scale: 0.96 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, y: -20 }}
-            transition={{ duration: 0.3, ease: "easeOut" }}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.12 }}
             data-testid="profile-container"
           >
             <Card className="overflow-hidden" data-testid="card-profile">
-              <PhotoBubbles photos={photos} name={displayProfile.firstName} onOpen={() => interact.mutate("open")} isDisabled={interact.isPending} isPhotosLoading={isPhotosLoading} />
+              <PhotoBubbles
+                photos={photos}
+                name={displayProfile.firstName}
+                onOpen={handleOpen}
+                isDisabled={interact.isPending}
+                isPhotosLoading={isPhotosLoading}
+              />
 
               <div className="px-5 pb-5 pt-3 space-y-5" data-testid="profile-about-section">
                 {conversationStarters.length > 0 && (
