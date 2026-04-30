@@ -1,0 +1,140 @@
+TASK:
+Run a final image payload audit across Lulou and remove any remaining heavy photo data from list/page responses.
+
+CONTEXT:
+The Likes page was improved by removing `photos` from `/api/who-liked-you` and lazy-fetching photos per card using `/api/profiles/:id/photos`. That fixed a major payload issue.
+
+Now we need to make sure the same problem does not exist anywhere else.
+
+PROBLEM:
+Some pages may still fetch full `photos` arrays inside list responses or page-level responses. If any endpoint returns multiple profiles with base64 photos inside the main JSON response, the app will still feel slow.
+
+GOAL:
+No list/feed endpoint should return full profile photo arrays unless the page specifically needs them immediately. Photos should be fetched lazily or separately.
+
+PAGES / ENDPOINTS TO AUDIT:
+
+* Discovery
+* Connections / Matches
+* Messages / conversation list
+* Chat header
+* Likes / who-liked-you
+* Profile modal
+* Any endpoint returning multiple profiles
+* Any endpoint returning matches with joined user profiles
+* Any endpoint returning message/conversation previews
+
+REQUIREMENTS:
+
+1. Audit all server endpoints
+   Search server routes/storage for:
+
+* `photos`
+* `SELECT *`
+* profile column sets
+* joined profile queries
+* match profile queries
+* conversation list queries
+
+Identify any endpoint that returns:
+
+* Multiple profiles
+* Matches with profile data
+* Likes with profile data
+* Conversations with profile data
+* Full `photos` arrays
+
+2. Enforce lightweight list responses
+   For list/feed responses, return only:
+
+* id
+* display_name
+* age
+* bio if needed
+* location if needed
+* last_seen if needed
+* match/conversation metadata
+* primary_photo_url only if already lightweight Storage URL
+  OR no photo at all, then lazy-fetch via `/api/profiles/:id/photos`
+
+Do NOT return full `photos` arrays in list endpoints.
+
+3. Keep detailed profile views working
+   If a user opens a full profile/profile modal:
+
+* Fetch that user’s photos separately
+* Use the same query cache key pattern:
+  ["/api/profiles", userId, "photos"]
+* Reuse cached photos if already fetched
+
+4. Check Discovery
+   Confirm Discovery initial profile batch does not include full photos.
+   If it needs photos, ensure it lazy-loads per visible card only.
+   Do not load photos for every profile in the pool upfront.
+
+5. Check Connections
+   Confirm Connections/Matches does not include full photos arrays in the main response.
+   If cards need photos:
+
+* Lazy-fetch other user photos per visible connection
+* Cache them for 5 minutes or more
+* Use Storage URLs where available
+
+6. Check Messages
+   Confirm conversation/message preview list does not include full photos arrays.
+   If avatars are needed:
+
+* Fetch avatar/photo separately
+* Cache by user ID
+* Use placeholder initials while loading
+
+7. Add payload logging if useful
+   In development only, add temporary console logs or server logs showing:
+
+* endpoint name
+* number of records returned
+* approximate JSON payload size
+* whether photos are included
+
+Do not leave noisy production logs unless gated behind development mode.
+
+8. Preserve existing functionality
+
+* Do not break Discovery
+* Do not break Likes
+* Do not break Connections
+* Do not break Matches
+* Do not break Messages
+* Do not break Profile Modal
+* Do not break photo upload
+* Do not break Supabase Storage migration
+* Do not change database schema
+* Do not change RLS
+* Do not change Stripe/Elevate
+* Do not change WebRTC
+
+CONSTRAINTS:
+
+* Do not rewrite the app
+* Do not restructure the project
+* Make surgical performance fixes only
+* Keep existing cache/query patterns
+* Return full updated files, not snippets
+
+OUTPUT:
+
+1. List every endpoint audited.
+2. Show which endpoints still returned photos.
+3. Update only the necessary endpoints/components.
+4. Return full updated files.
+5. Explain which payloads are now smaller.
+6. Explain how to test in browser Network tab:
+
+   * Discovery
+   * Connections
+   * Messages
+   * Likes
+7. Confirm no multi-profile list endpoint returns full base64 photo arrays.
+
+IMPORTANT:
+The goal is to eliminate all heavy photo payloads from list responses. List pages must load metadata first, then photos separately and lazily.

@@ -19,7 +19,6 @@ import { MessageCircle, Send, Phone, Video, ChevronDown, ChevronUp, ChevronLeft,
 import { LulouFlowerIcon } from "@/components/app-layout";
 import { broadcastCallSignal } from "@/hooks/use-call-signaling";
 import { PhotoCarousel } from "@/components/photo-carousel";
-import { preloadPhoto } from "@/lib/image-utils";
 import type { Profile, Match, Message, SpinRequest } from "@shared/schema";
 
 const MAX_MESSAGES_PER_USER = 15;
@@ -146,6 +145,13 @@ function SpinRequestCard({ request, type }: { request: SpinRequestWithProfile; t
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
+  // Lazy-load avatar photo — photos are not included in /api/spin-requests
+  const { data: spinPhotosData } = useQuery<{ photos: string[] }>({
+    queryKey: ["/api/profiles", request.profile.userId, "photos"],
+    staleTime: 5 * 60 * 1000,
+  });
+  const spinAvatarSrc = spinPhotosData?.photos?.[0];
+
   const respond = useMutation({
     mutationFn: async (accept: boolean) => {
       const res = await apiRequest("POST", `/api/spin-requests/${request.id}/respond`, { accept });
@@ -192,7 +198,7 @@ function SpinRequestCard({ request, type }: { request: SpinRequestWithProfile; t
       <div className="p-4">
         <div className="flex items-start gap-3">
           <Avatar className="w-12 h-12 flex-shrink-0">
-            <AvatarImage src={request.profile.photos?.[0]} alt={request.profile.firstName} />
+            <AvatarImage src={spinAvatarSrc} alt={request.profile.firstName} />
             <AvatarFallback className="bg-primary/10 text-primary font-semibold">
               {request.profile.firstName?.[0]}
             </AvatarFallback>
@@ -1107,6 +1113,15 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
   const isActive = useTabActive();
   const [message, setMessage] = useState("");
   const [showProfilePanel, setShowProfilePanel] = useState(false);
+
+  // Lazy-load the chat header avatar — photos are stripped from /api/matches.
+  // Shares the same cache key as ProfilePanel so the photo is loaded at most once.
+  const { data: headerPhotosData } = useQuery<{ photos: string[] }>({
+    queryKey: ["/api/profiles", match.profile.userId, "photos"],
+    enabled: expanded,
+    staleTime: 5 * 60 * 1000,
+  });
+  const headerAvatarSrc = headerPhotosData?.photos?.[0];
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const isAtBottomRef = useRef(true);
@@ -1815,7 +1830,7 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
         >
           <div className="relative shrink-0">
             <Avatar className="w-10 h-10">
-              <AvatarImage src={match.profile.photos?.[0]} alt={match.profile.firstName} />
+              <AvatarImage src={headerAvatarSrc} alt={match.profile.firstName} />
               <AvatarFallback className="bg-primary/10 text-primary font-semibold text-sm">
                 {match.profile.firstName?.[0]}
               </AvatarFallback>
@@ -2670,6 +2685,13 @@ const MatchCard = memo(function MatchCard({ match, unreadCount, userId, onOpen }
   userId: string | null;
   onOpen: (matchId: string) => void;
 }) {
+  // Lazy-load avatar photo — photos are not included in /api/matches list response
+  const { data: cardPhotosData } = useQuery<{ photos: string[] }>({
+    queryKey: ["/api/profiles", match.profile.userId, "photos"],
+    staleTime: 5 * 60 * 1000,
+  });
+  const cardAvatarSrc = cardPhotosData?.photos?.[0];
+
   return (
     <Card
       className="cursor-pointer hover-elevate transition-all"
@@ -2679,7 +2701,7 @@ const MatchCard = memo(function MatchCard({ match, unreadCount, userId, onOpen }
       <div className="p-3.5 flex items-center gap-3">
         <div className="relative">
           <Avatar className="w-12 h-12">
-            <AvatarImage src={match.profile.photos?.[0]} alt={match.profile.firstName} />
+            <AvatarImage src={cardAvatarSrc} alt={match.profile.firstName} />
             <AvatarFallback className="bg-primary/10 text-primary font-semibold">
               {match.profile.firstName?.[0]}
             </AvatarFallback>
@@ -2751,14 +2773,6 @@ export default function Matches() {
   );
   const matchIds = useMemo(() => (matches || []).map(m => m.id), [matches]);
 
-  // Preload first 3 spin-request photos so AvatarImage renders from bitmap cache.
-  useEffect(() => {
-    if (!incomingRequests.length) return;
-    incomingRequests.slice(0, 3).forEach(req => {
-      const photo = req.profile.photos?.[0];
-      if (photo) preloadPhoto(photo);
-    });
-  }, [incomingRequests]);
 
   const handleNewBackgroundMessage = useCallback((matchId: string) => {
     console.log("[CHAT] BACKGROUND_MESSAGE_RECEIVED_INVALIDATING", { matchId });
