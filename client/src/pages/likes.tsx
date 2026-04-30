@@ -710,18 +710,6 @@ export default function LikesPage() {
     if (!connectionsFull) setShowFullMessage(false);
   }, [connectionsFull]);
 
-  if (isLoading) {
-    return (
-      <div className="flex-1 p-6 space-y-4 max-w-lg mx-auto w-full">
-        <Skeleton className="h-8 w-48" />
-        <Skeleton className="h-4 w-64" />
-        {[1, 2, 3].map(i => (
-          <Skeleton key={i} className="h-20 w-full rounded-md" />
-        ))}
-      </div>
-    );
-  }
-
   if (isLikesError) {
     return (
       <div className="flex-1 flex items-center justify-center p-6">
@@ -743,7 +731,7 @@ export default function LikesPage() {
 
   const likesList = likes || [];
 
-  if (likesList.length === 0 && !celebration) {
+  if (!isLoading && likesList.length === 0 && !celebration) {
     return (
       <>
         <div className="flex-1 flex flex-col items-center justify-center p-6 gap-4 max-w-xs mx-auto w-full">
@@ -840,6 +828,15 @@ export default function LikesPage() {
             </div>
             <p className="font-serif text-base font-semibold text-foreground">Connections room is full</p>
             <p className="text-sm text-muted-foreground">Close a connection to free up space</p>
+          </div>
+        )}
+
+        {/* Inline skeleton while /api/who-liked-you loads — page header visible immediately */}
+        {isLoading && (
+          <div className="space-y-3" data-testid="section-likes-loading">
+            {[1, 2, 3].map(i => (
+              <Skeleton key={i} className="h-20 w-full rounded-md" />
+            ))}
           </div>
         )}
 

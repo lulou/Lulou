@@ -171,6 +171,7 @@ export default function ProfilePage() {
 
   const { data: profile, isLoading, isError, error, refetch } = useQuery<Profile>({
     queryKey: ["/api/profile"],
+    placeholderData: (prev) => prev,
     queryFn: async () => {
       console.log("[PROFILE_PAGE] fetch start — /api/profile");
       const { getAuthHeaders } = await import("@/lib/queryClient");

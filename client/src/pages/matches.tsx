@@ -2728,6 +2728,9 @@ export default function Matches() {
     // staleTime: Infinity (global default) — CallDetectors already owns this
     // query with refetchInterval:30s, so a staleTime override here would cause
     // an extra fetch on every tab switch once data is >30 s old.
+    // placeholderData keeps the previous match list visible during background
+    // refetches (e.g. after a new incoming message invalidates the cache).
+    placeholderData: (prev) => prev,
   });
 
   const { data: spinRequestsData, isLoading: requestsLoading, error: requestsError } = useQuery<SpinRequestsData>({

@@ -1,0 +1,147 @@
+TASK:
+Fix slow page loading and incorrect Retry states across the Lulou app.
+
+CONTEXT:
+The app is slightly faster, but still not close to App Store quality. Discovery, Connections, Profile, Messages, and other pages still feel too slow. Also, some pages show “Retry” too often, even during normal loading. Retry should only appear after an actual failed request, not every time the page is fetching or buffering.
+
+PROBLEM:
+The app likely mixes up loading, empty, and error states. It may be showing Retry during normal loading instead of showing skeleton loaders or cached content. Pages may also be blocking render while waiting for Supabase data.
+
+GOAL:
+Make every page feel instant:
+
+* Page shell appears immediately
+* Cached content appears immediately if available
+* Skeleton loaders appear during normal loading
+* Retry appears ONLY after a real error/failure
+* No blank pages
+* No unnecessary blocking spinners
+* No repeated Supabase fetches unless needed
+
+PRIORITY PAGES:
+
+1. Discovery
+2. Connections
+3. Likes
+4. Messages
+5. Profile
+6. Edit Profile
+
+SOLUTION REQUIREMENTS:
+
+1. Audit loading/error state logic
+
+* Inspect all major pages for loading, error, empty, and retry states
+* Identify where Retry is shown during normal loading
+* Separate these states clearly:
+
+  * loading = first fetch in progress
+  * refreshing = background update while cached data is visible
+  * error = request actually failed
+  * empty = request succeeded but no data exists
+
+2. Fix Retry behaviour
+
+* Retry button must only show when error is not null
+* Retry must not show during initial loading
+* Retry must not show during route transitions
+* Retry must not show while data is simply being fetched
+* Retry must not show if cached data exists and a background refresh is happening
+
+3. Add instant page rendering
+
+* Render page layout immediately
+* Show skeleton cards/lists during first load
+* Show cached data immediately if already loaded
+* Use small inline refresh indicators instead of blocking the whole page
+* Keep previous data visible while refreshing
+
+4. Improve Supabase fetch strategy
+
+* Avoid duplicate calls on every route change
+* Avoid refetching current user/profile repeatedly
+* Avoid sequential fetches inside loops
+* Fetch only required columns for each page
+* Cache page data in state/context/session memory where safe
+* Only refetch when stale, manually refreshed, or after user action
+
+5. Discovery optimisation
+
+* Initial render should show shell instantly
+* Fetch limited first batch only
+* Use optimized photo URLs
+* Lazy-load non-visible images
+* Keep previous discovery results when navigating away and back
+* Do not fetch full profiles until needed
+
+6. Connections optimisation
+
+* Fetch only essential connection card data:
+
+  * match id
+  * other user id
+  * display name
+  * primary photo
+  * last message preview if needed
+  * last activity timestamp
+* Do not fetch every profile field
+* Do not fetch each connected user one by one inside a loop
+* Cache results after first successful load
+
+7. Likes optimisation
+
+* Compare Likes with Discovery and Connections
+* Identify why Likes feels faster
+* Apply the same fast-loading pattern where appropriate
+
+8. State model to use everywhere
+   Use this pattern:
+
+const [data, setData] = useState(cachedData || []);
+const [isLoading, setIsLoading] = useState(!cachedData);
+const [isRefreshing, setIsRefreshing] = useState(false);
+const [error, setError] = useState(null);
+
+Rules:
+
+* isLoading = only true when there is no cached data and first fetch is happening
+* isRefreshing = true when cached data exists and fresh data is being fetched
+* error = only set when Supabase request fails
+* empty state = only show when request succeeded and data.length === 0
+* retry = only show when error exists
+
+9. Preserve existing functionality
+
+* Do not break auth
+* Do not break routing
+* Do not break profile editing
+* Do not break likes
+* Do not break matching
+* Do not break messages
+* Do not break Stripe/Elevate
+* Do not break WebRTC
+* Do not change database schema or RLS unless absolutely necessary
+
+CONSTRAINTS:
+
+* Do not rewrite the whole app
+* Do not restructure the entire project
+* Make focused fixes only
+* Keep code simple and stable
+* Use the existing project structure
+* Do not add packages unless absolutely necessary
+* Return full updated files, not snippets
+
+OUTPUT:
+
+1. Identify every place Retry is incorrectly shown.
+2. Identify which pages are blocking render while fetching.
+3. Identify duplicate or slow Supabase queries.
+4. Update only the necessary files.
+5. Return the full updated files.
+6. Explain how loading, refreshing, error, empty, and retry states now work.
+7. Explain how to test that Retry only appears after a real failure.
+8. Explain how to test that page transitions feel instant.
+
+IMPORTANT:
+Do not treat normal buffering/loading as an error. Normal loading should show skeletons or cached content. Retry is only for actual failed Supabase/network requests.
