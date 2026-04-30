@@ -4,6 +4,7 @@ import { Compass, Heart, User, CircleDot, Eye, LogOut } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
 import { useTabActive } from "@/hooks/use-tab-active";
+import { decodedPhotos } from "@/lib/image-utils";
 
 interface IncomingOpen {
   id: string;
@@ -36,6 +37,60 @@ export function LulouFlowerIcon({ className }: { className?: string }) {
       <circle cx="20" cy="12" r="3" fill="hsl(40 55% 65%)" opacity="0.9" />
       <circle cx="20" cy="12" r="1.5" fill="hsl(40 60% 72%)" opacity="0.7" />
     </svg>
+  );
+}
+
+/**
+ * ProfileAvatar — pop-in-free avatar for profile photos.
+ *
+ * Uses the module-level `decodedPhotos` bitmap cache to determine initial
+ * opacity: if the browser has already decoded the image (via preloadPhoto /
+ * batchPrefetchPhotos) it renders at opacity:1 immediately.  Otherwise it
+ * starts at 0 and transitions to 1 over 80ms — imperceptible to the user
+ * yet still prevents a hard, jarring pop.
+ *
+ * Replaces shadcn Avatar + AvatarImage which shows the letter fallback first,
+ * then pops to the photo with no transition.  Here the background is always a
+ * neutral muted circle so there is no letter flash.
+ */
+export function ProfileAvatar({
+  src,
+  name,
+  className,
+}: {
+  src?: string;
+  name?: string;
+  className?: string;
+}) {
+  return (
+    <div
+      className={`relative rounded-full overflow-hidden bg-primary/10 flex items-center justify-center flex-shrink-0 ${className ?? ""}`}
+    >
+      {/* Letter initial — visible only when no photo src is provided */}
+      {!src && name?.[0] && (
+        <span className="text-primary font-semibold text-sm select-none" aria-hidden="true">
+          {name[0].toUpperCase()}
+        </span>
+      )}
+      {src && (
+        <img
+          src={src}
+          alt={name ?? ""}
+          draggable={false}
+          className="absolute inset-0 w-full h-full object-cover object-top"
+          style={{
+            opacity: decodedPhotos.has(src) ? 1 : 0,
+            transition: decodedPhotos.has(src) ? "none" : "opacity 0.08s ease",
+          }}
+          onLoad={(e) => {
+            decodedPhotos.add(src);
+            const el = e.currentTarget as HTMLImageElement;
+            el.style.transition = "none";
+            el.style.opacity = "1";
+          }}
+        />
+      )}
+    </div>
   );
 }
 

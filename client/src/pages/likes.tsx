@@ -575,7 +575,7 @@ function LikeCard({
             decoding="async"
             style={{
               opacity: decodedPhotos.has(photo) ? 1 : 0,
-              transition: "opacity 200ms ease",
+              transition: "opacity 80ms ease",
             }}
             onLoad={e => {
               decodedPhotos.add(photo);

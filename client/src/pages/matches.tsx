@@ -5,7 +5,6 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
-import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, batchPrefetchPhotos } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
@@ -16,7 +15,7 @@ import { useUnreadCounts } from "@/hooks/use-unread-counts";
 import { useTypingIndicator } from "@/hooks/use-typing-indicator";
 import { Input } from "@/components/ui/input";
 import { MessageCircle, Send, Phone, Video, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, PhoneOff, Clock, Check, X, Sparkles, Calendar, Heart, PhoneForwarded, Moon, User, MapPin } from "lucide-react";
-import { LulouFlowerIcon } from "@/components/app-layout";
+import { LulouFlowerIcon, ProfileAvatar } from "@/components/app-layout";
 import { broadcastCallSignal } from "@/hooks/use-call-signaling";
 import { PhotoCarousel } from "@/components/photo-carousel";
 import { EMPTY_PHOTOS } from "@/lib/image-utils";
@@ -198,12 +197,7 @@ function SpinRequestCard({ request, type }: { request: SpinRequestWithProfile; t
     <Card className="overflow-hidden" data-testid={`spin-request-${request.id}`}>
       <div className="p-4">
         <div className="flex items-start gap-3">
-          <Avatar className="w-12 h-12 flex-shrink-0">
-            <AvatarImage src={spinAvatarSrc} alt={request.profile.firstName} />
-            <AvatarFallback className="bg-primary/10 text-primary font-semibold">
-              {request.profile.firstName?.[0]}
-            </AvatarFallback>
-          </Avatar>
+          <ProfileAvatar src={spinAvatarSrc} name={request.profile.firstName} className="w-12 h-12" />
           <div className="flex-1 min-w-0 space-y-1">
             <div className="flex items-center gap-2 flex-wrap">
               <h3 className="font-semibold text-sm" data-testid={`text-request-name-${request.id}`}>
@@ -1815,12 +1809,7 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
           data-testid={`button-view-profile-${match.id}`}
         >
           <div className="relative shrink-0">
-            <Avatar className="w-10 h-10">
-              <AvatarImage src={headerAvatarSrc} alt={match.profile.firstName} />
-              <AvatarFallback className="bg-primary/10 text-primary font-semibold text-sm">
-                {match.profile.firstName?.[0]}
-              </AvatarFallback>
-            </Avatar>
+            <ProfileAvatar src={headerAvatarSrc} name={match.profile.firstName} className="w-10 h-10" />
             <span
               className="absolute -bottom-0.5 -right-0.5 flex items-center justify-center rounded-full bg-background"
               style={{ width: 15, height: 15 }}
@@ -2683,12 +2672,7 @@ const MatchCard = memo(function MatchCard({ match, unreadCount, userId, onOpen }
     >
       <div className="p-3.5 flex items-center gap-3">
         <div className="relative">
-          <Avatar className="w-12 h-12">
-            <AvatarImage src={cardAvatarSrc} alt={match.profile.firstName} />
-            <AvatarFallback className="bg-primary/10 text-primary font-semibold">
-              {match.profile.firstName?.[0]}
-            </AvatarFallback>
-          </Avatar>
+          <ProfileAvatar src={cardAvatarSrc} name={match.profile.firstName} className="w-12 h-12" />
           {unreadCount > 0 && (
             <span className="absolute -top-1 -right-1 bg-primary text-primary-foreground text-[10px] font-bold min-w-[18px] h-[18px] flex items-center justify-center rounded-full px-1" data-testid={`badge-unread-${match.id}`}>
               {unreadCount}

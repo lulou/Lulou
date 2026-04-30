@@ -302,8 +302,9 @@ export function PhotoCarousel({
                 objectPosition: "center top",
                 // Start fully visible if already in the decoded-bitmap cache,
                 // otherwise fade in once the browser finishes decoding.
+                // 80ms is imperceptible yet still prevents a hard pop.
                 opacity: decodedPhotos.has(photo) ? 1 : 0,
-                transition: "opacity 0.2s ease",
+                transition: "opacity 0.08s ease",
               }}
               onLoad={(e) => {
                 // Mark decoded globally so future mounts skip the fade

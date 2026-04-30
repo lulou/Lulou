@@ -1,5 +1,6 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
 import { supabase } from "./supabase";
+import { preloadPhoto } from "./image-utils";
 
 // In-memory auth token cache — avoids getSession() round-trip on every request
 let _cachedToken: string | null = null;
@@ -189,6 +190,9 @@ export async function batchPrefetchPhotos(userIds: string[]): Promise<void> {
     const data: Record<string, string[]> = await res.json();
     for (const [userId, photos] of Object.entries(data)) {
       queryClient.setQueryData(["/api/profiles", userId, "photos"], { photos });
+      // Kick off browser image decode immediately so cards find the bitmap
+      // already in the decoded-bitmap cache and render at opacity:1 with no fade.
+      if (photos[0]) preloadPhoto(photos[0]);
     }
   } catch {
     // Best-effort — individual card useQuery hooks serve as the guaranteed fallback

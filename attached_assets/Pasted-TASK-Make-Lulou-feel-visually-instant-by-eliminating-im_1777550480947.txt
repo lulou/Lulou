@@ -1,0 +1,97 @@
+TASK:
+Make Lulou feel visually instant by eliminating image pop-in and improving perceived performance.
+
+CONTEXT:
+Data and photo loading have been optimized:
+
+* List endpoints are lightweight
+* Photos are batch-fetched and cached
+* No waterfall requests
+* Navigation is fast
+
+However, the app still does not feel fully instant because content appears slightly after the page renders.
+
+PROBLEM:
+Even small delays (100–300ms) in image rendering or card hydration make the app feel slow, even if technically fast.
+
+GOAL:
+Make pages feel instant by ensuring:
+
+* No visible delay between page load and content display
+* No image pop-in
+* No layout shift
+* Smooth visual continuity
+
+REQUIREMENTS:
+
+1. Delay rendering until content is ready (for above-the-fold only)
+   For each page:
+
+* If critical data + photos are not ready, show skeleton
+* Only render real cards once both data AND photos are ready
+* Do NOT render partially-loaded cards
+
+2. Keep previous screen visible during transition
+
+* When navigating between pages, do not immediately blank the screen
+* Keep previous page visible until next page is ready
+* Then swap instantly
+
+3. Prevent image pop-in
+
+* If image is not ready, do not render the <img> yet
+* Show placeholder/skeleton
+* Swap to image instantly once loaded
+* No fade delays longer than ~100ms
+
+4. Stabilize card layout
+
+* Ensure fixed height/width for cards and images
+* Prevent layout shift when image loads
+* Use consistent aspect ratios
+
+5. Use “ready state” per page
+   Each page should track:
+
+* dataReady
+* photosReady
+
+Only render main content when both are true (for first screen only)
+
+6. Keep transitions smooth
+
+* Use transform/opacity only
+* Avoid reflows during transitions
+* Avoid mounting/unmounting large DOM trees abruptly
+
+7. Avoid unnecessary re-renders
+
+* Ensure cards don’t re-render when nothing changes
+* Memoize where needed
+* Stabilize props
+
+8. Preserve everything
+
+* Do not break data loading
+* Do not break batch photo prefetch
+* Do not reintroduce waterfalls
+* Do not break navigation
+* Do not break any existing features
+
+CONSTRAINTS:
+
+* Do not rewrite the app
+* No new packages
+* Keep changes minimal and focused
+* Return full updated files
+
+OUTPUT:
+
+1. Identify where visual delay happens.
+2. Add ready-state gating for first visible content.
+3. Prevent image pop-in.
+4. Return updated files.
+5. Explain how perceived speed is improved.
+
+IMPORTANT:
+The issue is now perception, not raw speed. The goal is to make the app FEEL instant, not just be technically fast.
