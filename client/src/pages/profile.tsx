@@ -123,6 +123,9 @@ export default function ProfilePage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Guard: ensures the one-time base64→Storage migration runs at most once per session.
+  const photoMigrationRan = useRef(false);
+
   useEffect(() => {
     // Only detect Stripe cancel when the URL actually has ?checkout=cancelled.
     // This effect runs once on mount — if ProfilePage is incorrectly unmounted/remounted
@@ -197,6 +200,65 @@ export default function ProfilePage() {
   useEffect(() => {
     console.log("[PROFILE_PAGE] query state — isLoading:", isLoading, "isError:", isError, "hasData:", !!profile);
   }, [isLoading, isError, profile]);
+
+  // ── One-time base64→Storage photo migration ───────────────────────────────
+  // Runs silently in the background the first time the logged-in user's profile
+  // loads and any photos are still stored as base64 data URLs.
+  //
+  // Safety guarantees:
+  //  • photoMigrationRan ref — fires at most once per session even if `profile`
+  //    re-renders (e.g. after a save).
+  //  • Per-photo try/catch — a single upload failure keeps that photo as base64;
+  //    the rest still migrate.
+  //  • changedCount guard — the DB write is skipped if zero photos changed,
+  //    so already-migrated profiles produce zero network traffic.
+  //  • setQueryData (not invalidate) — avoids the AppContent race condition that
+  //    previously caused the profile-exists check to misfire.
+  useEffect(() => {
+    if (photoMigrationRan.current) return;
+    if (!profile?.photos?.length || !user?.id) return;
+
+    const hasBase64 = profile.photos.some(p => p.startsWith("data:"));
+    if (!hasBase64) return;
+
+    photoMigrationRan.current = true;
+    console.log("[PHOTO_MIGRATION] Starting — found base64 photos in profile");
+
+    (async () => {
+      const migrated = await Promise.all(
+        profile.photos.map(async (photo, i) => {
+          if (!photo.startsWith("data:")) return photo; // already a Storage URL
+          try {
+            const url = await uploadPhotoToStorage(photo, user.id, supabase);
+            console.log(`[PHOTO_MIGRATION] Photo ${i}: migrated to Storage`);
+            return url;
+          } catch (err: any) {
+            console.warn(`[PHOTO_MIGRATION] Photo ${i}: upload failed, keeping base64 —`, err?.message);
+            return photo;
+          }
+        })
+      );
+
+      const changedCount = migrated.filter((p, i) => p !== profile.photos[i]).length;
+      if (changedCount === 0) {
+        console.log("[PHOTO_MIGRATION] No photos changed — skipping DB write");
+        return;
+      }
+
+      console.log(`[PHOTO_MIGRATION] ${changedCount}/${profile.photos.length} photo(s) migrated — saving to DB`);
+      try {
+        await apiRequest("POST", "/api/profile", { photos: migrated });
+        queryClient.setQueryData(["/api/profile"], (prev: any) =>
+          prev ? { ...prev, photos: migrated } : prev
+        );
+        console.log("[PHOTO_MIGRATION] Complete — cache updated");
+      } catch (err: any) {
+        console.warn("[PHOTO_MIGRATION] DB save failed:", err?.message);
+      }
+    })();
+  // profile.photos identity changes when the query resolves — dep is intentional.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profile, user]);
 
   const updateProfileField = useMutation({
     mutationFn: async (data: Record<string, unknown>) => {

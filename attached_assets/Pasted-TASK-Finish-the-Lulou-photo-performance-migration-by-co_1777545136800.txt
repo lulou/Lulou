@@ -1,0 +1,97 @@
+TASK:
+Finish the Lulou photo performance migration by converting existing base64 profile photos to Supabase Storage URLs.
+
+CONTEXT:
+The app now uploads new profile photos to the public Supabase Storage bucket `profile-photos` and stores Storage URLs in the database. This improves speed for new photos.
+
+However, existing profiles may still have old base64 photos stored in the `photos` array. Those old photos still cause slow loading because they are large base64 strings inside the database response.
+
+PROBLEM:
+The upload migration only fixes new photos. Existing base64 photos remain slow unless users manually re-save their profiles or we migrate them safely.
+
+GOAL:
+Add a safe one-time migration path that converts existing base64 photos to Supabase Storage URLs without breaking profiles.
+
+REQUIREMENTS:
+
+1. Detect legacy base64 photos
+
+* A legacy photo starts with `data:image`
+* A migrated photo starts with `http://` or `https://`
+* Mixed arrays must be supported
+
+2. Add safe migration logic
+   Create a function that:
+
+* Takes the current user's `photos` array
+* Finds only base64 photos
+* Uploads each base64 photo to Supabase Storage under:
+  userId/timestamp_random.jpg
+* Gets the public URL
+* Replaces only that base64 item with the Storage URL
+* Leaves existing Storage URLs unchanged
+* Saves the updated photos array back to the profile
+
+3. Migration should be user-safe
+
+* Do not delete old photos unless upload succeeds
+* If one photo upload fails, keep that original base64 photo
+* Do not wipe the whole photos array
+* Do not block login or routing
+* Do not break existing profiles
+
+4. When to run migration
+   Choose the safest option:
+
+* Run migration when the user opens Profile/Edit Profile and their own photos contain base64
+  OR
+* Run migration when the user saves their profile
+
+Preferred:
+Run automatically in the background after profile loads, but only for the logged-in user's own profile.
+
+5. Prevent repeated migration attempts
+
+* Do not repeatedly upload the same base64 images on every render
+* Use a local state flag/ref to ensure migration runs once per session
+* Only update database if at least one photo was successfully converted
+
+6. Preserve compatibility
+
+* Rendering must still support both base64 and Storage URLs
+* Discovery, Connections, Likes, Messages, Profile, and Edit Profile must continue to display both formats
+* Do not change unrelated logic
+
+7. Confirm bucket usage
+
+* Use existing `profile-photos` bucket
+* Use existing upload helper if available
+* Keep Storage URL generation consistent with the new upload flow
+
+CONSTRAINTS:
+
+* Do not rewrite the app
+* Do not change database schema
+* Do not change RLS unless absolutely necessary
+* Do not break photo upload
+* Do not break profile editing
+* Do not break auth/routing
+* Keep changes small and safe
+* Return full updated files, not snippets
+
+OUTPUT:
+
+1. Identify where existing base64 photos are still loaded.
+2. Add the safest migration function.
+3. Update only the necessary files.
+4. Return full updated files.
+5. Explain how the migration avoids data loss.
+6. Explain how to test:
+
+   * old base64 photos
+   * new Storage URL photos
+   * mixed photo arrays
+   * failed upload fallback
+
+IMPORTANT:
+The goal is not just to support new Storage uploads. The goal is to remove old base64 photos from active user profiles safely so image loading becomes fast across the whole app.
