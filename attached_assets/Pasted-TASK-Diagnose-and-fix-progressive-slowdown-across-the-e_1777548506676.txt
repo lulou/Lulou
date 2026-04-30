@@ -1,0 +1,246 @@
+TASK:
+Diagnose and fix progressive slowdown across the entire Lulou app (all pages), not just Discovery.
+
+CONTEXT:
+The app starts fast when first opened, but becomes slower over time as I navigate between pages such as:
+
+* Discovery
+* Connections / Matches
+* Likes
+* Messages
+* Profile / Edit Profile
+
+This slowdown gets worse the more I use the app. It is not isolated to Discovery — it affects the entire app.
+
+PROBLEM:
+The app has progressive performance degradation. This means something is accumulating over time instead of being cleaned up.
+
+Likely causes:
+
+* Too many components staying mounted across route changes
+* React Query subscriptions accumulating
+* Image preload/cache growing without limits
+* Too many image requests firing repeatedly
+* useEffect hooks firing repeatedly without cleanup
+* Event listeners/timers/requestAnimationFrame not cleaned up
+* Global state or arrays growing indefinitely
+* Repeated data fetching instead of reuse
+* DOM nodes increasing over time
+* Animations not cleaning up properly
+* Photo queries staying active for users no longer visible
+
+GOAL:
+Make the entire app behave like a production mobile app:
+
+* Fast on first load
+* Stays fast after heavy usage
+* No progressive slowdown over time
+* No increasing memory usage
+* No increasing render cost
+
+REQUIREMENTS:
+
+---
+
+1. FULL APP AUDIT
+
+---
+
+Inspect all major areas:
+
+* Discovery page
+* Connections / Matches page
+* Likes page
+* Messages / Conversations
+* Profile / Edit Profile
+* Shared components (photo carousel, avatar, cards)
+* image-utils / preload logic
+* React Query usage
+* routing / layout components
+
+Identify:
+
+* components that stay mounted after navigation
+* number of DOM nodes after repeated navigation
+* number of active React Query subscriptions
+* number of active image preloads
+* size of image caches (decoded, failed, loading)
+* whether queries refetch unnecessarily
+* whether state grows indefinitely
+
+---
+
+2. FIX COMPONENT ACCUMULATION
+
+---
+
+Ensure:
+
+* Only current page components are mounted
+* Previous page components unmount properly
+* No hidden components remain alive in DOM
+* No offscreen lists/cards remain mounted
+* Layout components do not accidentally keep child pages alive
+
+---
+
+3. FIX REACT QUERY ACCUMULATION
+
+---
+
+Ensure:
+
+* Queries for offscreen users/pages are not kept active
+* Only visible data has active subscriptions
+* Use staleTime appropriately to avoid refetch spam
+* Avoid creating new query keys repeatedly
+* Do not keep queries alive for users no longer visible
+* Use queryClient.removeQueries or garbage collection where needed
+
+---
+
+4. FIX IMAGE SYSTEM GLOBALLY
+
+---
+
+Ensure:
+
+* decoded image cache has a max size (100–200)
+* loading/inflight image set is cleared after load
+* failed image cache has a limit
+* no duplicate image preloads
+* no image preload loops
+* no images preloaded for offscreen users
+* only visible + next few images are loaded
+
+---
+
+5. FIX DATA FETCHING PATTERNS
+
+---
+
+Ensure:
+
+* no duplicate Supabase requests for same data
+* no repeated fetching on every navigation
+* no sequential fetch loops
+* list endpoints remain lightweight (no photo arrays)
+* batch photo fetch is used efficiently
+* cached data is reused instead of refetched
+
+---
+
+6. FIX STATE GROWTH
+
+---
+
+Check for:
+
+* Sets/arrays/maps that grow forever (e.g. shownIds, caches)
+* replace with bounded structures or indexed access
+* avoid spreading large sets repeatedly
+* avoid storing historical data that is no longer needed
+
+---
+
+7. FIX RENDER PERFORMANCE
+
+---
+
+Ensure:
+
+* no heavy filtering/sorting inside render
+* memoize expensive computations
+* avoid creating new arrays/objects in JSX repeatedly
+* prevent unnecessary re-renders
+* remove console.log inside render
+* stabilise props for memoized components
+
+---
+
+8. FIX ANIMATION / EFFECT CLEANUP
+
+---
+
+Ensure:
+
+* animations do not accumulate
+* requestAnimationFrame is cancelled when not needed
+* intervals/timeouts are cleared
+* event listeners are removed on unmount
+* swipe/tap handlers do not trigger unnecessary work
+
+---
+
+9. ADD CACHE LIMITS
+
+---
+
+Globally enforce:
+
+* image cache max size
+* failed image cache max size
+* preload queue limit
+* optional React Query cache cleanup for unused queries
+
+---
+
+10. VERIFY NO PROGRESSIVE SLOWDOWN
+
+---
+
+Add temporary dev logs to measure:
+
+* render count per page
+* number of mounted components
+* number of active queries
+* cache sizes
+* number of DOM nodes (approximate)
+
+---
+
+## CONSTRAINTS
+
+* Do not rewrite the entire app
+* Do not change database schema
+* Do not change RLS
+* Do not break any functionality:
+
+  * Discovery
+  * Connections
+  * Likes
+  * Messages
+  * Profile
+  * Photo uploads
+  * Stripe/Elevate
+  * WebRTC
+* Keep fixes focused and safe
+* No new packages unless absolutely necessary
+* Return full updated files, not snippets
+
+---
+
+## OUTPUT
+
+1. Identify exactly what is accumulating over time.
+2. Show which parts of the app are not cleaning up.
+3. Fix the accumulation issues.
+4. Return full updated files.
+5. Explain how memory/render/query load is now bounded.
+6. Explain how to test:
+
+* Navigate across all pages repeatedly
+* Open/close profiles
+* Scroll/swipe where applicable
+* Repeat 5–10 cycles
+* Confirm performance does not degrade
+
+---
+
+## IMPORTANT
+
+This is not a “make it faster” task.
+
+This is a **stop the app from getting slower over time** task.
+
+The app must remain consistently fast no matter how long it is used.

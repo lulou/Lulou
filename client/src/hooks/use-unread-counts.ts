@@ -27,7 +27,6 @@ export function useUnreadCounts(
   const markRead = useCallback((matchId: string) => {
     setUnreadCounts(prev => {
       if (!prev[matchId]) return prev;
-      console.log("[CHAT] MESSAGE_MARKED_READ", { matchId, clearedCount: prev[matchId] });
       const next = { ...prev };
       delete next[matchId];
       return next;
@@ -48,18 +47,9 @@ export function useUnreadCounts(
       }
     }
 
-    if (activeMatchIdRef.current === matchId) {
-      console.log("[CHAT] MESSAGE_RECEIVED_IN_ACTIVE_THREAD", { matchId, senderId });
-      return;
-    }
+    if (activeMatchIdRef.current === matchId) return;
 
-    console.log("[CHAT] MESSAGE_RECEIVED_IN_BACKGROUND_THREAD", { matchId, senderId });
-    setUnreadCounts(prev => {
-      const newCount = (prev[matchId] || 0) + 1;
-      console.log("[CHAT] UNREAD_COUNT_UPDATED", { matchId, count: newCount });
-      return { ...prev, [matchId]: newCount };
-    });
-
+    setUnreadCounts(prev => ({ ...prev, [matchId]: (prev[matchId] || 0) + 1 }));
     onNewBackgroundMessageRef.current?.(matchId);
   }, [userId]);
 
@@ -100,18 +90,14 @@ export function useUnreadCounts(
             (payload: any) => {
               const row = payload.new;
               if (!row) return;
-              console.log("[REALTIME_UNREAD] PG_INSERT", { matchId, id: row.id, senderId: row.sender_id });
               handleIncomingMessage(matchId, row.sender_id, row.id);
             }
           )
-          .subscribe((status) => {
-            console.log("[REALTIME_UNREAD] PG_STATUS", { matchId, status });
-          });
+          .subscribe();
         pgChannels.set(matchId, ch);
       }
 
       // ── Channel B: broadcast (server pushes to chat:matchId on every insert) ──
-      // Must use the same channel name the server broadcasts to.
       if (!bcChannels.has(matchId)) {
         const ch = supabase
           .channel(`chat:${matchId}`)
@@ -119,12 +105,9 @@ export function useUnreadCounts(
             if (!payload) return;
             const senderId = payload.senderId ?? payload.sender_id;
             const msgId = payload.id;
-            console.log("[REALTIME_UNREAD] BC_INSERT", { matchId, id: msgId, senderId });
             handleIncomingMessage(matchId, senderId, msgId);
           })
-          .subscribe((status) => {
-            console.log("[REALTIME_UNREAD] BC_STATUS", { matchId, status });
-          });
+          .subscribe();
         bcChannels.set(matchId, ch);
       }
     }

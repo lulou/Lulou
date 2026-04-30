@@ -3,6 +3,7 @@ import { useLocation, Link } from "wouter";
 import { Compass, Heart, User, CircleDot, Eye, LogOut } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
+import { useTabActive } from "@/hooks/use-tab-active";
 
 interface IncomingOpen {
   id: string;
@@ -41,18 +42,21 @@ export function LulouFlowerIcon({ className }: { className?: string }) {
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();
   const { logout, isLoggingOut } = useAuth();
+  // Gate background polling on tab visibility — stops network + GC pressure
+  // when the user has the app open in a background tab.
+  const isTabActive = useTabActive();
 
   // Hide navigation when inside a chat room — focus mode
   const isChatRoom = location.startsWith("/messages/");
 
   const { data: likes } = useQuery<IncomingOpen[]>({
     queryKey: ["/api/who-liked-you"],
-    refetchInterval: 15000,
+    refetchInterval: isTabActive ? 30000 : false,
   });
 
   const { data: matchesData } = useQuery<MatchItem[]>({
     queryKey: ["/api/matches"],
-    refetchInterval: 20000,
+    refetchInterval: isTabActive ? 30000 : false,
   });
 
   const likesCount = likes?.length ?? 0;

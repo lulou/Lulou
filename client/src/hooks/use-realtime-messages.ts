@@ -32,14 +32,11 @@ export function useRealtimeMessages(matchId: string | undefined, enabled: boolea
       ["/api/matches", matchId, "messages"],
       (old) => {
         if (!old) {
-          // Cache not yet populated — trigger a refetch
           queryClient.invalidateQueries({ queryKey: ["/api/matches", matchId, "messages"] });
           return old;
         }
-        // Already have this real message id
         if (old.messages?.some((m) => m.id === newMsg.id)) return old;
 
-        // Try to replace a matching temp (optimistic) message
         const tempIdx = old.messages?.findIndex(
           (m) =>
             typeof m.id === "string" &&
@@ -81,26 +78,18 @@ export function useRealtimeMessages(matchId: string | undefined, enabled: boolea
     if (!matchId || !enabled) return;
 
     // ── Channel 1: Supabase Broadcast — instant delivery from server (~50ms) ──
-    const broadcastChannelName = `chat:${matchId}`;
-    const broadcastT0 = Date.now();
     const broadcastChannel = supabase
-      .channel(broadcastChannelName, { config: { broadcast: { self: true } } })
+      .channel(`chat:${matchId}`, { config: { broadcast: { self: true } } })
       .on("broadcast", { event: "new-message" }, ({ payload }) => {
-        console.log("[REALTIME] BROADCAST_MSG_RECEIVED", { matchId, id: payload?.id });
         handleNewMessage(payload);
       })
-      .subscribe((status) => {
-        const ms = Date.now() - broadcastT0;
-        console.log("[REALTIME] BROADCAST_STATUS", { matchId, status, ms });
-      });
+      .subscribe();
 
     broadcastChannelRef.current = broadcastChannel;
 
     // ── Channel 2: postgres_changes — WAL-based fallback/reconciliation (~200-500ms) ──
-    const pgChannelName = `messages:${matchId}`;
-    const pgT0 = Date.now();
     const pgChannel = supabase
-      .channel(pgChannelName)
+      .channel(`messages:${matchId}`)
       .on(
         "postgres_changes" as any,
         {
@@ -110,14 +99,10 @@ export function useRealtimeMessages(matchId: string | undefined, enabled: boolea
           filter: `match_id=eq.${matchId}`,
         },
         (payload: any) => {
-          console.log("[REALTIME] PG_MSG_RECEIVED", { matchId, id: payload.new?.id });
           handleNewMessage(payload.new);
         }
       )
-      .subscribe((status) => {
-        const ms = Date.now() - pgT0;
-        console.log("[REALTIME] PG_STATUS", { matchId, status, ms });
-      });
+      .subscribe();
 
     pgChannelRef.current = pgChannel;
 

@@ -1697,16 +1697,7 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
       wasRingingRef.current = false;
     }
   }, [isCallRinging, isCallActive, iAmCaller, match.profile.firstName, toast]);
-  useEffect(() => {
-    console.log("[CONNECTION_STAGE] SPARK_PROGRESS_UPDATED", {
-      matchId: match.id,
-      sparkStep,
-      callStage,
-      myPostCallMessages,
-      bothPostCallLimitReached,
-    });
-    console.log("[CONNECTION_STAGE] PROGRESS_INDICATOR_UPDATED", { matchId: match.id, sparkStep, stage: ["Match","Chat","1st Call","2nd Call","Meet"][sparkStep] });
-  }, [sparkStep, callStage]);
+  // (connection stage tracking — no logging needed on every stage change)
 
   const guidanceMessages = useMemo(() => {
     const msgs: { id: string; text: string }[] = [];
@@ -1758,12 +1749,6 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
     guidanceMessages.forEach(msg => {
       if (!guidanceInsertIndexRef.current.has(msg.id)) {
         guidanceInsertIndexRef.current.set(msg.id, visibleMsgs.length);
-        console.log("[SYSTEM_GUIDANCE] SYSTEM_GUIDANCE_MESSAGE_INSERTED", {
-          matchId: match.id,
-          callStage,
-          messageId: msg.id,
-          insertAfterIndex: visibleMsgs.length,
-        });
       }
     });
 
@@ -1935,9 +1920,6 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
             {guidanceByIndex.visibleMsgs.map((msg, i) => {
               const isMe = msg.senderId === user?.id;
               const hasReaction = msg.reaction && typeof msg.reaction === 'string' && msg.reaction.length > 0;
-              if (hasReaction) {
-                console.log("[CHAT] MESSAGE_REACTION_RENDERED", { messageId: msg.id, reaction: msg.reaction });
-              }
               return (
                 <Fragment key={msg.id}>
                   <div className={`flex ${isMe ? "justify-end" : "justify-start"} ${hasReaction ? "mb-2" : ""}`}>

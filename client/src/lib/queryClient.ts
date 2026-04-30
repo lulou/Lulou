@@ -14,33 +14,19 @@ export function setCachedToken(token: string | null, expiresAt?: number) {
   _tokenExpiresAt = (expiresAt && expiresAt > 0)
     ? expiresAt
     : Math.floor(Date.now() / 1000) + 3600;
-  console.log("[AUTH_HEADERS] TOKEN_CACHED", {
-    hasToken: !!token,
-    expiresAtRaw: expiresAt,
-    expiresAtUsed: _tokenExpiresAt,
-    remainingMs: _tokenExpiresAt * 1000 - Date.now(),
-  });
 }
 
 export async function getAuthHeaders(): Promise<Record<string, string>> {
-  const t0 = Date.now();
-
   // Fast path: if a token is cached AND still valid (>60 s remaining), return it
   // immediately without any async Supabase SDK call.
-  // This is the ONLY path that should ever be taken for in-app queries —
-  // Supabase's autoRefreshToken fires TOKEN_REFRESHED events that update
-  // _cachedToken before expiry, so this value is always the latest valid JWT.
   if (_cachedToken && _tokenExpiresAt * 1000 - Date.now() > 60_000) {
-    console.log("[AUTH_HEADERS] FAST_PATH — token valid", { remainingMs: _tokenExpiresAt * 1000 - Date.now() });
     return { Authorization: `Bearer ${_cachedToken}` };
   }
 
-  // If we have a cached token but the expiry check just failed (e.g. expiry was
-  // stored as 0 from an earlier bug, or we're within the 60-s window), still
-  // use the cached token rather than hitting the network.  The server will return
-  // a 401 if the JWT is genuinely expired, and TanStack Query will retry.
+  // If we have a cached token but the expiry check just failed, still use it.
+  // The server will return a 401 if the JWT is genuinely expired.
   if (_cachedToken) {
-    console.warn("[AUTH_HEADERS] CACHED_TOKEN_EXPIRY_BYPASS — using token despite expiry check failure", {
+    console.warn("[AUTH_HEADERS] CACHED_TOKEN_EXPIRY_BYPASS", {
       tokenExpiresAt: _tokenExpiresAt,
       remainingMs: _tokenExpiresAt * 1000 - Date.now(),
     });
@@ -49,8 +35,6 @@ export async function getAuthHeaders(): Promise<Record<string, string>> {
 
   // Slow path: only reached on initial page load (before INITIAL_SESSION event)
   // or immediately after logout cleared _cachedToken.
-  // Guard with a 5-second timeout to prevent a Supabase cold-start or outage
-  // from keeping isLoading:true forever.
   console.log("[AUTH_HEADERS] SLOW_PATH — no cached token, calling getSession()");
   try {
     const sessionPromise = supabase.auth.getSession();
@@ -62,20 +46,15 @@ export async function getAuthHeaders(): Promise<Record<string, string>> {
 
     if (session?.access_token) {
       const expiresAt: number | undefined = (session as any).expires_at;
-      // Don't refresh within getAuthHeaders — Supabase handles refresh automatically.
-      // Just cache and return what we have.
       _cachedToken = session.access_token;
       _tokenExpiresAt = (expiresAt && expiresAt > 0)
         ? expiresAt
         : Math.floor(Date.now() / 1000) + 3600;
-      console.log("[AUTH_HEADERS] SLOW_PATH_SUCCESS", {
-        elapsedMs: Date.now() - t0,
-        expiresAt,
-      });
+      console.log("[AUTH_HEADERS] SLOW_PATH_SUCCESS", { expiresAt });
       return { Authorization: `Bearer ${session.access_token}` };
     }
   } catch (err: any) {
-    console.error("[AUTH_HEADERS] SLOW_PATH_FAILED", { error: err?.message, elapsedMs: Date.now() - t0 });
+    console.error("[AUTH_HEADERS] SLOW_PATH_FAILED", { error: err?.message });
   }
 
   _cachedToken = null;
@@ -123,11 +102,7 @@ export const getQueryFn: <T>(options: {
   async ({ queryKey }) => {
     const url = queryKey.join("/") as string;
 
-    console.log(`[QUERY_FETCH] START → ${url}`);
-    const t0 = Date.now();
-
     const authHeaders = await getAuthHeaders();
-    console.log(`[QUERY_FETCH] HEADERS_READY → ${url} (${Date.now() - t0} ms)`);
 
     const res = await fetch(url, {
       credentials: "include",
@@ -135,7 +110,7 @@ export const getQueryFn: <T>(options: {
     });
 
     if (res.status === 401) {
-      console.warn(`[QUERY_FETCH] 401 Unauthorized for ${url} — auth token may not have propagated yet`);
+      console.warn(`[QUERY_FETCH] 401 Unauthorized for ${url}`);
       if (unauthorizedBehavior === "returnNull") return null as any;
       throw new Error("Unauthorized");
     }
@@ -152,13 +127,11 @@ export const getQueryFn: <T>(options: {
           message = `${res.status}: ${trimmed}`;
         }
       } catch {}
-      console.error(`[QUERY_FETCH] ✗ ${url} — HTTP ${res.status}: ${message}`);
+      console.error(`[QUERY_FETCH] ✗ ${url} — ${message}`);
       throw new Error(message);
     }
 
-    const json = await res.json();
-    console.log(`[QUERY_FETCH] ✓ ${url} — ${Array.isArray(json) ? json.length + " items" : typeof json} (${Date.now() - t0} ms total)`);
-    return json;
+    return res.json();
   };
 
 export const queryClient = new QueryClient({
