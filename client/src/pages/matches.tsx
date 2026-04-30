@@ -16,6 +16,7 @@ import { useTypingIndicator } from "@/hooks/use-typing-indicator";
 import { Input } from "@/components/ui/input";
 import { MessageCircle, Send, Phone, Video, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, PhoneOff, Clock, Check, X, Sparkles, Calendar, Heart, PhoneForwarded, Moon, User, MapPin } from "lucide-react";
 import { LulouFlowerIcon, ProfileAvatar } from "@/components/app-layout";
+import { usePerfTrace } from "@/lib/perf";
 import { broadcastCallSignal } from "@/hooks/use-call-signaling";
 import { PhotoCarousel } from "@/components/photo-carousel";
 import { EMPTY_PHOTOS } from "@/lib/image-utils";
@@ -2700,6 +2701,9 @@ export default function Matches() {
   const queryClient = useQueryClient();
   const isActive = useTabActive();
   const [expandedMatchId, setExpandedMatchId] = useState<string | null>(null);
+
+  // Dev-only page lifecycle instrumentation — no-op in production
+  const { markDataReceived, markPageReady } = usePerfTrace("CONNECTIONS");
   // Stable handler — won't change across renders, so React.memo on MatchCard actually skips re-renders
   const handleMatchOpen = useCallback((matchId: string) => {
     setExpandedMatchId(matchId);
@@ -2730,6 +2734,14 @@ export default function Matches() {
     const ids = matches.slice(0, 10).map(m => m.profile?.userId).filter(Boolean) as string[];
     if (ids.length > 0) batchPrefetchPhotos(ids);
   }, [matches]);
+
+  // Perf instrumentation — dev-only, no-op in production
+  useEffect(() => {
+    if (matches) markDataReceived({ count: matches.length });
+  }, [matches]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!matchesLoading && matches) markPageReady({ count: matches.length });
+  }, [matchesLoading, matches]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const { data: spinRequestsData, isLoading: requestsLoading, error: requestsError } = useQuery<SpinRequestsData>({
     queryKey: ["/api/spin-requests"],

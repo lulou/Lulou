@@ -1,6 +1,7 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
 import { supabase } from "./supabase";
 import { preloadPhoto } from "./image-utils";
+import { trackRequest, perfStart, perfMark } from "./perf";
 
 // In-memory auth token cache — avoids getSession() round-trip on every request
 let _cachedToken: string | null = null;
@@ -103,6 +104,14 @@ export const getQueryFn: <T>(options: {
   async ({ queryKey }) => {
     const url = queryKey.join("/") as string;
 
+    // Dev-only: detect duplicate fetches and time each request
+    trackRequest(url);
+    // Warn if a photo was requested individually despite batch prefetch
+    if (import.meta.env.DEV && /\/api\/profiles\/[^/]+\/photos$/.test(url)) {
+      perfMark("PHOTO_CACHE_MISS", { url });
+    }
+    const endQuery = perfStart(`QUERY:${url}`);
+
     const authHeaders = await getAuthHeaders();
 
     const res = await fetch(url, {
@@ -111,6 +120,7 @@ export const getQueryFn: <T>(options: {
     });
 
     if (res.status === 401) {
+      endQuery({ status: 401 });
       console.warn(`[QUERY_FETCH] 401 Unauthorized for ${url}`);
       if (unauthorizedBehavior === "returnNull") return null as any;
       throw new Error("Unauthorized");
@@ -128,11 +138,20 @@ export const getQueryFn: <T>(options: {
           message = `${res.status}: ${trimmed}`;
         }
       } catch {}
+      endQuery({ status: res.status, error: true });
       console.error(`[QUERY_FETCH] ✗ ${url} — ${message}`);
       throw new Error(message);
     }
 
-    return res.json();
+    const json = await res.json();
+    // Log response size in dev to detect oversized payloads
+    if (import.meta.env.DEV) {
+      const payloadKb = Math.round(JSON.stringify(json).length / 1024);
+      endQuery({ status: 200, payloadKb });
+    } else {
+      endQuery({ status: 200 });
+    }
+    return json;
   };
 
 export const queryClient = new QueryClient({
@@ -179,22 +198,29 @@ export async function batchPrefetchPhotos(userIds: string[]): Promise<void> {
 
   if (!missing.length) return;
 
+  const endBatch = perfStart("BATCH_PREFETCH", { requested: missing.length });
+
   try {
     const headers = await getAuthHeaders();
     const res = await fetch(`/api/profiles/photos/batch?ids=${missing.join(",")}`, {
       headers,
       credentials: "include",
     });
-    if (!res.ok) return;
+    if (!res.ok) { endBatch({ error: res.status }); return; }
 
     const data: Record<string, string[]> = await res.json();
+    let payloadKb = 0;
+    if (import.meta.env.DEV) payloadKb = Math.round(JSON.stringify(data).length / 1024);
+
     for (const [userId, photos] of Object.entries(data)) {
       queryClient.setQueryData(["/api/profiles", userId, "photos"], { photos });
       // Kick off browser image decode immediately so cards find the bitmap
       // already in the decoded-bitmap cache and render at opacity:1 with no fade.
       if (photos[0]) preloadPhoto(photos[0]);
     }
+    endBatch({ returned: Object.keys(data).length, payloadKb });
   } catch {
+    endBatch({ error: "exception" });
     // Best-effort — individual card useQuery hooks serve as the guaranteed fallback
   }
 }

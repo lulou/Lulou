@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback, useMemo, memo } from "react";
+import { usePerfTrace } from "@/lib/perf";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -300,11 +301,8 @@ export default function Discover() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  useEffect(() => {
-    const t0 = performance.now();
-    console.log("[PERF] DISCOVER_FIRST_RENDER", { ms: Math.round(t0) });
-    return () => console.log("[PERF] DISCOVER_UNMOUNTED", { visibleMs: Math.round(performance.now() - t0) });
-  }, []);
+  // Dev-only page lifecycle instrumentation — no-op in production
+  const { markDataReceived, markPageReady } = usePerfTrace("DISCOVER");
 
   // Track which profiles have been shown this session (local queue advancement)
   const [shownIds, setShownIds] = useState<Set<string>>(new Set());
@@ -321,6 +319,11 @@ export default function Discover() {
     queryKey: ["/api/discover"],
     staleTime: Infinity, // only refetch on explicit demand
   });
+
+  // Perf: fire DATA_RECEIVED once the profile pool arrives
+  useEffect(() => {
+    if (profilesData) markDataReceived({ count: profilesData.length });
+  }, [profilesData]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Start/stop the "loading too long" timer based on isLoading state
   useEffect(() => {
@@ -397,6 +400,13 @@ export default function Discover() {
     const ids = visibleProfiles.slice(0, 3).map(p => p.userId).filter(Boolean);
     if (ids.length > 0) batchPrefetchPhotos(ids);
   }, [visibleProfiles]);
+
+  // Perf: PAGE_READY fires once both the profile list AND its first photo are loaded
+  useEffect(() => {
+    if (!isPhotosLoading && photoData?.photos?.length) {
+      markPageReady({ photoCount: photoData.photos.length });
+    }
+  }, [isPhotosLoading, photoData]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Merge photos into the pool profile for rendering.
   // Memoised so re-renders from mutation isPending state don't recreate the

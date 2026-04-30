@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+import { usePerfTrace } from "@/lib/perf";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -693,11 +694,8 @@ export default function LikesPage() {
   const isActive = useTabActive();
   const { toast } = useToast();
 
-  const _mountMs = useRef(performance.now());
-  useEffect(() => {
-    console.log("[PERF] LIKES_FIRST_RENDER", { ms: Math.round(_mountMs.current) });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  // Dev-only page lifecycle instrumentation — no-op in production
+  const { markDataReceived, markPageReady } = usePerfTrace("LIKES");
 
   // Detect return from a cancelled Stripe checkout session (only when actually on /likes)
   useEffect(() => {
@@ -727,6 +725,14 @@ export default function LikesPage() {
     const ids = likes.slice(0, 10).map(l => l.profile?.userId).filter(Boolean) as string[];
     if (ids.length > 0) batchPrefetchPhotos(ids);
   }, [likes]);
+
+  // Perf instrumentation — dev-only, no-op in production
+  useEffect(() => {
+    if (likes) markDataReceived({ count: likes.length });
+  }, [likes]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!isLoading && likes) markPageReady({ count: likes.length });
+  }, [isLoading, likes]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const { data: matchCountData } = useQuery<MatchCountData>({
     queryKey: ["/api/match-count"],

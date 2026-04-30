@@ -101,6 +101,10 @@ export function preloadPhoto(src: string): void {
   if (DECODED_SET.has(key) || LOADING_SET.has(key)) return;
   if (LOADING_SET.size >= MAX_LOADING) return; // shed load when queue is full
 
+  // Import perf lazily so there's no circular dependency risk and the import
+  // is only resolved in dev (Vite strips the dead-branch at build time).
+  const startMs = performance.now();
+
   LOADING_SET.add(key);
   const img = new Image();
   img.decoding = "async";
@@ -109,12 +113,18 @@ export function preloadPhoto(src: string): void {
     img.onerror = null;
     LOADING_SET.delete(key);
     addDecoded(src);
+    if (import.meta.env.DEV) {
+      import("./perf").then(({ logImageLoad }) => logImageLoad(src, false, startMs));
+    }
   };
   img.onerror = () => {
     img.onload = null;
     img.onerror = null;
     LOADING_SET.delete(key);
     // Do NOT add to DECODED_SET — failed images should retry on next render
+    if (import.meta.env.DEV) {
+      import("./perf").then(({ logImageError }) => logImageError(src, startMs));
+    }
   };
   img.src = src;
 }

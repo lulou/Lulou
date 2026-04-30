@@ -15,6 +15,31 @@ import { getUncachableStripeClient, getStripePublishableKey } from "./stripeClie
 const SEED_UUID_PREFIX = "10000000-0000-4000-a000-";
 const isSeedUser = (id: string) => id.startsWith(SEED_UUID_PREFIX);
 
+// ── Dev-only server performance logger ───────────────────────────────────────
+// All output is suppressed in production so there is zero log noise for users.
+const IS_DEV = process.env.NODE_ENV !== "production";
+
+/**
+ * Emit a single structured performance log line, dev-only.
+ *
+ * Format: [SERVER PERF] endpoint | Nms | key=value | …
+ * Easy to grep for in the server console or copy as a block.
+ */
+function devPerf(endpoint: string, ms: number, meta: Record<string, unknown>): void {
+  if (!IS_DEV) return;
+  const parts: string[] = [`[SERVER PERF] ${endpoint}`, `${ms}ms`];
+  for (const [k, v] of Object.entries(meta)) {
+    if (v !== undefined && v !== null) parts.push(`${k}=${v}`);
+  }
+  console.log(parts.join(" | "));
+}
+
+/** Detect whether a photo URL is a base64 data-URL or a Supabase Storage URL */
+function photoFormat(url: string): "base64" | "storage-url" | "empty" {
+  if (!url) return "empty";
+  return url.startsWith("data:") ? "base64" : "storage-url";
+}
+
 // JWT verification cache — avoids repeated decoding on every request.
 // Uses a 2-minute TTL (well within any JWT's 1h window), max 500 entries.
 const _jwtCache = new Map<string, { user: any; expiresAt: number }>();
@@ -406,10 +431,17 @@ export async function registerRoutes(
       const userId = req.user.id;
       const profile = await storage.getProfile(userId);
       if (!profile) {
-        console.log(`[PROFILE] not found for userId=${userId} in ${Date.now() - t0} ms`);
+        devPerf("/api/profile", Date.now() - t0, { status: 404, userId: userId.slice(0, 8) });
         return res.status(404).json({ message: "Profile not found. Please complete onboarding to create your profile." });
       }
-      console.log(`[PROFILE] fetched userId=${userId} in ${Date.now() - t0} ms`);
+      const profileJson = IS_DEV ? JSON.stringify(profile) : "";
+      devPerf("/api/profile", Date.now() - t0, {
+        status: 200,
+        userId: userId.slice(0, 8),
+        payloadKb: Math.round(profileJson.length / 1024),
+        photoCount: Array.isArray(profile.photos) ? profile.photos.length : 0,
+        photoFormat: Array.isArray(profile.photos) && profile.photos[0] ? photoFormat(profile.photos[0]) : "none",
+      });
       res.json(profile);
     } catch (error: any) {
       const errMsg = (error?.message || "Unknown error").slice(0, 200);
@@ -440,10 +472,23 @@ export async function registerRoutes(
         })
       );
       const output: Record<string, string[]> = {};
+      let totalPhotos = 0;
+      let photoFmt = "none";
       for (const r of settled) {
-        if (r.status === "fulfilled") output[r.value.id] = r.value.photos;
+        if (r.status === "fulfilled") {
+          output[r.value.id] = r.value.photos;
+          totalPhotos += r.value.photos.length;
+          if (!photoFmt || photoFmt === "none") photoFmt = r.value.photos[0] ? photoFormat(r.value.photos[0]) : "none";
+        }
       }
-      console.log(`[PHOTOS] batch: ${ids.length} profiles in ${Date.now() - t0} ms`);
+      const batchJson = IS_DEV ? JSON.stringify(output) : "";
+      devPerf("/api/profiles/photos/batch", Date.now() - t0, {
+        requested: ids.length,
+        returned: Object.keys(output).length,
+        totalPhotos,
+        photoFormat: photoFmt,
+        payloadKb: Math.round(batchJson.length / 1024),
+      });
       res.json(output);
     } catch (error: any) {
       console.error("[PHOTOS] Batch route error —", error?.message, `(${Date.now() - t0} ms)`);
@@ -461,7 +506,12 @@ export async function registerRoutes(
       const { userId } = req.params;
       if (!userId) return res.status(400).json({ message: "Missing userId" });
       const photos = await storage.getProfilePhotos(userId);
-      console.log(`[PHOTOS] userId=${userId} returned ${photos.length} photo(s) in ${Date.now() - t0} ms${photos.length > 0 ? ` (first url length: ${photos[0].length})` : ""}`);
+      devPerf("/api/profiles/:userId/photos", Date.now() - t0, {
+        userId: userId.slice(0, 8),
+        count: photos.length,
+        photoFormat: photos[0] ? photoFormat(photos[0]) : "none",
+        sizeKb: photos[0] ? Math.round(photos[0].length / 1024) : 0,
+      });
       res.json({ photos });
     } catch (error: any) {
       console.error("[PHOTOS] Route error for userId:", req.params?.userId, "—", error?.message, `(${Date.now() - t0} ms)`);
@@ -493,14 +543,22 @@ export async function registerRoutes(
       const storage = getStorage(req);
       const userId = req.user.id;
       const myProfile = await storage.getProfileMeta(userId);
-      console.log(`[DISCOVER] getProfileMeta: ${Date.now() - t0} ms`);
+      const metaMs = Date.now() - t0;
       if (!myProfile) {
-        console.log("[DISCOVER] No profile for userId:", userId);
+        devPerf("/api/discover", metaMs, { status: 204, reason: "no-profile" });
         return res.json([]);
       }
       const t1 = Date.now();
       const discovered = await storage.getDiscoverProfiles(userId, myProfile.gender, myProfile.datingPreference, myProfile.preferredAgeMin || 18, myProfile.preferredAgeMax || 99);
-      console.log(`[DISCOVER] getDiscoverProfiles: ${Date.now() - t1} ms | total route: ${Date.now() - t0} ms | returned: ${discovered.length} profiles`);
+      const discoverJson = IS_DEV ? JSON.stringify(discovered) : "";
+      devPerf("/api/discover", Date.now() - t0, {
+        status: 200,
+        metaMs,
+        queryMs: Date.now() - t1,
+        count: discovered.length,
+        payloadKb: Math.round(discoverJson.length / 1024),
+        hasPhotos: false,
+      });
       res.json(discovered);
     } catch (error: any) {
       console.error("[DISCOVER] Error:", error?.message, `(${Date.now() - t0} ms)`);
@@ -603,7 +661,12 @@ export async function registerRoutes(
       const storage = getStorage(req);
       const userId = req.user.id;
       const userMatches = await storage.getMatchesForUser(userId);
-      console.log(`[MATCHES_LIST] ${userMatches.length} matches in ${Date.now() - t0} ms`);
+      const matchesJson = IS_DEV ? JSON.stringify(userMatches) : "";
+      devPerf("/api/matches", Date.now() - t0, {
+        count: userMatches.length,
+        payloadKb: Math.round(matchesJson.length / 1024),
+        hasPhotos: false,
+      });
       res.json(userMatches);
     } catch (error) {
       console.error(`[MATCHES_LIST] Error after ${Date.now() - t0} ms:`, error);
@@ -641,7 +704,13 @@ export async function registerRoutes(
       const meta = await storage.getMatchMeta(matchId, userId);
       if (!meta) return res.status(404).json({ message: "Match not found" });
       const result = await storage.getMessagesPage(matchId, limit, before);
-      console.log(`[MSG_PAGE_ROUTE] ${matchId} limit=${limit} before=${before?.slice(0,20)} got=${result.messages.length} hasMore=${result.hasMore} ms=${Date.now()-t0}`);
+      devPerf("/api/matches/:id/messages", Date.now() - t0, {
+        matchId: matchId.slice(0, 8),
+        count: result.messages.length,
+        hasMore: result.hasMore,
+        limit,
+        paged: !!before,
+      });
       res.json(result);
     } catch (error: any) {
       console.error("[MSG_PAGE_ROUTE] error:", error?.message);
@@ -1499,7 +1568,12 @@ export async function registerRoutes(
       const storage = getStorage(req);
       const userId = req.user.id;
       const incomingOpens = await storage.getIncomingOpens(userId);
-      console.log(`[WHO_LIKED_YOU] userId=${userId.slice(0, 8)} count=${incomingOpens.length} ms=${Date.now() - t0}`);
+      const likesJson = IS_DEV ? JSON.stringify(incomingOpens) : "";
+      devPerf("/api/who-liked-you", Date.now() - t0, {
+        count: incomingOpens.length,
+        payloadKb: Math.round(likesJson.length / 1024),
+        hasPhotos: false,
+      });
       res.json(incomingOpens);
     } catch (error) {
       console.error(`[WHO_LIKED_YOU] error after ${Date.now() - t0} ms:`, error);
