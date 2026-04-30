@@ -1,9 +1,17 @@
 /**
  * Shared image utilities used by every photo-rendering component.
  *
- * Module-level singletons survive route changes and component unmounts,
- * so a photo decoded on Discovery is instantly visible on Likes / Profile
- * without a second decode pass.
+ * ## Storage format
+ * Every photo in Lulou is stored as a `data:image/jpeg;base64,…` string directly
+ * in a PostgreSQL text[] column.  Photos are NOT uploaded to Supabase Storage, so
+ * Supabase Storage image-transform query params (?width=…&quality=…) do not apply
+ * and are never added.  Client-side compression happens at upload time in
+ * `photo-utils.ts` (max 800×800 px, ≤ 150 KB JPEG).
+ *
+ * ## Module-level singletons
+ * Both exports survive route changes and component unmounts because they live at
+ * module scope (not inside a React component).  A photo decoded on Discovery is
+ * immediately visible on Likes / Matches without a second decode pass.
  */
 
 /**
@@ -14,40 +22,17 @@
 export const decodedPhotos = new Set<string>();
 
 /**
- * Returns a Supabase Storage image-transform URL with width and quality params.
- * All other URL types (base64 data URIs, external URLs) are returned unchanged.
- * Idempotent — won't add params if a `width` param already exists.
- *
- * @param url     Raw photo URL from the database
- * @param width   Target pixel width (default 600 for profile cards)
- * @param quality JPEG quality 0-100 (default 75)
- */
-export function getOptimizedImageUrl(url: string, width = 600, quality = 75): string {
-  if (!url) return url;
-  let parsed: URL;
-  try {
-    parsed = new URL(url);
-  } catch {
-    return url;
-  }
-  if (!parsed.pathname.includes("/storage/v1/object/public/")) return url;
-  if (parsed.searchParams.has("width")) return url;
-  parsed.searchParams.set("width", String(width));
-  if (!parsed.searchParams.has("quality")) parsed.searchParams.set("quality", String(quality));
-  return parsed.toString();
-}
-
-/**
  * Fire-and-forget background preload.
  * Creates a hidden Image element so the browser decodes the photo into its
  * bitmap cache before any visible <img> element requests it.  Subsequent
- * renders with the same src are served from cache with zero network cost.
+ * renders with the same src hit the cache with zero additional decode cost.
  *
  * Safe to call multiple times — skips URLs already in decodedPhotos.
  */
 export function preloadPhoto(src: string): void {
   if (!src || decodedPhotos.has(src)) return;
   const img = new Image();
+  img.decoding = "async";
   img.onload = () => decodedPhotos.add(src);
   img.src = src;
 }

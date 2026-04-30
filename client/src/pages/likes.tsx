@@ -556,6 +556,7 @@ function LikeCard({
             src={photo}
             alt={open.profile.firstName}
             className="w-full h-full object-cover"
+            decoding="async"
             style={{
               opacity: decodedPhotos.has(photo) ? 1 : 0,
               transition: "opacity 200ms ease",
