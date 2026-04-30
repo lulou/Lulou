@@ -1,0 +1,73 @@
+TASK:
+Perform a full app loading-speed audit and fix slow page transitions across the app.
+
+CONTEXT:
+The app has slow loading when moving between pages such as Discover, Connections/Matches, Profile, Edit Profile, Messages, and other protected routes. A previous change focused only on optimizing Supabase image URLs in the carousel, but the app is still slow when navigating between pages.
+
+PROBLEM:
+The app appears to reload or refetch too much data when switching pages. Profile images may still be heavy, but the bigger issue may include repeated Supabase calls, auth/profile loading delays, inefficient protected route checks, unnecessary component remounting, missing loading states, and unoptimized data fetching.
+
+SOLUTION REQUIREMENTS:
+
+1. Audit the app loading flow
+- Check how auth state is loaded
+- Check how the current user profile is fetched
+- Check protected route logic
+- Check whether profile data is being refetched on every page change
+- Check whether Discover, Matches, Messages, and Profile pages are making duplicate Supabase requests
+
+2. Improve auth/profile loading
+- Ensure Supabase session is loaded once at app startup
+- Ensure the logged-in profile is fetched once and reused where possible
+- Prevent protected routes from redirecting before auth/profile loading is complete
+- Add a clean global loading state while auth/profile is being checked
+
+3. Reduce repeated Supabase queries
+- Avoid fetching the same user/profile data repeatedly across pages
+- Reuse existing auth/profile state where possible
+- Only refetch when data actually changes
+- Do not query unnecessary columns
+
+4. Improve page transitions
+- Prevent full-page reload behaviour
+- Keep routing client-side
+- Add smooth loading skeletons or lightweight loading states
+- Do not block the entire app unless absolutely necessary
+
+5. Improve image performance
+- Make sure profile images use optimized Supabase Storage URLs where possible
+- Avoid downloading full-resolution images in carousel/profile cards
+- Lazy-load non-visible images
+- Preload only nearby carousel images, not every image
+
+6. Preserve existing functionality
+- Do not break auth
+- Do not break routing
+- Do not break profile editing
+- Do not break Discover
+- Do not break Matches/Connections
+- Do not break Messages
+- Do not break Stripe/Elevate
+- Do not break WebRTC calls
+- Do not change database schema or RLS unless absolutely necessary
+
+CONSTRAINTS:
+- Do not rewrite the whole app
+- Do not restructure the project unless required
+- Make the smallest safe changes first
+- Keep code simple
+- Use the existing project structure
+- Explain each changed file
+- Do not remove existing working features
+- Do not introduce new packages unless necessary
+
+OUTPUT:
+1. First, identify the specific files causing slow loading.
+2. Explain the root causes clearly.
+3. Then update only the necessary files.
+4. Return the full updated files, not snippets.
+5. Explain why the changes are safe.
+6. Explain how the changes improve page loading speed.
+
+IMPORTANT:
+Before making changes, inspect the routing/auth/profile loading structure. Do not assume the image carousel is the only cause. The priority is to make the entire app feel faster when switching between pages.

@@ -2725,13 +2725,16 @@ export default function Matches() {
   const [activeTab, setActiveTab] = useState<"new" | "active">("new");
   const { data: matches, isLoading: matchesLoading, error: matchesError } = useQuery<MatchWithProfile[]>({
     queryKey: ["/api/matches"],
-    staleTime: 30_000,
+    // staleTime: Infinity (global default) — CallDetectors already owns this
+    // query with refetchInterval:30s, so a staleTime override here would cause
+    // an extra fetch on every tab switch once data is >30 s old.
   });
 
   const { data: spinRequestsData, isLoading: requestsLoading, error: requestsError } = useQuery<SpinRequestsData>({
     queryKey: ["/api/spin-requests"],
     refetchInterval: isActive ? 30_000 : false,
-    staleTime: 30_000,
+    // staleTime: Infinity (global default) — refetchInterval above handles
+    // freshness; a short staleTime would add a redundant fetch on every tab switch.
   });
 
   // Only block on matches loading — spin-requests show a skeleton in their section independently
