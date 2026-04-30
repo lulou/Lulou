@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -13,6 +13,7 @@ import type { Profile } from "@shared/schema";
 import { MapPin, Ruler, MessageCircle, HelpCircle, Send } from "lucide-react";
 import { LulouFlowerIcon } from "@/components/app-layout";
 import { AnimatePresence, motion } from "framer-motion";
+import { EMPTY_PHOTOS } from "@/lib/image-utils";
 
 // Full-width draggable photo card.
 // Uses PhotoCarousel: photos follow finger, spring-settle on release, gap between slides.
@@ -348,8 +349,12 @@ export default function Discover() {
     });
   }, [profilesData]);
 
-  // Profiles not yet shown in this session
-  const visibleProfiles = accumulatedProfiles.filter(p => !shownIds.has(p.userId));
+  // Profiles not yet shown in this session — memoised so the filter only
+  // reruns when either the accumulated pool or the shown-id set actually changes.
+  const visibleProfiles = useMemo(
+    () => accumulatedProfiles.filter(p => !shownIds.has(p.userId)),
+    [accumulatedProfiles, shownIds],
+  );
   const currentProfile = visibleProfiles[0];
   const nextProfile = visibleProfiles[1];
 
@@ -389,17 +394,20 @@ export default function Discover() {
     }
   }, [nextProfile?.userId]);
 
-  // Merge photos into the pool profile for rendering
-  // Note: when isPhotosLoading is true, photos stays empty — PhotoBubbles shows skeleton instead of "No photos"
+  // Merge photos into the pool profile for rendering.
+  // EMPTY_PHOTOS is a stable module-level reference — avoids creating a new []
+  // literal on every render while photos are loading, which would otherwise cause
+  // the PhotoCarousel preload useEffect to re-fire on every render cycle.
   const displayProfile = currentProfile
-    ? { ...currentProfile, photos: photoData?.photos ?? [] }
+    ? { ...currentProfile, photos: photoData?.photos ?? EMPTY_PHOTOS }
     : undefined;
 
   const interact = useMutation({
     mutationFn: async (type: "open" | "close") => {
       if (!currentProfile) return;
-      // Advance the feed immediately — do not wait for a server refetch
-      setShownIds(prev => new Set([...prev, currentProfile.userId]));
+      // Advance the feed immediately — do not wait for a server refetch.
+      // Use Set copy + .add() instead of spread to avoid O(n) array allocation.
+      setShownIds(prev => { const s = new Set(prev); s.add(currentProfile.userId); return s; });
       try {
         const res = await apiRequest("POST", "/api/interactions", {
           toUserId: currentProfile.userId,
@@ -434,18 +442,6 @@ export default function Discover() {
       description: `When you match with ${currentProfile?.firstName}, your reply will be sent as your first message.`,
     });
   };
-
-  console.log("[DISCOVER] RENDER_REACHED", {
-    isLoading,
-    isFetching,
-    isDiscoverError,
-    loadingTooLong,
-    rawCount: Array.isArray(profilesData) ? profilesData.length : "no data",
-    accumulatedCount: accumulatedProfiles.length,
-    shownCount: shownIds.size,
-    visibleCount: visibleProfiles.length,
-    hasCurrentProfile: !!currentProfile,
-  });
 
   // ─── STEP 2: Minimal render — confirms routing/layout works ─────────────────
   // Set STEP2_MINIMAL = false once we confirm this page renders (Step 4 restore).

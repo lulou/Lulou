@@ -19,6 +19,7 @@ import { MessageCircle, Send, Phone, Video, ChevronDown, ChevronUp, ChevronLeft,
 import { LulouFlowerIcon } from "@/components/app-layout";
 import { broadcastCallSignal } from "@/hooks/use-call-signaling";
 import { PhotoCarousel } from "@/components/photo-carousel";
+import { EMPTY_PHOTOS } from "@/lib/image-utils";
 import type { Profile, Match, Message, SpinRequest } from "@shared/schema";
 
 const MAX_MESSAGES_PER_USER = 15;
@@ -895,7 +896,7 @@ function ProfilePanel({ profile, onClose }: { profile: Profile; onClose: () => v
     queryKey: ["/api/profiles", profile.userId, "photos"],
     staleTime: 5 * 60 * 1000,
   });
-  const photos = photoData?.photos ?? profile.photos ?? [];
+  const photos = photoData?.photos ?? profile.photos ?? EMPTY_PHOTOS;
   const [photoIdx, setPhotoIdx] = useState(0);
 
   return (

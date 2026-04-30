@@ -16,7 +16,7 @@ import { LulouFlowerIcon } from "@/components/app-layout";
 import { PhotoCarousel } from "@/components/photo-carousel";
 import { ElevateModal } from "@/components/elevate-modal";
 import { ElevateStatusCard } from "@/components/elevate-status-card";
-import { decodedPhotos } from "@/lib/image-utils";
+import { decodedPhotos, EMPTY_PHOTOS } from "@/lib/image-utils";
 import type { Profile, Interaction } from "@shared/schema";
 
 type IncomingOpen = Interaction & { profile: Profile };
@@ -210,7 +210,7 @@ function ProfileModal({
     queryKey: ["/api/profiles", profile.userId, "photos"],
     staleTime: 5 * 60 * 1000,
   });
-  const photos = photosData?.photos ?? [];
+  const photos = photosData?.photos ?? EMPTY_PHOTOS;
 
   const signals = profile.signals ?? [];
   const greenFlags = profile.greenFlags ?? [];

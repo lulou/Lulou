@@ -1,0 +1,127 @@
+TASK:
+Fix Discovery getting slower after repeatedly navigating through profiles and back.
+
+CONTEXT:
+Discovery starts fairly quick now. But when I tap through profiles to the end, then go backwards/down through them again, it gets slower. The more times I repeat this back-and-forth behaviour, the slower Discovery becomes.
+
+PROBLEM:
+This suggests a performance leak, not just slow fetching. Likely causes include:
+
+* Preload functions creating more and more Image objects
+* Decoded image cache growing without limits
+* useEffect loops firing repeatedly
+* Event listeners/timers not being cleaned up
+* Discovery card stack retaining old rendered cards
+* Animations accumulating
+* State updates happening too often while swiping/tapping
+* Query refetches or photo requests repeating unnecessarily
+* Too many DOM nodes/cards staying mounted
+
+GOAL:
+Discovery must stay consistently fast after repeated forward/back navigation through profiles. Performance should not degrade over time.
+
+REQUIREMENTS:
+
+1. Audit Discovery performance over repeated use
+   Inspect:
+
+* Discovery page/component
+* Profile card component
+* Photo carousel
+* image-utils/photo preload helpers
+* any decodedPhotos cache
+* any prefetch/batch photo logic
+* any swipe/tap handlers
+* any animation logic
+* any useEffect hooks in Discovery/cards/carousel
+
+2. Find accumulation/leak sources
+   Specifically check for:
+
+* new Image() objects created repeatedly without dedupe
+* image preload called repeatedly for already-loaded URLs
+* unbounded decodedPhotos Set/Map
+* unbounded failed image cache
+* timers, intervals, listeners, observers not cleaned up
+* requestAnimationFrame loops not cancelled
+* repeated queryClient.setQueryData calls causing rerenders
+* useEffect dependencies causing repeated preloads
+* every visited card remaining mounted in the DOM
+
+3. Add strict preload deduping
+   Image preload must:
+
+* Skip if URL is already decoded
+* Skip if URL is already currently preloading
+* Skip failed URLs temporarily
+* Limit concurrent image preloads
+* Never create duplicate Image objects for the same URL
+* Clean up onload/onerror references after completion
+
+4. Add cache limits
+   If decoded image cache or failed image cache exists:
+
+* Limit it to a safe size, such as 100–200 URLs
+* Evict oldest entries when over the limit
+* Do not allow memory to grow forever
+
+5. Limit mounted Discovery cards
+   Discovery should only keep a small window of cards mounted:
+
+* current card
+* previous card if needed
+* next 2–3 cards
+
+Do not keep every profile card mounted after the user taps/swipes through them.
+
+6. Stop repeated background work
+
+* Do not refetch Discovery/photo data on every tap unless necessary
+* Do not batch-prefetch the same photo IDs repeatedly
+* Do not update state if the new value is identical
+* Do not run expensive filtering/sorting on every render unless memoized
+
+7. Animation cleanup
+   If using animations:
+
+* Ensure completed animations do not keep old cards alive
+* Ensure animation callbacks do not trigger repeated state updates
+* Remove animation state for cards no longer visible
+
+8. Preserve functionality
+
+* Do not break Discovery profile display
+* Do not break tapping/swiping forward
+* Do not break going backward
+* Do not break photo carousel
+* Do not break likes/matches
+* Do not break batch photo prefetch
+* Do not reintroduce full photos into list endpoints
+* Do not change database schema/RLS
+* Do not break Stripe/Elevate/WebRTC
+
+CONSTRAINTS:
+
+* Do not rewrite the whole app
+* Make focused performance/leak fixes
+* Keep existing UX behaviour
+* No new packages unless absolutely necessary
+* Return full updated files, not snippets
+
+OUTPUT:
+
+1. Identify the exact reason Discovery slows down after repeated forward/back use.
+2. Identify any leaks or unbounded caches.
+3. Update only the necessary files.
+4. Return full updated files.
+5. Explain how preloading is now deduped and limited.
+6. Explain how mounted card count is now controlled.
+7. Explain how to test:
+
+   * Tap through Discovery to the end
+   * Tap back through Discovery
+   * Repeat 3–5 times
+   * Confirm it does not get progressively slower
+
+IMPORTANT:
+This is not just a loading issue. It is progressive slowdown after repeated interaction, which usually means accumulating work, memory, DOM nodes, animations, duplicate image preloads, or repeated effects. Fix the accumulation.
