@@ -169,7 +169,7 @@ export function PhotoCarousel({
   // to see next are ready in the decoded-bitmap cache before they swipe.
   useEffect(() => {
     [dotIdx - 1, dotIdx, dotIdx + 1].forEach(i => {
-      if (photos[i]) preloadPhoto(photos[i]);
+      if (photos[i]) preloadPhoto(getOptimizedImageUrl(photos[i]));
     });
   }, [photos, dotIdx]);
 
@@ -328,32 +328,35 @@ export function PhotoCarousel({
           data-testid={`carousel-slide-${i}`}
         >
           {/* Load ±1 from current index; everything else is an unloaded placeholder */}
-          {Math.abs(i - dotIdx) <= 1 && (
-            <img
-              src={photo}
-              alt={`Photo ${i + 1}`}
-              loading={i === dotIdx ? "eager" : "lazy"}
-              decoding="async"
-              draggable={false}
-              style={{
-                width: "100%",
-                height: "100%",
-                objectFit: "cover",
-                objectPosition: "center top",
-                // Start fully visible if already in the decoded-bitmap cache,
-                // otherwise fade in once the browser finishes decoding.
-                opacity: decodedPhotos.has(photo) ? 1 : 0,
-                transition: "opacity 0.2s ease",
-              }}
-              onLoad={(e) => {
-                // Mark decoded globally so future mounts skip the fade
-                decodedPhotos.add(photo);
-                // Set opacity directly — avoids a React re-render/setState cycle
-                (e.currentTarget as HTMLImageElement).style.opacity = "1";
-              }}
-              data-testid={`img-carousel-photo-${i}`}
-            />
-          )}
+          {Math.abs(i - dotIdx) <= 1 && (() => {
+            const optimizedSrc = getOptimizedImageUrl(photo);
+            return (
+              <img
+                src={optimizedSrc}
+                alt={`Photo ${i + 1}`}
+                loading={i === dotIdx ? "eager" : "lazy"}
+                decoding="async"
+                draggable={false}
+                style={{
+                  width: "100%",
+                  height: "100%",
+                  objectFit: "cover",
+                  objectPosition: "center top",
+                  // Start fully visible if already in the decoded-bitmap cache,
+                  // otherwise fade in once the browser finishes decoding.
+                  opacity: decodedPhotos.has(optimizedSrc) ? 1 : 0,
+                  transition: "opacity 0.2s ease",
+                }}
+                onLoad={(e) => {
+                  // Mark decoded globally so future mounts skip the fade
+                  decodedPhotos.add(optimizedSrc);
+                  // Set opacity directly — avoids a React re-render/setState cycle
+                  (e.currentTarget as HTMLImageElement).style.opacity = "1";
+                }}
+                data-testid={`img-carousel-photo-${i}`}
+              />
+            );
+          })()}
         </div>
       ))}
 
