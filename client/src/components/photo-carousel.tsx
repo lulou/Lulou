@@ -141,13 +141,15 @@ export function PhotoCarousel({
     applyPositions(idx, 0, shouldAnimate); // false on first mount → no animation
   }, [idx, applyPositions]);
 
-  // Preload every photo in the array as soon as they arrive.
-  // Photos beyond ±1 are not yet rendered in the DOM — preloading them here
-  // gives the browser time to decode each base64 image in the background so
-  // swiping to the next/previous slide paints from the decoded bitmap cache.
+  // Preload only the current slide and its immediate neighbours (prev + next).
+  // Decoding just three images avoids saturating the browser's decode queue with
+  // all slides at once, while still ensuring the photos the user is most likely
+  // to see next are ready in the decoded-bitmap cache before they swipe.
   useEffect(() => {
-    photos.forEach(preloadPhoto);
-  }, [photos]);
+    [dotIdx - 1, dotIdx, dotIdx + 1].forEach(i => {
+      if (photos[i]) preloadPhoto(photos[i]);
+    });
+  }, [photos, dotIdx]);
 
   // ── Drag / swipe via native event listeners ──────────────────────────────
   useEffect(() => {

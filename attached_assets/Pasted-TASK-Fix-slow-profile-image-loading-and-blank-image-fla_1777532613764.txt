@@ -1,0 +1,55 @@
+TASK:
+Fix slow profile image loading and blank image flashes in the photo carousel.
+
+CONTEXT:
+The app has a React photo carousel that renders profile photos with code similar to:
+{Math.abs(i - dotIdx) <= 1 && (
+  <img
+    src={photo}
+    alt={`Photo ${i + 1}`}
+    loading={i === dotIdx ? "eager" : "lazy"}
+    decoding="async"
+    draggable={false}
+    style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "center top" }}
+    data-testid={`img-carousel-photo-${i}`}
+  />
+)}
+
+Images come from Supabase Storage. The carousel currently shows blank flashes when navigating between profiles or remounting components because images are decoded again and full-size images may be loaded immediately.
+
+PROBLEM:
+Profile images load too slowly and flash blank on remount. The app needs image loading to feel instant when moving between Discovery and Connections.
+
+SOLUTION REQUIREMENTS:
+- Edit only the React component file that contains the profile photo carousel.
+- Add a module-level image cache using Set<string> so decoded image URLs persist during the browser session.
+- Add a safe preloadPhoto(src: string) helper using new Image().
+- Do not preload every photo immediately.
+- Only preload the current photo, the previous photo, and the next photo.
+- Keep the existing carousel behaviour unchanged.
+- Keep the existing dotIdx logic unchanged.
+- Keep existing test IDs unchanged.
+- Add loading={i === dotIdx ? "eager" : "lazy"}.
+- Add decoding="async".
+- Add draggable={false}.
+- Avoid React state updates inside every image onLoad.
+- Use onLoad only to add the loaded image URL to the cache and set opacity to 1 on the current image element.
+- If a photo URL is already cached, render it immediately with opacity 1.
+- If a photo URL is not cached, render it with opacity 0 and fade it in after load.
+- If Supabase image transform URLs are already supported in this project, add a small helper to request thumbnail-sized images for carousel previews, for example width 400 or 600.
+- Do not change auth, routing, matching, messaging, payments, WebRTC, database logic, or Supabase RLS.
+
+CONSTRAINTS:
+- Do not break existing functionality.
+- Do not restructure files.
+- Do not rewrite the carousel.
+- Do not change the design.
+- Keep code simple.
+- Use current project structure.
+- Only modify what is necessary for image loading performance.
+
+OUTPUT:
+- Return the full updated carousel component file, not partial snippets.
+- Include all necessary imports.
+- Explain briefly why the change is safe.
+- Explain briefly how it improves performance.
