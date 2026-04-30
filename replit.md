@@ -53,6 +53,13 @@ Lulou Dating employs a modern web architecture:
 -   **Typography**: Playfair Display for headings and Plus Jakarta Sans for body text.
 -   **Aesthetics**: Calm, spacious, minimal, aiming for a "luxury boutique hotel" feel. Explicitly avoids gamification and casino mechanics.
 
+**Photo Storage Architecture** (migrated):
+-   **New uploads** → compressed JPEG Blob uploaded to Supabase Storage bucket `profile-photos` (public, `userId/{timestamp}_{random}.jpg`). Public HTTPS URL stored in the photos text[] column. Browser HTTP-caches the image; no re-download between sessions.
+-   **Existing profiles** → still carry `data:image/jpeg;base64,…` strings (backwards-compatible). All `<img src>` elements and the `decodedPhotos` bitmap cache in `image-utils.ts` accept both formats.
+-   **Upload flow** — happens at save time inside `savePhotos` in `profile.tsx`: base64 photos are uploaded one-by-one (parallel Promise.all) and replaced with Storage URLs before the API call. If Storage upload fails for a photo, it silently falls back to base64 so save never blocks.
+-   **RLS policies** on `storage.objects`: `auth_insert_own_photos`, `auth_update_own_photos`, `auth_delete_own_photos` — authenticated users may only write to their own `userId/` folder.
+-   **Compression pipeline** (`photo-utils.ts`) — max 800×800 px, JPEG quality 0.72 → 0.40 iterative, target ≤ 150 KB.
+
 **Performance Optimisations**:
 -   **Client-side Token Caching**: `setCachedToken` stores Supabase JWT in memory to reduce redundant `getSession()` calls.
 -   **Server-side JWT Caching**: `verifyJwt()` caches Supabase user results for 2 minutes to minimize authentication overhead.

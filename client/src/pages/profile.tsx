@@ -11,7 +11,8 @@ import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { useToast } from "@/hooks/use-toast";
 import { upsertProfile, cleanErrorMessage, withRetry } from "@/lib/profile-upsert";
 import { apiRequest } from "@/lib/queryClient";
-import { convertPhotoToJpeg, recompressPhotoDataUrl, OVERSIZED_THRESHOLD } from "@/lib/photo-utils";
+import { convertPhotoToJpeg, recompressPhotoDataUrl, uploadPhotoToStorage, OVERSIZED_THRESHOLD } from "@/lib/photo-utils";
+import { supabase } from "@/lib/supabase";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -336,11 +337,32 @@ export default function ProfilePage() {
   const savePhotos = useMutation({
     mutationFn: async () => {
       console.log("[PROFILE_SAVE] START", { label: "savePhotos", photoCount: editPhotos.length });
+
+      // Upload any base64 photos to Supabase Storage and replace them with
+      // public URLs.  Photos already stored as HTTPS URLs (from a previous save)
+      // pass through unchanged.  If an individual upload fails, we silently keep
+      // the base64 for that slot so the save never blocks on a network error.
+      const photosToSave = await Promise.all(
+        editPhotos.map(async (photo, i) => {
+          if (!photo.startsWith("data:")) return photo; // already a Storage URL
+          try {
+            const url = await uploadPhotoToStorage(photo, user!.id, supabase);
+            console.log(`[PROFILE_SAVE] Photo ${i}: uploaded to Storage`);
+            return url;
+          } catch (err: any) {
+            console.warn(`[PROFILE_SAVE] Photo ${i}: Storage upload failed, keeping base64 —`, err?.message);
+            return photo;
+          }
+        })
+      );
+
+      const base64Count = photosToSave.filter(p => p.startsWith("data:")).length;
+      const urlCount    = photosToSave.length - base64Count;
+      console.log(`[PROFILE_SAVE] Photos ready: ${urlCount} Storage URL(s), ${base64Count} base64 fallback(s)`);
+
       // withRetry retries up to 2 times on transient network/5xx errors.
-      // Photos are large (base64) so the backoff (1 s + 2 s) is long enough to
-      // survive a brief Cloudflare 520 without hammering the server.
       const res = await withRetry(
-        () => apiRequest("POST", "/api/profile", { photos: editPhotos }),
+        () => apiRequest("POST", "/api/profile", { photos: photosToSave }),
         "savePhotos",
       );
       const data = await res.json();

@@ -1,42 +1,68 @@
 /**
- * Converts any browser-supported image to a JPEG data URL.
+ * Photo pipeline utilities.
  *
- * Target: ≤ 150 KB per photo so base64 strings stored in Supabase stay small enough
- * for the photos-column SELECT query to complete well within the 8-second statement
- * timeout. Larger files caused query timeouts (code 57014) for some users.
+ * ## Compression
+ * `convertPhotoToJpeg` and `recompressPhotoDataUrl` run a canvas resize + JPEG
+ * encode pipeline and return a base64 data URL.  Target ≤ 150 KB per photo so
+ * the photos text[] column SELECT stays under Supabase's 8-second statement
+ * timeout.
  *
- * Strategy:
- *  1. Resize to fit within MAX_DIM × MAX_DIM (preserves aspect ratio).
- *  2. Encode at QUALITY_INITIAL. If the result is still over TARGET_BYTES, shrink by
- *     10 % and re-encode up to MAX_PASSES times until it fits (or we give up).
+ * ## Storage upload (new photos)
+ * `uploadPhotoToStorage` converts an already-compressed base64 data URL to a
+ * Blob and uploads it to the "profile-photos" Supabase Storage bucket, then
+ * returns the permanent public HTTPS URL.  Storing a short URL instead of a
+ * 150 KB base64 string removes the photos column from the query hot-path
+ * entirely and allows the browser to HTTP-cache the images between sessions.
  *
- * HEIC/HEIF:
- *  - Safari / iOS can natively decode HEIC — conversion works fine there.
- *  - Chrome / Firefox cannot — the image fires onerror and we reject with a clear
- *    user-friendly message so they can re-select in JPEG/PNG format.
+ * The upload happens at save time (not selection time) so the existing
+ * selection preview UX is completely unchanged.
  *
- * Returns: base64 data URL string  (data:image/jpeg;base64,...)
- * Throws:  Error with user-friendly message if the file cannot be loaded/converted.
+ * ## Backwards compatibility
+ * Existing profiles still carry base64 strings (data:image/jpeg;base64,…).
+ * All rendering components accept both formats — `<img src>` handles both
+ * natively and the decodedPhotos bitmap cache in image-utils.ts is keyed on
+ * the exact src string, so it works for both.
  */
 
-const MAX_DIM         = 800;     // px — keeps base64 under ~150 KB for typical photos
-const QUALITY_INITIAL = 0.72;   // JPEG quality for first attempt
-const TARGET_BYTES    = 150_000; // ~112 KB base64 when expressed as string length
-const MAX_PASSES      = 4;       // re-encode attempts before giving up on size reduction
+import type { SupabaseClient } from "@supabase/supabase-js";
 
-/** Photos larger than this string length are large enough to cause DB statement timeouts. */
-export const OVERSIZED_THRESHOLD = 400_000; // ~300 KB base64
+const MAX_DIM         = 800;
+const QUALITY_INITIAL = 0.72;
+const TARGET_BYTES    = 150_000; // ~112 KB as a base64 string
+const MAX_PASSES      = 4;
 
+/** Photos larger than this string length may cause DB statement timeouts. */
+export const OVERSIZED_THRESHOLD = 400_000;
+
+// ── Internal helpers ──────────────────────────────────────────────────────────
+
+/** Convert a base64 data URL to a Blob without re-encoding through canvas. */
+function dataUrlToBlob(dataUrl: string): Blob {
+  const commaIdx = dataUrl.indexOf(",");
+  const header   = dataUrl.slice(0, commaIdx);
+  const base64   = dataUrl.slice(commaIdx + 1);
+  const mime     = header.match(/:(.*?);/)?.[1] ?? "image/jpeg";
+  const bytes    = atob(base64);
+  const buf      = new Uint8Array(bytes.length);
+  for (let i = 0; i < bytes.length; i++) buf[i] = bytes.charCodeAt(i);
+  return new Blob([buf], { type: mime });
+}
+
+// ── Public API ────────────────────────────────────────────────────────────────
+
+/**
+ * Converts a File to a compressed JPEG data URL (base64).
+ * Used for the photo selection preview and as a fallback if Storage upload fails.
+ */
 export async function convertPhotoToJpeg(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
-    const url = URL.createObjectURL(file);
-    const img = new Image();
+    const objUrl = URL.createObjectURL(file);
+    const img    = new Image();
 
     img.onload = () => {
-      URL.revokeObjectURL(url);
+      URL.revokeObjectURL(objUrl);
 
       let { width, height } = img;
-
       if (width > MAX_DIM || height > MAX_DIM) {
         const ratio = Math.min(MAX_DIM / width, MAX_DIM / height);
         width  = Math.round(width  * ratio);
@@ -46,66 +72,47 @@ export async function convertPhotoToJpeg(file: File): Promise<string> {
       const canvas = document.createElement("canvas");
       canvas.width  = width;
       canvas.height = height;
-
       const ctx = canvas.getContext("2d");
-      if (!ctx) {
-        reject(new Error("Could not create canvas context."));
-        return;
-      }
+      if (!ctx) { reject(new Error("Could not create canvas context.")); return; }
 
       ctx.drawImage(img, 0, 0, width, height);
 
       let quality = QUALITY_INITIAL;
       let jpeg    = canvas.toDataURL("image/jpeg", quality);
+      if (!jpeg || jpeg === "data:,") { reject(new Error("Could not convert image. Please try a different photo.")); return; }
 
-      if (!jpeg || jpeg === "data:,") {
-        reject(new Error("Could not convert image. Please try a different photo."));
-        return;
-      }
-
-      // Iteratively reduce quality until the data URL fits within TARGET_BYTES.
       for (let pass = 0; pass < MAX_PASSES && jpeg.length > TARGET_BYTES; pass++) {
         quality = Math.max(quality - 0.10, 0.40);
         jpeg    = canvas.toDataURL("image/jpeg", quality);
       }
 
-      console.log(
-        `[PHOTO_CONVERT] ${file.name} → ${width}×${height}px, q=${quality.toFixed(2)}, ` +
-        `${(jpeg.length / 1024).toFixed(0)} KB base64`
-      );
-
+      console.log(`[PHOTO_CONVERT] ${file.name} → ${width}×${height}px, q=${quality.toFixed(2)}, ${(jpeg.length / 1024).toFixed(0)} KB base64`);
       resolve(jpeg);
     };
 
     img.onerror = () => {
-      URL.revokeObjectURL(url);
+      URL.revokeObjectURL(objUrl);
       const isHeic =
         file.type === "image/heic" ||
         file.type === "image/heif" ||
         file.name.toLowerCase().endsWith(".heic") ||
         file.name.toLowerCase().endsWith(".heif");
-      if (isHeic) {
-        reject(
-          new Error(
-            "HEIC photos can't be used in this browser. Please export as JPEG or PNG from your camera roll and try again."
-          )
-        );
-      } else {
-        reject(new Error("Could not load this photo. Please try a different image."));
-      }
+      reject(new Error(
+        isHeic
+          ? "HEIC photos can't be used in this browser. Please export as JPEG or PNG from your camera roll and try again."
+          : "Could not load this photo. Please try a different image."
+      ));
     };
 
-    img.src = url;
+    img.src = objUrl;
   });
 }
 
 /**
- * Re-compresses an existing base64 JPEG data URL through the same canvas pipeline.
- * Used to shrink oversized photos already stored in the database that would cause
- * Supabase statement timeouts when read back.
- *
- * Returns the (possibly smaller) data URL. Never throws — returns the original if
- * canvas is unavailable so we don't break the editing flow.
+ * Re-compresses an existing base64 JPEG data URL through the canvas pipeline.
+ * Used to shrink oversized photos already stored in the database that would
+ * cause Supabase statement timeouts when read back.
+ * Never throws — returns the original if canvas is unavailable.
  */
 export async function recompressPhotoDataUrl(dataUrl: string): Promise<string> {
   return new Promise((resolve) => {
@@ -113,7 +120,6 @@ export async function recompressPhotoDataUrl(dataUrl: string): Promise<string> {
 
     img.onload = () => {
       let { width, height } = img;
-
       if (width > MAX_DIM || height > MAX_DIM) {
         const ratio = Math.min(MAX_DIM / width, MAX_DIM / height);
         width  = Math.round(width  * ratio);
@@ -123,7 +129,6 @@ export async function recompressPhotoDataUrl(dataUrl: string): Promise<string> {
       const canvas = document.createElement("canvas");
       canvas.width  = width;
       canvas.height = height;
-
       const ctx = canvas.getContext("2d");
       if (!ctx) { resolve(dataUrl); return; }
 
@@ -131,22 +136,48 @@ export async function recompressPhotoDataUrl(dataUrl: string): Promise<string> {
 
       let quality = QUALITY_INITIAL;
       let jpeg    = canvas.toDataURL("image/jpeg", quality);
-
       for (let pass = 0; pass < MAX_PASSES && jpeg.length > TARGET_BYTES; pass++) {
         quality = Math.max(quality - 0.10, 0.40);
         jpeg    = canvas.toDataURL("image/jpeg", quality);
       }
 
-      console.log(
-        `[PHOTO_RECOMPRESS] ${width}×${height}px, q=${quality.toFixed(2)}, ` +
-        `${(jpeg.length / 1024).toFixed(0)} KB base64 (was ${(dataUrl.length / 1024).toFixed(0)} KB)`
-      );
-
+      console.log(`[PHOTO_RECOMPRESS] ${width}×${height}px, q=${quality.toFixed(2)}, ${(jpeg.length / 1024).toFixed(0)} KB (was ${(dataUrl.length / 1024).toFixed(0)} KB)`);
       resolve(jpeg);
     };
 
-    img.onerror = () => resolve(dataUrl); // fall back to original if load fails
-
+    img.onerror = () => resolve(dataUrl);
     img.src = dataUrl;
   });
+}
+
+/**
+ * Uploads an already-compressed base64 JPEG data URL to the "profile-photos"
+ * Supabase Storage bucket and returns the permanent public HTTPS URL.
+ *
+ * File path: `{userId}/{timestamp}_{random6}.jpg`
+ * Matches the RLS INSERT policy: `(storage.foldername(name))[1] = auth.uid()::text`
+ *
+ * @throws if the upload fails — caller should fall back to storing the base64.
+ */
+export async function uploadPhotoToStorage(
+  dataUrl: string,
+  userId: string,
+  supabaseClient: SupabaseClient,
+): Promise<string> {
+  const blob   = dataUrlToBlob(dataUrl);
+  const random = Math.random().toString(36).slice(2, 8);
+  const path   = `${userId}/${Date.now()}_${random}.jpg`;
+
+  const { error } = await supabaseClient.storage
+    .from("profile-photos")
+    .upload(path, blob, { contentType: "image/jpeg", upsert: false });
+
+  if (error) throw new Error(`Storage upload failed: ${error.message}`);
+
+  const { data: { publicUrl } } = supabaseClient.storage
+    .from("profile-photos")
+    .getPublicUrl(path);
+
+  console.log(`[PHOTO_UPLOAD] ${(blob.size / 1024).toFixed(0)} KB → ${publicUrl.split("?")[0].slice(-50)}`);
+  return publicUrl;
 }
