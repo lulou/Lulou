@@ -570,17 +570,25 @@ function AppContent() {
   // fetchFailed is true only after all retries are exhausted (isError=true).
   const fetchFailed = profileError;
 
-  // Background-prefetch the full user profile (with photos) as soon as the
-  // auth gate confirms the profile exists.  This warms ["/api/profile"] —
-  // the exact cache key ProfilePage uses — so the Profile tab is instant on
-  // first click instead of waiting for a cold 900 KB fetch.
-  // prefetchQuery is a no-op if the cache already has unexpired data, so this
-  // fires at most once per session (staleTime:Infinity prevents re-fetching).
+  // ── Early parallel prefetch ──────────────────────────────────────────────────
+  // Fire all five main tab queries the instant auth resolves — the SAME moment
+  // the profile-existence gate check starts.  Without this, those queries are
+  // blocked until profileExists=true (typically 200–500 ms later), because
+  // PersistentTabs doesn't mount until that flag flips.
+  //
+  // All five endpoints return empty arrays/objects safely when the profile
+  // doesn't exist yet, so prefetching early is safe for every account state.
+  // prefetchQuery is a no-op when staleTime:Infinity data is already cached,
+  // so this fires at most once per login session.
   useEffect(() => {
-    if (!profileExists || !user) return;
+    if (!user || !profileReady || clearingCache) return;
     queryClient.prefetchQuery({ queryKey: ["/api/profile"] });
+    queryClient.prefetchQuery({ queryKey: ["/api/discover"] });
+    queryClient.prefetchQuery({ queryKey: ["/api/matches"] });
+    queryClient.prefetchQuery({ queryKey: ["/api/who-liked-you"] });
+    queryClient.prefetchQuery({ queryKey: ["/api/spin-requests"] });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [profileExists]);
+  }, [user?.id, profileReady, clearingCache]);
 
   // ── Spinner timeout safeguard ────────────────────────────────────────────────
   // If the spinner has been visible for longer than SPINNER_TIMEOUT_MS, stop it

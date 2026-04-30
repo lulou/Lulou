@@ -1,0 +1,127 @@
+TASK:
+Make Lulou navigation and data loading near-instant using caching, prefetching, and background refresh.
+
+CONTEXT:
+The app is definitely faster now, but still not fast enough for App Store quality. Pages should feel instant when moving between Discovery, Connections, Likes, Messages, Profile, and Edit Profile.
+
+PROBLEM:
+The app may still be waiting for Supabase before showing useful content. Even with skeletons and better Retry handling, the user can still feel delays. We need a stronger performance layer.
+
+GOAL:
+Make pages feel instant by:
+
+* Reusing cached data immediately
+* Prefetching likely next pages
+* Refreshing in the background
+* Avoiding unnecessary refetches
+* Keeping previous page data alive during navigation
+
+PRIORITY:
+
+1. Discovery
+2. Connections
+3. Messages
+4. Likes
+5. Profile
+
+SOLUTION REQUIREMENTS:
+
+1. Add session-level cache
+   Create or improve a lightweight in-memory cache for:
+
+* discovery profiles
+* connections
+* likes
+* conversations/messages previews
+* current user profile
+
+Rules:
+
+* Cache should live outside individual page components so it survives route changes
+* Use current project structure
+* Do not add a new package unless absolutely necessary
+* Cached data should render immediately
+* Fresh Supabase data should load in the background
+
+2. Add stale-while-refresh behaviour
+   Each page should:
+
+* Show cached data instantly if available
+* Set isRefreshing=true while fetching fresh data
+* Never block the page if cached data exists
+* Only show skeletons on first-ever load with no cache
+* Only show Retry on actual error with no usable cached data
+
+3. Prefetch likely next pages
+   After auth/profile loads, prefetch:
+
+* Discovery first batch
+* Connections list
+* Likes list
+* Messages/conversations preview
+
+Also:
+
+* When user is on Discovery, prefetch Connections and Likes
+* When user is on Connections, prefetch Messages
+* When user is on Messages, prefetch Profile basics if needed
+
+4. Optimise Discovery further
+
+* Fetch only first batch fast
+* Avoid full profile fields
+* Avoid unnecessary joins
+* Avoid full-size images
+* Keep discovery results in cache when user navigates away
+* Do not re-fetch discovery on every mount if cache is still fresh
+* Add a short cache TTL if needed, such as 30–60 seconds
+
+5. Optimise Connections further
+
+* Use one efficient query, not multiple profile lookups
+* Fetch only what the connection card needs
+* Cache the list after first successful fetch
+* Background refresh only when stale or after match/message changes
+
+6. Prevent wasted renders
+
+* Check for unnecessary useEffect dependency loops
+* Check if auth/profile changes are causing pages to refetch repeatedly
+* Check if parent layout remounts child pages unnecessarily
+* Memoize expensive mapped lists if needed
+* Avoid setting state repeatedly with identical data
+
+7. Preserve functionality
+
+* Do not break auth
+* Do not break profile editing
+* Do not break discovery cards
+* Do not break likes/matches
+* Do not break messages
+* Do not break Stripe/Elevate
+* Do not break WebRTC
+* Do not change Supabase schema or RLS unless absolutely necessary
+
+CONSTRAINTS:
+
+* Do not rewrite the whole app
+* Do not restructure the whole project
+* Keep changes focused
+* Keep code simple
+* No new packages unless essential
+* Return full updated files
+
+OUTPUT:
+
+1. Identify which pages still wait on Supabase before rendering.
+2. Identify what data should be cached.
+3. Identify where prefetching should happen.
+4. Update only necessary files.
+5. Return full updated files.
+6. Explain the cache strategy.
+7. Explain how stale-while-refresh works.
+8. Explain how to test page speed.
+9. Confirm Retry still only appears on real failure.
+
+IMPORTANT:
+The target is instant-feeling navigation. The page should not wait for Supabase if usable cached data exists.
