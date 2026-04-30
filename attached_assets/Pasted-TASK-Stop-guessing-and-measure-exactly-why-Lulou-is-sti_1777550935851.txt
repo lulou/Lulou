@@ -1,0 +1,129 @@
+TASK:
+Stop guessing and measure exactly why Lulou is still slow.
+
+CONTEXT:
+Many performance fixes have already been applied:
+
+* Base64 photo migration to Supabase Storage
+* Lazy photo loading
+* Batch photo prefetching
+* Removed heavy logs
+* Reduced repeated queries
+* Improved route transitions
+
+But after publishing and testing, the app is still too slow. The same kinds of delays are still happening. Do not make another blind optimisation.
+
+GOAL:
+Add real performance instrumentation to identify exactly where time is being lost:
+
+* server/API time
+* network time
+* React render time
+* image fetch time
+* image decode time
+* page hydration time
+* cache misses
+* duplicate fetches
+
+REQUIREMENTS:
+
+1. Add temporary performance timing logs in development only
+   Use performance.now() around:
+
+* route/page mount
+* first data query start/end
+* batch photo request start/end
+* first image preload start/end
+* first content render
+* page fully usable state
+
+2. Measure these pages:
+
+* Discovery
+* Connections / Matches
+* Likes
+* Messages
+* Profile
+
+3. Add server timing logs
+   For each major API endpoint, log in development:
+
+* endpoint name
+* duration in ms
+* number of records returned
+* approximate payload size
+* whether photos are included
+* whether request hit cache or database
+
+Endpoints:
+
+* /api/discover
+* /api/matches
+* /api/who-liked-you
+* /api/profiles/photos/batch
+* /api/profiles/:id/photos
+* /api/profile
+* messages/conversation endpoints
+
+4. Add client timing logs
+   For each page, log:
+
+* PAGE_MOUNT
+* DATA_QUERY_STARTED
+* DATA_QUERY_FINISHED
+* PHOTO_BATCH_STARTED
+* PHOTO_BATCH_FINISHED
+* FIRST_CONTENT_RENDERED
+* FIRST_IMAGE_RENDERED
+* PAGE_READY
+
+5. Detect duplicate requests
+   Add dev-only warnings if:
+
+* same endpoint is called multiple times within 2 seconds
+* same photo batch is requested repeatedly
+* same user photo is fetched individually after it was already batch-prefetched
+* page refetches immediately after mount despite cached data
+
+6. Detect image problems
+   Measure:
+
+* how long photo batch takes
+* how long first image takes to appear
+* whether image is Storage URL or base64
+* whether image was already cached
+* whether image decode is slow
+
+7. Do not make major fixes yet
+   First, add instrumentation only.
+   Then run the app and identify the bottleneck from the logs.
+   Do not rewrite features until the slowest step is proven.
+
+8. Preserve functionality
+
+* Do not break Discovery
+* Do not break Connections
+* Do not break Likes
+* Do not break Messages
+* Do not break Profile
+* Do not break photo loading
+* Do not break Stripe/Elevate/WebRTC
+
+CONSTRAINTS:
+
+* Dev-only logs only
+* No noisy production logs
+* No database schema changes
+* No RLS changes
+* No new packages unless absolutely necessary
+* Return full updated files
+
+OUTPUT:
+
+1. Add the instrumentation.
+2. Explain exactly how to test.
+3. Tell me what log lines to copy back.
+4. Do not claim it is fixed until the timings prove the bottleneck.
+
+IMPORTANT:
+We are no longer guessing. The next step is measurement. I need hard timing evidence showing exactly what is slow.
