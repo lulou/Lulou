@@ -16,7 +16,7 @@ import { LulouFlowerIcon } from "@/components/app-layout";
 import { PhotoCarousel } from "@/components/photo-carousel";
 import { ElevateModal } from "@/components/elevate-modal";
 import { ElevateStatusCard } from "@/components/elevate-status-card";
-import { preloadPhoto, decodedPhotos } from "@/lib/image-utils";
+import { decodedPhotos } from "@/lib/image-utils";
 import type { Profile, Interaction } from "@shared/schema";
 
 type IncomingOpen = Interaction & { profile: Profile };
@@ -203,7 +203,15 @@ function ProfileModal({
   }, []);
 
   const profile = open.profile;
-  const photos = profile.photos ?? [];
+
+  // Fetch photos lazily — shares the same TanStack Query cache key as LikeCard,
+  // so if the card already fetched them the modal gets the result instantly.
+  const { data: photosData } = useQuery<{ photos: string[] }>({
+    queryKey: ["/api/profiles", profile.userId, "photos"],
+    staleTime: 5 * 60 * 1000,
+  });
+  const photos = photosData?.photos ?? [];
+
   const signals = profile.signals ?? [];
   const greenFlags = profile.greenFlags ?? [];
   const conversationStarters = profile.conversationStarters ?? [];
@@ -512,6 +520,16 @@ function LikeCard({
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
+  // Lazy-load photos — same pattern as Discovery. Photos are stripped from the
+  // /api/who-liked-you batch response so that 50 profiles don't carry 7.5 MB of
+  // image data in a single call. Each card fetches its own photo independently.
+  const { data: photosData } = useQuery<{ photos: string[] }>({
+    queryKey: ["/api/profiles", open.profile.userId, "photos"],
+    staleTime: 5 * 60 * 1000,
+  });
+  const photo    = photosData?.photos?.[0];
+  const photoCount = photosData?.photos?.length ?? 0;
+
   const respond = useMutation({
     mutationFn: async (type: "open" | "close") => {
       try {
@@ -532,7 +550,7 @@ function LikeCard({
       queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
       queryClient.invalidateQueries({ queryKey: ["/api/match-count"] });
       if (data.matched) {
-        onMatch({ firstName: open.profile.firstName, photo: open.profile.photos?.[0] });
+        onMatch({ firstName: open.profile.firstName, photo });
       } else if (data.connectionLimitReached) {
         onConnectionFull();
       } else {
@@ -540,8 +558,6 @@ function LikeCard({
       }
     },
   });
-
-  const photo = open.profile.photos?.[0];
 
   return (
     <Card
@@ -579,12 +595,12 @@ function LikeCard({
         {/* Bottom gradient for text legibility */}
         <div className="absolute inset-x-0 bottom-0 h-28 bg-gradient-to-t from-black/75 via-black/30 to-transparent" />
         {/* Photo count hint */}
-        {(open.profile.photos?.length ?? 0) > 1 && (
+        {photoCount > 1 && (
           <div
             className="absolute top-3 right-3 px-2 py-0.5 rounded-full text-white text-[11px] font-medium"
             style={{ background: "rgba(0,0,0,0.4)", backdropFilter: "blur(4px)" }}
           >
-            {open.profile.photos!.length} photos
+            {photoCount} photos
           </div>
         )}
         {/* Name + age overlay */}
@@ -719,16 +735,6 @@ export default function LikesPage() {
     if (!connectionsFull) setShowFullMessage(false);
   }, [connectionsFull]);
 
-  // Preload the first 5 like card photos as soon as data arrives.
-  // This decodes each base64 image into the browser's bitmap cache so that
-  // when LikeCard renders it, the browser paints from cache (no decode lag).
-  useEffect(() => {
-    if (!likes) return;
-    likes.slice(0, 5).forEach(open => {
-      const photo = open.profile.photos?.[0];
-      if (photo) preloadPhoto(photo);
-    });
-  }, [likes]);
 
   if (isLikesError) {
     return (

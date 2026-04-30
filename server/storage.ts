@@ -1834,13 +1834,14 @@ export class SupabaseStorage implements IStorage {
     console.log(`[LIKES] incoming_opens_query: ${Date.now() - t1} ms | found: ${incomingOpens?.length ?? 0}`);
     if (!incomingOpens || incomingOpens.length === 0) return [];
 
-    // Batch-fetch profiles — uses LIKES_PROFILE_COLS which includes photos for the
-    // LikeCard and ProfileModal, but excludes unused elevate columns.
+    // Batch-fetch profiles — photos are stripped here (MATCH_PROFILE_COLS) and
+    // lazy-loaded per card via GET /api/profiles/:userId/photos so that one
+    // /api/who-liked-you call never carries 50 × 150 KB of base64 image strings.
     const fromUserIds = incomingOpens.map((o: any) => o.from_user_id);
     const t2 = Date.now();
     const { data: profileRows } = await this.sb
       .from("profiles")
-      .select(LIKES_PROFILE_COLS)
+      .select(MATCH_PROFILE_COLS)
       .in("user_id", fromUserIds);
     console.log(`[LIKES] profiles_batch: ${Date.now() - t2} ms | profiles: ${profileRows?.length ?? 0} | total: ${Date.now() - t0} ms`);
 
