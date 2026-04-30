@@ -1,0 +1,124 @@
+TASK:
+Optimise Lulou photo lazy-loading so avatars/photos appear fast without firing too many separate requests.
+
+CONTEXT:
+The app now correctly removes full photo arrays from list endpoints. Discovery, Likes, Connections, Matches, and Messages now lazy-load photos using `/api/profiles/:id/photos`.
+
+PROBLEM:
+Although payloads are smaller, the app may now fire many separate photo requests at once, especially on Connections/Messages/Likes. This can still make photos feel slow because each avatar waits for its own request.
+
+GOAL:
+Keep list endpoints lightweight, but make photo loading feel faster by batching and prefetching visible user photos intelligently.
+
+REQUIREMENTS:
+
+1. Audit current photo lazy-loading
+   Check all usages of:
+
+* `/api/profiles/:id/photos`
+* query keys like `["/api/profiles", userId, "photos"]`
+
+Identify:
+
+* How many photo requests fire on Connections initial load
+* How many fire on Likes initial load
+* How many fire on Messages initial load
+* Whether duplicate requests happen for the same user
+* Whether photos are fetched for offscreen users unnecessarily
+
+2. Add a batch photo endpoint if useful
+   If many separate requests are firing, add a lightweight endpoint:
+
+POST /api/profiles/photos/batch
+
+Input:
+{
+"userIds": ["id1", "id2", "id3"]
+}
+
+Output:
+{
+"id1": ["photoUrl1", "photoUrl2"],
+"id2": ["photoUrl1"],
+"id3": []
+}
+
+Rules:
+
+* Only return photos for requested user IDs
+* Do not return full profiles
+* Respect existing privacy/security rules
+* Keep response lightweight
+* Do not include anything except userId → photos
+
+3. Use batch prefetch for visible list pages
+   For Connections, Likes, and Messages:
+
+* After the main list data loads, collect visible user IDs
+* Batch fetch their photos once
+* Store results in TanStack Query cache using the existing per-user cache key:
+  ["/api/profiles", userId, "photos"]
+* This allows existing components to keep using their current per-user query without duplicate requests
+
+4. Do not batch everything
+
+* Only fetch first visible batch, such as first 10–20 users
+* Do not fetch every user if the list is long
+* Do not fetch photos for hidden/offscreen users immediately
+* Discovery should only preload current/next few cards, not entire pool
+
+5. Keep existing lazy fallback
+   If a component needs a user photo that was not prefetched:
+
+* Existing `/api/profiles/:id/photos` query should still work
+* No broken avatars
+* No blank image boxes
+
+6. Improve perceived speed
+
+* Show initials/avatar fallback instantly
+* Swap to photo when loaded
+* Avoid layout shift
+* Do not show Retry for avatar/photo loading unless there is an actual page-level data failure
+
+7. Preserve functionality
+
+* Do not reintroduce full photos into list endpoints
+* Do not break Discovery
+* Do not break Likes
+* Do not break Connections
+* Do not break Messages
+* Do not break Profile Modal
+* Do not break photo upload
+* Do not break Supabase Storage migration
+* Do not change database schema
+* Do not change RLS
+* Do not change Stripe/Elevate
+* Do not change WebRTC
+
+CONSTRAINTS:
+
+* Do not rewrite the app
+* Do not restructure the project
+* Make surgical performance fixes only
+* Use existing query cache patterns
+* Return full updated files, not snippets
+
+OUTPUT:
+
+1. Identify how many separate photo requests currently fire per page.
+2. Decide whether a batch photo endpoint is needed.
+3. If needed, add the batch endpoint.
+4. Update visible list pages to prefetch first visible photos in one batch.
+5. Keep existing per-user lazy photo queries as fallback.
+6. Return full updated files.
+7. Explain how this improves perceived image speed.
+8. Explain how to test in Network tab:
+
+   * Connections
+   * Likes
+   * Messages
+   * Discovery
+
+IMPORTANT:
+Do not undo the previous optimisation. List endpoints must stay lightweight. The fix is batching/prefetching photos intelligently, not putting full photo arrays back into list responses.
