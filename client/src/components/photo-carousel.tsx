@@ -1,5 +1,24 @@
-import { useState, useRef, useEffect, useLayoutEffect, useCallback, type ReactNode } from "react";
+import { useRef, useEffect, useLayoutEffect, useCallback, useState, type ReactNode } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
+
+/**
+ * Module-level decoded-bitmap cache.
+ * Tracks every base64/URL photo that this browser session has already decoded.
+ * Persists across component mounts so returning to the same profile is instant.
+ */
+const decodedPhotos = new Set<string>();
+
+/**
+ * Fire-and-forget preload: creates a temporary Image element so the browser
+ * decodes the photo into its bitmap cache in the background.  When an <img>
+ * element later renders with the same src it paints from cache with no decode lag.
+ */
+function preloadPhoto(src: string): void {
+  if (!src || decodedPhotos.has(src)) return;
+  const img = new Image();
+  img.onload = () => decodedPhotos.add(src);
+  img.src = src;
+}
 
 /**
  * Tactile photo carousel — photos physically follow the finger/mouse in real-time.
@@ -121,6 +140,14 @@ export function PhotoCarousel({
     }
     applyPositions(idx, 0, shouldAnimate); // false on first mount → no animation
   }, [idx, applyPositions]);
+
+  // Preload every photo in the array as soon as they arrive.
+  // Photos beyond ±1 are not yet rendered in the DOM — preloading them here
+  // gives the browser time to decode each base64 image in the background so
+  // swiping to the next/previous slide paints from the decoded bitmap cache.
+  useEffect(() => {
+    photos.forEach(preloadPhoto);
+  }, [photos]);
 
   // ── Drag / swipe via native event listeners ──────────────────────────────
   useEffect(() => {
@@ -284,7 +311,22 @@ export function PhotoCarousel({
               loading={i === dotIdx ? "eager" : "lazy"}
               decoding="async"
               draggable={false}
-              style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "center top" }}
+              style={{
+                width: "100%",
+                height: "100%",
+                objectFit: "cover",
+                objectPosition: "center top",
+                // Start fully visible if already in the decoded-bitmap cache,
+                // otherwise fade in once the browser finishes decoding.
+                opacity: decodedPhotos.has(photo) ? 1 : 0,
+                transition: "opacity 0.2s ease",
+              }}
+              onLoad={(e) => {
+                // Mark decoded globally so future mounts skip the fade
+                decodedPhotos.add(photo);
+                // Set opacity directly — avoids a React re-render/setState cycle
+                (e.currentTarget as HTMLImageElement).style.opacity = "1";
+              }}
               data-testid={`img-carousel-photo-${i}`}
             />
           )}
