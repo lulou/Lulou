@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback, useMemo, memo } from "react";
-import { usePerfTrace, isMobile, scheduleIdle } from "@/lib/perf";
+import { usePerfTrace, useRenderCount, isMobile, scheduleIdle } from "@/lib/perf";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -307,6 +307,7 @@ export default function Discover() {
   const queryClient = useQueryClient();
 
   // Dev-only page lifecycle instrumentation — no-op in production
+  useRenderCount("Discover");
   const { markDataReceived, markPageReady } = usePerfTrace("DISCOVER");
 
   // Track which profiles have been shown this session (local queue advancement)

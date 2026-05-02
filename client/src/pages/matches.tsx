@@ -16,7 +16,7 @@ import { useTypingIndicator } from "@/hooks/use-typing-indicator";
 import { Input } from "@/components/ui/input";
 import { MessageCircle, Send, Phone, Video, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, PhoneOff, Clock, Check, X, Sparkles, Calendar, Heart, PhoneForwarded, Moon, User, MapPin } from "lucide-react";
 import { LulouFlowerIcon, ProfileAvatar } from "@/components/app-layout";
-import { usePerfTrace, isMobile, scheduleIdle } from "@/lib/perf";
+import { usePerfTrace, useRenderCount, isMobile, scheduleIdle } from "@/lib/perf";
 import { broadcastCallSignal } from "@/hooks/use-call-signaling";
 import { PhotoCarousel } from "@/components/photo-carousel";
 import { EMPTY_PHOTOS } from "@/lib/image-utils";
@@ -2664,6 +2664,7 @@ const MatchCard = memo(function MatchCard({ match, unreadCount, userId, onOpen }
   userId: string | null;
   onOpen: (matchId: string) => void;
 }) {
+  useRenderCount("MatchCard");
   // Lazy-load avatar photo — photos are not included in /api/matches list response
   const { data: cardPhotosData } = useQuery<{ photos: string[] }>({
     queryKey: ["/api/profiles", match.profile.userId, "photos"],
@@ -2709,6 +2710,7 @@ export default function Matches() {
   const [expandedMatchId, setExpandedMatchId] = useState<string | null>(null);
 
   // Dev-only page lifecycle instrumentation — no-op in production
+  useRenderCount("MatchesPage");
   const { markDataReceived, markPageReady } = usePerfTrace("CONNECTIONS");
   // Stable handler — won't change across renders, so React.memo on MatchCard actually skips re-renders
   const handleMatchOpen = useCallback((matchId: string) => {
@@ -2777,7 +2779,10 @@ export default function Matches() {
     queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
   }, [queryClient]);
 
-  const { unreadCounts, markRead } = useUnreadCounts(matchIds, user?.id || null, expandedMatchId, handleNewBackgroundMessage);
+  // `isActive` gates channel creation — when the Connections tab is hidden
+  // (display:none via PersistentTabs) all unread WebSocket channels are torn
+  // down.  They are rebuilt the moment the user taps back to this tab.
+  const { unreadCounts, markRead } = useUnreadCounts(matchIds, user?.id || null, expandedMatchId, handleNewBackgroundMessage, isActive);
 
 
 

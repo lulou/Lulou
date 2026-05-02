@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { usePerfTrace, isMobile, scheduleIdle } from "@/lib/perf";
+import { usePerfTrace, useRenderCount, isMobile, scheduleIdle } from "@/lib/perf";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -692,6 +692,7 @@ export default function LikesPage() {
   const [showElevate, setShowElevate] = useState(false);
   const [selectedLike, setSelectedLike] = useState<IncomingOpen | null>(null);
   const isActive = useTabActive();
+  useRenderCount("LikesPage");
 
   // Progressive rendering — mount only the first N LikeCards immediately.
   // Each LikeCard has its own useQuery hook that issues a photo fetch; mounting

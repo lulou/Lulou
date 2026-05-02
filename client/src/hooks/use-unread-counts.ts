@@ -3,14 +3,38 @@ import { supabase } from "@/lib/supabase";
 
 type UnreadState = Record<string, number>;
 
+/**
+ * Track unread message counts across all matches using Supabase Realtime.
+ *
+ * ## Channel strategy (broadcast-only)
+ * Previously this hook opened TWO channels per match:
+ *   - `unread-pg:${matchId}`  — postgres_changes (WAL)
+ *   - `chat:${matchId}`       — broadcast
+ *
+ * For a user with 8 connections that created 16 WebSocket connections to
+ * Supabase Realtime.  Each channel carries a 30-second heartbeat timer,
+ * so the iPhone CPU was being woken ~16 times per 30-second window just
+ * for this hook — before counting call-signaling channels.
+ *
+ * Fix: broadcast-only.  The server already sends a broadcast payload to
+ * `chat:${matchId}` on every message insert (~50 ms latency).
+ * postgres_changes is a fallback (~300 ms) that adds no user-visible
+ * benefit here.  Removing it halves the channel count: 2N → N.
+ *
+ * ## Tab gating (`enabled` param)
+ * Pass `isActive` from TabActiveContext.  When the Connections tab is
+ * hidden (display:none via PersistentTabs) the effect cleans up all
+ * channels immediately.  They are rebuilt when the tab becomes visible.
+ * Net result: 0 unread channels while user is on any other tab.
+ */
 export function useUnreadCounts(
   matchIds: string[],
   userId: string | null,
   activeMatchId: string | null,
-  onNewBackgroundMessage?: (matchId: string) => void
+  onNewBackgroundMessage?: (matchId: string) => void,
+  enabled = true,
 ) {
   const [unreadCounts, setUnreadCounts] = useState<UnreadState>({});
-  const pgChannelsRef = useRef<Map<string, ReturnType<typeof supabase.channel>>>(new Map());
   const bcChannelsRef = useRef<Map<string, ReturnType<typeof supabase.channel>>>(new Map());
   const activeMatchIdRef = useRef(activeMatchId);
   const onNewBackgroundMessageRef = useRef(onNewBackgroundMessage);
@@ -36,11 +60,11 @@ export function useUnreadCounts(
   const handleIncomingMessage = useCallback((matchId: string, senderId: string, msgId?: string) => {
     if (senderId === userId) return;
 
-    // Deduplicate — broadcast and postgres_changes may both fire for the same message
+    // Deduplicate — in theory broadcast fires once, but guard against retries
     if (msgId) {
       if (seenMsgIdsRef.current.has(msgId)) return;
       seenMsgIdsRef.current.add(msgId);
-      // Keep the seen-set bounded
+      // Keep the seen-set bounded to avoid memory leak in long sessions
       if (seenMsgIdsRef.current.size > 500) {
         const first = seenMsgIdsRef.current.values().next().value;
         if (first) seenMsgIdsRef.current.delete(first);
@@ -54,19 +78,20 @@ export function useUnreadCounts(
   }, [userId]);
 
   useEffect(() => {
-    if (!userId || matchIds.length === 0) return;
-
-    const pgChannels = pgChannelsRef.current;
     const bcChannels = bcChannelsRef.current;
+
+    if (!enabled || !userId || matchIds.length === 0) {
+      // Tear down all channels when the owning tab becomes hidden or user logs out.
+      // This is the key performance gate: 0 open WebSocket channels while the
+      // Connections tab is not in the foreground.
+      for (const [, ch] of bcChannels) supabase.removeChannel(ch);
+      bcChannels.clear();
+      return;
+    }
+
     const activeIds = new Set(matchIds);
 
-    // Remove channels for matches no longer in the list
-    for (const [mid, ch] of pgChannels) {
-      if (!activeIds.has(mid)) {
-        supabase.removeChannel(ch);
-        pgChannels.delete(mid);
-      }
-    }
+    // Remove channels for matches that left the list
     for (const [mid, ch] of bcChannels) {
       if (!activeIds.has(mid)) {
         supabase.removeChannel(ch);
@@ -74,51 +99,27 @@ export function useUnreadCounts(
       }
     }
 
+    // Open one broadcast channel per match (server pushes on every insert)
     for (const matchId of matchIds) {
-      // ── Channel A: postgres_changes (WAL-based, now enabled on Supabase) ──
-      if (!pgChannels.has(matchId)) {
-        const ch = supabase
-          .channel(`unread-pg:${matchId}`)
-          .on(
-            "postgres_changes" as any,
-            {
-              event: "INSERT",
-              schema: "public",
-              table: "messages",
-              filter: `match_id=eq.${matchId}`,
-            },
-            (payload: any) => {
-              const row = payload.new;
-              if (!row) return;
-              handleIncomingMessage(matchId, row.sender_id, row.id);
-            }
-          )
-          .subscribe();
-        pgChannels.set(matchId, ch);
-      }
-
-      // ── Channel B: broadcast (server pushes to chat:matchId on every insert) ──
-      if (!bcChannels.has(matchId)) {
-        const ch = supabase
-          .channel(`chat:${matchId}`)
-          .on("broadcast", { event: "new-message" }, ({ payload }) => {
-            if (!payload) return;
-            const senderId = payload.senderId ?? payload.sender_id;
-            const msgId = payload.id;
-            handleIncomingMessage(matchId, senderId, msgId);
-          })
-          .subscribe();
-        bcChannels.set(matchId, ch);
-      }
+      if (bcChannels.has(matchId)) continue;
+      const ch = supabase
+        .channel(`chat:${matchId}`)
+        .on("broadcast", { event: "new-message" }, ({ payload }) => {
+          if (!payload) return;
+          const senderId = payload.senderId ?? payload.sender_id;
+          const msgId = payload.id;
+          handleIncomingMessage(matchId, senderId, msgId);
+        })
+        .subscribe();
+      bcChannels.set(matchId, ch);
     }
 
     return () => {
-      for (const [, ch] of pgChannels) supabase.removeChannel(ch);
       for (const [, ch] of bcChannels) supabase.removeChannel(ch);
-      pgChannels.clear();
       bcChannels.clear();
     };
-  }, [matchIds.join(","), userId, handleIncomingMessage]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [matchIds.join(","), userId, enabled, handleIncomingMessage]);
 
   return { unreadCounts, markRead };
 }

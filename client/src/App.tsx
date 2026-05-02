@@ -11,6 +11,9 @@ import AppLayout from "@/components/app-layout";
 
 // Route-level code splitting — each page downloads only when first needed.
 // Landing, AppLayout, and the call overlays stay eager (needed on first render).
+const PerfOverlayLazy = import.meta.env.DEV
+  ? lazy(() => import("@/components/perf-overlay").then(m => ({ default: m.PerfOverlay })))
+  : null;
 const Onboarding       = lazy(() => import("@/pages/onboarding"));
 const Discover         = lazy(() => import("@/pages/discover"));
 const Matches          = lazy(() => import("@/pages/matches"));
@@ -989,6 +992,11 @@ function App() {
       <TooltipProvider>
         <Toaster />
         <AppContent />
+        {import.meta.env.DEV && PerfOverlayLazy && (
+          <Suspense fallback={null}>
+            <PerfOverlayLazy />
+          </Suspense>
+        )}
       </TooltipProvider>
     </QueryClientProvider>
   );

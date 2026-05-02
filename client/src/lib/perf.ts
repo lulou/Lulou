@@ -239,12 +239,64 @@ export function usePerfTrace(page: string) {
   const markPageReady = useCallback((data?: Record<string, unknown>) => {
     if (!isDev || readyFired.current) return;
     readyFired.current = true;
-    perfMark(`${page}/PAGE_READY`, {
-      sinceMount: Math.round(performance.now() - mountedAt.current),
-      ...data,
-    });
+    const sinceMount = Math.round(performance.now() - mountedAt.current);
+    perfMark(`${page}/PAGE_READY`, { sinceMount, ...data });
+    // Fire a full snapshot alongside every PAGE_READY mark so we get DOM count,
+    // memory, and network info at the exact moment each page becomes interactive.
+    reportMobileSnapshot(page, { sinceMount, ...data });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return { markDataReceived, markImageReady, markPageReady };
+}
+
+// ── Render counter ────────────────────────────────────────────────────────────
+/**
+ * Log how many times a component has rendered since it mounted — dev only.
+ * Emits a warning at 6 and 10 renders (suggests a dependency loop).
+ * Always calls hooks so React's rules-of-hooks are satisfied; the `isDev`
+ * guard makes the logging dead-code-eliminated in production by Vite.
+ *
+ * @example  useRenderCount("MatchCard")
+ */
+export function useRenderCount(name: string): void {
+  const count = useRef(0);
+  count.current += 1;
+  const c = count.current;
+  useEffect(() => {
+    if (!isDev) return;
+    if (c === 1) return; // first render is expected
+    console.log(`[PERF] RENDER — ${name} #${c}`, { t: rel() });
+    if (c === 6)  console.warn(`[PERF] RENDER_6x  — ${name} — check useEffect/useMemo deps`, { t: rel() });
+    if (c === 10) console.warn(`[PERF] RENDER_10x — ${name} — likely dependency loop`, { t: rel() });
+  });
+}
+
+// ── Mobile snapshot ───────────────────────────────────────────────────────────
+/**
+ * Log a comprehensive point-in-time health snapshot.
+ * Captures DOM node count, JS heap size (Chrome/Android only), network RTT.
+ * Call on PAGE_READY to establish a baseline for each page.
+ * Emits a DOM node warning when count > 1500 (scroll jank threshold on iPhone).
+ */
+export function reportMobileSnapshot(
+  page: string,
+  extra?: Record<string, unknown>,
+): void {
+  if (!isDev) return;
+  const dom = document.querySelectorAll("*").length;
+  const mem = (performance as any).memory;
+  const nav = navigator as any;
+  console.log(`[PERF] SNAPSHOT/${page}`, {
+    t: rel(),
+    domNodes: dom,
+    memUsedMb: mem ? Math.round(mem.usedJSHeapSize / 1_048_576) : "n/a",
+    memLimitMb: mem ? Math.round(mem.jsHeapSizeLimit / 1_048_576) : "n/a",
+    net: nav.connection?.effectiveType ?? "?",
+    rtt: nav.connection?.rtt ?? "?",
+    ...extra,
+  });
+  if (dom > 1500) {
+    console.warn(`[PERF] DOM_NODE_WARNING — ${dom} nodes on ${page} (threshold: 1500)`);
+  }
 }

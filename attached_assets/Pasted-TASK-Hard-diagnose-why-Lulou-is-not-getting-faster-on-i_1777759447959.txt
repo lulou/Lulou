@@ -1,0 +1,162 @@
+TASK:
+Hard-diagnose why Lulou is not getting faster on iPhone and identify the true mobile bottleneck.
+
+CONTEXT:
+Multiple optimisations have already been applied:
+
+* base64 photos migrated to Supabase Storage
+* image batch prefetching
+* reduced page payloads
+* removed heavy logs
+* mobile-specific prefetch limits
+* reduced mobile rendering work
+
+However, iPhone performance is still not improving enough. Desktop/laptop is acceptable, but iPhone remains slow.
+
+PROBLEM:
+We may have reached the limit of small optimisations. The remaining issue may be deeper:
+
+* JavaScript bundle too large
+* React render cost too high
+* expensive CSS effects
+* too many mounted components
+* slow image decode on iPhone
+* slow hosting/API response on mobile network
+* Replit deployment latency
+* unnecessary subscriptions/polling
+* no real virtualization
+* Safari/iOS rendering bottlenecks
+
+GOAL:
+Stop applying random fixes. Prove the exact bottleneck on iPhone.
+
+REQUIREMENTS:
+
+1. Add a mobile performance report screen/log
+   Create a dev-only mobile performance report that measures:
+
+* app startup time
+* route transition time
+* first content render
+* page ready time
+* API request duration
+* image batch duration
+* first image render duration
+* number of DOM nodes
+* number of mounted list/card components
+* number of active React Query requests
+* number of active timers/intervals if possible
+* JS bundle size if available
+
+2. Test these pages:
+
+* Discovery
+* Connections
+* Likes
+* Messages
+* Profile
+
+3. Add hard thresholds
+   Flag warnings if:
+
+* route ready time > 300ms after cached data
+* API request > 500ms
+* image decode > 100ms
+* DOM nodes > 1500
+* mounted list items > 10 on mobile first render
+* duplicate requests happen within 2 seconds
+* page renders more than 3 times on initial mount
+
+4. Audit CSS mobile cost
+   Search for expensive mobile CSS:
+
+* backdrop-filter
+* blur
+* large box-shadow
+* fixed backgrounds
+* animated gradients
+* excessive nested rounded image clipping
+* layout animations
+* transitions on all properties
+
+On iPhone, remove/reduce expensive effects.
+
+5. Audit bundle/app startup
+   Check:
+
+* large imports
+* unused heavy libraries
+* icons imported in bulk
+* animation libraries loaded globally
+* unnecessary components loaded on first app mount
+* whether code splitting/lazy loading is needed for heavy pages
+
+6. Audit render count
+   Add dev-only render counters for:
+
+* App layout
+* Discovery
+* Connections
+* Likes
+* Messages
+* Profile
+* Profile cards
+* Photo carousel
+* Avatar components
+
+Identify components rendering repeatedly without reason.
+
+7. Audit active queries/subscriptions
+   Confirm:
+
+* only current page has active heavy queries
+* offscreen pages are not polling
+* realtime subscriptions are cleaned up
+* inactive tabs do not poll
+* individual photo queries are not firing after batch prefetch
+
+8. Do NOT optimise yet
+   First produce a report:
+
+* what is slow
+* exact measured times
+* exact component counts
+* exact duplicated requests
+* exact expensive CSS/components
+
+Only after the report, make the smallest fix for the biggest proven bottleneck.
+
+9. Preserve functionality
+   Do not break:
+
+* auth
+* routing
+* Discovery
+* Connections
+* Likes
+* Messages
+* Profile
+* photo uploads
+* Stripe/Elevate
+* WebRTC
+
+CONSTRAINTS:
+
+* Do not rewrite the app blindly
+* Do not change database schema
+* Do not change RLS
+* No new packages unless absolutely necessary
+* Dev-only instrumentation must not run in production
+* Return full updated files
+
+OUTPUT:
+
+1. Add mobile performance instrumentation.
+2. Produce a clear bottleneck report.
+3. Identify the single biggest remaining iPhone bottleneck.
+4. Only then apply the smallest safe fix.
+5. Explain how to test on iPhone.
+6. Explain what logs/results I should send back.
+
+IMPORTANT:
+If iPhone speed is not improving after many optimisations, the next step is not another guess. The next step is proof. Measure the real iPhone bottleneck first.
