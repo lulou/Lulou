@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { usePerfTrace, isMobile } from "@/lib/perf";
+import { usePerfTrace, isMobile, scheduleIdle } from "@/lib/perf";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -692,6 +692,12 @@ export default function LikesPage() {
   const [showElevate, setShowElevate] = useState(false);
   const [selectedLike, setSelectedLike] = useState<IncomingOpen | null>(null);
   const isActive = useTabActive();
+
+  // Progressive rendering — mount only the first N LikeCards immediately.
+  // Each LikeCard has its own useQuery hook that issues a photo fetch; mounting
+  // all at once spikes both the React reconciler cost and the network queue.
+  // Remaining cards are revealed during idle after the first frame commits.
+  const [visibleCount, setVisibleCount] = useState<number>(isMobile ? 5 : Infinity);
   const { toast } = useToast();
 
   // Dev-only page lifecycle instrumentation — no-op in production
@@ -702,7 +708,6 @@ export default function LikesPage() {
     if (window.location.pathname !== "/likes") return;
     const params = new URLSearchParams(window.location.search);
     if (params.get("checkout") === "cancelled") {
-      console.log("[ELEVATE] Stripe checkout was cancelled — user returned to Likes");
       toast({
         title: "Checkout cancelled",
         description: "No payment was made. You can boost your profile whenever you're ready.",
@@ -718,14 +723,22 @@ export default function LikesPage() {
   });
 
   // Batch-prefetch photos on list arrival.
-  // Mobile limit: 5 — avoids a decode/memory spike on iPhone at page load.
-  // Desktop limit: 10 — more headroom available.
+  // Mobile limit: 3 — just enough for the first visible items; decode pressure
+  //   from 5+ simultaneous decode jobs at page load slows first-frame speed.
+  // Desktop limit: 10 — more cores and RAM available.
   useEffect(() => {
     if (!likes || likes.length === 0) return;
-    const limit = isMobile ? 5 : 10;
+    const limit = isMobile ? 3 : 10;
     const ids = likes.slice(0, limit).map(l => l.profile?.userId).filter(Boolean) as string[];
     if (ids.length > 0) batchPrefetchPhotos(ids);
   }, [likes]);
+
+  // After the list arrives, reveal remaining cards during idle time so the
+  // initial render only processes the first 5 items on mobile.
+  useEffect(() => {
+    if (!isMobile || !likes || likes.length <= 5) return;
+    scheduleIdle(() => setVisibleCount(Infinity));
+  }, [likes]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Perf instrumentation — dev-only, no-op in production
   useEffect(() => {
@@ -883,7 +896,7 @@ export default function LikesPage() {
         )}
 
         <div className="space-y-3">
-          {likesList.map(open => (
+          {likesList.slice(0, visibleCount).map(open => (
             <LikeCard
               key={open.id}
               open={open}

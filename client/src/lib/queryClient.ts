@@ -1,7 +1,7 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
 import { supabase } from "./supabase";
 import { preloadPhoto } from "./image-utils";
-import { trackRequest, perfStart, perfMark } from "./perf";
+import { trackRequest, perfStart, perfMark, isMobile, scheduleIdle } from "./perf";
 
 // In-memory auth token cache — avoids getSession() round-trip on every request
 let _cachedToken: string | null = null;
@@ -214,9 +214,13 @@ export async function batchPrefetchPhotos(userIds: string[]): Promise<void> {
 
     for (const [userId, photos] of Object.entries(data)) {
       queryClient.setQueryData(["/api/profiles", userId, "photos"], { photos });
-      // Kick off browser image decode immediately so cards find the bitmap
-      // already in the decoded-bitmap cache and render at opacity:1 with no fade.
-      if (photos[0]) preloadPhoto(photos[0]);
+      // Kick off image decode. On mobile, defer to idle so the decode job
+      // doesn't compete with the first React render on the main thread.
+      // On desktop, fire immediately — plenty of cores available.
+      if (photos[0]) {
+        if (isMobile) scheduleIdle(() => preloadPhoto(photos[0]));
+        else preloadPhoto(photos[0]);
+      }
     }
     endBatch({ returned: Object.keys(data).length, payloadKb });
   } catch {

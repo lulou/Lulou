@@ -35,6 +35,34 @@ export const isMobile: boolean =
   typeof navigator !== "undefined" &&
   /iPhone|iPad|iPod|Android|Mobile|webOS/i.test(navigator.userAgent);
 
+/** True when running on iPhone/iPad specifically (excludes Android). */
+export const isIOS: boolean =
+  typeof navigator !== "undefined" &&
+  /iPhone|iPad|iPod/.test(navigator.userAgent);
+
+/**
+ * Schedule a low-priority callback after the browser's first idle frame.
+ *
+ * Uses requestIdleCallback when available (Chrome, Safari 16.4+).
+ * Falls back to setTimeout(100) on older browsers.
+ *
+ * Safe in production — no logging, just scheduling. Used to defer
+ * non-critical work (avatar decoding, off-screen list expansion) until
+ * after the critical first render completes.
+ *
+ * @param timeout  Max ms before the callback is forced regardless of
+ *                 idle state. Default 1000 ms so work doesn't stall if
+ *                 the user keeps scrolling.
+ */
+export function scheduleIdle(cb: () => void, timeout = 1000): void {
+  if (typeof window === "undefined") { cb(); return; }
+  if ("requestIdleCallback" in window) {
+    (window as any).requestIdleCallback(cb, { timeout });
+  } else {
+    setTimeout(cb, 100);
+  }
+}
+
 /**
  * Log mobile device info once per session — dev only.
  * Reports UA, viewport, DPR, CPU cores, memory, and network type so

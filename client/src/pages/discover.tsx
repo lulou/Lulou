@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback, useMemo, memo } from "react";
-import { usePerfTrace, isMobile } from "@/lib/perf";
+import { usePerfTrace, isMobile, scheduleIdle } from "@/lib/perf";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -31,9 +31,15 @@ const PhotoBubbles = memo(function PhotoBubbles({ photos, name: _name, onOpen, i
         className="w-full"
         style={{
           height: PHOTO_HEIGHT,
-          background: "linear-gradient(90deg, hsl(var(--muted)) 25%, hsl(var(--muted-foreground)/0.08) 50%, hsl(var(--muted)) 75%)",
-          backgroundSize: "200% 100%",
-          animation: "shimmer 1.4s infinite linear",
+          // Mobile: static muted colour — the shimmer keyframe scrolls
+          // background-position every frame, forcing a GPU repaint continuously.
+          // index.css overrides the keyframe to a no-op on mobile, but we also
+          // skip the gradient entirely so there's nothing to animate.
+          background: isMobile
+            ? "hsl(var(--muted))"
+            : "linear-gradient(90deg, hsl(var(--muted)) 25%, hsl(var(--muted-foreground)/0.08) 50%, hsl(var(--muted)) 75%)",
+          backgroundSize: isMobile ? undefined : "200% 100%",
+          animation: isMobile ? undefined : "shimmer 1.4s infinite linear",
         }}
         data-testid="photo-loading-skeleton"
       />
@@ -390,15 +396,27 @@ export default function Discover() {
     staleTime: 5 * 60 * 1000,
   });
 
-  // Batch-prefetch photos for the current card and the next profile(s).
-  // On mobile: current + next 1 only (2 total) — avoids saturating the mobile
-  // CPU/network with decode work for cards the user hasn't reached yet.
-  // On desktop: current + next 2 (3 total) — more headroom available.
-  // batchPrefetchPhotos skips profiles with fresh cache so this is idempotent.
+  // Batch-prefetch photos for the current card (and next on desktop).
+  // Mobile: fetch only the current card immediately so the network + decode
+  //   work doesn't compete with the first React paint. The next card is queued
+  //   via scheduleIdle — it fires once the first frame is committed.
+  // Desktop: prefetch current + next 2 eagerly (3 total) — more cores/memory.
+  // batchPrefetchPhotos is idempotent: skips IDs with fresh cache so it's
+  // safe to call on every visibleProfiles change.
   useEffect(() => {
-    const limit = isMobile ? 2 : 3;
-    const ids = visibleProfiles.slice(0, limit).map(p => p.userId).filter(Boolean);
-    if (ids.length > 0) batchPrefetchPhotos(ids);
+    if (!visibleProfiles.length) return;
+    const immediateIds = visibleProfiles
+      .slice(0, isMobile ? 1 : 3)
+      .map(p => p.userId)
+      .filter(Boolean);
+    if (immediateIds.length > 0) batchPrefetchPhotos(immediateIds);
+    // Defer next card on mobile — fire after the current render commits
+    if (isMobile && visibleProfiles.length > 1) {
+      scheduleIdle(() => {
+        const deferred = visibleProfiles.slice(1, 2).map(p => p.userId).filter(Boolean);
+        if (deferred.length > 0) batchPrefetchPhotos(deferred);
+      });
+    }
   }, [visibleProfiles]);
 
   // Perf: PAGE_READY fires once both the profile list AND its first photo are loaded

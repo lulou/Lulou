@@ -23,7 +23,14 @@
  */
 
 const MAX_DECODED = 200;   // keep at most 200 decoded-photo fingerprints
-const MAX_LOADING = 50;    // never allow more than 50 concurrent preloads
+// On mobile, cap concurrent preloads tightly. Each new Image() starts a
+// network request AND queues a decode job. Flooding the queue on an A-series
+// chip (limited cores, shared CPU/GPU RAM) causes decode pressure and
+// main-thread jank during the first scroll. On desktop, 50 is fine.
+const _isMobileImg =
+  typeof navigator !== "undefined" &&
+  /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+const MAX_LOADING = _isMobileImg ? 5 : 50;
 
 /** Internal FIFO set of fingerprints for fully-decoded photos. */
 const DECODED_SET = new Set<string>();

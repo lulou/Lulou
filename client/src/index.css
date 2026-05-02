@@ -38,6 +38,14 @@
   nav {
     background-color: hsl(var(--background)) !important;
   }
+  /* Shimmer keyframe scrolls background-position on every frame, forcing a
+     GPU repaint cycle even when the element is off-screen. Override to a
+     no-op so the animation runs but doesn't move anything. The component
+     renders a static muted background instead (see discover.tsx). */
+  @keyframes shimmer {
+    from { background-position: 200% 0; }
+    to   { background-position: 200% 0; }
+  }
 }
 
 /* LIGHT MODE - Lulou: Warm Rose-Blush, Botanical, Romantic */

@@ -1,0 +1,117 @@
+TASK:
+Implement iPhone emergency performance mode for Lulou.
+
+CONTEXT:
+Lulou is acceptable on laptop but still not quick enough on iPhone. Previous optimisations improved speed but mobile still feels too slow. We now need aggressive mobile-specific reductions, not more generic optimisation.
+
+PROBLEM:
+iPhone likely cannot keep up with current render/image/preload workload. The app may still be doing too much above the fold: too many photos, too many cards/items, too many shadows/animations, too much JS, or too many queries at once.
+
+GOAL:
+Make iPhone feel fast by reducing the first-screen workload as much as possible.
+
+REQUIREMENTS:
+
+1. Detect mobile/iPhone
+   Add a simple helper:
+
+* isMobile
+* isIOS
+* isLowPowerMobile if useful
+
+Use it to apply smaller limits only on mobile.
+
+2. Reduce mobile prefetch limits
+   On iPhone/mobile:
+
+* Discovery: preload current photo + next 1 only
+* Connections: prefetch first 3 avatars only
+* Likes: prefetch first 3 avatars only
+* Messages: prefetch first 3 avatars only
+* Do not batch 10–20 photos on mobile
+
+Desktop can keep larger limits.
+
+3. Reduce mobile rendered item counts
+   On iPhone/mobile:
+
+* Discovery: mount only current card + next card
+* Connections: initially render first 5 items, then reveal more after idle/scroll
+* Likes: initially render first 5 items, then reveal more after idle/scroll
+* Messages: initially render first 5 conversations, then reveal more after idle/scroll
+
+4. Use requestIdleCallback fallback
+   After first render, load more items/photos during idle time:
+
+* use requestIdleCallback if available
+* fallback to setTimeout
+* do not block first paint
+
+5. Reduce mobile visual cost
+   On iPhone/mobile:
+
+* remove or reduce heavy blur/backdrop-filter
+* reduce large box-shadows
+* reduce expensive gradients if present
+* avoid animated layout properties
+* use transform/opacity only
+* disable non-essential entrance animations
+
+6. Image priority rules
+   On mobile:
+
+* first visible image: eager
+* everything else: lazy
+* decoding="async"
+* do not render image until URL is ready
+* show fixed-size placeholder to prevent layout shift
+
+7. Stop mobile duplicate work
+   Ensure:
+
+* no duplicate photo batch requests
+* no per-card photo fetch if batch cache already exists
+* no repeated preloads for same URL
+* no refetch on navigation if cached data is fresh
+
+8. Production check
+   Confirm published/mobile build:
+
+* no dev perf logs
+* no console spam
+* no StrictMode double effects in production
+* no debug overlays
+* no large source maps loaded by users
+
+9. Preserve functionality
+
+* Do not break desktop
+* Do not break auth/routing
+* Do not break Discovery
+* Do not break Connections
+* Do not break Likes
+* Do not break Messages
+* Do not break Profile
+* Do not break payments/calls
+
+CONSTRAINTS:
+
+* Do not rewrite the app
+* Do not change database schema
+* Do not change RLS
+* No new packages unless essential
+* Make focused mobile-specific changes
+* Return full updated files
+
+OUTPUT:
+
+1. Identify what iPhone was doing too much of.
+2. Add mobile detection.
+3. Apply smaller mobile render/prefetch limits.
+4. Defer non-critical work until idle.
+5. Reduce heavy mobile visual effects.
+6. Return full updated files.
+7. Explain how to test on iPhone.
+
+IMPORTANT:
+Prioritise perceived speed over loading everything immediately. On iPhone, first screen must appear fast. Everything else can load after idle.

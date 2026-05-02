@@ -16,7 +16,7 @@ import { useTypingIndicator } from "@/hooks/use-typing-indicator";
 import { Input } from "@/components/ui/input";
 import { MessageCircle, Send, Phone, Video, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, PhoneOff, Clock, Check, X, Sparkles, Calendar, Heart, PhoneForwarded, Moon, User, MapPin } from "lucide-react";
 import { LulouFlowerIcon, ProfileAvatar } from "@/components/app-layout";
-import { usePerfTrace, isMobile } from "@/lib/perf";
+import { usePerfTrace, isMobile, scheduleIdle } from "@/lib/perf";
 import { broadcastCallSignal } from "@/hooks/use-call-signaling";
 import { PhotoCarousel } from "@/components/photo-carousel";
 import { EMPTY_PHOTOS } from "@/lib/image-utils";
@@ -2726,14 +2726,26 @@ export default function Matches() {
   });
 
   // Batch-prefetch avatars on list arrival.
-  // Mobile limit: 5 (avoids decode CPU/memory spike on iPhone at page load).
-  // Desktop limit: 10 (more headroom available).
+  // Mobile limit: 3 — just enough for the first visible items; decode pressure
+  //   from 5+ simultaneous decode jobs at page load degrades first-frame speed.
+  // Desktop limit: 10 — more cores and RAM available.
   useEffect(() => {
     if (!matches || matches.length === 0) return;
-    const limit = isMobile ? 5 : 10;
+    const limit = isMobile ? 3 : 10;
     const ids = matches.slice(0, limit).map(m => m.profile?.userId).filter(Boolean) as string[];
     if (ids.length > 0) batchPrefetchPhotos(ids);
   }, [matches]);
+
+  // Progressive rendering — mount only the first N cards immediately so the
+  // page header and top items appear at first paint without waiting for all
+  // MatchCard hooks to initialise at once (each card has its own useQuery hook).
+  // After the list data arrives, scheduleIdle expands to the full list during
+  // the browser's next idle window — imperceptible to the user.
+  const [visibleCount, setVisibleCount] = useState<number>(isMobile ? 5 : Infinity);
+  useEffect(() => {
+    if (!isMobile || !matches || matches.length <= 5) return;
+    scheduleIdle(() => setVisibleCount(Infinity));
+  }, [matches]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Perf instrumentation — dev-only, no-op in production
   useEffect(() => {
@@ -2762,7 +2774,6 @@ export default function Matches() {
 
 
   const handleNewBackgroundMessage = useCallback((matchId: string) => {
-    console.log("[CHAT] BACKGROUND_MESSAGE_RECEIVED_INVALIDATING", { matchId });
     queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
   }, [queryClient]);
 
@@ -2851,7 +2862,6 @@ export default function Matches() {
   const selectedMatch = expandedMatchId ? matches?.find(m => m.id === expandedMatchId) : null;
 
   if (selectedMatch) {
-    console.log("[CHAT] CHAT_THREAD_FOCUSED", { matchId: selectedMatch.id, profileName: selectedMatch.profile.firstName });
     return (
       <div className="fixed inset-0 z-50 bg-background flex flex-col" data-testid="chat-focused-view">
         <MatchChat
@@ -2961,7 +2971,7 @@ export default function Matches() {
                   {activeChats.length > 0 ? "All your connections have active chats." : "No new connections yet."}
                 </p>
               ) : (
-                newConnections.map(match => (
+                newConnections.slice(0, visibleCount).map(match => (
                   <MatchCard
                     key={match.id}
                     match={match}
@@ -2981,7 +2991,7 @@ export default function Matches() {
                   No active chats yet. Open a new connection to start talking.
                 </p>
               ) : (
-                activeChats.map(match => (
+                activeChats.slice(0, visibleCount).map(match => (
                   <MatchCard
                     key={match.id}
                     match={match}
