@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { usePerfTrace } from "@/lib/perf";
+import { usePerfTrace, isMobile } from "@/lib/perf";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -717,12 +717,13 @@ export default function LikesPage() {
     refetchInterval: isActive ? 15000 : false,
   });
 
-  // Batch-prefetch photos for the first 10 visible likes the moment the list
-  // arrives.  Converts N individual card photo requests into a single round-trip
-  // so avatars appear all at once rather than trickling in one by one.
+  // Batch-prefetch photos on list arrival.
+  // Mobile limit: 5 — avoids a decode/memory spike on iPhone at page load.
+  // Desktop limit: 10 — more headroom available.
   useEffect(() => {
     if (!likes || likes.length === 0) return;
-    const ids = likes.slice(0, 10).map(l => l.profile?.userId).filter(Boolean) as string[];
+    const limit = isMobile ? 5 : 10;
+    const ids = likes.slice(0, limit).map(l => l.profile?.userId).filter(Boolean) as string[];
     if (ids.length > 0) batchPrefetchPhotos(ids);
   }, [likes]);
 

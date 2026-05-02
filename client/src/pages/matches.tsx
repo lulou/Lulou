@@ -16,7 +16,7 @@ import { useTypingIndicator } from "@/hooks/use-typing-indicator";
 import { Input } from "@/components/ui/input";
 import { MessageCircle, Send, Phone, Video, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, PhoneOff, Clock, Check, X, Sparkles, Calendar, Heart, PhoneForwarded, Moon, User, MapPin } from "lucide-react";
 import { LulouFlowerIcon, ProfileAvatar } from "@/components/app-layout";
-import { usePerfTrace } from "@/lib/perf";
+import { usePerfTrace, isMobile } from "@/lib/perf";
 import { broadcastCallSignal } from "@/hooks/use-call-signaling";
 import { PhotoCarousel } from "@/components/photo-carousel";
 import { EMPTY_PHOTOS } from "@/lib/image-utils";
@@ -2626,7 +2626,13 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
         >
           <div
             className="absolute inset-0"
-            style={{ background: "rgba(0,0,0,0.48)", backdropFilter: "blur(4px)", WebkitBackdropFilter: "blur(4px)" }}
+            style={{
+              background: "rgba(0,0,0,0.48)",
+              // Skip backdrop-blur on mobile — forces full-screen GPU rasterisation
+              // on every frame, severely degrading scroll/animation on iPhone.
+              backdropFilter: isMobile ? undefined : "blur(4px)",
+              WebkitBackdropFilter: isMobile ? undefined : "blur(4px)",
+            }}
             onClick={() => setShowProfilePanel(false)}
           />
           <div
@@ -2708,14 +2714,6 @@ export default function Matches() {
   const handleMatchOpen = useCallback((matchId: string) => {
     setExpandedMatchId(matchId);
   }, []);
-  // Perf: log first render time
-  const _mountRef = useRef(true);
-  useEffect(() => {
-    if (_mountRef.current) {
-      _mountRef.current = false;
-      console.log("[PERF] MATCHES_FIRST_RENDER", { ms: Math.round(performance.now()) });
-    }
-  }, []);
   const [activeTab, setActiveTab] = useState<"new" | "active">("new");
   const { data: matches, isLoading: matchesLoading, error: matchesError } = useQuery<MatchWithProfile[]>({
     queryKey: ["/api/matches"],
@@ -2727,11 +2725,13 @@ export default function Matches() {
     placeholderData: (prev) => prev,
   });
 
-  // Batch-prefetch avatars for the first 10 connections the moment the list
-  // arrives so MatchCard components find photos in cache immediately on mount.
+  // Batch-prefetch avatars on list arrival.
+  // Mobile limit: 5 (avoids decode CPU/memory spike on iPhone at page load).
+  // Desktop limit: 10 (more headroom available).
   useEffect(() => {
     if (!matches || matches.length === 0) return;
-    const ids = matches.slice(0, 10).map(m => m.profile?.userId).filter(Boolean) as string[];
+    const limit = isMobile ? 5 : 10;
+    const ids = matches.slice(0, limit).map(m => m.profile?.userId).filter(Boolean) as string[];
     if (ids.length > 0) batchPrefetchPhotos(ids);
   }, [matches]);
 
@@ -2768,12 +2768,6 @@ export default function Matches() {
 
   const { unreadCounts, markRead } = useUnreadCounts(matchIds, user?.id || null, expandedMatchId, handleNewBackgroundMessage);
 
-  // ─── STEP 7: Hard debug logs ────────────────────────────────────────────────
-  useEffect(() => {
-    const t0 = performance.now();
-    console.log("[MATCHES] MOUNTED");
-    return () => console.log("[MATCHES] UNMOUNTED — was visible for", Math.round(performance.now() - t0), "ms");
-  }, []);
 
 
   // ─── STEP 2: Minimal render — confirms routing/layout works ─────────────────

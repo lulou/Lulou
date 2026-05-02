@@ -15,6 +15,31 @@
   100% { background-position: -200% 0; }
 }
 
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* ── Mobile: remove backdrop-blur for GPU / compositing performance ─────── */
+/* backdrop-filter forces iOS Safari to rasterise everything below the       */
+/* blurred element on every paint. During scroll this means a full-screen    */
+/* GPU blit every frame — the single biggest render cost on iPhone.          */
+/* (hover:none)+(pointer:coarse) targets touchscreen-only devices.           */
+@media (hover: none) and (pointer: coarse) {
+  .backdrop-blur-sm,
+  .backdrop-blur-md,
+  .backdrop-blur-lg,
+  .backdrop-blur-xl {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+  /* Make header/nav fully opaque when blur is removed */
+  header,
+  nav {
+    background-color: hsl(var(--background)) !important;
+  }
+}
+
 /* LIGHT MODE - Lulou: Warm Rose-Blush, Botanical, Romantic */
 :root {
   --button-outline: rgba(0,0,0, .10);

@@ -24,6 +24,50 @@ import { useEffect, useRef, useCallback } from "react";
 
 const isDev = import.meta.env.DEV;
 
+// ── Mobile detection ─────────────────────────────────────────────────────────
+/**
+ * True when running on a mobile/touch device (iPhone, iPad, Android).
+ * Detected once at module load — stable for the lifetime of the session.
+ * Exported so other modules can use mobile-specific limits without a
+ * separate utility import.
+ */
+export const isMobile: boolean =
+  typeof navigator !== "undefined" &&
+  /iPhone|iPad|iPod|Android|Mobile|webOS/i.test(navigator.userAgent);
+
+/**
+ * Log mobile device info once per session — dev only.
+ * Reports UA, viewport, DPR, CPU cores, memory, and network type so
+ * you can distinguish iPhone 11 vs iPhone 15 performance profiles.
+ */
+let _deviceLogged = false;
+export function logMobileDevice(): void {
+  if (!isDev || !isMobile || _deviceLogged) return;
+  _deviceLogged = true;
+  const nav = navigator as any;
+  console.log("[PERF] MOBILE_DEVICE", {
+    t: rel(),
+    ua: navigator.userAgent.slice(0, 100),
+    screen: `${screen.width}×${screen.height}`,
+    dpr: devicePixelRatio,
+    vw: window.innerWidth,
+    vh: window.innerHeight,
+    cores: navigator.hardwareConcurrency ?? "?",
+    memGb: nav.deviceMemory ?? "?",
+    net: nav.connection?.effectiveType ?? "?",
+  });
+}
+
+/**
+ * Log total DOM node count — call after a page finishes rendering to catch
+ * runaway node counts that degrade scroll performance on mobile.
+ */
+export function logDOMSize(label: string): void {
+  if (!isDev) return;
+  const count = document.querySelectorAll("*").length;
+  console.log("[PERF] DOM_SIZE", { t: rel(), label, count });
+}
+
 /** Milliseconds since the JS bundle first executed (session-relative) */
 const EPOCH = typeof performance !== "undefined" ? performance.now() : 0;
 const rel = () => Math.round(performance.now() - EPOCH);
@@ -140,6 +184,7 @@ export function usePerfTrace(page: string) {
 
   useEffect(() => {
     mountedAt.current = performance.now();
+    logMobileDevice(); // no-op in production and on desktop
     perfMark(`${page}/PAGE_MOUNT`);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

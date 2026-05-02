@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback, useMemo, memo } from "react";
-import { usePerfTrace } from "@/lib/perf";
+import { usePerfTrace, isMobile } from "@/lib/perf";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -13,7 +13,6 @@ import { PhotoCarousel } from "@/components/photo-carousel";
 import type { Profile } from "@shared/schema";
 import { MapPin, Ruler, MessageCircle, HelpCircle, Send } from "lucide-react";
 import { LulouFlowerIcon } from "@/components/app-layout";
-import { AnimatePresence, motion } from "framer-motion";
 import { EMPTY_PHOTOS } from "@/lib/image-utils";
 
 // Full-width draggable photo card.
@@ -391,13 +390,14 @@ export default function Discover() {
     staleTime: 5 * 60 * 1000,
   });
 
-  // Batch-prefetch photos for the current card and the next 2 profiles so
-  // the full card stack is ready before the user reaches any card.
-  // Replaces the old single-next-card prefetch — batchPrefetchPhotos skips
-  // profiles whose cache is already fresh so this is safe to call on every
-  // visible-pool change.
+  // Batch-prefetch photos for the current card and the next profile(s).
+  // On mobile: current + next 1 only (2 total) — avoids saturating the mobile
+  // CPU/network with decode work for cards the user hasn't reached yet.
+  // On desktop: current + next 2 (3 total) — more headroom available.
+  // batchPrefetchPhotos skips profiles with fresh cache so this is idempotent.
   useEffect(() => {
-    const ids = visibleProfiles.slice(0, 3).map(p => p.userId).filter(Boolean);
+    const limit = isMobile ? 2 : 3;
+    const ids = visibleProfiles.slice(0, limit).map(p => p.userId).filter(Boolean);
     if (ids.length > 0) batchPrefetchPhotos(ids);
   }, [visibleProfiles]);
 
@@ -578,21 +578,20 @@ export default function Discover() {
       </div>
       <div className="max-w-md mx-auto p-4 md:p-6 space-y-5 pb-6">
         {/*
-          AnimatePresence mode="wait": sequential exit → enter prevents two cards
-          being in the layout flow simultaneously (which would cause a height jump).
-          Duration reduced from 0.3s to 0.12s per phase (0.24s total vs 0.6s before).
-          Pure opacity — no scale or y-translate — uses only the compositor thread,
-          zero layout cost.
+          Pure CSS fade-in — replaces framer-motion AnimatePresence.
+          React unmounts the old card and mounts the new one when the key
+          changes. The "fadeIn" keyframe (defined in index.css) and
+          animationFillMode:"both" ensure the card starts at opacity:0
+          before the browser paints — identical visual to motion.div but
+          with zero JS per-frame overhead. This matters most on iPhone
+          where framer-motion's JS scheduler competes with the main thread
+          during profile transitions.
         */}
-        <AnimatePresence mode="wait">
-          <motion.div
-            key={displayProfile.id}
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.12 }}
-            data-testid="profile-container"
-          >
+        <div
+          key={displayProfile.id}
+          style={{ animation: "fadeIn 0.12s ease both" }}
+          data-testid="profile-container"
+        >
             <Card className="overflow-hidden" data-testid="card-profile">
               <PhotoBubbles
                 photos={photos}
@@ -672,8 +671,7 @@ export default function Discover() {
                 </div>
               </div>
             </Card>
-          </motion.div>
-        </AnimatePresence>
+        </div>
       </div>
 
       <button

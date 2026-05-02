@@ -1,0 +1,126 @@
+TASK:
+Diagnose and optimise Lulou specifically for iPhone/mobile performance.
+
+CONTEXT:
+Lulou is now reasonably fast on laptop/desktop, but it is still noticeably slow on iPhone. This means the issue is likely mobile-specific: image decode, memory pressure, animation cost, DOM size, JavaScript execution, or Safari/iOS rendering.
+
+PROBLEM:
+Laptop performance is acceptable, but iPhone performance is not. Do not assume the server/API is the main issue unless measured.
+
+GOAL:
+Make the app feel fast and smooth on iPhone.
+
+REQUIREMENTS:
+
+1. Audit mobile-specific bottlenecks
+   Check:
+
+* image sizes rendered on mobile
+* image decode timing
+* number of mounted cards/items
+* animation cost
+* heavy JavaScript on render
+* large arrays/maps/sets
+* repeated effects
+* iOS Safari quirks
+* viewport/layout shifts
+* CSS filters/backdrops/shadows/blur effects
+* large box-shadows
+* fixed backgrounds
+* excessive gradients
+* large border-radius image clipping
+
+2. Add iPhone/mobile performance instrumentation
+   Log separately for mobile:
+
+* device type / user agent
+* page mount time
+* data received time
+* first content rendered time
+* first image rendered time
+* image decode time
+* number of DOM nodes
+* number of rendered cards/list items
+* memory/cache sizes if available
+
+3. Optimise mobile images
+   For iPhone:
+
+* use smaller image sizes than desktop
+* avatars should be tiny optimized URLs
+* Discovery card photos should not exceed what the screen needs
+* avoid loading multiple full-size photos at once
+* preload only current + next 1–2 photos
+* avoid base64 photos wherever possible
+* use decoding="async"
+* use loading="lazy" for non-critical images
+
+4. Optimise mobile rendering
+
+* Render fewer items above the fold
+* Window long lists
+* Only keep visible cards mounted
+* Avoid heavy shadows/blur/filter effects on mobile
+* Prefer transform/opacity animations only
+* Avoid layout-affecting animations
+* Memoize expensive cards/components
+
+5. Optimise mobile navigation/content readiness
+
+* Prefetch only first-screen mobile content
+* Do not batch too many photos on mobile
+* Use smaller batch limits on iPhone:
+
+  * Discovery: current + next 1
+  * Connections: first 5 avatars
+  * Likes: first 5 avatars
+  * Messages: first 5 avatars
+* Keep the rest lazy
+
+6. Check production build/mobile environment
+
+* Confirm app is running production build, not dev mode
+* Confirm no dev logs/perf logs are active in production
+* Confirm source maps or debug overlays are not affecting mobile
+* Confirm React StrictMode/dev behaviour is not affecting published app
+
+7. Preserve functionality
+
+* Do not break desktop performance
+* Do not break Discovery
+* Do not break Connections
+* Do not break Likes
+* Do not break Messages
+* Do not break Profile
+* Do not break photo upload
+* Do not break batch photo prefetch
+* Do not break Stripe/Elevate/WebRTC
+
+CONSTRAINTS:
+
+* Do not rewrite the app
+* Do not change database schema
+* Do not change RLS
+* No new packages unless absolutely necessary
+* Make mobile-specific performance fixes only
+* Return full updated files, not snippets
+
+OUTPUT:
+
+1. Explain why desktop is fast but iPhone is slow.
+2. Identify mobile-specific bottlenecks.
+3. Update only necessary files.
+4. Use mobile-specific limits where appropriate.
+5. Return full updated files.
+6. Explain how to test on iPhone:
+
+   * fresh load
+   * Discovery
+   * Connections
+   * Likes
+   * Messages
+   * repeated navigation
+7. Confirm production mode has no dev/perf logs active.
+
+IMPORTANT:
+Do not optimise blindly for desktop. The bottleneck is iPhone/mobile. Prioritise reducing mobile CPU, image decode, DOM size, animations, and memory pressure.

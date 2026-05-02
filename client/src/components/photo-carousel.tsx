@@ -282,7 +282,11 @@ export function PhotoCarousel({
             width: "100%",
             height: "100%",
             background: "hsl(var(--muted))",
-            willChange: "transform",
+            // Only promote slides adjacent to the visible one to their own GPU
+            // compositing layer. Applying willChange to every slide creates N
+            // layers (one per photo) which wastes GPU memory on mobile.
+            // Inactive slides use "auto" — no layer, no VRAM cost.
+            willChange: Math.abs(i - dotIdx) <= 1 ? "transform" : "auto",
             // transform NOT set in JSX — owned entirely by applyPositions
           }}
           data-testid={`carousel-slide-${i}`}
