@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useLocation, Link } from "wouter";
-import { Compass, Heart, User, CircleDot, Eye, LogOut } from "lucide-react";
+import { Compass, Heart, MessageCircle, User, CircleDot, LogOut } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
 import { useTabActive } from "@/hooks/use-tab-active";
@@ -137,8 +137,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const navItems = [
     { path: "/discover", icon: Compass, label: "Discover" },
     { path: "/intent", icon: CircleDot, label: "Intent" },
-    { path: "/likes", icon: Eye, label: "Likes" },
-    { path: "/matches", icon: Heart, label: "Connections" },
+    { path: "/likes", icon: Heart, label: "Likes" },
+    { path: "/matches", icon: MessageCircle, label: "Connections" },
     { path: "/profile", icon: User, label: "Profile" },
   ];
 
