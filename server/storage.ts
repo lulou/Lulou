@@ -10,6 +10,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { db } from "./db";
 import { eq, gt, sql } from "drizzle-orm";
 
+const IS_DEV = process.env.NODE_ENV !== "production";
+
 // ─── Elevate weights ──────────────────────────────────────────────────────────
 // Normal = 1x, Elevate = 3x, Super Elevate = 8x
 const ELEVATE_WEIGHT: Record<string, number> = {
@@ -462,7 +464,7 @@ export class SupabaseStorage implements IStorage {
     } else if (photos.length === 0) {
       console.warn("[PHOTOS] Profile exists but photos array is empty for userId:", userId);
     } else {
-      console.log(`[PHOTOS] userId=${userId} returning ${photos.length}/${raw.length} photo(s) (first url length: ${photos[0].length})`);
+      if (IS_DEV) console.log(`[PHOTOS] userId=${userId} returning ${photos.length}/${raw.length} photo(s) (first url length: ${photos[0].length})`);
     }
     return photos;
   }
@@ -519,7 +521,7 @@ export class SupabaseStorage implements IStorage {
       profilesQuery = profilesQuery.gte("age", effectiveAgeMin).lte("age", effectiveAgeMax);
     }
 
-    console.log("[DISCOVER] mutual-compat filters:", {
+    if (IS_DEV) console.log("[DISCOVER] mutual-compat filters:", {
       userId,
       myGender: gender,
       myGenderNorm: normGender,
@@ -537,7 +539,7 @@ export class SupabaseStorage implements IStorage {
       profilesQuery.limit(100),
       getActiveElevatesMap(),
     ]);
-    console.log(`[DISCOVER] parallel queries done in ${Date.now() - t1} ms`);
+    if (IS_DEV) console.log(`[DISCOVER] parallel queries done in ${Date.now() - t1} ms`);
 
     if (interactedResult.error) {
       console.error("[DISCOVER] interactions fetch error:", interactedResult.error.message);
@@ -557,7 +559,7 @@ export class SupabaseStorage implements IStorage {
     // Own profile is already excluded by the .neq("user_id", userId) DB filter.
     const baseFiltered = all.filter(p => {
       if (interactedIds.has(p.userId)) {
-        console.log(`[DISCOVER] EXCLUDED userId=${p.userId} (${p.firstName}) — already interacted`);
+        if (IS_DEV) console.log(`[DISCOVER] EXCLUDED userId=${p.userId} (${p.firstName}) — already interacted`);
         return false;
       }
       return true;
@@ -565,15 +567,17 @@ export class SupabaseStorage implements IStorage {
 
     const filtered = mergeElevatesIntoProfiles(baseFiltered, elevates);
 
-    const superCount  = filtered.filter(p => p.elevateType === "super_elevate" && p.elevateExpiresAt && p.elevateExpiresAt > now).length;
-    const elevCount   = filtered.filter(p => p.elevateType === "elevate" && p.elevateExpiresAt && p.elevateExpiresAt > now).length;
-    console.log(
-      "[DISCOVER] DB pool:", all.length,
-      "| after interaction exclusion:", baseFiltered.length,
-      "| after elevate merge:", filtered.length,
-      "| super:", superCount, "elevate:", elevCount,
-      "| interactedIds count:", interactedIds.size,
-    );
+    if (IS_DEV) {
+      const superCount = filtered.filter(p => p.elevateType === "super_elevate" && p.elevateExpiresAt && p.elevateExpiresAt > now).length;
+      const elevCount  = filtered.filter(p => p.elevateType === "elevate" && p.elevateExpiresAt && p.elevateExpiresAt > now).length;
+      console.log(
+        "[DISCOVER] DB pool:", all.length,
+        "| after interaction exclusion:", baseFiltered.length,
+        "| after elevate merge:", filtered.length,
+        "| super:", superCount, "elevate:", elevCount,
+        "| interactedIds count:", interactedIds.size,
+      );
+    }
 
     // Fallback tier 1: both mutual filters applied but pool is still empty.
     // Relax the mutual filter and try again with ONLY the gender-preference filter
@@ -598,7 +602,7 @@ export class SupabaseStorage implements IStorage {
         const fallbackAll = fallbackData.map(mapProfile);
         const fallbackFiltered = fallbackAll.filter(p => !interactedIds.has(p.userId));
         const fallbackWithElevates = mergeElevatesIntoProfiles(fallbackFiltered, elevates);
-        console.log("[DISCOVER] Gender-only fallback pool:", fallbackWithElevates.length, "profiles");
+        if (IS_DEV) console.log("[DISCOVER] Gender-only fallback pool:", fallbackWithElevates.length, "profiles");
         return weightedSample(fallbackWithElevates, 20, now);
       }
     }
@@ -691,7 +695,7 @@ export class SupabaseStorage implements IStorage {
         .limit(500),       // cap: last ~50 messages per match on average
     ]);
 
-    console.log("[CHAT] CONNECTIONS_FETCHED", {
+    if (IS_DEV) console.log("[CHAT] CONNECTIONS_FETCHED", {
       userId,
       matchCount: userMatches.length,
       profilesFound: profilesResult.data?.length ?? 0,
@@ -740,7 +744,7 @@ export class SupabaseStorage implements IStorage {
       return bTime - aTime;
     });
 
-    console.log("[CHAT] CONNECTIONS_SORTED", { count: result.length, userId, msTotal: Date.now() - t0 });
+    if (IS_DEV) console.log("[CHAT] CONNECTIONS_SORTED", { count: result.length, userId, msTotal: Date.now() - t0 });
     return result;
   }
 
@@ -776,7 +780,7 @@ export class SupabaseStorage implements IStorage {
       this.sb.from("messages").select(MSG_COLS).eq("match_id", matchId)
         .order("created_at", { ascending: false }).limit(40),
     ]);
-    console.log(`[GET_MATCH] profile+msgs parallel: ${Date.now() - t1}ms | msgs=${msgResult.data?.length ?? 0}`);
+    if (IS_DEV) console.log(`[GET_MATCH] profile+msgs parallel: ${Date.now() - t1}ms | msgs=${msgResult.data?.length ?? 0}`);
 
     if (profileResult.error) {
       console.error("GET_MATCH_PROFILE_ERROR", { matchId, userId, otherUserId, msg: profileResult.error.message });
@@ -790,7 +794,7 @@ export class SupabaseStorage implements IStorage {
     // Reverse so messages are in ascending (oldest-first) order for the chat view.
     const messages = (msgResult.data || []).reverse().map(mapMessage);
 
-    console.log("[PERF] GET_MATCH_DONE", { matchId, msgCount: messages.length, ms: Date.now() - t0 });
+    if (IS_DEV) console.log("[PERF] GET_MATCH_DONE", { matchId, msgCount: messages.length, ms: Date.now() - t0 });
     return {
       ...match,
       profile: mapProfile(profileResult.data),
@@ -819,12 +823,12 @@ export class SupabaseStorage implements IStorage {
     const rows = data ?? [];
     const hasMore = rows.length > limit;
     const messages = rows.slice(0, limit).reverse().map(mapMessage);
-    console.log(`[MSG_PAGE] matchId=${matchId} before=${before?.slice(0,20)} limit=${limit} got=${messages.length} hasMore=${hasMore} ms=${Date.now()-t0}`);
+    if (IS_DEV) console.log(`[MSG_PAGE] matchId=${matchId} before=${before?.slice(0,20)} limit=${limit} got=${messages.length} hasMore=${hasMore} ms=${Date.now()-t0}`);
     return { messages, hasMore };
   }
 
   async createMessage(data: InsertMessage): Promise<Message> {
-    console.log("CREATE_MSG", { matchId: data.matchId, senderId: data.senderId, contentLen: data.content?.length });
+    if (IS_DEV) console.log("CREATE_MSG", { matchId: data.matchId, senderId: data.senderId, contentLen: data.content?.length });
     const { data: result, error } = await this.sb
       .from("messages")
       .insert({

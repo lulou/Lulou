@@ -1,0 +1,179 @@
+TASK:
+Perform a full production performance audit for Lulou across iPhone and desktop.
+
+CONTEXT:
+Lulou is still not fast enough for iPhone or desktop users. Many optimisations have already been attempted:
+
+* reduced photo payloads
+* Supabase Storage migration
+* batch photo prefetch
+* route caching
+* removed console spam
+* mobile prefetch limits
+* loading state improvements
+
+The app is still not App Store-quality fast.
+
+PROBLEM:
+The remaining bottleneck may not be one small frontend issue. It may be:
+
+* hosting latency
+* API/server response time
+* Supabase query speed
+* JS bundle size
+* React render cost
+* image decode cost
+* too many requests
+* poor cache headers
+* Replit deployment limits
+* slow cold starts
+* too much work on page mount
+
+GOAL:
+Find the true bottleneck and make the biggest proven improvement.
+
+REQUIREMENTS:
+
+1. Do not guess
+   Before changing code, measure:
+
+* route transition time
+* API response time
+* database query time
+* payload size
+* JS bundle size
+* first content render
+* first image render
+* number of requests per page
+* duplicate requests
+* render count
+* DOM node count
+
+2. Audit production environment
+   Check whether performance is limited by:
+
+* Replit hosting
+* backend cold starts
+* slow API round trips
+* frontend bundle delivery
+* lack of CDN
+* poor cache headers
+* large JS chunks
+* dev/debug code in production
+
+3. Add a performance report
+   Create a dev-only or admin-only report that outputs:
+
+For each page:
+
+* Discovery
+* Connections
+* Likes
+* Messages
+* Profile
+
+Report:
+
+* page mount time
+* data loaded time
+* photos loaded time
+* page ready time
+* request count
+* total transferred KB
+* slowest request
+* duplicate requests
+* render count
+
+4. Server/API audit
+   For endpoints:
+
+* /api/discover
+* /api/matches
+* /api/who-liked-you
+* /api/profiles/photos/batch
+* /api/profile
+* messages endpoints
+
+Measure:
+
+* total request duration
+* database duration
+* payload size
+* record count
+* whether photos/base64 are included
+
+5. Frontend bundle audit
+   Check:
+
+* largest JS chunks
+* unnecessary imports
+* heavy libraries loaded on startup
+* whether lazy loading is needed
+* whether all pages are bundled into initial load
+* whether icons/animation libs are imported efficiently
+
+6. Rendering audit
+   Check:
+
+* components rendering more than necessary
+* lists/cards mounted offscreen
+* expensive CSS effects
+* animation cost
+* repeated state updates
+* unnecessary context updates
+
+7. Image audit
+   Check:
+
+* image format
+* image dimensions
+* whether old base64 images still exist
+* whether Storage URLs use browser cache
+* whether first visible images are preloaded
+* whether too many images load at once
+
+8. Make the biggest proven fix
+   After measuring, identify the single biggest bottleneck and fix it.
+
+Examples:
+
+* If API latency is high, optimise server/Supabase queries or hosting.
+* If bundle is too large, code-split/lazy-load heavy pages.
+* If images are slow, reduce dimensions/cache headers/preload strategy.
+* If render cost is high, reduce mounted components and memoize.
+* If Replit hosting is slow, recommend and prepare migration plan to proper production hosting.
+
+9. Preserve functionality
+   Do not break:
+
+* auth
+* routing
+* Discovery
+* Connections
+* Likes
+* Messages
+* Profile
+* Stripe/Elevate
+* WebRTC
+* photo upload
+
+CONSTRAINTS:
+
+* No blind optimisations
+* No full rewrite
+* No database schema changes unless proven necessary
+* No new packages unless essential
+* Return full updated files
+* Explain every changed file
+
+OUTPUT:
+
+1. Provide the measured bottleneck report.
+2. Identify the biggest bottleneck.
+3. Apply the smallest high-impact fix.
+4. Return full updated files.
+5. Explain how to test on iPhone and desktop.
+6. Confirm whether Replit hosting is likely limiting production speed.
+
+IMPORTANT:
+The app must be judged on published real-user performance, not just local laptop speed. If Replit deployment/server latency is the bottleneck, say so clearly and recommend the correct production hosting path.

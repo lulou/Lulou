@@ -372,7 +372,7 @@ export async function registerRoutes(
       const ms = Date.now() - t0;
       if (ms > 500) {
         console.warn(`[SLOW_ROUTE] ${req.method} ${req.path} took ${ms}ms (status=${res.statusCode})`);
-      } else if (ms > 200) {
+      } else if (IS_DEV && ms > 200) {
         console.log(`[ROUTE_TIMING] ${req.method} ${req.path} ${ms}ms`);
       }
     });
@@ -398,7 +398,7 @@ export async function registerRoutes(
     // Profile creation is handled by the onboarding flow — we do NOT create stub
     // profiles here because a stub row with onboarding_complete=false would be
     // indistinguishable from a real profile, breaking the "profile exists → app" routing.
-    console.log("AUTH_INIT: Verified session for", req.user.id);
+    if (IS_DEV) console.log("AUTH_INIT: Verified session for", req.user.id);
     res.json({ ok: true });
   });
 
@@ -412,10 +412,10 @@ export async function registerRoutes(
       const userId = req.user.id;
       const profile = await storage.getProfileMeta(userId);
       if (!profile) {
-        console.log(`[PROFILE_META] not found userId=${userId} in ${Date.now() - t0} ms`);
+        if (IS_DEV) console.log(`[PROFILE_META] not found userId=${userId} in ${Date.now() - t0} ms`);
         return res.status(404).json({ message: "Profile not found." });
       }
-      console.log(`[PROFILE_META] fetched userId=${userId} in ${Date.now() - t0} ms`);
+      if (IS_DEV) console.log(`[PROFILE_META] fetched userId=${userId} in ${Date.now() - t0} ms`);
       res.json(profile);
     } catch (error: any) {
       const errMsg = (error?.message || "Unknown error").slice(0, 200);
@@ -681,10 +681,10 @@ export async function registerRoutes(
       const userId = req.user.id;
       const match = await storage.getMatch(req.params.matchId, userId);
       if (!match) {
-        console.log(`[MATCH_DETAIL] not found ${req.params.matchId} in ${Date.now() - t0} ms`);
+        if (IS_DEV) console.log(`[MATCH_DETAIL] not found ${req.params.matchId} in ${Date.now() - t0} ms`);
         return res.status(404).json({ message: "Match not found" });
       }
-      console.log(`[MATCH_DETAIL] ${req.params.matchId} — ${match.messages?.length ?? 0} msgs in ${Date.now() - t0} ms`);
+      if (IS_DEV) console.log(`[MATCH_DETAIL] ${req.params.matchId} — ${match.messages?.length ?? 0} msgs in ${Date.now() - t0} ms`);
       res.json(match);
     } catch (error) {
       console.error(`[MATCH_DETAIL] Error after ${Date.now() - t0} ms:`, error);
@@ -782,7 +782,7 @@ export async function registerRoutes(
       // ── Step 1: Validate match membership + read stage (lightweight — 6 cols, no profile/messages) ──
       const tMeta0 = Date.now();
       const match = await storage.getMatchMeta(matchId, userId);
-      console.log(`[MSG] getMatchMeta: ${Date.now() - tMeta0} ms`);
+      if (IS_DEV) console.log(`[MSG] getMatchMeta: ${Date.now() - tMeta0} ms`);
       if (!match) {
         console.log("MSG_MATCH_NOT_FOUND", { matchId, userId });
         return res.status(404).json({ message: "Match not found" });
@@ -801,7 +801,7 @@ export async function registerRoutes(
             eq(userBenefits.activatedMatchId, matchId),
           )).limit(1),
         ]);
-        console.log(`[MSG] count+extension parallel: ${Date.now() - tCount0} ms | count=${messageCount} ext=${!!extension}`);
+        if (IS_DEV) console.log(`[MSG] count+extension parallel: ${Date.now() - tCount0} ms | count=${messageCount} ext=${!!extension}`);
         const limit = extension ? 20 : 15;
         if (messageCount >= limit) {
           console.log("[CONNECTION_STAGE] POST_CALL_MESSAGE_LIMIT_REACHED", { matchId, userId, callStage: 0, count: messageCount, limit });
@@ -833,7 +833,7 @@ export async function registerRoutes(
         senderId: userId,
         content: content.trim(),
       });
-      console.log(`[MSG] insert: ${Date.now() - tInsert0} ms`);
+      if (IS_DEV) console.log(`[MSG] insert: ${Date.now() - tInsert0} ms`);
 
       // ── Step 4: Broadcast to recipient (awaited so the log appears before response) ──
       const tBcast0 = Date.now();
@@ -845,10 +845,10 @@ export async function registerRoutes(
         reaction: message.reaction,
         createdAt: message.createdAt,
       });
-      console.log(`[MSG] broadcast: ${Date.now() - tBcast0} ms`);
+      if (IS_DEV) console.log(`[MSG] broadcast: ${Date.now() - tBcast0} ms`);
 
       // ── Respond — sender UI confirms delivery ──
-      console.log(`[MSG] total send route: ${Date.now() - t0} ms`);
+      if (IS_DEV) console.log(`[MSG] total send route: ${Date.now() - t0} ms`);
       res.json(message);
 
       // ── Background post-processing (does not block the HTTP response) ──

@@ -30,6 +30,50 @@ export default defineConfig({
   build: {
     outDir: path.resolve(import.meta.dirname, "dist/public"),
     emptyOutDir: true,
+    rollupOptions: {
+      output: {
+        /**
+         * Manual chunk splitting — prevents all vendor code landing in one
+         * 557 kB index.js that blocks first paint on every visit.
+         *
+         * Strategy:
+         *   vendor-react    — React + ReactDOM + scheduler (~45 kB gz)
+         *                     Smallest, parsed first, almost never changes.
+         *   vendor-supabase — @supabase/* (~80 kB gz)
+         *                     Largest single vendor. Separate chunk means the
+         *                     browser caches it across every app deployment.
+         *   vendor-query    — @tanstack/react-query (~15 kB gz)
+         *   vendor-radix    — All @radix-ui/* primitives (~25 kB gz)
+         *
+         * On first visit:  same total bytes, but browser downloads all 4 in
+         *                  parallel over HTTP/2 and can start parsing each as
+         *                  it arrives (vs waiting for the entire 557 kB blob).
+         * On repeat visits: all 4 vendor chunks are served from browser cache —
+         *                  only the hashed app-code chunks are re-fetched.
+         */
+        manualChunks(id) {
+          if (
+            id.includes("node_modules/react/") ||
+            id.includes("node_modules/react-dom/") ||
+            id.includes("node_modules/scheduler/")
+          ) {
+            return "vendor-react";
+          }
+          if (
+            id.includes("node_modules/@supabase/") ||
+            id.includes("node_modules/realtime-js/")
+          ) {
+            return "vendor-supabase";
+          }
+          if (id.includes("node_modules/@tanstack/")) {
+            return "vendor-query";
+          }
+          if (id.includes("node_modules/@radix-ui/")) {
+            return "vendor-radix";
+          }
+        },
+      },
+    },
   },
   server: {
     fs: {

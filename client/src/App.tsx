@@ -23,8 +23,13 @@ const IntentPage       = lazy(() => import("@/pages/intent"));
 const LikesPage        = lazy(() => import("@/pages/likes"));
 const ElevateSuccessPage = lazy(() => import("@/pages/elevate-success"));
 const ExtrasSuccessPage  = lazy(() => import("@/pages/extras-success"));
-import IncomingCallOverlay from "@/components/incoming-call";
-import { ActiveCallOverlay } from "@/components/active-call";
+// Call overlays lazy-loaded — only needed when a call is active.
+// useCallSignaling (below) still detects calls eagerly; the overlay chunk
+// loads in the background once the app is idle, well before any call arrives.
+const IncomingCallOverlay = lazy(() => import("@/components/incoming-call"));
+const ActiveCallOverlay   = lazy(() =>
+  import("@/components/active-call").then(m => ({ default: m.ActiveCallOverlay }))
+);
 import { useCallSignaling, setCallEndedHandler, clearDedupeForMatch } from "@/hooks/use-call-signaling";
 import { markCallSessionCancelled, isCallSessionCancelled, clearCancelledSession } from "@/lib/cancelled-calls";
 import type { Profile, Match } from "@shared/schema";
@@ -410,24 +415,27 @@ function CallDetectors({ userId }: { userId: string }) {
   return (
     <>
       {incomingCall && !activeCall && (
-        <CallOverlayErrorBoundary
-          matchId={incomingCall.id}
-          callSessionId={incomingCall.callSessionId}
-          onError={handleOverlayError}
-        >
-          <IncomingCallOverlay
-            match={incomingCall}
-            isFaceCall={isFaceCall}
-            onDismiss={handleDismiss}
-          />
-        </CallOverlayErrorBoundary>
+        <Suspense fallback={null}>
+          <CallOverlayErrorBoundary
+            matchId={incomingCall.id}
+            callSessionId={incomingCall.callSessionId}
+            onError={handleOverlayError}
+          >
+            <IncomingCallOverlay
+              match={incomingCall}
+              isFaceCall={isFaceCall}
+              onDismiss={handleDismiss}
+            />
+          </CallOverlayErrorBoundary>
+        </Suspense>
       )}
       {activeCall && (
-        <CallOverlayErrorBoundary
-          matchId={activeCall.id}
-          callSessionId={activeCall.callSessionId}
-          onError={handleOverlayError}
-        >
+        <Suspense fallback={null}>
+          <CallOverlayErrorBoundary
+            matchId={activeCall.id}
+            callSessionId={activeCall.callSessionId}
+            onError={handleOverlayError}
+          >
           <ActiveCallOverlay
             matchId={activeCall.id}
             callSessionId={activeCall.callSessionId || ""}
@@ -440,7 +448,8 @@ function CallDetectors({ userId }: { userId: string }) {
             callStage={activeCall.callStage || 0}
             onCallEnd={handleActiveCallEnd}
           />
-        </CallOverlayErrorBoundary>
+          </CallOverlayErrorBoundary>
+        </Suspense>
       )}
     </>
   );
