@@ -1,0 +1,127 @@
+TASK:
+Determine if Lulou performance issues are caused by hosting/infrastructure rather than frontend code.
+
+CONTEXT:
+The app has undergone multiple frontend optimisations:
+
+* image optimisation and migration to Storage
+* batch photo prefetching
+* reduced payload sizes
+* improved caching
+* reduced re-renders
+* removed logging overhead
+* mobile-specific optimisations
+
+However, the app is still not fast enough in real-world usage (especially on iPhone).
+
+PROBLEM:
+At this stage, the remaining bottleneck may not be frontend code. It may be:
+
+* backend/API latency
+* Supabase query latency
+* Replit hosting performance
+* network round-trip delays
+* lack of CDN
+* cold starts
+
+GOAL:
+Prove whether the performance issue is:
+A) frontend rendering
+or
+B) backend/network/hosting latency
+
+REQUIREMENTS:
+
+1. Measure API round-trip time
+   For each request:
+
+* /api/discover
+* /api/matches
+* /api/who-liked-you
+* /api/profiles/photos/batch
+* /api/profile
+* messages endpoints
+
+Log:
+
+* total request time (client perspective)
+* server processing time
+* payload size
+* number of records returned
+
+2. Identify latency source
+   Break down each request into:
+
+* network latency
+* server processing time
+* database query time
+
+Determine:
+
+* is most time spent waiting on network?
+* or inside server?
+* or inside frontend?
+
+3. Test real-world conditions
+   Simulate or observe:
+
+* mobile network (4G/5G)
+* iPhone Safari behaviour
+* slower CPU conditions
+
+4. Check hosting limitations
+   Evaluate:
+
+* Is the backend running on Replit?
+* Are there cold starts?
+* Is there noticeable delay before responses start?
+* Is there no CDN/edge caching?
+
+5. Identify if frontend is already fast
+   If:
+
+* data is received quickly
+* but rendering is slow → frontend issue
+
+If:
+
+* data takes 300–800ms+ to arrive consistently → backend/network issue
+
+6. Provide clear conclusion
+   Answer clearly:
+
+* Primary bottleneck is frontend OR backend OR network
+* % breakdown if possible
+
+7. If backend/network is the issue
+   Provide specific recommendation:
+
+* migrate frontend to Vercel/Netlify (CDN + edge)
+* move backend to stable server environment
+* reduce cold start latency
+* optimise Supabase usage if needed
+
+8. Do NOT make random optimisations
+   This task is diagnosis only.
+   Do not rewrite components or UI.
+
+CONSTRAINTS:
+
+* no feature changes
+* no UI changes
+* dev-only logging allowed
+* keep changes minimal
+
+OUTPUT:
+
+1. Measured request timings
+2. Breakdown of where time is spent
+3. Identification of true bottleneck
+4. Clear recommendation:
+
+   * stay and optimise code
+     OR
+   * migrate hosting/infrastructure
+
+IMPORTANT:
+Do not guess. Provide measurable proof of where time is being lost.

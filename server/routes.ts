@@ -368,14 +368,33 @@ export async function registerRoutes(
   app.use((req, res, next) => {
     if (!req.path.startsWith("/api/")) return next();
     const t0 = Date.now();
-    res.on("finish", () => {
+
+    // Wrap res.json so we can inject the Server-Timing header BEFORE the
+    // response body is flushed.  res.on("finish") fires too late — headers are
+    // already sent by then, so we can't add Server-Timing there.
+    //
+    // Server-Timing is a W3C standard header that Safari, Chrome and Firefox
+    // all expose in the Network panel and that client JS can read via
+    // response.headers.get("server-timing").  It lets the client compute:
+    //
+    //   networkOverhead = clientObservedTime - serverHandlerMs
+    //
+    // This is the single most useful number for diagnosing whether slowness is
+    // in the backend code/database or in the hosting network layer.
+    const origJson = res.json.bind(res);
+    (res as any).json = function (body: unknown) {
       const ms = Date.now() - t0;
+      if (!res.headersSent) {
+        res.setHeader("Server-Timing", `handler;dur=${ms}`);
+      }
       if (ms > 500) {
         console.warn(`[SLOW_ROUTE] ${req.method} ${req.path} took ${ms}ms (status=${res.statusCode})`);
       } else if (IS_DEV && ms > 200) {
         console.log(`[ROUTE_TIMING] ${req.method} ${req.path} ${ms}ms`);
       }
-    });
+      return origJson(body);
+    };
+
     next();
   });
 

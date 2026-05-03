@@ -97,6 +97,54 @@ export async function apiRequest(
 }
 
 type UnauthorizedBehavior = "returnNull" | "throw";
+/**
+ * Parse a Server-Timing header and return the value of the named metric in ms.
+ * Format: "handler;dur=123" or "handler;dur=123.4;desc=..."
+ * Returns null if the header is absent or unparseable.
+ */
+function parseServerTiming(header: string | null, metric = "handler"): number | null {
+  if (!header) return null;
+  const re = new RegExp(`${metric}[^,]*?dur=([\\d.]+)`);
+  const m = header.match(re);
+  return m ? parseFloat(m[1]) : null;
+}
+
+/**
+ * Emit one structured latency line per API request to the browser console.
+ *
+ * Format:
+ *   [LATENCY] /api/discover | client=342ms | server=89ms | network=253ms | payload=12kB
+ *
+ * Interpretation guide:
+ *   • server  = time the Express handler spent (DB queries + serialisation).
+ *   • network = client − server ≈ round-trip to Replit servers + TTFB + TCP.
+ *   • If network ≫ server consistently → bottleneck is hosting/CDN, not code.
+ *   • If server ≫ network → bottleneck is backend queries or payload size.
+ *   • client > 800 ms on 4G with small payload → hosting/network issue.
+ *
+ * Always emitted (not dev-only) so you can attach Safari Web Inspector to a
+ * real iPhone on the published URL and see real-world numbers immediately.
+ * Filter by "[LATENCY]" in the console to see only these lines.
+ */
+function logLatency(
+  url: string,
+  clientMs: number,
+  serverMs: number | null,
+  payloadKb: number,
+): void {
+  const parts: string[] = [`[LATENCY] ${url}`, `client=${clientMs}ms`];
+  if (serverMs != null) {
+    parts.push(`server=${Math.round(serverMs)}ms`);
+    const networkMs = Math.round(clientMs - serverMs);
+    parts.push(`network=${networkMs}ms`);
+    // Flag clearly when network overhead dominates — that's the hosting signal.
+    if (networkMs > 300) parts.push("⚠️ HIGH_NETWORK");
+  }
+  if (payloadKb > 0) parts.push(`payload=${payloadKb}kB`);
+  // eslint-disable-next-line no-console
+  console.info(parts.join(" | "));
+}
+
 export const getQueryFn: <T>(options: {
   on401: UnauthorizedBehavior;
 }) => QueryFunction<T> =
@@ -114,10 +162,14 @@ export const getQueryFn: <T>(options: {
 
     const authHeaders = await getAuthHeaders();
 
+    const t0 = performance.now();
     const res = await fetch(url, {
       credentials: "include",
       headers: authHeaders,
     });
+    // Read Server-Timing header immediately — before consuming the body,
+    // so server-side processing time is captured as accurately as possible.
+    const serverMs = parseServerTiming(res.headers.get("server-timing"));
 
     if (res.status === 401) {
       endQuery({ status: 401 });
@@ -144,13 +196,10 @@ export const getQueryFn: <T>(options: {
     }
 
     const json = await res.json();
-    // Log response size in dev to detect oversized payloads
-    if (import.meta.env.DEV) {
-      const payloadKb = Math.round(JSON.stringify(json).length / 1024);
-      endQuery({ status: 200, payloadKb });
-    } else {
-      endQuery({ status: 200 });
-    }
+    const clientMs = Math.round(performance.now() - t0);
+    const payloadKb = Math.round(JSON.stringify(json).length / 1024);
+    logLatency(url, clientMs, serverMs, payloadKb);
+    endQuery({ status: 200, payloadKb });
     return json;
   };
 
@@ -202,15 +251,18 @@ export async function batchPrefetchPhotos(userIds: string[]): Promise<void> {
 
   try {
     const headers = await getAuthHeaders();
+    const t0 = performance.now();
     const res = await fetch(`/api/profiles/photos/batch?ids=${missing.join(",")}`, {
       headers,
       credentials: "include",
     });
+    const serverMs = parseServerTiming(res.headers.get("server-timing"));
     if (!res.ok) { endBatch({ error: res.status }); return; }
 
     const data: Record<string, string[]> = await res.json();
-    let payloadKb = 0;
-    if (import.meta.env.DEV) payloadKb = Math.round(JSON.stringify(data).length / 1024);
+    const clientMs = Math.round(performance.now() - t0);
+    const payloadKb = Math.round(JSON.stringify(data).length / 1024);
+    logLatency(`/api/profiles/photos/batch?n=${missing.length}`, clientMs, serverMs, payloadKb);
 
     for (const [userId, photos] of Object.entries(data)) {
       queryClient.setQueryData(["/api/profiles", userId, "photos"], { photos });
