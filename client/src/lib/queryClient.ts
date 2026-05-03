@@ -109,23 +109,7 @@ function parseServerTiming(header: string | null, metric = "handler"): number | 
   return m ? parseFloat(m[1]) : null;
 }
 
-/**
- * Emit one structured latency line per API request to the browser console.
- *
- * Format:
- *   [LATENCY] /api/discover | client=342ms | server=89ms | network=253ms | payload=12kB
- *
- * Interpretation guide:
- *   • server  = time the Express handler spent (DB queries + serialisation).
- *   • network = client − server ≈ round-trip to Replit servers + TTFB + TCP.
- *   • If network ≫ server consistently → bottleneck is hosting/CDN, not code.
- *   • If server ≫ network → bottleneck is backend queries or payload size.
- *   • client > 800 ms on 4G with small payload → hosting/network issue.
- *
- * Always emitted (not dev-only) so you can attach Safari Web Inspector to a
- * real iPhone on the published URL and see real-world numbers immediately.
- * Filter by "[LATENCY]" in the console to see only these lines.
- */
+// TEMP: latency debugging — remove before production release
 function logLatency(
   url: string,
   clientMs: number,
@@ -137,12 +121,12 @@ function logLatency(
     parts.push(`server=${Math.round(serverMs)}ms`);
     const networkMs = Math.round(clientMs - serverMs);
     parts.push(`network=${networkMs}ms`);
-    // Flag clearly when network overhead dominates — that's the hosting signal.
-    if (networkMs > 300) parts.push("⚠️ HIGH_NETWORK");
+    if (networkMs > 300) parts.push("HIGH_NETWORK");
   }
   if (payloadKb > 0) parts.push(`payload=${payloadKb}kB`);
+  // console.log (not .info) — Safari hides .info by default in Web Inspector
   // eslint-disable-next-line no-console
-  console.info(parts.join(" | "));
+  console.log(parts.join(" | "));
 }
 
 export const getQueryFn: <T>(options: {
