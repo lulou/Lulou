@@ -1,0 +1,94 @@
+TASK:
+Restore and improve overall Lulou speed after disabling startup glitching.
+
+CONTEXT:
+The startup glitching has stopped, but the app is still slow overall. Page transitions, page content, images, and interactions still do not feel fast enough.
+
+PROBLEM:
+The app is no longer glitching, but it still has a general performance bottleneck. Do not make random changes. We need to identify whether the remaining slowness is from:
+
+* API/network latency
+* Replit hosting
+* backend queries
+* image loading
+* React rendering
+* too many requests
+* cache misses
+
+GOAL:
+Find the biggest remaining bottleneck and fix only that.
+
+REQUIREMENTS:
+
+1. Confirm debug logging is disabled by default
+
+* No console spam
+* No latency logs unless manually enabled
+* No startup debug overhead
+
+2. Re-enable lightweight performance check only when:
+   localStorage.getItem("lulou_perf") === "1"
+
+3. Measure the slow path
+   With `lulou_perf` enabled, measure:
+
+* /api/profile/meta
+* /api/discover
+* /api/matches
+* /api/who-liked-you
+* /api/profiles/photos/batch
+* messages endpoints
+
+Log only:
+[LATENCY] url | client=ms | server=ms | network=ms | payload=kB
+
+4. Do not log objects
+
+* strings only
+* no render logs
+* no repeated hot-path spam
+
+5. Identify the biggest bottleneck
+   Explain whether the slowness is mainly:
+
+* frontend render
+* backend/server
+* network/hosting
+* images/photo decode
+* duplicate requests
+
+6. Apply only the biggest proven fix
+   Do not optimise blindly.
+   If network is high, say hosting is the bottleneck.
+   If server is high, optimise the endpoint/query.
+   If frontend render is high, optimise mounted components/rendering.
+   If images are high, optimise photo load/decode.
+
+7. Preserve functionality
+   Do not break:
+
+* auth
+* routing
+* Discovery
+* Connections
+* Likes
+* Messages
+* Profile
+* Stripe/Elevate
+* WebRTC
+
+CONSTRAINTS:
+
+* minimal changes
+* no database schema changes unless proven necessary
+* no RLS changes
+* no new packages unless essential
+* return full updated files
+
+OUTPUT:
+
+1. Confirm debug logging is gated.
+2. Show measured bottleneck.
+3. Fix the biggest proven issue.
+4. Return full updated files.
+5. Explain exactly how to test.

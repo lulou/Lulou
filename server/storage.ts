@@ -1804,50 +1804,43 @@ export class SupabaseStorage implements IStorage {
   }
 
   async getIncomingOpens(userId: string): Promise<(Interaction & { profile: Profile })[]> {
-    const t0 = Date.now();
-    // Run all pre-filter queries in parallel
-    const [interactedResult, matchResult1, matchResult2] = await Promise.all([
+    // All four queries run in parallel: three exclusion lookups AND the main
+    // incoming-opens query simultaneously.  Exclusion filtering is done in
+    // JavaScript after all results arrive, removing one sequential Supabase
+    // round-trip (~150–300 ms) versus the old sequential pattern:
+    //   [3 parallel exclusion queries] → opens query → profiles batch
+    const [interactedResult, matchResult1, matchResult2, opensResult] = await Promise.all([
       this.sb.from("interactions").select("to_user_id").eq("from_user_id", userId),
       this.sb.from("matches").select("user1_id").eq("user2_id", userId).eq("status", "active"),
       this.sb.from("matches").select("user2_id").eq("user1_id", userId).eq("status", "active"),
+      this.sb
+        .from("interactions")
+        .select("id, type, from_user_id, to_user_id, created_at")
+        .eq("to_user_id", userId)
+        .eq("type", "open")
+        .order("created_at", { ascending: false })
+        .limit(100), // slightly above the final 50 to absorb JS-side exclusions
     ]);
-    console.log(`[LIKES] pre_filter_parallel: ${Date.now() - t0} ms`);
 
-    const interactedBackIds = (interactedResult.data || []).map((r: any) => r.to_user_id);
-    const matchedIds = [
-      ...(matchResult1.data || []).map((r: any) => r.user1_id),
-      ...(matchResult2.data || []).map((r: any) => r.user2_id),
-    ];
+    const excludeIds = new Set<string>([
+      ...(interactedResult.data || []).map((r: any) => r.to_user_id as string),
+      ...(matchResult1.data || []).map((r: any) => r.user1_id as string),
+      ...(matchResult2.data || []).map((r: any) => r.user2_id as string),
+    ]);
 
-    const excludeIds = [...new Set([...interactedBackIds, ...matchedIds])];
+    const incomingOpens = (opensResult.data || [])
+      .filter((o: any) => !excludeIds.has(o.from_user_id))
+      .slice(0, 50);
 
-    let query = this.sb
-      .from("interactions")
-      .select("id, type, from_user_id, to_user_id, created_at")
-      .eq("to_user_id", userId)
-      .eq("type", "open")
-      .order("created_at", { ascending: false })
-      .limit(50);
+    if (incomingOpens.length === 0) return [];
 
-    if (excludeIds.length > 0) {
-      query = query.not("from_user_id", "in", `(${excludeIds.join(",")})`);
-    }
-
-    const t1 = Date.now();
-    const { data: incomingOpens } = await query;
-    console.log(`[LIKES] incoming_opens_query: ${Date.now() - t1} ms | found: ${incomingOpens?.length ?? 0}`);
-    if (!incomingOpens || incomingOpens.length === 0) return [];
-
-    // Batch-fetch profiles — photos are stripped here (MATCH_PROFILE_COLS) and
-    // lazy-loaded per card via GET /api/profiles/:userId/photos so that one
-    // /api/who-liked-you call never carries 50 × 150 KB of base64 image strings.
+    // Batch-fetch profiles — photos are stripped (MATCH_PROFILE_COLS) and
+    // lazy-loaded per card so this response never carries large base64 images.
     const fromUserIds = incomingOpens.map((o: any) => o.from_user_id);
-    const t2 = Date.now();
     const { data: profileRows } = await this.sb
       .from("profiles")
       .select(MATCH_PROFILE_COLS)
       .in("user_id", fromUserIds);
-    console.log(`[LIKES] profiles_batch: ${Date.now() - t2} ms | profiles: ${profileRows?.length ?? 0} | total: ${Date.now() - t0} ms`);
 
     const profileMap = new Map<string, any>();
     for (const row of profileRows ?? []) {

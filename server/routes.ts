@@ -115,6 +115,38 @@ function verifyJwt(token: string): any | null {
   return user;
 }
 
+// Server-side user meta cache for /api/discover.
+// Caches {gender, preference, ageMin, ageMax} keyed by userId so the discover
+// route can skip the sequential getProfileMeta round-trip (~150–300 ms) on warm
+// server hits.  TTL: 10 minutes.  Invalidated immediately on profile update.
+const _userDiscoverMeta = new Map<string, {
+  gender: string; preference: string;
+  ageMin: number; ageMax: number;
+  expiresAt: number;
+}>();
+const DISCOVER_META_TTL_MS = 10 * 60_000;
+
+function getCachedDiscoverMeta(userId: string) {
+  const e = _userDiscoverMeta.get(userId);
+  if (e && e.expiresAt > Date.now()) return e;
+  _userDiscoverMeta.delete(userId);
+  return null;
+}
+
+function setCachedDiscoverMeta(
+  userId: string,
+  gender: string,
+  preference: string,
+  ageMin: number,
+  ageMax: number,
+) {
+  if (_userDiscoverMeta.size >= 500) {
+    const now = Date.now();
+    _userDiscoverMeta.forEach((v, k) => { if (v.expiresAt < now) _userDiscoverMeta.delete(k); });
+  }
+  _userDiscoverMeta.set(userId, { gender, preference, ageMin, ageMax, expiresAt: Date.now() + DISCOVER_META_TTL_MS });
+}
+
 async function broadcastViaHttpApi(topic: string, event: string, payload: Record<string, any>): Promise<void> {
   const supabaseUrl = process.env.VITE_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -548,6 +580,9 @@ export async function registerRoutes(
       }
       const payload = { ...parsed.data, userId };
       const result = await storage.updateProfile(userId, payload);
+      // Invalidate the discover meta cache so gender/preference changes take
+      // effect on the very next /api/discover call.
+      _userDiscoverMeta.delete(userId);
       res.json(result);
     } catch (error: any) {
       const errMsg = error?.message || "Failed to save profile";
@@ -561,18 +596,33 @@ export async function registerRoutes(
     try {
       const storage = getStorage(req);
       const userId = req.user.id;
-      const myProfile = await storage.getProfileMeta(userId);
-      const metaMs = Date.now() - t0;
-      if (!myProfile) {
-        devPerf("/api/discover", metaMs, { status: 204, reason: "no-profile" });
-        return res.json([]);
+
+      // Fast path: use cached gender/preference to skip the sequential
+      // getProfileMeta round-trip (~150–300 ms saved on warm server).
+      let discoverMeta = getCachedDiscoverMeta(userId);
+      if (!discoverMeta) {
+        const myProfile = await storage.getProfileMeta(userId);
+        const metaMs = Date.now() - t0;
+        if (!myProfile) {
+          devPerf("/api/discover", metaMs, { status: 204, reason: "no-profile" });
+          return res.json([]);
+        }
+        discoverMeta = {
+          gender: myProfile.gender,
+          preference: myProfile.datingPreference,
+          ageMin: myProfile.preferredAgeMin || 18,
+          ageMax: myProfile.preferredAgeMax || 99,
+          expiresAt: 0,
+        };
+        setCachedDiscoverMeta(userId, discoverMeta.gender, discoverMeta.preference, discoverMeta.ageMin, discoverMeta.ageMax);
       }
+
       const t1 = Date.now();
-      const discovered = await storage.getDiscoverProfiles(userId, myProfile.gender, myProfile.datingPreference, myProfile.preferredAgeMin || 18, myProfile.preferredAgeMax || 99);
+      const discovered = await storage.getDiscoverProfiles(userId, discoverMeta.gender, discoverMeta.preference, discoverMeta.ageMin, discoverMeta.ageMax);
       const discoverJson = IS_DEV ? JSON.stringify(discovered) : "";
       devPerf("/api/discover", Date.now() - t0, {
         status: 200,
-        metaMs,
+        metaCached: !!getCachedDiscoverMeta(userId),
         queryMs: Date.now() - t1,
         count: discovered.length,
         payloadKb: Math.round(discoverJson.length / 1024),
@@ -881,10 +931,10 @@ export async function registerRoutes(
               const pc1 = updatedMatch.messageCount1 || 0;
               const pc2 = updatedMatch.messageCount2 || 0;
               const myNewCount = updatedMatch.user1Id === userId ? pc1 : pc2;
-              console.log("[CONNECTION_STAGE] POST_CALL_MESSAGE_SENT", { matchId, userId, callStage, myPostCallCount: myNewCount });
+              if (IS_DEV) console.log("[CONNECTION_STAGE] POST_CALL_MESSAGE_SENT", { matchId, userId, callStage, myPostCallCount: myNewCount });
               if (pc1 >= 12 && pc2 >= 12) {
-                console.log("[CONNECTION_STAGE] SECOND_CALL_UNLOCKED", { matchId, pc1, pc2 });
-                console.log("[CONNECTION_STAGE] CONNECTION_STAGE_CHANGED", { matchId, from: "post_call_messaging", to: "second_call_ready" });
+                if (IS_DEV) console.log("[CONNECTION_STAGE] SECOND_CALL_UNLOCKED", { matchId, pc1, pc2 });
+                if (IS_DEV) console.log("[CONNECTION_STAGE] CONNECTION_STAGE_CHANGED", { matchId, from: "post_call_messaging", to: "second_call_ready" });
               }
             }
           } else if (callStage === 2) {
@@ -893,7 +943,7 @@ export async function registerRoutes(
               const pc1 = updatedMatch.messageCount1 || 0;
               const pc2 = updatedMatch.messageCount2 || 0;
               const myNewCount = updatedMatch.user1Id === userId ? pc1 : pc2;
-              console.log("[CONNECTION_STAGE] POST_SECOND_CALL_MESSAGE_SENT", { matchId, userId, callStage, myPostCallCount: myNewCount });
+              if (IS_DEV) console.log("[CONNECTION_STAGE] POST_SECOND_CALL_MESSAGE_SENT", { matchId, userId, callStage, myPostCallCount: myNewCount });
               if (pc1 >= 20 && pc2 >= 20) {
                 const { error: advErr } = await supabaseAdmin
                   .from("matches")
@@ -902,8 +952,8 @@ export async function registerRoutes(
                 if (advErr) {
                   console.error("[CONNECTION_STAGE] STAGE2_ADVANCE_ERROR", { matchId, error: advErr.message });
                 } else {
-                  console.log("[CONNECTION_STAGE] FACE_CALL_UNLOCKED", { matchId, pc1, pc2 });
-                  console.log("[CONNECTION_STAGE] CONNECTION_STAGE_CHANGED", { matchId, from: "post_second_call_messaging", to: "face_call_stage", nextStage: 3 });
+                  if (IS_DEV) console.log("[CONNECTION_STAGE] FACE_CALL_UNLOCKED", { matchId, pc1, pc2 });
+                  if (IS_DEV) console.log("[CONNECTION_STAGE] CONNECTION_STAGE_CHANGED", { matchId, from: "post_second_call_messaging", to: "face_call_stage", nextStage: 3 });
                 }
               }
             }
