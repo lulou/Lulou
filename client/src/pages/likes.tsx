@@ -749,16 +749,15 @@ export default function LikesPage() {
     if (!isLoading && likes) markPageReady({ count: likes.length });
   }, [isLoading, likes]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const { data: matchCountData } = useQuery<MatchCountData>({
-    queryKey: ["/api/match-count"],
-  });
+  // Derive connection count from the already-cached matches list —
+  // avoids a separate /api/match-count round trip (~500 ms) on every Likes page visit.
+  const { data: _cachedMatches } = useQuery<any[]>({ queryKey: ["/api/matches"] });
+  const connectionsFull = (_cachedMatches?.length ?? 0) >= 8;
 
   const { data: elevateStatus } = useQuery<ElevateStatus>({
     queryKey: ["/api/elevate/status"],
     refetchInterval: isActive ? 60000 : false,
   });
-
-  const connectionsFull = (matchCountData?.count ?? 0) >= 8;
   const elevateActive = elevateStatus?.active === true;
 
   useEffect(() => {

@@ -48,6 +48,8 @@ import { DragScrollRow } from "@/components/drag-scroll-row";
 import { CONVERSATION_STARTERS, PROFILE_QUESTIONS } from "@shared/schema";
 import type { Profile } from "@shared/schema";
 
+const _DEV = import.meta.env.DEV;
+
 function RadiusSlider({ initial, onCommit }: { initial: number; onCommit: (v: number) => void }) {
   const [value, setValue] = useState(initial);
   return (
@@ -119,7 +121,7 @@ export default function ProfilePage() {
 
   const _mountMs = useRef(performance.now());
   useEffect(() => {
-    console.log("[PERF] PROFILE_FIRST_RENDER", { ms: Math.round(_mountMs.current) });
+    if (_DEV) console.log("[PERF] PROFILE_FIRST_RENDER", { ms: Math.round(_mountMs.current) });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -134,13 +136,13 @@ export default function ProfilePage() {
     if (window.location.pathname === "/profile") {
       const params = new URLSearchParams(window.location.search);
       if (params.get("checkout") === "cancelled") {
-        console.log("[STRIPE_CANCEL] Detected ?checkout=cancelled on /profile — showing toast and clearing param");
+        if (_DEV) console.log("[STRIPE_CANCEL] Detected ?checkout=cancelled on /profile — showing toast and clearing param");
         toast({ title: "Payment cancelled", description: "Your purchase was not completed." });
         const url = new URL(window.location.href);
         url.searchParams.delete("checkout");
         window.history.replaceState({}, "", url.toString());
       } else {
-        console.log("[STRIPE_CANCEL] ProfilePage mounted on /profile — no cancel param present, no toast shown");
+        if (_DEV) console.log("[STRIPE_CANCEL] ProfilePage mounted on /profile — no cancel param present, no toast shown");
       }
     }
     const handlePageshow = (e: PageTransitionEvent) => {
@@ -169,20 +171,20 @@ export default function ProfilePage() {
   };
 
   useEffect(() => {
-    console.log("[PROFILE_PAGE] mounted");
-    return () => console.log("[PROFILE_PAGE] unmounted");
+    if (_DEV) console.log("[PROFILE_PAGE] mounted");
+    return () => { if (_DEV) console.log("[PROFILE_PAGE] unmounted"); };
   }, []);
 
   const { data: profile, isLoading, isError, error, refetch } = useQuery<Profile>({
     queryKey: ["/api/profile"],
     placeholderData: (prev) => prev,
     queryFn: async () => {
-      console.log("[PROFILE_PAGE] fetch start — /api/profile");
+      if (_DEV) console.log("[PROFILE_PAGE] fetch start — /api/profile");
       const { getAuthHeaders, logLatency, parseServerTiming, PERF_ENABLED } = await import("@/lib/queryClient");
       const authHeaders = await getAuthHeaders();
       const t0 = PERF_ENABLED ? performance.now() : 0;
       const res = await fetch("/api/profile", { credentials: "include", headers: authHeaders });
-      console.log("[PROFILE_PAGE] fetch response:", res.status);
+      if (_DEV) console.log("[PROFILE_PAGE] fetch response:", res.status);
       if (res.status === 404) {
         console.warn("[PROFILE_PAGE] 404 — no profile row found");
         return null;
@@ -197,13 +199,13 @@ export default function ProfilePage() {
       if (PERF_ENABLED) {
         logLatency("/api/profile", Math.round(performance.now() - t0), parseServerTiming(res.headers.get("server-timing")), Math.round(JSON.stringify(data).length / 1024));
       }
-      console.log("[PROFILE_PAGE] data received, userId:", data?.userId, "firstName:", data?.firstName);
+      if (_DEV) console.log("[PROFILE_PAGE] data received, userId:", data?.userId, "firstName:", data?.firstName);
       return data;
     },
   });
 
   useEffect(() => {
-    console.log("[PROFILE_PAGE] query state — isLoading:", isLoading, "isError:", isError, "hasData:", !!profile);
+    if (_DEV) console.log("[PROFILE_PAGE] query state — isLoading:", isLoading, "isError:", isError, "hasData:", !!profile);
   }, [isLoading, isError, profile]);
 
   // ── One-time base64→Storage photo migration ───────────────────────────────
@@ -227,7 +229,7 @@ export default function ProfilePage() {
     if (!hasBase64) return;
 
     photoMigrationRan.current = true;
-    console.log("[PHOTO_MIGRATION] Starting — found base64 photos in profile");
+    if (_DEV) console.log("[PHOTO_MIGRATION] Starting — found base64 photos in profile");
 
     (async () => {
       const migrated = await Promise.all(
@@ -235,7 +237,7 @@ export default function ProfilePage() {
           if (!photo.startsWith("data:")) return photo; // already a Storage URL
           try {
             const url = await uploadPhotoToStorage(photo, user.id, supabase);
-            console.log(`[PHOTO_MIGRATION] Photo ${i}: migrated to Storage`);
+            if (_DEV) console.log(`[PHOTO_MIGRATION] Photo ${i}: migrated to Storage`);
             return url;
           } catch (err: any) {
             console.warn(`[PHOTO_MIGRATION] Photo ${i}: upload failed, keeping base64 —`, err?.message);
@@ -246,17 +248,17 @@ export default function ProfilePage() {
 
       const changedCount = migrated.filter((p, i) => p !== profile.photos[i]).length;
       if (changedCount === 0) {
-        console.log("[PHOTO_MIGRATION] No photos changed — skipping DB write");
+        if (_DEV) console.log("[PHOTO_MIGRATION] No photos changed — skipping DB write");
         return;
       }
 
-      console.log(`[PHOTO_MIGRATION] ${changedCount}/${profile.photos.length} photo(s) migrated — saving to DB`);
+      if (_DEV) console.log(`[PHOTO_MIGRATION] ${changedCount}/${profile.photos.length} photo(s) migrated — saving to DB`);
       try {
         await apiRequest("POST", "/api/profile", { photos: migrated });
         queryClient.setQueryData(["/api/profile"], (prev: any) =>
           prev ? { ...prev, photos: migrated } : prev
         );
-        console.log("[PHOTO_MIGRATION] Complete — cache updated");
+        if (_DEV) console.log("[PHOTO_MIGRATION] Complete — cache updated");
       } catch (err: any) {
         console.warn("[PHOTO_MIGRATION] DB save failed:", err?.message);
       }
@@ -302,7 +304,7 @@ export default function ProfilePage() {
 
   const openFilePicker = (replaceIndex?: number) => {
     replaceIndexRef.current = replaceIndex ?? null;
-    console.log("[PHOTOS] Opening file picker", replaceIndex != null ? `to replace slot ${replaceIndex}` : "to add new photo");
+    if (_DEV) console.log("[PHOTOS] Opening file picker", replaceIndex != null ? `to replace slot ${replaceIndex}` : "to add new photo");
     if (fileInputRef.current) {
       fileInputRef.current.click();
     } else {
@@ -311,7 +313,7 @@ export default function ProfilePage() {
   };
 
   const startEditingPhotos = async () => {
-    console.log("[PHOTOS] Entering edit mode");
+    if (_DEV) console.log("[PHOTOS] Entering edit mode");
     const existing = [...(profile?.photos || [])];
     const oversized = existing.some(p => p.length > OVERSIZED_THRESHOLD);
 
@@ -330,7 +332,7 @@ export default function ProfilePage() {
     }
     setShowPhotos(true);
     setEditingPhotos(true);
-    console.log("[PHOTOS] Edit mode active, existing photos:", existing.length);
+    if (_DEV) console.log("[PHOTOS] Edit mode active, existing photos:", existing.length);
   };
 
   const cancelEditingPhotos = () => {
@@ -342,7 +344,7 @@ export default function ProfilePage() {
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const rawFiles = e.target.files;
     if (!rawFiles || rawFiles.length === 0) {
-      console.log("[PHOTOS] No files selected");
+      if (_DEV) console.log("[PHOTOS] No files selected");
       return;
     }
     // Convert to Array BEFORE clearing the input — clearing can invalidate the FileList on some mobile browsers
@@ -353,14 +355,14 @@ export default function ProfilePage() {
     const replaceIdx = replaceIndexRef.current;
     replaceIndexRef.current = null;
 
-    console.log("[PHOTOS] Files selected:", fileArray.length, isReplacing ? `replacing slot ${replaceIdx}` : "adding new");
+    if (_DEV) console.log("[PHOTOS] Files selected:", fileArray.length, isReplacing ? `replacing slot ${replaceIdx}` : "adding new");
 
     if (isReplacing && replaceIdx !== null) {
       const file = fileArray[0];
       try {
-        console.log("[PHOTOS] Converting replacement photo:", file.name, `(${(file.size / 1024).toFixed(0)} KB)`);
+        if (_DEV) console.log("[PHOTOS] Converting replacement photo:", file.name, `(${(file.size / 1024).toFixed(0)} KB)`);
         const jpeg = await convertPhotoToJpeg(file);
-        console.log("[PHOTOS] Replacement ready:", (jpeg.length / 1024).toFixed(0), "KB base64");
+        if (_DEV) console.log("[PHOTOS] Replacement ready:", (jpeg.length / 1024).toFixed(0), "KB base64");
         setEditPhotos(prev => {
           const updated = [...prev];
           updated[replaceIdx] = jpeg;
@@ -377,12 +379,12 @@ export default function ProfilePage() {
     } else {
       const slots = 6 - editPhotos.length;
       const toProcess = fileArray.slice(0, slots);
-      console.log("[PHOTOS] Adding", toProcess.length, "new photo(s), slots available:", slots);
+      if (_DEV) console.log("[PHOTOS] Adding", toProcess.length, "new photo(s), slots available:", slots);
       for (const file of toProcess) {
         try {
-          console.log("[PHOTOS] Converting:", file.name, `(${(file.size / 1024).toFixed(0)} KB)`);
+          if (_DEV) console.log("[PHOTOS] Converting:", file.name, `(${(file.size / 1024).toFixed(0)} KB)`);
           const jpeg = await convertPhotoToJpeg(file);
-          console.log("[PHOTOS] Converted:", (jpeg.length / 1024).toFixed(0), "KB base64");
+          if (_DEV) console.log("[PHOTOS] Converted:", (jpeg.length / 1024).toFixed(0), "KB base64");
           setEditPhotos(prev => prev.length < 6 ? [...prev, jpeg] : prev);
         } catch (err: any) {
           console.error("[PHOTOS] Conversion failed:", file.name, err?.message);
@@ -397,13 +399,13 @@ export default function ProfilePage() {
   };
 
   const removeEditPhoto = (index: number) => {
-    console.log("[PHOTOS] Removing photo at index", index);
+    if (_DEV) console.log("[PHOTOS] Removing photo at index", index);
     setEditPhotos(prev => prev.filter((_, i) => i !== index));
   };
 
   const savePhotos = useMutation({
     mutationFn: async () => {
-      console.log("[PROFILE_SAVE] START", { label: "savePhotos", photoCount: editPhotos.length });
+      if (_DEV) console.log("[PROFILE_SAVE] START", { label: "savePhotos", photoCount: editPhotos.length });
 
       // Upload any base64 photos to Supabase Storage and replace them with
       // public URLs.  Photos already stored as HTTPS URLs (from a previous save)
@@ -414,7 +416,7 @@ export default function ProfilePage() {
           if (!photo.startsWith("data:")) return photo; // already a Storage URL
           try {
             const url = await uploadPhotoToStorage(photo, user!.id, supabase);
-            console.log(`[PROFILE_SAVE] Photo ${i}: uploaded to Storage`);
+            if (_DEV) console.log(`[PROFILE_SAVE] Photo ${i}: uploaded to Storage`);
             return url;
           } catch (err: any) {
             console.warn(`[PROFILE_SAVE] Photo ${i}: Storage upload failed, keeping base64 —`, err?.message);
@@ -425,7 +427,7 @@ export default function ProfilePage() {
 
       const base64Count = photosToSave.filter(p => p.startsWith("data:")).length;
       const urlCount    = photosToSave.length - base64Count;
-      console.log(`[PROFILE_SAVE] Photos ready: ${urlCount} Storage URL(s), ${base64Count} base64 fallback(s)`);
+      if (_DEV) console.log(`[PROFILE_SAVE] Photos ready: ${urlCount} Storage URL(s), ${base64Count} base64 fallback(s)`);
 
       // withRetry retries up to 2 times on transient network/5xx errors.
       const res = await withRetry(
@@ -433,7 +435,7 @@ export default function ProfilePage() {
         "savePhotos",
       );
       const data = await res.json();
-      console.log("[PROFILE_SAVE] SUCCESS", { label: "savePhotos", photosInDb: data?.photos?.length ?? "unknown" });
+      if (_DEV) console.log("[PROFILE_SAVE] SUCCESS", { label: "savePhotos", photosInDb: data?.photos?.length ?? "unknown" });
       return data;
     },
     onSuccess: (data) => {
@@ -444,7 +446,7 @@ export default function ProfilePage() {
       // Profile object under the key that AppContent reads as ProfileCheckResult, making
       // profileExists evaluate to false and sending the user to onboarding.
       // setQueryData avoids any refetch and keeps the user on the Profile page.
-      console.log("[PHOTOS] Save successful — updating profile cache directly, staying on Profile page");
+      if (_DEV) console.log("[PHOTOS] Save successful — updating profile cache directly, staying on Profile page");
       queryClient.setQueryData(["/api/profile"], data);
       toast({ title: "Photos updated" });
       setEditingPhotos(false);
@@ -587,7 +589,7 @@ export default function ProfilePage() {
   };
 
   // ─── STEP 7: Render-phase log ───────────────────────────────────────────────
-  console.log("[PROFILE] RENDER_REACHED", {
+  if (_DEV) console.log("[PROFILE] RENDER_REACHED", {
     userId: user?.id,
     isLoading,
     isError,

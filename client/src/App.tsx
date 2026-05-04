@@ -603,6 +603,7 @@ function AppContent() {
     queryClient.prefetchQuery({ queryKey: ["/api/matches"] });
     queryClient.prefetchQuery({ queryKey: ["/api/who-liked-you"] });
     queryClient.prefetchQuery({ queryKey: ["/api/spin-requests"] });
+    queryClient.prefetchQuery({ queryKey: ["/api/elevate/status"] });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id, profileReady, clearingCache]);
 

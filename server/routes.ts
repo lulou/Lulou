@@ -1474,7 +1474,7 @@ export async function registerRoutes(
       const streakComplete = consecutiveDays >= 3;
       const canSpin = (streakComplete && hasUnusedStreak) || (!streakComplete && spinsThisWeek === 0);
 
-      console.log(`[SPIN_STATUS] userId=${userId} in ${Date.now() - t0} ms`);
+      if (IS_DEV) console.log(`[SPIN_STATUS] userId=${userId} in ${Date.now() - t0} ms`);
       res.json({ spinsThisWeek, dailyLikes, consecutiveDays, streakComplete, canSpin });
     } catch (error) {
       console.error(`[SPIN_STATUS] Error after ${Date.now() - t0} ms:`, error);
@@ -2142,7 +2142,7 @@ export async function registerRoutes(
     try {
       const userId = req.user.id;
       const status = await getStorage(req).getElevateStatus(userId);
-      console.log(`[ELEVATE_STATUS] userId=${userId} in ${Date.now() - t0} ms`);
+      if (IS_DEV) console.log(`[ELEVATE_STATUS] userId=${userId} in ${Date.now() - t0} ms`);
       res.json(status);
     } catch (error) {
       console.error(`[ELEVATE_STATUS] Error after ${Date.now() - t0} ms:`, error);

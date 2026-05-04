@@ -1,0 +1,111 @@
+TASK:
+Reduce Lulou API round trips and remove remaining production logs.
+
+CONTEXT:
+Latency logs show tiny payloads but slow API calls:
+
+* /api/matches = 901ms, payload 5kB
+* /api/discover = 510ms, payload 4kB
+* /api/profile = 459ms, payload 1kB
+* /api/match-count = 584ms
+
+This means payload size is not the issue. The app is slow because it waits on too many API round trips. Server-Timing is missing, likely stripped by hosting, so client time is the key signal.
+
+PROBLEM:
+The app fires multiple small API requests on page load/navigation. Each small request costs 400–900ms. Even with tiny payloads, too many round trips make the app feel slow. There are also remaining production logs in profile page.
+
+GOAL:
+Make the app feel faster by reducing the number of API calls needed per page and removing remaining production logs.
+
+REQUIREMENTS:
+
+1. Remove remaining production logs
+   Remove or gate behind lulou_perf:
+
+* [PROFILE_PAGE] fetch response
+* [PROFILE_PAGE] data received
+* any other profile page production console logs
+
+2. Audit duplicate/small requests
+   Check why these are firing separately:
+
+* /api/matches
+* /api/match-count
+* /api/spin-status
+* /api/spin-requests
+* /api/elevate/status
+* /api/profile
+* /api/profile/meta
+* /api/discover
+
+3. Combine related requests where safe
+   Do not make many tiny requests if one page needs them together.
+
+For Connections/Matches page:
+
+* Avoid separate /api/matches + /api/match-count if /api/matches can provide count
+* Avoid duplicate /api/spin-requests calls
+* Combine spin status/requests/match count into one lightweight endpoint if useful:
+  GET /api/connections/summary
+
+For app startup:
+
+* Avoid separate profile/meta/profile/elevate status if not all needed immediately
+* Fetch only the minimum needed for initial route
+* Defer non-critical requests until after first paint
+
+4. Prevent duplicate requests
+
+* Ensure /api/spin-requests is not called twice on the same page load
+* Ensure queries use stable keys
+* Ensure no duplicate prefetch + page query happens at the same time
+* If prefetched data exists, page should use cache
+
+5. Prioritise first visible content
+   On navigation, fetch only what the page needs immediately.
+   Defer:
+
+* elevate status
+* counts
+* background badge data
+* non-visible requests
+  until after page content renders.
+
+6. Keep payloads small
+   Do not reintroduce photo arrays.
+   Do not return unnecessary fields.
+   Small combined endpoints are okay if they replace multiple round trips.
+
+7. Preserve functionality
+   Do not break:
+
+* auth
+* routing
+* Discovery
+* Connections
+* Likes
+* Messages
+* Profile
+* Stripe/Elevate
+* WebRTC
+* photo loading
+
+CONSTRAINTS:
+
+* Minimal changes
+* No database schema changes
+* No RLS changes
+* No new packages
+* Return full updated files
+
+OUTPUT:
+
+1. Identify duplicate/unnecessary round trips.
+2. Remove profile production logs.
+3. Combine or defer the highest-impact small API calls.
+4. Return full updated files.
+5. Explain how many requests were removed from startup and each page.
+6. Explain how to test with LATENCY logs again.
+
+IMPORTANT:
+The bottleneck is not payload size. The bottleneck is many small 400–900ms API round trips. Reduce round trips and defer non-critical requests.
