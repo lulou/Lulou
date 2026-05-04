@@ -1,0 +1,97 @@
+TASK:
+Fix Lulou startup glitching and slow initial app load after adding latency instrumentation.
+
+CONTEXT:
+After adding latency/debug instrumentation, the app now glitches while loading and takes much longer to open. This is worse than before.
+
+PROBLEM:
+The latency logging/debug code may be causing startup slowdown, repeated renders, duplicate fetches, console overhead, or a broken fetch wrapper. The app must not become slower just to measure performance.
+
+GOAL:
+Keep lightweight latency diagnostics if possible, but immediately restore fast app startup and remove any debug code that harms performance.
+
+REQUIREMENTS:
+
+1. Audit the recent latency instrumentation
+   Check:
+
+* client/src/lib/queryClient.ts
+* client/src/lib/perf.ts
+* App.tsx
+* profile.tsx
+* any direct fetch instrumentation
+* Server-Timing middleware
+
+Look for:
+
+* logs firing too often
+* logs on every render
+* large object logging
+* duplicate fetches
+* blocking code before app render
+* errors caused by missing Server-Timing headers
+* instrumentation inside hot paths
+
+2. Fix startup glitching
+
+* Remove or disable any debug code that runs during first paint
+* Do not block app startup waiting for logging
+* Do not log large objects
+* Do not run expensive parsing on every request if unnecessary
+* Ensure fetch wrappers still return responses correctly
+
+3. Keep diagnostics lightweight
+   If latency logging remains:
+
+* Only log one short string per API request
+* No large objects
+* No render logs
+* No repeated startup logs
+* Add a toggle:
+  localStorage.setItem("lulou_perf", "1")
+  Only show [LATENCY] logs when this flag is enabled
+
+4. Default production behaviour
+   By default, published app should be fast:
+
+* No latency logs unless lulou_perf is enabled
+* No debug startup overhead
+* No console spam
+* No perf instrumentation affecting normal users
+
+5. Preserve functionality
+   Do not break:
+
+* auth
+* routing
+* Discovery
+* Connections
+* Likes
+* Messages
+* Profile
+* Stripe/Elevate
+* WebRTC
+* photo loading
+
+CONSTRAINTS:
+
+* Minimal changes only
+* No new packages
+* No database/RLS changes
+* Return full updated files
+
+OUTPUT:
+
+1. Identify exactly what caused startup glitching.
+2. Remove or gate the harmful instrumentation.
+3. Add the localStorage performance toggle.
+4. Return full updated files.
+5. Explain how to enable logs manually:
+   localStorage.setItem("lulou_perf", "1")
+   then refresh
+6. Explain how to disable logs:
+   localStorage.removeItem("lulou_perf")
+   then refresh
+
+IMPORTANT:
+Performance diagnostics must never make the app slower for normal users. Restore fast startup first.

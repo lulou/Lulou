@@ -4,9 +4,16 @@ import { preloadPhoto } from "./image-utils";
 import { trackRequest, perfStart, perfMark, isMobile, scheduleIdle } from "./perf";
 
 // TEMP: latency debugging — remove before production release
-// This fires once when the JS module is first evaluated, confirming the
-// deployed bundle contains the instrumentation code.
-console.log("[LATENCY_DEBUG] instrumentation active");
+// Toggle: localStorage.setItem("lulou_perf", "1") then refresh to enable.
+//         localStorage.removeItem("lulou_perf") then refresh to disable.
+// Default is OFF so normal users pay zero cost.
+export const PERF_ENABLED =
+  typeof localStorage !== "undefined" && localStorage.getItem("lulou_perf") === "1";
+
+if (PERF_ENABLED) {
+  // eslint-disable-next-line no-console
+  console.log("[LATENCY_DEBUG] instrumentation active — disable with localStorage.removeItem('lulou_perf')");
+}
 
 // In-memory auth token cache — avoids getSession() round-trip on every request
 let _cachedToken: string | null = null;
@@ -87,7 +94,8 @@ export async function apiRequest(
   data?: unknown | undefined,
 ): Promise<Response> {
   const authHeaders = await getAuthHeaders();
-  const t0 = performance.now();
+  // TEMP: latency debugging — remove before production release
+  const t0 = PERF_ENABLED ? performance.now() : 0;
   const res = await fetch(url, {
     method,
     headers: {
@@ -97,9 +105,9 @@ export async function apiRequest(
     body: data ? JSON.stringify(data) : undefined,
     credentials: "include",
   });
-  // TEMP: latency debugging — remove before production release
-  // payload=0 because body hasn't been consumed yet; caller reads .json() after
-  logLatency(`${method} ${url}`, Math.round(performance.now() - t0), parseServerTiming(res.headers.get("server-timing")), 0);
+  if (PERF_ENABLED) {
+    logLatency(`${method} ${url}`, Math.round(performance.now() - t0), parseServerTiming(res.headers.get("server-timing")), 0);
+  }
   await throwIfResNotOk(res);
   return res;
 }
@@ -107,7 +115,8 @@ export async function apiRequest(
 type UnauthorizedBehavior = "returnNull" | "throw";
 
 // TEMP: latency debugging — remove before production release
-// Exported so bypass fetch sites (App.tsx, profile.tsx) can reuse the same format.
+// Parse a Server-Timing header and return the named metric in ms.
+// Only called when PERF_ENABLED — not on every request.
 export function parseServerTiming(header: string | null, metric = "handler"): number | null {
   if (!header) return null;
   const re = new RegExp(`${metric}[^,]*?dur=([\\d.]+)`);
@@ -116,12 +125,17 @@ export function parseServerTiming(header: string | null, metric = "handler"): nu
 }
 
 // TEMP: latency debugging — remove before production release
+// Emits one [LATENCY] line per request when PERF_ENABLED.
+// Format: [LATENCY] /api/discover | client=342ms | server=89ms | network=253ms | payload=12kB
+// Toggle: localStorage.setItem("lulou_perf","1") then refresh.
 export function logLatency(
   url: string,
   clientMs: number,
   serverMs: number | null,
   payloadKb: number,
 ): void {
+  // Guard: zero cost for normal users.
+  if (!PERF_ENABLED) return;
   const parts: string[] = [`[LATENCY] ${url}`, `client=${clientMs}ms`];
   if (serverMs != null) {
     parts.push(`server=${Math.round(serverMs)}ms`);
@@ -132,7 +146,6 @@ export function logLatency(
     parts.push("server=missing", "network=unknown");
   }
   if (payloadKb > 0) parts.push(`payload=${payloadKb}kB`);
-  // console.log (not .info) — Safari hides .info by default in Web Inspector
   // eslint-disable-next-line no-console
   console.log(parts.join(" | "));
 }
@@ -154,14 +167,12 @@ export const getQueryFn: <T>(options: {
 
     const authHeaders = await getAuthHeaders();
 
-    const t0 = performance.now();
+    // TEMP: latency debugging — timer only started when PERF_ENABLED
+    const t0 = PERF_ENABLED ? performance.now() : 0;
     const res = await fetch(url, {
       credentials: "include",
       headers: authHeaders,
     });
-    // Read Server-Timing header immediately — before consuming the body,
-    // so server-side processing time is captured as accurately as possible.
-    const serverMs = parseServerTiming(res.headers.get("server-timing"));
 
     if (res.status === 401) {
       endQuery({ status: 401 });
@@ -188,10 +199,18 @@ export const getQueryFn: <T>(options: {
     }
 
     const json = await res.json();
-    const clientMs = Math.round(performance.now() - t0);
-    const payloadKb = Math.round(JSON.stringify(json).length / 1024);
-    logLatency(url, clientMs, serverMs, payloadKb);
-    endQuery({ status: 200, payloadKb });
+
+    // TEMP: latency debugging — expensive ops only run when PERF_ENABLED
+    if (PERF_ENABLED) {
+      const clientMs = Math.round(performance.now() - t0);
+      const serverMs = parseServerTiming(res.headers.get("server-timing"));
+      const payloadKb = Math.round(JSON.stringify(json).length / 1024);
+      logLatency(url, clientMs, serverMs, payloadKb);
+      endQuery({ status: 200, payloadKb });
+    } else {
+      endQuery({ status: 200 });
+    }
+
     return json;
   };
 
@@ -243,18 +262,26 @@ export async function batchPrefetchPhotos(userIds: string[]): Promise<void> {
 
   try {
     const headers = await getAuthHeaders();
-    const t0 = performance.now();
+    // TEMP: latency debugging — timer only started when PERF_ENABLED
+    const t0 = PERF_ENABLED ? performance.now() : 0;
     const res = await fetch(`/api/profiles/photos/batch?ids=${missing.join(",")}`, {
       headers,
       credentials: "include",
     });
-    const serverMs = parseServerTiming(res.headers.get("server-timing"));
     if (!res.ok) { endBatch({ error: res.status }); return; }
 
     const data: Record<string, string[]> = await res.json();
-    const clientMs = Math.round(performance.now() - t0);
-    const payloadKb = Math.round(JSON.stringify(data).length / 1024);
-    logLatency(`/api/profiles/photos/batch?n=${missing.length}`, clientMs, serverMs, payloadKb);
+
+    // TEMP: latency debugging — expensive ops only run when PERF_ENABLED
+    if (PERF_ENABLED) {
+      const clientMs = Math.round(performance.now() - t0);
+      const serverMs = parseServerTiming(res.headers.get("server-timing"));
+      const payloadKb = Math.round(JSON.stringify(data).length / 1024);
+      logLatency(`/api/profiles/photos/batch?n=${missing.length}`, clientMs, serverMs, payloadKb);
+      endBatch({ returned: Object.keys(data).length, payloadKb });
+    } else {
+      endBatch({ returned: Object.keys(data).length });
+    }
 
     for (const [userId, photos] of Object.entries(data)) {
       queryClient.setQueryData(["/api/profiles", userId, "photos"], { photos });
@@ -266,7 +293,6 @@ export async function batchPrefetchPhotos(userIds: string[]): Promise<void> {
         else preloadPhoto(photos[0]);
       }
     }
-    endBatch({ returned: Object.keys(data).length, payloadKb });
   } catch {
     endBatch({ error: "exception" });
     // Best-effort — individual card useQuery hooks serve as the guaranteed fallback
