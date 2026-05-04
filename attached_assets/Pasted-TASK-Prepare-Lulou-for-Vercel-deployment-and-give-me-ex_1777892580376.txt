@@ -1,0 +1,112 @@
+TASK:
+Prepare Lulou for Vercel deployment and give me exact step-by-step instructions.
+
+CONTEXT:
+I want to deploy the Lulou frontend to Vercel so the app loads faster than it does on Replit. I do not want to accidentally break the app or expose private keys.
+
+GOAL:
+Prepare the project so I can safely deploy the frontend to Vercel while keeping the existing Replit backend/API working.
+
+REQUIREMENTS:
+
+1. Inspect project structure
+
+* Identify whether the frontend is in the project root or inside `/client`
+* Identify the correct build command
+* Identify the correct output directory
+* Identify whether Vercel should use root directory `/` or `/client`
+
+2. Check API base URL setup
+
+* Confirm API calls can use `VITE_API_BASE_URL`
+* If not already done, update the shared API fetch/query logic so:
+
+  * local/Replit can use same-origin `/api`
+  * Vercel can use `VITE_API_BASE_URL + /api/...`
+* Do not change every page manually if there is a shared fetch wrapper
+
+3. Add or verify Vercel config
+
+* Add/update `vercel.json` if needed
+* Ensure client-side routes work on refresh:
+  `/discover`
+  `/matches`
+  `/likes`
+  `/profile`
+  `/messages`
+* Use SPA fallback rewrite to `index.html`
+
+4. Check environment variables
+   List exactly which variables I must add to Vercel.
+
+Frontend-safe variables only:
+
+* `VITE_SUPABASE_URL`
+* `VITE_SUPABASE_ANON_KEY`
+* `VITE_API_BASE_URL`
+* `VITE_STRIPE_PUBLISHABLE_KEY` if the frontend uses it
+
+Do NOT include:
+
+* `SUPABASE_SERVICE_ROLE_KEY`
+* `STRIPE_SECRET_KEY`
+* `STRIPE_WEBHOOK_SECRET`
+* any private backend secrets
+
+5. Check CORS
+   Inspect backend CORS setup.
+   Make sure the Replit backend allows requests from:
+
+* current Replit frontend
+* local development
+* future Vercel frontend domain
+
+If exact Vercel domain is not known yet, prepare the backend so I can add it easily after deployment.
+
+6. Do not break Replit
+   The existing Replit deployment must keep working.
+   Do not remove backend routes.
+   Do not remove server code.
+   Do not break auth, payments, WebRTC, uploads, or API requests.
+
+7. Build test
+   Run the correct build command.
+   Fix only deployment-related build errors.
+   Do not refactor unrelated app code.
+
+8. Provide exact human instructions
+   After preparing files, tell me exactly:
+
+* what folder/root to deploy from
+* what build command to enter in Vercel
+* what output directory to enter
+* what environment variables to paste
+* where to get each value
+* what to do if CORS fails
+* how to test the Vercel URL
+
+CONSTRAINTS:
+
+* Minimal changes only
+* No database schema changes
+* No RLS changes
+* No unrelated feature changes
+* Do not expose secrets
+* Return full updated files
+
+OUTPUT:
+
+1. Current project structure summary
+2. Files changed
+3. Vercel deployment settings:
+
+   * root directory
+   * build command
+   * output directory
+4. Required environment variables
+5. CORS instructions
+6. Step-by-step Vercel deployment guide
+7. Test checklist after deployment
+
+IMPORTANT:
+Do not actually deploy for me unless the environment supports it. Prepare the project safely and give me exact steps so I do not get anything wrong.
