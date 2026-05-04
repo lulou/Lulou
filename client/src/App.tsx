@@ -1,6 +1,6 @@
 import { Switch, Route, useLocation } from "wouter";
 import { createContext, useContext, useState, useCallback, useEffect, useRef, useMemo, lazy, Suspense, Component, type ReactNode, type ErrorInfo } from "react";
-import { queryClient, getAuthHeaders, apiRequest } from "./lib/queryClient";
+import { queryClient, getAuthHeaders, apiRequest, logLatency, parseServerTiming } from "./lib/queryClient";
 import { QueryClientProvider, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -494,6 +494,8 @@ async function checkProfileExists(
       signal: controller.signal,
     });
     clearTimeout(timeoutId);
+    // TEMP: latency debugging — remove before production release
+    logLatency("/api/profile/meta", Math.round(performance.now() - t0), parseServerTiming(res.headers.get("server-timing")), 0);
     console.log("[SETUP] PROFILE_FETCH_NETWORK_DONE", { status: res.status, userId, ms: Math.round(performance.now() - t0) });
   } catch (err: any) {
     clearTimeout(timeoutId);

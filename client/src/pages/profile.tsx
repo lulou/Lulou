@@ -178,8 +178,9 @@ export default function ProfilePage() {
     placeholderData: (prev) => prev,
     queryFn: async () => {
       console.log("[PROFILE_PAGE] fetch start — /api/profile");
-      const { getAuthHeaders } = await import("@/lib/queryClient");
+      const { getAuthHeaders, logLatency, parseServerTiming } = await import("@/lib/queryClient");
       const authHeaders = await getAuthHeaders();
+      const t0 = performance.now();
       const res = await fetch("/api/profile", { credentials: "include", headers: authHeaders });
       console.log("[PROFILE_PAGE] fetch response:", res.status);
       if (res.status === 404) {
@@ -192,6 +193,8 @@ export default function ProfilePage() {
         throw new Error(`${res.status}: ${text.slice(0, 120)}`);
       }
       const data = await res.json();
+      // TEMP: latency debugging — remove before production release
+      logLatency("/api/profile", Math.round(performance.now() - t0), parseServerTiming(res.headers.get("server-timing")), Math.round(JSON.stringify(data).length / 1024));
       console.log("[PROFILE_PAGE] data received, userId:", data?.userId, "firstName:", data?.firstName);
       return data;
     },

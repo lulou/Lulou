@@ -1,0 +1,85 @@
+TASK:
+Fix missing [LATENCY] logs in the published Lulou app.
+
+CONTEXT:
+Latency instrumentation was added, but when testing the published app in the browser console, typing/filtering `[LATENCY]` shows nothing. This means the logs are not running in the deployed build, not being called, or the fetch wrapper is being bypassed.
+
+PROBLEM:
+We cannot diagnose the final performance issue because the published app is not outputting latency logs.
+
+GOAL:
+Make `[LATENCY]` logs definitely appear in the browser console for every API request in the published app.
+
+REQUIREMENTS:
+
+1. Verify the instrumentation is in the active code path
+   Check:
+
+* `client/src/lib/queryClient.ts`
+* every API fetch wrapper
+* `batchPrefetchPhotos`
+* any direct `fetch()` calls outside queryClient
+* any axios/custom request utilities if present
+
+Confirm whether API calls actually pass through the instrumented function.
+
+2. Add a startup confirmation log
+   Temporarily add one safe production-visible log on app startup:
+
+`[LATENCY_DEBUG] instrumentation active`
+
+This proves the deployed frontend contains the debug code.
+
+3. Force API latency logs to production temporarily
+   For now, do not hide `[LATENCY]` behind development checks.
+
+Every API request should log:
+
+`[LATENCY] <url> | client=<ms> | server=<ms> | network=<ms> | payload=<kB>`
+
+4. Instrument direct fetch calls
+   If any API request bypasses queryClient, add latency logging there too.
+
+5. Confirm Server-Timing header exists
+   Check that server responses include:
+
+`Server-Timing: handler;dur=<ms>`
+
+If missing, fix server middleware so the header is added before response headers are sent.
+
+6. Add fallback if Server-Timing is missing
+   If server time cannot be read, still log:
+
+`[LATENCY] <url> | client=<ms> | server=missing | network=unknown | payload=<kB>`
+
+7. Keep logs minimal
+   Only allow:
+
+* `[LATENCY_DEBUG]`
+* `[LATENCY]`
+
+Do not add object spam or render logs.
+
+8. Preserve functionality
+
+* No UI changes
+* No routing changes
+* No app logic changes
+* No performance feature changes
+
+CONSTRAINTS:
+
+* Minimal code changes
+* Temporary debugging only
+* Return full updated files
+
+OUTPUT:
+
+1. Explain why `[LATENCY]` was not appearing.
+2. Confirm whether queryClient was being bypassed.
+3. Confirm startup debug log appears.
+4. Confirm API latency logs now appear in production.
+5. Explain exactly how to test.
+
+IMPORTANT:
+Do not optimise anything in this task. Only make the latency logging visible and reliable in the published app.

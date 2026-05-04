@@ -3,6 +3,11 @@ import { supabase } from "./supabase";
 import { preloadPhoto } from "./image-utils";
 import { trackRequest, perfStart, perfMark, isMobile, scheduleIdle } from "./perf";
 
+// TEMP: latency debugging — remove before production release
+// This fires once when the JS module is first evaluated, confirming the
+// deployed bundle contains the instrumentation code.
+console.log("[LATENCY_DEBUG] instrumentation active");
+
 // In-memory auth token cache — avoids getSession() round-trip on every request
 let _cachedToken: string | null = null;
 let _tokenExpiresAt: number = 0;
@@ -82,6 +87,7 @@ export async function apiRequest(
   data?: unknown | undefined,
 ): Promise<Response> {
   const authHeaders = await getAuthHeaders();
+  const t0 = performance.now();
   const res = await fetch(url, {
     method,
     headers: {
@@ -91,18 +97,18 @@ export async function apiRequest(
     body: data ? JSON.stringify(data) : undefined,
     credentials: "include",
   });
-
+  // TEMP: latency debugging — remove before production release
+  // payload=0 because body hasn't been consumed yet; caller reads .json() after
+  logLatency(`${method} ${url}`, Math.round(performance.now() - t0), parseServerTiming(res.headers.get("server-timing")), 0);
   await throwIfResNotOk(res);
   return res;
 }
 
 type UnauthorizedBehavior = "returnNull" | "throw";
-/**
- * Parse a Server-Timing header and return the value of the named metric in ms.
- * Format: "handler;dur=123" or "handler;dur=123.4;desc=..."
- * Returns null if the header is absent or unparseable.
- */
-function parseServerTiming(header: string | null, metric = "handler"): number | null {
+
+// TEMP: latency debugging — remove before production release
+// Exported so bypass fetch sites (App.tsx, profile.tsx) can reuse the same format.
+export function parseServerTiming(header: string | null, metric = "handler"): number | null {
   if (!header) return null;
   const re = new RegExp(`${metric}[^,]*?dur=([\\d.]+)`);
   const m = header.match(re);
@@ -110,7 +116,7 @@ function parseServerTiming(header: string | null, metric = "handler"): number | 
 }
 
 // TEMP: latency debugging — remove before production release
-function logLatency(
+export function logLatency(
   url: string,
   clientMs: number,
   serverMs: number | null,
@@ -122,6 +128,8 @@ function logLatency(
     const networkMs = Math.round(clientMs - serverMs);
     parts.push(`network=${networkMs}ms`);
     if (networkMs > 300) parts.push("HIGH_NETWORK");
+  } else {
+    parts.push("server=missing", "network=unknown");
   }
   if (payloadKb > 0) parts.push(`payload=${payloadKb}kB`);
   // console.log (not .info) — Safari hides .info by default in Web Inspector
