@@ -473,15 +473,15 @@ async function checkProfileExists(
     profileErrorMessage: null,
   });
   // Separate fetch from response handling so network errors are clearly retryable.
-  // The 6-second AbortController timeout prevents the profile check from hanging
-  // indefinitely on a slow Supabase cold-start (which would keep the spinner up
-  // forever even after the SPINNER_TIMEOUT_MS circuit-breaker fires).
+  // 4-second abort — must be shorter than SPINNER_TIMEOUT_MS (12 s) so the
+  // request fails cleanly and the query enters error state before the spinner
+  // declares a timeout.  The "Try Again" button handles manual retry.
   let res: Response;
   const controller = new AbortController();
   const timeoutId = setTimeout(() => {
     controller.abort();
-    console.error("[AUTH] PROFILE_LOAD_FAILED: network timeout after 6 s");
-  }, 6_000);
+    console.error("[AUTH] PROFILE_LOAD_FAILED: network timeout after 4 s");
+  }, 4_000);
   try {
     console.log("[SETUP] PROFILE_FETCH_NETWORK_START", { userId });
     const t0 = performance.now();
@@ -536,10 +536,11 @@ async function checkProfileExists(
 }
 
 // How long the loading spinner is allowed to show before we cut it off and
-// display a retry/bypass screen.  Kept short (5 s) because the profile-exists-
-// check fetch now has its own 6-second network timeout — if the server hasn't
-// responded by then the query will error and the spinner collapses anyway.
-const SPINNER_TIMEOUT_MS = 5_000;
+// display a retry/bypass screen.  Must be longer than the network abort inside
+// checkProfileExists (4 s) so the fetch has time to fail cleanly before the
+// spinner declares a timeout.  Acts only as a last-resort backstop for cases
+// where the request stalls without triggering a TCP reset.
+const SPINNER_TIMEOUT_MS = 12_000;
 
 function AppContent() {
   const [location] = useLocation();
@@ -573,12 +574,11 @@ function AppContent() {
       });
     },
     enabled: !!user && profileReady && !clearingCache,
-    // 1 retry at 2 s — the fetch itself now has a 6-second AbortController
-    // timeout, so a hanging request errors out fast.  Combined with the
-    // SPINNER_TIMEOUT_MS=5s circuit-breaker, worst-case wait is ~8 s before
-    // the user sees "Try Again / Continue to App" instead of a blank spinner.
-    retry: 1,
-    retryDelay: 2000,
+    // No auto-retry — the fetch has a 4 s AbortController abort so failures
+    // surface quickly.  The "Try Again" button on the error screen handles
+    // manual retry.  Auto-retry caused a second 5 s spinner cycle that produced
+    // the duplicate "Taking longer than expected" message.
+    retry: 0,
     staleTime: Infinity,
   });
 
