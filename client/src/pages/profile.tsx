@@ -180,10 +180,10 @@ export default function ProfilePage() {
     placeholderData: (prev) => prev,
     queryFn: async () => {
       if (_DEV) console.log("[PROFILE_PAGE] fetch start — /api/profile");
-      const { getAuthHeaders, logLatency, parseServerTiming, PERF_ENABLED } = await import("@/lib/queryClient");
+      const { getAuthHeaders, logLatency, parseServerTiming, PERF_ENABLED, API_BASE } = await import("@/lib/queryClient");
       const authHeaders = await getAuthHeaders();
       const t0 = PERF_ENABLED ? performance.now() : 0;
-      const res = await fetch("/api/profile", { credentials: "include", headers: authHeaders });
+      const res = await fetch(API_BASE + "/api/profile", { credentials: "include", headers: authHeaders });
       if (_DEV) console.log("[PROFILE_PAGE] fetch response:", res.status);
       if (res.status === 404) {
         console.warn("[PROFILE_PAGE] 404 — no profile row found");

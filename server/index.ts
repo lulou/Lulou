@@ -44,6 +44,34 @@ app.use(
 
 app.use(express.urlencoded({ extended: false, limit: "50mb" }));
 
+// ── CORS ─────────────────────────────────────────────────────────────────────
+// Allows cross-origin requests from the Vercel frontend (and local dev).
+// On Replit fullstack mode the frontend is same-origin so this is a no-op.
+// Add extra origins via ALLOWED_ORIGINS="https://a.com,https://b.com".
+const _corsAllowPatterns: RegExp[] = [
+  /\.replit\.app$/,
+  /\.replit\.dev$/,
+  /\.vercel\.app$/,
+  /^https?:\/\/localhost(:\d+)?$/,
+  ...(process.env.ALLOWED_ORIGINS
+    ? process.env.ALLOWED_ORIGINS.split(",").map(
+        (o) => new RegExp(`^${o.trim().replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*")}$`),
+      )
+    : []),
+];
+
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  if (origin && _corsAllowPatterns.some((p) => p.test(origin))) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+    res.setHeader("Access-Control-Allow-Credentials", "true");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
+  }
+  if (req.method === "OPTIONS") return res.status(204).end();
+  next();
+});
+
 export function log(message: string, source = "express") {
   const formattedTime = new Date().toLocaleTimeString("en-US", {
     hour: "numeric",

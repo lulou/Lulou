@@ -1,0 +1,119 @@
+TASK:
+Prepare Lulou frontend for deployment to Vercel while keeping the current backend/API working.
+
+CONTEXT:
+Lulou is currently running on Replit and still feels slow, especially in real-world usage. Latency logs show small API payloads taking 500–1700ms, which suggests hosting/network latency is a major bottleneck.
+
+GOAL:
+Move the frontend to Vercel/CDN hosting so the app loads like a real production app, while keeping the existing backend/API stable for now.
+
+REQUIREMENTS:
+
+1. Audit current project structure
+
+* Identify frontend folder
+* Identify backend/API folder
+* Identify build command
+* Identify environment variables
+* Identify how API requests are currently made
+
+2. Separate frontend deployment concerns
+
+* Ensure frontend can build independently
+* Ensure Vercel can serve the frontend as a static app
+* Ensure routing works with client-side routes
+
+3. Configure API base URL
+   Currently API calls may assume same-origin paths like:
+   `/api/discover`
+
+For Vercel frontend, API calls must point to the Replit backend URL.
+
+Add a safe environment variable such as:
+`VITE_API_BASE_URL`
+
+Then update API fetch logic so:
+
+* In local/Replit fullstack mode, it can still use same-origin `/api`
+* In Vercel mode, it uses `VITE_API_BASE_URL + /api/...`
+
+4. Do not break existing Replit deployment
+
+* Keep current Replit app working
+* Do not remove backend routes
+* Do not remove existing server code
+* Do not break Supabase Auth
+* Do not break Stripe
+* Do not break WebRTC
+* Do not break photo uploads
+
+5. Add Vercel config if needed
+   Create/update:
+
+* `vercel.json`
+* frontend build settings
+* SPA fallback rewrite so routes like `/discover`, `/matches`, `/profile` work on refresh
+
+6. Environment variables for Vercel
+   List required frontend env vars:
+
+* `VITE_SUPABASE_URL`
+* `VITE_SUPABASE_ANON_KEY`
+* `VITE_API_BASE_URL`
+* any Stripe publishable key if used client-side
+
+Do NOT expose:
+
+* Supabase service role key
+* Stripe secret key
+* webhook secret
+
+7. CORS check
+   Backend must allow requests from the Vercel domain.
+   Add or confirm CORS support for:
+
+* local dev
+* current Replit domain
+* future Vercel domain
+
+8. Performance goal
+   After deployment:
+
+* frontend assets should load from Vercel CDN
+* app shell should load faster
+* API calls still go to backend, but fewer first-load delays should block the UI
+
+9. Preserve functionality
+   Do not break:
+
+* login/signup
+* protected routes
+* Discovery
+* Connections
+* Likes
+* Messages
+* Profile
+* Stripe/Elevate
+* WebRTC
+* Supabase Storage photos
+
+CONSTRAINTS:
+
+* Do not rewrite the app
+* Do not change database schema
+* Do not change RLS
+* Keep changes minimal
+* Return full updated files
+
+OUTPUT:
+
+1. Explain current frontend/backend structure.
+2. Identify exact changes needed for Vercel deployment.
+3. Add/update required config files.
+4. Update API base URL handling safely.
+5. List Vercel environment variables.
+6. Explain how to deploy to Vercel step by step.
+7. Explain how to test the Vercel version without breaking the Replit version.
+
+IMPORTANT:
+The goal is to test whether CDN frontend hosting improves real-world speed. Keep backend on Replit for now unless a later test proves backend migration is also required.

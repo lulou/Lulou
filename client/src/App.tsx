@@ -1,6 +1,6 @@
 import { Switch, Route, useLocation } from "wouter";
 import { createContext, useContext, useState, useCallback, useEffect, useRef, useMemo, lazy, Suspense, Component, type ReactNode, type ErrorInfo } from "react";
-import { queryClient, getAuthHeaders, apiRequest, logLatency, parseServerTiming, PERF_ENABLED } from "./lib/queryClient";
+import { queryClient, getAuthHeaders, apiRequest, logLatency, parseServerTiming, PERF_ENABLED, API_BASE } from "./lib/queryClient";
 import { QueryClientProvider, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -490,7 +490,7 @@ async function checkProfileExists(
     // so payload size is negligible. Fetching the full profile here lets us seed the
     // ["/api/profile"] cache on success, so profile.tsx reads from cache on first render
     // instead of issuing a second network request.
-    res = await fetch("/api/profile", {
+    res = await fetch(API_BASE + "/api/profile", {
       credentials: "include",
       headers: authHeaders,
       signal: controller.signal,

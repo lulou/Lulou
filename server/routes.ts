@@ -1895,8 +1895,8 @@ export async function registerRoutes(
         return res.status(400).json({ message: `Invalid item. Must be one of: ${Object.keys(EXTRAS_ITEMS).join(", ")}` });
       }
       const stripe = await getUncachableStripeClient();
-      const domains = process.env.REPLIT_DOMAINS?.split(",")[0] ?? "localhost:5000";
-      const baseUrl = `https://${domains}`;
+      const baseUrl = process.env.FRONTEND_URL ??
+        `https://${process.env.REPLIT_DOMAINS?.split(",")[0] ?? "localhost:5000"}`;
 
       const priceData: Record<string, unknown> = {
         currency: "aud",
@@ -2014,8 +2014,8 @@ export async function registerRoutes(
       const safeCancelPath = allowedCancelPaths.includes(cancelPath) ? cancelPath : "/likes";
 
       const stripe = await getUncachableStripeClient();
-      const domains = process.env.REPLIT_DOMAINS?.split(",")[0] ?? "localhost:5000";
-      const baseUrl = `https://${domains}`;
+      const baseUrl = process.env.FRONTEND_URL ??
+        `https://${process.env.REPLIT_DOMAINS?.split(",")[0] ?? "localhost:5000"}`;
 
       const isSuper = pack.type === "super_elevate";
       const description = isSuper

@@ -3,6 +3,13 @@ import { supabase } from "./supabase";
 import { preloadPhoto } from "./image-utils";
 import { trackRequest, perfStart, perfMark, isMobile, scheduleIdle } from "./perf";
 
+// API base URL — empty string in same-origin (Replit) mode, backend URL when
+// frontend is deployed to Vercel/CDN.  Set VITE_API_BASE_URL in Vercel env
+// vars to the Replit backend origin, e.g. https://lulou.replit.app
+// Leave unset (or set to "") for local / Replit fullstack mode.
+export const API_BASE: string =
+  (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, "") ?? "";
+
 // TEMP: latency debugging — remove before production release
 // Toggle: localStorage.setItem("lulou_perf", "1") then refresh to enable.
 //         localStorage.removeItem("lulou_perf") then refresh to disable.
@@ -96,7 +103,7 @@ export async function apiRequest(
   const authHeaders = await getAuthHeaders();
   // TEMP: latency debugging — remove before production release
   const t0 = PERF_ENABLED ? performance.now() : 0;
-  const res = await fetch(url, {
+  const res = await fetch(API_BASE + url, {
     method,
     headers: {
       ...authHeaders,
@@ -169,7 +176,7 @@ export const getQueryFn: <T>(options: {
 
     // TEMP: latency debugging — timer only started when PERF_ENABLED
     const t0 = PERF_ENABLED ? performance.now() : 0;
-    const res = await fetch(url, {
+    const res = await fetch(API_BASE + url, {
       credentials: "include",
       headers: authHeaders,
     });
@@ -264,7 +271,7 @@ export async function batchPrefetchPhotos(userIds: string[]): Promise<void> {
     const headers = await getAuthHeaders();
     // TEMP: latency debugging — timer only started when PERF_ENABLED
     const t0 = PERF_ENABLED ? performance.now() : 0;
-    const res = await fetch(`/api/profiles/photos/batch?ids=${missing.join(",")}`, {
+    const res = await fetch(`${API_BASE}/api/profiles/photos/batch?ids=${missing.join(",")}`, {
       headers,
       credentials: "include",
     });
