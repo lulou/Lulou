@@ -117,7 +117,7 @@ export default function IntentPage() {
 
   const { data: spinStatus } = useQuery<SpinStatus>({
     queryKey: ["/api/spin-status"],
-    refetchInterval: isActive ? 10000 : false,
+    refetchInterval: isActive ? 60_000 : false,
   });
 
   const animFrame = useRef(0);

@@ -486,9 +486,11 @@ async function checkProfileExists(
     console.log("[SETUP] PROFILE_FETCH_NETWORK_START", { userId });
     const t0 = performance.now();
     const authHeaders = await getAuthHeaders();
-    // Use /api/profile/meta (no photos) — avoids transferring up to 5 MB of base64
-    // photos just to check onboarding status on every app launch.
-    res = await fetch("/api/profile/meta", {
+    // Use /api/profile (full profile) — photos are now short Storage URLs (~2–5 kB total)
+    // so payload size is negligible. Fetching the full profile here lets us seed the
+    // ["/api/profile"] cache on success, so profile.tsx reads from cache on first render
+    // instead of issuing a second network request.
+    res = await fetch("/api/profile", {
       credentials: "include",
       headers: authHeaders,
       signal: controller.signal,
@@ -496,7 +498,7 @@ async function checkProfileExists(
     clearTimeout(timeoutId);
     // TEMP: latency debugging — remove before production release
     if (PERF_ENABLED) {
-      logLatency("/api/profile/meta", Math.round(performance.now() - t0), parseServerTiming(res.headers.get("server-timing")), 0);
+      logLatency("/api/profile", Math.round(performance.now() - t0), parseServerTiming(res.headers.get("server-timing")), 0);
     }
     console.log("[SETUP] PROFILE_FETCH_NETWORK_DONE", { status: res.status, userId, ms: Math.round(performance.now() - t0) });
   } catch (err: any) {
@@ -525,11 +527,16 @@ async function checkProfileExists(
     throw new Error(`HTTP_${res.status}`);
   }
 
-  // Profile exists — no need to parse the body (no pre-caching).
-  // The Profile page fetches /api/profile (with photos) lazily on first visit.
-  // We intentionally do NOT pre-cache ["/api/profile"] here because /api/profile/meta
-  // omits photos — caching the no-photos response would break the Profile tab
-  // (staleTime:Infinity means it would never re-fetch to get the actual photos).
+  // Seed the ["/api/profile"] cache so profile.tsx's useQuery reads from cache
+  // immediately instead of issuing a second /api/profile network request.
+  // The spinner blocks PersistentTabs from mounting until this completes, so
+  // the cache is always warm before ProfilePage's useQuery first runs.
+  try {
+    const profileData = await res.json();
+    queryClient.setQueryData(["/api/profile"], profileData);
+  } catch {
+    // Body parse failure is non-fatal — profile.tsx will fetch on its own.
+  }
   console.log("[AUTH] PROFILE_EXISTS_CHECK: profile found");
   writeDebug({ postAuthProfileFetchSucceeded: true, profileRowFound: true });
   return { exists: true, fetchFailed: false };
@@ -587,18 +594,13 @@ function AppContent() {
   const fetchFailed = profileError;
 
   // ── Early parallel prefetch ──────────────────────────────────────────────────
-  // Fire all five main tab queries the instant auth resolves — the SAME moment
-  // the profile-existence gate check starts.  Without this, those queries are
-  // blocked until profileExists=true (typically 200–500 ms later), because
-  // PersistentTabs doesn't mount until that flag flips.
-  //
-  // All five endpoints return empty arrays/objects safely when the profile
-  // doesn't exist yet, so prefetching early is safe for every account state.
-  // prefetchQuery is a no-op when staleTime:Infinity data is already cached,
-  // so this fires at most once per login session.
+  // Fire these queries the instant auth resolves — before PersistentTabs mounts —
+  // so every tab's cache is warm on first render.  prefetchQuery is a no-op when
+  // staleTime:Infinity data is already present (fires at most once per login).
+  // NOTE: /api/profile is intentionally omitted — checkProfileExists() fetches
+  // /api/profile and seeds that cache entry, so no second round trip is needed.
   useEffect(() => {
     if (!user || !profileReady || clearingCache) return;
-    queryClient.prefetchQuery({ queryKey: ["/api/profile"] });
     queryClient.prefetchQuery({ queryKey: ["/api/discover"] });
     queryClient.prefetchQuery({ queryKey: ["/api/matches"] });
     queryClient.prefetchQuery({ queryKey: ["/api/who-liked-you"] });

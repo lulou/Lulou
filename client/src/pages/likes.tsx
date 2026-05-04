@@ -22,7 +22,6 @@ import type { Profile, Interaction } from "@shared/schema";
 
 type IncomingOpen = Interaction & { profile: Profile };
 type MatchCelebration = { firstName: string; photo?: string };
-type MatchCountData = { count: number };
 type ElevateStatus = { type: string | null; expiresAt: string | null; active: boolean };
 
 // ─── Match Overlay ─────────────────────────────────────────────────────────────
@@ -236,7 +235,6 @@ function ProfileModal({
       if (data?.skipped) return;
       queryClient.invalidateQueries({ queryKey: ["/api/who-liked-you"] });
       queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/match-count"] });
       handleClose();
       if (data.matched) {
         onMatch({ firstName: profile.firstName, photo: photos[0] });
@@ -549,7 +547,6 @@ function LikeCard({
       if (data?.skipped) return;
       queryClient.invalidateQueries({ queryKey: ["/api/who-liked-you"] });
       queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/match-count"] });
       if (data.matched) {
         onMatch({ firstName: open.profile.firstName, photo });
       } else if (data.connectionLimitReached) {
