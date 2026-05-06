@@ -3,25 +3,44 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 const isValidJwt = (key: string | undefined): boolean =>
   !!key && key.startsWith("eyJ") && key.length > 100;
 
-const envUrl = process.env.VITE_SUPABASE_URL;
-const envKey = process.env.VITE_SUPABASE_ANON_KEY;
+// Resolve URL — accept either VITE_SUPABASE_URL (Replit convention) or
+// plain SUPABASE_URL so the server works regardless of which name is set.
+const _urlSource =
+  process.env.VITE_SUPABASE_URL   ? "VITE_SUPABASE_URL"
+  : process.env.SUPABASE_URL      ? "SUPABASE_URL"
+  : null;
+const envUrl = _urlSource ? process.env[_urlSource] : undefined;
+
+// Resolve anon key — accept VITE_SUPABASE_ANON_KEY, SUPABASE_ANON_KEY, or
+// SUPABASE_PUBLISHABLE_KEY (any of the common naming conventions).
+const _keySource =
+  process.env.VITE_SUPABASE_ANON_KEY  ? "VITE_SUPABASE_ANON_KEY"
+  : process.env.SUPABASE_ANON_KEY     ? "SUPABASE_ANON_KEY"
+  : process.env.SUPABASE_PUBLISHABLE_KEY ? "SUPABASE_PUBLISHABLE_KEY"
+  : null;
+const envKey = _keySource ? process.env[_keySource] : undefined;
+
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 if (!envUrl) {
-  throw new Error("Missing required environment variable: VITE_SUPABASE_URL");
+  throw new Error(
+    "Missing Supabase URL — set VITE_SUPABASE_URL or SUPABASE_URL in environment secrets"
+  );
 }
 if (!envKey) {
-  throw new Error("Missing required environment variable: VITE_SUPABASE_ANON_KEY");
+  throw new Error(
+    "Missing Supabase anon key — set VITE_SUPABASE_ANON_KEY, SUPABASE_ANON_KEY, or SUPABASE_PUBLISHABLE_KEY in environment secrets"
+  );
 }
 if (!isValidJwt(envKey)) {
-  console.warn("[SERVER_AUTH] WARNING: VITE_SUPABASE_ANON_KEY does not appear to be a valid JWT (length=" + envKey.length + "). Supabase calls may fail.");
+  console.warn(`[SERVER_AUTH] WARNING: ${_keySource} does not appear to be a valid JWT (length=${envKey.length}). Supabase calls may fail.`);
 }
 
 const supabaseUrl = envUrl;
 const supabaseAnonKey = envKey;
 
-console.log("[SERVER_AUTH] SUPABASE_URL:", supabaseUrl.substring(0, 30) + "...");
-console.log("[SERVER_AUTH] SUPABASE_KEY: length=" + supabaseAnonKey.length);
+console.log(`[SERVER_AUTH] SUPABASE_URL resolved from ${_urlSource}:`, supabaseUrl.substring(0, 30) + "...");
+console.log(`[SERVER_AUTH] SUPABASE_KEY resolved from ${_keySource}: length=${supabaseAnonKey.length}`);
 console.log("[SERVER_AUTH] SERVICE_ROLE_KEY:", serviceRoleKey ? `length=${serviceRoleKey.length}` : "NOT SET");
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {

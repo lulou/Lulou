@@ -148,7 +148,7 @@ function setCachedDiscoverMeta(
 }
 
 async function broadcastViaHttpApi(topic: string, event: string, payload: Record<string, any>): Promise<void> {
-  const supabaseUrl = process.env.VITE_SUPABASE_URL;
+  const supabaseUrl = process.env.VITE_SUPABASE_URL ?? process.env.SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!supabaseUrl || !serviceKey) {
     console.error(`[BROADCAST] Missing Supabase URL or service key — cannot deliver ${event} on ${topic}`);

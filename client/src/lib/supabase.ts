@@ -7,10 +7,16 @@ const envUrl = import.meta.env.VITE_SUPABASE_URL;
 const envKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
 if (!envUrl) {
-  throw new Error("Missing required environment variable: VITE_SUPABASE_URL");
+  throw new Error(
+    "Missing VITE_SUPABASE_URL — add it to your Vercel environment variables (or .env.local for local dev). " +
+    "It must be prefixed with VITE_ so Vite can embed it in the browser bundle at build time."
+  );
 }
 if (!envKey) {
-  throw new Error("Missing required environment variable: VITE_SUPABASE_ANON_KEY");
+  throw new Error(
+    "Missing VITE_SUPABASE_ANON_KEY — add it to your Vercel environment variables (or .env.local for local dev). " +
+    "It must be prefixed with VITE_ so Vite can embed it in the browser bundle at build time."
+  );
 }
 if (!isValidJwt(envKey)) {
   console.warn("[AUTH] WARNING: VITE_SUPABASE_ANON_KEY does not appear to be a valid JWT (length=" + envKey.length + "). Auth may not work correctly.");
