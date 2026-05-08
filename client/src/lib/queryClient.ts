@@ -205,6 +205,23 @@ export const getQueryFn: <T>(options: {
       throw new Error(message);
     }
 
+    // Guard: if the server returned HTML (e.g. Vercel's catch-all SPA rewrite
+    // serving index.html for an unmatched /api/* path), res.ok is true (200)
+    // but res.json() will throw. Safari throws "The string did not match the
+    // expected pattern." — Chrome throws "Unexpected token '<'...".
+    // Detecting the content-type first gives a clear actionable error message.
+    const ct = res.headers.get("content-type") ?? "";
+    if (!ct.includes("application/json")) {
+      const preview = await res.text().catch(() => "").then(t => t.slice(0, 80));
+      endQuery({ status: res.status, error: true });
+      const isHtml = preview.trimStart().toLowerCase().startsWith("<");
+      const msg = isHtml
+        ? "API unreachable — check VITE_API_BASE_URL is set in Vercel environment variables"
+        : `Unexpected response (${ct || "no content-type"})`;
+      console.error(`[QUERY_FETCH] non-JSON response for ${url}:`, { ct, preview });
+      throw new Error(msg);
+    }
+
     const json = await res.json();
 
     // TEMP: latency debugging — expensive ops only run when PERF_ENABLED

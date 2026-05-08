@@ -194,6 +194,20 @@ export default function ProfilePage() {
         console.error("[PROFILE_PAGE] fetch error:", res.status, text.slice(0, 200));
         throw new Error(`${res.status}: ${text.slice(0, 120)}`);
       }
+      // Guard: Safari throws "The string did not match the expected pattern."
+      // when JSON.parse() receives HTML (e.g. Vercel's SPA catch-all returning
+      // index.html for /api/profile when VITE_API_BASE_URL is not set).
+      // Check content-type BEFORE calling res.json() so we can give a clear error.
+      const ct = res.headers.get("content-type") ?? "";
+      if (!ct.includes("application/json")) {
+        const preview = await res.text().catch(() => "").then(t => t.slice(0, 80));
+        const isHtml = preview.trimStart().toLowerCase().startsWith("<");
+        const msg = isHtml
+          ? "API unreachable — set VITE_API_BASE_URL in Vercel environment variables to your Replit backend URL"
+          : `Unexpected response (${ct || "no content-type"})`;
+        console.error("[PROFILE_PAGE] non-JSON response:", { status: res.status, ct, preview });
+        throw new Error(msg);
+      }
       const data = await res.json();
       // TEMP: latency debugging — remove before production release
       if (PERF_ENABLED) {
