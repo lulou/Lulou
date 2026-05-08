@@ -6,27 +6,38 @@ const isValidJwt = (key: string | undefined): boolean =>
 const envUrl = import.meta.env.VITE_SUPABASE_URL;
 const envKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
+// ── Diagnostics — always log so Vercel build/runtime issues are visible ──────
+console.log("ALL VITE ENV KEYS", Object.keys(import.meta.env).filter(k => k.startsWith("VITE")));
+console.log("RAW VITE_SUPABASE_URL", import.meta.env.VITE_SUPABASE_URL);
+console.log("RAW VITE_SUPABASE_ANON_KEY length", import.meta.env.VITE_SUPABASE_ANON_KEY?.length ?? "undefined");
+
 if (!envUrl) {
-  throw new Error(
-    "Missing VITE_SUPABASE_URL — add it to your Vercel environment variables (or .env.local for local dev). " +
-    "It must be prefixed with VITE_ so Vite can embed it in the browser bundle at build time."
+  console.warn(
+    "[AUTH] WARNING: VITE_SUPABASE_URL is missing. " +
+    "Add it to Vercel Environment Variables (Settings → Environment Variables) " +
+    "then redeploy so Vite can bake it into the bundle. " +
+    "App will render but auth and all API calls will fail."
   );
 }
 if (!envKey) {
-  throw new Error(
-    "Missing VITE_SUPABASE_ANON_KEY — add it to your Vercel environment variables (or .env.local for local dev). " +
-    "It must be prefixed with VITE_ so Vite can embed it in the browser bundle at build time."
+  console.warn(
+    "[AUTH] WARNING: VITE_SUPABASE_ANON_KEY is missing. " +
+    "Add it to Vercel Environment Variables (Settings → Environment Variables) " +
+    "then redeploy so Vite can bake it into the bundle. " +
+    "App will render but auth and all API calls will fail."
   );
 }
-if (!isValidJwt(envKey)) {
+if (envKey && !isValidJwt(envKey)) {
   console.warn("[AUTH] WARNING: VITE_SUPABASE_ANON_KEY does not appear to be a valid JWT (length=" + envKey.length + "). Auth may not work correctly.");
 }
 
-const supabaseUrl = envUrl;
-const supabaseAnonKey = envKey;
+// Fallback placeholders keep createClient from throwing so the app shell
+// renders and the console diagnostics above are visible in Vercel logs.
+const supabaseUrl = envUrl || "https://placeholder.supabase.co";
+const supabaseAnonKey = envKey || "placeholder-anon-key";
 
-console.log("[AUTH] SUPABASE_URL_PRESENT:", true, `(${supabaseUrl.substring(0, 30)}...)`);
-console.log("[AUTH] SUPABASE_KEY_PRESENT:", true, `(length: ${supabaseAnonKey.length})`);
+console.log("[AUTH] SUPABASE_URL_PRESENT:", !!envUrl, envUrl ? `(${envUrl.substring(0, 30)}...)` : "(MISSING — using placeholder)");
+console.log("[AUTH] SUPABASE_KEY_PRESENT:", !!envKey, envKey ? `(length: ${envKey.length})` : "(MISSING — using placeholder)");
 
 // ── Auth fetch debug ─────────────────────────────────────────────────────────
 // Written by safeFetch on every /auth/v1/ call. Reset at the start of each
