@@ -1,4 +1,4 @@
-TASK:
+Fix vercel env handling
 Fix missing [LATENCY] logs in the published Lulou app.
 
 CONTEXT:
