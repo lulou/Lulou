@@ -31,13 +31,15 @@ if (envKey && !isValidJwt(envKey)) {
   console.warn("[AUTH] WARNING: VITE_SUPABASE_ANON_KEY does not appear to be a valid JWT (length=" + envKey.length + "). Auth may not work correctly.");
 }
 
-// Fallback placeholders keep createClient from throwing so the app shell
-// renders and the console diagnostics above are visible in Vercel logs.
-const supabaseUrl = envUrl || "https://placeholder.supabase.co";
-const supabaseAnonKey = envKey || "placeholder-anon-key";
+if (!envUrl || !envKey) {
+  console.error("[AUTH] FATAL: Supabase env vars missing — VITE_SUPABASE_URL present:", !!envUrl, "| VITE_SUPABASE_ANON_KEY present:", !!envKey);
+}
 
-console.log("[AUTH] SUPABASE_URL_PRESENT:", !!envUrl, envUrl ? `(${envUrl.substring(0, 30)}...)` : "(MISSING — using placeholder)");
-console.log("[AUTH] SUPABASE_KEY_PRESENT:", !!envKey, envKey ? `(length: ${envKey.length})` : "(MISSING — using placeholder)");
+const supabaseUrl = envUrl as string;
+const supabaseAnonKey = envKey as string;
+
+console.log("[AUTH] SUPABASE_URL_PRESENT:", !!envUrl, envUrl ? `(${envUrl.substring(0, 30)}...)` : "(MISSING)");
+console.log("[AUTH] SUPABASE_KEY_PRESENT:", !!envKey, envKey ? `(length: ${envKey.length})` : "(MISSING)");
 
 // ── Auth fetch debug ─────────────────────────────────────────────────────────
 // Written by safeFetch on every /auth/v1/ call. Reset at the start of each
