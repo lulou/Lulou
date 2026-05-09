@@ -180,7 +180,8 @@ export default function ProfilePage() {
     placeholderData: (prev) => prev,
     queryFn: async () => {
       if (_DEV) console.log("[PROFILE_PAGE] fetch start — /api/profile");
-      const { getAuthHeaders, logLatency, parseServerTiming, PERF_ENABLED, API_BASE } = await import("@/lib/queryClient");
+      const { getAuthHeaders, logLatency, parseServerTiming, PERF_ENABLED, API_BASE, requireApiBase } = await import("@/lib/queryClient");
+      requireApiBase("/api/profile");
       const authHeaders = await getAuthHeaders();
       const t0 = PERF_ENABLED ? performance.now() : 0;
       const res = await fetch(API_BASE + "/api/profile", { credentials: "include", headers: authHeaders });

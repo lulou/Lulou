@@ -5,30 +5,41 @@ import { trackRequest, perfStart, perfMark, isMobile, scheduleIdle } from "./per
 
 // API base URL — empty string in same-origin (Replit) mode, backend URL when
 // frontend is deployed to Vercel/CDN.  Set VITE_API_BASE_URL in Vercel env
-// vars to the Replit backend origin, e.g. https://lulou.replit.app
+// vars to the Replit backend origin, e.g. https://lulou-dating.replit.app
 // Leave unset (or set to "") for local / Replit fullstack mode.
 export const API_BASE: string =
   (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, "") ?? "";
 
-// Warn loudly at startup when running cross-origin without a backend URL.
-// Same-origin deployments (Replit fullstack) have the API on the same host, so
-// API_BASE="" is correct there.  On Vercel (different host) it means every API
-// call will silently hit Vercel's static server and get a 404 or index.html.
-if (!API_BASE && typeof window !== "undefined") {
-  const host = window.location.hostname;
-  const isSameOriginBackend =
-    host === "localhost" ||
-    host.endsWith(".replit.app") ||
-    host.endsWith(".replit.dev") ||
-    host.endsWith(".repl.co");
-  if (!isSameOriginBackend) {
-    console.error(
-      "[API_BASE] CRITICAL: VITE_API_BASE_URL is not set and this page is not served " +
-      "from a same-origin backend host. All API calls will fail.\n" +
-      "Fix: Add VITE_API_BASE_URL=https://lulou-dating.replit.app to Vercel " +
-      "Settings → Environment Variables, then redeploy.\n" +
-      `Current host: ${host}`
-    );
+// ── Cross-origin deploy detection ─────────────────────────────────────────────
+// Same-origin hosts (Replit, localhost) serve the Express API at the same URL,
+// so API_BASE="" is correct.  Any other host (Vercel, custom domain) MUST have
+// VITE_API_BASE_URL set — without it every /api/... call hits the static host
+// and gets a 404 or the SPA index.html.
+const _host = typeof window !== "undefined" ? window.location.hostname : "";
+const _isSameOriginHost =
+  _host === "" ||
+  _host === "localhost" ||
+  _host.endsWith(".replit.app") ||
+  _host.endsWith(".replit.dev") ||
+  _host.endsWith(".repl.co");
+
+export const IS_CROSS_ORIGIN_DEPLOY: boolean = !_isSameOriginHost;
+
+/**
+ * Throws a clear, actionable error when VITE_API_BASE_URL is missing in a
+ * cross-origin deployment.  Call this before every fetch to /api/... so
+ * callers fail immediately with an explanation instead of a silent 404.
+ *
+ * No-op on same-origin hosts (Replit fullstack, localhost).
+ */
+export function requireApiBase(url: string): void {
+  if (IS_CROSS_ORIGIN_DEPLOY && !API_BASE) {
+    const msg =
+      `VITE_API_BASE_URL is not set — cannot reach ${url} from host "${_host}". ` +
+      `Go to Vercel → Settings → Environment Variables and add: ` +
+      `VITE_API_BASE_URL = https://lulou-dating.replit.app  then redeploy.`;
+    console.error("[API_BASE] MISSING:", msg);
+    throw new Error(msg);
   }
 }
 
@@ -40,7 +51,6 @@ export const PERF_ENABLED =
   typeof localStorage !== "undefined" && localStorage.getItem("lulou_perf") === "1";
 
 if (PERF_ENABLED) {
-  // eslint-disable-next-line no-console
   console.log("[LATENCY_DEBUG] instrumentation active — disable with localStorage.removeItem('lulou_perf')");
 }
 
@@ -105,18 +115,17 @@ export async function getAuthHeaders(): Promise<Record<string, string>> {
   return {};
 }
 
-// Detect when a request hit Vercel's static host instead of the real backend
-// (happens when VITE_API_BASE_URL is not set). Vercel returns index.html with
-// status 200 for unmatched paths; we detect HTML by content-type.
+// Detect when a response is non-JSON (e.g. Vercel returning index.html for an
+// unmatched /api/* path).  res.ok may still be true (200) so the status check
+// alone won't catch it.  Safari throws "The string did not match the expected
+// pattern." from JSON.parse(html) — Chrome throws "Unexpected token '<'".
 function assertJsonResponse(res: Response, url: string): void {
   const ct = res.headers.get("content-type") ?? "";
   if (res.ok && !ct.includes("application/json") && !ct.includes("text/plain")) {
     const msg = API_BASE
       ? `Unexpected non-JSON response from ${API_BASE}${url} (content-type: ${ct || "none"})`
-      : `API unreachable: VITE_API_BASE_URL is not set in Vercel environment variables. ` +
-        `Set it to your Replit backend URL (e.g. https://lulou-dating.replit.app) and redeploy. ` +
-        `Attempted: ${url}`;
-    console.error("[API_REQUEST] non-JSON response:", { url, status: res.status, ct, API_BASE: API_BASE || "(empty)" });
+      : `API unreachable: VITE_API_BASE_URL is not set — set it to your Replit backend URL in Vercel and redeploy. Attempted: ${url}`;
+    console.error("[API] non-JSON 200:", { url, ct, API_BASE: API_BASE || "(empty)" });
     throw new Error(msg);
   }
 }
@@ -129,10 +138,10 @@ async function throwIfResNotOk(res: Response, url = "") {
       const parsed = JSON.parse(text);
       if (parsed.message) message = parsed.message;
     } catch {}
-    // Surface a clear message for 404s from Vercel's static host
-    if (res.status === 404 && !API_BASE) {
-      message = `API unreachable: VITE_API_BASE_URL is not set in Vercel environment variables. ` +
-        `Set it to your Replit backend URL and redeploy. Attempted: ${url}`;
+    if (res.status === 404 && !API_BASE && IS_CROSS_ORIGIN_DEPLOY) {
+      message =
+        `API unreachable (404): VITE_API_BASE_URL is not set. ` +
+        `Add it to Vercel environment variables and redeploy. Attempted: ${url}`;
     }
     throw new Error(message);
   }
@@ -143,6 +152,7 @@ export async function apiRequest(
   url: string,
   data?: unknown | undefined,
 ): Promise<Response> {
+  requireApiBase(url);
   const authHeaders = await getAuthHeaders();
   // TEMP: latency debugging — remove before production release
   const t0 = PERF_ENABLED ? performance.now() : 0;
@@ -177,15 +187,12 @@ export function parseServerTiming(header: string | null, metric = "handler"): nu
 
 // TEMP: latency debugging — remove before production release
 // Emits one [LATENCY] line per request when PERF_ENABLED.
-// Format: [LATENCY] /api/discover | client=342ms | server=89ms | network=253ms | payload=12kB
-// Toggle: localStorage.setItem("lulou_perf","1") then refresh.
 export function logLatency(
   url: string,
   clientMs: number,
   serverMs: number | null,
   payloadKb: number,
 ): void {
-  // Guard: zero cost for normal users.
   if (!PERF_ENABLED) return;
   const parts: string[] = [`[LATENCY] ${url}`, `client=${clientMs}ms`];
   if (serverMs != null) {
@@ -197,7 +204,6 @@ export function logLatency(
     parts.push("server=missing", "network=unknown");
   }
   if (payloadKb > 0) parts.push(`payload=${payloadKb}kB`);
-  // eslint-disable-next-line no-console
   console.log(parts.join(" | "));
 }
 
@@ -207,6 +213,8 @@ export const getQueryFn: <T>(options: {
   ({ on401: unauthorizedBehavior }) =>
   async ({ queryKey }) => {
     const url = queryKey.join("/") as string;
+
+    requireApiBase(url);
 
     // Dev-only: detect duplicate fetches and time each request
     trackRequest(url);
@@ -244,24 +252,25 @@ export const getQueryFn: <T>(options: {
           message = `${res.status}: ${trimmed}`;
         }
       } catch {}
+      if (res.status === 404 && !API_BASE && IS_CROSS_ORIGIN_DEPLOY) {
+        message =
+          `API unreachable (404): VITE_API_BASE_URL is not set. ` +
+          `Add it to Vercel environment variables and redeploy. Attempted: ${url}`;
+      }
       endQuery({ status: res.status, error: true });
       console.error(`[QUERY_FETCH] ✗ ${url} — ${message}`);
       throw new Error(message);
     }
 
-    // Guard: if the server returned HTML (e.g. Vercel's catch-all SPA rewrite
-    // serving index.html for an unmatched /api/* path), res.ok is true (200)
-    // but res.json() will throw. Safari throws "The string did not match the
-    // expected pattern." — Chrome throws "Unexpected token '<'...".
-    // Detecting the content-type first gives a clear actionable error message.
+    // Guard: non-JSON 200 means we hit a static host instead of the backend.
     const ct = res.headers.get("content-type") ?? "";
     if (!ct.includes("application/json")) {
       const preview = await res.text().catch(() => "").then(t => t.slice(0, 80));
       endQuery({ status: res.status, error: true });
       const isHtml = preview.trimStart().toLowerCase().startsWith("<");
       const msg = isHtml
-        ? "API unreachable — check VITE_API_BASE_URL is set in Vercel environment variables"
-        : `Unexpected response (${ct || "no content-type"})`;
+        ? "API unreachable — set VITE_API_BASE_URL in Vercel environment variables to your Replit backend URL, then redeploy"
+        : `Unexpected response (${ct || "no content-type"}) for ${url}`;
       console.error(`[QUERY_FETCH] non-JSON response for ${url}:`, { ct, preview });
       throw new Error(msg);
     }
@@ -299,22 +308,14 @@ export const queryClient = new QueryClient({
 });
 
 // ── Batch photo prefetcher ────────────────────────────────────────────────────
-// Fetches photos for multiple profiles in a single HTTP request (server runs
-// all Supabase lookups in parallel), then writes each result into its own
-// ["/api/profiles", userId, "photos"] cache slot.
-//
-// This converts the per-card waterfall (N individual requests that fire after
-// each card mounts) into a single pre-population step that fires as soon as the
-// list data arrives.  Individual card useQuery hooks then read from cache
-// immediately and never issue a network request.
-//
-// The function is idempotent: profiles whose photo cache is still fresh
-// (< 5 minutes old) are silently skipped so it is safe to call on every
-// list update without triggering duplicate fetches.
 const PHOTO_CACHE_STALE_MS = 5 * 60 * 1000;
 
 export async function batchPrefetchPhotos(userIds: string[]): Promise<void> {
   if (!userIds.length) return;
+
+  // Skip silently in cross-origin deploys without API_BASE — requireApiBase
+  // would throw and the individual card useQuery hooks serve as fallback.
+  if (IS_CROSS_ORIGIN_DEPLOY && !API_BASE) return;
 
   const now = Date.now();
   const missing = userIds.filter(id => {
@@ -353,9 +354,6 @@ export async function batchPrefetchPhotos(userIds: string[]): Promise<void> {
 
     for (const [userId, photos] of Object.entries(data)) {
       queryClient.setQueryData(["/api/profiles", userId, "photos"], { photos });
-      // Kick off image decode. On mobile, defer to idle so the decode job
-      // doesn't compete with the first React render on the main thread.
-      // On desktop, fire immediately — plenty of cores available.
       if (photos[0]) {
         if (isMobile) scheduleIdle(() => preloadPhoto(photos[0]));
         else preloadPhoto(photos[0]);
@@ -363,6 +361,5 @@ export async function batchPrefetchPhotos(userIds: string[]): Promise<void> {
     }
   } catch {
     endBatch({ error: "exception" });
-    // Best-effort — individual card useQuery hooks serve as the guaranteed fallback
   }
 }

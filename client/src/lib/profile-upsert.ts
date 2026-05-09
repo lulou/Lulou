@@ -186,6 +186,9 @@ export async function initProfileOnLogin(accessToken: string) {
 
   console.log("PROFILE_INIT_CALLING_SERVER for user:", user.id);
 
+  const { requireApiBase } = await import("./queryClient");
+  requireApiBase("/api/auth/init");
+
   const res = await fetch(API_BASE + "/api/auth/init", {
     method: "POST",
     headers: {
