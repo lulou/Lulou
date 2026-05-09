@@ -10,6 +10,28 @@ import { trackRequest, perfStart, perfMark, isMobile, scheduleIdle } from "./per
 export const API_BASE: string =
   (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, "") ?? "";
 
+// Warn loudly at startup when running cross-origin without a backend URL.
+// Same-origin deployments (Replit fullstack) have the API on the same host, so
+// API_BASE="" is correct there.  On Vercel (different host) it means every API
+// call will silently hit Vercel's static server and get a 404 or index.html.
+if (!API_BASE && typeof window !== "undefined") {
+  const host = window.location.hostname;
+  const isSameOriginBackend =
+    host === "localhost" ||
+    host.endsWith(".replit.app") ||
+    host.endsWith(".replit.dev") ||
+    host.endsWith(".repl.co");
+  if (!isSameOriginBackend) {
+    console.error(
+      "[API_BASE] CRITICAL: VITE_API_BASE_URL is not set and this page is not served " +
+      "from a same-origin backend host. All API calls will fail.\n" +
+      "Fix: Add VITE_API_BASE_URL=https://lulou-dating.replit.app to Vercel " +
+      "Settings → Environment Variables, then redeploy.\n" +
+      `Current host: ${host}`
+    );
+  }
+}
+
 // TEMP: latency debugging — remove before production release
 // Toggle: localStorage.setItem("lulou_perf", "1") then refresh to enable.
 //         localStorage.removeItem("lulou_perf") then refresh to disable.
@@ -83,7 +105,23 @@ export async function getAuthHeaders(): Promise<Record<string, string>> {
   return {};
 }
 
-async function throwIfResNotOk(res: Response) {
+// Detect when a request hit Vercel's static host instead of the real backend
+// (happens when VITE_API_BASE_URL is not set). Vercel returns index.html with
+// status 200 for unmatched paths; we detect HTML by content-type.
+function assertJsonResponse(res: Response, url: string): void {
+  const ct = res.headers.get("content-type") ?? "";
+  if (res.ok && !ct.includes("application/json") && !ct.includes("text/plain")) {
+    const msg = API_BASE
+      ? `Unexpected non-JSON response from ${API_BASE}${url} (content-type: ${ct || "none"})`
+      : `API unreachable: VITE_API_BASE_URL is not set in Vercel environment variables. ` +
+        `Set it to your Replit backend URL (e.g. https://lulou-dating.replit.app) and redeploy. ` +
+        `Attempted: ${url}`;
+    console.error("[API_REQUEST] non-JSON response:", { url, status: res.status, ct, API_BASE: API_BASE || "(empty)" });
+    throw new Error(msg);
+  }
+}
+
+async function throwIfResNotOk(res: Response, url = "") {
   if (!res.ok) {
     const text = (await res.text()) || res.statusText;
     let message = `${res.status}: ${text}`;
@@ -91,6 +129,11 @@ async function throwIfResNotOk(res: Response) {
       const parsed = JSON.parse(text);
       if (parsed.message) message = parsed.message;
     } catch {}
+    // Surface a clear message for 404s from Vercel's static host
+    if (res.status === 404 && !API_BASE) {
+      message = `API unreachable: VITE_API_BASE_URL is not set in Vercel environment variables. ` +
+        `Set it to your Replit backend URL and redeploy. Attempted: ${url}`;
+    }
     throw new Error(message);
   }
 }
@@ -115,7 +158,8 @@ export async function apiRequest(
   if (PERF_ENABLED) {
     logLatency(`${method} ${url}`, Math.round(performance.now() - t0), parseServerTiming(res.headers.get("server-timing")), 0);
   }
-  await throwIfResNotOk(res);
+  assertJsonResponse(res, url);
+  await throwIfResNotOk(res, url);
   return res;
 }
 

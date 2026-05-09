@@ -1,4 +1,5 @@
 import { supabase } from "./supabase";
+import { API_BASE } from "./queryClient";
 
 const FIELD_MAP: Record<string, string> = {
   firstName: "first_name",
@@ -185,7 +186,7 @@ export async function initProfileOnLogin(accessToken: string) {
 
   console.log("PROFILE_INIT_CALLING_SERVER for user:", user.id);
 
-  const res = await fetch("/api/auth/init", {
+  const res = await fetch(API_BASE + "/api/auth/init", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${accessToken}`,
