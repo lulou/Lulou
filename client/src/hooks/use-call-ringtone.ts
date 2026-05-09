@@ -63,7 +63,13 @@ export function useCallRingtone(type: RingtoneType, enabled: boolean) {
         } catch {}
       }
       state.activeNodes.length = 0;
-      state.ctx.close().catch(() => {});
+      // Suspend before close: suspending immediately silences the audio render
+      // thread — oscillators stop producing samples right now, not after the
+      // next render quantum (~10 ms).  Without this, a brief burst of tone can
+      // leak into an active WebRTC microphone before close() flushes the graph.
+      state.ctx.suspend().catch(() => {}).finally(() => {
+        state.ctx.close().catch(() => {});
+      });
       stateRef.current = null;
       console.log("[RINGTONE] STOP type=", type);
     };

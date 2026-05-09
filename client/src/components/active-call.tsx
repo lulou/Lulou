@@ -208,6 +208,30 @@ export function ActiveCallOverlay({
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
   const localVideoRef = useRef<HTMLVideoElement>(null);
 
+  // On unmount: detach the remote stream from the audio/video elements so the
+  // browser stops decoding & playing audio immediately, not after GC.
+  // Without this, a brief burst of audio (or silence-then-pop) can leak
+  // into the microphone path on the next call if the element lingers in
+  // the React tree during the unmount animation frame.
+  useEffect(() => {
+    return () => {
+      if (remoteAudioRef.current) {
+        remoteAudioRef.current.pause();
+        remoteAudioRef.current.srcObject = null;
+        console.log("[CALL_UI] AUDIO_ELEMENT_DETACHED on unmount", { matchId });
+      }
+      if (remoteVideoRef.current) {
+        remoteVideoRef.current.pause();
+        remoteVideoRef.current.srcObject = null;
+      }
+      if (localVideoRef.current) {
+        localVideoRef.current.pause();
+        localVideoRef.current.srcObject = null;
+      }
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Route audio to speaker or earpiece when the toggle changes.
   // setSinkId is supported in Chrome/Edge/Android; silently ignored on iOS Safari.
   useEffect(() => {

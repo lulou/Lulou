@@ -1,4 +1,4 @@
-import { useRef, useEffect } from "react";
+import { useRef, useEffect, useState } from "react";
 import { Phone, PhoneOff, Video } from "lucide-react";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -24,6 +24,30 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss }: In
   const queryClient = useQueryClient();
   const actedRef = useRef(false);
 
+  // ── Ringtone gate ──────────────────────────────────────────────────────────
+  // IMPORTANT: must NOT use `!isPending` here.
+  //
+  // `isPending` is false → true (ring stops ✓) → false again when the mutation
+  // resolves, but the component hasn't unmounted yet.  That one render cycle
+  // where isPending drops back to false restarts the AudioContext oscillators
+  // while the WebRTC microphone is already active — those 440/480 Hz tones get
+  // captured by the mic and transmitted to the caller as "ringing noise".
+  //
+  // `ringEnabled` is a one-way latch: it flips to false the instant a button is
+  // pressed and never goes back to true, so the ringtone stops exactly once and
+  // stays stopped regardless of mutation state or re-renders.
+  const [ringEnabled, setRingEnabled] = useState(true);
+
+  // Silence the ring immediately — called before any mutation fires.
+  const silenceRing = () => {
+    if (!ringEnabled) return;
+    console.log("[RINGTONE] SILENCED by user action — will not restart", {
+      matchId: match.id,
+      callSessionId: match.callSessionId,
+    });
+    setRingEnabled(false);
+  };
+
   useEffect(() => {
     console.log("[CALL_UI] INCOMING_CALL_SHOWN", {
       matchId: match.id,
@@ -42,6 +66,7 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss }: In
 
   const answerCall = useMutation({
     mutationFn: async () => {
+      silenceRing();
       if (actedRef.current) {
         throw new Error("already_acted");
       }
@@ -100,6 +125,7 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss }: In
 
   const declineCall = useMutation({
     mutationFn: async () => {
+      silenceRing();
       actedRef.current = true;
       console.log("[CALL_UI] CALL_DECLINED", {
         matchId: match.id,
@@ -139,6 +165,9 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss }: In
       const isAuth = error.message === "Unauthorized" || error.message.startsWith("401");
       console.error("[CALL_UI] CALL_DECLINE_FAILED", { matchId: match.id, error: error.message, isAuth });
       if (isAuth) {
+        // Reset actedRef so the user can retry, but keep ringEnabled=false —
+        // restarting the ringtone here while the mic may be active would cause
+        // the oscillator tones to leak into the WebRTC audio path.
         actedRef.current = false;
         toast({ title: "Session expired", description: "Please refresh and try again.", variant: "destructive" });
         return;
@@ -165,7 +194,9 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss }: In
 
   const isPending = answerCall.isPending || declineCall.isPending;
 
-  useCallRingtone("incoming", !isPending);
+  // ringEnabled is a one-way latch — see comment above silenceRing() for why
+  // we never use `!isPending` here.
+  useCallRingtone("incoming", ringEnabled);
 
   const photo = match.profile.photos?.[0];
 
