@@ -9,6 +9,7 @@ import { useAuth } from "@/hooks/use-auth";
 import type { Profile, Match } from "@shared/schema";
 import { markCallSessionCancelled } from "@/lib/cancelled-calls";
 import { useCallRingtone } from "@/hooks/use-call-ringtone";
+import { cleanupCallAudio } from "@/lib/call-audio";
 
 type MatchWithProfile = Match & { profile: Profile };
 
@@ -39,8 +40,13 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss }: In
   const [ringEnabled, setRingEnabled] = useState(true);
 
   // Silence the ring immediately — called before any mutation fires.
+  // cleanupCallAudio() is called SYNCHRONOUSLY here (before the state update
+  // is batched) so the AudioContext oscillators are zeroed right now, not on
+  // the next React render.  This prevents the mic (which opens in
+  // ActiveCallOverlay a few frames later) from ever capturing the tone.
   const silenceRing = () => {
     if (!ringEnabled) return;
+    cleanupCallAudio("incoming_ring_silenced");
     console.log("[RINGTONE] SILENCED by user action — will not restart", {
       matchId: match.id,
       callSessionId: match.callSessionId,

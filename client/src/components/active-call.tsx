@@ -4,6 +4,11 @@ import { apiRequest } from "@/lib/queryClient";
 import { broadcastCallSignal } from "@/hooks/use-call-signaling";
 import { useWebRTC } from "@/hooks/use-webrtc";
 import { useCallRingtone } from "@/hooks/use-call-ringtone";
+import {
+  cleanupCallAudio,
+  registerCallAudioElement,
+  unregisterCallAudioElement,
+} from "@/lib/call-audio";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { PhoneOff, Mic, MicOff, Volume2, Camera, CameraOff, Loader2, WifiOff, AlertTriangle } from "lucide-react";
 
@@ -208,19 +213,26 @@ export function ActiveCallOverlay({
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
   const localVideoRef = useRef<HTMLVideoElement>(null);
 
-  // On unmount: detach the remote stream from the audio/video elements so the
-  // browser stops decoding & playing audio immediately, not after GC.
-  // Without this, a brief burst of audio (or silence-then-pop) can leak
-  // into the microphone path on the next call if the element lingers in
-  // the React tree during the unmount animation frame.
+  // On unmount: detach the remote stream from the audio/video elements and
+  // run a final cleanupCallAudio() to stop any ringtone that somehow survived.
+  // Without this, audio elements linger decoding for a few frames after the
+  // React tree removes the component, which can bleed into the next call's
+  // mic capture.
   useEffect(() => {
     return () => {
+      // Final safety net — stops any outstanding ringtone AudioContext and
+      // detaches elements that were registered with call-audio.ts.
+      cleanupCallAudio("active_call_unmount");
+
+      // Direct element cleanup as a belt-and-suspenders fallback.
       if (remoteAudioRef.current) {
+        unregisterCallAudioElement(remoteAudioRef.current);
         remoteAudioRef.current.pause();
         remoteAudioRef.current.srcObject = null;
         console.log("[CALL_UI] AUDIO_ELEMENT_DETACHED on unmount", { matchId });
       }
       if (remoteVideoRef.current) {
+        unregisterCallAudioElement(remoteVideoRef.current);
         remoteVideoRef.current.pause();
         remoteVideoRef.current.srcObject = null;
       }
@@ -347,6 +359,8 @@ export function ActiveCallOverlay({
       const incomingIds = remoteStream.getTracks().map(t => t.id).sort().join(",");
       if (existingIds !== incomingIds) {
         el.srcObject = remoteStream;
+        // Register with call-audio so cleanupCallAudio() can detach this element.
+        registerCallAudioElement(el, `remote-audio:${matchId}`);
         // Explicit .play() handles iOS Safari where autoPlay alone can be blocked
         // after srcObject assignment even when the audio context is already unlocked.
         el.play().catch(() => {});
@@ -369,6 +383,7 @@ export function ActiveCallOverlay({
       const incomingIds = remoteStream.getTracks().map(t => t.id).sort().join(",");
       if (existingIds !== incomingIds) {
         videoEl.srcObject = remoteStream;
+        registerCallAudioElement(videoEl, `remote-video:${matchId}`);
         videoEl.play().catch(() => {});
         console.log("[WebRTC] REMOTE_MAIN_VIDEO_ATTACHED", {
           matchId,
@@ -414,6 +429,10 @@ export function ActiveCallOverlay({
   const finishCall = useCallback((reason: string = "user_hangup") => {
     if (endedRef.current) return;
     endedRef.current = true;
+
+    // Stop ALL audio immediately — ringtone AudioContexts and remote-stream
+    // elements — so nothing plays or gets captured by the mic after hangup.
+    cleanupCallAudio(`finish_call_${reason}`);
 
     const isCancelRinging = isRinging && isCaller;
     const endpoint = isCancelRinging

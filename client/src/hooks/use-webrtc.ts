@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { supabase } from "@/lib/supabase";
+import { cleanupCallAudio } from "@/lib/call-audio";
 
 declare global {
   interface Window {
@@ -331,6 +332,23 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
     const init = async () => {
       console.log("[CALL_TIMING] WEBRTC_INIT_START", { matchId, isCaller, isVideo, ts: new Date().toISOString() });
       console.log("[WebRTC] Initializing:", { matchId, isCaller, isVideo });
+
+      // ── Critical: stop ALL ringtone audio BEFORE opening the mic ──────────
+      // On iOS, getUserMedia({audio:true}) switches the AVAudioSession category
+      // to PlayAndRecord.  This RESTARTS any live AudioContext — even one whose
+      // oscillators have been stopped — causing it to briefly emit its last
+      // sample state through the speaker.  The mic opens at the same moment
+      // and captures those 440/480 Hz tones, transmitting them to the remote
+      // peer as "ringing noise during the call".
+      //
+      // cleanupCallAudio() synchronously zeros all gain nodes and stops all
+      // oscillators BEFORE getUserMedia() is called.  The 80 ms pause then
+      // lets the OS audio session finish its category-switch handshake so the
+      // AudioContext restart completes in silence rather than mid-tone.
+      cleanupCallAudio("webrtc_init_before_getUserMedia");
+      await new Promise<void>(r => setTimeout(r, 80));
+      if (cleanedUpRef.current) return;   // bail if hangup fired during the pause
+
       setConnectionState("requesting-media");
       setPermissionDenied(false);
 

@@ -1,4 +1,9 @@
 import { useEffect, useRef } from "react";
+import {
+  registerRingtoneContext,
+  unregisterRingtoneContext,
+  type RingtoneNode,
+} from "@/lib/call-audio";
 
 export type RingtoneType = "incoming" | "outgoing";
 
@@ -11,13 +16,19 @@ export type RingtoneType = "incoming" | "outgoing";
  * The tone starts when `enabled` becomes true and stops the moment it becomes
  * false (or when the component unmounts).  Stale schedules are cancelled on
  * every cleanup so there is never a ghost ring.
+ *
+ * Every AudioContext created here is registered with call-audio.ts so that
+ * cleanupCallAudio() can stop it synchronously from use-webrtc.ts BEFORE
+ * getUserMedia() opens the mic — preventing the OS audio-session restart
+ * (iOS AVAudioSession) from re-emitting the oscillator burst into the mic.
  */
 export function useCallRingtone(type: RingtoneType, enabled: boolean) {
   const stateRef = useRef<{
     ctx: AudioContext;
     timers: ReturnType<typeof setTimeout>[];
-    // Live oscillators and their gain nodes so we can stop them immediately.
-    activeNodes: { osc: OscillatorNode; gain: GainNode }[];
+    // Live oscillators and their gain nodes — shared with call-audio registry
+    // so cleanupCallAudio() can zero them synchronously.
+    activeNodes: RingtoneNode[];
     dead: boolean;
   } | null>(null);
 
@@ -31,15 +42,19 @@ export function useCallRingtone(type: RingtoneType, enabled: boolean) {
       return;
     }
 
-    console.log("[RINGTONE] START type=", type);
+    console.log("[RINGTONE] START type=", type, "| contextState=", ctx.state);
 
     const state = {
       ctx,
       timers: [] as ReturnType<typeof setTimeout>[],
-      activeNodes: [] as { osc: OscillatorNode; gain: GainNode }[],
+      activeNodes: [] as RingtoneNode[],
       dead: false,
     };
     stateRef.current = state;
+
+    // Register with the global call-audio registry so cleanupCallAudio()
+    // can reach this context and its oscillators synchronously.
+    registerRingtoneContext(ctx, state.activeNodes, `ringtone:${type}`);
 
     const addTimer = (fn: () => void, ms: number) => {
       const id = setTimeout(fn, ms);
@@ -51,10 +66,13 @@ export function useCallRingtone(type: RingtoneType, enabled: boolean) {
       state.dead = true;
       state.timers.forEach(clearTimeout);
       state.timers.length = 0;
-      // Stop every live oscillator immediately so the tone cuts off right away.
-      // Without this, oscillators already started play until their scheduled
-      // .stop() fires (up to 2 s later) — the mic picks up these residual tones
-      // and transmits them to the remote peer as "beeping".
+
+      // Unregister FIRST so cleanupCallAudio() won't double-stop these nodes.
+      unregisterRingtoneContext(ctx);
+
+      // SYNCHRONOUS: zero gain and stop every oscillator right now.
+      // This is the critical step — the async ctx.suspend() below is too slow
+      // on iOS where getUserMedia() can restart the AudioContext mid-suspend.
       for (const { osc, gain } of state.activeNodes) {
         try {
           gain.gain.cancelScheduledValues(ctx.currentTime);
@@ -63,13 +81,14 @@ export function useCallRingtone(type: RingtoneType, enabled: boolean) {
         } catch {}
       }
       state.activeNodes.length = 0;
-      // Suspend before close: suspending immediately silences the audio render
-      // thread — oscillators stop producing samples right now, not after the
-      // next render quantum (~10 ms).  Without this, a brief burst of tone can
-      // leak into an active WebRTC microphone before close() flushes the graph.
-      state.ctx.suspend().catch(() => {}).finally(() => {
-        state.ctx.close().catch(() => {});
-      });
+
+      // ASYNC: suspend → close (best-effort, background).
+      // Suspending immediately silences the audio render thread so the OS
+      // doesn't emit residual samples after osc.stop() fires.
+      ctx.suspend()
+        .catch(() => {})
+        .finally(() => ctx.close().catch(() => {}));
+
       stateRef.current = null;
       console.log("[RINGTONE] STOP type=", type);
     };
@@ -124,7 +143,9 @@ export function useCallRingtone(type: RingtoneType, enabled: boolean) {
       }
     };
 
-    ctx.resume().then(() => { if (!state.dead) ring(); }).catch(() => { if (!state.dead) ring(); });
+    ctx.resume()
+      .then(() => { if (!state.dead) ring(); })
+      .catch(() => { if (!state.dead) ring(); });
 
     return clearAll;
   }, [enabled, type]);
