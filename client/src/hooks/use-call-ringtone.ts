@@ -18,16 +18,20 @@ export type RingtoneType = "incoming" | "outgoing";
  * every cleanup so there is never a ghost ring.
  *
  * Every AudioContext created here is registered with call-audio.ts so that
- * cleanupCallAudio() can stop it synchronously from use-webrtc.ts BEFORE
+ * stopAllCallSounds() can stop it synchronously from any call end path BEFORE
  * getUserMedia() opens the mic — preventing the OS audio-session restart
  * (iOS AVAudioSession) from re-emitting the oscillator burst into the mic.
+ *
+ * CRITICAL — markDead callback:
+ *   stopAllCallSounds() calls markDead() BEFORE zeroing oscillators.  This sets
+ *   state.dead=true AND clears all pending timers so the ctx.resume() promise
+ *   (which may be pending due to autoplay policy and can resolve the moment the
+ *   user taps anything) cannot re-enter ring() after cleanup.
  */
 export function useCallRingtone(type: RingtoneType, enabled: boolean) {
   const stateRef = useRef<{
     ctx: AudioContext;
     timers: ReturnType<typeof setTimeout>[];
-    // Live oscillators and their gain nodes — shared with call-audio registry
-    // so cleanupCallAudio() can zero them synchronously.
     activeNodes: RingtoneNode[];
     dead: boolean;
   } | null>(null);
@@ -52,9 +56,20 @@ export function useCallRingtone(type: RingtoneType, enabled: boolean) {
     };
     stateRef.current = state;
 
-    // Register with the global call-audio registry so cleanupCallAudio()
-    // can reach this context and its oscillators synchronously.
-    registerRingtoneContext(ctx, state.activeNodes, `ringtone:${type}`);
+    // markDead: called by stopAllCallSounds() BEFORE it zeros oscillators.
+    // Must set state.dead=true AND clear all pending timers so the ctx.resume()
+    // callback cannot call ring() after cleanup completes.
+    const markDead = () => {
+      if (state.dead) return;
+      state.dead = true;
+      state.timers.forEach(clearTimeout);
+      state.timers.length = 0;
+      console.log("[CALL_RINGTONE] markDead() called — ring state-machine halted", { type });
+    };
+
+    // Register with the global call-audio registry so stopAllCallSounds()
+    // can reach this context, its oscillators, and the markDead callback.
+    registerRingtoneContext(ctx, state.activeNodes, `ringtone:${type}`, markDead);
 
     const addTimer = (fn: () => void, ms: number) => {
       const id = setTimeout(fn, ms);
@@ -63,16 +78,13 @@ export function useCallRingtone(type: RingtoneType, enabled: boolean) {
     };
 
     const clearAll = () => {
-      state.dead = true;
-      state.timers.forEach(clearTimeout);
-      state.timers.length = 0;
+      // Mark dead first so ctx.resume() callback cannot restart the ring.
+      markDead();
 
-      // Unregister FIRST so cleanupCallAudio() won't double-stop these nodes.
+      // Unregister FIRST so stopAllCallSounds() won't double-stop these nodes.
       unregisterRingtoneContext(ctx);
 
       // SYNCHRONOUS: zero gain and stop every oscillator right now.
-      // This is the critical step — the async ctx.suspend() below is too slow
-      // on iOS where getUserMedia() can restart the AudioContext mid-suspend.
       for (const { osc, gain } of state.activeNodes) {
         try {
           gain.gain.cancelScheduledValues(ctx.currentTime);
@@ -83,8 +95,6 @@ export function useCallRingtone(type: RingtoneType, enabled: boolean) {
       state.activeNodes.length = 0;
 
       // ASYNC: suspend → close (best-effort, background).
-      // Suspending immediately silences the audio render thread so the OS
-      // doesn't emit residual samples after osc.stop() fires.
       ctx.suspend()
         .catch(() => {})
         .finally(() => ctx.close().catch(() => {}));
@@ -120,7 +130,6 @@ export function useCallRingtone(type: RingtoneType, enabled: boolean) {
         osc.start(now);
         osc.stop(now + dur);
         state.activeNodes.push({ osc, gain });
-        // Remove from tracking list once the oscillator ends naturally.
         osc.onended = () => {
           const idx = state.activeNodes.findIndex(n => n.osc === osc);
           if (idx !== -1) state.activeNodes.splice(idx, 1);
@@ -143,6 +152,10 @@ export function useCallRingtone(type: RingtoneType, enabled: boolean) {
       }
     };
 
+    // Resume the context (may be suspended due to autoplay policy).
+    // If the user has already interacted, this resolves immediately.
+    // If not, call-audio.ts will resume it on the next user gesture via
+    // the global _onUserGesture listener — before the user taps Answer.
     ctx.resume()
       .then(() => { if (!state.dead) ring(); })
       .catch(() => { if (!state.dead) ring(); });

@@ -1,23 +1,29 @@
 /**
  * call-audio.ts — Global registry for all call-related audio resources.
  *
- * Why this exists:
- *   React's useEffect cleanup is async-ish at the OS level.  When the
- *   ringtone's clearAll() calls ctx.suspend(), the Promise hasn't resolved
- *   before useWebRTC's init() calls getUserMedia().  On iOS, getUserMedia()
- *   triggers an AVAudioSession category switch (→ PlayAndRecord) which
- *   RESTARTS any live AudioContext, causing a brief burst of its last
- *   oscillator state to play through the speaker.  The mic is already open
- *   at that moment → 440/480 Hz tones are captured and transmitted to the
- *   remote peer as "ringing noise".
+ * WHY markDead() MUST BE CALLED FIRST IN stopAllCallSounds():
  *
- *   cleanupCallAudio() runs the SYNCHRONOUS part of the stop (gain=0,
- *   osc.stop(), immediately) and is called from use-webrtc.ts BEFORE
- *   getUserMedia(), guaranteeing silence before the mic opens.
+ *   When the IncomingCallOverlay appears without a prior user gesture the
+ *   browser keeps the AudioContext suspended (autoplay policy).  ctx.resume()
+ *   returns a pending promise.  When the user taps "Answer" that tap is a
+ *   user-gesture that ALSO resolves every pending resume() promise on the page.
+ *   If we only zero the oscillators but don't set state.dead=true, the
+ *   resume callback fires AFTER our cleanup and calls ring() again — creating
+ *   fresh, orphaned oscillators that are no longer in _ringtones[] and can
+ *   never be stopped.  markDead() sets state.dead=true SYNCHRONOUSLY so the
+ *   resume callback sees it and returns immediately.
+ *
+ * AUDIO SOURCES IN THIS APP (exhaustive list):
+ *   1. use-call-ringtone.ts  — Web Audio API oscillators, synthesised ring
+ *   2. active-call.tsx        — <audio> element for remote WebRTC stream
+ *   3. active-call.tsx        — <video muted> for remote video (audio off)
+ *   4. active-call.tsx        — <video muted> for local self-view (audio off)
+ *   All of the above are tracked here and silenced by stopAllCallSounds().
  *
  * Usage:
- *   registerRingtoneContext(ctx, activeNodes)  ← called by use-call-ringtone.ts
- *   cleanupCallAudio(reason)                   ← called everywhere a call ends
+ *   registerRingtoneContext(ctx, nodes, label, markDead)  ← use-call-ringtone.ts
+ *   registerCallAudioElement(el, label)                   ← active-call.tsx
+ *   stopAllCallSounds(reason)                             ← called everywhere
  */
 
 export interface RingtoneNode {
@@ -29,6 +35,10 @@ interface RingtoneEntry {
   ctx: AudioContext;
   nodes: RingtoneNode[];
   label: string;
+  /** Sets state.dead=true AND clears all pending timers inside the hook.
+   *  Must be called BEFORE zeroing oscillators so the ctx.resume() callback
+   *  cannot restart the ring state-machine after cleanup. */
+  markDead: () => void;
 }
 
 interface AudioElEntry {
@@ -36,20 +46,45 @@ interface AudioElEntry {
   label: string;
 }
 
-// Module-level singletons — survive React re-renders.
 const _ringtones: RingtoneEntry[] = [];
 const _audioElements: AudioElEntry[] = [];
 
-// ── Registration ──────────────────────────────────────────────────────────────
+// ── Audio-context unlock ───────────────────────────────────────────────────────
+// Browsers suspend new AudioContexts until a user gesture occurs (autoplay
+// policy).  This listener resumes any live ringtone context on the first
+// interaction so the ring starts immediately if the user is already in the app
+// doing something when the call arrives.
+let _audioUnlocked = false;
+function _onUserGesture() {
+  if (_audioUnlocked) return;
+  _audioUnlocked = true;
+  console.log("[CALL_AUDIO] audio context unlocked by user gesture — resuming any suspended ringtone contexts");
+  for (const { ctx } of _ringtones) {
+    if (ctx.state === "suspended") ctx.resume().catch(() => {});
+  }
+}
+if (typeof window !== "undefined") {
+  ["click", "touchstart", "keydown"].forEach(ev =>
+    window.addEventListener(ev, _onUserGesture, { passive: true })
+  );
+}
+
+// ── Registration ───────────────────────────────────────────────────────────────
 
 export function registerRingtoneContext(
   ctx: AudioContext,
   nodes: RingtoneNode[],
   label: string,
+  markDead: () => void,
 ) {
   if (_ringtones.find(e => e.ctx === ctx)) return;
-  _ringtones.push({ ctx, nodes, label });
-  console.log("[CALL_AUDIO] AudioContext registered:", label, "| total:", _ringtones.length);
+  _ringtones.push({ ctx, nodes, label, markDead });
+  console.log("[CALL_AUDIO] incoming ringtone start:", label, "| total registered:", _ringtones.length);
+  // If the user has already interacted, resume immediately so the ring doesn't
+  // wait for the next gesture.
+  if (_audioUnlocked && ctx.state === "suspended") {
+    ctx.resume().catch(() => {});
+  }
 }
 
 export function unregisterRingtoneContext(ctx: AudioContext) {
@@ -57,7 +92,7 @@ export function unregisterRingtoneContext(ctx: AudioContext) {
   if (idx !== -1) {
     const label = _ringtones[idx].label;
     _ringtones.splice(idx, 1);
-    console.log("[CALL_AUDIO] AudioContext unregistered:", label, "| remaining:", _ringtones.length);
+    console.log("[CALL_AUDIO] ringtone context unregistered:", label, "| remaining:", _ringtones.length);
   }
 }
 
@@ -67,7 +102,7 @@ export function registerCallAudioElement(
 ) {
   if (_audioElements.find(e => e.el === el)) return;
   _audioElements.push({ el, label });
-  console.log("[CALL_AUDIO] Audio element registered:", label);
+  console.log("[CALL_AUDIO] remote voice audio attached:", label);
 }
 
 export function unregisterCallAudioElement(el: HTMLAudioElement | HTMLVideoElement) {
@@ -75,35 +110,45 @@ export function unregisterCallAudioElement(el: HTMLAudioElement | HTMLVideoEleme
   if (idx !== -1) {
     const label = _audioElements[idx].label;
     _audioElements.splice(idx, 1);
-    console.log("[CALL_AUDIO] Audio element unregistered:", label);
+    console.log("[CALL_AUDIO] audio element unregistered:", label);
   }
 }
 
-// ── Master cleanup ────────────────────────────────────────────────────────────
+// ── Master stop ────────────────────────────────────────────────────────────────
 
 /**
- * Synchronously silence all registered ringtone AudioContexts and detach all
- * audio/video elements.  Call this BEFORE getUserMedia() and from every call
- * end path (hangup, decline, cancel, timer, error, page leave).
+ * THE single function that must be called on every call end path.
  *
- * The synchronous part (gain=0, osc.stop) is what matters for mic isolation;
- * ctx.close() is async and runs in the background.
+ * Order of operations is critical:
+ *   1. markDead()  — synchronously kills the ring state-machine (timers + dead flag)
+ *                    BEFORE the ctx.resume() promise can resolve and restart it.
+ *   2. Zero gain   — silences oscillators that are already running.
+ *   3. osc.stop()  — stops oscillators.
+ *   4. ctx.suspend → ctx.close() — async cleanup of the audio render thread.
+ *   5. Detach HTML audio/video elements — stops remote voice playback.
  */
-export function cleanupCallAudio(reason: string) {
+export function stopAllCallSounds(reason: string) {
   const ctxCount = _ringtones.length;
   const elCount = _audioElements.length;
 
   console.log(
-    `[CALL_AUDIO] cleanupCallAudio("${reason}") — ` +
-    `${ctxCount} AudioContext(s), ${elCount} audio element(s)`,
+    `[CALL_AUDIO] stop all call sounds: ${reason} — ` +
+    `${ctxCount} ringtone context(s), ${elCount} audio element(s)`,
   );
 
-  // ── Ringtone AudioContexts ─────────────────────────────────────────────────
+  // ── Step 1: Kill every ring state-machine FIRST ────────────────────────────
+  // markDead() sets state.dead=true and clears all pending setTimeout handles
+  // BEFORE the ctx.resume() promise (which may be pending due to autoplay
+  // policy) can resolve.  Without this, the resume callback fires after cleanup
+  // and calls ring() on an already-cleared context, creating orphaned
+  // oscillators that can never be stopped.
+  for (const entry of _ringtones) {
+    try { entry.markDead(); } catch {}
+  }
+
+  // ── Step 2–4: Stop oscillators and close contexts ─────────────────────────
   for (const { ctx, nodes, label } of _ringtones) {
     try {
-      // SYNCHRONOUS: zero the gain and stop every oscillator right now.
-      // This is what prevents the mic from capturing the tone — the
-      // async ctx.suspend() alone is too slow.
       for (const { osc, gain } of nodes) {
         try {
           gain.gain.cancelScheduledValues(ctx.currentTime);
@@ -113,40 +158,36 @@ export function cleanupCallAudio(reason: string) {
       }
       nodes.length = 0;
 
-      // ASYNC: suspend then close (best-effort, runs in background).
       if (ctx.state !== "closed") {
         ctx.suspend()
           .catch(() => {})
           .finally(() => ctx.close().catch(() => {}));
       }
-      console.log("[CALL_AUDIO] Ringtone stopped:", label);
+      console.log("[CALL_AUDIO] ringtone stopped:", label);
     } catch (e) {
-      console.warn("[CALL_AUDIO] Ringtone cleanup error:", label, e);
+      console.warn("[CALL_AUDIO] ringtone cleanup error:", label, e);
     }
   }
   _ringtones.length = 0;
 
-  // ── HTML Audio / Video elements ────────────────────────────────────────────
+  // ── Step 5: Detach HTML audio/video elements ───────────────────────────────
   for (const { el, label } of _audioElements) {
     try {
       el.pause();
       el.srcObject = null;
-      console.log("[CALL_AUDIO] Audio element detached:", label);
+      console.log("[CALL_AUDIO] audio element detached:", label);
     } catch (e) {
-      console.warn("[CALL_AUDIO] Audio element cleanup error:", label, e);
+      console.warn("[CALL_AUDIO] audio element cleanup error:", label, e);
     }
   }
   _audioElements.length = 0;
 }
 
+/** Backward-compat alias — all existing call sites work without changes. */
+export const cleanupCallAudio = stopAllCallSounds;
+
 // ── Page-leave safety net ─────────────────────────────────────────────────────
-// If the user navigates away or closes the tab while on a call, stop all audio
-// so the mic doesn't remain open and so no tones play in the background.
 if (typeof window !== "undefined") {
-  window.addEventListener("pagehide", () => {
-    cleanupCallAudio("pagehide");
-  });
-  window.addEventListener("beforeunload", () => {
-    cleanupCallAudio("beforeunload");
-  });
+  window.addEventListener("pagehide", () => stopAllCallSounds("pagehide"));
+  window.addEventListener("beforeunload", () => stopAllCallSounds("beforeunload"));
 }
