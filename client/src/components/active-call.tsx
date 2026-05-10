@@ -227,7 +227,31 @@ export function ActiveCallOverlay({
   // React tree removes the component, which can bleed into the next call's
   // mic capture.
   useEffect(() => {
+    // ── [CALL_ANSWER] Mount log — fires once when ActiveCallOverlay mounts ──
+    // If you see EARLY_UNMOUNT immediately after this, it means the parent
+    // (App.tsx CallDetectors) removed activeCall within one render cycle,
+    // which would set cleanedUpRef=true and abort WebRTC init.
+    console.log("[CALL_ANSWER] ACTIVE_CALL_OVERLAY_MOUNTED", {
+      matchId,
+      callSessionId,
+      isCaller,
+      isRinging,
+      webrtcEnabled,
+      isVideo,
+      ts: new Date().toISOString(),
+    });
+
     return () => {
+      // ── [CALL_ANSWER] Unmount log — if this fires during WebRTC init it's the race ──
+      console.log("[CALL_ANSWER] ACTIVE_CALL_OVERLAY_UNMOUNTED", {
+        matchId,
+        callSessionId,
+        isCaller,
+        endedRefAtUnmount: endedRef.current,
+        ts: new Date().toISOString(),
+        note: "If this fires during 80ms pause or getUserMedia, cleanedUpRef becomes true and WebRTC init aborts",
+      });
+
       // Final safety net — stops any outstanding ringtone AudioContext and
       // detaches elements that were registered with call-audio.ts.
       cleanupCallAudio("active_call_unmount");

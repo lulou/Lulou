@@ -84,8 +84,20 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss }: In
 
   const answerCall = useMutation({
     mutationFn: async () => {
+      // ── [CALL_ANSWER] green button clicked ────────────────────────────────
+      console.log("[CALL_ANSWER] GREEN_BUTTON_CLICKED", {
+        matchId: match.id,
+        callSessionId: match.callSessionId,
+        userId: user?.id,
+        role: "receiver",
+        ringEnabled,
+        actedAlready: actedRef.current,
+        ts: new Date().toISOString(),
+      });
       silenceRing();
+      console.log("[CALL_ANSWER] ring_silenced", { matchId: match.id });
       if (actedRef.current) {
+        console.error("[CALL_ANSWER] ALREADY_ACTED — duplicate button press, throwing", { matchId: match.id });
         throw new Error("already_acted");
       }
       actedRef.current = true;
@@ -104,15 +116,28 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss }: In
         source: "incoming_overlay",
       });
       console.log("[CALL_UI] CALL_STAGE_ENTERED", { matchId: match.id, role: "receiver" });
+      console.log("[CALL_ANSWER] calling_answer_api", { matchId: match.id, callSessionId: match.callSessionId, ts: new Date().toISOString() });
       const res = await apiRequest("POST", `/api/matches/${match.id}/call/answer`, {});
       if (!res.ok) {
         const body = await res.json().catch(() => ({ message: `HTTP ${res.status}` }));
+        console.error("[CALL_ANSWER] FAILURE_REASON: answer API failed", {
+          matchId: match.id,
+          status: res.status,
+          body,
+        });
         throw new Error(body?.message || `HTTP ${res.status}`);
       }
       console.log("[CALL_TIMING] ANSWER_API_OK", { matchId: match.id, callSessionId: match.callSessionId, ts: new Date().toISOString() });
+      console.log("[CALL_ANSWER] answer_api_ok", { matchId: match.id, status: res.status, ts: new Date().toISOString() });
       return await res.json();
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
+      console.log("[CALL_ANSWER] onSuccess_start — broadcasting call:answered and updating cache", {
+        matchId: match.id,
+        callSessionId: match.callSessionId,
+        responseData: data,
+        ts: new Date().toISOString(),
+      });
       broadcastCallSignal(match.id, {
         type: "call:answered",
         matchId: match.id,
@@ -123,10 +148,19 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss }: In
         if (!old || !Array.isArray(old)) return old;
         return old.map(m => m.id === match.id ? { ...m, callAnswered: true } : m);
       });
+      console.log("[CALL_ANSWER] cache_updated_callAnswered_true — calling onDismiss", {
+        matchId: match.id,
+        ts: new Date().toISOString(),
+      });
       onDismiss();
+      console.log("[CALL_ANSWER] onDismiss_called — IncomingCallOverlay will unmount, ActiveCallOverlay should mount", {
+        matchId: match.id,
+        ts: new Date().toISOString(),
+      });
     },
     onError: (error: Error) => {
       console.error("[CALL_UI] CALL_ANSWER_FAILED", { matchId: match.id, error: error.message });
+      console.error("[CALL_ANSWER] FAILURE_REASON: answer mutation error", { matchId: match.id, error: error.message });
       markCallSessionCancelled(match.id, match.callSessionId);
       queryClient.setQueriesData<MatchWithProfile[]>({ queryKey: ["/api/matches"] }, old => {
         if (!old || !Array.isArray(old)) return old;
