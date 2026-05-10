@@ -9,7 +9,7 @@ import { useAuth } from "@/hooks/use-auth";
 import type { Profile, Match } from "@shared/schema";
 import { markCallSessionCancelled } from "@/lib/cancelled-calls";
 import { useCallRingtone } from "@/hooks/use-call-ringtone";
-import { stopAllNonVoiceCallAudio } from "@/lib/call-audio";
+import { cleanupCallAudio } from "@/lib/call-audio";
 
 type MatchWithProfile = Match & { profile: Profile };
 
@@ -40,28 +40,13 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss }: In
   const [ringEnabled, setRingEnabled] = useState(true);
 
   // Silence the ring immediately — called before any mutation fires.
-  // stopAllNonVoiceCallAudio() is called SYNCHRONOUSLY here (before the state
-  // update is batched) so the AudioContext oscillators are zeroed right now,
-  // not on the next React render.
-  //
-  // CRITICAL: we use stopAllNonVoiceCallAudio (NOT cleanupCallAudio) here.
-  // cleanupCallAudio = stopAllCallSounds, which resets _micActive back to false
-  // at the end. That would leave _onUserGesture free to create a new AudioContext
-  // on every tap during the connected call, causing iOS AVAudioSession
-  // renegotiation → noise burst through the open mic → screeching on the
-  // remote end. stopAllNonVoiceCallAudio kills the ring and KEEPS _micActive=true
-  // until call end so no AudioContext is ever touched while the mic is open.
+  // cleanupCallAudio() is called SYNCHRONOUSLY here (before the state update
+  // is batched) so the AudioContext oscillators are zeroed right now, not on
+  // the next React render.  This prevents the mic (which opens in
+  // ActiveCallOverlay a few frames later) from ever capturing the tone.
   const silenceRing = () => {
     if (!ringEnabled) return;
-    stopAllNonVoiceCallAudio("incoming_ring_silenced");
-    console.log("[CALL_FEEDBACK_FIX] ringtone stopped on answer/connect — stopAllNonVoiceCallAudio called, _micActive=true, oscillators killed", {
-      matchId: match.id,
-      callSessionId: match.callSessionId,
-    });
-    console.log("[CALL_AUDIO_FIX] ringtone stopped on answer — _micActive kept true, AudioContext will not be recreated during call", {
-      matchId: match.id,
-      callSessionId: match.callSessionId,
-    });
+    cleanupCallAudio("incoming_ring_silenced");
     console.log("[CALL_RINGTONE] SILENCED by user action — will not restart", {
       matchId: match.id,
       callSessionId: match.callSessionId,
