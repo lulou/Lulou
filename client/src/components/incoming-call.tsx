@@ -47,7 +47,11 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss }: In
   const silenceRing = () => {
     if (!ringEnabled) return;
     cleanupCallAudio("incoming_ring_silenced");
-    console.log("[RINGTONE] SILENCED by user action — will not restart", {
+    console.log("[CALL_RINGTONE] SILENCED by user action — will not restart", {
+      matchId: match.id,
+      callSessionId: match.callSessionId,
+    });
+    console.log("[CALL_DEBUG] RING_SILENCED: user pressed a call button", {
       matchId: match.id,
       callSessionId: match.callSessionId,
     });
@@ -61,6 +65,14 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss }: In
       receiverId: user?.id,
       callerName: match.profile.firstName,
       callSessionId: match.callSessionId,
+    });
+    console.log("[CALL_RINGTONE] INCOMING_OVERLAY_MOUNTED: ringtone will start (ringEnabled=true)", {
+      matchId: match.id,
+      callSessionId: match.callSessionId,
+    });
+    console.log("[CALL_DEBUG] INCOMING_CALL: overlay mounted, ringtone starting immediately", {
+      matchId: match.id,
+      callerName: match.profile.firstName,
     });
   }, [match.id, match.callSessionId]);
 

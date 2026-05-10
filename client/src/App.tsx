@@ -30,6 +30,25 @@ const IncomingCallOverlay = lazy(() => import("@/components/incoming-call"));
 const ActiveCallOverlay   = lazy(() =>
   import("@/components/active-call").then(m => ({ default: m.ActiveCallOverlay }))
 );
+
+// Eagerly preload both call-overlay chunks so they are already in the browser
+// module cache when the first incoming call arrives.  Without this, the
+// IncomingCallOverlay chunk has to download before the component mounts, which
+// delays the useCallRingtone effect by up to several hundred ms — enough for
+// the user to notice the ringtone starting late.  requestIdleCallback lets
+// the initial page render finish first so preloading never blocks LCP.
+if (typeof window !== "undefined") {
+  const preloadCallChunks = () => {
+    import("@/components/incoming-call").catch(() => {});
+    import("@/components/active-call").catch(() => {});
+    console.log("[CALL_DEBUG] PRELOAD: call overlay chunks requested");
+  };
+  if (typeof requestIdleCallback !== "undefined") {
+    requestIdleCallback(preloadCallChunks, { timeout: 5000 });
+  } else {
+    setTimeout(preloadCallChunks, 2000);
+  }
+}
 import { useCallSignaling, setCallEndedHandler, clearDedupeForMatch } from "@/hooks/use-call-signaling";
 import { markCallSessionCancelled, isCallSessionCancelled, clearCancelledSession } from "@/lib/cancelled-calls";
 import type { Profile, Match } from "@shared/schema";

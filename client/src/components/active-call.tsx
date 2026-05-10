@@ -283,16 +283,20 @@ export function ActiveCallOverlay({
   useEffect(() => {
     if (!webrtcEnabled) return;
     console.log("[WebRTC] CONNECTION_STATE_CHANGED", { matchId, connectionState, isCaller, isVideo });
+    console.log("[CALL_DEBUG] STATE", { matchId, connectionState, isCaller, isVideo, ts: new Date().toISOString().slice(11, 23) });
     if (connectionState === "connected") {
       // Record the first moment we were live — used to compute connectedDurationMs in finishCall
       if (connectedAtRef.current === null) {
         connectedAtRef.current = Date.now();
         console.log("[CALL_UI] CALL_STATE:connected", { matchId, callSessionId, isCaller, timestamp: connectedAtRef.current });
+        console.log("[CALL_DEBUG] CONNECTED: WebRTC ICE established — call is live", { matchId, isCaller });
       }
     } else if (connectionState === "failed") {
       console.error("[CALL_UI] CALL_STATE:failed", { matchId, callSessionId, isCaller, hadConnection: connectedAtRef.current !== null });
+      console.error("[CALL_DEBUG] FAILED: call never established or was lost", { matchId, isCaller, failureReason });
     } else if (connectionState === "reconnecting") {
       console.warn("[CALL_UI] CALL_STATE:reconnecting", { matchId, callSessionId, connectedDurationSoFar: connectedAtRef.current ? Date.now() - connectedAtRef.current : 0 });
+      console.warn("[CALL_DEBUG] RECONNECTING: peer connection temporarily lost", { matchId });
     }
   }, [connectionState, webrtcEnabled]);
 
@@ -339,16 +343,24 @@ export function ActiveCallOverlay({
   // never played twice (double-audio would cause a chorus/echo effect and
   // confuse echo-cancellation in the peer's microphone path).
   //
-  // isConnected is in deps so this re-runs when the <video> element mounts.
-  // The <video> is conditionally rendered on (isVideo && isConnected && remoteStream),
-  // so without isConnected in deps the effect would fire while the element is
-  // still absent, find a null ref, and never re-fire when the element appears.
+  // IMPORTANT: isConnected guards the attachment. useWebRTC sets remoteStream
+  // at PC creation time (before ICE connects) so that ontrack events have a
+  // MediaStream to add tracks into. Without the isConnected guard, the audio
+  // element would receive srcObject before any audio data is flowing, causing
+  // the browser to start decoding an empty stream. When isConnected later
+  // becomes true, the effect re-runs (isConnected is in the deps array) and
+  // the already-populated remoteStream is attached at the correct moment.
   //
   // Guard: compare track-ID sets before re-assigning srcObject so rapid
   // ontrack events (which create a new MediaStream wrapper each time) don't
   // cause unnecessary flicker or audio interruption.
   useEffect(() => {
-    if (!remoteStream) return;
+    if (!remoteStream || !isConnected) return;
+    console.log("[CALL_DEBUG] REMOTE_STREAM_EFFECT: remoteStream ready + isConnected=true — attaching audio", {
+      matchId,
+      audioTracks: remoteStream.getAudioTracks().length,
+      videoTracks: remoteStream.getVideoTracks().length,
+    });
 
     // ── Audio element (always present; handles voice for both call types) ──
     if (remoteAudioRef.current) {
@@ -402,6 +414,8 @@ export function ActiveCallOverlay({
   // The local stream is NEVER routed to an audio element — only to this muted
   // video pip.  This is the only element that shows the user their own camera,
   // and it must be muted to prevent microphone feedback / self-monitoring.
+  // [CALL_DEBUG] LOCAL_MIC_ISOLATION: local mic audio is never played back to
+  // the user because localStream is only ever attached to the muted localVideoRef.
   //
   // isConnected is in deps for the same reason as above (element is conditionally
   // rendered behind isConnected).  A reference-equality guard prevents redundant

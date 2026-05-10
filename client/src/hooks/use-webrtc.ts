@@ -547,6 +547,7 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
 
       console.log("[CALL_TIMING] MEDIA_ACQUIRED", { matchId, isCaller, ts: new Date().toISOString() });
       console.log("[WebRTC] MEDIA_ACQUIRE_SUCCESS: stream tracks:", mediaResult.value.getTracks().map(t => ({ kind: t.kind, enabled: t.enabled, readyState: t.readyState })));
+      console.log("[CALL_DEBUG] MEDIA_OK: mic/camera acquired", { matchId, isCaller, tracks: mediaResult.value.getTracks().map(t => t.kind) });
       callDebug.event("init: media acquired ✓");
 
       if (channelResult.status === "rejected") {
@@ -561,6 +562,7 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
       }
 
       console.log("[WebRTC] CHANNEL_SUBSCRIBE_SUCCESS: signaling channel is ready");
+      console.log("[CALL_DEBUG] CHANNEL_OK: signaling channel subscribed", { matchId, isCaller });
       callDebug.event("init: channel subscribed ✓");
 
       const stream = mediaResult.value;
@@ -685,6 +687,10 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
         if (state === "connected" || state === "completed") {
           callDebug.update({ outcome: "connected", connectedAt: new Date().toISOString().slice(11, 23) });
           callDebug.event("ice: CONNECTED ✓");
+          console.log("[CALL_DEBUG] ICE_CONNECTED: peer-to-peer path established", {
+            matchId, isCaller, state,
+            candidates: { ...candidateCountsRef.current },
+          });
           if (disconnectTimerRef.current) {
             clearTimeout(disconnectTimerRef.current);
             disconnectTimerRef.current = null;
@@ -728,6 +734,7 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
             : `ice_failed — no SRFLX/relay candidates gathered (host=${totals.host}). Firewall or device issue.`;
           callDebug.update({ outcome: "failed", failureReason: reason });
           callDebug.event(`ice: FAILED — ${reason.slice(0, 80)}`);
+          console.error("[CALL_DEBUG] ICE_FAILED:", reason, { matchId, isCaller, candidates: { ...totals } });
           console.error("[WebRTC] FAILURE_TRIGGER:", reason, {
             matchId,
             signalingState: pc.signalingState,
@@ -847,6 +854,7 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
     cleanedUpRef.current = true;
     callDebug.update({ outcome: "ended" });
     callDebug.event("hangup: user ended call");
+    console.log("[CALL_DEBUG] HANGUP: tearing down WebRTC session", { matchId });
     console.log("[WebRTC] CALL_END_REQUESTED - sending hangup signal");
     const channel = channelRef.current;
     if (channel) {

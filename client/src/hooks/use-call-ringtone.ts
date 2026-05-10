@@ -42,7 +42,7 @@ export function useCallRingtone(type: RingtoneType, enabled: boolean) {
       return;
     }
 
-    console.log("[RINGTONE] START type=", type, "| contextState=", ctx.state);
+    console.log("[CALL_RINGTONE] START type=", type, "| contextState=", ctx.state);
 
     const state = {
       ctx,
@@ -90,7 +90,7 @@ export function useCallRingtone(type: RingtoneType, enabled: boolean) {
         .finally(() => ctx.close().catch(() => {}));
 
       stateRef.current = null;
-      console.log("[RINGTONE] STOP type=", type);
+      console.log("[CALL_RINGTONE] STOP type=", type);
     };
 
     /**
