@@ -9,6 +9,8 @@ import {
   registerCallAudioElement,
   unregisterCallAudioElement,
 } from "@/lib/call-audio";
+import { callDebug } from "@/lib/call-debug";
+import { CallDebugPanel } from "@/components/call-debug-panel";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { PhoneOff, Mic, MicOff, Volume2, Camera, CameraOff, Loader2, WifiOff, AlertTriangle } from "lucide-react";
 
@@ -117,6 +119,11 @@ export function ActiveCallOverlay({
   const [timerExpiredMsg, setTimerExpiredMsg] = useState("");
   // Track exactly when WebRTC first reached "connected" so we can measure live duration
   const connectedAtRef = useRef<number | null>(null);
+
+  // Update call debug log with session ID and partner context as soon as they are known.
+  useEffect(() => {
+    callDebug.update({ sessionId: callSessionId });
+  }, [callSessionId]);
 
   // ─────────────────────────────────────────────────────────────────────────────
   // IMPORTANT: useWebRTC and derived booleans (isConnected, warning, etc.) MUST
@@ -560,6 +567,7 @@ export function ActiveCallOverlay({
           <PhoneOff className="w-7 h-7 text-white" />
         </button>
         <span className="text-white/30 text-xs">Tap to end (auto-closes in 10s)</span>
+        <CallDebugPanel />
       </div>
     );
   }
@@ -595,6 +603,7 @@ export function ActiveCallOverlay({
           <PhoneOff className="w-7 h-7 text-white" />
         </button>
         <span className="text-white/30 text-xs">Tap to end call</span>
+        <CallDebugPanel />
       </div>
     );
   }
@@ -912,6 +921,7 @@ export function ActiveCallOverlay({
         </div>
       </div>
 
+      <CallDebugPanel />
     </div>
   );
 }
