@@ -315,6 +315,7 @@ export function ActiveCallOverlay({
       // shared AudioContext, and sets _micActive=true so _onUserGesture cannot
       // recreate it for the rest of this call.
       stopAllNonVoiceCallAudio("connected");
+      console.log("[CALL_FEEDBACK_FIX] ringtone stopped on answer/connect — ICE connected, stopAllNonVoiceCallAudio fired as hard backstop, _micActive=true", { matchId, isCaller });
       console.log("[CALL_AUDIO_FIX] connected: remote voice only — all oscillators/ringtones dead, _micActive=true, no AudioContext will be recreated", { matchId, isCaller });
       console.log("[CALL_AUDIO] connected: remote voice only, non-voice sounds stopped", { matchId, isCaller });
 
@@ -442,19 +443,39 @@ export function ActiveCallOverlay({
     // ── Audio element (always present; handles voice for both call types) ──
     if (remoteAudioRef.current) {
       const el = remoteAudioRef.current;
+
+      // ── Duplicate-audio DOM sweep ─────────────────────────────────────────
+      // Before attaching, scan every <audio> on the page. Any element OTHER than
+      // our target that already has remoteStream attached must be paused and
+      // cleared — this is the only way a duplicate remote-audio source could
+      // exist (e.g. a stale element from a previous render or a leaked ref).
+      // Duplicate remote audio would play the same voice twice, creating a
+      // chorus/doubling artefact and breaking the browser's echo-cancellation
+      // reference path.
+      const allAudioEls = Array.from(document.querySelectorAll("audio")) as HTMLAudioElement[];
+      allAudioEls.forEach((a) => {
+        if (a !== el && a.srcObject === remoteStream) {
+          console.log(`[CALL_FEEDBACK_FIX] duplicate remote audio removed — found stale <audio> element with remoteStream attached, pausing and clearing`, { matchId });
+          a.pause();
+          a.srcObject = null;
+        }
+      });
+
       const existing = el.srcObject as MediaStream | null;
       const existingIds = existing?.getTracks().map(t => t.id).sort().join(",") ?? "";
       const incomingIds = remoteStream.getTracks().map(t => t.id).sort().join(",");
       if (existingIds !== incomingIds) {
         el.srcObject = remoteStream;
+        el.muted = false;
         // Register with call-audio so cleanupCallAudio() can detach this element.
         registerCallAudioElement(el, `remote-audio:${matchId}`);
         // [CALL_AUDIO_AUDIT] SOURCE 2: remote voice <audio> element — UNMUTED
         // This is the ONLY audio source during a connected call. Remote WebRTC voice
         // stream. No ringtone oscillators are running at this point (stopAllNonVoiceCallAudio
-        // was called before getUserMedia). autoPlay + explicit .play() handles iOS Safari
+        // was called before getUserMedia). Explicit .play() handles iOS Safari
         // where autoPlay alone is blocked after srcObject assignment.
         console.log("[CALL_AUDIO_AUDIT] SOURCE 2 attached: remote voice <audio> UNMUTED — remote WebRTC voice stream, sole audio source during call");
+        console.log("[CALL_FEEDBACK_FIX] single remote audio active — remoteStream attached to exactly one <audio> element, muted=false", { matchId });
         el.play().catch((err) => {
           console.error("[CALL_AUDIO] remote audio play failed", {
             matchId,
@@ -470,6 +491,7 @@ export function ActiveCallOverlay({
           trackIds: incomingIds,
         });
       } else {
+        console.log("[CALL_FEEDBACK_FIX] single remote audio active — track set unchanged, not re-attaching", { matchId });
         console.log("[WebRTC] REMOTE_AUDIO_SKIP: track set unchanged, not re-attaching", { matchId });
       }
     }
@@ -523,6 +545,7 @@ export function ActiveCallOverlay({
     // [CALL_AUDIO_AUDIT] SOURCE 4: local self-view <video> element — MUTED
     // Camera track only. muted=true ensures the microphone is NEVER played back to the
     // local user — only the remote peer hears it via WebRTC. No echo, no self-monitoring.
+    console.log("[CALL_FEEDBACK_FIX] local mic playback blocked — localStream goes to muted <video> self-view only, never to any <audio> element", { matchId });
     console.log("[CALL_AUDIO_FIX] local mic audible playback prevented — localStream attached to muted <video> only, never to any <audio> element", { matchId });
     console.log("[CALL_AUDIO_AUDIT] SOURCE 4 attached: local self-view <video> MUTED — camera only, mic never played back locally");
     console.log("[WebRTC] LOCAL_AUDIO_PLAYBACK_BLOCKED: local mic is muted in self-view, no self-monitoring", { matchId });

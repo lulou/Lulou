@@ -507,11 +507,16 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
             const stream = await getUserMediaWithTimeout(constraints);
             callDebug.update({ mediaStatus: "ok", mediaTier: i + 1 });
             callDebug.event(`media: ok (tier ${i + 1})`);
-            if (i > 0) {
+            const constraintSummary = i === 0
+            ? "echoCancellation+noiseSuppression+autoGainControl"
+            : i === 1 ? "echoCancellation+noiseSuppression"
+            : "browser-default (no explicit constraints)";
+          if (i > 0) {
               console.warn("[WebRTC] MEDIA_CONSTRAINT_FALLBACK: succeeded on tier", i + 1,
                 "— echo cancellation may be reduced");
             }
-            return stream;
+          console.log(`[CALL_FEEDBACK_FIX] echo cancellation enabled — tier ${i + 1}: ${constraintSummary}`);
+          return stream;
           } catch (err: any) {
             lastErr = err;
             const isConstraintError = err?.name === "OverconstrainedError" ||

@@ -54,6 +54,10 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss }: In
   const silenceRing = () => {
     if (!ringEnabled) return;
     stopAllNonVoiceCallAudio("incoming_ring_silenced");
+    console.log("[CALL_FEEDBACK_FIX] ringtone stopped on answer/connect — stopAllNonVoiceCallAudio called, _micActive=true, oscillators killed", {
+      matchId: match.id,
+      callSessionId: match.callSessionId,
+    });
     console.log("[CALL_AUDIO_FIX] ringtone stopped on answer — _micActive kept true, AudioContext will not be recreated during call", {
       matchId: match.id,
       callSessionId: match.callSessionId,
