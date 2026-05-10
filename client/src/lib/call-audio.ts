@@ -8,7 +8,7 @@
  *              Incoming ringtone & outgoing ringback.
  *              Managed ENTIRELY in this file. No oscillator code anywhere else.
  *
- *   SOURCE 2 — <audio ref={remoteAudioRef} autoPlay playsInline> in active-call.tsx
+ *   SOURCE 2 — <audio ref={remoteAudioRef} playsInline> in active-call.tsx
  *              Remote WebRTC voice stream. UNMUTED. Set via srcObject = remoteStream.
  *              Only attached after isConnected = true. This is the ONLY unmuted
  *              audio element during a connected call.
@@ -22,68 +22,63 @@
  *   No new Audio(), no audio files, no notification sounds exist anywhere.
  * ════════════════════════════════════════════════════════════════════════════
  *
- * ── WHY INCOMING RINGTONE WAS NOT PLAYING ────────────────────────────────────
+ * ── WHY BACKGROUND NOISE PLAYED DURING CONNECTED CALLS ───────────────────
  *
- *   Previous code:
- *     const ctx = new AudioContext();       // ← always starts SUSPENDED
- *     ctx.resume()
- *       .then(() => { if (!state.dead) ring(); })  // ← only fires on gesture
- *       .catch(() => { if (!state.dead) ring(); }) // ← BUG: ring on failed resume
+ *   TWO causes, both now fixed:
  *
- *   Three failure modes:
- *   (A) Context starts suspended. resume() promise is pending.
- *       Overlay mounts inside a useEffect (NOT a gesture handler).
- *       On iOS, the promise NEVER resolves without a user gesture in the
- *       same call stack. The ring never plays.
- *   (B) User taps Answer (first gesture). React's onClick fires first (React
- *       attaches events to the root container, window listeners come later in
- *       the bubble chain). onClick calls silenceRing() → stopAllCallSounds()
- *       → state.dead = true → _incomingState = null. THEN window _onUserGesture
- *       fires — but the ring was already killed. THEN resume() resolves as a
- *       microtask → .then sees state.dead=true → returns. Ring never plays.
- *   (C) The .catch() path called ring() on a SUSPENDED context. Oscillators
- *       were created and scheduled, but the context was still suspended, so they
- *       emitted nothing. When anything later caused the context to run (even the
- *       iOS AVAudioSession restart from getUserMedia), those scheduled oscillators
- *       began emitting — producing the "background noise during connected call".
+ *   CAUSE A — <audio autoPlay> without srcObject:
+ *     The <audio ref={remoteAudioRef} autoPlay> element was always rendered
+ *     (even before connected) with autoPlay but NO srcObject. On iOS, this
+ *     reserves an audio output pipeline immediately. When getUserMedia later
+ *     opens the mic (switching AVAudioSession to PlayAndRecord), that idle
+ *     pipeline is rerouted — producing a noise burst captured by the mic and
+ *     transmitted to the remote peer. Fix: removed autoPlay from the element.
+ *     Playback is started explicitly via .play() only after srcObject is set.
  *
- *   Fix: shared persistent AudioContext created + resumed on the FIRST user gesture
- *   anywhere in the app (login tap, navigation, anything). By the time a call
- *   arrives, the context is ALREADY "running". ring() is called synchronously in
- *   startIncomingRingtone() — no Promise, no .then(), no timing race.
+ *   CAUSE B — _onUserGesture creating AudioContext during connected call:
+ *     The previous guard (hasPendingRing) was the wrong condition. When there
+ *     was no pending ring (during a live call), the guard correctly blocked new
+ *     context creation — but it also broke the pre-unlock behavior (see below).
+ *     Fix: replaced hasPendingRing guard with _micActive flag. When _micActive
+ *     is true (mic is open), _onUserGesture is a strict no-op. This prevents
+ *     new AudioContexts from joining the iOS AVAudioSession while the mic is live.
  *
- * ── WHY CONNECTED-CALL BACKGROUND NOISE PLAYED ───────────────────────────────
+ * ── WHY RINGTONE DISAPPEARED ─────────────────────────────────────────────
  *
- *   On iOS, getUserMedia({audio:true}) switches AVAudioSession to PlayAndRecord.
- *   This RESTARTS any live AudioContext — even one whose oscillators were stopped —
- *   causing it to briefly re-emit its internal sample buffer through the speaker.
- *   The mic (now open) captures those oscillator tones and transmits them to the
- *   remote peer. The caller hears ringing/beeping during the connected call.
+ *   The hasPendingRing guard broke the pre-unlock behaviour:
+ *     Before: _onUserGesture ran on EVERY gesture → AudioContext pre-created
+ *             and pre-resumed → by the time a call arrived, context was already
+ *             "running" → ring played immediately, synchronously, no race.
+ *     After:  _onUserGesture only ran when a pending ring existed → no pre-unlock
+ *             → when a call arrived, context was null → iOS could not resume it
+ *             without a gesture IN the ring start call stack → ring never played.
+ *   Fix: restored the pre-unlock (run on every gesture, create+resume context)
+ *   BUT guarded with _micActive so it never fires while the mic is open.
  *
- *   Fix: stopAllNonVoiceCallAudio() (called by use-webrtc.ts before getUserMedia)
- *   now calls ctx.close() — not just ctx.suspend(). A CLOSED context cannot be
- *   restarted by iOS. The 80 ms pause in use-webrtc.ts ensures the close completes
- *   before getUserMedia switches the audio session.
+ * ── _micActive FLAG LIFECYCLE ─────────────────────────────────────────────
  *
- * ── SHARED CONTEXT LIFECYCLE ──────────────────────────────────────────────────
+ *   false  → normal state; _onUserGesture pre-unlocks AudioContext on every tap
+ *   true   → set by stopAllNonVoiceCallAudio() (called before getUserMedia and
+ *             when WebRTC connects); _onUserGesture is a strict no-op
+ *   false  → set by stopAllCallSounds() (call ended, mic closed)
  *
- *   Created  → first user gesture (_onUserGesture) → new AudioContext() + resume()
+ * ── SHARED CONTEXT LIFECYCLE ─────────────────────────────────────────────
+ *
+ *   Created  → first user gesture (_onUserGesture when _micActive=false)
  *   Running  → ringtone oscillators play on the shared context
- *   Closed   → stopAllNonVoiceCallAudio() / stopAllCallSounds() → ctx.close() + null
- *   Recreated→ next user gesture (End Call tap, navigate, etc.) → _onUserGesture
+ *   Closed   → stopAllNonVoiceCallAudio() → ctx.close() + _sharedCtx=null
+ *   Recreated→ next tap after call ends (_micActive back to false)
  *
- *   This ensures _sharedCtx is null when getUserMedia is called — no context to restart.
- *
- * ── PUBLIC API ────────────────────────────────────────────────────────────────
+ * ── PUBLIC API ────────────────────────────────────────────────────────────
  *
  *   startIncomingRingtone()          — receiver: start ring when overlay mounts
  *   stopIncomingRingtone(reason)     — stop incoming ring, log reason
  *   startOutgoingRingback()          — caller: ringback while waiting for answer
  *   stopOutgoingRingback(reason)     — stop outgoing ringback
- *   stopAllNonVoiceCallAudio(reason) — stop all rings + close shared ctx
+ *   stopAllNonVoiceCallAudio(reason) — stop all rings + close shared ctx + set _micActive
  *   registerVoiceAudioElement(el, label) — track remote <audio> element
  *   unregisterVoiceAudioElement(el)      — untrack
- *   stopAllCallSounds(reason)        — stop rings + detach voice elements
+ *   stopAllCallSounds(reason)        — stop rings + detach voice elements + clear _micActive
  *
  *   Backward-compat aliases (all existing callers work unchanged):
  *     cleanupCallAudio          = stopAllCallSounds
@@ -97,7 +92,6 @@ type OscNode = { osc: OscillatorNode; gain: GainNode };
 
 interface RingState {
   type: "incoming" | "outgoing";
-  /** AudioContext snapshot captured when the ring actually starts (ctx is running). */
   ctx: AudioContext | null;
   dead: boolean;
   started: boolean;
@@ -117,6 +111,13 @@ interface VoiceElEntry {
  * getUserMedia so iOS cannot restart it during AVAudioSession category switch.
  */
 let _sharedCtx: AudioContext | null = null;
+
+/**
+ * True while the microphone is open (between stopAllNonVoiceCallAudio and
+ * stopAllCallSounds). While true, _onUserGesture is a strict no-op — it must
+ * not create or resume an AudioContext that would join the live AVAudioSession.
+ */
+let _micActive = false;
 
 let _incomingRing: RingState | null = null;
 let _outgoingRing: RingState | null = null;
@@ -153,12 +154,11 @@ function _closeSharedCtx(): void {
 // ── Oscillator / ring-pattern helpers ──────────────────────────────────────────
 
 function _playBurst(state: RingState, durationMs: number): void {
-  // Guard: context must be the captured running context, not null/closed.
   if (state.dead || !state.ctx || state.ctx.state !== "running") return;
   const ctx = state.ctx;
   const now = ctx.currentTime;
   const dur = durationMs / 1000;
-  const fade = 0.025; // 25 ms fade-in / fade-out to avoid clicks
+  const fade = 0.025;
 
   const gain = ctx.createGain();
   gain.gain.setValueAtTime(0, now);
@@ -206,11 +206,6 @@ function _scheduleRing(state: RingState): void {
   }
 }
 
-/**
- * Synchronously kill a ring state machine.
- * MUST be called before ctx.close() — zeroes gain nodes and cancels timers so
- * no oscillator sound escapes when the context is torn down.
- */
 function _killRingState(state: RingState): void {
   if (state.dead) return;
   state.dead = true;
@@ -227,22 +222,13 @@ function _killRingState(state: RingState): void {
   state.activeNodes.length = 0;
 }
 
-/**
- * Attempt to start a pending ring now that the shared context is confirmed running.
- * No-op if already started or dead.
- */
 function _tryStartRing(state: RingState): void {
   if (state.dead || state.started || !_isCtxRunning()) return;
   state.started = true;
-  state.ctx = _sharedCtx!; // capture running context reference
+  state.ctx = _sharedCtx!;
   _scheduleRing(state);
 }
 
-/**
- * Wire a statechange listener so a pending ring starts the instant the
- * shared context transitions to "running" (async resume, iOS gesture path).
- * Detaches itself after first fire.
- */
 function _attachCtxStartListener(state: RingState): void {
   if (!_sharedCtx || _sharedCtx.state !== "suspended") return;
   const ctx = _sharedCtx;
@@ -259,47 +245,48 @@ function _attachCtxStartListener(state: RingState): void {
 //
 // Runs on every user gesture (click, touchstart, keydown).
 //
-// CRITICAL GUARD: only interacts with the AudioContext when there is an actual
-// pending ring that needs to start. During a connected call _incomingRing and
-// _outgoingRing are both null, so this function MUST be a complete no-op.
+// PURPOSE: Pre-unlock the shared AudioContext so it is already "running" by the
+// time a call arrives. Without this, the ring would need a gesture IN the same
+// call stack as startIncomingRingtone(), which is not guaranteed on iOS.
 //
-// Without this guard, every tap during the connected call (mute, speaker,
-// screen wake) would:
-//   1. Find _sharedCtx = null (it was closed before getUserMedia)
-//   2. Create a brand-new AudioContext and call resume() — now it's "running"
-//   3. iOS sees a new Web Audio consumer joining the live PlayAndRecord
-//      AVAudioSession — the OS re-negotiates audio routing → noise burst
-//   4. Repeat on every tap → continuous noise throughout the call
-//
-// By guarding on hasPendingRing, taps during a live call are ignored entirely.
-// The context is only created/resumed when there is a ring to start.
+// CRITICAL GUARD — _micActive:
+//   When _micActive is true, the microphone is open (getUserMedia has run).
+//   Creating or resuming an AudioContext while the mic is open causes iOS to
+//   re-negotiate the AVAudioSession (PlayAndRecord), producing a noise burst
+//   through the speaker that the open mic captures and transmits to the remote.
+//   This fires on EVERY tap (mute, speaker, screen) during the connected call.
+//   When _micActive is true this function is a strict no-op — nothing audio-related
+//   is touched regardless of any other state.
 
 function _onUserGesture(): void {
-  // Only proceed if there is a ring waiting to start.
-  // During a connected call both will be null → instant return, no side-effects.
-  const hasPendingIncoming = _incomingRing !== null && !_incomingRing.dead && !_incomingRing.started;
-  const hasPendingOutgoing = _outgoingRing !== null && !_outgoingRing.dead && !_outgoingRing.started;
-  if (!hasPendingIncoming && !hasPendingOutgoing) return;
+  // Mic is open — do not touch the AudioContext under any circumstances.
+  if (_micActive) return;
 
-  // There IS a pending ring — ensure shared context exists and is running.
+  // Pre-unlock: ensure the shared AudioContext exists and is running so rings
+  // can start synchronously when a call arrives (no Promise/race on iOS).
   if (!_sharedCtx || _sharedCtx.state === "closed") {
     if (!_createSharedCtx()) return;
-    console.log("[CALL_AUDIO] shared AudioContext created on user gesture (pending ring)");
   }
-
-  // Resume if suspended — this call stack IS a user gesture so iOS will allow it.
   _resumeSharedCtx();
 
   // If now running: start any pending rings immediately.
   if (_isCtxRunning()) {
-    if (hasPendingIncoming) _tryStartRing(_incomingRing!);
-    if (hasPendingOutgoing) _tryStartRing(_outgoingRing!);
+    if (_incomingRing && !_incomingRing.dead && !_incomingRing.started) {
+      _tryStartRing(_incomingRing);
+    }
+    if (_outgoingRing && !_outgoingRing.dead && !_outgoingRing.started) {
+      _tryStartRing(_outgoingRing);
+    }
     return;
   }
 
-  // Still suspended — attach statechange listener for async resume (iOS path).
-  if (hasPendingIncoming) _attachCtxStartListener(_incomingRing!);
-  if (hasPendingOutgoing) _attachCtxStartListener(_outgoingRing!);
+  // Still suspended (async resume, iOS path) — wire statechange listeners.
+  if (_incomingRing && !_incomingRing.dead && !_incomingRing.started) {
+    _attachCtxStartListener(_incomingRing);
+  }
+  if (_outgoingRing && !_outgoingRing.dead && !_outgoingRing.started) {
+    _attachCtxStartListener(_outgoingRing);
+  }
 }
 
 if (typeof window !== "undefined") {
@@ -337,22 +324,18 @@ export function startIncomingRingtone(): void {
     activeNodes: [],
   };
 
-  console.log(`[CALL_AUDIO] incoming ringtone started | ctxState=${_sharedCtx?.state ?? "none"}`);
+  console.log(`[CALL_AUDIO] incoming ringtone started | ctxState=${_sharedCtx?.state ?? "none"} micActive=${_micActive}`);
 
   if (_isCtxRunning()) {
     _tryStartRing(_incomingRing);
   } else {
-    // Try to resume — succeeds on Chrome after prior interaction
     _resumeSharedCtx();
-    // Wire statechange for async resume (iOS)
     _attachCtxStartListener(_incomingRing);
   }
 }
 
 /**
  * Stop the incoming ringtone. Kills oscillators synchronously.
- * Called by silenceRing() in incoming-call.tsx (synchronous, before any state update)
- * and by the useCallRingtone effect cleanup.
  */
 export function stopIncomingRingtone(reason: string): void {
   if (!_incomingRing) return;
@@ -392,49 +375,44 @@ export function stopOutgoingRingback(reason: string): void {
   if (!_outgoingRing) return;
   _killRingState(_outgoingRing);
   _outgoingRing = null;
+  console.log(`[CALL_AUDIO] outgoing ringback stopped: ${reason}`);
 }
 
 /**
  * Stop ALL non-voice call audio (ringtones) AND close the shared AudioContext.
+ * Also sets _micActive = true to block _onUserGesture from creating any new
+ * AudioContext while the mic is open.
  *
- * Closing — not just suspending — is critical on iOS:
- *   getUserMedia({audio:true}) switches AVAudioSession to PlayAndRecord.
- *   This restarts any live AudioContext, briefly re-emitting its sample buffer
- *   through the speaker. The open mic captures those tones and transmits them
- *   to the remote peer as audible beeping/ringing during the connected call.
- *   A CLOSED context cannot be restarted. The 80 ms pause after this call in
- *   use-webrtc.ts ensures the close completes before getUserMedia is called.
- *
- * Called by:
- *   - use-webrtc.ts: cleanupCallAudio("webrtc_init_before_getUserMedia")
- *   - incoming-call.tsx: silenceRing() → cleanupCallAudio("incoming_ring_silenced")
- *   - active-call.tsx: finishCall() → cleanupCallAudio("finish_call_*")
+ * Called:
+ *   - Before getUserMedia (use-webrtc.ts via cleanupCallAudio)
+ *   - When WebRTC connects (active-call.tsx connectionState effect)
+ *   - From stopAllCallSounds (call end)
  */
 export function stopAllNonVoiceCallAudio(reason: string): void {
   const hadIncoming = !!_incomingRing;
   const hadOutgoing = !!_outgoingRing;
-  console.log(`[CALL_AUDIO] non-voice audio stopped: ${reason} | incoming=${hadIncoming} outgoing=${hadOutgoing}`);
 
   if (_incomingRing) {
     _killRingState(_incomingRing);
     _incomingRing = null;
-    console.log(`[CALL_AUDIO] incoming ringtone stopped: ${reason}`);
   }
   if (_outgoingRing) {
     _killRingState(_outgoingRing);
     _outgoingRing = null;
   }
 
-  // Close context AFTER killing oscillators so gain=0 takes effect before close
+  // Close context AFTER killing oscillators so gain=0 takes effect before close.
   _closeSharedCtx();
+
+  // Block _onUserGesture from recreating AudioContext while mic is open.
+  _micActive = true;
+
+  console.log(`[CALL_AUDIO] non-voice audio stopped: ${reason} | incoming=${hadIncoming} outgoing=${hadOutgoing} micActive=true`);
+  console.log(`[CALL_AUDIO_AUDIT] non-voice sound disabled (reason=${reason})`);
 }
 
 // ── Voice audio element registry ───────────────────────────────────────────────
 
-/**
- * Register the remote voice <audio> (or muted <video>) element so
- * stopAllCallSounds() can detach it when the call ends.
- */
 export function registerVoiceAudioElement(
   el: HTMLAudioElement | HTMLVideoElement,
   label: string,
@@ -445,7 +423,7 @@ export function registerVoiceAudioElement(
       console.log(`[CALL_AUDIO] removed duplicate audio element: ${label}`);
       _voiceElements.splice(dupIdx, 1);
     } else {
-      return; // same element already registered — no-op
+      return;
     }
   }
   _voiceElements.push({ el, label });
@@ -459,15 +437,22 @@ export function unregisterVoiceAudioElement(el: HTMLAudioElement | HTMLVideoElem
 
 /**
  * Stop ALL call audio: ringtones + voice elements.
+ * Clears _micActive so _onUserGesture pre-unlocks again on the next tap.
  * Call on call end, unmount, and page leave.
  */
 export function stopAllCallSounds(reason: string): void {
   stopAllNonVoiceCallAudio(reason);
+
   for (const { el } of _voiceElements) {
     try { el.pause(); } catch {}
     try { el.srcObject = null; } catch {}
   }
   _voiceElements.length = 0;
+
+  // Mic is now closed — allow _onUserGesture to pre-unlock AudioContext again.
+  _micActive = false;
+
+  console.log(`[CALL_AUDIO] all call audio stopped: ${reason} | micActive=false`);
 }
 
 // ── Backward-compat aliases — existing callers unchanged ──────────────────────
@@ -476,5 +461,4 @@ export const cleanupCallAudio = stopAllCallSounds;
 export const registerCallAudioElement = registerVoiceAudioElement;
 export const unregisterCallAudioElement = unregisterVoiceAudioElement;
 
-// Legacy type export — keeps any old imports compiling
 export type RingtoneNode = { osc: OscillatorNode; gain: GainNode };

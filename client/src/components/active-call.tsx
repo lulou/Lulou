@@ -287,19 +287,56 @@ export function ActiveCallOverlay({
     console.log("[CALL_DEBUG] STATE", { matchId, connectionState, isCaller, isVideo, ts: new Date().toISOString().slice(11, 23) });
     if (connectionState === "connected") {
       // Hard guarantee: stop ALL non-voice audio the instant WebRTC connects.
-      // This is the definitive cutover from ring/wait phase to voice-only mode.
-      //
-      // Why this is necessary even though cleanupCallAudio was already called
-      // before getUserMedia (in use-webrtc.ts):
-      //   - _onUserGesture was guarded against creating new AudioContexts during
-      //     a call, but this belt-and-suspenders call ensures that if any ring
-      //     state or AudioContext survived (edge case: rapid re-mount, hot reload,
-      //     StrictMode double-effect), it is definitively killed right now.
-      //   - After this call, _sharedCtx = null and both ring state machines are
-      //     null, so _onUserGesture will be a complete no-op for all subsequent
-      //     taps during this call.
+      // stopAllNonVoiceCallAudio also sets _micActive=true so _onUserGesture
+      // cannot create a new AudioContext for the rest of this call.
       stopAllNonVoiceCallAudio("connected");
       console.log("[CALL_AUDIO] connected: remote voice only, non-voice sounds stopped", { matchId, isCaller });
+
+      // ── Full audio element audit ───────────────────────────────────────────
+      // Scans every <audio> and <video> on the page. Any unmuted element with
+      // srcObject set to the LOCAL stream is a bug (mic feedback). Any element
+      // that is neither the registered remoteAudio nor a muted video is a bug.
+      const allMediaEls = Array.from(document.querySelectorAll("audio, video"));
+      console.log(`[CALL_AUDIO_AUDIT] audio element count on page: ${allMediaEls.length}`);
+
+      allMediaEls.forEach((el, i) => {
+        const a = el as HTMLAudioElement | HTMLVideoElement;
+        const srcObjStream = a.srcObject instanceof MediaStream ? a.srcObject : null;
+        const trackKinds = srcObjStream
+          ? srcObjStream.getTracks().map(t => `${t.kind}(${t.readyState})`).join(",")
+          : "none";
+        const isLocalStream = srcObjStream !== null && srcObjStream === localStream;
+        const isRemoteStream = srcObjStream !== null && srcObjStream === remoteStream;
+        console.log(
+          `[CALL_AUDIO_AUDIT] audio element found [${i}]`,
+          `tag=${el.tagName.toLowerCase()}`,
+          `id="${el.id || "(none)"}"`,
+          `muted=${a.muted}`,
+          `paused=${a.paused}`,
+          `loop=${a.loop}`,
+          `volume=${a.volume}`,
+          `src="${(a as HTMLAudioElement).src || "(none)"}"`,
+          `srcObject=${srcObjStream ? "yes" : "no"}`,
+          `tracks=${trackKinds}`,
+          `isLocalStream=${isLocalStream}`,
+          `isRemoteStream=${isRemoteStream}`,
+        );
+        // Flag bug: local mic stream attached to an UNMUTED element
+        if (isLocalStream && !a.muted) {
+          console.error(`[CALL_AUDIO_AUDIT] BUG: local mic stream attached to UNMUTED element [${i}] — mic feedback/self-monitoring active!`);
+        }
+      });
+
+      const remoteAttachedCount = allMediaEls.filter(el => (el as any).srcObject === remoteStream).length;
+      const localUnmutedCount = allMediaEls.filter(el => {
+        const a = el as HTMLAudioElement | HTMLVideoElement;
+        return a.srcObject === localStream && !a.muted;
+      }).length;
+
+      console.log(`[CALL_AUDIO_AUDIT] remote stream attached count: ${remoteAttachedCount}`);
+      console.log(`[CALL_AUDIO_AUDIT] local stream attached to audio: ${localUnmutedCount > 0 ? `YES (${localUnmutedCount}) — BUG!` : "NO (correct)"}`);
+      console.log(`[CALL_AUDIO_AUDIT] local stream id: ${localStream?.id ?? "none"} tracks: ${localStream?.getTracks().map(t => t.kind).join(",") ?? "none"}`);
+      console.log(`[CALL_AUDIO_AUDIT] remote stream id: ${remoteStream?.id ?? "none"} tracks: ${remoteStream?.getTracks().map(t => t.kind).join(",") ?? "none"}`);
 
       // Record the first moment we were live — used to compute connectedDurationMs in finishCall
       if (connectedAtRef.current === null) {
@@ -706,10 +743,15 @@ export function ActiveCallOverlay({
         />
       )}
 
-      {/* Remote audio — always present so voice comes through even in video mode */}
+      {/* Remote audio — always present so voice comes through even in video mode.
+          NOTE: NO autoPlay attribute. autoPlay on an element without srcObject
+          causes iOS to open an audio output pipeline immediately, which then
+          gets rerouted when getUserMedia opens the mic (AVAudioSession switch
+          to PlayAndRecord) — producing a noise burst. Playback is started
+          explicitly via .play() in the remoteStream effect after srcObject
+          is attached. */}
       <audio
         ref={remoteAudioRef}
-        autoPlay
         playsInline
         style={{ display: "none" }}
         data-testid="audio-remote"
