@@ -315,6 +315,7 @@ export function ActiveCallOverlay({
       // shared AudioContext, and sets _micActive=true so _onUserGesture cannot
       // recreate it for the rest of this call.
       stopAllNonVoiceCallAudio("connected");
+      console.log("[CALL_AUDIO_FIX] connected: remote voice only — all oscillators/ringtones dead, _micActive=true, no AudioContext will be recreated", { matchId, isCaller });
       console.log("[CALL_AUDIO] connected: remote voice only, non-voice sounds stopped", { matchId, isCaller });
 
       // ── Full audio element audit ───────────────────────────────────────────
@@ -522,6 +523,7 @@ export function ActiveCallOverlay({
     // [CALL_AUDIO_AUDIT] SOURCE 4: local self-view <video> element — MUTED
     // Camera track only. muted=true ensures the microphone is NEVER played back to the
     // local user — only the remote peer hears it via WebRTC. No echo, no self-monitoring.
+    console.log("[CALL_AUDIO_FIX] local mic audible playback prevented — localStream attached to muted <video> only, never to any <audio> element", { matchId });
     console.log("[CALL_AUDIO_AUDIT] SOURCE 4 attached: local self-view <video> MUTED — camera only, mic never played back locally");
     console.log("[WebRTC] LOCAL_AUDIO_PLAYBACK_BLOCKED: local mic is muted in self-view, no self-monitoring", { matchId });
     videoEl.srcObject = localStream;

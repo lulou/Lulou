@@ -420,6 +420,7 @@ export function registerVoiceAudioElement(
   const dupIdx = _voiceElements.findIndex(e => e.label === label);
   if (dupIdx !== -1) {
     if (_voiceElements[dupIdx].el !== el) {
+      console.log(`[CALL_AUDIO_FIX] duplicate remote audio removed — label="${label}" already registered with a different element, replacing`);
       console.log(`[CALL_AUDIO] removed duplicate audio element: ${label}`);
       _voiceElements.splice(dupIdx, 1);
     } else {

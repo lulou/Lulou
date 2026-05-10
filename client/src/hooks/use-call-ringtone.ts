@@ -26,9 +26,11 @@ export function useCallRingtone(type: RingtoneType, enabled: boolean) {
     if (!enabled) return;
 
     if (type === "incoming") {
+      console.log("[CALL_AUDIO_FIX] ringtone started — incoming ring oscillators starting");
       startIncomingRingtone();
       return () => stopIncomingRingtone("effect_cleanup");
     } else {
+      console.log("[CALL_AUDIO_FIX] ringtone started — outgoing ringback oscillators starting");
       startOutgoingRingback();
       return () => stopOutgoingRingback("effect_cleanup");
     }

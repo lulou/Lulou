@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { supabase } from "@/lib/supabase";
-import { cleanupCallAudio } from "@/lib/call-audio";
+import { cleanupCallAudio, stopAllNonVoiceCallAudio } from "@/lib/call-audio";
 import { callDebug } from "@/lib/call-debug";
 
 declare global {
@@ -431,11 +431,15 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
       // and captures those 440/480 Hz tones, transmitting them to the remote
       // peer as "ringing noise during the call".
       //
-      // cleanupCallAudio() synchronously zeros all gain nodes and stops all
-      // oscillators BEFORE getUserMedia() is called.  The 80 ms pause then
-      // lets the OS audio session finish its category-switch handshake so the
-      // AudioContext restart completes in silence rather than mid-tone.
-      cleanupCallAudio("webrtc_init_before_getUserMedia");
+      // CRITICAL: use stopAllNonVoiceCallAudio (NOT cleanupCallAudio) here.
+      // cleanupCallAudio = stopAllCallSounds, which resets _micActive=false at
+      // the end. That would leave _onUserGesture free to re-create AudioContext
+      // on every tap during the connected call → iOS AVAudioSession
+      // renegotiation → noise burst through the open mic → screeching.
+      // stopAllNonVoiceCallAudio kills oscillators + closes AudioContext +
+      // KEEPS _micActive=true so no gesture can touch AudioContext while mic is open.
+      stopAllNonVoiceCallAudio("webrtc_init_before_getUserMedia");
+      console.log("[CALL_AUDIO_FIX] ringtone stopped before getUserMedia — _micActive kept true until call end");
       callDebug.event("init: audio cleanup done");
       console.log("[CALL_ANSWER] audio_cleanup_done — pausing 80ms for AVAudioSession handshake");
       await new Promise<void>(r => setTimeout(r, 80));
