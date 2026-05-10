@@ -372,8 +372,12 @@ export function ActiveCallOverlay({
         el.srcObject = remoteStream;
         // Register with call-audio so cleanupCallAudio() can detach this element.
         registerCallAudioElement(el, `remote-audio:${matchId}`);
-        // Explicit .play() handles iOS Safari where autoPlay alone can be blocked
-        // after srcObject assignment even when the audio context is already unlocked.
+        // [CALL_AUDIO_AUDIT] SOURCE 2: remote voice <audio> element — UNMUTED
+        // This is the ONLY audio source during a connected call. Remote WebRTC voice
+        // stream. No ringtone oscillators are running at this point (stopAllNonVoiceCallAudio
+        // was called before getUserMedia). autoPlay + explicit .play() handles iOS Safari
+        // where autoPlay alone is blocked after srcObject assignment.
+        console.log("[CALL_AUDIO_AUDIT] SOURCE 2 attached: remote voice <audio> UNMUTED — remote WebRTC voice stream, sole audio source during call");
         el.play().catch(() => {});
         console.log("[WebRTC] REMOTE_AUDIO_ATTACHED", {
           matchId,
@@ -395,6 +399,10 @@ export function ActiveCallOverlay({
       if (existingIds !== incomingIds) {
         videoEl.srcObject = remoteStream;
         registerCallAudioElement(videoEl, `remote-video:${matchId}`);
+        // [CALL_AUDIO_AUDIT] SOURCE 3: remote <video> element — MUTED
+        // Video track only. Audio comes from SOURCE 2 exclusively. muted=true prevents
+        // the same remote voice from playing twice (chorus/doubling + echo-cancellation break).
+        console.log("[CALL_AUDIO_AUDIT] SOURCE 3 attached: remote video <video> MUTED — video track only, audio is SOURCE 2");
         videoEl.play().catch(() => {});
         console.log("[WebRTC] REMOTE_MAIN_VIDEO_ATTACHED", {
           matchId,
@@ -428,6 +436,10 @@ export function ActiveCallOverlay({
       console.log("[WebRTC] LOCAL_SELF_VIEW_SKIP: same stream already attached", { matchId });
       return;
     }
+    // [CALL_AUDIO_AUDIT] SOURCE 4: local self-view <video> element — MUTED
+    // Camera track only. muted=true ensures the microphone is NEVER played back to the
+    // local user — only the remote peer hears it via WebRTC. No echo, no self-monitoring.
+    console.log("[CALL_AUDIO_AUDIT] SOURCE 4 attached: local self-view <video> MUTED — camera only, mic never played back locally");
     console.log("[WebRTC] LOCAL_AUDIO_PLAYBACK_BLOCKED: local mic is muted in self-view, no self-monitoring", { matchId });
     videoEl.srcObject = localStream;
     videoEl.play().catch(() => {});
