@@ -6,6 +6,7 @@ import { useWebRTC } from "@/hooks/use-webrtc";
 import { useCallRingtone } from "@/hooks/use-call-ringtone";
 import {
   cleanupCallAudio,
+  stopAllNonVoiceCallAudio,
   registerCallAudioElement,
   unregisterCallAudioElement,
 } from "@/lib/call-audio";
@@ -285,6 +286,21 @@ export function ActiveCallOverlay({
     console.log("[WebRTC] CONNECTION_STATE_CHANGED", { matchId, connectionState, isCaller, isVideo });
     console.log("[CALL_DEBUG] STATE", { matchId, connectionState, isCaller, isVideo, ts: new Date().toISOString().slice(11, 23) });
     if (connectionState === "connected") {
+      // Hard guarantee: stop ALL non-voice audio the instant WebRTC connects.
+      // This is the definitive cutover from ring/wait phase to voice-only mode.
+      //
+      // Why this is necessary even though cleanupCallAudio was already called
+      // before getUserMedia (in use-webrtc.ts):
+      //   - _onUserGesture was guarded against creating new AudioContexts during
+      //     a call, but this belt-and-suspenders call ensures that if any ring
+      //     state or AudioContext survived (edge case: rapid re-mount, hot reload,
+      //     StrictMode double-effect), it is definitively killed right now.
+      //   - After this call, _sharedCtx = null and both ring state machines are
+      //     null, so _onUserGesture will be a complete no-op for all subsequent
+      //     taps during this call.
+      stopAllNonVoiceCallAudio("connected");
+      console.log("[CALL_AUDIO] connected: remote voice only, non-voice sounds stopped", { matchId, isCaller });
+
       // Record the first moment we were live — used to compute connectedDurationMs in finishCall
       if (connectedAtRef.current === null) {
         connectedAtRef.current = Date.now();

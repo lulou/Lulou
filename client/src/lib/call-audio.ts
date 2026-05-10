@@ -258,41 +258,48 @@ function _attachCtxStartListener(state: RingState): void {
 // ── Gesture unlock ─────────────────────────────────────────────────────────────
 //
 // Runs on every user gesture (click, touchstart, keydown).
-// Creates + resumes _sharedCtx so ringtones can play without needing a
-// dedicated gesture in the same call stack. By the time a call arrives,
-// the context is already "running".
 //
-// Also starts any ring state machine that was created but waiting for the
-// context to become ready (covers: first-session call, post-call-end scenario).
+// CRITICAL GUARD: only interacts with the AudioContext when there is an actual
+// pending ring that needs to start. During a connected call _incomingRing and
+// _outgoingRing are both null, so this function MUST be a complete no-op.
+//
+// Without this guard, every tap during the connected call (mute, speaker,
+// screen wake) would:
+//   1. Find _sharedCtx = null (it was closed before getUserMedia)
+//   2. Create a brand-new AudioContext and call resume() — now it's "running"
+//   3. iOS sees a new Web Audio consumer joining the live PlayAndRecord
+//      AVAudioSession — the OS re-negotiates audio routing → noise burst
+//   4. Repeat on every tap → continuous noise throughout the call
+//
+// By guarding on hasPendingRing, taps during a live call are ignored entirely.
+// The context is only created/resumed when there is a ring to start.
 
 function _onUserGesture(): void {
-  // Create context if it doesn't exist or was closed
+  // Only proceed if there is a ring waiting to start.
+  // During a connected call both will be null → instant return, no side-effects.
+  const hasPendingIncoming = _incomingRing !== null && !_incomingRing.dead && !_incomingRing.started;
+  const hasPendingOutgoing = _outgoingRing !== null && !_outgoingRing.dead && !_outgoingRing.started;
+  if (!hasPendingIncoming && !hasPendingOutgoing) return;
+
+  // There IS a pending ring — ensure shared context exists and is running.
   if (!_sharedCtx || _sharedCtx.state === "closed") {
     if (!_createSharedCtx()) return;
-    console.log("[CALL_AUDIO] shared AudioContext created on user gesture");
+    console.log("[CALL_AUDIO] shared AudioContext created on user gesture (pending ring)");
   }
 
-  // Resume if suspended (this call stack IS a gesture, so iOS will allow it)
+  // Resume if suspended — this call stack IS a user gesture so iOS will allow it.
   _resumeSharedCtx();
 
-  // If now running: start any pending rings immediately
+  // If now running: start any pending rings immediately.
   if (_isCtxRunning()) {
-    if (_incomingRing && !_incomingRing.dead && !_incomingRing.started) {
-      _tryStartRing(_incomingRing);
-    }
-    if (_outgoingRing && !_outgoingRing.dead && !_outgoingRing.started) {
-      _tryStartRing(_outgoingRing);
-    }
+    if (hasPendingIncoming) _tryStartRing(_incomingRing!);
+    if (hasPendingOutgoing) _tryStartRing(_outgoingRing!);
     return;
   }
 
-  // Still suspended — attach statechange listener for async resume (iOS path)
-  if (_incomingRing && !_incomingRing.dead && !_incomingRing.started) {
-    _attachCtxStartListener(_incomingRing);
-  }
-  if (_outgoingRing && !_outgoingRing.dead && !_outgoingRing.started) {
-    _attachCtxStartListener(_outgoingRing);
-  }
+  // Still suspended — attach statechange listener for async resume (iOS path).
+  if (hasPendingIncoming) _attachCtxStartListener(_incomingRing!);
+  if (hasPendingOutgoing) _attachCtxStartListener(_outgoingRing!);
 }
 
 if (typeof window !== "undefined") {
