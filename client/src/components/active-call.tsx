@@ -9,6 +9,7 @@ import {
   stopAllNonVoiceCallAudio,
   registerCallAudioElement,
   unregisterCallAudioElement,
+  getCallAudioDebugState,
 } from "@/lib/call-audio";
 import { callDebug } from "@/lib/call-debug";
 import { CallDebugPanel } from "@/components/call-debug-panel";
@@ -490,6 +491,59 @@ export function ActiveCallOverlay({
           videoTracks: remoteStream.getVideoTracks().length,
           trackIds: incomingIds,
         });
+
+        // ── Post-attachment full audio audit ────────────────────────────────
+        // This runs AFTER srcObject is set so we can see actual state.
+        // Fires a [CALL_AUDIO_AUDIT] log per element and one summary log
+        // showing call-audio internal state (oscillator status, _micActive).
+        const audioState = getCallAudioDebugState();
+        const allPageEls = Array.from(document.querySelectorAll("audio, video")) as (HTMLAudioElement | HTMLVideoElement)[];
+        console.log(`[CALL_AUDIO_AUDIT] ── POST-ATTACHMENT FULL AUDIT ── ${allPageEls.length} media element(s) on page`);
+        allPageEls.forEach((a, i) => {
+          const srcObjStream = a.srcObject instanceof MediaStream ? a.srcObject : null;
+          const trackKinds = srcObjStream
+            ? srcObjStream.getTracks().map(t => `${t.kind}(${t.readyState})`).join(",")
+            : "none";
+          const isLocalSrc = srcObjStream !== null && srcObjStream === localStream;
+          const isRemoteSrc = srcObjStream !== null && srcObjStream === remoteStream;
+          const role = isLocalSrc ? "LOCAL-MIC" : isRemoteSrc ? "remote-voice" : "unknown";
+          console.log(
+            `[CALL_AUDIO_AUDIT] audio element [${i}]`,
+            `tag=${a.tagName.toLowerCase()}`,
+            `src="${(a as HTMLAudioElement).src || "(none)"}"`,
+            `srcObject=${srcObjStream ? "yes" : "no"}`,
+            `muted=${a.muted}`,
+            `paused=${a.paused}`,
+            `loop=${a.loop}`,
+            `volume=${a.volume}`,
+            `tracks=${trackKinds}`,
+            `role=${role}`,
+          );
+          if (isLocalSrc && !a.muted) {
+            console.error(`[CALL_AUDIO_AUDIT] noise source found — element [${i}] has LOCAL MIC stream on UNMUTED ${a.tagName.toLowerCase()} → acoustic feedback`);
+          }
+          if (isRemoteSrc && a.muted) {
+            console.warn(`[CALL_AUDIO_AUDIT] noise source found — element [${i}] remote-voice stream is MUTED, voice will be silent`);
+          }
+          if (!isLocalSrc && !isRemoteSrc && srcObjStream !== null) {
+            console.warn(`[CALL_AUDIO_AUDIT] noise source found — element [${i}] unknown MediaStream attached (not local, not remote)`);
+          }
+        });
+        const remoteCount = allPageEls.filter(a => a.srcObject === remoteStream).length;
+        if (remoteCount > 1) {
+          console.error(`[CALL_AUDIO_AUDIT] noise source found — remote stream attached to ${remoteCount} elements — duplicate audio → chorus/feedback`);
+        }
+        console.log(`[CALL_AUDIO_AUDIT] call-audio internal state:`, audioState);
+        if (audioState.incomingRingActive || audioState.outgoingRingActive) {
+          console.error(`[CALL_AUDIO_AUDIT] noise source found — oscillator ring still active: incoming=${audioState.incomingRingActive}(nodes=${audioState.incomingRingNodes}) outgoing=${audioState.outgoingRingActive}(nodes=${audioState.outgoingRingNodes})`);
+        }
+        if (audioState.sharedCtxState !== "null" && audioState.sharedCtxState !== "closed") {
+          console.warn(`[CALL_AUDIO_AUDIT] noise source found — shared AudioContext still alive: state=${audioState.sharedCtxState} (should be null/closed during connected call)`);
+        }
+        if (!audioState.micActive) {
+          console.error(`[CALL_AUDIO_AUDIT] noise source found — _micActive=false during connected call — _onUserGesture can create AudioContext → iOS noise risk`);
+        }
+        console.log(`[CALL_AUDIO_FIX] remote voice only — audit complete. remoteCount=${remoteCount} micActive=${audioState.micActive} ctxState=${audioState.sharedCtxState} ringsActive=${audioState.incomingRingActive || audioState.outgoingRingActive}`);
       } else {
         console.log("[CALL_FEEDBACK_FIX] single remote audio active — track set unchanged, not re-attaching", { matchId });
         console.log("[WebRTC] REMOTE_AUDIO_SKIP: track set unchanged, not re-attaching", { matchId });

@@ -312,6 +312,14 @@ if (typeof window !== "undefined") {
 export function startIncomingRingtone(): void {
   if (_incomingRing) { _killRingState(_incomingRing); _incomingRing = null; }
 
+  // Safety guard: mic is open means we are already in a connected call.
+  // Starting a ring oscillator while the mic is active would cause iOS to
+  // renegotiate AVAudioSession → noise burst. Log and bail.
+  if (_micActive) {
+    console.warn("[CALL_RINGTONE] startIncomingRingtone called while _micActive=true — mic is open, ring suppressed to avoid noise");
+    return;
+  }
+
   // Ensure context exists (may be null after previous call ended)
   if (!_sharedCtx || _sharedCtx.state === "closed") _createSharedCtx();
 
@@ -324,6 +332,7 @@ export function startIncomingRingtone(): void {
     activeNodes: [],
   };
 
+  console.log(`[CALL_RINGTONE] started | ctxState=${_sharedCtx?.state ?? "none"} micActive=${_micActive}`);
   console.log(`[CALL_AUDIO] incoming ringtone started | ctxState=${_sharedCtx?.state ?? "none"} micActive=${_micActive}`);
 
   if (_isCtxRunning()) {
@@ -341,6 +350,7 @@ export function stopIncomingRingtone(reason: string): void {
   if (!_incomingRing) return;
   _killRingState(_incomingRing);
   _incomingRing = null;
+  console.log(`[CALL_RINGTONE] stopped: ${reason}`);
   console.log(`[CALL_AUDIO] incoming ringtone stopped: ${reason}`);
 }
 
@@ -349,6 +359,10 @@ export function stopIncomingRingtone(reason: string): void {
  */
 export function startOutgoingRingback(): void {
   if (_outgoingRing) { _killRingState(_outgoingRing); _outgoingRing = null; }
+  if (_micActive) {
+    console.warn("[CALL_RINGTONE] startOutgoingRingback called while _micActive=true — suppressed");
+    return;
+  }
   if (!_sharedCtx || _sharedCtx.state === "closed") _createSharedCtx();
 
   _outgoingRing = {
@@ -359,6 +373,8 @@ export function startOutgoingRingback(): void {
     timers: [],
     activeNodes: [],
   };
+
+  console.log(`[CALL_RINGTONE] started outgoing | ctxState=${_sharedCtx?.state ?? "none"} micActive=${_micActive}`);
 
   if (_isCtxRunning()) {
     _tryStartRing(_outgoingRing);
@@ -375,6 +391,7 @@ export function stopOutgoingRingback(reason: string): void {
   if (!_outgoingRing) return;
   _killRingState(_outgoingRing);
   _outgoingRing = null;
+  console.log(`[CALL_RINGTONE] stopped: ${reason}`);
   console.log(`[CALL_AUDIO] outgoing ringback stopped: ${reason}`);
 }
 
@@ -463,3 +480,41 @@ export const registerCallAudioElement = registerVoiceAudioElement;
 export const unregisterCallAudioElement = unregisterVoiceAudioElement;
 
 export type RingtoneNode = { osc: OscillatorNode; gain: GainNode };
+
+// ── Debug state snapshot (for audio audit in active-call.tsx) ─────────────────
+
+export interface CallAudioDebugState {
+  micActive: boolean;
+  sharedCtxState: string;
+  incomingRingActive: boolean;
+  incomingRingStarted: boolean;
+  incomingRingNodes: number;
+  outgoingRingActive: boolean;
+  outgoingRingStarted: boolean;
+  outgoingRingNodes: number;
+  voiceElements: { label: string; tag: string; muted: boolean; paused: boolean; hasSrcObject: boolean }[];
+}
+
+/**
+ * Returns a snapshot of all internal call-audio state for diagnostic purposes.
+ * Called from active-call.tsx connected + stream-attached audit.
+ */
+export function getCallAudioDebugState(): CallAudioDebugState {
+  return {
+    micActive: _micActive,
+    sharedCtxState: _sharedCtx ? _sharedCtx.state : "null",
+    incomingRingActive: !!_incomingRing && !_incomingRing.dead,
+    incomingRingStarted: !!_incomingRing?.started,
+    incomingRingNodes: _incomingRing?.activeNodes.length ?? 0,
+    outgoingRingActive: !!_outgoingRing && !_outgoingRing.dead,
+    outgoingRingStarted: !!_outgoingRing?.started,
+    outgoingRingNodes: _outgoingRing?.activeNodes.length ?? 0,
+    voiceElements: _voiceElements.map(({ el, label }) => ({
+      label,
+      tag: el.tagName.toLowerCase(),
+      muted: el.muted,
+      paused: el.paused,
+      hasSrcObject: !!el.srcObject,
+    })),
+  };
+}

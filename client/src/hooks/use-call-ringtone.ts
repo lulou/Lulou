@@ -26,13 +26,19 @@ export function useCallRingtone(type: RingtoneType, enabled: boolean) {
     if (!enabled) return;
 
     if (type === "incoming") {
-      console.log("[CALL_AUDIO_FIX] ringtone started — incoming ring oscillators starting");
+      console.log("[CALL_RINGTONE] useCallRingtone: starting incoming ring oscillators");
       startIncomingRingtone();
-      return () => stopIncomingRingtone("effect_cleanup");
+      return () => {
+        console.log("[CALL_RINGTONE] stopped: effect_cleanup (incoming)");
+        stopIncomingRingtone("effect_cleanup");
+      };
     } else {
-      console.log("[CALL_AUDIO_FIX] ringtone started — outgoing ringback oscillators starting");
+      console.log("[CALL_RINGTONE] useCallRingtone: starting outgoing ringback oscillators");
       startOutgoingRingback();
-      return () => stopOutgoingRingback("effect_cleanup");
+      return () => {
+        console.log("[CALL_RINGTONE] stopped: effect_cleanup (outgoing)");
+        stopOutgoingRingback("effect_cleanup");
+      };
     }
   }, [enabled, type]);
 }
