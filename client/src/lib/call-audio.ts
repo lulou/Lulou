@@ -129,10 +129,22 @@ function _generateRingbackSrc(): string {
 }
 
 // Lazy-initialised blob URLs — created once, reused forever.
+// Wrapped in try-catch: if URL.createObjectURL is blocked (e.g. strict CSP),
+// we return "" so new Audio("") plays silently rather than crashing the component.
 let _ringtoneSrc: string | null = null;
 let _ringbackSrc: string | null = null;
-const _getRingtoneSrc = (): string => (_ringtoneSrc ??= _generateRingtoneSrc());
-const _getRingbackSrc = (): string => (_ringbackSrc ??= _generateRingbackSrc());
+const _getRingtoneSrc = (): string => {
+  if (_ringtoneSrc === null) {
+    try { _ringtoneSrc = _generateRingtoneSrc(); } catch { _ringtoneSrc = ""; }
+  }
+  return _ringtoneSrc;
+};
+const _getRingbackSrc = (): string => {
+  if (_ringbackSrc === null) {
+    try { _ringbackSrc = _generateRingbackSrc(); } catch { _ringbackSrc = ""; }
+  }
+  return _ringbackSrc;
+};
 
 // ── Module state ───────────────────────────────────────────────────────────────
 
@@ -173,16 +185,20 @@ function _playWithRetry(el: HTMLAudioElement, label: string, isStillActive: () =
  * is called, well before getUserMedia() opens the microphone.
  */
 export function startIncomingRingtone(): void {
-  stopIncomingRingtone("restart"); // clear any previous ring
-  if (typeof window === "undefined") return;
-
-  const el = new Audio(_getRingtoneSrc());
-  el.loop = true;
-  el.volume = 1.0;
-  _ringtoneEl = el;
-
-  console.log("[PHONE_AUDIO] incoming ringtone started");
-  _playWithRetry(el, "incoming ringtone", () => _ringtoneEl === el);
+  try {
+    stopIncomingRingtone("restart"); // clear any previous ring
+    if (typeof window === "undefined") return;
+    const src = _getRingtoneSrc();
+    if (!src) { console.warn("[PHONE_AUDIO] ringtone src unavailable — skipping"); return; }
+    const el = new Audio(src);
+    el.loop = true;
+    el.volume = 1.0;
+    _ringtoneEl = el;
+    console.log("[PHONE_AUDIO] incoming ringtone started");
+    _playWithRetry(el, "incoming ringtone", () => _ringtoneEl === el);
+  } catch (e) {
+    console.warn("[PHONE_AUDIO] startIncomingRingtone error (non-fatal):", e);
+  }
 }
 
 /**
@@ -205,16 +221,20 @@ export function stopIncomingRingtone(reason: string): void {
  * Plays while waiting for the receiver to answer.
  */
 export function startOutgoingRingback(): void {
-  stopOutgoingRingback("restart");
-  if (typeof window === "undefined") return;
-
-  const el = new Audio(_getRingbackSrc());
-  el.loop = true;
-  el.volume = 0.85;
-  _ringbackEl = el;
-
-  console.log("[PHONE_AUDIO] outgoing ringback started");
-  _playWithRetry(el, "outgoing ringback", () => _ringbackEl === el);
+  try {
+    stopOutgoingRingback("restart");
+    if (typeof window === "undefined") return;
+    const src = _getRingbackSrc();
+    if (!src) { console.warn("[PHONE_AUDIO] ringback src unavailable — skipping"); return; }
+    const el = new Audio(src);
+    el.loop = true;
+    el.volume = 0.85;
+    _ringbackEl = el;
+    console.log("[PHONE_AUDIO] outgoing ringback started");
+    _playWithRetry(el, "outgoing ringback", () => _ringbackEl === el);
+  } catch (e) {
+    console.warn("[PHONE_AUDIO] startOutgoingRingback error (non-fatal):", e);
+  }
 }
 
 /**

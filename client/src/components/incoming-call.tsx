@@ -85,6 +85,7 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss }: In
   const answerCall = useMutation({
     mutationFn: async () => {
       // ── [CALL_ANSWER] green button clicked ────────────────────────────────
+      console.log("[CALL_CONNECT] answer clicked", { matchId: match.id, callSessionId: match.callSessionId, ts: new Date().toISOString() });
       console.log("[CALL_ANSWER] GREEN_BUTTON_CLICKED", {
         matchId: match.id,
         callSessionId: match.callSessionId,

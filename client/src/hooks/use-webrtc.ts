@@ -198,6 +198,7 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
         await pc.setLocalDescription(offer);
         console.log("[WebRTC] SEND_OFFER_SLD_DONE: signalingState after setLocalDescription:", pc.signalingState);
         broadcastOnChannel({ type: "webrtc:offer", sdp: offer.sdp! });
+        console.log("[CALL_CONNECT] offer set", { matchId, sdpLength: offer.sdp?.length, signalingState: pc.signalingState });
         callDebug.update({ offerSent: true });
         callDebug.event("offer: broadcast sent on channel");
         console.log("[WebRTC] SEND_OFFER_BROADCAST: webrtc:offer sent on channel");
@@ -322,6 +323,7 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
           console.log("[WebRTC] OFFER — after setLocalDescription, signalingState:", pc.signalingState, "— sending answer");
           console.log("[CALL_ANSWER] answer_sent_to_caller", { matchId, signalingState: pc.signalingState, ts: new Date().toISOString() });
           broadcastOnChannel({ type: "webrtc:answer", sdp: answer.sdp! });
+          console.log("[CALL_CONNECT] answer sent", { matchId, sdpLength: answer.sdp?.length, signalingState: pc.signalingState });
           callDebug.update({ answerSent: true });
           callDebug.event("signal: answer sent to caller");
         } else if (msg.type === "webrtc:answer" && isCaller) {
@@ -348,6 +350,7 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
           callDebug.event(`signal: ICE rcvd → ${hasSetRemoteDescRef.current ? "add" : "queue"}`);
           if (hasSetRemoteDescRef.current) {
             if (msg.candidate && pc) {
+              console.log("[CALL_CONNECT] ice candidate received", { type: (msg.candidate as any).type, protocol: (msg.candidate as any).protocol });
               console.log("[WebRTC] ICE candidate received — adding:", {
                 type: (msg.candidate as any).type,
                 protocol: (msg.candidate as any).protocol,
@@ -590,6 +593,7 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
         return;
       }
 
+      console.log("[CALL_CONNECT] local media acquired", { matchId, isCaller, tracks: mediaResult.value.getTracks().map(t => t.kind), ts: new Date().toISOString() });
       console.log("[CALL_TIMING] MEDIA_ACQUIRED", { matchId, isCaller, ts: new Date().toISOString() });
       console.log("[WebRTC] MEDIA_ACQUIRE_SUCCESS: stream tracks:", mediaResult.value.getTracks().map(t => ({ kind: t.kind, enabled: t.enabled, readyState: t.readyState })));
       console.log("[CALL_DEBUG] MEDIA_OK: mic/camera acquired", { matchId, isCaller, tracks: mediaResult.value.getTracks().map(t => t.kind) });
@@ -690,6 +694,7 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
             totals: { ...candidateCountsRef.current },
           });
           broadcastOnChannel({ type: "webrtc:ice", candidate: event.candidate.toJSON() });
+          console.log("[CALL_CONNECT] ice candidate sent", { type: ctype, protocol: event.candidate.protocol });
         } else {
           const totals = candidateCountsRef.current;
           const hasTurn = totals.relay > 0;
@@ -750,6 +755,7 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
           ts: new Date().toISOString(),
         });
         if (state === "connected" || state === "completed") {
+          console.log("[CALL_CONNECT] connected", { matchId, isCaller, iceState: state, ts: new Date().toISOString() });
           callDebug.update({ outcome: "connected", connectedAt: new Date().toISOString().slice(11, 23) });
           callDebug.event("ice: CONNECTED ✓");
           console.log("[CALL_DEBUG] ICE_CONNECTED: peer-to-peer path established", {
@@ -797,6 +803,7 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
             : totals.srflx > 0
             ? `ice_failed — STUN-only, symmetric NAT likely blocked (host=${totals.host} srflx=${totals.srflx} relay=0). Add TURN.`
             : `ice_failed — no SRFLX/relay candidates gathered (host=${totals.host}). Firewall or device issue.`;
+          console.error("[CALL_CONNECT] failed reason", { matchId, isCaller, reason, candidates: { ...totals }, signalingState: pc.signalingState, hasRemoteDesc: hasSetRemoteDescRef.current });
           callDebug.update({ outcome: "failed", failureReason: reason });
           callDebug.event(`ice: FAILED — ${reason.slice(0, 80)}`);
           console.error("[CALL_DEBUG] ICE_FAILED:", reason, { matchId, isCaller, candidates: { ...totals } });
@@ -852,6 +859,7 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
               : sigState === "stable" && !hasSetRemoteDescRef.current
               ? `timeout_60s — no offer/answer exchange at all (signaling channel issue?). Candidates: host=${totals.host} srflx=${totals.srflx} relay=${totals.relay}`
               : `timeout_60s — ICE never connected (iceState=${iceState}). Candidates: host=${totals.host} srflx=${totals.srflx} relay=${totals.relay}`;
+          console.error("[CALL_CONNECT] failed reason", { matchId, reason, iceState, sigState, candidates: { ...totals }, hasRemoteDesc: hasSetRemoteDescRef.current });
           console.error("[WebRTC] FAILURE_TRIGGER:", reason, {
             matchId, iceState, sigState,
             connectionState: pcRef.current?.connectionState,
