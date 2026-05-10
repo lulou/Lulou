@@ -310,57 +310,65 @@ export function ActiveCallOverlay({
     console.log("[WebRTC] CONNECTION_STATE_CHANGED", { matchId, connectionState, isCaller, isVideo });
     console.log("[CALL_DEBUG] STATE", { matchId, connectionState, isCaller, isVideo, ts: new Date().toISOString().slice(11, 23) });
     if (connectionState === "connected") {
-      // Hard guarantee: stop ALL non-voice audio the instant WebRTC connects.
-      // stopAllNonVoiceCallAudio also sets _micActive=true so _onUserGesture
-      // cannot create a new AudioContext for the rest of this call.
-      stopAllNonVoiceCallAudio("connected");
-      console.log("[CALL_AUDIO] connected: remote voice only, non-voice sounds stopped", { matchId, isCaller });
-
-      // ── Full audio element audit ───────────────────────────────────────────
-      // Scans every <audio> and <video> on the page. Any unmuted element with
-      // srcObject set to the LOCAL stream is a bug (mic feedback). Any element
-      // that is neither the registered remoteAudio nor a muted video is a bug.
+      // ── EMERGENCY AUDIO PURGE ─────────────────────────────────────────────
+      // Scan EVERY <audio> and <video> element on the page.
+      // Pause and detach srcObject for anything that is NOT:
+      //   (a) the designated remote voice element (remoteAudioRef), or
+      //   (b) a muted video element (remote video / local self-view pip)
+      // This eliminates any rogue audio — oscillators can't reach here since
+      // AudioContext is fully removed, but any stray <audio> with a src= or
+      // leftover srcObject would still screech through the mic path.
+      const remoteAudioEl = remoteAudioRef.current;
       const allMediaEls = Array.from(document.querySelectorAll("audio, video"));
-      console.log(`[CALL_AUDIO_AUDIT] audio element count on page: ${allMediaEls.length}`);
+
+      console.log(`[CALL_AUDIO_EMERGENCY] connected — scanning ${allMediaEls.length} audio/video element(s) on page`);
 
       allMediaEls.forEach((el, i) => {
         const a = el as HTMLAudioElement | HTMLVideoElement;
+        const isRemoteVoice = a === remoteAudioEl;
+        const isMutedVideo = el.tagName.toLowerCase() === "video" && a.muted;
+
+        // Log every element for audit
         const srcObjStream = a.srcObject instanceof MediaStream ? a.srcObject : null;
-        const trackKinds = srcObjStream
-          ? srcObjStream.getTracks().map(t => `${t.kind}(${t.readyState})`).join(",")
-          : "none";
         const isLocalStream = srcObjStream !== null && srcObjStream === localStream;
         const isRemoteStream = srcObjStream !== null && srcObjStream === remoteStream;
         console.log(
-          `[CALL_AUDIO_AUDIT] audio element found [${i}]`,
+          `[CALL_AUDIO_EMERGENCY] element[${i}]`,
           `tag=${el.tagName.toLowerCase()}`,
-          `id="${el.id || "(none)"}"`,
           `muted=${a.muted}`,
           `paused=${a.paused}`,
-          `loop=${a.loop}`,
           `volume=${a.volume}`,
           `src="${(a as HTMLAudioElement).src || "(none)"}"`,
-          `srcObject=${srcObjStream ? "yes" : "no"}`,
-          `tracks=${trackKinds}`,
+          `hasSrcObject=${!!srcObjStream}`,
           `isLocalStream=${isLocalStream}`,
           `isRemoteStream=${isRemoteStream}`,
+          `isRemoteVoice=${isRemoteVoice}`,
+          `isMutedVideo=${isMutedVideo}`,
         );
-        // Flag bug: local mic stream attached to an UNMUTED element
-        if (isLocalStream && !a.muted) {
-          console.error(`[CALL_AUDIO_AUDIT] BUG: local mic stream attached to UNMUTED element [${i}] — mic feedback/self-monitoring active!`);
+
+        if (isRemoteVoice) {
+          // This is our one allowed audio source — ensure it's healthy
+          a.muted = false;
+          (a as HTMLAudioElement).volume = 1;
+          console.log(`[CALL_AUDIO_EMERGENCY] remote voice element confirmed: muted=false volume=1`);
+          return;
         }
+
+        if (isMutedVideo) {
+          // Muted video (remote video / local self-view) — safe, leave alone
+          return;
+        }
+
+        // Everything else: kill it
+        console.warn(`[CALL_AUDIO_EMERGENCY] removed non-voice audio element [${i}] tag=${el.tagName.toLowerCase()} src="${(a as HTMLAudioElement).src || "(none)"}" hasSrcObject=${!!srcObjStream}`);
+        try { a.pause(); } catch {}
+        try { a.srcObject = null; } catch {}
+        try { (a as HTMLAudioElement).src = ""; } catch {}
+        try { a.load(); } catch {}
+        a.muted = true;
       });
 
-      const remoteAttachedCount = allMediaEls.filter(el => (el as any).srcObject === remoteStream).length;
-      const localUnmutedCount = allMediaEls.filter(el => {
-        const a = el as HTMLAudioElement | HTMLVideoElement;
-        return a.srcObject === localStream && !a.muted;
-      }).length;
-
-      console.log(`[CALL_AUDIO_AUDIT] remote stream attached count: ${remoteAttachedCount}`);
-      console.log(`[CALL_AUDIO_AUDIT] local stream attached to audio: ${localUnmutedCount > 0 ? `YES (${localUnmutedCount}) — BUG!` : "NO (correct)"}`);
-      console.log(`[CALL_AUDIO_AUDIT] local stream id: ${localStream?.id ?? "none"} tracks: ${localStream?.getTracks().map(t => t.kind).join(",") ?? "none"}`);
-      console.log(`[CALL_AUDIO_AUDIT] remote stream id: ${remoteStream?.id ?? "none"} tracks: ${remoteStream?.getTracks().map(t => t.kind).join(",") ?? "none"}`);
+      console.log(`[CALL_AUDIO_EMERGENCY] purge complete — only remote voice element active`);
 
       // Record the first moment we were live — used to compute connectedDurationMs in finishCall
       if (connectedAtRef.current === null) {
