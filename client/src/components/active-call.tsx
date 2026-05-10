@@ -310,65 +310,60 @@ export function ActiveCallOverlay({
     console.log("[WebRTC] CONNECTION_STATE_CHANGED", { matchId, connectionState, isCaller, isVideo });
     console.log("[CALL_DEBUG] STATE", { matchId, connectionState, isCaller, isVideo, ts: new Date().toISOString().slice(11, 23) });
     if (connectionState === "connected") {
-      // ── EMERGENCY AUDIO PURGE ─────────────────────────────────────────────
-      // Scan EVERY <audio> and <video> element on the page.
-      // Pause and detach srcObject for anything that is NOT:
-      //   (a) the designated remote voice element (remoteAudioRef), or
-      //   (b) a muted video element (remote video / local self-view pip)
-      // This eliminates any rogue audio — oscillators can't reach here since
-      // AudioContext is fully removed, but any stray <audio> with a src= or
-      // leftover srcObject would still screech through the mic path.
-      const remoteAudioEl = remoteAudioRef.current;
-      const allMediaEls = Array.from(document.querySelectorAll("audio, video"));
+      // ── AUDIO PURGE ON CONNECT ────────────────────────────────────────────
+      // Scan every <audio> element on the page.
+      // The remote voice element is identified by data-remote-voice="true"
+      // (a stable DOM attribute set in JSX — does not depend on ref timing).
+      // Anything else that is an <audio> with a non-empty src= is killed.
+      // Muted <video> elements are always left alone (remote video / self-view).
+      const allAudioEls = Array.from(document.querySelectorAll("audio"));
+      const allVideoEls = Array.from(document.querySelectorAll("video"));
+      console.log(`[CALL_AUDIO_EMERGENCY] connected — scanning ${allAudioEls.length} audio + ${allVideoEls.length} video element(s)`);
 
-      console.log(`[CALL_AUDIO_EMERGENCY] connected — scanning ${allMediaEls.length} audio/video element(s) on page`);
+      allAudioEls.forEach((el, i) => {
+        const a = el as HTMLAudioElement;
+        const isRemoteVoice = el.getAttribute("data-remote-voice") === "true";
+        const hasSrc = !!(a.src && a.src !== window.location.href);
+        const hasSrcObj = a.srcObject instanceof MediaStream;
 
-      allMediaEls.forEach((el, i) => {
-        const a = el as HTMLAudioElement | HTMLVideoElement;
-        const isRemoteVoice = a === remoteAudioEl;
-        const isMutedVideo = el.tagName.toLowerCase() === "video" && a.muted;
-
-        // Log every element for audit
-        const srcObjStream = a.srcObject instanceof MediaStream ? a.srcObject : null;
-        const isLocalStream = srcObjStream !== null && srcObjStream === localStream;
-        const isRemoteStream = srcObjStream !== null && srcObjStream === remoteStream;
         console.log(
-          `[CALL_AUDIO_EMERGENCY] element[${i}]`,
-          `tag=${el.tagName.toLowerCase()}`,
+          `[CALL_AUDIO_EMERGENCY] audio[${i}]`,
+          `isRemoteVoice=${isRemoteVoice}`,
           `muted=${a.muted}`,
           `paused=${a.paused}`,
+          `hasSrc=${hasSrc}`,
+          `hasSrcObject=${hasSrcObj}`,
           `volume=${a.volume}`,
-          `src="${(a as HTMLAudioElement).src || "(none)"}"`,
-          `hasSrcObject=${!!srcObjStream}`,
-          `isLocalStream=${isLocalStream}`,
-          `isRemoteStream=${isRemoteStream}`,
-          `isRemoteVoice=${isRemoteVoice}`,
-          `isMutedVideo=${isMutedVideo}`,
         );
 
         if (isRemoteVoice) {
-          // This is our one allowed audio source — ensure it's healthy
+          // Ensure remote voice element is healthy — never pause or mute it
           a.muted = false;
-          (a as HTMLAudioElement).volume = 1;
-          console.log(`[CALL_AUDIO_EMERGENCY] remote voice element confirmed: muted=false volume=1`);
+          a.volume = 1;
+          console.log(`[CALL_AUDIO_EMERGENCY] remote voice element confirmed healthy: muted=false volume=1`);
           return;
         }
 
-        if (isMutedVideo) {
-          // Muted video (remote video / local self-view) — safe, leave alone
-          return;
+        // Any other <audio> element with a src= or srcObject is rogue — kill it
+        if (hasSrc || (hasSrcObj && !isRemoteVoice)) {
+          console.warn(`[CALL_AUDIO_EMERGENCY] removed non-voice audio element [${i}] hasSrc=${hasSrc} hasSrcObj=${hasSrcObj}`);
+          try { a.pause(); } catch {}
+          try { a.srcObject = null; } catch {}
+          if (hasSrc) { try { a.src = ""; } catch {} }
+          a.muted = true;
         }
-
-        // Everything else: kill it
-        console.warn(`[CALL_AUDIO_EMERGENCY] removed non-voice audio element [${i}] tag=${el.tagName.toLowerCase()} src="${(a as HTMLAudioElement).src || "(none)"}" hasSrcObject=${!!srcObjStream}`);
-        try { a.pause(); } catch {}
-        try { a.srcObject = null; } catch {}
-        try { (a as HTMLAudioElement).src = ""; } catch {}
-        try { a.load(); } catch {}
-        a.muted = true;
       });
 
-      console.log(`[CALL_AUDIO_EMERGENCY] purge complete — only remote voice element active`);
+      // Verify all video elements are muted
+      allVideoEls.forEach((el, i) => {
+        const v = el as HTMLVideoElement;
+        if (!v.muted) {
+          console.warn(`[CALL_AUDIO_EMERGENCY] video[${i}] was unmuted — forcing muted=true`);
+          v.muted = true;
+        }
+      });
+
+      console.log(`[CALL_AUDIO_EMERGENCY] purge complete`);
 
       // Record the first moment we were live — used to compute connectedDurationMs in finishCall
       if (connectedAtRef.current === null) {
@@ -441,10 +436,16 @@ export function ActiveCallOverlay({
   // cause unnecessary flicker or audio interruption.
   useEffect(() => {
     if (!remoteStream || !isConnected) return;
-    console.log("[CALL_DEBUG] REMOTE_STREAM_EFFECT: remoteStream ready + isConnected=true — attaching audio", {
+
+    const audioTracks = remoteStream.getAudioTracks();
+    const videoTracks = remoteStream.getVideoTracks();
+    console.log("[CALL_AUDIO] remote stream received", {
       matchId,
-      audioTracks: remoteStream.getAudioTracks().length,
-      videoTracks: remoteStream.getVideoTracks().length,
+      audioTracks: audioTracks.length,
+      videoTracks: videoTracks.length,
+      audioTrackIds: audioTracks.map(t => t.id),
+      audioTrackStates: audioTracks.map(t => t.readyState),
+      isConnected,
     });
 
     // ── Audio element (always present; handles voice for both call types) ──
@@ -453,26 +454,47 @@ export function ActiveCallOverlay({
       const existing = el.srcObject as MediaStream | null;
       const existingIds = existing?.getTracks().map(t => t.id).sort().join(",") ?? "";
       const incomingIds = remoteStream.getTracks().map(t => t.id).sort().join(",");
+
       if (existingIds !== incomingIds) {
         el.srcObject = remoteStream;
+        el.muted = false;
+        (el as HTMLAudioElement).volume = 1;
         // Register with call-audio so cleanupCallAudio() can detach this element.
         registerCallAudioElement(el, `remote-audio:${matchId}`);
-        // [CALL_AUDIO_AUDIT] SOURCE 2: remote voice <audio> element — UNMUTED
-        // This is the ONLY audio source during a connected call. Remote WebRTC voice
-        // stream. No ringtone oscillators are running at this point (stopAllNonVoiceCallAudio
-        // was called before getUserMedia). autoPlay + explicit .play() handles iOS Safari
-        // where autoPlay alone is blocked after srcObject assignment.
-        console.log("[CALL_AUDIO_AUDIT] SOURCE 2 attached: remote voice <audio> UNMUTED — remote WebRTC voice stream, sole audio source during call");
-        el.play().catch(() => {});
-        console.log("[WebRTC] REMOTE_AUDIO_ATTACHED", {
+
+        console.log("[CALL_AUDIO] remote voice attached", {
           matchId,
-          audioTracks: remoteStream.getAudioTracks().length,
-          videoTracks: remoteStream.getVideoTracks().length,
+          audioTracks: audioTracks.length,
           trackIds: incomingIds,
+          muted: el.muted,
+          volume: (el as HTMLAudioElement).volume,
+          autoplay: (el as HTMLAudioElement).autoplay,
+          readyState: el.readyState,
+        });
+
+        el.play().then(() => {
+          console.log("[CALL_AUDIO] remote audio play success", {
+            matchId,
+            audioTracks: audioTracks.length,
+          });
+        }).catch((err: unknown) => {
+          console.error("[CALL_AUDIO] remote audio play failed", {
+            matchId,
+            error: err instanceof Error ? err.message : String(err),
+            muted: el.muted,
+            volume: (el as HTMLAudioElement).volume,
+            readyState: el.readyState,
+            note: "autoPlay=true on element — if play() still fails, browser autoplay policy is blocking. Check chrome://settings/content/sound or iOS Settings.",
+          });
         });
       } else {
-        console.log("[WebRTC] REMOTE_AUDIO_SKIP: track set unchanged, not re-attaching", { matchId });
+        console.log("[CALL_AUDIO] remote voice already attached (track set unchanged)", {
+          matchId,
+          trackIds: incomingIds,
+        });
       }
+    } else {
+      console.error("[CALL_AUDIO] remote audio play failed — remoteAudioRef.current is null (element not mounted yet)", { matchId });
     }
 
     // ── Video element (video calls only; muted — audio handled above) ──
@@ -776,15 +798,16 @@ export function ActiveCallOverlay({
       )}
 
       {/* Remote audio — always present so voice comes through even in video mode.
-          NOTE: NO autoPlay attribute. autoPlay on an element without srcObject
-          causes iOS to open an audio output pipeline immediately, which then
-          gets rerouted when getUserMedia opens the mic (AVAudioSession switch
-          to PlayAndRecord) — producing a noise burst. Playback is started
-          explicitly via .play() in the remoteStream effect after srcObject
-          is attached. */}
+          autoPlay: safe now that all oscillators/AudioContext are removed.
+          The iOS noise burst was caused by the AudioContext, not by autoPlay.
+          playsInline: required on iOS to prevent fullscreen takeover.
+          data-remote-voice: stable marker used by the DOM purge to protect
+          this element from being killed regardless of ref timing. */}
       <audio
         ref={remoteAudioRef}
+        autoPlay
         playsInline
+        data-remote-voice="true"
         style={{ display: "none" }}
         data-testid="audio-remote"
       />
