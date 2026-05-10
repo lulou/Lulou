@@ -194,6 +194,7 @@ export function startIncomingRingtone(): void {
     el.loop = true;
     el.volume = 1.0;
     _ringtoneEl = el;
+    console.log("[CALL_RINGTONE] incoming ringtone started");
     console.log("[PHONE_AUDIO] incoming ringtone started");
     _playWithRetry(el, "incoming ringtone", () => _ringtoneEl === el);
   } catch (e) {
@@ -318,6 +319,41 @@ export const unregisterCallAudioElement = unregisterVoiceAudioElement;
 
 // Legacy type export — keeps any old imports compiling
 export type RingtoneNode = { osc: OscillatorNode; gain: GainNode };
+
+// ── Audio policy unlock ────────────────────────────────────────────────────────
+//
+// iOS Safari (and strict-mode Chrome) block audio.play() until the page has
+// received at least one user gesture.  The incoming-call overlay is mounted by
+// a Supabase Realtime broadcast — there is no gesture in that call stack — so
+// the first el.play() attempt inside startIncomingRingtone() fails silently.
+//
+// The _playWithRetry fallback registers a retry on the next click/touchstart,
+// but that fires in the same event as the Answer button press.  silenceRing()
+// is called in the same handler and wins the race (pause() beats play()),
+// so the user hears nothing.
+//
+// Fix: play a 1-sample silent WAV on the very first user interaction with the
+// app.  This lifts the browser's autoplay gate for the entire session, so any
+// subsequent el.play() (including the incoming ringtone) works immediately
+// from a React useEffect without needing to be inside a gesture call stack.
+
+let _audioUnlocked = false;
+function _unlockAudio(): void {
+  if (_audioUnlocked) return;
+  _audioUnlocked = true;
+  document.removeEventListener("touchstart", _unlockAudio, true);
+  document.removeEventListener("click",      _unlockAudio, true);
+  try {
+    const el = new Audio(_makeWavUrl(new Float32Array(1))); // 1 silent sample
+    el.volume = 0;
+    el.play().then(() => { el.src = ""; }).catch(() => {});
+    console.log("[PHONE_AUDIO] audio policy unlocked on first gesture");
+  } catch { /* non-fatal */ }
+}
+if (typeof window !== "undefined") {
+  document.addEventListener("touchstart", _unlockAudio, { capture: true, passive: true });
+  document.addEventListener("click",      _unlockAudio, { capture: true, passive: true });
+}
 
 // ── Page leave cleanup ────────────────────────────────────────────────────────
 

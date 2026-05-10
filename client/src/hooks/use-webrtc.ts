@@ -509,6 +509,11 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
                 "— echo cancellation may be reduced");
             }
           console.log(`[CALL_FEEDBACK_FIX] echo cancellation enabled — tier ${i + 1}: ${constraintSummary}`);
+          if (i === 0) {
+            console.log("[CALL_AUDIO] echoCancellation/noiseSuppression/autoGainControl enabled", { matchId, isCaller });
+          } else {
+            console.log("[CALL_AUDIO] partial echo cancellation — tier", i + 1, constraintSummary, { matchId });
+          }
           return stream;
           } catch (err: any) {
             lastErr = err;

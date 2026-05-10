@@ -356,6 +356,11 @@ export function ActiveCallOverlay({
         const a = el as HTMLAudioElement | HTMLVideoElement;
         return a.srcObject === localStream && !a.muted;
       }).length;
+      if (remoteAttachedCount === 1) {
+        console.log("[CALL_AUDIO] confirmed single remote audio element", { matchId, isCaller });
+      } else {
+        console.warn(`[CALL_AUDIO] unexpected remote audio element count: ${remoteAttachedCount}`, { matchId });
+      }
       console.log(`[CALL_AUDIO_AUDIT] remote stream attached count: ${remoteAttachedCount}`);
       console.log(`[CALL_AUDIO_AUDIT] local stream unmuted: ${localUnmutedCount > 0 ? `YES (${localUnmutedCount}) — BUG!` : "NO (correct)"}`);
       console.log(`[CALL_AUDIO_AUDIT] local stream id: ${localStream?.id ?? "none"} tracks: ${localStream?.getTracks().map(t => t.kind).join(",") ?? "none"}`);
