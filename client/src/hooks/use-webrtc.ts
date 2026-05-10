@@ -71,6 +71,13 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
   const [isCameraOff, setIsCameraOff] = useState(false);
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
+  // Human-readable explanation of why the call failed — shown in the UI.
+  const [failureReason, setFailureReason] = useState<string>("");
+
+  // Counts ICE candidates gathered by type.  Used in failure messages so the
+  // developer can tell at a glance whether the failure was "no TURN relay" vs
+  // "no candidates at all" vs "ICE negotiation timed out without answer".
+  const candidateCountsRef = useRef({ host: 0, srflx: 0, relay: 0 });
 
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
@@ -134,6 +141,8 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
     pendingCandidatesRef.current = [];
     readyReceivedRef.current = false;
     isNegotiatingRef.current = false;
+    candidateCountsRef.current = { host: 0, srflx: 0, relay: 0 };
+    setFailureReason("");
     if (readyRetryIntervalRef.current) {
       clearInterval(readyRetryIntervalRef.current);
       readyRetryIntervalRef.current = null;
@@ -203,20 +212,53 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
 
       try {
         if (msg.type === "webrtc:ready") {
-          console.log("[WebRTC] Remote peer ready, isCaller:", isCaller, "pcExists:", !!pcRef.current);
           readyReceivedRef.current = true;
+          console.log("[WebRTC] READY_RECEIVED: isCaller=", isCaller, "pcExists=", !!pcRef.current,
+            "iceState=", pcRef.current?.iceConnectionState ?? "no-pc",
+            "signalingState=", pcRef.current?.signalingState ?? "no-pc");
+
           if (isCaller && pcRef.current) {
-            // Skip if ICE is already connected — a duplicate webrtc:ready from the
-            // receiver's 2-second retry interval must not trigger a second offer
-            // after the first offer/answer cycle already completed successfully.
-            const iceState = pcRef.current.iceConnectionState;
+            const pc = pcRef.current;
+            const iceState = pc.iceConnectionState;
+
+            // Skip if ICE already established — duplicate webrtc:ready from the
+            // receiver's 2-second retry must not re-negotiate a live call.
             if (iceState === "connected" || iceState === "completed") {
-              console.warn("[WebRTC] READY_SIGNAL_IGNORED: ICE already", iceState, "— skipping redundant sendOffer");
+              console.warn("[WebRTC] READY_SIGNAL_IGNORED: ICE already", iceState, "— call is live, skipping");
               return;
             }
-            // sendOffer() itself is guarded by isNegotiatingRef, but log here
-            // so it's visible when the signal arrives mid-negotiation too.
-            console.log("[WebRTC] READY_SIGNAL_SENDOFFER: iceState=", iceState, "triggering sendOffer from webrtc:ready");
+
+            // ── DEADLOCK FIX ────────────────────────────────────────────────
+            // Supabase Realtime broadcasts are ephemeral (no persistence).
+            // If the caller sent the first offer before the receiver's channel
+            // subscription was SUBSCRIBED, the receiver missed it.
+            // signalingState will be "have-local-offer" and sendOffer() silently
+            // returns (it guards against non-"stable" state), so the call sits
+            // waiting until the 60-second timeout fires.
+            //
+            // Fix: when webrtc:ready arrives and we have a pending (unanswered)
+            // offer, roll back the local description to "stable" so we can
+            // create and broadcast a fresh offer that the receiver can actually
+            // receive now that they are subscribed.
+            if (pc.signalingState === "have-local-offer") {
+              console.log("[WebRTC] READY_SIGNAL_ROLLBACK: receiver missed first offer — rolling back to resend");
+              try {
+                await pc.setLocalDescription({ type: "rollback" });
+                isNegotiatingRef.current = false;
+                console.log("[WebRTC] READY_SIGNAL_ROLLBACK_DONE: signalingState=", pc.signalingState);
+              } catch (rollbackErr: any) {
+                // setLocalDescription({type:"rollback"}) is not supported on all
+                // older browsers (pre-2020 Safari / iOS < 15).  If it throws,
+                // we can't resend right now — the receiver's 2-second retry will
+                // give us another chance.
+                console.warn("[WebRTC] READY_SIGNAL_ROLLBACK_FAILED — receiver will retry in 2 s:",
+                  rollbackErr?.message ?? rollbackErr);
+                return;
+              }
+            }
+
+            console.log("[WebRTC] READY_SIGNAL_SENDOFFER: iceState=", iceState,
+              "signalingState=", pc.signalingState, "— sending offer");
             await sendOffer();
           }
           return;
@@ -519,16 +561,28 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
 
       pc.onicecandidate = (event) => {
         if (event.candidate) {
-          console.log("[WebRTC] ICE candidate generated:", {
-            type: event.candidate.type,
+          const ctype = event.candidate.type ?? "unknown";
+          if (ctype === "host") candidateCountsRef.current.host++;
+          else if (ctype === "srflx") candidateCountsRef.current.srflx++;
+          else if (ctype === "relay") candidateCountsRef.current.relay++;
+          console.log("[WebRTC] ICE_CANDIDATE_GENERATED:", {
+            type: ctype,
             protocol: event.candidate.protocol,
             address: event.candidate.address,
             port: event.candidate.port,
-            candidateString: event.candidate.candidate,
+            totals: { ...candidateCountsRef.current },
           });
           broadcastOnChannel({ type: "webrtc:ice", candidate: event.candidate.toJSON() });
         } else {
-          console.log("[WebRTC] ICE gathering complete (null candidate)");
+          const totals = candidateCountsRef.current;
+          const hasTurn = totals.relay > 0;
+          console.log("[WebRTC] ICE_GATHERING_COMPLETE:", {
+            host: totals.host,
+            srflx: totals.srflx,
+            relay: totals.relay,
+            hasTurn,
+            note: !hasTurn ? "NO TURN relay — calls may fail on symmetric NAT / restricted networks" : "TURN relay available",
+          });
         }
       };
 
@@ -569,10 +623,8 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
           if (disconnectTimerRef.current) clearTimeout(disconnectTimerRef.current);
           disconnectTimerRef.current = setTimeout(() => {
             if (!cleanedUpRef.current && pcRef.current?.iceConnectionState === "disconnected") {
-              console.error("[WebRTC] FAILURE_TRIGGER: ice_disconnect_timeout (15s) — iceConnectionState still disconnected", { matchId });
-              // Close the peer connection and channel immediately so re-delivered
-              // WebRTC signals (webrtc:ready / webrtc:offer) can't restart the call
-              // when the network recovers and Supabase channels reconnect.
+              const reason = "ice_disconnected_20s — network dropped and did not recover";
+              console.error("[WebRTC] FAILURE_TRIGGER:", reason, { matchId });
               if (pcRef.current) {
                 pcRef.current.ontrack = null;
                 pcRef.current.onicecandidate = null;
@@ -584,19 +636,23 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
                 supabase.removeChannel(channelRef.current);
                 channelRef.current = null;
               }
+              setFailureReason(reason);
               setConnectionState("failed");
             }
-          }, 15000);
+          }, 20000);
         } else if (state === "failed") {
-          console.error("[WebRTC] FAILURE_TRIGGER: iceConnectionState=failed", {
+          const totals = candidateCountsRef.current;
+          const reason = totals.relay > 0
+            ? `ice_failed — TURN available but ICE still failed (host=${totals.host} srflx=${totals.srflx} relay=${totals.relay})`
+            : totals.srflx > 0
+            ? `ice_failed — STUN-only, symmetric NAT likely blocked (host=${totals.host} srflx=${totals.srflx} relay=0). Add TURN.`
+            : `ice_failed — no SRFLX/relay candidates gathered (host=${totals.host}). Firewall or device issue.`;
+          console.error("[WebRTC] FAILURE_TRIGGER:", reason, {
             matchId,
             signalingState: pc.signalingState,
             connectionState: pc.connectionState,
             iceGatheringState: pc.iceGatheringState,
           });
-          // Close the peer connection and channel immediately — prevents
-          // WebRTC signals re-delivered by Supabase on reconnect from
-          // restarting the negotiation after a network drop.
           if (pcRef.current) {
             pcRef.current.ontrack = null;
             pcRef.current.onicecandidate = null;
@@ -608,6 +664,7 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
             supabase.removeChannel(channelRef.current);
             channelRef.current = null;
           }
+          setFailureReason(reason);
           setConnectionState("failed");
         } else if (state === "closed") {
           setConnectionState("closed");
@@ -616,18 +673,26 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
 
       setConnectionState("connecting");
 
-      // 30-second hard timeout — if ICE hasn't connected by then, mark as failed
+      // 60-second hard timeout — gives ICE enough time to gather and test
+      // candidates even on slow mobile networks or when STUN takes multiple
+      // round-trips.  30 s was too short for real-world conditions.
       connectionTimeoutRef.current = setTimeout(() => {
         if (cleanedUpRef.current) return;
         const iceState = pcRef.current?.iceConnectionState;
+        const sigState = pcRef.current?.signalingState;
         if (iceState !== "connected" && iceState !== "completed") {
-          console.error("[WebRTC] FAILURE_TRIGGER: connection_timeout_30s — ICE never connected", {
-            matchId,
-            iceState,
-            signalingState: pcRef.current?.signalingState,
+          const totals = candidateCountsRef.current;
+          const reason =
+            sigState === "have-local-offer"
+              ? `timeout_60s — offer was sent but no answer received (receiver may have missed it). Candidates: host=${totals.host} srflx=${totals.srflx} relay=${totals.relay}`
+              : sigState === "stable" && !hasSetRemoteDescRef.current
+              ? `timeout_60s — no offer/answer exchange at all (signaling channel issue?). Candidates: host=${totals.host} srflx=${totals.srflx} relay=${totals.relay}`
+              : `timeout_60s — ICE never connected (iceState=${iceState}). Candidates: host=${totals.host} srflx=${totals.srflx} relay=${totals.relay}`;
+          console.error("[WebRTC] FAILURE_TRIGGER:", reason, {
+            matchId, iceState, sigState,
             connectionState: pcRef.current?.connectionState,
+            hasTurn: totals.relay > 0,
           });
-          // Close peer connection and channel to prevent restart on network recovery
           if (pcRef.current) {
             pcRef.current.ontrack = null;
             pcRef.current.onicecandidate = null;
@@ -639,9 +704,10 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
             supabase.removeChannel(channelRef.current);
             channelRef.current = null;
           }
+          setFailureReason(reason);
           setConnectionState("failed");
         }
-      }, 30000);
+      }, 60000);
 
       if (isCaller) {
         await sendOffer();
@@ -743,6 +809,7 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
     localStream,
     remoteStream,
     connectionState,
+    failureReason,
     permissionDenied,
     isMuted,
     isCameraOff,

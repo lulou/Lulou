@@ -114,7 +114,6 @@ export function ActiveCallOverlay({
   const queryClient = useQueryClient();
   const endedRef = useRef(false);
   const [speakerOn, setSpeakerOn] = useState(false);
-  const [failureReason, setFailureReason] = useState<string>("");
   const [timerExpiredMsg, setTimerExpiredMsg] = useState("");
   // Track exactly when WebRTC first reached "connected" so we can measure live duration
   const connectedAtRef = useRef<number | null>(null);
@@ -144,6 +143,7 @@ export function ActiveCallOverlay({
     localStream,
     remoteStream,
     connectionState,
+    failureReason,
     permissionDenied,
     isMuted,
     isCameraOff,
@@ -315,16 +315,8 @@ export function ActiveCallOverlay({
   // and calls onCallEnd() so the overlay is dismissed and the call cannot re-trigger.
   useEffect(() => {
     if (!isFailed || !webrtcEnabled) return;
-    // Extract the exact FAILURE_TRIGGER label from the on-screen log array
-    const logs: string[] = (window as any).webrtcLogs ?? [];
-    const triggerLine = [...logs].reverse().find(l => l.includes("FAILURE_TRIGGER"));
-    if (triggerLine) {
-      const match = triggerLine.match(/FAILURE_TRIGGER:\s*([^\s{(]+)/);
-      setFailureReason(match ? match[1] : "unknown");
-    } else {
-      setFailureReason("unknown");
-    }
-    console.log("[CALL_UI] AUTO_END_SCHEDULED", { matchId, callSessionId, delayMs: 10000 });
+    // failureReason is now provided directly by useWebRTC — no log scraping needed.
+    console.log("[CALL_UI] AUTO_END_SCHEDULED", { matchId, callSessionId, delayMs: 10000, failureReason });
     const t = setTimeout(() => {
       if (!endedRef.current) {
         console.log("[CALL_UI] AUTO_END_EXECUTING connection_failed", { matchId, callSessionId });
