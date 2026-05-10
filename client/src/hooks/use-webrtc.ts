@@ -424,18 +424,12 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
       });
 
       // ── Critical: stop ALL ringtone audio BEFORE opening the mic ──────────
-      // On iOS, getUserMedia({audio:true}) switches the AVAudioSession category
-      // to PlayAndRecord.  This RESTARTS any live AudioContext — even one whose
-      // oscillators have been stopped — causing it to briefly emit its last
-      // sample state through the speaker.  The mic opens at the same moment
-      // and captures those 440/480 Hz tones, transmitting them to the remote
-      // peer as "ringing noise during the call".
-      //
-      // cleanupCallAudio() synchronously zeros all gain nodes and stops all
-      // oscillators BEFORE getUserMedia() is called.  The 80 ms pause then
-      // lets the OS audio session finish its category-switch handshake so the
-      // AudioContext restart completes in silence rather than mid-tone.
+      // cleanupCallAudio() pauses and clears the ringtone/ringback HTMLAudioElements
+      // before getUserMedia() is called. This ensures a completely silent audio
+      // environment when the mic opens. The 80 ms pause gives the OS time to
+      // complete its audio session category switch before capture begins.
       cleanupCallAudio("webrtc_init_before_getUserMedia");
+      console.log("[PHONE_AUDIO] non-call sound removed: before getUserMedia");
       callDebug.event("init: audio cleanup done");
       console.log("[CALL_ANSWER] audio_cleanup_done — pausing 80ms for AVAudioSession handshake");
       await new Promise<void>(r => setTimeout(r, 80));

@@ -309,12 +309,12 @@ export function ActiveCallOverlay({
     console.log("[WebRTC] CONNECTION_STATE_CHANGED", { matchId, connectionState, isCaller, isVideo });
     console.log("[CALL_DEBUG] STATE", { matchId, connectionState, isCaller, isVideo, ts: new Date().toISOString().slice(11, 23) });
     if (connectionState === "connected") {
-      // This is the definitive cutover from ring/wait phase to voice-only mode.
-      // cleanupCallAudio kills oscillators synchronously and closes the shared
-      // AudioContext. A CLOSED context cannot be restarted by iOS AVAudioSession.
-      // After this call, _sharedCtx is null and both ring state machines are
-      // null, so _onUserGesture is a complete no-op for all subsequent taps.
+      // Definitive cutover from ringing → voice-only mode.
+      // stopAllCallSounds (alias: cleanupCallAudio) pauses+clears the ringtone
+      // and ringback HTMLAudioElements. No AudioContext is involved.
+      // After this, the ONLY audible source is the remote voice <audio> element.
       cleanupCallAudio("connected");
+      console.log("[PHONE_AUDIO] connected call audio = remote voice only", { matchId, isCaller });
       console.log("[CALL_AUDIO] connected: remote voice only, non-voice sounds stopped", { matchId, isCaller });
 
       // ── Full audio element audit ───────────────────────────────────────────
@@ -536,8 +536,8 @@ export function ActiveCallOverlay({
     // [CALL_AUDIO_AUDIT] SOURCE 4: local self-view <video> element — MUTED
     // Camera track only. muted=true ensures the microphone is NEVER played back to the
     // local user — only the remote peer hears it via WebRTC. No echo, no self-monitoring.
+    console.log("[PHONE_AUDIO] local mic playback blocked — localStream goes to muted <video> self-view only, never to any <audio> element", { matchId });
     console.log("[CALL_FEEDBACK_FIX] local mic playback blocked — localStream goes to muted <video> self-view only, never to any <audio> element", { matchId });
-    console.log("[CALL_AUDIO_FIX] local mic audible playback prevented — localStream attached to muted <video> only, never to any <audio> element", { matchId });
     console.log("[CALL_AUDIO_AUDIT] SOURCE 4 attached: local self-view <video> MUTED — camera only, mic never played back locally");
     console.log("[WebRTC] LOCAL_AUDIO_PLAYBACK_BLOCKED: local mic is muted in self-view, no self-monitoring", { matchId });
     videoEl.srcObject = localStream;
