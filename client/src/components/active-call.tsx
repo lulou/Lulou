@@ -367,6 +367,24 @@ export function ActiveCallOverlay({
       console.log(`[CALL_AUDIO_AUDIT] local stream id: ${localStream?.id ?? "none"} tracks: ${localStream?.getTracks().map(t => t.kind).join(",") ?? "none"}`);
       console.log(`[CALL_AUDIO_AUDIT] remote stream id: ${remoteStream?.id ?? "none"} tracks: ${remoteStream?.getTracks().map(t => t.kind).join(",") ?? "none"}`);
 
+      // [SELF_AUDIO_FIX] Final confirmation log — emitted once per connected call.
+      // Summarises every audio/video element on the page so any regression is
+      // immediately visible in the console without having to decode raw audit lines.
+      const selfMonitorBug = localUnmutedCount > 0;
+      const remoteCountOk  = remoteAttachedCount === 1;
+      console.log("[SELF_AUDIO_FIX] srcObject audit complete", {
+        matchId,
+        isCaller,
+        selfMonitoringBug: selfMonitorBug,
+        remoteAudioElementCount: remoteAttachedCount,
+        localStreamUnmutedCount: localUnmutedCount,
+        verdict: selfMonitorBug
+          ? "BUG — local mic attached to unmuted element"
+          : remoteCountOk
+            ? "OK — exactly one remote audio source, local mic not playing locally"
+            : `WARN — unexpected remote element count (${remoteAttachedCount})`,
+      });
+
       // Record the first moment we were live — used to compute connectedDurationMs in finishCall
       if (connectedAtRef.current === null) {
         connectedAtRef.current = Date.now();
@@ -473,11 +491,15 @@ export function ActiveCallOverlay({
         el.muted = false;
         // Register with call-audio so cleanupCallAudio() can detach this element.
         registerCallAudioElement(el, `remote-audio:${matchId}`);
-        // [CALL_AUDIO_AUDIT] SOURCE 2: remote voice <audio> element — UNMUTED
-        // This is the ONLY audio source during a connected call. Remote WebRTC voice
-        // stream. No ringtone oscillators are running at this point (cleanupCallAudio
-        // was called before getUserMedia). autoPlay + explicit .play() handles iOS Safari
-        // where autoPlay alone is blocked after srcObject assignment.
+        // [SELF_AUDIO_FIX] This is the ONLY audible element during a connected call.
+        // localStream is NEVER attached here — it goes to pc.addTrack() only.
+        console.log("[SELF_AUDIO_FIX] remote stream is only audible stream", {
+          matchId,
+          audioTracks: remoteStream.getAudioTracks().length,
+          videoTracks: remoteStream.getVideoTracks().length,
+          elementMuted: el.muted,
+          localStreamAttachedHere: false,
+        });
         console.log("[CALL_AUDIO_AUDIT] SOURCE 2 attached: remote voice <audio> UNMUTED — remote WebRTC voice stream, sole audio source during call");
         // autoPlay + explicit .play() handles iOS Safari
         el.play().catch(() => {});
@@ -493,75 +515,96 @@ export function ActiveCallOverlay({
       }
     }
 
-    // ── Video element (video calls only; muted — audio handled above) ──
+    // ── Video element (video calls only; audio-track-free stream) ──
+    // SELF-MONITORING FIX: only the VIDEO tracks from remoteStream are attached
+    // to the remote video element. The audio track is handled exclusively by
+    // the hidden remoteAudioRef element (SOURCE 2, above). Stripping audio at
+    // the stream level means the video element cannot produce any audio even if
+    // the `muted` DOM property somehow fails — which is the belt-and-suspenders
+    // fix for the doubled-remote-audio / chorus bug.
     if (isVideo && remoteVideoRef.current) {
       const videoEl = remoteVideoRef.current;
-      const existing = videoEl.srcObject as MediaStream | null;
-      const existingIds = existing?.getTracks().map(t => t.id).sort().join(",") ?? "";
-      const incomingIds = remoteStream.getTracks().map(t => t.id).sort().join(",");
-      if (existingIds !== incomingIds) {
-        // Explicitly set muted=true via the DOM property — JSX `muted` is not
-        // reliably reflected as a DOM property in all React versions, which would
-        // cause the remote video element to play audio and double the remote voice
-        // (already played by the hidden <audio> element), creating a chorus effect.
+      const existing = videoEl.srcObject instanceof MediaStream ? videoEl.srcObject : null;
+      const existingVideoIds = existing?.getVideoTracks().map(t => t.id).sort().join(",") ?? "";
+      const incomingVideoIds = remoteStream.getVideoTracks().map(t => t.id).sort().join(",");
+      if (existingVideoIds !== incomingVideoIds) {
+        // Create a VIDEO-ONLY copy of the remote stream — no audio tracks.
+        // Even if muted=false glitches, there is nothing to play.
+        const remoteVideoOnly = new MediaStream(remoteStream.getVideoTracks());
+        // Belt-and-suspenders: also set the DOM muted property.
         videoEl.muted = true;
-        videoEl.srcObject = remoteStream;
+        videoEl.srcObject = remoteVideoOnly;
         registerCallAudioElement(videoEl, `remote-video:${matchId}`);
-        // [CALL_AUDIO_AUDIT] SOURCE 3: remote <video> element — MUTED
-        // Video track only. Audio comes from SOURCE 2 exclusively. muted=true prevents
-        // the same remote voice from playing twice (chorus/doubling + echo-cancellation break).
-        console.log("[CALL_AUDIO_AUDIT] SOURCE 3 attached: remote video <video> MUTED — video track only, audio is SOURCE 2");
+        console.log("[SELF_AUDIO_FIX] remote stream is only audible stream — remote video el has video tracks only, audio in remoteAudioRef only", {
+          matchId,
+          remoteVideoTracksAttached: remoteVideoOnly.getVideoTracks().length,
+          remoteAudioTracksAttached: remoteVideoOnly.getAudioTracks().length,
+          videoElMuted: videoEl.muted,
+        });
+        console.log("[CALL_AUDIO_AUDIT] SOURCE 3 attached: remote video <video> VIDEO-ONLY — audio is SOURCE 2 exclusively");
         videoEl.play().catch(() => {});
-        console.log("[WebRTC] REMOTE_MAIN_VIDEO_ATTACHED", {
+        console.log("[WebRTC] REMOTE_MAIN_VIDEO_ATTACHED video-only", {
           matchId,
           videoTracks: remoteStream.getVideoTracks().length,
-          audioTracks: remoteStream.getAudioTracks().length,
         });
       } else {
-        console.log("[WebRTC] REMOTE_MAIN_VIDEO_SKIP: track set unchanged, not re-attaching", { matchId });
+        console.log("[WebRTC] REMOTE_MAIN_VIDEO_SKIP: video track set unchanged", { matchId });
       }
     } else if (isVideo) {
-      // Element not mounted yet — will be re-triggered when isConnected becomes true
       console.log("[WebRTC] REMOTE_MAIN_VIDEO_PENDING: element not yet mounted", { matchId, isConnected });
     }
   }, [remoteStream, isVideo, matchId, isConnected]);
 
   // ── Local stream → self-view pip ─────────────────────────────────────────
-  // The local stream is NEVER routed to an audio element — only to this muted
-  // video pip.  This is the only element that shows the user their own camera,
-  // and it must be muted to prevent microphone feedback / self-monitoring.
-  // [CALL_DEBUG] LOCAL_MIC_ISOLATION: local mic audio is never played back to
-  // the user because localStream is only ever attached to the muted localVideoRef.
+  // SELF-MONITORING FIX: only the VIDEO tracks from localStream are attached
+  // to the self-view element — the audio (mic) track is deliberately excluded.
+  // This is a physical-level block: even if the `muted` DOM property or JSX
+  // attribute somehow fails (known React / browser bug), there is no audio
+  // track in the stream so the mic can never play back locally.
   //
-  // isConnected is in deps for the same reason as above (element is conditionally
-  // rendered behind isConnected).  A reference-equality guard prevents redundant
-  // srcObject reassignment when the component re-renders without a stream change.
+  // The full localStream (audio + video) is still sent to the remote peer
+  // via pc.addTrack() in use-webrtc.ts — none of that is affected here.
   useEffect(() => {
     if (!localStream || !isVideo || !localVideoRef.current) return;
     const videoEl = localVideoRef.current;
-    // Guard: skip if the exact same stream object is already attached
-    if (videoEl.srcObject === localStream) {
-      console.log("[WebRTC] LOCAL_SELF_VIEW_SKIP: same stream already attached", { matchId });
+
+    const videoTracks = localStream.getVideoTracks();
+    if (videoTracks.length === 0) {
+      console.log("[SELF_AUDIO_FIX] no video track in localStream — skipping self-view attachment", { matchId });
       return;
     }
-    // [CALL_AUDIO_AUDIT] SOURCE 4: local self-view <video> element — MUTED
-    // Camera track only. muted=true ensures the microphone is NEVER played back to the
-    // local user — only the remote peer hears it via WebRTC. No echo, no self-monitoring.
-    console.log("[PHONE_AUDIO] local mic playback blocked — localStream goes to muted <video> self-view only, never to any <audio> element", { matchId });
-    console.log("[CALL_FEEDBACK_FIX] local mic playback blocked — localStream goes to muted <video> self-view only, never to any <audio> element", { matchId });
-    console.log("[CALL_AUDIO_AUDIT] SOURCE 4 attached: local self-view <video> MUTED — camera only, mic never played back locally");
-    console.log("[WebRTC] LOCAL_AUDIO_PLAYBACK_BLOCKED: local mic is muted in self-view, no self-monitoring", { matchId });
-    // Explicitly set muted=true via the DOM property — JSX `muted` is not
-    // reliably reflected as a DOM property in all React versions.  Without this,
-    // the local mic audio track plays back through the local speaker, causing
-    // the user to hear their own voice (self-monitoring / sidetone).
+
+    // Guard: skip if the same video track set is already attached
+    const existingStream = videoEl.srcObject instanceof MediaStream ? videoEl.srcObject : null;
+    const existingVideoIds = existingStream?.getVideoTracks().map(t => t.id).sort().join(",") ?? "";
+    const newVideoIds = videoTracks.map(t => t.id).sort().join(",");
+    if (existingVideoIds === newVideoIds) {
+      console.log("[SELF_AUDIO_FIX] self-view video tracks unchanged — skip", { matchId });
+      return;
+    }
+
+    // Create a VIDEO-ONLY stream — mic audio track deliberately omitted.
+    // This is the primary self-monitoring fix: no audio track = no possible
+    // mic feedback regardless of muted/unmuted state on the element.
+    const videoOnlyStream = new MediaStream(videoTracks);
+
+    // Belt-and-suspenders: also set the DOM `muted` property explicitly.
+    // JSX `muted` sets the HTML *attribute* but React does not reliably sync
+    // that to the DOM *property* on re-renders in all versions.
     videoEl.muted = true;
-    videoEl.srcObject = localStream;
+    videoEl.srcObject = videoOnlyStream;
     videoEl.play().catch(() => {});
-    console.log("[WebRTC] LOCAL_SELF_VIEW_ATTACHED", {
+
+    console.log("[SELF_AUDIO_FIX] local mic stream blocked from audio playback", {
       matchId,
-      audioTracks: localStream.getAudioTracks().length,
-      videoTracks: localStream.getVideoTracks().length,
+      micTracksInFullStream: localStream.getAudioTracks().length,
+      micTracksAttachedToVideoEl: 0,
+      videoTracks: videoTracks.length,
+      videoElMuted: videoEl.muted,
+    });
+    console.log("[WebRTC] LOCAL_SELF_VIEW_ATTACHED video-only", {
+      matchId,
+      videoTracks: videoTracks.length,
       isConnected,
     });
   }, [localStream, isVideo, matchId, isConnected]);
