@@ -239,8 +239,9 @@ function CallDetectors({ userId }: { userId: string }) {
   const { data: matches } = useQuery<MatchWithProfile[]>({
     queryKey: ["/api/matches"],
     // Realtime call signals (useCallSignaling) handle call detection instantly.
-    // This poll is only a safety net for missed signals — 30s is fine.
-    refetchInterval: 30000,
+    // 5 s poll ensures missed "cancel/end" signals resolve within 5 s instead
+    // of the previous 30 s, preventing long "stuck call in progress" states.
+    refetchInterval: 5000,
   });
 
   const matchIds = useMemo(() => (matches || []).map(m => m.id), [matches]);
@@ -296,7 +297,7 @@ function CallDetectors({ userId }: { userId: string }) {
     return endedMatchIdsRef.current.has(m.id);
   }, [endedTick]);
 
-  const STALE_RINGING_MS = 120_000;
+  const STALE_RINGING_MS = 30_000;
   const STALE_ANSWERED_MS = 5 * 60_000;
 
   function isStaleCall(m: MatchWithProfile): boolean {

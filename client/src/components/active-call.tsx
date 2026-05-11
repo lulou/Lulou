@@ -1,11 +1,12 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 import { broadcastCallSignal } from "@/hooks/use-call-signaling";
 import { useWebRTC } from "@/hooks/use-webrtc";
 import { useCallRingtone } from "@/hooks/use-call-ringtone";
 import {
   cleanupCallAudio,
+  stopAllNonVoiceCallAudio,
   registerCallAudioElement,
   unregisterCallAudioElement,
 } from "@/lib/call-audio";
@@ -310,10 +311,10 @@ export function ActiveCallOverlay({
     console.log("[CALL_DEBUG] STATE", { matchId, connectionState, isCaller, isVideo, ts: new Date().toISOString().slice(11, 23) });
     if (connectionState === "connected") {
       // Definitive cutover from ringing → voice-only mode.
-      // stopAllCallSounds (alias: cleanupCallAudio) pauses+clears the ringtone
-      // and ringback HTMLAudioElements. No AudioContext is involved.
-      // After this, the ONLY audible source is the remote voice <audio> element.
-      cleanupCallAudio("connected");
+      // stopAllNonVoiceCallAudio stops ONLY ringtone/ringback — it does NOT
+      // pause the registered remote-voice element, which is important on
+      // reconnection when the element may already be attached and playing.
+      stopAllNonVoiceCallAudio("connected");
       console.log("[PHONE_AUDIO] connected call audio = remote voice only", { matchId, isCaller });
       console.log("[CALL_AUDIO] connected: remote voice only, non-voice sounds stopped", { matchId, isCaller });
 
@@ -499,6 +500,11 @@ export function ActiveCallOverlay({
       const existingIds = existing?.getTracks().map(t => t.id).sort().join(",") ?? "";
       const incomingIds = remoteStream.getTracks().map(t => t.id).sort().join(",");
       if (existingIds !== incomingIds) {
+        // Explicitly set muted=true via the DOM property — JSX `muted` is not
+        // reliably reflected as a DOM property in all React versions, which would
+        // cause the remote video element to play audio and double the remote voice
+        // (already played by the hidden <audio> element), creating a chorus effect.
+        videoEl.muted = true;
         videoEl.srcObject = remoteStream;
         registerCallAudioElement(videoEl, `remote-video:${matchId}`);
         // [CALL_AUDIO_AUDIT] SOURCE 3: remote <video> element — MUTED
@@ -545,6 +551,11 @@ export function ActiveCallOverlay({
     console.log("[CALL_FEEDBACK_FIX] local mic playback blocked — localStream goes to muted <video> self-view only, never to any <audio> element", { matchId });
     console.log("[CALL_AUDIO_AUDIT] SOURCE 4 attached: local self-view <video> MUTED — camera only, mic never played back locally");
     console.log("[WebRTC] LOCAL_AUDIO_PLAYBACK_BLOCKED: local mic is muted in self-view, no self-monitoring", { matchId });
+    // Explicitly set muted=true via the DOM property — JSX `muted` is not
+    // reliably reflected as a DOM property in all React versions.  Without this,
+    // the local mic audio track plays back through the local speaker, causing
+    // the user to hear their own voice (self-monitoring / sidetone).
+    videoEl.muted = true;
     videoEl.srcObject = localStream;
     videoEl.play().catch(() => {});
     console.log("[WebRTC] LOCAL_SELF_VIEW_ATTACHED", {
@@ -657,13 +668,22 @@ export function ActiveCallOverlay({
   // Safety net: if the component unmounts without finishCall having been called
   // (e.g. React parent crash, forced navigation, error boundary), call /complete so the
   // server state is cleaned up and neither user is left stuck in "in progress".
+  // Also invalidates the matches cache so the other peer's 5s poll picks up the
+  // cleared state quickly instead of waiting up to 30s.
   useEffect(() => {
     return () => {
       if (!endedRef.current) {
         endedRef.current = true;
         console.warn("[CALL_UI] UNMOUNT_SAFETY_NET triggered — calling /complete to prevent stuck state", { matchId, callSessionId });
         apiRequest("POST", `/api/matches/${matchId}/call/complete`, { connected: false, connectedDurationMs: 0, callState: "failed" })
-          .catch((e) => console.error("[CALL_UI] UNMOUNT_SAFETY_NET /complete failed", { matchId, error: e.message }));
+          .then(() => {
+            queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
+            queryClient.invalidateQueries({ queryKey: ["/api/matches", matchId] });
+          })
+          .catch((e) => {
+            console.error("[CALL_UI] UNMOUNT_SAFETY_NET /complete failed", { matchId, error: e.message });
+            queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
+          });
       }
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps

@@ -103,7 +103,7 @@ function _generateRingtoneSrc(): string {
         break;
       }
     }
-    samples[i] = env * 0.22 * (Math.sin(2 * Math.PI * 440 * t) + Math.sin(2 * Math.PI * 480 * t)) / 2;
+    samples[i] = env * 0.70 * (Math.sin(2 * Math.PI * 440 * t) + Math.sin(2 * Math.PI * 480 * t)) / 2;
   }
   return _makeWavUrl(samples);
 }
@@ -123,7 +123,7 @@ function _generateRingbackSrc(): string {
     const mod = t % DUR;
     let env = 0;
     if (mod < 2.0) env = Math.min(mod / FADE, 1, (2.0 - mod) / FADE);
-    samples[i] = env * 0.18 * (Math.sin(2 * Math.PI * 440 * t) + Math.sin(2 * Math.PI * 480 * t)) / 2;
+    samples[i] = env * 0.60 * (Math.sin(2 * Math.PI * 440 * t) + Math.sin(2 * Math.PI * 480 * t)) / 2;
   }
   return _makeWavUrl(samples);
 }
@@ -152,6 +152,14 @@ const _getRingbackSrc = (): string => {
 let _ringtoneEl: HTMLAudioElement | null = null;
 /** The active ringback element (caller). null when not ringing. */
 let _ringbackEl: HTMLAudioElement | null = null;
+/**
+ * True when an incoming ringtone attempted play() but was blocked by the browser's
+ * autoplay policy.  _unlockAudio() checks this flag and starts the ring
+ * immediately in the capture phase of the first user gesture — before any
+ * Answer/Decline click handler can race it.
+ */
+let _ringtonePending = false;
+let _ringbackPending = false;
 
 interface VoiceElEntry { el: HTMLAudioElement | HTMLVideoElement; label: string; }
 const _voiceElements: VoiceElEntry[] = [];
@@ -159,19 +167,42 @@ const _voiceElements: VoiceElEntry[] = [];
 // ── Play helper ───────────────────────────────────────────────────────────────
 
 /**
- * Start playing `el`. If the browser blocks autoplay (iOS policy), retry
- * on the next user gesture. The `isStillActive` guard ensures we never
- * resume an element that was already stopped.
+ * Start playing `el`. If the browser blocks autoplay (iOS policy):
+ *   1. Set the pending flag so _unlockAudio() can restart it on the next gesture.
+ *   2. Try again at 120 ms and 400 ms (succeeds on Android/desktop even without
+ *      a gesture if the block was transient).
+ *   3. Fall back to a gesture-based retry as a last resort.
+ *
+ * The `isStillActive` guard ensures we never resume an element that was already
+ * stopped (e.g. silenceRing() was called before the retry fired).
  */
 function _playWithRetry(el: HTMLAudioElement, label: string, isStillActive: () => boolean): void {
   el.play().catch(() => {
-    console.warn(`[PHONE_AUDIO] autoplay blocked for ${label} — will retry on first gesture`);
-    const retry = () => {
-      if (!isStillActive()) return; // element was stopped before gesture fired
-      el.play().catch(() => {});
+    console.warn(`[PHONE_AUDIO] autoplay blocked for ${label} — scheduling retries`);
+
+    const DELAYS_MS = [120, 400];
+    let attempt = 0;
+
+    const tryNext = () => {
+      if (!isStillActive()) return;
+      if (attempt >= DELAYS_MS.length) {
+        // Last resort: gesture-based retry
+        const retry = () => {
+          if (!isStillActive()) return;
+          el.play().catch(() => {});
+        };
+        document.addEventListener("click",      retry, { once: true, passive: true });
+        document.addEventListener("touchstart", retry, { once: true, passive: true });
+        return;
+      }
+      const delay = DELAYS_MS[attempt++];
+      setTimeout(() => {
+        if (!isStillActive()) return;
+        el.play().catch(tryNext);
+      }, delay);
     };
-    document.addEventListener("click",      retry, { once: true, passive: true });
-    document.addEventListener("touchstart", retry, { once: true, passive: true });
+
+    tryNext();
   });
 }
 
@@ -194,10 +225,35 @@ export function startIncomingRingtone(): void {
     el.loop = true;
     el.volume = 1.0;
     _ringtoneEl = el;
+    _ringtonePending = true;
     console.log("[CALL_RINGTONE] incoming ringtone started");
     console.log("[PHONE_AUDIO] incoming ringtone started");
-    _playWithRetry(el, "incoming ringtone", () => _ringtoneEl === el);
+    el.play().then(() => { _ringtonePending = false; }).catch(() => {
+      console.warn("[PHONE_AUDIO] autoplay blocked for incoming ringtone — scheduling retries");
+      const DELAYS_MS = [120, 400];
+      let attempt = 0;
+      const isActive = () => _ringtoneEl === el;
+      const tryNext = () => {
+        if (!isActive()) { _ringtonePending = false; return; }
+        if (attempt >= DELAYS_MS.length) {
+          const retry = () => {
+            if (!isActive()) { _ringtonePending = false; return; }
+            el.play().then(() => { _ringtonePending = false; }).catch(() => {});
+          };
+          document.addEventListener("click",      retry, { once: true, passive: true });
+          document.addEventListener("touchstart", retry, { once: true, passive: true });
+          return;
+        }
+        const delay = DELAYS_MS[attempt++];
+        setTimeout(() => {
+          if (!isActive()) { _ringtonePending = false; return; }
+          el.play().then(() => { _ringtonePending = false; }).catch(tryNext);
+        }, delay);
+      };
+      tryNext();
+    });
   } catch (e) {
+    _ringtonePending = false;
     console.warn("[PHONE_AUDIO] startIncomingRingtone error (non-fatal):", e);
   }
 }
@@ -207,6 +263,7 @@ export function startIncomingRingtone(): void {
  * Safe to call multiple times (idempotent).
  */
 export function stopIncomingRingtone(reason: string): void {
+  _ringtonePending = false;
   if (!_ringtoneEl) return;
   _ringtoneEl.pause();
   _ringtoneEl.currentTime = 0;
@@ -231,9 +288,33 @@ export function startOutgoingRingback(): void {
     el.loop = true;
     el.volume = 0.85;
     _ringbackEl = el;
+    _ringbackPending = true;
     console.log("[PHONE_AUDIO] outgoing ringback started");
-    _playWithRetry(el, "outgoing ringback", () => _ringbackEl === el);
+    el.play().then(() => { _ringbackPending = false; }).catch(() => {
+      const DELAYS_MS = [120, 400];
+      let attempt = 0;
+      const isActive = () => _ringbackEl === el;
+      const tryNext = () => {
+        if (!isActive()) { _ringbackPending = false; return; }
+        if (attempt >= DELAYS_MS.length) {
+          const retry = () => {
+            if (!isActive()) { _ringbackPending = false; return; }
+            el.play().then(() => { _ringbackPending = false; }).catch(() => {});
+          };
+          document.addEventListener("click",      retry, { once: true, passive: true });
+          document.addEventListener("touchstart", retry, { once: true, passive: true });
+          return;
+        }
+        const delay = DELAYS_MS[attempt++];
+        setTimeout(() => {
+          if (!isActive()) { _ringbackPending = false; return; }
+          el.play().then(() => { _ringbackPending = false; }).catch(tryNext);
+        }, delay);
+      };
+      tryNext();
+    });
   } catch (e) {
+    _ringbackPending = false;
     console.warn("[PHONE_AUDIO] startOutgoingRingback error (non-fatal):", e);
   }
 }
@@ -242,6 +323,7 @@ export function startOutgoingRingback(): void {
  * Stop the outgoing ringback immediately.
  */
 export function stopOutgoingRingback(reason: string): void {
+  _ringbackPending = false;
   if (!_ringbackEl) return;
   _ringbackEl.pause();
   _ringbackEl.currentTime = 0;
@@ -349,6 +431,19 @@ function _unlockAudio(): void {
     el.play().then(() => { el.src = ""; }).catch(() => {});
     console.log("[PHONE_AUDIO] audio policy unlocked on first gesture");
   } catch { /* non-fatal */ }
+
+  // Immediately start any ringtone/ringback that failed to autoplay.
+  // This fires in the CAPTURE phase of the first gesture — before any React
+  // onClick handler (bubble phase) — so the ring actually plays before a
+  // potential Answer/Decline press silences it.
+  if (_ringtonePending && _ringtoneEl) {
+    _ringtoneEl.play().then(() => { _ringtonePending = false; }).catch(() => {});
+    console.log("[PHONE_AUDIO] pending ringtone started on unlock");
+  }
+  if (_ringbackPending && _ringbackEl) {
+    _ringbackEl.play().then(() => { _ringbackPending = false; }).catch(() => {});
+    console.log("[PHONE_AUDIO] pending ringback started on unlock");
+  }
 }
 if (typeof window !== "undefined") {
   document.addEventListener("touchstart", _unlockAudio, { capture: true, passive: true });
