@@ -50,6 +50,7 @@ if (typeof window !== "undefined") {
   }
 }
 import { useCallSignaling, setCallEndedHandler, clearDedupeForMatch } from "@/hooks/use-call-signaling";
+import { stopIncomingRingtone } from "@/lib/call-audio";
 import { markCallSessionCancelled, isCallSessionCancelled, clearCancelledSession } from "@/lib/cancelled-calls";
 import type { Profile, Match } from "@shared/schema";
 import { Loader2 } from "lucide-react";
@@ -230,11 +231,35 @@ function clearCallFromCache(
   });
 }
 
+// How old an unanswered incoming call may be (ms) before it is treated as stale
+// on the FIRST page load. This is tighter than STALE_RINGING_MS (30 s) because
+// `cancelledSessions` is wiped on refresh so we cannot rely on the cancelled-
+// session guard — the only remaining signal is the age of callStartedAt.
+// 15 s covers the worst-case "cancel while offline + immediate refresh" scenario.
+const STARTUP_STALE_MS = 15_000;
+
 function CallDetectors({ userId }: { userId: string }) {
   const [dismissedCallKey, setDismissedCallKey] = useState<string | null>(null);
   const endedMatchIdsRef = useRef(new Set<string>());
   const [endedTick, setEndedTick] = useState(0);
   const qc = useQueryClient();
+
+  // ── Startup verification ───────────────────────────────────────────────────
+  // On page refresh, cancelledSessions (in-memory) is wiped. The fresh
+  // /api/matches fetch can return a match with callStartedAt still set because
+  // the server DB was not yet updated when the previous session ended (cancelled
+  // call, network drop, caller-side-only cancel, etc.).
+  // startupVerified gates IncomingCallOverlay so it never mounts before the
+  // first-load staleness sweep has run and cleared any ghost call state.
+  const [startupVerified, setStartupVerified] = useState(false);
+  const startupDoneRef = useRef(false);
+
+  // Immediately silence any ringtone that might have survived (impossible on a
+  // cold start, but belt-and-suspenders in case of fast HMR or component re-mount).
+  useEffect(() => {
+    stopIncomingRingtone("app_startup");
+    console.log("[CALL_STATE_FIX] app startup stop ringtone", { userId: userId.slice(0, 8) });
+  }, []);
 
   const { data: matches } = useQuery<MatchWithProfile[]>({
     queryKey: ["/api/matches"],
@@ -292,6 +317,63 @@ function CallDetectors({ userId }: { userId: string }) {
     });
     return () => setCallEndedHandler(null);
   }, [markCallEnded]);
+
+  // ── Startup staleness sweep ───────────────────────────────────────────────
+  // Runs ONCE after the first /api/matches network response.
+  // `cancelledSessions` is wiped on every refresh, so we cannot rely on the
+  // isCallSessionCancelled() guard for calls that ended in the previous session.
+  // Instead we inspect the age of callStartedAt against a tighter threshold
+  // (STARTUP_STALE_MS = 15 s) and proactively clear any match whose ring looks
+  // like it predates the current browser session — blocking the ringtone before
+  // IncomingCallOverlay ever mounts.
+  useEffect(() => {
+    if (!matches || startupDoneRef.current) return;
+    startupDoneRef.current = true;
+
+    const now = Date.now();
+    let hadStale = false;
+
+    for (const m of matches) {
+      // Only inspect unanswered, uncompleted incoming calls for this user.
+      if (!m.callStartedAt || !m.callSessionId) continue;
+      if (m.callAnswered || m.callCompleted) continue;
+      if (!m.callInitiatorId || m.callInitiatorId === userId) continue;
+
+      const ageMs = now - new Date(m.callStartedAt).getTime();
+
+      if (ageMs > STARTUP_STALE_MS) {
+        // Stale — clear from cache so incomingCall useMemo never returns it.
+        hadStale = true;
+        console.warn("[CALL_STATE_FIX] cleared stale call state", {
+          matchId: m.id,
+          callSessionId: m.callSessionId,
+          ageMs,
+          reason: "startup_sweep — callStartedAt older than STARTUP_STALE_MS",
+        });
+        console.warn("[CALL_RINGTONE] blocked stale ringtone on refresh", {
+          matchId: m.id,
+          callSessionId: m.callSessionId,
+          ageMs,
+        });
+        markCallSessionCancelled(m.id, m.callSessionId);
+        clearCallFromCache(qc, m.id, m.callSessionId);
+      } else {
+        // Fresh — call started within the current session window, treat as live.
+        console.log("[CALL_STATE_FIX] verified active incoming call", {
+          matchId: m.id,
+          callSessionId: m.callSessionId,
+          ageMs,
+          reason: "startup_sweep — within STARTUP_STALE_MS, treating as live",
+        });
+      }
+    }
+
+    if (!hadStale) {
+      console.log("[CALL_STATE_FIX] startup sweep complete — no stale call state found");
+    }
+
+    setStartupVerified(true);
+  }, [matches, userId, qc]);
 
   const isEndedCall = useCallback((m: MatchWithProfile) => {
     return endedMatchIdsRef.current.has(m.id);
@@ -475,7 +557,10 @@ function CallDetectors({ userId }: { userId: string }) {
 
   return (
     <>
-      {incomingCall && !activeCall && (
+      {/* startupVerified: IncomingCallOverlay is gated until the startup staleness
+           sweep has run. This prevents the ringtone from firing on refresh when
+           the server DB still holds call fields from an already-ended session. */}
+      {incomingCall && !activeCall && startupVerified && (
         <Suspense fallback={null}>
           <CallOverlayErrorBoundary
             matchId={incomingCall.id}
