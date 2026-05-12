@@ -1,5 +1,5 @@
 import { useRef, useEffect, useState } from "react";
-import { Phone, PhoneOff, Video } from "lucide-react";
+import { Phone, PhoneOff, Video, Bell } from "lucide-react";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
@@ -9,7 +9,7 @@ import { useAuth } from "@/hooks/use-auth";
 import type { Profile, Match } from "@shared/schema";
 import { markCallSessionCancelled } from "@/lib/cancelled-calls";
 import { useCallRingtone } from "@/hooks/use-call-ringtone";
-import { cleanupCallAudio } from "@/lib/call-audio";
+import { cleanupCallAudio, isAudioUnlocked, onAudioUnlocked, unlockAudioNow } from "@/lib/call-audio";
 
 type MatchWithProfile = Match & { profile: Profile };
 
@@ -38,6 +38,19 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss }: In
   // pressed and never goes back to true, so the ringtone stops exactly once and
   // stays stopped regardless of mutation state or re-renders.
   const [ringEnabled, setRingEnabled] = useState(true);
+  // showRingBanner: true when audio is locked on mobile and user needs to tap to enable ringtone.
+  // Starts as !isAudioUnlocked() — false on desktop (already unlocked), true on a cold mobile session.
+  const [showRingBanner, setShowRingBanner] = useState(!isAudioUnlocked());
+
+  // When audio unlocks (first gesture anywhere on screen) hide the banner.
+  // onAudioUnlocked fires immediately if already unlocked, else on next gesture.
+  useEffect(() => {
+    const unsub = onAudioUnlocked(() => {
+      setShowRingBanner(false);
+      console.log("[RINGTONE_MOBILE] audio unlocked — hiding ring banner");
+    });
+    return unsub;
+  }, []);
 
   // Silence the ring immediately — called before any mutation fires.
   // cleanupCallAudio() is called SYNCHRONOUSLY here (before the state update
@@ -370,6 +383,29 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss }: In
           ))}
         </div>
       </div>
+
+      {/* Mobile ring banner — shown only when audio is locked (cold mobile session) */}
+      {showRingBanner && (
+        <div className="relative z-10 flex justify-center px-6 pb-2">
+          <button
+            className="flex items-center gap-2 px-5 py-2.5 rounded-full text-sm font-medium"
+            style={{
+              background: "hsl(350 45% 52% / 0.25)",
+              backdropFilter: "blur(12px)",
+              border: "1px solid hsl(350 45% 65% / 0.4)",
+              color: "hsl(350 30% 90%)",
+            }}
+            onClick={() => {
+              unlockAudioNow();
+              setShowRingBanner(false);
+            }}
+            data-testid="button-enable-ringtone"
+          >
+            <Bell className="w-4 h-4" />
+            Tap to enable ringtone
+          </button>
+        </div>
+      )}
 
       {/* Bottom — action buttons */}
       <div className="relative z-10 flex flex-col items-center gap-10 pb-20">

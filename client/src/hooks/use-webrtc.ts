@@ -212,7 +212,10 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
     };
 
     const handleSignal = async (msg: SignalMessage) => {
-      if (msg.from === userId) return;
+      if (msg.from === userId) {
+        console.warn("[SIGNAL] ignored own message", { type: msg.type, from: msg.from.slice(0, 8), matchId });
+        return;
+      }
 
       if (msg.type === "webrtc:hangup") {
         console.log("[WebRTC] CALL_END_RECEIVED - remote hangup from:", msg.from.slice(0, 8));
@@ -521,20 +524,27 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
             callDebug.update({ mediaStatus: "ok", mediaTier: i + 1 });
             callDebug.event(`media: ok (tier ${i + 1})`);
             const constraintSummary = i === 0
-            ? "echoCancellation+noiseSuppression+autoGainControl"
-            : i === 1 ? "echoCancellation+noiseSuppression"
-            : "browser-default (no explicit constraints)";
-          if (i > 0) {
+              ? "echoCancellation+noiseSuppression+autoGainControl"
+              : i === 1 ? "echoCancellation+noiseSuppression"
+              : i === 2 ? "echoCancellation"
+              : "browser-default (no explicit echo constraints)";
+            if (i > 0) {
               console.warn("[WebRTC] MEDIA_CONSTRAINT_FALLBACK: succeeded on tier", i + 1,
-                "— echo cancellation may be reduced");
+                "— echo cancellation may be reduced:", constraintSummary);
             }
-          console.log(`[CALL_FEEDBACK_FIX] echo cancellation enabled — tier ${i + 1}: ${constraintSummary}`);
-          if (i === 0) {
-            console.log("[CALL_AUDIO] echoCancellation/noiseSuppression/autoGainControl enabled", { matchId, isCaller });
-          } else {
-            console.log("[CALL_AUDIO] partial echo cancellation — tier", i + 1, constraintSummary, { matchId });
-          }
-          return stream;
+            console.log(`[SELF_AUDIO] remote-only audio active — getUserMedia tier ${i + 1}: ${constraintSummary}`, { matchId, isCaller });
+            // On the last-resort tier (audio:true), attempt to apply echoCancellation
+            // post-hoc via applyConstraints. This silently succeeds on most browsers
+            // and prevents acoustic feedback even without explicit constraints.
+            if (i === tiers.length - 1) {
+              const audioTrack = stream.getAudioTracks()[0];
+              if (audioTrack) {
+                audioTrack.applyConstraints({ echoCancellation: true, noiseSuppression: true }).catch(() => {
+                  console.warn("[SELF_AUDIO] applyConstraints echoCancellation failed on fallback tier — feedback risk elevated");
+                });
+              }
+            }
+            return stream;
           } catch (err: any) {
             lastErr = err;
             const isConstraintError = err?.name === "OverconstrainedError" ||
@@ -708,7 +718,7 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
         // If this fires it means WebRTC looped our track back (self-call scenario
         // or a browser bug). Block it and log loudly so it appears in console.
         if (localTrackIds.has(event.track.id)) {
-          console.error("[STREAM_AUDIT] BLOCKED local stream playback — pc.ontrack received a LOCAL track, self-monitoring prevented", {
+          console.error("[SELF_AUDIO] blocked local mic playback — pc.ontrack received own track, preventing self-monitoring", {
             trackId: event.track.id.slice(0, 12),
             trackKind: event.track.kind,
             matchId,
