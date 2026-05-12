@@ -214,6 +214,11 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
     const handleSignal = async (msg: SignalMessage) => {
       if (msg.from === userId) {
         console.warn("[SIGNAL_AUDIT] ignored own signalling message", { type: msg.type, from: msg.from.slice(0, 8), matchId });
+        console.warn("[SCREECH_FIX] ignored own signalling", {
+          type: msg.type,
+          source: "handleSignal guard (should not reach here if self:false works)",
+          matchId,
+        });
         return;
       }
 
@@ -480,6 +485,11 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
             from: String(payload.from).slice(0, 8),
             matchId,
           });
+          console.warn("[SCREECH_FIX] ignored own signalling", {
+            type: payload.type,
+            source: "channel-listener (self:false leaked)",
+            matchId,
+          });
           return;
         }
         handleSignal(payload as SignalMessage);
@@ -507,9 +517,12 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
             audio: { echoCancellation: true },
             video: isVideo ? { facingMode: "user" } : false,
           },
-          // Tier 4 — browser default (absolute last resort; echoCancellation may be off)
+          // Tier 4 — last resort: keep echoCancellation:true even without noiseSuppression/AGC.
+          // Never fall back to bare `audio:true` — that would disable echo cancellation
+          // entirely, guaranteeing acoustic feedback/screeching when speaker output is
+          // picked up by the microphone and re-transmitted to the remote peer.
           {
-            audio: true,
+            audio: { echoCancellation: true },
             video: isVideo ? { facingMode: "user" } : false,
           },
         ];
@@ -556,6 +569,18 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
               tier: i + 1,
               matchId,
               isCaller,
+            });
+            // [SCREECH_FIX] — easy-filter log for the self-audio investigation.
+            // echoCancellation value comes from getSettings() so it reflects what the
+            // browser actually applied, not just what was requested.
+            const audioSettings = stream.getAudioTracks()[0]?.getSettings?.() ?? {};
+            console.log("[SCREECH_FIX] local stream id", {
+              id: stream.id.slice(0, 16),
+              audioTrackIds: stream.getAudioTracks().map(t => t.id.slice(0, 12)),
+              echoCancellation: (audioSettings as any).echoCancellation ?? "not-reported",
+              noiseSuppression: (audioSettings as any).noiseSuppression ?? "not-reported",
+              tier: i + 1,
+              matchId,
             });
             return stream;
           } catch (err: any) {
@@ -726,6 +751,14 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
           matchId,
           isCaller,
         });
+        console.log("[SCREECH_FIX] remote pc.ontrack stream id", {
+          streamId: event.streams[0]?.id?.slice(0, 16) ?? "no-stream",
+          trackKind: event.track.kind,
+          trackId: event.track.id.slice(0, 12),
+          isLocalTrack: localTrackIds.has(event.track.id),
+          localTrackCount: localTrackIds.size,
+          matchId,
+        });
 
         // Guard A: never add our own local track to the remote stream.
         // If this fires it means WebRTC looped our track back (self-call scenario
@@ -736,6 +769,12 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
             trackKind: event.track.kind,
             matchId,
             isCaller,
+          });
+          console.error("[SCREECH_FIX] blocked local stream playback", {
+            trackId: event.track.id.slice(0, 12),
+            trackKind: event.track.kind,
+            reason: "pc.ontrack guard A — local track arrived in remote event",
+            matchId,
           });
           return;
         }

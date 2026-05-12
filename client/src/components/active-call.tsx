@@ -494,6 +494,11 @@ export function ActiveCallOverlay({
           streamId: remoteStream.id,
           matchId,
         });
+        console.error("[SCREECH_FIX] blocked local stream playback", {
+          streamId: remoteStream.id.slice(0, 16),
+          reason: "remoteStream.id === localStream.id — local stream reached audio element guard D",
+          matchId,
+        });
       } else {
         console.log("[STREAM_AUDIT] audio element srcObject id", {
           matchId,
@@ -518,6 +523,14 @@ export function ActiveCallOverlay({
             isSameAsLocal: remoteStream.id === localStream?.id,
             matchId,
           });
+          console.log("[SCREECH_FIX] audio element stream id", {
+            streamId: remoteStream.id.slice(0, 16),
+            audioTracks: remoteStream.getAudioTracks().length,
+            audioTrackIds: remoteStream.getAudioTracks().map(t => t.id.slice(0, 12)),
+            localStreamId: localStream?.id?.slice(0, 16) ?? "none",
+            isSameAsLocal: false,
+            matchId,
+          });
           el.srcObject = remoteStream;
           el.muted = false;
         }
@@ -525,6 +538,13 @@ export function ActiveCallOverlay({
         registerCallAudioElement(el, `remote-audio:${matchId}`);
         // [SELF_AUDIO_FIX] This is the ONLY audible element during a connected call.
         // localStream is NEVER attached here — it goes to pc.addTrack() only.
+        console.log("[SCREECH_FIX] remote-only audio confirmed", {
+          streamId: remoteStream.id.slice(0, 16),
+          audioTracks: remoteStream.getAudioTracks().length,
+          elementMuted: el.muted,
+          localStreamAttachedHere: false,
+          matchId,
+        });
         console.log("[SELF_AUDIO_FIX] remote stream is only audible stream", {
           matchId,
           audioTracks: remoteStream.getAudioTracks().length,
