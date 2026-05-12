@@ -314,10 +314,29 @@ function CallDetectors({ userId }: { userId: string }) {
     return false;
   }
 
+  // Self-call guard: returns true if a match's call would connect a user to themselves.
+  // This is impossible with valid DB data (user1Id !== user2Id) but is checked at the
+  // UI layer as belt-and-suspenders protection against corrupted cache or testing artefacts.
+  const isSelfCall = (m: MatchWithProfile): boolean => {
+    const callerId = m.callInitiatorId;
+    if (!callerId) return false;
+    const calleeId = m.user1Id === callerId ? m.user2Id : m.user1Id;
+    if (callerId === calleeId) {
+      console.error("[CALL_ID_AUDIT] blocked self-call — callerId equals calleeId, suppressing overlay", {
+        callerId: callerId.slice(0, 8),
+        calleeId: calleeId?.slice(0, 8) ?? "none",
+        matchId: m.id,
+      });
+      return true;
+    }
+    return false;
+  };
+
   const incomingCall = useMemo(() => matches?.find(m => {
     if (!m.callStartedAt || m.callAnswered || m.callCompleted) return false;
     if (!m.callSessionId) return false;
     if (!m.callInitiatorId || m.callInitiatorId === userId) return false;
+    if (isSelfCall(m)) return false;
     if (isEndedCall(m)) return false;
     if (isStaleCall(m)) return false;
     if (isCallSessionCancelled(m.id, m.callSessionId)) {
@@ -331,6 +350,7 @@ function CallDetectors({ userId }: { userId: string }) {
   const answeredCall = useMemo(() => matches?.find(m => {
     if (!(m.callStartedAt && m.callSessionId && m.callAnswered === true && m.callCompleted === false &&
       (m.user1Id === userId || m.user2Id === userId))) return false;
+    if (isSelfCall(m)) return false;
     if (isEndedCall(m)) return false;
     if (isStaleCall(m)) return false;
     if (isCallSessionCancelled(m.id, m.callSessionId)) {
@@ -343,6 +363,7 @@ function CallDetectors({ userId }: { userId: string }) {
   const callerRingingCall = useMemo(() => matches?.find(m => {
     if (!(m.callStartedAt && m.callSessionId && !m.callAnswered && !m.callCompleted &&
       m.callInitiatorId === userId)) return false;
+    if (isSelfCall(m)) return false;
     if (isEndedCall(m)) return false;
     if (isStaleCall(m)) return false;
     if (isCallSessionCancelled(m.id, m.callSessionId)) {

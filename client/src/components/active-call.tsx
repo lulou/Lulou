@@ -510,6 +510,14 @@ export function ActiveCallOverlay({
         if (localStream && remoteStream.id === localStream.id) {
           console.error("[STREAM_AUDIT] BLOCKED local stream playback — skipping srcObject assignment", { matchId });
         } else {
+          console.log("[STREAM_AUDIT] audio element srcObject id", {
+            streamId: remoteStream.id,
+            audioTracks: remoteStream.getAudioTracks().length,
+            videoTracks: remoteStream.getVideoTracks().length,
+            localStreamId: localStream?.id ?? "none",
+            isSameAsLocal: remoteStream.id === localStream?.id,
+            matchId,
+          });
           el.srcObject = remoteStream;
           el.muted = false;
         }
