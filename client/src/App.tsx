@@ -376,11 +376,31 @@ function CallDetectors({ userId }: { userId: string }) {
     if (activeKey && activeKey !== prevActiveRef.current) {
       const isCaller = activeCall!.callInitiatorId === userId;
       const isAnswered = activeCall!.callAnswered;
+      const callerId = activeCall!.callInitiatorId;
+      const calleeId = activeCall!.user1Id === callerId
+        ? activeCall!.user2Id
+        : activeCall!.user1Id;
+
+      console.log("[CALL_ID_AUDIT] currentUserId callerId calleeId", {
+        currentUserId: userId.slice(0, 8),
+        callerId: callerId?.slice(0, 8) ?? "none",
+        calleeId: calleeId?.slice(0, 8) ?? "none",
+        matchId: activeCall!.id,
+        role: isCaller ? "CALLER" : "RECEIVER",
+      });
+
+      if (callerId && callerId === calleeId) {
+        console.error("[CALL_ID_AUDIT] blocked self-call — callerId equals calleeId!", {
+          callerId: callerId.slice(0, 8),
+          matchId: activeCall!.id,
+        });
+      }
+
       console.log("[CALL_SESSION] CALL_SESSION_ACTIVE", {
         matchId: activeCall!.id,
         callSessionId: activeCall!.callSessionId,
         role: isCaller ? "CALLER" : "RECEIVER",
-        callerId: activeCall!.callInitiatorId,
+        callerId: callerId,
         userId,
         isRinging: !isAnswered,
         isAnswered,

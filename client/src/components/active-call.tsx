@@ -486,9 +486,33 @@ export function ActiveCallOverlay({
       const existing = el.srcObject as MediaStream | null;
       const existingIds = existing?.getTracks().map(t => t.id).sort().join(",") ?? "";
       const incomingIds = remoteStream.getTracks().map(t => t.id).sort().join(",");
+
+      // Guard D: if the stream we're about to attach as "remote" has the same ID
+      // as localStream, something is critically wrong — block it and log loudly.
+      if (localStream && remoteStream.id === localStream.id) {
+        console.error("[STREAM_AUDIT] BLOCKED local stream playback — remoteStream.id === localStream.id, not attaching to audio element!", {
+          streamId: remoteStream.id,
+          matchId,
+        });
+      } else {
+        console.log("[STREAM_AUDIT] audio element srcObject id", {
+          matchId,
+          remoteStreamId: remoteStream.id,
+          localStreamId: localStream?.id ?? "none",
+          isSameAsLocal: remoteStream.id === localStream?.id,
+          audioTracks: remoteStream.getAudioTracks().length,
+          verdict: remoteStream.id !== localStream?.id ? "OK — remote stream is distinct from local stream" : "ERROR",
+        });
+      }
+
       if (existingIds !== incomingIds) {
-        el.srcObject = remoteStream;
-        el.muted = false;
+        // Skip attaching if it matches localStream (safety net in addition to log above).
+        if (localStream && remoteStream.id === localStream.id) {
+          console.error("[STREAM_AUDIT] BLOCKED local stream playback — skipping srcObject assignment", { matchId });
+        } else {
+          el.srcObject = remoteStream;
+          el.muted = false;
+        }
         // Register with call-audio so cleanupCallAudio() can detach this element.
         registerCallAudioElement(el, `remote-audio:${matchId}`);
         // [SELF_AUDIO_FIX] This is the ONLY audible element during a connected call.

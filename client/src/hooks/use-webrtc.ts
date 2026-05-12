@@ -456,15 +456,30 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
       setPermissionDenied(false);
 
       const channelName = `call:${matchId}`;
-      const channel = supabase.channel(channelName);
+      // self:false ensures Supabase does not echo our own broadcast back to us.
+      // The payload.from !== userId filter in handleSignal is the belt-and-suspenders
+      // layer, but relying on that alone means own messages traverse the network
+      // round-trip before being dropped — self:false avoids that entirely.
+      const channel = supabase.channel(channelName, {
+        config: { broadcast: { self: false } },
+      });
       channelRef.current = channel;
       callDebug.update({ channelStatus: "subscribing" });
       callDebug.event(`init: channel created (${channelName})`);
 
       channel.on("broadcast", { event: "signal" }, ({ payload }) => {
-        if (payload && payload.from !== userId) {
-          handleSignal(payload as SignalMessage);
+        if (!payload) return;
+        if (payload.from === userId) {
+          // Belt-and-suspenders: self:false should prevent this, but log if it
+          // somehow fires so we can catch Supabase config regressions.
+          console.warn("[SIGNAL_AUDIT] ignored own signalling message — self-broadcast leaked through", {
+            type: payload.type,
+            from: String(payload.from).slice(0, 8),
+            matchId,
+          });
+          return;
         }
+        handleSignal(payload as SignalMessage);
       });
 
       // Attempt getUserMedia with the full echo/noise/gain constraints first.
@@ -484,7 +499,12 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
             audio: { echoCancellation: true, noiseSuppression: true },
             video: isVideo ? { facingMode: "user" } : false,
           },
-          // Tier 3 — basic audio only (maximum compatibility)
+          // Tier 3 — echoCancellation only (drop noiseSuppression for older Safari)
+          {
+            audio: { echoCancellation: true },
+            video: isVideo ? { facingMode: "user" } : false,
+          },
+          // Tier 4 — browser default (absolute last resort; echoCancellation may be off)
           {
             audio: true,
             video: isVideo ? { facingMode: "user" } : false,
@@ -633,6 +653,13 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
       localStreamRef.current = stream;
       setLocalStream(stream);
 
+      console.log("[STREAM_AUDIT] local stream id", {
+        streamId: stream.id,
+        tracks: stream.getTracks().map(t => ({ kind: t.kind, id: t.id.slice(0, 12), enabled: t.enabled, readyState: t.readyState })),
+        matchId,
+        isCaller,
+      });
+
       if (cleanedUpRef.current) return;
 
       console.log("[WebRTC] PC_CREATE_START: creating RTCPeerConnection with", ICE_SERVERS.length, "ICE server(s)");
@@ -663,17 +690,71 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
       callDebug.event(`init: local tracks (${stream.getTracks().map(t => t.kind).join(",")})`);
 
       pc.ontrack = (event) => {
+        // Snapshot local track IDs at event time so we can detect self-monitoring.
+        const localTrackIds = new Set(localStreamRef.current?.getTracks().map(t => t.id) ?? []);
+
         console.log("[CALL_TIMING] REMOTE_TRACK_RECEIVED", { matchId, isCaller, trackKind: event.track.kind, ts: new Date().toISOString() });
+        console.log("[STREAM_AUDIT] remote stream from pc.ontrack id", {
+          streamId: event.streams[0]?.id ?? "no-stream",
+          trackKind: event.track.kind,
+          trackId: event.track.id.slice(0, 12),
+          streamCount: event.streams.length,
+          isLocalTrack: localTrackIds.has(event.track.id),
+          matchId,
+          isCaller,
+        });
+
+        // Guard A: never add our own local track to the remote stream.
+        // If this fires it means WebRTC looped our track back (self-call scenario
+        // or a browser bug). Block it and log loudly so it appears in console.
+        if (localTrackIds.has(event.track.id)) {
+          console.error("[STREAM_AUDIT] BLOCKED local stream playback — pc.ontrack received a LOCAL track, self-monitoring prevented", {
+            trackId: event.track.id.slice(0, 12),
+            trackKind: event.track.kind,
+            matchId,
+            isCaller,
+          });
+          return;
+        }
+
+        // Add tracks from the remote stream bundle (standard path).
+        // Also check each individual track against local IDs.
+        const tracksAdded: string[] = [];
+        event.streams[0]?.getTracks().forEach((track) => {
+          if (localTrackIds.has(track.id)) {
+            console.error("[STREAM_AUDIT] BLOCKED local stream playback — local track found inside remote stream bundle, skipping", {
+              trackId: track.id.slice(0, 12),
+              trackKind: track.kind,
+              matchId,
+            });
+            return;
+          }
+          if (!remote.getTrackById(track.id)) {
+            remote.addTrack(track);
+            tracksAdded.push(track.kind);
+          }
+        });
+
+        // Fallback path: if event.streams[0] is undefined or empty (non-standard
+        // Chrome/Firefox behaviour when addTrack is called without a stream arg),
+        // add event.track directly. This prevents silent "no remote audio" failures.
+        if ((!event.streams[0] || event.streams[0].getTracks().length === 0) &&
+            !remote.getTrackById(event.track.id)) {
+          remote.addTrack(event.track);
+          tracksAdded.push(`${event.track.kind}(fallback)`);
+          console.log("[STREAM_AUDIT] remote track added via fallback path (no streams array)", {
+            trackKind: event.track.kind,
+            trackId: event.track.id.slice(0, 12),
+            matchId,
+          });
+        }
+
         console.log("[WebRTC] Remote track received:", {
           trackKind: event.track.kind,
           trackEnabled: event.track.enabled,
           trackReadyState: event.track.readyState,
           streams: event.streams.length,
-        });
-        event.streams[0]?.getTracks().forEach((track) => {
-          if (!remote.getTrackById(track.id)) {
-            remote.addTrack(track);
-          }
+          tracksAdded,
         });
         setRemoteStream(new MediaStream(remote.getTracks()));
       };
