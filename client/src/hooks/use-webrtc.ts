@@ -96,6 +96,10 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
   // completes — so a second sendOffer() can slip through the signalingState check
   // while the first createOffer() is still pending.
   const isNegotiatingRef = useRef(false);
+  // Guards the one-shot 3-second mute test that runs when the call first
+  // reaches ICE "connected". Reset to false at the start of each new call.
+  const screechTestDoneRef = useRef(false);
+  const screechTestTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   onRemoteHangupRef.current = onRemoteHangup;
 
   const cleanup = useCallback(() => {
@@ -113,6 +117,10 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
     if (connectionTimeoutRef.current) {
       clearTimeout(connectionTimeoutRef.current);
       connectionTimeoutRef.current = null;
+    }
+    if (screechTestTimerRef.current) {
+      clearTimeout(screechTestTimerRef.current);
+      screechTestTimerRef.current = null;
     }
     if (localStreamRef.current) {
       localStreamRef.current.getTracks().forEach((t) => t.stop());
@@ -142,6 +150,7 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
     pendingCandidatesRef.current = [];
     readyReceivedRef.current = false;
     isNegotiatingRef.current = false;
+    screechTestDoneRef.current = false;
     candidateCountsRef.current = { host: 0, srflx: 0, relay: 0 };
     setFailureReason("");
     if (readyRetryIntervalRef.current) {
@@ -919,6 +928,68 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
             connectionTimeoutRef.current = null;
           }
           setConnectionState("connected");
+
+          // ── [SCREECH_TEST] One-shot 3-second local mic mute ─────────────────
+          // When the call first reaches ICE "connected", mute the local audio
+          // track for exactly 3 seconds while keeping remote audio playing.
+          // Purpose: if screeching/beeping stops during this window, the cause
+          // is confirmed as acoustic echo (remote speaker captured by local mic,
+          // bypassing AEC). If it continues, the source is elsewhere (rogue
+          // audio node, hardware DSP, duplicate stream).
+          // The test is one-shot per call (screechTestDoneRef guard) and is
+          // cancelled safely by cleanup() via screechTestTimerRef.
+          if (!screechTestDoneRef.current) {
+            screechTestDoneRef.current = true;
+            const audioTracks = localStreamRef.current?.getAudioTracks() ?? [];
+            audioTracks.forEach(t => { t.enabled = false; });
+            console.log("[SCREECH_TEST] local mic muted for test", {
+              matchId,
+              isCaller,
+              trackCount: audioTracks.length,
+              ts: new Date().toISOString(),
+            });
+            screechTestTimerRef.current = setTimeout(() => {
+              screechTestTimerRef.current = null;
+              if (cleanedUpRef.current) return;
+              const tracks = localStreamRef.current?.getAudioTracks() ?? [];
+              tracks.forEach(t => { t.enabled = true; });
+              console.log("[SCREECH_TEST] local mic restored", {
+                matchId,
+                isCaller,
+                trackCount: tracks.length,
+                ts: new Date().toISOString(),
+              });
+
+              // ── [FEEDBACK_FIX] Re-enforce AEC constraints on mic restore ──
+              // After the test window, re-apply the full echo/noise/gain
+              // constraints. Browsers can drop preferred constraints during
+              // ICE negotiation on some devices; re-applying at this point
+              // ensures AEC is as effective as possible for the conversation.
+              const audioTrack = localStreamRef.current?.getAudioTracks()[0];
+              if (audioTrack) {
+                audioTrack.applyConstraints({
+                  echoCancellation: true,
+                  noiseSuppression: true,
+                  autoGainControl: true,
+                }).then(() => {
+                  const settings = audioTrack.getSettings() as any;
+                  console.log("[FEEDBACK_FIX] AEC constraints re-applied after screech test", {
+                    matchId,
+                    isCaller,
+                    echoCancellation: settings.echoCancellation ?? "not-reported",
+                    noiseSuppression: settings.noiseSuppression ?? "not-reported",
+                    autoGainControl: settings.autoGainControl ?? "not-reported",
+                  });
+                }).catch(err => {
+                  console.warn("[FEEDBACK_FIX] AEC re-apply failed after screech test", {
+                    matchId,
+                    isCaller,
+                    error: err?.message ?? String(err),
+                  });
+                });
+              }
+            }, 3000);
+          }
         } else if (state === "disconnected") {
           callDebug.event("ice: disconnected — 20s timer started");
           setConnectionState("reconnecting");
