@@ -213,7 +213,7 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
 
     const handleSignal = async (msg: SignalMessage) => {
       if (msg.from === userId) {
-        console.warn("[SIGNAL] ignored own message", { type: msg.type, from: msg.from.slice(0, 8), matchId });
+        console.warn("[SIGNAL_AUDIT] ignored own signalling message", { type: msg.type, from: msg.from.slice(0, 8), matchId });
         return;
       }
 
@@ -532,18 +532,31 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
               console.warn("[WebRTC] MEDIA_CONSTRAINT_FALLBACK: succeeded on tier", i + 1,
                 "— echo cancellation may be reduced:", constraintSummary);
             }
-            console.log(`[SELF_AUDIO] remote-only audio active — getUserMedia tier ${i + 1}: ${constraintSummary}`, { matchId, isCaller });
-            // On the last-resort tier (audio:true), attempt to apply echoCancellation
-            // post-hoc via applyConstraints. This silently succeeds on most browsers
-            // and prevents acoustic feedback even without explicit constraints.
-            if (i === tiers.length - 1) {
+            // Log echo-cancellation status at the confirmed tier.
+            // [FEEDBACK_FIX] fires whenever echoCancellation is present (tiers 1-3).
+            // On tier 4 (audio:true), we attempt post-hoc applyConstraints and log the outcome.
+            if (i < tiers.length - 1) {
+              console.log("[FEEDBACK_FIX] echo cancellation enabled — tier", i + 1, ":", constraintSummary, { matchId, isCaller });
+            } else {
+              // Tier 4 — last resort. Try to apply echo constraints post-hoc.
               const audioTrack = stream.getAudioTracks()[0];
               if (audioTrack) {
-                audioTrack.applyConstraints({ echoCancellation: true, noiseSuppression: true }).catch(() => {
-                  console.warn("[SELF_AUDIO] applyConstraints echoCancellation failed on fallback tier — feedback risk elevated");
-                });
+                audioTrack.applyConstraints({ echoCancellation: true, noiseSuppression: true })
+                  .then(() => {
+                    console.log("[FEEDBACK_FIX] echo cancellation enabled — tier 4 (post-hoc applyConstraints succeeded)", { matchId, isCaller });
+                  })
+                  .catch(() => {
+                    console.warn("[FEEDBACK_FIX] echo cancellation NOT enabled — tier 4 applyConstraints rejected, feedback risk elevated", { matchId, isCaller });
+                  });
               }
             }
+            console.log("[STREAM_AUDIT] local stream id", {
+              streamId: stream.id,
+              tracks: stream.getTracks().map(t => ({ kind: t.kind, id: t.id.slice(0, 12) })),
+              tier: i + 1,
+              matchId,
+              isCaller,
+            });
             return stream;
           } catch (err: any) {
             lastErr = err;
@@ -718,7 +731,7 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
         // If this fires it means WebRTC looped our track back (self-call scenario
         // or a browser bug). Block it and log loudly so it appears in console.
         if (localTrackIds.has(event.track.id)) {
-          console.error("[SELF_AUDIO] blocked local mic playback — pc.ontrack received own track, preventing self-monitoring", {
+          console.error("[STREAM_AUDIT] BLOCKED local stream playback — pc.ontrack received own local track, preventing self-monitoring", {
             trackId: event.track.id.slice(0, 12),
             trackKind: event.track.kind,
             matchId,
