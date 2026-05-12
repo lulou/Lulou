@@ -71,6 +71,7 @@ export function useCallSignaling(matchIds: string[], userId: string) {
         if (!payload) return;
         const senderId = payload.userId || payload.callerId;
         if (senderId === userId) {
+          console.log("[CALL_SIGNAL] ignored own signalling message", { matchId, type: payload?.type });
           console.log("[CALL_SIGNAL] BROADCAST_SELF_FILTERED", { matchId, type: payload?.type });
           return;
         }

@@ -258,6 +258,7 @@ function CallDetectors({ userId }: { userId: string }) {
   // cold start, but belt-and-suspenders in case of fast HMR or component re-mount).
   useEffect(() => {
     stopIncomingRingtone("app_startup");
+    console.log("[CALL_RESET] app startup: all call audio stopped", { userId: userId.slice(0, 8) });
     console.log("[CALL_STATE_FIX] app startup stop ringtone", { userId: userId.slice(0, 8) });
   }, []);
 
@@ -344,17 +345,19 @@ function CallDetectors({ userId }: { userId: string }) {
       if (ageMs > STARTUP_STALE_MS) {
         // Stale — clear from cache so incomingCall useMemo never returns it.
         hadStale = true;
-        console.warn("[CALL_STATE_FIX] cleared stale call state", {
+        console.warn("[CALL_RESET] stale call state cleared", {
           matchId: m.id,
           callSessionId: m.callSessionId,
           ageMs,
           reason: "startup_sweep — callStartedAt older than STARTUP_STALE_MS",
         });
-        console.warn("[CALL_RINGTONE] blocked stale ringtone on refresh", {
+        console.warn("[CALL_RINGTONE] blocked because no verified live call", {
           matchId: m.id,
           callSessionId: m.callSessionId,
           ageMs,
         });
+        // Legacy label — keep for backward log compat.
+        console.warn("[CALL_STATE_FIX] cleared stale call state", { matchId: m.id, callSessionId: m.callSessionId, ageMs });
         markCallSessionCancelled(m.id, m.callSessionId);
         clearCallFromCache(qc, m.id, m.callSessionId);
       } else {

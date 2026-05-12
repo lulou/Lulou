@@ -490,13 +490,13 @@ export function ActiveCallOverlay({
       // Guard D: if the stream we're about to attach as "remote" has the same ID
       // as localStream, something is critically wrong — block it and log loudly.
       if (localStream && remoteStream.id === localStream.id) {
-        console.error("[STREAM_AUDIT] BLOCKED local stream playback — remoteStream.id === localStream.id, not attaching to audio element!", {
-          streamId: remoteStream.id,
+        console.error("[CALL_AUDIO] blocked local stream from audio element", {
+          streamId: remoteStream.id.slice(0, 16),
+          reason: "guard D — remoteStream.id === localStream.id",
           matchId,
         });
-        console.error("[SCREECH_FIX] blocked local stream playback", {
-          streamId: remoteStream.id.slice(0, 16),
-          reason: "remoteStream.id === localStream.id — local stream reached audio element guard D",
+        console.error("[STREAM_AUDIT] BLOCKED local stream playback — remoteStream.id === localStream.id, not attaching to audio element!", {
+          streamId: remoteStream.id,
           matchId,
         });
       } else {

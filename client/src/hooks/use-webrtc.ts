@@ -489,14 +489,14 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
         if (payload.from === userId) {
           // Belt-and-suspenders: self:false should prevent this, but log if it
           // somehow fires so we can catch Supabase config regressions.
-          console.warn("[SIGNAL_AUDIT] ignored own signalling message — self-broadcast leaked through", {
+          console.warn("[CALL_SIGNAL] ignored own signalling message", {
             type: payload.type,
             from: String(payload.from).slice(0, 8),
             matchId,
           });
-          console.warn("[SCREECH_FIX] ignored own signalling", {
+          console.warn("[SIGNAL_AUDIT] ignored own signalling message — self-broadcast leaked through", {
             type: payload.type,
-            source: "channel-listener (self:false leaked)",
+            from: String(payload.from).slice(0, 8),
             matchId,
           });
           return;
@@ -526,15 +526,7 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
             audio: { echoCancellation: true },
             video: isVideo ? { facingMode: "user" } : false,
           },
-          // Tier 4 — last resort: keep echoCancellation:true even without noiseSuppression/AGC.
-          // Never fall back to bare `audio:true` — that would disable echo cancellation
-          // entirely, guaranteeing acoustic feedback/screeching when speaker output is
-          // picked up by the microphone and re-transmitted to the remote peer.
-          {
-            audio: { echoCancellation: true },
-            video: isVideo ? { facingMode: "user" } : false,
-          },
-        ];
+          ];
 
         let lastErr: unknown;
         for (let i = 0; i < tiers.length; i++) {
@@ -555,23 +547,11 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
                 "— echo cancellation may be reduced:", constraintSummary);
             }
             // Log echo-cancellation status at the confirmed tier.
-            // [FEEDBACK_FIX] fires whenever echoCancellation is present (tiers 1-3).
-            // On tier 4 (audio:true), we attempt post-hoc applyConstraints and log the outcome.
-            if (i < tiers.length - 1) {
-              console.log("[FEEDBACK_FIX] echo cancellation enabled — tier", i + 1, ":", constraintSummary, { matchId, isCaller });
-            } else {
-              // Tier 4 — last resort. Try to apply echo constraints post-hoc.
-              const audioTrack = stream.getAudioTracks()[0];
-              if (audioTrack) {
-                audioTrack.applyConstraints({ echoCancellation: true, noiseSuppression: true })
-                  .then(() => {
-                    console.log("[FEEDBACK_FIX] echo cancellation enabled — tier 4 (post-hoc applyConstraints succeeded)", { matchId, isCaller });
-                  })
-                  .catch(() => {
-                    console.warn("[FEEDBACK_FIX] echo cancellation NOT enabled — tier 4 applyConstraints rejected, feedback risk elevated", { matchId, isCaller });
-                  });
-              }
-            }
+            // echoCancellation is present in all three tiers — AEC is always on.
+            // Tier 3 (echoCancellation only) is the minimum: noiseSuppression and
+            // autoGainControl are omitted because some older Safari rejects them,
+            // but echoCancellation must always be requested to prevent feedback.
+            console.log("[FEEDBACK_FIX] echo cancellation enabled — tier", i + 1, ":", constraintSummary, { matchId, isCaller });
             console.log("[STREAM_AUDIT] local stream id", {
               streamId: stream.id,
               tracks: stream.getTracks().map(t => ({ kind: t.kind, id: t.id.slice(0, 12) })),
@@ -773,26 +753,38 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
         // If this fires it means WebRTC looped our track back (self-call scenario
         // or a browser bug). Block it and log loudly so it appears in console.
         if (localTrackIds.has(event.track.id)) {
+          console.error("[CALL_AUDIO] local mic playback blocked", {
+            trackId: event.track.id.slice(0, 12),
+            trackKind: event.track.kind,
+            reason: "pc.ontrack guard A — own local track arrived in remote event",
+            matchId,
+          });
           console.error("[STREAM_AUDIT] BLOCKED local stream playback — pc.ontrack received own local track, preventing self-monitoring", {
             trackId: event.track.id.slice(0, 12),
             trackKind: event.track.kind,
             matchId,
             isCaller,
           });
-          console.error("[SCREECH_FIX] blocked local stream playback", {
-            trackId: event.track.id.slice(0, 12),
-            trackKind: event.track.kind,
-            reason: "pc.ontrack guard A — local track arrived in remote event",
-            matchId,
-          });
           return;
         }
+
+        console.log("[CALL_AUDIO] remote stream from pc.ontrack only", {
+          trackKind: event.track.kind,
+          trackId: event.track.id.slice(0, 12),
+          matchId,
+        });
 
         // Add tracks from the remote stream bundle (standard path).
         // Also check each individual track against local IDs.
         const tracksAdded: string[] = [];
         event.streams[0]?.getTracks().forEach((track) => {
           if (localTrackIds.has(track.id)) {
+            console.error("[CALL_AUDIO] local mic playback blocked", {
+              trackId: track.id.slice(0, 12),
+              trackKind: track.kind,
+              reason: "pc.ontrack guard A — local track found in remote stream bundle",
+              matchId,
+            });
             console.error("[STREAM_AUDIT] BLOCKED local stream playback — local track found inside remote stream bundle, skipping", {
               trackId: track.id.slice(0, 12),
               trackKind: track.kind,
