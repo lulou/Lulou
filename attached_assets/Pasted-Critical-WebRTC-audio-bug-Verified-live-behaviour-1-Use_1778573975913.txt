@@ -1,0 +1,50 @@
+Critical WebRTC audio bug.
+
+Verified live behaviour:
+1. User hears their OWN voice during the call.
+2. User also hears screeching/beeping.
+3. Browser audit showed only ONE <audio> element, so the single audible audio element may be playing the wrong stream OR the same user is joining both sides of the call/signalling.
+
+Do NOT work on ringtone in this pass. Fix self-audio and feedback only.
+
+Investigate these exact causes:
+
+A) Wrong stream in audio element
+- Check if the audible <audio> element receives the local mic stream instead of remote stream.
+- Local mic stream must NEVER be passed to setRemoteStream.
+- Local mic stream must NEVER be assigned to audio srcObject.
+- Audible audio must only come from pc.ontrack.
+
+B) Same user/session on both sides
+- Check if caller and receiver IDs are accidentally the same.
+- Check if one browser/account is acting as both caller and callee.
+- Block calls where callerId === calleeId.
+- Ensure the current user only handles their own side of the call.
+
+C) Duplicate signalling / loopback
+- Check whether the sender is receiving their own offer/answer/ICE candidates.
+- Ignore signalling messages created by the current user.
+- Ensure ICE candidates include senderId and are ignored by the sender.
+- Ensure offers/answers are only processed by the intended recipient.
+
+D) Audio feedback protection
+- Force getUserMedia audio constraints:
+js audio: {   echoCancellation: true,   noiseSuppression: true,   autoGainControl: true }
+- Keep exactly one audible remote audio element.
+- If audio element srcObject stream id equals local stream id, block playback and log an error.
+
+Add logs:
+[CALL_ID_AUDIT] currentUserId callerId calleeId
+[CALL_ID_AUDIT] blocked self-call
+[STREAM_AUDIT] local stream id
+[STREAM_AUDIT] remote stream from pc.ontrack id
+[STREAM_AUDIT] audio element srcObject id
+[STREAM_AUDIT] BLOCKED local stream playback
+[SIGNAL_AUDIT] ignored own signalling message
+[FEEDBACK_FIX] echo cancellation enabled
+
+Before finishing, tell me exactly:
+1. Was the audio element receiving the local stream?
+2. Was the user being connected to themselves?
+3. Were own signalling messages being processed?
+4. What exact file/function caused the self-voice/screeching?

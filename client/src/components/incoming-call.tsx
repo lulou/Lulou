@@ -42,14 +42,21 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss }: In
   // Starts as !isAudioUnlocked() — false on desktop (already unlocked), true on a cold mobile session.
   const [showRingBanner, setShowRingBanner] = useState(!isAudioUnlocked());
 
-  // When audio unlocks (first gesture anywhere on screen) hide the banner.
-  // onAudioUnlocked fires immediately if already unlocked, else on next gesture.
+  // When audio unlocks (any gesture anywhere) hide the banner automatically.
+  // onAudioUnlocked fires synchronously if already unlocked (cold→warm transition).
   useEffect(() => {
-    const unsub = onAudioUnlocked(() => {
-      setShowRingBanner(false);
-      console.log("[RINGTONE_MOBILE] audio unlocked — hiding ring banner");
-    });
+    const unsub = onAudioUnlocked(() => setShowRingBanner(false));
     return unsub;
+  }, []);
+
+  // Vibration — immediate tactile fallback; does not require audio unlock.
+  // Works on Android; silently no-ops on iOS (navigator.vibrate not supported).
+  useEffect(() => {
+    try {
+      if (typeof navigator !== "undefined" && navigator.vibrate) {
+        navigator.vibrate([400, 200, 400, 1500, 400, 200, 400]);
+      }
+    } catch { /* non-fatal */ }
   }, []);
 
   // Silence the ring immediately — called before any mutation fires.

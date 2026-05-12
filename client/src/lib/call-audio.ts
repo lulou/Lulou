@@ -1,249 +1,263 @@
 /**
- * call-audio.ts — Phone-call audio controller.
+ * call-audio.ts — Ringtone + call audio controller.
  *
- * ════════════════════════════════════════════════════════════════════════════
- * STRICT AUDIO SEPARATION — three sources, three rules:
+ * ═══════════════════════════════════════════════════════════════════════
+ * AUDIO SEPARATION RULES
  *
- *   1. ringtoneAudio  — HTMLAudioElement with WAV blob URL, loop=true.
- *                       Plays ONLY on the RECEIVER's device during ringing.
- *                       STOPPED (paused + reset) before getUserMedia is called.
- *                       Never played during a connected call.
+ *  ringtoneEl  — WAV blob, loop=true. RECEIVER only, during ringing.
+ *                Stopped before getUserMedia. Never during a live call.
  *
- *   2. ringbackAudio  — HTMLAudioElement with WAV blob URL, loop=true.
- *                       Plays ONLY on the CALLER's device while waiting.
- *                       STOPPED before getUserMedia is called.
- *                       Never played during a connected call.
+ *  ringbackEl  — WAV blob, loop=true. CALLER only, waiting for answer.
+ *                Stopped before getUserMedia. Never during a live call.
  *
- *   3. remoteVoiceAudio — HTMLAudioElement with srcObject = remote MediaStream.
- *                       The ONLY audible source during a connected call.
- *                       Registered via registerVoiceAudioElement().
- *                       Detached and cleared on call end.
+ *  remoteVoice — HTMLAudioElement with srcObject = remote MediaStream.
+ *                Only audible source during a connected call.
  *
- *   LOCAL MIC STREAM — goes into RTCPeerConnection.addTrack() ONLY.
- *                       NEVER attached to any HTMLAudioElement.
- *                       NEVER audible locally. No feedback. No self-monitoring.
+ *  LOCAL MIC   — RTCPeerConnection.addTrack() ONLY.
+ *                NEVER attached to any HTMLAudioElement.
+ * ═══════════════════════════════════════════════════════════════════════
  *
- * ════════════════════════════════════════════════════════════════════════════
+ * WHY SINGLETON ELEMENTS (not `new Audio()` per call)
  *
- * WHY new Audio() INSTEAD OF Web Audio API OSCILLATORS:
+ *  iOS Safari enforces autoplay PER ELEMENT, not per session.
+ *  Creating `new Audio()` inside startIncomingRingtone() produces a
+ *  brand-new element that has never been user-activated — play() is
+ *  blocked even if the user has previously tapped other things.
  *
- *   Web Audio API + iOS AVAudioSession interaction caused two bugs:
+ *  Fix: create ONE element for each tone at module load time.
+ *  On the first user gesture, call play() on these same elements
+ *  (pre-warm). iOS marks them as "user-activated" synchronously
+ *  (before the Promise resolves). Future play() calls on the SAME
+ *  elements succeed from any context — React effects, Supabase
+ *  Realtime callbacks, anywhere.
  *
- *   BUG 1 — No ringtone:
- *     new AudioContext() always starts SUSPENDED on iOS. resume() is async
- *     and requires a user gesture in the same call stack. The incoming overlay
- *     mounts in a React effect (not a gesture). By the time the user taps
- *     Answer (first gesture), silenceRing() kills the ring state before the
- *     context can resume. Ring never plays.
+ * WHY HTMLAudioElement INSTEAD OF Web Audio API
  *
- *   BUG 2 — Beeping/screeching during connected call:
- *     getUserMedia({audio}) switches iOS AVAudioSession to PlayAndRecord.
- *     This RESTARTS any live AudioContext — even one whose oscillators were
- *     stopped or whose context was "closed" (close() is async; 80ms wasn't
- *     always enough). The restarted context re-emits its sample buffer through
- *     the speaker. The open mic captures those 440/480 Hz tones and transmits
- *     them to the remote peer.
+ *  Web Audio API + iOS AVAudioSession caused two bugs:
  *
- *   SOLUTION: HTMLAudioElement.play() with a WAV blob URL.
- *     - No AudioContext. No oscillators. No AVAudioSession restart risk.
- *     - Stopping = .pause() + .currentTime = 0. Instant and synchronous.
- *     - A paused <audio> element cannot be restarted by AVAudioSession changes.
- *     - Autoplay retry on first gesture handles iOS autoplay policy.
+ *  BUG 1 — No ringtone:
+ *    AudioContext always starts SUSPENDED on iOS. resume() requires a
+ *    gesture in the same call stack. The incoming overlay mounts from
+ *    a Supabase Realtime effect (no gesture). By the time the user
+ *    taps Answer, silenceRing() has killed the ring state — context
+ *    never resumes.
+ *
+ *  BUG 2 — Screeching during connected call:
+ *    getUserMedia() switches iOS AVAudioSession to PlayAndRecord.
+ *    This RESTARTS any live AudioContext — re-emitting buffered tone
+ *    samples through the speaker. The open mic captures those 440/480 Hz
+ *    tones and transmits them to the remote peer as screeching.
+ *
+ *  HTMLAudioElement: stopping = .pause() + .currentTime = 0. Instant,
+ *  synchronous, no AVAudioSession restart risk.
  */
 
-// ── WAV generation ────────────────────────────────────────────────────────────
+// ── WAV generation ─────────────────────────────────────────────────────────
 
-/**
- * Generate a PCM WAV blob URL with the given sample data.
- * 8kHz mono 16-bit PCM.
- */
 function _makeWavUrl(samples: Float32Array): string {
-  const numSamples = samples.length;
-  const buf = new ArrayBuffer(44 + numSamples * 2);
+  const n = samples.length;
+  const buf = new ArrayBuffer(44 + n * 2);
   const dv = new DataView(buf);
   const w4 = (o: number, s: string) => {
     for (let i = 0; i < 4; i++) dv.setUint8(o + i, s.charCodeAt(i));
   };
   const SR = 8000;
-  w4(0, "RIFF"); dv.setUint32(4, 36 + numSamples * 2, true);
+  w4(0, "RIFF"); dv.setUint32(4, 36 + n * 2, true);
   w4(8, "WAVE"); w4(12, "fmt ");
-  dv.setUint32(16, 16, true);
-  dv.setUint16(20, 1, true);
-  dv.setUint16(22, 1, true);
-  dv.setUint32(24, SR, true);
-  dv.setUint32(28, SR * 2, true);
-  dv.setUint16(32, 2, true);
+  dv.setUint32(16, 16, true);  dv.setUint16(20, 1, true);
+  dv.setUint16(22, 1, true);   dv.setUint32(24, SR, true);
+  dv.setUint32(28, SR * 2, true); dv.setUint16(32, 2, true);
   dv.setUint16(34, 16, true);
-  w4(36, "data"); dv.setUint32(40, numSamples * 2, true);
-  for (let i = 0; i < numSamples; i++) {
+  w4(36, "data"); dv.setUint32(40, n * 2, true);
+  for (let i = 0; i < n; i++) {
     dv.setInt16(44 + i * 2, Math.max(-32767, Math.min(32767, Math.round(samples[i] * 32767))), true);
   }
   return URL.createObjectURL(new Blob([buf], { type: "audio/wav" }));
 }
 
 /**
- * Incoming ringtone — classic "ring ring, pause, ring ring, pause" pattern.
+ * Incoming ringtone — "ring ring, pause, ring ring, pause" pattern.
  *
- * Pattern:
- *   0.00 – 0.80 s  ring  #1  (800 ms)
- *   0.80 – 1.50 s  gap        (700 ms)
- *   1.50 – 2.30 s  ring  #2  (800 ms)
- *   2.30 – 4.50 s  silence   (2200 ms)
- *   Total loop: 4.5 s
+ * Timing:
+ *   0.00 – 0.80 s   ring 1   (800 ms)
+ *   0.80 – 1.50 s   gap      (700 ms)
+ *   1.50 – 2.30 s   ring 2   (800 ms)
+ *   2.30 – 4.50 s   silence  (2200 ms)
+ *   Total: 4.5 s loop
  *
- * 440 Hz + 480 Hz (standard North American telephone tone) with 20 ms
- * fade-in/out on each ring burst to avoid clicks.
+ * 440 Hz + 480 Hz (North American telephone cadence).
+ * 20 ms fade-in/out on each burst to avoid clicks.
  */
-function _generateRingtoneSrc(): string {
-  const SR = 8000;
-  const DUR = 4.5;
+function _buildRingtoneSamples(): Float32Array {
+  const SR = 8000, DUR = 4.5;
   const n = Math.floor(SR * DUR);
-  const samples = new Float32Array(n);
-  const FADE = 0.020; // 20 ms fade edges
-  const RINGS: [number, number][] = [
-    [0.00, 0.80],   // ring 1
-    [1.50, 2.30],   // ring 2
-  ];
+  const s = new Float32Array(n);
+  const FADE = 0.02;
+  const RINGS: [number, number][] = [[0.00, 0.80], [1.50, 2.30]];
   for (let i = 0; i < n; i++) {
     const t = i / SR;
     const mod = t % DUR;
     let env = 0;
-    for (const [s, e] of RINGS) {
-      if (mod >= s && mod < e) {
-        env = Math.min((mod - s) / FADE, 1, (e - mod) / FADE);
-        break;
-      }
+    for (const [a, b] of RINGS) {
+      if (mod >= a && mod < b) { env = Math.min((mod - a) / FADE, 1, (b - mod) / FADE); break; }
     }
-    samples[i] = env * 0.70 * (Math.sin(2 * Math.PI * 440 * t) + Math.sin(2 * Math.PI * 480 * t)) / 2;
+    s[i] = env * 0.70 * (Math.sin(2 * Math.PI * 440 * t) + Math.sin(2 * Math.PI * 480 * t)) / 2;
   }
-  return _makeWavUrl(samples);
+  return s;
 }
 
 /**
- * Outgoing ringback: US cadence 2 s ring · 4 s silence = 6 s loop.
- * 440 Hz + 480 Hz, slightly quieter than incoming.
+ * Outgoing ringback — US cadence 2 s ring · 4 s silence = 6 s loop.
  */
-function _generateRingbackSrc(): string {
-  const SR = 8000;
-  const DUR = 6.0;
+function _buildRingbackSamples(): Float32Array {
+  const SR = 8000, DUR = 6.0;
   const n = Math.floor(SR * DUR);
-  const samples = new Float32Array(n);
+  const s = new Float32Array(n);
   const FADE = 0.02;
   for (let i = 0; i < n; i++) {
     const t = i / SR;
     const mod = t % DUR;
-    let env = 0;
-    if (mod < 2.0) env = Math.min(mod / FADE, 1, (2.0 - mod) / FADE);
-    samples[i] = env * 0.60 * (Math.sin(2 * Math.PI * 440 * t) + Math.sin(2 * Math.PI * 480 * t)) / 2;
+    const env = mod < 2.0 ? Math.min(mod / FADE, 1, (2.0 - mod) / FADE) : 0;
+    s[i] = env * 0.60 * (Math.sin(2 * Math.PI * 440 * t) + Math.sin(2 * Math.PI * 480 * t)) / 2;
   }
-  return _makeWavUrl(samples);
+  return s;
 }
 
-// Lazy-initialised blob URLs — created once, reused forever.
+// Blob URLs created once and reused.
 let _ringtoneSrc: string | null = null;
 let _ringbackSrc: string | null = null;
-const _getRingtoneSrc = (): string => {
-  if (_ringtoneSrc === null) {
-    try { _ringtoneSrc = _generateRingtoneSrc(); } catch { _ringtoneSrc = ""; }
-  }
+function _getRingtoneSrc(): string {
+  if (!_ringtoneSrc) { try { _ringtoneSrc = _makeWavUrl(_buildRingtoneSamples()); } catch { _ringtoneSrc = ""; } }
   return _ringtoneSrc;
-};
-const _getRingbackSrc = (): string => {
-  if (_ringbackSrc === null) {
-    try { _ringbackSrc = _generateRingbackSrc(); } catch { _ringbackSrc = ""; }
-  }
+}
+function _getRingbackSrc(): string {
+  if (!_ringbackSrc) { try { _ringbackSrc = _makeWavUrl(_buildRingbackSamples()); } catch { _ringbackSrc = ""; } }
   return _ringbackSrc;
-};
+}
 
-// ── Module state ───────────────────────────────────────────────────────────────
+// ── Singleton audio elements ───────────────────────────────────────────────
+//
+// ONE element per tone. Created at module load, reused for every call.
+// Pre-warming on the first user gesture authorises the element on iOS Safari.
 
 let _ringtoneEl: HTMLAudioElement | null = null;
 let _ringbackEl: HTMLAudioElement | null = null;
+let _ringtoneActive  = false;  // ring is supposed to be playing right now
+let _ringbackActive  = false;
+let _ringtoneWarm    = false;  // element has been user-activated on iOS
+let _ringbackWarm    = false;
+
+function _ensureRingtoneEl(): HTMLAudioElement | null {
+  if (typeof window === "undefined") return null;
+  if (!_ringtoneEl) {
+    const src = _getRingtoneSrc();
+    if (!src) return null;
+    _ringtoneEl = new Audio(src);
+    _ringtoneEl.loop   = true;
+    _ringtoneEl.volume = 1.0;
+  }
+  return _ringtoneEl;
+}
+
+function _ensureRingbackEl(): HTMLAudioElement | null {
+  if (typeof window === "undefined") return null;
+  if (!_ringbackEl) {
+    const src = _getRingbackSrc();
+    if (!src) return null;
+    _ringbackEl = new Audio(src);
+    _ringbackEl.loop   = true;
+    _ringbackEl.volume = 0.85;
+  }
+  return _ringbackEl;
+}
+
 /**
- * True when an incoming ringtone attempted play() but was blocked by the
- * browser's autoplay policy. _unlockAudio() checks this flag and starts the
- * ring immediately in the capture phase of the first user gesture.
+ * Pre-warm the singleton elements inside a user gesture call stack.
+ *
+ * On iOS Safari, calling play() within a gesture synchronously marks the
+ * element as "user-activated" — before the Promise resolves. Even if
+ * pause() is called immediately (causing AbortError on the Promise), the
+ * activation sticks. Future play() calls on the same element succeed from
+ * any context (React effects, Supabase callbacks, etc.).
  */
-let _ringtonePending = false;
-let _ringbackPending = false;
+function _warmElements(): void {
+  // ── Ringtone ──
+  const rt = _ensureRingtoneEl();
+  if (rt && !_ringtoneWarm) {
+    _ringtoneWarm = true; // mark synchronously — activation happens on play() call, not Promise resolve
+    rt.play().then(() => {
+      // If no incoming call is pending, silence immediately (just a warm-up, not a real ring).
+      if (!_ringtoneActive) {
+        rt.pause();
+        rt.currentTime = 0;
+      } else {
+        // Ring was waiting for unlock — it's now playing.
+        console.log("[CALL_RINGTONE] incoming ringtone started (post-unlock)");
+      }
+    }).catch(() => {
+      // AbortError from immediate pause is expected and harmless — element is still warm.
+      if (_ringtoneActive) {
+        // Ring was waiting — try once more (should succeed now that element is warm).
+        rt.currentTime = 0;
+        rt.play().catch(() => {});
+      }
+    });
+  }
 
-interface VoiceElEntry { el: HTMLAudioElement | HTMLVideoElement; label: string; }
-const _voiceElements: VoiceElEntry[] = [];
+  // ── Ringback ──
+  const rb = _ensureRingbackEl();
+  if (rb && !_ringbackWarm) {
+    _ringbackWarm = true;
+    rb.play().then(() => {
+      if (!_ringbackActive) { rb.pause(); rb.currentTime = 0; }
+    }).catch(() => {
+      if (_ringbackActive) { rb.currentTime = 0; rb.play().catch(() => {}); }
+    });
+  }
+}
 
-// ── Audio policy unlock ───────────────────────────────────────────────────────
+// ── Audio policy unlock ────────────────────────────────────────────────────
 //
-// iOS Safari (and strict-mode Chrome) block audio.play() until the page has
-// received at least one user gesture. The incoming-call overlay is mounted by
-// a Supabase Realtime broadcast — there is no gesture in that call stack — so
-// the first el.play() attempt inside startIncomingRingtone() fails silently.
-//
-// Fix: play a 1-sample silent WAV on the very first user interaction with the
-// app. This lifts the browser's autoplay gate for the entire session, so any
-// subsequent el.play() (including the incoming ringtone) works immediately.
+// iOS requires play() to be called in a gesture context to authorise the
+// element. We listen for the first touchstart/click in CAPTURE phase (before
+// any React onClick handler can silence the ring) and warm both elements.
 
 let _audioUnlocked = false;
 const _unlockCallbacks: Array<() => void> = [];
 
-function _unlockAudio(): void {
+function _doUnlock(): void {
   if (_audioUnlocked) return;
   _audioUnlocked = true;
-  document.removeEventListener("touchstart", _unlockAudio, true);
-  document.removeEventListener("click",      _unlockAudio, true);
-  try {
-    const el = new Audio(_makeWavUrl(new Float32Array(1)));
-    el.volume = 0;
-    el.play().then(() => { el.src = ""; }).catch(() => {});
-    console.log("[RINGTONE_MOBILE] audio unlocked on first gesture");
-  } catch { /* non-fatal */ }
+  document.removeEventListener("touchstart", _doUnlock, true);
+  document.removeEventListener("click",      _doUnlock, true);
 
-  // Immediately start any ringtone/ringback that failed to autoplay.
-  // Fires in CAPTURE phase — before any Answer/Decline React onClick handler.
-  if (_ringtonePending && _ringtoneEl) {
-    _ringtoneEl.play().then(() => {
-      _ringtonePending = false;
-      console.log("[RINGTONE_MOBILE] pending ringtone started after unlock");
-    }).catch(() => { _ringtonePending = false; });
-  }
-  if (_ringbackPending && _ringbackEl) {
-    _ringbackEl.play().then(() => {
-      _ringbackPending = false;
-    }).catch(() => { _ringbackPending = false; });
-  }
+  // Warm the singleton ring elements — this is the critical iOS fix.
+  _warmElements();
 
-  // Notify any React components that registered an unlock callback.
-  for (const cb of _unlockCallbacks) {
-    try { cb(); } catch { /* non-fatal */ }
-  }
+  console.log("[CALL_RINGTONE] audio unlocked");
+
+  for (const cb of _unlockCallbacks) { try { cb(); } catch { /* non-fatal */ } }
   _unlockCallbacks.length = 0;
 }
 
 if (typeof window !== "undefined") {
-  document.addEventListener("touchstart", _unlockAudio, { capture: true, passive: true });
-  document.addEventListener("click",      _unlockAudio, { capture: true, passive: true });
+  document.addEventListener("touchstart", _doUnlock, { capture: true, passive: true });
+  document.addEventListener("click",      _doUnlock, { capture: true, passive: true });
 }
 
-/** Returns true once the browser's autoplay gate has been lifted. */
-export function isAudioUnlocked(): boolean {
-  return _audioUnlocked;
-}
+/** Whether the browser's autoplay gate has been lifted by a user gesture. */
+export function isAudioUnlocked(): boolean { return _audioUnlocked; }
 
-/**
- * Programmatically trigger the audio unlock (call from a user-gesture handler).
- * Safe to call multiple times — idempotent.
- */
-export function unlockAudioNow(): void {
-  _unlockAudio();
-}
+/** Trigger the audio unlock programmatically from a gesture handler. */
+export function unlockAudioNow(): void { _doUnlock(); }
 
 /**
  * Register a callback that fires once when audio is unlocked.
- * If already unlocked, fires immediately (synchronously).
+ * Fires immediately (synchronously) if already unlocked.
+ * Returns an unsubscribe function.
  */
 export function onAudioUnlocked(cb: () => void): () => void {
-  if (_audioUnlocked) {
-    cb();
-    return () => {};
-  }
+  if (_audioUnlocked) { cb(); return () => {}; }
   _unlockCallbacks.push(cb);
   return () => {
     const i = _unlockCallbacks.indexOf(cb);
@@ -251,131 +265,86 @@ export function onAudioUnlocked(cb: () => void): () => void {
   };
 }
 
-// ── Public ring API ───────────────────────────────────────────────────────────
+// ── Public ringtone API ────────────────────────────────────────────────────
 
 /**
- * Start the incoming ringtone on the RECEIVER's device.
+ * Start the incoming ringtone (RECEIVER only).
  *
- * Uses HTMLAudioElement (WAV blob URL) — no AudioContext, no oscillators.
- * Pattern: "ring ring, pause, ring ring, pause" (4.5 s loop).
- *
- * On mobile where autoplay is blocked, the pending flag causes
- * _unlockAudio() to restart the ring on the next user gesture.
- * Vibration is also triggered immediately as a tactile fallback.
+ * Uses the singleton element. If it has been pre-warmed (any prior gesture),
+ * play() succeeds immediately from a React effect. If not yet warmed (cold
+ * mobile session with no prior gesture), play() is blocked — the ring starts
+ * automatically when _doUnlock fires on the next touch. Vibration is triggered
+ * as an immediate tactile fallback on Android.
  */
 export function startIncomingRingtone(): void {
   try {
-    stopIncomingRingtone("restart");
     if (typeof window === "undefined") return;
-    const src = _getRingtoneSrc();
-    if (!src) { console.warn("[RINGTONE] ringtone src unavailable — skipping"); return; }
-    const el = new Audio(src);
-    el.loop = true;
-    el.volume = 1.0;
-    _ringtoneEl = el;
-    _ringtonePending = true;
+    const el = _ensureRingtoneEl();
+    if (!el) { console.warn("[CALL_RINGTONE] ringtone element unavailable"); return; }
 
-    console.log("[RINGTONE] phone pattern start — ring ring, pause, ring ring, pause (4.5s loop)");
+    // If already playing for some reason, stop before restarting.
+    if (_ringtoneActive) {
+      el.pause();
+      el.currentTime = 0;
+    }
 
-    el.play().then(() => {
-      _ringtonePending = false;
-      console.log("[RINGTONE_MOBILE] audio unlocked — ringtone playing immediately");
-    }).catch(() => {
-      console.warn("[RINGTONE_MOBILE] autoplay blocked — ringtone pending until first gesture");
+    _ringtoneActive = true;
+    el.currentTime  = 0;
 
-      // Vibration fallback — works on Android without any audio unlock.
-      // Pattern: ring(400ms) pause(200ms) ring(400ms) pause(1000ms) x repeat
+    console.log("[CALL_RINGTONE] incoming ringtone started");
+
+    el.play().catch(() => {
+      // Blocked by autoplay policy (cold session, no prior gesture).
+      console.log("[CALL_RINGTONE] ringtone blocked by autoplay — waiting for first gesture");
+
+      // Vibration fallback — works on Android without audio unlock.
       try {
-        if (typeof navigator !== "undefined" && typeof navigator.vibrate === "function") {
-          navigator.vibrate([400, 200, 400, 1000, 400, 200, 400]);
-          console.log("[RINGTONE_MOBILE] vibration fallback triggered");
+        if (navigator.vibrate) {
+          navigator.vibrate([400, 200, 400, 1500, 400, 200, 400]);
         }
       } catch { /* non-fatal */ }
-
-      const DELAYS_MS = [120, 400];
-      let attempt = 0;
-      const isActive = () => _ringtoneEl === el;
-      const tryNext = () => {
-        if (!isActive()) { _ringtonePending = false; return; }
-        if (attempt >= DELAYS_MS.length) {
-          // Last resort — gesture-based retry (fires BEFORE Answer/Decline via capture)
-          const retry = () => {
-            if (!isActive()) { _ringtonePending = false; return; }
-            el.play().then(() => { _ringtonePending = false; }).catch(() => {});
-          };
-          document.addEventListener("click",      retry, { once: true, passive: true });
-          document.addEventListener("touchstart", retry, { once: true, passive: true });
-          return;
-        }
-        const delay = DELAYS_MS[attempt++];
-        setTimeout(() => {
-          if (!isActive()) { _ringtonePending = false; return; }
-          el.play().then(() => { _ringtonePending = false; }).catch(tryNext);
-        }, delay);
-      };
-      tryNext();
+      // _ringtoneActive remains true. When _doUnlock fires on the next touch,
+      // _warmElements() calls play() on this element and it starts ringing.
     });
   } catch (e) {
-    _ringtonePending = false;
-    console.warn("[RINGTONE] startIncomingRingtone error (non-fatal):", e);
+    _ringtoneActive = false;
+    console.warn("[CALL_RINGTONE] startIncomingRingtone error:", e);
   }
 }
 
 /**
- * Stop the incoming ringtone immediately and synchronously.
- * Safe to call multiple times (idempotent).
+ * Stop the incoming ringtone immediately.
+ * Pauses and resets the element but does NOT destroy it — singleton stays warm.
  */
 export function stopIncomingRingtone(reason: string): void {
-  _ringtonePending = false;
-  if (!_ringtoneEl) return;
-  _ringtoneEl.pause();
-  _ringtoneEl.currentTime = 0;
-  _ringtoneEl = null;
-  if (reason !== "restart") {
-    console.log(`[RINGTONE] stop: ${reason}`);
-  }
+  _ringtoneActive = false;
+  const el = _ringtoneEl;
+  if (!el) return;
+  el.pause();
+  el.currentTime = 0;
+  console.log(`[CALL_RINGTONE] stopped: ${reason}`);
 }
 
 /**
- * Start the outgoing ringback on the CALLER's device.
+ * Start the outgoing ringback (CALLER only, while waiting for answer).
  */
 export function startOutgoingRingback(): void {
   try {
-    stopOutgoingRingback("restart");
     if (typeof window === "undefined") return;
-    const src = _getRingbackSrc();
-    if (!src) { console.warn("[RINGTONE] ringback src unavailable — skipping"); return; }
-    const el = new Audio(src);
-    el.loop = true;
-    el.volume = 0.85;
-    _ringbackEl = el;
-    _ringbackPending = true;
-    el.play().then(() => { _ringbackPending = false; }).catch(() => {
-      const DELAYS_MS = [120, 400];
-      let attempt = 0;
-      const isActive = () => _ringbackEl === el;
-      const tryNext = () => {
-        if (!isActive()) { _ringbackPending = false; return; }
-        if (attempt >= DELAYS_MS.length) {
-          const retry = () => {
-            if (!isActive()) { _ringbackPending = false; return; }
-            el.play().then(() => { _ringbackPending = false; }).catch(() => {});
-          };
-          document.addEventListener("click",      retry, { once: true, passive: true });
-          document.addEventListener("touchstart", retry, { once: true, passive: true });
-          return;
-        }
-        const delay = DELAYS_MS[attempt++];
-        setTimeout(() => {
-          if (!isActive()) { _ringbackPending = false; return; }
-          el.play().then(() => { _ringbackPending = false; }).catch(tryNext);
-        }, delay);
-      };
-      tryNext();
+    const el = _ensureRingbackEl();
+    if (!el) return;
+
+    if (_ringbackActive) { el.pause(); el.currentTime = 0; }
+
+    _ringbackActive = true;
+    el.currentTime  = 0;
+
+    el.play().catch(() => {
+      // Will auto-start when _doUnlock fires (same mechanism as ringtone).
     });
   } catch (e) {
-    _ringbackPending = false;
-    console.warn("[RINGTONE] startOutgoingRingback error (non-fatal):", e);
+    _ringbackActive = false;
+    console.warn("[CALL_RINGTONE] startOutgoingRingback error:", e);
   }
 }
 
@@ -383,13 +352,13 @@ export function startOutgoingRingback(): void {
  * Stop the outgoing ringback immediately.
  */
 export function stopOutgoingRingback(reason: string): void {
-  _ringbackPending = false;
-  if (!_ringbackEl) return;
-  _ringbackEl.pause();
-  _ringbackEl.currentTime = 0;
-  _ringbackEl = null;
+  _ringbackActive = false;
+  const el = _ringbackEl;
+  if (!el) return;
+  el.pause();
+  el.currentTime = 0;
   if (reason !== "restart") {
-    console.log(`[RINGTONE] stop: ${reason}`);
+    console.log(`[CALL_RINGTONE] stopped: ${reason}`);
   }
 }
 
@@ -398,21 +367,21 @@ export function stopOutgoingRingback(reason: string): void {
  * Called before getUserMedia() opens the microphone.
  */
 export function stopAllNonVoiceCallAudio(reason: string): void {
-  const hadRing = !!_ringtoneEl;
-  const hadBack = !!_ringbackEl;
-  if (hadRing || hadBack) {
-    console.log(`[RINGTONE] stop: ${reason} | ring=${hadRing} ringback=${hadBack}`);
-  }
+  const hadRing = _ringtoneActive;
+  const hadBack = _ringbackActive;
   stopIncomingRingtone(reason);
   stopOutgoingRingback(reason);
+  if (!hadRing && !hadBack) return;
+  // Suppress the duplicate log from stopIncomingRingtone — already logged above.
 }
 
-// ── Voice audio element registry ──────────────────────────────────────────────
+// ── Voice element registry ─────────────────────────────────────────────────
+// Tracks the remote voice <audio> element so stopAllCallSounds() can detach it.
 
-export function registerVoiceAudioElement(
-  el: HTMLAudioElement | HTMLVideoElement,
-  label: string,
-): void {
+interface VoiceElEntry { el: HTMLAudioElement | HTMLVideoElement; label: string; }
+const _voiceElements: VoiceElEntry[] = [];
+
+export function registerVoiceAudioElement(el: HTMLAudioElement | HTMLVideoElement, label: string): void {
   const dup = _voiceElements.findIndex(e => e.label === label);
   if (dup !== -1) {
     if (_voiceElements[dup].el === el) return;
@@ -427,7 +396,7 @@ export function unregisterVoiceAudioElement(el: HTMLAudioElement | HTMLVideoElem
 }
 
 /**
- * Stop ALL call audio: ringtones + voice elements.
+ * Stop ALL call audio: ringtone + ringback + remote voice elements.
  */
 export function stopAllCallSounds(reason: string): void {
   stopAllNonVoiceCallAudio(reason);
@@ -438,7 +407,7 @@ export function stopAllCallSounds(reason: string): void {
   _voiceElements.length = 0;
 }
 
-// ── Backward-compat aliases ───────────────────────────────────────────────────
+// ── Backward-compat aliases ────────────────────────────────────────────────
 
 export const cleanupCallAudio           = stopAllCallSounds;
 export const registerCallAudioElement   = registerVoiceAudioElement;
@@ -446,7 +415,7 @@ export const unregisterCallAudioElement = unregisterVoiceAudioElement;
 
 export type RingtoneNode = { osc: OscillatorNode; gain: GainNode };
 
-// ── Page leave cleanup ────────────────────────────────────────────────────────
+// ── Page leave cleanup ─────────────────────────────────────────────────────
 
 if (typeof window !== "undefined") {
   window.addEventListener("pagehide",     () => stopAllCallSounds("pagehide"));
