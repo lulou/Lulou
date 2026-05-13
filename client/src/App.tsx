@@ -51,7 +51,7 @@ if (typeof window !== "undefined") {
 }
 import { useCallSignaling, setCallEndedHandler, clearDedupeForMatch } from "@/hooks/use-call-signaling";
 import { stopIncomingRingtone } from "@/lib/call-audio";
-import { markCallSessionCancelled, isCallSessionCancelled, clearCancelledSession } from "@/lib/cancelled-calls";
+import { markCallSessionCancelled, markStartupCancelledSession, isCallSessionCancelled, clearCancelledSession } from "@/lib/cancelled-calls";
 import type { Profile, Match } from "@shared/schema";
 import { Loader2 } from "lucide-react";
 
@@ -337,26 +337,21 @@ function CallDetectors({ userId }: { userId: string }) {
 
       const ageMs = now - new Date(m.callStartedAt).getTime();
 
-      // Clear the cache fields on startup but do NOT mark the session as
-      // cancelled in cancelledSessions. Marking it cancelled would permanently
-      // block the caller's rering broadcasts (which reuse the same callSessionId)
-      // — live calls would never ring after a refresh.
-      //
-      // Passing no callSessionId to clearCallFromCache skips the internal
-      // markCallSessionCancelled call. The cache fields are nulled so the overlay
-      // cannot mount before we have a verified live signal. If the call is still
-      // active the caller's rering interval fires within 2 seconds, the
-      // use-call-signaling optimistic patch re-populates the cache fields, and
-      // isCallSessionCancelled returns false (session was never marked) so the
-      // overlay mounts normally. If the call is stale no rering ever arrives
-      // and the cache stays null — no overlay, no ringtone.
+      // Mark as "startup-cancelled-only" — this blocks the overlay immediately
+      // AND prevents the 5-second refetchInterval from re-triggering it from
+      // stale DB data. Unlike markCallSessionCancelled (permanent), this mark
+      // is lifted the moment a fresh rering arrives (same callSessionId),
+      // proving the call is still live. Stale calls receive no rering so the
+      // block is permanent for them. Live calls re-ring within 2 seconds and
+      // the overlay mounts normally after the block is lifted.
       hadStale = true;
-      console.warn("[CALL_RESET] startup sweep — clearing cached call fields (session NOT marked cancelled)", {
+      console.warn("[CALL_RESET] startup sweep — session blocked until rering confirms live", {
         matchId: m.id,
         callSessionId: m.callSessionId,
         ageMs,
       });
-      clearCallFromCache(qc, m.id); // omit callSessionId → skips markCallSessionCancelled
+      markStartupCancelledSession(m.id, m.callSessionId);
+      clearCallFromCache(qc, m.id); // null cache fields; no internal markCallSessionCancelled (no sessionId)
     }
 
     if (!hadStale) {

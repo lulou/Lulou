@@ -1,6 +1,12 @@
 // Keys are "matchId:callSessionId" — never just matchId, which would block future calls.
 const cancelledSessions = new Set<string>();
 
+// Tracks sessions that were cancelled ONLY by the startup sweep (not by a user
+// action like decline/end). These can be un-cancelled when a fresh rering arrives,
+// which proves the call is still live. Sessions cancelled by user action are never
+// in this set, so they can never be un-cancelled by a rering.
+const startupOnlyKeys = new Set<string>();
+
 function sessionKey(matchId: string, callSessionId: string) {
   return `${matchId}:${callSessionId}`;
 }
@@ -16,6 +22,53 @@ export function markCallSessionCancelled(matchId: string, callSessionId?: string
   });
 }
 
+/**
+ * Mark a session as cancelled by the startup sweep only.
+ *
+ * This adds it to cancelledSessions (so the overlay cannot mount from stale DB
+ * data or from the 5-second refetch interval) but also records it in
+ * startupOnlyKeys so that a live rering can lift the block via
+ * clearStartupCancelledSession().
+ *
+ * Do NOT use this for user-action cancellations (decline/end/cancelled signals).
+ * Those must use markCallSessionCancelled() which does NOT add to startupOnlyKeys,
+ * making them permanent for the lifetime of the browser session.
+ */
+export function markStartupCancelledSession(matchId: string, callSessionId?: string | null) {
+  if (!callSessionId) return;
+  const key = sessionKey(matchId, callSessionId);
+  cancelledSessions.add(key);
+  startupOnlyKeys.add(key);
+  console.log("[CALL_SESSION] STARTUP_SESSION_MARKED_CANCELLED", {
+    matchId,
+    callSessionId,
+    setSize: cancelledSessions.size,
+  });
+}
+
+/** True only if the session was cancelled exclusively by the startup sweep. */
+export function isStartupCancelledOnly(matchId: string, callSessionId?: string | null): boolean {
+  if (!callSessionId) return false;
+  return startupOnlyKeys.has(sessionKey(matchId, callSessionId));
+}
+
+/**
+ * Remove a startup-only cancellation so the session can ring again.
+ * Called when a fresh rering arrives and proves the call is still live.
+ * No-op if the session was cancelled by user action (not startup-only).
+ */
+export function clearStartupCancelledSession(matchId: string, callSessionId?: string | null) {
+  if (!callSessionId) return;
+  const key = sessionKey(matchId, callSessionId);
+  if (!startupOnlyKeys.has(key)) return;
+  startupOnlyKeys.delete(key);
+  cancelledSessions.delete(key);
+  console.log("[CALL_SESSION] STARTUP_CANCELLED_LIFTED_BY_RERING", {
+    matchId,
+    callSessionId,
+  });
+}
+
 export function isCallSessionCancelled(matchId: string, callSessionId?: string | null): boolean {
   if (!callSessionId) return false;
   return cancelledSessions.has(sessionKey(matchId, callSessionId));
@@ -23,13 +76,16 @@ export function isCallSessionCancelled(matchId: string, callSessionId?: string |
 
 export function clearCancelledSession(matchId: string, callSessionId?: string | null) {
   if (callSessionId) {
-    cancelledSessions.delete(sessionKey(matchId, callSessionId));
+    const key = sessionKey(matchId, callSessionId);
+    cancelledSessions.delete(key);
+    startupOnlyKeys.delete(key);
     return;
   }
   // Clear all sessions for this match (used in post-cleanup sweep)
   for (const key of cancelledSessions) {
     if (key.startsWith(`${matchId}:`)) {
       cancelledSessions.delete(key);
+      startupOnlyKeys.delete(key);
     }
   }
 }

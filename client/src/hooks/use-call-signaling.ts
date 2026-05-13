@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import { supabase } from "@/lib/supabase";
 import { queryClient } from "@/lib/queryClient";
-import { markCallSessionCancelled, isCallSessionCancelled } from "@/lib/cancelled-calls";
+import { markCallSessionCancelled, isCallSessionCancelled, isStartupCancelledOnly, clearStartupCancelledSession } from "@/lib/cancelled-calls";
 
 type CallSignalEvent =
   | { type: "call:ring"; matchId: string; callerId: string; callerName: string; callSessionId?: string }
@@ -82,7 +82,15 @@ export function useCallSignaling(matchIds: string[], userId: string) {
         if (event.type === "call:ring") {
           const ring = event as any;
           const ringSessionId = ring.callSessionId ?? null;
-          // Skip stale ring signals for sessions that were already cancelled
+          // A rering proves the call is still live. If the startup sweep marked
+          // this session as cancelled (startup-only, not user action), lift the
+          // block now so the overlay and ringtone can start. Sessions cancelled by
+          // a real user action (decline/end) are never in startupOnlyKeys and are
+          // unaffected — their cancellation remains permanent.
+          if (isStartupCancelledOnly(matchId, ringSessionId)) {
+            clearStartupCancelledSession(matchId, ringSessionId);
+          }
+          // Skip stale ring signals for sessions that were cancelled by user action
           if (isCallSessionCancelled(matchId, ringSessionId)) {
             console.log("[CALL_SIGNAL] STALE_RING_BLOCKED", { matchId, callSessionId: ringSessionId, reason: "session_already_cancelled" });
           } else {
