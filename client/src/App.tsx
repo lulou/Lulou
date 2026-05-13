@@ -231,12 +231,7 @@ function clearCallFromCache(
   });
 }
 
-// How old an unanswered incoming call may be (ms) before it is treated as stale
-// on the FIRST page load. This is tighter than STALE_RINGING_MS (30 s) because
-// `cancelledSessions` is wiped on refresh so we cannot rely on the cancelled-
-// session guard — the only remaining signal is the age of callStartedAt.
-// 15 s covers the worst-case "cancel while offline + immediate refresh" scenario.
-const STARTUP_STALE_MS = 15_000;
+
 
 function CallDetectors({ userId }: { userId: string }) {
   const [dismissedCallKey, setDismissedCallKey] = useState<string | null>(null);
@@ -342,33 +337,24 @@ function CallDetectors({ userId }: { userId: string }) {
 
       const ageMs = now - new Date(m.callStartedAt).getTime();
 
-      if (ageMs > STARTUP_STALE_MS) {
-        // Stale — clear from cache so incomingCall useMemo never returns it.
-        hadStale = true;
-        console.warn("[CALL_RESET] stale call state cleared", {
-          matchId: m.id,
-          callSessionId: m.callSessionId,
-          ageMs,
-          reason: "startup_sweep — callStartedAt older than STARTUP_STALE_MS",
-        });
-        console.warn("[CALL_RINGTONE] blocked because no verified live call", {
-          matchId: m.id,
-          callSessionId: m.callSessionId,
-          ageMs,
-        });
-        // Legacy label — keep for backward log compat.
-        console.warn("[CALL_STATE_FIX] cleared stale call state", { matchId: m.id, callSessionId: m.callSessionId, ageMs });
-        markCallSessionCancelled(m.id, m.callSessionId);
-        clearCallFromCache(qc, m.id, m.callSessionId);
-      } else {
-        // Fresh — call started within the current session window, treat as live.
-        console.log("[CALL_STATE_FIX] verified active incoming call", {
-          matchId: m.id,
-          callSessionId: m.callSessionId,
-          ageMs,
-          reason: "startup_sweep — within STARTUP_STALE_MS, treating as live",
-        });
-      }
+      // Always clear on startup — cancelledSessions is in-memory and wiped on
+      // every refresh, so we have no way to know if this session is still live.
+      // Any truly active call will re-ring within 2 seconds via the caller's
+      // rering interval (App.tsx rerMatch effect). Never ring on stale DB state.
+      hadStale = true;
+      console.warn("[CALL_RESET] stale call state cleared", {
+        matchId: m.id,
+        callSessionId: m.callSessionId,
+        ageMs,
+        reason: "startup_sweep — cleared unconditionally; live calls re-ring via rering interval",
+      });
+      console.warn("[CALL_RINGTONE] blocked because no verified live call", {
+        matchId: m.id,
+        callSessionId: m.callSessionId,
+        ageMs,
+      });
+      markCallSessionCancelled(m.id, m.callSessionId);
+      clearCallFromCache(qc, m.id, m.callSessionId);
     }
 
     if (!hadStale) {

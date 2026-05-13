@@ -531,6 +531,10 @@ export function ActiveCallOverlay({
             isSameAsLocal: false,
             matchId,
           });
+          // Set playsInline as a DOM property (belt-and-suspenders for iOS Safari —
+          // JSX playsInline sets the HTML attribute but iOS may not honour it
+          // unless the DOM property is also set explicitly before play()).
+          (el as any).playsInline = true;
           el.srcObject = remoteStream;
           el.muted = false;
         }

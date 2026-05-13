@@ -921,66 +921,36 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
           }
           setConnectionState("connected");
 
-          // ── [SCREECH_TEST] One-shot 3-second local mic mute ─────────────────
-          // When the call first reaches ICE "connected", mute the local audio
-          // track for exactly 3 seconds while keeping remote audio playing.
-          // Purpose: if screeching/beeping stops during this window, the cause
-          // is confirmed as acoustic echo (remote speaker captured by local mic,
-          // bypassing AEC). If it continues, the source is elsewhere (rogue
-          // audio node, hardware DSP, duplicate stream).
-          // The test is one-shot per call (screechTestDoneRef guard) and is
-          // cancelled safely by cleanup() via screechTestTimerRef.
-          if (!screechTestDoneRef.current) {
-            screechTestDoneRef.current = true;
-            const audioTracks = localStreamRef.current?.getAudioTracks() ?? [];
-            audioTracks.forEach(t => { t.enabled = false; });
-            console.log("[SCREECH_TEST] local mic muted for test", {
-              matchId,
-              isCaller,
-              trackCount: audioTracks.length,
-              ts: new Date().toISOString(),
-            });
-            screechTestTimerRef.current = setTimeout(() => {
-              screechTestTimerRef.current = null;
-              if (cleanedUpRef.current) return;
-              const tracks = localStreamRef.current?.getAudioTracks() ?? [];
-              tracks.forEach(t => { t.enabled = true; });
-              console.log("[SCREECH_TEST] local mic restored", {
+          // ── [FEEDBACK_FIX] Re-enforce AEC constraints at connect ────────────
+          // Re-apply the full echo/noise/gain constraints now that ICE is up.
+          // Browsers (especially iOS Safari) can silently drop preferred
+          // constraints during negotiation; re-applying here maximises the
+          // chance AEC is active for the conversation.
+          // NOTE: do NOT mute/unmute tracks here — on iOS, toggling
+          // track.enabled triggers an audio-session reconfiguration that causes
+          // pops and can disrupt the audio routing for the rest of the call.
+          const audioTrack = localStreamRef.current?.getAudioTracks()[0];
+          if (audioTrack) {
+            audioTrack.applyConstraints({
+              echoCancellation: true,
+              noiseSuppression: true,
+              autoGainControl: true,
+            }).then(() => {
+              const settings = audioTrack.getSettings() as any;
+              console.log("[FEEDBACK_FIX] AEC constraints confirmed at connect", {
                 matchId,
                 isCaller,
-                trackCount: tracks.length,
-                ts: new Date().toISOString(),
+                echoCancellation: settings.echoCancellation ?? "not-reported",
+                noiseSuppression: settings.noiseSuppression ?? "not-reported",
+                autoGainControl: settings.autoGainControl ?? "not-reported",
               });
-
-              // ── [FEEDBACK_FIX] Re-enforce AEC constraints on mic restore ──
-              // After the test window, re-apply the full echo/noise/gain
-              // constraints. Browsers can drop preferred constraints during
-              // ICE negotiation on some devices; re-applying at this point
-              // ensures AEC is as effective as possible for the conversation.
-              const audioTrack = localStreamRef.current?.getAudioTracks()[0];
-              if (audioTrack) {
-                audioTrack.applyConstraints({
-                  echoCancellation: true,
-                  noiseSuppression: true,
-                  autoGainControl: true,
-                }).then(() => {
-                  const settings = audioTrack.getSettings() as any;
-                  console.log("[FEEDBACK_FIX] AEC constraints re-applied after screech test", {
-                    matchId,
-                    isCaller,
-                    echoCancellation: settings.echoCancellation ?? "not-reported",
-                    noiseSuppression: settings.noiseSuppression ?? "not-reported",
-                    autoGainControl: settings.autoGainControl ?? "not-reported",
-                  });
-                }).catch(err => {
-                  console.warn("[FEEDBACK_FIX] AEC re-apply failed after screech test", {
-                    matchId,
-                    isCaller,
-                    error: err?.message ?? String(err),
-                  });
-                });
-              }
-            }, 3000);
+            }).catch(err => {
+              console.warn("[FEEDBACK_FIX] AEC re-apply failed at connect", {
+                matchId,
+                isCaller,
+                error: err?.message ?? String(err),
+              });
+            });
           }
         } else if (state === "disconnected") {
           callDebug.event("ice: disconnected — 20s timer started");
