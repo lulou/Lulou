@@ -337,24 +337,26 @@ function CallDetectors({ userId }: { userId: string }) {
 
       const ageMs = now - new Date(m.callStartedAt).getTime();
 
-      // Always clear on startup — cancelledSessions is in-memory and wiped on
-      // every refresh, so we have no way to know if this session is still live.
-      // Any truly active call will re-ring within 2 seconds via the caller's
-      // rering interval (App.tsx rerMatch effect). Never ring on stale DB state.
+      // Clear the cache fields on startup but do NOT mark the session as
+      // cancelled in cancelledSessions. Marking it cancelled would permanently
+      // block the caller's rering broadcasts (which reuse the same callSessionId)
+      // — live calls would never ring after a refresh.
+      //
+      // Passing no callSessionId to clearCallFromCache skips the internal
+      // markCallSessionCancelled call. The cache fields are nulled so the overlay
+      // cannot mount before we have a verified live signal. If the call is still
+      // active the caller's rering interval fires within 2 seconds, the
+      // use-call-signaling optimistic patch re-populates the cache fields, and
+      // isCallSessionCancelled returns false (session was never marked) so the
+      // overlay mounts normally. If the call is stale no rering ever arrives
+      // and the cache stays null — no overlay, no ringtone.
       hadStale = true;
-      console.warn("[CALL_RESET] stale call state cleared", {
-        matchId: m.id,
-        callSessionId: m.callSessionId,
-        ageMs,
-        reason: "startup_sweep — cleared unconditionally; live calls re-ring via rering interval",
-      });
-      console.warn("[CALL_RINGTONE] blocked because no verified live call", {
+      console.warn("[CALL_RESET] startup sweep — clearing cached call fields (session NOT marked cancelled)", {
         matchId: m.id,
         callSessionId: m.callSessionId,
         ageMs,
       });
-      markCallSessionCancelled(m.id, m.callSessionId);
-      clearCallFromCache(qc, m.id, m.callSessionId);
+      clearCallFromCache(qc, m.id); // omit callSessionId → skips markCallSessionCancelled
     }
 
     if (!hadStale) {

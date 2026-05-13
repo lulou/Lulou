@@ -509,11 +509,44 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
       // common on older iOS Safari), fall back through progressively simpler
       // constraint sets so the call still connects without echoCancellation
       // being a hard blocker.  A log is emitted at each fallback tier.
+      //
+      // iOS/Safari exception: ALWAYS use the full-constraint single tier.
+      // Falling back to weaker constraints on iOS removes the AEC/NS/AGC audio
+      // processing that suppresses acoustic echo (the screeching/beeping on iPhone
+      // during connected calls). iOS 16+ accepts all three constraints without
+      // OverconstrainedError, so the fallback tiers are unnecessary and harmful.
+      const isIOS = typeof navigator !== "undefined" && (
+        /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+        (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1)
+      );
+      const isSafari = typeof navigator !== "undefined" &&
+        /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
+      const forceFullConstraints = isIOS || isSafari;
+      console.log("[CALL_AUDIO] getUserMedia platform detection", {
+        isIOS,
+        isSafari,
+        forceFullConstraints,
+        matchId,
+        isCaller,
+      });
+
       const getUserMediaWithFallback = async (): Promise<MediaStream> => {
-        const tiers: MediaStreamConstraints[] = [
+        const fullAudioConstraints = {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        };
+        // On iOS/Safari use only the full-constraint tier — no fallback to weaker
+        // constraints that would degrade or remove acoustic echo cancellation.
+        const tiers: MediaStreamConstraints[] = forceFullConstraints ? [
+          {
+            audio: fullAudioConstraints,
+            video: isVideo ? { facingMode: "user" } : false,
+          },
+        ] : [
           // Tier 1 — full quality (Chrome, Firefox, modern Safari)
           {
-            audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+            audio: fullAudioConstraints,
             video: isVideo ? { facingMode: "user" } : false,
           },
           // Tier 2 — drop autoGainControl (unsupported on some older Safari)
@@ -526,7 +559,7 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
             audio: { echoCancellation: true },
             video: isVideo ? { facingMode: "user" } : false,
           },
-          ];
+        ];
 
         let lastErr: unknown;
         for (let i = 0; i < tiers.length; i++) {

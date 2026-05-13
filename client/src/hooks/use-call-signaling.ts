@@ -143,7 +143,13 @@ export function useCallSignaling(matchIds: string[], userId: string) {
             signal: event.type,
             note: "end signal received — queries NOT invalidated, chat history intact",
           });
-        } else {
+        } else if (event.type !== "call:ring") {
+          // call:ring is handled exclusively by the optimistic cache patch above.
+          // Firing invalidateQueries immediately after the patch races with the DB
+          // write (the broadcast arrives at the application layer before the DB
+          // commit is readable) — the refetch returns callStartedAt: null and
+          // overwrites the patch, causing the overlay to flicker off then on again
+          // when the rering arrives 2 seconds later.
           queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
           queryClient.invalidateQueries({ queryKey: ["/api/matches", matchId] });
         }
