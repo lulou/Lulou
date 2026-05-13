@@ -1126,13 +1126,27 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
 
   const toggleMute = useCallback(() => {
     const stream = localStreamRef.current;
-    if (!stream) return;
-    const audioTrack = stream.getAudioTracks()[0];
-    if (audioTrack) {
-      audioTrack.enabled = !audioTrack.enabled;
-      setIsMuted(!audioTrack.enabled);
+    if (!stream) {
+      console.warn("[CALL_CONTROLS] toggleMute: no local stream — button pressed too early or stream released", { matchId });
+      return;
     }
-  }, []);
+    const tracks = stream.getAudioTracks();
+    if (tracks.length === 0) {
+      console.warn("[CALL_CONTROLS] toggleMute: no audio tracks on local stream", { matchId });
+      return;
+    }
+    const audioTrack = tracks[0];
+    // enabled=true → track is live (unmuted); enabled=false → track sends silence (muted)
+    audioTrack.enabled = !audioTrack.enabled;
+    const nowMuted = !audioTrack.enabled;
+    setIsMuted(nowMuted);
+    console.log("[CALL_CONTROLS]", nowMuted ? "mute on" : "mute off", {
+      trackEnabled: audioTrack.enabled,
+      trackId: audioTrack.id.slice(0, 12),
+      readyState: audioTrack.readyState,
+      matchId,
+    });
+  }, [matchId]);
 
   const toggleCamera = useCallback(() => {
     const stream = localStreamRef.current;

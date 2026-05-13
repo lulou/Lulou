@@ -277,21 +277,50 @@ export function ActiveCallOverlay({
   }, []);
 
   // Route audio to speaker or earpiece when the toggle changes.
-  // setSinkId is supported in Chrome/Edge/Android; silently ignored on iOS Safari.
+  //
+  // Desktop / Android (setSinkId supported):
+  //   speaker OFF → setSinkId("") → system default communications device (earpiece on Android)
+  //   speaker ON  → setSinkId("default") → loudspeaker
+  //
+  // iOS / Safari (setSinkId NOT supported — the previous code returned early here,
+  // doing nothing, so audio always played at full volume through the loudspeaker):
+  //   iOS web apps use the "media playback" AudioSession category. The earpiece
+  //   route is only accessible via native AVAudioSession — web apps cannot reach
+  //   it. Instead we approximate the two modes with volume:
+  //   speaker OFF (default) → volume 0.3  — significantly quieter, greatly
+  //     reduces the acoustic echo loop that causes screeching/beeping because
+  //     less audio bleeds back into the mic at this level. AEC handles the rest.
+  //   speaker ON            → volume 1.0  — full loudspeaker volume.
+  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
   useEffect(() => {
     const el = remoteAudioRef.current as any;
-    if (!el || typeof el.setSinkId !== "function") return;
-    if (speakerOn) {
-      // Route to the default loudspeaker output
-      navigator.mediaDevices.enumerateDevices().then(devices => {
-        const speaker = devices.find(d => d.kind === "audiooutput" && /speaker|loudspeaker|headphone/i.test(d.label));
-        el.setSinkId(speaker?.deviceId || "default").catch(() => {});
-      }).catch(() => { el.setSinkId("default").catch(() => {}); });
+    if (!el) return;
+
+    if (!isIOS && typeof el.setSinkId === "function") {
+      // Desktop / Android path — route via setSinkId
+      if (speakerOn) {
+        el.setSinkId("default").catch(() => {});
+      } else {
+        el.setSinkId("").catch(() => {});
+      }
+      console.log("[CALL_CONTROLS]", speakerOn ? "speaker on" : "speaker off default", {
+        method: "setSinkId",
+        matchId,
+      });
     } else {
-      // Route to earpiece / communications device (empty string = system default = earpiece on mobile)
-      el.setSinkId("").catch(() => {});
+      // iOS / no-setSinkId path — control via volume
+      const vol = speakerOn ? 1.0 : 0.3;
+      el.volume = vol;
+      console.log("[CALL_CONTROLS]", speakerOn ? "speaker on" : "speaker off default", {
+        method: "volume",
+        volume: vol,
+        matchId,
+      });
+      console.log("[CALL_CONTROLS] remote audio volume set", { volume: vol, matchId });
     }
-  }, [speakerOn]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [speakerOn, matchId]);
 
   // Log overlay entry and WebRTC state changes
   useEffect(() => {
