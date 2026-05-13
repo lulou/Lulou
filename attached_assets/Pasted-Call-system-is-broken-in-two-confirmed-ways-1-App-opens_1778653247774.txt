@@ -1,0 +1,51 @@
+Call system is broken in two confirmed ways:
+
+1. App opens/refreshes and ringtone plays even though there is NO live incoming call.
+2. During connected calls there is loud screeching/beeping.
+
+Do not patch randomly. Implement a strict call state/audio reset.
+
+A) Fix ringtone on app open:
+- On app startup, immediately stop all ringtone/audio.
+- Clear stale call state from React state, localStorage, sessionStorage, timers, intervals.
+- Do not start ringtone unless a fresh Supabase/backend verification confirms:
+ - current user is callee/receiver
+ - call status is ringing or incoming
+ - call is not expired
+- If no verified live incoming call exists, ringtone must stay silent.
+
+B) Fix connected-call screeching:
+- During connected call, local mic must NEVER play locally.
+- Local mic goes only into peerConnection.addTrack.
+- Remote audio element must receive ONLY tracks from pc.ontrack.
+- If the audio element stream id equals local stream id, block playback.
+- Ignore own signalling messages/ICE candidates.
+- Force getUserMedia constraints:
+ audio: {
+   echoCancellation: true,
+   noiseSuppression: true,
+   autoGainControl: true
+ }
+
+C) Cleanup:
+- On answer/connect/end/decline/cancel/timeout/unmount/pagehide/beforeunload:
+ - stop ringtone
+ - clear ringtone timers
+ - remove stale call state
+- Do NOT stop peer connection or local mic tracks when answer is clicked.
+
+Add logs:
+[CALL_RESET] app startup: all call audio stopped
+[CALL_RESET] stale call state cleared
+[CALL_RINGTONE] verified incoming call, ringtone started
+[CALL_RINGTONE] blocked because no verified live call
+[CALL_AUDIO] local mic playback blocked
+[CALL_AUDIO] remote stream from pc.ontrack only
+[CALL_AUDIO] blocked local stream from audio element
+[CALL_SIGNAL] ignored own signalling message
+
+Before finishing, tell me:
+1. Where stale ringtone state came from.
+2. Whether local stream was being attached to the audible audio element.
+3. Whether own signalling messages were being processed.
+4. Which files/functions changed.
