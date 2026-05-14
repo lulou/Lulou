@@ -33,7 +33,10 @@ export function clearDedupeForMatch(matchId: string) {
 
 function processEndSignal(matchId: string, reason: string, callSessionId?: string | null) {
   const key = `${matchId}:${reason}`;
-  if (recentlyProcessed.has(key)) return;
+  if (recentlyProcessed.has(key)) {
+    console.log("[CALL_STATE] duplicate event ignored", { matchId, reason, key });
+    return;
+  }
   recentlyProcessed.add(key);
   setTimeout(() => recentlyProcessed.delete(key), 10000);
   console.log("[CALL_SESSION] CONNECTION_REMOVED", { matchId, callSessionId, reason: `signal_${reason}`, source: "realtime" });
@@ -165,6 +168,7 @@ export function useCallSignaling(matchIds: string[], userId: string) {
 
       channel.subscribe((status) => {
         if (status === "SUBSCRIBED") {
+          console.log("[CALL_STATE] subscription created", { matchId, channelName: getChannelName(matchId) });
           console.log("[CALL_SIGNAL] CHANNEL_SUBSCRIBED", { matchId, channelName: getChannelName(matchId) });
         } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
           console.error("[CALL_SIGNAL] CHANNEL_SUBSCRIPTION_FAILED", { matchId, status });
@@ -176,7 +180,8 @@ export function useCallSignaling(matchIds: string[], userId: string) {
     }
 
     return () => {
-      for (const [, ch] of subscribedChannels.entries()) {
+      for (const [id, ch] of subscribedChannels.entries()) {
+        console.log("[CALL_STATE] subscription removed", { matchId: id, reason: "effect_cleanup" });
         supabase.removeChannel(ch);
       }
       subscribedChannels.clear();

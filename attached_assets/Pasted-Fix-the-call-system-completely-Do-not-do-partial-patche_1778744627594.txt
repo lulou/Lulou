@@ -1,0 +1,88 @@
+Fix the call system completely. Do not do partial patches.
+
+Current confirmed bugs:
+1. Incoming call screen flickers/disappears then reappears.
+2. Ringtone plays on app refresh when no call is active.
+3. iPhone connected calls have screeching/beeping/self-echo.
+4. Mute button does not work.
+5. Speaker/loud audio is on by default on phone.
+6. After ending a call, new calls can get stuck on “call in progress”.
+
+Required behaviour:
+- Incoming call screen stays visible until answer/decline.
+- Ringtone only plays for receiver during a real active incoming call.
+- No ringtone on app refresh unless a verified live incoming call exists.
+- On answer, ringtone stops immediately.
+- Connected call audio plays only the other user’s microphone.
+- User must never hear their own mic.
+- Mute button must toggle local mic track enabled false/true.
+- Speaker mode must be off by default on mobile; speaker button toggles louder output/volume.
+- On call end/failure/decline/cancel, all call state, timers, subscriptions, peer connections, and tracks are cleaned up so another call can start fresh.
+
+Fix areas:
+1. Call state/subscriptions:
+- Ensure only one active Supabase call subscription per call/match.
+- Ignore duplicate events.
+- Ignore own signalling messages.
+- Block callerId === calleeId.
+- Do not clear incomingCall except on declined/cancelled/ended/expired.
+- Clear stale call state on startup.
+
+2. Ringtone:
+- Centralise ringtone handling in one controller.
+- Stop ringtone on startup.
+- Start only after backend/Supabase confirms current user is callee and call status is ringing/incoming.
+- Stop on answer/connect/decline/end/unmount/pagehide.
+- Add iPhone audio unlock/fallback if autoplay is blocked.
+
+3. WebRTC audio:
+- getUserMedia must use:
+audio: {
+ echoCancellation: true,
+ noiseSuppression: true,
+ autoGainControl: true
+}
+- Local stream only goes to peerConnection.addTrack.
+- Local stream must never be assigned to audible audio.
+- Remote audio element must receive only pc.ontrack remote stream.
+- Keep exactly one remote audio element.
+- If audio srcObject equals local stream id, block playback and log error.
+- Add playsInline to remote audio.
+
+4. Controls:
+- Mute toggles local audio tracks enabled false/true.
+- Speaker off by default on mobile/iPhone.
+- Speaker button toggles speaker/louder mode.
+- If browser cannot route earpiece directly, use safe lower default volume and explicit speaker volume.
+
+5. Cleanup:
+- On answer: stop ringtone only, do not stop mic/peer connection.
+- On end/failure: stop ringtone, close peer connection, unsubscribe channels, stop tracks, clear timers, clear active call IDs.
+- Ensure second call starts cleanly.
+
+Add logs:
+[CALL_STATE] subscription created/removed
+[CALL_STATE] duplicate event ignored
+[CALL_STATE] stale state cleared
+[CALL_RINGTONE] started/stopped/reason/autoplay blocked
+[CALL_AUDIO] local mic blocked from playback
+[CALL_AUDIO] remote-only audio attached
+[CALL_AUDIO] blocked local stream as remote audio
+[CALL_CONTROLS] mute on/off
+[CALL_CONTROLS] speaker on/off
+[CALL_CLEANUP] complete
+
+Before finishing, run a code search for every:
+- new Audio
+- .play()
+- <audio
+- srcObject
+- getUserMedia
+- localStorage/sessionStorage call state
+- Supabase channel subscription
+
+Then report:
+1. Exact root causes found.
+2. Exact files/functions changed.
+3. How each of the 6 bugs was fixed.
+4. Any remaining browser/iPhone limitation.

@@ -235,7 +235,9 @@ function clearCallFromCache(
 
 function CallDetectors({ userId }: { userId: string }) {
   const [dismissedCallKey, setDismissedCallKey] = useState<string | null>(null);
-  const endedMatchIdsRef = useRef(new Set<string>());
+  // Maps matchId → the callSessionId that ended, so isEndedCall can distinguish
+  // "same call still ending" from "new call starting on same match".
+  const endedMatchIdsRef = useRef(new Map<string, string | null>());
   const [endedTick, setEndedTick] = useState(0);
   const qc = useQueryClient();
 
@@ -289,19 +291,20 @@ function CallDetectors({ userId }: { userId: string }) {
 
   const markCallEnded = useCallback((matchId: string, callSessionId?: string | null, reason?: string) => {
     console.log("[CALL_SESSION] CALL_SESSION_CLEANUP_REASON", { matchId, callSessionId, reason: reason || "signal_or_hangup" });
-    endedMatchIdsRef.current.add(matchId);
+    endedMatchIdsRef.current.set(matchId, callSessionId ?? null);
     setEndedTick(t => t + 1);
     clearCallFromCache(qc, matchId, callSessionId);
   }, [qc]);
 
   useEffect(() => {
     if (!matches) return;
-    for (const mid of endedMatchIdsRef.current) {
+    for (const [mid] of endedMatchIdsRef.current) {
       const m = matches.find(x => x.id === mid);
       if (m && !m.callStartedAt && !m.callInitiatorId && !m.callAnswered && !m.callSessionId) {
         endedMatchIdsRef.current.delete(mid);
         clearCancelledSession(mid);
         clearDedupeForMatch(mid);
+        console.log("[CALL_STATE] stale state cleared", { matchId: mid, reason: "server_confirmed_cleared" });
         console.log("[CALL_SESSION] CALL_SUBSCRIPTION_REMOVED", { matchId: mid, reason: "server_confirmed_cleared" });
       }
     }
@@ -362,7 +365,23 @@ function CallDetectors({ userId }: { userId: string }) {
   }, [matches, userId, qc]);
 
   const isEndedCall = useCallback((m: MatchWithProfile) => {
-    return endedMatchIdsRef.current.has(m.id);
+    if (!endedMatchIdsRef.current.has(m.id)) return false;
+    const endedSessionId = endedMatchIdsRef.current.get(m.id);
+    // If the match now shows a DIFFERENT non-null callSessionId, a brand-new call
+    // has started on this match. Lift the ended-block immediately so the new call
+    // can proceed — without this, the new call's answeredCall/callerRingingCall
+    // would be permanently blocked ("stuck call in progress" bug).
+    if (endedSessionId && m.callSessionId && m.callSessionId !== endedSessionId) {
+      console.log("[CALL_STATE] stale state cleared", {
+        matchId: m.id,
+        reason: "new_session_started",
+        endedSessionId,
+        newSessionId: m.callSessionId,
+      });
+      endedMatchIdsRef.current.delete(m.id);
+      return false;
+    }
+    return true;
   }, [endedTick]);
 
   const STALE_RINGING_MS = 30_000;

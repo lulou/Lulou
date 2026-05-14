@@ -1147,7 +1147,7 @@ export function ActiveCallOverlay({
               onClick={toggleMute}
               label={isMuted ? "Unmute" : "Mute"}
               active={isMuted}
-              disabled={connectionState === "requesting-media"}
+              disabled={!localStream}
               icon={isMuted
                 ? <MicOff className="w-6 h-6 text-white" />
                 : <Mic className="w-6 h-6 text-white" />}
