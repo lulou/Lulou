@@ -264,13 +264,55 @@ function CallDetectors({ userId }: { userId: string }) {
     console.log("[CALL_STATE_FIX] app startup stop ringtone", { userId: userId.slice(0, 8) });
   }, []);
 
+  // Holds the previous resolved value of `matches` so the `select` function can
+  // merge ring fields that the DB poll might clear before the next rering confirms
+  // the call is still live.  Updated by the effect below after every render.
+  const prevMatchesRef = useRef<MatchWithProfile[]>([]);
+
   const { data: matches } = useQuery<MatchWithProfile[]>({
     queryKey: ["/api/matches"],
     // Realtime call signals (useCallSignaling) handle call detection instantly.
     // 5 s poll ensures missed "cancel/end" signals resolve within 5 s instead
     // of the previous 30 s, preventing long "stuck call in progress" states.
     refetchInterval: 5000,
+    // Preserve ring fields from the previous cycle when the fresh server data
+    // clears them.  The DB write for call:ring is committed AFTER the Supabase
+    // broadcast fires, so the very first 5 s poll that follows a ring often
+    // returns callStartedAt: null — overwriting the optimistic patch and causing
+    // the incoming-call overlay to flicker off until the next rering (2 s later).
+    // The incomingCall/answeredCall memos apply isEndedCall / isCallSessionCancelled
+    // guards independently, so the overlay still dismisses correctly on hangup.
+    select: (fresh: MatchWithProfile[]) => {
+      const prev = prevMatchesRef.current;
+      if (!prev.length) return fresh;
+      return fresh.map(m => {
+        const prevM = prev.find(p => p.id === m.id);
+        if (
+          prevM?.callStartedAt &&
+          !m.callStartedAt &&
+          !m.callAnswered &&
+          !m.callCompleted
+        ) {
+          const sid = prevM.callSessionId;
+          if (!isCallSessionCancelled(m.id, sid)) {
+            return {
+              ...m,
+              callStartedAt: prevM.callStartedAt,
+              callInitiatorId: prevM.callInitiatorId,
+              callSessionId: prevM.callSessionId,
+              callAnswered: prevM.callAnswered ?? false,
+              callCompleted: prevM.callCompleted ?? false,
+            };
+          }
+        }
+        return m;
+      });
+    },
   });
+
+  useEffect(() => {
+    if (matches) prevMatchesRef.current = matches;
+  }, [matches]);
 
   // Reference-stable match IDs: only creates a new array when the set of IDs
   // actually changes. Without this, the 5 s refetchInterval produces a new

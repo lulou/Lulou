@@ -2338,6 +2338,7 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
                       </span>
                       <Button
                         size="sm"
+                        onMouseDown={e => e.preventDefault()}
                         onClick={() => {
                           if (message.trim()) {
                             const content = message.trim();
@@ -2413,6 +2414,7 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
                       </span>
                       <Button
                         size="sm"
+                        onMouseDown={e => e.preventDefault()}
                         onClick={() => {
                           if (message.trim()) {
                             const content = message.trim();
@@ -2579,6 +2581,7 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
                 />
                 <Button
                   size="icon"
+                  onMouseDown={e => e.preventDefault()}
                   onClick={() => {
                     if (message.trim()) {
                       const content = message.trim();
