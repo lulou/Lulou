@@ -469,6 +469,59 @@ export class SupabaseStorage implements IStorage {
     return photos;
   }
 
+  /**
+   * Builds the unified set of user IDs that the current user must NOT see in
+   * Discovery or the Intention Wheel.  Covers every exclusion category:
+   *
+   *   • profiles already interacted with (opened / closed from any surface)
+   *   • active match partners — regardless of how the match was created
+   *     (Discovery mutual-open, Intention Wheel direct-match, accepted spin request)
+   *
+   * Only ACTIVE matches are excluded.  Removed matches (status = "removed")
+   * intentionally allow the other user to reappear in both surfaces.
+   *
+   * Called in parallel with other slow queries so it adds ≈0 extra latency.
+   */
+  private async buildExcludedUserIds(userId: string): Promise<{
+    excludedIds: Set<string>;
+    interactedIds: Set<string>;
+    activeMatchUserIds: Set<string>;
+  }> {
+    const [interactedResult, activeMatchesResult] = await Promise.all([
+      this.sb.from("interactions").select("to_user_id").eq("from_user_id", userId),
+      this.sb
+        .from("matches")
+        .select("user1_id, user2_id")
+        .eq("status", "active")
+        .or(`user1_id.eq.${userId},user2_id.eq.${userId}`),
+    ]);
+
+    if (interactedResult.error) {
+      console.error("[MATCH_FILTER] interactions fetch error:", interactedResult.error.message);
+    }
+    if (activeMatchesResult.error) {
+      console.error("[MATCH_FILTER] active matches fetch error:", activeMatchesResult.error.message);
+    }
+
+    const interactedIds = new Set<string>(
+      (interactedResult.data || []).map((r: any) => r.to_user_id).filter(Boolean)
+    );
+
+    // Extract the OTHER user from each match row — works regardless of user1/user2 position.
+    const activeMatchUserIds = new Set<string>();
+    for (const row of (activeMatchesResult.data || [])) {
+      const otherId = (row.user1_id === userId ? row.user2_id : row.user1_id) as string | null;
+      if (otherId) activeMatchUserIds.add(otherId);
+    }
+
+    const excludedIds = new Set<string>([...interactedIds, ...activeMatchUserIds]);
+
+    console.log("[MATCH_FILTER] currentUserId:", userId);
+    console.log("[MATCH_FILTER] active matched user ids:", [...activeMatchUserIds]);
+
+    return { excludedIds, interactedIds, activeMatchUserIds };
+  }
+
   async getDiscoverProfiles(userId: string, gender: string, preference: string, ageMin: number = 18, ageMax: number = 99): Promise<Profile[]> {
     const isDev = process.env.NODE_ENV === "development";
 
@@ -533,53 +586,16 @@ export class SupabaseStorage implements IStorage {
     });
 
     const t1 = Date.now();
-    // Step 1: fetch interaction history, active match partners, and elevates in parallel.
-    // All three are needed before we can build the correct exclusion set for the profiles query.
-    //
-    // WHY we also query matches (not just interactions):
-    // Matches created via the Intention Wheel (POST /api/wheel/open) and accepted spin requests
-    // call storage.createMatch() directly, bypassing the interactions table entirely.  Those
-    // matched users have NO row in interactions with from_user_id = userId, so they were
-    // leaking back into discovery and could be "liked again".  Querying active matches and
-    // unioning their partner IDs with interactedIds closes that gap.
-    const [interactedResult, activeMatchesResult, elevates] = await Promise.all([
-      this.sb.from("interactions").select("to_user_id").eq("from_user_id", userId),
-      this.sb
-        .from("matches")
-        .select("user1_id, user2_id")
-        .eq("status", "active")
-        .or(`user1_id.eq.${userId},user2_id.eq.${userId}`),
+    // Step 1: build unified exclusion set + fetch elevates in parallel.
+    // buildExcludedUserIds covers both interaction-based and match-based exclusions so that
+    // Discovery uses the same filtering logic as the Intention Wheel.
+    const [{ excludedIds, interactedIds, activeMatchUserIds }, elevates] = await Promise.all([
+      this.buildExcludedUserIds(userId),
       getActiveElevatesMap(),
     ]);
-    if (IS_DEV) console.log(`[DISCOVER] interactions+matches+elevates done in ${Date.now() - t1} ms`);
-
-    if (interactedResult.error) {
-      console.error("[DISCOVER] interactions fetch error:", interactedResult.error.message);
-    }
-    if (activeMatchesResult.error) {
-      console.error("[DISCOVER] active matches fetch error:", activeMatchesResult.error.message);
-    }
-
-    // Profiles this user has already opened or closed
-    const interactedIds = new Set<string>(
-      (interactedResult.data || []).map((r: any) => r.to_user_id).filter(Boolean)
-    );
-
-    // Other-user IDs from every ACTIVE match (regardless of who is user1/user2).
-    // Only active matches are excluded — removed/unmatched matches (status="removed")
-    // intentionally allow the other user back into discovery.
-    const activeMatchUserIds = new Set<string>();
-    for (const row of (activeMatchesResult.data || [])) {
-      const otherId = (row.user1_id === userId ? row.user2_id : row.user1_id) as string | null;
-      if (otherId) activeMatchUserIds.add(otherId);
-    }
-
-    // Unified exclusion set: interacted users ∪ active match partners
-    const excludedIds = new Set<string>([...interactedIds, ...activeMatchUserIds]);
-
-    if (IS_DEV) {
-      console.log("[DISCOVERY_FILTER] currentUserId:", userId);
-      console.log("[DISCOVERY_FILTER] active matched user ids:", [...activeMatchUserIds]);
+    if (IS_DEV) console.log(`[DISCOVER] exclusions+elevates done in ${Date.now() - t1} ms`);
+    if (activeMatchUserIds.size > 0) {
+      console.log("[DISCOVERY_FILTER] excluded matched users:", activeMatchUserIds.size);
     }
 
     // Step 2: apply exclusion at DB level so LIMIT is applied to the correct pool.
@@ -661,13 +677,13 @@ export class SupabaseStorage implements IStorage {
         const fallbackWithElevates = mergeElevatesIntoProfiles(fallbackFiltered, elevates);
         if (IS_DEV) console.log("[DISCOVER] Gender-only fallback pool:", fallbackWithElevates.length, "profiles");
         const fallbackResult = weightedSample(fallbackWithElevates, 20, now);
-        if (IS_DEV) console.log("[DISCOVERY_FILTER] final discovery count:", fallbackResult.length);
+        console.log("[DISCOVERY_FILTER] final count:", fallbackResult.length);
         return fallbackResult;
       }
     }
 
     const result = weightedSample(filtered, 20, now);
-    if (IS_DEV) console.log("[DISCOVERY_FILTER] final discovery count:", result.length);
+    console.log("[DISCOVERY_FILTER] final count:", result.length);
     return result;
   }
 
@@ -1444,24 +1460,21 @@ export class SupabaseStorage implements IStorage {
       return q;
     };
 
-    // Run user's-own-interactions and global popularity interactions in parallel.
-    // Previously sequential: first user interactions, then popularity count — this adds ~200ms.
+    // Build exclusion set (interacted + active matches) and fetch popularity data in parallel.
+    // Previously only interactedIds was used — matches created via the Intention Wheel itself
+    // (POST /api/wheel/open) or accepted spin requests bypass the interactions table entirely,
+    // so those matched users leaked back into the wheel pool.  buildExcludedUserIds fixes both
+    // Discovery and the Wheel with one shared helper.
     const twPopT0 = Date.now();
-    const [userInteractedResult, popularRowsResult] = await Promise.all([
-      userId
-        ? this.sb.from("interactions").select("to_user_id").eq("from_user_id", userId)
-        : Promise.resolve({ data: [] as { to_user_id: string }[], error: null }),
+    const emptyExclusion = { excludedIds: new Set<string>(), interactedIds: new Set<string>(), activeMatchUserIds: new Set<string>() };
+    const [exclusionResult, popularRowsResult] = await Promise.all([
+      userId ? this.buildExcludedUserIds(userId) : Promise.resolve(emptyExclusion),
       this.sb.from("interactions").select("to_user_id").eq("type", "open").limit(2000),
     ]);
-    console.log(`[WHEEL] parallel interaction queries done in ${Date.now() - twPopT0} ms`);
+    console.log(`[WHEEL] exclusions+popularity queries done in ${Date.now() - twPopT0} ms`);
 
-    let interactedIds = new Set<string>();
-    if (userInteractedResult.error) {
-      console.error("[WHEEL] interactions fetch error:", (userInteractedResult as any).error?.message);
-    } else {
-      interactedIds = new Set((userInteractedResult.data || []).map((r: any) => r.to_user_id).filter(Boolean));
-      console.log("[WHEEL] interacted profile count:", interactedIds.size);
-    }
+    const { excludedIds, interactedIds, activeMatchUserIds } = exclusionResult;
+    console.log("[INTENTION_WHEEL_FILTER] active matched user ids:", [...activeMatchUserIds]);
 
     const popularRows = popularRowsResult.data;
 
@@ -1521,25 +1534,31 @@ export class SupabaseStorage implements IStorage {
 
     console.log("[WHEEL] total profiles before interaction filter:", allProfiles.length, "| preference:", preference ?? "any", "| gender:", gender ?? "any");
 
-    // Exclude profiles the current user has already interacted with.
-    // This makes the wheel consistent with Discover — the user won't see people
-    // they've already liked or closed anywhere else in the app.
-    if (userId && interactedIds.size > 0) {
+    // Exclude profiles the current user has already interacted with OR is actively matched with.
+    // excludedIds = interactedIds ∪ activeMatchUserIds — see buildExcludedUserIds for details.
+    if (userId && excludedIds.size > 0) {
       const beforeCount = allProfiles.length;
+      let matchExcludedCount = 0;
       allProfiles = allProfiles.filter(p => {
-        if (interactedIds.has(p.userId)) {
-          console.log(`[WHEEL] EXCLUDED userId=${p.userId} (${p.firstName}) — already interacted`);
+        if (excludedIds.has(p.userId)) {
+          if (activeMatchUserIds.has(p.userId)) {
+            matchExcludedCount++;
+            if (IS_DEV) console.log(`[INTENTION_WHEEL_FILTER] excluded matched profile: ${p.userId} (${p.firstName})`);
+          }
           return false;
         }
         return true;
       });
-      console.log(`[WHEEL] after interaction exclusion: ${allProfiles.length} (removed ${beforeCount - allProfiles.length})`);
+      if (matchExcludedCount > 0) {
+        console.log(`[INTENTION_WHEEL_FILTER] excluded matched users: ${matchExcludedCount}`);
+      }
+      console.log(`[WHEEL] after exclusion: ${allProfiles.length} (removed ${beforeCount - allProfiles.length})`);
     }
 
-    // If still empty after interaction filter, show anyone with onboarding complete (no gender filter).
-    // This last-resort fallback shows any uninteracted user to prevent a completely empty wheel.
+    // If still empty after exclusion, show anyone with onboarding complete (no gender filter).
+    // This last-resort fallback shows any non-excluded user to prevent a completely empty wheel.
     if (allProfiles.length === 0) {
-      console.log("[WHEEL] no profiles after all filters — falling back to any non-interacted completed profile");
+      console.log("[WHEEL] no profiles after all filters — falling back to any non-excluded completed profile");
       const { data: fallback } = await this.sb
         .from("profiles")
         .select(WHEEL_COLS)
@@ -1547,17 +1566,17 @@ export class SupabaseStorage implements IStorage {
         .order("created_at", { ascending: false })
         .limit(limit * 3);
       const fallbackMapped = (fallback || []).map(mapProfile).filter(p =>
-        p.userId !== userId && !interactedIds.has(p.userId)
+        p.userId !== userId && !excludedIds.has(p.userId)
       );
       allProfiles = fallbackMapped;
-      console.log("[WHEEL] fallback pool after interaction filter:", allProfiles.length);
+      console.log("[WHEEL] fallback pool after exclusion:", allProfiles.length);
     }
 
     // Merge live elevate status from local DB, then weighted sample
     const elevates = await getActiveElevatesMap();
     const now = new Date();
     const elevatedProfiles = mergeElevatesIntoProfiles(allProfiles, elevates);
-    console.log("[WHEEL] final pool returned:", elevatedProfiles.length);
+    console.log("[INTENTION_WHEEL_FILTER] final count:", elevatedProfiles.length);
     return weightedSample(elevatedProfiles, elevatedProfiles.length, now);
   }
 
