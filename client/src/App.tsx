@@ -255,6 +255,7 @@ function CallDetectors({ userId }: { userId: string }) {
   // cold start, but belt-and-suspenders in case of fast HMR or component re-mount).
   useEffect(() => {
     stopIncomingRingtone("app_startup");
+    console.log("[FINAL_CALL_FIX] startup ringtone stopped", { userId: userId.slice(0, 8) });
     console.log("[CALL_RESET] app startup: all call audio stopped", { userId: userId.slice(0, 8) });
     console.log("[CALL_STATE_FIX] app startup stop ringtone", { userId: userId.slice(0, 8) });
   }, []);

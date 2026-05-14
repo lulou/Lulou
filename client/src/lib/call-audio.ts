@@ -185,16 +185,28 @@ function _warmElements(): void {
   const rt = _ensureRingtoneEl();
   if (rt && !_ringtoneWarm) {
     _ringtoneWarm = true; // mark synchronously — activation happens on play() call, not Promise resolve
+
+    // Mute the element before play() when no ring is active so the warm-up
+    // is completely silent. Without this, the async gap between play() and
+    // .then() causes a brief audible 440/480 Hz burst on the first gesture —
+    // the "ringtone on app open" and "transition beep" bugs.
+    const savedVolume = rt.volume;
+    if (!_ringtoneActive) rt.volume = 0;
+
     rt.play().then(() => {
       // If no incoming call is pending, silence immediately (just a warm-up, not a real ring).
       if (!_ringtoneActive) {
         rt.pause();
         rt.currentTime = 0;
+        rt.volume = savedVolume; // restore volume for future real rings
+        console.log("[FINAL_CALL_FIX] blocked stale ringtone");
       } else {
+        rt.volume = savedVolume; // ensure correct volume for real ring
         // Ring was waiting for unlock — it's now playing.
         console.log("[CALL_RINGTONE] incoming ringtone started (post-unlock)");
       }
     }).catch(() => {
+      rt.volume = savedVolume; // restore on error too
       // AbortError from immediate pause is expected and harmless — element is still warm.
       if (_ringtoneActive) {
         // Ring was waiting — try once more (should succeed now that element is warm).
@@ -208,9 +220,22 @@ function _warmElements(): void {
   const rb = _ensureRingbackEl();
   if (rb && !_ringbackWarm) {
     _ringbackWarm = true;
+
+    // Same silent warm-up fix for ringback — prevents beep during call transitions.
+    const savedVolume = rb.volume;
+    if (!_ringbackActive) rb.volume = 0;
+
     rb.play().then(() => {
-      if (!_ringbackActive) { rb.pause(); rb.currentTime = 0; }
+      if (!_ringbackActive) {
+        rb.pause();
+        rb.currentTime = 0;
+        rb.volume = savedVolume;
+        console.log("[FINAL_CALL_FIX] blocked stale ringtone");
+      } else {
+        rb.volume = savedVolume;
+      }
     }).catch(() => {
+      rb.volume = savedVolume;
       if (_ringbackActive) { rb.currentTime = 0; rb.play().catch(() => {}); }
     });
   }

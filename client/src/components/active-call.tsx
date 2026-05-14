@@ -563,6 +563,11 @@ export function ActiveCallOverlay({
           // Set playsInline as a DOM property (belt-and-suspenders for iOS Safari —
           // JSX playsInline sets the HTML attribute but iOS may not honour it
           // unless the DOM property is also set explicitly before play()).
+          // Stop ringtone/ringback synchronously before attaching remote audio.
+          // This eliminates any brief beep caused by the warm-up path or a
+          // race between the connectionState effect and this attachment effect.
+          stopAllNonVoiceCallAudio("transition_before_remote_audio");
+          console.log("[FINAL_CALL_FIX] transition beep stopped before remote audio", { matchId });
           (el as any).playsInline = true;
           el.srcObject = remoteStream;
           el.muted = false;
