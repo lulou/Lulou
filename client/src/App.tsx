@@ -50,7 +50,7 @@ if (typeof window !== "undefined") {
   }
 }
 import { useCallSignaling, setCallEndedHandler, clearDedupeForMatch } from "@/hooks/use-call-signaling";
-import { stopIncomingRingtone } from "@/lib/call-audio";
+import { stopAllNonVoiceCallAudio } from "@/lib/call-audio";
 import { markCallSessionCancelled, markStartupCancelledSession, isCallSessionCancelled, clearCancelledSession } from "@/lib/cancelled-calls";
 import type { Profile, Match } from "@shared/schema";
 import { Loader2 } from "lucide-react";
@@ -254,7 +254,9 @@ function CallDetectors({ userId }: { userId: string }) {
   // Immediately silence any ringtone that might have survived (impossible on a
   // cold start, but belt-and-suspenders in case of fast HMR or component re-mount).
   useEffect(() => {
-    stopIncomingRingtone("app_startup");
+    // Stop both ringtone and ringback — covers refresh-during-call (caller side)
+    // as well as the stale-DB incoming call case on the receiver side.
+    stopAllNonVoiceCallAudio("app_startup");
     console.log("[FINAL_CALL_FIX] startup ringtone stopped", { userId: userId.slice(0, 8) });
     console.log("[CALL_RESET] app startup: all call audio stopped", { userId: userId.slice(0, 8) });
     console.log("[CALL_STATE_FIX] app startup stop ringtone", { userId: userId.slice(0, 8) });

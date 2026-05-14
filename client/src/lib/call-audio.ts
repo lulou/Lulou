@@ -186,27 +186,27 @@ function _warmElements(): void {
   if (rt && !_ringtoneWarm) {
     _ringtoneWarm = true; // mark synchronously — activation happens on play() call, not Promise resolve
 
-    // Mute the element before play() when no ring is active so the warm-up
-    // is completely silent. Without this, the async gap between play() and
-    // .then() causes a brief audible 440/480 Hz burst on the first gesture —
-    // the "ringtone on app open" and "transition beep" bugs.
-    const savedVolume = rt.volume;
-    if (!_ringtoneActive) rt.volume = 0;
+    // Use muted=true (not just volume=0) for the warm-up when no ring is pending.
+    // iOS Safari can still emit a brief audio burst from the pre-decoded buffer
+    // before the async .then() fires, even at volume=0.  muted=true is a DOM-level
+    // gate that the audio pipeline cannot bypass — guaranteed silence during warm-up.
+    const wasMuted = rt.muted;
+    if (!_ringtoneActive) rt.muted = true;
 
     rt.play().then(() => {
-      // If no incoming call is pending, silence immediately (just a warm-up, not a real ring).
+      // If no incoming call is pending, silence immediately (warm-up only).
       if (!_ringtoneActive) {
         rt.pause();
         rt.currentTime = 0;
-        rt.volume = savedVolume; // restore volume for future real rings
-        console.log("[FINAL_CALL_FIX] blocked stale ringtone");
+        rt.muted = wasMuted;
+        console.log("[FINAL_CALL_FIX] stale ringtone blocked");
       } else {
-        rt.volume = savedVolume; // ensure correct volume for real ring
+        rt.muted = wasMuted; // ensure audible for the real ring
         // Ring was waiting for unlock — it's now playing.
         console.log("[CALL_RINGTONE] incoming ringtone started (post-unlock)");
       }
     }).catch(() => {
-      rt.volume = savedVolume; // restore on error too
+      rt.muted = wasMuted;
       // AbortError from immediate pause is expected and harmless — element is still warm.
       if (_ringtoneActive) {
         // Ring was waiting — try once more (should succeed now that element is warm).
@@ -221,21 +221,22 @@ function _warmElements(): void {
   if (rb && !_ringbackWarm) {
     _ringbackWarm = true;
 
-    // Same silent warm-up fix for ringback — prevents beep during call transitions.
-    const savedVolume = rb.volume;
-    if (!_ringbackActive) rb.volume = 0;
+    // Same muted=true guard for ringback — prevents the "transition beep" that
+    // occurs when Answer is the user's first gesture and _doUnlock fires mid-call.
+    const wasMuted = rb.muted;
+    if (!_ringbackActive) rb.muted = true;
 
     rb.play().then(() => {
       if (!_ringbackActive) {
         rb.pause();
         rb.currentTime = 0;
-        rb.volume = savedVolume;
-        console.log("[FINAL_CALL_FIX] blocked stale ringtone");
+        rb.muted = wasMuted;
+        console.log("[FINAL_CALL_FIX] stale ringtone blocked");
       } else {
-        rb.volume = savedVolume;
+        rb.muted = wasMuted;
       }
     }).catch(() => {
-      rb.volume = savedVolume;
+      rb.muted = wasMuted;
       if (_ringbackActive) { rb.currentTime = 0; rb.play().catch(() => {}); }
     });
   }

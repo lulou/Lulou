@@ -1140,6 +1140,7 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
     audioTrack.enabled = !audioTrack.enabled;
     const nowMuted = !audioTrack.enabled;
     setIsMuted(nowMuted);
+    console.log("[FINAL_CALL_FIX] mute toggled", { muted: nowMuted, trackEnabled: audioTrack.enabled, matchId });
     console.log("[CALL_CONTROLS]", nowMuted ? "mute on" : "mute off", {
       trackEnabled: audioTrack.enabled,
       trackId: audioTrack.id.slice(0, 12),

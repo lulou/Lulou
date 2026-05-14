@@ -304,23 +304,24 @@ export function ActiveCallOverlay({
       } else {
         el.setSinkId("").catch(() => {});
       }
-      console.log("[CALL_CONTROLS]", speakerOn ? "speaker on" : "speaker off default", {
-        method: "setSinkId",
-        matchId,
+      console.log(speakerOn ? "[FINAL_CALL_FIX] speaker toggled" : "[FINAL_CALL_FIX] iphone speaker off default", {
+        method: "setSinkId", speakerOn, matchId,
       });
     } else {
-      // iOS / no-setSinkId path — control via volume
+      // iOS / no-setSinkId path — approximate earpiece/speaker via volume.
+      // isConnected is in deps so this re-runs after WebRTC connects (iOS audio
+      // session switches on getUserMedia, which can reset el.volume to 1.0).
       const vol = speakerOn ? 1.0 : 0.3;
       el.volume = vol;
-      console.log("[CALL_CONTROLS]", speakerOn ? "speaker on" : "speaker off default", {
-        method: "volume",
-        volume: vol,
-        matchId,
-      });
+      if (!speakerOn) {
+        console.log("[FINAL_CALL_FIX] iphone speaker off default", { volume: vol, isConnected, matchId });
+      } else {
+        console.log("[FINAL_CALL_FIX] speaker toggled", { volume: vol, isConnected, matchId });
+      }
       console.log("[CALL_CONTROLS] remote audio volume set", { volume: vol, matchId });
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [speakerOn, matchId]);
+  }, [speakerOn, matchId, isConnected]);
 
   // Log overlay entry and WebRTC state changes
   useEffect(() => {
@@ -344,6 +345,7 @@ export function ActiveCallOverlay({
       // pause the registered remote-voice element, which is important on
       // reconnection when the element may already be attached and playing.
       stopAllNonVoiceCallAudio("connected");
+      console.log("[FINAL_CALL_FIX] connect beep stopped", { matchId, isCaller });
       console.log("[PHONE_AUDIO] connected call audio = remote voice only", { matchId, isCaller });
       console.log("[CALL_AUDIO] connected: remote voice only, non-voice sounds stopped", { matchId, isCaller });
 
@@ -564,13 +566,20 @@ export function ActiveCallOverlay({
           // JSX playsInline sets the HTML attribute but iOS may not honour it
           // unless the DOM property is also set explicitly before play()).
           // Stop ringtone/ringback synchronously before attaching remote audio.
-          // This eliminates any brief beep caused by the warm-up path or a
-          // race between the connectionState effect and this attachment effect.
+          // Belt-and-suspenders on top of the connectionState effect stop.
           stopAllNonVoiceCallAudio("transition_before_remote_audio");
-          console.log("[FINAL_CALL_FIX] transition beep stopped before remote audio", { matchId });
+          console.log("[FINAL_CALL_FIX] connect beep stopped", { matchId, phase: "before_srcObject" });
           (el as any).playsInline = true;
           el.srcObject = remoteStream;
           el.muted = false;
+          // Re-apply iOS volume immediately after srcObject set — iOS audio session
+          // switches when getUserMedia opens the mic, which can silently reset
+          // el.volume to 1.0 after the speaker effect's initial run on mount.
+          if (isIOS) {
+            const vol = speakerOn ? 1.0 : 0.3;
+            el.volume = vol;
+            console.log("[FINAL_CALL_FIX] iphone speaker off default", { volume: vol, speakerOn, matchId, phase: "srcObject_set" });
+          }
         }
         // Register with call-audio so cleanupCallAudio() can detach this element.
         registerCallAudioElement(el, `remote-audio:${matchId}`);
