@@ -403,6 +403,11 @@ export function ActiveCallOverlay({
       // immediately visible in the console without having to decode raw audit lines.
       const selfMonitorBug = localUnmutedCount > 0;
       const remoteCountOk  = remoteAttachedCount === 1;
+      if (!selfMonitorBug) {
+        console.log("[FINAL_AUDIO_FIX] local mic not audible", { matchId, localUnmutedCount, verdict: "clean — no mic feedback path" });
+      } else {
+        console.error("[FINAL_AUDIO_FIX] local mic not audible — BUG DETECTED: mic attached to unmuted element", { matchId, localUnmutedCount });
+      }
       console.log("[SELF_AUDIO_FIX] srcObject audit complete", {
         matchId,
         isCaller,
@@ -600,14 +605,34 @@ export function ActiveCallOverlay({
           localStreamAttachedHere: false,
         });
         console.log("[CALL_AUDIO_AUDIT] SOURCE 2 attached: remote voice <audio> UNMUTED — remote WebRTC voice stream, sole audio source during call");
-        // autoPlay + explicit .play() handles iOS Safari
-        el.play().catch(() => {});
-        console.log("[WebRTC] REMOTE_AUDIO_ATTACHED", {
+        console.log("[FINAL_AUDIO_FIX] single remote stream attached", {
           matchId,
           audioTracks: remoteStream.getAudioTracks().length,
-          videoTracks: remoteStream.getVideoTracks().length,
-          trackIds: incomingIds,
+          elementMuted: el.muted,
+          srcObjectSet: !!el.srcObject,
         });
+        // Guard: only play if srcObject was actually set (the localStream-blocked
+        // path above skips srcObject assignment; calling play() there would replay
+        // any previously-attached stale audio and cause phantom beeping).
+        if (el.srcObject) {
+          // Final stop immediately before play — catches any tone that could have
+          // started in the ~30 lines between the pre-srcObject stop and here.
+          stopAllNonVoiceCallAudio("final_before_remote_play");
+          console.log("[FINAL_AUDIO_FIX] all non-voice timers stopped before connect", { matchId, phase: "before_play" });
+          el.play().catch(() => {});
+          console.log("[FINAL_AUDIO_FIX] connected call audio clean", {
+            matchId,
+            audioTracks: remoteStream.getAudioTracks().length,
+            elementMuted: el.muted,
+            volume: el.volume,
+          });
+          console.log("[WebRTC] REMOTE_AUDIO_ATTACHED", {
+            matchId,
+            audioTracks: remoteStream.getAudioTracks().length,
+            videoTracks: remoteStream.getVideoTracks().length,
+            trackIds: incomingIds,
+          });
+        }
       } else {
         console.log("[CALL_FEEDBACK_FIX] single remote audio active — track set unchanged, not re-attaching", { matchId });
         console.log("[WebRTC] REMOTE_AUDIO_SKIP: track set unchanged, not re-attaching", { matchId });
@@ -956,10 +981,13 @@ export function ActiveCallOverlay({
         />
       )}
 
-      {/* Remote audio — always present so voice comes through even in video mode */}
+      {/* Remote audio — always present so voice comes through even in video mode.
+          autoPlay is intentionally omitted: relying on explicit el.play() in the
+          remote-stream effect gives us deterministic control over exactly when audio
+          starts and prevents the browser's internal autoplay machinery from starting
+          output before our stopAllNonVoiceCallAudio + volume guards have run. */}
       <audio
         ref={remoteAudioRef}
-        autoPlay
         playsInline
         style={{ display: "none" }}
         data-testid="audio-remote"
