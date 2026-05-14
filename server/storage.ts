@@ -533,33 +533,61 @@ export class SupabaseStorage implements IStorage {
     });
 
     const t1 = Date.now();
-    // Step 1: fetch interaction history + elevates in parallel (both are fast).
-    // We need interactedIds *before* building the profiles query so we can push
-    // the exclusion into the DB — fixing a bug where LIMIT 100 was applied to the
-    // full profile pool (including already-interacted profiles), causing "that's
-    // everyone for now" when all 100 fetched profiles had been interacted with even
-    // though hundreds more uninteracted profiles existed in the database.
-    const [interactedResult, elevates] = await Promise.all([
+    // Step 1: fetch interaction history, active match partners, and elevates in parallel.
+    // All three are needed before we can build the correct exclusion set for the profiles query.
+    //
+    // WHY we also query matches (not just interactions):
+    // Matches created via the Intention Wheel (POST /api/wheel/open) and accepted spin requests
+    // call storage.createMatch() directly, bypassing the interactions table entirely.  Those
+    // matched users have NO row in interactions with from_user_id = userId, so they were
+    // leaking back into discovery and could be "liked again".  Querying active matches and
+    // unioning their partner IDs with interactedIds closes that gap.
+    const [interactedResult, activeMatchesResult, elevates] = await Promise.all([
       this.sb.from("interactions").select("to_user_id").eq("from_user_id", userId),
+      this.sb
+        .from("matches")
+        .select("user1_id, user2_id")
+        .eq("status", "active")
+        .or(`user1_id.eq.${userId},user2_id.eq.${userId}`),
       getActiveElevatesMap(),
     ]);
-    if (IS_DEV) console.log(`[DISCOVER] interactions+elevates done in ${Date.now() - t1} ms`);
+    if (IS_DEV) console.log(`[DISCOVER] interactions+matches+elevates done in ${Date.now() - t1} ms`);
 
     if (interactedResult.error) {
       console.error("[DISCOVER] interactions fetch error:", interactedResult.error.message);
     }
+    if (activeMatchesResult.error) {
+      console.error("[DISCOVER] active matches fetch error:", activeMatchesResult.error.message);
+    }
 
+    // Profiles this user has already opened or closed
     const interactedIds = new Set<string>(
       (interactedResult.data || []).map((r: any) => r.to_user_id).filter(Boolean)
     );
 
-    // Step 2: apply interaction exclusion at DB level so LIMIT is applied to the
-    // correct uninteracted pool. Cap at 300 entries to stay within PostgREST URL
-    // length limits; for power users (>300 interactions) fall back to a higher
-    // in-memory limit so there is still sufficient headroom.
-    const useDbExclusion = interactedIds.size <= 300;
-    if (useDbExclusion && interactedIds.size > 0) {
-      profilesQuery = profilesQuery.not("user_id", "in", `(${[...interactedIds].join(",")})`);
+    // Other-user IDs from every ACTIVE match (regardless of who is user1/user2).
+    // Only active matches are excluded — removed/unmatched matches (status="removed")
+    // intentionally allow the other user back into discovery.
+    const activeMatchUserIds = new Set<string>();
+    for (const row of (activeMatchesResult.data || [])) {
+      const otherId = (row.user1_id === userId ? row.user2_id : row.user1_id) as string | null;
+      if (otherId) activeMatchUserIds.add(otherId);
+    }
+
+    // Unified exclusion set: interacted users ∪ active match partners
+    const excludedIds = new Set<string>([...interactedIds, ...activeMatchUserIds]);
+
+    if (IS_DEV) {
+      console.log("[DISCOVERY_FILTER] currentUserId:", userId);
+      console.log("[DISCOVERY_FILTER] active matched user ids:", [...activeMatchUserIds]);
+    }
+
+    // Step 2: apply exclusion at DB level so LIMIT is applied to the correct pool.
+    // Cap at 300 entries to stay within PostgREST URL length limits; power users
+    // (>300 entries) fall back to a higher in-memory limit with sufficient headroom.
+    const useDbExclusion = excludedIds.size <= 300;
+    if (useDbExclusion && excludedIds.size > 0) {
+      profilesQuery = profilesQuery.not("user_id", "in", `(${[...excludedIds].join(",")})`);
     }
 
     const t2 = Date.now();
@@ -573,11 +601,17 @@ export class SupabaseStorage implements IStorage {
 
     const now = new Date();
     const all = (profilesResult.data || []).map(mapProfile);
-    // DB-exclusion path: returned profiles are already uninteracted — no second filter needed.
-    // Large-interaction fallback: apply in-memory exclusion on the wider 500-profile batch.
+    // DB-exclusion path: returned profiles are already excluded — no second filter needed.
+    // Large-exclusion fallback: apply in-memory exclusion on the wider 500-profile batch.
     const baseFiltered = useDbExclusion
       ? all
-      : all.filter(p => !interactedIds.has(p.userId));
+      : all.filter(p => {
+          if (!excludedIds.has(p.userId)) return true;
+          if (IS_DEV && activeMatchUserIds.has(p.userId)) {
+            console.log("[DISCOVERY_FILTER] excluded matched profile:", p.userId, p.firstName);
+          }
+          return false;
+        });
 
     const filtered = mergeElevatesIntoProfiles(baseFiltered, elevates);
 
@@ -586,10 +620,11 @@ export class SupabaseStorage implements IStorage {
       const elevCount  = filtered.filter(p => p.elevateType === "elevate" && p.elevateExpiresAt && p.elevateExpiresAt > now).length;
       console.log(
         "[DISCOVER] DB pool:", all.length,
-        "| after interaction exclusion:", baseFiltered.length,
+        "| after exclusion:", baseFiltered.length,
         "| after elevate merge:", filtered.length,
         "| super:", superCount, "elevate:", elevCount,
-        "| interactedIds count:", interactedIds.size,
+        "| interacted:", interactedIds.size,
+        "| active-matched:", activeMatchUserIds.size,
       );
     }
 
@@ -614,14 +649,26 @@ export class SupabaseStorage implements IStorage {
       const { data: fallbackData, error: fallbackErr } = await fallbackQuery;
       if (!fallbackErr && fallbackData && fallbackData.length > 0) {
         const fallbackAll = fallbackData.map(mapProfile);
-        const fallbackFiltered = fallbackAll.filter(p => !interactedIds.has(p.userId));
+        const fallbackFiltered = fallbackAll.filter(p => {
+          if (excludedIds.has(p.userId)) {
+            if (IS_DEV && activeMatchUserIds.has(p.userId)) {
+              console.log("[DISCOVERY_FILTER] excluded matched profile (fallback):", p.userId, p.firstName);
+            }
+            return false;
+          }
+          return true;
+        });
         const fallbackWithElevates = mergeElevatesIntoProfiles(fallbackFiltered, elevates);
         if (IS_DEV) console.log("[DISCOVER] Gender-only fallback pool:", fallbackWithElevates.length, "profiles");
-        return weightedSample(fallbackWithElevates, 20, now);
+        const fallbackResult = weightedSample(fallbackWithElevates, 20, now);
+        if (IS_DEV) console.log("[DISCOVERY_FILTER] final discovery count:", fallbackResult.length);
+        return fallbackResult;
       }
     }
 
-    return weightedSample(filtered, 20, now);
+    const result = weightedSample(filtered, 20, now);
+    if (IS_DEV) console.log("[DISCOVERY_FILTER] final discovery count:", result.length);
+    return result;
   }
 
   async createInteraction(data: InsertInteraction): Promise<Interaction> {
