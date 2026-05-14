@@ -298,27 +298,36 @@ export function ActiveCallOverlay({
     if (!el) return;
 
     if (!isIOS && typeof el.setSinkId === "function") {
-      // Desktop / Android path — route via setSinkId
+      // Desktop / Android Chrome — route audio output via setSinkId.
+      // Speaker OFF → "" (system default: desktop speakers, Android earpiece).
+      // Speaker ON  → "default" (loudspeaker on all platforms).
+      // Desktop always runs at full volume — the output device handles the level.
       if (speakerOn) {
         el.setSinkId("default").catch(() => {});
       } else {
         el.setSinkId("").catch(() => {});
       }
-      console.log(speakerOn ? "[FINAL_CALL_FIX] speaker toggled" : "[FINAL_CALL_FIX] iphone speaker off default", {
-        method: "setSinkId", speakerOn, matchId,
-      });
-    } else {
-      // iOS / no-setSinkId path — approximate earpiece/speaker via volume.
-      // isConnected is in deps so this re-runs after WebRTC connects (iOS audio
-      // session switches on getUserMedia, which can reset el.volume to 1.0).
+      el.volume = 1.0;
+      console.log("[CALL_FIX] laptop speaker default", { method: "setSinkId", speakerOn, volume: 1.0, matchId });
+    } else if (isIOS) {
+      // iOS only: web cannot reach the AVAudioSession earpiece route.
+      // We approximate the two modes with volume:
+      //   speaker OFF (default) → 0.3 — quiet, greatly reduces acoustic echo
+      //     loop because less audio bleeds back into the open mic.
+      //   speaker ON            → 1.0 — full loudspeaker volume.
+      // isConnected is in deps so this re-runs after WebRTC connects — iOS
+      // audio session switches on getUserMedia, which can silently reset
+      // el.volume to 1.0 after this effect's initial run on mount.
       const vol = speakerOn ? 1.0 : 0.3;
       el.volume = vol;
-      if (!speakerOn) {
-        console.log("[FINAL_CALL_FIX] iphone speaker off default", { volume: vol, isConnected, matchId });
-      } else {
-        console.log("[FINAL_CALL_FIX] speaker toggled", { volume: vol, isConnected, matchId });
-      }
+      console.log("[CALL_FIX] iphone earpiece/default low volume", { volume: vol, speakerOn, isConnected, matchId });
       console.log("[CALL_CONTROLS] remote audio volume set", { volume: vol, matchId });
+    } else {
+      // Non-iOS device that lacks setSinkId (desktop Firefox, desktop Safari).
+      // These are always in speaker/desktop mode — use full volume.
+      el.volume = 1.0;
+      console.log("[CALL_FIX] laptop speaker default", { volume: 1.0, speakerOn, matchId, reason: "no_setSinkId_non_ios" });
+      console.log("[CALL_CONTROLS] remote audio volume set", { volume: 1.0, matchId });
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [speakerOn, matchId, isConnected]);
@@ -345,6 +354,7 @@ export function ActiveCallOverlay({
       // pause the registered remote-voice element, which is important on
       // reconnection when the element may already be attached and playing.
       stopAllNonVoiceCallAudio("connected");
+      console.log("[CALL_FIX] non-voice audio stopped before connect", { matchId, isCaller, phase: "connectionState_connected" });
       console.log("[FINAL_CALL_FIX] connect beep stopped", { matchId, isCaller });
       console.log("[PHONE_AUDIO] connected call audio = remote voice only", { matchId, isCaller });
       console.log("[CALL_AUDIO] connected: remote voice only, non-voice sounds stopped", { matchId, isCaller });
@@ -573,7 +583,7 @@ export function ActiveCallOverlay({
           // Stop ringtone/ringback synchronously before attaching remote audio.
           // Belt-and-suspenders on top of the connectionState effect stop.
           stopAllNonVoiceCallAudio("transition_before_remote_audio");
-          console.log("[FINAL_CALL_FIX] connect beep stopped", { matchId, phase: "before_srcObject" });
+          console.log("[CALL_FIX] non-voice audio stopped before connect", { matchId, phase: "before_srcObject" });
           (el as any).playsInline = true;
           el.srcObject = remoteStream;
           el.muted = false;
@@ -581,9 +591,16 @@ export function ActiveCallOverlay({
           // switches when getUserMedia opens the mic, which can silently reset
           // el.volume to 1.0 after the speaker effect's initial run on mount.
           if (isIOS) {
+            // Re-apply iOS volume immediately after srcObject is set — iOS audio
+            // session switches when getUserMedia opens the mic, which can silently
+            // reset el.volume to 1.0 after the speaker effect's initial run on mount.
             const vol = speakerOn ? 1.0 : 0.3;
             el.volume = vol;
-            console.log("[FINAL_CALL_FIX] iphone speaker off default", { volume: vol, speakerOn, matchId, phase: "srcObject_set" });
+            console.log("[CALL_FIX] iphone earpiece/default low volume", { volume: vol, speakerOn, matchId, phase: "srcObject_set" });
+          } else if (typeof (el as any).setSinkId !== "function") {
+            // Non-iOS without setSinkId (desktop Firefox/Safari) — always full volume.
+            el.volume = 1.0;
+            console.log("[CALL_FIX] laptop speaker default", { volume: 1.0, matchId, phase: "srcObject_set" });
           }
         }
         // Register with call-audio so cleanupCallAudio() can detach this element.
@@ -618,7 +635,7 @@ export function ActiveCallOverlay({
           // Final stop immediately before play — catches any tone that could have
           // started in the ~30 lines between the pre-srcObject stop and here.
           stopAllNonVoiceCallAudio("final_before_remote_play");
-          console.log("[FINAL_AUDIO_FIX] all non-voice timers stopped before connect", { matchId, phase: "before_play" });
+          console.log("[CALL_FIX] non-voice audio stopped before connect", { matchId, phase: "before_play" });
           el.play().catch(() => {});
           console.log("[FINAL_AUDIO_FIX] connected call audio clean", {
             matchId,

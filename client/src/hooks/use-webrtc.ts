@@ -449,6 +449,7 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
       // environment when the mic opens. The 80 ms pause gives the OS time to
       // complete its audio session category switch before capture begins.
       cleanupCallAudio("webrtc_init_before_getUserMedia");
+      console.log("[CALL_FIX] non-voice audio stopped before connect", { matchId, isCaller, phase: "before_getUserMedia" });
       console.log("[FINAL_AUDIO_FIX] all non-voice timers stopped before connect", { matchId, isCaller, phase: "before_getUserMedia" });
       console.log("[PHONE_AUDIO] non-call sound removed: before getUserMedia");
       callDebug.event("init: audio cleanup done");

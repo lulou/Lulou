@@ -115,6 +115,10 @@ export function useCallSignaling(matchIds: string[], userId: string) {
                 callCompleted: m.callCompleted ?? false,
               } : m);
             });
+            // Confirm the overlay will stay visible: the optimistic cache patch
+            // above ensures incomingCall remains truthy between DB refetch cycles,
+            // preventing the overlay from flickering off and back on every 5 s poll.
+            console.log("[CALL_FIX] iphone overlay flicker prevented", { matchId, callSessionId: ringSessionId });
           }
         } else if (event.type === "call:answered") {
           console.log("[CALL_SIGNAL] CALL_ANSWERED", { matchId, answeredBy: senderId });

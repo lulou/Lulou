@@ -256,8 +256,10 @@ function CallDetectors({ userId }: { userId: string }) {
   useEffect(() => {
     // Stop both ringtone and ringback — covers refresh-during-call (caller side)
     // as well as the stale-DB incoming call case on the receiver side.
+    // Clear all ringtone/ringback audio state at startup — prevents stale audio
+    // from a previous session playing on refresh or HMR re-mount.
     stopAllNonVoiceCallAudio("app_startup");
-    console.log("[FINAL_CALL_FIX] startup ringtone stopped", { userId: userId.slice(0, 8) });
+    console.log("[CALL_FIX] startup ringtone stopped", { userId: userId.slice(0, 8) });
     console.log("[CALL_RESET] app startup: all call audio stopped", { userId: userId.slice(0, 8) });
     console.log("[CALL_STATE_FIX] app startup stop ringtone", { userId: userId.slice(0, 8) });
   }, []);

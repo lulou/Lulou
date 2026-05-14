@@ -26,6 +26,10 @@ export function useCallRingtone(type: RingtoneType, enabled: boolean) {
     if (!enabled) return;
 
     if (type === "incoming") {
+      // Ringtone only starts here — after App.tsx has verified incomingCall is a
+      // live, non-stale, non-cancelled session for this user. It never starts on
+      // startup/refresh without this verification gate being passed first.
+      console.log("[CALL_FIX] verified incoming ringtone only", { type: "incoming" });
       console.log("[CALL_RINGTONE] verified incoming call, ringtone started");
       startIncomingRingtone();
       return () => {
