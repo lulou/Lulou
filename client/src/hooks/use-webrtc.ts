@@ -803,7 +803,7 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
           return;
         }
 
-        console.log("[CALL_AUDIO] remote stream from pc.ontrack only", {
+        console.log("[CALL_AUDIO] remote stream received from pc.ontrack", {
           trackKind: event.track.kind,
           trackId: event.track.id.slice(0, 12),
           matchId,
@@ -814,7 +814,7 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
         const tracksAdded: string[] = [];
         event.streams[0]?.getTracks().forEach((track) => {
           if (localTrackIds.has(track.id)) {
-            console.error("[CALL_AUDIO] local mic playback blocked", {
+            console.error("[CALL_AUDIO] local mic blocked from audible playback", {
               trackId: track.id.slice(0, 12),
               trackKind: track.kind,
               reason: "pc.ontrack guard A — local track found in remote stream bundle",

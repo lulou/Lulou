@@ -259,7 +259,7 @@ function CallDetectors({ userId }: { userId: string }) {
     // Clear all ringtone/ringback audio state at startup — prevents stale audio
     // from a previous session playing on refresh or HMR re-mount.
     stopAllNonVoiceCallAudio("app_startup");
-    console.log("[CALL_FIX] startup ringtone stopped", { userId: userId.slice(0, 8) });
+    console.log("[CALL_BOOT] startup ringtone stopped", { userId: userId.slice(0, 8) });
     console.log("[CALL_RESET] app startup: all call audio stopped", { userId: userId.slice(0, 8) });
     console.log("[CALL_STATE_FIX] app startup stop ringtone", { userId: userId.slice(0, 8) });
   }, []);
@@ -370,6 +370,12 @@ function CallDetectors({ userId }: { userId: string }) {
         matchId: m.id,
         callSessionId: m.callSessionId,
         ageMs,
+      });
+      console.log("[CALL_BOOT] stale call state cleared", {
+        matchId: m.id,
+        callSessionId: m.callSessionId,
+        ageMs,
+        note: "blocked until live rering lifts the hold",
       });
       markStartupCancelledSession(m.id, m.callSessionId);
       clearCallFromCache(qc, m.id); // null cache fields; no internal markCallSessionCancelled (no sessionId)

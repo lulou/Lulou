@@ -298,17 +298,20 @@ export function ActiveCallOverlay({
     if (!el) return;
 
     if (!isIOS && typeof el.setSinkId === "function") {
-      // Desktop / Android Chrome — route audio output via setSinkId.
-      // Speaker OFF → "" (system default: desktop speakers, Android earpiece).
-      // Speaker ON  → "default" (loudspeaker on all platforms).
-      // Desktop always runs at full volume — the output device handles the level.
+      // Desktop / Android Chrome — setSinkId for output routing.
+      // Speaker OFF (default): do NOT call setSinkId at all — leave the element
+      // on whatever device it already uses.  Calling setSinkId("") while the
+      // element has no srcObject yet (early effect runs) can block a pending
+      // play() in some Chrome versions.  Full volume in both modes on desktop.
+      // Speaker ON: explicitly route to the default loudspeaker output.
       if (speakerOn) {
         el.setSinkId("default").catch(() => {});
+        console.log("[CALL_AUDIO] laptop speaker mode active", { method: "setSinkId(default)", volume: 1.0, matchId });
       } else {
-        el.setSinkId("").catch(() => {});
+        console.log("[CALL_AUDIO] laptop earpiece/default mode active", { method: "no-setSinkId", volume: 1.0, matchId });
       }
       el.volume = 1.0;
-      console.log("[CALL_FIX] laptop speaker default", { method: "setSinkId", speakerOn, volume: 1.0, matchId });
+      console.log("[CALL_FIX] laptop speaker default", { method: speakerOn ? "setSinkId" : "volume-only", speakerOn, volume: 1.0, matchId });
     } else if (isIOS) {
       // iOS only: web cannot reach the AVAudioSession earpiece route.
       // We approximate the two modes with volume:
@@ -320,12 +323,18 @@ export function ActiveCallOverlay({
       // el.volume to 1.0 after this effect's initial run on mount.
       const vol = speakerOn ? 1.0 : 0.3;
       el.volume = vol;
+      if (speakerOn) {
+        console.log("[CALL_AUDIO] iphone speaker mode active", { volume: vol, matchId });
+      } else {
+        console.log("[CALL_AUDIO] iphone normal mode active", { volume: vol, matchId });
+      }
       console.log("[CALL_FIX] iphone earpiece/default low volume", { volume: vol, speakerOn, isConnected, matchId });
       console.log("[CALL_CONTROLS] remote audio volume set", { volume: vol, matchId });
     } else {
       // Non-iOS device that lacks setSinkId (desktop Firefox, desktop Safari).
       // These are always in speaker/desktop mode — use full volume.
       el.volume = 1.0;
+      console.log("[CALL_AUDIO] laptop earpiece/default mode active", { method: "no-setSinkId-non-ios", volume: 1.0, matchId });
       console.log("[CALL_FIX] laptop speaker default", { volume: 1.0, speakerOn, matchId, reason: "no_setSinkId_non_ios" });
       console.log("[CALL_CONTROLS] remote audio volume set", { volume: 1.0, matchId });
     }
@@ -636,7 +645,37 @@ export function ActiveCallOverlay({
           // started in the ~30 lines between the pre-srcObject stop and here.
           stopAllNonVoiceCallAudio("final_before_remote_play");
           console.log("[CALL_FIX] non-voice audio stopped before connect", { matchId, phase: "before_play" });
-          el.play().catch(() => {});
+          console.log("[CALL_AUDIO] remote audio attached", {
+            matchId,
+            audioTracks: remoteStream.getAudioTracks().length,
+            videoTracks: remoteStream.getVideoTracks().length,
+            volume: el.volume,
+            muted: el.muted,
+            trackIds: incomingIds,
+          });
+          el.play().then(() => {
+            console.log("[CALL_AUDIO] remote audio play success", {
+              matchId,
+              volume: el.volume,
+              muted: el.muted,
+              readyState: el.readyState,
+            });
+          }).catch((err: unknown) => {
+            const msg = (err as Error)?.message ?? String(err);
+            console.error("[CALL_AUDIO] remote audio play FAILED — retrying in 200 ms", { matchId, error: msg });
+            // Retry once: some browsers reject play() from a non-gesture context
+            // on the first attempt but succeed 200 ms later after the audio pipeline
+            // has fully initialised for the new srcObject.
+            setTimeout(() => {
+              if (el.srcObject) {
+                el.play().then(() => {
+                  console.log("[CALL_AUDIO] remote audio play success (retry)", { matchId, volume: el.volume });
+                }).catch((e2: unknown) => {
+                  console.error("[CALL_AUDIO] remote audio play FAILED on retry", { matchId, error: (e2 as Error)?.message ?? String(e2) });
+                });
+              }
+            }, 200);
+          });
           console.log("[FINAL_AUDIO_FIX] connected call audio clean", {
             matchId,
             audioTracks: remoteStream.getAudioTracks().length,

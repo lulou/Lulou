@@ -199,7 +199,7 @@ function _warmElements(): void {
         rt.pause();
         rt.currentTime = 0;
         rt.muted = wasMuted;
-        console.log("[FINAL_CALL_FIX] stale ringtone blocked");
+        console.log("[CALL_RINGTONE] blocked because no verified incoming call");
       } else {
         rt.muted = wasMuted; // ensure audible for the real ring
         // Ring was waiting for unlock — it's now playing.

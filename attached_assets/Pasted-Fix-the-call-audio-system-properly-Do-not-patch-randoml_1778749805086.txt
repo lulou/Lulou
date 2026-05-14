@@ -1,0 +1,92 @@
+Fix the call audio system properly. Do not patch randomly. Do not rewrite unrelated app logic.
+
+Current confirmed bugs:
+1. Laptop plays ringtone when app opens even though there is no active incoming call.
+2. Connected calls still have screeching/beeping/echo.
+3. iPhone speaker toggle must make an obvious audio difference:
+  - default = normal phone/earpiece-style mode
+  - speaker button = loudspeaker mode
+4. Laptop has NO remote audio once call connects.
+5. Incoming ringtone/call UI must remain stable and not interfere with connected-call audio.
+
+Before changing code, inspect:
+- every new Audio
+- every .play()
+- every <audio>
+- every srcObject
+- every getUserMedia
+- every ringtone timer/interval
+- every call state stored in localStorage/sessionStorage
+- every Supabase call subscription/listener
+- every cleanup function
+
+Fix requirements:
+
+A) App-open ringtone bug
+- On app startup/refresh, immediately stop ringtone.
+- Clear ringtone timers/intervals.
+- Clear stale active call/ringtone state from localStorage/sessionStorage if no verified live incoming call exists.
+- Ringtone must ONLY start after confirming:
+ - current user is callee/receiver
+ - call status is ringing or incoming
+ - call is not expired
+- Never start ringtone from cached state alone.
+
+B) Connected-call screeching/beeping/echo
+- Connected call must have exactly ONE audible voice source: the remote WebRTC MediaStream.
+- Local mic stream must ONLY go to peerConnection.addTrack(...).
+- Local mic must NEVER be assigned to an audible audio element.
+- If any audio element receives the local stream, block it and log an error.
+- Stop all ringtone/beep/timer/oscillator/AudioContext/non-voice audio BEFORE remote voice attaches.
+- Ignore own signalling messages/ICE candidates.
+- Force:
+js audio: {   echoCancellation: true,   noiseSuppression: true,   autoGainControl: true }
+
+C) Restore laptop remote audio
+- Do not remove or mute the remote audio element.
+- On laptop/desktop, remote audio should autoplay at normal speaker volume.
+- Remote audio element must be:
+ - muted = false
+ - volume = 1
+ - autoplay = true
+ - playsInline = true
+ - srcObject = remoteStream from pc.ontrack only
+- If remote stream exists but audio is silent, fix the attachment/play logic.
+
+D) iPhone audio routing
+- iPhone/mobile starts in normal phone/earpiece-style mode.
+- If true earpiece routing is not available in Safari, simulate it safely:
+ - default remote audio volume low/safe
+ - speaker button clearly increases volume to loudspeaker level
+- Speaker button must visibly and audibly toggle:
+ - normal mode = lower volume
+ - speaker mode = louder volume
+- Laptop must always behave like speaker mode by default.
+
+E) Cleanup/state
+- On answer: stop ringtone only. Do NOT stop mic tracks, remote stream, peer connection, or signalling.
+- On connected: stop all non-voice audio again, then attach remote voice once.
+- On end/decline/cancel/timeout/unmount/pagehide: stop ringtone, close peer connection, unsubscribe channels, stop tracks, clear timers, clear active call IDs.
+- Second calls must start cleanly.
+
+Add logs:
+[CALL_BOOT] startup ringtone stopped
+[CALL_BOOT] stale call state cleared
+[CALL_RINGTONE] verified incoming ringtone started
+[CALL_RINGTONE] blocked because no verified incoming call
+[CALL_AUDIO] local mic blocked from audible playback
+[CALL_AUDIO] remote stream received from pc.ontrack
+[CALL_AUDIO] remote audio attached
+[CALL_AUDIO] remote audio play success
+[CALL_AUDIO] non-voice audio stopped before connect
+[CALL_AUDIO] laptop speaker mode active
+[CALL_AUDIO] iphone normal mode active
+[CALL_AUDIO] iphone speaker mode active
+[CALL_SIGNAL] ignored own signalling message
+
+Before finishing, report:
+1. Exact file/function causing ringtone on app open.
+2. Exact reason laptop remote audio was silent.
+3. Exact cause of screeching/beeping/echo.
+4. Exact files/functions changed.
+5. Whether iPhone speaker toggle changes actual audio volume/output, not just UI.
