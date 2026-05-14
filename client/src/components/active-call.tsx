@@ -982,12 +982,15 @@ export function ActiveCallOverlay({
       )}
 
       {/* Remote audio — always present so voice comes through even in video mode.
-          autoPlay is intentionally omitted: relying on explicit el.play() in the
-          remote-stream effect gives us deterministic control over exactly when audio
-          starts and prevents the browser's internal autoplay machinery from starting
-          output before our stopAllNonVoiceCallAudio + volume guards have run. */}
+          autoPlay is required for iOS Safari: without it, el.play() called from a
+          React effect (non-gesture context) is silently rejected by the browser,
+          meaning no audio plays and the volume/speaker controls have no effect.
+          The explicit el.play() in the remote-stream effect still runs (belt-and-
+          suspenders for browsers that need a gesture to start); autoPlay ensures
+          iOS pre-authorises the element in the WebRTC PlayAndRecord audio session. */}
       <audio
         ref={remoteAudioRef}
+        autoPlay
         playsInline
         style={{ display: "none" }}
         data-testid="audio-remote"

@@ -270,7 +270,20 @@ function CallDetectors({ userId }: { userId: string }) {
     refetchInterval: 5000,
   });
 
-  const matchIds = useMemo(() => (matches || []).map(m => m.id), [matches]);
+  // Reference-stable match IDs: only creates a new array when the set of IDs
+  // actually changes. Without this, the 5 s refetchInterval produces a new
+  // `matches` reference every tick → a new `matchIds` array every tick →
+  // useCallSignaling tears down and rebuilds all Supabase channels every 5 s,
+  // leaving a brief subscription gap during which a call:ring rering is missed
+  // and the incoming-call overlay flickers off momentarily.
+  const matchIdsStableRef = useRef<string[]>([]);
+  const matchIds = useMemo(() => {
+    const newIds = (matches || []).map(m => m.id).sort();
+    if (newIds.join(",") !== matchIdsStableRef.current.join(",")) {
+      matchIdsStableRef.current = newIds;
+    }
+    return matchIdsStableRef.current;
+  }, [matches]);
   useCallSignaling(matchIds, userId);
 
   const rerMatch = useMemo(() => matches?.find(m =>
@@ -387,7 +400,11 @@ function CallDetectors({ userId }: { userId: string }) {
     return true;
   }, [endedTick]);
 
-  const STALE_RINGING_MS = 30_000;
+  // 90 s: callers typically wait 45–60 s before cancelling. The previous 30 s
+  // threshold caused the incoming-call overlay to vanish mid-ring because
+  // isStaleCall fired on the 5 s poll, incomingCall became undefined, and the
+  // overlay unmounted — resetting ringEnabled and re-triggering the ringtone.
+  const STALE_RINGING_MS = 90_000;
   const STALE_ANSWERED_MS = 5 * 60_000;
 
   function isStaleCall(m: MatchWithProfile): boolean {
@@ -571,6 +588,7 @@ function CallDetectors({ userId }: { userId: string }) {
       {incomingCall && !activeCall && startupVerified && (
         <Suspense fallback={null}>
           <CallOverlayErrorBoundary
+            key={`${incomingCall.id}:${incomingCall.callSessionId}`}
             matchId={incomingCall.id}
             callSessionId={incomingCall.callSessionId}
             onError={handleOverlayError}
