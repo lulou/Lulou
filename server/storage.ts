@@ -533,37 +533,51 @@ export class SupabaseStorage implements IStorage {
     });
 
     const t1 = Date.now();
-    // Run all three queries in parallel — elevates used to be sequential after profiles/interactions
-    const [interactedResult, profilesResult, elevates] = await Promise.all([
+    // Step 1: fetch interaction history + elevates in parallel (both are fast).
+    // We need interactedIds *before* building the profiles query so we can push
+    // the exclusion into the DB — fixing a bug where LIMIT 100 was applied to the
+    // full profile pool (including already-interacted profiles), causing "that's
+    // everyone for now" when all 100 fetched profiles had been interacted with even
+    // though hundreds more uninteracted profiles existed in the database.
+    const [interactedResult, elevates] = await Promise.all([
       this.sb.from("interactions").select("to_user_id").eq("from_user_id", userId),
-      profilesQuery.limit(100),
       getActiveElevatesMap(),
     ]);
-    if (IS_DEV) console.log(`[DISCOVER] parallel queries done in ${Date.now() - t1} ms`);
+    if (IS_DEV) console.log(`[DISCOVER] interactions+elevates done in ${Date.now() - t1} ms`);
 
     if (interactedResult.error) {
       console.error("[DISCOVER] interactions fetch error:", interactedResult.error.message);
-    }
-    if (profilesResult.error) {
-      console.error("[DISCOVER] profiles fetch error:", profilesResult.error.message, profilesResult.error.code);
-      return [];
     }
 
     const interactedIds = new Set<string>(
       (interactedResult.data || []).map((r: any) => r.to_user_id).filter(Boolean)
     );
 
+    // Step 2: apply interaction exclusion at DB level so LIMIT is applied to the
+    // correct uninteracted pool. Cap at 300 entries to stay within PostgREST URL
+    // length limits; for power users (>300 interactions) fall back to a higher
+    // in-memory limit so there is still sufficient headroom.
+    const useDbExclusion = interactedIds.size <= 300;
+    if (useDbExclusion && interactedIds.size > 0) {
+      profilesQuery = profilesQuery.not("user_id", "in", `(${[...interactedIds].join(",")})`);
+    }
+
+    const t2 = Date.now();
+    const profilesResult = await profilesQuery.limit(useDbExclusion ? 100 : 500);
+    if (IS_DEV) console.log(`[DISCOVER] profiles query done in ${Date.now() - t2} ms`);
+
+    if (profilesResult.error) {
+      console.error("[DISCOVER] profiles fetch error:", profilesResult.error.message, profilesResult.error.code);
+      return [];
+    }
+
     const now = new Date();
     const all = (profilesResult.data || []).map(mapProfile);
-    // Exclude only profiles the user has already interacted with (skipped/opened).
-    // Own profile is already excluded by the .neq("user_id", userId) DB filter.
-    const baseFiltered = all.filter(p => {
-      if (interactedIds.has(p.userId)) {
-        if (IS_DEV) console.log(`[DISCOVER] EXCLUDED userId=${p.userId} (${p.firstName}) — already interacted`);
-        return false;
-      }
-      return true;
-    });
+    // DB-exclusion path: returned profiles are already uninteracted — no second filter needed.
+    // Large-interaction fallback: apply in-memory exclusion on the wider 500-profile batch.
+    const baseFiltered = useDbExclusion
+      ? all
+      : all.filter(p => !interactedIds.has(p.userId));
 
     const filtered = mergeElevatesIntoProfiles(baseFiltered, elevates);
 

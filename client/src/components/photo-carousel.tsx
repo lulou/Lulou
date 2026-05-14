@@ -203,6 +203,12 @@ export function PhotoCarousel({
 
     const onPointerDown = (e: PointerEvent) => {
       if (e.pointerType === "touch") return;
+      // Skip drag setup when the pointer lands on an interactive child element
+      // (button, link, etc.). setPointerCapture redirects all pointer events —
+      // including the synthesised click — to the container, which silently swallows
+      // the button's click handler. Returning early lets the native click fire normally.
+      const target = e.target as HTMLElement;
+      if (target.closest("button, a, [role='button']")) return;
       pStartX = e.clientX;
       pStartY = e.clientY;
       pDir = null;
