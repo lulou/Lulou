@@ -134,6 +134,24 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   // Badge count = how many new connections appeared since user last visited
   const newConnectionsBadge = Math.max(0, newConnectionsCount - seenConnectionsCount);
 
+  // ── Visual viewport height tracker ──────────────────────────────────────────
+  // iOS Safari does NOT resize 100vh when the software keyboard opens — the
+  // bottom of the flex column slides behind the keyboard, hiding the input bar.
+  // Fix: listen to visualViewport.resize (fires on keyboard open/close) and
+  // update a CSS custom property --vvh directly on <html>.  Pure DOM mutation =
+  // zero React re-renders = zero animation jank during the 300 ms keyboard slide.
+  // The root div (and the fixed chat overlay in matches.tsx) use
+  // height: var(--vvh, 100dvh) so they shrink exactly to the visible area.
+  useEffect(() => {
+    const setVvh = () => {
+      const h = window.visualViewport?.height ?? window.innerHeight;
+      document.documentElement.style.setProperty("--vvh", `${h}px`);
+    };
+    setVvh();
+    window.visualViewport?.addEventListener("resize", setVvh);
+    return () => window.visualViewport?.removeEventListener("resize", setVvh);
+  }, []);
+
   const navItems = [
     { path: "/discover", icon: Compass, label: "Discover" },
     { path: "/intent", icon: CircleDot, label: "Intent" },
@@ -143,7 +161,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   ];
 
   return (
-    <div className="flex flex-col h-screen w-full bg-background">
+    <div className="flex flex-col w-full bg-background" style={{ height: "var(--vvh, 100dvh)" }}>
       {!isChatRoom && (
         <header className="flex items-center justify-between gap-4 px-5 py-3 border-b bg-background/80 backdrop-blur-md z-30 flex-wrap">
           <Link href="/discover">
@@ -169,7 +187,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       </main>
 
       {!isChatRoom && (
-      <nav className="border-t bg-background/95 backdrop-blur-md z-30">
+      <nav className="border-t bg-background/95 backdrop-blur-md z-30" style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}>
         <div className="flex items-center justify-around py-2">
           {navItems.map(item => {
             const isActive = location.startsWith(item.path);

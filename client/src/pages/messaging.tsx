@@ -515,6 +515,25 @@ export default function Messaging() {
     // If user is scrolled up reading history: do nothing
   }, [msgsData?.messages?.length]);
 
+  // Scroll to bottom when keyboard opens on iOS.
+  // visualViewport.resize fires when the keyboard slides up — the container
+  // shrinks via the --vvh CSS var, but the scroll position doesn't auto-adjust.
+  // If the user was already at the bottom, keep them there.
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    let prevH = vv.height;
+    const onResize = () => {
+      if (vv.height < prevH && isAtBottomRef.current) {
+        const el = messagesContainerRef.current;
+        if (el) requestAnimationFrame(() => { el.scrollTop = el.scrollHeight; });
+      }
+      prevH = vv.height;
+    };
+    vv.addEventListener("resize", onResize);
+    return () => vv.removeEventListener("resize", onResize);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   // ── Timing + hasMoreMessages detection ─────────────────────────────────────
   useEffect(() => {
     console.log("[CHAT_LOAD] page_mount", { matchId, hasCachedEntry: !!cachedEntry, ms: 0 });
@@ -810,7 +829,7 @@ export default function Messaging() {
           ) : allCallsDone && matchDetail ? (
             <ReadyToMeetSection matchDetail={matchDetail} matchId={matchId!} />
           ) : (
-            <div className="p-4 border-t">
+            <div className="p-4 border-t" style={{ paddingBottom: "max(1rem, env(safe-area-inset-bottom, 1rem))" }}>
               <div className="flex gap-2 items-end">
                 <Textarea
                   value={message}

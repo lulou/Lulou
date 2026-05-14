@@ -1131,6 +1131,25 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
     isAtBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
   }, []);
 
+  // Scroll to bottom when keyboard opens on iOS.
+  // The --vvh CSS var shrinks the container when visualViewport.resize fires
+  // (keyboard slides up), but scroll position doesn't auto-adjust.
+  // Keep user at the bottom if they were already there.
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    let prevH = vv.height;
+    const onResize = () => {
+      if (vv.height < prevH && isAtBottomRef.current) {
+        const el = messagesContainerRef.current;
+        if (el) requestAnimationFrame(() => { el.scrollTop = el.scrollHeight; });
+      }
+      prevH = vv.height;
+    };
+    vv.addEventListener("resize", onResize);
+    return () => vv.removeEventListener("resize", onResize);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   const { data: matchDetail, isLoading: matchLoading, error: matchError } = useQuery<MatchDetail>({
     queryKey: ["/api/matches", match.id],
     enabled: expanded,
@@ -2303,7 +2322,7 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
                   </p>
                 </div>
               ) : (
-                <div className="p-3 space-y-2">
+                <div className="p-3 space-y-2" style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom, 0.75rem))" }}>
                   {myPostCallMessages === 0 && (
                     <StageHint>Great call! You each have 12 messages before your second call unlocks.</StageHint>
                   )}
@@ -2378,7 +2397,7 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
                   </p>
                 </div>
               ) : (
-                <div className="p-3 space-y-2">
+                <div className="p-3 space-y-2" style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom, 0.75rem))" }}>
                   {myStage2Messages === 0 && (
                     <StageHint>Great second call! You each have 20 messages before the face call unlocks.</StageHint>
                   )}
@@ -2538,7 +2557,7 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
               </div>
             )
           ) : (
-            <div className="p-3 border-t">
+            <div className="p-3 border-t" style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom, 0.75rem))" }}>
               {isOtherTyping && (
                 <div className="flex items-center gap-1.5 px-1 pb-2 text-xs text-muted-foreground" data-testid="text-typing-indicator">
                   <span className="flex gap-0.5 items-center">
@@ -2868,7 +2887,7 @@ export default function Matches() {
 
   if (selectedMatch) {
     return (
-      <div className="fixed inset-0 z-50 bg-background flex flex-col" data-testid="chat-focused-view">
+      <div className="fixed top-0 left-0 right-0 z-50 bg-background flex flex-col" style={{ height: "var(--vvh, 100dvh)" }} data-testid="chat-focused-view">
         <MatchChat
           match={selectedMatch}
           expanded={true}
