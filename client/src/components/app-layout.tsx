@@ -143,7 +143,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   ];
 
   return (
-    <div className="flex flex-col w-full bg-background" style={{ height: "100dvh" }}>
+    <div className="flex flex-col w-full bg-background" style={isChatRoom ? { position: "fixed", inset: "0" } : { height: "100dvh" }}>
       {!isChatRoom && (
         <header className="flex items-center justify-between gap-4 px-5 py-3 border-b bg-background/80 backdrop-blur-md z-30 flex-wrap">
           <Link href="/discover">

@@ -2868,7 +2868,7 @@ export default function Matches() {
 
   if (selectedMatch) {
     return (
-      <div className="fixed top-0 left-0 right-0 z-50 bg-background flex flex-col" style={{ height: "100dvh" }} data-testid="chat-focused-view">
+      <div className="fixed inset-0 z-50 bg-background flex flex-col" data-testid="chat-focused-view">
         <MatchChat
           match={selectedMatch}
           expanded={true}
