@@ -1131,25 +1131,6 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
     isAtBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
   }, []);
 
-  // Scroll to bottom when keyboard opens on iOS.
-  // The --vvh CSS var shrinks the container when visualViewport.resize fires
-  // (keyboard slides up), but scroll position doesn't auto-adjust.
-  // Keep user at the bottom if they were already there.
-  useEffect(() => {
-    const vv = window.visualViewport;
-    if (!vv) return;
-    let prevH = vv.height;
-    const onResize = () => {
-      if (vv.height < prevH && isAtBottomRef.current) {
-        const el = messagesContainerRef.current;
-        if (el) requestAnimationFrame(() => { el.scrollTop = el.scrollHeight; });
-      }
-      prevH = vv.height;
-    };
-    vv.addEventListener("resize", onResize);
-    return () => vv.removeEventListener("resize", onResize);
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
   const { data: matchDetail, isLoading: matchLoading, error: matchError } = useQuery<MatchDetail>({
     queryKey: ["/api/matches", match.id],
     enabled: expanded,
@@ -2887,7 +2868,7 @@ export default function Matches() {
 
   if (selectedMatch) {
     return (
-      <div className="fixed top-0 left-0 right-0 z-50 bg-background flex flex-col" style={{ height: "var(--vvh, 100dvh)" }} data-testid="chat-focused-view">
+      <div className="fixed top-0 left-0 right-0 z-50 bg-background flex flex-col" style={{ height: "100dvh" }} data-testid="chat-focused-view">
         <MatchChat
           match={selectedMatch}
           expanded={true}
