@@ -316,11 +316,6 @@ export function startIncomingRingtone(): void {
 
     _ringtoneActive = true;
     el.currentTime  = 0;
-    // Explicitly unmute in case a previous warm-up left the element muted.
-    // _warmElements() sets muted=true during its gesture-activation warm-up; if
-    // startIncomingRingtone() is called before the warm-up .then() restores muted,
-    // the element would play silently.  Resetting here is always safe.
-    el.muted = false;
 
     console.log("[CALL_RINGTONE] incoming ringtone started");
 
@@ -334,18 +329,8 @@ export function startIncomingRingtone(): void {
           navigator.vibrate([400, 200, 400, 1500, 400, 200, 400]);
         }
       } catch { /* non-fatal */ }
-      // Retry when audio becomes unlocked.  onAudioUnlocked fires immediately
-      // if already unlocked (covers desktop where _audioUnlocked is set but the
-      // browser still blocked play() this time), or on the next user gesture
-      // (mobile cold session).  This handles the case where _ringtoneWarm is
-      // already true so _warmElements() won't re-run on the next click.
-      onAudioUnlocked(() => {
-        if (_ringtoneActive && el) {
-          el.currentTime = 0;
-          el.muted = false;
-          el.play().catch(() => {});
-        }
-      });
+      // _ringtoneActive remains true. When _doUnlock fires on the next touch,
+      // _warmElements() calls play() on this element and it starts ringing.
     });
   } catch (e) {
     _ringtoneActive = false;

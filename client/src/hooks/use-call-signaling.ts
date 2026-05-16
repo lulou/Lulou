@@ -158,12 +158,13 @@ export function useCallSignaling(matchIds: string[], userId: string) {
             signal: event.type,
             note: "end signal received — queries NOT invalidated, chat history intact",
           });
-        } else if (event.type !== "call:ring" && event.type !== "call:answered") {
-          // call:ring and call:answered are handled exclusively by optimistic cache patches.
-          // Firing invalidateQueries immediately races with the DB write — the broadcast
-          // arrives at the application layer before the DB commit is readable. For ring,
-          // this causes the overlay to flicker. For answered, it returns callAnswered: false,
-          // resetting isRinging → true and killing the WebRTC connection mid-setup.
+        } else if (event.type !== "call:ring") {
+          // call:ring is handled exclusively by the optimistic cache patch above.
+          // Firing invalidateQueries immediately after the patch races with the DB
+          // write (the broadcast arrives at the application layer before the DB
+          // commit is readable) — the refetch returns callStartedAt: null and
+          // overwrites the patch, causing the overlay to flicker off then on again
+          // when the rering arrives 2 seconds later.
           queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
           queryClient.invalidateQueries({ queryKey: ["/api/matches", matchId] });
         }
