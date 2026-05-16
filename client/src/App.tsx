@@ -51,7 +51,7 @@ if (typeof window !== "undefined") {
 }
 import { useCallSignaling, setCallEndedHandler, clearDedupeForMatch } from "@/hooks/use-call-signaling";
 import { stopAllNonVoiceCallAudio } from "@/lib/call-audio";
-import { markCallSessionCancelled, markStartupCancelledSession, isCallSessionCancelled, clearCancelledSession, clearStartupCancelledSession } from "@/lib/cancelled-calls";
+import { markCallSessionCancelled, markStartupCancelledSession, isCallSessionCancelled, clearCancelledSession } from "@/lib/cancelled-calls";
 import type { Profile, Match } from "@shared/schema";
 import { Loader2 } from "lucide-react";
 
@@ -299,13 +299,7 @@ function CallDetectors({ userId }: { userId: string }) {
       const ts = new Date().toISOString();
       console.log("[CALL_TIMING] RERING_ATTEMPT", { matchId: rerMatchId, callSessionId: rerSessionId, ts });
       apiRequest("POST", `/api/matches/${rerMatchId}/call/rering`)
-        .then(() => {
-          // A successful rering proves this call session is still live.
-          // Lift the startup-only cancelled mark so the caller overlay can mount.
-          // No-op if the session was cancelled by a real user action (decline/end).
-          clearStartupCancelledSession(rerMatchId, rerSessionId);
-          console.log("[CALL_TIMING] RERING_SENT", { matchId: rerMatchId, callSessionId: rerSessionId, ts: new Date().toISOString() });
-        })
+        .then(() => console.log("[CALL_TIMING] RERING_SENT", { matchId: rerMatchId, callSessionId: rerSessionId, ts: new Date().toISOString() }))
         .catch(() => console.warn("[CALL_UI] RERING_FAILED", { matchId: rerMatchId }));
     };
     send();
@@ -357,8 +351,6 @@ function CallDetectors({ userId }: { userId: string }) {
     let hadStale = false;
 
     for (const m of matches) {
-      // Inspect ALL unanswered, uncompleted call sessions — both incoming
-      // (callInitiatorId !== userId) and caller-side (callInitiatorId === userId).
       if (!m.callStartedAt || !m.callSessionId) continue;
       if (m.callAnswered || m.callCompleted) continue;
       if (!m.callInitiatorId) continue;
@@ -367,7 +359,7 @@ function CallDetectors({ userId }: { userId: string }) {
       const isCallerSide = m.callInitiatorId === userId;
 
       hadStale = true;
-      console.warn("[CALL_RESET] startup sweep — session blocked until confirmed live", {
+      console.warn("[CALL_RESET] startup sweep — session blocked until rering confirms live", {
         matchId: m.id,
         callSessionId: m.callSessionId,
         ageMs,
@@ -378,15 +370,24 @@ function CallDetectors({ userId }: { userId: string }) {
         callSessionId: m.callSessionId,
         ageMs,
         note: isCallerSide
-          ? "caller-side: blocked until first rering API success lifts the hold"
+          ? "caller-side: cache cleared — ringback resumes after 5 s poll if call still live"
           : "callee-side: blocked until live rering lifts the hold",
       });
-      markStartupCancelledSession(m.id, m.callSessionId);
-      // Incoming calls: clear cache so the 5-second poll cannot re-trigger from
-      // stale DB data before a live rering arrives.
-      // Caller-side calls: keep cache so the rering loop remains active and can
-      // lift the startup block via clearStartupCancelledSession on first success.
-      if (!isCallerSide) {
+
+      if (isCallerSide) {
+        // ── Caller-side startup guard (minimal) ────────────────────────────────
+        // Clear the stale call from the React Query cache so callerRingingCall is
+        // undefined when setStartupVerified(true) fires. This prevents the ringback
+        // tone from playing immediately on page load from leftover DB state.
+        // No markStartupCancelledSession: the rering loop will restart naturally
+        // after the 5-second poll if the call is still live, correctly resuming
+        // the ringback at that point. WebRTC and call signaling are untouched.
+        clearCallFromCache(qc, m.id);
+      } else {
+        // ── Callee-side (incoming) startup guard ────────────────────────────────
+        // Mark as startup-cancelled-only: blocks the overlay AND the 5-second
+        // refetchInterval until a live rering arrives and lifts the hold.
+        markStartupCancelledSession(m.id, m.callSessionId);
         clearCallFromCache(qc, m.id);
       }
     }

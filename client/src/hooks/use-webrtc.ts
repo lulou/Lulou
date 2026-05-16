@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { supabase } from "@/lib/supabase";
-import { cleanupCallAudio, stopAllNonVoiceCallAudio } from "@/lib/call-audio";
+import { cleanupCallAudio } from "@/lib/call-audio";
 import { callDebug } from "@/lib/call-debug";
 
 declare global {
@@ -724,13 +724,6 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
       const stream = mediaResult.value;
       localStreamRef.current = stream;
       setLocalStream(stream);
-
-      // Stop ringtone/ringback the instant getUserMedia succeeds — the mic is now
-      // open. Any tone still playing at speaker volume would be captured by the mic
-      // and transmitted to the remote peer as screeching/beeping during ICE setup.
-      // (A second stop fires at connectionState==="connected" as belt-and-suspenders.)
-      stopAllNonVoiceCallAudio("getUserMedia_acquired");
-      console.log("[CALL_AUDIO] non-voice audio stopped at getUserMedia_acquired", { matchId, isCaller });
 
       console.log("[STREAM_AUDIT] local stream id", {
         streamId: stream.id,
