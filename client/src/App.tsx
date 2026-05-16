@@ -51,7 +51,7 @@ if (typeof window !== "undefined") {
 }
 import { useCallSignaling, setCallEndedHandler, clearDedupeForMatch } from "@/hooks/use-call-signaling";
 import { stopAllNonVoiceCallAudio } from "@/lib/call-audio";
-import { markCallSessionCancelled, markStartupCancelledSession, isCallSessionCancelled, clearCancelledSession } from "@/lib/cancelled-calls";
+import { markCallSessionCancelled, markStartupCancelledSession, isCallSessionCancelled, clearCancelledSession, clearStartupCancelledSession } from "@/lib/cancelled-calls";
 import type { Profile, Match } from "@shared/schema";
 import { Loader2 } from "lucide-react";
 
@@ -299,7 +299,13 @@ function CallDetectors({ userId }: { userId: string }) {
       const ts = new Date().toISOString();
       console.log("[CALL_TIMING] RERING_ATTEMPT", { matchId: rerMatchId, callSessionId: rerSessionId, ts });
       apiRequest("POST", `/api/matches/${rerMatchId}/call/rering`)
-        .then(() => console.log("[CALL_TIMING] RERING_SENT", { matchId: rerMatchId, callSessionId: rerSessionId, ts: new Date().toISOString() }))
+        .then(() => {
+          // A successful rering proves this call session is still live.
+          // Lift the startup-only cancelled mark so the caller overlay can mount.
+          // No-op if the session was cancelled by a real user action (decline/end).
+          clearStartupCancelledSession(rerMatchId, rerSessionId);
+          console.log("[CALL_TIMING] RERING_SENT", { matchId: rerMatchId, callSessionId: rerSessionId, ts: new Date().toISOString() });
+        })
         .catch(() => console.warn("[CALL_UI] RERING_FAILED", { matchId: rerMatchId }));
     };
     send();
@@ -351,34 +357,38 @@ function CallDetectors({ userId }: { userId: string }) {
     let hadStale = false;
 
     for (const m of matches) {
-      // Only inspect unanswered, uncompleted incoming calls for this user.
+      // Inspect ALL unanswered, uncompleted call sessions — both incoming
+      // (callInitiatorId !== userId) and caller-side (callInitiatorId === userId).
       if (!m.callStartedAt || !m.callSessionId) continue;
       if (m.callAnswered || m.callCompleted) continue;
-      if (!m.callInitiatorId || m.callInitiatorId === userId) continue;
+      if (!m.callInitiatorId) continue;
 
       const ageMs = now - new Date(m.callStartedAt).getTime();
+      const isCallerSide = m.callInitiatorId === userId;
 
-      // Mark as "startup-cancelled-only" — this blocks the overlay immediately
-      // AND prevents the 5-second refetchInterval from re-triggering it from
-      // stale DB data. Unlike markCallSessionCancelled (permanent), this mark
-      // is lifted the moment a fresh rering arrives (same callSessionId),
-      // proving the call is still live. Stale calls receive no rering so the
-      // block is permanent for them. Live calls re-ring within 2 seconds and
-      // the overlay mounts normally after the block is lifted.
       hadStale = true;
-      console.warn("[CALL_RESET] startup sweep — session blocked until rering confirms live", {
+      console.warn("[CALL_RESET] startup sweep — session blocked until confirmed live", {
         matchId: m.id,
         callSessionId: m.callSessionId,
         ageMs,
+        isCallerSide,
       });
       console.log("[CALL_BOOT] stale call state cleared", {
         matchId: m.id,
         callSessionId: m.callSessionId,
         ageMs,
-        note: "blocked until live rering lifts the hold",
+        note: isCallerSide
+          ? "caller-side: blocked until first rering API success lifts the hold"
+          : "callee-side: blocked until live rering lifts the hold",
       });
       markStartupCancelledSession(m.id, m.callSessionId);
-      clearCallFromCache(qc, m.id); // null cache fields; no internal markCallSessionCancelled (no sessionId)
+      // Incoming calls: clear cache so the 5-second poll cannot re-trigger from
+      // stale DB data before a live rering arrives.
+      // Caller-side calls: keep cache so the rering loop remains active and can
+      // lift the startup block via clearStartupCancelledSession on first success.
+      if (!isCallerSide) {
+        clearCallFromCache(qc, m.id);
+      }
     }
 
     if (!hadStale) {

@@ -1096,7 +1096,7 @@ function mergeCallFields(
   });
 }
 
-function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }: {
+function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }: {
   match: MatchWithProfile;
   expanded: boolean;
   onToggleExpand: () => void;
@@ -2660,6 +2660,12 @@ function MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }:
     </div>
   );
 }
+
+// Memoize to prevent re-renders from parent (MatchesTab) re-renders caused by
+// the 5-second /api/matches poll in CallDetectors. React.memo with TanStack
+// Query structural sharing means MatchChat only re-renders when its `match`
+// prop data actually changes, not on every poll cycle.
+const MatchChat = memo(_MatchChat);
 
 const MatchCard = memo(function MatchCard({ match, unreadCount, userId, onOpen }: {
   match: MatchWithProfile;
