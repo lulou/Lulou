@@ -854,7 +854,14 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
           streams: event.streams.length,
           tracksAdded,
         });
-        setRemoteStream(new MediaStream(remote.getTracks()));
+        // Use the same MediaStream object reference (mutated in-place by addTrack
+        // above) rather than wrapping in a new MediaStream. A new wrapper on every
+        // ontrack event causes the remote audio attachment effect in active-call.tsx
+        // to re-run on each track, which triggers repeated stopAllNonVoiceCallAudio
+        // calls and srcObject re-assignments during the iOS AVAudioSession transition,
+        // producing the call-start beep. The attachment effect's existingIds guard
+        // still prevents unnecessary re-attachment when track IDs haven't changed.
+        setRemoteStream(remote);
       };
 
       pc.onicecandidate = (event) => {

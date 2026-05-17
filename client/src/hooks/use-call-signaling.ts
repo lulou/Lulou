@@ -115,13 +115,21 @@ export function useCallSignaling(matchIds: string[], userId: string) {
                 callCompleted: m.callCompleted ?? false,
               } : m);
             });
-            // Confirm the overlay will stay visible: the optimistic cache patch
-            // above ensures incomingCall remains truthy between DB refetch cycles,
-            // preventing the overlay from flickering off and back on every 5 s poll.
-            console.log("[CALL_FIX] iphone overlay flicker prevented", { matchId, callSessionId: ringSessionId });
+            // Cancel any in-flight /api/matches refetch so the 5-second
+            // refetchInterval poll cannot overwrite this optimistic patch with
+            // stale REST data before the DB commit is readable (Supabase Realtime
+            // broadcast arrives before the DB write is visible to PostgREST).
+            queryClient.cancelQueries({ queryKey: ["/api/matches"] });
+            console.log("[CALL_FIX] iphone overlay flicker prevented — in-flight refetch cancelled", { matchId, callSessionId: ringSessionId });
           }
         } else if (event.type === "call:answered") {
-          console.log("[CALL_SIGNAL] CALL_ANSWERED", { matchId, answeredBy: senderId });
+          const answeredSid = (event as any).callSessionId ?? null;
+          console.log("[CALL_SIGNAL] CALL_ANSWERED", { matchId, answeredBy: senderId, callSessionId: answeredSid });
+          // If the startup sweep marked this session as startup-cancelled-only
+          // (caller-side), lift the block now so answeredCall can mount the overlay.
+          if (isStartupCancelledOnly(matchId, answeredSid)) {
+            clearStartupCancelledSession(matchId, answeredSid);
+          }
           // Immediately flip callAnswered so the caller transitions from ringing to in-call
           const answeredPatch = { callAnswered: true };
           queryClient.setQueriesData<any[]>({ queryKey: ["/api/matches"] }, (old) => {

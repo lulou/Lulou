@@ -279,8 +279,9 @@ export function ActiveCallOverlay({
   // Route audio to speaker or earpiece when the toggle changes.
   //
   // Desktop / Android (setSinkId supported):
-  //   speaker OFF → setSinkId("") → system default communications device (earpiece on Android)
-  //   speaker ON  → setSinkId("default") → loudspeaker
+  //   Always setSinkId("default") — routes output through Chrome's audio pipeline
+  //   so the software AEC reference signal matches the actual speaker output.
+  //   Without this, AEC can diverge from the real output route causing echo/screech.
   //
   // iOS / Safari (setSinkId NOT supported — the previous code returned early here,
   // doing nothing, so audio always played at full volume through the loudspeaker):
@@ -298,20 +299,17 @@ export function ActiveCallOverlay({
     if (!el) return;
 
     if (!isIOS && typeof el.setSinkId === "function") {
-      // Desktop / Android Chrome — setSinkId for output routing.
-      // Speaker OFF (default): do NOT call setSinkId at all — leave the element
-      // on whatever device it already uses.  Calling setSinkId("") while the
-      // element has no srcObject yet (early effect runs) can block a pending
-      // play() in some Chrome versions.  Full volume in both modes on desktop.
-      // Speaker ON: explicitly route to the default loudspeaker output.
-      if (speakerOn) {
-        el.setSinkId("default").catch(() => {});
-        console.log("[CALL_AUDIO] laptop speaker mode active", { method: "setSinkId(default)", volume: 1.0, matchId });
-      } else {
-        console.log("[CALL_AUDIO] laptop earpiece/default mode active", { method: "no-setSinkId", volume: 1.0, matchId });
-      }
+      // Desktop / Android Chrome — always call setSinkId("default") regardless
+      // of speakerOn state. Chrome's software AEC needs the output device
+      // registered with its audio pipeline to use the correct reference signal
+      // when cancelling the remote voice from the mic input. Without setSinkId,
+      // the AEC reference path may diverge from the actual system output route
+      // (e.g. Bluetooth headset, external speaker) causing the echo/screech
+      // feedback loop. setSinkId("default") is safe even before srcObject is set.
+      el.setSinkId("default").catch(() => {});
       el.volume = 1.0;
-      console.log("[CALL_FIX] laptop speaker default", { method: speakerOn ? "setSinkId" : "volume-only", speakerOn, volume: 1.0, matchId });
+      console.log("[CALL_AUDIO] laptop setSinkId(default) — AEC reference path set", { speakerOn, volume: 1.0, matchId });
+      console.log("[CALL_FIX] laptop speaker default", { method: "setSinkId(default)-always", speakerOn, volume: 1.0, matchId });
     } else if (isIOS) {
       // iOS only: web cannot reach the AVAudioSession earpiece route.
       // We approximate the two modes with volume:

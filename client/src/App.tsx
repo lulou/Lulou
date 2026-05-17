@@ -375,13 +375,14 @@ function CallDetectors({ userId }: { userId: string }) {
       });
 
       if (isCallerSide) {
-        // ── Caller-side startup guard (minimal) ────────────────────────────────
-        // Clear the stale call from the React Query cache so callerRingingCall is
-        // undefined when setStartupVerified(true) fires. This prevents the ringback
-        // tone from playing immediately on page load from leftover DB state.
-        // No markStartupCancelledSession: the rering loop will restart naturally
-        // after the 5-second poll if the call is still live, correctly resuming
-        // the ringback at that point. WebRTC and call signaling are untouched.
+        // ── Caller-side startup guard ───────────────────────────────────────────
+        // Mark as startup-cancelled-only AND clear the cache.
+        // markStartupCancelledSession prevents the 5-second refetchInterval from
+        // re-introducing the stale callerRingingCall (isCallSessionCancelled stays
+        // true until a real call:answered signal lifts the block).
+        // clearCallFromCache nulls the cache immediately so the overlay doesn't
+        // mount before startupVerified is set.
+        markStartupCancelledSession(m.id, m.callSessionId);
         clearCallFromCache(qc, m.id);
       } else {
         // ── Callee-side (incoming) startup guard ────────────────────────────────
