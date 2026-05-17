@@ -584,13 +584,49 @@ export function ActiveCallOverlay({
             isSameAsLocal: false,
             matchId,
           });
-          // Set playsInline as a DOM property (belt-and-suspenders for iOS Safari —
-          // JSX playsInline sets the HTML attribute but iOS may not honour it
-          // unless the DOM property is also set explicitly before play()).
           // Stop ringtone/ringback synchronously before attaching remote audio.
           // Belt-and-suspenders on top of the connectionState effect stop.
           stopAllNonVoiceCallAudio("transition_before_remote_audio");
           console.log("[CALL_FIX] non-voice audio stopped before connect", { matchId, phase: "before_srcObject" });
+
+          // ── Root-cause guard ─────────────────────────────────────────────
+          // Only attach the remote stream when it contains real audio tracks.
+          // An empty MediaStream (0 tracks) produces hasSrcObject=true with
+          // tracks.length=0 on the <audio> element — the browser's audio
+          // pipeline decodes an empty signal while non-voice WAV audio may
+          // still be lingering elsewhere, causing the screel/beep.
+          //
+          // Root cause: pc.ontrack fires once per track; if the primary-path
+          // guard (local-track filter) blocks every track in event.streams[0],
+          // the remote MediaStream snapshot passed to setRemoteStream() has 0
+          // tracks. When isConnected is already true (ICE connected before this
+          // ontrack), the existingIds !== incomingIds check can still pass
+          // (old: "audioTrackId", new: ""), causing el.srcObject to be
+          // overwritten with the empty stream.
+          //
+          // Fix: skip attachment entirely when there are 0 audio tracks.
+          // The effect will re-run when ontrack delivers a non-empty stream.
+          const remoteAudioTrackCount = remoteStream.getAudioTracks().length;
+          console.log("[AUDIO_ROOT_CAUSE] remote audio track count", {
+            audioTracks: remoteAudioTrackCount,
+            totalTracks: remoteStream.getTracks().length,
+            trackStates: remoteStream.getAudioTracks().map(t => `${t.id.slice(0, 8)}(${t.readyState})`),
+            matchId,
+            phase: "before_srcObject",
+          });
+          if (remoteAudioTrackCount === 0) {
+            console.error("[AUDIO_ROOT_CAUSE] SKIP — 0 audio tracks in remoteStream; not attaching empty stream to <audio> element", {
+              matchId,
+              note: "effect will re-run when pc.ontrack delivers real audio tracks via setRemoteStream",
+            });
+            // Return without assigning srcObject or calling play().
+            // Non-voice audio already stopped above; no further action needed.
+            return;
+          }
+
+          // Set playsInline as a DOM property (belt-and-suspenders for iOS Safari —
+          // JSX playsInline sets the HTML attribute but iOS may not honour it
+          // unless the DOM property is also set explicitly before play()).
           (el as any).playsInline = true;
           el.srcObject = remoteStream;
           el.muted = false;
