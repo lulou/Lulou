@@ -847,43 +847,12 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
           });
         }
 
-        // Secondary fallback: the primary path above filters tracks from
-        // event.streams[0] via the local-track guard. If every track in the bundle
-        // was filtered (guard returned early for each), tracksAdded is still empty
-        // even though event.streams[0] existed — so the first fallback (line 839)
-        // doesn't fire. This leaves `remote` with 0 tracks, producing a
-        // setRemoteStream(emptyStream) that ultimately causes the <audio> element
-        // to show hasSrcObject=true / tracks.length=0 and plays silence/noise.
-        // This secondary fallback adds event.track directly when 0 tracks were
-        // collected from any path, as long as event.track itself is not local.
-        if (tracksAdded.length === 0 &&
-            !localTrackIds.has(event.track.id) &&
-            !remote.getTrackById(event.track.id)) {
-          remote.addTrack(event.track);
-          tracksAdded.push(`${event.track.kind}(secondary-fallback)`);
-          console.warn("[AUDIO_ROOT_CAUSE] secondary fallback — 0 tracks collected from primary+first-fallback paths; adding event.track directly", {
-            trackKind: event.track.kind,
-            trackId: event.track.id.slice(0, 12),
-            streamsCount: event.streams.length,
-            matchId,
-          });
-        }
-
         console.log("[WebRTC] Remote track received:", {
           trackKind: event.track.kind,
           trackEnabled: event.track.enabled,
           trackReadyState: event.track.readyState,
           streams: event.streams.length,
           tracksAdded,
-        });
-        // Log track count before setting remote stream — surface the root cause
-        // of empty-stream audio in the console without needing to reconstruct state.
-        console.log("[AUDIO_ROOT_CAUSE] remote audio track count", {
-          audioTracks: remote.getAudioTracks().length,
-          totalTracks: remote.getTracks().length,
-          tracksAdded,
-          matchId,
-          phase: "ontrack_before_setRemoteStream",
         });
         // Wrap in a new MediaStream so React detects the state change and
         // re-runs the remote audio attachment effect in active-call.tsx.
