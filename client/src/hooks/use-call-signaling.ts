@@ -17,10 +17,15 @@ function getChannelName(matchId: string) {
 const subscribedChannels = new Map<string, ReturnType<typeof supabase.channel>>();
 
 let callEndedCallback: ((matchId: string, callSessionId?: string | null) => void) | null = null;
+let callRingHandler: ((active: boolean) => void) | null = null;
 const recentlyProcessed = new Set<string>();
 
 export function setCallEndedHandler(handler: ((matchId: string, callSessionId?: string | null) => void) | null) {
   callEndedCallback = handler;
+}
+
+export function setCallRingHandler(handler: ((active: boolean) => void) | null) {
+  callRingHandler = handler;
 }
 
 export function clearDedupeForMatch(matchId: string) {
@@ -115,22 +120,17 @@ export function useCallSignaling(matchIds: string[], userId: string) {
                 callCompleted: m.callCompleted ?? false,
               } : m);
             });
-            // Cancel any in-flight /api/matches refetch so the 5-second
-            // refetchInterval poll cannot overwrite this optimistic patch with
-            // stale REST data before the DB commit is readable (Supabase Realtime
-            // broadcast arrives before the DB write is visible to PostgREST).
-            // GUARD: only cancel if the initial fetch has already returned data.
-            // If cancelQueries fires while the very first fetch is still in-flight
-            // (e.g. app just opened and a rering arrives within ~500 ms), it kills
-            // that initial fetch — leaving matches=[] so the optimistic patch maps
-            // over an empty array and incomingCall stays null (no ringtone).
-            // getQueryState().data !== undefined means at least one successful
-            // response has been stored; 5-second polls are safe to cancel then.
+            // Signal that a ring is now active so CallDetectors can pause
+            // the 5-second refetchInterval — prevents the next poll from
+            // overwriting this optimistic patch with stale REST data before
+            // the DB write becomes visible to PostgREST.
+            callRingHandler?.(true);
+            // Also cancel any currently in-flight refetch for the same reason.
             if (queryClient.getQueryState(["/api/matches"])?.data !== undefined) {
               queryClient.cancelQueries({ queryKey: ["/api/matches"] });
-              console.log("[CALL_FIX] iphone overlay flicker prevented — in-flight refetch cancelled", { matchId, callSessionId: ringSessionId });
+              console.log("[CALL_FIX] iphone overlay flicker prevented — in-flight refetch cancelled + polling paused", { matchId, callSessionId: ringSessionId });
             } else {
-              console.log("[CALL_FIX] iphone flicker cancel skipped — initial fetch not yet complete", { matchId, callSessionId: ringSessionId });
+              console.log("[CALL_FIX] iphone flicker cancel skipped — initial fetch not yet complete (polling paused anyway)", { matchId, callSessionId: ringSessionId });
             }
           }
         } else if (event.type === "call:answered") {
@@ -155,18 +155,21 @@ export function useCallSignaling(matchIds: string[], userId: string) {
           const sid = (event as any).callSessionId ?? null;
           console.log("[CALL_SIGNAL] CALL_DECLINED", { matchId, declinedBy: senderId, callSessionId: sid });
           markCallSessionCancelled(matchId, sid);
+          callRingHandler?.(false);
           processEndSignal(matchId, "declined", sid);
           isEndSignal = true;
         } else if (event.type === "call:cancelled") {
           const sid = (event as any).callSessionId ?? null;
           console.log("[CALL_SIGNAL] CALL_CANCELLED", { matchId, cancelledBy: senderId, callSessionId: sid });
           markCallSessionCancelled(matchId, sid);
+          callRingHandler?.(false);
           processEndSignal(matchId, "cancelled", sid);
           isEndSignal = true;
         } else if (event.type === "call:ended") {
           const sid = (event as any).callSessionId ?? null;
           console.log("[CALL_SIGNAL] CALL_ENDED", { matchId, endedBy: senderId, callSessionId: sid });
           markCallSessionCancelled(matchId, sid);
+          callRingHandler?.(false);
           processEndSignal(matchId, "ended", sid);
           isEndSignal = true;
         }
@@ -184,7 +187,9 @@ export function useCallSignaling(matchIds: string[], userId: string) {
           // commit is readable) — the refetch returns callStartedAt: null and
           // overwrites the patch, causing the overlay to flicker off then on again
           // when the rering arrives 2 seconds later.
-          queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
+          // exact:true on the list query prevents cascading to all detail queries
+          // (which would cause open chat areas to refetch unnecessarily).
+          queryClient.invalidateQueries({ queryKey: ["/api/matches"], exact: true });
           queryClient.invalidateQueries({ queryKey: ["/api/matches", matchId] });
         }
       });

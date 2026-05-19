@@ -49,7 +49,7 @@ if (typeof window !== "undefined") {
     setTimeout(preloadCallChunks, 2000);
   }
 }
-import { useCallSignaling, setCallEndedHandler, clearDedupeForMatch } from "@/hooks/use-call-signaling";
+import { useCallSignaling, setCallEndedHandler, setCallRingHandler, clearDedupeForMatch } from "@/hooks/use-call-signaling";
 import { stopAllNonVoiceCallAudio } from "@/lib/call-audio";
 import { markCallSessionCancelled, markStartupCancelledSession, isCallSessionCancelled, clearCancelledSession } from "@/lib/cancelled-calls";
 import type { Profile, Match } from "@shared/schema";
@@ -233,6 +233,11 @@ function clearCallFromCache(
 
 
 
+// Captured once at module load. Any call whose callStartedAt predates this
+// timestamp is treated as potentially stale and blocked until a live rering
+// proves the call is still active.
+const APP_LOAD_TIME = Date.now();
+
 function CallDetectors({ userId }: { userId: string }) {
   const [dismissedCallKey, setDismissedCallKey] = useState<string | null>(null);
   // Maps matchId → the callSessionId that ended, so isEndedCall can distinguish
@@ -250,6 +255,10 @@ function CallDetectors({ userId }: { userId: string }) {
   // first-load staleness sweep has run and cleared any ghost call state.
   const [startupVerified, setStartupVerified] = useState(false);
   const startupDoneRef = useRef(false);
+  // hasRingRef: true while an incoming ring is active. Used by refetchInterval
+  // to pause the 5-second poll so optimistic call state cannot be overwritten
+  // by a network response that lags behind the Realtime broadcast.
+  const hasRingRef = useRef(false);
 
   // Immediately silence any ringtone that might have survived (impossible on a
   // cold start, but belt-and-suspenders in case of fast HMR or component re-mount).
@@ -264,12 +273,27 @@ function CallDetectors({ userId }: { userId: string }) {
     console.log("[CALL_STATE_FIX] app startup stop ringtone", { userId: userId.slice(0, 8) });
   }, []);
 
+  // Register ring-state handler: pauses polling while ring is active (Bug 2 fix).
+  // Uses a ref so the interval function always reads the current value without
+  // needing to be recreated on every render.
+  useEffect(() => {
+    setCallRingHandler((active: boolean) => {
+      hasRingRef.current = active;
+      console.log("[CALL_FIX] ring polling gate changed", { active });
+    });
+    return () => setCallRingHandler(null);
+  }, []);
+
   const { data: matches } = useQuery<MatchWithProfile[]>({
     queryKey: ["/api/matches"],
     // Realtime call signals (useCallSignaling) handle call detection instantly.
     // 5 s poll ensures missed "cancel/end" signals resolve within 5 s instead
     // of the previous 30 s, preventing long "stuck call in progress" states.
-    refetchInterval: 5000,
+    // When a ring is active (hasRingRef=true), polling is paused so the 5 s
+    // network response cannot overwrite the optimistic incoming-call patch
+    // before the DB write is visible to PostgREST (Realtime broadcast arrives
+    // before the DB row is readable). Polling resumes when the call ends.
+    refetchInterval: () => hasRingRef.current ? false : 5000,
   });
 
   // Reference-stable match IDs: only creates a new array when the set of IDs
@@ -309,6 +333,8 @@ function CallDetectors({ userId }: { userId: string }) {
 
   const markCallEnded = useCallback((matchId: string, callSessionId?: string | null, reason?: string) => {
     console.log("[CALL_SESSION] CALL_SESSION_CLEANUP_REASON", { matchId, callSessionId, reason: reason || "signal_or_hangup" });
+    // Resume 5 s polling now that the ring/call is over (Bug 2 fix).
+    hasRingRef.current = false;
     endedMatchIdsRef.current.set(matchId, callSessionId ?? null);
     setEndedTick(t => t + 1);
     clearCallFromCache(qc, matchId, callSessionId);
@@ -336,30 +362,44 @@ function CallDetectors({ userId }: { userId: string }) {
   }, [markCallEnded]);
 
   // ── Startup staleness sweep ───────────────────────────────────────────────
-  // Runs ONCE after the first /api/matches network response.
-  // `cancelledSessions` is wiped on every refresh, so we cannot rely on the
-  // isCallSessionCancelled() guard for calls that ended in the previous session.
-  // Instead we inspect the age of callStartedAt against a tighter threshold
-  // (STARTUP_STALE_MS = 15 s) and proactively clear any match whose ring looks
-  // like it predates the current browser session — blocking the ringtone before
-  // IncomingCallOverlay ever mounts.
+  // Runs on EVERY /api/matches response until the call ends, but only acts on
+  // calls whose callStartedAt predates this browser session (< APP_LOAD_TIME).
+  //
+  // WHY NOT startupDoneRef (run-once)?
+  // The first /api/matches response may come from TanStack Query's cache (clean
+  // data, because the previous session called clearCallFromCache). The sweep
+  // would find nothing and set startupVerified=true. Then the next 5 s network
+  // poll returns stale DB data (server DB not yet cleared) — callStartedAt is
+  // non-null, the session is not in cancelledSessions, startupVerified is true →
+  // IncomingCallOverlay mounts and the ringtone plays for a dead call.
+  //
+  // FIX: compare callStartedAt against APP_LOAD_TIME (captured at module load).
+  // Any pre-load call is marked startup-cancelled-only on EVERY poll until a
+  // live rering arrives and calls clearStartupCancelledSession. This is safe
+  // because: (a) isCallSessionCancelled short-circuits already-marked sessions,
+  // (b) calls that started AFTER APP_LOAD_TIME (callStartedAt >= APP_LOAD_TIME)
+  // are never touched — they proceed normally.
   useEffect(() => {
-    if (!matches || startupDoneRef.current) return;
-    startupDoneRef.current = true;
+    if (!matches) return;
 
-    const now = Date.now();
     let hadStale = false;
 
     for (const m of matches) {
       if (!m.callStartedAt || !m.callSessionId) continue;
       if (m.callAnswered || m.callCompleted) continue;
       if (!m.callInitiatorId) continue;
+      // Already handled (either startup-cancelled or user-cancelled) — skip.
+      if (isCallSessionCancelled(m.id, m.callSessionId)) continue;
 
-      const ageMs = now - new Date(m.callStartedAt).getTime();
+      // Only block calls that were ringing BEFORE this browser session started.
+      const callStartMs = new Date(m.callStartedAt).getTime();
+      if (callStartMs >= APP_LOAD_TIME) continue;
+
+      const ageMs = Date.now() - callStartMs;
       const isCallerSide = m.callInitiatorId === userId;
 
       hadStale = true;
-      console.warn("[CALL_RESET] startup sweep — session blocked until rering confirms live", {
+      console.warn("[CALL_RESET] startup sweep — pre-load call blocked until rering confirms live", {
         matchId: m.id,
         callSessionId: m.callSessionId,
         ageMs,
@@ -374,30 +414,18 @@ function CallDetectors({ userId }: { userId: string }) {
           : "callee-side: blocked until live rering lifts the hold",
       });
 
-      if (isCallerSide) {
-        // ── Caller-side startup guard ───────────────────────────────────────────
-        // Mark as startup-cancelled-only AND clear the cache.
-        // markStartupCancelledSession prevents the 5-second refetchInterval from
-        // re-introducing the stale callerRingingCall (isCallSessionCancelled stays
-        // true until a real call:answered signal lifts the block).
-        // clearCallFromCache nulls the cache immediately so the overlay doesn't
-        // mount before startupVerified is set.
-        markStartupCancelledSession(m.id, m.callSessionId);
-        clearCallFromCache(qc, m.id);
-      } else {
-        // ── Callee-side (incoming) startup guard ────────────────────────────────
-        // Mark as startup-cancelled-only: blocks the overlay AND the 5-second
-        // refetchInterval until a live rering arrives and lifts the hold.
-        markStartupCancelledSession(m.id, m.callSessionId);
-        clearCallFromCache(qc, m.id);
-      }
+      markStartupCancelledSession(m.id, m.callSessionId);
+      clearCallFromCache(qc, m.id);
     }
 
-    if (!hadStale) {
+    if (!hadStale && !startupDoneRef.current) {
       console.log("[CALL_STATE_FIX] startup sweep complete — no stale call state found");
     }
 
-    setStartupVerified(true);
+    if (!startupDoneRef.current) {
+      startupDoneRef.current = true;
+      setStartupVerified(true);
+    }
   }, [matches, userId, qc]);
 
   const isEndedCall = useCallback((m: MatchWithProfile) => {

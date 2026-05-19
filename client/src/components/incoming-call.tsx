@@ -275,33 +275,37 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss }: In
 
   return (
     <div
-      className="fixed inset-0 z-[100] flex flex-col overflow-hidden"
+      className="fixed inset-0 z-[100] flex flex-col"
       data-testid="incoming-call-overlay"
     >
-      {/* Blurred photo background or gradient fallback */}
-      {photo ? (
-        <>
+      {/* Blurred photo background or gradient fallback — isolated in their own
+          overflow-hidden wrapper so transform:scale(1.1) cannot expand the
+          outer flex container and push action buttons off-screen. */}
+      <div className="absolute inset-0 overflow-hidden">
+        {photo ? (
+          <>
+            <div
+              className="absolute inset-0"
+              style={{
+                backgroundImage: `url(${photo})`,
+                backgroundSize: "cover",
+                backgroundPosition: "center",
+                filter: "blur(28px) brightness(0.35) saturate(1.4)",
+                transform: "scale(1.1)",
+              }}
+            />
+            <div
+              className="absolute inset-0"
+              style={{ background: "linear-gradient(180deg, hsl(350 45% 12% / 0.55) 0%, hsl(350 45% 8% / 0.85) 100%)" }}
+            />
+          </>
+        ) : (
           <div
             className="absolute inset-0"
-            style={{
-              backgroundImage: `url(${photo})`,
-              backgroundSize: "cover",
-              backgroundPosition: "center",
-              filter: "blur(28px) brightness(0.35) saturate(1.4)",
-              transform: "scale(1.1)",
-            }}
+            style={{ background: "linear-gradient(160deg, hsl(350 45% 18%) 0%, hsl(350 40% 10%) 60%, hsl(350 30% 6%) 100%)" }}
           />
-          <div
-            className="absolute inset-0"
-            style={{ background: "linear-gradient(180deg, hsl(350 45% 12% / 0.55) 0%, hsl(350 45% 8% / 0.85) 100%)" }}
-          />
-        </>
-      ) : (
-        <div
-          className="absolute inset-0"
-          style={{ background: "linear-gradient(160deg, hsl(350 45% 18%) 0%, hsl(350 40% 10%) 60%, hsl(350 30% 6%) 100%)" }}
-        />
-      )}
+        )}
+      </div>
 
       {/* Ambient glow rings */}
       <div className="pointer-events-none absolute inset-0 flex items-center justify-center overflow-hidden">
@@ -327,7 +331,10 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss }: In
       </div>
 
       {/* Centre — caller info */}
-      <div className="relative z-10 flex-1 flex flex-col items-center justify-center gap-5">
+      {/* min-h-0 allows this flex-1 child to shrink below its content size on
+          small viewports (iPhone SE, browser-chrome-constrained height) so the
+          action buttons below are never pushed off-screen and clipped. */}
+      <div className="relative z-10 flex-1 min-h-0 flex flex-col items-center justify-center gap-5">
         {/* Avatar with ring pulse */}
         <div className="relative flex items-center justify-center">
           {/* Outer glow ring */}
@@ -415,7 +422,12 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss }: In
       )}
 
       {/* Bottom — action buttons */}
-      <div className="relative z-10 flex flex-col items-center gap-10 pb-20">
+      {/* paddingBottom: env(safe-area-inset-bottom) ensures the buttons sit
+          above the iPhone home indicator. min 80px on standard devices. */}
+      <div
+        className="relative z-10 flex flex-col items-center gap-10"
+        style={{ paddingBottom: "max(80px, calc(env(safe-area-inset-bottom) + 40px))" }}
+      >
         <div className="flex items-center justify-center gap-20" data-testid="incoming-call-actions">
           {/* Decline */}
           <div className="flex flex-col items-center gap-3">

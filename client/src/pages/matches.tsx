@@ -2785,7 +2785,8 @@ export default function Matches() {
 
 
   const handleNewBackgroundMessage = useCallback((matchId: string) => {
-    queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/matches"], exact: true });
+    queryClient.invalidateQueries({ queryKey: ["/api/matches", matchId] });
   }, [queryClient]);
 
   // `isActive` gates channel creation — when the Connections tab is hidden
