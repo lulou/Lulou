@@ -613,14 +613,33 @@ function CallDetectors({ userId }: { userId: string }) {
     prevActiveRef.current = activeKey;
   }, [activeCall?.id, activeCall?.callSessionId, userId]);
 
+  // ── incomingMatchForUI ────────────────────────────────────────────────────
+  // The match the receiver needs to answer.  Two sources:
+  //   1. incomingCall — the normal path (callInitiatorId !== userId, callAnswered=false)
+  //   2. Fallback: activeCall when the current user is NOT the initiator and
+  //      the call is not yet answered.  This covers the race condition where
+  //      callAnswered prematurely becomes truthy in the cache (or a stale
+  //      callerRingingCall on a different match drives activeCall non-null),
+  //      which would normally suppress incomingCall and leave the receiver
+  //      stranded in ActiveCallOverlay with only the single red "End call" button.
+  //
+  //      isReceiver = callInitiatorId !== userId  (simple, unambiguous)
+  //
+  const receiverActiveCall = activeCall &&
+    activeCall.callInitiatorId !== userId &&
+    !activeCall.callAnswered
+    ? activeCall : null;
+
+  const incomingMatchForUI = incomingCall ?? receiverActiveCall ?? null;
+
   // Stage 1 = second call = video (camera + audio, 15 min).
   // Stage 3 = face call = video (requires both-user opt-in).
   // Stage 2 is post-second-call messaging — no calls allowed there.
-  const isFaceCall = incomingCall
-    ? (incomingCall.callStage || 0) === 1 ||   // second call is always video
-      ((incomingCall.callStage || 0) === 3 &&
-        !!incomingCall.faceCallUser1Accepted &&
-        !!incomingCall.faceCallUser2Accepted)
+  const isFaceCall = incomingMatchForUI
+    ? (incomingMatchForUI.callStage || 0) === 1 ||
+      ((incomingMatchForUI.callStage || 0) === 3 &&
+        !!incomingMatchForUI.faceCallUser1Accepted &&
+        !!incomingMatchForUI.faceCallUser2Accepted)
     : false;
 
   const isActiveVideo = activeCall
@@ -631,11 +650,13 @@ function CallDetectors({ userId }: { userId: string }) {
     : false;
 
   const handleDismiss = useCallback(() => {
-    if (incomingCall) {
-      console.log("[CALL_SESSION] INCOMING_OVERLAY_DISMISSED", { matchId: incomingCall.id, callSessionId: incomingCall.callSessionId, reason: "overlay_dismissed" });
-      setDismissedCallKey(`${incomingCall.id}:${incomingCall.callSessionId}`);
+    const m = incomingCall ?? receiverActiveCall;
+    if (m) {
+      console.log("[CALL_SESSION] INCOMING_OVERLAY_DISMISSED", { matchId: m.id, callSessionId: m.callSessionId, reason: "overlay_dismissed" });
+      setDismissedCallKey(`${m.id}:${m.callSessionId}`);
     }
-  }, [incomingCall]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [incomingCall?.id, receiverActiveCall?.id]);
 
   const handleActiveCallEnd = useCallback(() => {
     if (activeCall) {
@@ -657,35 +678,33 @@ function CallDetectors({ userId }: { userId: string }) {
 
   return (
     <>
-      {/* startupVerified: IncomingCallOverlay is gated until the startup staleness
-           sweep has run. This prevents the ringtone from firing on refresh when
-           the server DB still holds call fields from an already-ended session.
-           NOTE: !activeCall guard removed — incomingCall (receiver side) must
-           always take priority over any activeCall state.  If a stale
-           callerRingingCall from a previous match is still in the cache,
-           the old guard silently suppressed IncomingCallOverlay and showed
-           ActiveCallOverlay instead (single red "End call" button, no green
-           answer button).  IncomingCallOverlay is shown whenever the receiver
-           has a live incoming ring, regardless of other call state. */}
-      {incomingCall && startupVerified && (
+      {/* IncomingCallOverlay — shown when the current user is the RECEIVER of a
+          ringing call.  Uses incomingMatchForUI which falls back to activeCall
+          when callInitiatorId !== userId && !callAnswered, so the receiver
+          always sees the Answer + Decline buttons even if incomingCall was
+          filtered out due to a race condition (e.g. callAnswered prematurely
+          truthy, or a stale callerRingingCall from another match set activeCall). */}
+      {incomingMatchForUI && startupVerified && (
         <Suspense fallback={null}>
           <CallOverlayErrorBoundary
-            key={`${incomingCall.id}:${incomingCall.callSessionId}`}
-            matchId={incomingCall.id}
-            callSessionId={incomingCall.callSessionId}
+            key={`${incomingMatchForUI.id}:${incomingMatchForUI.callSessionId}`}
+            matchId={incomingMatchForUI.id}
+            callSessionId={incomingMatchForUI.callSessionId}
             onError={handleOverlayError}
           >
             <IncomingCallOverlay
-              match={incomingCall}
+              match={incomingMatchForUI}
               isFaceCall={isFaceCall}
               onDismiss={handleDismiss}
             />
           </CallOverlayErrorBoundary>
         </Suspense>
       )}
-      {/* activeCall is suppressed when incomingCall is showing — the receiver
-          must answer via IncomingCallOverlay before ActiveCallOverlay can mount. */}
-      {activeCall && !incomingCall && startupVerified && (
+      {/* ActiveCallOverlay — shown only when the current user is the CALLER or
+          the call has already been answered (receiver has tapped Answer).
+          Suppressed when incomingMatchForUI is set so the receiver is never
+          stranded in the single-button cancel UI. */}
+      {activeCall && !incomingMatchForUI && startupVerified && (
         <Suspense fallback={null}>
           <CallOverlayErrorBoundary
             matchId={activeCall.id}

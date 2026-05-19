@@ -331,7 +331,7 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss }: In
         />
       </div>
 
-      {/* ── DEBUG BAR — remove once green button is confirmed working ── */}
+      {/* ── DEBUG BAR (temporary) ── */}
       <div
         style={{
           position: "fixed",
@@ -339,20 +339,29 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss }: In
           left: 0,
           right: 0,
           zIndex: 9999,
-          background: "rgba(0,0,0,0.85)",
+          background: "rgba(0,0,0,0.88)",
           color: "#fff",
-          fontSize: 13,
+          fontSize: 12,
           fontFamily: "monospace",
-          padding: "6px 12px",
+          padding: "8px 12px",
           textAlign: "center",
-          lineHeight: 1.6,
+          lineHeight: 1.8,
           pointerEvents: "none",
         }}
       >
-        Receiver UI active &nbsp;|&nbsp; isCaller: <b style={{ color: isCaller ? "#f87171" : "#4ade80" }}>{String(isCaller)}</b>
-        &nbsp;|&nbsp; isReceiver: <b style={{ color: isReceiver ? "#4ade80" : "#f87171" }}>{String(isReceiver)}</b>
-        &nbsp;|&nbsp; initiator: {match.callInitiatorId?.slice(0, 6) ?? "?"}
-        &nbsp;|&nbsp; me: {user?.id?.slice(0, 6) ?? "?"}
+        <div>currentUserId: <b>{user?.id ?? "null"}</b></div>
+        <div>callInitiatorId: <b>{match.callInitiatorId ?? "null"}</b></div>
+        <div>
+          isReceiver:{" "}
+          <b style={{ color: isReceiver ? "#4ade80" : "#f87171", fontSize: 14 }}>
+            {String(isReceiver)}
+          </b>
+          {isCaller && (
+            <span style={{ color: "#f87171", marginLeft: 8 }}>
+              ⚠ WRONG COMPONENT — caller should not see IncomingCallOverlay
+            </span>
+          )}
+        </div>
       </div>
       {/* ── END DEBUG BAR ── */}
 
