@@ -23,6 +23,14 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss }: In
   const { toast } = useToast();
   const { user } = useAuth();
   const queryClient = useQueryClient();
+
+  // ── Role detection (debug) ─────────────────────────────────────────────────
+  // IncomingCallOverlay should ONLY mount when the current user is the receiver.
+  // App.tsx incomingCall filter already enforces callInitiatorId !== userId, so
+  // isCaller should always be false here.  The debug bar below makes this
+  // visible on-screen so role bugs are immediately obvious.
+  const isCaller = match.callInitiatorId === user?.id;
+  const isReceiver = !isCaller;
   const actedRef = useRef(false);
 
   // ── Ringtone gate ──────────────────────────────────────────────────────────
@@ -323,6 +331,31 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss }: In
         />
       </div>
 
+      {/* ── DEBUG BAR — remove once green button is confirmed working ── */}
+      <div
+        style={{
+          position: "fixed",
+          top: 0,
+          left: 0,
+          right: 0,
+          zIndex: 9999,
+          background: "rgba(0,0,0,0.85)",
+          color: "#fff",
+          fontSize: 13,
+          fontFamily: "monospace",
+          padding: "6px 12px",
+          textAlign: "center",
+          lineHeight: 1.6,
+          pointerEvents: "none",
+        }}
+      >
+        Receiver UI active &nbsp;|&nbsp; isCaller: <b style={{ color: isCaller ? "#f87171" : "#4ade80" }}>{String(isCaller)}</b>
+        &nbsp;|&nbsp; isReceiver: <b style={{ color: isReceiver ? "#4ade80" : "#f87171" }}>{String(isReceiver)}</b>
+        &nbsp;|&nbsp; initiator: {match.callInitiatorId?.slice(0, 6) ?? "?"}
+        &nbsp;|&nbsp; me: {user?.id?.slice(0, 6) ?? "?"}
+      </div>
+      {/* ── END DEBUG BAR ── */}
+
       {/* Top label */}
       <div className="relative z-10 flex flex-col items-center pt-16 pb-4">
         <p className="text-white/35 text-[10px] tracking-[0.3em] uppercase font-medium">
@@ -435,51 +468,62 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss }: In
         style={{ bottom: "calc(env(safe-area-inset-bottom, 0px) + 40px)" }}
       >
         <div className="flex items-center justify-center gap-20" data-testid="incoming-call-actions">
-          {/* Decline */}
+
+          {/* ── DECLINE button (red) ── */}
           <div className="flex flex-col items-center gap-3">
             <button
-              className="w-[72px] h-[72px] rounded-full flex items-center justify-center active:scale-90 transition-transform disabled:opacity-50"
+              className="w-[72px] h-[72px] rounded-full flex items-center justify-center active:scale-90 transition-transform"
               style={{
-                background: "hsl(0 60% 25% / 0.6)",
-                backdropFilter: "blur(12px)",
-                border: "1.5px solid hsl(0 60% 50% / 0.4)",
-                boxShadow: "0 6px 28px hsl(0 60% 40% / 0.35), inset 0 1px 0 hsl(0 0% 100% / 0.08)",
+                background: "hsl(0 60% 30%)",
+                border: "2px solid hsl(0 60% 55%)",
+                boxShadow: "0 6px 28px hsl(0 60% 40% / 0.5), inset 0 1px 0 hsl(0 0% 100% / 0.08)",
               }}
-              onClick={() => { if (!isPending) declineCall.mutate(); }}
-              disabled={isPending}
+              onClick={() => declineCall.mutate()}
               data-testid="button-decline-call"
             >
-              <PhoneOff className="w-7 h-7 text-red-300" />
+              <PhoneOff className="w-7 h-7 text-white" />
             </button>
-            <span className="text-white/40 text-xs tracking-wide">
+            <span className="text-white/60 text-xs tracking-wide">
               {declineCall.isPending ? "Declining…" : "Decline"}
             </span>
           </div>
 
-          {/* Answer — always rendered for receiver; never conditional */}
-          {(() => { console.log("[CALL_UI] rendering incoming answer button", { matchId: match.id, callSessionId: match.callSessionId, isFaceCall, isPending }); return null; })()}
+          {/* ── ANSWER button (green) — ALWAYS rendered, no conditions ── */}
+          {/* isCaller is logged here; should always be false in IncomingCallOverlay */}
+          {(() => {
+            console.log("[CALL_UI] rendering incoming answer button", {
+              matchId: match.id,
+              callSessionId: match.callSessionId,
+              isFaceCall,
+              isCaller,
+              isReceiver,
+              initiatorId: match.callInitiatorId?.slice(0, 8),
+              myId: user?.id?.slice(0, 8),
+            });
+            return null;
+          })()}
           <div className="flex flex-col items-center gap-3">
             <button
-              className="w-[88px] h-[88px] rounded-full flex items-center justify-center active:scale-90 transition-transform"
+              className="w-[92px] h-[92px] rounded-full flex items-center justify-center active:scale-90 transition-transform"
               style={{
-                background: "linear-gradient(145deg, hsl(145 60% 38%), hsl(145 60% 28%))",
-                boxShadow: "0 6px 32px hsl(145 60% 35% / 0.55), inset 0 1px 0 hsl(0 0% 100% / 0.15)",
-                border: "1.5px solid hsl(145 60% 55% / 0.3)",
-                opacity: isPending ? 0.6 : 1,
+                background: "linear-gradient(145deg, hsl(142 70% 45%), hsl(142 70% 32%))",
+                border: "2.5px solid hsl(142 70% 62%)",
+                boxShadow: "0 0 0 6px hsl(142 70% 45% / 0.18), 0 8px 36px hsl(142 70% 40% / 0.7), inset 0 1px 0 hsl(0 0% 100% / 0.2)",
               }}
-              onClick={() => { if (!isPending) answerCall.mutate(); }}
+              onClick={() => answerCall.mutate()}
               data-testid="button-answer-call"
             >
               {isFaceCall ? (
-                <Video className="w-9 h-9 text-white" />
+                <Video className="w-9 h-9 text-white" style={{ filter: "drop-shadow(0 1px 2px rgba(0,0,0,0.5))" }} />
               ) : (
-                <Phone className="w-9 h-9 text-white" />
+                <Phone className="w-9 h-9 text-white" style={{ filter: "drop-shadow(0 1px 2px rgba(0,0,0,0.5))" }} />
               )}
             </button>
-            <span className="text-white/50 text-xs tracking-wide">
+            <span className="text-white/70 text-xs tracking-wide">
               {answerCall.isPending ? "Connecting…" : "Answer"}
             </span>
           </div>
+
         </div>
       </div>
 
