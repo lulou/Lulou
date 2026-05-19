@@ -423,13 +423,16 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss }: In
       )}
 
       {/* Bottom — action buttons.
-          position:absolute takes these out of the flex flow entirely, so they
-          can NEVER be pushed below the viewport by sibling content height.
-          z-[110] is above the overlay's own z-[100] context so nothing covers them.
-          bottom value = safe-area home-indicator inset + breathing room. */}
+          position:fixed (not absolute) is always viewport-relative on every iOS
+          version, even when document.body.style.overflow="hidden" is set.
+          With absolute+fixed parent, iOS Safari resolves the offset against the
+          document body (not the viewport), pushing buttons off-screen.
+          fixed bypasses that bug entirely.
+          z-[110] keeps buttons above the z-[100] overlay on all devices.
+          bottom uses calc(env() + px) — supported since iOS 11.2, no max() needed. */}
       <div
-        className="absolute left-0 right-0 z-[110] flex flex-col items-center"
-        style={{ bottom: "max(40px, calc(env(safe-area-inset-bottom) + 24px))" }}
+        className="fixed left-0 right-0 z-[110] flex flex-col items-center"
+        style={{ bottom: "calc(env(safe-area-inset-bottom, 0px) + 40px)" }}
       >
         <div className="flex items-center justify-center gap-20" data-testid="incoming-call-actions">
           {/* Decline */}
