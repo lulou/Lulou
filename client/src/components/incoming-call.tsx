@@ -330,11 +330,12 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss }: In
         </p>
       </div>
 
-      {/* Centre — caller info */}
-      {/* min-h-0 allows this flex-1 child to shrink below its content size on
-          small viewports (iPhone SE, browser-chrome-constrained height) so the
-          action buttons below are never pushed off-screen and clipped. */}
-      <div className="relative z-10 flex-1 min-h-0 flex flex-col items-center justify-center gap-5">
+      {/* Centre — caller info.
+          min-h-0 lets flex-1 shrink below content size.
+          paddingBottom reserves space for the absolutely-positioned
+          action buttons so the avatar/name never overlap them. */}
+      <div className="relative z-10 flex-1 min-h-0 flex flex-col items-center justify-center gap-5"
+           style={{ paddingBottom: 160 }}>
         {/* Avatar with ring pulse */}
         <div className="relative flex items-center justify-center">
           {/* Outer glow ring */}
@@ -421,12 +422,14 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss }: In
         </div>
       )}
 
-      {/* Bottom — action buttons */}
-      {/* paddingBottom: env(safe-area-inset-bottom) ensures the buttons sit
-          above the iPhone home indicator. min 80px on standard devices. */}
+      {/* Bottom — action buttons.
+          position:absolute takes these out of the flex flow entirely, so they
+          can NEVER be pushed below the viewport by sibling content height.
+          z-[110] is above the overlay's own z-[100] context so nothing covers them.
+          bottom value = safe-area home-indicator inset + breathing room. */}
       <div
-        className="relative z-10 flex flex-col items-center gap-10"
-        style={{ paddingBottom: "max(80px, calc(env(safe-area-inset-bottom) + 40px))" }}
+        className="absolute left-0 right-0 z-[110] flex flex-col items-center"
+        style={{ bottom: "max(40px, calc(env(safe-area-inset-bottom) + 24px))" }}
       >
         <div className="flex items-center justify-center gap-20" data-testid="incoming-call-actions">
           {/* Decline */}
