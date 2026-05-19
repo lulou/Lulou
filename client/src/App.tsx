@@ -530,6 +530,33 @@ function CallDetectors({ userId }: { userId: string }) {
 
   const activeCall = answeredCall || callerRingingCall;
 
+  // ── [CALL_ROLE] Role detection log ─────────────────────────────────────────
+  // Fires whenever role-relevant state changes so call logs can confirm which
+  // overlay will mount and why.  Kept in a ref-guarded effect so it only logs
+  // on real changes, not every render.
+  const prevRoleKeyRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!matches?.length) return;
+    const ringingMatch = incomingCall || callerRingingCall;
+    if (!ringingMatch) return;
+    const roleKey = `${ringingMatch.id}:${ringingMatch.callSessionId}:${userId}`;
+    if (roleKey === prevRoleKeyRef.current) return;
+    prevRoleKeyRef.current = roleKey;
+    const isCallerComputed = ringingMatch.callInitiatorId === userId;
+    const isReceiverComputed = !isCallerComputed;
+    console.log("[CALL_ROLE] currentUserId", userId?.slice(0, 8) ?? "undefined");
+    console.log("[CALL_ROLE] callInitiatorId", ringingMatch.callInitiatorId?.slice(0, 8) ?? "undefined");
+    console.log("[CALL_ROLE] isCaller", isCallerComputed);
+    console.log("[CALL_ROLE] isReceiver", isReceiverComputed);
+    console.log("[CALL_ROLE] incomingCallSet", !!incomingCall);
+    console.log("[CALL_ROLE] activeCallSet", !!activeCall);
+    console.log("[CALL_ROLE] overlayWillShow", incomingCall
+      ? "IncomingCallOverlay (decline+answer)"
+      : activeCall
+        ? `ActiveCallOverlay isCaller=${isCallerComputed} isRinging=${!activeCall.callAnswered}`
+        : "none");
+  }, [incomingCall?.id, callerRingingCall?.id, activeCall?.id, userId]);
+
   const prevIncomingRef = useRef<string | null>(null);
   const prevActiveRef = useRef<string | null>(null);
 
@@ -632,8 +659,15 @@ function CallDetectors({ userId }: { userId: string }) {
     <>
       {/* startupVerified: IncomingCallOverlay is gated until the startup staleness
            sweep has run. This prevents the ringtone from firing on refresh when
-           the server DB still holds call fields from an already-ended session. */}
-      {incomingCall && !activeCall && startupVerified && (
+           the server DB still holds call fields from an already-ended session.
+           NOTE: !activeCall guard removed — incomingCall (receiver side) must
+           always take priority over any activeCall state.  If a stale
+           callerRingingCall from a previous match is still in the cache,
+           the old guard silently suppressed IncomingCallOverlay and showed
+           ActiveCallOverlay instead (single red "End call" button, no green
+           answer button).  IncomingCallOverlay is shown whenever the receiver
+           has a live incoming ring, regardless of other call state. */}
+      {incomingCall && startupVerified && (
         <Suspense fallback={null}>
           <CallOverlayErrorBoundary
             key={`${incomingCall.id}:${incomingCall.callSessionId}`}
@@ -649,7 +683,9 @@ function CallDetectors({ userId }: { userId: string }) {
           </CallOverlayErrorBoundary>
         </Suspense>
       )}
-      {activeCall && startupVerified && (
+      {/* activeCall is suppressed when incomingCall is showing — the receiver
+          must answer via IncomingCallOverlay before ActiveCallOverlay can mount. */}
+      {activeCall && !incomingCall && startupVerified && (
         <Suspense fallback={null}>
           <CallOverlayErrorBoundary
             matchId={activeCall.id}

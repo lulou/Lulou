@@ -456,17 +456,18 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss }: In
             </span>
           </div>
 
-          {/* Answer */}
+          {/* Answer — always rendered for receiver; never conditional */}
+          {(() => { console.log("[CALL_UI] rendering incoming answer button", { matchId: match.id, callSessionId: match.callSessionId, isFaceCall, isPending }); return null; })()}
           <div className="flex flex-col items-center gap-3">
             <button
-              className="w-[88px] h-[88px] rounded-full flex items-center justify-center active:scale-90 transition-transform disabled:opacity-50"
+              className="w-[88px] h-[88px] rounded-full flex items-center justify-center active:scale-90 transition-transform"
               style={{
                 background: "linear-gradient(145deg, hsl(145 60% 38%), hsl(145 60% 28%))",
                 boxShadow: "0 6px 32px hsl(145 60% 35% / 0.55), inset 0 1px 0 hsl(0 0% 100% / 0.15)",
                 border: "1.5px solid hsl(145 60% 55% / 0.3)",
+                opacity: isPending ? 0.6 : 1,
               }}
               onClick={() => { if (!isPending) answerCall.mutate(); }}
-              disabled={isPending}
               data-testid="button-answer-call"
             >
               {isFaceCall ? (
