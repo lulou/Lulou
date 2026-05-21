@@ -7,6 +7,19 @@ const cancelledSessions = new Set<string>();
 // in this set, so they can never be un-cancelled by a rering.
 const startupOnlyKeys = new Set<string>();
 
+// ── React notification bridge ─────────────────────────────────────────────────
+// cancelledSessions is a plain module-level Set, which React cannot observe.
+// Whenever the Set changes, we call this listener so App.tsx can increment a
+// state counter and force the incomingCall/answeredCall/callerRingingCall memos
+// to re-run.  Without this, clearStartupCancelledSession() on rering receipt
+// would mutate the Set but the memos would NOT re-run (deps unchanged), leaving
+// incomingCall = null even after the startup-cancelled block is lifted.
+let _changeListener: (() => void) | null = null;
+
+export function setOnCancelledSessionChange(fn: (() => void) | null) {
+  _changeListener = fn;
+}
+
 function sessionKey(matchId: string, callSessionId: string) {
   return `${matchId}:${callSessionId}`;
 }
@@ -20,6 +33,7 @@ export function markCallSessionCancelled(matchId: string, callSessionId?: string
     callSessionId,
     setSize: cancelledSessions.size,
   });
+  _changeListener?.();
 }
 
 /**
@@ -44,6 +58,7 @@ export function markStartupCancelledSession(matchId: string, callSessionId?: str
     callSessionId,
     setSize: cancelledSessions.size,
   });
+  _changeListener?.();
 }
 
 /** True only if the session was cancelled exclusively by the startup sweep. */
@@ -67,6 +82,7 @@ export function clearStartupCancelledSession(matchId: string, callSessionId?: st
     matchId,
     callSessionId,
   });
+  _changeListener?.();
 }
 
 export function isCallSessionCancelled(matchId: string, callSessionId?: string | null): boolean {
@@ -79,6 +95,7 @@ export function clearCancelledSession(matchId: string, callSessionId?: string | 
     const key = sessionKey(matchId, callSessionId);
     cancelledSessions.delete(key);
     startupOnlyKeys.delete(key);
+    _changeListener?.();
     return;
   }
   // Clear all sessions for this match (used in post-cleanup sweep)
@@ -88,4 +105,5 @@ export function clearCancelledSession(matchId: string, callSessionId?: string | 
       startupOnlyKeys.delete(key);
     }
   }
+  _changeListener?.();
 }

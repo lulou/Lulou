@@ -51,7 +51,7 @@ if (typeof window !== "undefined") {
 }
 import { useCallSignaling, setCallEndedHandler, setCallRingHandler, clearDedupeForMatch } from "@/hooks/use-call-signaling";
 import { stopAllNonVoiceCallAudio } from "@/lib/call-audio";
-import { markCallSessionCancelled, markStartupCancelledSession, isCallSessionCancelled, clearCancelledSession } from "@/lib/cancelled-calls";
+import { markCallSessionCancelled, markStartupCancelledSession, isCallSessionCancelled, clearCancelledSession, setOnCancelledSessionChange } from "@/lib/cancelled-calls";
 import type { Profile, Match } from "@shared/schema";
 import { Loader2 } from "lucide-react";
 
@@ -255,6 +255,20 @@ function CallDetectors({ userId }: { userId: string }) {
   // first-load staleness sweep has run and cleared any ghost call state.
   const [startupVerified, setStartupVerified] = useState(false);
   const startupDoneRef = useRef(false);
+
+  // ── cancelledTick — React bridge for the cancelled-calls Set ─────────────
+  // cancelled-calls.ts holds a plain module-level Set that React cannot observe.
+  // Whenever any entry is added or removed (mark/clear/startup), the Set calls
+  // setOnCancelledSessionChange (registered below) which increments this counter.
+  // All three call-detection memos include cancelledTick in their dep arrays so
+  // they re-run immediately when clearStartupCancelledSession() is called on
+  // rering receipt — without this, the memos would stay stale (deps unchanged)
+  // and incomingCall would remain null even after the startup block is lifted.
+  const [cancelledTick, setCancelledTick] = useState(0);
+  useEffect(() => {
+    setOnCancelledSessionChange(() => setCancelledTick(t => t + 1));
+    return () => setOnCancelledSessionChange(null);
+  }, []);
   // hasRingRef: true while an incoming ring is active. Used by refetchInterval
   // to pause the 5-second poll so optimistic call state cannot be overwritten
   // by a network response that lags behind the Realtime broadcast.
@@ -491,16 +505,27 @@ function CallDetectors({ userId }: { userId: string }) {
     if (!m.callStartedAt || m.callAnswered || m.callCompleted) return false;
     if (!m.callSessionId) return false;
     if (!m.callInitiatorId || m.callInitiatorId === userId) return false;
+    // ── Bug 2 fix (part A): block calls that started before this page load.
+    // The rering mechanism in use-call-signaling will call clearStartupCancelledSession
+    // once a live rering arrives, which increments cancelledTick and re-runs this memo.
+    // Without callStartedAt >= APP_LOAD_TIME the memo would pass stale DB data through
+    // before the startup sweep (a useEffect) has a chance to mark it as cancelled.
+    if (new Date(m.callStartedAt).getTime() < APP_LOAD_TIME) {
+      if (!isCallSessionCancelled(m.id, m.callSessionId)) return false;
+      return false; // always false for pre-load calls until rering re-stamps callStartedAt
+    }
     if (isSelfCall(m)) return false;
     if (isEndedCall(m)) return false;
     if (isStaleCall(m)) return false;
+    // ── Bug 2 fix (part B): cancelledTick in deps ensures this memo re-runs
+    // whenever clearStartupCancelledSession() lifts the startup block.
     if (isCallSessionCancelled(m.id, m.callSessionId)) {
       console.log("[CALL_SESSION] STALE_CALL_SESSION_BLOCKED", { matchId: m.id, callSessionId: m.callSessionId, source: "incoming_check" });
       return false;
     }
     const callKey = `${m.id}:${m.callSessionId}`;
     return callKey !== dismissedCallKey;
-  }), [matches, userId, isEndedCall, dismissedCallKey]);
+  }), [matches, userId, isEndedCall, dismissedCallKey, cancelledTick]);
 
   const answeredCall = useMemo(() => matches?.find(m => {
     if (!(m.callStartedAt && m.callSessionId && m.callAnswered === true && m.callCompleted === false &&
@@ -513,11 +538,17 @@ function CallDetectors({ userId }: { userId: string }) {
       return false;
     }
     return true;
-  }), [matches, userId, isEndedCall]);
+  }), [matches, userId, isEndedCall, cancelledTick]);
 
   const callerRingingCall = useMemo(() => matches?.find(m => {
     if (!(m.callStartedAt && m.callSessionId && !m.callAnswered && !m.callCompleted &&
       m.callInitiatorId === userId)) return false;
+    // ── Bug 1 fix: block stale pre-load calls SYNCHRONOUSLY during render.
+    // The startup sweep (useEffect) runs AFTER render, so without this check
+    // callerRingingCall would briefly return the stale match, ActiveCallOverlay
+    // would mount, and useCallRingtone("outgoing", true) would fire — causing
+    // the laptop to play the ringback tone on app open before the effect runs.
+    if (new Date(m.callStartedAt).getTime() < APP_LOAD_TIME) return false;
     if (isSelfCall(m)) return false;
     if (isEndedCall(m)) return false;
     if (isStaleCall(m)) return false;
@@ -526,7 +557,7 @@ function CallDetectors({ userId }: { userId: string }) {
       return false;
     }
     return true;
-  }), [matches, userId, isEndedCall]);
+  }), [matches, userId, isEndedCall, cancelledTick]);
 
   const activeCall = answeredCall || callerRingingCall;
 
