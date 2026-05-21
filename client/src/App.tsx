@@ -663,14 +663,28 @@ function CallDetectors({ userId }: { userId: string }) {
 
   const incomingMatchForUI = incomingCall ?? receiverActiveCall ?? null;
 
+  // matchForIncoming: definitive match to render in IncomingCallOverlay.
+  // Extends incomingMatchForUI with a DIRECT activeCall receiver check so the
+  // receiver is never stranded in ActiveCallOverlay even if incomingCall and
+  // receiverActiveCall were both null (e.g. startup-sweep race, premature
+  // callAnswered flip, or isCallSessionCancelled stale-memo issue).
+  //   isReceiver = callInitiatorId !== userId   (simple, unambiguous)
+  //   unanswered = callAnswered !== true
+  const matchForIncoming = incomingMatchForUI ??
+    (activeCall &&
+     activeCall.callInitiatorId !== userId &&
+     activeCall.callAnswered !== true
+      ? activeCall
+      : null);
+
   // Stage 1 = second call = video (camera + audio, 15 min).
   // Stage 3 = face call = video (requires both-user opt-in).
   // Stage 2 is post-second-call messaging — no calls allowed there.
-  const isFaceCall = incomingMatchForUI
-    ? (incomingMatchForUI.callStage || 0) === 1 ||
-      ((incomingMatchForUI.callStage || 0) === 3 &&
-        !!incomingMatchForUI.faceCallUser1Accepted &&
-        !!incomingMatchForUI.faceCallUser2Accepted)
+  const isFaceCall = matchForIncoming
+    ? (matchForIncoming.callStage || 0) === 1 ||
+      ((matchForIncoming.callStage || 0) === 3 &&
+        !!matchForIncoming.faceCallUser1Accepted &&
+        !!matchForIncoming.faceCallUser2Accepted)
     : false;
 
   const isActiveVideo = activeCall
@@ -681,13 +695,13 @@ function CallDetectors({ userId }: { userId: string }) {
     : false;
 
   const handleDismiss = useCallback(() => {
-    const m = incomingCall ?? receiverActiveCall;
+    const m = matchForIncoming;
     if (m) {
       console.log("[CALL_SESSION] INCOMING_OVERLAY_DISMISSED", { matchId: m.id, callSessionId: m.callSessionId, reason: "overlay_dismissed" });
       setDismissedCallKey(`${m.id}:${m.callSessionId}`);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [incomingCall?.id, receiverActiveCall?.id]);
+  }, [matchForIncoming?.id, matchForIncoming?.callSessionId]);
 
   const handleActiveCallEnd = useCallback(() => {
     if (activeCall) {
@@ -709,40 +723,56 @@ function CallDetectors({ userId }: { userId: string }) {
 
   return (
     <>
-      {/* IncomingCallOverlay — shown when the current user is the RECEIVER of a
-          ringing call.  Uses incomingMatchForUI which falls back to activeCall
-          when callInitiatorId !== userId && !callAnswered, so the receiver
-          always sees the Answer + Decline buttons even if incomingCall was
-          filtered out due to a race condition (e.g. callAnswered prematurely
-          truthy, or a stale callerRingingCall from another match set activeCall). */}
-      {incomingMatchForUI && startupVerified && (
-        <Suspense fallback={null}>
-          <CallOverlayErrorBoundary
-            key={`${incomingMatchForUI.id}:${incomingMatchForUI.callSessionId}`}
-            matchId={incomingMatchForUI.id}
-            callSessionId={incomingMatchForUI.callSessionId}
-            onError={handleOverlayError}
-          >
-            <IncomingCallOverlay
-              match={incomingMatchForUI}
-              isFaceCall={isFaceCall}
-              onDismiss={handleDismiss}
-            />
-          </CallOverlayErrorBoundary>
-        </Suspense>
+      {/* IncomingCallOverlay — receiver with unanswered incoming call.
+          Uses matchForIncoming which is:
+            1. incomingMatchForUI (incomingCall or receiverActiveCall fallback), OR
+            2. activeCall directly when callInitiatorId !== userId && callAnswered !== true
+          This ensures the receiver NEVER falls through to ActiveCallOverlay. */}
+      {matchForIncoming && startupVerified && (
+        <>
+          {console.log("[CALL_UI_FIX] rendering IncomingCallOverlay for receiver", {
+            matchId: matchForIncoming.id,
+            callInitiatorId: matchForIncoming.callInitiatorId,
+            userId,
+            isReceiver: matchForIncoming.callInitiatorId !== userId,
+            callAnswered: matchForIncoming.callAnswered,
+            source: incomingMatchForUI ? "incomingMatchForUI" : "activeCall_direct",
+          }) as unknown as null}
+          <Suspense fallback={null}>
+            <CallOverlayErrorBoundary
+              key={`${matchForIncoming.id}:${matchForIncoming.callSessionId}`}
+              matchId={matchForIncoming.id}
+              callSessionId={matchForIncoming.callSessionId}
+              onError={handleOverlayError}
+            >
+              <IncomingCallOverlay
+                match={matchForIncoming}
+                isFaceCall={isFaceCall}
+                onDismiss={handleDismiss}
+              />
+            </CallOverlayErrorBoundary>
+          </Suspense>
+        </>
       )}
-      {/* ActiveCallOverlay — shown only when the current user is the CALLER or
-          the call has already been answered (receiver has tapped Answer).
-          Suppressed when incomingMatchForUI is set so the receiver is never
-          stranded in the single-button cancel UI. */}
-      {activeCall && !incomingMatchForUI && startupVerified && (
-        <Suspense fallback={null}>
-          <CallOverlayErrorBoundary
-            matchId={activeCall.id}
-            callSessionId={activeCall.callSessionId}
-            onError={handleOverlayError}
-          >
-          <ActiveCallOverlay
+      {/* ActiveCallOverlay — caller outgoing / answered connected call only.
+          Only mounts when matchForIncoming is null, guaranteeing the receiver
+          can never land here with only the single red End/Cancel button. */}
+      {activeCall && !matchForIncoming && startupVerified && (
+        <>
+          {console.log("[CALL_UI_FIX] rendering ActiveCallOverlay", {
+            matchId: activeCall.id,
+            callInitiatorId: activeCall.callInitiatorId,
+            userId,
+            isCaller: activeCall.callInitiatorId === userId,
+            callAnswered: activeCall.callAnswered,
+          }) as unknown as null}
+          <Suspense fallback={null}>
+            <CallOverlayErrorBoundary
+              matchId={activeCall.id}
+              callSessionId={activeCall.callSessionId}
+              onError={handleOverlayError}
+            >
+            <ActiveCallOverlay
             matchId={activeCall.id}
             callSessionId={activeCall.callSessionId || ""}
             userId={userId}
@@ -753,9 +783,10 @@ function CallDetectors({ userId }: { userId: string }) {
             callerPhoto={activeCall.profile?.photos?.[0] || undefined}
             callStage={activeCall.callStage || 0}
             onCallEnd={handleActiveCallEnd}
-          />
-          </CallOverlayErrorBoundary>
-        </Suspense>
+            />
+            </CallOverlayErrorBoundary>
+          </Suspense>
+        </>
       )}
     </>
   );
