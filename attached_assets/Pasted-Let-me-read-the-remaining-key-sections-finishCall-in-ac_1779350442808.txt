@@ -1,0 +1,75 @@
+Let me read the remaining key sections — finishCall in active-call.tsx and the hangup broadcast in use-webrtc, plus the incomingCall memo's exact filter chain:
+
+4 actions
+Let me read the hangup function and finishCall continuation to complete the picture:
+
+3 actions
+Let me read the hangup export from use-webrtc, plus clearCallFromCache and incoming-call.tsx:
+
+8 actions
+Now I have a complete picture of both bugs. Here is the full diagnosis.
+Bug 1 — Receiver sees single red button (ActiveCallOverlay instead of IncomingCallOverlay)
+Exact broken condition
+File: client/src/App.tsx, line 403 (startup sweep useEffect):
+if (m.callAnswered || m.callCompleted) continue;   // ← BUG
+
+The sweep is supposed to suppress stale pre-app-load calls. By skipping answered calls it misses any match row where callAnswered=true and callCompleted=false left over from a previous session that never called /complete (crash, hard-close, network drop). Those rows survive the sweep untouched and fall straight through to answeredCall.
+Full cascade
+startup sweep skips callAnswered=true  (line 403)
+  → answeredCall finds the match       (callAnswered=true, callCompleted=false, user is participant)
+  → activeCall  = answeredCall          (non-null)
+  → incomingCall = null                 (first condition: !m.callAnswered fails because callAnswered=true)
+  → receiverActiveCall = null           (!activeCall.callAnswered = !true = false)
+  → matchForIncoming = null             (both ?? arms null; the fallback also checks callAnswered!==true → false)
+  → gate: activeCall && !matchForIncoming && startupVerified → TRUE
+  → ActiveCallOverlay mounts with isCaller=false, isRinging=false, webrtcEnabled=true
+
+Receiver sees a single red End button, WebRTC starts connecting, but the caller never opened a WebRTC channel → stuck.
+Secondary finding: matchForIncoming provides zero extra coverage
+receiverActiveCall (line 659–662) and the matchForIncoming fallback (lines 674–678) are semantically identical — both guard on !activeCall.callAnswered. They fail together: when callAnswered=true, all three upstream paths (incomingCall, receiverActiveCall, matchForIncomingfallback) return null simultaneously. The fallback is a no-op.
+Smallest safe fix
+client/src/App.tsx — startup sweep, line 403
+// BEFORE
+if (m.callAnswered || m.callCompleted) continue;
+// AFTER
+if (m.callCompleted) continue;
+
+Removing m.callAnswered || lets the sweep also process answered pre-load calls. It then calls markStartupCancelledSession + clearCallFromCache on them, which:
+Zeroes callStartedAt, callAnswered, callSessionId in the TanStack cache
+Marks the session in cancelledSessions
+After that patch:
+answeredCall sees callAnswered: false → null
+activeCall = null → no overlay mounts ✓
+For a genuine reconnect (user refreshes mid-call): the caller's rering mechanism only fires for !callAnswered calls, so a rering won't lift the startup-cancelled mark on an answered-pre-load call. Both parties would need to re-initiate. That's acceptable given there is no TURN server to support mid-session NAT reconnect anyway.
+Bug 2 — Other user stays stuck trying to connect after hangup
+Signal path (works correctly)
+finishCall in active-call.tsx (line 790) does, in order:
+hangup() → broadcasts webrtc:hangup on call:${matchId} (WebRTC channel)
+onCallEnd() → handleActiveCallEnd → markCallEnded(clears local state)
+broadcastCallSignal(matchId, { type: "call:ended" | "call:cancelled" })on call-signal:${matchId}
+The remote peer has two independent paths to receive the end notification:
+Fast path — webrtc:hangup on the WebRTC channel → handleSignal → cleanup() + onRemoteHangupRef.current() → finishCall("remote_hangup") → overlay unmounts
+Backup path — call:ended / call:cancelled on the call-signal channel → processEndSignal → callEndedCallback→ markCallEnded → overlay unmounts
+Both paths are wired. For an in-progress answered call where both users are legitimately in ActiveCallOverlay, one user ending the call should reach the other via at least the backup path (call:ended).
+Actual root cause of "stuck connecting"
+This is a consequence of Bug 1, not an independent bug:
+Receiver is wrongly placed in ActiveCallOverlay (Bug 1)
+isRinging = !activeCall.callAnswered = !true = false→ webrtcEnabled = true
+Receiver starts WebRTC, sends webrtc:ready on call:${matchId}
+Caller has isRinging=true → webrtcEnabled = false → no WebRTC channel open → webrtc:ready goes unanswered
+No offer ever sent → 60-second hard timeout fires → setConnectionState("failed") → AUTO_END_SCHEDULED(10-second delay) → finishCall("connection_failed") → overlay finally closes after ~70 seconds total
+One standalone weakness in Bug 2
+File: client/src/hooks/use-webrtc.ts, hangup() function, lines 1182–1189:
+const channel = channelRef.current;
+if (channel) {
+  channel.send({ ..., payload: { type: "webrtc:hangup", from: userId } });
+}
+
+If hangup() is called before the WebRTC channel reaches SUBSCRIBED status (e.g., user taps End during the getUserMedia 80 ms pause or while the channel is still subscribing), channel.send() is silently dropped — the remote peer never receives webrtc:hangup. The call:ended backup on the call-signal channel is still sent (it's a separate module), so the remote peer will recover. However, recovery depends on the call-signal channel being functional.
+Smallest safe fix: No structural change required. The call:ended broadcast on the call-signal channel is sufficient backup. Optionally, reduce the 60-second WebRTC timeout (connectionTimeoutRef, line 1074) to 30 seconds to halve the maximum stuck duration in the Bug-1-induced scenario.
+Summary table
+Bug	File	Line	Broken condition	Fix
+Bug 1 primary	App.tsx	403	if (m.callAnswered || m.callCompleted) continue— sweep skips answered pre-load calls; they land in answeredCall → ActiveCallOverlayfor receiver	Remove m.callAnswered ||
+Bug 1 secondary	App.tsx	673–678	matchForIncomingfallback uses callAnswered !== true— identical to receiverActiveCall, adds no coverage	Moot once Bug 1 primary is fixed
+Bug 2	Consequence of Bug 1	—	Receiver in wrong overlay → WebRTC starts without caller ready → 60 s timeout stuck	Fix Bug 1; no independent structural fix needed
+Bug 2 edge	use-webrtc.ts	1182	webrtc:hangupsilently dropped if channel not yet SUBSCRIBED	Tolerable — call:endedbackup covers it

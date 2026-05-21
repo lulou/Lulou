@@ -400,7 +400,7 @@ function CallDetectors({ userId }: { userId: string }) {
 
     for (const m of matches) {
       if (!m.callStartedAt || !m.callSessionId) continue;
-      if (m.callAnswered || m.callCompleted) continue;
+      if (m.callCompleted) continue;
       if (!m.callInitiatorId) continue;
       // Already handled (either startup-cancelled or user-cancelled) — skip.
       if (isCallSessionCancelled(m.id, m.callSessionId)) continue;
