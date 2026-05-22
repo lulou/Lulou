@@ -151,16 +151,28 @@ export function useCallSignaling(matchIds: string[], userId: string) {
           if (isStartupCancelledOnly(matchId, answeredSid)) {
             clearStartupCancelledSession(matchId, answeredSid);
           }
-          // Immediately flip callAnswered so the caller transitions from ringing to in-call
-          const answeredPatch = { callAnswered: true };
-          queryClient.setQueriesData<any[]>({ queryKey: ["/api/matches"] }, (old) => {
-            if (!old || !Array.isArray(old)) return old;
-            return old.map((m: any) => m.id === matchId ? { ...m, ...answeredPatch } : m);
-          });
-          queryClient.setQueriesData<any>({ queryKey: ["/api/matches", matchId] }, (old) => {
-            if (!old || Array.isArray(old)) return old;
-            return { ...old, ...answeredPatch };
-          });
+          // Guard: only apply callAnswered:true for the caller (initiator).
+          // The receiver already sets callAnswered:true via their own answerCall
+          // onSuccess handler after pressing the green Answer button. Applying
+          // it here on the receiver's device causes them to skip IncomingCallOverlay
+          // and land straight on ActiveCallOverlay before they have pressed anything.
+          const currentMatches = queryClient.getQueryData<any[]>(["/api/matches"]);
+          const cachedMatch = currentMatches?.find((m: any) => m.id === matchId);
+          const isCaller = cachedMatch?.callInitiatorId === userId;
+          if (isCaller) {
+            console.log("[CALL_ANSWER_GUARD] applied answered patch for caller", { matchId, callInitiatorId: cachedMatch?.callInitiatorId, userId, callSessionId: answeredSid });
+            const answeredPatch = { callAnswered: true };
+            queryClient.setQueriesData<any[]>({ queryKey: ["/api/matches"] }, (old) => {
+              if (!old || !Array.isArray(old)) return old;
+              return old.map((m: any) => m.id === matchId ? { ...m, ...answeredPatch } : m);
+            });
+            queryClient.setQueriesData<any>({ queryKey: ["/api/matches", matchId] }, (old) => {
+              if (!old || Array.isArray(old)) return old;
+              return { ...old, ...answeredPatch };
+            });
+          } else {
+            console.log("[CALL_ANSWER_GUARD] ignored answered patch for receiver", { matchId, callInitiatorId: cachedMatch?.callInitiatorId, userId, callSessionId: answeredSid });
+          }
         } else if (event.type === "call:declined") {
           const sid = (event as any).callSessionId ?? null;
           console.log("[CALL_SIGNAL] CALL_DECLINED", { matchId, declinedBy: senderId, callSessionId: sid });
