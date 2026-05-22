@@ -43,6 +43,107 @@ const ICE_SERVERS: RTCIceServer[] = [
     : []),
 ];
 
+// ── Callee pre-subscription store ─────────────────────────────────────────
+// IncomingCallOverlay calls calleePresubscribe() on mount so the WebRTC
+// signalling channel is SUBSCRIBED (or subscribing) before the callee
+// presses Answer. Buffered signals (e.g. an early offer from the caller)
+// are replayed into handleSignal once useWebRTC's init() takes ownership.
+type PresubEntry = {
+  channel: ReturnType<typeof supabase.channel>;
+  subscribePromise: Promise<void>;
+  bufferedSignals: any[];
+  consumed: boolean;
+};
+
+const _presubChannels = new Map<string, PresubEntry>();
+
+/** Called from IncomingCallOverlay on mount (callee role only). Returns cleanup fn. */
+export function calleePresubscribe(matchId: string, userId: string): () => void {
+  if (_presubChannels.has(matchId)) {
+    console.log("[CALLEE_FIX] channel already pre-subscribed — reusing", { matchId });
+    return () => {};
+  }
+  const channelName = `call:${matchId}`;
+  const channel = supabase.channel(channelName, { config: { broadcast: { self: false } } });
+  const entry: PresubEntry = { channel, subscribePromise: Promise.resolve(), bufferedSignals: [], consumed: false };
+
+  // Buffer signals that arrive before useWebRTC attaches its own handler.
+  channel.on("broadcast", { event: "signal" }, ({ payload }) => {
+    if (entry.consumed || !payload || payload.from === userId) return;
+    entry.bufferedSignals.push(payload);
+    if (payload.type === "webrtc:offer") {
+      console.log("[CALLEE_FIX] offer received (buffered before init)", { matchId });
+    }
+  });
+
+  entry.subscribePromise = new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error("CALLEE_PRESUB_TIMEOUT_20s"));
+    }, 20_000);
+    channel.subscribe((status: string) => {
+      if (status === "SUBSCRIBED") {
+        clearTimeout(timer);
+        console.log("[CALLEE_FIX] signalling channel subscribed", { matchId, channelName });
+        resolve();
+      } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
+        clearTimeout(timer);
+        reject(new Error(`callee_presub_${status}`));
+      }
+    });
+  });
+
+  _presubChannels.set(matchId, entry);
+  console.log("[CALLEE_FIX] callee screen mounted — subscribing signalling channel", { matchId, channelName });
+
+  return () => {
+    const e = _presubChannels.get(matchId);
+    if (e && !e.consumed) {
+      supabase.removeChannel(e.channel);
+      _presubChannels.delete(matchId);
+      console.log("[CALLEE_FIX] pre-sub channel cleaned up (dismissed before answer)", { matchId });
+    }
+  };
+}
+
+/** Called from IncomingCallOverlay after answer API succeeds. Sends webrtc:ready immediately. */
+export function calleePresubSendReady(matchId: string, userId: string): void {
+  const entry = _presubChannels.get(matchId);
+  if (!entry) {
+    console.warn("[CALLEE_FIX] calleePresubSendReady: no pre-sub entry — channel may not be ready yet", { matchId });
+    return;
+  }
+  entry.subscribePromise
+    .then(() => {
+      if (entry.consumed) return;
+      entry.channel.send({
+        type: "broadcast",
+        event: "signal",
+        payload: { type: "webrtc:ready", from: userId },
+      });
+      console.log("[CALLEE_FIX] ready sent on pre-sub channel", { matchId });
+    })
+    .catch((err) => {
+      console.warn("[CALLEE_FIX] ready not sent — pre-sub channel failed", { matchId, err: err?.message });
+    });
+}
+
+/**
+ * Called from useWebRTC init() to take ownership of the pre-subscribed channel.
+ * Marks entry as consumed (silences the buffer handler) and removes from map.
+ * Returns null if no pre-sub entry exists (channel will be created normally).
+ */
+export function calleePresubConsume(matchId: string): PresubEntry | null {
+  const entry = _presubChannels.get(matchId);
+  if (!entry) return null;
+  entry.consumed = true;
+  _presubChannels.delete(matchId);
+  console.log("[CALLEE_FIX] pre-sub channel consumed by useWebRTC init()", {
+    matchId,
+    bufferedSignals: entry.bufferedSignals.length,
+  });
+  return entry;
+}
+
 if (!_turnUrl || !_turnUsername || !_turnCredential) {
   console.warn("TURN not configured - calls may fail on restricted networks");
 }
@@ -315,6 +416,7 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
             clearInterval(readyRetryIntervalRef.current);
             readyRetryIntervalRef.current = null;
           }
+          console.log("[CALLEE_FIX] offer received", { matchId, signalingState: pc.signalingState });
           console.log("[WebRTC] OFFER received — before setRemoteDescription, signalingState:", pc.signalingState);
           console.log("[CALL_ANSWER] remote_offer_received", { matchId, signalingState: pc.signalingState, ts: new Date().toISOString() });
           callDebug.event("signal: offer received → setRemoteDesc");
@@ -340,6 +442,7 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
           console.log("[WebRTC] OFFER — after setLocalDescription, signalingState:", pc.signalingState, "— sending answer");
           console.log("[CALL_ANSWER] answer_sent_to_caller", { matchId, signalingState: pc.signalingState, ts: new Date().toISOString() });
           broadcastOnChannel({ type: "webrtc:answer", sdp: answer.sdp! });
+          console.log("[CALLEE_FIX] answer sent", { matchId, signalingState: pc.signalingState });
           console.log("[CALL_CONNECT] answer sent", { matchId, sdpLength: answer.sdp?.length, signalingState: pc.signalingState });
           callDebug.update({ answerSent: true });
           callDebug.event("signal: answer sent to caller");
@@ -475,16 +578,19 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
       setPermissionDenied(false);
 
       const channelName = `call:${matchId}`;
-      // self:false ensures Supabase does not echo our own broadcast back to us.
-      // The payload.from !== userId filter in handleSignal is the belt-and-suspenders
-      // layer, but relying on that alone means own messages traverse the network
-      // round-trip before being dropped — self:false avoids that entirely.
-      const channel = supabase.channel(channelName, {
+      // For the callee path, IncomingCallOverlay pre-subscribes the channel so it
+      // is already SUBSCRIBED (or subscribing) by the time init() runs here.
+      // Consuming the pre-sub entry reuses the existing Supabase socket subscription
+      // instead of opening a duplicate. Any signals that arrived in the pre-sub
+      // window (e.g. a webrtc:offer sent by the caller) are buffered and replayed
+      // below, after the PC is created, so no signals are lost.
+      const presub = !isCaller ? calleePresubConsume(matchId) : null;
+      const channel = presub?.channel ?? supabase.channel(channelName, {
         config: { broadcast: { self: false } },
       });
       channelRef.current = channel;
       callDebug.update({ channelStatus: "subscribing" });
-      callDebug.event(`init: channel created (${channelName})`);
+      callDebug.event(`init: channel ${presub ? "reused (pre-sub)" : "created"} (${channelName})`);
 
       channel.on("broadcast", { event: "signal" }, ({ payload }) => {
         if (!payload) return;
@@ -629,9 +735,11 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
       console.log("[WebRTC] CHANNEL_SUBSCRIBE_START: subscribing to signaling channel:", channelName);
       console.log("[CALL_ANSWER] getUserMedia_and_channel_start", { matchId, isCaller, channelName, ts: new Date().toISOString() });
 
+      // If we consumed a pre-subscribed channel, reuse its subscribePromise (already
+      // in-flight or resolved) instead of calling channel.subscribe() again.
       const [mediaResult, channelResult] = await Promise.allSettled([
         getUserMediaWithFallback(),
-        subscribeChannel(channel),
+        presub ? presub.subscribePromise : subscribeChannel(channel),
       ]);
 
       console.log("[CALL_ANSWER] getUserMedia_and_channel_settled", {
@@ -1111,14 +1219,37 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
       if (isCaller) {
         await sendOffer();
       } else {
+        // Replay any signals that arrived during the IncomingCallOverlay pre-sub phase
+        // (before useWebRTC's handleSignal was attached to the channel). The most
+        // important case is a webrtc:offer that arrived while the channel was already
+        // subscribed but the PC wasn't created yet. Replaying it now, after the PC is
+        // fully wired, lets the callee set the remote description and send an answer
+        // without needing an additional webrtc:ready → offer round-trip.
+        if (presub && presub.bufferedSignals.length > 0) {
+          console.log("[CALLEE_FIX] replaying buffered signals from pre-sub phase", {
+            count: presub.bufferedSignals.length,
+            types: presub.bufferedSignals.map((s: any) => s.type),
+            matchId,
+          });
+          callDebug.event(`init: replaying ${presub.bufferedSignals.length} buffered signal(s)`);
+          for (const sig of presub.bufferedSignals) {
+            if (cleanedUpRef.current) break;
+            await handleSignal(sig as SignalMessage);
+          }
+        }
+
         // Send webrtc:ready immediately, then retry every 2s until the caller
         // responds with an offer. This handles the race condition where the caller
         // subscribes to the signaling channel AFTER the receiver's first ready signal.
+        // Note: IncomingCallOverlay already sent an early ready via calleePresubSendReady;
+        // this re-sends after the PC is created so the caller can resend its offer if
+        // needed (the ready-retry + rollback mechanism handles this on the caller side).
         const sendReady = () => {
           if (cleanedUpRef.current || hasSetRemoteDescRef.current) return;
           const count = callDebug.get().readySent + 1;
           callDebug.update({ readySent: count });
           callDebug.event(`ready: sent #${count}`);
+          console.log("[CALLEE_FIX] ready sent", { matchId, count });
           console.log("[WebRTC] Sending webrtc:ready (retry if offer not yet received)");
           broadcastOnChannel({ type: "webrtc:ready" });
         };

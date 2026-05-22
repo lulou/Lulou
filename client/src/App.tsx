@@ -274,6 +274,20 @@ function CallDetectors({ userId }: { userId: string }) {
   // by a network response that lags behind the Realtime broadcast.
   const hasRingRef = useRef(false);
 
+  // locallyAnsweredKey: tracks which call session the receiver explicitly pressed
+  // Answer on THIS device in THIS browser session.  We use this instead of
+  // relying solely on callAnswered (a DB field) to determine when to swap from
+  // IncomingCallOverlay to ActiveCallOverlay.
+  //
+  // Why: callAnswered=true in the DB could be zombie state from a prior session
+  // that crashed before completing. Without locallyAnsweredKey, the receiver
+  // would land directly in ActiveCallOverlay (one red button) with no way to
+  // accept or decline — the original Bug 1.
+  //
+  // With locallyAnsweredKey: IncomingCallOverlay is shown for any unanswered
+  // receiver-role call until the receiver explicitly presses Answer on this device.
+  const [locallyAnsweredKey, setLocallyAnsweredKey] = useState<string | null>(null);
+
   // Immediately silence any ringtone that might have survived (impossible on a
   // cold start, but belt-and-suspenders in case of fast HMR or component re-mount).
   useEffect(() => {
@@ -400,7 +414,7 @@ function CallDetectors({ userId }: { userId: string }) {
 
     for (const m of matches) {
       if (!m.callStartedAt || !m.callSessionId) continue;
-      if (m.callCompleted) continue;
+      if (m.callAnswered || m.callCompleted) continue;
       if (!m.callInitiatorId) continue;
       // Already handled (either startup-cancelled or user-cancelled) — skip.
       if (isCallSessionCancelled(m.id, m.callSessionId)) continue;
@@ -664,18 +678,31 @@ function CallDetectors({ userId }: { userId: string }) {
   const incomingMatchForUI = incomingCall ?? receiverActiveCall ?? null;
 
   // matchForIncoming: definitive match to render in IncomingCallOverlay.
-  // Extends incomingMatchForUI with a DIRECT activeCall receiver check so the
-  // receiver is never stranded in ActiveCallOverlay even if incomingCall and
-  // receiverActiveCall were both null (e.g. startup-sweep race, premature
-  // callAnswered flip, or isCallSessionCancelled stale-memo issue).
-  //   isReceiver = callInitiatorId !== userId   (simple, unambiguous)
-  //   unanswered = callAnswered !== true
-  const matchForIncoming = incomingMatchForUI ??
-    (activeCall &&
-     activeCall.callInitiatorId !== userId &&
-     activeCall.callAnswered !== true
-      ? activeCall
-      : null);
+  //
+  // Rule: show IncomingCallOverlay (green+red) whenever:
+  //   1. The current user is the receiver (callInitiatorId !== userId), AND
+  //   2. They have NOT pressed Answer on THIS device in THIS session
+  //      (locallyAnsweredKey !== matchId:sessionId)
+  //
+  // This replaces the old callAnswered !== true check, which failed for zombie
+  // calls where the DB had callAnswered=true but the receiver never actually
+  // answered on this device — they would fall through to ActiveCallOverlay
+  // (one red button only, the original Bug 1).
+  //
+  // When the receiver presses Answer, IncomingCallOverlay calls onAnswer() which
+  // sets locallyAnsweredKey = "matchId:sessionId". On the next render:
+  //   - matchForIncoming becomes null (locallyAnsweredKey matches) → overlay unmounts
+  //   - answeredCall becomes non-null (callAnswered=true in cache) → activeCall is set
+  //   - ActiveCallOverlay mounts with webrtcEnabled=true ✓
+  const matchForIncoming = (() => {
+    if (incomingMatchForUI) return incomingMatchForUI;
+    if (!activeCall) return null;
+    if (activeCall.callInitiatorId === userId) return null; // caller, not receiver
+    const sessionKey = `${activeCall.id}:${activeCall.callSessionId}`;
+    if (locallyAnsweredKey === sessionKey) return null; // receiver pressed Answer here
+    // Receiver hasn't pressed Answer on this device — show green+red buttons
+    return activeCall;
+  })();
 
   // Stage 1 = second call = video (camera + audio, 15 min).
   // Stage 3 = face call = video (requires both-user opt-in).
@@ -788,6 +815,10 @@ function CallDetectors({ userId }: { userId: string }) {
                 match={matchForIncoming}
                 isFaceCall={isFaceCall}
                 onDismiss={handleDismiss}
+                onAnswer={(matchId, sessionId) => {
+                  console.log("[CALLEE_FIX] onAnswer fired — setting locallyAnsweredKey", { matchId, sessionId });
+                  setLocallyAnsweredKey(`${matchId}:${sessionId}`);
+                }}
               />
             </CallOverlayErrorBoundary>
           </Suspense>

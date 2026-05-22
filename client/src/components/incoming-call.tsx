@@ -10,6 +10,7 @@ import type { Profile, Match } from "@shared/schema";
 import { markCallSessionCancelled } from "@/lib/cancelled-calls";
 import { useCallRingtone } from "@/hooks/use-call-ringtone";
 import { cleanupCallAudio, isAudioUnlocked, onAudioUnlocked, unlockAudioNow } from "@/lib/call-audio";
+import { calleePresubscribe, calleePresubSendReady } from "@/hooks/use-webrtc";
 
 type MatchWithProfile = Match & { profile: Profile };
 
@@ -17,9 +18,11 @@ type IncomingCallProps = {
   match: MatchWithProfile;
   isFaceCall: boolean;
   onDismiss: () => void;
+  /** Called when the receiver successfully answers — triggers locallyAnsweredKey in App.tsx */
+  onAnswer?: (matchId: string, sessionId: string | null) => void;
 };
 
-export default function IncomingCallOverlay({ match, isFaceCall, onDismiss }: IncomingCallProps) {
+export default function IncomingCallOverlay({ match, isFaceCall, onDismiss, onAnswer }: IncomingCallProps) {
   const { toast } = useToast();
   const { user } = useAuth();
   const queryClient = useQueryClient();
@@ -32,6 +35,24 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss }: In
   const isCaller = match.callInitiatorId === user?.id;
   const isReceiver = !isCaller;
   const actedRef = useRef(false);
+
+  // ── Pre-subscribe the WebRTC signalling channel (callee only) ───────────────
+  // Subscribe call:${matchId} immediately when this overlay mounts so the channel
+  // is SUBSCRIBED (or nearly there) by the time the callee taps Answer.
+  // calleePresubSendReady() will send webrtc:ready on that already-live channel
+  // the moment the answer API succeeds — no extra round-trip needed.
+  // Returns a cleanup fn that removes the channel if the callee dismisses
+  // without answering (decline / swipe away).
+  useEffect(() => {
+    if (!isReceiver || !user?.id) return;
+    console.log("[CALLEE_FIX] callee screen mounted — pre-subscribing signalling channel", {
+      matchId: match.id,
+      callSessionId: match.callSessionId,
+    });
+    const cleanup = calleePresubscribe(match.id, user.id);
+    return cleanup;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [match.id, match.callSessionId]);
 
   // ── Ringtone gate ──────────────────────────────────────────────────────────
   // IMPORTANT: must NOT use `!isPending` here.
@@ -177,6 +198,14 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss }: In
         if (!old || !Array.isArray(old)) return old;
         return old.map(m => m.id === match.id ? { ...m, callAnswered: true } : m);
       });
+      // Immediately send webrtc:ready on the pre-subscribed signalling channel.
+      // The channel was subscribed when this overlay mounted (calleePresubscribe),
+      // so the signal goes out without waiting for useWebRTC to mount and subscribe
+      // — eliminating the main source of "Channel: idle / Ready sent: 0" delays.
+      calleePresubSendReady(match.id, user!.id);
+      // Notify App.tsx that the receiver has answered on this device so
+      // matchForIncoming transitions to null and ActiveCallOverlay can mount.
+      onAnswer?.(match.id, match.callSessionId);
       console.log("[CALL_ANSWER] cache_updated_callAnswered_true — calling onDismiss", {
         matchId: match.id,
         ts: new Date().toISOString(),
