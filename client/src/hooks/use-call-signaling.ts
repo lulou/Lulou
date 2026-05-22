@@ -112,11 +112,21 @@ export function useCallSignaling(matchIds: string[], userId: string) {
                 callStartedAt: m.callStartedAt || new Date().toISOString(),
                 callInitiatorId: m.callInitiatorId || ring.callerId,
                 callSessionId: m.callSessionId || ring.callSessionId,
-                // Never reset callAnswered from true → false: a stale ring signal
-                // arriving after the call is answered (e.g. Supabase channel
-                // reconnect) would flip isRinging to true, stop WebRTC, then the
-                // next poll would flip it back, causing a full renegotiation loop.
-                callAnswered: m.callAnswered ?? false,
+                // callAnswered reset rule:
+                //   SAME session rering  → preserve existing value so a stale
+                //     ring arriving after the callee answered (e.g. Supabase
+                //     channel reconnect) does NOT flip callAnswered back to false
+                //     and cause a WebRTC renegotiation loop.
+                //   NEW session ring     → always reset to false, clearing any
+                //     zombie callAnswered:true left over from a previous call
+                //     that was answered but whose callCompleted never arrived.
+                //     Without this reset the receiver's cache stays stuck at
+                //     callAnswered:true, forcedIncomingMatch filters the match
+                //     out, answeredCall claims it, and ActiveCallOverlay renders
+                //     instead of IncomingCallOverlay.
+                callAnswered: (m.callSessionId && m.callSessionId === ring.callSessionId)
+                  ? (m.callAnswered ?? false)
+                  : false,
                 callCompleted: m.callCompleted ?? false,
               } : m);
             });
