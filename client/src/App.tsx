@@ -721,8 +721,47 @@ function CallDetectors({ userId }: { userId: string }) {
     }
   }, [markCallEnded]);
 
+  // ── TEMPORARY DEBUG PANEL ─────────────────────────────────────────────────
+  const _dbgMatch = matchForIncoming ?? activeCall ?? null;
+  const _dbgWhich = matchForIncoming
+    ? "IncomingCallOverlay"
+    : activeCall && !matchForIncoming
+    ? "ActiveCallOverlay"
+    : "none";
+  const _dbgIsCaller = _dbgMatch ? _dbgMatch.callInitiatorId === userId : null;
+
   return (
     <>
+      {/* ── TEMPORARY DEBUG PANEL ── remove after bug is confirmed fixed ── */}
+      {(_dbgMatch || activeCall || matchForIncoming) && startupVerified && (
+        <div
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            zIndex: 99999,
+            background: "rgba(0,0,0,0.85)",
+            color: "#0f0",
+            fontFamily: "monospace",
+            fontSize: "11px",
+            padding: "6px 10px",
+            lineHeight: "1.6",
+            pointerEvents: "none",
+          }}
+        >
+          <div><b>🔎 CALL DEBUG</b> &nbsp; overlay={_dbgWhich}</div>
+          <div>currentUserId: {userId || "—"}</div>
+          <div>callInitiatorId: {_dbgMatch?.callInitiatorId ?? "—"}</div>
+          <div>callAnswered: {String(_dbgMatch?.callAnswered ?? "—")}</div>
+          <div>callCompleted: {String(_dbgMatch?.callCompleted ?? "—")}</div>
+          <div>incomingMatchForUI: {incomingMatchForUI ? "TRUE" : "false"}</div>
+          <div>activeCall: {activeCall ? "TRUE" : "false"}</div>
+          <div>matchForIncoming: {matchForIncoming ? "TRUE" : "false"}</div>
+          <div>isCaller: {_dbgIsCaller === null ? "—" : String(_dbgIsCaller)}</div>
+          <div>isReceiver: {_dbgIsCaller === null ? "—" : String(!_dbgIsCaller)}</div>
+        </div>
+      )}
       {/* IncomingCallOverlay — receiver with unanswered incoming call.
           Uses matchForIncoming which is:
             1. incomingMatchForUI (incomingCall or receiverActiveCall fallback), OR
