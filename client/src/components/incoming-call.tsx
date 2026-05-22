@@ -494,17 +494,35 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss, onAn
       )}
 
       {/* Bottom — action buttons.
-          position:fixed (not absolute) is always viewport-relative on every iOS
-          version, even when document.body.style.overflow="hidden" is set.
-          With absolute+fixed parent, iOS Safari resolves the offset against the
-          document body (not the viewport), pushing buttons off-screen.
-          fixed bypasses that bug entirely.
-          z-[110] keeps buttons above the z-[100] overlay on all devices.
-          bottom uses calc(env() + px) — supported since iOS 11.2, no max() needed. */}
+          z-[99990]: intentionally very high so these buttons can never be covered
+          by any other overlay (active-call z-[100], debug bars z-[9999]/z-[99999]).
+          position:fixed is viewport-relative on every iOS version — safe for
+          document.body.style.overflow="hidden".
+          bottom uses calc(env() + px) — supported since iOS 11.2. */}
       <div
-        className="fixed left-0 right-0 z-[110] flex flex-col items-center"
+        className="fixed left-0 right-0 z-[99990] flex flex-col items-center gap-3"
         style={{ bottom: "calc(env(safe-area-inset-bottom, 0px) + 40px)" }}
+        data-testid="callee-button-bar"
       >
+        {/* ── Confirmation label — always visible when this bar renders ── */}
+        <div
+          style={{
+            background: "rgba(0,180,0,0.85)",
+            color: "#fff",
+            fontFamily: "monospace",
+            fontWeight: 700,
+            fontSize: 13,
+            padding: "4px 16px",
+            borderRadius: 6,
+            letterSpacing: 1,
+            pointerEvents: "none",
+            userSelect: "none",
+          }}
+          data-testid="callee-buttons-active-label"
+        >
+          CALLEE BUTTONS ACTIVE
+        </div>
+
         <div className="flex items-center justify-center gap-20" data-testid="incoming-call-actions">
 
           {/* ── DECLINE button (red) ── */}
