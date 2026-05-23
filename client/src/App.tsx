@@ -1083,12 +1083,34 @@ function CallDetectors({ userId }: { userId: string }) {
           timing/stale/zombie guard that could hide IncomingCallOverlay.
           Only gate: locallyAnsweredKey (receiver pressed Answer on this device). */}
       {(() => {
+        // Receiver detection: callInitiatorId !== userId.
+        // null !== userId is true — treats a cleared/missing initiator as "not the
+        // caller" so a startup-sweep-cleared match still shows the Answer bar until
+        // the rering arrives and restores callInitiatorId to the real caller ID.
+        // !!m.callInitiatorId guard intentionally removed.
         const receiverCall = (matches ?? []).find(m =>
           !!m.callStartedAt &&
           m.callCompleted !== true &&
-          !!m.callInitiatorId &&
           m.callInitiatorId !== userId,
         ) ?? null;
+
+        console.log("[RECV_DETECT] ReceiverAnswerBar scan", {
+          currentUserId: userId,
+          matchesCount: (matches ?? []).length,
+          receiverCallFound: !!receiverCall,
+          receiverCallId: receiverCall?.id,
+          receiverCallInitiatorId: receiverCall?.callInitiatorId,
+          isReceiver: receiverCall ? receiverCall.callInitiatorId !== userId : false,
+          allCallMatches: (matches ?? [])
+            .filter(m => !!m.callStartedAt)
+            .map(m => ({
+              matchId: m.id,
+              callInitiatorId: m.callInitiatorId,
+              callAnswered: m.callAnswered,
+              callCompleted: m.callCompleted,
+              isReceiver: m.callInitiatorId !== userId,
+            })),
+        });
 
         if (!receiverCall) return null;
         const sessionKey = `${receiverCall.id}:${receiverCall.callSessionId}`;
@@ -1108,22 +1130,20 @@ function CallDetectors({ userId }: { userId: string }) {
       })()}
 
       {/* ── BOTTOM DEBUG PANEL — remove after confirmed fixed ─────────────────
-          Visible above all overlays. Shows key call state for both sides so
-          we can confirm which overlay is active and why. */}
+          Shows ALL matches with active call state so we can confirm which
+          overlay is rendered and why isReceiver is true/false for each.
+          Full IDs (not truncated) for exact comparison. */}
       {(() => {
-        // Pick the "active" match for this panel — same priority as the overlay IIFE.
-        const dbgForced = (matches ?? []).find(m =>
-          !!m.callStartedAt &&
+        // Collect every match that has call state so we can display them all.
+        const callMatches = (matches ?? []).filter(m => !!m.callStartedAt);
+
+        // Overlay determination mirrors the IIFE logic (no !!callInitiatorId guard).
+        const dbgForced = callMatches.find(m =>
           m.callCompleted !== true &&
-          !!m.callInitiatorId &&
           m.callInitiatorId !== userId &&
           m.callAnswered !== true,
         ) ?? null;
         const dbgActive = activeCall ?? null;
-        const dbgMatch = dbgForced ?? dbgActive ?? null;
-
-        // Only show while there is any call-related state.
-        if (!dbgMatch) return null;
 
         const overlayRendered = dbgForced
           ? "IncomingCallOverlay"
@@ -1131,18 +1151,16 @@ function CallDetectors({ userId }: { userId: string }) {
             ? "ActiveCallOverlay"
             : "none";
 
-        const initId = dbgMatch.callInitiatorId ?? null;
-        const isRec = initId ? initId !== userId : null;
-
-        // answer button rendered = same condition as ReceiverAnswerBar
-        const recvCall = (matches ?? []).find(m =>
-          !!m.callStartedAt &&
+        // answer button rendered mirrors ReceiverAnswerBar condition exactly.
+        const recvCall = callMatches.find(m =>
           m.callCompleted !== true &&
-          !!m.callInitiatorId &&
           m.callInitiatorId !== userId,
         ) ?? null;
         const recvKey = recvCall ? `${recvCall.id}:${recvCall.callSessionId}` : null;
         const answerBtnRendered = !!(recvCall && locallyAnsweredKey !== recvKey);
+
+        // Only show panel when there is at least one call-state match or active call.
+        if (callMatches.length === 0 && !dbgActive) return null;
 
         return (
           <div
@@ -1160,24 +1178,44 @@ function CallDetectors({ userId }: { userId: string }) {
           >
             <div
               style={{
-                background: "rgba(0,0,0,0.88)",
+                background: "rgba(0,0,0,0.92)",
                 color: "#0f0",
                 fontFamily: "monospace",
-                fontSize: 11,
-                padding: "6px 12px",
+                fontSize: 10,
+                padding: "6px 10px",
                 borderRadius: 6,
                 lineHeight: 1.7,
-                border: "1px solid rgba(0,255,0,0.35)",
-                whiteSpace: "nowrap",
+                border: "1px solid rgba(0,255,0,0.45)",
+                maxWidth: "96vw",
+                overflowX: "hidden",
+                wordBreak: "break-all",
               }}
             >
+              <div style={{ color: "#ff0", fontWeight: "bold" }}>── CALL DEBUG ──</div>
               <div><b>overlay rendered:</b> {overlayRendered}</div>
-              <div><b>currentUserId:</b> {userId ? `${userId.slice(0, 10)}…` : "—"}</div>
-              <div><b>callInitiatorId:</b> {initId ? `${initId.slice(0, 10)}…` : "—"}</div>
-              <div><b>isReceiver:</b> {isRec === null ? "—" : String(isRec)}</div>
-              <div><b>callAnswered:</b> {String(dbgMatch.callAnswered ?? "—")}</div>
-              <div><b>callCompleted:</b> {String(dbgMatch.callCompleted ?? "—")}</div>
               <div><b>answer button rendered:</b> {String(answerBtnRendered)}</div>
+              <div style={{ color: "#aff", marginTop: 2 }}><b>currentUserId:</b> {userId || "—"}</div>
+              {callMatches.length === 0 && dbgActive && (
+                <div style={{ color: "#f80", marginTop: 2 }}>
+                  activeCall match (no raw callStartedAt matches found):
+                  <div>callInitiatorId: {dbgActive.callInitiatorId || "null"}</div>
+                  <div>isReceiver: {String(dbgActive.callInitiatorId !== userId)}</div>
+                  <div>callAnswered: {String(dbgActive.callAnswered)}</div>
+                  <div>callCompleted: {String(dbgActive.callCompleted)}</div>
+                </div>
+              )}
+              {callMatches.map((m, i) => {
+                const isRec = m.callInitiatorId !== userId;
+                return (
+                  <div key={m.id} style={{ marginTop: 4, borderTop: "1px solid rgba(0,255,0,0.2)", paddingTop: 3 }}>
+                    <div style={{ color: "#ff0" }}>match[{i}] {m.id.slice(0, 8)}…</div>
+                    <div><b>callInitiatorId:</b> {m.callInitiatorId || "null"}</div>
+                    <div><b>isReceiver:</b> <span style={{ color: isRec ? "#0f0" : "#f44", fontWeight: "bold" }}>{String(isRec)}</span></div>
+                    <div><b>callAnswered:</b> {String(m.callAnswered)}</div>
+                    <div><b>callCompleted:</b> {String(m.callCompleted)}</div>
+                  </div>
+                );
+              })}
             </div>
           </div>
         );
