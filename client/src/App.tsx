@@ -1199,37 +1199,45 @@ function CallDetectors({ userId }: { userId: string }) {
         // Show panel whenever there's anything call-related to display.
         if (allDbg.length === 0 && !dbgActive) return null;
 
-        // Helper — renders one match block.
+        // Helper — renders one match block with the exact fields needed to
+        // diagnose why isReceiver may be false on the receiver's device.
         const renderMatch = (m: typeof allDbg[number], label: string) => {
-          const initStr = String(m.callInitiatorId ?? "").trim();
-          const strictEq = m.callInitiatorId === userId;
-          const trimEq   = initStr === meStr;
-          const isRec    = !trimEq;
+          const isCaller   = String(m.callInitiatorId ?? "").trim() === meStr;
+          const isReceiver = !isCaller;
+          // otherUserId: the partner's auth UUID derived from user1/user2.
+          const otherUserId = m.user1Id === userId ? m.user2Id : m.user1Id;
+          // Which role started vs receiving this call.
+          const callerRole   = m.callInitiatorId === m.user1Id ? "user1" : m.callInitiatorId === m.user2Id ? "user2" : "unknown";
+          const receiverRole = callerRole === "user1" ? "user2" : callerRole === "user2" ? "user1" : "unknown";
+          const row = (label: string, value: string | null | undefined, highlight?: "green" | "red") => (
+            <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+              <span style={{ color: "#fa0", minWidth: 160, flexShrink: 0 }}>{label}</span>
+              <span style={{ wordBreak: "break-all", color: highlight === "green" ? "#0f0" : highlight === "red" ? "#f55" : "#fff" }}>
+                {value ?? "null"}
+              </span>
+            </div>
+          );
           return (
-            <div key={m.id} style={{ marginTop: 5, borderTop: "1px solid rgba(0,255,0,0.25)", paddingTop: 4 }}>
-              <div style={{ color: "#ff0", fontWeight: "bold" }}>{label} {m.id.slice(0, 8)}…</div>
+            <div key={m.id} style={{ marginTop: 6, borderTop: "1px solid rgba(255,255,0,0.3)", paddingTop: 5 }}>
+              <div style={{ color: "#ff0", fontWeight: "bold", marginBottom: 3 }}>{label} · matchId: {m.id.slice(0, 8)}…</div>
 
-              <div style={{ color: "#aff", marginTop: 1 }}>currentUserId:</div>
-              <div style={{ wordBreak: "break-all" }}>{userId ?? "undefined"}</div>
-              <div>len: {userId != null ? String(userId).length : "null"}</div>
-              <div style={{ wordBreak: "break-all" }}>json: {JSON.stringify(userId)}</div>
+              {row("currentUserId:", userId)}
+              {row("callInitiatorId:", m.callInitiatorId)}
+              {row("otherUserId / profile user id:", (m as any).profile?.userId ?? otherUserId)}
+              {row("match.user1Id:", m.user1Id)}
+              {row("match.user2Id:", m.user2Id)}
+              {row("match.profile.id:", (m as any).profile?.id ?? "—")}
+              {row("callStartedAt:", m.callStartedAt ? String(m.callStartedAt) : "null")}
+              {row("callAnswered:", String(m.callAnswered))}
+              {row("callCompleted:", String(m.callCompleted))}
+              {row("isCaller:", String(isCaller), isCaller ? "green" : undefined)}
+              {row("isReceiver:", String(isReceiver), isReceiver ? "green" : "red")}
 
-              <div style={{ color: "#aff", marginTop: 2 }}>callInitiatorId:</div>
-              <div style={{ wordBreak: "break-all" }}>{m.callInitiatorId ?? "null"}</div>
-              <div>len: {m.callInitiatorId != null ? String(m.callInitiatorId).length : "null"}</div>
-              <div style={{ wordBreak: "break-all" }}>json: {JSON.stringify(m.callInitiatorId)}</div>
-
-              <div style={{ marginTop: 2 }}>
-                <span style={{ color: "#fa0" }}>strictEq: </span>{String(strictEq)}
-                {"  "}
-                <span style={{ color: "#fa0" }}>trimEq: </span>{String(trimEq)}
+              <div style={{ marginTop: 4, paddingTop: 3, borderTop: "1px solid rgba(255,255,255,0.1)", color: "#aff" }}>
+                <div>📞 call started by: {m.callInitiatorId ?? "unknown"} ({callerRole})</div>
+                <div>📱 receiving: {otherUserId ?? "unknown"} ({receiverRole})</div>
+                <div>👤 this device is: {isCaller ? "CALLER" : "RECEIVER"}</div>
               </div>
-              <div>
-                <b>isReceiver: </b>
-                <span style={{ color: isRec ? "#0f0" : "#f44", fontWeight: "bold" }}>{String(isRec)}</span>
-                {" "}(trimmed)
-              </div>
-              <div>callAnswered: {String(m.callAnswered)} | callCompleted: {String(m.callCompleted)}</div>
             </div>
           );
         };
