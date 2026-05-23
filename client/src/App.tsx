@@ -618,6 +618,55 @@ function CallDetectors({ userId }: { userId: string }) {
     }
   }, [matches, userId, qc]);
 
+  // ── Null-initiator recovery ───────────────────────────────────────────────
+  // When the startup sweep clears callInitiatorId to null (or it's missing for
+  // any other reason) but callStartedAt is still set, the receiver detection
+  // comparison String("").trim() !== meStr evaluates correctly (isReceiver=true)
+  // BUT the IncomingCallOverlay/incomingCall memo REQUIRES !!callInitiatorId.
+  // This effect detects those matches and fetches fresh data from the API to
+  // restore callInitiatorId so ALL detection paths work consistently.
+  const recoveryInFlightRef = useRef(new Set<string>());
+  useEffect(() => {
+    if (!matches) return;
+    for (const m of matches) {
+      // Match has an active call timestamp but no initiator — needs recovery.
+      if (!m.callStartedAt || m.callInitiatorId || m.callCompleted) continue;
+      // Avoid duplicate in-flight requests for the same match.
+      if (recoveryInFlightRef.current.has(m.id)) continue;
+      recoveryInFlightRef.current.add(m.id);
+      console.log("[RECV_DETECT] null-initiator recovery fetch", { matchId: m.id });
+      apiRequest("GET", `/api/matches/${m.id}`)
+        .then(r => r.json())
+        .then((fresh: any) => {
+          recoveryInFlightRef.current.delete(m.id);
+          if (!fresh?.callInitiatorId) {
+            console.log("[RECV_DETECT] recovery fetch: still no callInitiatorId", { matchId: m.id, fresh });
+            return;
+          }
+          console.log("[RECV_DETECT] recovery fetch: restoring callInitiatorId", {
+            matchId: m.id,
+            callInitiatorId: fresh.callInitiatorId,
+            callStartedAt: fresh.callStartedAt,
+          });
+          qc.setQueriesData<any[]>({ queryKey: ["/api/matches"] }, old => {
+            if (!old || !Array.isArray(old)) return old;
+            return old.map(om => om.id === m.id
+              ? {
+                  ...om,
+                  callInitiatorId: fresh.callInitiatorId,
+                  callStartedAt: om.callStartedAt || fresh.callStartedAt,
+                  callSessionId: om.callSessionId || fresh.callSessionId,
+                }
+              : om);
+          });
+        })
+        .catch((err: unknown) => {
+          recoveryInFlightRef.current.delete(m.id);
+          console.warn("[RECV_DETECT] recovery fetch failed", { matchId: m.id, err });
+        });
+    }
+  }, [matches, qc]);
+
   const isEndedCall = useCallback((m: MatchWithProfile) => {
     if (!endedMatchIdsRef.current.has(m.id)) return false;
     const endedSessionId = endedMatchIdsRef.current.get(m.id);
@@ -1083,34 +1132,18 @@ function CallDetectors({ userId }: { userId: string }) {
           timing/stale/zombie guard that could hide IncomingCallOverlay.
           Only gate: locallyAnsweredKey (receiver pressed Answer on this device). */}
       {(() => {
-        // Receiver detection: callInitiatorId !== userId.
-        // null !== userId is true — treats a cleared/missing initiator as "not the
-        // caller" so a startup-sweep-cleared match still shows the Answer bar until
-        // the rering arrives and restores callInitiatorId to the real caller ID.
-        // !!m.callInitiatorId guard intentionally removed.
-        const receiverCall = (matches ?? []).find(m =>
+        // ── Receiver detection ────────────────────────────────────────────────
+        // Use String().trim() comparison to handle null, undefined, hidden
+        // whitespace, or any encoding difference from the DB / Supabase layer.
+        // String(null ?? "").trim()  → ""  ≠ any real UUID  → isReceiver=true
+        // String("abc").trim()       → "abc"  === "abc"     → isReceiver=false (caller)
+        const meStr = String(userId ?? "").trim();
+        const isReceiverMatch = (m: { callInitiatorId?: string | null; callStartedAt?: Date | string | null; callCompleted?: boolean | null }) =>
           !!m.callStartedAt &&
           m.callCompleted !== true &&
-          m.callInitiatorId !== userId,
-        ) ?? null;
+          String(m.callInitiatorId ?? "").trim() !== meStr;
 
-        console.log("[RECV_DETECT] ReceiverAnswerBar scan", {
-          currentUserId: userId,
-          matchesCount: (matches ?? []).length,
-          receiverCallFound: !!receiverCall,
-          receiverCallId: receiverCall?.id,
-          receiverCallInitiatorId: receiverCall?.callInitiatorId,
-          isReceiver: receiverCall ? receiverCall.callInitiatorId !== userId : false,
-          allCallMatches: (matches ?? [])
-            .filter(m => !!m.callStartedAt)
-            .map(m => ({
-              matchId: m.id,
-              callInitiatorId: m.callInitiatorId,
-              callAnswered: m.callAnswered,
-              callCompleted: m.callCompleted,
-              isReceiver: m.callInitiatorId !== userId,
-            })),
-        });
+        const receiverCall = (matches ?? []).find(isReceiverMatch) ?? null;
 
         if (!receiverCall) return null;
         const sessionKey = `${receiverCall.id}:${receiverCall.callSessionId}`;
@@ -1129,38 +1162,77 @@ function CallDetectors({ userId }: { userId: string }) {
         );
       })()}
 
-      {/* ── BOTTOM DEBUG PANEL — remove after confirmed fixed ─────────────────
-          Shows ALL matches with active call state so we can confirm which
-          overlay is rendered and why isReceiver is true/false for each.
-          Full IDs (not truncated) for exact comparison. */}
+      {/* ── BOTTOM DEBUG PANEL ────────────────────────────────────────────────
+          Shows every match with callStartedAt set PLUS every match present in
+          `matches` regardless of call state (so "answer button rendered" can
+          be cross-checked). Full raw IDs + JSON.stringify for exact comparison. */}
       {(() => {
-        // Collect every match that has call state so we can display them all.
+        const meStr = String(userId ?? "").trim();
+
+        // All matches with any call state (callStartedAt set).
         const callMatches = (matches ?? []).filter(m => !!m.callStartedAt);
 
-        // Overlay determination mirrors the IIFE logic (no !!callInitiatorId guard).
-        const dbgForced = callMatches.find(m =>
-          m.callCompleted !== true &&
-          m.callInitiatorId !== userId &&
-          m.callAnswered !== true,
-        ) ?? null;
-        const dbgActive = activeCall ?? null;
+        // Also include activeCall even if its match has callStartedAt cleared in cache.
+        const extraMatch = (activeCall && !callMatches.find(m => m.id === activeCall.id))
+          ? activeCall : null;
+        const allDbg = extraMatch ? [...callMatches, extraMatch] : callMatches;
 
-        const overlayRendered = dbgForced
-          ? "IncomingCallOverlay"
-          : dbgActive
-            ? "ActiveCallOverlay"
-            : "none";
-
-        // answer button rendered mirrors ReceiverAnswerBar condition exactly.
-        const recvCall = callMatches.find(m =>
+        // Mirror ReceiverAnswerBar detection exactly.
+        const recvCall = allDbg.find(m =>
           m.callCompleted !== true &&
-          m.callInitiatorId !== userId,
+          String(m.callInitiatorId ?? "").trim() !== meStr,
         ) ?? null;
         const recvKey = recvCall ? `${recvCall.id}:${recvCall.callSessionId}` : null;
         const answerBtnRendered = !!(recvCall && locallyAnsweredKey !== recvKey);
 
-        // Only show panel when there is at least one call-state match or active call.
-        if (callMatches.length === 0 && !dbgActive) return null;
+        // Overlay determination (mirrors overlay IIFE).
+        const dbgForced = allDbg.find(m =>
+          m.callCompleted !== true &&
+          String(m.callInitiatorId ?? "").trim() !== meStr &&
+          m.callAnswered !== true,
+        ) ?? null;
+        const dbgActive = activeCall ?? null;
+        const overlayRendered = dbgForced
+          ? "IncomingCallOverlay"
+          : dbgActive ? "ActiveCallOverlay" : "none";
+
+        // Show panel whenever there's anything call-related to display.
+        if (allDbg.length === 0 && !dbgActive) return null;
+
+        // Helper — renders one match block.
+        const renderMatch = (m: typeof allDbg[number], label: string) => {
+          const initStr = String(m.callInitiatorId ?? "").trim();
+          const strictEq = m.callInitiatorId === userId;
+          const trimEq   = initStr === meStr;
+          const isRec    = !trimEq;
+          return (
+            <div key={m.id} style={{ marginTop: 5, borderTop: "1px solid rgba(0,255,0,0.25)", paddingTop: 4 }}>
+              <div style={{ color: "#ff0", fontWeight: "bold" }}>{label} {m.id.slice(0, 8)}…</div>
+
+              <div style={{ color: "#aff", marginTop: 1 }}>currentUserId:</div>
+              <div style={{ wordBreak: "break-all" }}>{userId ?? "undefined"}</div>
+              <div>len: {userId != null ? String(userId).length : "null"}</div>
+              <div style={{ wordBreak: "break-all" }}>json: {JSON.stringify(userId)}</div>
+
+              <div style={{ color: "#aff", marginTop: 2 }}>callInitiatorId:</div>
+              <div style={{ wordBreak: "break-all" }}>{m.callInitiatorId ?? "null"}</div>
+              <div>len: {m.callInitiatorId != null ? String(m.callInitiatorId).length : "null"}</div>
+              <div style={{ wordBreak: "break-all" }}>json: {JSON.stringify(m.callInitiatorId)}</div>
+
+              <div style={{ marginTop: 2 }}>
+                <span style={{ color: "#fa0" }}>strictEq: </span>{String(strictEq)}
+                {"  "}
+                <span style={{ color: "#fa0" }}>trimEq: </span>{String(trimEq)}
+              </div>
+              <div>
+                <b>isReceiver: </b>
+                <span style={{ color: isRec ? "#0f0" : "#f44", fontWeight: "bold" }}>{String(isRec)}</span>
+                {" "}(trimmed)
+              </div>
+              <div>callAnswered: {String(m.callAnswered)} | callCompleted: {String(m.callCompleted)}</div>
+            </div>
+          );
+        };
 
         return (
           <div
@@ -1178,44 +1250,23 @@ function CallDetectors({ userId }: { userId: string }) {
           >
             <div
               style={{
-                background: "rgba(0,0,0,0.92)",
+                background: "rgba(0,0,0,0.93)",
                 color: "#0f0",
                 fontFamily: "monospace",
                 fontSize: 10,
-                padding: "6px 10px",
-                borderRadius: 6,
-                lineHeight: 1.7,
-                border: "1px solid rgba(0,255,0,0.45)",
-                maxWidth: "96vw",
+                padding: "7px 11px",
+                borderRadius: 7,
+                lineHeight: 1.75,
+                border: "1px solid rgba(0,255,0,0.5)",
+                maxWidth: "98vw",
                 overflowX: "hidden",
-                wordBreak: "break-all",
               }}
             >
               <div style={{ color: "#ff0", fontWeight: "bold" }}>── CALL DEBUG ──</div>
               <div><b>overlay rendered:</b> {overlayRendered}</div>
-              <div><b>answer button rendered:</b> {String(answerBtnRendered)}</div>
-              <div style={{ color: "#aff", marginTop: 2 }}><b>currentUserId:</b> {userId || "—"}</div>
-              {callMatches.length === 0 && dbgActive && (
-                <div style={{ color: "#f80", marginTop: 2 }}>
-                  activeCall match (no raw callStartedAt matches found):
-                  <div>callInitiatorId: {dbgActive.callInitiatorId || "null"}</div>
-                  <div>isReceiver: {String(dbgActive.callInitiatorId !== userId)}</div>
-                  <div>callAnswered: {String(dbgActive.callAnswered)}</div>
-                  <div>callCompleted: {String(dbgActive.callCompleted)}</div>
-                </div>
-              )}
-              {callMatches.map((m, i) => {
-                const isRec = m.callInitiatorId !== userId;
-                return (
-                  <div key={m.id} style={{ marginTop: 4, borderTop: "1px solid rgba(0,255,0,0.2)", paddingTop: 3 }}>
-                    <div style={{ color: "#ff0" }}>match[{i}] {m.id.slice(0, 8)}…</div>
-                    <div><b>callInitiatorId:</b> {m.callInitiatorId || "null"}</div>
-                    <div><b>isReceiver:</b> <span style={{ color: isRec ? "#0f0" : "#f44", fontWeight: "bold" }}>{String(isRec)}</span></div>
-                    <div><b>callAnswered:</b> {String(m.callAnswered)}</div>
-                    <div><b>callCompleted:</b> {String(m.callCompleted)}</div>
-                  </div>
-                );
-              })}
+              <div><b>answer button rendered:</b> <span style={{ color: answerBtnRendered ? "#0f0" : "#f44", fontWeight: "bold" }}>{String(answerBtnRendered)}</span></div>
+              <div><b>matches total:</b> {(matches ?? []).length} | call-state: {allDbg.length}</div>
+              {allDbg.map((m, i) => renderMatch(m, `match[${i}]`))}
             </div>
           </div>
         );
