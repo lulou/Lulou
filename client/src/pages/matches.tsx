@@ -1252,10 +1252,15 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
     },
     onError: (error: Error) => {
       const isAuth = error.message === "Unauthorized" || error.message.startsWith("401");
-      console.error("[CALL_UI] CALL_START_FAILED", { matchId: match.id, route: "call/start", error: error.message, isAuth });
+      const isSelfCall = error.message?.includes("own account");
+      console.error("[CALL_UI] CALL_START_FAILED", { matchId: match.id, route: "call/start", error: error.message, isAuth, isSelfCall });
       toast({
-        title: isAuth ? "Session expired" : "Call failed",
-        description: isAuth ? "Please refresh and try again." : (error.message || "Unknown server error"),
+        title: isSelfCall ? "Can't call yourself" : isAuth ? "Session expired" : "Call failed",
+        description: isSelfCall
+          ? "You can't call your own account."
+          : isAuth
+            ? "Please refresh and try again."
+            : (error.message || "Unknown server error"),
         variant: "destructive",
       });
     },

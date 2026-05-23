@@ -1036,6 +1036,11 @@ export async function registerRoutes(
 
       const { match, status } = result;
 
+      if (status === "self_call") {
+        console.warn("[CALL_START] SELF_CALL_BLOCKED", { matchId, userId });
+        return res.status(400).json({ message: "You can't call your own account." });
+      }
+
       if (status === "blocked") {
         console.log("[CALL_START] DUPLICATE_CALL_BLOCKED", { matchId, existingCaller: match.callInitiatorId, blockedUser: userId, callSessionId: match.callSessionId });
         return res.status(409).json({ message: "A call is already in progress", match });

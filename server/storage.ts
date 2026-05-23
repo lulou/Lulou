@@ -1016,7 +1016,7 @@ export class SupabaseStorage implements IStorage {
     }
   }
 
-  async startCall(matchId: string, userId: string): Promise<{ match: Match; status: "created" | "reused" | "blocked" } | undefined> {
+  async startCall(matchId: string, userId: string): Promise<{ match: Match; status: "created" | "reused" | "blocked" | "self_call" } | undefined> {
     console.log("[startCall] CALL_SESSION_CHECKED", { matchId, userId });
     const { data: matchData, error: readError } = await this.sb
       .from("matches")
@@ -1035,6 +1035,14 @@ export class SupabaseStorage implements IStorage {
     if (match.user1Id !== userId && match.user2Id !== userId) {
       console.log("[startCall] User not in match:", { userId, user1Id: match.user1Id, user2Id: match.user2Id });
       return undefined;
+    }
+    // Self-call guard: the callee must be a different account than the caller.
+    // This blocks degenerate matches (user1Id === user2Id) and any scenario
+    // where the same account appears on both sides of the match row.
+    const calleeId = match.user1Id === userId ? match.user2Id : match.user1Id;
+    if (calleeId === userId) {
+      console.warn("[startCall] SELF_CALL_BLOCKED — caller and callee are the same account", { matchId, userId });
+      return { match, status: "self_call" };
     }
     const stage = match.callStage || 0;
     if (stage >= 4) {
