@@ -9,34 +9,31 @@ import NotFound from "@/pages/not-found";
 import Landing from "@/pages/landing";
 import AppLayout from "@/components/app-layout";
 
-// Route-level code splitting — each page downloads only when first needed.
-// Landing, AppLayout, and the call overlays stay eager (needed on first render).
+// Main app pages — static imports so Vercel never needs to serve lazy chunks.
+// All pages land in the main bundle; no separate chunk files are requested at runtime.
+import Onboarding from "@/pages/onboarding";
+import Discover from "@/pages/discover";
+import Matches from "@/pages/matches";
+import Messaging from "@/pages/messaging";
+import ProfilePage from "@/pages/profile";
+import IntentPage from "@/pages/intent";
+import LikesPage from "@/pages/likes";
+import ElevateSuccessPage from "@/pages/elevate-success";
+import ExtrasSuccessPage from "@/pages/extras-success";
+// Dev-only perf overlay stays lazy — never adds to production bundle.
 const PerfOverlayLazy = import.meta.env.DEV
   ? lazy(() => import("@/components/perf-overlay").then(m => ({ default: m.PerfOverlay })))
   : null;
-const Onboarding       = lazy(() => import("@/pages/onboarding"));
-const Discover         = lazy(() => import("@/pages/discover"));
-const Matches          = lazy(() => import("@/pages/matches"));
-const Messaging        = lazy(() => import("@/pages/messaging"));
-const ProfilePage      = lazy(() => import("@/pages/profile"));
-const IntentPage       = lazy(() => import("@/pages/intent"));
-const LikesPage        = lazy(() => import("@/pages/likes"));
-const ElevateSuccessPage = lazy(() => import("@/pages/elevate-success"));
-const ExtrasSuccessPage  = lazy(() => import("@/pages/extras-success"));
 // Call overlays lazy-loaded — only needed when a call is active.
-// useCallSignaling (below) still detects calls eagerly; the overlay chunk
-// loads in the background once the app is idle, well before any call arrives.
+// useCallSignaling still detects calls eagerly; both chunks are preloaded at
+// idle so the overlay is ready before any call arrives.
 const IncomingCallOverlay = lazy(() => import("@/components/incoming-call"));
 const ActiveCallOverlay   = lazy(() =>
   import("@/components/active-call").then(m => ({ default: m.ActiveCallOverlay }))
 );
 
 // Eagerly preload both call-overlay chunks so they are already in the browser
-// module cache when the first incoming call arrives.  Without this, the
-// IncomingCallOverlay chunk has to download before the component mounts, which
-// delays the useCallRingtone effect by up to several hundred ms — enough for
-// the user to notice the ringtone starting late.  requestIdleCallback lets
-// the initial page render finish first so preloading never blocks LCP.
+// module cache when the first incoming call arrives.
 if (typeof window !== "undefined") {
   const preloadCallChunks = () => {
     import("@/components/incoming-call").catch(() => {});
@@ -155,9 +152,7 @@ function PersistentTabs() {
           >
             <TabActiveContext.Provider value={isActive}>
               <PageErrorBoundary name={path}>
-                <Suspense fallback={<PageLoader />}>
-                  <Component />
-                </Suspense>
+                <Component />
               </PageErrorBoundary>
             </TabActiveContext.Provider>
           </div>
@@ -165,11 +160,9 @@ function PersistentTabs() {
       })}
       {isSubRoute && (
         <PageErrorBoundary name="/messages">
-          <Suspense fallback={<PageLoader />}>
-            <Switch>
-              <Route path="/messages/:matchId" component={Messaging} />
-            </Switch>
-          </Suspense>
+          <Switch>
+            <Route path="/messages/:matchId" component={Messaging} />
+          </Switch>
         </PageErrorBoundary>
       )}
       {!isTabRoute && !isSubRoute && location !== "/" && <NotFound />}
@@ -1270,18 +1263,16 @@ function AppContent() {
           </button>
         </div>
         <div style={{ paddingTop: 24 }}>
-          <Suspense fallback={<PageLoader />}>
-            <Switch>
-              <Route path="/elevate/success" component={ElevateSuccessPage} />
-              <Route path="/extras/success" component={ExtrasSuccessPage} />
-              <Route>
-                <AppLayout>
-                  <PersistentTabs />
-                  <CallDetectors userId={user.id} />
-                </AppLayout>
-              </Route>
-            </Switch>
-          </Suspense>
+          <Switch>
+            <Route path="/elevate/success" component={ElevateSuccessPage} />
+            <Route path="/extras/success" component={ExtrasSuccessPage} />
+            <Route>
+              <AppLayout>
+                <PersistentTabs />
+                <CallDetectors userId={user.id} />
+              </AppLayout>
+            </Route>
+          </Switch>
         </div>
       </>
     );
@@ -1415,9 +1406,7 @@ function AppContent() {
       userId: user.id, profileExists, effectiveProfileExists, fetchFailed, profilePending,
     });
     return (
-      <Suspense fallback={<PageLoader />}>
-        <Onboarding existingProfile={null} userEmail={user?.email ?? ""} />
-      </Suspense>
+      <Onboarding existingProfile={null} userEmail={user?.email ?? ""} />
     );
   }
 
@@ -1426,18 +1415,16 @@ function AppContent() {
   });
 
   return (
-    <Suspense fallback={<PageLoader />}>
-      <Switch>
-        <Route path="/elevate/success" component={ElevateSuccessPage} />
-        <Route path="/extras/success" component={ExtrasSuccessPage} />
-        <Route>
-          <AppLayout>
-            <PersistentTabs />
-            <CallDetectors userId={user.id} />
-          </AppLayout>
-        </Route>
-      </Switch>
-    </Suspense>
+    <Switch>
+      <Route path="/elevate/success" component={ElevateSuccessPage} />
+      <Route path="/extras/success" component={ExtrasSuccessPage} />
+      <Route>
+        <AppLayout>
+          <PersistentTabs />
+          <CallDetectors userId={user.id} />
+        </AppLayout>
+      </Route>
+    </Switch>
   );
 }
 
