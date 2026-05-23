@@ -499,87 +499,88 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss, onAn
           position:fixed is viewport-relative on every iOS version — safe for
           document.body.style.overflow="hidden".
           bottom uses calc(env() + px) — supported since iOS 11.2. */}
+      {/* ── INCOMING CALL ACTION BAR ── always fixed at bottom, very high z-index ── */}
       <div
-        className="fixed left-0 right-0 z-[99990] flex flex-col items-center gap-3"
-        style={{ bottom: "calc(env(safe-area-inset-bottom, 0px) + 40px)" }}
+        className="fixed left-0 right-0 z-[999999] flex flex-col items-center gap-4"
+        style={{ bottom: "calc(env(safe-area-inset-bottom, 0px) + 32px)" }}
         data-testid="callee-button-bar"
       >
-        {/* ── Confirmation label — always visible when this bar renders ── */}
+        {/* Debug label — always visible */}
         <div
           style={{
-            background: "rgba(0,180,0,0.85)",
+            background: "rgba(220,0,220,0.92)",
             color: "#fff",
             fontFamily: "monospace",
             fontWeight: 700,
-            fontSize: 13,
-            padding: "4px 16px",
-            borderRadius: 6,
+            fontSize: 12,
+            padding: "3px 14px",
+            borderRadius: 5,
             letterSpacing: 1,
             pointerEvents: "none",
             userSelect: "none",
           }}
           data-testid="callee-buttons-active-label"
         >
-          CALLEE BUTTONS ACTIVE
+          INCOMING CALL ACTIONS ACTIVE
         </div>
 
-        <div className="flex items-center justify-center gap-20" data-testid="incoming-call-actions">
-
-          {/* ── DECLINE button (red) ── */}
-          <div className="flex flex-col items-center gap-3">
+        {/* Horizontal Decline | Answer row */}
+        <div
+          className="flex flex-row items-center justify-center"
+          style={{ gap: 48 }}
+          data-testid="incoming-call-actions"
+        >
+          {/* ── DECLINE (red, left) ── */}
+          <div className="flex flex-col items-center gap-2">
             <button
-              className="w-[72px] h-[72px] rounded-full flex items-center justify-center active:scale-90 transition-transform"
+              className="rounded-full flex items-center justify-center active:scale-90 transition-transform"
               style={{
-                background: "hsl(0 60% 30%)",
-                border: "2px solid hsl(0 60% 55%)",
-                boxShadow: "0 6px 28px hsl(0 60% 40% / 0.5), inset 0 1px 0 hsl(0 0% 100% / 0.08)",
+                width: 80,
+                height: 80,
+                background: "hsl(0 72% 32%)",
+                border: "3px solid hsl(0 72% 58%)",
+                boxShadow: "0 6px 32px hsl(0 72% 42% / 0.65), inset 0 1px 0 hsl(0 0% 100% / 0.1)",
               }}
               onClick={() => declineCall.mutate()}
               data-testid="button-decline-call"
             >
-              <PhoneOff className="w-7 h-7 text-white" />
+              <PhoneOff className="w-8 h-8 text-white" />
             </button>
-            <span className="text-white/60 text-xs tracking-wide">
-              {declineCall.isPending ? "Declining…" : "Decline"}
+            <span
+              className="font-semibold tracking-wide"
+              style={{ color: "hsl(0 72% 78%)", fontSize: 15 }}
+            >
+              Decline
             </span>
           </div>
 
-          {/* ── ANSWER button (green) — ALWAYS rendered, no conditions ── */}
-          {/* isCaller is logged here; should always be false in IncomingCallOverlay */}
-          {(() => {
-            console.log("[CALL_UI] rendering incoming answer button", {
-              matchId: match.id,
-              callSessionId: match.callSessionId,
-              isFaceCall,
-              isCaller,
-              isReceiver,
-              initiatorId: match.callInitiatorId?.slice(0, 8),
-              myId: user?.id?.slice(0, 8),
-            });
-            return null;
-          })()}
-          <div className="flex flex-col items-center gap-3">
+          {/* ── ANSWER (green, right) ── */}
+          <div className="flex flex-col items-center gap-2">
             <button
-              className="w-[92px] h-[92px] rounded-full flex items-center justify-center active:scale-90 transition-transform"
+              className="rounded-full flex items-center justify-center active:scale-90 transition-transform"
               style={{
-                background: "linear-gradient(145deg, hsl(142 70% 45%), hsl(142 70% 32%))",
-                border: "2.5px solid hsl(142 70% 62%)",
-                boxShadow: "0 0 0 6px hsl(142 70% 45% / 0.18), 0 8px 36px hsl(142 70% 40% / 0.7), inset 0 1px 0 hsl(0 0% 100% / 0.2)",
+                width: 96,
+                height: 96,
+                background: "linear-gradient(145deg, hsl(142 72% 46%), hsl(142 72% 33%))",
+                border: "3px solid hsl(142 72% 62%)",
+                boxShadow: "0 0 0 7px hsl(142 72% 46% / 0.2), 0 8px 40px hsl(142 72% 42% / 0.75), inset 0 1px 0 hsl(0 0% 100% / 0.22)",
               }}
               onClick={() => answerCall.mutate()}
               data-testid="button-answer-call"
             >
               {isFaceCall ? (
-                <Video className="w-9 h-9 text-white" style={{ filter: "drop-shadow(0 1px 2px rgba(0,0,0,0.5))" }} />
+                <Video className="w-10 h-10 text-white" style={{ filter: "drop-shadow(0 1px 3px rgba(0,0,0,0.5))" }} />
               ) : (
-                <Phone className="w-9 h-9 text-white" style={{ filter: "drop-shadow(0 1px 2px rgba(0,0,0,0.5))" }} />
+                <Phone className="w-10 h-10 text-white" style={{ filter: "drop-shadow(0 1px 3px rgba(0,0,0,0.5))" }} />
               )}
             </button>
-            <span className="text-white/70 text-xs tracking-wide">
-              {answerCall.isPending ? "Connecting…" : "Answer"}
+            <span
+              className="font-semibold tracking-wide"
+              style={{ color: "hsl(142 72% 78%)", fontSize: 15 }}
+            >
+              Answer
             </span>
           </div>
-
         </div>
       </div>
 
