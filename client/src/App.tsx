@@ -1,7 +1,7 @@
 import { Switch, Route, useLocation } from "wouter";
 import { createContext, useContext, useState, useCallback, useEffect, useRef, useMemo, lazy, Suspense, Component, type ReactNode, type ErrorInfo } from "react";
 import { queryClient, getAuthHeaders, apiRequest, logLatency, parseServerTiming, PERF_ENABLED, API_BASE, requireApiBase } from "./lib/queryClient";
-import { QueryClientProvider, useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
+import { QueryClientProvider, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useAuth } from "@/hooks/use-auth";
@@ -46,13 +46,11 @@ if (typeof window !== "undefined") {
     setTimeout(preloadCallChunks, 2000);
   }
 }
-import { useCallSignaling, setCallEndedHandler, setCallRingHandler, clearDedupeForMatch, broadcastCallSignal } from "@/hooks/use-call-signaling";
-import { calleePresubscribe, calleePresubSendReady } from "@/hooks/use-webrtc";
-import { useToast } from "@/hooks/use-toast";
+import { useCallSignaling, setCallEndedHandler, setCallRingHandler, clearDedupeForMatch } from "@/hooks/use-call-signaling";
 import { stopAllNonVoiceCallAudio } from "@/lib/call-audio";
 import { markCallSessionCancelled, markStartupCancelledSession, isCallSessionCancelled, clearCancelledSession, setOnCancelledSessionChange } from "@/lib/cancelled-calls";
 import type { Profile, Match } from "@shared/schema";
-import { Loader2, Phone, PhoneOff } from "lucide-react";
+import { Loader2 } from "lucide-react";
 
 // ── Global debug store ───────────────────────────────────────────────────────
 // Imported from a shared module so landing.tsx and use-auth.ts can also write
@@ -233,172 +231,6 @@ function clearCallFromCache(
 // proves the call is still active.
 const APP_LOAD_TIME = Date.now();
 
-// ── ReceiverAnswerBar ─────────────────────────────────────────────────────────
-// Self-contained always-visible answer+decline bar for incoming receiver calls.
-// Rendered directly from CallDetectors so it bypasses every timing/stale/
-// zombie guard that can silently hide IncomingCallOverlay. The only gate is
-// locallyAnsweredKey — which is only set after the receiver presses Answer on
-// this device in this session.
-//
-// Critically, it does NOT check callAnswered — so zombie callAnswered:true state
-// (left over from a previous session that didn't clear) cannot hide these buttons.
-type MatchWithProfileMin = Match & { profile: Profile };
-
-function ReceiverAnswerBar({
-  match,
-  userId,
-  onAnswered,
-}: {
-  match: MatchWithProfileMin;
-  userId: string;
-  onAnswered: (matchId: string, sessionId: string | null) => void;
-}) {
-  const { toast } = useToast();
-  const qc = useQueryClient();
-
-  // Pre-subscribe WebRTC signalling channel so it is ready before Answer fires.
-  useEffect(() => {
-    const cleanup = calleePresubscribe(match.id, userId);
-    return cleanup;
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [match.id, match.callSessionId]);
-
-  const answerCall = useMutation({
-    mutationFn: async () => {
-      const res = await apiRequest("POST", `/api/matches/${match.id}/call/answer`, {});
-      return res.json();
-    },
-    onSuccess: () => {
-      broadcastCallSignal(match.id, {
-        type: "call:answered",
-        matchId: match.id,
-        userId,
-        callSessionId: match.callSessionId,
-      } as any);
-      qc.setQueriesData<any[]>({ queryKey: ["/api/matches"] }, old => {
-        if (!old || !Array.isArray(old)) return old;
-        return old.map(m => m.id === match.id ? { ...m, callAnswered: true } : m);
-      });
-      calleePresubSendReady(match.id, userId);
-      onAnswered(match.id, match.callSessionId);
-    },
-    onError: (err: Error) => {
-      toast({ title: "Couldn't answer call", description: err.message, variant: "destructive" });
-    },
-  });
-
-  const declineCall = useMutation({
-    mutationFn: async () => {
-      const res = await apiRequest("POST", `/api/matches/${match.id}/call/decline`, {});
-      return res.json();
-    },
-    onSuccess: () => {
-      broadcastCallSignal(match.id, {
-        type: "call:declined",
-        matchId: match.id,
-        userId,
-        callSessionId: match.callSessionId,
-      } as any);
-      qc.setQueriesData<any[]>({ queryKey: ["/api/matches"] }, old => {
-        if (!old || !Array.isArray(old)) return old;
-        return old.map(m => m.id === match.id
-          ? { ...m, callStartedAt: null, callInitiatorId: null, callAnswered: false, callCompleted: false, callSessionId: null }
-          : m);
-      });
-    },
-    onError: (err: Error) => {
-      toast({ title: "Couldn't decline call", description: err.message, variant: "destructive" });
-    },
-  });
-
-  return (
-    <div
-      style={{
-        position: "fixed",
-        left: 0,
-        right: 0,
-        bottom: "calc(env(safe-area-inset-bottom, 0px) + 24px)",
-        zIndex: 9999999,
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        gap: 12,
-      }}
-      data-testid="receiver-answer-bar"
-    >
-      {/* Debug label */}
-      <div
-        style={{
-          background: "rgba(0,155,0,0.9)",
-          color: "#fff",
-          fontFamily: "monospace",
-          fontWeight: 700,
-          fontSize: 12,
-          padding: "3px 14px",
-          borderRadius: 5,
-          letterSpacing: 1,
-          pointerEvents: "none",
-          userSelect: "none",
-        }}
-        data-testid="answer-ui-active-label"
-      >
-        ANSWER UI ACTIVE
-      </div>
-
-      {/* Decline | Answer row */}
-      <div
-        style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 48 }}
-        data-testid="receiver-answer-actions"
-      >
-        {/* Decline — red, left */}
-        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
-          <button
-            style={{
-              width: 80,
-              height: 80,
-              borderRadius: "50%",
-              background: "hsl(0 72% 32%)",
-              border: "3px solid hsl(0 72% 58%)",
-              boxShadow: "0 6px 32px hsl(0 72% 42% / 0.65)",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              cursor: "pointer",
-            }}
-            onClick={() => declineCall.mutate()}
-            data-testid="button-decline-call-bar"
-          >
-            <PhoneOff style={{ width: 32, height: 32, color: "white" }} />
-          </button>
-          <span style={{ color: "hsl(0 72% 80%)", fontSize: 15, fontWeight: 600 }}>Decline</span>
-        </div>
-
-        {/* Answer — green, right */}
-        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
-          <button
-            style={{
-              width: 96,
-              height: 96,
-              borderRadius: "50%",
-              background: "linear-gradient(145deg, hsl(142 72% 46%), hsl(142 72% 33%))",
-              border: "3px solid hsl(142 72% 62%)",
-              boxShadow: "0 0 0 7px hsl(142 72% 46% / 0.2), 0 8px 40px hsl(142 72% 42% / 0.75)",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              cursor: "pointer",
-            }}
-            onClick={() => answerCall.mutate()}
-            data-testid="button-answer-call-bar"
-          >
-            <Phone style={{ width: 40, height: 40, color: "white" }} />
-          </button>
-          <span style={{ color: "hsl(142 72% 80%)", fontSize: 15, fontWeight: 600 }}>Answer</span>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 function CallDetectors({ userId }: { userId: string }) {
   const [dismissedCallKey, setDismissedCallKey] = useState<string | null>(null);
@@ -959,47 +791,8 @@ function CallDetectors({ userId }: { userId: string }) {
     }
   }, [markCallEnded]);
 
-  // ── TEMPORARY DEBUG PANEL ─────────────────────────────────────────────────
-  const _dbgMatch = matchForIncoming ?? activeCall ?? null;
-  const _dbgWhich = matchForIncoming
-    ? "IncomingCallOverlay"
-    : activeCall && !matchForIncoming
-    ? "ActiveCallOverlay"
-    : "none";
-  const _dbgIsCaller = _dbgMatch ? _dbgMatch.callInitiatorId === userId : null;
-
   return (
     <>
-      {/* ── TEMPORARY DEBUG PANEL ── remove after bug is confirmed fixed ── */}
-      {(_dbgMatch || activeCall || matchForIncoming) && startupVerified && (
-        <div
-          style={{
-            position: "fixed",
-            top: 0,
-            left: 0,
-            right: 0,
-            zIndex: 99999,
-            background: "rgba(0,0,0,0.85)",
-            color: "#0f0",
-            fontFamily: "monospace",
-            fontSize: "11px",
-            padding: "6px 10px",
-            lineHeight: "1.6",
-            pointerEvents: "none",
-          }}
-        >
-          <div><b>🔎 CALL DEBUG</b> &nbsp; overlay={_dbgWhich}</div>
-          <div>currentUserId: {userId || "—"}</div>
-          <div>callInitiatorId: {_dbgMatch?.callInitiatorId ?? "—"}</div>
-          <div>callAnswered: {String(_dbgMatch?.callAnswered ?? "—")}</div>
-          <div>callCompleted: {String(_dbgMatch?.callCompleted ?? "—")}</div>
-          <div>incomingMatchForUI: {incomingMatchForUI ? "TRUE" : "false"}</div>
-          <div>activeCall: {activeCall ? "TRUE" : "false"}</div>
-          <div>matchForIncoming: {matchForIncoming ? "TRUE" : "false"}</div>
-          <div>isCaller: {_dbgIsCaller === null ? "—" : String(_dbgIsCaller)}</div>
-          <div>isReceiver: {_dbgIsCaller === null ? "—" : String(!_dbgIsCaller)}</div>
-        </div>
-      )}
       {/* ── OVERLAY ROUTING ────────────────────────────────────────────────────
           Priority order (highest first):
             1. FORCED INCOMING: any match in `matches` where the current user is
@@ -1049,33 +842,7 @@ function CallDetectors({ userId }: { userId: string }) {
               !!forcedIncomingMatch.faceCallUser2Accepted);
 
           return (
-            <>
-              {/* Debug label — visible confirmation that forced routing fired */}
-              <div
-                style={{
-                  position: "fixed",
-                  bottom: "calc(env(safe-area-inset-bottom, 0px) + 160px)",
-                  left: 0,
-                  right: 0,
-                  zIndex: 999999,
-                  textAlign: "center",
-                  pointerEvents: "none",
-                }}
-              >
-                <span style={{
-                  background: "rgba(0,140,255,0.92)",
-                  color: "#fff",
-                  fontFamily: "monospace",
-                  fontWeight: 700,
-                  fontSize: 13,
-                  padding: "4px 18px",
-                  borderRadius: 6,
-                  letterSpacing: 1,
-                }}>
-                  FORCED INCOMING OVERLAY ACTIVE
-                </span>
-              </div>
-              <Suspense fallback={null}>
+            <Suspense fallback={null}>
                 <CallOverlayErrorBoundary
                   key={`forced-incoming:${forcedIncomingMatch.id}:${forcedIncomingMatch.callSessionId}`}
                   matchId={forcedIncomingMatch.id}
@@ -1092,8 +859,7 @@ function CallDetectors({ userId }: { userId: string }) {
                     }}
                   />
                 </CallOverlayErrorBoundary>
-              </Suspense>
-            </>
+            </Suspense>
           );
         }
 
@@ -1126,159 +892,7 @@ function CallDetectors({ userId }: { userId: string }) {
         return null;
       })()}
 
-      {/* ── ReceiverAnswerBar ──────────────────────────────────────────────────
-          Always-visible failsafe answer+decline buttons for incoming receiver
-          calls. Scans raw `matches` with NO callAnswered check — bypasses every
-          timing/stale/zombie guard that could hide IncomingCallOverlay.
-          Only gate: locallyAnsweredKey (receiver pressed Answer on this device). */}
-      {(() => {
-        // ── Receiver detection ────────────────────────────────────────────────
-        // Use String().trim() comparison to handle null, undefined, hidden
-        // whitespace, or any encoding difference from the DB / Supabase layer.
-        // String(null ?? "").trim()  → ""  ≠ any real UUID  → isReceiver=true
-        // String("abc").trim()       → "abc"  === "abc"     → isReceiver=false (caller)
-        const meStr = String(userId ?? "").trim();
-        const isReceiverMatch = (m: { callInitiatorId?: string | null; callStartedAt?: Date | string | null; callCompleted?: boolean | null }) =>
-          !!m.callStartedAt &&
-          m.callCompleted !== true &&
-          String(m.callInitiatorId ?? "").trim() !== meStr;
 
-        const receiverCall = (matches ?? []).find(isReceiverMatch) ?? null;
-
-        if (!receiverCall) return null;
-        const sessionKey = `${receiverCall.id}:${receiverCall.callSessionId}`;
-        if (locallyAnsweredKey === sessionKey) return null;
-
-        return (
-          <ReceiverAnswerBar
-            key={`recv-bar:${receiverCall.id}:${receiverCall.callSessionId}`}
-            match={receiverCall as MatchWithProfileMin}
-            userId={userId}
-            onAnswered={(matchId, sessionId) => {
-              console.log("[CALLEE_FIX] ReceiverAnswerBar.onAnswered fired", { matchId, sessionId });
-              setLocallyAnsweredKey(`${matchId}:${sessionId}`);
-            }}
-          />
-        );
-      })()}
-
-      {/* ── BOTTOM DEBUG PANEL ────────────────────────────────────────────────
-          Shows every match with callStartedAt set PLUS every match present in
-          `matches` regardless of call state (so "answer button rendered" can
-          be cross-checked). Full raw IDs + JSON.stringify for exact comparison. */}
-      {(() => {
-        const meStr = String(userId ?? "").trim();
-
-        // All matches with any call state (callStartedAt set).
-        const callMatches = (matches ?? []).filter(m => !!m.callStartedAt);
-
-        // Also include activeCall even if its match has callStartedAt cleared in cache.
-        const extraMatch = (activeCall && !callMatches.find(m => m.id === activeCall.id))
-          ? activeCall : null;
-        const allDbg = extraMatch ? [...callMatches, extraMatch] : callMatches;
-
-        // Mirror ReceiverAnswerBar detection exactly.
-        const recvCall = allDbg.find(m =>
-          m.callCompleted !== true &&
-          String(m.callInitiatorId ?? "").trim() !== meStr,
-        ) ?? null;
-        const recvKey = recvCall ? `${recvCall.id}:${recvCall.callSessionId}` : null;
-        const answerBtnRendered = !!(recvCall && locallyAnsweredKey !== recvKey);
-
-        // Overlay determination (mirrors overlay IIFE).
-        const dbgForced = allDbg.find(m =>
-          m.callCompleted !== true &&
-          String(m.callInitiatorId ?? "").trim() !== meStr &&
-          m.callAnswered !== true,
-        ) ?? null;
-        const dbgActive = activeCall ?? null;
-        const overlayRendered = dbgForced
-          ? "IncomingCallOverlay"
-          : dbgActive ? "ActiveCallOverlay" : "none";
-
-        // Show panel whenever there's anything call-related to display.
-        if (allDbg.length === 0 && !dbgActive) return null;
-
-        // Helper — renders one match block with the exact fields needed to
-        // diagnose why isReceiver may be false on the receiver's device.
-        const renderMatch = (m: typeof allDbg[number], label: string) => {
-          const isCaller   = String(m.callInitiatorId ?? "").trim() === meStr;
-          const isReceiver = !isCaller;
-          // otherUserId: the partner's auth UUID derived from user1/user2.
-          const otherUserId = m.user1Id === userId ? m.user2Id : m.user1Id;
-          // Which role started vs receiving this call.
-          const callerRole   = m.callInitiatorId === m.user1Id ? "user1" : m.callInitiatorId === m.user2Id ? "user2" : "unknown";
-          const receiverRole = callerRole === "user1" ? "user2" : callerRole === "user2" ? "user1" : "unknown";
-          const row = (label: string, value: string | null | undefined, highlight?: "green" | "red") => (
-            <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-              <span style={{ color: "#fa0", minWidth: 160, flexShrink: 0 }}>{label}</span>
-              <span style={{ wordBreak: "break-all", color: highlight === "green" ? "#0f0" : highlight === "red" ? "#f55" : "#fff" }}>
-                {value ?? "null"}
-              </span>
-            </div>
-          );
-          return (
-            <div key={m.id} style={{ marginTop: 6, borderTop: "1px solid rgba(255,255,0,0.3)", paddingTop: 5 }}>
-              <div style={{ color: "#ff0", fontWeight: "bold", marginBottom: 3 }}>{label} · matchId: {m.id.slice(0, 8)}…</div>
-
-              {row("currentUserId:", userId)}
-              {row("callInitiatorId:", m.callInitiatorId)}
-              {row("otherUserId / profile user id:", (m as any).profile?.userId ?? otherUserId)}
-              {row("match.user1Id:", m.user1Id)}
-              {row("match.user2Id:", m.user2Id)}
-              {row("match.profile.id:", (m as any).profile?.id ?? "—")}
-              {row("callStartedAt:", m.callStartedAt ? String(m.callStartedAt) : "null")}
-              {row("callAnswered:", String(m.callAnswered))}
-              {row("callCompleted:", String(m.callCompleted))}
-              {row("isCaller:", String(isCaller), isCaller ? "green" : undefined)}
-              {row("isReceiver:", String(isReceiver), isReceiver ? "green" : "red")}
-
-              <div style={{ marginTop: 4, paddingTop: 3, borderTop: "1px solid rgba(255,255,255,0.1)", color: "#aff" }}>
-                <div>📞 call started by: {m.callInitiatorId ?? "unknown"} ({callerRole})</div>
-                <div>📱 receiving: {otherUserId ?? "unknown"} ({receiverRole})</div>
-                <div>👤 this device is: {isCaller ? "CALLER" : "RECEIVER"}</div>
-              </div>
-            </div>
-          );
-        };
-
-        return (
-          <div
-            style={{
-              position: "fixed",
-              left: 0,
-              right: 0,
-              bottom: "calc(env(safe-area-inset-bottom, 0px) + 240px)",
-              zIndex: 99999999,
-              display: "flex",
-              justifyContent: "center",
-              pointerEvents: "none",
-            }}
-            data-testid="call-debug-bottom-panel"
-          >
-            <div
-              style={{
-                background: "rgba(0,0,0,0.93)",
-                color: "#0f0",
-                fontFamily: "monospace",
-                fontSize: 10,
-                padding: "7px 11px",
-                borderRadius: 7,
-                lineHeight: 1.75,
-                border: "1px solid rgba(0,255,0,0.5)",
-                maxWidth: "98vw",
-                overflowX: "hidden",
-              }}
-            >
-              <div style={{ color: "#ff0", fontWeight: "bold" }}>── CALL DEBUG ──</div>
-              <div><b>overlay rendered:</b> {overlayRendered}</div>
-              <div><b>answer button rendered:</b> <span style={{ color: answerBtnRendered ? "#0f0" : "#f44", fontWeight: "bold" }}>{String(answerBtnRendered)}</span></div>
-              <div><b>matches total:</b> {(matches ?? []).length} | call-state: {allDbg.length}</div>
-              {allDbg.map((m, i) => renderMatch(m, `match[${i}]`))}
-            </div>
-          </div>
-        );
-      })()}
     </>
   );
 }
