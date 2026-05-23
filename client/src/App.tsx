@@ -1,7 +1,7 @@
 import { Switch, Route, useLocation } from "wouter";
 import { createContext, useContext, useState, useCallback, useEffect, useRef, useMemo, lazy, Suspense, Component, type ReactNode, type ErrorInfo } from "react";
 import { queryClient, getAuthHeaders, apiRequest, logLatency, parseServerTiming, PERF_ENABLED, API_BASE, requireApiBase } from "./lib/queryClient";
-import { QueryClientProvider, useQuery, useQueryClient } from "@tanstack/react-query";
+import { QueryClientProvider, useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useAuth } from "@/hooks/use-auth";
@@ -46,11 +46,13 @@ if (typeof window !== "undefined") {
     setTimeout(preloadCallChunks, 2000);
   }
 }
-import { useCallSignaling, setCallEndedHandler, setCallRingHandler, clearDedupeForMatch } from "@/hooks/use-call-signaling";
+import { useCallSignaling, setCallEndedHandler, setCallRingHandler, clearDedupeForMatch, broadcastCallSignal } from "@/hooks/use-call-signaling";
+import { calleePresubscribe, calleePresubSendReady } from "@/hooks/use-webrtc";
+import { useToast } from "@/hooks/use-toast";
 import { stopAllNonVoiceCallAudio } from "@/lib/call-audio";
 import { markCallSessionCancelled, markStartupCancelledSession, isCallSessionCancelled, clearCancelledSession, setOnCancelledSessionChange } from "@/lib/cancelled-calls";
 import type { Profile, Match } from "@shared/schema";
-import { Loader2 } from "lucide-react";
+import { Loader2, Phone, PhoneOff } from "lucide-react";
 
 // ── Global debug store ───────────────────────────────────────────────────────
 // Imported from a shared module so landing.tsx and use-auth.ts can also write
@@ -230,6 +232,173 @@ function clearCallFromCache(
 // timestamp is treated as potentially stale and blocked until a live rering
 // proves the call is still active.
 const APP_LOAD_TIME = Date.now();
+
+// ── ReceiverAnswerBar ─────────────────────────────────────────────────────────
+// Self-contained always-visible answer+decline bar for incoming receiver calls.
+// Rendered directly from CallDetectors so it bypasses every timing/stale/
+// zombie guard that can silently hide IncomingCallOverlay. The only gate is
+// locallyAnsweredKey — which is only set after the receiver presses Answer on
+// this device in this session.
+//
+// Critically, it does NOT check callAnswered — so zombie callAnswered:true state
+// (left over from a previous session that didn't clear) cannot hide these buttons.
+type MatchWithProfileMin = Match & { profile: Profile };
+
+function ReceiverAnswerBar({
+  match,
+  userId,
+  onAnswered,
+}: {
+  match: MatchWithProfileMin;
+  userId: string;
+  onAnswered: (matchId: string, sessionId: string | null) => void;
+}) {
+  const { toast } = useToast();
+  const qc = useQueryClient();
+
+  // Pre-subscribe WebRTC signalling channel so it is ready before Answer fires.
+  useEffect(() => {
+    const cleanup = calleePresubscribe(match.id, userId);
+    return cleanup;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [match.id, match.callSessionId]);
+
+  const answerCall = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", `/api/matches/${match.id}/call/answer`, {});
+      return res.json();
+    },
+    onSuccess: () => {
+      broadcastCallSignal(match.id, {
+        type: "call:answered",
+        matchId: match.id,
+        userId,
+        callSessionId: match.callSessionId,
+      } as any);
+      qc.setQueriesData<any[]>({ queryKey: ["/api/matches"] }, old => {
+        if (!old || !Array.isArray(old)) return old;
+        return old.map(m => m.id === match.id ? { ...m, callAnswered: true } : m);
+      });
+      calleePresubSendReady(match.id, userId);
+      onAnswered(match.id, match.callSessionId);
+    },
+    onError: (err: Error) => {
+      toast({ title: "Couldn't answer call", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const declineCall = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", `/api/matches/${match.id}/call/decline`, {});
+      return res.json();
+    },
+    onSuccess: () => {
+      broadcastCallSignal(match.id, {
+        type: "call:declined",
+        matchId: match.id,
+        userId,
+        callSessionId: match.callSessionId,
+      } as any);
+      qc.setQueriesData<any[]>({ queryKey: ["/api/matches"] }, old => {
+        if (!old || !Array.isArray(old)) return old;
+        return old.map(m => m.id === match.id
+          ? { ...m, callStartedAt: null, callInitiatorId: null, callAnswered: false, callCompleted: false, callSessionId: null }
+          : m);
+      });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Couldn't decline call", description: err.message, variant: "destructive" });
+    },
+  });
+
+  return (
+    <div
+      style={{
+        position: "fixed",
+        left: 0,
+        right: 0,
+        bottom: "calc(env(safe-area-inset-bottom, 0px) + 24px)",
+        zIndex: 9999999,
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        gap: 12,
+      }}
+      data-testid="receiver-answer-bar"
+    >
+      {/* Debug label */}
+      <div
+        style={{
+          background: "rgba(0,155,0,0.9)",
+          color: "#fff",
+          fontFamily: "monospace",
+          fontWeight: 700,
+          fontSize: 12,
+          padding: "3px 14px",
+          borderRadius: 5,
+          letterSpacing: 1,
+          pointerEvents: "none",
+          userSelect: "none",
+        }}
+        data-testid="answer-ui-active-label"
+      >
+        ANSWER UI ACTIVE
+      </div>
+
+      {/* Decline | Answer row */}
+      <div
+        style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 48 }}
+        data-testid="receiver-answer-actions"
+      >
+        {/* Decline — red, left */}
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
+          <button
+            style={{
+              width: 80,
+              height: 80,
+              borderRadius: "50%",
+              background: "hsl(0 72% 32%)",
+              border: "3px solid hsl(0 72% 58%)",
+              boxShadow: "0 6px 32px hsl(0 72% 42% / 0.65)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              cursor: "pointer",
+            }}
+            onClick={() => declineCall.mutate()}
+            data-testid="button-decline-call-bar"
+          >
+            <PhoneOff style={{ width: 32, height: 32, color: "white" }} />
+          </button>
+          <span style={{ color: "hsl(0 72% 80%)", fontSize: 15, fontWeight: 600 }}>Decline</span>
+        </div>
+
+        {/* Answer — green, right */}
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
+          <button
+            style={{
+              width: 96,
+              height: 96,
+              borderRadius: "50%",
+              background: "linear-gradient(145deg, hsl(142 72% 46%), hsl(142 72% 33%))",
+              border: "3px solid hsl(142 72% 62%)",
+              boxShadow: "0 0 0 7px hsl(142 72% 46% / 0.2), 0 8px 40px hsl(142 72% 42% / 0.75)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              cursor: "pointer",
+            }}
+            onClick={() => answerCall.mutate()}
+            data-testid="button-answer-call-bar"
+          >
+            <Phone style={{ width: 40, height: 40, color: "white" }} />
+          </button>
+          <span style={{ color: "hsl(142 72% 80%)", fontSize: 15, fontWeight: 600 }}>Answer</span>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function CallDetectors({ userId }: { userId: string }) {
   const [dismissedCallKey, setDismissedCallKey] = useState<string | null>(null);
@@ -906,6 +1075,36 @@ function CallDetectors({ userId }: { userId: string }) {
         }
 
         return null;
+      })()}
+
+      {/* ── ReceiverAnswerBar ──────────────────────────────────────────────────
+          Always-visible failsafe answer+decline buttons for incoming receiver
+          calls. Scans raw `matches` with NO callAnswered check — bypasses every
+          timing/stale/zombie guard that could hide IncomingCallOverlay.
+          Only gate: locallyAnsweredKey (receiver pressed Answer on this device). */}
+      {(() => {
+        const receiverCall = (matches ?? []).find(m =>
+          !!m.callStartedAt &&
+          m.callCompleted !== true &&
+          !!m.callInitiatorId &&
+          m.callInitiatorId !== userId,
+        ) ?? null;
+
+        if (!receiverCall) return null;
+        const sessionKey = `${receiverCall.id}:${receiverCall.callSessionId}`;
+        if (locallyAnsweredKey === sessionKey) return null;
+
+        return (
+          <ReceiverAnswerBar
+            key={`recv-bar:${receiverCall.id}:${receiverCall.callSessionId}`}
+            match={receiverCall as MatchWithProfileMin}
+            userId={userId}
+            onAnswered={(matchId, sessionId) => {
+              console.log("[CALLEE_FIX] ReceiverAnswerBar.onAnswered fired", { matchId, sessionId });
+              setLocallyAnsweredKey(`${matchId}:${sessionId}`);
+            }}
+          />
+        );
       })()}
     </>
   );
