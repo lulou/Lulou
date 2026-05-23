@@ -197,10 +197,6 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
   // completes — so a second sendOffer() can slip through the signalingState check
   // while the first createOffer() is still pending.
   const isNegotiatingRef = useRef(false);
-  // Guards the one-shot 3-second mute test that runs when the call first
-  // reaches ICE "connected". Reset to false at the start of each new call.
-  const screechTestDoneRef = useRef(false);
-  const screechTestTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   onRemoteHangupRef.current = onRemoteHangup;
 
   const cleanup = useCallback(() => {
@@ -218,10 +214,6 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
     if (connectionTimeoutRef.current) {
       clearTimeout(connectionTimeoutRef.current);
       connectionTimeoutRef.current = null;
-    }
-    if (screechTestTimerRef.current) {
-      clearTimeout(screechTestTimerRef.current);
-      screechTestTimerRef.current = null;
     }
     if (localStreamRef.current) {
       localStreamRef.current.getTracks().forEach((t) => t.stop());
@@ -251,7 +243,6 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
     pendingCandidatesRef.current = [];
     readyReceivedRef.current = false;
     isNegotiatingRef.current = false;
-    screechTestDoneRef.current = false;
     candidateCountsRef.current = { host: 0, srflx: 0, relay: 0 };
     setFailureReason("");
     if (readyRetryIntervalRef.current) {
@@ -693,6 +684,14 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
             // autoGainControl are omitted because some older Safari rejects them,
             // but echoCancellation must always be requested to prevent feedback.
             console.log("[FEEDBACK_FIX] echo cancellation enabled — tier", i + 1, ":", constraintSummary, { matchId, isCaller });
+            console.log("[CALL_AUDIO_ONLY] echo cancellation enabled", {
+              tier: i + 1,
+              echoCancellation: true,
+              noiseSuppression: i < 3,
+              autoGainControl: i === 0,
+              matchId,
+              isCaller,
+            });
             console.log("[STREAM_AUDIT] local stream id", {
               streamId: stream.id,
               tracks: stream.getTracks().map(t => ({ kind: t.kind, id: t.id.slice(0, 12) })),
@@ -900,6 +899,11 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
             trackId: event.track.id.slice(0, 12),
             trackKind: event.track.kind,
             reason: "pc.ontrack guard A — own local track arrived in remote event",
+            matchId,
+          });
+          console.error("[CALL_AUDIO_ONLY] local mic blocked", {
+            reason: "guard A — own track arrived in pc.ontrack, discarded",
+            trackKind: event.track.kind,
             matchId,
           });
           console.error("[STREAM_AUDIT] BLOCKED local stream playback — pc.ontrack received own local track, preventing self-monitoring", {

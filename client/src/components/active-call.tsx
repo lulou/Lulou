@@ -361,6 +361,7 @@ export function ActiveCallOverlay({
       // pause the registered remote-voice element, which is important on
       // reconnection when the element may already be attached and playing.
       stopAllNonVoiceCallAudio("connected");
+      console.log("[CALL_AUDIO_ONLY] non-voice sounds stopped on connect", { matchId, isCaller, phase: "connectionState_connected" });
       console.log("[CALL_FIX] non-voice audio stopped before connect", { matchId, isCaller, phase: "connectionState_connected" });
       console.log("[FINAL_CALL_FIX] connect beep stopped", { matchId, isCaller });
       console.log("[PHONE_AUDIO] connected call audio = remote voice only", { matchId, isCaller });
@@ -406,8 +407,10 @@ export function ActiveCallOverlay({
         return a.srcObject === localStream && !a.muted;
       }).length;
       if (remoteAttachedCount === 1) {
+        console.log("[CALL_AUDIO_ONLY] one remote audio element", { matchId, isCaller, count: remoteAttachedCount });
         console.log("[CALL_AUDIO] confirmed single remote audio element", { matchId, isCaller });
       } else {
+        console.warn(`[CALL_AUDIO_ONLY] unexpected remote audio element count: ${remoteAttachedCount}`, { matchId });
         console.warn(`[CALL_AUDIO] unexpected remote audio element count: ${remoteAttachedCount}`, { matchId });
       }
       console.log(`[CALL_AUDIO_AUDIT] remote stream attached count: ${remoteAttachedCount}`);
@@ -543,6 +546,11 @@ export function ActiveCallOverlay({
       // Guard D: if the stream we're about to attach as "remote" has the same ID
       // as localStream, something is critically wrong — block it and log loudly.
       if (localStream && remoteStream.id === localStream.id) {
+        console.error("[CALL_AUDIO_ONLY] local mic blocked", {
+          reason: "guard D — remoteStream.id === localStream.id, refusing to attach to audio element",
+          streamId: remoteStream.id.slice(0, 16),
+          matchId,
+        });
         console.error("[CALL_AUDIO] blocked local stream from audio element", {
           streamId: remoteStream.id.slice(0, 16),
           reason: "guard D — remoteStream.id === localStream.id",
