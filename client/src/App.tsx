@@ -1106,6 +1106,82 @@ function CallDetectors({ userId }: { userId: string }) {
           />
         );
       })()}
+
+      {/* ── BOTTOM DEBUG PANEL — remove after confirmed fixed ─────────────────
+          Visible above all overlays. Shows key call state for both sides so
+          we can confirm which overlay is active and why. */}
+      {(() => {
+        // Pick the "active" match for this panel — same priority as the overlay IIFE.
+        const dbgForced = (matches ?? []).find(m =>
+          !!m.callStartedAt &&
+          m.callCompleted !== true &&
+          !!m.callInitiatorId &&
+          m.callInitiatorId !== userId &&
+          m.callAnswered !== true,
+        ) ?? null;
+        const dbgActive = activeCall ?? null;
+        const dbgMatch = dbgForced ?? dbgActive ?? null;
+
+        // Only show while there is any call-related state.
+        if (!dbgMatch) return null;
+
+        const overlayRendered = dbgForced
+          ? "IncomingCallOverlay"
+          : dbgActive
+            ? "ActiveCallOverlay"
+            : "none";
+
+        const initId = dbgMatch.callInitiatorId ?? null;
+        const isRec = initId ? initId !== userId : null;
+
+        // answer button rendered = same condition as ReceiverAnswerBar
+        const recvCall = (matches ?? []).find(m =>
+          !!m.callStartedAt &&
+          m.callCompleted !== true &&
+          !!m.callInitiatorId &&
+          m.callInitiatorId !== userId,
+        ) ?? null;
+        const recvKey = recvCall ? `${recvCall.id}:${recvCall.callSessionId}` : null;
+        const answerBtnRendered = !!(recvCall && locallyAnsweredKey !== recvKey);
+
+        return (
+          <div
+            style={{
+              position: "fixed",
+              left: 0,
+              right: 0,
+              bottom: "calc(env(safe-area-inset-bottom, 0px) + 240px)",
+              zIndex: 99999999,
+              display: "flex",
+              justifyContent: "center",
+              pointerEvents: "none",
+            }}
+            data-testid="call-debug-bottom-panel"
+          >
+            <div
+              style={{
+                background: "rgba(0,0,0,0.88)",
+                color: "#0f0",
+                fontFamily: "monospace",
+                fontSize: 11,
+                padding: "6px 12px",
+                borderRadius: 6,
+                lineHeight: 1.7,
+                border: "1px solid rgba(0,255,0,0.35)",
+                whiteSpace: "nowrap",
+              }}
+            >
+              <div><b>overlay rendered:</b> {overlayRendered}</div>
+              <div><b>currentUserId:</b> {userId ? `${userId.slice(0, 10)}…` : "—"}</div>
+              <div><b>callInitiatorId:</b> {initId ? `${initId.slice(0, 10)}…` : "—"}</div>
+              <div><b>isReceiver:</b> {isRec === null ? "—" : String(isRec)}</div>
+              <div><b>callAnswered:</b> {String(dbgMatch.callAnswered ?? "—")}</div>
+              <div><b>callCompleted:</b> {String(dbgMatch.callCompleted ?? "—")}</div>
+              <div><b>answer button rendered:</b> {String(answerBtnRendered)}</div>
+            </div>
+          </div>
+        );
+      })()}
     </>
   );
 }
