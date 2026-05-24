@@ -135,10 +135,6 @@ export default function IntentPage() {
   if (profiles !== prevProfilesRef.current) {
     prevProfilesRef.current = profiles ?? null;
     shuffledItemsRef.current = profiles ? shuffleArray(profiles) : [];
-    console.log(
-      "[INTENT] PROFILES_SHUFFLED total:", shuffledItemsRef.current.length,
-      "order:", shuffledItemsRef.current.map((p, i) => `[${i}]${p.firstName}`).join(" "),
-    );
   }
 
   const [isSpinning, setIsSpinning] = useState(false);

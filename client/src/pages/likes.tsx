@@ -717,7 +717,7 @@ export default function LikesPage() {
 
   const { data: likes, isLoading, isError: isLikesError, refetch: refetchLikes } = useQuery<IncomingOpen[]>({
     queryKey: ["/api/who-liked-you"],
-    refetchInterval: isActive ? 15000 : false,
+    refetchInterval: isActive ? 60000 : false,
   });
 
   // Batch-prefetch photos on list arrival.

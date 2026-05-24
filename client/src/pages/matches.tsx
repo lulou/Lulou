@@ -1137,6 +1137,9 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
     // Primary delivery: real-time subscription (useRealtimeMessages) — ~50ms
     // Fallback: poll every 30 s in case a broadcast packet is dropped.
     refetchInterval: expanded ? 30000 : false,
+    // Keep previous data visible during background refetches — prevents the
+    // chat from briefly blanking to a loading state on every 30 s poll cycle.
+    placeholderData: (prev) => prev,
   });
 
   useRealtimeMessages(match.id, expanded);
@@ -1284,15 +1287,16 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
         callCompleted: patchMatch?.callCompleted ?? false,
         callSessionId: patchMatch?.callSessionId ?? null,
       });
-      queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/matches", match.id] });
+      // mergeCallFields already patched both list and detail caches — no
+      // broad list refetch needed.  Detail invalidation ensures fresh data.
+      queryClient.invalidateQueries({ queryKey: ["/api/matches", match.id], exact: true });
       if (data?.status === "repaired") {
         toast({ title: "Call cleared", description: "You can now retry your call." });
       }
     },
     onError: (error: Error) => {
       console.error("[CALL_REPAIR] REPAIR_FAILED", { matchId: match.id, error: error.message });
-      queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/matches"], exact: true });
       toast({ title: "Couldn't clear call", description: "Please try again in a moment.", variant: "destructive" });
     },
   });
@@ -1462,7 +1466,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
       return res.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/matches"], exact: true });
       toast({ title: "Connection removed", description: `${match.profile.firstName} has been removed from your connections.` });
     },
     onError: (error: Error) => {
@@ -2790,8 +2794,11 @@ export default function Matches() {
 
 
   const handleNewBackgroundMessage = useCallback((matchId: string) => {
-    queryClient.invalidateQueries({ queryKey: ["/api/matches"], exact: true });
-    queryClient.invalidateQueries({ queryKey: ["/api/matches", matchId] });
+    // Do NOT invalidate the full /api/matches list here — the 5s App.tsx poll
+    // updates lastMessage within 5 s and useRealtimeMessages patches it instantly
+    // for open chats.  A broad list invalidation on every background message
+    // causes a redundant network round-trip on each incoming message.
+    queryClient.invalidateQueries({ queryKey: ["/api/matches", matchId], exact: true });
   }, [queryClient]);
 
   // `isActive` gates channel creation — when the Connections tab is hidden
