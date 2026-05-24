@@ -118,7 +118,6 @@ export function ActiveCallOverlay({
   const endedRef = useRef(false);
   const [speakerOn, setSpeakerOn] = useState(false);
   const [timerExpiredMsg, setTimerExpiredMsg] = useState("");
-  const [isHeadphonesDetected, setIsHeadphonesDetected] = useState(false);
   // Track exactly when WebRTC first reached "connected" so we can measure live duration
   const connectedAtRef = useRef<number | null>(null);
 
@@ -289,9 +288,9 @@ export function ActiveCallOverlay({
   //   iOS web apps use the "media playback" AudioSession category. The earpiece
   //   route is only accessible via native AVAudioSession — web apps cannot reach
   //   it. Instead we approximate the two modes with volume:
-  //   speaker OFF (default) → volume 0.12 — very quiet; minimises acoustic
-  //     bleed into the open mic so hardware AEC can handle the remainder.
-  //     Users without headphones should see the in-call notice to use Speaker.
+  //   speaker OFF (default) → volume 0.25 — safe low level; reduces acoustic
+  //     echo bleed into the open mic so hardware AEC can suppress the remainder.
+  //     0.25 is lower than 0.3 to further reduce screeching on iPhone earpiece.
   //   speaker ON            → volume 1.0  — full loudspeaker volume.
   const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
     (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
@@ -314,13 +313,13 @@ export function ActiveCallOverlay({
     } else if (isIOS) {
       // iOS only: web cannot reach the AVAudioSession earpiece route.
       // We approximate the two modes with volume:
-      //   speaker OFF (default) → 0.12 — very quiet; minimises acoustic bleed
-      //     into the open mic. Hardware AEC handles the residual echo.
+      //   speaker OFF (default) → 0.25 — safe low level, reduces acoustic
+      //     echo bleed into the open mic. AEC suppresses the remainder.
       //   speaker ON            → 1.0  — full loudspeaker volume.
       // isConnected is in deps so this re-runs after WebRTC connects — iOS
       // audio session switches on getUserMedia, which can silently reset
       // el.volume to 1.0 after this effect's initial run on mount.
-      const vol = speakerOn ? 1.0 : 0.12;
+      const vol = speakerOn ? 1.0 : 0.25;
       el.volume = vol;
       if (speakerOn) {
         console.log("[CALL_AUDIO] iphone speaker mode active", { volume: vol, matchId });
@@ -339,41 +338,6 @@ export function ActiveCallOverlay({
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [speakerOn, matchId, isConnected]);
-
-  // ── iOS headphone / Bluetooth detection ───────────────────────────────────
-  // After getUserMedia succeeds the selected audio track's label names the
-  // active audio route ("iPhone Microphone" = built-in, "AirPods" = external).
-  // iOS Safari limitation: audiooutput devices are NEVER exposed by
-  // enumerateDevices — only audioinput. We infer headphone presence from the
-  // label of the mic track that getUserMedia selected (the OS picks the best
-  // input matching the connected output, so AirPods → AirPods mic label).
-  useEffect(() => {
-    if (!isIOS || !localStream) return;
-    const audioTrack = localStream.getAudioTracks()[0];
-    const trackLabel = (audioTrack?.label ?? "").toLowerCase();
-    const externalRe = /headphone|headset|airpod|bluetooth|external|wired|usb/i;
-
-    if (externalRe.test(trackLabel)) {
-      setIsHeadphonesDetected(true);
-      console.log("[CALL_AUDIO_ONLY] iOS headphones detected via track label", { label: trackLabel, matchId });
-      return;
-    }
-
-    // Enumerate all audio devices — labels are populated after getUserMedia
-    navigator.mediaDevices?.enumerateDevices?.()
-      .then(devices => {
-        const audioDevs = devices.filter(d => d.kind === "audioinput" || d.kind === "audiooutput");
-        const hasExternal = audioDevs.some(d => externalRe.test(d.label));
-        setIsHeadphonesDetected(hasExternal);
-        console.log("[CALL_AUDIO_ONLY] iOS headphone enumeration", {
-          trackLabel,
-          audioDevs: audioDevs.map(d => ({ kind: d.kind, label: d.label || "(no label)" })),
-          hasExternal,
-          matchId,
-        });
-      })
-      .catch(() => setIsHeadphonesDetected(false));
-  }, [localStream, isIOS, matchId]);
 
   // Log overlay entry and WebRTC state changes
   useEffect(() => {
@@ -645,7 +609,7 @@ export function ActiveCallOverlay({
             // Re-apply iOS volume immediately after srcObject is set — iOS audio
             // session switches when getUserMedia opens the mic, which can silently
             // reset el.volume to 1.0 after the speaker effect's initial run on mount.
-            const vol = speakerOn ? 1.0 : 0.12;
+            const vol = speakerOn ? 1.0 : 0.25;
             el.volume = vol;
             console.log("[CALL_FIX] iphone earpiece/default low volume", { volume: vol, speakerOn, matchId, phase: "srcObject_set" });
           } else if (typeof (el as any).setSinkId !== "function") {
@@ -1270,20 +1234,6 @@ export function ActiveCallOverlay({
           >
             <WifiOff className="w-3.5 h-3.5 text-amber-400" />
             <span className="text-amber-300 text-xs">Weak connection — reconnecting</span>
-          </div>
-        )}
-
-        {/* iPhone audio quality notice — shown when connected without headphones */}
-        {isIOS && isConnected && !isRinging && !isHeadphonesDetected && (
-          <div
-            className="flex items-center gap-2 rounded-xl px-4 py-2 mt-2 max-w-xs text-center"
-            style={{ background: "hsl(210 70% 35% / 0.22)", border: "1px solid hsl(210 70% 60% / 0.35)" }}
-            data-testid="banner-ios-audio-notice"
-          >
-            <Volume2 className="w-3.5 h-3.5 text-blue-300 shrink-0" />
-            <span className="text-blue-200 text-xs leading-snug">
-              For best quality on iPhone, use headphones or tap <span className="font-semibold">Speaker</span>
-            </span>
           </div>
         )}
       </div>
