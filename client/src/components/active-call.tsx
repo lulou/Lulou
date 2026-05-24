@@ -662,6 +662,22 @@ export function ActiveCallOverlay({
             trackIds: incomingIds,
           });
           el.play().then(() => {
+            // ── iOS volume guard: re-apply after play() resolves ──────────────
+            // iOS AVAudioSession migrates from Playback → PlayAndRecord when
+            // getUserMedia opens the mic. This category switch is asynchronous
+            // and completes around the time play() resolves. iOS can silently
+            // reset el.volume to 1.0 during this switch — AFTER our synchronous
+            // el.volume = 0.08 set above. Re-applying here is the only place
+            // guaranteed to run post-pipeline-init where we can catch the reset.
+            if (isIOS) {
+              const intendedVol = speakerOn ? 1.0 : 0.08;
+              if (el.volume !== intendedVol) {
+                console.log("[IPHONE_AUDIO] volume was reset by iOS — re-applying", { wasVol: el.volume, intendedVol, speakerOn, matchId });
+                el.volume = intendedVol;
+              } else {
+                console.log("[IPHONE_AUDIO] volume stable after play resolved", { volume: el.volume, speakerOn, matchId });
+              }
+            }
             console.log("[CALL_AUDIO] remote audio play success", {
               matchId,
               volume: el.volume,
@@ -677,6 +693,15 @@ export function ActiveCallOverlay({
             setTimeout(() => {
               if (el.srcObject) {
                 el.play().then(() => {
+                  if (isIOS) {
+                    const intendedVol = speakerOn ? 1.0 : 0.08;
+                    if (el.volume !== intendedVol) {
+                      console.log("[IPHONE_AUDIO] volume was reset by iOS — re-applying (retry)", { wasVol: el.volume, intendedVol, matchId });
+                      el.volume = intendedVol;
+                    } else {
+                      console.log("[IPHONE_AUDIO] volume stable after play resolved (retry)", { volume: el.volume, matchId });
+                    }
+                  }
                   console.log("[CALL_AUDIO] remote audio play success (retry)", { matchId, volume: el.volume });
                 }).catch((e2: unknown) => {
                   console.error("[CALL_AUDIO] remote audio play FAILED on retry", { matchId, error: (e2 as Error)?.message ?? String(e2) });
