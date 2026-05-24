@@ -288,8 +288,8 @@ export function ActiveCallOverlay({
   //   iOS web apps use the "media playback" AudioSession category. The earpiece
   //   route is only accessible via native AVAudioSession — web apps cannot reach
   //   it. Instead we approximate the two modes with volume:
-  //   speaker OFF (default) → volume 0.25 — safe low level; reduces acoustic
-  //     echo bleed into the open mic so hardware AEC can suppress the remainder.
+  //   speaker OFF (default) → volume 0.05 — very safe low level; drastically
+  //     reduces acoustic bleed into the open mic so hardware AEC handles the rest.
   //   speaker ON            → volume 1.0  — full loudspeaker volume.
   const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
     (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
@@ -312,17 +312,19 @@ export function ActiveCallOverlay({
     } else if (isIOS) {
       // iOS only: web cannot reach the AVAudioSession earpiece route.
       // We approximate the two modes with volume:
-      //   speaker OFF (default) → 0.25 — safe low level, reduces acoustic
-      //     echo bleed into the open mic. AEC suppresses the remainder.
+      //   speaker OFF (default) → 0.05 — very safe low level; drastically
+      //     reduces acoustic bleed into the open mic. AEC handles the rest.
       //   speaker ON            → 1.0  — full loudspeaker volume.
       // isConnected is in deps so this re-runs after WebRTC connects — iOS
       // audio session switches on getUserMedia, which can silently reset
       // el.volume to 1.0 after this effect's initial run on mount.
-      const vol = speakerOn ? 1.0 : 0.25;
+      const vol = speakerOn ? 1.0 : 0.05;
       el.volume = vol;
       if (speakerOn) {
+        console.log("[IPHONE_AUDIO] speaker on", { volume: vol, matchId });
         console.log("[CALL_AUDIO] iphone speaker mode active", { volume: vol, matchId });
       } else {
+        console.log("[IPHONE_AUDIO] speaker off", { volume: vol, matchId });
         console.log("[CALL_AUDIO] iphone normal mode active", { volume: vol, matchId });
       }
       console.log("[CALL_FIX] iphone earpiece/default low volume", { volume: vol, speakerOn, isConnected, matchId });
@@ -608,8 +610,9 @@ export function ActiveCallOverlay({
             // Re-apply iOS volume immediately after srcObject is set — iOS audio
             // session switches when getUserMedia opens the mic, which can silently
             // reset el.volume to 1.0 after the speaker effect's initial run on mount.
-            const vol = speakerOn ? 1.0 : 0.25;
+            const vol = speakerOn ? 1.0 : 0.05;
             el.volume = vol;
+            console.log("[IPHONE_AUDIO] safe default volume", { volume: vol, speakerOn, matchId, phase: "srcObject_set" });
             console.log("[CALL_FIX] iphone earpiece/default low volume", { volume: vol, speakerOn, matchId, phase: "srcObject_set" });
           } else if (typeof (el as any).setSinkId !== "function") {
             // Non-iOS without setSinkId (desktop Firefox/Safari) — always full volume.
@@ -659,6 +662,21 @@ export function ActiveCallOverlay({
             trackIds: incomingIds,
           });
           el.play().then(() => {
+            // ── iOS volume guard post-play ────────────────────────────────────
+            // iOS AVAudioSession migrates Playback → PlayAndRecord when getUserMedia
+            // opens the mic. This async switch can silently reset el.volume to 1.0
+            // AFTER our synchronous el.volume = 0.05 set above. Re-applying here
+            // is the only point guaranteed to run after the iOS audio pipeline
+            // has fully initialised with the new stream.
+            if (isIOS) {
+              const intendedVol = speakerOn ? 1.0 : 0.05;
+              if (el.volume !== intendedVol) {
+                console.log("[IPHONE_AUDIO] volume was reset by iOS — re-applying", { wasVol: el.volume, intendedVol, speakerOn, matchId });
+                el.volume = intendedVol;
+              } else {
+                console.log("[IPHONE_AUDIO] volume stable after play resolved", { volume: el.volume, speakerOn, matchId });
+              }
+            }
             console.log("[CALL_AUDIO] remote audio play success", {
               matchId,
               volume: el.volume,
@@ -674,6 +692,15 @@ export function ActiveCallOverlay({
             setTimeout(() => {
               if (el.srcObject) {
                 el.play().then(() => {
+                  if (isIOS) {
+                    const intendedVol = speakerOn ? 1.0 : 0.05;
+                    if (el.volume !== intendedVol) {
+                      console.log("[IPHONE_AUDIO] volume was reset by iOS — re-applying (retry)", { wasVol: el.volume, intendedVol, matchId });
+                      el.volume = intendedVol;
+                    } else {
+                      console.log("[IPHONE_AUDIO] volume stable after play resolved (retry)", { volume: el.volume, matchId });
+                    }
+                  }
                   console.log("[CALL_AUDIO] remote audio play success (retry)", { matchId, volume: el.volume });
                 }).catch((e2: unknown) => {
                   console.error("[CALL_AUDIO] remote audio play FAILED on retry", { matchId, error: (e2 as Error)?.message ?? String(e2) });
@@ -1283,6 +1310,13 @@ export function ActiveCallOverlay({
               />
             )}
           </div>
+        )}
+
+        {/* iPhone audio quality hint — shown only on connected audio calls */}
+        {isIOS && isConnected && !isRinging && !isVideo && (
+          <p className="text-center text-white/55 text-xs px-8 mb-4 leading-relaxed">
+            For best call quality, use headphones or tap Speaker.
+          </p>
         )}
 
         {/* End / Cancel button */}
