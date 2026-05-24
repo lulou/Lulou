@@ -808,30 +808,23 @@ function CallDetectors({ userId }: { userId: string }) {
         // no dismissedCallKey. If this user is the receiver and the call is live
         // they must see IncomingCallOverlay regardless of how the derived memos
         // classified the call.
+        // [RING_FIX] forcedIncomingMatch: same guard chain as incomingCall memo so
+        // cancelled/stale/ended calls never trigger IncomingCallOverlay or its ringtone.
+        // Previously this scan had NO guards — any match with callStartedAt in the DB
+        // (including declined/cancelled calls the server hadn't cleared yet) would mount
+        // the overlay and play the ringtone the moment a 5 s poll returned stale data.
         const forcedIncomingMatch = (matches ?? []).find(m =>
           !!m.callStartedAt &&
           m.callCompleted !== true &&
           m.callInitiatorId !== userId &&   // current user is receiver
-          m.callAnswered !== true           // receiver has not answered yet
+          m.callAnswered !== true &&        // receiver has not answered yet
+          !!m.callSessionId &&
+          !isCallSessionCancelled(m.id, m.callSessionId) &&  // skip declined/cancelled
+          !isEndedCall(m) &&                                  // skip locally-ended calls
+          !isStaleCall(m)                                     // skip >90 s unanswered calls
         ) ?? null;
 
         const overlayForActive = activeCall ?? null;
-
-        const whichOverlay = forcedIncomingMatch
-          ? "IncomingCallOverlay (FORCED)"
-          : overlayForActive
-            ? "ActiveCallOverlay"
-            : "none";
-
-        console.log("[CALL_UI_ROUTING]", {
-          whichOverlay,
-          forcedIncomingMatchId: forcedIncomingMatch?.id,
-          activeCallId: overlayForActive?.id,
-          callInitiatorId: (forcedIncomingMatch ?? overlayForActive)?.callInitiatorId,
-          userId,
-          callAnswered: (forcedIncomingMatch ?? overlayForActive)?.callAnswered,
-          callCompleted: (forcedIncomingMatch ?? overlayForActive)?.callCompleted,
-        });
 
         // ── Priority 1: receiver sees IncomingCallOverlay ───────────────────
         if (forcedIncomingMatch) {

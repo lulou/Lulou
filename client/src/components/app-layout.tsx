@@ -109,9 +109,12 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     refetchInterval: isTabActive ? 30000 : false,
   });
 
+  // [PERF_FIX] No refetchInterval here — CallDetectors in App.tsx already polls
+  // /api/matches every 5 s and updates the shared TanStack Query cache.  Adding
+  // a second 30 s observer just added a redundant network round-trip and caused
+  // AppLayout (including the nav bar) to re-render every 30 s for no benefit.
   const { data: matchesData } = useQuery<MatchItem[]>({
     queryKey: ["/api/matches"],
-    refetchInterval: isTabActive ? 30000 : false,
   });
 
   const likesCount = likes?.length ?? 0;
