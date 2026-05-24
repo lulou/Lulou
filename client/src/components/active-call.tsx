@@ -12,6 +12,11 @@ import {
 } from "@/lib/call-audio";
 import { callDebug } from "@/lib/call-debug";
 import { CallDebugPanel } from "@/components/call-debug-panel";
+import {
+  configureVoiceChat,
+  setSpeaker,
+  deactivateAudioSession,
+} from "@/lib/audio-session";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { PhoneOff, Mic, MicOff, Volume2, Camera, CameraOff, Loader2, WifiOff, AlertTriangle } from "lucide-react";
 
@@ -255,6 +260,9 @@ export function ActiveCallOverlay({
       // Final safety net — stops any outstanding ringtone AudioContext and
       // detaches elements that were registered with call-audio.ts.
       cleanupCallAudio("active_call_unmount");
+      // Native iOS: deactivate AVAudioSession so the system restores its
+      // default audio session for other apps. No-op on plain web.
+      deactivateAudioSession();
 
       // Direct element cleanup as a belt-and-suspenders fallback.
       if (remoteAudioRef.current) {
@@ -320,6 +328,9 @@ export function ActiveCallOverlay({
       // el.volume to 1.0 after this effect's initial run on mount.
       const vol = speakerOn ? 1.0 : 0.25;
       el.volume = vol;
+      // Native Capacitor path: route audio via AVAudioSession
+      // overrideOutputAudioPort(.speaker/.none). No-op on plain web.
+      setSpeaker(speakerOn);
       if (speakerOn) {
         console.log("[CALL_AUDIO] iphone speaker mode active", { volume: vol, matchId });
       } else {
@@ -355,6 +366,9 @@ export function ActiveCallOverlay({
     console.log("[WebRTC] CONNECTION_STATE_CHANGED", { matchId, connectionState, isCaller, isVideo });
     console.log("[CALL_DEBUG] STATE", { matchId, connectionState, isCaller, isVideo, ts: new Date().toISOString().slice(11, 23) });
     if (connectionState === "connected") {
+      // Native iOS: configure AVAudioSession for voice call (earpiece default +
+      // hardware AEC). No-op on web — safe to call unconditionally.
+      configureVoiceChat();
       // Definitive cutover from ringing → voice-only mode.
       // stopAllNonVoiceCallAudio stops ONLY ringtone/ringback — it does NOT
       // pause the registered remote-voice element, which is important on
