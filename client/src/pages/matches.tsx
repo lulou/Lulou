@@ -18,6 +18,7 @@ import { MessageCircle, Send, Phone, Video, ChevronDown, ChevronUp, ChevronLeft,
 import { LulouFlowerIcon, ProfileAvatar } from "@/components/app-layout";
 import { usePerfTrace, useRenderCount, isMobile, scheduleIdle } from "@/lib/perf";
 import { broadcastCallSignal } from "@/hooks/use-call-signaling";
+import { stopAllNonVoiceCallAudio } from "@/lib/call-audio";
 import { PhotoCarousel } from "@/components/photo-carousel";
 import { EMPTY_PHOTOS } from "@/lib/image-utils";
 import type { Profile, Match, Message, SpinRequest } from "@shared/schema";
@@ -2744,6 +2745,14 @@ export default function Matches() {
     setExpandedMatchId(matchId);
   }, []);
   const [activeTab, setActiveTab] = useState<"new" | "active">("new");
+  // Belt-and-suspenders: kill any stale ringtone/ringback the moment the user
+  // taps either internal tab. The primary guard is in CallDetectors (the rering
+  // effect no longer re-arms sessions), but an explicit stop here ensures zero
+  // audio leaks even if some future change touches the arming logic.
+  const handleTabChange = useCallback((tab: "new" | "active") => {
+    stopAllNonVoiceCallAudio("connections_tab_switch");
+    setActiveTab(tab);
+  }, []);
   const { data: matches, isLoading: matchesLoading, error: matchesError } = useQuery<MatchWithProfile[]>({
     queryKey: ["/api/matches"],
     // staleTime: Infinity (global default) — CallDetectors already owns this
@@ -3011,7 +3020,7 @@ export default function Matches() {
           <div className="flex border-b mb-4" data-testid="tabs-connections">
             <button
               className={`flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-px ${activeTab === "new" ? "text-primary border-primary" : "text-muted-foreground border-transparent hover:text-foreground"}`}
-              onClick={() => setActiveTab("new")}
+              onClick={() => handleTabChange("new")}
               data-testid="tab-new-connections"
             >
               New Connections
@@ -3021,7 +3030,7 @@ export default function Matches() {
             </button>
             <button
               className={`flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-px ${activeTab === "active" ? "text-primary border-primary" : "text-muted-foreground border-transparent hover:text-foreground"}`}
-              onClick={() => setActiveTab("active")}
+              onClick={() => handleTabChange("active")}
               data-testid="tab-active-chats"
             >
               Active Chats

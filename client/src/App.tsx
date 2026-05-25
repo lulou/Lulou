@@ -283,9 +283,15 @@ function CallDetectors({ userId }: { userId: string }) {
   // whose cleanup was missed) needs to be stopped on every tab entry too.
   const [location] = useLocation();
   useEffect(() => {
-    if (location === "/messages" || location.startsWith("/messages/")) {
-      stopAllNonVoiceCallAudio("matches_tab_enter");
-      console.log("[CALL_AUDIO_GUARD] stopped ringtone/ringback on Connections tab entry");
+    // Stop ringtone/ringback on any navigation into the Connections area.
+    // /matches  = Connections/Matches page (New Connections + Active Chats tabs)
+    // /messages = old messaging route (kept for safety)
+    if (
+      location === "/matches" || location.startsWith("/matches") ||
+      location === "/messages" || location.startsWith("/messages/")
+    ) {
+      stopAllNonVoiceCallAudio("connections_tab_enter");
+      console.log("[CALL_AUDIO_GUARD] stopped ringtone/ringback on Connections tab entry", { location });
     }
   }, [location]);
 
@@ -394,13 +400,24 @@ function CallDetectors({ userId }: { userId: string }) {
   const rerSessionId = rerMatch?.callSessionId;
   useEffect(() => {
     if (!rerMatchId || !rerSessionId) return;
-    // Re-arm the session on the caller side. After a page refresh, the caller's
-    // session was never armed by a Realtime event (callers don't receive their own
-    // call:ring signal). rerMatch already requires callStartedAt >= APP_LOAD_TIME
-    // so this only fires for calls genuinely started in the current browser session.
-    // The callerRingingCall memo's live-session guard requires the session to be
-    // armed, and this effect provides that arming for the post-refresh resume path.
-    armCallSession(rerSessionId);
+    // NOTE: do NOT call armCallSession(rerSessionId) here.
+    //
+    // Why: rerMatch is computed from raw /api/matches DB data. armCallSession here
+    // would re-arm a session that markCallEnded already explicitly disarmed. The
+    // re-arming happens because the 10 s background poll can return a stale row
+    // (call ended, server DB not yet cleared) → rerMatch becomes non-null → re-arm
+    // → callerRingingCall memo passes isArmedSession → ActiveCallOverlay mounts →
+    // ringback plays even though no call is in progress. This is the exact bug that
+    // fires when the user opens Active Chats / Connections/Matches.
+    //
+    // The CALLER is armed by startCall.onSuccess (matches.tsx) — the explicit user
+    // action that initiates the call. If the page is refreshed during an active call,
+    // the caller loses the outgoing ring UI (safe), but still reregisters as the
+    // caller once the receiver answers via the call:answered Realtime signal which
+    // arms the session via armCallSession in use-call-signaling.ts.
+    //
+    // The rering API call still fires — its purpose is to notify the RECEIVER, not
+    // to restore the caller's own call state.
     const send = () => {
       const ts = new Date().toISOString();
       console.log("[CALL_TIMING] RERING_ATTEMPT", { matchId: rerMatchId, callSessionId: rerSessionId, ts });
