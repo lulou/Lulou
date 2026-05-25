@@ -2775,6 +2775,37 @@ export default function Matches() {
     if (!matchesLoading && matches) markPageReady({ count: matches.length });
   }, [matchesLoading, matches]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ── Defensive call-state sweep on tab activation ─────────────────────────
+  // When the Connections tab becomes visible (isActive: false → true), scan
+  // the /api/matches cache and clear any stale call fields for sessions that
+  // are already known-cancelled.  A background 10 s poll may have written
+  // stale DB data (callStartedAt still set) to the cache while this tab was
+  // hidden.  Without this sweep those stale fields would immediately mount
+  // ActiveCallOverlay / IncomingCallOverlay — calling getUserMedia() and
+  // playing ringtone/ringback — even though no call is actually in progress.
+  const _tabSweepPrevRef = useRef(false);
+  useEffect(() => {
+    const wasActive = _tabSweepPrevRef.current;
+    _tabSweepPrevRef.current = isActive;
+    if (!isActive || wasActive) return; // only fires on false → true transition
+
+    const cached = queryClient.getQueryData<any[]>(["/api/matches"]);
+    if (!cached) return;
+
+    const hasStaleCalls = cached.some(
+      m => m.callStartedAt && m.callSessionId && isCallSessionCancelled(m.id, m.callSessionId),
+    );
+    if (!hasStaleCalls) return;
+
+    console.log("[CALL_BOOT] matches-tab sweep: clearing stale call state from cache");
+    queryClient.setQueryData<any[]>(["/api/matches"], cached.map(m => {
+      if (!m.callStartedAt || !m.callSessionId) return m;
+      if (!isCallSessionCancelled(m.id, m.callSessionId)) return m;
+      console.log("[CALL_BOOT] matches-tab sweep cleared", { matchId: m.id, callSessionId: m.callSessionId });
+      return { ...m, callStartedAt: null, callInitiatorId: null, callAnswered: false, callCompleted: false, callSessionId: null };
+    }));
+  }, [isActive, queryClient]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const { data: spinRequestsData, isLoading: requestsLoading, error: requestsError } = useQuery<SpinRequestsData>({
     queryKey: ["/api/spin-requests"],
     refetchInterval: isActive ? 30_000 : false,

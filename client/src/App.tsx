@@ -369,7 +369,14 @@ function CallDetectors({ userId }: { userId: string }) {
       const m = matches.find(x => x.id === mid);
       if (m && !m.callStartedAt && !m.callInitiatorId && !m.callAnswered && !m.callSessionId) {
         endedMatchIdsRef.current.delete(mid);
-        clearCancelledSession(mid);
+        // Intentionally NOT calling clearCancelledSession here.
+        // Removing the cancelled-session guard after server confirmation creates a
+        // race: the next 10 s poll can return stale DB data (callStartedAt still set)
+        // and, with the guard gone, callerRingingCall / forcedIncomingMatch becomes
+        // non-null → ActiveCallOverlay mounts → getUserMedia() + ringback fire with
+        // no active call.  Keeping the session in cancelledSessions for the whole
+        // browser session is safe: each call uses a unique UUID sessionId, so a new
+        // call on this match always gets a fresh sessionId that is never blocked.
         clearDedupeForMatch(mid);
         console.log("[CALL_STATE] stale state cleared", { matchId: mid, reason: "server_confirmed_cleared" });
         console.log("[CALL_SESSION] CALL_SUBSCRIPTION_REMOVED", { matchId: mid, reason: "server_confirmed_cleared" });
