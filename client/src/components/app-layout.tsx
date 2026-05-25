@@ -104,21 +104,19 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   // Hide navigation when inside a chat room — focus mode
   const isChatRoom = location.startsWith("/messages/");
 
-  const { data: likes } = useQuery<IncomingOpen[]>({
+  // [PERF_FIX] Use `select` on both queries so AppLayout only re-renders when
+  // a badge COUNT changes — not on every poll response when the underlying
+  // array reference changes but the count stays the same.
+  const { data: likesCount = 0 } = useQuery<IncomingOpen[], Error, number>({
     queryKey: ["/api/who-liked-you"],
     refetchInterval: isTabActive ? 30000 : false,
+    select: (data) => data.length,
   });
 
-  // [PERF_FIX] Use `select` so AppLayout only re-renders when the badge COUNT
-  // changes — not every 5 s when any match's lastMessage or callStartedAt
-  // changes. Without `select`, subscribing to the full array meant the entire
-  // nav bar re-rendered on every poll even when no badge value changed.
   const { data: newConnectionsCount = 0 } = useQuery<MatchItem[], Error, number>({
     queryKey: ["/api/matches"],
     select: (data) => data.filter(m => !m.lastMessage).length,
   });
-
-  const likesCount = likes?.length ?? 0;
 
   // Track how many new connections the user has acknowledged (persisted across refresh)
   const [seenConnectionsCount, setSeenConnectionsCount] = useState<number>(() => {

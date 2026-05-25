@@ -409,7 +409,7 @@ function CallDetectors({ userId }: { userId: string }) {
 
     for (const m of matches) {
       if (!m.callStartedAt || !m.callSessionId) continue;
-      if (m.callAnswered || m.callCompleted) continue;
+      if (m.callCompleted) continue;
       if (!m.callInitiatorId) continue;
       // Already handled (either startup-cancelled or user-cancelled) — skip.
       if (isCallSessionCancelled(m.id, m.callSessionId)) continue;
@@ -588,6 +588,11 @@ function CallDetectors({ userId }: { userId: string }) {
   const answeredCall = useMemo(() => matches?.find(m => {
     if (!(m.callStartedAt && m.callSessionId && m.callAnswered === true && m.callCompleted === false &&
       (m.user1Id === userId || m.user2Id === userId))) return false;
+    // Block answered calls that started before this page load — same guard used by
+    // callerRingingCall (line 609) and incomingCall (line 571). Without this,
+    // a stale callAnswered=true row mounts ActiveCallOverlay (webrtcEnabled=true)
+    // which opens the microphone and causes an OS-level audio click on startup.
+    if (new Date(m.callStartedAt).getTime() < APP_LOAD_TIME) return false;
     if (isSelfCall(m)) return false;
     if (isEndedCall(m)) return false;
     if (isStaleCall(m)) return false;

@@ -54,22 +54,30 @@ export function useRealtimeMessages(matchId: string | undefined, enabled: boolea
       }
     );
 
-    // 2. Update last-message preview in the matches list
+    // 2. Update last-message preview in the matches list.
+    // Bail out early if the content and sender are already current — avoids
+    // creating a new array reference (which would re-render the Matches page)
+    // when the message is a duplicate broadcast or a re-delivery.
     if (!newMsg.content.startsWith("__SCHEDULE__")) {
       queryClient.setQueryData<MatchWithProfile[]>(["/api/matches"], (list) => {
         if (!list) return list;
-        return list.map((m) =>
-          m.id === matchId
-            ? {
-                ...m,
-                lastMessage: {
-                  content: newMsg.content,
-                  senderId: newMsg.senderId,
-                  createdAt: newMsg.createdAt ? new Date(newMsg.createdAt as string) : null,
-                },
-              }
-            : m
-        );
+        const idx = list.findIndex((m) => m.id === matchId);
+        if (idx === -1) return list;
+        const existing = list[idx];
+        if (
+          existing.lastMessage?.content === newMsg.content &&
+          existing.lastMessage?.senderId === newMsg.senderId
+        ) return list;
+        const updated = [...list];
+        updated[idx] = {
+          ...existing,
+          lastMessage: {
+            content: newMsg.content,
+            senderId: newMsg.senderId,
+            createdAt: newMsg.createdAt ? new Date(newMsg.createdAt as string) : null,
+          },
+        };
+        return updated;
       });
     }
   }, [matchId, queryClient]);
