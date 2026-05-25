@@ -4,7 +4,7 @@ import { queryClient, getAuthHeaders, apiRequest, logLatency, parseServerTiming,
 import { QueryClientProvider, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { useAuth } from "@/hooks/use-auth";
+import { useAuth, AuthProvider } from "@/hooks/use-auth";
 import NotFound from "@/pages/not-found";
 import Landing from "@/pages/landing";
 import AppLayout from "@/components/app-layout";
@@ -57,6 +57,17 @@ import { Loader2 } from "lucide-react";
 // Imported from a shared module so landing.tsx and use-auth.ts can also write
 // to it without creating circular dependencies.
 import { writeDebug, pushDebugError } from "@/lib/debug-store";
+
+// ── Hard startup audio guard ──────────────────────────────────────────────────
+// Runs synchronously at module load — before React, before Supabase auth
+// resolves, before any component mounts.  Resets the module-level
+// _ringtoneActive/_ringbackActive flags so that even if they were left true
+// by a previous session crash, no overlay can accidentally start audio.
+// Log "[STARTUP_AUDIO] stopped before auth" confirms this guard ran.
+if (typeof window !== "undefined") {
+  stopAllCallSounds("startup_module_load");
+  console.log("[STARTUP_AUDIO] stopped before auth");
+}
 import { TabActiveContext } from "@/hooks/use-tab-active";
 
 // ── Per-tab error boundary ────────────────────────────────────────────────────
@@ -330,14 +341,15 @@ function CallDetectors({ userId }: { userId: string }) {
   //   Covers sign-out (AppContent unmounts CallDetectors), session expiry, and
   //   any edge case where the overlay never cleaned up _ringtoneActive properly.
   useEffect(() => {
-    // Stop any stale ringtone/ringback before registering — covers refresh-during-
-    // call and HMR re-mount scenarios. Runs before the first /api/matches fetch
-    // completes so no overlay can start audio before this sweep.
-    stopAllNonVoiceCallAudio("before_auth_check");
+    // Hard stop ALL call audio (ringtone, ringback, and voice) before registering
+    // the unlock listeners.  Covers refresh-during-call, HMR re-mount, and any
+    // scenario where _ringtoneActive/_ringbackActive were left true by a crash.
+    // Runs before the first /api/matches fetch completes so no overlay can start
+    // audio before this sweep.
+    stopAllCallSounds("calldetectors_mount");
+    console.log("[STARTUP_AUDIO] stopped before auth", { userId: userId.slice(0, 8) });
     console.log("[CALL_AUDIO_GUARD] stopped audio before auth", { userId: userId.slice(0, 8) });
     console.log("[CALL_BOOT] startup ringtone stopped", { userId: userId.slice(0, 8) });
-    console.log("[CALL_RESET] app startup: all call audio stopped", { userId: userId.slice(0, 8) });
-    console.log("[CALL_STATE_FIX] app startup stop ringtone", { userId: userId.slice(0, 8) });
 
     // Register iOS audio-unlock listeners now that we know the user is authenticated.
     registerCallAudioUnlock();
@@ -1563,15 +1575,17 @@ function App() {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <TooltipProvider>
-        <Toaster />
-        <AppContent />
-        {import.meta.env.DEV && PerfOverlayLazy && (
-          <Suspense fallback={null}>
-            <PerfOverlayLazy />
-          </Suspense>
-        )}
-      </TooltipProvider>
+      <AuthProvider>
+        <TooltipProvider>
+          <Toaster />
+          <AppContent />
+          {import.meta.env.DEV && PerfOverlayLazy && (
+            <Suspense fallback={null}>
+              <PerfOverlayLazy />
+            </Suspense>
+          )}
+        </TooltipProvider>
+      </AuthProvider>
     </QueryClientProvider>
   );
 }

@@ -1,10 +1,44 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, createContext, useContext, createElement } from "react";
+import type { ReactNode } from "react";
 import { supabase } from "@/lib/supabase";
 import { setCachedToken, queryClient } from "@/lib/queryClient";
+import { stopAllCallSounds } from "@/lib/call-audio";
+import { clearAllArmedSessions } from "@/lib/live-call-sessions";
 import { writeDebug } from "@/lib/debug-store";
 import type { User } from "@supabase/supabase-js";
 
-export function useAuth() {
+// ─────────────────────────────────────────────────────────────────────────────
+// AuthContext
+//
+// WHY a Context instead of per-component useState:
+//
+//   useAuth() was previously a hook that created SEPARATE React state for every
+//   component that called it.  AppContent, AppLayout, and ProfilePage each had
+//   their own `user` state.  When logout() called setUser(null) inside
+//   AppLayout's instance, AppContent's instance still held user=validUser and
+//   kept rendering the authenticated app.  AppContent only updated after
+//   supabase.auth.signOut() resolved and onAuthStateChange(SIGNED_OUT) fired —
+//   so the first click appeared to do nothing (the "two clicks" bug).
+//
+//   With a shared AuthContext, there is exactly ONE user state.  setUser(null)
+//   from logout() propagates immediately to all consumers (AppContent, AppLayout,
+//   ProfilePage) in the same React render batch.  First click → Landing page.
+// ─────────────────────────────────────────────────────────────────────────────
+
+type AuthContextType = {
+  user: User | null;
+  isLoading: boolean;
+  isAuthenticated: boolean;
+  logout: () => Promise<void>;
+  isLoggingOut: boolean;
+  profileInitError: null;
+  profileReady: boolean;
+  clearingCache: boolean;
+};
+
+const AuthContext = createContext<AuthContextType | null>(null);
+
+export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [profileReady, setProfileReady] = useState(false);
@@ -34,7 +68,6 @@ export function useAuth() {
         prevUserId,
         userChanged: prevUserId !== newUserId,
       });
-      // Mirror into debug overlay so it's visible on-screen.
       writeDebug({ authEvent: event, currentSessionUserId: newUserId });
 
       // When the authenticated user changes (different account, or sign-out),
@@ -47,26 +80,11 @@ export function useAuth() {
       // finished committing.  Calling queryClient.clear() synchronously inside
       // onAuthStateChange can fire while React is mid-render (updating hook
       // queues), which produces a "Should have a queue" React error.
-      //
-      // clearingCache is set to true BEFORE the setTimeout so AppContent's
-      // profile-exists-check query is disabled during the gap.  Without this
-      // guard, the query starts fetching on the same render that sets the user,
-      // then queryClient.clear() destroys it mid-flight and resets isLoading:true,
-      // causing the spinner to restart from zero (the "endless spinner" bug).
       if (prevUserId !== newUserId) {
         console.log("[AUTH] USER_CHANGED: blocking profile query while cache clears", {
           from: prevUserId ? prevUserId.slice(0, 8) + "…" : "none",
           to:   newUserId  ? newUserId.slice(0, 8)  + "…" : "none",
         });
-        // Two-tick defer — avoids calling setState or queryClient.clear()
-        // synchronously inside onAuthStateChange while React is mid-render
-        // (which causes "Should have a queue" errors).
-        //
-        // Tick 1: setClearingCache(true) disables the profile-exists-check query
-        //         so no fetch can start before the cache is cleared.
-        // Tick 2: After React has committed the disabled state, queryClient.clear()
-        //         is safe (no in-flight query to interrupt), then setClearingCache(false)
-        //         re-enables the query and a fresh, clean fetch begins.
         setTimeout(() => {
           if (mounted) setClearingCache(true);
           setTimeout(() => {
@@ -81,8 +99,6 @@ export function useAuth() {
       setUser(u);
 
       if (session?.access_token) {
-        // Populate the module-level token cache so subsequent API requests
-        // don't need to call getSession() on every fetch.
         setCachedToken(session.access_token, (session as any).expires_at ?? 0);
         console.log("[AUTH] SESSION_RECEIVED", {
           event,
@@ -93,7 +109,6 @@ export function useAuth() {
         setCachedToken(null);
       }
 
-      // Mark auth ready immediately — no extra server round-trip needed here.
       if (mounted) {
         setProfileReady(true);
         setIsLoading(false);
@@ -116,55 +131,58 @@ export function useAuth() {
     if (loggingOutRef.current) return;
     loggingOutRef.current = true;
     setIsLoggingOut(true);
-    console.log("[AUTH_LOGOUT] sign out clicked");
+    console.log("[LOGOUT_FIX] first click received");
 
-    // ── Optimistic logout — update all local state BEFORE awaiting the network ──
-    //
-    // Root cause of the "two clicks required" bug:
-    //   The previous approach called `await supabase.auth.signOut()` first, which
-    //   fires onAuthStateChange(SIGNED_OUT) and queues setUser(null) with React's
-    //   scheduler. However React had not yet COMMITTED that update when the very
-    //   next line (`window.history.replaceState(null, "", "/")`) ran. Wouter
-    //   immediately processed the location change to "/" and re-rendered the
-    //   authenticated app at the Discover route — the Sign Out button reappeared
-    //   in the header, making it look like nothing happened. Second click worked
-    //   because by then React had committed user=null.
-    //
-    // Fix: clear every piece of local auth state synchronously BEFORE the await,
-    //   so the first click immediately shows the Landing page. supabase.signOut()
-    //   then completes in the background for server-side session revocation only.
+    // ── Hard guards: stop audio + clear call arming state FIRST ──────────────
+    // Must run before any React state update so call audio is silenced on the
+    // same synchronous tick as the click.  stopAllCallSounds resets the module-
+    // level _ringtoneActive/_ringbackActive flags and pauses any live elements.
+    // clearAllArmedSessions wipes the live-call-sessions arming Set so no
+    // subsequent re-render can re-mount an overlay or restart audio.
+    stopAllCallSounds("[LOGOUT_FIX] audio stopped on logout");
+    clearAllArmedSessions();
 
     sessionStorage.removeItem("lulou-bypass");
     // Kill the token cache so no in-flight request sneaks through with old creds.
     setCachedToken(null);
-    // Immediately set user to null — AppContent re-renders to Landing on this tick.
-    setUser(null);
-    // Clear the query cache synchronously so no stale data is visible if the
-    // user logs in again in the same tab.
-    queryClient.clear();
-    console.log("[AUTH_LOGOUT] local state cleared");
 
-    // Navigate to root immediately. user is already null so AppContent is
+    // ── KEY FIX: setUser(null) in the SHARED AuthContext ─────────────────────
+    // With the old per-component-hook approach, setUser(null) only updated the
+    // hook instance that called logout().  AppContent's own instance remained
+    // user=validUser until onAuthStateChange fired, so the authenticated app
+    // stayed visible — the "two clicks" root cause.
+    //
+    // Now there is exactly ONE user state (AuthContext).  This single setUser(null)
+    // propagates to ALL consumers (AppContent, AppLayout, ProfilePage) in the
+    // same React render batch.  AppContent renders <Landing /> on first click.
+    setUser(null);
+
+    // Clear the query cache synchronously — no stale data visible if the user
+    // logs in again in the same tab.
+    queryClient.clear();
+    console.log("[LOGOUT_FIX] local state cleared immediately");
+
+    // Navigate to root immediately.  user is already null so AppContent is
     // rendering Landing — replaceState is cosmetic (clean URL bar).
     window.history.replaceState(null, "", "/");
-    console.log("[AUTH_LOGOUT] redirected to login");
+    console.log("[LOGOUT_FIX] redirected immediately");
 
     // Revoke the Supabase session server-side. This also fires
-    // onAuthStateChange(SIGNED_OUT) which will call setUser(null) again
-    // (idempotent) and schedule another queryClient.clear() (no-op on an already-
-    // cleared cache). Errors here are non-fatal — the user is already on Landing.
+    // onAuthStateChange(SIGNED_OUT) which calls setUser(null) again (idempotent)
+    // and schedules another queryClient.clear() (no-op on an already-cleared
+    // cache). Errors here are non-fatal — the user is already on Landing.
     try {
       await supabase.auth.signOut();
       console.log("[AUTH_LOGOUT] supabase signOut complete");
     } catch (err) {
-      console.error("[AUTH_LOGOUT] supabase signOut error (non-fatal, user already logged out)", err);
+      console.error("[AUTH_LOGOUT] supabase signOut error (non-fatal, user already logged out locally)", err);
     }
 
     loggingOutRef.current = false;
     setIsLoggingOut(false);
   }, []);
 
-  return {
+  const value: AuthContextType = {
     user,
     isLoading,
     isAuthenticated: !!user,
@@ -174,4 +192,12 @@ export function useAuth() {
     profileReady,
     clearingCache,
   };
+
+  return createElement(AuthContext.Provider, { value }, children);
+}
+
+export function useAuth(): AuthContextType {
+  const ctx = useContext(AuthContext);
+  if (!ctx) throw new Error("[useAuth] must be used inside <AuthProvider>");
+  return ctx;
 }
