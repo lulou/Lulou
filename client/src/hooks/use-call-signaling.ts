@@ -190,15 +190,14 @@ export function useCallSignaling(matchIds: string[], userId: string) {
             signal: event.type,
             note: "end signal received — queries NOT invalidated, chat history intact",
           });
-        } else if (event.type !== "call:ring") {
-          // call:ring is handled exclusively by the optimistic cache patch above.
-          // Firing invalidateQueries immediately after the patch races with the DB
-          // write (the broadcast arrives at the application layer before the DB
-          // commit is readable) — the refetch returns callStartedAt: null and
-          // overwrites the patch, causing the overlay to flicker off then on again
-          // when the rering arrives 2 seconds later.
-          // exact:true on the list query prevents cascading to all detail queries
-          // (which would cause open chat areas to refetch unnecessarily).
+        } else if (event.type !== "call:ring" && event.type !== "call:answered") {
+          // call:ring  — handled exclusively by the optimistic cache patch above.
+          // call:answered — also handled by setQueriesData above; firing
+          //   invalidateQueries immediately after the patch races with the DB
+          //   write (broadcast arrives before the row is readable by PostgREST)
+          //   causing callAnswered to briefly snap back to false and flicker the
+          //   caller from "answered" back to "ringing" until the next poll.
+          //   The 10 s poll confirms server state without the race condition.
           queryClient.invalidateQueries({ queryKey: ["/api/matches"], exact: true });
           queryClient.invalidateQueries({ queryKey: ["/api/matches", matchId] });
         }

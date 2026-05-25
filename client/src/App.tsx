@@ -315,7 +315,7 @@ function CallDetectors({ userId }: { userId: string }) {
     // network response cannot overwrite the optimistic incoming-call patch
     // before the DB write is visible to PostgREST (Realtime broadcast arrives
     // before the DB row is readable). Polling resumes when the call ends.
-    refetchInterval: () => hasRingRef.current ? false : 5000,
+    refetchInterval: () => hasRingRef.current ? false : 10000,
   });
 
   // Reference-stable match IDs: only creates a new array when the set of IDs
@@ -335,7 +335,8 @@ function CallDetectors({ userId }: { userId: string }) {
   useCallSignaling(matchIds, userId);
 
   const rerMatch = useMemo(() => matches?.find(m =>
-    !!(m.callStartedAt && m.callSessionId && !m.callAnswered && !m.callCompleted && m.callInitiatorId === userId)
+    !!(m.callStartedAt && m.callSessionId && !m.callAnswered && !m.callCompleted && m.callInitiatorId === userId) &&
+    new Date(m.callStartedAt!).getTime() >= APP_LOAD_TIME
   ), [matches, userId]);
   const rerMatchId = rerMatch?.id;
   const rerSessionId = rerMatch?.callSessionId;

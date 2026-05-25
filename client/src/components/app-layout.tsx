@@ -109,18 +109,16 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     refetchInterval: isTabActive ? 30000 : false,
   });
 
-  // [PERF_FIX] No refetchInterval here — CallDetectors in App.tsx already polls
-  // /api/matches every 5 s and updates the shared TanStack Query cache.  Adding
-  // a second 30 s observer just added a redundant network round-trip and caused
-  // AppLayout (including the nav bar) to re-render every 30 s for no benefit.
-  const { data: matchesData } = useQuery<MatchItem[]>({
+  // [PERF_FIX] Use `select` so AppLayout only re-renders when the badge COUNT
+  // changes — not every 5 s when any match's lastMessage or callStartedAt
+  // changes. Without `select`, subscribing to the full array meant the entire
+  // nav bar re-rendered on every poll even when no badge value changed.
+  const { data: newConnectionsCount = 0 } = useQuery<MatchItem[], Error, number>({
     queryKey: ["/api/matches"],
+    select: (data) => data.filter(m => !m.lastMessage).length,
   });
 
   const likesCount = likes?.length ?? 0;
-
-  // New connections = matches with no messages yet
-  const newConnectionsCount = (matchesData ?? []).filter(m => !m.lastMessage).length;
 
   // Track how many new connections the user has acknowledged (persisted across refresh)
   const [seenConnectionsCount, setSeenConnectionsCount] = useState<number>(() => {
