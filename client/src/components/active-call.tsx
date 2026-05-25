@@ -122,6 +122,10 @@ export function ActiveCallOverlay({
   const queryClient = useQueryClient();
   const endedRef = useRef(false);
   const [speakerOn, setSpeakerOn] = useState(false);
+  // Ref so the connectionState effect can read the current speaker toggle without
+  // adding speakerOn to its deps array (which would re-run the whole effect on every toggle).
+  const speakerOnRef = useRef(false);
+  useEffect(() => { speakerOnRef.current = speakerOn; }, [speakerOn]);
   const [timerExpiredMsg, setTimerExpiredMsg] = useState("");
   // Track exactly when WebRTC first reached "connected" so we can measure live duration
   const connectedAtRef = useRef<number | null>(null);
@@ -361,14 +365,55 @@ export function ActiveCallOverlay({
     });
   }, [matchId, callSessionId]);
 
+  // ── Native iOS: early AVAudioSession configure — BEFORE getUserMedia() ────────
+  //
+  // WHY HERE and not in the connectionState==="connected" branch below:
+  //
+  //   iOS hardware AEC (Acoustic Echo Cancellation) only engages when AVAudioSession
+  //   is in .voiceChat mode BEFORE getUserMedia() opens the microphone.  If the
+  //   session is configured after the mic is already open (as happens at "connected",
+  //   which fires after ICE negotiation completes), the AEC reference path is set up
+  //   with the wrong audio category and the hardware suppressor never activates.
+  //   Result without this fix: the open mic captures the remote voice playing from
+  //   the iPhone speaker, the remote peer hears their own voice looped back, the
+  //   gain builds, and both parties hear screeching/beeping without headphones.
+  //
+  //   webrtcEnabled = !isRinging, which transitions to true the moment the call is
+  //   answered — BEFORE useWebRTC() calls getUserMedia().  Configuring the session
+  //   here gives iOS time to route the audio hardware (earpiece + AEC) before any
+  //   microphone audio is captured.
+  //
+  //   The second configure() call below (on "connected") is kept as a safety net
+  //   in case iOS resets the session during ICE setup, and it also syncs the
+  //   speaker toggle state (speakerOnRef) after the session is active.
+  //
+  // Web / Android: configureVoiceChat() is a no-op (getPlugin() returns null),
+  // so this effect is harmless on non-iOS platforms.
+  useEffect(() => {
+    if (!webrtcEnabled) return;
+    configureVoiceChat();
+    console.log("[NATIVE_AUDIO] early configureVoiceChat — before getUserMedia", { matchId, isVideo });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [webrtcEnabled]);
+
   useEffect(() => {
     if (!webrtcEnabled) return;
     console.log("[WebRTC] CONNECTION_STATE_CHANGED", { matchId, connectionState, isCaller, isVideo });
     console.log("[CALL_DEBUG] STATE", { matchId, connectionState, isCaller, isVideo, ts: new Date().toISOString().slice(11, 23) });
     if (connectionState === "connected") {
-      // Native iOS: configure AVAudioSession for voice call (earpiece default +
-      // hardware AEC). No-op on web — safe to call unconditionally.
-      configureVoiceChat();
+      // Native iOS: safety-net configure on "connected".
+      // The early configure (above) fires before getUserMedia() for proper AEC
+      // setup.  This second call re-applies .voiceChat in case iOS reset the
+      // session during ICE negotiation, and re-syncs the speaker toggle state
+      // (speakerOnRef) so overrideOutputAudioPort matches the current button.
+      // No-op on web — safe to call unconditionally.
+      configureVoiceChat().then(() => {
+        setSpeaker(speakerOnRef.current);
+        console.log("[NATIVE_AUDIO] post-connect configure + speaker sync", {
+          speakerOn: speakerOnRef.current,
+          matchId,
+        });
+      });
       // Definitive cutover from ringing → voice-only mode.
       // stopAllNonVoiceCallAudio stops ONLY ringtone/ringback — it does NOT
       // pause the registered remote-voice element, which is important on
