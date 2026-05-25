@@ -523,8 +523,6 @@ export class SupabaseStorage implements IStorage {
   }
 
   async getDiscoverProfiles(userId: string, gender: string, preference: string, ageMin: number = 18, ageMax: number = 99): Promise<Profile[]> {
-    const isDev = process.env.NODE_ENV === "development";
-
     // Select all columns EXCEPT photos — base64 images in photos make rows huge (100s KB each).
     // Fetching photos for 100 profiles at once transfers 50–100 MB and causes a statement timeout.
     // Photos are fetched individually per-card by the client via GET /api/profiles/:userId.
@@ -536,12 +534,25 @@ export class SupabaseStorage implements IStorage {
       "email", "phone_number", "photo_verified", "onboarding_complete", "created_at",
     ].join(", ");
 
+    // Age range — always enforced regardless of environment.
+    // NOTE: the previous code had `if (!isDev && hasNarrowAgeRange)` which silently
+    // disabled the age filter whenever NODE_ENV === "development" (i.e. Replit).
+    // That caused out-of-range profiles (e.g. age 25 when min is 29) to leak through
+    // on every environment except a production deploy.  The guard is removed: the age
+    // filter must always apply so that the saved preference is actually respected.
+    const effectiveAgeMin = Math.max(18, ageMin);
+    const effectiveAgeMax = Math.min(99, ageMax);
+    console.log("[DISCOVERY_AGE_FILTER]", { minAge: effectiveAgeMin, maxAge: effectiveAgeMax, userId: userId.slice(0, 8) });
+
     // Base query: exclude own profile, require onboarding complete
     let profilesQuery = this.sb
       .from("profiles")
       .select(POOL_COLS)
       .neq("user_id", userId)
-      .eq("onboarding_complete", true);
+      .eq("onboarding_complete", true)
+      // Age filter applied at DB level — always, not just in production.
+      .gte("age", effectiveAgeMin)
+      .lte("age", effectiveAgeMax);
 
     // ── Mutual-compatibility filters ────────────────────────────────────────
     // Both conditions must hold:
@@ -563,15 +574,6 @@ export class SupabaseStorage implements IStorage {
     const candidateMustPrefer = getPreferencesThatIncludeGender(normGender);
     if (candidateMustPrefer.length > 0) {
       profilesQuery = profilesQuery.in("dating_preference", candidateMustPrefer);
-    }
-
-    // Age filter: only apply when the user has explicitly narrowed the range.
-    // Use very wide defaults (18-99) so new users with no preference set see everyone.
-    const effectiveAgeMin = Math.max(18, ageMin);
-    const effectiveAgeMax = Math.min(99, ageMax);
-    const hasNarrowAgeRange = effectiveAgeMin > 18 || effectiveAgeMax < 99;
-    if (!isDev && hasNarrowAgeRange) {
-      profilesQuery = profilesQuery.gte("age", effectiveAgeMin).lte("age", effectiveAgeMax);
     }
 
     if (IS_DEV) console.log("[DISCOVER] mutual-compat filters:", {
@@ -617,11 +619,38 @@ export class SupabaseStorage implements IStorage {
 
     const now = new Date();
     const all = (profilesResult.data || []).map(mapProfile);
+
+    // ── In-memory age verification pass ─────────────────────────────────────
+    // The DB query already applies .gte("age", effectiveAgeMin).lte("age", effectiveAgeMax).
+    // This second pass catches any profiles where the `age` column is NULL or
+    // inconsistent (e.g. onboarded before the column was populated) and logs each
+    // exclusion so age-filter issues are immediately visible in server logs.
+    const ageVerified = all.filter(p => {
+      const candidateAge = p.age;
+      console.log("[DISCOVERY_AGE_FILTER]", {
+        candidateAge,
+        firstName: p.firstName,
+        minAge: effectiveAgeMin,
+        maxAge: effectiveAgeMax,
+        candidateId: p.userId.slice(0, 8),
+      });
+      if (candidateAge == null || candidateAge < effectiveAgeMin || candidateAge > effectiveAgeMax) {
+        console.log("[DISCOVERY_AGE_FILTER] excluded age out of range", {
+          candidateAge,
+          firstName: p.firstName,
+          minAge: effectiveAgeMin,
+          maxAge: effectiveAgeMax,
+        });
+        return false;
+      }
+      return true;
+    });
+
     // DB-exclusion path: returned profiles are already excluded — no second filter needed.
     // Large-exclusion fallback: apply in-memory exclusion on the wider 500-profile batch.
     const baseFiltered = useDbExclusion
-      ? all
-      : all.filter(p => {
+      ? ageVerified
+      : ageVerified.filter(p => {
           if (!excludedIds.has(p.userId)) return true;
           if (IS_DEV && activeMatchUserIds.has(p.userId)) {
             console.log("[DISCOVERY_FILTER] excluded matched profile:", p.userId, p.firstName);
@@ -636,6 +665,7 @@ export class SupabaseStorage implements IStorage {
       const elevCount  = filtered.filter(p => p.elevateType === "elevate" && p.elevateExpiresAt && p.elevateExpiresAt > now).length;
       console.log(
         "[DISCOVER] DB pool:", all.length,
+        "| after age verify:", ageVerified.length,
         "| after exclusion:", baseFiltered.length,
         "| after elevate merge:", filtered.length,
         "| super:", superCount, "elevate:", elevCount,
@@ -656,6 +686,9 @@ export class SupabaseStorage implements IStorage {
         .select(POOL_COLS)
         .neq("user_id", userId)
         .eq("onboarding_complete", true)
+        // Age filter applied in fallback too — same range as primary query.
+        .gte("age", effectiveAgeMin)
+        .lte("age", effectiveAgeMax)
         .limit(100);
 
       if (targetGenders && targetGenders.length > 0) {
@@ -666,6 +699,16 @@ export class SupabaseStorage implements IStorage {
       if (!fallbackErr && fallbackData && fallbackData.length > 0) {
         const fallbackAll = fallbackData.map(mapProfile);
         const fallbackFiltered = fallbackAll.filter(p => {
+          // In-memory age guard for fallback path too.
+          if (p.age == null || p.age < effectiveAgeMin || p.age > effectiveAgeMax) {
+            console.log("[DISCOVERY_AGE_FILTER] excluded age out of range (fallback)", {
+              candidateAge: p.age,
+              firstName: p.firstName,
+              minAge: effectiveAgeMin,
+              maxAge: effectiveAgeMax,
+            });
+            return false;
+          }
           if (excludedIds.has(p.userId)) {
             if (IS_DEV && activeMatchUserIds.has(p.userId)) {
               console.log("[DISCOVERY_FILTER] excluded matched profile (fallback):", p.userId, p.firstName);
