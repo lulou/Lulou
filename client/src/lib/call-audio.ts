@@ -247,8 +247,16 @@ function _warmElements(): void {
 // iOS requires play() to be called in a gesture context to authorise the
 // element. We listen for the first touchstart/click in CAPTURE phase (before
 // any React onClick handler can silence the ring) and warm both elements.
+//
+// IMPORTANT: listeners are NOT registered at module load time. They are only
+// registered when the user is authenticated (CallDetectors mount calls
+// registerCallAudioUnlock). This prevents the warm-up play() from firing on
+// the Landing page, which could produce an OS-level audio artifact or — if
+// _ringtoneActive is somehow true from a stale/crashed session — a full
+// audible ringtone for a logged-out user.
 
 let _audioUnlocked = false;
+let _unlockListenersRegistered = false;
 const _unlockCallbacks: Array<() => void> = [];
 
 function _doUnlock(): void {
@@ -256,6 +264,7 @@ function _doUnlock(): void {
   _audioUnlocked = true;
   document.removeEventListener("touchstart", _doUnlock, true);
   document.removeEventListener("click",      _doUnlock, true);
+  _unlockListenersRegistered = false;
 
   // Warm the singleton ring elements — this is the critical iOS fix.
   _warmElements();
@@ -266,9 +275,34 @@ function _doUnlock(): void {
   _unlockCallbacks.length = 0;
 }
 
-if (typeof window !== "undefined") {
+/**
+ * Register the audio-unlock gesture listeners.
+ * Must be called from CallDetectors (authenticated context only).
+ * Calling before auth resolves would let the warm-up play() fire on the
+ * Landing page, which can produce a brief audible tone on some systems.
+ */
+export function registerCallAudioUnlock(): void {
+  if (_audioUnlocked || _unlockListenersRegistered) return;
+  if (typeof window === "undefined") return;
+  _unlockListenersRegistered = true;
   document.addEventListener("touchstart", _doUnlock, { capture: true, passive: true });
   document.addEventListener("click",      _doUnlock, { capture: true, passive: true });
+  console.log("[CALL_AUDIO_GUARD] audio unlock listeners registered (user authenticated)");
+}
+
+/**
+ * Unregister the audio-unlock listeners.
+ * Called from CallDetectors cleanup (user logged out or component unmounted).
+ */
+export function unregisterCallAudioUnlock(): void {
+  if (!_unlockListenersRegistered) return;
+  if (typeof window === "undefined") return;
+  _unlockListenersRegistered = false;
+  document.removeEventListener("touchstart", _doUnlock, true);
+  document.removeEventListener("click",      _doUnlock, true);
+  // Reset the unlocked flag so the next login session gets a fresh warm-up.
+  _audioUnlocked = false;
+  console.log("[CALL_AUDIO_GUARD] audio unlock listeners unregistered (user logged out)");
 }
 
 /** Whether the browser's autoplay gate has been lifted by a user gesture. */
@@ -305,6 +339,12 @@ export function onAudioUnlocked(cb: () => void): () => void {
 export function startIncomingRingtone(): void {
   try {
     if (typeof window === "undefined") return;
+    // Safety guard: if the audio unlock listeners were never registered, the user
+    // is not authenticated. Block the ringtone and log for diagnostics.
+    if (!_unlockListenersRegistered && !_audioUnlocked) {
+      console.log("[CALL_AUDIO_GUARD] blocked call audio because user is logged out");
+      return;
+    }
     const el = _ensureRingtoneEl();
     if (!el) { console.warn("[CALL_RINGTONE] ringtone element unavailable"); return; }
 
@@ -357,6 +397,11 @@ export function stopIncomingRingtone(reason: string): void {
 export function startOutgoingRingback(): void {
   try {
     if (typeof window === "undefined") return;
+    // Safety guard: same auth check as startIncomingRingtone.
+    if (!_unlockListenersRegistered && !_audioUnlocked) {
+      console.log("[CALL_AUDIO_GUARD] blocked call audio because user is logged out");
+      return;
+    }
     const el = _ensureRingbackEl();
     if (!el) return;
 

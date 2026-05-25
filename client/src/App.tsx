@@ -47,7 +47,7 @@ if (typeof window !== "undefined") {
   }
 }
 import { useCallSignaling, setCallEndedHandler, setCallRingHandler, clearDedupeForMatch } from "@/hooks/use-call-signaling";
-import { stopAllNonVoiceCallAudio } from "@/lib/call-audio";
+import { stopAllNonVoiceCallAudio, stopAllCallSounds, registerCallAudioUnlock, unregisterCallAudioUnlock } from "@/lib/call-audio";
 import { markCallSessionCancelled, markStartupCancelledSession, isCallSessionCancelled, clearCancelledSession, setOnCancelledSessionChange } from "@/lib/cancelled-calls";
 import type { Profile, Match } from "@shared/schema";
 import { Loader2 } from "lucide-react";
@@ -282,17 +282,42 @@ function CallDetectors({ userId }: { userId: string }) {
   // receiver-role call until the receiver explicitly presses Answer on this device.
   const [locallyAnsweredKey, setLocallyAnsweredKey] = useState<string | null>(null);
 
-  // Immediately silence any ringtone that might have survived (impossible on a
-  // cold start, but belt-and-suspenders in case of fast HMR or component re-mount).
+  // On mount: silence any stale audio, then register the iOS audio-unlock
+  // listeners so the first user gesture warms the singleton ring elements.
+  //
+  // WHY registerCallAudioUnlock() is called HERE (not at module load time):
+  //   call-audio.ts previously registered click/touchstart at module load, which
+  //   meant the warm-up play() could fire on the Landing page for logged-out users.
+  //   On some systems, play() — even with muted=true — produces a brief OS-level
+  //   audio artifact. Worse: if _ringtoneActive=true survived an overlay crash,
+  //   the warm-up would start the ringtone audibly for a user who is not even
+  //   logged in. Registering here ensures the listeners only exist while
+  //   CallDetectors is mounted (i.e., user is authenticated and a call is possible).
+  //
+  // On unmount: unregister listeners + stop all audio.
+  //   Covers sign-out (AppContent unmounts CallDetectors), session expiry, and
+  //   any edge case where the overlay never cleaned up _ringtoneActive properly.
   useEffect(() => {
-    // Stop both ringtone and ringback — covers refresh-during-call (caller side)
-    // as well as the stale-DB incoming call case on the receiver side.
-    // Clear all ringtone/ringback audio state at startup — prevents stale audio
-    // from a previous session playing on refresh or HMR re-mount.
-    stopAllNonVoiceCallAudio("app_startup");
+    // Stop any stale ringtone/ringback before registering — covers refresh-during-
+    // call and HMR re-mount scenarios. Runs before the first /api/matches fetch
+    // completes so no overlay can start audio before this sweep.
+    stopAllNonVoiceCallAudio("before_auth_check");
+    console.log("[CALL_AUDIO_GUARD] stopped audio before auth", { userId: userId.slice(0, 8) });
     console.log("[CALL_BOOT] startup ringtone stopped", { userId: userId.slice(0, 8) });
     console.log("[CALL_RESET] app startup: all call audio stopped", { userId: userId.slice(0, 8) });
     console.log("[CALL_STATE_FIX] app startup stop ringtone", { userId: userId.slice(0, 8) });
+
+    // Register iOS audio-unlock listeners now that we know the user is authenticated.
+    registerCallAudioUnlock();
+
+    return () => {
+      // Sign-out / unmount: unregister listeners and kill any in-flight audio.
+      // This is the last line of defence if useCallRingtone's cleanup missed a stop.
+      unregisterCallAudioUnlock();
+      stopAllCallSounds("call_detectors_unmount");
+      console.log("[CALL_AUDIO_GUARD] cleared stale call timers on logout", { userId: userId.slice(0, 8) });
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Register ring-state handler: pauses polling while ring is active (Bug 2 fix).
@@ -1040,6 +1065,21 @@ function AppContent() {
   const profileExists = data?.exists ?? false;
   // fetchFailed is true only after all retries are exhausted (isError=true).
   const fetchFailed = profileError;
+
+  // ── Call-audio guard for logged-out state ────────────────────────────────────
+  // Whenever user becomes null (sign-out, session expiry, or auth error), stop
+  // all call audio immediately. This covers the edge case where an overlay crash
+  // left _ringtoneActive=true in the module-level state — without this, the next
+  // user gesture on the Landing page would trigger _warmElements() which would
+  // start the ringtone audibly (warm-up skips muted=true when _ringtoneActive=true).
+  // CallDetectors also stops audio on unmount, but this effect adds belt-and-suspenders
+  // coverage for any rendering path that doesn't go through CallDetectors.
+  useEffect(() => {
+    if (!user) {
+      stopAllCallSounds("no_auth_user_null");
+      console.log("[CALL_AUDIO_GUARD] blocked call audio because user is logged out");
+    }
+  }, [user]);
 
   // ── Early parallel prefetch ──────────────────────────────────────────────────
   // Fire these queries the instant auth resolves — before PersistentTabs mounts —
