@@ -143,32 +143,52 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="flex flex-col w-full bg-background" style={isChatRoom ? { position: "fixed", inset: "0" } : { height: "100dvh" }}>
-      {!isChatRoom && (
-        <header className="flex items-center justify-between gap-4 px-5 py-3 border-b bg-background/80 backdrop-blur-md z-30 flex-wrap">
-          <Link href="/discover">
-            <div className="flex items-center gap-2 cursor-pointer">
-              <LulouFlowerIcon className="w-6 h-6 text-primary" />
-              <span className="font-serif text-lg font-semibold tracking-tight" data-testid="text-app-logo">Lulou</span>
-            </div>
-          </Link>
-          <button
-            onClick={() => logout()}
-            disabled={isLoggingOut}
-            className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-destructive transition-colors px-2 py-1.5 rounded-md"
-            data-testid="button-header-logout"
-          >
-            <LogOut className="w-4 h-4" />
-            <span className="hidden sm:inline">Sign Out</span>
-          </button>
-        </header>
-      )}
+      <header
+        className="flex items-center justify-between gap-4 px-5 py-3 border-b bg-background/80 backdrop-blur-md z-30 flex-wrap"
+        aria-hidden={isChatRoom}
+        style={{
+          overflow: "hidden",
+          maxHeight: isChatRoom ? 0 : "80px",
+          opacity: isChatRoom ? 0 : 1,
+          borderBottomWidth: isChatRoom ? 0 : undefined,
+          transition: "max-height 0.13s ease, opacity 0.1s ease",
+          pointerEvents: isChatRoom ? "none" : "auto",
+        }}
+      >
+        <Link href="/discover">
+          <div className="flex items-center gap-2 cursor-pointer">
+            <LulouFlowerIcon className="w-6 h-6 text-primary" />
+            <span className="font-serif text-lg font-semibold tracking-tight" data-testid="text-app-logo">Lulou</span>
+          </div>
+        </Link>
+        <button
+          onClick={() => logout()}
+          disabled={isLoggingOut}
+          className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-destructive transition-colors px-2 py-1.5 rounded-md"
+          data-testid="button-header-logout"
+        >
+          <LogOut className="w-4 h-4" />
+          <span className="hidden sm:inline">Sign Out</span>
+        </button>
+      </header>
 
       <main className="flex-1 overflow-hidden flex flex-col">
         {children}
       </main>
 
-      {!isChatRoom && (
-      <nav className="border-t bg-background/95 backdrop-blur-md z-30" style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}>
+      <nav
+        className="border-t bg-background/95 backdrop-blur-md z-30"
+        aria-hidden={isChatRoom}
+        style={{
+          overflow: "hidden",
+          maxHeight: isChatRoom ? 0 : "80px",
+          opacity: isChatRoom ? 0 : 1,
+          borderTopWidth: isChatRoom ? 0 : undefined,
+          transition: "max-height 0.13s ease, opacity 0.1s ease",
+          pointerEvents: isChatRoom ? "none" : "auto",
+          paddingBottom: isChatRoom ? 0 : "env(safe-area-inset-bottom, 0px)",
+        }}
+      >
         <div className="flex items-center justify-around py-2">
           {navItems.map(item => {
             const isActive = location.startsWith(item.path);
@@ -208,7 +228,6 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           })}
         </div>
       </nav>
-      )}
     </div>
   );
 }

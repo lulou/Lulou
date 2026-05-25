@@ -100,6 +100,7 @@ export default function IntentPage() {
 
   const { data: profiles, isLoading, isError, refetch: refetchProfiles } = useQuery<Profile[]>({
     queryKey: ["/api/popular"],
+    placeholderData: (prev) => prev,
   });
 
   const [intentLoadingTooLong, setIntentLoadingTooLong] = useState(false);

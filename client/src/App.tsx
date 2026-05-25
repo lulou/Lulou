@@ -1047,6 +1047,8 @@ function AppContent() {
     queryClient.prefetchQuery({ queryKey: ["/api/who-liked-you"] });
     queryClient.prefetchQuery({ queryKey: ["/api/spin-requests"] });
     queryClient.prefetchQuery({ queryKey: ["/api/elevate/status"] });
+    queryClient.prefetchQuery({ queryKey: ["/api/popular"] });
+    queryClient.prefetchQuery({ queryKey: ["/api/spin-status"] });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id, profileReady, clearingCache]);
 
@@ -1394,10 +1396,6 @@ function AppContent() {
       <Onboarding existingProfile={null} userEmail={user?.email ?? ""} />
     );
   }
-
-  console.log("[SETUP] FINAL_APP_GATE: render_main_app", {
-    userId: user.id, profileExists, fetchFailed, forceProceed,
-  });
 
   return (
     <Switch>
