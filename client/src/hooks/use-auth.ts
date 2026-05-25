@@ -117,27 +117,49 @@ export function useAuth() {
     loggingOutRef.current = true;
     setIsLoggingOut(true);
     console.log("[AUTH_LOGOUT] sign out clicked");
-    // Clear the bypass flag so the next login starts from scratch.
-    sessionStorage.removeItem("lulou-bypass");
-    // Clear the cached token immediately so no in-flight request can sneak
-    // through with the old credentials after sign-out is initiated.
-    setCachedToken(null);
-    // signOut() clears the Supabase session and fires onAuthStateChange(SIGNED_OUT).
-    // That handler detects the userId change (A → null), clears the React Query
-    // cache, sets user = null — which causes AppContent to re-render the Landing
-    // page immediately without a browser reload.
+
+    // ── Optimistic logout — update all local state BEFORE awaiting the network ──
     //
-    // IMPORTANT: replaceState is called AFTER signOut(), not before.
-    // Previously it was called first which caused wouter to navigate to "/" and
-    // switch the active tab to Discover BEFORE the sign-out completed, making
-    // the first click appear to do nothing (the profile tab disappeared, the
-    // Discover tab appeared, and the user clicked Sign Out a second time).
-    await supabase.auth.signOut();
-    // Clean up URL to "/" only after sign-out is complete so the browser bar
-    // shows a clean root path. At this point user is null and AppContent is
-    // rendering Landing — the replaceState is cosmetic only.
+    // Root cause of the "two clicks required" bug:
+    //   The previous approach called `await supabase.auth.signOut()` first, which
+    //   fires onAuthStateChange(SIGNED_OUT) and queues setUser(null) with React's
+    //   scheduler. However React had not yet COMMITTED that update when the very
+    //   next line (`window.history.replaceState(null, "", "/")`) ran. Wouter
+    //   immediately processed the location change to "/" and re-rendered the
+    //   authenticated app at the Discover route — the Sign Out button reappeared
+    //   in the header, making it look like nothing happened. Second click worked
+    //   because by then React had committed user=null.
+    //
+    // Fix: clear every piece of local auth state synchronously BEFORE the await,
+    //   so the first click immediately shows the Landing page. supabase.signOut()
+    //   then completes in the background for server-side session revocation only.
+
+    sessionStorage.removeItem("lulou-bypass");
+    // Kill the token cache so no in-flight request sneaks through with old creds.
+    setCachedToken(null);
+    // Immediately set user to null — AppContent re-renders to Landing on this tick.
+    setUser(null);
+    // Clear the query cache synchronously so no stale data is visible if the
+    // user logs in again in the same tab.
+    queryClient.clear();
+    console.log("[AUTH_LOGOUT] local state cleared");
+
+    // Navigate to root immediately. user is already null so AppContent is
+    // rendering Landing — replaceState is cosmetic (clean URL bar).
     window.history.replaceState(null, "", "/");
-    console.log("[AUTH_LOGOUT] sign out complete");
+    console.log("[AUTH_LOGOUT] redirected to login");
+
+    // Revoke the Supabase session server-side. This also fires
+    // onAuthStateChange(SIGNED_OUT) which will call setUser(null) again
+    // (idempotent) and schedule another queryClient.clear() (no-op on an already-
+    // cleared cache). Errors here are non-fatal — the user is already on Landing.
+    try {
+      await supabase.auth.signOut();
+      console.log("[AUTH_LOGOUT] supabase signOut complete");
+    } catch (err) {
+      console.error("[AUTH_LOGOUT] supabase signOut error (non-fatal, user already logged out)", err);
+    }
+
     loggingOutRef.current = false;
     setIsLoggingOut(false);
   }, []);

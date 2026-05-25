@@ -109,7 +109,7 @@ const DATING_TIPS = [
 ];
 
 export default function ProfilePage() {
-  const { user, logout } = useAuth();
+  const { user, logout, isLoggingOut } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [expandedSection, setExpandedSection] = useState<string | null>(null);
