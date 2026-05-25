@@ -286,8 +286,21 @@ export default function ProfilePage() {
     mutationFn: async (data: Record<string, unknown>) => {
       return upsertProfile(data);
     },
-    onSuccess: () => {
+    onSuccess: (_result, variables) => {
       queryClient.invalidateQueries({ queryKey: ["/api/profile"] });
+      // If age or radius prefs changed, the discover pool must be refetched so
+      // the new filter takes effect immediately.  The server already clears its
+      // in-process discover-meta cache on every POST /api/profile; this
+      // invalidation clears the matching TanStack Query client cache so Discover
+      // re-runs its query on the next render cycle instead of waiting for the
+      // natural stale-time expiry.
+      if (
+        "preferredAgeMin" in variables ||
+        "preferredAgeMax" in variables ||
+        "locationRadius" in variables
+      ) {
+        queryClient.invalidateQueries({ queryKey: ["/api/discover"] });
+      }
     },
     onError: (err: any) => {
       const msg = cleanErrorMessage(err);
