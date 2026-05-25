@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { supabase } from "@/lib/supabase";
 import { queryClient } from "@/lib/queryClient";
 import { markCallSessionCancelled, isCallSessionCancelled, isStartupCancelledOnly, clearStartupCancelledSession } from "@/lib/cancelled-calls";
+import { armCallSession } from "@/lib/live-call-sessions";
 
 type CallSignalEvent =
   | { type: "call:ring"; matchId: string; callerId: string; callerName: string; callSessionId?: string }
@@ -102,7 +103,11 @@ export function useCallSignaling(matchIds: string[], userId: string) {
           if (isCallSessionCancelled(matchId, ringSessionId)) {
             console.log("[CALL_SIGNAL] STALE_RING_BLOCKED", { matchId, callSessionId: ringSessionId, reason: "session_already_cancelled" });
           } else {
-            console.log("[CALL_TIMING] RING_RECEIVED", { matchId, callSessionId: ringSessionId, callerId: ring.callerId, receiverId: userId, ts: new Date().toISOString() });
+            // Arm the session: this is a live Realtime call:ring event, so the
+            // session is confirmed active. Only armed sessions may trigger overlays
+            // or audio — DB-polled data alone cannot arm a session.
+            armCallSession(ringSessionId);
+            console.log("[TIMING] RING_RECEIVED", { matchId, callSessionId: ringSessionId, callerId: ring.callerId, receiverId: userId, ts: new Date().toISOString() });
             console.log("[CALL_SIGNAL] RECEIVER_ASSIGNED", { matchId, callerId: ring.callerId, receiverId: userId });
             // Immediately update the list cache so incoming call UI shows without waiting for a refetch
             queryClient.setQueriesData<any[]>({ queryKey: ["/api/matches"] }, (old) => {
@@ -146,6 +151,11 @@ export function useCallSignaling(matchIds: string[], userId: string) {
         } else if (event.type === "call:answered") {
           const answeredSid = (event as any).callSessionId ?? null;
           console.log("[CALL_SIGNAL] CALL_ANSWERED", { matchId, answeredBy: senderId, callSessionId: answeredSid });
+          // Arm the session on call:answered — belt-and-suspenders for the caller
+          // (receiver was already armed on call:ring). Without this, a caller who
+          // refreshed between ring and answer would not have the session armed and
+          // ActiveCallOverlay would fail to mount.
+          armCallSession(answeredSid);
           // If the startup sweep marked this session as startup-cancelled-only
           // (caller-side), lift the block now so answeredCall can mount the overlay.
           if (isStartupCancelledOnly(matchId, answeredSid)) {

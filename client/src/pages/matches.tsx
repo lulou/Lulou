@@ -1242,6 +1242,15 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
       iCancelledRef.current = false;
       mergeCallFields(queryClient, match.id, m);
       const callSessionId = m?.callSessionId;
+      // Arm the session for the CALLER. Only armed sessions may mount overlays
+      // or play ringback. This prevents a stale DB row from re-triggering audio
+      // if the user navigates to Connections/Matches after this call ends and the
+      // server DB hasn't been cleared yet.
+      if (callSessionId) {
+        // Dynamic import avoids a circular-dependency risk at module load time.
+        import("@/lib/live-call-sessions").then(({ armCallSession: arm }) => arm(callSessionId));
+        console.log("[LIVE_CALL] caller session armed via startCall", { callSessionId: callSessionId.slice(0, 8) });
+      }
       if (callSessionId && user?.id) {
         broadcastCallSignal(match.id, {
           type: "call:ring",

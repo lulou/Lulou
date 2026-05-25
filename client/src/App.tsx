@@ -48,6 +48,7 @@ if (typeof window !== "undefined") {
 }
 import { useCallSignaling, setCallEndedHandler, setCallRingHandler, clearDedupeForMatch } from "@/hooks/use-call-signaling";
 import { stopAllNonVoiceCallAudio, stopAllCallSounds, registerCallAudioUnlock, unregisterCallAudioUnlock } from "@/lib/call-audio";
+import { isArmedSession, armCallSession, disarmCallSession, clearAllArmedSessions, setOnArmChange } from "@/lib/live-call-sessions";
 import { markCallSessionCancelled, markStartupCancelledSession, isCallSessionCancelled, clearCancelledSession, setOnCancelledSessionChange } from "@/lib/cancelled-calls";
 import type { Profile, Match } from "@shared/schema";
 import { Loader2 } from "lucide-react";
@@ -263,6 +264,31 @@ function CallDetectors({ userId }: { userId: string }) {
     setOnCancelledSessionChange(() => setCancelledTick(t => t + 1));
     return () => setOnCancelledSessionChange(null);
   }, []);
+
+  // ── armedTick — React bridge for the live-call-sessions Set ───────────────
+  // Mirrors the cancelledTick pattern above. When armCallSession / disarmCallSession
+  // is called from anywhere (Realtime signal, startCall success, markCallEnded),
+  // armedTick increments and all three call-detection memos re-run immediately
+  // so overlay visibility and audio state stay in sync with the arming state.
+  const [armedTick, setArmedTick] = useState(0);
+  useEffect(() => {
+    setOnArmChange(() => setArmedTick(t => t + 1));
+    return () => setOnArmChange(null);
+  }, []);
+
+  // ── Tab-entry audio stop ───────────────────────────────────────────────────
+  // Opening Connections/Matches (/messages) must NEVER trigger ringtone or
+  // ringback from stale cached data. The isArmedSession guards on the memos
+  // block new overlay mounts, but already-playing audio (from a prior session
+  // whose cleanup was missed) needs to be stopped on every tab entry too.
+  const [location] = useLocation();
+  useEffect(() => {
+    if (location === "/messages" || location.startsWith("/messages/")) {
+      stopAllNonVoiceCallAudio("matches_tab_enter");
+      console.log("[CALL_AUDIO_GUARD] stopped ringtone/ringback on Connections tab entry");
+    }
+  }, [location]);
+
   // hasRingRef: true while an incoming ring is active. Used by refetchInterval
   // to pause the 5-second poll so optimistic call state cannot be overwritten
   // by a network response that lags behind the Realtime broadcast.
@@ -311,10 +337,11 @@ function CallDetectors({ userId }: { userId: string }) {
     registerCallAudioUnlock();
 
     return () => {
-      // Sign-out / unmount: unregister listeners and kill any in-flight audio.
-      // This is the last line of defence if useCallRingtone's cleanup missed a stop.
+      // Sign-out / unmount: unregister listeners, kill all audio, and clear the
+      // live-call-sessions arming set so the next login starts with a clean slate.
       unregisterCallAudioUnlock();
       stopAllCallSounds("call_detectors_unmount");
+      clearAllArmedSessions();
       console.log("[CALL_AUDIO_GUARD] cleared stale call timers on logout", { userId: userId.slice(0, 8) });
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -367,6 +394,13 @@ function CallDetectors({ userId }: { userId: string }) {
   const rerSessionId = rerMatch?.callSessionId;
   useEffect(() => {
     if (!rerMatchId || !rerSessionId) return;
+    // Re-arm the session on the caller side. After a page refresh, the caller's
+    // session was never armed by a Realtime event (callers don't receive their own
+    // call:ring signal). rerMatch already requires callStartedAt >= APP_LOAD_TIME
+    // so this only fires for calls genuinely started in the current browser session.
+    // The callerRingingCall memo's live-session guard requires the session to be
+    // armed, and this effect provides that arming for the post-refresh resume path.
+    armCallSession(rerSessionId);
     const send = () => {
       const ts = new Date().toISOString();
       console.log("[CALL_TIMING] RERING_ATTEMPT", { matchId: rerMatchId, callSessionId: rerSessionId, ts });
@@ -381,6 +415,10 @@ function CallDetectors({ userId }: { userId: string }) {
 
   const markCallEnded = useCallback((matchId: string, callSessionId?: string | null, reason?: string) => {
     console.log("[CALL_SESSION] CALL_SESSION_CLEANUP_REASON", { matchId, callSessionId, reason: reason || "signal_or_hangup" });
+    // Disarm the session immediately so no subsequent DB poll can re-trigger the
+    // overlay or audio for this dead session. clearCallFromCache (below) also
+    // calls markCallSessionCancelled, which is a second line of defence.
+    disarmCallSession(callSessionId);
     // Resume 5 s polling now that the ring/call is over (Bug 2 fix).
     hasRingRef.current = false;
     endedMatchIdsRef.current.set(matchId, callSessionId ?? null);
@@ -607,6 +645,16 @@ function CallDetectors({ userId }: { userId: string }) {
     if (isSelfCall(m)) return false;
     if (isEndedCall(m)) return false;
     if (isStaleCall(m)) return false;
+    // ── Live-session guard ────────────────────────────────────────────────────
+    // Only sessions armed by a genuine Realtime call:ring event may reach this
+    // point. A stale DB row (callStartedAt > APP_LOAD_TIME but call already ended
+    // and server not yet cleared) is blocked here, preventing ringtone from
+    // starting when the user opens Connections/Matches and the poll returns
+    // stale data.
+    if (!isArmedSession(m.callSessionId)) {
+      console.log("[LIVE_CALL] STALE_CALL_BLOCKED incomingCall — not armed by Realtime event", { matchId: m.id, sessionId: m.callSessionId?.slice(0, 8) });
+      return false;
+    }
     // ── Bug 2 fix (part B): cancelledTick in deps ensures this memo re-runs
     // whenever clearStartupCancelledSession() lifts the startup block.
     if (isCallSessionCancelled(m.id, m.callSessionId)) {
@@ -615,7 +663,7 @@ function CallDetectors({ userId }: { userId: string }) {
     }
     const callKey = `${m.id}:${m.callSessionId}`;
     return callKey !== dismissedCallKey;
-  }), [matches, userId, isEndedCall, dismissedCallKey, cancelledTick]);
+  }), [matches, userId, isEndedCall, dismissedCallKey, cancelledTick, armedTick]);
 
   const answeredCall = useMemo(() => matches?.find(m => {
     if (!(m.callStartedAt && m.callSessionId && m.callAnswered === true && m.callCompleted === false &&
@@ -628,12 +676,18 @@ function CallDetectors({ userId }: { userId: string }) {
     if (isSelfCall(m)) return false;
     if (isEndedCall(m)) return false;
     if (isStaleCall(m)) return false;
+    // Live-session guard: same as incomingCall. Prevents ActiveCallOverlay from
+    // mounting (and triggering getUserMedia) from a stale callAnswered=true DB row.
+    if (!isArmedSession(m.callSessionId)) {
+      console.log("[LIVE_CALL] STALE_CALL_BLOCKED answeredCall — not armed by Realtime event", { matchId: m.id, sessionId: m.callSessionId?.slice(0, 8) });
+      return false;
+    }
     if (isCallSessionCancelled(m.id, m.callSessionId)) {
       console.log("[CALL_SESSION] STALE_CALL_SESSION_BLOCKED", { matchId: m.id, callSessionId: m.callSessionId, source: "answered_check" });
       return false;
     }
     return true;
-  }), [matches, userId, isEndedCall, cancelledTick]);
+  }), [matches, userId, isEndedCall, cancelledTick, armedTick]);
 
   const callerRingingCall = useMemo(() => matches?.find(m => {
     if (!(m.callStartedAt && m.callSessionId && !m.callAnswered && !m.callCompleted &&
@@ -647,12 +701,18 @@ function CallDetectors({ userId }: { userId: string }) {
     if (isSelfCall(m)) return false;
     if (isEndedCall(m)) return false;
     if (isStaleCall(m)) return false;
+    // Live-session guard: only sessions armed by startCall() or rering can
+    // mount ActiveCallOverlay with isRinging=true and start ringback audio.
+    if (!isArmedSession(m.callSessionId)) {
+      console.log("[LIVE_CALL] STALE_CALL_BLOCKED callerRingingCall — not armed by startCall or rering", { matchId: m.id, sessionId: m.callSessionId?.slice(0, 8) });
+      return false;
+    }
     if (isCallSessionCancelled(m.id, m.callSessionId)) {
       console.log("[CALL_SESSION] STALE_CALL_SESSION_BLOCKED", { matchId: m.id, callSessionId: m.callSessionId, source: "caller_ringing_check" });
       return false;
     }
     return true;
-  }), [matches, userId, isEndedCall, cancelledTick]);
+  }), [matches, userId, isEndedCall, cancelledTick, armedTick]);
 
   const activeCall = answeredCall || callerRingingCall;
 
@@ -857,6 +917,7 @@ function CallDetectors({ userId }: { userId: string }) {
           m.callInitiatorId !== userId &&   // current user is receiver
           m.callAnswered !== true &&        // receiver has not answered yet
           !!m.callSessionId &&
+          isArmedSession(m.callSessionId) &&              // MUST be armed by live Realtime call:ring
           !isCallSessionCancelled(m.id, m.callSessionId) &&  // skip declined/cancelled
           !isEndedCall(m) &&                                  // skip locally-ended calls
           !isStaleCall(m)                                     // skip >90 s unanswered calls
