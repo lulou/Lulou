@@ -284,16 +284,22 @@ export default function ProfilePage() {
 
   const updateProfileField = useMutation({
     mutationFn: async (data: Record<string, unknown>) => {
-      return upsertProfile(data);
+      // MUST go through the Express route — NOT direct Supabase upsert.
+      //
+      // upsertProfile() bypasses the Express POST /api/profile handler, so the
+      // server-side _userDiscoverMeta cache (10-min TTL) is never busted.
+      // When the user saves a new age range, the next /api/discover call would
+      // read the stale cached ageMin/ageMax and pass them to getDiscoverProfiles,
+      // so out-of-range profiles kept appearing even though the DB was updated and
+      // the client query cache was invalidated.
+      //
+      // Going through the Express route ensures _userDiscoverMeta.delete(userId)
+      // runs on the server before the client re-fetches /api/discover.
+      return apiRequest("POST", "/api/profile", data);
     },
     onSuccess: (_result, variables) => {
       queryClient.invalidateQueries({ queryKey: ["/api/profile"] });
-      // If age or radius prefs changed, the discover pool must be refetched so
-      // the new filter takes effect immediately.  The server already clears its
-      // in-process discover-meta cache on every POST /api/profile; this
-      // invalidation clears the matching TanStack Query client cache so Discover
-      // re-runs its query on the next render cycle instead of waiting for the
-      // natural stale-time expiry.
+      // Bust client discover cache for any pref that affects the discovery pool.
       if (
         "preferredAgeMin" in variables ||
         "preferredAgeMax" in variables ||
