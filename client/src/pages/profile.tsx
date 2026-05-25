@@ -1463,9 +1463,10 @@ export default function ProfilePage() {
         variant="outline"
         className="w-full"
         onClick={() => logout()}
+        disabled={isLoggingOut}
         data-testid="button-logout"
       >
-        <LogOut className="w-4 h-4 mr-2" /> Sign Out
+        <LogOut className="w-4 h-4 mr-2" /> {isLoggingOut ? "Signing out…" : "Sign Out"}
       </Button>
       </div>
 

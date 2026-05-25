@@ -107,24 +107,39 @@ export function useAuth() {
     };
   }, []);
 
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+  // Ref guard prevents a second call from starting if the user double-taps
+  // while the first signOut() is already in flight.
+  const loggingOutRef = useRef(false);
+
   const logout = useCallback(async () => {
-    console.log("[AUTH] LOGOUT_STARTED");
+    if (loggingOutRef.current) return;
+    loggingOutRef.current = true;
+    setIsLoggingOut(true);
+    console.log("[AUTH_LOGOUT] sign out clicked");
     // Clear the bypass flag so the next login starts from scratch.
     sessionStorage.removeItem("lulou-bypass");
     // Clear the cached token immediately so no in-flight request can sneak
     // through with the old credentials after sign-out is initiated.
     setCachedToken(null);
-    // Reset URL to root without a page reload so the user lands cleanly on
-    // the home/login page after logout.  window.location.href = "/" was used
-    // previously but it forces a full browser reload (2–4 s of re-parsing JS
-    // and re-initialising React) which made account switching feel very slow.
-    window.history.replaceState(null, "", "/");
     // signOut() clears the Supabase session and fires onAuthStateChange(SIGNED_OUT).
     // That handler detects the userId change (A → null), clears the React Query
-    // cache, sets user = null, profileReady = true — which causes AppContent to
-    // re-render the Landing page immediately without a browser reload.
+    // cache, sets user = null — which causes AppContent to re-render the Landing
+    // page immediately without a browser reload.
+    //
+    // IMPORTANT: replaceState is called AFTER signOut(), not before.
+    // Previously it was called first which caused wouter to navigate to "/" and
+    // switch the active tab to Discover BEFORE the sign-out completed, making
+    // the first click appear to do nothing (the profile tab disappeared, the
+    // Discover tab appeared, and the user clicked Sign Out a second time).
     await supabase.auth.signOut();
-    console.log("[AUTH] LOGOUT_COMPLETE");
+    // Clean up URL to "/" only after sign-out is complete so the browser bar
+    // shows a clean root path. At this point user is null and AppContent is
+    // rendering Landing — the replaceState is cosmetic only.
+    window.history.replaceState(null, "", "/");
+    console.log("[AUTH_LOGOUT] sign out complete");
+    loggingOutRef.current = false;
+    setIsLoggingOut(false);
   }, []);
 
   return {
@@ -132,7 +147,7 @@ export function useAuth() {
     isLoading,
     isAuthenticated: !!user,
     logout,
-    isLoggingOut: false,
+    isLoggingOut,
     profileInitError: null,
     profileReady,
     clearingCache,
