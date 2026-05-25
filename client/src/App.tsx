@@ -288,22 +288,38 @@ function CallDetectors({ userId }: { userId: string }) {
   }, []);
 
   // ── Tab-entry audio stop ───────────────────────────────────────────────────
-  // Opening Connections/Matches (/messages) must NEVER trigger ringtone or
-  // ringback from stale cached data. The isArmedSession guards on the memos
-  // block new overlay mounts, but already-playing audio (from a prior session
-  // whose cleanup was missed) needs to be stopped on every tab entry too.
+  // Every tab navigation must stop any stale ringtone/ringback immediately.
+  //
+  // WHY THIS WAS PREVIOUSLY TOO NARROW:
+  //   The guard only fired for /matches and /messages.  That left a critical gap:
+  //   PersistentTabs keeps ALL tab pages mounted (display:none when inactive),
+  //   so the Matches component's Realtime subscription stays live on every tab.
+  //   When a call:ring event arrived (or the 10 s poll returned stale call data)
+  //   while the user was on any tab, startIncomingRingtone() set _ringtoneActive=true.
+  //   iOS autoplay policy silently blocked rt.play() — no ring yet.
+  //   The user's next click (e.g. tapping Discover) triggered _doUnlock() in the
+  //   capture phase, which called _warmElements() → rt.play() unmuted → ring
+  //   played audibly even though no call was active.  The old guard only ran when
+  //   navigating TO /matches, so Discover navigation was entirely unprotected.
+  //
+  // FIX:
+  //   Fire stopAllNonVoiceCallAudio on EVERY location change.
+  //   stopAllNonVoiceCallAudio only stops ringtone/ringback — it does NOT touch
+  //   the remote-voice <audio> element used during a live WebRTC call.  It is
+  //   therefore safe to call unconditionally: if a real voice call is connected,
+  //   its audio is unaffected; if a ring was stale, it is silenced.
+  //   A full-screen call overlay blocks all navigation during a real incoming ring,
+  //   so navigating away always means the ring is stale.
+  //
+  //   A second, synchronous layer is applied in app-layout.tsx: the nav button
+  //   onClick calls stopAllNonVoiceCallAudio before _doUnlock() can warm+play
+  //   the ring element (capture-phase _doUnlock fires after synthetic onClick
+  //   completes in the same event dispatch).  Both layers together ensure the
+  //   ring is cleared before any new audio can start from the warm-up path.
   const [location] = useLocation();
   useEffect(() => {
-    // Stop ringtone/ringback on any navigation into the Connections area.
-    // /matches  = Connections/Matches page (New Connections + Active Chats tabs)
-    // /messages = old messaging route (kept for safety)
-    if (
-      location === "/matches" || location.startsWith("/matches") ||
-      location === "/messages" || location.startsWith("/messages/")
-    ) {
-      stopAllNonVoiceCallAudio("connections_tab_enter");
-      console.log("[CALL_AUDIO_GUARD] stopped ringtone/ringback on Connections tab entry", { location });
-    }
+    stopAllNonVoiceCallAudio("tab_navigation_guard");
+    console.log("[CALL_AUDIO_GUARD] stopped ringtone/ringback on navigation", { location });
   }, [location]);
 
   // hasRingRef: true while an incoming ring is active. Used by refetchInterval

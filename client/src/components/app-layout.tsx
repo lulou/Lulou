@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
 import { useTabActive } from "@/hooks/use-tab-active";
 import { decodedPhotos } from "@/lib/image-utils";
+import { stopAllNonVoiceCallAudio } from "@/lib/call-audio";
 
 interface IncomingOpen {
   id: string;
@@ -201,6 +202,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                     isActive ? "text-primary" : "text-muted-foreground"
                   }`}
                   data-testid={`nav-${item.label.toLowerCase()}`}
+                  onClick={() => stopAllNonVoiceCallAudio("nav_tab_click")}
                 >
                   <div className="relative">
                     <item.icon className="w-5 h-5" />
