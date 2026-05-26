@@ -1143,7 +1143,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
     placeholderData: (prev) => prev,
   });
 
-  useRealtimeMessages(match.id, expanded);
+  const { broadcastNewMessage } = useRealtimeMessages(match.id, expanded);
 
   const { isOtherTyping, sendTyping, stopTyping } = useTypingIndicator(match.id, user?.id || null, expanded);
 
@@ -1180,6 +1180,9 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
           ...previous,
           messages: [...(previous.messages || []), optimisticMsg],
         });
+        console.log("[CHAT_REALTIME] message sent optimistic", {
+          matchId: match.id.slice(0, 8), tempId: vars.tempId.slice(0, 12),
+        });
       }
       // Optimistically update last-message preview in the matches list
       queryClient.setQueryData<MatchWithProfile[]>(["/api/matches"], (list) => {
@@ -1209,6 +1212,10 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
         if (exists) return old;
         return { ...old, messages: [...old.messages, realMsg] };
       });
+
+      // Broadcast to receiver instantly (~50ms) via the realtime broadcast channel.
+      // handleNewMessage on the receiver's side deduplicates via message ID.
+      broadcastNewMessage(realMsg);
 
       // Immediately reflect the incremented post-call count so bothPostCallLimitReached / bothStage2LimitReached
       // updates without waiting for the next 10s poll
@@ -1551,9 +1558,11 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
       // Chat just opened or user just sent a message — jump to bottom instantly
       el.scrollTop = el.scrollHeight;
       forceScrollRef.current = false;
+      console.log("[CHAT_REALTIME] scrolled to bottom (force)", { matchId: match.id.slice(0, 8), count: matchDetail?.messages?.length });
     } else if (isAtBottomRef.current) {
       // New message arrived and user is already at the bottom — smooth follow
       messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+      console.log("[CHAT_REALTIME] scrolled to bottom (follow)", { matchId: match.id.slice(0, 8), count: matchDetail?.messages?.length });
     }
     // If user has scrolled up to read history: do nothing
   }, [matchDetail?.messages?.length, expanded]);

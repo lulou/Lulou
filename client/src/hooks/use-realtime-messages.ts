@@ -6,6 +6,8 @@ import type { Match, Profile, Message } from "@shared/schema";
 type LastMessage = { content: string; senderId: string; createdAt: Date | null };
 type MatchWithProfile = Match & { profile: Profile; lastMessage: LastMessage | null };
 type MsgsCache = { messages: Message[]; hasMore: boolean };
+// MatchDetail has .messages array embedded — used by _MatchChat in matches.tsx
+type MatchDetailLike = { messages: Message[]; [key: string]: any };
 
 export function useRealtimeMessages(matchId: string | undefined, enabled: boolean) {
   const queryClient = useQueryClient();
@@ -13,8 +15,10 @@ export function useRealtimeMessages(matchId: string | undefined, enabled: boolea
   const pgChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
 
   // Shared handler — called by both broadcast and postgres_changes.
-  // Writes to the dedicated messages cache (["/api/matches", matchId, "messages"])
-  // which is the sole source of truth for the chat message list.
+  // Writes to TWO caches:
+  //   1. ["/api/matches", matchId, "messages"] — used by messaging.tsx (full-page chat)
+  //   2. ["/api/matches", matchId]             — used by _MatchChat in matches.tsx (inline)
+  // Both caches must stay in sync so either UI surface shows messages instantly.
   const handleNewMessage = useCallback((row: any) => {
     if (!row || !matchId) return;
 
@@ -27,37 +31,65 @@ export function useRealtimeMessages(matchId: string | undefined, enabled: boolea
       createdAt: row.created_at ?? row.createdAt,
     };
 
-    // 1. Update the messages cache (fast path — renders immediately)
+    console.log("[CHAT_REALTIME] message received realtime", {
+      matchId: matchId.slice(0, 8),
+      msgId: String(newMsg.id).slice(0, 8),
+      senderId: String(newMsg.senderId).slice(0, 8),
+    });
+
+    // Helper: dedup-aware append that also replaces matching temp messages.
+    function appendMsg(msgs: Message[]): Message[] {
+      if (msgs.some((m) => m.id === newMsg.id)) return msgs; // already present
+
+      const tempIdx = msgs.findIndex(
+        (m) =>
+          typeof m.id === "string" &&
+          m.id.startsWith("temp-") &&
+          m.content === newMsg.content &&
+          m.senderId === newMsg.senderId
+      );
+      if (tempIdx >= 0) {
+        const updated = [...msgs];
+        updated[tempIdx] = newMsg;
+        return updated;
+      }
+      return [...msgs, newMsg];
+    }
+
+    // ── Cache 1: dedicated messages cache (["/api/matches", matchId, "messages"]) ──
+    // Used by messaging.tsx (full-page dedicated chat route).
     queryClient.setQueryData<MsgsCache>(
       ["/api/matches", matchId, "messages"],
       (old) => {
         if (!old) {
+          // Cache cold — schedule a refetch so we don't silently miss the message.
           queryClient.invalidateQueries({ queryKey: ["/api/matches", matchId, "messages"] });
           return old;
         }
-        if (old.messages?.some((m) => m.id === newMsg.id)) return old;
-
-        const tempIdx = old.messages?.findIndex(
-          (m) =>
-            typeof m.id === "string" &&
-            m.id.startsWith("temp-") &&
-            m.content === newMsg.content &&
-            m.senderId === newMsg.senderId
-        );
-        if (tempIdx !== undefined && tempIdx >= 0) {
-          const updated = [...old.messages];
-          updated[tempIdx] = newMsg;
-          return { ...old, messages: updated };
-        }
-
-        return { ...old, messages: [...(old.messages || []), newMsg] };
+        const next = appendMsg(old.messages ?? []);
+        if (next === old.messages) return old; // no change, skip re-render
+        console.log("[CHAT_REALTIME] cache updated (messages key)", { count: next.length });
+        return { ...old, messages: next };
       }
     );
 
-    // 2. Update last-message preview in the matches list.
-    // Bail out early if the content and sender are already current — avoids
-    // creating a new array reference (which would re-render the Matches page)
-    // when the message is a duplicate broadcast or a re-delivery.
+    // ── Cache 2: MatchDetail cache (["/api/matches", matchId]) ──
+    // Used by _MatchChat in matches.tsx (inline expandable chat on Connections page).
+    // Without this update, the receiver's inline chat only refreshes every 30 seconds.
+    queryClient.setQueryData<MatchDetailLike>(
+      ["/api/matches", matchId],
+      (old) => {
+        if (!old) return old;
+        const msgs = old.messages ?? [];
+        const next = appendMsg(msgs);
+        if (next === msgs) return old; // no change
+        console.log("[CHAT_REALTIME] cache updated (detail key)", { count: next.length });
+        return { ...old, messages: next };
+      }
+    );
+
+    // ── Last-message preview in the matches list ──
+    // Skip system/schedule messages from the preview.
     if (!newMsg.content.startsWith("__SCHEDULE__")) {
       queryClient.setQueryData<MatchWithProfile[]>(["/api/matches"], (list) => {
         if (!list) return list;
@@ -67,7 +99,7 @@ export function useRealtimeMessages(matchId: string | undefined, enabled: boolea
         if (
           existing.lastMessage?.content === newMsg.content &&
           existing.lastMessage?.senderId === newMsg.senderId
-        ) return list;
+        ) return list; // already current — skip re-render
         const updated = [...list];
         updated[idx] = {
           ...existing,
@@ -82,20 +114,53 @@ export function useRealtimeMessages(matchId: string | undefined, enabled: boolea
     }
   }, [matchId, queryClient]);
 
+  // ── Broadcast: send a message to the other participant instantly (~50ms) ──
+  // Called from sendMessage.onSuccess in matches.tsx and messaging.tsx after the
+  // API call succeeds.  The broadcast channel fires handleNewMessage on both sides
+  // (self: true), which deduplicates safely via the temp-id replacement logic.
+  const broadcastNewMessage = useCallback((msg: Message) => {
+    const ch = broadcastChannelRef.current;
+    if (!ch || !matchId) return;
+    ch.send({
+      type: "broadcast",
+      event: "new-message",
+      payload: {
+        id: msg.id,
+        match_id: msg.matchId,
+        sender_id: msg.senderId,
+        content: msg.content,
+        reaction: msg.reaction ?? null,
+        created_at: msg.createdAt,
+      },
+    }).catch((err: any) =>
+      console.warn("[CHAT_REALTIME] broadcast send error", err?.message)
+    );
+    console.log("[CHAT_REALTIME] message sent broadcast", {
+      matchId: matchId.slice(0, 8),
+      msgId: String(msg.id).slice(0, 8),
+    });
+  }, [matchId]);
+
   useEffect(() => {
     if (!matchId || !enabled) return;
 
-    // ── Channel 1: Supabase Broadcast — instant delivery from server (~50ms) ──
+    // ── Channel 1: Supabase Broadcast — instant delivery ~50ms ──
+    // self: true so the sender also receives the echo (dedup handles it).
     const broadcastChannel = supabase
       .channel(`chat:${matchId}`, { config: { broadcast: { self: true } } })
       .on("broadcast", { event: "new-message" }, ({ payload }) => {
+        console.log("[CHAT_REALTIME] broadcast event received", { matchId: matchId.slice(0, 8) });
         handleNewMessage(payload);
       })
-      .subscribe();
+      .subscribe((status) => {
+        console.log("[CHAT_REALTIME] broadcast channel status", { matchId: matchId.slice(0, 8), status });
+      });
 
     broadcastChannelRef.current = broadcastChannel;
 
-    // ── Channel 2: postgres_changes — WAL-based fallback/reconciliation (~200-500ms) ──
+    // ── Channel 2: postgres_changes — WAL fallback/reconciliation ~200-500ms ──
+    // Catches any messages that bypass the broadcast path (e.g. server-inserted
+    // system messages, or if the broadcast packet is dropped).
     const pgChannel = supabase
       .channel(`messages:${matchId}`)
       .on(
@@ -107,10 +172,13 @@ export function useRealtimeMessages(matchId: string | undefined, enabled: boolea
           filter: `match_id=eq.${matchId}`,
         },
         (payload: any) => {
+          console.log("[CHAT_REALTIME] postgres_changes event received", { matchId: matchId.slice(0, 8) });
           handleNewMessage(payload.new);
         }
       )
-      .subscribe();
+      .subscribe((status: string) => {
+        console.log("[CHAT_REALTIME] postgres channel status", { matchId: matchId.slice(0, 8), status });
+      });
 
     pgChannelRef.current = pgChannel;
 
@@ -125,4 +193,6 @@ export function useRealtimeMessages(matchId: string | undefined, enabled: boolea
       }
     };
   }, [matchId, enabled, handleNewMessage]);
+
+  return { broadcastNewMessage };
 }

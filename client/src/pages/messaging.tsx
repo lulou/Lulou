@@ -381,7 +381,7 @@ export default function Messaging() {
     enabled: !!matchId,
   });
 
-  useRealtimeMessages(matchId, !!matchId);
+  const { broadcastNewMessage } = useRealtimeMessages(matchId, !!matchId);
 
   const sendMessage = useMutation({
     mutationFn: async (vars: { content: string; tempId: string }) => {
@@ -410,6 +410,9 @@ export default function Messaging() {
         queryClient.setQueryData<{ messages: Message[]; hasMore: boolean }>(msgsKey, {
           ...previousMsgs,
           messages: [...previousMsgs.messages, optimisticMsg],
+        });
+        console.log("[CHAT_REALTIME] message sent optimistic", {
+          matchId: matchId?.slice(0, 8), tempId: vars.tempId.slice(0, 12),
         });
       }
 
@@ -441,6 +444,10 @@ export default function Messaging() {
         if (old.messages.some(m => m.id === realMsg.id)) return old;
         return { ...old, messages: [...old.messages, realMsg] };
       });
+
+      // Broadcast to receiver instantly (~50ms) via the realtime broadcast channel.
+      // handleNewMessage on the receiver's side deduplicates via message ID.
+      broadcastNewMessage(realMsg);
     },
     onError: (error: Error, _vars: any, context: any) => {
       if (context?.previousMsgs) {
@@ -504,13 +511,16 @@ export default function Messaging() {
       // First load — jump instantly to the bottom
       el.scrollTop = el.scrollHeight;
       initialScrollDoneRef.current = true;
+      console.log("[CHAT_REALTIME] scrolled to bottom (initial)", { matchId: matchId?.slice(0, 8), count: msgsData?.messages?.length });
     } else if (forceScrollRef.current) {
       // User just sent a message — jump to bottom
       el.scrollTop = el.scrollHeight;
       forceScrollRef.current = false;
+      console.log("[CHAT_REALTIME] scrolled to bottom (force)", { matchId: matchId?.slice(0, 8), count: msgsData?.messages?.length });
     } else if (isAtBottomRef.current) {
       // New message arrived and user is at the bottom — smooth follow
       messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+      console.log("[CHAT_REALTIME] scrolled to bottom (follow)", { matchId: matchId?.slice(0, 8), count: msgsData?.messages?.length });
     }
     // If user is scrolled up reading history: do nothing
   }, [msgsData?.messages?.length]);
