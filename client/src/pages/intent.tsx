@@ -71,16 +71,13 @@ function ProfilePhoto({ userId, className }: { userId: string; className?: strin
   );
 }
 
-// ── Web Audio ticking engine ─────────────────────────────────────────────────
+// ── Web Audio engine ─────────────────────────────────────────────────────────
 // Completely separate from the call/ringtone AudioContext — no interference.
-// A new AudioContext is only created AFTER the first user gesture (spinWheel click),
-// which satisfies browser autoplay policies. Each tick is a disposable ~12ms
-// noise burst — no loops, no lingering audio after the spin ends.
+// AudioContext is only created after the first user gesture (spinWheel click).
 function useWheelAudio(muted: boolean) {
   const ctxRef = useRef<AudioContext | null>(null);
   const lastTickDegRef = useRef(0);
 
-  // Call this after the first user gesture (spin button click) to unlock the AudioContext.
   const ensureCtx = useCallback(() => {
     if (muted) return;
     try {
@@ -89,20 +86,16 @@ function useWheelAudio(muted: boolean) {
     } catch {}
   }, [muted]);
 
-  // Fire one mechanical tick. Call from inside the rAF loop whenever the
-  // angle crosses a threshold. No-ops if muted or AudioContext unavailable.
+  // Short percussive noise burst — one mechanical "tick".
   const tick = useCallback(() => {
     if (muted) return;
     const ctx = ctxRef.current;
     if (!ctx || ctx.state !== "running") return;
     try {
-      // Short percussive noise burst — sounds like a mechanical click/tick.
       const sampleRate = ctx.sampleRate;
-      const lengthSamples = Math.floor(sampleRate * 0.013);
-      const buf = ctx.createBuffer(1, lengthSamples, sampleRate);
+      const buf = ctx.createBuffer(1, Math.floor(sampleRate * 0.013), sampleRate);
       const data = buf.getChannelData(0);
-      for (let i = 0; i < lengthSamples; i++) {
-        // Exponentially decaying white noise — the characteristic "tick" waveform.
+      for (let i = 0; i < data.length; i++) {
         data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (sampleRate * 0.0028));
       }
       const src = ctx.createBufferSource();
@@ -115,29 +108,51 @@ function useWheelAudio(muted: boolean) {
     } catch {}
   }, [muted]);
 
-  // Call at the start of each spin to reset the per-degree tracking.
   const resetTick = useCallback((currentAngle: number) => {
     lastTickDegRef.current = currentAngle;
   }, []);
 
-  // Call every rAF frame with the new angle.
-  // Fires one tick per TICK_STEP degrees moved — the faster the wheel, the
-  // faster the ticking (without creating more ticks than the ear can resolve).
   const tickFromAngle = useCallback((newAngle: number, tickStep: number) => {
-    const diff = Math.abs(newAngle - lastTickDegRef.current);
-    if (diff >= tickStep) {
+    if (Math.abs(newAngle - lastTickDegRef.current) >= tickStep) {
       lastTickDegRef.current = newAngle;
       tick();
     }
   }, [tick]);
 
-  return { ensureCtx, tick, resetTick, tickFromAngle };
+  // Three-note ascending arpeggio: C5 → E5 → G5 (major triad, 140ms stagger).
+  // Soft sine waves with natural decay envelope — subtle, elegant, not cheesy.
+  const playChime = useCallback(() => {
+    if (muted) return;
+    const ctx = ctxRef.current;
+    if (!ctx || ctx.state !== "running") return;
+    try {
+      const t = ctx.currentTime;
+      const notes: [number, number, number, number][] = [
+        [523.25, 0,    0.025, 0.90],  // C5
+        [659.25, 0.14, 0.025, 0.80],  // E5
+        [783.99, 0.28, 0.025, 0.70],  // G5
+      ];
+      for (const [freq, offset, attack, dur] of notes) {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = "sine";
+        osc.frequency.value = freq;
+        gain.gain.setValueAtTime(0, t + offset);
+        gain.gain.linearRampToValueAtTime(0.13, t + offset + attack);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + offset + dur);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(t + offset);
+        osc.stop(t + offset + dur + 0.05);
+      }
+    } catch {}
+  }, [muted]);
+
+  return { ensureCtx, resetTick, tickFromAngle, playChime };
 }
 
 // ── Confetti burst (canvas) ──────────────────────────────────────────────────
-// Renders a brief 1.8s particle celebration above the wheel stage.
-// Only mounts when `active` is true, then cleans up after itself.
-const COLORS = ["#d45c74", "#e8a0b0", "#f5d0d8", "#9d3550", "#ffd6e0", "#fff0f3", "#c0c0ff"];
+const CONFETTI_COLORS = ["#d45c74", "#e8a0b0", "#f5d0d8", "#9d3550", "#ffd6e0", "#fff0f3", "#c0c0ff"];
 
 function ConfettiBurst({ active }: { active: boolean }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -153,7 +168,6 @@ function ConfettiBurst({ active }: { active: boolean }) {
     const W = canvas.width = canvas.offsetWidth;
     const H = canvas.height = canvas.offsetHeight;
 
-    // Spawn particles from the centre of the canvas
     const particles = Array.from({ length: 72 }, () => {
       const angle = Math.random() * Math.PI * 2;
       const speed = 2.2 + Math.random() * 5.5;
@@ -162,7 +176,7 @@ function ConfettiBurst({ active }: { active: boolean }) {
         vx: Math.cos(angle) * speed,
         vy: Math.sin(angle) * speed - 3.5,
         size: 4 + Math.random() * 5,
-        color: COLORS[Math.floor(Math.random() * COLORS.length)],
+        color: CONFETTI_COLORS[Math.floor(Math.random() * CONFETTI_COLORS.length)],
         rot: Math.random() * Math.PI * 2,
         rotSpeed: (Math.random() - 0.5) * 0.22,
         life: 1,
@@ -180,10 +194,8 @@ function ConfettiBurst({ active }: { active: boolean }) {
         if (p.life <= 0) continue;
         anyAlive = true;
         p.life -= p.decay;
-        p.x += p.vx;
-        p.y += p.vy;
-        p.vy += 0.18; // gravity
-        p.vx *= 0.985;
+        p.x += p.vx; p.y += p.vy;
+        p.vy += 0.18; p.vx *= 0.985;
         p.rot += p.rotSpeed;
         ctx.save();
         ctx.globalAlpha = Math.max(0, p.life);
@@ -191,9 +203,7 @@ function ConfettiBurst({ active }: { active: boolean }) {
         ctx.rotate(p.rot);
         ctx.fillStyle = p.color;
         if (p.isCircle) {
-          ctx.beginPath();
-          ctx.arc(0, 0, p.size / 2, 0, Math.PI * 2);
-          ctx.fill();
+          ctx.beginPath(); ctx.arc(0, 0, p.size / 2, 0, Math.PI * 2); ctx.fill();
         } else {
           ctx.fillRect(-p.size / 2, -p.size / 4, p.size, p.size / 2);
         }
@@ -202,11 +212,7 @@ function ConfettiBurst({ active }: { active: boolean }) {
       if (anyAlive) rafRef.current = requestAnimationFrame(draw);
     };
     rafRef.current = requestAnimationFrame(draw);
-
-    return () => {
-      alive = false;
-      cancelAnimationFrame(rafRef.current);
-    };
+    return () => { alive = false; cancelAnimationFrame(rafRef.current); };
   }, [active]);
 
   if (!active) return null;
@@ -214,24 +220,255 @@ function ConfettiBurst({ active }: { active: boolean }) {
   return (
     <canvas
       ref={canvasRef}
-      style={{
-        position: "absolute",
-        inset: 0,
-        width: "100%",
-        height: "100%",
-        pointerEvents: "none",
-        zIndex: 190,
-      }}
+      style={{ position: "absolute", inset: 0, width: "100%", height: "100%", pointerEvents: "none", zIndex: 190 }}
     />
   );
 }
 
+// ── Premium match reveal taglines ────────────────────────────────────────────
+const MATCH_TAGLINES = [
+  "Two energies aligned.",
+  "A rare connection just appeared.",
+  "The wheel had good taste.",
+  "Someone special just crossed your path.",
+  "This feels like something real.",
+  "Not every spin lands like this.",
+  "Something genuine started here.",
+  "A moment worth noticing.",
+  "The best surprises are unplanned.",
+  "Worth exploring.",
+];
+
+// ── Match reveal overlay ─────────────────────────────────────────────────────
+// Full-screen cinematic overlay shown after the user taps Connect on a wheel profile.
+// Profile photo fills the bg (blurred, darkened), glowing circular photo in centre.
+function MatchRevealOverlay({
+  profile,
+  isExisting,
+  playChime,
+  onGoToMatches,
+  onDiscover,
+}: {
+  profile: Profile;
+  isExisting: boolean;
+  playChime: () => void;
+  onGoToMatches: () => void;
+  onDiscover: () => void;
+}) {
+  const tagline = useRef(MATCH_TAGLINES[Math.floor(Math.random() * MATCH_TAGLINES.length)]).current;
+
+  useEffect(() => {
+    // Slight delay so the AudioContext has been resumed before we play.
+    const t = setTimeout(playChime, 220);
+    return () => clearTimeout(t);
+  }, [playChime]);
+
+  return (
+    <div
+      className="absolute inset-0 z-[60] flex flex-col overflow-hidden"
+      style={{ animation: "matchRevealBg 0.55s cubic-bezier(0.16, 1, 0.3, 1) forwards" }}
+      data-testid="match-reveal-overlay"
+    >
+      {/* ── Cinematic background ── */}
+      <div className="absolute inset-0">
+        <ProfilePhoto userId={profile.userId} className="w-full h-full" />
+        {/* Blur + saturation boost */}
+        <div className="absolute inset-0" style={{
+          backdropFilter: "blur(30px) saturate(1.4)",
+          WebkitBackdropFilter: "blur(30px) saturate(1.4)",
+        }} />
+        {/* Deep gradient darkening */}
+        <div className="absolute inset-0" style={{
+          background: "linear-gradient(180deg, rgba(6,2,10,0.72) 0%, rgba(18,4,16,0.52) 38%, rgba(6,2,10,0.80) 100%)",
+        }} />
+        {/* Warm rose radial at centre-upper for depth */}
+        <div className="absolute inset-0" style={{
+          background: "radial-gradient(ellipse 70% 48% at 50% 42%, rgba(188,78,96,0.28) 0%, transparent 70%)",
+        }} />
+      </div>
+
+      {/* ── Content ── */}
+      <div className="relative z-10 flex flex-col items-center justify-center flex-1 px-7 gap-5">
+
+        {/* Eyebrow */}
+        <p
+          style={{
+            fontSize: 11, fontWeight: 700, letterSpacing: "0.22em",
+            textTransform: "uppercase",
+            color: "rgba(255,190,205,0.65)",
+            animation: "matchRevealTagline 0.5s 0.08s ease both",
+          }}
+        >
+          {isExisting ? "Reconnected" : "A connection opened"}
+        </p>
+
+        {/* Main tagline */}
+        <h2
+          className="font-serif text-center"
+          style={{
+            fontSize: "clamp(21px, 5.5vw, 28px)",
+            fontWeight: 700,
+            letterSpacing: "-0.01em",
+            lineHeight: 1.25,
+            color: "rgba(255,245,248,0.96)",
+            textShadow: "0 2px 28px rgba(188,78,96,0.45), 0 1px 5px rgba(0,0,0,0.65)",
+            maxWidth: 270,
+            animation: "matchRevealTagline 0.65s 0.22s ease both",
+          }}
+          data-testid="text-reveal-tagline"
+        >
+          {tagline}
+        </h2>
+
+        {/* Photo with glow */}
+        <div
+          style={{
+            position: "relative",
+            marginTop: 4,
+            animation: "matchRevealPhoto 0.75s 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) both",
+          }}
+        >
+          {/* Soft ambient glow behind the photo */}
+          <div style={{
+            position: "absolute",
+            inset: -24,
+            borderRadius: "50%",
+            background: "radial-gradient(circle, rgba(212,92,116,0.40) 0%, transparent 68%)",
+            animation: "glowPulse 3s ease-in-out infinite",
+            pointerEvents: "none",
+          }} />
+
+          {/* Photo circle */}
+          <div style={{
+            width: 148, height: 148,
+            borderRadius: "50%",
+            overflow: "hidden",
+            position: "relative",
+            boxShadow: "0 0 0 2px rgba(255,255,255,0.12), 0 0 0 5px rgba(212,92,116,0.75), 0 0 0 8px rgba(212,92,116,0.18), 0 18px 56px rgba(0,0,0,0.60)",
+          }}>
+            <ProfilePhoto userId={profile.userId} className="w-full h-full" />
+          </div>
+
+          {/* Rotating conic shimmer ring */}
+          <div style={{
+            position: "absolute", inset: 0,
+            borderRadius: "50%",
+            background: "conic-gradient(from 0deg, transparent 0%, rgba(255,195,210,0.50) 18%, transparent 38%, rgba(212,92,116,0.38) 58%, transparent 78%, rgba(255,195,210,0.50) 100%)",
+            animation: "rotateSlow 9s linear infinite",
+            mixBlendMode: "screen",
+            pointerEvents: "none",
+          }} />
+        </div>
+
+        {/* Name + location */}
+        <div
+          className="text-center"
+          style={{ animation: "matchRevealTagline 0.5s 0.65s ease both" }}
+        >
+          <h3
+            className="font-serif font-bold"
+            style={{
+              fontSize: 24, letterSpacing: "-0.01em",
+              color: "rgba(255,245,248,0.97)",
+              textShadow: "0 1px 14px rgba(0,0,0,0.55)",
+            }}
+            data-testid="text-reveal-name"
+          >
+            {profile.firstName}{profile.age ? `, ${profile.age}` : ""}
+          </h3>
+          {profile.location && (
+            <p className="flex items-center justify-center gap-1.5 mt-1" style={{ fontSize: 13, color: "rgba(255,210,220,0.58)" }}>
+              <MapPin className="w-3 h-3 flex-shrink-0" />
+              {profile.location}
+            </p>
+          )}
+        </div>
+
+        {/* Thin rose divider */}
+        <div style={{
+          width: 44, height: 1,
+          background: "linear-gradient(90deg, transparent, rgba(212,92,116,0.75), transparent)",
+          animation: "matchRevealTagline 0.4s 0.8s ease both",
+        }} />
+
+        {/* Secondary line */}
+        <p
+          style={{
+            fontSize: 13, textAlign: "center",
+            maxWidth: 230, lineHeight: 1.55,
+            color: "rgba(255,210,220,0.52)",
+            animation: "matchRevealTagline 0.4s 0.9s ease both",
+          }}
+        >
+          You opened a connection. See where it leads.
+        </p>
+      </div>
+
+      {/* ── CTAs ── */}
+      <div
+        className="relative z-10 px-6 pb-10 flex flex-col gap-3"
+        style={{ animation: "matchRevealCta 0.55s 1.1s ease both" }}
+      >
+        <button
+          onClick={onGoToMatches}
+          data-testid="button-reveal-go-to-matches"
+          style={{
+            width: "100%", padding: "16px 0",
+            borderRadius: 16,
+            background: "linear-gradient(135deg, #d45c74 0%, #9d3550 100%)",
+            color: "#fff",
+            fontSize: 16, fontWeight: 700, letterSpacing: "0.01em",
+            border: "none", cursor: "pointer",
+            boxShadow: "0 6px 28px rgba(188,78,96,0.55), 0 2px 10px rgba(0,0,0,0.40), inset 0 1px 0 rgba(255,255,255,0.18)",
+            transition: "transform 0.15s ease, box-shadow 0.15s ease",
+            outline: "none", WebkitTapHighlightColor: "transparent",
+          }}
+          onMouseEnter={e => { (e.currentTarget as HTMLElement).style.transform = "translateY(-1px)"; (e.currentTarget as HTMLElement).style.boxShadow = "0 10px 36px rgba(188,78,96,0.65), 0 3px 12px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.18)"; }}
+          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.transform = "translateY(0)"; (e.currentTarget as HTMLElement).style.boxShadow = "0 6px 28px rgba(188,78,96,0.55), 0 2px 10px rgba(0,0,0,0.40), inset 0 1px 0 rgba(255,255,255,0.18)"; }}
+          onMouseDown={e => { (e.currentTarget as HTMLElement).style.transform = "translateY(1px) scale(0.99)"; }}
+        >
+          Start the conversation →
+        </button>
+
+        <button
+          onClick={onDiscover}
+          data-testid="button-reveal-discover-more"
+          style={{
+            width: "100%", padding: "13px 0",
+            borderRadius: 16,
+            background: "rgba(255,255,255,0.06)",
+            color: "rgba(255,215,225,0.60)",
+            fontSize: 14, fontWeight: 500, letterSpacing: "0.01em",
+            border: "1px solid rgba(255,255,255,0.13)",
+            cursor: "pointer",
+            transition: "color 0.18s, background 0.18s, border-color 0.18s",
+            outline: "none", WebkitTapHighlightColor: "transparent",
+          }}
+          onMouseEnter={e => {
+            const el = e.currentTarget as HTMLElement;
+            el.style.color = "rgba(255,225,232,0.88)";
+            el.style.background = "rgba(255,255,255,0.10)";
+            el.style.borderColor = "rgba(255,255,255,0.22)";
+          }}
+          onMouseLeave={e => {
+            const el = e.currentTarget as HTMLElement;
+            el.style.color = "rgba(255,215,225,0.60)";
+            el.style.background = "rgba(255,255,255,0.06)";
+            el.style.borderColor = "rgba(255,255,255,0.13)";
+          }}
+        >
+          Discover more
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── Constants ────────────────────────────────────────────────────────────────
 const ITEM_WIDTH = 156;
 const ITEM_HEIGHT = 208;
 const DAILY_LIKE_GOAL = 10;
 const STREAK_GOAL = 3;
-// Degrees between successive cards that triggers one tick sound.
-// Lower = more ticks (faster perceived speed). 4–6deg feels like a ratchet.
 const TICK_DEG_STEP = 5;
 
 type SpinStatus = {
@@ -242,12 +479,11 @@ type SpinStatus = {
   canSpin: boolean;
 };
 
-// Premium easing: fast start, crisp exponential deceleration.
-// Feels more intentional than a polynomial ease-out.
 function easeOutExpo(t: number): number {
   return t >= 1 ? 1 : 1 - Math.pow(2, -11 * t);
 }
 
+// ── Main page ────────────────────────────────────────────────────────────────
 export default function IntentPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -277,7 +513,7 @@ export default function IntentPage() {
     refetchInterval: isActive ? 60_000 : false,
   });
 
-  // ── Sound state — persisted in localStorage ──────────────────────────────
+  // ── Sound ────────────────────────────────────────────────────────────────
   const [muted, setMuted] = useState(() => {
     try { return localStorage.getItem("wheel_sound_muted") === "true"; } catch { return false; }
   });
@@ -288,12 +524,13 @@ export default function IntentPage() {
       return next;
     });
   }, []);
-  const { ensureCtx, resetTick, tickFromAngle } = useWheelAudio(muted);
+  const { ensureCtx, resetTick, tickFromAngle, playChime } = useWheelAudio(muted);
 
-  // ── Wheel physics state ──────────────────────────────────────────────────
+  // ── Wheel physics ────────────────────────────────────────────────────────
   const animFrame = useRef(0);
   const isDragging = useRef(false);
   const startX = useRef(0);
+  const startY = useRef(0);
   const lastX = useRef(0);
   const lastTime = useRef(0);
   const velocity = useRef(0);
@@ -315,19 +552,20 @@ export default function IntentPage() {
   const [showConfetti, setShowConfetti] = useState(false);
   const [angle, setAngle] = useState(0);
 
+  // Match reveal state — set after wheelOpen.onSuccess
+  const [showMatchReveal, setShowMatchReveal] = useState(false);
+  const [matchRevealProfile, setMatchRevealProfile] = useState<Profile | null>(null);
+  const [matchRevealIsExisting, setMatchRevealIsExisting] = useState(false);
+
   const items = shuffledItemsRef.current.length > 0 ? shuffledItemsRef.current : (profiles || []);
   const count = items.length;
   const angleStep = count > 0 ? 360 / count : 0;
   const radius = count > 4 ? Math.max(210, count * 30) : 190;
-
   const canSpin = spinStatus?.canSpin ?? false;
 
   const glide = useCallback(() => {
     velocity.current *= 0.94;
-    if (Math.abs(velocity.current) < 0.05) {
-      velocity.current = 0;
-      return;
-    }
+    if (Math.abs(velocity.current) < 0.05) { velocity.current = 0; return; }
     angleRef.current += velocity.current;
     tickFromAngle(angleRef.current, TICK_DEG_STEP);
     setAngle(angleRef.current);
@@ -335,7 +573,6 @@ export default function IntentPage() {
   }, [tickFromAngle]);
 
   const committedDrag = useRef(false);
-  const startY = useRef(0);
 
   const handlePointerDown = (e: React.PointerEvent) => {
     if (isSpinning || dispersed) return;
@@ -372,9 +609,7 @@ export default function IntentPage() {
   const handlePointerUp = () => {
     isDragging.current = false;
     committedDrag.current = false;
-    if (Math.abs(velocity.current) > 0.2) {
-      animFrame.current = requestAnimationFrame(glide);
-    }
+    if (Math.abs(velocity.current) > 0.2) animFrame.current = requestAnimationFrame(glide);
   };
 
   const recordSpin = useMutation({
@@ -392,13 +627,12 @@ export default function IntentPage() {
       return res.json() as Promise<{ matchId: string; isExisting: boolean }>;
     },
     onSuccess: (data) => {
-      toast({
-        title: data.isExisting ? "Connection reopened" : "Connected!",
-        description: "Head to your matches to start the conversation.",
-      });
       queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
-      closeProfile();
-      navigate("/matches");
+      // Capture profile before any state reset — closure reference is stable
+      setMatchRevealProfile(selectedProfile);
+      setMatchRevealIsExisting(data.isExisting);
+      setShowProfile(false);
+      setShowMatchReveal(true);
     },
     onError: (error: any) => {
       const raw = error?.message || "";
@@ -410,11 +644,7 @@ export default function IntentPage() {
 
   const spinWheel = () => {
     if (isSpinning || count === 0 || !canSpin) return;
-
-    // Unlock AudioContext AFTER user gesture — respects browser autoplay policy.
-    // This is safe: spin button is always a real pointer/tap event.
     ensureCtx();
-
     setIsSpinning(true);
     setSelectedIndex(null);
     setSelectedProfile(null);
@@ -422,30 +652,22 @@ export default function IntentPage() {
     setShowProfile(false);
     setShowPurchase(false);
     setShowConfetti(false);
+    setShowMatchReveal(false);
+    setMatchRevealProfile(null);
 
     const targetIndex = Math.floor(Math.random() * count);
     const landedProfile = items[targetIndex];
 
-    console.log("[INTENT] SPIN_START", {
-      totalUsers: count,
-      renderOrder: items.map((p, i) => `[${i}]${p.firstName}(${p.userId.slice(0, 8)})`).join(" "),
-    });
-    console.log("[INTENT] SPIN_SELECTED", {
-      selectedIndex: targetIndex,
-      selectedUserId: landedProfile?.userId,
-      selectedName: landedProfile?.firstName,
-    });
+    console.log("[INTENT] SPIN_START", { totalUsers: count });
+    console.log("[INTENT] SPIN_SELECTED", { selectedIndex: targetIndex, selectedName: landedProfile?.firstName });
 
     const targetAngle = targetIndex * angleStep;
     const currentAngle = angleRef.current;
-    // 4–5 full laps + fractional alignment — plenty of drama
     const fullSpins = (4 + Math.floor(Math.random() * 2)) * 360;
     const normalizedCurrent = ((currentAngle % 360) + 360) % 360;
     let diff = targetAngle - normalizedCurrent;
     if (diff < 0) diff += 360;
     const totalRotation = fullSpins + diff;
-
-    // Slightly randomised duration: 3.8–5s feels premium without being slow
     const duration = 3800 + Math.random() * 1200;
     const startTime = performance.now();
     const startAngle = currentAngle;
@@ -455,14 +677,8 @@ export default function IntentPage() {
     const animate = (now: number) => {
       const elapsed = now - startTime;
       const rawT = Math.min(elapsed / duration, 1);
-      const eased = easeOutExpo(rawT);
-
-      const newAngle = startAngle + totalRotation * eased;
-      // Dynamic tick step: ticks are denser when spinning fast, sparse near stop.
-      // Map progress (0–1) to tick step (2–18 deg) — fast=2, slow=18.
-      const dynamicStep = 2 + rawT * rawT * 16;
-      tickFromAngle(newAngle, dynamicStep);
-
+      const newAngle = startAngle + totalRotation * easeOutExpo(rawT);
+      tickFromAngle(newAngle, 2 + rawT * rawT * 16);
       angleRef.current = newAngle;
       setAngle(newAngle);
 
@@ -471,20 +687,11 @@ export default function IntentPage() {
       } else {
         angleRef.current = startAngle + totalRotation;
         setAngle(angleRef.current);
-
         setSelectedIndex(targetIndex);
         setSelectedProfile(landedProfile ?? null);
         setIsSpinning(false);
-
-        console.log("[INTENT] SPIN_COMPLETE", {
-          selectedIndex: targetIndex,
-          selectedUserId: landedProfile?.userId,
-          selectedName: landedProfile?.firstName,
-        });
-
+        console.log("[INTENT] SPIN_COMPLETE", { selectedName: landedProfile?.firstName });
         if (landedProfile) recordSpin.mutate(landedProfile.userId);
-
-        // Staggered reveal sequence: disperse → confetti → profile slide-up
         setTimeout(() => setDispersed(true), 260);
         setTimeout(() => setShowConfetti(true), 420);
         setTimeout(() => setShowProfile(true), 720);
@@ -503,33 +710,28 @@ export default function IntentPage() {
     setSelectedProfile(null);
     setShowConfetti(false);
     queryClient.invalidateQueries({ queryKey: ["/api/popular"] });
-    console.log("[INTENT] PROFILE_CLOSED — invalidating popular profiles for next spin");
     setTimeout(() => setShowPurchase(true), 300);
   };
 
-  useEffect(() => {
-    return () => cancelAnimationFrame(animFrame.current);
-  }, []);
+  // Resets all wheel/profile/reveal state without triggering the purchase prompt.
+  // Used when leaving the reveal overlay — user has already connected, no upsell needed.
+  const resetAfterReveal = () => {
+    setShowMatchReveal(false);
+    setMatchRevealProfile(null);
+    setShowProfile(false);
+    setDispersed(false);
+    setSelectedIndex(null);
+    setSelectedProfile(null);
+    setShowConfetti(false);
+    queryClient.invalidateQueries({ queryKey: ["/api/popular"] });
+  };
 
+  useEffect(() => { return () => cancelAnimationFrame(animFrame.current); }, []);
   useEffect(() => {
     const t0 = performance.now();
     console.log("[INTENT] MOUNTED");
-    return () => console.log("[INTENT] UNMOUNTED — was visible for", Math.round(performance.now() - t0), "ms");
+    return () => console.log("[INTENT] UNMOUNTED after", Math.round(performance.now() - t0), "ms");
   }, []);
-
-  console.log("[INTENT] RENDER_REACHED", {
-    isLoading, isError, profileCount: items.length,
-    canSpin: spinStatus?.canSpin, selectedIndex,
-  });
-
-  const STEP2_MINIMAL = false;
-  if (STEP2_MINIMAL) {
-    return (
-      <div className="flex-1 p-6 space-y-3" data-testid="intent-diagnostic">
-        <h2 className="text-lg font-semibold">Intent Wheel — Page Rendered ✓</h2>
-      </div>
-    );
-  }
 
   if (isLoading) {
     if (intentLoadingTooLong) {
@@ -539,13 +741,7 @@ export default function IntentPage() {
             <LulouFlowerIcon className="w-10 h-10 text-primary/60 mx-auto" />
             <p className="font-serif text-lg font-semibold">Still loading profiles…</p>
             <p className="text-muted-foreground text-sm">This is taking longer than usual.</p>
-            <button
-              className="px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm font-medium"
-              onClick={() => refetchProfiles()}
-              data-testid="button-retry-intent"
-            >
-              Retry
-            </button>
+            <button className="px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm font-medium" onClick={() => refetchProfiles()} data-testid="button-retry-intent">Retry</button>
           </div>
         </div>
       );
@@ -615,41 +811,56 @@ export default function IntentPage() {
         }
         @keyframes profileNameAppear {
           from { transform: translateY(10px); opacity: 0; }
-          to   { transform: translateY(0);   opacity: 1; }
+          to   { transform: translateY(0);    opacity: 1; }
+        }
+        @keyframes matchRevealBg {
+          from { opacity: 0; }
+          to   { opacity: 1; }
+        }
+        @keyframes matchRevealPhoto {
+          from { transform: scale(0.55); opacity: 0; }
+          to   { transform: scale(1);    opacity: 1; }
+        }
+        @keyframes matchRevealTagline {
+          from { transform: translateY(18px); opacity: 0; }
+          to   { transform: translateY(0);    opacity: 1; }
+        }
+        @keyframes matchRevealCta {
+          from { transform: translateY(28px); opacity: 0; }
+          to   { transform: translateY(0);    opacity: 1; }
+        }
+        @keyframes glowPulse {
+          0%, 100% { opacity: 0.8; transform: scale(1); }
+          50%       { opacity: 1;   transform: scale(1.08); }
+        }
+        @keyframes rotateSlow {
+          from { transform: rotate(0deg); }
+          to   { transform: rotate(360deg); }
         }
       `}</style>
 
       {/* ── Header ── */}
       <div className="px-5 pt-5 pb-1">
         <div className="flex items-center justify-between gap-4 flex-wrap">
-          <div>
-            <h1 className="font-serif text-2xl font-semibold tracking-tight" data-testid="text-intent-title">
-              Intention Wheel
-            </h1>
-          </div>
+          <h1 className="font-serif text-2xl font-semibold tracking-tight" data-testid="text-intent-title">
+            Intention Wheel
+          </h1>
           <div className="flex items-center gap-3">
-            {/* Mute/unmute sound toggle */}
             <button
               onClick={toggleMute}
               data-testid="button-toggle-sound"
-              title={muted ? "Enable ticking sound" : "Mute ticking sound"}
+              title={muted ? "Enable sound" : "Mute sound"}
               style={{
                 width: 32, height: 32, borderRadius: "50%",
                 border: "1.5px solid hsl(var(--border))",
                 background: "transparent",
                 color: "hsl(var(--muted-foreground))",
                 display: "flex", alignItems: "center", justifyContent: "center",
-                cursor: "pointer", outline: "none",
-                transition: "color 0.2s, background 0.2s",
+                cursor: "pointer", outline: "none", transition: "color 0.2s",
               }}
             >
-              {muted
-                ? <VolumeX style={{ width: 15, height: 15 }} />
-                : <Volume2 style={{ width: 15, height: 15 }} />
-              }
+              {muted ? <VolumeX style={{ width: 15, height: 15 }} /> : <Volume2 style={{ width: 15, height: 15 }} />}
             </button>
-
-            {/* Streak indicator */}
             <div data-testid="streak-indicator">
               {streakComplete ? (
                 <Badge variant="secondary" className="text-xs" data-testid="badge-streak-complete">
@@ -658,17 +869,9 @@ export default function IntentPage() {
               ) : (
                 <div className="flex items-center gap-1.5">
                   {Array.from({ length: STREAK_GOAL }).map((_, i) => (
-                    <div
-                      key={i}
-                      className={`w-2 h-2 rounded-full transition-colors ${
-                        i < consecutiveDays ? "bg-primary" : "bg-muted-foreground/30"
-                      }`}
-                      data-testid={`streak-dot-${i}`}
-                    />
+                    <div key={i} className={`w-2 h-2 rounded-full transition-colors ${i < consecutiveDays ? "bg-primary" : "bg-muted-foreground/30"}`} data-testid={`streak-dot-${i}`} />
                   ))}
-                  <span className="text-xs text-muted-foreground ml-1" data-testid="text-likes-today">
-                    {dailyLikes}/{DAILY_LIKE_GOAL}
-                  </span>
+                  <span className="text-xs text-muted-foreground ml-1" data-testid="text-likes-today">{dailyLikes}/{DAILY_LIKE_GOAL}</span>
                 </div>
               )}
             </div>
@@ -681,8 +884,7 @@ export default function IntentPage() {
         <div
           className="relative select-none touch-manipulation"
           style={{
-            width: "100%",
-            height: ITEM_HEIGHT + 180,
+            width: "100%", height: ITEM_HEIGHT + 180,
             perspective: "1000px",
             transition: dispersed ? "opacity 0.55s ease" : undefined,
             opacity: dispersed ? 0 : 1,
@@ -694,23 +896,19 @@ export default function IntentPage() {
           onPointerLeave={handlePointerUp}
           data-testid="intent-wheel"
         >
-          {/* Confetti layer — sits above wheel, below selected-card highlight */}
           <ConfettiBurst active={showConfetti} />
 
-          {/* 3-D carousel */}
           <div
             className="absolute left-1/2 top-1/2"
             style={{
               transformStyle: "preserve-3d",
               transform: `translateX(-50%) translateY(-50%) rotateY(${-angle}deg)`,
-              width: ITEM_WIDTH,
-              height: ITEM_HEIGHT,
+              width: ITEM_WIDTH, height: ITEM_HEIGHT,
             }}
           >
             {items.map((profile, i) => {
               const itemAngle = i * angleStep;
               const isSelected = i === selectedIndex;
-
               const relativeAngle = ((((-angle + itemAngle) % 360) + 360) % 360);
               const cosVal = Math.cos((relativeAngle * Math.PI) / 180);
               const depthFactor = (cosVal + 1) / 2;
@@ -719,12 +917,9 @@ export default function IntentPage() {
 
               const disperseX = dispersed && !isSelected ? (Math.random() - 0.5) * 900 : 0;
               const disperseY = dispersed && !isSelected ? (Math.random() - 0.5) * 700 : 0;
-              const disperseScale = dispersed && !isSelected ? 0 : cardScale;
-              const disperseOpacity = dispersed && !isSelected ? 0 : (0.16 + depthFactor * 0.84);
 
-              // Selected card gets an animated ring on spin-complete
               const boxShadow = isSelected && !dispersed
-                ? undefined // controlled by CSS animation `selectedRing`
+                ? undefined
                 : depthFactor > 0.75 && !dispersed
                 ? `0 0 ${Math.round(glowAlpha * 28)}px ${Math.round(glowAlpha * 12)}px rgba(188,78,96,${(glowAlpha * 0.38).toFixed(2)}), 0 8px 24px rgba(0,0,0,0.32)`
                 : "0 4px 18px rgba(0,0,0,0.22)";
@@ -733,91 +928,54 @@ export default function IntentPage() {
                 <div
                   key={profile.id}
                   style={{
-                    width: ITEM_WIDTH,
-                    height: ITEM_HEIGHT,
-                    borderRadius: 20,
-                    overflow: "hidden",
-                    position: "absolute",
-                    left: 0,
-                    top: 0,
+                    width: ITEM_WIDTH, height: ITEM_HEIGHT,
+                    borderRadius: 20, overflow: "hidden",
+                    position: "absolute", left: 0, top: 0,
                     transform: dispersed && !isSelected
-                      ? `rotateY(${itemAngle}deg) translateZ(${radius}px) translate(${disperseX}px, ${disperseY}px) scale(${disperseScale})`
+                      ? `rotateY(${itemAngle}deg) translateZ(${radius}px) translate(${disperseX}px, ${disperseY}px) scale(0)`
                       : `rotateY(${itemAngle}deg) translateZ(${radius}px) scale(${cardScale})`,
-                    opacity: disperseOpacity,
+                    opacity: dispersed && !isSelected ? 0 : (0.16 + depthFactor * 0.84),
                     zIndex: Math.round(depthFactor * 100),
                     boxShadow,
                     animation: isSelected && !dispersed ? "selectedRing 0.6s ease forwards" : undefined,
-                    transition: dispersed
-                      ? "all 0.7s cubic-bezier(0.4, 0, 0.2, 1)"
-                      : "box-shadow 0.3s ease",
+                    transition: dispersed ? "all 0.7s cubic-bezier(0.4, 0, 0.2, 1)" : "box-shadow 0.3s ease",
                   }}
                   data-testid={`intent-profile-${i}`}
                 >
                   <ProfilePhoto userId={profile.userId} className="w-full h-full pointer-events-none" />
-
-                  {/* Vignette gradient */}
+                  <div style={{ position: "absolute", inset: 0, background: "linear-gradient(175deg, rgba(0,0,0,0) 35%, rgba(0,0,0,0.10) 58%, rgba(0,0,0,0.82) 100%)", pointerEvents: "none" }} />
                   <div style={{
-                    position: "absolute", inset: 0,
-                    background: "linear-gradient(175deg, rgba(0,0,0,0) 35%, rgba(0,0,0,0.10) 58%, rgba(0,0,0,0.82) 100%)",
-                    pointerEvents: "none",
-                  }} />
-
-                  {/* Name label */}
-                  <div style={{
-                    position: "absolute", bottom: 0, left: 0, right: 0,
-                    padding: "10px 12px 13px",
-                    pointerEvents: "none",
+                    position: "absolute", bottom: 0, left: 0, right: 0, padding: "10px 12px 13px", pointerEvents: "none",
                     animation: isSelected && !dispersed ? "profileNameAppear 0.4s 0.2s ease both" : undefined,
                   }}>
-                    <p style={{
-                      color: "#fff", fontSize: 13, fontWeight: 700,
-                      letterSpacing: "0.01em",
-                      whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
-                      textShadow: "0 1px 8px rgba(0,0,0,0.65)",
-                    }}>
+                    <p style={{ color: "#fff", fontSize: 13, fontWeight: 700, letterSpacing: "0.01em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", textShadow: "0 1px 8px rgba(0,0,0,0.65)" }}>
                       {profile.firstName}{profile.age ? `, ${profile.age}` : ""}
                     </p>
                   </div>
-
-                  {/* Inner highlight ring on selected */}
                   {isSelected && !dispersed && (
-                    <div style={{
-                      position: "absolute", inset: 0, borderRadius: 20,
-                      boxShadow: "inset 0 0 0 2.5px rgba(255,255,255,0.80)",
-                      pointerEvents: "none",
-                    }} />
+                    <div style={{ position: "absolute", inset: 0, borderRadius: 20, boxShadow: "inset 0 0 0 2.5px rgba(255,255,255,0.80)", pointerEvents: "none" }} />
                   )}
                 </div>
               );
             })}
           </div>
 
-          {/* Centre reticle — animated glow ring showing the landing zone */}
+          {/* Centre reticle */}
           {!dispersed && (
-            <div
-              style={{
-                position: "absolute",
-                left: "50%", top: "50%",
-                transform: "translateX(-50%) translateY(-50%)",
-                width: ITEM_WIDTH + 16,
-                height: ITEM_HEIGHT + 16,
-                borderRadius: 26,
-                border: isSpinning
-                  ? "1.5px solid rgba(188,78,96,0.55)"
-                  : "1.5px solid rgba(188,78,96,0.25)",
-                boxShadow: isSpinning
-                  ? "0 0 32px 8px rgba(188,78,96,0.20), inset 0 0 24px rgba(188,78,96,0.10)"
-                  : "0 0 16px 4px rgba(188,78,96,0.08), inset 0 0 12px rgba(188,78,96,0.05)",
-                animation: isSpinning ? "reticleGlow 0.6s ease-in-out infinite" : "reticleGlow 2.8s ease-in-out infinite",
-                pointerEvents: "none",
-                zIndex: 200,
-                transition: "border-color 0.4s, box-shadow 0.4s",
-              }}
-            />
+            <div style={{
+              position: "absolute", left: "50%", top: "50%",
+              transform: "translateX(-50%) translateY(-50%)",
+              width: ITEM_WIDTH + 16, height: ITEM_HEIGHT + 16, borderRadius: 26,
+              border: isSpinning ? "1.5px solid rgba(188,78,96,0.55)" : "1.5px solid rgba(188,78,96,0.25)",
+              boxShadow: isSpinning ? "0 0 32px 8px rgba(188,78,96,0.20), inset 0 0 24px rgba(188,78,96,0.10)" : "0 0 16px 4px rgba(188,78,96,0.08), inset 0 0 12px rgba(188,78,96,0.05)",
+              animation: isSpinning ? "reticleGlow 0.6s ease-in-out infinite" : "reticleGlow 2.8s ease-in-out infinite",
+              pointerEvents: "none", zIndex: 200,
+              transition: "border-color 0.4s, box-shadow 0.4s",
+            }} />
           )}
         </div>
 
-        {/* ── Spin button & streak bar ── */}
+        {/* ── Spin button & streak ── */}
         {!dispersed && !showPurchase && (
           <div className="flex flex-col items-center gap-4 px-6 w-full max-w-xs mx-auto">
             {canSpin ? (
@@ -825,25 +983,15 @@ export default function IntentPage() {
                 onClick={spinWheel}
                 disabled={isSpinning || items.length === 0}
                 style={{
-                  width: 96,
-                  height: 96,
-                  borderRadius: "50%",
-                  border: "none",
+                  width: 96, height: 96, borderRadius: "50%", border: "none",
                   background: isSpinning
                     ? "radial-gradient(circle at 50% 35%, #e06278, #a83c55)"
                     : "radial-gradient(circle at 50% 35%, #d45c74, #9d3550)",
-                  color: "#fff",
-                  cursor: isSpinning ? "default" : "pointer",
-                  display: "flex",
-                  flexDirection: "column",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  gap: 5,
+                  color: "#fff", cursor: isSpinning ? "default" : "pointer",
+                  display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 5,
                   animation: !isSpinning && canSpin ? "spinBtnPulse 2.6s ease-in-out infinite" : "none",
                   transition: "background 0.3s ease, transform 0.15s ease",
-                  outline: "none",
-                  WebkitTapHighlightColor: "transparent",
-                  flexShrink: 0,
+                  outline: "none", WebkitTapHighlightColor: "transparent", flexShrink: 0,
                 }}
                 onMouseEnter={e => { if (!isSpinning) (e.currentTarget as HTMLElement).style.transform = "scale(1.07)"; }}
                 onMouseLeave={e => { (e.currentTarget as HTMLElement).style.transform = "scale(1)"; }}
@@ -851,12 +999,7 @@ export default function IntentPage() {
                 onMouseUp={e => { (e.currentTarget as HTMLElement).style.transform = "scale(1.07)"; }}
                 data-testid="button-spin"
               >
-                <RotateCw
-                  style={{
-                    width: 26, height: 26,
-                    animation: isSpinning ? "spinBtn 0.65s linear infinite" : "none",
-                  }}
-                />
+                <RotateCw style={{ width: 26, height: 26, animation: isSpinning ? "spinBtn 0.65s linear infinite" : "none" }} />
                 <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.13em", textTransform: "uppercase", opacity: 0.93 }}>
                   {isSpinning ? "…" : "Spin"}
                 </span>
@@ -868,13 +1011,10 @@ export default function IntentPage() {
                   width: 96, height: 96, borderRadius: "50%",
                   border: "1.5px solid hsl(var(--border))",
                   background: "linear-gradient(145deg, hsl(var(--muted)), hsl(var(--muted-foreground)/0.08))",
-                  color: "hsl(var(--muted-foreground))",
-                  cursor: "pointer",
+                  color: "hsl(var(--muted-foreground))", cursor: "pointer",
                   display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 4,
                   boxShadow: "0 4px 14px rgba(0,0,0,0.10)",
-                  transition: "transform 0.15s ease, box-shadow 0.15s ease",
-                  outline: "none",
-                  WebkitTapHighlightColor: "transparent",
+                  transition: "transform 0.15s ease", outline: "none", WebkitTapHighlightColor: "transparent",
                 }}
                 onMouseEnter={e => { (e.currentTarget as HTMLElement).style.transform = "scale(1.05)"; }}
                 onMouseLeave={e => { (e.currentTarget as HTMLElement).style.transform = "scale(1)"; }}
@@ -894,14 +1034,8 @@ export default function IntentPage() {
                     return (
                       <div key={i} className="flex-1 flex flex-col items-center gap-1">
                         <div className="w-full h-1.5 rounded-full overflow-hidden bg-muted">
-                          {isDone ? (
-                            <div className="w-full h-full bg-primary rounded-full" />
-                          ) : isCurrentDay ? (
-                            <div
-                              className="h-full bg-primary/60 rounded-full transition-all duration-500"
-                              style={{ width: `${Math.min(dailyLikes / DAILY_LIKE_GOAL, 1) * 100}%` }}
-                            />
-                          ) : null}
+                          {isDone ? <div className="w-full h-full bg-primary rounded-full" /> :
+                           isCurrentDay ? <div className="h-full bg-primary/60 rounded-full transition-all duration-500" style={{ width: `${Math.min(dailyLikes / DAILY_LIKE_GOAL, 1) * 100}%` }} /> : null}
                         </div>
                         <span className="text-[10px] text-muted-foreground">
                           {isDone ? "✓" : isCurrentDay ? `${dailyLikes}/${DAILY_LIKE_GOAL}` : `Day ${i + 1}`}
@@ -918,7 +1052,7 @@ export default function IntentPage() {
           </div>
         )}
 
-        {/* ── Purchase spins panel ── */}
+        {/* ── Purchase spins ── */}
         {showPurchase && !showProfile && (
           <div className="px-5 w-full max-w-sm mx-auto animate-in fade-in slide-in-from-bottom-4 duration-500" data-testid="purchase-spins-popup">
             <Card className="p-6 space-y-5">
@@ -933,58 +1067,29 @@ export default function IntentPage() {
                     : `Build a ${STREAK_GOAL}-day like streak to earn a free spin, or purchase extra spins.`}
                 </p>
               </div>
-
               <div className="space-y-2">
-                <Button
-                  className="w-full gap-2"
-                  onClick={() => {
-                    toast({ title: "Coming soon", description: "Spin packs will be available shortly." });
-                  }}
-                  data-testid="button-buy-1-spin"
-                >
-                  <RotateCw className="w-4 h-4" />
-                  1 Spin - $1.49
+                <Button className="w-full gap-2" onClick={() => toast({ title: "Coming soon", description: "Spin packs will be available shortly." })} data-testid="button-buy-1-spin">
+                  <RotateCw className="w-4 h-4" /> 1 Spin - $1.49
                 </Button>
-                <Button
-                  className="w-full gap-2"
-                  variant="outline"
-                  onClick={() => {
-                    toast({ title: "Coming soon", description: "Spin packs will be available shortly." });
-                  }}
-                  data-testid="button-buy-2-spins"
-                >
-                  <RotateCw className="w-4 h-4" />
-                  2 Spins - $2.49
+                <Button className="w-full gap-2" variant="outline" onClick={() => toast({ title: "Coming soon", description: "Spin packs will be available shortly." })} data-testid="button-buy-2-spins">
+                  <RotateCw className="w-4 h-4" /> 2 Spins - $2.49
                 </Button>
               </div>
-
               {!streakComplete && (
                 <div className="border-t pt-4 space-y-2">
                   <p className="text-xs font-medium text-center text-muted-foreground">Or earn a free spin</p>
                   <div className="flex items-center gap-3">
                     {Array.from({ length: STREAK_GOAL }).map((_, i) => (
-                      <div
-                        key={i}
-                        className={`flex-1 h-2 rounded-full ${
-                          i < consecutiveDays ? "bg-primary" : "bg-muted"
-                        }`}
-                      />
+                      <div key={i} className={`flex-1 h-2 rounded-full ${i < consecutiveDays ? "bg-primary" : "bg-muted"}`} />
                     ))}
                     <span className="text-xs font-medium whitespace-nowrap">{consecutiveDays}/{STREAK_GOAL}</span>
                   </div>
                   <p className="text-xs text-muted-foreground text-center">
-                    Send {DAILY_LIKE_GOAL} likes daily for {STREAK_GOAL} days in a row to earn a free spin
+                    Send {DAILY_LIKE_GOAL} likes daily for {STREAK_GOAL} days in a row
                   </p>
                 </div>
               )}
-
-              <Button
-                variant="ghost"
-                size="sm"
-                className="w-full"
-                onClick={() => setShowPurchase(false)}
-                data-testid="button-dismiss-purchase"
-              >
+              <Button variant="ghost" size="sm" className="w-full" onClick={() => setShowPurchase(false)} data-testid="button-dismiss-purchase">
                 Maybe later
               </Button>
             </Card>
@@ -992,7 +1097,7 @@ export default function IntentPage() {
         )}
       </div>
 
-      {/* ── Selected profile detail sheet ── */}
+      {/* ── Profile detail sheet ── */}
       {showProfile && selectedProfile && (
         <div
           className="absolute inset-0 z-50 bg-background flex flex-col"
@@ -1001,15 +1106,13 @@ export default function IntentPage() {
         >
           <div className="flex-1 overflow-y-auto">
             <div className="relative">
-              <div data-testid="img-intent-detail-photo" className="w-full aspect-[3/4] max-h-[52vh] overflow-hidden">
+              <div data-testid="img-intent-detail-photo" className="w-full aspect-[3/4] max-h-[54vh] overflow-hidden">
                 <ProfilePhoto userId={selectedProfile.userId} className="w-full h-full" />
               </div>
-              {/* Soft fade from photo into content */}
               <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-background via-background/85 to-transparent h-28" />
 
               <Button
-                size="icon"
-                variant="ghost"
+                size="icon" variant="ghost"
                 className="absolute top-3 right-3 bg-black/30 text-white backdrop-blur-sm rounded-full"
                 onClick={closeProfile}
                 data-testid="button-close-profile"
@@ -1030,16 +1133,12 @@ export default function IntentPage() {
                   </div>
                 )}
                 {selectedProfile.height && (
-                  <p className="text-sm text-muted-foreground mt-0.5" data-testid="text-detail-height">
-                    {selectedProfile.height}
-                  </p>
+                  <p className="text-sm text-muted-foreground mt-0.5" data-testid="text-detail-height">{selectedProfile.height}</p>
                 )}
               </div>
 
               {selectedProfile.datingIntent && (
-                <Badge variant="secondary" data-testid="text-detail-intent">
-                  {selectedProfile.datingIntent}
-                </Badge>
+                <Badge variant="secondary" data-testid="text-detail-intent">{selectedProfile.datingIntent}</Badge>
               )}
 
               {selectedProfile.signals && selectedProfile.signals.length > 0 && (
@@ -1047,9 +1146,7 @@ export default function IntentPage() {
                   <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Signals</p>
                   <div className="flex flex-wrap gap-1.5">
                     {selectedProfile.signals.map((signal, i) => (
-                      <Badge key={i} variant="outline" data-testid={`badge-detail-signal-${i}`}>
-                        {signal}
-                      </Badge>
+                      <Badge key={i} variant="outline" data-testid={`badge-detail-signal-${i}`}>{signal}</Badge>
                     ))}
                   </div>
                 </div>
@@ -1060,9 +1157,7 @@ export default function IntentPage() {
                   <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Green Flags</p>
                   <div className="flex flex-wrap gap-1.5">
                     {selectedProfile.greenFlags.map((flag, i) => (
-                      <Badge key={i} variant="outline" data-testid={`badge-detail-flag-${i}`}>
-                        {flag}
-                      </Badge>
+                      <Badge key={i} variant="outline" data-testid={`badge-detail-flag-${i}`}>{flag}</Badge>
                     ))}
                   </div>
                 </div>
@@ -1076,11 +1171,7 @@ export default function IntentPage() {
                   </div>
                   <div className="space-y-2">
                     {selectedProfile.conversationStarters.map((starter, i) => (
-                      <div
-                        key={i}
-                        className="rounded-md p-3 text-sm bg-muted/50"
-                        data-testid={`text-detail-starter-${i}`}
-                      >
+                      <div key={i} className="rounded-md p-3 text-sm bg-muted/50" data-testid={`text-detail-starter-${i}`}>
                         <p className="italic">"{starter}"</p>
                       </div>
                     ))}
@@ -1096,11 +1187,7 @@ export default function IntentPage() {
                   </div>
                   <div className="space-y-2">
                     {selectedProfile.questions.map((question, i) => (
-                      <div
-                        key={i}
-                        className="rounded-md p-3 text-sm border"
-                        data-testid={`text-detail-question-${i}`}
-                      >
+                      <div key={i} className="rounded-md p-3 text-sm border" data-testid={`text-detail-question-${i}`}>
                         <p>{question}</p>
                       </div>
                     ))}
@@ -1113,13 +1200,7 @@ export default function IntentPage() {
                   <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Photos</p>
                   <div className="grid grid-cols-2 gap-2">
                     {selectedProfile.photos.slice(1).map((photo, i) => (
-                      <img
-                        key={i}
-                        src={photo}
-                        alt={`${selectedProfile.firstName} photo ${i + 2}`}
-                        className="w-full aspect-square object-cover rounded-md"
-                        data-testid={`img-detail-photo-${i + 1}`}
-                      />
+                      <img key={i} src={photo} alt={`${selectedProfile.firstName} photo ${i + 2}`} className="w-full aspect-square object-cover rounded-md" data-testid={`img-detail-photo-${i + 1}`} />
                     ))}
                   </div>
                 </div>
@@ -1127,35 +1208,66 @@ export default function IntentPage() {
             </div>
           </div>
 
-          {/* Action bar */}
-          <div className="absolute bottom-0 left-0 right-0 bg-background/95 backdrop-blur-md border-t p-5">
-            <div className="flex items-center justify-center gap-10">
-              <button
-                className="w-16 h-16 rounded-full flex items-center justify-center bg-muted border border-border shadow-sm hover:scale-105 active:scale-95 transition-transform"
-                onClick={closeProfile}
-                data-testid="button-intent-skip"
-                aria-label="Skip"
-              >
-                <Moon className="w-6 h-6 text-muted-foreground" />
-              </button>
-              <button
-                className="w-16 h-16 rounded-full flex items-center justify-center bg-primary text-primary-foreground shadow-md hover:scale-105 active:scale-95 transition-transform disabled:opacity-60"
-                onClick={() => selectedProfile && wheelOpen.mutate(selectedProfile.userId)}
-                disabled={wheelOpen.isPending}
-                data-testid="button-intent-open"
-                aria-label="Connect"
-              >
-                {wheelOpen.isPending
-                  ? <Loader2 className="w-6 h-6 animate-spin" />
-                  : <Heart className="w-6 h-6 fill-current" />
-                }
-              </button>
+          {/* ── Premium action bar ── */}
+          <div className="absolute bottom-0 left-0 right-0 border-t" style={{ background: "hsl(var(--background)/0.96)", backdropFilter: "blur(16px)" }}>
+            <div className="px-5 pt-4 pb-6">
+              <div className="flex items-center gap-4">
+                {/* Skip button */}
+                <button
+                  className="flex-1 flex flex-col items-center gap-1.5 py-3 rounded-2xl border transition-all active:scale-95"
+                  style={{
+                    background: "hsl(var(--muted)/0.5)",
+                    borderColor: "hsl(var(--border))",
+                  }}
+                  onClick={closeProfile}
+                  data-testid="button-intent-skip"
+                  aria-label="Skip"
+                >
+                  <Moon className="w-5 h-5 text-muted-foreground" />
+                  <span className="text-xs text-muted-foreground font-medium tracking-wide">Skip</span>
+                </button>
+
+                {/* Connect button */}
+                <button
+                  className="flex-[2] flex flex-col items-center gap-1.5 py-3 rounded-2xl transition-all active:scale-95 disabled:opacity-60"
+                  style={{
+                    background: "linear-gradient(135deg, #d45c74 0%, #9d3550 100%)",
+                    boxShadow: "0 4px 20px rgba(188,78,96,0.45), 0 2px 8px rgba(0,0,0,0.18), inset 0 1px 0 rgba(255,255,255,0.15)",
+                  }}
+                  onClick={() => selectedProfile && wheelOpen.mutate(selectedProfile.userId)}
+                  disabled={wheelOpen.isPending}
+                  data-testid="button-intent-open"
+                  aria-label="Connect"
+                >
+                  {wheelOpen.isPending
+                    ? <Loader2 className="w-5 h-5 text-white animate-spin" />
+                    : <Heart className="w-5 h-5 text-white fill-current" />
+                  }
+                  <span className="text-xs text-white font-semibold tracking-wide">
+                    {wheelOpen.isPending ? "Connecting…" : "Connect"}
+                  </span>
+                </button>
+              </div>
             </div>
-            <p className="text-xs text-center text-muted-foreground mt-3">
-              Tap ❤️ to connect · 🌙 to skip
-            </p>
           </div>
         </div>
+      )}
+
+      {/* ── Match reveal overlay ── */}
+      {showMatchReveal && matchRevealProfile && (
+        <MatchRevealOverlay
+          profile={matchRevealProfile}
+          isExisting={matchRevealIsExisting}
+          playChime={playChime}
+          onGoToMatches={() => {
+            resetAfterReveal();
+            navigate("/matches");
+          }}
+          onDiscover={() => {
+            resetAfterReveal();
+            setTimeout(() => setShowPurchase(true), 300);
+          }}
+        />
       )}
     </div>
   );
