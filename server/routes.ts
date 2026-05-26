@@ -1479,6 +1479,8 @@ export async function registerRoutes(
         myProfile?.locationRadius ?? 0,
         myProfile?.latitude ?? null,
         myProfile?.longitude ?? null,
+        myProfile?.preferredAgeMin ?? 18,
+        myProfile?.preferredAgeMax ?? 99,
       );
       console.log(`[WHEEL] getPopularProfiles: ${Date.now() - t1} ms | total route: ${Date.now() - t0} ms`);
 

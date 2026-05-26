@@ -171,7 +171,7 @@ export interface IStorage {
   acceptFaceCall(matchId: string, userId: string): Promise<Match | undefined>;
   declineFaceCall(matchId: string, userId: string): Promise<Match | undefined>;
   getProfilePhotos(userId: string): Promise<string[]>;
-  getPopularProfiles(limit?: number, preference?: string, gender?: string, userId?: string, locationRadius?: number, userLat?: number | null, userLng?: number | null): Promise<Profile[]>;
+  getPopularProfiles(limit?: number, preference?: string, gender?: string, userId?: string, locationRadius?: number, userLat?: number | null, userLng?: number | null, ageMin?: number, ageMax?: number): Promise<Profile[]>;
   getSpinStandouts(userId: string): Promise<string[]>;
   addSpinStandout(userId: string, standoutUserId: string): Promise<void>;
   getSpinsToday(userId: string): Promise<number>;
@@ -1553,7 +1553,7 @@ export class SupabaseStorage implements IStorage {
     return updated ? mapMatch(updated) : undefined;
   }
 
-  async getPopularProfiles(limit: number = 10, preference?: string, gender?: string, userId?: string, locationRadius?: number, userLat?: number | null, userLng?: number | null): Promise<Profile[]> {
+  async getPopularProfiles(limit: number = 10, preference?: string, gender?: string, userId?: string, locationRadius?: number, userLat?: number | null, userLng?: number | null, ageMin: number = 18, ageMax: number = 99): Promise<Profile[]> {
     // Photos excluded from this query — same reasoning as getDiscoverProfiles.
     // Intent page lazy-loads photos per wheel item via GET /api/profiles/:userId/photos.
     // lat/lng only included when DB migration is confirmed (same guard as POOL_COLS).
@@ -1566,13 +1566,19 @@ export class SupabaseStorage implements IStorage {
       "email", "phone_number", "photo_verified", "onboarding_complete", "created_at",
     ].join(", ");
 
-    // Pre-compute mutual-compat filter values (same logic as getDiscoverProfiles)
+    // Clamp age range to valid bounds — identical to getDiscoverProfiles.
+    const effectiveAgeMin = Math.max(18, ageMin);
+    const effectiveAgeMax = Math.min(99, ageMax);
+
+    // Pre-compute mutual-compat filter values — identical to getDiscoverProfiles.
+    // FIX: removed the `gender ?` short-circuit on candidateMustPrefer; always compute it
+    // so the mutual-compat filter is applied consistently regardless of whether gender is set.
     const normGender = normalizeGender(gender);
     const normPref   = normalizeDatingPreference(preference);
     const targetGenders       = getGendersForPreference(normPref);
-    const candidateMustPrefer = gender ? getPreferencesThatIncludeGender(normGender) : [];
+    const candidateMustPrefer = getPreferencesThatIncludeGender(normGender);
 
-    console.log("[WHEEL] mutual-compat filters:", {
+    console.log("[WHEEL] mutual-compat + age filters:", {
       userId: userId ?? "(none)",
       myGender: gender ?? "(none)",
       myGenderNorm: normGender,
@@ -1580,30 +1586,34 @@ export class SupabaseStorage implements IStorage {
       myPrefNorm: normPref,
       targetGenders: targetGenders ?? "all",
       candidateMustPrefer: candidateMustPrefer.length ? candidateMustPrefer : "any",
+      ageRange: `${effectiveAgeMin}–${effectiveAgeMax}`,
     });
 
-    // Helper: apply both mutual-compat filters to a Supabase query builder
+    // Helper: apply mutual-compat + age filters to a Supabase query builder.
+    // Age uses null-safe OR so profiles without an age are never blocked (same as Discovery).
     const applyFilters = (q: any): any => {
       if (targetGenders && targetGenders.length > 0) q = q.in("gender", targetGenders);
       if (candidateMustPrefer.length > 0) q = q.in("dating_preference", candidateMustPrefer);
+      // Null-safe age filter — null age passes through (graceful degradation).
+      q = q.or(`age.is.null,age.gte.${effectiveAgeMin}`);
+      q = q.or(`age.is.null,age.lte.${effectiveAgeMax}`);
       return q;
     };
 
     // Build exclusion set (interacted + active matches) and fetch popularity data in parallel.
-    // Previously only interactedIds was used — matches created via the Intention Wheel itself
-    // (POST /api/wheel/open) or accepted spin requests bypass the interactions table entirely,
-    // so those matched users leaked back into the wheel pool.  buildExcludedUserIds fixes both
-    // Discovery and the Wheel with one shared helper.
     const twPopT0 = Date.now();
-    const emptyExclusion = { excludedIds: new Set<string>(), interactedIds: new Set<string>(), activeMatchUserIds: new Set<string>() };
+    const emptyExclusion = { excludedIds: new Set<string>(), interactedIds: new Set<string>(), activeMatchUserIds: new Set<string>(), inboundOpenerIds: new Set<string>() };
     const [exclusionResult, popularRowsResult] = await Promise.all([
       userId ? this.buildExcludedUserIds(userId) : Promise.resolve(emptyExclusion),
       this.sb.from("interactions").select("to_user_id").eq("type", "open").limit(2000),
     ]);
     console.log(`[WHEEL] exclusions+popularity queries done in ${Date.now() - twPopT0} ms`);
 
-    const { excludedIds, interactedIds, activeMatchUserIds } = exclusionResult;
-    console.log("[INTENTION_WHEEL_FILTER] active matched user ids:", [...activeMatchUserIds]);
+    const { excludedIds, activeMatchUserIds } = exclusionResult;
+    console.log("[WHEEL_FILTER] exclusion breakdown:", {
+      total: excludedIds.size,
+      activeMatches: activeMatchUserIds.size,
+    });
 
     const popularRows = popularRowsResult.data;
 
@@ -1621,13 +1631,14 @@ export class SupabaseStorage implements IStorage {
     let allProfiles: Profile[] = [];
 
     if (sortedIds.length > 0) {
+      // FIX: apply age filter here so popular profiles outside the user's age preference
+      // are excluded at DB level — same treatment as getDiscoverProfiles.
       let query = this.sb
         .from("profiles")
         .select(WHEEL_COLS)
         .eq("onboarding_complete", true)
         .in("user_id", sortedIds);
 
-      // Apply mutual-compatibility filters (both gender + preference)
       query = applyFilters(query);
 
       const { data, error } = await query;
@@ -1639,7 +1650,7 @@ export class SupabaseStorage implements IStorage {
     }
 
     // Fill remaining slots from any eligible profile (most recently joined first).
-    // Fetch limit*3 to ensure enough remain after interaction filtering below.
+    // FIX: apply age filter + neq(userId) at DB level — same as Discovery's base query.
     if (allProfiles.length < limit) {
       const existingIds = allProfiles.map(r => r.userId);
       let query = this.sb
@@ -1649,77 +1660,96 @@ export class SupabaseStorage implements IStorage {
         .order("created_at", { ascending: false })
         .limit(limit * 3);
 
-      if (existingIds.length > 0) {
-        query = query.not("user_id", "in", `(${existingIds.join(",")})`);
+      // Exclude own profile and already-fetched popular profiles.
+      const excludeFromFill = userId
+        ? [...existingIds, userId]
+        : existingIds;
+      if (excludeFromFill.length > 0) {
+        query = query.not("user_id", "in", `(${excludeFromFill.join(",")})`);
       }
 
-      // Apply mutual-compatibility filters (both gender + preference)
       query = applyFilters(query);
 
-      const { data: extra, error: fallbackError } = await query;
-      if (fallbackError) console.error("[WHEEL] fallback query error:", fallbackError.message);
+      const { data: extra, error: fillError } = await query;
+      if (fillError) console.error("[WHEEL] fill query error:", fillError.message);
       allProfiles.push(...(extra || []).map(mapProfile));
     }
 
-    console.log("[WHEEL] total profiles before interaction filter:", allProfiles.length, "| preference:", preference ?? "any", "| gender:", gender ?? "any");
+    console.log(`[FILTER_DEBUG][WHEEL] total candidates from DB: ${allProfiles.length}`);
 
-    // Exclude profiles the current user has already interacted with OR is actively matched with.
-    // excludedIds = interactedIds ∪ activeMatchUserIds — see buildExcludedUserIds for details.
-    if (userId && excludedIds.size > 0) {
-      const beforeCount = allProfiles.length;
-      let matchExcludedCount = 0;
-      allProfiles = allProfiles.filter(p => {
-        if (excludedIds.has(p.userId)) {
-          if (activeMatchUserIds.has(p.userId)) {
-            matchExcludedCount++;
-            if (IS_DEV) console.log(`[INTENTION_WHEEL_FILTER] excluded matched profile: ${p.userId} (${p.firstName})`);
-          }
-          return false;
-        }
-        return true;
-      });
-      if (matchExcludedCount > 0) {
-        console.log(`[INTENTION_WHEEL_FILTER] excluded matched users: ${matchExcludedCount}`);
+    // ── In-memory age verification ───────────────────────────────────────────
+    // Mirrors getDiscoverProfiles: null age passes through; only exclude concrete out-of-range ages.
+    let wheelExcludedByAge = 0;
+    const ageVerified = allProfiles.filter(p => {
+      if (p.age != null && (p.age < effectiveAgeMin || p.age > effectiveAgeMax)) {
+        wheelExcludedByAge++;
+        return false;
       }
-      console.log(`[WHEEL] after exclusion: ${allProfiles.length} (removed ${beforeCount - allProfiles.length})`);
-    }
+      return true;
+    });
+    console.log(`[FILTER_DEBUG][WHEEL] excluded by age (range ${effectiveAgeMin}–${effectiveAgeMax}): ${wheelExcludedByAge}`);
+
+    // ── Exclude interacted / matched / inbound-liked profiles ────────────────
+    let wheelExcludedByInteraction = 0;
+    let matchExcludedCount = 0;
+    const interactionFiltered = ageVerified.filter(p => {
+      if (p.userId === userId) return false; // safety: never show own profile
+      if (excludedIds.has(p.userId)) {
+        if (activeMatchUserIds.has(p.userId)) matchExcludedCount++;
+        wheelExcludedByInteraction++;
+        return false;
+      }
+      return true;
+    });
+    console.log(`[FILTER_DEBUG][WHEEL] excluded by liked/matched/inbound: ${wheelExcludedByInteraction} (${matchExcludedCount} active matches)`);
 
     // ── Distance filter ──────────────────────────────────────────────────────
-    // Only applies when lat/lng columns exist in DB. Null coords pass through.
+    // Mirrors getDiscoverProfiles: null coords pass through.
     let wheelExcludedByDistance = 0;
+    let distanceFiltered = interactionFiltered;
     if (_hasLatLngColumns && userLat != null && userLng != null && locationRadius && locationRadius > 0) {
-      const beforeDist = allProfiles.length;
-      allProfiles = allProfiles.filter(p => {
+      distanceFiltered = interactionFiltered.filter(p => {
         if (p.latitude == null || p.longitude == null) return true;
         const within = haversineDistanceMiles(userLat!, userLng!, p.latitude, p.longitude) <= locationRadius;
         if (!within) wheelExcludedByDistance++;
         return within;
       });
-      console.log(`[FILTER_DEBUG] wheel excluded by distance: ${wheelExcludedByDistance} | pool=${beforeDist} → ${allProfiles.length}`);
     }
+    console.log(`[FILTER_DEBUG][WHEEL] excluded by distance: ${wheelExcludedByDistance}`);
+    console.log(`[FILTER_DEBUG][WHEEL] final count (before elevate/sample): ${distanceFiltered.length}`);
 
-    // If still empty after exclusion, show anyone with onboarding complete (no gender filter).
-    // This last-resort fallback shows any non-excluded user to prevent a completely empty wheel.
-    if (allProfiles.length === 0) {
-      console.log("[WHEEL] no profiles after all filters — falling back to any non-excluded completed profile");
-      const { data: fallback } = await this.sb
+    // ── Last-resort fallback ─────────────────────────────────────────────────
+    // FIX: use the same gender-only relaxation as getDiscoverProfiles instead of a
+    // completely unconstrained query that showed profiles outside the user's preference.
+    if (distanceFiltered.length === 0) {
+      console.log("[WHEEL] pool empty after all filters — relaxing to gender-only fallback (mirrors Discovery)");
+      let fallbackQuery = this.sb
         .from("profiles")
         .select(WHEEL_COLS)
         .eq("onboarding_complete", true)
+        .or(`age.is.null,age.gte.${effectiveAgeMin}`)
+        .or(`age.is.null,age.lte.${effectiveAgeMax}`)
         .order("created_at", { ascending: false })
         .limit(limit * 3);
+
+      // Keep gender filter; relax the mutual-compat (dating_preference) filter.
+      if (targetGenders && targetGenders.length > 0) {
+        fallbackQuery = fallbackQuery.in("gender", targetGenders);
+      }
+
+      const { data: fallback, error: fallbackErr } = await fallbackQuery;
+      if (fallbackErr) console.error("[WHEEL] fallback query error:", fallbackErr.message);
       const fallbackMapped = (fallback || []).map(mapProfile).filter(p =>
         p.userId !== userId && !excludedIds.has(p.userId)
       );
-      allProfiles = fallbackMapped;
-      console.log("[WHEEL] fallback pool after exclusion:", allProfiles.length);
+      distanceFiltered = fallbackMapped;
+      console.log(`[FILTER_DEBUG][WHEEL] final count (gender-only fallback): ${distanceFiltered.length}`);
     }
 
     // Merge live elevate status from local DB, then weighted sample
     const elevates = await getActiveElevatesMap();
     const now = new Date();
-    const elevatedProfiles = mergeElevatesIntoProfiles(allProfiles, elevates);
-    console.log("[INTENTION_WHEEL_FILTER] final count:", elevatedProfiles.length);
+    const elevatedProfiles = mergeElevatesIntoProfiles(distanceFiltered, elevates);
     return weightedSample(elevatedProfiles, elevatedProfiles.length, now);
   }
 
