@@ -254,9 +254,18 @@ function filterPhotos(raw: string[]): string[] {
 // Profile columns for list views — excludes `photos` (base64, ~900 KB per profile) and
 // `elevate_type`/`elevate_expires_at` (handled by user_elevates drizzle table for discover).
 // mapProfile handles missing columns gracefully (falls back to null / empty array).
+// lat/lng columns are optional — only present after the DB migration is run.
+// Set to true by setHasLatLngColumns() called from server startup.
+let _hasLatLngColumns = false;
+export function setHasLatLngColumns(val: boolean) {
+  _hasLatLngColumns = val;
+  console.log(`[STORAGE] lat/lng columns ${val ? "AVAILABLE" : "NOT YET MIGRATED"}`);
+}
+
+// Matches & Likes pages don't need coordinates (no distance filter applies there).
 const MATCH_PROFILE_COLS = [
   "id", "user_id", "first_name", "age", "gender", "dating_preference",
-  "location", "latitude", "longitude", "height", "signals", "dating_intent", "green_flags",
+  "location", "height", "signals", "dating_intent", "green_flags",
   "connection_style", "conversation_starters", "questions",
   "location_radius", "preferred_age_min", "preferred_age_max",
   "email", "phone_number", "photo_verified", "onboarding_complete", "created_at",
@@ -264,10 +273,9 @@ const MATCH_PROFILE_COLS = [
 
 // Profile columns for Likes page — same as MATCH_PROFILE_COLS but includes `photos`
 // so the LikeCard and full-screen ProfileModal can show images.
-// Excludes `elevate_type`/`elevate_expires_at` (not needed on Likes page).
 const LIKES_PROFILE_COLS = [
   "id", "user_id", "first_name", "age", "gender", "dating_preference",
-  "location", "latitude", "longitude", "height", "photos", "signals", "dating_intent", "green_flags",
+  "location", "height", "photos", "signals", "dating_intent", "green_flags",
   "connection_style", "conversation_starters", "questions",
   "location_radius", "preferred_age_min", "preferred_age_max",
   "email", "phone_number", "photo_verified", "onboarding_complete", "created_at",
@@ -620,33 +628,30 @@ export class SupabaseStorage implements IStorage {
     // Select all columns EXCEPT photos — base64 images in photos make rows huge (100s KB each).
     // Fetching photos for 100 profiles at once transfers 50–100 MB and causes a statement timeout.
     // Photos are fetched individually per-card by the client via GET /api/profiles/:userId.
+    // lat/lng only included when the DB migration has been confirmed at startup.
+    // Including non-existent columns causes the entire query to fail and return [].
     const POOL_COLS = [
       "id", "user_id", "first_name", "age", "gender", "dating_preference",
-      "location", "latitude", "longitude", "height", "signals", "dating_intent", "green_flags",
+      "location", ...(_hasLatLngColumns ? ["latitude", "longitude"] : []), "height",
+      "signals", "dating_intent", "green_flags",
       "connection_style", "conversation_starters", "questions",
       "location_radius", "preferred_age_min", "preferred_age_max",
       "email", "phone_number", "photo_verified", "onboarding_complete", "created_at",
     ].join(", ");
 
-    // Age range — always enforced regardless of environment.
-    // NOTE: the previous code had `if (!isDev && hasNarrowAgeRange)` which silently
-    // disabled the age filter whenever NODE_ENV === "development" (i.e. Replit).
-    // That caused out-of-range profiles (e.g. age 25 when min is 29) to leak through
-    // on every environment except a production deploy.  The guard is removed: the age
-    // filter must always apply so that the saved preference is actually respected.
     const effectiveAgeMin = Math.max(18, ageMin);
     const effectiveAgeMax = Math.min(99, ageMax);
-    console.log("[DISCOVERY_AGE_FILTER]", { minAge: effectiveAgeMin, maxAge: effectiveAgeMax, userId: userId.slice(0, 8) });
 
-    // Base query: exclude own profile, require onboarding complete
+    // Base query: exclude own profile, require onboarding complete.
+    // Age filter uses OR to treat NULL age as a pass-through (graceful degradation
+    // for profiles where age wasn't stored — null age must not block everyone).
     let profilesQuery = this.sb
       .from("profiles")
       .select(POOL_COLS)
       .neq("user_id", userId)
       .eq("onboarding_complete", true)
-      // Age filter applied at DB level — always, not just in production.
-      .gte("age", effectiveAgeMin)
-      .lte("age", effectiveAgeMax);
+      .or(`age.is.null,age.gte.${effectiveAgeMin}`)
+      .or(`age.is.null,age.lte.${effectiveAgeMax}`);
 
     // ── Mutual-compatibility filters ────────────────────────────────────────
     // Both conditions must hold:
@@ -714,83 +719,56 @@ export class SupabaseStorage implements IStorage {
     const now = new Date();
     const all = (profilesResult.data || []).map(mapProfile);
 
+    console.log(`[FILTER_DEBUG] total candidates from DB: ${all.length}`);
+
     // ── In-memory age verification pass ─────────────────────────────────────
-    // The DB query already applies .gte("age", effectiveAgeMin).lte("age", effectiveAgeMax).
-    // This second pass catches any profiles where the `age` column is NULL or
-    // inconsistent (e.g. onboarded before the column was populated) and logs each
-    // exclusion so age-filter issues are immediately visible in server logs.
+    // Null age passes through — profiles without an age are not excluded.
+    // Only exclude when age is a concrete value outside the preferred range.
+    let excludedByAge = 0;
     const ageVerified = all.filter(p => {
       const candidateAge = p.age;
-      console.log("[DISCOVERY_AGE_FILTER]", {
-        candidateAge,
-        firstName: p.firstName,
-        minAge: effectiveAgeMin,
-        maxAge: effectiveAgeMax,
-        candidateId: p.userId.slice(0, 8),
-      });
-      if (candidateAge == null || candidateAge < effectiveAgeMin || candidateAge > effectiveAgeMax) {
-        console.log("[DISCOVERY_AGE_FILTER] excluded age out of range", {
-          candidateAge,
-          firstName: p.firstName,
-          minAge: effectiveAgeMin,
-          maxAge: effectiveAgeMax,
-        });
+      if (candidateAge != null && (candidateAge < effectiveAgeMin || candidateAge > effectiveAgeMax)) {
+        excludedByAge++;
         return false;
       }
       return true;
     });
+    console.log(`[FILTER_DEBUG] excluded by age (range ${effectiveAgeMin}–${effectiveAgeMax}): ${excludedByAge}`);
 
     // DB-exclusion path: returned profiles are already excluded — no second filter needed.
     // Large-exclusion fallback: apply in-memory exclusion on the wider 500-profile batch.
+    let excludedByInteraction = 0;
     const baseFiltered = useDbExclusion
       ? ageVerified
       : ageVerified.filter(p => {
           if (!excludedIds.has(p.userId)) return true;
-          if (IS_DEV && activeMatchUserIds.has(p.userId)) {
-            console.log("[DISCOVERY_FILTER] excluded matched profile:", p.userId, p.firstName);
-          }
+          excludedByInteraction++;
           return false;
         });
+    console.log(`[FILTER_DEBUG] excluded by liked/matched/inbound: ${useDbExclusion ? excludedIds.size + " (at DB)" : excludedByInteraction}`);
 
     // ── Distance filter ──────────────────────────────────────────────────────
-    // Applied in-memory after the DB pool is built — Supabase PostgREST doesn't
-    // expose PostGIS so we compute Haversine in JavaScript instead.
-    // Candidates whose coordinates are not yet geocoded pass through
-    // (graceful degradation for legacy profiles created before this feature).
+    // Applied in-memory. Candidates without geocoded coordinates pass through
+    // (graceful degradation — null coords never block profiles).
     let distanceFiltered = baseFiltered;
-    if (userLat !== null && userLng !== null && locationRadius > 0) {
+    let excludedByDistance = 0;
+    if (_hasLatLngColumns && userLat !== null && userLng !== null && locationRadius > 0) {
       distanceFiltered = baseFiltered.filter(p => {
-        if (p.latitude == null || p.longitude == null) return true;
-        return haversineDistanceMiles(userLat!, userLng!, p.latitude, p.longitude) <= locationRadius;
+        if (p.latitude == null || p.longitude == null) return true; // no coords → pass
+        const within = haversineDistanceMiles(userLat!, userLng!, p.latitude, p.longitude) <= locationRadius;
+        if (!within) excludedByDistance++;
+        return within;
       });
-      console.log(
-        `[DISCOVERY_DISTANCE_FILTER] radius=${locationRadius}mi` +
-        ` lat=${userLat.toFixed(2)} lng=${userLng.toFixed(2)}` +
-        ` | pool=${baseFiltered.length} → within_radius=${distanceFiltered.length}`
-      );
     }
+    console.log(`[FILTER_DEBUG] excluded by distance: ${excludedByDistance}`);
+    console.log(`[FILTER_DEBUG] final count (before weighted sample): ${distanceFiltered.length}`);
 
     const filtered = mergeElevatesIntoProfiles(distanceFiltered, elevates);
-
-    if (IS_DEV) {
-      const superCount = filtered.filter(p => p.elevateType === "super_elevate" && p.elevateExpiresAt && p.elevateExpiresAt > now).length;
-      const elevCount  = filtered.filter(p => p.elevateType === "elevate" && p.elevateExpiresAt && p.elevateExpiresAt > now).length;
-      console.log(
-        "[DISCOVER] DB pool:", all.length,
-        "| after age verify:", ageVerified.length,
-        "| after exclusion:", baseFiltered.length,
-        "| after elevate merge:", filtered.length,
-        "| super:", superCount, "elevate:", elevCount,
-        "| interacted:", interactedIds.size,
-        "| active-matched:", activeMatchUserIds.size,
-      );
-    }
 
     // Fallback tier 1: both mutual filters applied but pool is still empty.
     // Relax the mutual filter and try again with ONLY the gender-preference filter
     // (candidate.gender matches what user wants) so the discover screen is never
-    // completely blank on a small user base.  The mutual filter remains the primary
-    // path — this only kicks in when there are genuinely no mutually-compatible profiles.
+    // completely blank on a small user base.
     if (filtered.length === 0) {
       console.log("[DISCOVER] Mutual-compat pool empty — relaxing to gender-only filter for fallback");
       let fallbackQuery = this.sb
@@ -798,9 +776,9 @@ export class SupabaseStorage implements IStorage {
         .select(POOL_COLS)
         .neq("user_id", userId)
         .eq("onboarding_complete", true)
-        // Age filter applied in fallback too — same range as primary query.
-        .gte("age", effectiveAgeMin)
-        .lte("age", effectiveAgeMax)
+        // Null-safe age filter in fallback too
+        .or(`age.is.null,age.gte.${effectiveAgeMin}`)
+        .or(`age.is.null,age.lte.${effectiveAgeMax}`)
         .limit(100);
 
       if (targetGenders && targetGenders.length > 0) {
@@ -811,34 +789,20 @@ export class SupabaseStorage implements IStorage {
       if (!fallbackErr && fallbackData && fallbackData.length > 0) {
         const fallbackAll = fallbackData.map(mapProfile);
         const fallbackFiltered = fallbackAll.filter(p => {
-          // In-memory age guard for fallback path too.
-          if (p.age == null || p.age < effectiveAgeMin || p.age > effectiveAgeMax) {
-            console.log("[DISCOVERY_AGE_FILTER] excluded age out of range (fallback)", {
-              candidateAge: p.age,
-              firstName: p.firstName,
-              minAge: effectiveAgeMin,
-              maxAge: effectiveAgeMax,
-            });
-            return false;
-          }
-          if (excludedIds.has(p.userId)) {
-            if (IS_DEV && activeMatchUserIds.has(p.userId)) {
-              console.log("[DISCOVERY_FILTER] excluded matched profile (fallback):", p.userId, p.firstName);
-            }
-            return false;
-          }
+          // Null age passes through in fallback too
+          if (p.age != null && (p.age < effectiveAgeMin || p.age > effectiveAgeMax)) return false;
+          if (excludedIds.has(p.userId)) return false;
           return true;
         });
         const fallbackWithElevates = mergeElevatesIntoProfiles(fallbackFiltered, elevates);
-        if (IS_DEV) console.log("[DISCOVER] Gender-only fallback pool:", fallbackWithElevates.length, "profiles");
         const fallbackResult = weightedSample(fallbackWithElevates, 20, now);
-        console.log("[DISCOVERY_FILTER] final count:", fallbackResult.length);
+        console.log(`[FILTER_DEBUG] final count (gender-only fallback): ${fallbackResult.length}`);
         return fallbackResult;
       }
     }
 
     const result = weightedSample(filtered, 20, now);
-    console.log("[DISCOVERY_FILTER] final count:", result.length);
+    console.log(`[FILTER_DEBUG] final count: ${result.length}`);
     return result;
   }
 
@@ -1592,9 +1556,11 @@ export class SupabaseStorage implements IStorage {
   async getPopularProfiles(limit: number = 10, preference?: string, gender?: string, userId?: string, locationRadius?: number, userLat?: number | null, userLng?: number | null): Promise<Profile[]> {
     // Photos excluded from this query — same reasoning as getDiscoverProfiles.
     // Intent page lazy-loads photos per wheel item via GET /api/profiles/:userId/photos.
+    // lat/lng only included when DB migration is confirmed (same guard as POOL_COLS).
     const WHEEL_COLS = [
       "id", "user_id", "first_name", "age", "gender", "dating_preference",
-      "location", "latitude", "longitude", "height", "signals", "dating_intent", "green_flags",
+      "location", ...(_hasLatLngColumns ? ["latitude", "longitude"] : []), "height",
+      "signals", "dating_intent", "green_flags",
       "connection_style", "conversation_starters", "questions",
       "location_radius", "preferred_age_min", "preferred_age_max",
       "email", "phone_number", "photo_verified", "onboarding_complete", "created_at",
@@ -1719,20 +1685,17 @@ export class SupabaseStorage implements IStorage {
     }
 
     // ── Distance filter ──────────────────────────────────────────────────────
-    // Applied in-memory after the exclusion filter.  Same logic as getDiscoverProfiles:
-    // Haversine in JS because Supabase PostgREST has no PostGIS support.
-    // Candidates without geocoded coordinates pass through gracefully.
-    if (userLat != null && userLng != null && locationRadius && locationRadius > 0) {
+    // Only applies when lat/lng columns exist in DB. Null coords pass through.
+    let wheelExcludedByDistance = 0;
+    if (_hasLatLngColumns && userLat != null && userLng != null && locationRadius && locationRadius > 0) {
       const beforeDist = allProfiles.length;
       allProfiles = allProfiles.filter(p => {
         if (p.latitude == null || p.longitude == null) return true;
-        return haversineDistanceMiles(userLat!, userLng!, p.latitude, p.longitude) <= locationRadius;
+        const within = haversineDistanceMiles(userLat!, userLng!, p.latitude, p.longitude) <= locationRadius;
+        if (!within) wheelExcludedByDistance++;
+        return within;
       });
-      console.log(
-        `[WHEEL_DISTANCE_FILTER] radius=${locationRadius}mi` +
-        ` lat=${userLat.toFixed(2)} lng=${userLng.toFixed(2)}` +
-        ` | pool=${beforeDist} → within_radius=${allProfiles.length}`
-      );
+      console.log(`[FILTER_DEBUG] wheel excluded by distance: ${wheelExcludedByDistance} | pool=${beforeDist} → ${allProfiles.length}`);
     }
 
     // If still empty after exclusion, show anyone with onboarding complete (no gender filter).

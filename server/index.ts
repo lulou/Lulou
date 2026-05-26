@@ -135,14 +135,19 @@ app.use((req, res, next) => {
   }
 
   // Check that lat/lng columns exist in Supabase — added for distance filtering.
-  // If missing the user must run the migration SQL in the Supabase dashboard.
+  // If missing, Discovery/Wheel still work; distance filter is just skipped.
+  // Run: ALTER TABLE profiles ADD COLUMN IF NOT EXISTS latitude double precision;
+  //      ALTER TABLE profiles ADD COLUMN IF NOT EXISTS longitude double precision;
   try {
     const { createClient } = await import("@supabase/supabase-js");
+    const { setHasLatLngColumns } = await import("./storage");
     const supabaseUrl = process.env.VITE_SUPABASE_URL!;
     const serviceKey  = process.env.SUPABASE_SERVICE_ROLE_KEY!;
     const adminSb = createClient(supabaseUrl, serviceKey);
     const { error } = await adminSb.from("profiles").select("latitude, longitude").limit(1);
-    if (error && error.message?.includes("does not exist")) {
+    const columnsExist = !error || !error.message?.includes("does not exist");
+    setHasLatLngColumns(columnsExist);
+    if (!columnsExist) {
       console.error("╔═══════════════════════════════════════════════════════════════╗");
       console.error("║  MIGRATION REQUIRED — run this SQL in the Supabase SQL editor ║");
       console.error("╠═══════════════════════════════════════════════════════════════╣");
@@ -151,8 +156,7 @@ app.use((req, res, next) => {
       console.error("║  ALTER TABLE profiles ADD COLUMN IF NOT EXISTS                ║");
       console.error("║    longitude double precision;                                ║");
       console.error("╚═══════════════════════════════════════════════════════════════╝");
-    } else {
-      console.log("[STARTUP] Distance columns (latitude, longitude) verified OK");
+      console.error("  Discovery and Wheel work normally — distance filter is skipped.");
     }
   } catch (err: any) {
     console.warn("[STARTUP] Could not verify distance columns:", err?.message);
