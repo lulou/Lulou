@@ -476,24 +476,39 @@ export class SupabaseStorage implements IStorage {
    *   • profiles already interacted with (opened / closed from any surface)
    *   • active match partners — regardless of how the match was created
    *     (Discovery mutual-open, Intention Wheel direct-match, accepted spin request)
+   *   • inbound openers — users who have already liked (opened) the current user
+   *     These users are surfaced on the Likes page; showing them again in Discovery
+   *     or the Wheel causes the same profile to appear in two places at once and
+   *     removes the signal value of the Likes page.
    *
    * Only ACTIVE matches are excluded.  Removed matches (status = "removed")
    * intentionally allow the other user to reappear in both surfaces.
    *
-   * Called in parallel with other slow queries so it adds ≈0 extra latency.
+   * All three lookups run in parallel so this method adds ≈0 extra latency.
    */
   private async buildExcludedUserIds(userId: string): Promise<{
     excludedIds: Set<string>;
     interactedIds: Set<string>;
     activeMatchUserIds: Set<string>;
+    inboundOpenerIds: Set<string>;
   }> {
-    const [interactedResult, activeMatchesResult] = await Promise.all([
+    const [interactedResult, activeMatchesResult, inboundOpensResult] = await Promise.all([
+      // 1. Profiles the current user has already interacted with (any type: open or close).
       this.sb.from("interactions").select("to_user_id").eq("from_user_id", userId),
+      // 2. Active match partners (regardless of which side created the match).
       this.sb
         .from("matches")
         .select("user1_id, user2_id")
         .eq("status", "active")
         .or(`user1_id.eq.${userId},user2_id.eq.${userId}`),
+      // 3. Users who have sent an inbound open (like) to the current user.
+      //    These appear on the Likes page and must NOT also appear in Discovery
+      //    or the Intention Wheel — a single profile should only be in one place.
+      this.sb
+        .from("interactions")
+        .select("from_user_id")
+        .eq("to_user_id", userId)
+        .eq("type", "open"),
     ]);
 
     if (interactedResult.error) {
@@ -502,24 +517,43 @@ export class SupabaseStorage implements IStorage {
     if (activeMatchesResult.error) {
       console.error("[MATCH_FILTER] active matches fetch error:", activeMatchesResult.error.message);
     }
+    if (inboundOpensResult.error) {
+      console.error("[MATCH_FILTER] inbound opens fetch error:", inboundOpensResult.error.message);
+    }
 
+    // Outbound: profiles this user has already acted on.
     const interactedIds = new Set<string>(
       (interactedResult.data || []).map((r: any) => r.to_user_id).filter(Boolean)
     );
 
-    // Extract the OTHER user from each match row — works regardless of user1/user2 position.
+    // Active match partners: extract the OTHER user regardless of user1/user2 column.
     const activeMatchUserIds = new Set<string>();
     for (const row of (activeMatchesResult.data || [])) {
       const otherId = (row.user1_id === userId ? row.user2_id : row.user1_id) as string | null;
       if (otherId) activeMatchUserIds.add(otherId);
     }
 
-    const excludedIds = new Set<string>([...interactedIds, ...activeMatchUserIds]);
+    // Inbound openers: users who have liked the current user but not yet matched.
+    // Already visible on the Likes page — must not duplicate into Discovery or Wheel.
+    const inboundOpenerIds = new Set<string>(
+      (inboundOpensResult.data || []).map((r: any) => r.from_user_id).filter(Boolean)
+    );
 
-    console.log("[MATCH_FILTER] currentUserId:", userId);
-    console.log("[MATCH_FILTER] active matched user ids:", [...activeMatchUserIds]);
+    const excludedIds = new Set<string>([
+      ...interactedIds,
+      ...activeMatchUserIds,
+      ...inboundOpenerIds,
+    ]);
 
-    return { excludedIds, interactedIds, activeMatchUserIds };
+    console.log("[MATCH_FILTER] currentUserId:", userId.slice(0, 8));
+    console.log("[MATCH_FILTER] excluded breakdown:", {
+      outbound: interactedIds.size,
+      activeMatches: activeMatchUserIds.size,
+      inboundLikers: inboundOpenerIds.size,
+      total: excludedIds.size,
+    });
+
+    return { excludedIds, interactedIds, activeMatchUserIds, inboundOpenerIds };
   }
 
   async getDiscoverProfiles(userId: string, gender: string, preference: string, ageMin: number = 18, ageMax: number = 99): Promise<Profile[]> {
