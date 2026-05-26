@@ -153,7 +153,7 @@ export interface IStorage {
   getProfileMeta(userId: string): Promise<Profile | undefined>;
   createProfile(data: InsertProfile): Promise<Profile>;
   updateProfile(userId: string, data: Partial<InsertProfile>): Promise<Profile | undefined>;
-  getDiscoverProfiles(userId: string, gender: string, preference: string, ageMin?: number, ageMax?: number): Promise<Profile[]>;
+  getDiscoverProfiles(userId: string, gender: string, preference: string, ageMin?: number, ageMax?: number, locationRadius?: number, userLat?: number | null, userLng?: number | null): Promise<Profile[]>;
   createInteraction(data: InsertInteraction): Promise<Interaction>;
   getInteraction(fromUserId: string, toUserId: string): Promise<Interaction | undefined>;
   getMutualOpen(user1Id: string, user2Id: string): Promise<boolean>;
@@ -171,7 +171,7 @@ export interface IStorage {
   acceptFaceCall(matchId: string, userId: string): Promise<Match | undefined>;
   declineFaceCall(matchId: string, userId: string): Promise<Match | undefined>;
   getProfilePhotos(userId: string): Promise<string[]>;
-  getPopularProfiles(limit?: number, preference?: string, gender?: string, userId?: string): Promise<Profile[]>;
+  getPopularProfiles(limit?: number, preference?: string, gender?: string, userId?: string, locationRadius?: number, userLat?: number | null, userLng?: number | null): Promise<Profile[]>;
   getSpinStandouts(userId: string): Promise<string[]>;
   addSpinStandout(userId: string, standoutUserId: string): Promise<void>;
   getSpinsToday(userId: string): Promise<number>;
@@ -198,6 +198,51 @@ export interface IStorage {
   getElevateSessionStats(userId: string): Promise<{ views: number; matches: number; startedAt: Date | null; active: boolean; expiresAt: Date | null }>;
 }
 
+/**
+ * Haversine great-circle distance between two lat/lng points in miles.
+ * Used for in-memory distance filtering after the DB pool is fetched.
+ */
+function haversineDistanceMiles(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 3958.8; // Earth radius in miles
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLng = (lng2 - lng1) * Math.PI / 180;
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+/**
+ * Geocode a free-form location string to lat/lng using OpenStreetMap Nominatim.
+ * Called when a user saves a new location — result is stored in profiles.latitude/longitude.
+ * Degrades gracefully: returns null on any failure so the profile save is never blocked.
+ */
+async function geocodeLocation(locationText: string): Promise<{ lat: number; lng: number } | null> {
+  try {
+    const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(locationText)}&limit=1`;
+    const res = await fetch(url, {
+      headers: { "User-Agent": "LulouDating/1.0 (app@lulou.dating)" },
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!res.ok) {
+      console.warn(`[GEOCODE] Nominatim returned ${res.status} for "${locationText}"`);
+      return null;
+    }
+    const data: any[] = await res.json();
+    if (!data || data.length === 0) {
+      console.warn(`[GEOCODE] No results for location: "${locationText}"`);
+      return null;
+    }
+    const lat = parseFloat(data[0].lat);
+    const lng = parseFloat(data[0].lon);
+    if (isNaN(lat) || isNaN(lng)) return null;
+    return { lat, lng };
+  } catch (err: any) {
+    console.warn(`[GEOCODE] Failed for "${locationText}":`, err?.message ?? err);
+    return null;
+  }
+}
+
 /** Remove HEIC/HEIF data-URLs — most browsers cannot decode them. */
 function filterPhotos(raw: string[]): string[] {
   return (raw || []).filter(url => {
@@ -211,7 +256,7 @@ function filterPhotos(raw: string[]): string[] {
 // mapProfile handles missing columns gracefully (falls back to null / empty array).
 const MATCH_PROFILE_COLS = [
   "id", "user_id", "first_name", "age", "gender", "dating_preference",
-  "location", "height", "signals", "dating_intent", "green_flags",
+  "location", "latitude", "longitude", "height", "signals", "dating_intent", "green_flags",
   "connection_style", "conversation_starters", "questions",
   "location_radius", "preferred_age_min", "preferred_age_max",
   "email", "phone_number", "photo_verified", "onboarding_complete", "created_at",
@@ -222,7 +267,7 @@ const MATCH_PROFILE_COLS = [
 // Excludes `elevate_type`/`elevate_expires_at` (not needed on Likes page).
 const LIKES_PROFILE_COLS = [
   "id", "user_id", "first_name", "age", "gender", "dating_preference",
-  "location", "height", "photos", "signals", "dating_intent", "green_flags",
+  "location", "latitude", "longitude", "height", "photos", "signals", "dating_intent", "green_flags",
   "connection_style", "conversation_starters", "questions",
   "location_radius", "preferred_age_min", "preferred_age_max",
   "email", "phone_number", "photo_verified", "onboarding_complete", "created_at",
@@ -237,6 +282,8 @@ function mapProfile(row: any): Profile {
     gender: row.gender,
     datingPreference: row.dating_preference,
     location: row.location,
+    latitude: row.latitude ?? null,
+    longitude: row.longitude ?? null,
     height: row.height,
     photos: filterPhotos(row.photos),
     signals: row.signals,
@@ -318,7 +365,7 @@ function mapSpinRequest(row: any): SpinRequest {
   };
 }
 
-function profileToDbRow(data: Partial<InsertProfile>): Record<string, any> {
+function profileToDbRow(data: Partial<InsertProfile> & { latitude?: number | null; longitude?: number | null }): Record<string, any> {
   const row: Record<string, any> = {};
   if (data.userId !== undefined) row.user_id = data.userId;
   if (data.firstName !== undefined) row.first_name = data.firstName;
@@ -326,6 +373,8 @@ function profileToDbRow(data: Partial<InsertProfile>): Record<string, any> {
   if (data.gender !== undefined) row.gender = data.gender;
   if (data.datingPreference !== undefined) row.dating_preference = data.datingPreference;
   if (data.location !== undefined) row.location = data.location;
+  if (data.latitude !== undefined) row.latitude = data.latitude;
+  if (data.longitude !== undefined) row.longitude = data.longitude;
   if (data.height !== undefined) row.height = data.height;
   if (data.photos !== undefined) row.photos = data.photos;
   if (data.signals !== undefined) row.signals = data.signals;
@@ -390,6 +439,17 @@ export class SupabaseStorage implements IStorage {
     const row = profileToDbRow(data);
     // Always include user_id so PostgREST can detect the ON CONFLICT target.
     row.user_id = userId;
+
+    // When the location text changes, geocode it and persist coordinates so
+    // the distance filter in getDiscoverProfiles / getPopularProfiles can work.
+    if (data.location) {
+      const coords = await geocodeLocation(data.location);
+      if (coords) {
+        row.latitude  = coords.lat;
+        row.longitude = coords.lng;
+        console.log(`[GEOCODE] "${data.location}" → lat=${coords.lat.toFixed(4)}, lng=${coords.lng.toFixed(4)}`);
+      }
+    }
     // Use upsert instead of plain UPDATE so the first-ever save (no existing row)
     // performs an INSERT rather than a no-op UPDATE that returns 0 rows.
     // ON CONFLICT (user_id) DO UPDATE only touches the columns present in `row`,
@@ -556,13 +616,13 @@ export class SupabaseStorage implements IStorage {
     return { excludedIds, interactedIds, activeMatchUserIds, inboundOpenerIds };
   }
 
-  async getDiscoverProfiles(userId: string, gender: string, preference: string, ageMin: number = 18, ageMax: number = 99): Promise<Profile[]> {
+  async getDiscoverProfiles(userId: string, gender: string, preference: string, ageMin: number = 18, ageMax: number = 99, locationRadius: number = 0, userLat: number | null = null, userLng: number | null = null): Promise<Profile[]> {
     // Select all columns EXCEPT photos — base64 images in photos make rows huge (100s KB each).
     // Fetching photos for 100 profiles at once transfers 50–100 MB and causes a statement timeout.
     // Photos are fetched individually per-card by the client via GET /api/profiles/:userId.
     const POOL_COLS = [
       "id", "user_id", "first_name", "age", "gender", "dating_preference",
-      "location", "height", "signals", "dating_intent", "green_flags",
+      "location", "latitude", "longitude", "height", "signals", "dating_intent", "green_flags",
       "connection_style", "conversation_starters", "questions",
       "location_radius", "preferred_age_min", "preferred_age_max",
       "email", "phone_number", "photo_verified", "onboarding_complete", "created_at",
@@ -692,7 +752,25 @@ export class SupabaseStorage implements IStorage {
           return false;
         });
 
-    const filtered = mergeElevatesIntoProfiles(baseFiltered, elevates);
+    // ── Distance filter ──────────────────────────────────────────────────────
+    // Applied in-memory after the DB pool is built — Supabase PostgREST doesn't
+    // expose PostGIS so we compute Haversine in JavaScript instead.
+    // Candidates whose coordinates are not yet geocoded pass through
+    // (graceful degradation for legacy profiles created before this feature).
+    let distanceFiltered = baseFiltered;
+    if (userLat !== null && userLng !== null && locationRadius > 0) {
+      distanceFiltered = baseFiltered.filter(p => {
+        if (p.latitude == null || p.longitude == null) return true;
+        return haversineDistanceMiles(userLat!, userLng!, p.latitude, p.longitude) <= locationRadius;
+      });
+      console.log(
+        `[DISCOVERY_DISTANCE_FILTER] radius=${locationRadius}mi` +
+        ` lat=${userLat.toFixed(2)} lng=${userLng.toFixed(2)}` +
+        ` | pool=${baseFiltered.length} → within_radius=${distanceFiltered.length}`
+      );
+    }
+
+    const filtered = mergeElevatesIntoProfiles(distanceFiltered, elevates);
 
     if (IS_DEV) {
       const superCount = filtered.filter(p => p.elevateType === "super_elevate" && p.elevateExpiresAt && p.elevateExpiresAt > now).length;
@@ -1511,12 +1589,12 @@ export class SupabaseStorage implements IStorage {
     return updated ? mapMatch(updated) : undefined;
   }
 
-  async getPopularProfiles(limit: number = 10, preference?: string, gender?: string, userId?: string): Promise<Profile[]> {
+  async getPopularProfiles(limit: number = 10, preference?: string, gender?: string, userId?: string, locationRadius?: number, userLat?: number | null, userLng?: number | null): Promise<Profile[]> {
     // Photos excluded from this query — same reasoning as getDiscoverProfiles.
     // Intent page lazy-loads photos per wheel item via GET /api/profiles/:userId/photos.
     const WHEEL_COLS = [
       "id", "user_id", "first_name", "age", "gender", "dating_preference",
-      "location", "height", "signals", "dating_intent", "green_flags",
+      "location", "latitude", "longitude", "height", "signals", "dating_intent", "green_flags",
       "connection_style", "conversation_starters", "questions",
       "location_radius", "preferred_age_min", "preferred_age_max",
       "email", "phone_number", "photo_verified", "onboarding_complete", "created_at",
@@ -1638,6 +1716,23 @@ export class SupabaseStorage implements IStorage {
         console.log(`[INTENTION_WHEEL_FILTER] excluded matched users: ${matchExcludedCount}`);
       }
       console.log(`[WHEEL] after exclusion: ${allProfiles.length} (removed ${beforeCount - allProfiles.length})`);
+    }
+
+    // ── Distance filter ──────────────────────────────────────────────────────
+    // Applied in-memory after the exclusion filter.  Same logic as getDiscoverProfiles:
+    // Haversine in JS because Supabase PostgREST has no PostGIS support.
+    // Candidates without geocoded coordinates pass through gracefully.
+    if (userLat != null && userLng != null && locationRadius && locationRadius > 0) {
+      const beforeDist = allProfiles.length;
+      allProfiles = allProfiles.filter(p => {
+        if (p.latitude == null || p.longitude == null) return true;
+        return haversineDistanceMiles(userLat!, userLng!, p.latitude, p.longitude) <= locationRadius;
+      });
+      console.log(
+        `[WHEEL_DISTANCE_FILTER] radius=${locationRadius}mi` +
+        ` lat=${userLat.toFixed(2)} lng=${userLng.toFixed(2)}` +
+        ` | pool=${beforeDist} → within_radius=${allProfiles.length}`
+      );
     }
 
     // If still empty after exclusion, show anyone with onboarding complete (no gender filter).

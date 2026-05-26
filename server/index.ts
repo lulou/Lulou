@@ -134,6 +134,30 @@ app.use((req, res, next) => {
     console.warn("Stripe price warmup failed (non-fatal):", err.message);
   }
 
+  // Check that lat/lng columns exist in Supabase — added for distance filtering.
+  // If missing the user must run the migration SQL in the Supabase dashboard.
+  try {
+    const { createClient } = await import("@supabase/supabase-js");
+    const supabaseUrl = process.env.VITE_SUPABASE_URL!;
+    const serviceKey  = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+    const adminSb = createClient(supabaseUrl, serviceKey);
+    const { error } = await adminSb.from("profiles").select("latitude, longitude").limit(1);
+    if (error && error.message?.includes("does not exist")) {
+      console.error("╔═══════════════════════════════════════════════════════════════╗");
+      console.error("║  MIGRATION REQUIRED — run this SQL in the Supabase SQL editor ║");
+      console.error("╠═══════════════════════════════════════════════════════════════╣");
+      console.error("║  ALTER TABLE profiles ADD COLUMN IF NOT EXISTS                ║");
+      console.error("║    latitude double precision;                                 ║");
+      console.error("║  ALTER TABLE profiles ADD COLUMN IF NOT EXISTS                ║");
+      console.error("║    longitude double precision;                                ║");
+      console.error("╚═══════════════════════════════════════════════════════════════╝");
+    } else {
+      console.log("[STARTUP] Distance columns (latitude, longitude) verified OK");
+    }
+  } catch (err: any) {
+    console.warn("[STARTUP] Could not verify distance columns:", err?.message);
+  }
+
   await registerRoutes(httpServer, app);
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {

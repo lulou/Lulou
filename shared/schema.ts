@@ -1,5 +1,5 @@
 import { sql, relations } from "drizzle-orm";
-import { pgTable, text, varchar, integer, boolean, timestamp, index } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, boolean, timestamp, index, doublePrecision } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -22,6 +22,8 @@ export const profiles = pgTable("profiles", {
   conversationStarters: text("conversation_starters").array(),
   questions: text("questions").array(),
   locationRadius: integer("location_radius").default(25),
+  latitude: doublePrecision("latitude"),
+  longitude: doublePrecision("longitude"),
   preferredAgeMin: integer("preferred_age_min").default(18),
   preferredAgeMax: integer("preferred_age_max").default(45),
   email: text("email"),

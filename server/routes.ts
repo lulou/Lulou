@@ -122,6 +122,9 @@ function verifyJwt(token: string): any | null {
 const _userDiscoverMeta = new Map<string, {
   gender: string; preference: string;
   ageMin: number; ageMax: number;
+  locationRadius: number;
+  latitude: number | null;
+  longitude: number | null;
   expiresAt: number;
 }>();
 const DISCOVER_META_TTL_MS = 10 * 60_000;
@@ -139,12 +142,15 @@ function setCachedDiscoverMeta(
   preference: string,
   ageMin: number,
   ageMax: number,
+  locationRadius: number,
+  latitude: number | null,
+  longitude: number | null,
 ) {
   if (_userDiscoverMeta.size >= 500) {
     const now = Date.now();
     _userDiscoverMeta.forEach((v, k) => { if (v.expiresAt < now) _userDiscoverMeta.delete(k); });
   }
-  _userDiscoverMeta.set(userId, { gender, preference, ageMin, ageMax, expiresAt: Date.now() + DISCOVER_META_TTL_MS });
+  _userDiscoverMeta.set(userId, { gender, preference, ageMin, ageMax, locationRadius, latitude, longitude, expiresAt: Date.now() + DISCOVER_META_TTL_MS });
 }
 
 async function broadcastViaHttpApi(topic: string, event: string, payload: Record<string, any>): Promise<void> {
@@ -612,13 +618,34 @@ export async function registerRoutes(
           preference: myProfile.datingPreference,
           ageMin: myProfile.preferredAgeMin || 18,
           ageMax: myProfile.preferredAgeMax || 99,
+          locationRadius: myProfile.locationRadius ?? 0,
+          latitude: myProfile.latitude ?? null,
+          longitude: myProfile.longitude ?? null,
           expiresAt: 0,
         };
-        setCachedDiscoverMeta(userId, discoverMeta.gender, discoverMeta.preference, discoverMeta.ageMin, discoverMeta.ageMax);
+        setCachedDiscoverMeta(
+          userId,
+          discoverMeta.gender,
+          discoverMeta.preference,
+          discoverMeta.ageMin,
+          discoverMeta.ageMax,
+          discoverMeta.locationRadius,
+          discoverMeta.latitude,
+          discoverMeta.longitude,
+        );
       }
 
       const t1 = Date.now();
-      const discovered = await storage.getDiscoverProfiles(userId, discoverMeta.gender, discoverMeta.preference, discoverMeta.ageMin, discoverMeta.ageMax);
+      const discovered = await storage.getDiscoverProfiles(
+        userId,
+        discoverMeta.gender,
+        discoverMeta.preference,
+        discoverMeta.ageMin,
+        discoverMeta.ageMax,
+        discoverMeta.locationRadius,
+        discoverMeta.latitude,
+        discoverMeta.longitude,
+      );
       const discoverJson = IS_DEV ? JSON.stringify(discovered) : "";
       devPerf("/api/discover", Date.now() - t0, {
         status: 200,
@@ -1447,7 +1474,12 @@ export async function registerRoutes(
       console.log("[WHEEL] /api/popular called:", { userId, preference, gender });
 
       const t1 = Date.now();
-      const popular = await storage.getPopularProfiles(30, preference, gender, userId);
+      const popular = await storage.getPopularProfiles(
+        30, preference, gender, userId,
+        myProfile?.locationRadius ?? 0,
+        myProfile?.latitude ?? null,
+        myProfile?.longitude ?? null,
+      );
       console.log(`[WHEEL] getPopularProfiles: ${Date.now() - t1} ms | total route: ${Date.now() - t0} ms`);
 
       // Exclude own profile (safety guard — storage already excludes via interaction logic)

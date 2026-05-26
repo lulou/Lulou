@@ -299,13 +299,15 @@ export default function ProfilePage() {
     },
     onSuccess: (_result, variables) => {
       queryClient.invalidateQueries({ queryKey: ["/api/profile"] });
-      // Bust client discover cache for any pref that affects the discovery pool.
+      // Bust client discover + wheel caches for any pref that affects the pool.
       if (
         "preferredAgeMin" in variables ||
         "preferredAgeMax" in variables ||
-        "locationRadius" in variables
+        "locationRadius" in variables ||
+        "location" in variables
       ) {
         queryClient.invalidateQueries({ queryKey: ["/api/discover"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/popular"] });
       }
     },
     onError: (err: any) => {
