@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
-import { Loader2, RotateCw, X, MapPin, Lock, Star, Crown, MessageCircle, HelpCircle, Heart, Moon } from "lucide-react";
+import { Loader2, RotateCw, X, MapPin, Lock, Star, Crown, MessageCircle, HelpCircle, Heart, Moon, Volume2, VolumeX } from "lucide-react";
 import { LulouFlowerIcon } from "@/components/app-layout";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -22,15 +22,11 @@ function shuffleArray<T>(arr: T[]): T[] {
 }
 
 // Lazy-loads a single photo for a wheel item or profile card.
-// Photos are excluded from the pool queries to prevent DB statement timeouts.
-// Cycles through the photos array on render failure rather than showing the app logo.
 function ProfilePhoto({ userId, className }: { userId: string; className?: string }) {
   const { data, isLoading } = useQuery<{ photos: string[] }>({
     queryKey: ["/api/profiles", userId, "photos"],
     staleTime: 5 * 60 * 1000,
   });
-  // Track the index of the photo we are currently attempting to show.
-  // Reset to 0 whenever userId changes (e.g., selecting a different profile in the detail view).
   const [photoIndex, setPhotoIndex] = useState(0);
   useEffect(() => { setPhotoIndex(0); }, [userId]);
 
@@ -51,7 +47,6 @@ function ProfilePhoto({ userId, className }: { userId: string; className?: strin
   }
 
   if (!photo) {
-    // No renderable photo — show a neutral silhouette placeholder, never the app logo.
     return (
       <div
         className={`flex items-center justify-center ${className ?? ""}`}
@@ -71,18 +66,173 @@ function ProfilePhoto({ userId, className }: { userId: string; className?: strin
       alt=""
       className={`object-cover ${className ?? ""}`}
       draggable={false}
-      onError={() => {
-        console.warn("[ProfilePhoto] Image failed to render for userId:", userId, "index:", photoIndex, "type:", photo.substring(0, 35));
-        setPhotoIndex(i => i + 1);
+      onError={() => setPhotoIndex(i => i + 1)}
+    />
+  );
+}
+
+// ── Web Audio ticking engine ─────────────────────────────────────────────────
+// Completely separate from the call/ringtone AudioContext — no interference.
+// A new AudioContext is only created AFTER the first user gesture (spinWheel click),
+// which satisfies browser autoplay policies. Each tick is a disposable ~12ms
+// noise burst — no loops, no lingering audio after the spin ends.
+function useWheelAudio(muted: boolean) {
+  const ctxRef = useRef<AudioContext | null>(null);
+  const lastTickDegRef = useRef(0);
+
+  // Call this after the first user gesture (spin button click) to unlock the AudioContext.
+  const ensureCtx = useCallback(() => {
+    if (muted) return;
+    try {
+      if (!ctxRef.current) ctxRef.current = new AudioContext();
+      if (ctxRef.current.state === "suspended") ctxRef.current.resume();
+    } catch {}
+  }, [muted]);
+
+  // Fire one mechanical tick. Call from inside the rAF loop whenever the
+  // angle crosses a threshold. No-ops if muted or AudioContext unavailable.
+  const tick = useCallback(() => {
+    if (muted) return;
+    const ctx = ctxRef.current;
+    if (!ctx || ctx.state !== "running") return;
+    try {
+      // Short percussive noise burst — sounds like a mechanical click/tick.
+      const sampleRate = ctx.sampleRate;
+      const lengthSamples = Math.floor(sampleRate * 0.013);
+      const buf = ctx.createBuffer(1, lengthSamples, sampleRate);
+      const data = buf.getChannelData(0);
+      for (let i = 0; i < lengthSamples; i++) {
+        // Exponentially decaying white noise — the characteristic "tick" waveform.
+        data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (sampleRate * 0.0028));
+      }
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      const gain = ctx.createGain();
+      gain.gain.value = 0.22;
+      src.connect(gain);
+      gain.connect(ctx.destination);
+      src.start();
+    } catch {}
+  }, [muted]);
+
+  // Call at the start of each spin to reset the per-degree tracking.
+  const resetTick = useCallback((currentAngle: number) => {
+    lastTickDegRef.current = currentAngle;
+  }, []);
+
+  // Call every rAF frame with the new angle.
+  // Fires one tick per TICK_STEP degrees moved — the faster the wheel, the
+  // faster the ticking (without creating more ticks than the ear can resolve).
+  const tickFromAngle = useCallback((newAngle: number, tickStep: number) => {
+    const diff = Math.abs(newAngle - lastTickDegRef.current);
+    if (diff >= tickStep) {
+      lastTickDegRef.current = newAngle;
+      tick();
+    }
+  }, [tick]);
+
+  return { ensureCtx, tick, resetTick, tickFromAngle };
+}
+
+// ── Confetti burst (canvas) ──────────────────────────────────────────────────
+// Renders a brief 1.8s particle celebration above the wheel stage.
+// Only mounts when `active` is true, then cleans up after itself.
+const COLORS = ["#d45c74", "#e8a0b0", "#f5d0d8", "#9d3550", "#ffd6e0", "#fff0f3", "#c0c0ff"];
+
+function ConfettiBurst({ active }: { active: boolean }) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const rafRef = useRef(0);
+
+  useEffect(() => {
+    if (!active) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    const W = canvas.width = canvas.offsetWidth;
+    const H = canvas.height = canvas.offsetHeight;
+
+    // Spawn particles from the centre of the canvas
+    const particles = Array.from({ length: 72 }, () => {
+      const angle = Math.random() * Math.PI * 2;
+      const speed = 2.2 + Math.random() * 5.5;
+      return {
+        x: W / 2, y: H * 0.45,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed - 3.5,
+        size: 4 + Math.random() * 5,
+        color: COLORS[Math.floor(Math.random() * COLORS.length)],
+        rot: Math.random() * Math.PI * 2,
+        rotSpeed: (Math.random() - 0.5) * 0.22,
+        life: 1,
+        decay: 0.012 + Math.random() * 0.014,
+        isCircle: Math.random() > 0.5,
+      };
+    });
+
+    let alive = true;
+    const draw = () => {
+      if (!alive) return;
+      ctx.clearRect(0, 0, W, H);
+      let anyAlive = false;
+      for (const p of particles) {
+        if (p.life <= 0) continue;
+        anyAlive = true;
+        p.life -= p.decay;
+        p.x += p.vx;
+        p.y += p.vy;
+        p.vy += 0.18; // gravity
+        p.vx *= 0.985;
+        p.rot += p.rotSpeed;
+        ctx.save();
+        ctx.globalAlpha = Math.max(0, p.life);
+        ctx.translate(p.x, p.y);
+        ctx.rotate(p.rot);
+        ctx.fillStyle = p.color;
+        if (p.isCircle) {
+          ctx.beginPath();
+          ctx.arc(0, 0, p.size / 2, 0, Math.PI * 2);
+          ctx.fill();
+        } else {
+          ctx.fillRect(-p.size / 2, -p.size / 4, p.size, p.size / 2);
+        }
+        ctx.restore();
+      }
+      if (anyAlive) rafRef.current = requestAnimationFrame(draw);
+    };
+    rafRef.current = requestAnimationFrame(draw);
+
+    return () => {
+      alive = false;
+      cancelAnimationFrame(rafRef.current);
+    };
+  }, [active]);
+
+  if (!active) return null;
+
+  return (
+    <canvas
+      ref={canvasRef}
+      style={{
+        position: "absolute",
+        inset: 0,
+        width: "100%",
+        height: "100%",
+        pointerEvents: "none",
+        zIndex: 190,
       }}
     />
   );
 }
 
-const ITEM_WIDTH = 148;
-const ITEM_HEIGHT = 196;
+const ITEM_WIDTH = 156;
+const ITEM_HEIGHT = 208;
 const DAILY_LIKE_GOAL = 10;
 const STREAK_GOAL = 3;
+// Degrees between successive cards that triggers one tick sound.
+// Lower = more ticks (faster perceived speed). 4–6deg feels like a ratchet.
+const TICK_DEG_STEP = 5;
 
 type SpinStatus = {
   spinsThisWeek: number;
@@ -91,6 +241,12 @@ type SpinStatus = {
   streakComplete: boolean;
   canSpin: boolean;
 };
+
+// Premium easing: fast start, crisp exponential deceleration.
+// Feels more intentional than a polynomial ease-out.
+function easeOutExpo(t: number): number {
+  return t >= 1 ? 1 : 1 - Math.pow(2, -11 * t);
+}
 
 export default function IntentPage() {
   const { toast } = useToast();
@@ -121,6 +277,20 @@ export default function IntentPage() {
     refetchInterval: isActive ? 60_000 : false,
   });
 
+  // ── Sound state — persisted in localStorage ──────────────────────────────
+  const [muted, setMuted] = useState(() => {
+    try { return localStorage.getItem("wheel_sound_muted") === "true"; } catch { return false; }
+  });
+  const toggleMute = useCallback(() => {
+    setMuted(prev => {
+      const next = !prev;
+      try { localStorage.setItem("wheel_sound_muted", String(next)); } catch {}
+      return next;
+    });
+  }, []);
+  const { ensureCtx, resetTick, tickFromAngle } = useWheelAudio(muted);
+
+  // ── Wheel physics state ──────────────────────────────────────────────────
   const animFrame = useRef(0);
   const isDragging = useRef(false);
   const startX = useRef(0);
@@ -129,8 +299,6 @@ export default function IntentPage() {
   const velocity = useRef(0);
   const angleRef = useRef(0);
 
-  // Shuffled wheel order — re-shuffled once whenever the profiles array reference changes.
-  // Prevents the API sort order from biasing which profile sits at the visual front.
   const prevProfilesRef = useRef<Profile[] | null>(null);
   const shuffledItemsRef = useRef<Profile[]>([]);
   if (profiles !== prevProfilesRef.current) {
@@ -140,38 +308,31 @@ export default function IntentPage() {
 
   const [isSpinning, setIsSpinning] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
-  // selectedProfile is stored directly (not derived from items[selectedIndex]) so that
-  // a mid-animation query refetch cannot silently swap the profile at that index.
   const [selectedProfile, setSelectedProfile] = useState<Profile | null>(null);
   const [dispersed, setDispersed] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
   const [showPurchase, setShowPurchase] = useState(false);
+  const [showConfetti, setShowConfetti] = useState(false);
   const [angle, setAngle] = useState(0);
 
   const items = shuffledItemsRef.current.length > 0 ? shuffledItemsRef.current : (profiles || []);
   const count = items.length;
   const angleStep = count > 0 ? 360 / count : 0;
-  const radius = count > 4 ? Math.max(200, count * 28) : 180;
+  const radius = count > 4 ? Math.max(210, count * 30) : 190;
 
   const canSpin = spinStatus?.canSpin ?? false;
 
-  const getFocusedIndex = useCallback((currentAngle: number) => {
-    if (count === 0) return 0;
-    const normalized = ((currentAngle % 360) + 360) % 360;
-    const idx = Math.round(normalized / angleStep) % count;
-    return idx;
-  }, [count, angleStep]);
-
   const glide = useCallback(() => {
-    velocity.current *= 0.95;
+    velocity.current *= 0.94;
     if (Math.abs(velocity.current) < 0.05) {
       velocity.current = 0;
       return;
     }
     angleRef.current += velocity.current;
+    tickFromAngle(angleRef.current, TICK_DEG_STEP);
     setAngle(angleRef.current);
     animFrame.current = requestAnimationFrame(glide);
-  }, []);
+  }, [tickFromAngle]);
 
   const committedDrag = useRef(false);
   const startY = useRef(0);
@@ -196,9 +357,7 @@ export default function IntentPage() {
       if (ady > adx) { isDragging.current = false; return; }
       if (adx < 8) return;
       committedDrag.current = true;
-      if (e.pointerType === "touch") {
-        e.preventDefault();
-      }
+      if (e.pointerType === "touch") e.preventDefault();
     }
     const now = Date.now();
     const dt = now - lastTime.current;
@@ -206,7 +365,7 @@ export default function IntentPage() {
     if (dt > 0) velocity.current = (dx / dt) * 0.8;
     lastX.current = e.clientX;
     lastTime.current = now;
-    angleRef.current += dx * 0.3;
+    angleRef.current += dx * 0.32;
     setAngle(angleRef.current);
   };
 
@@ -251,16 +410,21 @@ export default function IntentPage() {
 
   const spinWheel = () => {
     if (isSpinning || count === 0 || !canSpin) return;
+
+    // Unlock AudioContext AFTER user gesture — respects browser autoplay policy.
+    // This is safe: spin button is always a real pointer/tap event.
+    ensureCtx();
+
     setIsSpinning(true);
     setSelectedIndex(null);
     setSelectedProfile(null);
     setDispersed(false);
     setShowProfile(false);
     setShowPurchase(false);
+    setShowConfetti(false);
 
-    // ── TRUE RANDOM: pick winner FIRST, animate TO them ──────────────────────
     const targetIndex = Math.floor(Math.random() * count);
-    const landedProfile = items[targetIndex]; // captured from closure — immune to refetch reorder
+    const landedProfile = items[targetIndex];
 
     console.log("[INTENT] SPIN_START", {
       totalUsers: count,
@@ -274,38 +438,40 @@ export default function IntentPage() {
 
     const targetAngle = targetIndex * angleStep;
     const currentAngle = angleRef.current;
-    const fullSpins = (3 + Math.floor(Math.random() * 2)) * 360;
+    // 4–5 full laps + fractional alignment — plenty of drama
+    const fullSpins = (4 + Math.floor(Math.random() * 2)) * 360;
     const normalizedCurrent = ((currentAngle % 360) + 360) % 360;
-    // Ensure diff is always a forward (positive) rotation toward targetAngle.
-    // Without this, targetIndex 0 with normalizedCurrent near 360 could produce
-    // a tiny negative diff that makes the wheel barely spin.
     let diff = targetAngle - normalizedCurrent;
-    if (diff < 0) diff += 360; // always go forward
+    if (diff < 0) diff += 360;
     const totalRotation = fullSpins + diff;
 
-    const duration = 3000 + Math.random() * 1000;
-    const startTime = Date.now();
+    // Slightly randomised duration: 3.8–5s feels premium without being slow
+    const duration = 3800 + Math.random() * 1200;
+    const startTime = performance.now();
     const startAngle = currentAngle;
 
-    const easeOutQuart = (t: number) => 1 - Math.pow(1 - t, 4);
+    resetTick(currentAngle);
 
-    const animate = () => {
-      const elapsed = Date.now() - startTime;
-      const progress = Math.min(elapsed / duration, 1);
-      const eased = easeOutQuart(progress);
+    const animate = (now: number) => {
+      const elapsed = now - startTime;
+      const rawT = Math.min(elapsed / duration, 1);
+      const eased = easeOutExpo(rawT);
 
       const newAngle = startAngle + totalRotation * eased;
+      // Dynamic tick step: ticks are denser when spinning fast, sparse near stop.
+      // Map progress (0–1) to tick step (2–18 deg) — fast=2, slow=18.
+      const dynamicStep = 2 + rawT * rawT * 16;
+      tickFromAngle(newAngle, dynamicStep);
+
       angleRef.current = newAngle;
       setAngle(newAngle);
 
-      if (progress < 1) {
+      if (rawT < 1) {
         animFrame.current = requestAnimationFrame(animate);
       } else {
         angleRef.current = startAngle + totalRotation;
         setAngle(angleRef.current);
 
-        // Use the profile captured from the closure — not items[targetIndex] from a
-        // potentially re-rendered items array after an in-flight refetch.
         setSelectedIndex(targetIndex);
         setSelectedProfile(landedProfile ?? null);
         setIsSpinning(false);
@@ -316,15 +482,13 @@ export default function IntentPage() {
           selectedName: landedProfile?.firstName,
         });
 
-        if (landedProfile) {
-          recordSpin.mutate(landedProfile.userId);
-        }
+        if (landedProfile) recordSpin.mutate(landedProfile.userId);
 
-        setTimeout(() => setDispersed(true), 300);
-        setTimeout(() => setShowProfile(true), 700);
-        // Intentionally NOT invalidating profiles here — doing so at 1200ms would
-        // re-fetch during the dispersal animation, potentially reordering items and
-        // mismatching selectedIndex → profile. closeProfile handles the invalidation.
+        // Staggered reveal sequence: disperse → confetti → profile slide-up
+        setTimeout(() => setDispersed(true), 260);
+        setTimeout(() => setShowConfetti(true), 420);
+        setTimeout(() => setShowProfile(true), 720);
+        setTimeout(() => setShowConfetti(false), 2300);
       }
     };
 
@@ -337,18 +501,16 @@ export default function IntentPage() {
     setDispersed(false);
     setSelectedIndex(null);
     setSelectedProfile(null);
+    setShowConfetti(false);
     queryClient.invalidateQueries({ queryKey: ["/api/popular"] });
     console.log("[INTENT] PROFILE_CLOSED — invalidating popular profiles for next spin");
-
     setTimeout(() => setShowPurchase(true), 300);
   };
-
 
   useEffect(() => {
     return () => cancelAnimationFrame(animFrame.current);
   }, []);
 
-  // ─── STEP 7: Hard debug logs ────────────────────────────────────────────────
   useEffect(() => {
     const t0 = performance.now();
     console.log("[INTENT] MOUNTED");
@@ -356,25 +518,15 @@ export default function IntentPage() {
   }, []);
 
   console.log("[INTENT] RENDER_REACHED", {
-    isLoading,
-    isError,
-    profileCount: items.length,
-    canSpin: spinStatus?.canSpin,
-    selectedIndex,
+    isLoading, isError, profileCount: items.length,
+    canSpin: spinStatus?.canSpin, selectedIndex,
   });
 
-  // ─── STEP 2: Minimal render — confirms routing/layout works ─────────────────
   const STEP2_MINIMAL = false;
   if (STEP2_MINIMAL) {
     return (
       <div className="flex-1 p-6 space-y-3" data-testid="intent-diagnostic">
         <h2 className="text-lg font-semibold">Intent Wheel — Page Rendered ✓</h2>
-        <div className="text-xs font-mono text-muted-foreground space-y-0.5">
-          <div>isLoading: {String(isLoading)}</div>
-          <div>isError: {String(isError)}</div>
-          <div>profiles: {items.length}</div>
-          <div>canSpin: {String(spinStatus?.canSpin)}</div>
-        </div>
       </div>
     );
   }
@@ -433,8 +585,41 @@ export default function IntentPage() {
   const dailyLikes = spinStatus?.dailyLikes ?? 0;
   const consecutiveDays = spinStatus?.consecutiveDays ?? 0;
   const streakComplete = spinStatus?.streakComplete ?? false;
+
   return (
     <div className="flex-1 flex flex-col overflow-hidden relative" data-testid="intent-page">
+
+      {/* ── Global keyframes ── */}
+      <style>{`
+        @keyframes shimmer {
+          from { background-position: 200% 0; }
+          to   { background-position: -200% 0; }
+        }
+        @keyframes spinBtn { to { transform: rotate(360deg); } }
+        @keyframes spinBtnPulse {
+          0%, 100% { box-shadow: 0 0 0 6px rgba(188,78,96,0.12), 0 0 24px 8px rgba(188,78,96,0.24), 0 6px 18px rgba(0,0,0,0.22); }
+          50%       { box-shadow: 0 0 0 10px rgba(188,78,96,0.18), 0 0 44px 16px rgba(188,78,96,0.40), 0 10px 28px rgba(0,0,0,0.30); }
+        }
+        @keyframes reticleGlow {
+          0%, 100% { opacity: 0.55; }
+          50%       { opacity: 1; }
+        }
+        @keyframes selectedRing {
+          0%   { box-shadow: 0 0 0 0px rgba(255,255,255,0.8), 0 0 0 0px rgba(212,92,116,0.9); }
+          60%  { box-shadow: 0 0 0 3px rgba(255,255,255,0.9), 0 0 0 7px rgba(212,92,116,0.85), 0 0 48px 20px rgba(212,92,116,0.55); }
+          100% { box-shadow: 0 0 0 2.5px rgba(255,255,255,0.85), 0 0 0 5px rgba(212,92,116,0.8), 0 0 36px 14px rgba(212,92,116,0.45); }
+        }
+        @keyframes slideUpProfile {
+          from { transform: translateY(100%); opacity: 0; }
+          to   { transform: translateY(0);   opacity: 1; }
+        }
+        @keyframes profileNameAppear {
+          from { transform: translateY(10px); opacity: 0; }
+          to   { transform: translateY(0);   opacity: 1; }
+        }
+      `}</style>
+
+      {/* ── Header ── */}
       <div className="px-5 pt-5 pb-1">
         <div className="flex items-center justify-between gap-4 flex-wrap">
           <div>
@@ -442,39 +627,64 @@ export default function IntentPage() {
               Intention Wheel
             </h1>
           </div>
-          <div className="flex items-center gap-2" data-testid="streak-indicator">
-            {streakComplete ? (
-              <Badge variant="secondary" className="text-xs" data-testid="badge-streak-complete">
-                <Star className="w-3 h-3 mr-1" /> Spin earned
-              </Badge>
-            ) : (
-              <div className="flex items-center gap-1.5">
-                {Array.from({ length: STREAK_GOAL }).map((_, i) => (
-                  <div
-                    key={i}
-                    className={`w-2 h-2 rounded-full transition-colors ${
-                      i < consecutiveDays ? "bg-primary" : "bg-muted-foreground/30"
-                    }`}
-                    data-testid={`streak-dot-${i}`}
-                  />
-                ))}
-                <span className="text-xs text-muted-foreground ml-1" data-testid="text-likes-today">
-                  {dailyLikes}/{DAILY_LIKE_GOAL}
-                </span>
-              </div>
-            )}
+          <div className="flex items-center gap-3">
+            {/* Mute/unmute sound toggle */}
+            <button
+              onClick={toggleMute}
+              data-testid="button-toggle-sound"
+              title={muted ? "Enable ticking sound" : "Mute ticking sound"}
+              style={{
+                width: 32, height: 32, borderRadius: "50%",
+                border: "1.5px solid hsl(var(--border))",
+                background: "transparent",
+                color: "hsl(var(--muted-foreground))",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                cursor: "pointer", outline: "none",
+                transition: "color 0.2s, background 0.2s",
+              }}
+            >
+              {muted
+                ? <VolumeX style={{ width: 15, height: 15 }} />
+                : <Volume2 style={{ width: 15, height: 15 }} />
+              }
+            </button>
+
+            {/* Streak indicator */}
+            <div data-testid="streak-indicator">
+              {streakComplete ? (
+                <Badge variant="secondary" className="text-xs" data-testid="badge-streak-complete">
+                  <Star className="w-3 h-3 mr-1" /> Spin earned
+                </Badge>
+              ) : (
+                <div className="flex items-center gap-1.5">
+                  {Array.from({ length: STREAK_GOAL }).map((_, i) => (
+                    <div
+                      key={i}
+                      className={`w-2 h-2 rounded-full transition-colors ${
+                        i < consecutiveDays ? "bg-primary" : "bg-muted-foreground/30"
+                      }`}
+                      data-testid={`streak-dot-${i}`}
+                    />
+                  ))}
+                  <span className="text-xs text-muted-foreground ml-1" data-testid="text-likes-today">
+                    {dailyLikes}/{DAILY_LIKE_GOAL}
+                  </span>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>
 
-      <div className="flex-1 flex flex-col items-center justify-center gap-4 overflow-hidden">
+      {/* ── Wheel stage ── */}
+      <div className="flex-1 flex flex-col items-center justify-center gap-5 overflow-hidden">
         <div
           className="relative select-none touch-manipulation"
           style={{
             width: "100%",
-            height: ITEM_HEIGHT + 160,
-            perspective: "900px",
-            transition: dispersed ? "opacity 0.5s ease" : undefined,
+            height: ITEM_HEIGHT + 180,
+            perspective: "1000px",
+            transition: dispersed ? "opacity 0.55s ease" : undefined,
             opacity: dispersed ? 0 : 1,
             pointerEvents: dispersed ? "none" : "auto",
           }}
@@ -484,6 +694,10 @@ export default function IntentPage() {
           onPointerLeave={handlePointerUp}
           data-testid="intent-wheel"
         >
+          {/* Confetti layer — sits above wheel, below selected-card highlight */}
+          <ConfettiBurst active={showConfetti} />
+
+          {/* 3-D carousel */}
           <div
             className="absolute left-1/2 top-1/2"
             style={{
@@ -491,7 +705,6 @@ export default function IntentPage() {
               transform: `translateX(-50%) translateY(-50%) rotateY(${-angle}deg)`,
               width: ITEM_WIDTH,
               height: ITEM_HEIGHT,
-              transition: isDragging.current ? "none" : undefined,
             }}
           >
             {items.map((profile, i) => {
@@ -501,19 +714,20 @@ export default function IntentPage() {
               const relativeAngle = ((((-angle + itemAngle) % 360) + 360) % 360);
               const cosVal = Math.cos((relativeAngle * Math.PI) / 180);
               const depthFactor = (cosVal + 1) / 2;
-              const cardScale = 0.62 + depthFactor * 0.38;
-              const glowAlpha = Math.max(0, Math.pow(cosVal, 3));
+              const cardScale = 0.60 + depthFactor * 0.40;
+              const glowAlpha = Math.max(0, Math.pow(cosVal, 2.5));
 
-              const disperseX = dispersed && !isSelected ? (Math.random() - 0.5) * 800 : 0;
-              const disperseY = dispersed && !isSelected ? (Math.random() - 0.5) * 600 : 0;
+              const disperseX = dispersed && !isSelected ? (Math.random() - 0.5) * 900 : 0;
+              const disperseY = dispersed && !isSelected ? (Math.random() - 0.5) * 700 : 0;
               const disperseScale = dispersed && !isSelected ? 0 : cardScale;
-              const disperseOpacity = dispersed && !isSelected ? 0 : (0.18 + depthFactor * 0.82);
+              const disperseOpacity = dispersed && !isSelected ? 0 : (0.16 + depthFactor * 0.84);
 
+              // Selected card gets an animated ring on spin-complete
               const boxShadow = isSelected && !dispersed
-                ? "0 0 0 2.5px rgba(255,255,255,0.9), 0 0 0 5px rgba(188,78,96,0.85), 0 0 40px 16px rgba(188,78,96,0.5), 0 12px 32px rgba(0,0,0,0.45)"
-                : depthFactor > 0.8 && !dispersed
-                ? `0 0 ${Math.round(glowAlpha * 24)}px ${Math.round(glowAlpha * 10)}px rgba(188,78,96,${(glowAlpha * 0.32).toFixed(2)}), 0 8px 20px rgba(0,0,0,0.3)`
-                : "0 4px 16px rgba(0,0,0,0.22)";
+                ? undefined // controlled by CSS animation `selectedRing`
+                : depthFactor > 0.75 && !dispersed
+                ? `0 0 ${Math.round(glowAlpha * 28)}px ${Math.round(glowAlpha * 12)}px rgba(188,78,96,${(glowAlpha * 0.38).toFixed(2)}), 0 8px 24px rgba(0,0,0,0.32)`
+                : "0 4px 18px rgba(0,0,0,0.22)";
 
               return (
                 <div
@@ -521,7 +735,7 @@ export default function IntentPage() {
                   style={{
                     width: ITEM_WIDTH,
                     height: ITEM_HEIGHT,
-                    borderRadius: 18,
+                    borderRadius: 20,
                     overflow: "hidden",
                     position: "absolute",
                     left: 0,
@@ -532,49 +746,44 @@ export default function IntentPage() {
                     opacity: disperseOpacity,
                     zIndex: Math.round(depthFactor * 100),
                     boxShadow,
+                    animation: isSelected && !dispersed ? "selectedRing 0.6s ease forwards" : undefined,
                     transition: dispersed
-                      ? "all 0.65s cubic-bezier(0.4, 0, 0.2, 1)"
-                      : "box-shadow 0.35s ease",
+                      ? "all 0.7s cubic-bezier(0.4, 0, 0.2, 1)"
+                      : "box-shadow 0.3s ease",
                   }}
                   data-testid={`intent-profile-${i}`}
                 >
                   <ProfilePhoto userId={profile.userId} className="w-full h-full pointer-events-none" />
 
+                  {/* Vignette gradient */}
                   <div style={{
-                    position: "absolute",
-                    inset: 0,
-                    background: "linear-gradient(170deg, rgba(0,0,0,0) 38%, rgba(0,0,0,0.12) 62%, rgba(0,0,0,0.78) 100%)",
+                    position: "absolute", inset: 0,
+                    background: "linear-gradient(175deg, rgba(0,0,0,0) 35%, rgba(0,0,0,0.10) 58%, rgba(0,0,0,0.82) 100%)",
                     pointerEvents: "none",
                   }} />
 
+                  {/* Name label */}
                   <div style={{
-                    position: "absolute",
-                    bottom: 0,
-                    left: 0,
-                    right: 0,
-                    padding: "10px 12px 12px",
+                    position: "absolute", bottom: 0, left: 0, right: 0,
+                    padding: "10px 12px 13px",
                     pointerEvents: "none",
+                    animation: isSelected && !dispersed ? "profileNameAppear 0.4s 0.2s ease both" : undefined,
                   }}>
                     <p style={{
-                      color: "#fff",
-                      fontSize: 13,
-                      fontWeight: 600,
+                      color: "#fff", fontSize: 13, fontWeight: 700,
                       letterSpacing: "0.01em",
-                      whiteSpace: "nowrap",
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                      textShadow: "0 1px 6px rgba(0,0,0,0.6)",
+                      whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+                      textShadow: "0 1px 8px rgba(0,0,0,0.65)",
                     }}>
                       {profile.firstName}{profile.age ? `, ${profile.age}` : ""}
                     </p>
                   </div>
 
+                  {/* Inner highlight ring on selected */}
                   {isSelected && !dispersed && (
                     <div style={{
-                      position: "absolute",
-                      inset: 0,
-                      borderRadius: 18,
-                      boxShadow: "inset 0 0 0 2px rgba(255,255,255,0.75)",
+                      position: "absolute", inset: 0, borderRadius: 20,
+                      boxShadow: "inset 0 0 0 2.5px rgba(255,255,255,0.80)",
                       pointerEvents: "none",
                     }} />
                   )}
@@ -583,108 +792,97 @@ export default function IntentPage() {
             })}
           </div>
 
+          {/* Centre reticle — animated glow ring showing the landing zone */}
           {!dispersed && (
             <div
               style={{
                 position: "absolute",
-                left: "50%",
-                top: "50%",
+                left: "50%", top: "50%",
                 transform: "translateX(-50%) translateY(-50%)",
-                width: ITEM_WIDTH + 12,
-                height: ITEM_HEIGHT + 12,
-                borderRadius: 22,
-                border: "1.5px solid rgba(188,78,96,0.2)",
-                boxShadow: "0 0 28px 6px rgba(188,78,96,0.10), inset 0 0 20px rgba(188,78,96,0.06)",
+                width: ITEM_WIDTH + 16,
+                height: ITEM_HEIGHT + 16,
+                borderRadius: 26,
+                border: isSpinning
+                  ? "1.5px solid rgba(188,78,96,0.55)"
+                  : "1.5px solid rgba(188,78,96,0.25)",
+                boxShadow: isSpinning
+                  ? "0 0 32px 8px rgba(188,78,96,0.20), inset 0 0 24px rgba(188,78,96,0.10)"
+                  : "0 0 16px 4px rgba(188,78,96,0.08), inset 0 0 12px rgba(188,78,96,0.05)",
+                animation: isSpinning ? "reticleGlow 0.6s ease-in-out infinite" : "reticleGlow 2.8s ease-in-out infinite",
                 pointerEvents: "none",
                 zIndex: 200,
+                transition: "border-color 0.4s, box-shadow 0.4s",
               }}
             />
           )}
         </div>
 
+        {/* ── Spin button & streak bar ── */}
         {!dispersed && !showPurchase && (
-          <div className="flex flex-col items-center gap-3 px-6 w-full max-w-xs mx-auto">
-            <style>{`
-              @keyframes spinBtn { to { transform: rotate(360deg); } }
-              @keyframes spinBtnPulse {
-                0%, 100% { box-shadow: 0 0 0 6px rgba(188,78,96,0.12), 0 0 22px 6px rgba(188,78,96,0.22), 0 6px 18px rgba(0,0,0,0.22); }
-                50% { box-shadow: 0 0 0 8px rgba(188,78,96,0.18), 0 0 36px 12px rgba(188,78,96,0.35), 0 8px 24px rgba(0,0,0,0.28); }
-              }
-            `}</style>
-
+          <div className="flex flex-col items-center gap-4 px-6 w-full max-w-xs mx-auto">
             {canSpin ? (
-              <div className="flex flex-col items-center gap-2">
-                <button
-                  onClick={spinWheel}
-                  disabled={isSpinning || items.length === 0}
+              <button
+                onClick={spinWheel}
+                disabled={isSpinning || items.length === 0}
+                style={{
+                  width: 96,
+                  height: 96,
+                  borderRadius: "50%",
+                  border: "none",
+                  background: isSpinning
+                    ? "radial-gradient(circle at 50% 35%, #e06278, #a83c55)"
+                    : "radial-gradient(circle at 50% 35%, #d45c74, #9d3550)",
+                  color: "#fff",
+                  cursor: isSpinning ? "default" : "pointer",
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 5,
+                  animation: !isSpinning && canSpin ? "spinBtnPulse 2.6s ease-in-out infinite" : "none",
+                  transition: "background 0.3s ease, transform 0.15s ease",
+                  outline: "none",
+                  WebkitTapHighlightColor: "transparent",
+                  flexShrink: 0,
+                }}
+                onMouseEnter={e => { if (!isSpinning) (e.currentTarget as HTMLElement).style.transform = "scale(1.07)"; }}
+                onMouseLeave={e => { (e.currentTarget as HTMLElement).style.transform = "scale(1)"; }}
+                onMouseDown={e => { (e.currentTarget as HTMLElement).style.transform = "scale(0.95)"; }}
+                onMouseUp={e => { (e.currentTarget as HTMLElement).style.transform = "scale(1.07)"; }}
+                data-testid="button-spin"
+              >
+                <RotateCw
                   style={{
-                    width: 100,
-                    height: 100,
-                    borderRadius: "50%",
-                    border: "none",
-                    background: isSpinning
-                      ? "radial-gradient(circle at 50% 35%, #e06278, #a83c55)"
-                      : "radial-gradient(circle at 50% 35%, #d45c74, #9d3550)",
-                    color: "#fff",
-                    cursor: isSpinning ? "default" : "pointer",
-                    display: "flex",
-                    flexDirection: "column",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    gap: 4,
-                    animation: !isSpinning && canSpin ? "spinBtnPulse 2.4s ease-in-out infinite" : "none",
-                    transition: "background 0.3s ease, transform 0.15s ease",
-                    outline: "none",
-                    WebkitTapHighlightColor: "transparent",
+                    width: 26, height: 26,
+                    animation: isSpinning ? "spinBtn 0.65s linear infinite" : "none",
                   }}
-                  onMouseEnter={e => { if (!isSpinning) (e.currentTarget as HTMLElement).style.transform = "scale(1.07)"; }}
-                  onMouseLeave={e => { (e.currentTarget as HTMLElement).style.transform = "scale(1)"; }}
-                  onMouseDown={e => { (e.currentTarget as HTMLElement).style.transform = "scale(0.96)"; }}
-                  onMouseUp={e => { (e.currentTarget as HTMLElement).style.transform = "scale(1.07)"; }}
-                  data-testid="button-spin"
-                >
-                  <RotateCw
-                    style={{
-                      width: 28,
-                      height: 28,
-                      animation: isSpinning ? "spinBtn 0.7s linear infinite" : "none",
-                    }}
-                  />
-                  <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase", opacity: 0.92 }}>
-                    {isSpinning ? "..." : "Spin"}
-                  </span>
-                </button>
-              </div>
+                />
+                <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.13em", textTransform: "uppercase", opacity: 0.93 }}>
+                  {isSpinning ? "…" : "Spin"}
+                </span>
+              </button>
             ) : (
-              <div className="flex flex-col items-center gap-2">
-                <button
-                  onClick={() => setShowPurchase(true)}
-                  style={{
-                    width: 100,
-                    height: 100,
-                    borderRadius: "50%",
-                    border: "1.5px solid hsl(var(--border))",
-                    background: "linear-gradient(145deg, hsl(var(--muted)), hsl(var(--muted-foreground)/0.08))",
-                    color: "hsl(var(--muted-foreground))",
-                    cursor: "pointer",
-                    display: "flex",
-                    flexDirection: "column",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    gap: 4,
-                    boxShadow: "0 4px 12px rgba(0,0,0,0.08)",
-                    transition: "transform 0.15s ease, box-shadow 0.15s ease",
-                    outline: "none",
-                    WebkitTapHighlightColor: "transparent",
-                  }}
-                  onMouseEnter={e => { (e.currentTarget as HTMLElement).style.transform = "scale(1.05)"; }}
-                  onMouseLeave={e => { (e.currentTarget as HTMLElement).style.transform = "scale(1)"; }}
-                  data-testid="button-spin-locked"
-                >
-                  <Lock style={{ width: 22, height: 22 }} />
-                  <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", opacity: 0.7 }}>Used</span>
-                </button>
-              </div>
+              <button
+                onClick={() => setShowPurchase(true)}
+                style={{
+                  width: 96, height: 96, borderRadius: "50%",
+                  border: "1.5px solid hsl(var(--border))",
+                  background: "linear-gradient(145deg, hsl(var(--muted)), hsl(var(--muted-foreground)/0.08))",
+                  color: "hsl(var(--muted-foreground))",
+                  cursor: "pointer",
+                  display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 4,
+                  boxShadow: "0 4px 14px rgba(0,0,0,0.10)",
+                  transition: "transform 0.15s ease, box-shadow 0.15s ease",
+                  outline: "none",
+                  WebkitTapHighlightColor: "transparent",
+                }}
+                onMouseEnter={e => { (e.currentTarget as HTMLElement).style.transform = "scale(1.05)"; }}
+                onMouseLeave={e => { (e.currentTarget as HTMLElement).style.transform = "scale(1)"; }}
+                data-testid="button-spin-locked"
+              >
+                <Lock style={{ width: 22, height: 22 }} />
+                <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", opacity: 0.7 }}>Used</span>
+              </button>
             )}
 
             {!streakComplete && (
@@ -720,6 +918,7 @@ export default function IntentPage() {
           </div>
         )}
 
+        {/* ── Purchase spins panel ── */}
         {showPurchase && !showProfile && (
           <div className="px-5 w-full max-w-sm mx-auto animate-in fade-in slide-in-from-bottom-4 duration-500" data-testid="purchase-spins-popup">
             <Card className="p-6 space-y-5">
@@ -739,10 +938,7 @@ export default function IntentPage() {
                 <Button
                   className="w-full gap-2"
                   onClick={() => {
-                    toast({
-                      title: "Coming soon",
-                      description: "Spin packs will be available shortly.",
-                    });
+                    toast({ title: "Coming soon", description: "Spin packs will be available shortly." });
                   }}
                   data-testid="button-buy-1-spin"
                 >
@@ -753,10 +949,7 @@ export default function IntentPage() {
                   className="w-full gap-2"
                   variant="outline"
                   onClick={() => {
-                    toast({
-                      title: "Coming soon",
-                      description: "Spin packs will be available shortly.",
-                    });
+                    toast({ title: "Coming soon", description: "Spin packs will be available shortly." });
                   }}
                   data-testid="button-buy-2-spins"
                 >
@@ -799,25 +992,20 @@ export default function IntentPage() {
         )}
       </div>
 
+      {/* ── Selected profile detail sheet ── */}
       {showProfile && selectedProfile && (
         <div
           className="absolute inset-0 z-50 bg-background flex flex-col"
-          style={{ animation: "slideUpProfile 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards" }}
+          style={{ animation: "slideUpProfile 0.52s cubic-bezier(0.16, 1, 0.3, 1) forwards" }}
           data-testid="intent-profile-detail"
         >
-          <style>{`
-            @keyframes slideUpProfile {
-              from { transform: translateY(100%); opacity: 0; }
-              to { transform: translateY(0); opacity: 1; }
-            }
-          `}</style>
-
           <div className="flex-1 overflow-y-auto">
             <div className="relative">
-              <div data-testid="img-intent-detail-photo" className="w-full aspect-[3/4] max-h-[50vh] overflow-hidden">
+              <div data-testid="img-intent-detail-photo" className="w-full aspect-[3/4] max-h-[52vh] overflow-hidden">
                 <ProfilePhoto userId={selectedProfile.userId} className="w-full h-full" />
               </div>
-              <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-background via-background/80 to-transparent h-24" />
+              {/* Soft fade from photo into content */}
+              <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-background via-background/85 to-transparent h-28" />
 
               <Button
                 size="icon"
@@ -830,8 +1018,8 @@ export default function IntentPage() {
               </Button>
             </div>
 
-            <div className="px-5 -mt-10 relative space-y-4 pb-32">
-              <div>
+            <div className="px-5 -mt-10 relative space-y-4 pb-36">
+              <div style={{ animation: "profileNameAppear 0.45s 0.15s ease both" }}>
                 <h2 className="font-serif text-3xl font-bold" data-testid="text-detail-name">
                   {selectedProfile.firstName}{selectedProfile.age ? `, ${selectedProfile.age}` : ""}
                 </h2>
@@ -939,10 +1127,11 @@ export default function IntentPage() {
             </div>
           </div>
 
+          {/* Action bar */}
           <div className="absolute bottom-0 left-0 right-0 bg-background/95 backdrop-blur-md border-t p-5">
-            <div className="flex items-center justify-center gap-8">
+            <div className="flex items-center justify-center gap-10">
               <button
-                className="w-16 h-16 rounded-full flex items-center justify-center bg-muted border border-border text-2xl shadow-sm hover:scale-105 active:scale-95 transition-transform"
+                className="w-16 h-16 rounded-full flex items-center justify-center bg-muted border border-border shadow-sm hover:scale-105 active:scale-95 transition-transform"
                 onClick={closeProfile}
                 data-testid="button-intent-skip"
                 aria-label="Skip"
@@ -950,7 +1139,7 @@ export default function IntentPage() {
                 <Moon className="w-6 h-6 text-muted-foreground" />
               </button>
               <button
-                className="w-16 h-16 rounded-full flex items-center justify-center bg-primary text-primary-foreground text-2xl shadow-md hover:scale-105 active:scale-95 transition-transform disabled:opacity-60"
+                className="w-16 h-16 rounded-full flex items-center justify-center bg-primary text-primary-foreground shadow-md hover:scale-105 active:scale-95 transition-transform disabled:opacity-60"
                 onClick={() => selectedProfile && wheelOpen.mutate(selectedProfile.userId)}
                 disabled={wheelOpen.isPending}
                 data-testid="button-intent-open"
