@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
 import { LulouFlowerIcon } from "@/components/app-layout";
@@ -109,6 +110,7 @@ const DATING_TIPS = [
 ];
 
 export default function ProfilePage() {
+  const [, navigate] = useLocation();
   const { user, logout, isLoggingOut } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -728,7 +730,7 @@ export default function ProfilePage() {
             <h1 className="font-serif text-2xl font-bold" data-testid="text-profile-name">
               {profile.firstName}
             </h1>
-            <Button size="icon" variant="ghost" onClick={() => toggle("settings")} data-testid="button-settings-icon">
+            <Button size="icon" variant="ghost" onClick={() => navigate("/settings")} data-testid="button-settings-icon">
               <Settings className="w-5 h-5" />
             </Button>
           </div>

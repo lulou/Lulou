@@ -16,6 +16,7 @@ import Discover from "@/pages/discover";
 import Matches from "@/pages/matches";
 import Messaging from "@/pages/messaging";
 import ProfilePage from "@/pages/profile";
+import SettingsPage from "@/pages/settings";
 import IntentPage from "@/pages/intent";
 import LikesPage from "@/pages/likes";
 import ElevateSuccessPage from "@/pages/elevate-success";
@@ -131,6 +132,7 @@ function PersistentTabs() {
   const activeTab = location === "/" ? "/discover" : location;
   const isTabRoute = TAB_PAGES.some(t => activeTab.startsWith(t.path));
   const isSubRoute = location.startsWith("/messages/");
+  const isSettingsRoute = location === "/settings";
 
   // Navigation trace — logs every time the active tab changes so we can pinpoint
   // which tab is shown and confirm the display switch is happening.
@@ -170,6 +172,11 @@ function PersistentTabs() {
           </div>
         );
       })}
+      {isSettingsRoute && (
+        <PageErrorBoundary name="/settings">
+          <SettingsPage />
+        </PageErrorBoundary>
+      )}
       {isSubRoute && (
         <PageErrorBoundary name="/messages">
           <Switch>
@@ -177,7 +184,7 @@ function PersistentTabs() {
           </Switch>
         </PageErrorBoundary>
       )}
-      {!isTabRoute && !isSubRoute && location !== "/" && <NotFound />}
+      {!isTabRoute && !isSubRoute && !isSettingsRoute && location !== "/" && <NotFound />}
     </>
   );
 }
