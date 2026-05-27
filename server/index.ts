@@ -162,6 +162,43 @@ app.use((req, res, next) => {
     console.warn("[STARTUP] Could not verify distance columns:", err?.message);
   }
 
+  // Auto-add is_paused column to Supabase profiles.
+  // Enables account pause/unpause without a manual migration step.
+  try {
+    const { createClient } = await import("@supabase/supabase-js");
+    const { setHasIsPausedColumn } = await import("./storage");
+    const supabaseUrl = process.env.VITE_SUPABASE_URL!;
+    const serviceKey  = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+    const adminSb = createClient(supabaseUrl, serviceKey);
+    // First check if the column already exists
+    const { error: checkErr } = await adminSb.from("profiles").select("is_paused").limit(1);
+    if (!checkErr) {
+      setHasIsPausedColumn(true);
+    } else if (checkErr.message?.includes("does not exist")) {
+      // Try to add column via direct pg connection (SUPABASE_DB_PASSWORD available)
+      try {
+        const { Pool: PgPool } = await import("pg");
+        const projectRef = supabaseUrl.replace("https://", "").replace(".supabase.co", "");
+        const dbPass = process.env.SUPABASE_DB_PASSWORD;
+        if (dbPass && projectRef) {
+          const pgPool = new PgPool({
+            connectionString: `postgresql://postgres:${dbPass}@db.${projectRef}.supabase.co:5432/postgres`,
+            ssl: { rejectUnauthorized: false },
+          });
+          await pgPool.query("ALTER TABLE profiles ADD COLUMN IF NOT EXISTS is_paused boolean DEFAULT false");
+          await pgPool.end();
+          setHasIsPausedColumn(true);
+          console.log("[STARTUP] is_paused column added to Supabase profiles");
+        }
+      } catch (pgErr: any) {
+        console.warn("[STARTUP] Could not add is_paused column via pg:", pgErr?.message);
+        console.warn("  Run manually: ALTER TABLE profiles ADD COLUMN IF NOT EXISTS is_paused boolean DEFAULT false;");
+      }
+    }
+  } catch (err: any) {
+    console.warn("[STARTUP] Could not verify is_paused column:", err?.message);
+  }
+
   await registerRoutes(httpServer, app);
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {

@@ -30,6 +30,7 @@ export const profiles = pgTable("profiles", {
   phoneNumber: text("phone_number"),
   photoVerified: boolean("photo_verified").default(false),
   onboardingComplete: boolean("onboarding_complete").default(false),
+  isPaused: boolean("is_paused").default(false),
   elevateType: text("elevate_type"),
   elevateExpiresAt: timestamp("elevate_expires_at"),
   createdAt: timestamp("created_at").defaultNow(),
@@ -154,8 +155,19 @@ export const userElevates = pgTable("user_elevates", {
   index("idx_user_elevates_user").on(table.userId),
 ]);
 
+export const blockedContacts = pgTable("blocked_contacts", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull(),
+  name: text("name").notNull().default(""),
+  phoneNumber: text("phone_number").notNull().default(""),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_blocked_contacts_user").on(table.userId),
+]);
+
 export type UserBenefit = typeof userBenefits.$inferSelect;
 export type UserElevate = typeof userElevates.$inferSelect;
+export type BlockedContact = typeof blockedContacts.$inferSelect;
 
 export type Profile = typeof profiles.$inferSelect;
 export type InsertProfile = z.infer<typeof insertProfileSchema>;

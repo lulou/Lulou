@@ -1,0 +1,57 @@
+Update the profile settings properly.
+
+Keep the same Settings screen structure, but fix and complete these features:
+
+1. Pause / Unpause Account
+- Use one dynamic button.
+- If account is active, show “Pause Account”.
+- If account is paused, show “Unpause Account”.
+- Both use the same account status state.
+- Pausing hides the user from discovery/matching but keeps all data.
+- Unpausing restores profile visibility.
+- Add confirmation modal for both actions.
+
+2. Selfie Verification
+- Update selfie verification properly and correctly.
+- It should open the selfie verification flow, not just be a placeholder.
+- Show status: Not verified, Pending, or Verified.
+- If verified, prevent users from repeating verification unnecessarily.
+
+3. Block List / Contacts
+- Block list should allow users to access phone contacts.
+- Ask for contact permission.
+- Let users select contacts they do not want to be seen by.
+- Save blocked contacts securely.
+- Users should also be able to remove contacts from the block list.
+
+4. Phone Number
+- Phone number row should be clickable.
+- If no number exists, allow the user to add their phone number.
+- If a number exists, allow the user to update it.
+- Add basic validation.
+
+5. Connected Accounts
+- Fix connected accounts properly.
+- Users should be able to connect or disconnect Google.
+- Users should be able to connect or disconnect Apple.
+- Show connected status clearly.
+
+6. Subscribe to Lulou
+- Fix the Subscribe to Lulou button.
+- It should not take users back to the profile page.
+- It should open the subscription/extras page showing all paid features and extras.
+
+7. App Language
+- Update app language properly.
+- Add language selection screen.
+- Include common languages such as English, Spanish, French, German, Italian, Portuguese, Chinese, Japanese, Korean, Hindi, Arabic, and others where supported.
+- Save the selected language to the user’s settings.
+- Default language can be based on device/location.
+
+8. Units of Measurement
+- Fix units of measurement properly.
+- User should be able to select Miles or Feet where relevant.
+- Save the selected unit preference.
+- Make sure distance/display values update correctly across the app.
+
+Make everything mobile-friendly, clean, and connected to the user’s real account/settings data. Do not leave these as fake buttons or placeholder screens.

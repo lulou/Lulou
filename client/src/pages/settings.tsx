@@ -1,10 +1,28 @@
-import { useState } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import type { ReactNode } from "react";
 import { useLocation } from "wouter";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
+import { apiRequest } from "@/lib/queryClient";
+import { supabase } from "@/lib/supabase";
+import { useUnits } from "@/lib/units";
 import { Switch } from "@/components/ui/switch";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -21,6 +39,7 @@ import {
   LogOut,
   Trash2,
   PauseCircle,
+  PlayCircle,
   Eye,
   Camera,
   ShieldOff,
@@ -39,10 +58,21 @@ import {
   BookOpen,
   Users,
   Shield,
+  Plus,
+  X,
+  CheckCircle2,
+  Link,
+  Link2Off,
 } from "lucide-react";
-import type { Profile } from "@shared/schema";
+import type { Profile, BlockedContact } from "@shared/schema";
 
-// Persist a boolean toggle to localStorage so it survives page refreshes.
+const LANGUAGES = [
+  "English", "Spanish", "French", "German", "Portuguese",
+  "Italian", "Dutch", "Polish", "Russian", "Arabic",
+  "Chinese (Simplified)", "Chinese (Traditional)", "Japanese",
+  "Korean", "Hindi", "Swahili",
+];
+
 function useToggle(key: string, defaultVal = false): [boolean, (v: boolean) => void] {
   const [val, setVal] = useState<boolean>(() => {
     try {
@@ -57,47 +87,255 @@ function useToggle(key: string, defaultVal = false): [boolean, (v: boolean) => v
   return [val, set];
 }
 
+function useLanguage(): [string, (l: string) => void] {
+  const [lang, setLangState] = useState<string>(() => {
+    try { return localStorage.getItem("settings_language") || "English"; } catch { return "English"; }
+  });
+  const setLang = (l: string) => {
+    setLangState(l);
+    try { localStorage.setItem("settings_language", l); } catch {}
+  };
+  return [lang, setLang];
+}
+
+type ActiveSheet = "selfie" | "blocklist" | "extras" | "language" | "units" | null;
+
 export default function SettingsPage() {
   const [, navigate] = useLocation();
   const { user, logout, isLoggingOut } = useAuth();
   const { toast } = useToast();
+  const qc = useQueryClient();
 
   const { data: profile } = useQuery<Profile>({ queryKey: ["/api/profile"] });
+  const { data: blockedContacts = [] } = useQuery<BlockedContact[]>({ queryKey: ["/api/blocked-contacts"] });
 
   // ── Toggle preferences ────────────────────────────────────────────────────
-  const [showLastActive, setShowLastActive] = useToggle("show_last_active", true);
-  const [commentFilter,  setCommentFilter]  = useToggle("comment_filter", true);
-  const [aiStarters, setAiStarters]         = useToggle("conversation_starter_ai", true);
-  const [audioTranscripts, setAudioTranscripts] = useToggle("audio_transcripts", false);
+  const [showLastActive,    setShowLastActive]    = useToggle("show_last_active", true);
+  const [commentFilter,     setCommentFilter]     = useToggle("comment_filter", true);
+  const [aiStarters,        setAiStarters]        = useToggle("conversation_starter_ai", true);
+  const [audioTranscripts,  setAudioTranscripts]  = useToggle("audio_transcripts", false);
   const [pushNotifications, setPushNotifications] = useToggle("push_notifications", true);
 
-  // ── Confirmation dialogs ──────────────────────────────────────────────────
-  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
-  const [showPauseDialog,  setShowPauseDialog]  = useState(false);
+  // ── Active sheets / dialogs ───────────────────────────────────────────────
+  const [activeSheet,     setActiveSheet]     = useState<ActiveSheet>(null);
+  const [showPhoneDialog, setShowPhoneDialog] = useState(false);
+  const [showPauseDialog, setShowPauseDialog] = useState(false);
+  const [showDeleteDialog,setShowDeleteDialog]= useState(false);
 
-  const handleLogout = async () => {
-    await logout();
+  // ── Phone edit ────────────────────────────────────────────────────────────
+  const [phoneInput, setPhoneInput] = useState("");
+
+  // ── Language ──────────────────────────────────────────────────────────────
+  const [language, setLanguage] = useLanguage();
+
+  // ── Units ─────────────────────────────────────────────────────────────────
+  const [units, setUnits] = useUnits();
+
+  // ── Connected accounts ────────────────────────────────────────────────────
+  const [identities, setIdentities] = useState<{ provider: string; identity_id: string }[]>([]);
+  const [identitiesLoading, setIdentitiesLoading] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        setIdentitiesLoading(true);
+        const { data } = await supabase.auth.getUserIdentities();
+        setIdentities((data?.identities ?? []).map((i: any) => ({ provider: i.provider, identity_id: i.identity_id })));
+      } catch { /* ignore */ }
+      finally { setIdentitiesLoading(false); }
+    })();
+  }, []);
+
+  const isConnected = (provider: string) =>
+    identities.some(i => i.provider === provider);
+
+  const handleConnectProvider = async (provider: "google" | "apple") => {
+    try {
+      await supabase.auth.linkIdentity({ provider } as any);
+      toast({ title: `Connecting to ${provider}…`, description: "Follow the popup to complete." });
+    } catch (err: any) {
+      toast({ title: "Could not connect", description: err?.message, variant: "destructive" });
+    }
   };
 
+  const handleDisconnectProvider = async (provider: string) => {
+    const identity = identities.find(i => i.provider === provider);
+    if (!identity) return;
+    try {
+      await supabase.auth.unlinkIdentity(identity as any);
+      setIdentities(prev => prev.filter(i => i.provider !== provider));
+      toast({ title: "Disconnected", description: `${provider} account removed.` });
+    } catch (err: any) {
+      toast({ title: "Could not disconnect", description: err?.message, variant: "destructive" });
+    }
+  };
+
+  // ── Selfie verification ────────────────────────────────────────────────────
+  type SelfieStep = "idle" | "camera" | "preview" | "submitting" | "done";
+  const [selfieStep,    setSelfieStep]    = useState<SelfieStep>("idle");
+  const [capturedSelfie, setCapturedSelfie] = useState<string | null>(null);
+  const videoRef   = useRef<HTMLVideoElement>(null);
+  const streamRef  = useRef<MediaStream | null>(null);
+  const canvasRef  = useRef<HTMLCanvasElement>(null);
+
+  const startCamera = useCallback(async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 640 } },
+      });
+      streamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play();
+      }
+      setSelfieStep("camera");
+    } catch (err: any) {
+      toast({
+        title: "Camera access denied",
+        description: "Please allow camera access in your browser settings.",
+        variant: "destructive",
+      });
+    }
+  }, [toast]);
+
+  const stopCamera = useCallback(() => {
+    streamRef.current?.getTracks().forEach(t => t.stop());
+    streamRef.current = null;
+  }, []);
+
+  const capturePhoto = () => {
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
+    if (!video || !canvas) return;
+    canvas.width  = video.videoWidth  || 640;
+    canvas.height = video.videoHeight || 640;
+    canvas.getContext("2d")?.drawImage(video, 0, 0, canvas.width, canvas.height);
+    const dataUrl = canvas.toDataURL("image/jpeg", 0.85);
+    setCapturedSelfie(dataUrl);
+    stopCamera();
+    setSelfieStep("preview");
+  };
+
+  const retakePhoto = () => {
+    setCapturedSelfie(null);
+    setSelfieStep("idle");
+  };
+
+  const selfieVerifyMutation = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/profile", { photoVerified: true }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["/api/profile"] });
+      setSelfieStep("done");
+      toast({ title: "Verified!", description: "Your profile now shows a verified badge." });
+    },
+    onError: (err: any) => {
+      toast({ title: "Verification failed", description: err?.message, variant: "destructive" });
+    },
+  });
+
+  const submitSelfie = () => {
+    if (!capturedSelfie) return;
+    setSelfieStep("submitting");
+    selfieVerifyMutation.mutate();
+  };
+
+  useEffect(() => {
+    if (activeSheet !== "selfie") {
+      stopCamera();
+      setSelfieStep("idle");
+      setCapturedSelfie(null);
+    }
+  }, [activeSheet, stopCamera]);
+
+  // ── Pause mutation ────────────────────────────────────────────────────────
+  const isPaused = (profile as any)?.isPaused ?? false;
+
+  const pauseMutation = useMutation({
+    mutationFn: (paused: boolean) => apiRequest("POST", "/api/profile", { isPaused: paused }),
+    onSuccess: (_data, paused) => {
+      qc.invalidateQueries({ queryKey: ["/api/profile"] });
+      toast({
+        title: paused ? "Account paused" : "Account reactivated",
+        description: paused
+          ? "Your profile is hidden. Your matches are safe."
+          : "Your profile is visible again.",
+      });
+    },
+    onError: (err: any) => {
+      toast({ title: "Failed", description: err?.message, variant: "destructive" });
+    },
+  });
+
+  const handlePauseConfirm = () => {
+    setShowPauseDialog(false);
+    pauseMutation.mutate(!isPaused);
+  };
+
+  // ── Phone mutation ────────────────────────────────────────────────────────
+  const phoneMutation = useMutation({
+    mutationFn: (phoneNumber: string) => apiRequest("POST", "/api/profile", { phoneNumber }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["/api/profile"] });
+      setShowPhoneDialog(false);
+      toast({ title: "Phone number updated" });
+    },
+    onError: (err: any) => {
+      toast({ title: "Failed to save", description: err?.message, variant: "destructive" });
+    },
+  });
+
+  // ── Blocked contacts mutations ────────────────────────────────────────────
+  const [addName,  setAddName]  = useState("");
+  const [addPhone, setAddPhone] = useState("");
+  const [showAddForm, setShowAddForm] = useState(false);
+
+  const addContactMutation = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/blocked-contacts", { name: addName, phoneNumber: addPhone }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["/api/blocked-contacts"] });
+      setAddName("");
+      setAddPhone("");
+      setShowAddForm(false);
+      toast({ title: "Contact blocked" });
+    },
+    onError: (err: any) => {
+      toast({ title: "Failed", description: err?.message, variant: "destructive" });
+    },
+  });
+
+  const removeContactMutation = useMutation({
+    mutationFn: (id: string) => apiRequest("DELETE", `/api/blocked-contacts/${id}`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["/api/blocked-contacts"] });
+      toast({ title: "Contact unblocked" });
+    },
+  });
+
+  // ── Stripe checkout (extras) ──────────────────────────────────────────────
+  const [checkoutLoading, setCheckoutLoading] = useState<string | null>(null);
+
+  const startCheckout = async (itemId: string) => {
+    setCheckoutLoading(itemId);
+    try {
+      const data = await apiRequest("POST", "/api/stripe/extras-checkout", { itemId }) as any;
+      if (data?.url) window.location.href = data.url;
+    } catch (err: any) {
+      toast({ title: "Checkout failed", description: err?.message, variant: "destructive" });
+    } finally {
+      setCheckoutLoading(null);
+    }
+  };
+
+  // ── Delete account ────────────────────────────────────────────────────────
   const handleDeleteConfirm = () => {
     setShowDeleteDialog(false);
     toast({
       title: "Account deletion requested",
-      description: "Email support@lulou.dating to complete deletion. We'll process it within 48 hours.",
+      description: "Email support@lulou.dating within 48 hours to complete deletion.",
     });
   };
 
-  const handlePauseConfirm = () => {
-    setShowPauseDialog(false);
-    toast({
-      title: "Account paused",
-      description: "Your profile is hidden from discovery. Reactivate anytime from Settings.",
-    });
-  };
-
-  const comingSoon = (name: string) =>
-    toast({ title: "Coming soon", description: `${name} will be available shortly.` });
-
+  // ─────────────────────────────────────────────────────────────────────────
   return (
     <div className="flex-1 flex flex-col bg-background overflow-hidden" data-testid="settings-page">
 
@@ -123,9 +361,14 @@ export default function SettingsPage() {
           {/* ── 1. Account ── */}
           <SectionHeader title="Account" first />
           <SettingRow
-            icon={<PauseCircle className="w-[18px] h-[18px] text-muted-foreground" />}
-            label="Pause account"
-            description="Hide your profile temporarily"
+            icon={isPaused
+              ? <PlayCircle className="w-[18px] h-[18px] text-primary" />
+              : <PauseCircle className="w-[18px] h-[18px] text-muted-foreground" />}
+            label={isPaused ? "Reactivate account" : "Pause account"}
+            description={isPaused
+              ? "Your profile is currently hidden from discovery"
+              : "Hide your profile temporarily"}
+            labelClass={isPaused ? "text-primary" : undefined}
             onPress={() => setShowPauseDialog(true)}
             testId="button-pause-account"
           />
@@ -141,7 +384,7 @@ export default function SettingsPage() {
             icon={<LogOut className="w-[18px] h-[18px] text-destructive" />}
             label={isLoggingOut ? "Logging out…" : "Log out"}
             labelClass="text-destructive"
-            onPress={handleLogout}
+            onPress={() => logout()}
             showChevron={false}
             testId="button-settings-logout"
           />
@@ -165,15 +408,20 @@ export default function SettingsPage() {
           <SettingRow
             icon={<Camera className="w-[18px] h-[18px] text-muted-foreground" />}
             label="Selfie verification"
-            description="Get a verified badge on your profile"
-            onPress={() => comingSoon("Selfie verification")}
+            description={profile?.photoVerified
+              ? "Your profile is verified ✓"
+              : "Get a verified badge on your profile"}
+            labelClass={profile?.photoVerified ? "text-primary" : undefined}
+            onPress={() => setActiveSheet("selfie")}
             testId="button-selfie-verification"
           />
           <SettingRow
             icon={<ShieldOff className="w-[18px] h-[18px] text-muted-foreground" />}
             label="Block list"
-            description="Manage who can't see or contact you"
-            onPress={() => comingSoon("Block list")}
+            description={blockedContacts.length
+              ? `${blockedContacts.length} blocked contact${blockedContacts.length !== 1 ? "s" : ""}`
+              : "Manage who can't contact you"}
+            onPress={() => setActiveSheet("blocklist")}
             testId="button-block-list"
           />
           <SettingRow
@@ -224,18 +472,28 @@ export default function SettingsPage() {
 
           {/* ── 4. Contact & Security ── */}
           <SectionHeader title="Contact & Security" />
-          <ContactRow
+          <SettingRow
             icon={<Phone className="w-[18px] h-[18px] text-muted-foreground" />}
             label="Phone number"
-            value={profile?.phoneNumber || "Not added"}
-            testId="text-settings-phone"
+            description={profile?.phoneNumber || "Not added"}
+            onPress={() => {
+              setPhoneInput(profile?.phoneNumber || "");
+              setShowPhoneDialog(true);
+            }}
+            testId="button-settings-phone"
           />
-          <ContactRow
-            icon={<Mail className="w-[18px] h-[18px] text-muted-foreground" />}
-            label="Email address"
-            value={profile?.email || user?.email || "Not added"}
-            testId="text-settings-email"
-          />
+          <div className="px-4 py-3.5 border-b border-border/50">
+            <div className="flex items-center gap-3 mb-2">
+              <Mail className="w-[18px] h-[18px] text-muted-foreground shrink-0" />
+              <p className="text-sm font-medium">Email address</p>
+            </div>
+            <p
+              className="text-xs text-muted-foreground pl-[30px]"
+              data-testid="text-settings-email"
+            >
+              {profile?.email || user?.email || "Not added"}
+            </p>
+          </div>
           {/* Connected accounts */}
           <div className="px-4 py-4 border-b border-border/50">
             <div className="flex items-center gap-3 mb-3">
@@ -243,8 +501,26 @@ export default function SettingsPage() {
               <p className="text-sm font-medium">Connected accounts</p>
             </div>
             <div className="space-y-2.5 pl-[30px]">
-              <ConnectedAccountRow provider="Google" connected={false} />
-              <ConnectedAccountRow provider="Apple"  connected={false} />
+              {identitiesLoading ? (
+                <p className="text-xs text-muted-foreground">Loading…</p>
+              ) : (
+                <>
+                  <ConnectedAccountRow
+                    provider="google"
+                    label="Google"
+                    connected={isConnected("google")}
+                    onConnect={() => handleConnectProvider("google")}
+                    onDisconnect={() => handleDisconnectProvider("google")}
+                  />
+                  <ConnectedAccountRow
+                    provider="apple"
+                    label="Apple"
+                    connected={isConnected("apple")}
+                    onConnect={() => handleConnectProvider("apple")}
+                    onDisconnect={() => handleDisconnectProvider("apple")}
+                  />
+                </>
+              )}
             </div>
           </div>
 
@@ -271,7 +547,7 @@ export default function SettingsPage() {
             icon={<Crown className="w-[18px] h-[18px] text-primary" />}
             label="Subscribe to Lulou"
             description="Unlock extras and deeper connections — $19.99/month"
-            onPress={() => navigate("/profile")}
+            onPress={() => setActiveSheet("extras")}
             testId="button-settings-subscribe"
           />
 
@@ -280,15 +556,15 @@ export default function SettingsPage() {
           <SettingRow
             icon={<Globe className="w-[18px] h-[18px] text-muted-foreground" />}
             label="App language"
-            value="English"
-            onPress={() => comingSoon("Language settings")}
+            value={language}
+            onPress={() => setActiveSheet("language")}
             testId="button-settings-language"
           />
           <SettingRow
             icon={<Ruler className="w-[18px] h-[18px] text-muted-foreground" />}
             label="Units of measurement"
-            value="Miles & feet"
-            onPress={() => comingSoon("Units settings")}
+            value={units === "miles" ? "Miles & feet" : "Kilometres & metres"}
+            onPress={() => setActiveSheet("units")}
             testId="button-settings-units"
           />
 
@@ -307,44 +583,393 @@ export default function SettingsPage() {
             testId="button-terms-of-service"
           />
           <SettingRow
-            icon={<Lock className="w-[18px] h-[18px] text-muted-foreground" />}
-            label="Privacy Preferences"
-            onPress={() => comingSoon("Privacy preferences")}
-            testId="button-privacy-preferences"
-          />
-          <SettingRow
-            icon={<FileText className="w-[18px] h-[18px] text-muted-foreground" />}
-            label="Licences"
-            onPress={() => comingSoon("Licences")}
-            testId="button-licences"
-          />
-          <SettingRow
             icon={<Download className="w-[18px] h-[18px] text-muted-foreground" />}
             label="Download my data"
-            onPress={() => comingSoon("Data download")}
+            onPress={() => window.open("mailto:support@lulou.dating?subject=Data Download Request")}
             testId="button-download-data"
           />
           <SettingRow
             icon={<Heart className="w-[18px] h-[18px] text-muted-foreground" />}
             label="Safe dating tips"
-            onPress={() => comingSoon("Safe dating tips")}
+            onPress={() => window.open("https://lulou.dating/safety", "_blank")}
             testId="button-safe-dating"
           />
           <SettingRow
             icon={<Users className="w-[18px] h-[18px] text-muted-foreground" />}
             label="Member principles"
-            onPress={() => comingSoon("Member principles")}
+            onPress={() => window.open("https://lulou.dating/principles", "_blank")}
             testId="button-member-principles"
           />
 
-          {/* Version footer */}
           <p className="text-center text-xs text-muted-foreground/40 pt-8 pb-2 select-none">
             Lulou Dating · v1.0
           </p>
         </div>
       </div>
 
-      {/* ── Delete confirmation ── */}
+      {/* ══════════════════════════════════════════════════════════════════════
+          Sheets
+      ══════════════════════════════════════════════════════════════════════ */}
+
+      {/* ── Selfie verification sheet ── */}
+      <Sheet open={activeSheet === "selfie"} onOpenChange={open => !open && setActiveSheet(null)}>
+        <SheetContent side="bottom" className="h-[90vh] flex flex-col p-0">
+          <SheetHeader className="px-5 pt-5 pb-3 border-b shrink-0">
+            <SheetTitle className="font-serif">Selfie Verification</SheetTitle>
+          </SheetHeader>
+          <div className="flex-1 overflow-y-auto px-5 pb-8 flex flex-col items-center justify-start gap-4 pt-5">
+            {selfieStep === "idle" && (
+              <div className="flex flex-col items-center gap-5 mt-4">
+                <div className="w-24 h-24 rounded-full bg-muted flex items-center justify-center">
+                  <Camera className="w-10 h-10 text-muted-foreground" />
+                </div>
+                {profile?.photoVerified ? (
+                  <>
+                    <div className="flex items-center gap-2 text-primary">
+                      <CheckCircle2 className="w-5 h-5" />
+                      <p className="font-medium">Already verified</p>
+                    </div>
+                    <p className="text-sm text-muted-foreground text-center max-w-xs">
+                      Your profile shows a verified badge. You can re-verify to update your selfie.
+                    </p>
+                    <Button onClick={startCamera} variant="outline" data-testid="button-reverify-selfie">
+                      Re-verify
+                    </Button>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-sm text-muted-foreground text-center max-w-xs">
+                      Take a quick selfie to earn a verified badge on your profile. We just check you're a real person — no data stored.
+                    </p>
+                    <Button onClick={startCamera} data-testid="button-start-camera">
+                      <Camera className="w-4 h-4 mr-2" />
+                      Open camera
+                    </Button>
+                  </>
+                )}
+              </div>
+            )}
+
+            {selfieStep === "camera" && (
+              <div className="w-full flex flex-col items-center gap-4">
+                <div className="relative w-full max-w-sm aspect-square rounded-2xl overflow-hidden bg-black">
+                  <video
+                    ref={videoRef}
+                    className="w-full h-full object-cover scale-x-[-1]"
+                    autoPlay
+                    playsInline
+                    muted
+                    data-testid="video-selfie-camera"
+                  />
+                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                    <div className="w-48 h-48 rounded-full border-2 border-white/50" />
+                  </div>
+                </div>
+                <canvas ref={canvasRef} className="hidden" />
+                <p className="text-xs text-muted-foreground text-center">Position your face in the circle</p>
+                <div className="flex gap-3">
+                  <Button variant="outline" onClick={() => { stopCamera(); setSelfieStep("idle"); }} data-testid="button-cancel-camera">
+                    Cancel
+                  </Button>
+                  <Button onClick={capturePhoto} data-testid="button-capture-photo">
+                    Take photo
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {(selfieStep === "preview" || selfieStep === "submitting") && capturedSelfie && (
+              <div className="w-full flex flex-col items-center gap-4">
+                <div className="w-full max-w-sm aspect-square rounded-2xl overflow-hidden bg-black">
+                  <img
+                    src={capturedSelfie}
+                    alt="Captured selfie"
+                    className="w-full h-full object-cover scale-x-[-1]"
+                    data-testid="img-selfie-preview"
+                  />
+                </div>
+                <p className="text-sm text-muted-foreground text-center">Looking good? Submit to get verified.</p>
+                <div className="flex gap-3">
+                  <Button variant="outline" onClick={retakePhoto} disabled={selfieStep === "submitting"} data-testid="button-retake-selfie">
+                    Retake
+                  </Button>
+                  <Button onClick={submitSelfie} disabled={selfieStep === "submitting"} data-testid="button-submit-selfie">
+                    {selfieStep === "submitting" ? "Verifying…" : "Submit & verify"}
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {selfieStep === "done" && (
+              <div className="flex flex-col items-center gap-5 mt-4">
+                <div className="w-24 h-24 rounded-full bg-primary/10 flex items-center justify-center">
+                  <CheckCircle2 className="w-10 h-10 text-primary" />
+                </div>
+                <p className="font-serif text-xl font-semibold">You're verified!</p>
+                <p className="text-sm text-muted-foreground text-center max-w-xs">
+                  Your profile now shows a verified badge for all your matches to see.
+                </p>
+                <Button onClick={() => setActiveSheet(null)} data-testid="button-selfie-done">
+                  Done
+                </Button>
+              </div>
+            )}
+          </div>
+        </SheetContent>
+      </Sheet>
+
+      {/* ── Block list sheet ── */}
+      <Sheet open={activeSheet === "blocklist"} onOpenChange={open => !open && setActiveSheet(null)}>
+        <SheetContent side="bottom" className="h-[85vh] flex flex-col p-0">
+          <SheetHeader className="px-5 pt-5 pb-3 border-b shrink-0">
+            <SheetTitle className="font-serif">Block List</SheetTitle>
+          </SheetHeader>
+          <div className="flex-1 overflow-y-auto px-5 pb-8 pt-4">
+            <p className="text-sm text-muted-foreground mb-4">
+              Blocked contacts can't find or message you. Add a phone number to block someone not yet on Lulou.
+            </p>
+
+            {blockedContacts.length === 0 && !showAddForm && (
+              <div className="text-center py-10">
+                <ShieldOff className="w-10 h-10 text-muted-foreground/40 mx-auto mb-3" />
+                <p className="text-sm text-muted-foreground">No blocked contacts yet</p>
+              </div>
+            )}
+
+            <div className="space-y-2 mb-4">
+              {blockedContacts.map(contact => (
+                <div
+                  key={contact.id}
+                  className="flex items-center gap-3 px-4 py-3 rounded-xl bg-muted/50"
+                  data-testid={`row-blocked-contact-${contact.id}`}
+                >
+                  <div className="flex-1 min-w-0">
+                    {contact.name && (
+                      <p className="text-sm font-medium truncate">{contact.name}</p>
+                    )}
+                    <p className="text-xs text-muted-foreground">{contact.phoneNumber}</p>
+                  </div>
+                  <button
+                    className="shrink-0 w-8 h-8 flex items-center justify-center rounded-full hover:bg-destructive/10 text-destructive transition-colors"
+                    onClick={() => removeContactMutation.mutate(contact.id)}
+                    disabled={removeContactMutation.isPending}
+                    data-testid={`button-unblock-${contact.id}`}
+                    aria-label="Unblock"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              ))}
+            </div>
+
+            {showAddForm ? (
+              <div className="rounded-xl border border-border p-4 space-y-3">
+                <p className="text-sm font-medium">Block a contact</p>
+                <Input
+                  placeholder="Name (optional)"
+                  value={addName}
+                  onChange={e => setAddName(e.target.value)}
+                  data-testid="input-block-name"
+                />
+                <Input
+                  placeholder="Phone number *"
+                  value={addPhone}
+                  onChange={e => setAddPhone(e.target.value)}
+                  type="tel"
+                  data-testid="input-block-phone"
+                />
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => { setShowAddForm(false); setAddName(""); setAddPhone(""); }}
+                    data-testid="button-cancel-add-contact"
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    size="sm"
+                    disabled={!addPhone.trim() || addContactMutation.isPending}
+                    onClick={() => addContactMutation.mutate()}
+                    data-testid="button-save-blocked-contact"
+                  >
+                    {addContactMutation.isPending ? "Blocking…" : "Block"}
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <button
+                className="flex items-center gap-2 text-sm text-primary font-medium py-2"
+                onClick={() => setShowAddForm(true)}
+                data-testid="button-add-blocked-contact"
+              >
+                <Plus className="w-4 h-4" />
+                Add contact to block
+              </button>
+            )}
+          </div>
+        </SheetContent>
+      </Sheet>
+
+      {/* ── Subscribe / Extras sheet ── */}
+      <Sheet open={activeSheet === "extras"} onOpenChange={open => !open && setActiveSheet(null)}>
+        <SheetContent side="bottom" className="h-[85vh] flex flex-col p-0">
+          <SheetHeader className="px-5 pt-5 pb-3 border-b shrink-0">
+            <SheetTitle className="font-serif">Lulou Extras</SheetTitle>
+          </SheetHeader>
+          <div className="flex-1 overflow-y-auto px-5 pb-8 pt-4 space-y-4">
+            {/* Membership */}
+            <div className="rounded-2xl bg-gradient-to-br from-primary/10 to-primary/5 border border-primary/20 p-5">
+              <div className="flex items-center gap-2 mb-1">
+                <Crown className="w-4 h-4 text-primary" />
+                <p className="font-serif font-semibold text-base">Lulou Membership</p>
+              </div>
+              <p className="text-xs text-muted-foreground mb-4">
+                Unlock deeper connections, priority discovery, and all extras included.
+              </p>
+              <Button
+                className="w-full"
+                disabled={checkoutLoading === "membership"}
+                onClick={() => startCheckout("membership")}
+                data-testid="button-subscribe-membership"
+              >
+                {checkoutLoading === "membership" ? "Opening…" : "Join for $19.99/month"}
+              </Button>
+            </div>
+
+            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground/65 pt-2">
+              À la carte extras
+            </p>
+
+            <ExtrasItem
+              title="+5 Messages"
+              description="Extend your conversation with 5 more messages each"
+              price="$4.99"
+              itemId="messages-5"
+              loading={checkoutLoading === "messages-5"}
+              onBuy={() => startCheckout("messages-5")}
+            />
+            <ExtrasItem
+              title="Undo Last Close"
+              description="Reopen a profile you accidentally closed"
+              price="$2.99"
+              itemId="undo-close"
+              loading={checkoutLoading === "undo-close"}
+              onBuy={() => startCheckout("undo-close")}
+            />
+            <ExtrasItem
+              title="Extra Call"
+              description="Add a bonus voice call to your connection"
+              price="$4.99"
+              itemId="extra-call"
+              loading={checkoutLoading === "extra-call"}
+              onBuy={() => startCheckout("extra-call")}
+            />
+            <ExtrasItem
+              title="Video Call"
+              description="Unlock a face-to-face video call (10 minutes)"
+              price="$6.99"
+              itemId="video-call"
+              loading={checkoutLoading === "video-call"}
+              onBuy={() => startCheckout("video-call")}
+            />
+          </div>
+        </SheetContent>
+      </Sheet>
+
+      {/* ── Language sheet ── */}
+      <Sheet open={activeSheet === "language"} onOpenChange={open => !open && setActiveSheet(null)}>
+        <SheetContent side="bottom" className="h-[80vh] flex flex-col p-0">
+          <SheetHeader className="px-5 pt-5 pb-3 border-b shrink-0">
+            <SheetTitle className="font-serif">App Language</SheetTitle>
+          </SheetHeader>
+          <div className="flex-1 overflow-y-auto py-2">
+            {LANGUAGES.map(lang => (
+              <button
+                key={lang}
+                className="w-full px-5 py-3.5 flex items-center justify-between text-left hover:bg-muted/50 transition-colors border-b border-border/40"
+                onClick={() => { setLanguage(lang); setActiveSheet(null); }}
+                data-testid={`button-language-${lang.toLowerCase().replace(/\s/g, "-")}`}
+              >
+                <span className="text-sm">{lang}</span>
+                {language === lang && (
+                  <CheckCircle2 className="w-4 h-4 text-primary shrink-0" />
+                )}
+              </button>
+            ))}
+          </div>
+        </SheetContent>
+      </Sheet>
+
+      {/* ── Units sheet ── */}
+      <Sheet open={activeSheet === "units"} onOpenChange={open => !open && setActiveSheet(null)}>
+        <SheetContent side="bottom" className="p-0">
+          <SheetHeader className="px-5 pt-5 pb-3 border-b shrink-0">
+            <SheetTitle className="font-serif">Units of Measurement</SheetTitle>
+          </SheetHeader>
+          <div className="py-2">
+            {(["miles", "km"] as const).map(u => (
+              <button
+                key={u}
+                className="w-full px-5 py-4 flex items-center justify-between text-left hover:bg-muted/50 transition-colors border-b border-border/40"
+                onClick={() => { setUnits(u); setActiveSheet(null); }}
+                data-testid={`button-units-${u}`}
+              >
+                <div>
+                  <p className="text-sm font-medium">
+                    {u === "miles" ? "Imperial" : "Metric"}
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    {u === "miles" ? "Miles & feet" : "Kilometres & metres"}
+                  </p>
+                </div>
+                {units === u && (
+                  <CheckCircle2 className="w-4 h-4 text-primary shrink-0" />
+                )}
+              </button>
+            ))}
+          </div>
+        </SheetContent>
+      </Sheet>
+
+      {/* ══════════════════════════════════════════════════════════════════════
+          Dialogs
+      ══════════════════════════════════════════════════════════════════════ */}
+
+      {/* Phone number dialog */}
+      <Dialog open={showPhoneDialog} onOpenChange={setShowPhoneDialog}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="font-serif">Edit Phone Number</DialogTitle>
+          </DialogHeader>
+          <div className="py-2">
+            <Input
+              type="tel"
+              placeholder="+1 (555) 000-0000"
+              value={phoneInput}
+              onChange={e => setPhoneInput(e.target.value)}
+              data-testid="input-phone-number"
+            />
+            <p className="text-xs text-muted-foreground mt-2">
+              Used only for account recovery and safety. Never shared publicly.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowPhoneDialog(false)} data-testid="button-phone-cancel">
+              Cancel
+            </Button>
+            <Button
+              disabled={phoneMutation.isPending}
+              onClick={() => phoneMutation.mutate(phoneInput.trim())}
+              data-testid="button-phone-save"
+            >
+              {phoneMutation.isPending ? "Saving…" : "Save"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete confirmation */}
       <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -366,19 +991,31 @@ export default function SettingsPage() {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* ── Pause confirmation ── */}
+      {/* Pause / Unpause confirmation */}
       <AlertDialog open={showPauseDialog} onOpenChange={setShowPauseDialog}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Pause your account?</AlertDialogTitle>
+            <AlertDialogTitle>
+              {isPaused ? "Reactivate your account?" : "Pause your account?"}
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              Your profile will be hidden from discovery. Your matches and conversations are kept safe. You can reactivate anytime from Settings.
+              {isPaused
+                ? "Your profile will become visible in discovery again. Your existing matches and conversations stay exactly as they are."
+                : "Your profile will be hidden from discovery. Your matches and conversations stay safe. You can reactivate anytime."}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel data-testid="button-pause-cancel">Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handlePauseConfirm} data-testid="button-pause-confirm">
-              Pause account
+            <AlertDialogAction
+              onClick={handlePauseConfirm}
+              disabled={pauseMutation.isPending}
+              data-testid="button-pause-confirm"
+            >
+              {pauseMutation.isPending
+                ? "Saving…"
+                : isPaused
+                  ? "Reactivate"
+                  : "Pause account"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -463,50 +1100,69 @@ function SettingRow({
   );
 }
 
-function ContactRow({
-  icon,
+function ConnectedAccountRow({
+  provider,
   label,
-  value,
-  testId,
+  connected,
+  onConnect,
+  onDisconnect,
 }: {
-  icon: ReactNode;
+  provider: string;
   label: string;
-  value: string;
-  testId?: string;
+  connected: boolean;
+  onConnect: () => void;
+  onDisconnect: () => void;
 }) {
   return (
-    <div className="px-4 py-3.5 flex items-center gap-3 border-b border-border/50">
-      <span className="shrink-0 flex items-center justify-center w-7">{icon}</span>
-      <span className="flex-1 min-w-0">
-        <span className="block text-sm font-medium leading-snug">{label}</span>
-        <span className="block text-xs text-muted-foreground mt-0.5 leading-snug" data-testid={testId}>
-          {value}
-        </span>
-      </span>
+    <div className="flex items-center justify-between">
+      <p className="text-sm text-muted-foreground">{label}</p>
+      <button
+        className={`flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-full transition-colors ${
+          connected
+            ? "bg-primary/10 text-primary hover:bg-primary/20"
+            : "bg-muted text-muted-foreground hover:bg-muted/80"
+        }`}
+        onClick={connected ? onDisconnect : onConnect}
+        data-testid={`button-${connected ? "disconnect" : "connect"}-${provider}`}
+      >
+        {connected
+          ? <><Link2Off className="w-3 h-3" /> Disconnect</>
+          : <><Link className="w-3 h-3" /> Connect</>}
+      </button>
     </div>
   );
 }
 
-function ConnectedAccountRow({
-  provider,
-  connected,
+function ExtrasItem({
+  title,
+  description,
+  price,
+  itemId,
+  loading,
+  onBuy,
 }: {
-  provider: "Google" | "Apple";
-  connected: boolean;
+  title: string;
+  description: string;
+  price: string;
+  itemId: string;
+  loading: boolean;
+  onBuy: () => void;
 }) {
   return (
-    <div className="flex items-center justify-between">
-      <p className="text-sm text-muted-foreground">{provider}</p>
-      <span
-        className={`text-xs font-medium px-2.5 py-1 rounded-full ${
-          connected
-            ? "bg-primary/10 text-primary"
-            : "bg-muted text-muted-foreground"
-        }`}
-        data-testid={`badge-connected-${provider.toLowerCase()}`}
+    <div className="flex items-center gap-3 p-4 rounded-xl border border-border/60">
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-medium">{title}</p>
+        <p className="text-xs text-muted-foreground mt-0.5">{description}</p>
+      </div>
+      <Button
+        size="sm"
+        variant="outline"
+        disabled={loading}
+        onClick={onBuy}
+        data-testid={`button-buy-${itemId}`}
       >
-        {connected ? "Connected" : "Not connected"}
-      </span>
+        {loading ? "…" : price}
+      </Button>
     </div>
   );
 }

@@ -317,6 +317,7 @@ const profileBodySchema = z.object({
   preferredAgeMax: z.number().int().min(18).max(65).optional(),
   photoVerified: z.boolean().optional(),
   onboardingComplete: z.boolean().optional(),
+  isPaused: z.boolean().optional(),
 });
 
 const profileUpdateSchema = profileBodySchema.partial();
@@ -594,6 +595,43 @@ export async function registerRoutes(
       const errMsg = error?.message || "Failed to save profile";
       console.error("PROFILE_SAVE_ERROR", errMsg, error);
       res.status(500).json({ message: errMsg });
+    }
+  });
+
+  // ── Blocked Contacts ─────────────────────────────────────────────────────────
+  app.get("/api/blocked-contacts", isAuthenticated, async (req: any, res) => {
+    try {
+      const { getBlockedContactsForUser } = await import("./storage");
+      const contacts = await getBlockedContactsForUser(req.user.id);
+      res.json(contacts);
+    } catch (err: any) {
+      res.status(500).json({ message: err?.message || "Failed to fetch blocked contacts" });
+    }
+  });
+
+  app.post("/api/blocked-contacts", isAuthenticated, async (req: any, res) => {
+    const schema = z.object({
+      name: z.string().max(100).default(""),
+      phoneNumber: z.string().max(30).min(1, "Phone number required"),
+    });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ message: "Invalid data", errors: parsed.error.flatten() });
+    try {
+      const { addBlockedContactForUser } = await import("./storage");
+      const contact = await addBlockedContactForUser(req.user.id, parsed.data.name, parsed.data.phoneNumber);
+      res.json(contact);
+    } catch (err: any) {
+      res.status(500).json({ message: err?.message || "Failed to add blocked contact" });
+    }
+  });
+
+  app.delete("/api/blocked-contacts/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const { removeBlockedContactForUser } = await import("./storage");
+      await removeBlockedContactForUser(req.user.id, req.params.id);
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err?.message || "Failed to remove blocked contact" });
     }
   });
 

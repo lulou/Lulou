@@ -2,13 +2,13 @@ import {
   type Profile, type InsertProfile,
   type Interaction, type InsertInteraction,
   type Match, type Message, type InsertMessage,
-  type SpinRequest,
-  userElevates,
+  type SpinRequest, type BlockedContact,
+  userElevates, blockedContacts,
 } from "@shared/schema";
 import { supabase as defaultSupabase } from "./supabase";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { db } from "./db";
-import { eq, gt, sql } from "drizzle-orm";
+import { eq, gt, sql, and } from "drizzle-orm";
 
 const IS_DEV = process.env.NODE_ENV !== "production";
 
@@ -262,6 +262,12 @@ export function setHasLatLngColumns(val: boolean) {
   console.log(`[STORAGE] lat/lng columns ${val ? "AVAILABLE" : "NOT YET MIGRATED"}`);
 }
 
+let _hasIsPausedColumn = false;
+export function setHasIsPausedColumn(val: boolean) {
+  _hasIsPausedColumn = val;
+  console.log(`[STORAGE] is_paused column ${val ? "AVAILABLE" : "NOT YET MIGRATED"}`);
+}
+
 // Matches & Likes pages don't need coordinates (no distance filter applies there).
 const MATCH_PROFILE_COLS = [
   "id", "user_id", "first_name", "age", "gender", "dating_preference",
@@ -307,6 +313,7 @@ function mapProfile(row: any): Profile {
     phoneNumber: row.phone_number,
     photoVerified: row.photo_verified,
     onboardingComplete: row.onboarding_complete,
+    isPaused: row.is_paused ?? false,
     elevateType: row.elevate_type ?? null,
     elevateExpiresAt: row.elevate_expires_at ? new Date(row.elevate_expires_at) : null,
     createdAt: row.created_at ? new Date(row.created_at) : null,
@@ -398,6 +405,7 @@ function profileToDbRow(data: Partial<InsertProfile> & { latitude?: number | nul
   if (data.phoneNumber !== undefined) row.phone_number = data.phoneNumber;
   if (data.photoVerified !== undefined) row.photo_verified = data.photoVerified;
   if (data.onboardingComplete !== undefined) row.onboarding_complete = data.onboardingComplete;
+  if ((data as any).isPaused !== undefined) row.is_paused = (data as any).isPaused;
   return row;
 }
 
@@ -652,6 +660,11 @@ export class SupabaseStorage implements IStorage {
       .eq("onboarding_complete", true)
       .or(`age.is.null,age.gte.${effectiveAgeMin}`)
       .or(`age.is.null,age.lte.${effectiveAgeMax}`);
+
+    // Exclude paused profiles from discovery when column exists.
+    if (_hasIsPausedColumn) {
+      profilesQuery = (profilesQuery as any).or("is_paused.is.null,is_paused.eq.false");
+    }
 
     // ── Mutual-compatibility filters ────────────────────────────────────────
     // Both conditions must hold:
@@ -2242,3 +2255,29 @@ export class SupabaseStorage implements IStorage {
 }
 
 export const storage = new SupabaseStorage();
+
+// ── Blocked contacts helpers (local Drizzle DB) ───────────────────────────────
+export async function getBlockedContactsForUser(userId: string): Promise<BlockedContact[]> {
+  return db.select().from(blockedContacts).where(eq(blockedContacts.userId, userId));
+}
+
+export async function addBlockedContactForUser(
+  userId: string,
+  name: string,
+  phoneNumber: string,
+): Promise<BlockedContact> {
+  const [row] = await db
+    .insert(blockedContacts)
+    .values({ userId, name: name || "", phoneNumber })
+    .returning();
+  return row;
+}
+
+export async function removeBlockedContactForUser(
+  userId: string,
+  contactId: string,
+): Promise<void> {
+  await db
+    .delete(blockedContacts)
+    .where(and(eq(blockedContacts.id, contactId), eq(blockedContacts.userId, userId)));
+}
