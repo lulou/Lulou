@@ -36,6 +36,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import { DragScrollRow } from "@/components/drag-scroll-row";
+import { ElevateModal } from "@/components/elevate-modal";
 import { CONVERSATION_STARTERS, PROFILE_QUESTIONS } from "@shared/schema";
 import type { Profile } from "@shared/schema";
 
@@ -50,6 +51,7 @@ export default function ProfilePage() {
   const { t } = useLanguageContext();
   const [expandedSection, setExpandedSection] = useState<string | null>(null);
   const [showExtendedInfo, setShowExtendedInfo] = useState(false);
+  const [showElevateModal, setShowElevateModal] = useState(false);
 
   const _mountMs = useRef(performance.now());
   useEffect(() => {
@@ -594,20 +596,23 @@ export default function ProfilePage() {
       </div>
       <div className="p-6 space-y-5 max-w-lg mx-auto w-full pb-28">
 
-      {/* ── Hero couple image ── */}
-      <div className="relative rounded-2xl overflow-hidden w-full" style={{ aspectRatio: "16/9" }}>
+      {/* ── Hero couple image — main visual focus ── */}
+      <div
+        className="relative rounded-3xl overflow-hidden w-full"
+        style={{ height: "clamp(280px, 70vw, 480px)" }}
+      >
         <img
           src="https://images.unsplash.com/photo-1516589178581-6cd7833ae3b2?w=900&auto=format&fit=crop&q=80"
           alt="Couple in love"
-          className="w-full h-full object-cover"
+          className="w-full h-full object-cover object-center"
           data-testid="img-hero-couple"
         />
-        <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-black/10 to-transparent" />
-        <div className="absolute bottom-4 left-4 right-4">
-          <p className="text-white font-serif text-lg font-bold leading-snug drop-shadow-sm">
+        <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/10 to-transparent" />
+        <div className="absolute bottom-5 left-5 right-5">
+          <p className="text-white font-serif text-xl font-bold leading-snug drop-shadow">
             Where real connections flourish
           </p>
-          <p className="text-white/80 text-xs mt-0.5">Your story starts here</p>
+          <p className="text-white/75 text-sm mt-1">Your story starts here</p>
         </div>
       </div>
 
@@ -627,7 +632,7 @@ export default function ProfilePage() {
         <Button
           size="sm"
           className="shrink-0"
-          onClick={() => navigate("/likes")}
+          onClick={() => setShowElevateModal(true)}
           data-testid="button-elevate-upgrade"
         >
           Upgrade
@@ -1097,6 +1102,14 @@ export default function ProfilePage() {
         onChange={handleFileSelect}
         data-testid="input-photo-file"
       />
+
+      {/* Elevate purchase modal — opened from the Upgrade promo card */}
+      {showElevateModal && (
+        <ElevateModal
+          onClose={() => setShowElevateModal(false)}
+          cancelPath="/profile"
+        />
+      )}
     </div>
   );
 }
