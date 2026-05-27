@@ -612,13 +612,14 @@ export async function registerRoutes(
   app.post("/api/blocked-contacts", isAuthenticated, async (req: any, res) => {
     const schema = z.object({
       name: z.string().max(100).default(""),
-      phoneNumber: z.string().max(30).min(1, "Phone number required"),
-    });
+      phoneNumber: z.string().max(30).default(""),
+      email: z.string().email().max(200).optional(),
+    }).refine(d => d.phoneNumber.trim() || d.email?.trim(), { message: "Phone number or email required" });
     const parsed = schema.safeParse(req.body);
-    if (!parsed.success) return res.status(400).json({ message: "Invalid data", errors: parsed.error.flatten() });
+    if (!parsed.success) return res.status(400).json({ message: "Phone number or email required" });
     try {
       const { addBlockedContactForUser } = await import("./storage");
-      const contact = await addBlockedContactForUser(req.user.id, parsed.data.name, parsed.data.phoneNumber);
+      const contact = await addBlockedContactForUser(req.user.id, parsed.data.name, parsed.data.phoneNumber, parsed.data.email);
       res.json(contact);
     } catch (err: any) {
       res.status(500).json({ message: err?.message || "Failed to add blocked contact" });

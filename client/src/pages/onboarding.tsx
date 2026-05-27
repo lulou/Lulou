@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useLanguageContext } from "@/contexts/language-context";
 import { useLocation } from "wouter";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -131,6 +132,7 @@ interface OnboardingProps {
 }
 
 export default function Onboarding({ existingProfile = null, userEmail = "" }: OnboardingProps) {
+  const { t } = useLanguageContext();
   const [step, setStep] = useState(() => computeInitialStep(existingProfile));
   const [saveError, setSaveError] = useState<string | null>(null);
   const [, navigate] = useLocation();
@@ -185,7 +187,7 @@ export default function Onboarding({ existingProfile = null, userEmail = "" }: O
       writeDebug({ profileErrorMessage: msg });
       // formData is NOT cleared — the user's entered data is preserved for retry.
       setSaveError(msg);
-      toast({ title: "Could not save profile", description: msg, variant: "destructive", duration: 8000 });
+      toast({ title: t("save_profile_error"), description: msg, variant: "destructive", duration: 8000 });
     },
   });
 
@@ -239,7 +241,7 @@ export default function Onboarding({ existingProfile = null, userEmail = "" }: O
         <div className="mx-6 mb-4 p-3 rounded-md bg-destructive/10 border border-destructive/20 flex items-start gap-2" data-testid="banner-save-error">
           <AlertCircle className="w-4 h-4 text-destructive mt-0.5 shrink-0" />
           <div className="text-sm text-destructive">
-            <p className="font-medium">Could not save profile</p>
+            <p className="font-medium">{t("save_profile_error")}</p>
             <p>{saveError}</p>
           </div>
         </div>
@@ -259,24 +261,24 @@ export default function Onboarding({ existingProfile = null, userEmail = "" }: O
             </div>
             <p className="text-xs font-medium tracking-wider uppercase text-primary">{STEPS[step]}</p>
             <h2 className="font-serif text-2xl font-bold" data-testid="text-step-title">
-              {step === 0 && "Tell us about yourself"}
-              {step === 1 && "Show who you are"}
-              {step === 2 && "Conversation starters"}
-              {step === 3 && "Questions for visitors"}
-              {step === 4 && "Your personality signals"}
-              {step === 5 && "What are you looking for?"}
-              {step === 6 && "Your green flags"}
-              {step === 7 && "Your connection pace"}
+              {step === 0 && t("ob_title_0")}
+              {step === 1 && t("ob_title_1")}
+              {step === 2 && t("ob_title_2")}
+              {step === 3 && t("ob_title_3")}
+              {step === 4 && t("ob_title_4")}
+              {step === 5 && t("ob_title_5")}
+              {step === 6 && t("ob_title_6")}
+              {step === 7 && t("ob_title_7")}
             </h2>
             <p className="text-sm text-muted-foreground">
-              {step === 0 && "Just the essentials to get started."}
-              {step === 1 && "Add at least 2 photos. Clear face photos work best."}
-              {step === 2 && "Pick 3 prompts and fill in your answers. These help people start a conversation with you."}
-              {step === 3 && "Choose 3 questions you'd like visitors to think about or answer."}
-              {step === 4 && "Select up to 5 signals that describe your personality."}
-              {step === 5 && "Choose one that reflects your current intentions."}
-              {step === 6 && "Pick 3-4 traits that people appreciate about you."}
-              {step === 7 && "How do you like to move toward meeting someone?"}
+              {step === 0 && t("ob_desc_0")}
+              {step === 1 && t("ob_desc_1")}
+              {step === 2 && t("ob_desc_2")}
+              {step === 3 && t("ob_desc_3")}
+              {step === 4 && t("ob_desc_4")}
+              {step === 5 && t("ob_desc_5")}
+              {step === 6 && t("ob_desc_6")}
+              {step === 7 && t("ob_desc_7")}
             </p>
           </div>
 
@@ -284,17 +286,17 @@ export default function Onboarding({ existingProfile = null, userEmail = "" }: O
             {step === 0 && (
               <div className="space-y-5">
                 <div className="space-y-2">
-                  <Label htmlFor="firstName">First name</Label>
+                  <Label htmlFor="firstName">{t("label_first_name")}</Label>
                   <Input
                     id="firstName"
                     value={formData.firstName}
                     onChange={e => update("firstName", e.target.value)}
-                    placeholder="Your first name"
+                    placeholder={t("ph_first_name")}
                     data-testid="input-first-name"
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="age">Age</Label>
+                  <Label htmlFor="age">{t("label_age")}</Label>
                   <Input
                     id="age"
                     type="number"
@@ -306,54 +308,54 @@ export default function Onboarding({ existingProfile = null, userEmail = "" }: O
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label>Gender</Label>
+                  <Label>{t("label_gender")}</Label>
                   <Select value={formData.gender} onValueChange={v => update("gender", v)}>
-                    <SelectTrigger data-testid="select-gender"><SelectValue placeholder="Select gender" /></SelectTrigger>
+                    <SelectTrigger data-testid="select-gender"><SelectValue placeholder={t("sel_gender")} /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="woman">Woman</SelectItem>
-                      <SelectItem value="man">Man</SelectItem>
-                      <SelectItem value="non-binary">Non-binary</SelectItem>
-                      <SelectItem value="trans woman">Trans Woman</SelectItem>
-                      <SelectItem value="trans man">Trans Man</SelectItem>
-                      <SelectItem value="genderqueer">Genderqueer</SelectItem>
-                      <SelectItem value="genderfluid">Genderfluid</SelectItem>
-                      <SelectItem value="agender">Agender</SelectItem>
-                      <SelectItem value="two-spirit">Two-Spirit</SelectItem>
-                      <SelectItem value="other">Other</SelectItem>
+                      <SelectItem value="woman">{t("gender_woman")}</SelectItem>
+                      <SelectItem value="man">{t("gender_man")}</SelectItem>
+                      <SelectItem value="non-binary">{t("gender_nonbinary")}</SelectItem>
+                      <SelectItem value="trans woman">{t("gender_trans_woman")}</SelectItem>
+                      <SelectItem value="trans man">{t("gender_trans_man")}</SelectItem>
+                      <SelectItem value="genderqueer">{t("gender_genderqueer")}</SelectItem>
+                      <SelectItem value="genderfluid">{t("gender_genderfluid")}</SelectItem>
+                      <SelectItem value="agender">{t("gender_agender")}</SelectItem>
+                      <SelectItem value="two-spirit">{t("gender_two_spirit")}</SelectItem>
+                      <SelectItem value="other">{t("gender_other")}</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
                 <div className="space-y-2">
-                  <Label>Interested in</Label>
+                  <Label>{t("label_interested_in")}</Label>
                   <Select value={formData.datingPreference} onValueChange={v => update("datingPreference", v)}>
-                    <SelectTrigger data-testid="select-dating-preference"><SelectValue placeholder="Who do you want to date?" /></SelectTrigger>
+                    <SelectTrigger data-testid="select-dating-preference"><SelectValue placeholder={t("sel_dating_pref")} /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="women">Women</SelectItem>
-                      <SelectItem value="men">Men</SelectItem>
-                      <SelectItem value="non-binary people">Non-binary People</SelectItem>
-                      <SelectItem value="trans women">Trans Women</SelectItem>
-                      <SelectItem value="trans men">Trans Men</SelectItem>
-                      <SelectItem value="everyone">Everyone</SelectItem>
+                      <SelectItem value="women">{t("pref_women")}</SelectItem>
+                      <SelectItem value="men">{t("pref_men")}</SelectItem>
+                      <SelectItem value="non-binary people">{t("pref_nonbinary_ppl")}</SelectItem>
+                      <SelectItem value="trans women">{t("pref_trans_women")}</SelectItem>
+                      <SelectItem value="trans men">{t("pref_trans_men")}</SelectItem>
+                      <SelectItem value="everyone">{t("pref_everyone")}</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="location">Location</Label>
+                  <Label htmlFor="location">{t("label_location")}</Label>
                   <Input
                     id="location"
                     value={formData.location}
                     onChange={e => update("location", e.target.value)}
-                    placeholder="City, State"
+                    placeholder={t("ph_location")}
                     data-testid="input-location"
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="height">Height (optional)</Label>
+                  <Label htmlFor="height">{t("label_height_opt")}</Label>
                   <Input
                     id="height"
                     value={formData.height}
                     onChange={e => update("height", e.target.value)}
-                    placeholder="e.g. 5'8&quot;"
+                    placeholder={t("ph_height")}
                     data-testid="input-height"
                   />
                 </div>

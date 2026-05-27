@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+import { useLanguageContext } from "@/contexts/language-context";
 import { useQueryClient } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { broadcastCallSignal } from "@/hooks/use-call-signaling";
@@ -119,6 +120,7 @@ export function ActiveCallOverlay({
   callStage,
   onCallEnd,
 }: ActiveCallProps) {
+  const { t } = useLanguageContext();
   const queryClient = useQueryClient();
   const endedRef = useRef(false);
   const [speakerOn, setSpeakerOn] = useState(false);
@@ -1311,7 +1313,7 @@ export function ActiveCallOverlay({
           <div className="flex justify-center gap-10 mb-10">
             <ControlButton
               onClick={toggleMute}
-              label={isMuted ? "Unmute" : "Mute"}
+              label={isMuted ? t("call_unmute") : t("call_mute")}
               active={isMuted}
               disabled={!localStream}
               icon={isMuted
@@ -1323,7 +1325,7 @@ export function ActiveCallOverlay({
             {!isVideo && (
               <ControlButton
                 onClick={() => setSpeakerOn(s => !s)}
-                label={speakerOn ? "Speaker On" : "Speaker"}
+                label={speakerOn ? t("call_speaker_on_label") : t("call_speaker")}
                 active={speakerOn}
                 testId="button-toggle-speaker"
                 icon={<Volume2 className={`w-6 h-6 ${speakerOn ? "text-white" : "text-white/60"}`} />}
@@ -1333,7 +1335,7 @@ export function ActiveCallOverlay({
             {isVideo && (
               <ControlButton
                 onClick={toggleCamera}
-                label={isCameraOff ? "Camera on" : "Hide cam"}
+                label={isCameraOff ? t("call_camera_show") : t("call_camera_hide")}
                 active={isCameraOff}
                 disabled={connectionState === "requesting-media"}
                 icon={isCameraOff
@@ -1360,7 +1362,7 @@ export function ActiveCallOverlay({
             <PhoneOff className="w-8 h-8 text-white" />
           </button>
           <span className="text-white/30 text-[11px] tracking-wide">
-            {isRinging && isCaller ? "Cancel" : "End call"}
+            {isRinging && isCaller ? t("cancel") : t("call_end_label")}
           </span>
         </div>
       </div>

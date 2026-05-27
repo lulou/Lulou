@@ -1,1 +1,1 @@
-- [Camera stream timing fix](camera-stream-timing.md) — get stream → set state (renders video) → attach in useEffect; never set srcObject before the video element mounts.
+- [i18n variable shadowing](i18n-variable-shadowing.md) — adding `const { t } = useLanguageContext()` to files that use `const t = setTimeout/requestAnimationFrame` inside useEffect causes TS shadowing errors; rename local vars.

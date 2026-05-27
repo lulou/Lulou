@@ -8,7 +8,7 @@ import {
 import { supabase as defaultSupabase } from "./supabase";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { db } from "./db";
-import { eq, gt, sql, and } from "drizzle-orm";
+import { eq, gt, sql, and, or } from "drizzle-orm";
 
 const IS_DEV = process.env.NODE_ENV !== "production";
 
@@ -620,6 +620,46 @@ export class SupabaseStorage implements IStorage {
       ...activeMatchUserIds,
       ...inboundOpenerIds,
     ]);
+
+    // ── Blocked contact enforcement ──────────────────────────────────────────────
+    try {
+      const [blockedList, meResult] = await Promise.all([
+        getBlockedContactsForUser(userId),
+        this.sb.from("profiles").select("phone_number, email").eq("user_id", userId).maybeSingle(),
+      ]);
+      const blockedPhones = blockedList.map(c => c.phoneNumber).filter(Boolean);
+      const blockedEmails = blockedList.map((c: any) => c.email).filter(Boolean) as string[];
+      if (blockedPhones.length > 0 || blockedEmails.length > 0) {
+        const filters = [
+          ...blockedPhones.map(p => `phone_number.eq.${p}`),
+          ...blockedEmails.map(e => `email.eq.${e}`),
+        ].join(",");
+        const { data: fwdData } = await this.sb.from("profiles").select("user_id").or(filters);
+        for (const row of (fwdData || [])) {
+          if (row.user_id) excludedIds.add(row.user_id);
+        }
+      }
+      const myPhone: string | null = (meResult as any)?.data?.phone_number ?? null;
+      const myEmail: string | null = (meResult as any)?.data?.email ?? null;
+      if (myPhone || myEmail) {
+        const conditions = [
+          ...(myPhone ? [eq(blockedContacts.phoneNumber, myPhone)] : []),
+          ...(myEmail ? [eq((blockedContacts as any).email, myEmail)] : []),
+        ];
+        if (conditions.length > 0) {
+          const reverseRows = await db
+            .select({ blockerUserId: blockedContacts.userId })
+            .from(blockedContacts)
+            .where(conditions.length === 1 ? conditions[0] : or(...conditions));
+          for (const row of reverseRows) {
+            if (row.blockerUserId) excludedIds.add(row.blockerUserId);
+          }
+        }
+      }
+    } catch (blockErr) {
+      console.error("[MATCH_FILTER] blocked-contact enforcement error:", blockErr);
+    }
+    // ── End blocked contact enforcement ─────────────────────────────────────────
 
     console.log("[MATCH_FILTER] currentUserId:", userId.slice(0, 8));
     console.log("[MATCH_FILTER] excluded breakdown:", {
@@ -2265,10 +2305,11 @@ export async function addBlockedContactForUser(
   userId: string,
   name: string,
   phoneNumber: string,
+  email?: string,
 ): Promise<BlockedContact> {
   const [row] = await db
     .insert(blockedContacts)
-    .values({ userId, name: name || "", phoneNumber })
+    .values({ userId, name: name || "", phoneNumber: phoneNumber || "", email: email || null })
     .returning();
   return row;
 }

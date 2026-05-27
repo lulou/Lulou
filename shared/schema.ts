@@ -160,6 +160,7 @@ export const blockedContacts = pgTable("blocked_contacts", {
   userId: varchar("user_id").notNull(),
   name: text("name").notNull().default(""),
   phoneNumber: text("phone_number").notNull().default(""),
+  email: text("email"),
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => [
   index("idx_blocked_contacts_user").on(table.userId),

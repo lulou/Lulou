@@ -28,11 +28,12 @@ type ElevateStatus = { type: string | null; expiresAt: string | null; active: bo
 // ─── Match Overlay ─────────────────────────────────────────────────────────────
 
 function MatchOverlay({ celebration, onClose }: { celebration: MatchCelebration; onClose: () => void }) {
+  const { t } = useLanguageContext();
   const [phase, setPhase] = useState<"enter" | "visible" | "exit">("enter");
 
   useEffect(() => {
-    const t = setTimeout(() => setPhase("visible"), 50);
-    return () => clearTimeout(t);
+    const timerId = setTimeout(() => setPhase("visible"), 50);
+    return () => clearTimeout(timerId);
   }, []);
 
   const handleClose = useCallback(() => {
@@ -41,8 +42,8 @@ function MatchOverlay({ celebration, onClose }: { celebration: MatchCelebration;
   }, [onClose]);
 
   useEffect(() => {
-    const t = setTimeout(handleClose, 4000);
-    return () => clearTimeout(t);
+    const timerId = setTimeout(handleClose, 4000);
+    return () => clearTimeout(timerId);
   }, [handleClose]);
 
   const isVisible = phase === "visible";
@@ -119,7 +120,7 @@ function MatchOverlay({ celebration, onClose }: { celebration: MatchCelebration;
               textShadow: "0 2px 20px rgba(0,0,0,0.2)",
             }}
           >
-            Simply Amazing
+            {t("simply_amazing")}
           </h1>
           <p
             className="text-lg text-white/80 font-medium tracking-widest uppercase"
@@ -131,7 +132,7 @@ function MatchOverlay({ celebration, onClose }: { celebration: MatchCelebration;
               letterSpacing: "0.2em",
             }}
           >
-            match made
+            {t("match_made")}
           </p>
         </div>
         <p
@@ -144,7 +145,7 @@ function MatchOverlay({ celebration, onClose }: { celebration: MatchCelebration;
           className="text-white/40 text-xs"
           style={{ opacity: isVisible ? 1 : 0, transition: "opacity 600ms ease 900ms" }}
         >
-          Tap anywhere to continue
+          {t("tap_to_continue")}
         </p>
       </div>
 
@@ -171,6 +172,7 @@ function ProfileModal({
   onMatch: (c: MatchCelebration) => void;
   onConnectionFull: () => void;
 }) {
+  const { t } = useLanguageContext();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [photoIndex, setPhotoIndex] = useState(0);
@@ -178,8 +180,8 @@ function ProfileModal({
 
   // Slide in from bottom on mount
   useEffect(() => {
-    const t = requestAnimationFrame(() => setVisible(true));
-    return () => cancelAnimationFrame(t);
+    const rafId = requestAnimationFrame(() => setVisible(true));
+    return () => cancelAnimationFrame(rafId);
   }, []);
 
   const handleClose = useCallback(() => {
@@ -403,7 +405,7 @@ function ProfileModal({
         {/* Signals / Interests */}
         {signals.length > 0 && (
           <div className="space-y-2.5">
-            <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-widest">Interests</p>
+            <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-widest">{t("section_interests")}</p>
             <div className="flex flex-wrap gap-2">
               {signals.map((s: string) => (
                 <Badge key={s} variant="outline" className="text-sm px-3 py-1 rounded-full">
@@ -417,7 +419,7 @@ function ProfileModal({
         {/* Connection style */}
         {profile.connectionStyle && (
           <div className="space-y-1.5">
-            <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-widest">Connection Style</p>
+            <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-widest">{t("section_connection_style")}</p>
             <p className="text-sm leading-relaxed">{profile.connectionStyle}</p>
           </div>
         )}
@@ -457,7 +459,7 @@ function ProfileModal({
         {/* Profile questions */}
         {questions.length > 0 && (
           <div className="space-y-2.5">
-            <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-widest">About Me</p>
+            <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-widest">{t("section_about_me")}</p>
             <div className="space-y-2">
               {questions.map((q: string, i: number) => (
                 <div
@@ -487,7 +489,7 @@ function ProfileModal({
             data-testid={`button-modal-pass-${open.fromUserId}`}
           >
             <X className="w-4 h-4" />
-            Pass
+            {t("btn_pass")}
           </Button>
           <Button
             className="flex-1 gap-2 h-12 text-sm font-medium"
@@ -496,7 +498,7 @@ function ProfileModal({
             data-testid={`button-modal-like-back-${open.fromUserId}`}
           >
             <Heart className="w-4 h-4" />
-            Like Back
+            {t("btn_like_back")}
           </Button>
         </div>
       </div>
@@ -665,7 +667,7 @@ function LikeCard({
             data-testid={`button-pass-${open.fromUserId}`}
           >
             <X className="w-4 h-4" />
-            Pass
+            {t("btn_pass")}
           </Button>
           <Button
             className="flex-1 gap-2 h-11 text-sm font-medium"
@@ -674,7 +676,7 @@ function LikeCard({
             data-testid={`button-open-back-${open.fromUserId}`}
           >
             <Heart className="w-4 h-4" />
-            Like Back
+            {t("btn_like_back")}
           </Button>
         </div>
       </div>

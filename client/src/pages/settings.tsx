@@ -371,6 +371,7 @@ export default function SettingsPage() {
   // ── Blocked contacts mutations ────────────────────────────────────────────
   const [addName,  setAddName]  = useState("");
   const [addPhone, setAddPhone] = useState("");
+  const [addEmail, setAddEmail] = useState("");
   const [showAddForm, setShowAddForm] = useState(false);
 
   // Contact Picker API
@@ -380,7 +381,7 @@ export default function SettingsPage() {
 
   const openContactPicker = async () => {
     if (typeof navigator === "undefined" || !("contacts" in navigator)) {
-      toast({ title: t("access_contacts"), description: "Contact Picker is not supported on this device or browser.", variant: "destructive" });
+      setShowAddForm(true);
       return;
     }
     try {
@@ -419,11 +420,12 @@ export default function SettingsPage() {
   });
 
   const addContactMutation = useMutation({
-    mutationFn: () => apiRequest("POST", "/api/blocked-contacts", { name: addName, phoneNumber: addPhone }),
+    mutationFn: () => apiRequest("POST", "/api/blocked-contacts", { name: addName, phoneNumber: addPhone, email: addEmail.trim() || undefined }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["/api/blocked-contacts"] });
       setAddName("");
       setAddPhone("");
+      setAddEmail("");
       setShowAddForm(false);
       toast({ title: "Contact blocked" });
     },
@@ -903,7 +905,8 @@ export default function SettingsPage() {
                     {contact.name && (
                       <p className="text-sm font-medium truncate">{contact.name}</p>
                     )}
-                    <p className="text-xs text-muted-foreground">{contact.phoneNumber}</p>
+                    {contact.phoneNumber && <p className="text-xs text-muted-foreground">{contact.phoneNumber}</p>}
+                    {(contact as any).email && <p className="text-xs text-muted-foreground">{(contact as any).email}</p>}
                   </div>
                   <button
                     className="shrink-0 w-8 h-8 flex items-center justify-center rounded-full hover:bg-destructive/10 text-destructive transition-colors"
@@ -958,6 +961,9 @@ export default function SettingsPage() {
               </div>
             ) : showAddForm ? (
               <div className="rounded-xl border border-border p-4 space-y-3">
+                {!hasContactPickerAPI && (
+                  <p className="text-xs text-muted-foreground">{t("block_no_support_msg")}</p>
+                )}
                 <p className="text-sm font-medium">Block a contact</p>
                 <Input
                   placeholder="Name (optional)"
@@ -966,24 +972,31 @@ export default function SettingsPage() {
                   data-testid="input-block-name"
                 />
                 <Input
-                  placeholder="Phone number *"
+                  placeholder="Phone number"
                   value={addPhone}
                   onChange={e => setAddPhone(e.target.value)}
                   type="tel"
                   data-testid="input-block-phone"
                 />
+                <Input
+                  placeholder={t("block_email_label")}
+                  value={addEmail}
+                  onChange={e => setAddEmail(e.target.value)}
+                  type="email"
+                  data-testid="input-block-email"
+                />
                 <div className="flex gap-2">
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => { setShowAddForm(false); setAddName(""); setAddPhone(""); }}
+                    onClick={() => { setShowAddForm(false); setAddName(""); setAddPhone(""); setAddEmail(""); }}
                     data-testid="button-cancel-add-contact"
                   >
                     Cancel
                   </Button>
                   <Button
                     size="sm"
-                    disabled={!addPhone.trim() || addContactMutation.isPending}
+                    disabled={(!addPhone.trim() && !addEmail.trim()) || addContactMutation.isPending}
                     onClick={() => addContactMutation.mutate()}
                     data-testid="button-save-blocked-contact"
                   >
