@@ -1,25 +1,8 @@
-import { useState } from "react";
-
 export type UnitSystem = "miles" | "km";
 
+export { useUnitsContext as useUnits } from "@/contexts/units-context";
+
 const STORAGE_KEY = "settings_units";
-
-export function useUnits(): [UnitSystem, (u: UnitSystem) => void] {
-  const [units, setUnitsState] = useState<UnitSystem>(() => {
-    try {
-      return (localStorage.getItem(STORAGE_KEY) as UnitSystem) || "miles";
-    } catch {
-      return "miles";
-    }
-  });
-
-  const setUnits = (u: UnitSystem) => {
-    setUnitsState(u);
-    try { localStorage.setItem(STORAGE_KEY, u); } catch {}
-  };
-
-  return [units, setUnits];
-}
 
 export function getUnits(): UnitSystem {
   try {

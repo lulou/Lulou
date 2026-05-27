@@ -511,6 +511,27 @@ export async function registerRoutes(
     }
   });
 
+  // Data export — returns the user's own profile data as JSON (no messages).
+  app.get("/api/profile/export", isAuthenticated, async (req: any, res) => {
+    try {
+      const storage = getStorage(req);
+      const userId = req.user.id;
+      const profile = await storage.getProfile(userId);
+      if (!profile) return res.status(404).json({ message: "Profile not found" });
+      // Strip photos (potentially large base64) and return clean export
+      const { photos: _photos, ...rest } = profile as any;
+      const exportData = {
+        exported_at: new Date().toISOString(),
+        profile: rest,
+        note: "Photo URLs omitted from export. Message content is never exported.",
+      };
+      res.setHeader("Content-Disposition", `attachment; filename="lulou-data.json"`);
+      res.json(exportData);
+    } catch (error: any) {
+      res.status(500).json({ message: "Export failed", error: error?.message });
+    }
+  });
+
   // Batch photo fetch — returns photos for up to 20 profiles in a single request.
   // All Supabase lookups run in parallel; responds with { userId: photos[] }.
   // Used by the client batch prefetcher to hydrate photo caches before cards render,

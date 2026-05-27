@@ -1,1 +1,3 @@
 - [i18n variable shadowing](i18n-variable-shadowing.md) — adding `const { t } = useLanguageContext()` to files that use `const t = setTimeout/requestAnimationFrame` inside useEffect causes TS shadowing errors; rename local vars.
+- [Units context pattern](units-context.md) — useUnits is a global context (UnitsProvider in App.tsx), so unit changes propagate app-wide instantly. units.ts re-exports useUnitsContext as useUnits for backward compat.
+- [Settings i18n + legal pages](settings-i18n.md) — All settings section headers and row labels use t() keys. Legal pages (Privacy, Terms, Download Data, Safety Tips, Member Principles) are in-app bottom sheets, not external links. Data export via GET /api/profile/export.

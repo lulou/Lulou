@@ -89,7 +89,7 @@ function useToggle(key: string, defaultVal = false): [boolean, (v: boolean) => v
 }
 
 
-type ActiveSheet = "selfie" | "blocklist" | "extras" | "language" | "units" | null;
+type ActiveSheet = "selfie" | "blocklist" | "extras" | "language" | "units" | "privacy" | "terms" | "download_data" | "safety" | "principles" | null;
 
 export default function SettingsPage() {
   const [, navigate] = useLocation();
@@ -122,6 +122,12 @@ export default function SettingsPage() {
   // ── Units ─────────────────────────────────────────────────────────────────
   const [units, setUnits] = useUnits();
 
+  // ── Data export ───────────────────────────────────────────────────────────
+  const [isExporting, setIsExporting] = useState(false);
+
+  // ── Connected account loading ─────────────────────────────────────────────
+  const [connectingProvider, setConnectingProvider] = useState<string | null>(null);
+
   // ── Connected accounts ────────────────────────────────────────────────────
   const [identities, setIdentities] = useState<{ provider: string; identity_id: string }[]>([]);
   const [identitiesLoading, setIdentitiesLoading] = useState(false);
@@ -141,6 +147,7 @@ export default function SettingsPage() {
     identities.some(i => i.provider === provider);
 
   const handleConnectProvider = async (provider: "google" | "apple") => {
+    setConnectingProvider(provider);
     try {
       const { data, error } = await supabase.auth.linkIdentity({
         provider,
@@ -151,10 +158,16 @@ export default function SettingsPage() {
       if (url) {
         window.location.href = url;
       } else {
-        toast({ title: `Connecting to ${provider}…`, description: "Follow the popup to complete." });
+        toast({ title: `Connected to ${provider}` });
       }
     } catch (err: any) {
-      toast({ title: "Could not connect", description: err?.message, variant: "destructive" });
+      const msg = err?.message ?? "";
+      const hint = msg.toLowerCase().includes("manual linking")
+        ? "Enable 'Allow manual linking' in your Supabase Auth settings."
+        : msg;
+      toast({ title: t("connect_btn") + " failed", description: hint, variant: "destructive" });
+    } finally {
+      setConnectingProvider(null);
     }
   };
 
@@ -481,7 +494,7 @@ export default function SettingsPage() {
           >
             <ArrowLeft className="w-5 h-5" />
           </button>
-          <h1 className="font-serif text-xl font-bold">Settings</h1>
+          <h1 className="font-serif text-xl font-bold">{t("settings")}</h1>
         </div>
       </div>
 
@@ -490,30 +503,28 @@ export default function SettingsPage() {
         <div className="max-w-lg mx-auto w-full pb-28">
 
           {/* ── 1. Account ── */}
-          <SectionHeader title="Account" first />
+          <SectionHeader title={t("account")} first />
           <SettingRow
             icon={isPaused
               ? <PlayCircle className="w-[18px] h-[18px] text-primary" />
               : <PauseCircle className="w-[18px] h-[18px] text-muted-foreground" />}
-            label={isPaused ? "Reactivate account" : "Pause account"}
-            description={isPaused
-              ? "Your profile is currently hidden from discovery"
-              : "Hide your profile temporarily"}
+            label={isPaused ? t("reactivate_account") : t("pause_account")}
+            description={isPaused ? t("profile_paused_desc") : t("pause_account_desc")}
             labelClass={isPaused ? "text-primary" : undefined}
             onPress={() => setShowPauseDialog(true)}
             testId="button-pause-account"
           />
           <SettingRow
             icon={<Trash2 className="w-[18px] h-[18px] text-destructive" />}
-            label="Delete account"
+            label={t("delete_account")}
             labelClass="text-destructive"
-            description="Permanently remove your profile and data"
+            description={t("delete_account_desc")}
             onPress={() => setShowDeleteDialog(true)}
             testId="button-delete-account"
           />
           <SettingRow
             icon={<LogOut className="w-[18px] h-[18px] text-destructive" />}
-            label={isLoggingOut ? "Logging out…" : "Log out"}
+            label={isLoggingOut ? t("logging_out") : t("log_out")}
             labelClass="text-destructive"
             onPress={() => logout()}
             showChevron={false}
@@ -521,11 +532,11 @@ export default function SettingsPage() {
           />
 
           {/* ── 2. Profile & Visibility ── */}
-          <SectionHeader title="Profile & Visibility" />
+          <SectionHeader title={t("profile_visibility")} />
           <SettingRow
             icon={<Eye className="w-[18px] h-[18px] text-muted-foreground" />}
-            label="Show last active status"
-            description="Let matches see when you were last online"
+            label={t("show_last_active")}
+            description={t("show_last_active_desc")}
             trailing={
               <Switch
                 checked={showLastActive}
@@ -538,27 +549,25 @@ export default function SettingsPage() {
           />
           <SettingRow
             icon={<Camera className="w-[18px] h-[18px] text-muted-foreground" />}
-            label="Selfie verification"
-            description={profile?.photoVerified
-              ? "Your profile is verified ✓"
-              : "Get a verified badge on your profile"}
+            label={t("selfie_verification")}
+            description={profile?.photoVerified ? t("verified_badge") : t("get_verified")}
             labelClass={profile?.photoVerified ? "text-primary" : undefined}
             onPress={() => setActiveSheet("selfie")}
             testId="button-selfie-verification"
           />
           <SettingRow
             icon={<ShieldOff className="w-[18px] h-[18px] text-muted-foreground" />}
-            label="Block list"
+            label={t("block_list")}
             description={blockedContacts.length
-              ? `${blockedContacts.length} blocked contact${blockedContacts.length !== 1 ? "s" : ""}`
-              : "Manage who can't contact you"}
+              ? `${blockedContacts.length} ${t("block_list").toLowerCase()}`
+              : t("block_list_manage") ?? "Manage who can't contact you"}
             onPress={() => setActiveSheet("blocklist")}
             testId="button-block-list"
           />
           <SettingRow
             icon={<Filter className="w-[18px] h-[18px] text-muted-foreground" />}
-            label="Comment filter"
-            description="Automatically block disrespectful words"
+            label={t("comment_filter")}
+            description={t("comment_filter_desc")}
             trailing={
               <Switch
                 checked={commentFilter}
@@ -571,11 +580,11 @@ export default function SettingsPage() {
           />
 
           {/* ── 3. AI & Chat ── */}
-          <SectionHeader title="AI & Chat" />
+          <SectionHeader title={t("ai_chat")} />
           <SettingRow
             icon={<Bot className="w-[18px] h-[18px] text-muted-foreground" />}
-            label="Conversation starter AI"
-            description="AI-suggested ice-breakers to help you begin"
+            label={t("ai_starters")}
+            description={t("ai_starters_desc")}
             trailing={
               <Switch
                 checked={aiStarters}
@@ -588,8 +597,8 @@ export default function SettingsPage() {
           />
           <SettingRow
             icon={<FileText className="w-[18px] h-[18px] text-muted-foreground" />}
-            label="Audio transcripts"
-            description="Get text transcripts of your voice calls"
+            label={t("audio_transcripts")}
+            description={t("audio_transcripts_desc")}
             trailing={
               <Switch
                 checked={audioTranscripts}
@@ -602,10 +611,10 @@ export default function SettingsPage() {
           />
 
           {/* ── 4. Contact & Security ── */}
-          <SectionHeader title="Contact & Security" />
+          <SectionHeader title={t("contact_security")} />
           <SettingRow
             icon={<Phone className="w-[18px] h-[18px] text-muted-foreground" />}
-            label="Phone number"
+            label={t("phone_number")}
             description={profile?.phoneNumber || "Not added"}
             onPress={() => {
               setPhoneInput(profile?.phoneNumber || "");
@@ -616,7 +625,7 @@ export default function SettingsPage() {
           <div className="px-4 py-3.5 border-b border-border/50">
             <div className="flex items-center gap-3 mb-2">
               <Mail className="w-[18px] h-[18px] text-muted-foreground shrink-0" />
-              <p className="text-sm font-medium">Email address</p>
+              <p className="text-sm font-medium">{t("email_address")}</p>
             </div>
             <p
               className="text-xs text-muted-foreground pl-[30px]"
@@ -629,17 +638,18 @@ export default function SettingsPage() {
           <div className="px-4 py-4 border-b border-border/50">
             <div className="flex items-center gap-3 mb-3">
               <Lock className="w-[18px] h-[18px] text-muted-foreground shrink-0" />
-              <p className="text-sm font-medium">Connected accounts</p>
+              <p className="text-sm font-medium">{t("connected_accounts")}</p>
             </div>
             <div className="space-y-2.5 pl-[30px]">
               {identitiesLoading ? (
-                <p className="text-xs text-muted-foreground">Loading…</p>
+                <p className="text-xs text-muted-foreground">{t("loading")}</p>
               ) : (
                 <>
                   <ConnectedAccountRow
                     provider="google"
                     label="Google"
                     connected={isConnected("google")}
+                    loading={connectingProvider === "google"}
                     onConnect={() => handleConnectProvider("google")}
                     onDisconnect={() => handleDisconnectProvider("google")}
                   />
@@ -647,6 +657,7 @@ export default function SettingsPage() {
                     provider="apple"
                     label="Apple"
                     connected={isConnected("apple")}
+                    loading={connectingProvider === "apple"}
                     onConnect={() => handleConnectProvider("apple")}
                     onDisconnect={() => handleDisconnectProvider("apple")}
                   />
@@ -656,11 +667,11 @@ export default function SettingsPage() {
           </div>
 
           {/* ── 5. Notifications ── */}
-          <SectionHeader title="Notifications" />
+          <SectionHeader title={t("notifications")} />
           <SettingRow
             icon={<Bell className="w-[18px] h-[18px] text-muted-foreground" />}
-            label="Push notifications"
-            description="Match alerts, messages, and call reminders"
+            label={t("push_notifications")}
+            description={t("push_notif_desc")}
             trailing={
               <Switch
                 checked={pushNotifications}
@@ -673,62 +684,62 @@ export default function SettingsPage() {
           />
 
           {/* ── 6. Subscription ── */}
-          <SectionHeader title="Subscription" />
+          <SectionHeader title={t("subscription")} />
           <SettingRow
             icon={<Crown className="w-[18px] h-[18px] text-primary" />}
-            label="Subscribe to Lulou"
-            description="Unlock extras and deeper connections — $19.99/month"
+            label={t("subscribe_lulou")}
+            description={t("subscribe_lulou_desc")}
             onPress={() => setActiveSheet("extras")}
             testId="button-settings-subscribe"
           />
 
           {/* ── 7. Preferences ── */}
-          <SectionHeader title="Preferences" />
+          <SectionHeader title={t("preferences")} />
           <SettingRow
             icon={<Globe className="w-[18px] h-[18px] text-muted-foreground" />}
-            label="App language"
+            label={t("app_language")}
             value={language}
             onPress={() => setActiveSheet("language")}
             testId="button-settings-language"
           />
           <SettingRow
             icon={<Ruler className="w-[18px] h-[18px] text-muted-foreground" />}
-            label="Units of measurement"
-            value={units === "miles" ? "Miles & feet" : "Kilometres & metres"}
+            label={t("units_label")}
+            value={units === "miles" ? t("miles_feet") : t("km_metres")}
             onPress={() => setActiveSheet("units")}
             testId="button-settings-units"
           />
 
           {/* ── 8. Legal & Safety ── */}
-          <SectionHeader title="Legal & Safety" />
+          <SectionHeader title={t("legal_safety")} />
           <SettingRow
             icon={<Shield className="w-[18px] h-[18px] text-muted-foreground" />}
-            label="Privacy Policy"
-            onPress={() => window.open("https://lulou.dating/privacy", "_blank")}
+            label={t("privacy_policy")}
+            onPress={() => setActiveSheet("privacy")}
             testId="button-privacy-policy"
           />
           <SettingRow
             icon={<BookOpen className="w-[18px] h-[18px] text-muted-foreground" />}
-            label="Terms of Service"
-            onPress={() => window.open("https://lulou.dating/terms", "_blank")}
+            label={t("terms_of_service")}
+            onPress={() => setActiveSheet("terms")}
             testId="button-terms-of-service"
           />
           <SettingRow
             icon={<Download className="w-[18px] h-[18px] text-muted-foreground" />}
-            label="Download my data"
-            onPress={() => window.open("mailto:support@lulou.dating?subject=Data Download Request")}
+            label={t("download_data")}
+            onPress={() => setActiveSheet("download_data")}
             testId="button-download-data"
           />
           <SettingRow
             icon={<Heart className="w-[18px] h-[18px] text-muted-foreground" />}
-            label="Safe dating tips"
-            onPress={() => window.open("https://lulou.dating/safety", "_blank")}
+            label={t("safe_dating")}
+            onPress={() => setActiveSheet("safety")}
             testId="button-safe-dating"
           />
           <SettingRow
             icon={<Users className="w-[18px] h-[18px] text-muted-foreground" />}
-            label="Member principles"
-            onPress={() => window.open("https://lulou.dating/principles", "_blank")}
+            label={t("member_principles")}
+            onPress={() => setActiveSheet("principles")}
             testId="button-member-principles"
           />
 
@@ -1122,7 +1133,7 @@ export default function SettingsPage() {
       <Sheet open={activeSheet === "units"} onOpenChange={open => !open && setActiveSheet(null)}>
         <SheetContent side="bottom" className="p-0">
           <SheetHeader className="px-5 pt-5 pb-3 border-b shrink-0">
-            <SheetTitle className="font-serif">Units of Measurement</SheetTitle>
+            <SheetTitle className="font-serif">{t("units_label")}</SheetTitle>
           </SheetHeader>
           <div className="py-2">
             {(["miles", "km"] as const).map(u => (
@@ -1134,16 +1145,196 @@ export default function SettingsPage() {
               >
                 <div>
                   <p className="text-sm font-medium">
-                    {u === "miles" ? "Imperial" : "Metric"}
+                    {u === "miles" ? t("imperial") : t("metric")}
                   </p>
                   <p className="text-xs text-muted-foreground mt-0.5">
-                    {u === "miles" ? "Miles & feet" : "Kilometres & metres"}
+                    {u === "miles" ? t("miles_feet") : t("km_metres")}
                   </p>
                 </div>
                 {units === u && (
                   <CheckCircle2 className="w-4 h-4 text-primary shrink-0" />
                 )}
               </button>
+            ))}
+          </div>
+        </SheetContent>
+      </Sheet>
+
+      {/* ── Privacy Policy sheet ── */}
+      <Sheet open={activeSheet === "privacy"} onOpenChange={open => !open && setActiveSheet(null)}>
+        <SheetContent side="bottom" className="h-[90vh] flex flex-col p-0">
+          <SheetHeader className="px-5 pt-5 pb-3 border-b shrink-0">
+            <SheetTitle className="font-serif">{t("privacy_policy")}</SheetTitle>
+          </SheetHeader>
+          <div className="flex-1 overflow-y-auto px-5 pb-10 pt-5 space-y-5 text-sm text-muted-foreground leading-relaxed">
+            <p className="text-base font-semibold text-foreground">Last updated: January 2025</p>
+            <section>
+              <h3 className="font-semibold text-foreground mb-2">Information We Collect</h3>
+              <p>We collect information you provide when creating a profile: name, age, photos, and preferences. We also collect usage data such as interactions, swipes, and message timestamps (not message content) to improve the service.</p>
+            </section>
+            <section>
+              <h3 className="font-semibold text-foreground mb-2">How We Use Your Information</h3>
+              <p>Your information is used to match you with compatible people, personalise your experience, ensure safety on the platform, and communicate with you about your account. We do not sell your personal data to third parties.</p>
+            </section>
+            <section>
+              <h3 className="font-semibold text-foreground mb-2">Photos & Media</h3>
+              <p>Photos you upload are stored securely in our cloud infrastructure. Profile photos are visible to other members. We do not use your photos to train AI models.</p>
+            </section>
+            <section>
+              <h3 className="font-semibold text-foreground mb-2">Data Retention</h3>
+              <p>Your data is retained while your account is active. When you delete your account, your personal data is removed within 30 days. Some anonymised usage statistics may be retained for analytics.</p>
+            </section>
+            <section>
+              <h3 className="font-semibold text-foreground mb-2">Your Rights</h3>
+              <p>You have the right to access, correct, or delete your data at any time. You may download a copy of your data from the "Download my data" section in settings. For further requests, contact privacy@lulou.dating.</p>
+            </section>
+            <section>
+              <h3 className="font-semibold text-foreground mb-2">Contact</h3>
+              <p>Questions about this policy? Email us at privacy@lulou.dating.</p>
+            </section>
+          </div>
+        </SheetContent>
+      </Sheet>
+
+      {/* ── Terms of Service sheet ── */}
+      <Sheet open={activeSheet === "terms"} onOpenChange={open => !open && setActiveSheet(null)}>
+        <SheetContent side="bottom" className="h-[90vh] flex flex-col p-0">
+          <SheetHeader className="px-5 pt-5 pb-3 border-b shrink-0">
+            <SheetTitle className="font-serif">{t("terms_of_service")}</SheetTitle>
+          </SheetHeader>
+          <div className="flex-1 overflow-y-auto px-5 pb-10 pt-5 space-y-5 text-sm text-muted-foreground leading-relaxed">
+            <p className="text-base font-semibold text-foreground">Last updated: January 2025</p>
+            <section>
+              <h3 className="font-semibold text-foreground mb-2">Acceptance of Terms</h3>
+              <p>By creating an account on Lulou, you agree to these Terms of Service. If you do not agree, please do not use the platform.</p>
+            </section>
+            <section>
+              <h3 className="font-semibold text-foreground mb-2">Eligibility</h3>
+              <p>You must be 18 years or older to use Lulou. By registering, you confirm you meet this requirement. We may request verification at any time.</p>
+            </section>
+            <section>
+              <h3 className="font-semibold text-foreground mb-2">Acceptable Use</h3>
+              <p>You agree to treat all members with respect, provide truthful information in your profile, not share contact details in the early messaging stages, and not use the platform for commercial solicitation, harassment, or illegal activity.</p>
+            </section>
+            <section>
+              <h3 className="font-semibold text-foreground mb-2">Content Ownership</h3>
+              <p>You retain ownership of photos and content you upload. By uploading, you grant Lulou a non-exclusive licence to display that content to other members as part of the service.</p>
+            </section>
+            <section>
+              <h3 className="font-semibold text-foreground mb-2">Termination</h3>
+              <p>We may suspend or terminate accounts that violate these terms. You may delete your account at any time from the Settings page.</p>
+            </section>
+            <section>
+              <h3 className="font-semibold text-foreground mb-2">Contact</h3>
+              <p>Questions? Email legal@lulou.dating.</p>
+            </section>
+          </div>
+        </SheetContent>
+      </Sheet>
+
+      {/* ── Download My Data sheet ── */}
+      <Sheet open={activeSheet === "download_data"} onOpenChange={open => !open && setActiveSheet(null)}>
+        <SheetContent side="bottom" className="h-[60vh] flex flex-col p-0">
+          <SheetHeader className="px-5 pt-5 pb-3 border-b shrink-0">
+            <SheetTitle className="font-serif">{t("download_data")}</SheetTitle>
+          </SheetHeader>
+          <div className="flex-1 overflow-y-auto px-5 pb-8 pt-5 flex flex-col items-center gap-5 text-center">
+            <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center mt-4">
+              <Download className="w-7 h-7 text-primary" />
+            </div>
+            <div className="space-y-2 max-w-xs">
+              <p className="font-medium">Export your personal data</p>
+              <p className="text-sm text-muted-foreground">
+                Download a JSON file containing your profile information, preferences, and account details.
+                Message content is not included for privacy reasons.
+              </p>
+            </div>
+            <Button
+              onClick={async () => {
+                setIsExporting(true);
+                try {
+                  const token = (await supabase.auth.getSession()).data.session?.access_token;
+                  const res = await fetch("/api/profile/export", {
+                    headers: { Authorization: `Bearer ${token}` },
+                  });
+                  if (!res.ok) throw new Error("Export failed");
+                  const data = await res.json();
+                  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement("a");
+                  a.href = url;
+                  a.download = `lulou-data-${new Date().toISOString().slice(0, 10)}.json`;
+                  a.click();
+                  URL.revokeObjectURL(url);
+                  toast({ title: t("download_complete") });
+                } catch {
+                  toast({ title: t("export_failed"), variant: "destructive" });
+                } finally {
+                  setIsExporting(false);
+                }
+              }}
+              disabled={isExporting}
+              data-testid="button-export-data"
+            >
+              {isExporting ? t("preparing_download") : t("download_data")}
+            </Button>
+          </div>
+        </SheetContent>
+      </Sheet>
+
+      {/* ── Safe Dating Tips sheet ── */}
+      <Sheet open={activeSheet === "safety"} onOpenChange={open => !open && setActiveSheet(null)}>
+        <SheetContent side="bottom" className="h-[90vh] flex flex-col p-0">
+          <SheetHeader className="px-5 pt-5 pb-3 border-b shrink-0">
+            <SheetTitle className="font-serif">{t("safe_dating")}</SheetTitle>
+          </SheetHeader>
+          <div className="flex-1 overflow-y-auto px-5 pb-10 pt-5 space-y-4">
+            {[
+              { emoji: "📞", title: "Start with a voice call", body: "Lulou's structured call system lets you hear someone's voice before meeting. Pay attention to how they make you feel." },
+              { emoji: "🚩", title: "Trust red flags early", body: "If someone pressures you to share contact details, asks for money, or makes you uncomfortable, block and report them immediately." },
+              { emoji: "📍", title: "Meet in public first", body: "Always choose a busy, public location for a first meeting — a café, park, or shopping area. Tell a friend or family member where you're going." },
+              { emoji: "🚗", title: "Arrange your own transport", body: "Drive yourself, use public transport, or book your own taxi to and from dates so you stay in control of when you leave." },
+              { emoji: "📱", title: "Share your plans", body: "Tell someone you trust the name of the person you're meeting, the location, and when you expect to be back. Check in with them during the date." },
+              { emoji: "🍹", title: "Watch your drinks", body: "Never leave your drink unattended. If you feel suddenly unwell, ask a member of staff for help immediately." },
+              { emoji: "🚫", title: "Never share financial details", body: "Legitimate connections on Lulou will never ask for money, bank details, or gift cards. Any such request is a scam — report it." },
+              { emoji: "🆘", title: "Emergency resources", body: "In the UK: Victim Support 0808 168 9111. In the US: Crisis Text Line — text HOME to 741741. Always call 999 or 911 in an emergency." },
+            ].map(tip => (
+              <div key={tip.title} className="flex gap-3 p-4 rounded-xl bg-muted/40">
+                <span className="text-2xl shrink-0 mt-0.5">{tip.emoji}</span>
+                <div>
+                  <p className="font-medium text-sm mb-0.5">{tip.title}</p>
+                  <p className="text-xs text-muted-foreground leading-relaxed">{tip.body}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </SheetContent>
+      </Sheet>
+
+      {/* ── Member Principles sheet ── */}
+      <Sheet open={activeSheet === "principles"} onOpenChange={open => !open && setActiveSheet(null)}>
+        <SheetContent side="bottom" className="h-[90vh] flex flex-col p-0">
+          <SheetHeader className="px-5 pt-5 pb-3 border-b shrink-0">
+            <SheetTitle className="font-serif">{t("member_principles")}</SheetTitle>
+          </SheetHeader>
+          <div className="flex-1 overflow-y-auto px-5 pb-10 pt-5 space-y-4">
+            <p className="text-sm text-muted-foreground">Lulou is built on the belief that genuine connection starts with genuine people. By joining, you commit to these principles:</p>
+            {[
+              { num: "01", title: "Intention over entertainment", body: "Use Lulou because you genuinely want to meet someone. Not to collect matches, pass time, or validate yourself." },
+              { num: "02", title: "Honesty in your profile", body: "Your photos and information represent who you truly are — recent, accurate, and yours. No filters that distort reality, no stock photos, no misleading bios." },
+              { num: "03", title: "Respect in every message", body: "Every person you interact with is a human being worthy of dignity. Communicate as you would want to be communicated with." },
+              { num: "04", title: "Follow the process", body: "The steps from match to call to meet exist for a reason. Respect the structure. Don't pressure connections to skip stages or share contact details early." },
+              { num: "05", title: "Show up when you commit", body: "If you schedule a call or a meeting, honour it. If you need to cancel, do so with notice and an explanation." },
+              { num: "06", title: "Graceful exits", body: "It's okay to not feel a connection. Unmatch or say you don't feel it — but do it kindly. Ghosting is not graceful." },
+              { num: "07", title: "Safety first — always", body: "Report anything that feels wrong. Block harassment immediately. Your safety matters more than being polite about it." },
+            ].map(p => (
+              <div key={p.num} className="flex gap-4 p-4 rounded-xl bg-muted/40">
+                <span className="font-serif text-2xl font-bold text-primary/40 shrink-0 leading-none mt-0.5">{p.num}</span>
+                <div>
+                  <p className="font-medium text-sm mb-0.5">{p.title}</p>
+                  <p className="text-xs text-muted-foreground leading-relaxed">{p.body}</p>
+                </div>
+              </div>
             ))}
           </div>
         </SheetContent>
@@ -1321,20 +1512,24 @@ function ConnectedAccountRow({
   provider,
   label,
   connected,
+  loading,
   onConnect,
   onDisconnect,
 }: {
   provider: string;
   label: string;
   connected: boolean;
+  loading?: boolean;
   onConnect: () => void;
   onDisconnect: () => void;
 }) {
+  const { t } = useLanguageContext();
   return (
     <div className="flex items-center justify-between">
       <p className="text-sm text-muted-foreground">{label}</p>
       <button
-        className={`flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-full transition-colors ${
+        disabled={loading}
+        className={`flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-full transition-colors disabled:opacity-60 disabled:cursor-not-allowed ${
           connected
             ? "bg-primary/10 text-primary hover:bg-primary/20"
             : "bg-muted text-muted-foreground hover:bg-muted/80"
@@ -1342,9 +1537,11 @@ function ConnectedAccountRow({
         onClick={connected ? onDisconnect : onConnect}
         data-testid={`button-${connected ? "disconnect" : "connect"}-${provider}`}
       >
-        {connected
-          ? <><Link2Off className="w-3 h-3" /> Disconnect</>
-          : <><Link className="w-3 h-3" /> Connect</>}
+        {loading
+          ? <><span className="w-3 h-3 border border-current border-t-transparent rounded-full animate-spin inline-block" /></>
+          : connected
+            ? <><Link2Off className="w-3 h-3" /> {t("disconnect_btn")}</>
+            : <><Link className="w-3 h-3" /> {t("connect_btn")}</>}
       </button>
     </div>
   );

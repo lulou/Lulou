@@ -71,6 +71,7 @@ if (typeof window !== "undefined") {
 }
 import { TabActiveContext } from "@/hooks/use-tab-active";
 import { LanguageProvider } from "@/contexts/language-context";
+import { UnitsProvider } from "@/contexts/units-context";
 
 // ── Per-tab error boundary ────────────────────────────────────────────────────
 // Wraps each persistent tab so a crash in one tab does not kill the others.
@@ -1600,6 +1601,7 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <LanguageProvider>
+        <UnitsProvider>
         <AuthProvider>
           <TooltipProvider>
             <Toaster />
@@ -1611,6 +1613,7 @@ function App() {
             )}
           </TooltipProvider>
         </AuthProvider>
+        </UnitsProvider>
       </LanguageProvider>
     </QueryClientProvider>
   );

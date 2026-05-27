@@ -161,6 +161,7 @@ export const TRANSLATIONS = {
     access_contacts:      "Access Contacts",
     import_contacts:      "Import from contacts",
     add_manually:         "Add manually",
+    block_list_manage:    "Manage who can't contact you",
     block_these:          "Block these contacts?",
     contact_blocked_toast: "Contact blocked",
     contact_unblocked:    "Contact unblocked",
@@ -258,6 +259,29 @@ export const TRANSLATIONS = {
     call_camera_hide:      "Hide cam",
     call_camera_show:      "Camera on",
     call_end_label:        "End call",
+    // Connected accounts
+    connect_btn:           "Connect",
+    disconnect_btn:        "Disconnect",
+    // Settings row descriptions
+    pause_account_desc:    "Hide your profile temporarily",
+    profile_paused_desc:   "Your profile is currently hidden from discovery",
+    delete_account_desc:   "Permanently remove your profile and data",
+    show_last_active_desc: "Let matches see when you were last online",
+    comment_filter_desc:   "Automatically block disrespectful words",
+    ai_starters_desc:      "AI-suggested ice-breakers to help you begin",
+    audio_transcripts_desc:"Get text transcripts of your voice calls",
+    push_notif_desc:       "Match alerts, messages, and call reminders",
+    subscribe_lulou_desc:  "Unlock extras and deeper connections",
+    // Data export
+    preparing_download:    "Preparing your data…",
+    download_complete:     "Download complete",
+    export_failed:         "Could not export data",
+    // Legal page titles
+    privacy_policy_title:  "Privacy Policy",
+    terms_title:           "Terms of Service",
+    safety_tips_title:     "Safe Dating Tips",
+    principles_title:      "Member Principles",
+    download_data_title:   "Download My Data",
   },
   es: {
     discover:     "Descubrir",
