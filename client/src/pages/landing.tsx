@@ -175,6 +175,9 @@ export default function Landing() {
   const [showRawError, setShowRawError] = useState(false);
   const [resetLoading, setResetLoading] = useState(false);
   const [resetSent, setResetSent] = useState(false);
+  const [verificationEmail, setVerificationEmail] = useState<string | null>(null);
+  const [resendLoading, setResendLoading] = useState(false);
+  const [resendSent, setResendSent] = useState(false);
   const { toast } = useToast();
 
   // Refs to the actual DOM inputs — read directly in handleSubmit to cover
@@ -563,10 +566,8 @@ export default function Landing() {
             authReturnedSession: false,
           });
           console.warn("[AUTH] SIGNUP_NO_SESSION: email confirmation required", { userId: data.user.id });
-          setAuthError({
-            kind: "auth",
-            message: `Almost there! We sent a confirmation link to ${trimmedEmail}. Click it to activate your account, then sign in here.`,
-          });
+          setVerificationEmail(trimmedEmail);
+          setLoading(false);
           return;
         }
 
@@ -721,6 +722,70 @@ export default function Landing() {
       authInProgressRef.current = false;
       writeDebug({ authRequestInProgress: false, authCallsThisAttempt: authCallCountRef.current });
     }
+  }
+
+  async function handleResendVerification() {
+    if (!verificationEmail) return;
+    setResendLoading(true);
+    try {
+      const { error } = await supabase.auth.resend({ type: "signup", email: verificationEmail });
+      if (error) throw error;
+      setResendSent(true);
+    } catch (err: any) {
+      toast({ title: "Resend failed", description: err?.message ?? "Try again.", variant: "destructive" });
+    } finally {
+      setResendLoading(false);
+    }
+  }
+
+  if (verificationEmail) {
+    return (
+      <div className="min-h-screen bg-background flex flex-col items-center justify-center px-6 gap-8" data-testid="screen-email-verification">
+        <div className="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center">
+          <LulouFlowerIcon className="w-7 h-7 text-primary" />
+        </div>
+        <div className="w-full max-w-sm space-y-3 text-center">
+          <h1 className="font-serif text-2xl font-bold">Check your email</h1>
+          <p className="text-muted-foreground text-sm leading-relaxed">
+            We sent a confirmation link to{" "}
+            <strong className="text-foreground">{verificationEmail}</strong>.
+            Click it to activate your account, then sign in here.
+          </p>
+        </div>
+        <div className="w-full max-w-sm space-y-3">
+          {resendSent ? (
+            <div className="flex items-center gap-2 justify-center text-sm text-primary py-2">
+              <CheckCircle className="w-4 h-4" />
+              Confirmation email resent!
+            </div>
+          ) : (
+            <Button
+              className="w-full"
+              disabled={resendLoading}
+              onClick={handleResendVerification}
+              data-testid="button-resend-verification"
+            >
+              {resendLoading ? (
+                <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Resending…</>
+              ) : (
+                "Resend confirmation email"
+              )}
+            </Button>
+          )}
+          <button
+            onClick={() => {
+              setVerificationEmail(null);
+              setMode("signin");
+              setResendSent(false);
+            }}
+            className="w-full text-sm text-muted-foreground hover:text-primary transition-colors py-2"
+            data-testid="button-back-to-signin"
+          >
+            Back to sign in
+          </button>
+        </div>
+      </div>
+    );
   }
 
   return (

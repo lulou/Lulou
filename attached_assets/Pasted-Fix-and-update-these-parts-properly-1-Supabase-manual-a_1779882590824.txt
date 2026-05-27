@@ -1,0 +1,45 @@
+Fix and update these parts properly:
+
+1. Supabase manual account linking
+- Allow manual linking through Supabase.
+- Users should be able to link Google and Apple accounts to their existing Supabase account.
+- Do not leave linking disabled.
+- Use Supabase auth linking/OAuth flow properly.
+- Show connected / not connected state.
+- Allow disconnect where safe.
+
+2. Under 18 age restriction
+- Users under 18 must not be able to create an account.
+- Add date of birth validation during sign up/onboarding.
+- Calculate age properly from date of birth.
+- If user is under 18, block account creation and show: “You must be 18 or older to use Lulou.”
+- Do not allow users to bypass this by editing profile later.
+- Store date of birth securely.
+- Add server/database-side validation where possible, not only frontend validation.
+
+3. Email verification
+- Add email verification for new accounts.
+- When user signs up, send a verification email.
+- User must click the verification link in their email.
+- After clicking verify, redirect them back to Lulou.
+- Do not give full app access until email is verified.
+- Show a “Check your email to verify your account” screen.
+- Add resend verification email button.
+
+4. Profile page cleanup
+- On the profile page, hide Personality Traits and Conversation Starters behind a 3-horizontal-line menu icon.
+- When the user taps the icon, open/expand those sections.
+- Keep the main profile page clean and less crowded.
+
+5. Main profile hero section
+- Add a main hero image of a couple in love on the profile page.
+- This should be the main visual focus of the Lulou profile area.
+- Make it look premium, warm, romantic, and mobile-friendly.
+
+6. Elevate profile promo
+- Under the couple image, add an Elevate Profile promo section.
+- Text: “Get 3x as many dates with Elevate.”
+- Add an “Upgrade” button.
+- When tapped, the Upgrade button should take the user to the payment/subscription page.
+- Make sure it connects to the existing Stripe/Supabase payment flow.
+- Do not send the user back to the profile page.

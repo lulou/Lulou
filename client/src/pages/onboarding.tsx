@@ -79,12 +79,23 @@ function computeInitialStep(profile: Profile | null): number {
   return 7;
 }
 
+function calculateAgeFromDob(dob: string): number {
+  if (!dob) return 0;
+  const today = new Date();
+  const birth = new Date(dob);
+  let age = today.getFullYear() - birth.getFullYear();
+  const m = today.getMonth() - birth.getMonth();
+  if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) age--;
+  return age;
+}
+
 // Build initial formData from an existing profile (partial or complete)
 function buildInitialFormData(profile: Profile | null, userEmail = "") {
   if (!profile) {
     return {
       firstName: "",
       age: 25,
+      dateOfBirth: "",
       gender: "",
       datingPreference: "",
       location: "",
@@ -108,6 +119,7 @@ function buildInitialFormData(profile: Profile | null, userEmail = "") {
   return {
     firstName: profile.firstName && profile.firstName !== "New User" ? profile.firstName : "",
     age: (profile.age ?? 0) >= 18 ? profile.age! : 25,
+    dateOfBirth: "",
     gender: profile.gender && profile.gender !== "Prefer not to say" ? profile.gender : "",
     datingPreference: profile.datingPreference && profile.datingPreference !== "Everyone" ? profile.datingPreference : "",
     location: profile.location && profile.location !== "Not set" ? profile.location : "",
@@ -206,7 +218,7 @@ export default function Onboarding({ existingProfile = null, userEmail = "" }: O
 
   const canProceed = () => {
     switch (step) {
-      case 0: return formData.firstName && formData.age >= 18 && formData.gender && formData.datingPreference && formData.location && formData.email;
+      case 0: return formData.firstName && formData.dateOfBirth && calculateAgeFromDob(formData.dateOfBirth) >= 18 && formData.gender && formData.datingPreference && formData.location && formData.email;
       case 1: return formData.photos.length >= 2;
       case 2: return formData.conversationStarters.length >= 2 && formData.conversationStarters.length <= 3 && formData.conversationStarters.every(s => formData.starterAnswers[s]?.trim());
       case 3: return formData.questions.length >= 2 && formData.questions.length <= 3;
@@ -296,16 +308,25 @@ export default function Onboarding({ existingProfile = null, userEmail = "" }: O
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="age">{t("label_age")}</Label>
+                  <Label htmlFor="dob">Date of Birth</Label>
                   <Input
-                    id="age"
-                    type="number"
-                    min={18}
-                    max={99}
-                    value={formData.age}
-                    onChange={e => update("age", parseInt(e.target.value) || 18)}
-                    data-testid="input-age"
+                    id="dob"
+                    type="date"
+                    max={new Date(Date.now() - 18 * 365.25 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)}
+                    value={formData.dateOfBirth}
+                    onChange={e => {
+                      const dob = e.target.value;
+                      update("dateOfBirth", dob);
+                      if (dob) update("age", calculateAgeFromDob(dob));
+                    }}
+                    data-testid="input-dob"
                   />
+                  {formData.dateOfBirth && calculateAgeFromDob(formData.dateOfBirth) < 18 && (
+                    <p className="text-xs text-destructive flex items-center gap-1.5 mt-1" data-testid="text-under-18-error">
+                      <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                      You must be 18 or older to use Lulou.
+                    </p>
+                  )}
                 </div>
                 <div className="space-y-2">
                   <Label>{t("label_gender")}</Label>

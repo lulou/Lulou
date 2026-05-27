@@ -32,6 +32,8 @@ import {
   MessageSquare,
   Check,
   ChevronRight,
+  Menu,
+  Sparkles,
 } from "lucide-react";
 import { DragScrollRow } from "@/components/drag-scroll-row";
 import { CONVERSATION_STARTERS, PROFILE_QUESTIONS } from "@shared/schema";
@@ -47,6 +49,7 @@ export default function ProfilePage() {
   const queryClient = useQueryClient();
   const { t } = useLanguageContext();
   const [expandedSection, setExpandedSection] = useState<string | null>(null);
+  const [showExtendedInfo, setShowExtendedInfo] = useState(false);
 
   const _mountMs = useRef(performance.now());
   useEffect(() => {
@@ -590,6 +593,47 @@ export default function ProfilePage() {
         </h1>
       </div>
       <div className="p-6 space-y-5 max-w-lg mx-auto w-full pb-28">
+
+      {/* ── Hero couple image ── */}
+      <div className="relative rounded-2xl overflow-hidden w-full" style={{ aspectRatio: "16/9" }}>
+        <img
+          src="https://images.unsplash.com/photo-1516589178581-6cd7833ae3b2?w=900&auto=format&fit=crop&q=80"
+          alt="Couple in love"
+          className="w-full h-full object-cover"
+          data-testid="img-hero-couple"
+        />
+        <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-black/10 to-transparent" />
+        <div className="absolute bottom-4 left-4 right-4">
+          <p className="text-white font-serif text-lg font-bold leading-snug drop-shadow-sm">
+            Where real connections flourish
+          </p>
+          <p className="text-white/80 text-xs mt-0.5">Your story starts here</p>
+        </div>
+      </div>
+
+      {/* ── Elevate promo ── */}
+      <div
+        className="rounded-2xl border border-primary/25 p-4 flex items-center gap-3"
+        style={{ background: "linear-gradient(135deg, hsl(350 45% 98%), hsl(350 45% 95%))" }}
+        data-testid="card-elevate-promo"
+      >
+        <div className="w-10 h-10 rounded-full bg-primary/15 flex items-center justify-center shrink-0">
+          <Sparkles className="w-5 h-5 text-primary" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-semibold leading-snug">Get 3x as many dates with Elevate.</p>
+          <p className="text-xs text-muted-foreground mt-0.5">Boost your visibility in discovery</p>
+        </div>
+        <Button
+          size="sm"
+          className="shrink-0"
+          onClick={() => navigate("/likes")}
+          data-testid="button-elevate-upgrade"
+        >
+          Upgrade
+        </Button>
+      </div>
+
       <div className="flex items-center gap-4">
         <button
           className="relative shrink-0 group"
@@ -850,6 +894,23 @@ export default function ProfilePage() {
         ))}
       </div>
 
+      {/* ── 3-line toggle for extended info ── */}
+      <button
+        className="w-full flex items-center justify-between gap-3 py-3 px-4 rounded-xl border bg-card hover:bg-muted/50 transition-colors"
+        onClick={() => setShowExtendedInfo(v => !v)}
+        data-testid="button-toggle-extended-info"
+        aria-expanded={showExtendedInfo}
+      >
+        <div className="flex items-center gap-2.5">
+          <Menu className="w-4 h-4 text-muted-foreground" />
+          <span className="text-sm font-medium text-muted-foreground">More about me</span>
+        </div>
+        <ChevronDown
+          className={`w-4 h-4 text-muted-foreground transition-transform duration-200 ${showExtendedInfo ? "rotate-180" : ""}`}
+        />
+      </button>
+
+      {showExtendedInfo && (<>
       <Card className="p-5 space-y-4">
         <div className="space-y-2">
           <p className="text-xs font-medium tracking-wider uppercase text-primary">{t("section_personality")}</p>
@@ -1004,6 +1065,7 @@ export default function ProfilePage() {
           <p className="text-sm text-muted-foreground">No questions yet. Tap Edit to add some.</p>
         )}
       </div>
+      </>)}
 
       {user?.email === "abayomibalogun@icloud.com" && import.meta.env.DEV && (
         <Button

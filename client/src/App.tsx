@@ -1381,6 +1381,37 @@ function AppContent() {
     return <Landing />;
   }
 
+  // ── Email verification gate ───────────────────────────────────────────────
+  // If the user has a session but hasn't confirmed their email, block access
+  // to the app and prompt them to verify. email_confirmed_at is null until
+  // the user clicks the confirmation link sent by Supabase on sign-up.
+  if (!user.email_confirmed_at) {
+    console.log("[SETUP] FINAL_APP_GATE: email_not_confirmed — showing verification screen", { userId: user.id });
+    return (
+      <div className="min-h-screen bg-background flex flex-col items-center justify-center px-6 gap-8" data-testid="screen-verify-email-gate">
+        <div className="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center">
+          <Loader2 className="w-6 h-6 text-primary" />
+        </div>
+        <div className="w-full max-w-sm space-y-3 text-center">
+          <h1 className="font-serif text-2xl font-bold">Verify your email</h1>
+          <p className="text-sm text-muted-foreground leading-relaxed">
+            We sent a confirmation link to{" "}
+            <strong className="text-foreground">{user.email}</strong>.
+            Click the link to activate your account.
+          </p>
+          <p className="text-xs text-muted-foreground">Already confirmed? Sign out and sign back in.</p>
+        </div>
+        <button
+          className="w-full max-w-sm py-2.5 rounded-md border text-sm font-medium hover:bg-muted transition-colors"
+          onClick={logout}
+          data-testid="button-signout-verify-gate"
+        >
+          Sign out
+        </button>
+      </div>
+    );
+  }
+
   // ── EARLY BYPASS EXIT ─────────────────────────────────────────────────────
   // forceProceed=true means the user explicitly tapped "Continue to App" on a
   // blocked screen.  This guard is placed BEFORE every other intermediate gate
