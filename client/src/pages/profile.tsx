@@ -7,11 +7,9 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Slider } from "@/components/ui/slider";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { useToast } from "@/hooks/use-toast";
 import { upsertProfile, cleanErrorMessage, withRetry } from "@/lib/profile-upsert";
-import { useUnits, formatDistance } from "@/lib/units";
 import { apiRequest } from "@/lib/queryClient";
 import { convertPhotoToJpeg, recompressPhotoDataUrl, uploadPhotoToStorage, OVERSIZED_THRESHOLD } from "@/lib/photo-utils";
 import { supabase } from "@/lib/supabase";
@@ -20,108 +18,33 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   MapPin,
-  LogOut,
   Ruler,
   Calendar,
-  Radar,
-  Crown,
-  ShieldCheck,
   Camera,
   HelpCircle,
-  Lightbulb,
-  ChevronRight,
   ChevronDown,
   BadgeCheck,
   Settings,
-  CreditCard,
-  ArrowLeft,
   Pencil,
-  Plus,
   X,
   ImagePlus,
   MessageSquare,
   Check,
-  Sparkles,
-  Zap,
-  Loader2,
+  ChevronRight,
 } from "lucide-react";
-import { ElevateModal } from "@/components/elevate-modal";
 import { DragScrollRow } from "@/components/drag-scroll-row";
 import { CONVERSATION_STARTERS, PROFILE_QUESTIONS } from "@shared/schema";
 import type { Profile } from "@shared/schema";
 
 const _DEV = import.meta.env.DEV;
 
-function RadiusSlider({ initial, onCommit }: { initial: number; onCommit: (v: number) => void }) {
-  const [value, setValue] = useState(initial);
-  const [units] = useUnits();
-  return (
-    <Card className="p-4 space-y-2" data-testid="card-radius">
-      <div className="flex items-center justify-between gap-1">
-        <div className="flex items-center gap-1.5 text-sm font-medium">
-          <Radar className="w-4 h-4 text-primary shrink-0" />
-          <span className="truncate">Distance</span>
-        </div>
-        <span className="text-sm text-muted-foreground shrink-0" data-testid="text-radius-value">{formatDistance(value, units)}</span>
-      </div>
-      <Slider
-        value={[value]}
-        onValueChange={([v]) => setValue(v)}
-        onValueCommit={([v]) => onCommit(v)}
-        min={5}
-        max={100}
-        step={5}
-        className="py-1"
-        data-testid="slider-profile-radius"
-      />
-    </Card>
-  );
-}
-
-function AgeRangeSlider({ initialMin, initialMax, onCommit }: { initialMin: number; initialMax: number; onCommit: (min: number, max: number) => void }) {
-  const [range, setRange] = useState<[number, number]>([initialMin, initialMax]);
-  return (
-    <Card className="p-4 space-y-2" data-testid="card-age-range">
-      <div className="flex items-center justify-between gap-1">
-        <div className="flex items-center gap-1.5 text-sm font-medium">
-          <Calendar className="w-4 h-4 text-primary shrink-0" />
-          <span className="truncate">Age</span>
-        </div>
-        <span className="text-sm text-muted-foreground shrink-0" data-testid="text-age-range-value">{range[0]}-{range[1]}</span>
-      </div>
-      <Slider
-        value={range}
-        onValueChange={([min, max]) => setRange([min, max])}
-        onValueCommit={([min, max]) => onCommit(min, max)}
-        min={18}
-        max={65}
-        step={1}
-        className="py-1"
-        data-testid="slider-age-range"
-      />
-    </Card>
-  );
-}
-
-const DATING_TIPS = [
-  { title: "Be Specific in Your Profile", body: "Instead of saying you love travel, mention the trip that changed your perspective. Specificity invites deeper conversation." },
-  { title: "Ask Questions That Matter", body: "Skip 'how was your day' and try 'what made you smile today?' Thoughtful questions show genuine interest." },
-  { title: "Move to a Call Early", body: "A 10-minute voice call reveals more chemistry than 100 messages. Suggest a call once you feel a spark." },
-  { title: "Pick a Specific Date Plan", body: "Instead of 'let's hang out sometime,' suggest a real plan: 'There's a great coffee shop on 5th — Saturday afternoon?'" },
-  { title: "Stay Present on Dates", body: "Put your phone away. Make eye contact. The person across from you chose to spend time with you — honour that." },
-];
 
 export default function ProfilePage() {
   const [, navigate] = useLocation();
-  const { user, logout, isLoggingOut } = useAuth();
+  const { user } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [expandedSection, setExpandedSection] = useState<string | null>(null);
-  const [tipIndex, setTipIndex] = useState(0);
-  const [purchaseItem, setPurchaseItem] = useState<{ name: string; price: string; type: "subscription" | "one-time"; itemId: string } | null>(null);
-  const [purchaseSuccess, setPurchaseSuccess] = useState<string | null>(null);
-  const [showElevate, setShowElevate] = useState(false);
-  const [purchasing, setPurchasing] = useState(false);
 
   const _mountMs = useRef(performance.now());
   useEffect(() => {
@@ -149,30 +72,7 @@ export default function ProfilePage() {
         if (_DEV) console.log("[STRIPE_CANCEL] ProfilePage mounted on /profile — no cancel param present, no toast shown");
       }
     }
-    const handlePageshow = (e: PageTransitionEvent) => {
-      if (e.persisted) setPurchasing(false);
-    };
-    window.addEventListener("pageshow", handlePageshow);
-    return () => window.removeEventListener("pageshow", handlePageshow);
   }, []);
-
-  const startExtrasCheckout = async () => {
-    if (!purchaseItem) return;
-    setPurchasing(true);
-    try {
-      const res = await apiRequest("POST", "/api/stripe/extras-checkout", { itemId: purchaseItem.itemId });
-      const data = await res.json();
-      if (!res.ok) {
-        toast({ title: "Checkout failed", description: data.message ?? "Something went wrong.", variant: "destructive" });
-        setPurchasing(false);
-        return;
-      }
-      window.location.assign(data.url);
-    } catch {
-      toast({ title: "Network error", description: "Could not connect. Please try again.", variant: "destructive" });
-      setPurchasing(false);
-    }
-  };
 
   useEffect(() => {
     if (_DEV) console.log("[PROFILE_PAGE] mounted");
@@ -321,20 +221,6 @@ export default function ProfilePage() {
     },
   });
 
-  const requestVerification = useMutation({
-    mutationFn: async () => {
-      return upsertProfile({ photoVerified: true });
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/profile"] });
-      toast({ title: "Verified!", description: "Your profile now has a verification badge." });
-    },
-    onError: (err: any) => {
-      const msg = cleanErrorMessage(err);
-      console.error("[PROFILE_SAVE] requestVerification FAILED", { rawError: err?.message, cleanedError: msg });
-      toast({ title: "Verification failed", description: msg, variant: "destructive" });
-    },
-  });
 
   const [editingPhotos, setEditingPhotos] = useState(false);
   const [editPhotos, setEditPhotos] = useState<string[]>([]);
@@ -513,8 +399,6 @@ export default function ProfilePage() {
       setSettingsForm({
         location: profile.location,
         height: profile.height || "",
-        email: profile.email || "",
-        phoneNumber: profile.phoneNumber || "",
         datingPreference: profile.datingPreference,
         datingIntent: profile.datingIntent,
         connectionStyle: profile.connectionStyle,
@@ -624,7 +508,6 @@ export default function ProfilePage() {
     if (section === "settings" && expandedSection !== "settings") {
       initSettings();
     }
-    setPurchaseItem(null);
     setExpandedSection(prev => prev === section ? null : section);
   };
 
@@ -742,30 +625,35 @@ export default function ProfilePage() {
               {profile.age}
             </span>
             {profile.height && (
-              <button
-                className="flex items-center gap-1 hover:text-foreground transition-colors"
-                onClick={() => toggle("settings")}
-                data-testid="button-edit-height"
-              >
+              <span className="flex items-center gap-1" data-testid="text-profile-height">
                 <Ruler className="w-3.5 h-3.5" />
                 {profile.height}
-              </button>
+              </span>
             )}
-            <button
-              className="flex items-center gap-1 hover:text-foreground transition-colors"
-              onClick={() => toggle("settings")}
-              data-testid="button-edit-location"
-            >
-              <MapPin className="w-3.5 h-3.5" />
-              {profile.location}
-            </button>
+            {profile.location && (
+              <span className="flex items-center gap-1" data-testid="text-profile-location">
+                <MapPin className="w-3.5 h-3.5" />
+                {profile.location}
+              </span>
+            )}
           </div>
+          <Button
+            size="sm"
+            variant="outline"
+            className="mt-3 text-xs h-8 px-3 gap-1.5"
+            onClick={() => toggle("settings")}
+            data-testid="button-edit-profile"
+          >
+            <Pencil className="w-3 h-3" />
+            Edit Profile
+            <ChevronRight className={`w-3 h-3 transition-transform ${expandedSection === "settings" ? "rotate-90" : ""}`} />
+          </Button>
         </div>
       </div>
 
       {expandedSection === "settings" && (
         <Card className="p-5 space-y-4" data-testid="section-settings">
-          <p className="font-medium text-sm">Settings</p>
+          <p className="font-medium text-sm">Edit Profile</p>
           <div className="space-y-3">
             <div className="space-y-1.5">
               <Label htmlFor="settings-location" className="text-xs">Location</Label>
@@ -785,28 +673,6 @@ export default function ProfilePage() {
                 onChange={e => setSettingsForm(prev => ({ ...prev, height: e.target.value }))}
                 placeholder="e.g. 5'8&quot;"
                 data-testid="input-settings-height"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="settings-email" className="text-xs">Email address</Label>
-              <Input
-                id="settings-email"
-                type="email"
-                value={settingsForm.email || ""}
-                onChange={e => setSettingsForm(prev => ({ ...prev, email: e.target.value }))}
-                placeholder="your@email.com"
-                data-testid="input-settings-email"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="settings-phone" className="text-xs">Phone number</Label>
-              <Input
-                id="settings-phone"
-                type="tel"
-                value={settingsForm.phoneNumber || ""}
-                onChange={e => setSettingsForm(prev => ({ ...prev, phoneNumber: e.target.value }))}
-                placeholder="e.g. +44 7700 900123"
-                data-testid="input-settings-phone"
               />
             </div>
             <div className="space-y-1.5">
@@ -871,20 +737,6 @@ export default function ProfilePage() {
           </Button>
         </Card>
       )}
-
-      <div className="grid grid-cols-2 gap-3">
-        <RadiusSlider
-          key={`radius-${profile.locationRadius}`}
-          initial={profile.locationRadius ?? 25}
-          onCommit={(v) => updateProfileField.mutate({ locationRadius: v })}
-        />
-        <AgeRangeSlider
-          key={`age-${profile.preferredAgeMin}-${profile.preferredAgeMax}`}
-          initialMin={profile.preferredAgeMin ?? 18}
-          initialMax={profile.preferredAgeMax ?? 45}
-          onCommit={(min, max) => updateProfileField.mutate({ preferredAgeMin: min, preferredAgeMax: max })}
-        />
-      </div>
 
       <div className="space-y-2">
         <div className="flex items-center justify-between gap-2">
@@ -1151,320 +1003,6 @@ export default function ProfilePage() {
         )}
       </div>
 
-      <div className="space-y-2">
-        <button
-          onClick={() => toggle("extras")}
-          className="w-full flex items-center justify-between p-4 rounded-md hover-elevate"
-          data-testid="button-bloom-extras"
-        >
-          <div className="flex items-center gap-3">
-            <Crown className="w-5 h-5 text-primary" />
-            <div className="text-left">
-              <p className="font-medium text-sm">Lulou Extras</p>
-              <p className="text-xs text-muted-foreground">Individual extras & membership</p>
-            </div>
-          </div>
-          <ChevronRight className={`w-4 h-4 text-muted-foreground transition-transform ${expandedSection === "extras" ? "rotate-90" : ""}`} />
-        </button>
-        {expandedSection === "extras" && !purchaseItem && (
-          <Card className="p-4 space-y-4" data-testid="section-bloom-extras">
-            <div className="space-y-1 pb-2">
-              <p className="font-medium text-sm">Lulou Membership</p>
-              <p className="text-xs text-muted-foreground">Everything you need for deeper connections</p>
-            </div>
-            <div className="rounded-md border p-3 space-y-2">
-              <div className="flex items-center justify-between gap-2 flex-wrap">
-                <p className="font-medium text-sm">$19.99/month</p>
-                <Button size="sm" onClick={() => setPurchaseItem({ name: "Lulou Membership", price: "$19.99/month", type: "subscription", itemId: "membership" })} data-testid="button-subscribe-membership">Join</Button>
-              </div>
-              <ul className="text-xs text-muted-foreground space-y-1">
-                <li>2 conversation extensions per month</li>
-                <li>1 extra call</li>
-                <li>1 video call</li>
-                <li>2 extra spins per week</li>
-                <li>Undo last close</li>
-              </ul>
-            </div>
-
-            <div className="pt-2 space-y-1">
-              <p className="font-medium text-sm">Solo Extras</p>
-              <p className="text-xs text-muted-foreground">One-time purchases</p>
-            </div>
-            <div className="space-y-2">
-              {/* ── Elevate ── */}
-              <button
-                className="w-full flex items-center justify-between gap-2 p-3 rounded-xl border border-primary/30 bg-primary/5 text-left hover-elevate"
-                onClick={() => setShowElevate(true)}
-                data-testid="button-open-elevate"
-              >
-                <div className="flex items-center gap-2.5">
-                  <div className="w-8 h-8 rounded-full bg-primary/15 flex items-center justify-center shrink-0">
-                    <Sparkles className="w-4 h-4 text-primary" />
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium text-primary">Elevate</p>
-                    <p className="text-xs text-muted-foreground">Boost your visibility in Discovery &amp; the Intention Wheel</p>
-                  </div>
-                </div>
-                <span className="text-sm font-semibold text-primary shrink-0">from $9.99</span>
-              </button>
-              {/* ── Super Elevate ── */}
-              <button
-                className="w-full flex items-center justify-between gap-2 p-3 rounded-xl text-left"
-                style={{
-                  background: "linear-gradient(135deg, hsl(350 45% 20%), hsl(350 45% 14%))",
-                  border: "1px solid hsl(350 45% 35%)",
-                }}
-                onClick={() => setShowElevate(true)}
-                data-testid="button-open-super-elevate"
-              >
-                <div className="flex items-center gap-2.5">
-                  <div
-                    className="w-8 h-8 rounded-full flex items-center justify-center shrink-0"
-                    style={{ background: "hsl(350 45% 52% / 0.25)", border: "1px solid hsl(350 45% 52% / 0.4)" }}
-                  >
-                    <Zap className="w-4 h-4 text-primary" />
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium text-primary">Super Elevate</p>
-                    <p className="text-xs" style={{ color: "hsl(350 20% 65%)" }}>Maximum priority — 8× visibility for 60 minutes</p>
-                  </div>
-                </div>
-                <span className="text-sm font-semibold text-primary shrink-0">$34.99</span>
-              </button>
-              <div className="border-t pt-2 flex items-center justify-between gap-2 flex-wrap">
-                <div>
-                  <p className="text-sm">+5 Messages</p>
-                  <p className="text-xs text-muted-foreground">Give a conversation more room</p>
-                </div>
-                <Button size="sm" variant="outline" onClick={() => { setPurchaseSuccess(null); setPurchaseItem({ name: "+5 Messages", price: "$4.99", type: "one-time", itemId: "messages-5" }); }} data-testid="button-buy-messages">$4.99</Button>
-              </div>
-              <div className="border-t pt-2 flex items-center justify-between gap-2 flex-wrap">
-                <div>
-                  <p className="text-sm">Undo Last Close</p>
-                  <p className="text-xs text-muted-foreground">Changed your mind? Reopen that profile</p>
-                </div>
-                <Button size="sm" variant="outline" onClick={() => setPurchaseItem({ name: "Undo Last Close", price: "$2.99", type: "one-time", itemId: "undo-close" })} data-testid="button-buy-undo">$2.99</Button>
-              </div>
-              <div className="border-t pt-2 flex items-center justify-between gap-2 flex-wrap">
-                <div>
-                  <p className="text-sm">Extra Call</p>
-                  <p className="text-xs text-muted-foreground">One more voice call with a match</p>
-                </div>
-                <Button size="sm" variant="outline" onClick={() => setPurchaseItem({ name: "Extra Call", price: "$4.99", type: "one-time", itemId: "extra-call" })} data-testid="button-buy-call">$4.99</Button>
-              </div>
-              <div className="border-t pt-2 flex items-center justify-between gap-2 flex-wrap">
-                <div>
-                  <p className="text-sm">Video Call</p>
-                  <p className="text-xs text-muted-foreground">See each other face to face</p>
-                </div>
-                <Button size="sm" variant="outline" onClick={() => setPurchaseItem({ name: "Video Call", price: "$6.99", type: "one-time", itemId: "video-call" })} data-testid="button-buy-video">$6.99</Button>
-              </div>
-            </div>
-          </Card>
-        )}
-
-        {expandedSection === "extras" && purchaseSuccess && !purchaseItem && (
-          <Card className="p-5 text-center space-y-3" data-testid="section-purchase-success">
-            <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center mx-auto">
-              <Crown className="w-5 h-5 text-primary" />
-            </div>
-            <div className="space-y-1">
-              <p className="font-medium text-sm">Added to your account</p>
-              <p className="text-xs text-muted-foreground capitalize">Your {purchaseSuccess} is ready to use in any chat.</p>
-            </div>
-            <Button size="sm" variant="outline" onClick={() => setPurchaseSuccess(null)} data-testid="button-purchase-success-done">Done</Button>
-          </Card>
-        )}
-
-        {expandedSection === "extras" && purchaseItem && (
-          <Card className="p-5 space-y-5" data-testid="section-payment">
-            <div className="flex items-center gap-2">
-              <Button size="icon" variant="ghost" onClick={() => setPurchaseItem(null)} disabled={purchasing} data-testid="button-payment-back">
-                <ArrowLeft className="w-4 h-4" />
-              </Button>
-              <p className="font-medium text-sm">Confirm Purchase</p>
-            </div>
-
-            <div className="rounded-md border p-4 space-y-1">
-              <p className="font-medium text-sm" data-testid="text-payment-item">{purchaseItem.name}</p>
-              <p className="text-lg font-bold text-primary" data-testid="text-payment-price">{purchaseItem.price}</p>
-              <p className="text-xs text-muted-foreground">
-                {purchaseItem.type === "subscription" ? "Billed monthly. Cancel anytime." : "One-time purchase."}
-              </p>
-            </div>
-
-            <button
-              className="w-full py-3.5 rounded-xl font-semibold text-sm flex items-center justify-center gap-2 transition-all active:scale-[0.98] disabled:opacity-60"
-              style={{ background: "hsl(350 45% 52%)", color: "white" }}
-              disabled={purchasing}
-              onClick={startExtrasCheckout}
-              data-testid="button-pay-stripe"
-            >
-              {purchasing ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  Opening checkout…
-                </>
-              ) : (
-                <>
-                  <CreditCard className="w-4 h-4" />
-                  Pay {purchaseItem.price} via Stripe
-                </>
-              )}
-            </button>
-
-            <p className="text-xs text-center text-muted-foreground">Payments are secure and encrypted via Stripe. You can cancel subscriptions at any time from your profile.</p>
-          </Card>
-        )}
-      </div>
-
-      <div className="space-y-2">
-        <button
-          onClick={() => toggle("safety")}
-          className="w-full flex items-center justify-between p-4 rounded-md hover-elevate"
-          data-testid="button-safety"
-        >
-          <div className="flex items-center gap-3">
-            <ShieldCheck className="w-5 h-5 text-primary" />
-            <div className="text-left">
-              <p className="font-medium text-sm">Safety</p>
-              <p className="text-xs text-muted-foreground">Your wellbeing comes first</p>
-            </div>
-          </div>
-          <ChevronRight className={`w-4 h-4 text-muted-foreground transition-transform ${expandedSection === "safety" ? "rotate-90" : ""}`} />
-        </button>
-        {expandedSection === "safety" && (
-          <Card className="p-4 space-y-3" data-testid="section-safety">
-            <div className="space-y-2">
-              <p className="font-medium text-sm">Block & Report</p>
-              <p className="text-xs text-muted-foreground">You can block or report any user from their profile or your matches. Blocked users cannot see your profile or message you.</p>
-            </div>
-            <div className="space-y-2">
-              <p className="font-medium text-sm">Privacy</p>
-              <p className="text-xs text-muted-foreground">Your exact location is never shared. Only your city is visible to others. Photos are stored securely and only shown to active users.</p>
-            </div>
-            <div className="space-y-2">
-              <p className="font-medium text-sm">Safe Dating Tips</p>
-              <p className="text-xs text-muted-foreground">Always meet in public, tell a friend where you're going, and trust your instincts. You can leave any conversation at any time.</p>
-            </div>
-          </Card>
-        )}
-      </div>
-
-      <div className="space-y-2">
-        <button
-          onClick={() => toggle("verify")}
-          className="w-full flex items-center justify-between p-4 rounded-md hover-elevate"
-          data-testid="button-bloom-me"
-        >
-          <div className="flex items-center gap-3">
-            <Camera className="w-5 h-5 text-primary" />
-            <div className="text-left">
-              <p className="font-medium text-sm">Lulou Me</p>
-              <p className="text-xs text-muted-foreground">Photo verification badge</p>
-            </div>
-          </div>
-          <ChevronRight className={`w-4 h-4 text-muted-foreground transition-transform ${expandedSection === "verify" ? "rotate-90" : ""}`} />
-        </button>
-        {expandedSection === "verify" && (
-          <Card className="p-4 space-y-3" data-testid="section-bloom-me">
-            {profile.photoVerified ? (
-              <div className="flex items-center gap-2">
-                <BadgeCheck className="w-5 h-5 text-primary" />
-                <p className="text-sm font-medium">You're verified! Your profile displays a badge.</p>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                <p className="text-sm text-muted-foreground">Verify your identity by taking a selfie. Verified profiles receive a badge and are trusted more by other users.</p>
-                <Button
-                  onClick={() => requestVerification.mutate()}
-                  disabled={requestVerification.isPending}
-                  className="w-full"
-                  data-testid="button-verify-photo"
-                >
-                  <Camera className="w-4 h-4 mr-2" />
-                  {requestVerification.isPending ? "Verifying..." : "Verify My Photo"}
-                </Button>
-              </div>
-            )}
-          </Card>
-        )}
-      </div>
-
-      <div className="space-y-2">
-        <button
-          onClick={() => toggle("help")}
-          className="w-full flex items-center justify-between p-4 rounded-md hover-elevate"
-          data-testid="button-help-centre"
-        >
-          <div className="flex items-center gap-3">
-            <HelpCircle className="w-5 h-5 text-primary" />
-            <div className="text-left">
-              <p className="font-medium text-sm">Help Centre</p>
-              <p className="text-xs text-muted-foreground">FAQs & support</p>
-            </div>
-          </div>
-          <ChevronRight className={`w-4 h-4 text-muted-foreground transition-transform ${expandedSection === "help" ? "rotate-90" : ""}`} />
-        </button>
-        {expandedSection === "help" && (
-          <Card className="p-4 space-y-3" data-testid="section-help-centre">
-            <div className="space-y-2">
-              <p className="font-medium text-sm">How does matching work?</p>
-              <p className="text-xs text-muted-foreground">When you "Open" to someone and they "Open" to you, it's a match! You can then chat in your matches page.</p>
-            </div>
-            <div className="space-y-2">
-              <p className="font-medium text-sm">Why is messaging limited?</p>
-              <p className="text-xs text-muted-foreground">Lulou limits messages to 15 per match to encourage meaningful conversation and moving to real-life meetings sooner.</p>
-            </div>
-            <div className="space-y-2">
-              <p className="font-medium text-sm">How do I delete my account?</p>
-              <p className="text-xs text-muted-foreground">Contact our support team and we'll handle it within 24 hours. Your data will be permanently removed.</p>
-            </div>
-            <div className="space-y-2">
-              <p className="font-medium text-sm">I found a bug</p>
-              <p className="text-xs text-muted-foreground">Please reach out to us through the app or email support@lulou.dating and we'll look into it right away.</p>
-            </div>
-          </Card>
-        )}
-      </div>
-
-      <div className="space-y-2">
-        <button
-          onClick={() => toggle("tips")}
-          className="w-full flex items-center justify-between p-4 rounded-md hover-elevate"
-          data-testid="button-what-works"
-        >
-          <div className="flex items-center gap-3">
-            <Lightbulb className="w-5 h-5 text-primary" />
-            <div className="text-left">
-              <p className="font-medium text-sm">What Works</p>
-              <p className="text-xs text-muted-foreground">Expert dating insights</p>
-            </div>
-          </div>
-          <ChevronRight className={`w-4 h-4 text-muted-foreground transition-transform ${expandedSection === "tips" ? "rotate-90" : ""}`} />
-        </button>
-        {expandedSection === "tips" && (
-          <Card className="p-4 space-y-3" data-testid="section-what-works">
-            <div className="space-y-1">
-              <p className="font-medium text-sm">{DATING_TIPS[tipIndex].title}</p>
-              <p className="text-sm text-muted-foreground">{DATING_TIPS[tipIndex].body}</p>
-            </div>
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-xs text-muted-foreground">{tipIndex + 1} of {DATING_TIPS.length}</span>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => setTipIndex((tipIndex + 1) % DATING_TIPS.length)}
-                data-testid="button-next-tip"
-              >
-                Next Tip
-              </Button>
-            </div>
-          </Card>
-        )}
-      </div>
-
       {user?.email === "abayomibalogun@icloud.com" && import.meta.env.DEV && (
         <Button
           variant="destructive"
@@ -1483,16 +1021,6 @@ export default function ProfilePage() {
           Reset Test Data
         </Button>
       )}
-
-      <Button
-        variant="outline"
-        className="w-full"
-        onClick={() => logout()}
-        disabled={isLoggingOut}
-        data-testid="button-logout"
-      >
-        <LogOut className="w-4 h-4 mr-2" /> {isLoggingOut ? "Signing out…" : "Sign Out"}
-      </Button>
       </div>
 
       {/* File input always mounted so fileInputRef is valid when openFilePicker() is called */}
@@ -1505,8 +1033,6 @@ export default function ProfilePage() {
         onChange={handleFileSelect}
         data-testid="input-photo-file"
       />
-
-      {showElevate && <ElevateModal onClose={() => setShowElevate(false)} cancelPath="/profile" />}
     </div>
   );
 }
