@@ -11,6 +11,7 @@ import { Slider } from "@/components/ui/slider";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { useToast } from "@/hooks/use-toast";
 import { upsertProfile, cleanErrorMessage, withRetry } from "@/lib/profile-upsert";
+import { useUnits, formatDistance } from "@/lib/units";
 import { apiRequest } from "@/lib/queryClient";
 import { convertPhotoToJpeg, recompressPhotoDataUrl, uploadPhotoToStorage, OVERSIZED_THRESHOLD } from "@/lib/photo-utils";
 import { supabase } from "@/lib/supabase";
@@ -53,6 +54,7 @@ const _DEV = import.meta.env.DEV;
 
 function RadiusSlider({ initial, onCommit }: { initial: number; onCommit: (v: number) => void }) {
   const [value, setValue] = useState(initial);
+  const [units] = useUnits();
   return (
     <Card className="p-4 space-y-2" data-testid="card-radius">
       <div className="flex items-center justify-between gap-1">
@@ -60,7 +62,7 @@ function RadiusSlider({ initial, onCommit }: { initial: number; onCommit: (v: nu
           <Radar className="w-4 h-4 text-primary shrink-0" />
           <span className="truncate">Distance</span>
         </div>
-        <span className="text-sm text-muted-foreground shrink-0" data-testid="text-radius-value">{value} mi</span>
+        <span className="text-sm text-muted-foreground shrink-0" data-testid="text-radius-value">{formatDistance(value, units)}</span>
       </div>
       <Slider
         value={[value]}

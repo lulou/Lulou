@@ -1,1 +1,1 @@
-- [Optional DB columns guard](optional-db-columns.md) — including non-existent Supabase columns in SELECT kills the entire query silently; always gate on a startup flag.
+- [Camera stream timing fix](camera-stream-timing.md) — get stream → set state (renders video) → attach in useEffect; never set srcObject before the video element mounts.

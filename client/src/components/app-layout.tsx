@@ -6,6 +6,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { useTabActive } from "@/hooks/use-tab-active";
 import { decodedPhotos } from "@/lib/image-utils";
 import { stopAllNonVoiceCallAudio } from "@/lib/call-audio";
+import { useLanguageContext } from "@/contexts/language-context";
 
 interface IncomingOpen {
   id: string;
@@ -98,6 +99,7 @@ export function ProfileAvatar({
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();
   const { logout, isLoggingOut } = useAuth();
+  const { t } = useLanguageContext();
   // Gate background polling on tab visibility — stops network + GC pressure
   // when the user has the app open in a background tab.
   const isTabActive = useTabActive();
@@ -135,11 +137,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const newConnectionsBadge = Math.max(0, newConnectionsCount - seenConnectionsCount);
 
   const navItems = [
-    { path: "/discover", icon: Compass, label: "Discover" },
-    { path: "/intent", icon: CircleDot, label: "Intent" },
-    { path: "/likes", icon: Heart, label: "Likes" },
-    { path: "/matches", icon: MessageCircle, label: "Connections" },
-    { path: "/profile", icon: User, label: "Profile" },
+    { path: "/discover", icon: Compass, label: t("discover") },
+    { path: "/intent", icon: CircleDot, label: t("intent") },
+    { path: "/likes", icon: Heart, label: t("likes") },
+    { path: "/matches", icon: MessageCircle, label: t("connections") },
+    { path: "/profile", icon: User, label: t("profile") },
   ];
 
   return (
@@ -169,7 +171,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           data-testid="button-header-logout"
         >
           <LogOut className="w-4 h-4" />
-          <span className="hidden sm:inline">Sign Out</span>
+          <span className="hidden sm:inline">{t("sign_out")}</span>
         </button>
       </header>
 

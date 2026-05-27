@@ -18,8 +18,23 @@ import { Loader2, ArrowRight, ArrowLeft, Check, AlertCircle } from "lucide-react
 import { LulouFlowerIcon } from "@/components/app-layout";
 import type { Profile } from "@shared/schema";
 import { convertPhotoToJpeg } from "@/lib/photo-utils";
+import { useUnits, formatDistance } from "@/lib/units";
 
 const STEPS = ["Basics", "Photos", "Starters", "Questions", "Signals", "Intent", "Green Flags", "Pace"];
+
+function RadiusLabel({ locationRadius }: { locationRadius: number }) {
+  const [units] = useUnits();
+  return <Label>Search Radius: {formatDistance(locationRadius, units)}</Label>;
+}
+
+function RadiusDescription({ locationRadius }: { locationRadius: number }) {
+  const [units] = useUnits();
+  return (
+    <p className="text-xs text-muted-foreground">
+      People within {formatDistance(locationRadius, units)} of your location
+    </p>
+  );
+}
 
 // Parse stored starters ("starter text answer text") back into separate keys + answers
 function parseStoredStarters(stored: string[]): { starters: string[]; answers: Record<string, string> } {
@@ -343,7 +358,7 @@ export default function Onboarding({ existingProfile = null, userEmail = "" }: O
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label>Search Radius: {formData.locationRadius} miles</Label>
+                  <RadiusLabel locationRadius={formData.locationRadius} />
                   <Slider
                     value={[formData.locationRadius]}
                     onValueChange={([v]) => update("locationRadius", v)}
@@ -353,7 +368,7 @@ export default function Onboarding({ existingProfile = null, userEmail = "" }: O
                     className="py-2"
                     data-testid="slider-radius"
                   />
-                  <p className="text-xs text-muted-foreground">People within {formData.locationRadius} miles of your location</p>
+                  <RadiusDescription locationRadius={formData.locationRadius} />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="email">Email address</Label>

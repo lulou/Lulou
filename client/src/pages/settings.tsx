@@ -65,6 +65,7 @@ import {
   Link2Off,
 } from "lucide-react";
 import type { Profile, BlockedContact } from "@shared/schema";
+import { useLanguageContext } from "@/contexts/language-context";
 
 const LANGUAGES = [
   "English", "Spanish", "French", "German", "Portuguese",
@@ -87,16 +88,6 @@ function useToggle(key: string, defaultVal = false): [boolean, (v: boolean) => v
   return [val, set];
 }
 
-function useLanguage(): [string, (l: string) => void] {
-  const [lang, setLangState] = useState<string>(() => {
-    try { return localStorage.getItem("settings_language") || "English"; } catch { return "English"; }
-  });
-  const setLang = (l: string) => {
-    setLangState(l);
-    try { localStorage.setItem("settings_language", l); } catch {}
-  };
-  return [lang, setLang];
-}
 
 type ActiveSheet = "selfie" | "blocklist" | "extras" | "language" | "units" | null;
 
@@ -126,7 +117,7 @@ export default function SettingsPage() {
   const [phoneInput, setPhoneInput] = useState("");
 
   // ── Language ──────────────────────────────────────────────────────────────
-  const [language, setLanguage] = useLanguage();
+  const { language, setLanguage } = useLanguageContext();
 
   // ── Units ─────────────────────────────────────────────────────────────────
   const [units, setUnits] = useUnits();
@@ -151,8 +142,17 @@ export default function SettingsPage() {
 
   const handleConnectProvider = async (provider: "google" | "apple") => {
     try {
-      await supabase.auth.linkIdentity({ provider } as any);
-      toast({ title: `Connecting to ${provider}…`, description: "Follow the popup to complete." });
+      const { data, error } = await supabase.auth.linkIdentity({
+        provider,
+        options: { redirectTo: `${window.location.origin}/settings` },
+      } as any);
+      if (error) throw error;
+      const url = (data as any)?.url;
+      if (url) {
+        window.location.href = url;
+      } else {
+        toast({ title: `Connecting to ${provider}…`, description: "Follow the popup to complete." });
+      }
     } catch (err: any) {
       toast({ title: "Could not connect", description: err?.message, variant: "destructive" });
     }
@@ -181,22 +181,30 @@ export default function SettingsPage() {
   const startCamera = useCallback(async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 640 } },
+        video: { facingMode: { ideal: "user" }, width: { ideal: 640 }, height: { ideal: 640 } },
+        audio: false,
       });
       streamRef.current = stream;
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        await videoRef.current.play();
-      }
-      setSelfieStep("camera");
+      setSelfieStep("camera"); // render <video> element first, then attach in useEffect
     } catch (err: any) {
-      toast({
-        title: "Camera access denied",
-        description: "Please allow camera access in your browser settings.",
-        variant: "destructive",
-      });
+      const description =
+        err?.name === "NotAllowedError"  ? "Camera permission denied. Please allow access in your browser settings." :
+        err?.name === "NotFoundError"    ? "No camera found on this device." :
+        err?.name === "NotReadableError" ? "Camera is in use by another app." :
+                                           "Please allow camera access in your browser settings.";
+      toast({ title: "Camera error", description, variant: "destructive" });
     }
   }, [toast]);
+
+  // Attach stream to <video> after "camera" step renders the element into the DOM
+  useEffect(() => {
+    if (selfieStep !== "camera") return;
+    const video = videoRef.current;
+    const stream = streamRef.current;
+    if (!video || !stream) return;
+    video.srcObject = stream;
+    video.play().catch(() => {});
+  }, [selfieStep]);
 
   const stopCamera = useCallback(() => {
     streamRef.current?.getTracks().forEach(t => t.stop());
@@ -288,6 +296,47 @@ export default function SettingsPage() {
   const [addName,  setAddName]  = useState("");
   const [addPhone, setAddPhone] = useState("");
   const [showAddForm, setShowAddForm] = useState(false);
+
+  // Contact Picker API
+  const hasContactPickerAPI = typeof navigator !== "undefined" && "contacts" in navigator;
+  const [pickedContacts, setPickedContacts] = useState<Array<{ name: string; tel: string }>>([]);
+  const [showPickedList, setShowPickedList] = useState(false);
+
+  const openContactPicker = async () => {
+    try {
+      const contacts = await (navigator as any).contacts.select(["name", "tel"], { multiple: true });
+      const valid: Array<{ name: string; tel: string }> = contacts.flatMap((c: any) => {
+        const name: string = c.name?.[0] ?? "";
+        return ((c.tel ?? []) as string[]).map((tel) => ({ name, tel: tel.trim() }));
+      }).filter((c: { name: string; tel: string }) => c.tel);
+      if (valid.length === 0) {
+        toast({ title: "No phone numbers in selection" });
+        return;
+      }
+      setPickedContacts(valid);
+      setShowPickedList(true);
+    } catch (err: any) {
+      if (err?.name !== "AbortError") {
+        toast({ title: "Couldn't access contacts", variant: "destructive" });
+      }
+    }
+  };
+
+  const bulkBlockMutation = useMutation({
+    mutationFn: (contacts: Array<{ name: string; tel: string }>) =>
+      Promise.all(contacts.map(c =>
+        apiRequest("POST", "/api/blocked-contacts", { name: c.name, phoneNumber: c.tel })
+      )),
+    onSuccess: (_data, contacts) => {
+      qc.invalidateQueries({ queryKey: ["/api/blocked-contacts"] });
+      setPickedContacts([]);
+      setShowPickedList(false);
+      toast({ title: `${contacts.length} contact${contacts.length !== 1 ? "s" : ""} blocked` });
+    },
+    onError: () => {
+      toast({ title: "Failed to block contacts", variant: "destructive" });
+    },
+  });
 
   const addContactMutation = useMutation({
     mutationFn: () => apiRequest("POST", "/api/blocked-contacts", { name: addName, phoneNumber: addPhone }),
@@ -762,7 +811,45 @@ export default function SettingsPage() {
               ))}
             </div>
 
-            {showAddForm ? (
+            {showPickedList ? (
+              <div className="rounded-xl border border-border p-4 space-y-3">
+                <p className="text-sm font-medium">Block these contacts?</p>
+                <div className="space-y-2 max-h-48 overflow-y-auto">
+                  {pickedContacts.map((c, i) => (
+                    <div key={i} className="flex items-center justify-between gap-2 px-3 py-2 rounded-lg bg-muted/50 text-sm">
+                      <div className="min-w-0">
+                        {c.name && <p className="font-medium truncate">{c.name}</p>}
+                        <p className="text-xs text-muted-foreground">{c.tel}</p>
+                      </div>
+                      <button
+                        className="shrink-0 text-muted-foreground hover:text-destructive transition-colors"
+                        onClick={() => setPickedContacts(prev => prev.filter((_, idx) => idx !== i))}
+                        aria-label="Remove"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline" size="sm"
+                    onClick={() => { setPickedContacts([]); setShowPickedList(false); }}
+                    data-testid="button-cancel-picked-contacts"
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    size="sm"
+                    disabled={pickedContacts.length === 0 || bulkBlockMutation.isPending}
+                    onClick={() => bulkBlockMutation.mutate(pickedContacts)}
+                    data-testid="button-confirm-block-contacts"
+                  >
+                    {bulkBlockMutation.isPending ? "Blocking…" : `Block ${pickedContacts.length}`}
+                  </Button>
+                </div>
+              </div>
+            ) : showAddForm ? (
               <div className="rounded-xl border border-border p-4 space-y-3">
                 <p className="text-sm font-medium">Block a contact</p>
                 <Input
@@ -798,14 +885,26 @@ export default function SettingsPage() {
                 </div>
               </div>
             ) : (
-              <button
-                className="flex items-center gap-2 text-sm text-primary font-medium py-2"
-                onClick={() => setShowAddForm(true)}
-                data-testid="button-add-blocked-contact"
-              >
-                <Plus className="w-4 h-4" />
-                Add contact to block
-              </button>
+              <div className="flex flex-col gap-1 pt-1">
+                {hasContactPickerAPI && (
+                  <button
+                    className="flex items-center gap-2 text-sm text-primary font-medium py-2"
+                    onClick={openContactPicker}
+                    data-testid="button-import-contacts"
+                  >
+                    <Users className="w-4 h-4" />
+                    Import from contacts
+                  </button>
+                )}
+                <button
+                  className="flex items-center gap-2 text-sm text-primary font-medium py-2"
+                  onClick={() => setShowAddForm(true)}
+                  data-testid="button-add-blocked-contact"
+                >
+                  <Plus className="w-4 h-4" />
+                  Add manually
+                </button>
+              </div>
             )}
           </div>
         </SheetContent>

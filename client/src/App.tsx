@@ -70,6 +70,7 @@ if (typeof window !== "undefined") {
   console.log("[STARTUP_AUDIO] stopped before auth");
 }
 import { TabActiveContext } from "@/hooks/use-tab-active";
+import { LanguageProvider } from "@/contexts/language-context";
 
 // ── Per-tab error boundary ────────────────────────────────────────────────────
 // Wraps each persistent tab so a crash in one tab does not kill the others.
@@ -1598,17 +1599,19 @@ function App() {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <AuthProvider>
-        <TooltipProvider>
-          <Toaster />
-          <AppContent />
-          {import.meta.env.DEV && PerfOverlayLazy && (
-            <Suspense fallback={null}>
-              <PerfOverlayLazy />
-            </Suspense>
-          )}
-        </TooltipProvider>
-      </AuthProvider>
+      <LanguageProvider>
+        <AuthProvider>
+          <TooltipProvider>
+            <Toaster />
+            <AppContent />
+            {import.meta.env.DEV && PerfOverlayLazy && (
+              <Suspense fallback={null}>
+                <PerfOverlayLazy />
+              </Suspense>
+            )}
+          </TooltipProvider>
+        </AuthProvider>
+      </LanguageProvider>
     </QueryClientProvider>
   );
 }
