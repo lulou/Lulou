@@ -117,7 +117,7 @@ export default function SettingsPage() {
   const [phoneInput, setPhoneInput] = useState("");
 
   // ── Language ──────────────────────────────────────────────────────────────
-  const { language, setLanguage } = useLanguageContext();
+  const { language, setLanguage, t } = useLanguageContext();
 
   // ── Units ─────────────────────────────────────────────────────────────────
   const [units, setUnits] = useUnits();
@@ -178,6 +178,20 @@ export default function SettingsPage() {
   const streamRef  = useRef<MediaStream | null>(null);
   const canvasRef  = useRef<HTMLCanvasElement>(null);
 
+  // Face alignment detection
+  const [faceAligned, setFaceAligned]         = useState<null | boolean>(null);
+  const faceDetectorRef                        = useRef<any>(null);
+  const faceDetectIntervalRef                  = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Initialise FaceDetector once (Chromium-only API; no-op elsewhere)
+  useEffect(() => {
+    if (typeof window !== "undefined" && "FaceDetector" in window) {
+      try {
+        faceDetectorRef.current = new (window as any).FaceDetector({ maxDetectedFaces: 1, fastMode: true });
+      } catch { /* unsupported */ }
+    }
+  }, []);
+
   const startCamera = useCallback(async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -206,8 +220,70 @@ export default function SettingsPage() {
     video.play().catch(() => {});
   }, [selfieStep]);
 
+  // Face detection polling — runs while camera is live
+  useEffect(() => {
+    if (selfieStep !== "camera") {
+      setFaceAligned(null);
+      if (faceDetectIntervalRef.current) clearInterval(faceDetectIntervalRef.current);
+      return;
+    }
+
+    const detectFace = async () => {
+      const video = videoRef.current;
+      if (!video || video.readyState < 2 || video.videoWidth === 0) return;
+
+      if (faceDetectorRef.current) {
+        // FaceDetector API path (Chromium 123+)
+        try {
+          const faces = await faceDetectorRef.current.detect(video);
+          if (faces.length === 0) { setFaceAligned(false); return; }
+          const face = faces[0].boundingBox;
+          const vw = video.videoWidth, vh = video.videoHeight;
+          const cx = (face.x + face.width / 2) / vw;
+          const cy = (face.y + face.height / 2) / vh;
+          const dist = Math.sqrt((cx - 0.5) ** 2 + (cy - 0.5) ** 2);
+          const faceW = face.width / vw;
+          setFaceAligned(dist < 0.30 && faceW > 0.18 && faceW < 0.85);
+        } catch { setFaceAligned(null); }
+      } else {
+        // Canvas skin-tone fallback for Firefox / Safari
+        const offscreen = document.createElement("canvas");
+        offscreen.width = 64; offscreen.height = 64;
+        const ctx = offscreen.getContext("2d");
+        if (!ctx) return;
+        ctx.drawImage(video, 0, 0, 64, 64);
+        const { data } = ctx.getImageData(16, 16, 32, 32);
+        let skinPx = 0;
+        for (let i = 0; i < data.length; i += 4) {
+          const r = data[i], g = data[i + 1], b = data[i + 2];
+          if (r > 60 && g > 30 && b > 15 && r > g && r > b && r < 250 && r - b > 20 && r - g > 10) skinPx++;
+        }
+        setFaceAligned(skinPx / (32 * 32) > 0.22);
+      }
+    };
+
+    // First check after a short delay so the video has time to start
+    const warmUp = setTimeout(() => {
+      detectFace();
+      faceDetectIntervalRef.current = setInterval(detectFace, 400);
+    }, 600);
+
+    return () => {
+      clearTimeout(warmUp);
+      if (faceDetectIntervalRef.current) {
+        clearInterval(faceDetectIntervalRef.current);
+        faceDetectIntervalRef.current = null;
+      }
+    };
+  }, [selfieStep]);
+
   const stopCamera = useCallback(() => {
-    streamRef.current?.getTracks().forEach(t => t.stop());
+    if (faceDetectIntervalRef.current) {
+      clearInterval(faceDetectIntervalRef.current);
+      faceDetectIntervalRef.current = null;
+    }
+    setFaceAligned(null);
+    streamRef.current?.getTracks().forEach(track => track.stop());
     streamRef.current = null;
   }, []);
 
@@ -303,6 +379,10 @@ export default function SettingsPage() {
   const [showPickedList, setShowPickedList] = useState(false);
 
   const openContactPicker = async () => {
+    if (typeof navigator === "undefined" || !("contacts" in navigator)) {
+      toast({ title: t("access_contacts"), description: "Contact Picker is not supported on this device or browser.", variant: "destructive" });
+      return;
+    }
     try {
       const contacts = await (navigator as any).contacts.select(["name", "tel"], { multiple: true });
       const valid: Array<{ name: string; tel: string }> = contacts.flatMap((c: any) => {
@@ -711,17 +791,44 @@ export default function SettingsPage() {
                     data-testid="video-selfie-camera"
                   />
                   <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                    <div className="w-48 h-48 rounded-full border-2 border-white/50" />
+                    <div
+                      className={`w-48 h-48 rounded-full border-[3px] transition-all duration-300 ${
+                        faceAligned === true
+                          ? "border-green-400 shadow-[0_0_20px_rgba(74,222,128,0.5)]"
+                          : faceAligned === false
+                          ? "border-red-400/80"
+                          : "border-white/40"
+                      }`}
+                    />
                   </div>
                 </div>
                 <canvas ref={canvasRef} className="hidden" />
-                <p className="text-xs text-muted-foreground text-center">Position your face in the circle</p>
+                <p
+                  className={`text-xs text-center transition-colors duration-300 ${
+                    faceAligned === true
+                      ? "text-green-500"
+                      : faceAligned === false
+                      ? "text-red-400"
+                      : "text-muted-foreground"
+                  }`}
+                  data-testid="text-face-alignment"
+                >
+                  {faceAligned === true
+                    ? t("face_aligned_text")
+                    : faceAligned === false
+                    ? t("face_not_aligned")
+                    : t("position_face")}
+                </p>
                 <div className="flex gap-3">
                   <Button variant="outline" onClick={() => { stopCamera(); setSelfieStep("idle"); }} data-testid="button-cancel-camera">
-                    Cancel
+                    {t("cancel")}
                   </Button>
-                  <Button onClick={capturePhoto} data-testid="button-capture-photo">
-                    Take photo
+                  <Button
+                    onClick={capturePhoto}
+                    disabled={faceAligned !== true}
+                    data-testid="button-capture-photo"
+                  >
+                    {t("take_photo")}
                   </Button>
                 </div>
               </div>
@@ -886,23 +993,21 @@ export default function SettingsPage() {
               </div>
             ) : (
               <div className="flex flex-col gap-1 pt-1">
-                {hasContactPickerAPI && (
-                  <button
-                    className="flex items-center gap-2 text-sm text-primary font-medium py-2"
-                    onClick={openContactPicker}
-                    data-testid="button-import-contacts"
-                  >
-                    <Users className="w-4 h-4" />
-                    Import from contacts
-                  </button>
-                )}
+                <button
+                  className="flex items-center gap-2 text-sm text-primary font-medium py-2"
+                  onClick={openContactPicker}
+                  data-testid="button-import-contacts"
+                >
+                  <Users className="w-4 h-4" />
+                  {t("access_contacts")}
+                </button>
                 <button
                   className="flex items-center gap-2 text-sm text-primary font-medium py-2"
                   onClick={() => setShowAddForm(true)}
                   data-testid="button-add-blocked-contact"
                 >
                   <Plus className="w-4 h-4" />
-                  Add manually
+                  {t("add_manually")}
                 </button>
               </div>
             )}

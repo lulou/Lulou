@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback, useMemo, memo, Fragment, type ReactNode } from "react";
+import { useLanguageContext } from "@/contexts/language-context";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -50,6 +51,7 @@ function formatTime(seconds: number): string {
 }
 
 function CallTimer({ match, onComplete, isFaceCall }: { match: MatchDetail; onComplete: (connectedDurationMs: number) => void; isFaceCall?: boolean }) {
+  const { t } = useLanguageContext();
   const callStage = match.callStage || 0;
   const duration = getCallDuration(callStage);
   const CallIcon = isFaceCall ? Video : Phone;
@@ -77,7 +79,7 @@ function CallTimer({ match, onComplete, isFaceCall }: { match: MatchDetail; onCo
   const progress = remaining / duration;
   const isLow = remaining <= 60;
 
-  const stageLabel = isFaceCall ? "Face call" : callStage === 0 ? "First call" : "Second call";
+  const stageLabel = isFaceCall ? t("face_call_label") : callStage === 0 ? t("first_call") : t("second_call");
   const completeMessage = callStage === 0
     ? "Great first call! Ready for a longer conversation?"
     : callStage === 1
@@ -110,11 +112,11 @@ function CallTimer({ match, onComplete, isFaceCall }: { match: MatchDetail; onCo
 
         {remaining > 0 ? (
           <div className="space-y-2">
-            <p className="font-medium text-sm">{stageLabel} in progress</p>
+            <p className="font-medium text-sm">{stageLabel} {t("call_in_progress")}</p>
             <p className="text-xs text-muted-foreground">
               {remaining <= 60
-                ? "Less than a minute remaining"
-                : `${Math.ceil(remaining / 60)} minutes remaining`}
+                ? t("less_than_minute")
+                : `${Math.ceil(remaining / 60)} ${t("minutes_remaining_label")}`}
             </p>
             <Button
               size="sm"
@@ -122,19 +124,19 @@ function CallTimer({ match, onComplete, isFaceCall }: { match: MatchDetail; onCo
               onClick={() => onComplete((duration - remaining) * 1000)}
               data-testid={`button-end-call-${match.id}`}
             >
-              <PhoneOff className="w-4 h-4 mr-2" /> End Call
+              <PhoneOff className="w-4 h-4 mr-2" /> {t("end_call")}
             </Button>
           </div>
         ) : (
           <div className="space-y-2">
-            <p className="font-medium text-sm">Time's up!</p>
+            <p className="font-medium text-sm">{t("time_up")}</p>
             <p className="text-xs text-muted-foreground">{completeMessage}</p>
             <Button
               size="sm"
               onClick={() => onComplete(duration * 1000)}
               data-testid={`button-finish-call-${match.id}`}
             >
-              Complete Call
+              {t("complete_call")}
             </Button>
           </div>
         )}

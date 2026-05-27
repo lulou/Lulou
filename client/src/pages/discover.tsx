@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback, useMemo, memo } from "react";
+import { useLanguageContext } from "@/contexts/language-context";
 import { usePerfTrace, useRenderCount, isMobile, scheduleIdle } from "@/lib/perf";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -303,6 +304,7 @@ const SlideCards = memo(function SlideCards({ items, type, onReply }: { items: s
 const MAX_POOL_SIZE = 60;
 
 export default function Discover() {
+  const { t } = useLanguageContext();
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -463,7 +465,7 @@ export default function Discover() {
       if (data?.skipped) return;
       if (data?.matched) {
         toast({
-          title: "It's mutual",
+          title: t("its_mutual"),
           description: `You and ${data.profileId ? accumulatedProfiles.find(p => p.userId === data.profileId)?.firstName : currentProfile?.firstName} both opened up.`,
         });
         queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
@@ -477,10 +479,10 @@ export default function Discover() {
 
   const handleReply = useCallback((_promptText: string, _reply: string) => {
     toast({
-      title: "Reply noted",
+      title: t("reply_noted"),
       description: `When you match with ${currentProfile?.firstName}, your reply will be sent as your first message.`,
     });
-  }, [toast, currentProfile?.firstName]);
+  }, [toast, t, currentProfile?.firstName]);
 
   // ─── STEP 2: Minimal render — confirms routing/layout works ─────────────────
   const STEP2_MINIMAL = false;
@@ -508,14 +510,14 @@ export default function Discover() {
             <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center mx-auto">
               <LulouFlowerIcon className="w-8 h-8 text-primary/60" />
             </div>
-            <h2 className="font-serif text-xl font-bold" data-testid="text-discover-slow">Still loading profiles…</h2>
+            <h2 className="font-serif text-xl font-bold" data-testid="text-discover-slow">{t("loading_slow")}</h2>
             <p className="text-muted-foreground text-sm">This is taking longer than usual. Tap retry to try again.</p>
             <button
               className="px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm font-medium"
               onClick={() => { setLoadingTooLong(false); refetch(); }}
               data-testid="button-retry-discover-slow"
             >
-              Retry
+              {t("retry")}
             </button>
           </div>
         </div>
@@ -544,14 +546,14 @@ export default function Discover() {
           <div className="w-16 h-16 rounded-full bg-destructive/10 flex items-center justify-center mx-auto">
             <LulouFlowerIcon className="w-8 h-8 text-primary/60" />
           </div>
-          <h2 className="font-serif text-xl font-bold" data-testid="text-discover-error">Couldn't load profiles</h2>
-          <p className="text-muted-foreground text-sm">Something went wrong loading discovery. Your connection is fine.</p>
+          <h2 className="font-serif text-xl font-bold" data-testid="text-discover-error">{t("error_load_profiles")}</h2>
+          <p className="text-muted-foreground text-sm">{t("something_went_wrong")}</p>
           <button
             className="px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm font-medium"
             onClick={() => refetch()}
             data-testid="button-retry-discover"
           >
-            Try Again
+            {t("try_again")}
           </button>
         </div>
       </div>
@@ -565,9 +567,9 @@ export default function Discover() {
           <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center mx-auto">
             <LulouFlowerIcon className="w-8 h-8 text-primary" />
           </div>
-          <h2 className="font-serif text-2xl font-bold" data-testid="text-no-profiles">That's everyone for now</h2>
+          <h2 className="font-serif text-2xl font-bold" data-testid="text-no-profiles">{t("all_caught_up")}</h2>
           <p className="text-muted-foreground text-sm leading-relaxed">
-            Take a breath. New people join Lulou every day. We'll let you know when someone new arrives.
+            {t("all_caught_up_desc")}
           </p>
         </div>
       </div>
@@ -625,7 +627,7 @@ export default function Discover() {
                   <div className="space-y-3" data-testid="section-conversation-starters">
                     <div className="flex items-center gap-1.5">
                       <MessageCircle className="w-3.5 h-3.5 text-primary" />
-                      <p className="text-xs font-medium tracking-wider uppercase text-primary">Conversation Starters</p>
+                      <p className="text-xs font-medium tracking-wider uppercase text-primary">{t("conversation_starters")}</p>
                     </div>
                     <SlideCards items={conversationStarters} type="starter" onReply={handleReply} />
                   </div>
@@ -635,7 +637,7 @@ export default function Discover() {
                   <div className="space-y-3" data-testid="section-questions">
                     <div className="flex items-center gap-1.5">
                       <HelpCircle className="w-3.5 h-3.5 text-primary" />
-                      <p className="text-xs font-medium tracking-wider uppercase text-primary">Ask Me</p>
+                      <p className="text-xs font-medium tracking-wider uppercase text-primary">{t("ask_me")}</p>
                     </div>
                     <SlideCards items={questions} type="question" onReply={handleReply} />
                   </div>
@@ -658,7 +660,7 @@ export default function Discover() {
                 </div>
 
                 <div className="space-y-2">
-                  <p className="text-xs font-medium tracking-wider uppercase text-primary">Personality</p>
+                  <p className="text-xs font-medium tracking-wider uppercase text-primary">{t("personality")}</p>
                   <DragScrollRow>
                     {signals.map(signal => (
                       <Badge key={signal} variant="secondary" className="text-sm py-1.5 px-3 shrink-0 no-default-active-elevate" data-testid={`badge-signal-${signal}`}>
@@ -669,12 +671,12 @@ export default function Discover() {
                 </div>
 
                 <div className="space-y-2">
-                  <p className="text-xs font-medium tracking-wider uppercase text-primary">Looking for</p>
+                  <p className="text-xs font-medium tracking-wider uppercase text-primary">{t("looking_for")}</p>
                   <p className="font-medium" data-testid="text-profile-intent">{displayProfile.datingIntent}</p>
                 </div>
 
                 <div className="space-y-2">
-                  <p className="text-xs font-medium tracking-wider uppercase text-primary">Green Flags</p>
+                  <p className="text-xs font-medium tracking-wider uppercase text-primary">{t("green_flags_label")}</p>
                   <DragScrollRow>
                     {greenFlags.map(flag => (
                       <Badge key={flag} variant="outline" className="text-sm py-1.5 px-3 shrink-0 no-default-active-elevate" data-testid={`badge-flag-${flag}`}>
@@ -685,7 +687,7 @@ export default function Discover() {
                 </div>
 
                 <div className="space-y-2">
-                  <p className="text-xs font-medium tracking-wider uppercase text-primary">Pace</p>
+                  <p className="text-xs font-medium tracking-wider uppercase text-primary">{t("pace_label")}</p>
                   <p className="font-medium" data-testid="text-profile-style">{displayProfile.connectionStyle}</p>
                 </div>
               </div>

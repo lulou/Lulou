@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+import { useLanguageContext } from "@/contexts/language-context";
 import { usePerfTrace, useRenderCount, isMobile, scheduleIdle } from "@/lib/perf";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card } from "@/components/ui/card";
@@ -684,6 +685,7 @@ function LikeCard({
 // ─── Main Page ─────────────────────────────────────────────────────────────────
 
 export default function LikesPage() {
+  const { t } = useLanguageContext();
   const [celebration, setCelebration] = useState<MatchCelebration | null>(null);
   const [showFullMessage, setShowFullMessage] = useState(false);
   const [showElevate, setShowElevate] = useState(false);
@@ -767,14 +769,14 @@ export default function LikesPage() {
       <div className="flex-1 flex items-center justify-center p-6">
         <div className="text-center space-y-4 max-w-sm">
           <Eye className="w-10 h-10 text-muted-foreground/40 mx-auto" />
-          <h2 className="font-serif text-xl font-bold" data-testid="text-likes-error">Couldn't load likes</h2>
-          <p className="text-sm text-muted-foreground">Something went wrong. Your account is fine.</p>
+          <h2 className="font-serif text-xl font-bold" data-testid="text-likes-error">{t("couldnt_load_likes")}</h2>
+          <p className="text-sm text-muted-foreground">{t("something_went_wrong")}</p>
           <button
             className="px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm font-medium"
             onClick={() => refetchLikes()}
             data-testid="button-retry-likes"
           >
-            Try Again
+            {t("try_again")}
           </button>
         </div>
       </div>
@@ -803,10 +805,10 @@ export default function LikesPage() {
 
             <div className="space-y-2">
               <h2 className="font-serif text-2xl font-bold" data-testid="text-no-likes">
-                No likes yet
+                {t("no_likes_yet")}
               </h2>
               <p className="text-muted-foreground text-sm leading-relaxed">
-                Elevate your profile to be seen by more people faster
+                {t("no_likes_desc")}
               </p>
             </div>
 
@@ -817,7 +819,7 @@ export default function LikesPage() {
                 data-testid="button-elevate-cta"
               >
                 <Sparkles className="w-4 h-4" />
-                Elevate Your Profile
+                {t("elevate_profile_btn")}
                 <ChevronRight className="w-4 h-4 ml-auto opacity-70" />
               </button>
             )}
@@ -840,7 +842,7 @@ export default function LikesPage() {
           <div className="flex items-center justify-between gap-2 flex-wrap">
             <div className="flex items-center gap-2">
               <Eye className="w-5 h-5 text-primary" />
-              <h1 className="font-serif text-2xl font-bold" data-testid="text-likes-title">Who Liked You</h1>
+              <h1 className="font-serif text-2xl font-bold" data-testid="text-likes-title">{t("who_liked_you")}</h1>
             </div>
             <div className="flex items-center gap-2">
               <Badge variant="secondary" className="text-xs" data-testid="badge-likes-count">
