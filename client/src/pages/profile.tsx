@@ -13,6 +13,7 @@ import { upsertProfile, cleanErrorMessage, withRetry } from "@/lib/profile-upser
 import { apiRequest } from "@/lib/queryClient";
 import { convertPhotoToJpeg, recompressPhotoDataUrl, uploadPhotoToStorage, OVERSIZED_THRESHOLD } from "@/lib/photo-utils";
 import { supabase } from "@/lib/supabase";
+import { useLanguageContext } from "@/contexts/language-context";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -44,6 +45,7 @@ export default function ProfilePage() {
   const { user } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const { t } = useLanguageContext();
   const [expandedSection, setExpandedSection] = useState<string | null>(null);
 
   const _mountMs = useRef(performance.now());
@@ -645,7 +647,7 @@ export default function ProfilePage() {
             data-testid="button-edit-profile"
           >
             <Pencil className="w-3 h-3" />
-            Edit Profile
+            {t("edit_profile")}
             <ChevronRight className={`w-3 h-3 transition-transform ${expandedSection === "settings" ? "rotate-90" : ""}`} />
           </Button>
         </div>
@@ -653,10 +655,10 @@ export default function ProfilePage() {
 
       {expandedSection === "settings" && (
         <Card className="p-5 space-y-4" data-testid="section-settings">
-          <p className="font-medium text-sm">Edit Profile</p>
+          <p className="font-medium text-sm">{t("edit_profile")}</p>
           <div className="space-y-3">
             <div className="space-y-1.5">
-              <Label htmlFor="settings-location" className="text-xs">Location</Label>
+              <Label htmlFor="settings-location" className="text-xs">{t("label_location")}</Label>
               <Input
                 id="settings-location"
                 value={settingsForm.location || ""}
@@ -666,7 +668,7 @@ export default function ProfilePage() {
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="settings-height" className="text-xs">Height</Label>
+              <Label htmlFor="settings-height" className="text-xs">{t("label_height")}</Label>
               <Input
                 id="settings-height"
                 value={settingsForm.height || ""}
@@ -676,7 +678,7 @@ export default function ProfilePage() {
               />
             </div>
             <div className="space-y-1.5">
-              <Label className="text-xs">Who you want to date</Label>
+              <Label className="text-xs">{t("label_dating_pref")}</Label>
               <Select
                 value={settingsForm.datingPreference || ""}
                 onValueChange={v => setSettingsForm(prev => ({ ...prev, datingPreference: v }))}
@@ -695,7 +697,7 @@ export default function ProfilePage() {
               </Select>
             </div>
             <div className="space-y-1.5">
-              <Label className="text-xs">Dating intent</Label>
+              <Label className="text-xs">{t("label_intent")}</Label>
               <Select
                 value={settingsForm.datingIntent || ""}
                 onValueChange={v => setSettingsForm(prev => ({ ...prev, datingIntent: v }))}
@@ -711,7 +713,7 @@ export default function ProfilePage() {
               </Select>
             </div>
             <div className="space-y-1.5">
-              <Label className="text-xs">Connection style</Label>
+              <Label className="text-xs">{t("section_connection_style")}</Label>
               <Select
                 value={settingsForm.connectionStyle || ""}
                 onValueChange={v => setSettingsForm(prev => ({ ...prev, connectionStyle: v }))}
@@ -733,7 +735,7 @@ export default function ProfilePage() {
             className="w-full"
             data-testid="button-save-settings"
           >
-            {saveSettings.isPending ? "Saving..." : "Save Changes"}
+            {saveSettings.isPending ? t("saving_msg") : t("save_changes")}
           </Button>
         </Card>
       )}
@@ -748,7 +750,7 @@ export default function ProfilePage() {
             data-testid="button-toggle-photos"
           >
             <Camera className="w-4 h-4 text-primary" />
-            <span className="text-xs font-medium tracking-wider uppercase text-muted-foreground">Photos</span>
+            <span className="text-xs font-medium tracking-wider uppercase text-muted-foreground">{t("section_photos")}</span>
             {profile.photos && profile.photos.length > 0 && (
               <span className="text-xs text-muted-foreground">({profile.photos.length})</span>
             )}
@@ -756,7 +758,7 @@ export default function ProfilePage() {
           </Button>
           {showPhotos && !editingPhotos && (
             <Button size="sm" variant="ghost" onClick={startEditingPhotos} data-testid="button-edit-photos">
-              <Pencil className="w-3.5 h-3.5 mr-1.5" /> Edit Photos
+              <Pencil className="w-3.5 h-3.5 mr-1.5" /> {t("edit_photos_btn")}
             </Button>
           )}
           {showPhotos && editingPhotos && (
@@ -789,7 +791,7 @@ export default function ProfilePage() {
                 />
                 <div className="absolute bottom-0 inset-x-0 flex items-center justify-center pb-1.5 pointer-events-none">
                   <span className="text-white text-[10px] font-medium bg-black/50 px-2 py-0.5 rounded-full leading-none">
-                    tap to replace
+                    {t("tap_to_replace_lbl")}
                   </span>
                 </div>
                 <button
@@ -810,7 +812,7 @@ export default function ProfilePage() {
                 data-testid="button-add-photo"
               >
                 <ImagePlus className="w-6 h-6 text-muted-foreground/50" />
-                <span className="text-xs text-muted-foreground/50">Add photo</span>
+                <span className="text-xs text-muted-foreground/50">{t("add_photo_btn")}</span>
               </button>
             )}
           </div>
@@ -843,14 +845,14 @@ export default function ProfilePage() {
             data-testid="button-add-first-photo"
           >
             <ImagePlus className="w-8 h-8 text-muted-foreground/50" />
-            <span className="text-xs text-muted-foreground/50">Add photos</span>
+            <span className="text-xs text-muted-foreground/50">{t("add_photos_btn")}</span>
           </button>
         ))}
       </div>
 
       <Card className="p-5 space-y-4">
         <div className="space-y-2">
-          <p className="text-xs font-medium tracking-wider uppercase text-primary">Personality Signals</p>
+          <p className="text-xs font-medium tracking-wider uppercase text-primary">{t("section_personality")}</p>
           <DragScrollRow>
             {profile.signals?.map(signal => (
               <Badge key={signal} variant="secondary" className="text-sm py-1.5 px-3 shrink-0 no-default-active-elevate" data-testid={`badge-my-signal-${signal}`}>
@@ -861,12 +863,12 @@ export default function ProfilePage() {
         </div>
 
         <div className="space-y-2">
-          <p className="text-xs font-medium tracking-wider uppercase text-primary">Looking For</p>
+          <p className="text-xs font-medium tracking-wider uppercase text-primary">{t("section_looking_for")}</p>
           <p className="font-medium" data-testid="text-my-intent">{profile.datingIntent}</p>
         </div>
 
         <div className="space-y-2">
-          <p className="text-xs font-medium tracking-wider uppercase text-primary">Green Flags</p>
+          <p className="text-xs font-medium tracking-wider uppercase text-primary">{t("section_green_flags")}</p>
           <DragScrollRow>
             {profile.greenFlags?.map(flag => (
               <Badge key={flag} variant="outline" className="text-sm py-1.5 px-3 shrink-0 no-default-active-elevate" data-testid={`badge-my-flag-${flag}`}>
@@ -877,7 +879,7 @@ export default function ProfilePage() {
         </div>
 
         <div className="space-y-2">
-          <p className="text-xs font-medium tracking-wider uppercase text-primary">Connection Style</p>
+          <p className="text-xs font-medium tracking-wider uppercase text-primary">{t("section_connection_style")}</p>
           <p className="font-medium" data-testid="text-my-style">{profile.connectionStyle}</p>
         </div>
       </Card>
@@ -886,7 +888,7 @@ export default function ProfilePage() {
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-1.5">
             <MessageSquare className="w-4 h-4 text-primary" />
-            <p className="text-xs font-medium tracking-wider uppercase text-muted-foreground">Conversation Starters</p>
+            <p className="text-xs font-medium tracking-wider uppercase text-muted-foreground">{t("conversation_starters")}</p>
           </div>
           {!editingStarters ? (
             <Button size="sm" variant="ghost" onClick={startEditingStarters} data-testid="button-edit-starters">
@@ -920,7 +922,7 @@ export default function ProfilePage() {
                 );
               })}
             </div>
-            <p className="text-xs text-muted-foreground">{editStarters.length}/3 selected (min 2)</p>
+            <p className="text-xs text-muted-foreground">{editStarters.length}/3 {t("selected_min2")}</p>
             {editStarters.map(starter => (
               <div key={starter} className="space-y-1.5">
                 <p className="text-sm font-medium text-primary">{starter}</p>
@@ -943,7 +945,7 @@ export default function ProfilePage() {
             ))}
           </div>
         ) : (
-          <p className="text-sm text-muted-foreground">No conversation starters yet. Tap Edit to add some.</p>
+          <p className="text-sm text-muted-foreground">{t("no_starters_msg")}</p>
         )}
       </div>
 
@@ -951,7 +953,7 @@ export default function ProfilePage() {
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-1.5">
             <HelpCircle className="w-4 h-4 text-primary" />
-            <p className="text-xs font-medium tracking-wider uppercase text-muted-foreground">Questions</p>
+            <p className="text-xs font-medium tracking-wider uppercase text-muted-foreground">{t("profile_questions")}</p>
           </div>
           {!editingQuestions ? (
             <Button size="sm" variant="ghost" onClick={startEditingQuestions} data-testid="button-edit-questions">

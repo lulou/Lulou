@@ -429,10 +429,20 @@ function CallDetectors({ userId }: { userId: string }) {
   }, [matches]);
   useCallSignaling(matchIds, userId);
 
-  const rerMatch = useMemo(() => matches?.find(m =>
-    !!(m.callStartedAt && m.callSessionId && !m.callAnswered && !m.callCompleted && m.callInitiatorId === userId) &&
-    new Date(m.callStartedAt!).getTime() >= APP_LOAD_TIME
-  ), [matches, userId]);
+  const rerMatch = useMemo(() => matches?.find(m => {
+    if (!(m.callStartedAt && m.callSessionId && !m.callAnswered && !m.callCompleted && m.callInitiatorId === userId)) return false;
+    if (new Date(m.callStartedAt!).getTime() < APP_LOAD_TIME) return false;
+    // Guard 1: only rering if the session is still armed by startCall.onSuccess.
+    // When markCallEnded calls disarmCallSession, isArmedSession returns false and
+    // rererings stop immediately — even if the 10 s DB poll returns a stale row.
+    if (!isArmedSession(m.callSessionId)) return false;
+    // Guard 2: belt-and-suspenders against the endedMatchIds ref set by markCallEnded.
+    if (endedMatchIdsRef.current.has(m.id)) return false;
+    // Guard 3: match the 90-second stale cutoff used by callerRingingCall so both
+    // the caller overlay and the rering mechanism stop at the same boundary.
+    if (Date.now() - new Date(m.callStartedAt!).getTime() > 90_000) return false;
+    return true;
+  }), [matches, userId, armedTick, endedTick]);
   const rerMatchId = rerMatch?.id;
   const rerSessionId = rerMatch?.callSessionId;
   useEffect(() => {
@@ -561,6 +571,7 @@ function CallDetectors({ userId }: { userId: string }) {
           : "callee-side: blocked until live rering lifts the hold",
       });
 
+      stopAllNonVoiceCallAudio("startup_sweep");
       markStartupCancelledSession(m.id, m.callSessionId);
       clearCallFromCache(qc, m.id);
     }

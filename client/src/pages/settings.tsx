@@ -89,7 +89,7 @@ function useToggle(key: string, defaultVal = false): [boolean, (v: boolean) => v
 }
 
 
-type ActiveSheet = "selfie" | "blocklist" | "extras" | "language" | "units" | "privacy" | "terms" | "download_data" | "safety" | "principles" | null;
+type ActiveSheet = "selfie" | "blocklist" | "extras" | "language" | "units" | "privacy" | "terms" | "download_data" | "safety" | "principles" | "licences" | "privacy_prefs" | null;
 
 export default function SettingsPage() {
   const [, navigate] = useLocation();
@@ -742,6 +742,18 @@ export default function SettingsPage() {
             onPress={() => setActiveSheet("principles")}
             testId="button-member-principles"
           />
+          <SettingRow
+            icon={<FileText className="w-[18px] h-[18px] text-muted-foreground" />}
+            label={t("licences")}
+            onPress={() => setActiveSheet("licences")}
+            testId="button-licences"
+          />
+          <SettingRow
+            icon={<Lock className="w-[18px] h-[18px] text-muted-foreground" />}
+            label={t("privacy_preferences")}
+            onPress={() => setActiveSheet("privacy_prefs")}
+            testId="button-privacy-preferences"
+          />
 
           <p className="text-center text-xs text-muted-foreground/40 pt-8 pb-2 select-none">
             Lulou Dating · v1.0
@@ -1336,6 +1348,70 @@ export default function SettingsPage() {
                 </div>
               </div>
             ))}
+          </div>
+        </SheetContent>
+      </Sheet>
+
+      <Sheet open={activeSheet === "licences"} onOpenChange={open => !open && setActiveSheet(null)}>
+        <SheetContent side="bottom" className="h-[90vh] flex flex-col p-0">
+          <SheetHeader className="px-5 pt-5 pb-3 border-b shrink-0">
+            <SheetTitle className="font-serif">{t("licences")}</SheetTitle>
+          </SheetHeader>
+          <div className="flex-1 overflow-y-auto px-5 pb-10 pt-5 space-y-6">
+            <p className="text-sm text-muted-foreground">Lulou Dating is built with open-source software. We gratefully acknowledge the following projects:</p>
+            {[
+              { name: "React", licence: "MIT", desc: "A JavaScript library for building user interfaces." },
+              { name: "Vite", licence: "MIT", desc: "Next generation frontend tooling." },
+              { name: "Tailwind CSS", licence: "MIT", desc: "A utility-first CSS framework." },
+              { name: "Radix UI / shadcn/ui", licence: "MIT", desc: "Accessible component primitives." },
+              { name: "Express", licence: "MIT", desc: "Fast, unopinionated web framework for Node.js." },
+              { name: "Supabase", licence: "Apache 2.0", desc: "Open-source Firebase alternative with Postgres." },
+              { name: "Drizzle ORM", licence: "Apache 2.0", desc: "TypeScript ORM for SQL databases." },
+              { name: "TanStack Query", licence: "MIT", desc: "Powerful data-fetching and caching for React." },
+              { name: "Lucide Icons", licence: "ISC", desc: "Beautiful & consistent open-source icons." },
+              { name: "Wouter", licence: "ISC", desc: "Minimalist routing for React." },
+              { name: "Zod", licence: "MIT", desc: "TypeScript-first schema validation." },
+              { name: "WebRTC (browser native)", licence: "W3C / IETF", desc: "Real-time peer-to-peer audio and video." },
+            ].map(lib => (
+              <div key={lib.name} className="border-b border-border/50 pb-4 last:border-0">
+                <div className="flex items-center justify-between mb-0.5">
+                  <p className="font-medium text-sm">{lib.name}</p>
+                  <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-full">{lib.licence}</span>
+                </div>
+                <p className="text-xs text-muted-foreground">{lib.desc}</p>
+              </div>
+            ))}
+          </div>
+        </SheetContent>
+      </Sheet>
+
+      <Sheet open={activeSheet === "privacy_prefs"} onOpenChange={open => !open && setActiveSheet(null)}>
+        <SheetContent side="bottom" className="h-[90vh] flex flex-col p-0">
+          <SheetHeader className="px-5 pt-5 pb-3 border-b shrink-0">
+            <SheetTitle className="font-serif">{t("privacy_preferences")}</SheetTitle>
+          </SheetHeader>
+          <div className="flex-1 overflow-y-auto px-5 pb-10 pt-5 space-y-6">
+            <p className="text-sm text-muted-foreground">We believe your data is yours. Here's exactly what we collect and why:</p>
+            {[
+              { title: "Profile information", desc: "Your name, photos, and dating preferences are stored to power your profile and matching. This data is never sold to third parties.", required: true },
+              { title: "Messages", desc: "Conversation content is stored on our servers to deliver your messages. Messages are deleted 30 days after a connection is closed.", required: true },
+              { title: "Location (general)", desc: "Your city or region is used to show you people nearby. We do not track your precise GPS location.", required: true },
+              { title: "Usage analytics", desc: "Anonymous usage patterns help us improve the app. No personally identifiable information is included in analytics.", required: false },
+              { title: "Push notifications", desc: "Device tokens are used only to deliver match and message alerts. You can disable this in your device settings.", required: false },
+            ].map(item => (
+              <div key={item.title} className="flex gap-4 p-4 rounded-xl bg-muted/30 border border-border/40">
+                <div className="flex-1">
+                  <div className="flex items-center gap-2 mb-1">
+                    <p className="font-medium text-sm">{item.title}</p>
+                    {item.required && (
+                      <span className="text-[10px] uppercase tracking-wide text-primary/70 font-semibold bg-primary/10 px-1.5 py-0.5 rounded-full">Required</span>
+                    )}
+                  </div>
+                  <p className="text-xs text-muted-foreground leading-relaxed">{item.desc}</p>
+                </div>
+              </div>
+            ))}
+            <p className="text-xs text-muted-foreground/60 pt-2">For full details, read our Privacy Policy. To request deletion of your data, use the Download &amp; Delete option in settings.</p>
           </div>
         </SheetContent>
       </Sheet>

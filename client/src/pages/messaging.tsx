@@ -15,6 +15,7 @@ import { ArrowLeft, Send, Phone, Video, Check, Clock, Calendar, Heart, PhoneForw
 import { PhotoCarousel } from "@/components/photo-carousel";
 import { Input } from "@/components/ui/input";
 import type { Message, Match, Profile } from "@shared/schema";
+import { useLanguageContext } from "@/contexts/language-context";
 
 const MAX_MESSAGES_PER_USER = 15;
 const MAX_CHARS = 500;
@@ -317,6 +318,7 @@ export default function Messaging() {
   const { user } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const { t } = useLanguageContext();
   const [message, setMessage] = useState("");
   const [showCloseConfirm, setShowCloseConfirm] = useState(false);
   const [activeTab, setActiveTab] = useState<"chat" | "profile">("chat");
@@ -608,7 +610,7 @@ export default function Messaging() {
   if (!isDetailLoading && !matchDetail) {
     return (
       <div className="flex-1 flex items-center justify-center">
-        <p className="text-muted-foreground">Connection not found</p>
+        <p className="text-muted-foreground">{t("connection_not_found")}</p>
       </div>
     );
   }
@@ -678,10 +680,10 @@ export default function Messaging() {
                 disabled={closeConnection.isPending}
                 data-testid="button-confirm-close"
               >
-                {closeConnection.isPending ? "Closing..." : "Close"}
+                {closeConnection.isPending ? t("closing_conn") : t("close_conn_btn")}
               </Button>
               <Button size="sm" variant="outline" onClick={() => setShowCloseConfirm(false)} data-testid="button-cancel-close">
-                Keep
+                {t("close_conn_keep")}
               </Button>
             </div>
           )}
@@ -700,7 +702,7 @@ export default function Messaging() {
             }`}
             data-testid="tab-chat"
           >
-            Chat
+            {t("tab_chat")}
           </button>
           <button
             role="tab"
@@ -713,7 +715,7 @@ export default function Messaging() {
             }`}
             data-testid="tab-profile"
           >
-            Profile
+            {t("tab_profile_view")}
           </button>
         </div>
       </div>
@@ -742,7 +744,7 @@ export default function Messaging() {
                   className="text-xs text-muted-foreground gap-1"
                 >
                   {isLoadingOlder ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
-                  {isLoadingOlder ? "Loading…" : "Load older messages"}
+                  {isLoadingOlder ? t("loading_ellipsis") : t("load_older_msgs")}
                 </Button>
               </div>
             )}
@@ -758,7 +760,7 @@ export default function Messaging() {
             )}
             {allMessages.length === 0 && !isDetailLoading && (
               <div className="text-center py-12 space-y-2">
-                <p className="text-muted-foreground text-sm">This is the beginning of your conversation</p>
+                <p className="text-muted-foreground text-sm">{t("convo_beginning")}</p>
                 <p className="text-xs text-muted-foreground">You each have {MAX_MESSAGES_PER_USER} messages. Make them count.</p>
               </div>
             )}
