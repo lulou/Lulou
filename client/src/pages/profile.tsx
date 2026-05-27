@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useLocation } from "wouter";
+import { useTabActive } from "@/hooks/use-tab-active";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
 import { LulouFlowerIcon } from "@/components/app-layout";
@@ -49,9 +50,16 @@ export default function ProfilePage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const { t } = useLanguageContext();
+  const isTabActive = useTabActive();
   const [expandedSection, setExpandedSection] = useState<string | null>(null);
   const [showExtendedInfo, setShowExtendedInfo] = useState(false);
   const [showElevateModal, setShowElevateModal] = useState(false);
+
+  // Reset the "More about me" drawer whenever this tab comes back into view
+  // (PersistentTabs keeps this component mounted, so state persists across navigation)
+  useEffect(() => {
+    if (isTabActive) setShowExtendedInfo(false);
+  }, [isTabActive]);
 
   const _mountMs = useRef(performance.now());
   useEffect(() => {
@@ -596,23 +604,37 @@ export default function ProfilePage() {
       </div>
       <div className="p-6 space-y-5 max-w-lg mx-auto w-full pb-28">
 
-      {/* ── Hero couple image — main visual focus ── */}
+      {/* ── Hero — main visual focus ── */}
       <div
-        className="relative rounded-3xl overflow-hidden w-full"
-        style={{ height: "clamp(280px, 70vw, 480px)" }}
+        className="relative rounded-3xl overflow-hidden w-full flex flex-col justify-end"
+        style={{
+          height: "clamp(300px, 80vw, 500px)",
+          background: "linear-gradient(150deg, hsl(350 55% 78%) 0%, hsl(340 65% 68%) 45%, hsl(310 50% 62%) 100%)",
+        }}
+        data-testid="section-hero"
       >
+        {/* Decorative soft circles */}
+        <div className="absolute -top-16 -right-16 w-64 h-64 rounded-full bg-white/10 pointer-events-none" />
+        <div className="absolute top-8 left-4 w-28 h-28 rounded-full bg-white/8 pointer-events-none" />
+        <div className="absolute -bottom-10 -left-10 w-40 h-40 rounded-full bg-black/10 pointer-events-none" />
+        {/* Photo — layered above gradient, hidden on error */}
         <img
           src="https://images.unsplash.com/photo-1516589178581-6cd7833ae3b2?w=900&auto=format&fit=crop&q=80"
-          alt="Couple in love"
-          className="w-full h-full object-cover object-center"
+          alt=""
+          aria-hidden="true"
+          className="absolute inset-0 w-full h-full object-cover object-center"
+          onError={e => { (e.currentTarget as HTMLImageElement).style.display = "none"; }}
           data-testid="img-hero-couple"
         />
-        <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/10 to-transparent" />
-        <div className="absolute bottom-5 left-5 right-5">
-          <p className="text-white font-serif text-xl font-bold leading-snug drop-shadow">
-            Where real connections flourish
+        {/* Gradient overlay on top of photo */}
+        <div className="absolute inset-0 bg-gradient-to-t from-black/65 via-black/15 to-transparent pointer-events-none" />
+        {/* Text overlay */}
+        <div className="relative z-10 p-6">
+          <p className="text-white/80 text-xs font-semibold tracking-widest uppercase mb-1.5">Lulou Dating</p>
+          <p className="text-white font-serif text-2xl font-bold leading-tight drop-shadow-md">
+            Where real connections<br />flourish
           </p>
-          <p className="text-white/75 text-sm mt-1">Your story starts here</p>
+          <p className="text-white/70 text-sm mt-2">Your story starts here</p>
         </div>
       </div>
 
