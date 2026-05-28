@@ -1256,12 +1256,9 @@ export default function IntentPage() {
               </Button>
             </div>
 
-            {/* ③ Profile picture — shared carousel, same as Discovery and ProfilePanel */}
-            <div data-testid="img-intent-detail-photo">
-              <ProfilePhotoViewer
-                photos={detailPhotos}
-                isLoading={isDetailPhotosLoading}
-              />
+            {/* ③ Profile picture — single-image, aspect-ratio constrained (not a carousel) */}
+            <div data-testid="img-intent-detail-photo" className="w-full aspect-[3/4] max-h-[54vh] overflow-hidden">
+              <ProfilePhoto userId={selectedProfile.userId} className="w-full h-full" />
             </div>
 
             <div className="px-5 pt-4 space-y-4 pb-36">

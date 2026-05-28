@@ -120,9 +120,8 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
       {/* Caller-supplied overlay content (close button, etc.) */}
       {children}
 
-      {/* Bottom bar: optional name slot → [dots ← left | action → right] */}
+      {/* Bottom bar: [dots ← left | action → right] then optional name slot below */}
       <div className="absolute bottom-0 left-0 right-0 px-4 pb-4 z-10">
-        {nameSlot && <div className="mb-2">{nameSlot}</div>}
         <div className="flex items-end justify-between">
           {photos.length > 1 ? (
             <div className="flex items-center gap-1.5 pb-0.5">
@@ -145,6 +144,7 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
           )}
           {action}
         </div>
+        {nameSlot && <div className="mt-2">{nameSlot}</div>}
       </div>
     </PhotoCarousel>
   );
