@@ -71,6 +71,9 @@ const PhotoBubbles = memo(function PhotoBubbles({ photos, name: _name, onOpen, i
     );
   }
 
+  // DEBUG ── temporary, remove after diagnosis
+  console.log("[DEBUG_DISC] photos", photos.length, photos.map((u, i) => `[${i}] ${u.slice(-40)}`));
+
   return (
     <PhotoCarousel
       photos={photos}
@@ -79,6 +82,11 @@ const PhotoBubbles = memo(function PhotoBubbles({ photos, name: _name, onOpen, i
       showDots={false}
       onIndexChange={setPhotoIndex}
     >
+      {/* DEBUG badge */}
+      <div style={{ position: "absolute", top: 8, left: 8, zIndex: 50, background: "rgba(0,80,255,0.82)", color: "white", fontSize: 10, fontFamily: "monospace", padding: "3px 7px", borderRadius: 5, pointerEvents: "none", lineHeight: 1.5 }}>
+        DISC {photos.length} photos · idx:{photoIndex}
+      </div>
+
       {/* Bottom gradient */}
       <div
         className="absolute inset-0 pointer-events-none"

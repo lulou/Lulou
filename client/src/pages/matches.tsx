@@ -936,6 +936,11 @@ function ProfilePanel({ profile, onClose }: { profile: Profile; onClose: () => v
           showDots={false}
           className="flex-shrink-0"
         >
+          {/* DEBUG badge */}
+          <div style={{ position: "absolute", top: 8, left: 8, zIndex: 50, background: "rgba(200,0,0,0.82)", color: "white", fontSize: 10, fontFamily: "monospace", padding: "3px 7px", borderRadius: 5, pointerEvents: "none", lineHeight: 1.5 }}>
+            PANEL {photos.length} photos · idx:{photoIdx}
+          </div>
+
           {/* Bottom gradient — same values as discover.tsx PhotoBubbles */}
           <div
             className="absolute inset-0 pointer-events-none"
