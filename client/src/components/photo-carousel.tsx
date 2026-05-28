@@ -50,6 +50,27 @@ export function PhotoCarousel({
   const containerRef = useRef<HTMLDivElement>(null);
   const slideRefs = useRef<(HTMLDivElement | null)[]>([]);
 
+  // Stable ref callbacks — one per slide index, created once and never recreated.
+  //
+  // If ref callbacks are inline arrow functions, React treats each render's arrow as
+  // a NEW function reference.  React 18 therefore calls:
+  //   old callback(null)  →  slideRefs.current[i] = null   ← brief null window
+  //   new callback(el)    →  slideRefs.current[i] = el
+  //
+  // In the Chatroom, MatchChat re-renders constantly (realtime messages, 5-second
+  // polling, typing indicators).  Any touchmove that fires inside that null window
+  // finds slideRefs.current[i] === null, applyPositions skips the slide, and the
+  // photo freezes for that frame — making the drag feel like an instant snap.
+  //
+  // Storing ONE stable function per index means React sees the same reference every
+  // render → skips the null-cleanup step → slideRefs is always populated mid-drag.
+  const slideRefFns = useRef<Array<(el: HTMLDivElement | null) => void>>([]);
+  // Lazily extend to cover any new photos added
+  while (slideRefFns.current.length < photos.length) {
+    const i = slideRefFns.current.length;
+    slideRefFns.current.push((el) => { slideRefs.current[i] = el; });
+  }
+
   const [internalIdx, setInternalIdx] = useState(0);
   const [dotIdx, setDotIdx] = useState(0); // drives dot/arrow render only
 
@@ -281,7 +302,7 @@ export function PhotoCarousel({
       {photos.map((photo, i) => (
         <div
           key={i}
-          ref={el => { slideRefs.current[i] = el; }}
+          ref={slideRefFns.current[i]}
           style={{
             position: "absolute",
             inset: 0,
