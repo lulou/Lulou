@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
-import { Loader2, RotateCw, X, MapPin, Lock, Star, Crown, MessageCircle, HelpCircle, Heart, Moon, Volume2, VolumeX } from "lucide-react";
+import { Loader2, RotateCw, X, MapPin, Lock, Star, Crown, MessageCircle, HelpCircle, Heart, Moon, Volume2, VolumeX, ChevronRight } from "lucide-react";
 import { LulouFlowerIcon } from "@/components/app-layout";
 import { ElevateModal } from "@/components/elevate-modal";
 import { Button } from "@/components/ui/button";
@@ -1216,27 +1216,15 @@ export default function IntentPage() {
           data-testid="intent-profile-detail"
         >
           <div className="flex-1 overflow-y-auto">
-            <div className="relative">
-              <div data-testid="img-intent-detail-photo" className="w-full aspect-[3/4] max-h-[54vh] overflow-hidden">
-                <ProfilePhoto userId={selectedProfile.userId} className="w-full h-full" />
-              </div>
-              <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-background via-background/85 to-transparent h-28" />
 
-              <Button
-                size="icon" variant="ghost"
-                className="absolute top-3 right-3 bg-black/30 text-white backdrop-blur-sm rounded-full"
-                onClick={closeProfile}
-                data-testid="button-close-profile"
-              >
-                <X className="w-5 h-5" />
-              </Button>
-            </div>
-
-            <div className="px-5 -mt-10 relative space-y-4 pb-36">
+            {/* ① Name + age — absolute TOP of card */}
+            <div className="px-5 pt-5 pb-3 flex items-start justify-between gap-3">
               <div style={{ animation: "profileNameAppear 0.45s 0.15s ease both" }}>
                 <h2 className="font-serif text-3xl font-bold" data-testid="text-detail-name">
                   {selectedProfile.firstName}{selectedProfile.age ? `, ${selectedProfile.age}` : ""}
                 </h2>
+
+                {/* ② Age/location/details immediately under name */}
                 {selectedProfile.location && (
                   <div className="flex items-center gap-1.5 mt-1 text-muted-foreground text-sm">
                     <MapPin className="w-3.5 h-3.5" />
@@ -1248,6 +1236,48 @@ export default function IntentPage() {
                 )}
               </div>
 
+              <Button
+                size="icon" variant="ghost"
+                className="rounded-full flex-shrink-0 mt-0.5"
+                onClick={closeProfile}
+                data-testid="button-close-profile"
+              >
+                <X className="w-5 h-5" />
+              </Button>
+            </div>
+
+            {/* ③ Profile picture — below identity */}
+            <div data-testid="img-intent-detail-photo" className="w-full aspect-[3/4] max-h-[54vh] overflow-hidden">
+              <ProfilePhoto userId={selectedProfile.userId} className="w-full h-full" />
+            </div>
+
+            <div className="px-5 pt-4 space-y-4 pb-36">
+
+              {/* ④ 3× Elevate section */}
+              <div
+                role="button"
+                onClick={() => setShowElevateInReveal(true)}
+                data-testid="button-detail-elevate"
+                className="flex items-center gap-3 p-3 rounded-2xl cursor-pointer transition-all active:scale-[0.98]"
+                style={{
+                  background: "hsl(350 45% 52% / 0.06)",
+                  border: "1px solid hsl(350 45% 52% / 0.18)",
+                }}
+              >
+                <div
+                  className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
+                  style={{ background: "linear-gradient(135deg, hsl(350 45% 60%), hsl(350 45% 38%))" }}
+                >
+                  <span className="text-white text-xs font-extrabold tracking-tight">3×</span>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-foreground leading-tight">Get 3× more visibility with Elevate</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">Boost your profile and match faster</p>
+                </div>
+                <ChevronRight className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+              </div>
+
+              {/* ⑤ Reveal text — profile details */}
               {selectedProfile.datingIntent && (
                 <Badge variant="secondary" data-testid="text-detail-intent">{selectedProfile.datingIntent}</Badge>
               )}
@@ -1319,7 +1349,7 @@ export default function IntentPage() {
             </div>
           </div>
 
-          {/* ── Premium action bar ── */}
+          {/* ⑥ CTA action bar */}
           <div className="absolute bottom-0 left-0 right-0 border-t" style={{ background: "hsl(var(--background)/0.96)", backdropFilter: "blur(16px)" }}>
             <div className="px-5 pt-4 pb-6">
               <div className="flex items-center gap-4">
