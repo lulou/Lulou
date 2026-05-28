@@ -1,8 +1,63 @@
-import { useEffect, type ElementType } from "react";
+import { type ElementType } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Sparkles, Zap, Eye, Heart } from "lucide-react";
 import { useTabActive } from "@/hooks/use-tab-active";
 import { useCountdownSecs, useAnimatedCount, formatCountdown } from "@/lib/elevate-utils";
+
+// Inject shimmer + glow keyframes synchronously at module load so they are
+// guaranteed to exist before any ElevateStatusCard render.  Doing it in a
+// useEffect created a one-frame window where Safari/WebKit tried to start an
+// animation whose @keyframes hadn't been parsed yet — crashing the page.
+if (typeof document !== "undefined") {
+  const _kfId = "elevate-shimmer-style";
+  if (!document.getElementById(_kfId)) {
+    const _s = document.createElement("style");
+    _s.id = _kfId;
+    _s.textContent = `
+      @keyframes elevate-shimmer {
+        0%   { background-position: -200% center; }
+        100% { background-position: 200% center; }
+      }
+      .elevate-shimmer-text {
+        background: linear-gradient(
+          90deg,
+          hsl(350 45% 62%) 0%,
+          hsl(350 55% 80%) 40%,
+          hsl(350 45% 62%) 60%,
+          hsl(350 55% 75%) 100%
+        );
+        background-size: 200% auto;
+        -webkit-background-clip: text;
+        background-clip: text;
+        -webkit-text-fill-color: transparent;
+        animation: elevate-shimmer 3s linear infinite;
+      }
+      .super-shimmer-text {
+        background: linear-gradient(
+          90deg,
+          hsl(350 45% 72%) 0%,
+          hsl(30 80% 85%) 35%,
+          hsl(350 45% 72%) 60%,
+          hsl(30 60% 80%) 100%
+        );
+        background-size: 200% auto;
+        -webkit-background-clip: text;
+        background-clip: text;
+        -webkit-text-fill-color: transparent;
+        animation: elevate-shimmer 2.4s linear infinite;
+      }
+      @keyframes elevate-glow-pulse {
+        0%, 100% { box-shadow: 0 0 0 0 hsl(350 45% 52% / 0); }
+        50%       { box-shadow: 0 0 20px 4px hsl(350 45% 52% / 0.18); }
+      }
+      @keyframes super-glow-pulse {
+        0%, 100% { box-shadow: 0 4px 24px hsl(350 45% 30% / 0.3), 0 0 0 0 hsl(350 45% 52% / 0); }
+        50%       { box-shadow: 0 4px 32px hsl(350 45% 30% / 0.45), 0 0 24px 6px hsl(350 45% 52% / 0.22); }
+      }
+    `;
+    document.head.appendChild(_s);
+  }
+}
 
 type SessionStats = {
   views: number;
@@ -80,57 +135,6 @@ export function ElevateStatusCard({
 
   const views = stats?.views ?? 0;
   const matches = stats?.matches ?? 0;
-
-  // Shimmer keyframe injected once
-  useEffect(() => {
-    const id = "elevate-shimmer-style";
-    if (document.getElementById(id)) return;
-    const style = document.createElement("style");
-    style.id = id;
-    style.textContent = `
-      @keyframes elevate-shimmer {
-        0%   { background-position: -200% center; }
-        100% { background-position: 200% center; }
-      }
-      .elevate-shimmer-text {
-        background: linear-gradient(
-          90deg,
-          hsl(350 45% 62%) 0%,
-          hsl(350 55% 80%) 40%,
-          hsl(350 45% 62%) 60%,
-          hsl(350 55% 75%) 100%
-        );
-        background-size: 200% auto;
-        -webkit-background-clip: text;
-        background-clip: text;
-        -webkit-text-fill-color: transparent;
-        animation: elevate-shimmer 3s linear infinite;
-      }
-      .super-shimmer-text {
-        background: linear-gradient(
-          90deg,
-          hsl(350 45% 72%) 0%,
-          hsl(30 80% 85%) 35%,
-          hsl(350 45% 72%) 60%,
-          hsl(30 60% 80%) 100%
-        );
-        background-size: 200% auto;
-        -webkit-background-clip: text;
-        background-clip: text;
-        -webkit-text-fill-color: transparent;
-        animation: elevate-shimmer 2.4s linear infinite;
-      }
-      @keyframes elevate-glow-pulse {
-        0%, 100% { box-shadow: 0 0 0 0 hsl(350 45% 52% / 0); }
-        50%       { box-shadow: 0 0 20px 4px hsl(350 45% 52% / 0.18); }
-      }
-      @keyframes super-glow-pulse {
-        0%, 100% { box-shadow: 0 4px 24px hsl(350 45% 30% / 0.3), 0 0 0 0 hsl(350 45% 52% / 0); }
-        50%       { box-shadow: 0 4px 32px hsl(350 45% 30% / 0.45), 0 0 24px 6px hsl(350 45% 52% / 0.22); }
-      }
-    `;
-    document.head.appendChild(style);
-  }, []);
 
   return (
     <div

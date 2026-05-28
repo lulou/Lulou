@@ -39,6 +39,22 @@ const MATCH_TAGLINES_LIKES = [
   "Someone felt the same.",
 ];
 
+// Inject matchFloat keyframe once at module load so it is always defined before
+// any MatchOverlay renders. This avoids the Safari/WebKit crash where an inline
+// animation style references a keyframe that hasn't been parsed yet.
+if (typeof document !== "undefined") {
+  const _kfId = "lulou-match-float-style";
+  if (!document.getElementById(_kfId)) {
+    const _s = document.createElement("style");
+    _s.id = _kfId;
+    _s.textContent = `@keyframes matchFloat {
+      0%, 100% { transform: translateY(0) scale(1);    opacity: 0.35; }
+      50%       { transform: translateY(-28px) scale(1.45); opacity: 0.65; }
+    }`;
+    document.head.appendChild(_s);
+  }
+}
+
 // Stable particle positions — generated once at module load, never mid-render.
 const MATCH_OVERLAY_PARTICLES = Array.from({ length: 20 }, (_, i) => ({
   id: i,
@@ -123,7 +139,7 @@ function MatchOverlay({ celebration, onClose }: { celebration: MatchCelebration;
           >
             <AvatarImage src={celebration.photo} alt={celebration.firstName} />
             <AvatarFallback className="bg-white/20 text-white text-3xl font-semibold">
-              {celebration.firstName[0]}
+              {celebration.firstName?.[0] ?? "♡"}
             </AvatarFallback>
           </Avatar>
           <div
@@ -193,12 +209,6 @@ function MatchOverlay({ celebration, onClose }: { celebration: MatchCelebration;
         </p>
       </div>
 
-      <style>{`
-        @keyframes matchFloat {
-          0%, 100% { transform: translateY(0)    scale(1);    opacity: 0.35; }
-          50%       { transform: translateY(-28px) scale(1.45); opacity: 0.65; }
-        }
-      `}</style>
     </div>
   );
 }
