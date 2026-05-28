@@ -27,9 +27,33 @@ type ElevateStatus = { type: string | null; expiresAt: string | null; active: bo
 
 // ─── Match Overlay ─────────────────────────────────────────────────────────────
 
+// Premium taglines — one is chosen at component mount, never changes mid-display.
+const MATCH_TAGLINES_LIKES = [
+  "Two people. One spark.",
+  "Something rare just happened.",
+  "A new connection arrived.",
+  "Mutual interest. Worth exploring.",
+  "The feeling is mutual.",
+  "This one feels different.",
+  "A genuine connection started here.",
+  "Someone felt the same.",
+];
+
+// Stable particle positions — generated once at module load, never mid-render.
+const MATCH_OVERLAY_PARTICLES = Array.from({ length: 20 }, (_, i) => ({
+  id: i,
+  w: 4 + (i * 7) % 8,
+  h: 4 + (i * 11) % 8,
+  left: (i * 17) % 100,
+  top: (i * 13) % 100,
+  dur: 3 + (i * 0.4) % 4,
+  delay: (i * 0.28) % 2,
+}));
+
 function MatchOverlay({ celebration, onClose }: { celebration: MatchCelebration; onClose: () => void }) {
   const { t } = useLanguageContext();
   const [phase, setPhase] = useState<"enter" | "visible" | "exit">("enter");
+  const tagline = useRef(MATCH_TAGLINES_LIKES[Math.floor(Math.random() * MATCH_TAGLINES_LIKES.length)]).current;
 
   useEffect(() => {
     const timerId = setTimeout(() => setPhase("visible"), 50);
@@ -42,7 +66,7 @@ function MatchOverlay({ celebration, onClose }: { celebration: MatchCelebration;
   }, [onClose]);
 
   useEffect(() => {
-    const timerId = setTimeout(handleClose, 4000);
+    const timerId = setTimeout(handleClose, 4500);
     return () => clearTimeout(timerId);
   }, [handleClose]);
 
@@ -54,44 +78,47 @@ function MatchOverlay({ celebration, onClose }: { celebration: MatchCelebration;
       onClick={handleClose}
       data-testid="overlay-match-celebration"
       style={{
-        background: "radial-gradient(ellipse at center, hsl(350 45% 52% / 0.95), hsl(350 45% 35% / 0.98))",
+        background: "radial-gradient(ellipse at center, hsl(350 48% 46% / 0.96), hsl(350 55% 28% / 0.99))",
         opacity: phase === "exit" ? 0 : 1,
         transition: "opacity 500ms ease",
       }}
     >
+      {/* Ambient floating particles — positions stable, never regenerated */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        {Array.from({ length: 20 }).map((_, i) => (
+        {MATCH_OVERLAY_PARTICLES.map(p => (
           <div
-            key={i}
+            key={p.id}
             className="absolute rounded-full"
             style={{
-              width: `${Math.random() * 8 + 4}px`,
-              height: `${Math.random() * 8 + 4}px`,
-              left: `${Math.random() * 100}%`,
-              top: `${Math.random() * 100}%`,
-              background: "hsl(40 60% 85% / 0.4)",
-              animation: `float ${3 + Math.random() * 4}s ease-in-out infinite`,
-              animationDelay: `${Math.random() * 2}s`,
+              width: p.w,
+              height: p.h,
+              left: `${p.left}%`,
+              top: `${p.top}%`,
+              background: "hsl(350 60% 88% / 0.38)",
+              animation: `matchFloat ${p.dur}s ${p.delay}s ease-in-out infinite`,
             }}
           />
         ))}
       </div>
 
       <div
-        className="flex flex-col items-center gap-6 px-8"
+        className="flex flex-col items-center gap-5 px-8"
         style={{
-          transform: isVisible ? "scale(1) translateY(0)" : "scale(0.6) translateY(30px)",
+          transform: isVisible ? "scale(1) translateY(0)" : "scale(0.62) translateY(28px)",
           opacity: isVisible ? 1 : 0,
           transition: "transform 700ms cubic-bezier(0.34, 1.56, 0.64, 1), opacity 500ms ease",
         }}
       >
-        <LulouFlowerIcon className="w-14 h-14 text-white/80" />
+        <LulouFlowerIcon className="w-12 h-12 text-white/75" />
+
+        {/* Avatar with heart badge */}
         <div className="relative">
           <Avatar
-            className="w-28 h-28 border-4 border-white/30"
+            className="w-28 h-28"
             style={{
+              boxShadow: "0 0 0 3px rgba(255,255,255,0.22), 0 0 0 7px rgba(255,255,255,0.08), 0 14px 44px rgba(0,0,0,0.40)",
               transform: isVisible ? "scale(1)" : "scale(0)",
-              transition: "transform 600ms cubic-bezier(0.34, 1.56, 0.64, 1) 200ms",
+              transition: "transform 620ms cubic-bezier(0.34, 1.56, 0.64, 1) 180ms",
             }}
           >
             <AvatarImage src={celebration.photo} alt={celebration.firstName} />
@@ -100,59 +127,76 @@ function MatchOverlay({ celebration, onClose }: { celebration: MatchCelebration;
             </AvatarFallback>
           </Avatar>
           <div
-            className="absolute -bottom-1 -right-1 w-10 h-10 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center"
+            className="absolute -bottom-1 -right-1 w-10 h-10 rounded-full bg-white/18 backdrop-blur-sm flex items-center justify-center"
             style={{
+              background: "rgba(255,255,255,0.18)",
               transform: isVisible ? "scale(1)" : "scale(0)",
-              transition: "transform 500ms cubic-bezier(0.34, 1.56, 0.64, 1) 500ms",
+              transition: "transform 500ms cubic-bezier(0.34, 1.56, 0.64, 1) 480ms",
             }}
           >
             <Heart className="w-5 h-5 text-white fill-white" />
           </div>
         </div>
-        <div className="text-center space-y-2">
-          <h1
-            className="font-serif text-4xl font-bold text-white tracking-wide"
-            data-testid="text-blooming-amazing"
-            style={{
-              transform: isVisible ? "translateY(0)" : "translateY(20px)",
-              opacity: isVisible ? 1 : 0,
-              transition: "transform 600ms ease 300ms, opacity 500ms ease 300ms",
-              textShadow: "0 2px 20px rgba(0,0,0,0.2)",
-            }}
-          >
-            {t("simply_amazing")}
-          </h1>
-          <p
-            className="text-lg text-white/80 font-medium tracking-widest uppercase"
-            data-testid="text-match-made"
-            style={{
-              transform: isVisible ? "translateY(0)" : "translateY(15px)",
-              opacity: isVisible ? 1 : 0,
-              transition: "transform 600ms ease 500ms, opacity 500ms ease 500ms",
-              letterSpacing: "0.2em",
-            }}
-          >
-            {t("match_made")}
-          </p>
-        </div>
-        <p
-          className="text-white/60 text-sm mt-2"
-          style={{ opacity: isVisible ? 1 : 0, transition: "opacity 600ms ease 700ms" }}
+
+        {/* Name */}
+        <h1
+          className="font-serif text-center"
+          style={{
+            fontSize: "clamp(28px, 8vw, 38px)",
+            fontWeight: 700,
+            letterSpacing: "-0.02em",
+            color: "rgba(255,245,248,0.97)",
+            textShadow: "0 2px 20px rgba(0,0,0,0.25)",
+            transform: isVisible ? "translateY(0)" : "translateY(18px)",
+            opacity: isVisible ? 1 : 0,
+            transition: "transform 580ms ease 280ms, opacity 480ms ease 280ms",
+          }}
+          data-testid="text-blooming-amazing"
         >
-          You and {celebration.firstName} are connected
-        </p>
+          {celebration.firstName}
+        </h1>
+
+        {/* Premium tagline */}
         <p
-          className="text-white/40 text-xs"
-          style={{ opacity: isVisible ? 1 : 0, transition: "opacity 600ms ease 900ms" }}
+          style={{
+            fontSize: 15,
+            fontStyle: "italic",
+            color: "rgba(255,220,230,0.80)",
+            textAlign: "center",
+            lineHeight: 1.45,
+            transform: isVisible ? "translateY(0)" : "translateY(14px)",
+            opacity: isVisible ? 1 : 0,
+            transition: "transform 580ms ease 460ms, opacity 480ms ease 460ms",
+          }}
+          data-testid="text-match-made"
+        >
+          {tagline}
+        </p>
+
+        {/* Rose divider */}
+        <div style={{
+          width: 40, height: 1,
+          background: "linear-gradient(90deg, transparent, rgba(255,255,255,0.50), transparent)",
+          opacity: isVisible ? 1 : 0,
+          transition: "opacity 500ms ease 600ms",
+        }} />
+
+        <p
+          className="text-sm"
+          style={{
+            color: "rgba(255,210,220,0.62)",
+            opacity: isVisible ? 1 : 0,
+            transition: "opacity 500ms ease 700ms",
+          }}
         >
           {t("tap_to_continue")}
         </p>
       </div>
 
       <style>{`
-        @keyframes float {
-          0%, 100% { transform: translateY(0) scale(1); opacity: 0.4; }
-          50% { transform: translateY(-30px) scale(1.5); opacity: 0.7; }
+        @keyframes matchFloat {
+          0%, 100% { transform: translateY(0)    scale(1);    opacity: 0.35; }
+          50%       { transform: translateY(-28px) scale(1.45); opacity: 0.65; }
         }
       `}</style>
     </div>

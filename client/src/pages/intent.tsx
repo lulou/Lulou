@@ -228,20 +228,32 @@ function ConfettiBurst({ active }: { active: boolean }) {
 // ── Premium match reveal taglines ────────────────────────────────────────────
 const MATCH_TAGLINES = [
   "Two energies aligned.",
-  "A rare connection just appeared.",
+  "The wheel found something interesting.",
+  "This connection feels rare.",
+  "Someone worth meeting just appeared.",
+  "A meaningful spark just landed.",
   "The wheel had good taste.",
-  "Someone special just crossed your path.",
   "This feels like something real.",
   "Not every spin lands like this.",
   "Something genuine started here.",
-  "A moment worth noticing.",
-  "The best surprises are unplanned.",
-  "Worth exploring.",
+  "A rare connection just appeared.",
 ];
+
+// Floating particle row — purely decorative, generated once per mount.
+const REVEAL_PARTICLES = Array.from({ length: 20 }, (_, i) => ({
+  id: i,
+  size: 3 + (i * 7) % 5,
+  left: 4 + (i * 19) % 92,
+  bottom: 8 + (i * 13) % 35,
+  dur: 4.2 + (i * 0.37) % 5,
+  delay: (i * 0.28) % 4,
+  color: ["rgba(255,168,188,0.55)", "rgba(212,92,116,0.48)", "rgba(255,210,222,0.42)", "rgba(255,255,255,0.22)"][i % 4],
+}));
 
 // ── Match reveal overlay ─────────────────────────────────────────────────────
 // Full-screen cinematic overlay shown after the user taps Connect on a wheel profile.
-// Profile photo fills the bg (blurred, darkened), glowing circular photo in centre.
+// Two-zone design: glowing photo fills the upper half; a frosted glass card slides
+// up from below carrying the name, tagline, and premium CTAs.
 function MatchRevealOverlay({
   profile,
   isExisting,
@@ -258,207 +270,250 @@ function MatchRevealOverlay({
   const tagline = useRef(MATCH_TAGLINES[Math.floor(Math.random() * MATCH_TAGLINES.length)]).current;
 
   useEffect(() => {
-    // Slight delay so the AudioContext has been resumed before we play.
-    const t = setTimeout(playChime, 220);
+    const t = setTimeout(playChime, 200);
     return () => clearTimeout(t);
   }, [playChime]);
 
   return (
     <div
       className="absolute inset-0 z-[60] flex flex-col overflow-hidden"
-      style={{ animation: "matchRevealBg 0.55s cubic-bezier(0.16, 1, 0.3, 1) forwards" }}
+      style={{ animation: "matchRevealBg 0.45s cubic-bezier(0.16, 1, 0.3, 1) forwards" }}
       data-testid="match-reveal-overlay"
     >
-      {/* ── Cinematic background ── */}
+      {/* ── Layer 0 — cinematic blurred background ── */}
       <div className="absolute inset-0">
         <ProfilePhoto userId={profile.userId} className="w-full h-full" />
-        {/* Blur + saturation boost */}
         <div className="absolute inset-0" style={{
-          backdropFilter: "blur(30px) saturate(1.4)",
-          WebkitBackdropFilter: "blur(30px) saturate(1.4)",
+          backdropFilter: "blur(44px) saturate(1.6)",
+          WebkitBackdropFilter: "blur(44px) saturate(1.6)",
         }} />
-        {/* Deep gradient darkening */}
         <div className="absolute inset-0" style={{
-          background: "linear-gradient(180deg, rgba(6,2,10,0.72) 0%, rgba(18,4,16,0.52) 38%, rgba(6,2,10,0.80) 100%)",
+          background: "linear-gradient(180deg, rgba(4,1,8,0.80) 0%, rgba(10,3,16,0.44) 42%, rgba(4,1,8,0.94) 100%)",
         }} />
-        {/* Warm rose radial at centre-upper for depth */}
         <div className="absolute inset-0" style={{
-          background: "radial-gradient(ellipse 70% 48% at 50% 42%, rgba(188,78,96,0.28) 0%, transparent 70%)",
+          background: "radial-gradient(ellipse 78% 52% at 50% 44%, rgba(188,78,96,0.34) 0%, transparent 68%)",
         }} />
       </div>
 
-      {/* ── Content ── */}
-      <div className="relative z-10 flex flex-col items-center justify-center flex-1 px-7 gap-5">
+      {/* ── Layer 1 — confetti burst ── */}
+      <ConfettiBurst active={true} />
+
+      {/* ── Layer 2 — floating ambient particles ── */}
+      <div className="absolute inset-0 pointer-events-none overflow-hidden">
+        {REVEAL_PARTICLES.map(p => (
+          <div key={p.id} style={{
+            position: "absolute",
+            bottom: `${p.bottom}%`,
+            left: `${p.left}%`,
+            width: p.size, height: p.size,
+            borderRadius: "50%",
+            background: p.color,
+            animation: `floatParticle ${p.dur}s ${p.delay}s ease-in-out infinite`,
+          }} />
+        ))}
+      </div>
+
+      {/* ── Layer 3 — upper photo zone ── */}
+      <div className="relative z-10 flex flex-col items-center justify-center flex-1 pb-4 pt-8">
 
         {/* Eyebrow */}
-        <p
-          style={{
-            fontSize: 11, fontWeight: 700, letterSpacing: "0.22em",
-            textTransform: "uppercase",
-            color: "rgba(255,190,205,0.65)",
-            animation: "matchRevealTagline 0.5s 0.08s ease both",
-          }}
-        >
-          {isExisting ? "Reconnected" : "A connection opened"}
+        <p style={{
+          fontSize: 10, fontWeight: 700, letterSpacing: "0.30em",
+          textTransform: "uppercase",
+          color: "rgba(255,175,195,0.62)",
+          marginBottom: 18,
+          animation: "matchRevealTagline 0.45s 0.10s ease both",
+        }}>
+          {isExisting ? "✦  Reconnected  ✦" : "✦  Connection Opened  ✦"}
         </p>
 
-        {/* Main tagline */}
-        <h2
-          className="font-serif text-center"
-          style={{
-            fontSize: "clamp(21px, 5.5vw, 28px)",
-            fontWeight: 700,
-            letterSpacing: "-0.01em",
-            lineHeight: 1.25,
-            color: "rgba(255,245,248,0.96)",
-            textShadow: "0 2px 28px rgba(188,78,96,0.45), 0 1px 5px rgba(0,0,0,0.65)",
-            maxWidth: 270,
-            animation: "matchRevealTagline 0.65s 0.22s ease both",
-          }}
-          data-testid="text-reveal-tagline"
-        >
-          {tagline}
-        </h2>
-
-        {/* Photo with glow */}
-        <div
-          style={{
-            position: "relative",
-            marginTop: 4,
-            animation: "matchRevealPhoto 0.75s 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) both",
-          }}
-        >
-          {/* Soft ambient glow behind the photo */}
+        {/* Photo with layered glow rings */}
+        <div style={{
+          position: "relative",
+          animation: "matchRevealPhoto 0.82s 0.36s cubic-bezier(0.34, 1.56, 0.64, 1) both",
+        }}>
+          {/* Outermost ambient bloom */}
           <div style={{
-            position: "absolute",
-            inset: -24,
+            position: "absolute", inset: -36,
             borderRadius: "50%",
-            background: "radial-gradient(circle, rgba(212,92,116,0.40) 0%, transparent 68%)",
-            animation: "glowPulse 3s ease-in-out infinite",
+            background: "radial-gradient(circle, rgba(212,92,116,0.36) 0%, rgba(188,78,96,0.10) 58%, transparent 74%)",
+            animation: "glowPulse 2.6s ease-in-out infinite",
             pointerEvents: "none",
           }} />
-
-          {/* Photo circle */}
+          {/* Mid shimmer ring */}
           <div style={{
-            width: 148, height: 148,
+            position: "absolute", inset: -12,
+            borderRadius: "50%",
+            background: "transparent",
+            boxShadow: "0 0 0 1px rgba(255,255,255,0.10), 0 0 30px 10px rgba(212,92,116,0.24)",
+            animation: "glowPulse 2.6s ease-in-out infinite 0.5s",
+            pointerEvents: "none",
+          }} />
+          {/* Photo circle — 190 px */}
+          <div style={{
+            width: 190, height: 190,
             borderRadius: "50%",
             overflow: "hidden",
             position: "relative",
-            boxShadow: "0 0 0 2px rgba(255,255,255,0.12), 0 0 0 5px rgba(212,92,116,0.75), 0 0 0 8px rgba(212,92,116,0.18), 0 18px 56px rgba(0,0,0,0.60)",
+            boxShadow:
+              "0 0 0 2.5px rgba(255,255,255,0.15)," +
+              "0 0 0 6px rgba(212,92,116,0.82)," +
+              "0 0 0 12px rgba(212,92,116,0.18)," +
+              "0 24px 72px rgba(0,0,0,0.68)",
           }}>
             <ProfilePhoto userId={profile.userId} className="w-full h-full" />
           </div>
-
-          {/* Rotating conic shimmer ring */}
+          {/* Rotating conic shimmer overlay */}
           <div style={{
-            position: "absolute", inset: 0,
+            position: "absolute", inset: -4,
             borderRadius: "50%",
-            background: "conic-gradient(from 0deg, transparent 0%, rgba(255,195,210,0.50) 18%, transparent 38%, rgba(212,92,116,0.38) 58%, transparent 78%, rgba(255,195,210,0.50) 100%)",
-            animation: "rotateSlow 9s linear infinite",
+            background:
+              "conic-gradient(from 0deg," +
+              " transparent 0%," +
+              " rgba(255,200,215,0.55) 15%," +
+              " transparent 34%," +
+              " rgba(212,92,116,0.42) 55%," +
+              " transparent 74%," +
+              " rgba(255,200,215,0.55) 100%)",
+            animation: "rotateSlow 8s linear infinite",
             mixBlendMode: "screen",
             pointerEvents: "none",
           }} />
         </div>
-
-        {/* Name + location */}
-        <div
-          className="text-center"
-          style={{ animation: "matchRevealTagline 0.5s 0.65s ease both" }}
-        >
-          <h3
-            className="font-serif font-bold"
-            style={{
-              fontSize: 24, letterSpacing: "-0.01em",
-              color: "rgba(255,245,248,0.97)",
-              textShadow: "0 1px 14px rgba(0,0,0,0.55)",
-            }}
-            data-testid="text-reveal-name"
-          >
-            {profile.firstName}{profile.age ? `, ${profile.age}` : ""}
-          </h3>
-          {profile.location && (
-            <p className="flex items-center justify-center gap-1.5 mt-1" style={{ fontSize: 13, color: "rgba(255,210,220,0.58)" }}>
-              <MapPin className="w-3 h-3 flex-shrink-0" />
-              {profile.location}
-            </p>
-          )}
-        </div>
-
-        {/* Thin rose divider */}
-        <div style={{
-          width: 44, height: 1,
-          background: "linear-gradient(90deg, transparent, rgba(212,92,116,0.75), transparent)",
-          animation: "matchRevealTagline 0.4s 0.8s ease both",
-        }} />
-
-        {/* Secondary line */}
-        <p
-          style={{
-            fontSize: 13, textAlign: "center",
-            maxWidth: 230, lineHeight: 1.55,
-            color: "rgba(255,210,220,0.52)",
-            animation: "matchRevealTagline 0.4s 0.9s ease both",
-          }}
-        >
-          You opened a connection. See where it leads.
-        </p>
       </div>
 
-      {/* ── CTAs ── */}
+      {/* ── Layer 4 — frosted glass info card (slides up from below) ── */}
       <div
-        className="relative z-10 px-6 pb-10 flex flex-col gap-3"
-        style={{ animation: "matchRevealCta 0.55s 1.1s ease both" }}
+        className="relative z-10"
+        style={{
+          animation: "cardSlideUp 0.64s 0.52s cubic-bezier(0.34, 1.56, 0.64, 1) both",
+          background: "rgba(7,2,13,0.88)",
+          backdropFilter: "blur(30px) saturate(1.25)",
+          WebkitBackdropFilter: "blur(30px) saturate(1.25)",
+          borderTop: "1px solid rgba(255,255,255,0.09)",
+          borderRadius: "30px 30px 0 0",
+          boxShadow: "0 -16px 64px rgba(0,0,0,0.38)",
+          padding: "26px 24px 44px",
+        }}
       >
-        <button
-          onClick={onGoToMatches}
-          data-testid="button-reveal-go-to-matches"
+        {/* Name + age */}
+        <h2
+          className="font-serif text-center"
           style={{
-            width: "100%", padding: "16px 0",
-            borderRadius: 16,
-            background: "linear-gradient(135deg, #d45c74 0%, #9d3550 100%)",
-            color: "#fff",
-            fontSize: 16, fontWeight: 700, letterSpacing: "0.01em",
-            border: "none", cursor: "pointer",
-            boxShadow: "0 6px 28px rgba(188,78,96,0.55), 0 2px 10px rgba(0,0,0,0.40), inset 0 1px 0 rgba(255,255,255,0.18)",
-            transition: "transform 0.15s ease, box-shadow 0.15s ease",
-            outline: "none", WebkitTapHighlightColor: "transparent",
+            fontSize: "clamp(27px, 7.5vw, 36px)",
+            fontWeight: 700,
+            letterSpacing: "-0.02em",
+            lineHeight: 1.12,
+            color: "rgba(255,245,250,0.97)",
+            textShadow: "0 2px 22px rgba(188,78,96,0.42), 0 1px 4px rgba(0,0,0,0.55)",
+            marginBottom: 10,
+            animation: "matchRevealTagline 0.52s 0.72s ease both",
           }}
-          onMouseEnter={e => { (e.currentTarget as HTMLElement).style.transform = "translateY(-1px)"; (e.currentTarget as HTMLElement).style.boxShadow = "0 10px 36px rgba(188,78,96,0.65), 0 3px 12px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.18)"; }}
-          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.transform = "translateY(0)"; (e.currentTarget as HTMLElement).style.boxShadow = "0 6px 28px rgba(188,78,96,0.55), 0 2px 10px rgba(0,0,0,0.40), inset 0 1px 0 rgba(255,255,255,0.18)"; }}
-          onMouseDown={e => { (e.currentTarget as HTMLElement).style.transform = "translateY(1px) scale(0.99)"; }}
+          data-testid="text-reveal-name"
         >
-          Start the conversation →
-        </button>
+          {profile.firstName}{profile.age ? `, ${profile.age}` : ""}
+        </h2>
 
-        <button
-          onClick={onDiscover}
-          data-testid="button-reveal-discover-more"
+        {/* Premium tagline */}
+        <p
           style={{
-            width: "100%", padding: "13px 0",
-            borderRadius: 16,
-            background: "rgba(255,255,255,0.06)",
-            color: "rgba(255,215,225,0.60)",
-            fontSize: 14, fontWeight: 500, letterSpacing: "0.01em",
-            border: "1px solid rgba(255,255,255,0.13)",
-            cursor: "pointer",
-            transition: "color 0.18s, background 0.18s, border-color 0.18s",
-            outline: "none", WebkitTapHighlightColor: "transparent",
+            fontSize: 15, textAlign: "center",
+            fontStyle: "italic",
+            color: "rgba(255,208,220,0.70)",
+            lineHeight: 1.5,
+            marginBottom: profile.location ? 6 : 14,
+            animation: "matchRevealTagline 0.52s 0.86s ease both",
           }}
-          onMouseEnter={e => {
-            const el = e.currentTarget as HTMLElement;
-            el.style.color = "rgba(255,225,232,0.88)";
-            el.style.background = "rgba(255,255,255,0.10)";
-            el.style.borderColor = "rgba(255,255,255,0.22)";
-          }}
-          onMouseLeave={e => {
-            const el = e.currentTarget as HTMLElement;
-            el.style.color = "rgba(255,215,225,0.60)";
-            el.style.background = "rgba(255,255,255,0.06)";
-            el.style.borderColor = "rgba(255,255,255,0.13)";
-          }}
+          data-testid="text-reveal-tagline"
         >
-          Discover more
-        </button>
+          {tagline}
+        </p>
+
+        {/* Location */}
+        {profile.location && (
+          <p style={{
+            display: "flex", alignItems: "center", justifyContent: "center", gap: 5,
+            fontSize: 12, color: "rgba(255,185,202,0.46)",
+            marginBottom: 14,
+            animation: "matchRevealTagline 0.42s 0.98s ease both",
+          }}>
+            <MapPin style={{ width: 11, height: 11, flexShrink: 0 }} />
+            {profile.location}
+          </p>
+        )}
+
+        {/* Rose divider */}
+        <div style={{
+          width: 52, height: 1, margin: "0 auto 20px",
+          background: "linear-gradient(90deg, transparent, rgba(212,92,116,0.82), transparent)",
+          animation: "matchRevealTagline 0.38s 1.0s ease both",
+        }} />
+
+        {/* CTAs */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 11, animation: "matchRevealCta 0.5s 1.08s ease both" }}>
+          {/* Primary — Start Conversation */}
+          <button
+            onClick={onGoToMatches}
+            data-testid="button-reveal-go-to-matches"
+            style={{
+              width: "100%", padding: "16px 0",
+              borderRadius: 18,
+              background: "linear-gradient(135deg, #e06272 0%, #b83858 52%, #9c2d49 100%)",
+              color: "#fff",
+              fontSize: 16, fontWeight: 700, letterSpacing: "0.025em",
+              border: "none", cursor: "pointer",
+              boxShadow:
+                "0 8px 32px rgba(184,56,80,0.60)," +
+                "0 3px 10px rgba(0,0,0,0.44)," +
+                "inset 0 1.5px 0 rgba(255,255,255,0.20)",
+              transition: "transform 0.13s ease, box-shadow 0.13s ease",
+              outline: "none", WebkitTapHighlightColor: "transparent",
+            }}
+            onMouseEnter={e => {
+              (e.currentTarget as HTMLElement).style.transform = "translateY(-1px)";
+              (e.currentTarget as HTMLElement).style.boxShadow = "0 12px 42px rgba(184,56,80,0.70), 0 4px 14px rgba(0,0,0,0.50), inset 0 1.5px 0 rgba(255,255,255,0.20)";
+            }}
+            onMouseLeave={e => {
+              (e.currentTarget as HTMLElement).style.transform = "translateY(0)";
+              (e.currentTarget as HTMLElement).style.boxShadow = "0 8px 32px rgba(184,56,80,0.60), 0 3px 10px rgba(0,0,0,0.44), inset 0 1.5px 0 rgba(255,255,255,0.20)";
+            }}
+            onMouseDown={e => { (e.currentTarget as HTMLElement).style.transform = "translateY(1px) scale(0.985)"; }}
+            onMouseUp={e => { (e.currentTarget as HTMLElement).style.transform = "translateY(-1px)"; }}
+          >
+            Start Conversation
+          </button>
+
+          {/* Secondary — Keep Exploring */}
+          <button
+            onClick={onDiscover}
+            data-testid="button-reveal-discover-more"
+            style={{
+              width: "100%", padding: "14px 0",
+              borderRadius: 18,
+              background: "rgba(255,255,255,0.055)",
+              color: "rgba(255,208,220,0.62)",
+              fontSize: 14, fontWeight: 500, letterSpacing: "0.025em",
+              border: "1.5px solid rgba(255,255,255,0.11)",
+              cursor: "pointer",
+              transition: "color 0.17s, background 0.17s, border-color 0.17s",
+              outline: "none", WebkitTapHighlightColor: "transparent",
+            }}
+            onMouseEnter={e => {
+              const el = e.currentTarget as HTMLElement;
+              el.style.color = "rgba(255,224,232,0.90)";
+              el.style.background = "rgba(255,255,255,0.095)";
+              el.style.borderColor = "rgba(255,255,255,0.22)";
+            }}
+            onMouseLeave={e => {
+              const el = e.currentTarget as HTMLElement;
+              el.style.color = "rgba(255,208,220,0.62)";
+              el.style.background = "rgba(255,255,255,0.055)";
+              el.style.borderColor = "rgba(255,255,255,0.11)";
+            }}
+          >
+            Keep Exploring
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -818,7 +873,7 @@ export default function IntentPage() {
           to   { opacity: 1; }
         }
         @keyframes matchRevealPhoto {
-          from { transform: scale(0.55); opacity: 0; }
+          from { transform: scale(0.50); opacity: 0; }
           to   { transform: scale(1);    opacity: 1; }
         }
         @keyframes matchRevealTagline {
@@ -830,12 +885,22 @@ export default function IntentPage() {
           to   { transform: translateY(0);    opacity: 1; }
         }
         @keyframes glowPulse {
-          0%, 100% { opacity: 0.8; transform: scale(1); }
-          50%       { opacity: 1;   transform: scale(1.08); }
+          0%, 100% { opacity: 0.80; transform: scale(1); }
+          50%       { opacity: 1;    transform: scale(1.10); }
         }
         @keyframes rotateSlow {
           from { transform: rotate(0deg); }
           to   { transform: rotate(360deg); }
+        }
+        @keyframes cardSlideUp {
+          from { transform: translateY(100%); opacity: 0; }
+          to   { transform: translateY(0);    opacity: 1; }
+        }
+        @keyframes floatParticle {
+          0%   { transform: translateY(0px)    scale(1);    opacity: 0; }
+          14%  { opacity: 1; }
+          82%  { opacity: 0.52; }
+          100% { transform: translateY(-150px) scale(0.45); opacity: 0; }
         }
       `}</style>
 
