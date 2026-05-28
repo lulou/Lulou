@@ -316,14 +316,13 @@ function MatchRevealOverlay({
         ))}
       </div>
 
-      {/* ── Layer 3 — atmospheric spacer (pure cinematic backdrop) ── */}
-      <div className="flex-1" />
-
-      {/* ── Layer 4 — frosted glass identity card ── */}
+      {/* ── Layer 3 — full-height scrollable identity card (name at very top) ── */}
       {/* Hierarchy: Name → Details → Photo → Badge → Elevate → Tagline → CTAs */}
       <div
         className="relative z-10"
         style={{
+          flex: "1 1 0",
+          overflowY: "auto",
           animation: "cardSlideUp 0.64s 0.38s cubic-bezier(0.34, 1.56, 0.64, 1) both",
           background: "rgba(7,2,13,0.90)",
           backdropFilter: "blur(32px) saturate(1.3)",
