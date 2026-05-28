@@ -313,76 +313,30 @@ function MatchRevealOverlay({
         ))}
       </div>
 
-      {/* ── Layer 3 — upper photo zone ── */}
-      <div className="relative z-10 flex flex-col items-center justify-center flex-1 pb-4 pt-8">
+      {/* ── Layer 3 — upper name zone ── */}
+      <div className="relative z-10 flex flex-col items-center justify-center flex-1 px-6">
 
-        {/* Eyebrow */}
-        <p style={{
-          fontSize: 10, fontWeight: 700, letterSpacing: "0.30em",
-          textTransform: "uppercase",
-          color: "rgba(255,175,195,0.62)",
-          marginBottom: 18,
-          animation: "matchRevealTagline 0.45s 0.10s ease both",
-        }}>
-          {isExisting ? "✦  Reconnected  ✦" : "✦  Connection Opened  ✦"}
-        </p>
+        {/* Name + age — leads the hierarchy */}
+        <h2
+          className="font-serif text-center"
+          style={{
+            fontSize: "clamp(30px, 8.5vw, 42px)",
+            fontWeight: 700,
+            letterSpacing: "-0.025em",
+            lineHeight: 1.1,
+            color: "rgba(255,245,250,0.97)",
+            textShadow: "0 2px 28px rgba(188,78,96,0.50), 0 1px 6px rgba(0,0,0,0.65)",
+            animation: "matchRevealTagline 0.55s 0.12s ease both",
+          }}
+          data-testid="text-reveal-name"
+        >
+          {profile.firstName}{profile.age ? `, ${profile.age}` : ""}
+        </h2>
 
-        {/* Photo with layered glow rings */}
-        <div style={{
-          position: "relative",
-          animation: "matchRevealPhoto 0.82s 0.36s cubic-bezier(0.34, 1.56, 0.64, 1) both",
-        }}>
-          {/* Outermost ambient bloom */}
-          <div style={{
-            position: "absolute", inset: -36,
-            borderRadius: "50%",
-            background: "radial-gradient(circle, rgba(212,92,116,0.36) 0%, rgba(188,78,96,0.10) 58%, transparent 74%)",
-            animation: "glowPulse 2.6s ease-in-out infinite",
-            pointerEvents: "none",
-          }} />
-          {/* Mid shimmer ring */}
-          <div style={{
-            position: "absolute", inset: -12,
-            borderRadius: "50%",
-            background: "transparent",
-            boxShadow: "0 0 0 1px rgba(255,255,255,0.10), 0 0 30px 10px rgba(212,92,116,0.24)",
-            animation: "glowPulse 2.6s ease-in-out infinite 0.5s",
-            pointerEvents: "none",
-          }} />
-          {/* Photo circle — 190 px */}
-          <div style={{
-            width: 190, height: 190,
-            borderRadius: "50%",
-            overflow: "hidden",
-            position: "relative",
-            boxShadow:
-              "0 0 0 2.5px rgba(255,255,255,0.15)," +
-              "0 0 0 6px rgba(212,92,116,0.82)," +
-              "0 0 0 12px rgba(212,92,116,0.18)," +
-              "0 24px 72px rgba(0,0,0,0.68)",
-          }}>
-            <ProfilePhoto userId={profile.userId} className="w-full h-full" />
-          </div>
-          {/* Rotating conic shimmer overlay */}
-          <div style={{
-            position: "absolute", inset: -4,
-            borderRadius: "50%",
-            background:
-              "conic-gradient(from 0deg," +
-              " transparent 0%," +
-              " rgba(255,200,215,0.55) 15%," +
-              " transparent 34%," +
-              " rgba(212,92,116,0.42) 55%," +
-              " transparent 74%," +
-              " rgba(255,200,215,0.55) 100%)",
-            animation: "rotateSlow 8s linear infinite",
-            mixBlendMode: "screen",
-            pointerEvents: "none",
-          }} />
-        </div>
       </div>
 
       {/* ── Layer 4 — frosted glass info card (slides up from below) ── */}
+      {/* overflow: visible so glow rings bleed upward into the cinematic bg */}
       <div
         className="relative z-10"
         style={{
@@ -393,26 +347,78 @@ function MatchRevealOverlay({
           borderTop: "1px solid rgba(255,255,255,0.09)",
           borderRadius: "30px 30px 0 0",
           boxShadow: "0 -16px 64px rgba(0,0,0,0.38)",
-          padding: "26px 24px 44px",
+          overflow: "visible",
+          padding: "20px 24px 44px",
         }}
       >
-        {/* Name + age */}
-        <h2
-          className="font-serif text-center"
-          style={{
-            fontSize: "clamp(27px, 7.5vw, 36px)",
-            fontWeight: 700,
-            letterSpacing: "-0.02em",
-            lineHeight: 1.12,
-            color: "rgba(255,245,250,0.97)",
-            textShadow: "0 2px 22px rgba(188,78,96,0.42), 0 1px 4px rgba(0,0,0,0.55)",
-            marginBottom: 10,
-            animation: "matchRevealTagline 0.52s 0.72s ease both",
-          }}
-          data-testid="text-reveal-name"
-        >
-          {profile.firstName}{profile.age ? `, ${profile.age}` : ""}
-        </h2>
+        {/* Status eyebrow badge */}
+        <p style={{
+          fontSize: 10, fontWeight: 700, letterSpacing: "0.28em",
+          textTransform: "uppercase",
+          color: "rgba(255,175,195,0.62)",
+          textAlign: "center",
+          marginBottom: 16,
+          animation: "matchRevealTagline 0.42s 0.60s ease both",
+        }}>
+          {isExisting ? "✦  Reconnected  ✦" : "✦  Connection Opened  ✦"}
+        </p>
+
+        {/* Photo with layered glow rings */}
+        <div style={{
+          display: "flex", justifyContent: "center",
+          marginBottom: 20,
+          animation: "matchRevealPhoto 0.82s 0.36s cubic-bezier(0.34, 1.56, 0.64, 1) both",
+        }}>
+          <div style={{ position: "relative" }}>
+            {/* Outermost ambient bloom */}
+            <div style={{
+              position: "absolute", inset: -32,
+              borderRadius: "50%",
+              background: "radial-gradient(circle, rgba(212,92,116,0.34) 0%, rgba(188,78,96,0.08) 58%, transparent 74%)",
+              animation: "glowPulse 2.6s ease-in-out infinite",
+              pointerEvents: "none",
+            }} />
+            {/* Mid shimmer ring */}
+            <div style={{
+              position: "absolute", inset: -10,
+              borderRadius: "50%",
+              background: "transparent",
+              boxShadow: "0 0 0 1px rgba(255,255,255,0.10), 0 0 28px 8px rgba(212,92,116,0.22)",
+              animation: "glowPulse 2.6s ease-in-out infinite 0.5s",
+              pointerEvents: "none",
+            }} />
+            {/* Photo circle — 172 px */}
+            <div style={{
+              width: 172, height: 172,
+              borderRadius: "50%",
+              overflow: "hidden",
+              position: "relative",
+              boxShadow:
+                "0 0 0 2.5px rgba(255,255,255,0.15)," +
+                "0 0 0 6px rgba(212,92,116,0.82)," +
+                "0 0 0 11px rgba(212,92,116,0.18)," +
+                "0 20px 60px rgba(0,0,0,0.65)",
+            }}>
+              <ProfilePhoto userId={profile.userId} className="w-full h-full" />
+            </div>
+            {/* Rotating conic shimmer overlay */}
+            <div style={{
+              position: "absolute", inset: -4,
+              borderRadius: "50%",
+              background:
+                "conic-gradient(from 0deg," +
+                " transparent 0%," +
+                " rgba(255,200,215,0.55) 15%," +
+                " transparent 34%," +
+                " rgba(212,92,116,0.42) 55%," +
+                " transparent 74%," +
+                " rgba(255,200,215,0.55) 100%)",
+              animation: "rotateSlow 8s linear infinite",
+              mixBlendMode: "screen",
+              pointerEvents: "none",
+            }} />
+          </div>
+        </div>
 
         {/* Premium tagline */}
         <p
@@ -422,7 +428,7 @@ function MatchRevealOverlay({
             color: "rgba(255,208,220,0.70)",
             lineHeight: 1.5,
             marginBottom: profile.location ? 6 : 14,
-            animation: "matchRevealTagline 0.52s 0.86s ease both",
+            animation: "matchRevealTagline 0.52s 0.82s ease both",
           }}
           data-testid="text-reveal-tagline"
         >
@@ -435,7 +441,7 @@ function MatchRevealOverlay({
             display: "flex", alignItems: "center", justifyContent: "center", gap: 5,
             fontSize: 12, color: "rgba(255,185,202,0.46)",
             marginBottom: 14,
-            animation: "matchRevealTagline 0.42s 0.98s ease both",
+            animation: "matchRevealTagline 0.42s 0.94s ease both",
           }}>
             <MapPin style={{ width: 11, height: 11, flexShrink: 0 }} />
             {profile.location}
@@ -444,13 +450,13 @@ function MatchRevealOverlay({
 
         {/* Rose divider */}
         <div style={{
-          width: 52, height: 1, margin: "0 auto 20px",
+          width: 52, height: 1, margin: "0 auto 18px",
           background: "linear-gradient(90deg, transparent, rgba(212,92,116,0.82), transparent)",
-          animation: "matchRevealTagline 0.38s 1.0s ease both",
+          animation: "matchRevealTagline 0.38s 0.96s ease both",
         }} />
 
         {/* CTAs */}
-        <div style={{ display: "flex", flexDirection: "column", gap: 11, animation: "matchRevealCta 0.5s 1.08s ease both" }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 11, animation: "matchRevealCta 0.5s 1.04s ease both" }}>
           {/* Primary — Start Conversation */}
           <button
             onClick={onGoToMatches}
