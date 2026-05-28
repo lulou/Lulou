@@ -669,63 +669,6 @@ export default function ProfilePage() {
         </div>
       </div>
 
-      {/* ③ Hero picture — below name/details */}
-      <div
-        className="relative rounded-3xl overflow-hidden w-full flex flex-col justify-end"
-        style={{
-          height: "clamp(300px, 80vw, 500px)",
-          background: "linear-gradient(150deg, hsl(350 55% 78%) 0%, hsl(340 65% 68%) 45%, hsl(310 50% 62%) 100%)",
-        }}
-        data-testid="section-hero"
-      >
-        {/* Decorative soft circles */}
-        <div className="absolute -top-16 -right-16 w-64 h-64 rounded-full bg-white/10 pointer-events-none" />
-        <div className="absolute top-8 left-4 w-28 h-28 rounded-full bg-white/8 pointer-events-none" />
-        <div className="absolute -bottom-10 -left-10 w-40 h-40 rounded-full bg-black/10 pointer-events-none" />
-        {/* Photo — layered above gradient, hidden on error */}
-        <img
-          src="https://images.unsplash.com/photo-1516589178581-6cd7833ae3b2?w=900&auto=format&fit=crop&q=80"
-          alt=""
-          aria-hidden="true"
-          className="absolute inset-0 w-full h-full object-cover object-center"
-          onError={e => { (e.currentTarget as HTMLImageElement).style.display = "none"; }}
-          data-testid="img-hero-couple"
-        />
-        {/* Gradient overlay on top of photo */}
-        <div className="absolute inset-0 bg-gradient-to-t from-black/65 via-black/15 to-transparent pointer-events-none" />
-        {/* Text overlay */}
-        <div className="relative z-10 p-6">
-          <p className="text-white/80 text-xs font-semibold tracking-widest uppercase mb-1.5">Lulou Dating</p>
-          <p className="text-white font-serif text-2xl font-bold leading-tight drop-shadow-md">
-            Where real connections<br />flourish
-          </p>
-          <p className="text-white/70 text-sm mt-2">Your story starts here</p>
-        </div>
-      </div>
-
-      {/* ④ Elevate promo — below picture */}
-      <div
-        className="rounded-2xl border border-primary/25 p-4 flex items-center gap-3"
-        style={{ background: "linear-gradient(135deg, hsl(350 45% 98%), hsl(350 45% 95%))" }}
-        data-testid="card-elevate-promo"
-      >
-        <div className="w-10 h-10 rounded-full bg-primary/15 flex items-center justify-center shrink-0">
-          <Sparkles className="w-5 h-5 text-primary" />
-        </div>
-        <div className="flex-1 min-w-0">
-          <p className="text-sm font-semibold leading-snug">Get 3x as many dates with Elevate.</p>
-          <p className="text-xs text-muted-foreground mt-0.5">Boost your visibility in discovery</p>
-        </div>
-        <Button
-          size="sm"
-          className="shrink-0"
-          onClick={() => setShowElevateModal(true)}
-          data-testid="button-elevate-upgrade"
-        >
-          Upgrade
-        </Button>
-      </div>
-
       {expandedSection === "settings" && (
         <Card className="p-5 space-y-4" data-testid="section-settings">
           <p className="font-medium text-sm">{t("edit_profile")}</p>
@@ -1095,6 +1038,59 @@ export default function ProfilePage() {
         )}
       </div>
       </>)}
+
+      {/* ⑤ Main/profile picture — below More About Me */}
+      <div
+        className="relative rounded-3xl overflow-hidden w-full flex flex-col justify-end"
+        style={{
+          height: "clamp(300px, 80vw, 500px)",
+          background: "linear-gradient(150deg, hsl(350 55% 78%) 0%, hsl(340 65% 68%) 45%, hsl(310 50% 62%) 100%)",
+        }}
+        data-testid="section-hero"
+      >
+        <div className="absolute -top-16 -right-16 w-64 h-64 rounded-full bg-white/10 pointer-events-none" />
+        <div className="absolute top-8 left-4 w-28 h-28 rounded-full bg-white/8 pointer-events-none" />
+        <div className="absolute -bottom-10 -left-10 w-40 h-40 rounded-full bg-black/10 pointer-events-none" />
+        <img
+          src="https://images.unsplash.com/photo-1516589178581-6cd7833ae3b2?w=900&auto=format&fit=crop&q=80"
+          alt=""
+          aria-hidden="true"
+          className="absolute inset-0 w-full h-full object-cover object-center"
+          onError={e => { (e.currentTarget as HTMLImageElement).style.display = "none"; }}
+          data-testid="img-hero-couple"
+        />
+        <div className="absolute inset-0 bg-gradient-to-t from-black/65 via-black/15 to-transparent pointer-events-none" />
+        <div className="relative z-10 p-6">
+          <p className="text-white/80 text-xs font-semibold tracking-widest uppercase mb-1.5">Lulou Dating</p>
+          <p className="text-white font-serif text-2xl font-bold leading-tight drop-shadow-md">
+            Where real connections<br />flourish
+          </p>
+          <p className="text-white/70 text-sm mt-2">Your story starts here</p>
+        </div>
+      </div>
+
+      {/* ⑥ Elevate/upgrade content — below picture */}
+      <div
+        className="rounded-2xl border border-primary/25 p-4 flex items-center gap-3"
+        style={{ background: "linear-gradient(135deg, hsl(350 45% 98%), hsl(350 45% 95%))" }}
+        data-testid="card-elevate-promo"
+      >
+        <div className="w-10 h-10 rounded-full bg-primary/15 flex items-center justify-center shrink-0">
+          <Sparkles className="w-5 h-5 text-primary" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-semibold leading-snug">Get 3x as many dates with Elevate.</p>
+          <p className="text-xs text-muted-foreground mt-0.5">Boost your visibility in discovery</p>
+        </div>
+        <Button
+          size="sm"
+          className="shrink-0"
+          onClick={() => setShowElevateModal(true)}
+          data-testid="button-elevate-upgrade"
+        >
+          Upgrade
+        </Button>
+      </div>
 
       {user?.email === "abayomibalogun@icloud.com" && import.meta.env.DEV && (
         <Button
