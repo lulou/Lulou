@@ -20,13 +20,9 @@ import { LulouFlowerIcon, ProfileAvatar } from "@/components/app-layout";
 import { usePerfTrace, useRenderCount, isMobile, scheduleIdle } from "@/lib/perf";
 import { broadcastCallSignal } from "@/hooks/use-call-signaling";
 import { stopAllNonVoiceCallAudio } from "@/lib/call-audio";
-import { PhotoCarousel } from "@/components/photo-carousel";
+import { ProfilePhotoViewer } from "@/components/profile-photo-viewer";
 import { EMPTY_PHOTOS } from "@/lib/image-utils";
 import type { Profile, Match, Message, SpinRequest } from "@shared/schema";
-
-// Must match discover.tsx PHOTO_HEIGHT so "View Profile" carousel is identical
-// in height to the discovery card photo area.
-const PROFILE_PANEL_PHOTO_HEIGHT = 440;
 
 const MAX_MESSAGES_PER_USER = 15;
 const MAX_POST_CALL_MESSAGES = 12;
@@ -894,91 +890,22 @@ function SystemGuidanceMessage({ children, testId }: { children: ReactNode; test
 }
 
 function ProfilePanel({ profile, onClose }: { profile: Profile; onClose: () => void }) {
-  // Track isLoading so we can show the same shimmer skeleton as discover.tsx PhotoBubbles.
   const { data: photoData, isLoading: isPhotosLoading } = useQuery<{ photos: string[] }>({
     queryKey: ["/api/profiles", profile.userId, "photos"],
     staleTime: 5 * 60 * 1000,
   });
   const photos = photoData?.photos ?? profile.photos ?? EMPTY_PHOTOS;
-  // photoIdx tracks current slide for dot indicators — driven by onIndexChange
-  // callback (uncontrolled mode), same pattern as PhotoBubbles in discover.tsx.
-  const [photoIdx, setPhotoIdx] = useState(0);
 
   return (
     <div className="flex flex-col h-full bg-background" data-testid="profile-panel">
 
-      {/* Loading skeleton — exact same shimmer logic as discover.tsx PhotoBubbles */}
-      {isPhotosLoading && photos.length === 0 ? (
-        <div
-          className="w-full flex-shrink-0"
-          style={{
-            height: PROFILE_PANEL_PHOTO_HEIGHT,
-            background: isMobile
-              ? "hsl(var(--muted))"
-              : "linear-gradient(90deg, hsl(var(--muted)) 25%, hsl(var(--muted-foreground)/0.08) 50%, hsl(var(--muted)) 75%)",
-            backgroundSize: isMobile ? undefined : "200% 100%",
-            animation: isMobile ? undefined : "shimmer 1.4s infinite linear",
-          }}
-          data-testid="photo-loading-skeleton"
-        />
-      ) : (
-        /*
-         * Uncontrolled PhotoCarousel — no currentIndex prop, same as discover.tsx
-         * PhotoBubbles. Swipe/drag is the primary navigation gesture.
-         * showArrows=false, showDots=false — same props as PhotoBubbles.
-         * onIndexChange drives photoIdx for the dot indicators below.
-         */
-        <PhotoCarousel
-          photos={photos}
-          height={PROFILE_PANEL_PHOTO_HEIGHT}
-          onIndexChange={setPhotoIdx}
-          showArrows={false}
-          showDots={false}
-          className="flex-shrink-0"
-        >
-          {/* DEBUG badge */}
-          <div style={{ position: "absolute", top: 8, left: 8, zIndex: 50, background: "rgba(200,0,0,0.82)", color: "white", fontSize: 10, fontFamily: "monospace", padding: "3px 7px", borderRadius: 5, pointerEvents: "none", lineHeight: 1.5 }}>
-            PANEL {photos.length} photos · idx:{photoIdx}
-          </div>
-
-          {/* Bottom gradient — same values as discover.tsx PhotoBubbles */}
-          <div
-            className="absolute inset-0 pointer-events-none"
-            style={{ background: "linear-gradient(to top, rgba(0,0,0,0.62) 0%, rgba(0,0,0,0.1) 48%, transparent 68%)" }}
-          />
-
-          {/* Close button — modal-specific; not present in Discovery */}
-          <button
-            onClick={onClose}
-            className="absolute top-3 right-3 z-20 flex items-center justify-center rounded-full transition-all active:scale-90"
-            style={{ width: 34, height: 34, background: "rgba(0,0,0,0.38)", backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)", border: "1px solid rgba(255,255,255,0.18)" }}
-            data-testid="button-close-profile-panel"
-          >
-            <X className="w-4 h-4 text-white" />
-          </button>
-
-          {/* Bottom bar — dot indicators (same style as discover.tsx) + name overlay */}
-          <div className="absolute bottom-0 left-0 right-0 px-4 pb-4 z-10">
-            {/* Pill dots — identical to discover.tsx PhotoBubbles dots */}
-            {photos.length > 1 && (
-              <div className="flex items-center gap-1.5 pb-0.5 mb-2">
-                {photos.map((_, i) => (
-                  <div
-                    key={i}
-                    style={{
-                      width: i === photoIdx ? 24 : 7,
-                      height: 7,
-                      borderRadius: 3.5,
-                      backgroundColor: i === photoIdx ? "white" : "rgba(255,255,255,0.42)",
-                      transition: "width 0.25s ease, background-color 0.25s ease",
-                      flexShrink: 0,
-                    }}
-                    data-testid={`indicator-profile-photo-${i}`}
-                  />
-                ))}
-              </div>
-            )}
-            {/* Name + location */}
+      {/* Shared photo viewer — same component as Discovery and Intention Wheel */}
+      <ProfilePhotoViewer
+        photos={photos}
+        isLoading={isPhotosLoading}
+        className="flex-shrink-0"
+        nameSlot={
+          <div>
             <h2
               className="font-serif font-bold text-white leading-tight"
               style={{ fontSize: 22, textShadow: "0 1px 8px rgba(0,0,0,0.5)" }}
@@ -998,8 +925,18 @@ function ProfilePanel({ profile, onClose }: { profile: Profile; onClose: () => v
               )}
             </div>
           </div>
-        </PhotoCarousel>
-      )}
+        }
+      >
+        {/* Close button */}
+        <button
+          onClick={onClose}
+          className="absolute top-3 right-3 z-20 flex items-center justify-center rounded-full transition-all active:scale-90"
+          style={{ width: 34, height: 34, background: "rgba(0,0,0,0.38)", backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)", border: "1px solid rgba(255,255,255,0.18)" }}
+          data-testid="button-close-profile-panel"
+        >
+          <X className="w-4 h-4 text-white" />
+        </button>
+      </ProfilePhotoViewer>
 
       <div className="flex-1 min-h-0 overflow-y-auto profile-panel-body" style={{ paddingBottom: "env(safe-area-inset-bottom, 16px)" }}>
         {profile.datingIntent && (

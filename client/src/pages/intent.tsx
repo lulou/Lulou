@@ -11,6 +11,8 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { useTabActive } from "@/hooks/use-tab-active";
 import type { Profile } from "@shared/schema";
+import { ProfilePhotoViewer } from "@/components/profile-photo-viewer";
+import { EMPTY_PHOTOS } from "@/lib/image-utils";
 
 /** Fisher-Yates shuffle — returns a new array, does not mutate input. */
 function shuffleArray<T>(arr: T[]): T[] {
@@ -645,6 +647,15 @@ export default function IntentPage() {
   const [isSpinning, setIsSpinning] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
   const [selectedProfile, setSelectedProfile] = useState<Profile | null>(null);
+
+  // Fetch full photo set for the detail view — enabled only when a profile is selected.
+  const { data: detailPhotoData, isLoading: isDetailPhotosLoading } = useQuery<{ photos: string[] }>({
+    queryKey: ["/api/profiles", selectedProfile?.userId, "photos"],
+    enabled: !!selectedProfile?.userId,
+    staleTime: 5 * 60 * 1000,
+  });
+  const detailPhotos = detailPhotoData?.photos ?? EMPTY_PHOTOS;
+
   const [dispersed, setDispersed] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
   const [showPurchase, setShowPurchase] = useState(false);
@@ -1245,9 +1256,12 @@ export default function IntentPage() {
               </Button>
             </div>
 
-            {/* ③ Profile picture — below identity */}
-            <div data-testid="img-intent-detail-photo" className="w-full aspect-[3/4] max-h-[54vh] overflow-hidden">
-              <ProfilePhoto userId={selectedProfile.userId} className="w-full h-full" />
+            {/* ③ Profile picture — shared carousel, same as Discovery and ProfilePanel */}
+            <div data-testid="img-intent-detail-photo">
+              <ProfilePhotoViewer
+                photos={detailPhotos}
+                isLoading={isDetailPhotosLoading}
+              />
             </div>
 
             <div className="px-5 pt-4 space-y-4 pb-36">
