@@ -20,6 +20,12 @@
   to   { opacity: 1; }
 }
 
+@keyframes profilePanelIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.profile-panel-body { animation: profilePanelIn 0.22s ease both; }
+
 /* ── Mobile: remove backdrop-blur for GPU / compositing performance ─────── */
 /* backdrop-filter forces iOS Safari to rasterise everything below the       */
 /* blurred element on every paint. During scroll this means a full-screen    */

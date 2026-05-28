@@ -24,16 +24,9 @@ import { PhotoCarousel } from "@/components/photo-carousel";
 import { EMPTY_PHOTOS } from "@/lib/image-utils";
 import type { Profile, Match, Message, SpinRequest } from "@shared/schema";
 
-// Photo height for the ProfilePanel — matches Discovery's PHOTO_HEIGHT constant
-// so the "View Profile" carousel feels identical to the discover page.
+// Must match discover.tsx PHOTO_HEIGHT so "View Profile" carousel is identical
+// in height to the discovery card photo area.
 const PROFILE_PANEL_PHOTO_HEIGHT = 440;
-
-// Module-scope style injection — @keyframes must live at module scope, not inside
-// JSX renders, to avoid Safari CSSOM crash on re-mount (see memory/i18n-variable-shadowing).
-const PROFILE_PANEL_STYLES = `
-  @keyframes profilePanelIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
-  .profile-panel-body { animation: profilePanelIn 0.22s ease both; }
-`;
 
 const MAX_MESSAGES_PER_USER = 15;
 const MAX_POST_CALL_MESSAGES = 12;
@@ -901,18 +894,20 @@ function SystemGuidanceMessage({ children, testId }: { children: ReactNode; test
 }
 
 function ProfilePanel({ profile, onClose }: { profile: Profile; onClose: () => void }) {
+  // Track isLoading so we can show the same shimmer skeleton as discover.tsx PhotoBubbles.
   const { data: photoData, isLoading: isPhotosLoading } = useQuery<{ photos: string[] }>({
     queryKey: ["/api/profiles", profile.userId, "photos"],
     staleTime: 5 * 60 * 1000,
   });
   const photos = photoData?.photos ?? profile.photos ?? EMPTY_PHOTOS;
+  // photoIdx tracks current slide for dot indicators — driven by onIndexChange
+  // callback (uncontrolled mode), same pattern as PhotoBubbles in discover.tsx.
   const [photoIdx, setPhotoIdx] = useState(0);
 
   return (
     <div className="flex flex-col h-full bg-background" data-testid="profile-panel">
-      <style>{PROFILE_PANEL_STYLES}</style>
 
-      {/* Loading skeleton — shown while photos are fetching (mirrors Discovery shimmer) */}
+      {/* Loading skeleton — exact same shimmer logic as discover.tsx PhotoBubbles */}
       {isPhotosLoading && photos.length === 0 ? (
         <div
           className="w-full flex-shrink-0"
@@ -927,89 +922,78 @@ function ProfilePanel({ profile, onClose }: { profile: Profile; onClose: () => v
           data-testid="photo-loading-skeleton"
         />
       ) : (
-      /* PhotoCarousel handles swipe/drag — overlays injected as children */
-      <PhotoCarousel
-        photos={photos}
-        height={PROFILE_PANEL_PHOTO_HEIGHT}
-        currentIndex={photoIdx}
-        onIndexChange={setPhotoIdx}
-        showArrows={false}
-        showDots={false}
-        className="flex-shrink-0"
-      >
-        {/* Bottom gradient */}
-        <div
-          className="absolute inset-x-0 bottom-0 pointer-events-none z-10"
-          style={{ height: "60%", background: "linear-gradient(to top, rgba(0,0,0,0.72) 0%, rgba(0,0,0,0.28) 55%, transparent 100%)" }}
-        />
-
-        {/* Left arrow */}
-        {photos.length > 1 && photoIdx > 0 && (
-          <button
-            onClick={() => setPhotoIdx(i => Math.max(i - 1, 0))}
-            className="absolute left-2 top-1/2 -translate-y-1/2 z-20 flex items-center justify-center rounded-full transition-all active:scale-90"
-            style={{ width: 32, height: 32, background: "rgba(0,0,0,0.38)", backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)", border: "1px solid rgba(255,255,255,0.18)" }}
-            data-testid="button-profile-photo-prev"
-          >
-            <ChevronLeft className="w-4 h-4 text-white" />
-          </button>
-        )}
-
-        {/* Right arrow (offset from close button) */}
-        {photos.length > 1 && photoIdx < photos.length - 1 && (
-          <button
-            onClick={() => setPhotoIdx(i => Math.min(i + 1, photos.length - 1))}
-            className="absolute right-10 top-1/2 -translate-y-1/2 z-20 flex items-center justify-center rounded-full transition-all active:scale-90"
-            style={{ width: 32, height: 32, background: "rgba(0,0,0,0.38)", backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)", border: "1px solid rgba(255,255,255,0.18)" }}
-            data-testid="button-profile-photo-next"
-          >
-            <ChevronRight className="w-4 h-4 text-white" />
-          </button>
-        )}
-
-        {/* Close button */}
-        <button
-          onClick={onClose}
-          className="absolute top-3 right-3 z-20 flex items-center justify-center rounded-full transition-all active:scale-90"
-          style={{ width: 34, height: 34, background: "rgba(0,0,0,0.38)", backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)", border: "1px solid rgba(255,255,255,0.18)" }}
-          data-testid="button-close-profile-panel"
+        /*
+         * Uncontrolled PhotoCarousel — no currentIndex prop, same as discover.tsx
+         * PhotoBubbles. Swipe/drag is the primary navigation gesture.
+         * showArrows=false, showDots=false — same props as PhotoBubbles.
+         * onIndexChange drives photoIdx for the dot indicators below.
+         */
+        <PhotoCarousel
+          photos={photos}
+          height={PROFILE_PANEL_PHOTO_HEIGHT}
+          onIndexChange={setPhotoIdx}
+          showArrows={false}
+          showDots={false}
+          className="flex-shrink-0"
         >
-          <X className="w-4 h-4 text-white" />
-        </button>
+          {/* Bottom gradient — same values as discover.tsx PhotoBubbles */}
+          <div
+            className="absolute inset-0 pointer-events-none"
+            style={{ background: "linear-gradient(to top, rgba(0,0,0,0.62) 0%, rgba(0,0,0,0.1) 48%, transparent 68%)" }}
+          />
 
-        {/* Name + location overlay */}
-        <div className="absolute inset-x-0 bottom-0 z-10 px-4 pb-4">
-          <h2 className="font-serif font-bold text-white leading-tight" style={{ fontSize: 22, textShadow: "0 1px 8px rgba(0,0,0,0.5)" }} data-testid="text-profile-panel-name">
-            {profile.firstName}{profile.age ? `, ${profile.age}` : ""}
-          </h2>
-          <div className="flex items-center gap-3 mt-0.5 flex-wrap">
-            {profile.location && (
-              <span className="flex items-center gap-1 text-white/80 text-xs" data-testid="text-profile-panel-location">
-                <MapPin className="w-3 h-3" />
-                {profile.location}
-              </span>
-            )}
-            {profile.height && (
-              <span className="text-white/70 text-xs" data-testid="text-profile-panel-height">{profile.height}</span>
-            )}
-          </div>
-        </div>
+          {/* Close button — modal-specific; not present in Discovery */}
+          <button
+            onClick={onClose}
+            className="absolute top-3 right-3 z-20 flex items-center justify-center rounded-full transition-all active:scale-90"
+            style={{ width: 34, height: 34, background: "rgba(0,0,0,0.38)", backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)", border: "1px solid rgba(255,255,255,0.18)" }}
+            data-testid="button-close-profile-panel"
+          >
+            <X className="w-4 h-4 text-white" />
+          </button>
 
-        {/* Top story-bar indicators */}
-        {photos.length > 1 && (
-          <div className="absolute top-3 left-0 right-10 flex gap-1 px-3 z-20">
-            {photos.map((_, i) => (
-              <button
-                key={i}
-                className="flex-1 rounded-full transition-all active:scale-95"
-                style={{ height: 3, background: i === photoIdx ? "rgba(255,255,255,0.96)" : "rgba(255,255,255,0.38)" }}
-                onClick={() => setPhotoIdx(i)}
-                data-testid={`button-profile-photo-dot-${i}`}
-              />
-            ))}
+          {/* Bottom bar — dot indicators (same style as discover.tsx) + name overlay */}
+          <div className="absolute bottom-0 left-0 right-0 px-4 pb-4 z-10">
+            {/* Pill dots — identical to discover.tsx PhotoBubbles dots */}
+            {photos.length > 1 && (
+              <div className="flex items-center gap-1.5 pb-0.5 mb-2">
+                {photos.map((_, i) => (
+                  <div
+                    key={i}
+                    style={{
+                      width: i === photoIdx ? 24 : 7,
+                      height: 7,
+                      borderRadius: 3.5,
+                      backgroundColor: i === photoIdx ? "white" : "rgba(255,255,255,0.42)",
+                      transition: "width 0.25s ease, background-color 0.25s ease",
+                      flexShrink: 0,
+                    }}
+                    data-testid={`indicator-profile-photo-${i}`}
+                  />
+                ))}
+              </div>
+            )}
+            {/* Name + location */}
+            <h2
+              className="font-serif font-bold text-white leading-tight"
+              style={{ fontSize: 22, textShadow: "0 1px 8px rgba(0,0,0,0.5)" }}
+              data-testid="text-profile-panel-name"
+            >
+              {profile.firstName}{profile.age ? `, ${profile.age}` : ""}
+            </h2>
+            <div className="flex items-center gap-3 mt-0.5 flex-wrap">
+              {profile.location && (
+                <span className="flex items-center gap-1 text-white/80 text-xs" data-testid="text-profile-panel-location">
+                  <MapPin className="w-3 h-3" />
+                  {profile.location}
+                </span>
+              )}
+              {profile.height && (
+                <span className="text-white/70 text-xs" data-testid="text-profile-panel-height">{profile.height}</span>
+              )}
+            </div>
           </div>
-        )}
-      </PhotoCarousel>
+        </PhotoCarousel>
       )}
 
       <div className="flex-1 min-h-0 overflow-y-auto profile-panel-body" style={{ paddingBottom: "env(safe-area-inset-bottom, 16px)" }}>
