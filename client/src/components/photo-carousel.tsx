@@ -286,7 +286,7 @@ export function PhotoCarousel({
     <div
       ref={containerRef}
       className={`relative overflow-hidden select-none ${className}`}
-      style={{ height, touchAction: "pan-y", ...style }}
+      style={{ height, touchAction: "pan-y", borderRadius: "inherit", ...style }}
       data-testid="photo-carousel"
     >
       {n === 0 && (
@@ -308,6 +308,8 @@ export function PhotoCarousel({
             inset: 0,
             width: "100%",
             height: "100%",
+            overflow: "hidden",
+            borderRadius: "inherit",
             background: "hsl(var(--muted))",
             // Only promote slides adjacent to the visible one to their own GPU
             // compositing layer. Applying willChange to every slide creates N
