@@ -743,7 +743,7 @@ export class SupabaseStorage implements IStorage {
     // Step 1: build unified exclusion set + fetch elevates in parallel.
     // buildExcludedUserIds covers both interaction-based and match-based exclusions so that
     // Discovery uses the same filtering logic as the Intention Wheel.
-    const [{ excludedIds, interactedIds, activeMatchUserIds }, elevates] = await Promise.all([
+    const [{ excludedIds, interactedIds, activeMatchUserIds, inboundOpenerIds }, elevates] = await Promise.all([
       this.buildExcludedUserIds(userId),
       getActiveElevatesMap(),
     ]);
@@ -772,7 +772,7 @@ export class SupabaseStorage implements IStorage {
     const now = new Date();
     const all = (profilesResult.data || []).map(mapProfile);
 
-    console.log(`[FILTER_DEBUG] total candidates from DB: ${all.length}`);
+    console.log(`[POOL_DEBUG] total profiles (discover): ${all.length}`);
 
     // ── In-memory age verification pass ─────────────────────────────────────
     // Null age passes through — profiles without an age are not excluded.
@@ -786,7 +786,7 @@ export class SupabaseStorage implements IStorage {
       }
       return true;
     });
-    console.log(`[FILTER_DEBUG] excluded by age (range ${effectiveAgeMin}–${effectiveAgeMax}): ${excludedByAge}`);
+    console.log(`[POOL_DEBUG] after age (discover): ${ageVerified.length} (removed ${excludedByAge})`);
 
     // DB-exclusion path: returned profiles are already excluded — no second filter needed.
     // Large-exclusion fallback: apply in-memory exclusion on the wider 500-profile batch.
@@ -798,7 +798,15 @@ export class SupabaseStorage implements IStorage {
           excludedByInteraction++;
           return false;
         });
-    console.log(`[FILTER_DEBUG] excluded by liked/matched/inbound: ${useDbExclusion ? excludedIds.size + " (at DB)" : excludedByInteraction}`);
+
+    // ── POOL_DEBUG: separate outbound vs inbound exclusion counts ────────────
+    {
+      const nonInboundExcluded = new Set([...excludedIds].filter(id => !inboundOpenerIds.has(id)));
+      const afterLMB = ageVerified.filter(p => !nonInboundExcluded.has(p.userId));
+      console.log(`[POOL_DEBUG] after liked/matched/pass/block (discover): ${afterLMB.length} (removed ${ageVerified.length - afterLMB.length})`);
+      const afterInbound = afterLMB.filter(p => !inboundOpenerIds.has(p.userId));
+      console.log(`[POOL_DEBUG] after inbound likes (discover): ${afterInbound.length} (removed ${afterLMB.length - afterInbound.length})`);
+    }
 
     // ── Distance filter ──────────────────────────────────────────────────────
     // Applied in-memory. Candidates without geocoded coordinates pass through
@@ -813,8 +821,7 @@ export class SupabaseStorage implements IStorage {
         return within;
       });
     }
-    console.log(`[FILTER_DEBUG] excluded by distance: ${excludedByDistance}`);
-    console.log(`[FILTER_DEBUG] final count (before weighted sample): ${distanceFiltered.length}`);
+    console.log(`[POOL_DEBUG] after distance (discover): ${distanceFiltered.length} (removed ${excludedByDistance})`);
 
     const filtered = mergeElevatesIntoProfiles(distanceFiltered, elevates);
 
@@ -849,13 +856,13 @@ export class SupabaseStorage implements IStorage {
         });
         const fallbackWithElevates = mergeElevatesIntoProfiles(fallbackFiltered, elevates);
         const fallbackResult = weightedSample(fallbackWithElevates, 20, now);
-        console.log(`[FILTER_DEBUG] final count (gender-only fallback): ${fallbackResult.length}`);
+        console.log(`[POOL_DEBUG] final discovery count (gender-only fallback): ${fallbackResult.length}`);
         return fallbackResult;
       }
     }
 
     const result = weightedSample(filtered, 20, now);
-    console.log(`[FILTER_DEBUG] final count: ${result.length}`);
+    console.log(`[POOL_DEBUG] final discovery count: ${result.length}`);
     return result;
   }
 
@@ -1662,10 +1669,13 @@ export class SupabaseStorage implements IStorage {
     ]);
     console.log(`[WHEEL] exclusions+popularity queries done in ${Date.now() - twPopT0} ms`);
 
-    const { excludedIds, activeMatchUserIds } = exclusionResult;
+    const { excludedIds, activeMatchUserIds, interactedIds, inboundOpenerIds } = exclusionResult;
+    // Same 300-cap as Discovery: apply exclusion at DB level when set is small enough.
+    const useDbExclusion = excludedIds.size <= 300;
     console.log("[WHEEL_FILTER] exclusion breakdown:", {
       total: excludedIds.size,
       activeMatches: activeMatchUserIds.size,
+      useDbExclusion,
     });
 
     const popularRows = popularRowsResult.data;
@@ -1684,13 +1694,19 @@ export class SupabaseStorage implements IStorage {
     let allProfiles: Profile[] = [];
 
     if (sortedIds.length > 0) {
-      // FIX: apply age filter here so popular profiles outside the user's age preference
-      // are excluded at DB level — same treatment as getDiscoverProfiles.
+      // Apply age + mutual-compat filters, plus DB-level exclusion of already-interacted
+      // profiles (same 300-cap as Discovery).  Without this, the popular query fills
+      // allProfiles with up to `limit` excluded users, preventing the fill query from
+      // ever running and leaving the wheel with 0–1 eligible profiles.
       let query = this.sb
         .from("profiles")
         .select(WHEEL_COLS)
         .eq("onboarding_complete", true)
         .in("user_id", sortedIds);
+
+      if (useDbExclusion && excludedIds.size > 0) {
+        query = query.not("user_id", "in", `(${[...excludedIds].join(",")})`);
+      }
 
       query = applyFilters(query);
 
@@ -1703,7 +1719,6 @@ export class SupabaseStorage implements IStorage {
     }
 
     // Fill remaining slots from any eligible profile (most recently joined first).
-    // FIX: apply age filter + neq(userId) at DB level — same as Discovery's base query.
     if (allProfiles.length < limit) {
       const existingIds = allProfiles.map(r => r.userId);
       let query = this.sb
@@ -1713,12 +1728,23 @@ export class SupabaseStorage implements IStorage {
         .order("created_at", { ascending: false })
         .limit(limit * 3);
 
-      // Exclude own profile and already-fetched popular profiles.
-      const excludeFromFill = userId
-        ? [...existingIds, userId]
-        : existingIds;
-      if (excludeFromFill.length > 0) {
-        query = query.not("user_id", "in", `(${excludeFromFill.join(",")})`);
+      // Combine already-fetched profiles, own profile, and (when within the URL-safe cap)
+      // the full interaction-exclusion set — mirrors Discovery's DB-level exclusion.
+      // This ensures fill doesn't waste its DB limit on profiles that will be removed
+      // in the in-memory step.
+      const fillExcludeSet = new Set([
+        ...existingIds,
+        ...(userId ? [userId] : []),
+        ...(useDbExclusion ? [...excludedIds] : []),
+      ]);
+      if (fillExcludeSet.size > 0 && fillExcludeSet.size <= 400) {
+        query = query.not("user_id", "in", `(${[...fillExcludeSet].join(",")})`);
+      } else if (existingIds.length > 0 || userId) {
+        // Fallback: at minimum exclude already-fetched + own profile
+        const minExclude = userId ? [...existingIds, userId] : existingIds;
+        if (minExclude.length > 0) {
+          query = query.not("user_id", "in", `(${minExclude.join(",")})`);
+        }
       }
 
       query = applyFilters(query);
@@ -1728,7 +1754,7 @@ export class SupabaseStorage implements IStorage {
       allProfiles.push(...(extra || []).map(mapProfile));
     }
 
-    console.log(`[FILTER_DEBUG][WHEEL] total candidates from DB: ${allProfiles.length}`);
+    console.log(`[POOL_DEBUG] total profiles (wheel): ${allProfiles.length}`);
 
     // ── In-memory age verification ───────────────────────────────────────────
     // Mirrors getDiscoverProfiles: null age passes through; only exclude concrete out-of-range ages.
@@ -1740,21 +1766,32 @@ export class SupabaseStorage implements IStorage {
       }
       return true;
     });
-    console.log(`[FILTER_DEBUG][WHEEL] excluded by age (range ${effectiveAgeMin}–${effectiveAgeMax}): ${wheelExcludedByAge}`);
+    console.log(`[POOL_DEBUG] after age (wheel): ${ageVerified.length} (removed ${wheelExcludedByAge})`);
 
-    // ── Exclude interacted / matched / inbound-liked profiles ────────────────
+    // ── POOL_DEBUG: separate outbound vs inbound exclusion counts ────────────
+    {
+      const nonInboundExcluded = new Set([...excludedIds].filter(id => !inboundOpenerIds.has(id)));
+      const afterLMB = ageVerified.filter(p => !nonInboundExcluded.has(p.userId));
+      console.log(`[POOL_DEBUG] after liked/matched/pass/block (wheel): ${afterLMB.length} (removed ${ageVerified.length - afterLMB.length})`);
+      const afterInbound = afterLMB.filter(p => !inboundOpenerIds.has(p.userId));
+      console.log(`[POOL_DEBUG] after inbound likes (wheel): ${afterInbound.length} (removed ${afterLMB.length - afterInbound.length})`);
+    }
+
+    // ── Exclude interacted / matched / inbound-liked profiles (safety pass) ──
+    // DB-level exclusion above handles most of this; in-memory pass catches any
+    // edge cases (e.g. large exclusion set > 300 that bypassed DB filter).
     let wheelExcludedByInteraction = 0;
-    let matchExcludedCount = 0;
     const interactionFiltered = ageVerified.filter(p => {
       if (p.userId === userId) return false; // safety: never show own profile
       if (excludedIds.has(p.userId)) {
-        if (activeMatchUserIds.has(p.userId)) matchExcludedCount++;
         wheelExcludedByInteraction++;
         return false;
       }
       return true;
     });
-    console.log(`[FILTER_DEBUG][WHEEL] excluded by liked/matched/inbound: ${wheelExcludedByInteraction} (${matchExcludedCount} active matches)`);
+    if (wheelExcludedByInteraction > 0) {
+      console.log(`[POOL_DEBUG] in-memory interaction safety removed: ${wheelExcludedByInteraction}`);
+    }
 
     // ── Distance filter ──────────────────────────────────────────────────────
     // Mirrors getDiscoverProfiles: null coords pass through.
@@ -1768,8 +1805,7 @@ export class SupabaseStorage implements IStorage {
         return within;
       });
     }
-    console.log(`[FILTER_DEBUG][WHEEL] excluded by distance: ${wheelExcludedByDistance}`);
-    console.log(`[FILTER_DEBUG][WHEEL] final count (before elevate/sample): ${distanceFiltered.length}`);
+    console.log(`[POOL_DEBUG] after distance (wheel): ${distanceFiltered.length} (removed ${wheelExcludedByDistance})`);
 
     // ── Last-resort fallback ─────────────────────────────────────────────────
     // FIX: use the same gender-only relaxation as getDiscoverProfiles instead of a
@@ -1796,14 +1832,16 @@ export class SupabaseStorage implements IStorage {
         p.userId !== userId && !excludedIds.has(p.userId)
       );
       distanceFiltered = fallbackMapped;
-      console.log(`[FILTER_DEBUG][WHEEL] final count (gender-only fallback): ${distanceFiltered.length}`);
+      console.log(`[POOL_DEBUG] final wheel count (gender-only fallback): ${distanceFiltered.length}`);
     }
 
     // Merge live elevate status from local DB, then weighted sample
     const elevates = await getActiveElevatesMap();
     const now = new Date();
     const elevatedProfiles = mergeElevatesIntoProfiles(distanceFiltered, elevates);
-    return weightedSample(elevatedProfiles, elevatedProfiles.length, now);
+    const wheelResult = weightedSample(elevatedProfiles, elevatedProfiles.length, now);
+    console.log(`[POOL_DEBUG] final wheel count (before route slice): ${wheelResult.length}`);
+    return wheelResult;
   }
 
   async getSpinStandouts(userId: string): Promise<string[]> {
