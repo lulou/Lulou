@@ -24,6 +24,17 @@ import { PhotoCarousel } from "@/components/photo-carousel";
 import { EMPTY_PHOTOS } from "@/lib/image-utils";
 import type { Profile, Match, Message, SpinRequest } from "@shared/schema";
 
+// Photo height for the ProfilePanel — matches Discovery's PHOTO_HEIGHT constant
+// so the "View Profile" carousel feels identical to the discover page.
+const PROFILE_PANEL_PHOTO_HEIGHT = 440;
+
+// Module-scope style injection — @keyframes must live at module scope, not inside
+// JSX renders, to avoid Safari CSSOM crash on re-mount (see memory/i18n-variable-shadowing).
+const PROFILE_PANEL_STYLES = `
+  @keyframes profilePanelIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+  .profile-panel-body { animation: profilePanelIn 0.22s ease both; }
+`;
+
 const MAX_MESSAGES_PER_USER = 15;
 const MAX_POST_CALL_MESSAGES = 12;
 const MAX_POST_STAGE2_MESSAGES = 20;
@@ -890,7 +901,7 @@ function SystemGuidanceMessage({ children, testId }: { children: ReactNode; test
 }
 
 function ProfilePanel({ profile, onClose }: { profile: Profile; onClose: () => void }) {
-  const { data: photoData } = useQuery<{ photos: string[] }>({
+  const { data: photoData, isLoading: isPhotosLoading } = useQuery<{ photos: string[] }>({
     queryKey: ["/api/profiles", profile.userId, "photos"],
     staleTime: 5 * 60 * 1000,
   });
@@ -899,15 +910,27 @@ function ProfilePanel({ profile, onClose }: { profile: Profile; onClose: () => v
 
   return (
     <div className="flex flex-col h-full bg-background" data-testid="profile-panel">
-      <style>{`
-        @keyframes profilePanelIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
-        .profile-panel-body { animation: profilePanelIn 0.22s ease both; }
-      `}</style>
+      <style>{PROFILE_PANEL_STYLES}</style>
 
-      {/* PhotoCarousel handles swipe/drag — overlays injected as children */}
+      {/* Loading skeleton — shown while photos are fetching (mirrors Discovery shimmer) */}
+      {isPhotosLoading && photos.length === 0 ? (
+        <div
+          className="w-full flex-shrink-0"
+          style={{
+            height: PROFILE_PANEL_PHOTO_HEIGHT,
+            background: isMobile
+              ? "hsl(var(--muted))"
+              : "linear-gradient(90deg, hsl(var(--muted)) 25%, hsl(var(--muted-foreground)/0.08) 50%, hsl(var(--muted)) 75%)",
+            backgroundSize: isMobile ? undefined : "200% 100%",
+            animation: isMobile ? undefined : "shimmer 1.4s infinite linear",
+          }}
+          data-testid="photo-loading-skeleton"
+        />
+      ) : (
+      /* PhotoCarousel handles swipe/drag — overlays injected as children */
       <PhotoCarousel
         photos={photos}
-        height={300}
+        height={PROFILE_PANEL_PHOTO_HEIGHT}
         currentIndex={photoIdx}
         onIndexChange={setPhotoIdx}
         showArrows={false}
@@ -987,6 +1010,7 @@ function ProfilePanel({ profile, onClose }: { profile: Profile; onClose: () => v
           </div>
         )}
       </PhotoCarousel>
+      )}
 
       <div className="flex-1 min-h-0 overflow-y-auto profile-panel-body" style={{ paddingBottom: "env(safe-area-inset-bottom, 16px)" }}>
         {profile.datingIntent && (
