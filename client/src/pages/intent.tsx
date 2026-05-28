@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { Loader2, RotateCw, X, MapPin, Lock, Star, Crown, MessageCircle, HelpCircle, Heart, Moon, Volume2, VolumeX } from "lucide-react";
 import { LulouFlowerIcon } from "@/components/app-layout";
+import { ElevateModal } from "@/components/elevate-modal";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
@@ -260,12 +261,14 @@ function MatchRevealOverlay({
   playChime,
   onGoToMatches,
   onDiscover,
+  onElevate,
 }: {
   profile: Profile;
   isExisting: boolean;
   playChime: () => void;
   onGoToMatches: () => void;
   onDiscover: () => void;
+  onElevate: () => void;
 }) {
   const tagline = useRef(MATCH_TAGLINES[Math.floor(Math.random() * MATCH_TAGLINES.length)]).current;
 
@@ -313,11 +316,11 @@ function MatchRevealOverlay({
         ))}
       </div>
 
-      {/* ── Layer 3 — atmospheric spacer (pure backdrop, no content) ── */}
+      {/* ── Layer 3 — atmospheric spacer (pure cinematic backdrop) ── */}
       <div className="flex-1" />
 
-      {/* ── Layer 4 — frosted glass identity card (slides up) ── */}
-      {/* Identity leads: Name → Details → Badge → Photo → Tagline → CTAs */}
+      {/* ── Layer 4 — frosted glass identity card ── */}
+      {/* Hierarchy: Name → Details → Photo → Badge → Elevate → Tagline → CTAs */}
       <div
         className="relative z-10"
         style={{
@@ -331,7 +334,7 @@ function MatchRevealOverlay({
           padding: "28px 24px 44px",
         }}
       >
-        {/* ① Name — hero of the reveal */}
+        {/* ① Name — absolute hero, first element */}
         <h2
           className="font-serif text-center"
           style={{
@@ -349,113 +352,135 @@ function MatchRevealOverlay({
           {profile.firstName}
         </h2>
 
-        {/* ② Age + location details */}
-        <div style={{
-          display: "flex", alignItems: "center", justifyContent: "center",
-          flexWrap: "wrap", gap: "6px 12px",
-          marginBottom: 14,
-          animation: "matchRevealTagline 0.44s 0.60s ease both",
-        }}>
-          {profile.age && (
-            <span style={{
-              fontSize: 16, fontWeight: 600,
-              color: "rgba(255,210,222,0.72)",
-              letterSpacing: "0.01em",
-            }}>
-              {profile.age}
-            </span>
-          )}
-          {profile.age && profile.location && (
-            <span style={{ color: "rgba(255,255,255,0.18)", fontSize: 14 }}>·</span>
-          )}
-          {profile.location && (
-            <span style={{
-              display: "flex", alignItems: "center", gap: 4,
-              fontSize: 13, color: "rgba(255,185,202,0.52)",
-            }}>
-              <MapPin style={{ width: 11, height: 11, flexShrink: 0 }} />
-              {profile.location}
-            </span>
-          )}
-        </div>
+        {/* ② Age + location details — immediately under name */}
+        {(profile.age || profile.location) && (
+          <div style={{
+            display: "flex", alignItems: "center", justifyContent: "center",
+            flexWrap: "wrap", gap: "6px 10px",
+            marginBottom: 16,
+            animation: "matchRevealTagline 0.44s 0.60s ease both",
+          }}>
+            {profile.age && (
+              <span style={{ fontSize: 16, fontWeight: 600, color: "rgba(255,210,222,0.72)", letterSpacing: "0.01em" }}>
+                {profile.age}
+              </span>
+            )}
+            {profile.age && profile.location && (
+              <span style={{ color: "rgba(255,255,255,0.18)", fontSize: 13 }}>·</span>
+            )}
+            {profile.location && (
+              <span style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 13, color: "rgba(255,185,202,0.52)" }}>
+                <MapPin style={{ width: 11, height: 11, flexShrink: 0 }} />
+                {profile.location}
+              </span>
+            )}
+          </div>
+        )}
 
-        {/* ③ Status badge */}
-        <p style={{
-          fontSize: 10, fontWeight: 700, letterSpacing: "0.28em",
-          textTransform: "uppercase",
-          color: "rgba(255,170,190,0.58)",
-          textAlign: "center",
-          marginBottom: 18,
-          animation: "matchRevealTagline 0.40s 0.70s ease both",
-        }}>
-          {isExisting ? "✦  Reconnected  ✦" : "✦  Connection Opened  ✦"}
-        </p>
-
-        {/* ④ Photo — confirms the identity, not leads it */}
+        {/* ③ Profile photo — "Real Connections" picture, below identity */}
         <div style={{
           display: "flex", justifyContent: "center",
-          marginBottom: 18,
-          animation: "matchRevealPhoto 0.78s 0.52s cubic-bezier(0.34, 1.56, 0.64, 1) both",
+          marginBottom: 14,
+          animation: "matchRevealPhoto 0.78s 0.54s cubic-bezier(0.34, 1.56, 0.64, 1) both",
         }}>
           <div style={{ position: "relative" }}>
-            {/* Ambient bloom */}
             <div style={{
-              position: "absolute", inset: -28,
+              position: "absolute", inset: -26,
               borderRadius: "50%",
-              background: "radial-gradient(circle, rgba(212,92,116,0.30) 0%, rgba(188,78,96,0.07) 58%, transparent 75%)",
+              background: "radial-gradient(circle, rgba(212,92,116,0.28) 0%, rgba(188,78,96,0.06) 58%, transparent 75%)",
               animation: "glowPulse 2.8s ease-in-out infinite",
               pointerEvents: "none",
             }} />
-            {/* Ring shadow */}
             <div style={{
-              position: "absolute", inset: -9,
+              position: "absolute", inset: -8,
               borderRadius: "50%",
-              boxShadow: "0 0 0 1px rgba(255,255,255,0.09), 0 0 24px 7px rgba(212,92,116,0.20)",
+              boxShadow: "0 0 0 1px rgba(255,255,255,0.09), 0 0 22px 6px rgba(212,92,116,0.18)",
               animation: "glowPulse 2.8s ease-in-out infinite 0.6s",
               pointerEvents: "none",
             }} />
-            {/* Photo circle — 148 px */}
             <div style={{
               width: 148, height: 148,
-              borderRadius: "50%",
-              overflow: "hidden",
-              position: "relative",
+              borderRadius: "50%", overflow: "hidden", position: "relative",
               boxShadow:
                 "0 0 0 2px rgba(255,255,255,0.13)," +
-                "0 0 0 5px rgba(212,92,116,0.78)," +
-                "0 0 0 10px rgba(212,92,116,0.14)," +
-                "0 16px 48px rgba(0,0,0,0.60)",
+                "0 0 0 5px rgba(212,92,116,0.76)," +
+                "0 0 0 10px rgba(212,92,116,0.13)," +
+                "0 14px 44px rgba(0,0,0,0.58)",
             }}>
               <ProfilePhoto userId={profile.userId} className="w-full h-full" />
             </div>
-            {/* Rotating conic shimmer */}
             <div style={{
-              position: "absolute", inset: -4,
-              borderRadius: "50%",
+              position: "absolute", inset: -4, borderRadius: "50%",
               background:
-                "conic-gradient(from 0deg," +
-                " transparent 0%," +
-                " rgba(255,200,215,0.50) 15%," +
-                " transparent 34%," +
-                " rgba(212,92,116,0.38) 55%," +
-                " transparent 74%," +
-                " rgba(255,200,215,0.50) 100%)",
+                "conic-gradient(from 0deg, transparent 0%, rgba(255,200,215,0.50) 15%," +
+                " transparent 34%, rgba(212,92,116,0.38) 55%, transparent 74%, rgba(255,200,215,0.50) 100%)",
               animation: "rotateSlow 8s linear infinite",
-              mixBlendMode: "screen",
-              pointerEvents: "none",
+              mixBlendMode: "screen", pointerEvents: "none",
             }} />
           </div>
         </div>
 
-        {/* ⑤ Match reveal tagline */}
+        {/* ④ Connection badge — caption below photo */}
+        <p style={{
+          fontSize: 10, fontWeight: 700, letterSpacing: "0.26em",
+          textTransform: "uppercase",
+          color: "rgba(255,170,190,0.54)",
+          textAlign: "center",
+          marginBottom: 14,
+          animation: "matchRevealTagline 0.38s 0.72s ease both",
+        }}>
+          {isExisting ? "✦  Reconnected  ✦" : "✦  Connection Opened  ✦"}
+        </p>
+
+        {/* ⑤ 3× Elevate upgrade section */}
+        <div
+          role="button"
+          onClick={onElevate}
+          data-testid="button-reveal-elevate"
+          style={{
+            display: "flex", alignItems: "center", gap: 10,
+            padding: "11px 14px", borderRadius: 14, marginBottom: 16,
+            background: "rgba(212,92,116,0.10)",
+            border: "1px solid rgba(212,92,116,0.22)",
+            cursor: "pointer",
+            transition: "background 0.16s, border-color 0.16s",
+            animation: "matchRevealTagline 0.42s 0.82s ease both",
+          }}
+          onMouseEnter={e => {
+            (e.currentTarget as HTMLElement).style.background = "rgba(212,92,116,0.17)";
+            (e.currentTarget as HTMLElement).style.borderColor = "rgba(212,92,116,0.36)";
+          }}
+          onMouseLeave={e => {
+            (e.currentTarget as HTMLElement).style.background = "rgba(212,92,116,0.10)";
+            (e.currentTarget as HTMLElement).style.borderColor = "rgba(212,92,116,0.22)";
+          }}
+        >
+          <div style={{
+            width: 34, height: 34, borderRadius: 9, flexShrink: 0,
+            background: "linear-gradient(135deg, #e06272 0%, #9c2d49 100%)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            boxShadow: "0 3px 12px rgba(184,56,80,0.42)",
+          }}>
+            <span style={{ color: "#fff", fontSize: 13, fontWeight: 800, letterSpacing: "-0.03em" }}>3×</span>
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <p style={{ fontSize: 12, fontWeight: 700, color: "rgba(255,210,222,0.92)", lineHeight: 1.3, margin: 0 }}>
+              Get 3× more visibility with Elevate
+            </p>
+            <p style={{ fontSize: 11, color: "rgba(255,175,195,0.52)", lineHeight: 1.3, margin: "2px 0 0" }}>
+              Boost your profile and match faster
+            </p>
+          </div>
+          <span style={{ fontSize: 14, color: "rgba(255,170,190,0.55)", flexShrink: 0, lineHeight: 1 }}>›</span>
+        </div>
+
+        {/* ⑥ Match reveal tagline */}
         <p
           style={{
-            fontSize: 15, textAlign: "center",
-            fontStyle: "italic",
-            color: "rgba(255,208,220,0.68)",
-            lineHeight: 1.5,
-            marginBottom: 18,
-            animation: "matchRevealTagline 0.50s 0.80s ease both",
+            fontSize: 15, textAlign: "center", fontStyle: "italic",
+            color: "rgba(255,208,220,0.68)", lineHeight: 1.5,
+            marginBottom: 16,
+            animation: "matchRevealTagline 0.48s 0.94s ease both",
           }}
           data-testid="text-reveal-tagline"
         >
@@ -464,13 +489,13 @@ function MatchRevealOverlay({
 
         {/* Rose divider */}
         <div style={{
-          width: 48, height: 1, margin: "0 auto 18px",
-          background: "linear-gradient(90deg, transparent, rgba(212,92,116,0.80), transparent)",
-          animation: "matchRevealTagline 0.36s 0.88s ease both",
+          width: 48, height: 1, margin: "0 auto 16px",
+          background: "linear-gradient(90deg, transparent, rgba(212,92,116,0.78), transparent)",
+          animation: "matchRevealTagline 0.34s 1.02s ease both",
         }} />
 
-        {/* ⑥ CTAs */}
-        <div style={{ display: "flex", flexDirection: "column", gap: 11, animation: "matchRevealCta 0.48s 1.0s ease both" }}>
+        {/* ⑦ CTAs */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 11, animation: "matchRevealCta 0.46s 1.08s ease both" }}>
           {/* Primary — Start Conversation */}
           <button
             onClick={onGoToMatches}
@@ -625,6 +650,7 @@ export default function IntentPage() {
   const [showProfile, setShowProfile] = useState(false);
   const [showPurchase, setShowPurchase] = useState(false);
   const [showConfetti, setShowConfetti] = useState(false);
+  const [showElevateInReveal, setShowElevateInReveal] = useState(false);
   const [angle, setAngle] = useState(0);
 
   // Match reveal state — set after wheelOpen.onSuccess
@@ -1352,7 +1378,16 @@ export default function IntentPage() {
             resetAfterReveal();
             setTimeout(() => setShowPurchase(true), 300);
           }}
+          onElevate={() => {
+            resetAfterReveal();
+            setTimeout(() => setShowElevateInReveal(true), 180);
+          }}
         />
+      )}
+
+      {/* ── Elevate modal (opened from the 3× section in the reveal overlay) ── */}
+      {showElevateInReveal && (
+        <ElevateModal onClose={() => setShowElevateInReveal(false)} cancelPath="/intent" />
       )}
     </div>
   );
