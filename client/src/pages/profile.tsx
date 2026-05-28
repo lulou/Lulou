@@ -604,7 +604,72 @@ export default function ProfilePage() {
       </div>
       <div className="p-6 space-y-5 max-w-lg mx-auto w-full pb-28">
 
-      {/* ── Hero — main visual focus ── */}
+      {/* ① Name + avatar — very top */}
+      <div className="flex items-center gap-4">
+        <button
+          className="relative shrink-0 group"
+          onClick={startEditingPhotos}
+          data-testid="button-avatar-edit"
+          aria-label="Edit profile photos"
+        >
+          <Avatar className="w-20 h-20">
+            <AvatarImage src={profile.photos?.[0]} alt={profile.firstName} />
+            <AvatarFallback className="bg-primary/10 text-primary text-2xl font-semibold">
+              {profile.firstName?.[0]}
+            </AvatarFallback>
+          </Avatar>
+          <div className="absolute inset-0 rounded-full bg-black/30 flex items-center justify-center opacity-0 group-hover:opacity-100 group-active:opacity-100 transition-opacity">
+            <Camera className="w-6 h-6 text-white" />
+          </div>
+          {profile.photoVerified && (
+            <div className="absolute -bottom-1 -right-1 w-6 h-6 bg-primary rounded-full flex items-center justify-center" data-testid="icon-verified-badge">
+              <BadgeCheck className="w-4 h-4 text-primary-foreground" />
+            </div>
+          )}
+        </button>
+        <div className="flex-1">
+          <div className="flex items-center justify-between gap-2">
+            <h1 className="font-serif text-2xl font-bold" data-testid="text-profile-name">
+              {profile.firstName}
+            </h1>
+            <Button size="icon" variant="ghost" onClick={() => navigate("/settings")} data-testid="button-settings-icon">
+              <Settings className="w-5 h-5" />
+            </Button>
+          </div>
+          {/* ② Age / location / details — immediately under name */}
+          <div className="flex items-center gap-3 text-muted-foreground text-sm mt-1 flex-wrap">
+            <span className="flex items-center gap-1" data-testid="text-profile-age">
+              <Calendar className="w-3.5 h-3.5" />
+              {profile.age}
+            </span>
+            {profile.height && (
+              <span className="flex items-center gap-1" data-testid="text-profile-height">
+                <Ruler className="w-3.5 h-3.5" />
+                {profile.height}
+              </span>
+            )}
+            {profile.location && (
+              <span className="flex items-center gap-1" data-testid="text-profile-location">
+                <MapPin className="w-3.5 h-3.5" />
+                {profile.location}
+              </span>
+            )}
+          </div>
+          <Button
+            size="sm"
+            variant="outline"
+            className="mt-3 text-xs h-8 px-3 gap-1.5"
+            onClick={() => toggle("settings")}
+            data-testid="button-edit-profile"
+          >
+            <Pencil className="w-3 h-3" />
+            {t("edit_profile")}
+            <ChevronRight className={`w-3 h-3 transition-transform ${expandedSection === "settings" ? "rotate-90" : ""}`} />
+          </Button>
+        </div>
+      </div>
+
+      {/* ③ Hero picture — below name/details */}
       <div
         className="relative rounded-3xl overflow-hidden w-full flex flex-col justify-end"
         style={{
@@ -638,7 +703,7 @@ export default function ProfilePage() {
         </div>
       </div>
 
-      {/* ── Elevate promo ── */}
+      {/* ④ Elevate promo — below picture */}
       <div
         className="rounded-2xl border border-primary/25 p-4 flex items-center gap-3"
         style={{ background: "linear-gradient(135deg, hsl(350 45% 98%), hsl(350 45% 95%))" }}
@@ -659,69 +724,6 @@ export default function ProfilePage() {
         >
           Upgrade
         </Button>
-      </div>
-
-      <div className="flex items-center gap-4">
-        <button
-          className="relative shrink-0 group"
-          onClick={startEditingPhotos}
-          data-testid="button-avatar-edit"
-          aria-label="Edit profile photos"
-        >
-          <Avatar className="w-20 h-20">
-            <AvatarImage src={profile.photos?.[0]} alt={profile.firstName} />
-            <AvatarFallback className="bg-primary/10 text-primary text-2xl font-semibold">
-              {profile.firstName?.[0]}
-            </AvatarFallback>
-          </Avatar>
-          <div className="absolute inset-0 rounded-full bg-black/30 flex items-center justify-center opacity-0 group-hover:opacity-100 group-active:opacity-100 transition-opacity">
-            <Camera className="w-6 h-6 text-white" />
-          </div>
-          {profile.photoVerified && (
-            <div className="absolute -bottom-1 -right-1 w-6 h-6 bg-primary rounded-full flex items-center justify-center" data-testid="icon-verified-badge">
-              <BadgeCheck className="w-4 h-4 text-primary-foreground" />
-            </div>
-          )}
-        </button>
-        <div className="flex-1">
-          <div className="flex items-center justify-between gap-2">
-            <h1 className="font-serif text-2xl font-bold" data-testid="text-profile-name">
-              {profile.firstName}
-            </h1>
-            <Button size="icon" variant="ghost" onClick={() => navigate("/settings")} data-testid="button-settings-icon">
-              <Settings className="w-5 h-5" />
-            </Button>
-          </div>
-          <div className="flex items-center gap-3 text-muted-foreground text-sm mt-1 flex-wrap">
-            <span className="flex items-center gap-1" data-testid="text-profile-age">
-              <Calendar className="w-3.5 h-3.5" />
-              {profile.age}
-            </span>
-            {profile.height && (
-              <span className="flex items-center gap-1" data-testid="text-profile-height">
-                <Ruler className="w-3.5 h-3.5" />
-                {profile.height}
-              </span>
-            )}
-            {profile.location && (
-              <span className="flex items-center gap-1" data-testid="text-profile-location">
-                <MapPin className="w-3.5 h-3.5" />
-                {profile.location}
-              </span>
-            )}
-          </div>
-          <Button
-            size="sm"
-            variant="outline"
-            className="mt-3 text-xs h-8 px-3 gap-1.5"
-            onClick={() => toggle("settings")}
-            data-testid="button-edit-profile"
-          >
-            <Pencil className="w-3 h-3" />
-            {t("edit_profile")}
-            <ChevronRight className={`w-3 h-3 transition-transform ${expandedSection === "settings" ? "rotate-90" : ""}`} />
-          </Button>
-        </div>
       </div>
 
       {expandedSection === "settings" && (
