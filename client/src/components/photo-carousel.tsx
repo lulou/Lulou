@@ -286,7 +286,7 @@ export function PhotoCarousel({
     <div
       ref={containerRef}
       className={`relative overflow-hidden select-none ${className}`}
-      style={{ height, touchAction: "pan-y", background: "hsl(var(--muted))", ...style }}
+      style={{ height, touchAction: "pan-y", ...style }}
       data-testid="photo-carousel"
     >
       {n === 0 && (
