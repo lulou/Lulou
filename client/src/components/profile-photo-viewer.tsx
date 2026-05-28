@@ -108,6 +108,7 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
       height={height}
       showArrows={false}
       showDots={false}
+      gap={0}
       onIndexChange={setPhotoIndex}
       className={className}
     >
