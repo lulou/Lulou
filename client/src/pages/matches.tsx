@@ -900,10 +900,12 @@ function ProfilePanel({ profile, onClose }: { profile: Profile; onClose: () => v
     <div className="flex flex-col h-full bg-background" data-testid="profile-panel">
 
       {/* Shared photo viewer — same component as Discovery and Intention Wheel */}
+      <div className="flex-shrink-0 rounded-xl overflow-hidden">
       <ProfilePhotoViewer
         photos={photos}
         isLoading={isPhotosLoading}
-        className="flex-shrink-0 rounded-xl"
+        height={320}
+        className=""
         nameSlot={
           <div>
             <h2
@@ -937,6 +939,7 @@ function ProfilePanel({ profile, onClose }: { profile: Profile; onClose: () => v
           <X className="w-4 h-4 text-white" />
         </button>
       </ProfilePhotoViewer>
+      </div>
 
       <div className="flex-1 min-h-0 overflow-y-auto profile-panel-body" style={{ paddingBottom: "env(safe-area-inset-bottom, 16px)" }}>
         {profile.datingIntent && (
