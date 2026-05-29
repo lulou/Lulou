@@ -99,14 +99,29 @@ export function PhotoCarousel({
     const g = gapRef.current;
     const transition = animated ? "transform 0.35s cubic-bezier(0.25, 1, 0.5, 1)" : "none";
     const step = g === 0 ? "100%" : `(100% + ${g}px)`;
+    // Pixel step used only for scale interpolation — doesn't affect layout math.
+    // containerRef is a stable ref so safe to read inside this callback.
+    const cw = containerRef.current?.offsetWidth ?? 0;
+    const pxStep = cw > 0 ? cw + g : 0;
     slideRefs.current.forEach((el, i) => {
       if (!el) return;
       el.style.transition = transition;
-      el.style.transform = dragOffset === 0
-        ? `translateX(calc(${i - currentIdx} * ${step}))`
-        : `translateX(calc(${i - currentIdx} * ${step} + ${dragOffset}px))`;
+      const txExpr = dragOffset === 0
+        ? `calc(${i - currentIdx} * ${step})`
+        : `calc(${i - currentIdx} * ${step} + ${dragOffset}px)`;
+      if (pxStep > 0) {
+        // dist: 0 = perfectly centred, 1 = fully at adjacent slot.
+        // Incoming photo scales from 0.92 → 1.0 as it reaches centre;
+        // outgoing photo scales from 1.0 → 0.92 as it leaves.
+        const pxOff = (i - currentIdx) * pxStep + dragOffset;
+        const dist = Math.min(1, Math.abs(pxOff) / pxStep);
+        const scale = (1 - 0.08 * dist).toFixed(4);
+        el.style.transform = `translateX(${txExpr}) scale(${scale})`;
+      } else {
+        el.style.transform = `translateX(${txExpr})`;
+      }
     });
-  }, []);
+  }, []); // containerRef & slideRefs are stable refs — safe without dep listing
 
   /**
    * Commit a new photo index.
