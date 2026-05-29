@@ -903,7 +903,7 @@ function ProfilePanel({ profile, onClose }: { profile: Profile; onClose: () => v
       <ProfilePhotoViewer
         photos={photos}
         isLoading={isPhotosLoading}
-        className="flex-shrink-0"
+        className="flex-shrink-0 rounded-xl"
         nameSlot={
           <div>
             <h2

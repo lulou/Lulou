@@ -107,6 +107,10 @@ export function useCallSignaling(matchIds: string[], userId: string) {
             // session is confirmed active. Only armed sessions may trigger overlays
             // or audio — DB-polled data alone cannot arm a session.
             armCallSession(ringSessionId);
+            console.log("[RING_DEBUG] verified live call trigger — armed by Realtime call:ring", {
+              matchId,
+              sessionId: ringSessionId?.slice(0, 8) ?? "none",
+            });
             console.log("[TIMING] RING_RECEIVED", { matchId, callSessionId: ringSessionId, callerId: ring.callerId, receiverId: userId, ts: new Date().toISOString() });
             console.log("[CALL_SIGNAL] RECEIVER_ASSIGNED", { matchId, callerId: ring.callerId, receiverId: userId });
             // Immediately update the list cache so incoming call UI shows without waiting for a refetch

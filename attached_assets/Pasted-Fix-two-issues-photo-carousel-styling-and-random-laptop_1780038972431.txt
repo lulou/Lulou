@@ -1,0 +1,74 @@
+Fix two issues: photo carousel styling and random laptop ringing.
+
+PART 1 — Photo Carousel
+
+Source of truth:
+The Intention Wheel photo experience is correct.
+Do NOT redesign it.
+Do NOT invent a new carousel.
+COPY the Intention Wheel photo styling and behaviour exactly.
+
+Current issue:
+- Intention Wheel looks best.
+- Discovery is too boxy.
+- Chatroom View Profile is too square/robotic.
+- There are shadows/strips between photos.
+- The rounded bubble effect is missing.
+- The drag/pull rollover does not feel the same.
+
+Required:
+Make Discovery and Chatroom View Profile visually and behaviourally match the Intention Wheel exactly.
+
+Copy from Intention Wheel:
+- rounded bubble shape
+- border radius
+- clipping
+- drag/pull rollover feel
+- scale transition while dragging
+- photo sizing
+- spacing
+- overflow handling
+- incoming photo animation
+- outgoing photo animation
+- shadow treatment
+- photo edge treatment
+
+The user should not be able to tell the difference between:
+1. Intention Wheel profile photos
+2. Discovery profile photos
+3. Chatroom View Profile photos
+
+All three should use the same visual treatment and drag experience.
+
+Inspect:
+- client/src/pages/intent.tsx
+- client/src/pages/discover.tsx
+- client/src/pages/matches.tsx
+- client/src/components/photo-carousel.tsx
+
+Best fix:
+- Extract the Intention Wheel photo styling into a shared configuration/component.
+- Apply it to Discovery and Chatroom.
+- Intention Wheel remains unchanged because it is already correct.
+
+PART 2 — Random Laptop Ringing
+
+Current issue:
+Laptop still randomly plays ringtone/ringback sounds when clicking around the app.
+
+Required:
+- Clicking Discover, Connections, Active Chats, Intention Wheel, Profiles, Matches, or navigation must NEVER start ringtone/ringback audio.
+- Only a fresh verified live call event may start call audio.
+- Cached data, route changes, refetches, and page loads must never trigger call audio.
+- Stop all ringtone/ringback audio on navigation before processing new state.
+- Diagnose and fix the root cause, not just add more guards.
+
+Add logs:
+[RING_DEBUG] source
+[RING_DEBUG] blocked stale trigger
+[RING_DEBUG] verified live call trigger
+
+Report:
+- exact files changed
+- exact file/function causing random ringing
+- confirmation that Discovery and Chatroom now copy Intention Wheel exactly

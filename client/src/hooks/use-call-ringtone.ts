@@ -21,9 +21,17 @@ export type RingtoneType = "incoming" | "outgoing";
  *      false — the effect cleanup calls stopOutgoingRingback() synchronously
  *      before the new useWebRTC effect opens the microphone.
  */
-export function useCallRingtone(type: RingtoneType, enabled: boolean) {
+/**
+ * @param type       "incoming" (receiver) or "outgoing" (caller ringback).
+ * @param enabled    One-way latch: true starts the ring, false keeps it silent.
+ * @param sessionId  The match's callSessionId — forwarded to call-audio.ts so
+ *                   the armed-session guard can block stale/cached triggers.
+ */
+export function useCallRingtone(type: RingtoneType, enabled: boolean, sessionId?: string | null) {
   useEffect(() => {
     if (!enabled) return;
+
+    console.log("[RING_DEBUG] source", { type, enabled, sessionId: sessionId?.slice(0, 8) ?? "none" });
 
     if (type === "incoming") {
       // Ringtone only starts here — after App.tsx has verified incomingCall is a
@@ -31,18 +39,18 @@ export function useCallRingtone(type: RingtoneType, enabled: boolean) {
       // startup/refresh without this verification gate being passed first.
       console.log("[CALL_FIX] verified incoming ringtone only", { type: "incoming" });
       console.log("[CALL_RINGTONE] verified incoming call, ringtone started");
-      startIncomingRingtone();
+      startIncomingRingtone(sessionId);
       return () => {
         console.log("[CALL_RINGTONE] stopped: effect_cleanup (incoming)");
         stopIncomingRingtone("effect_cleanup");
       };
     } else {
       console.log("[CALL_RINGTONE] verified outgoing call, ringback started");
-      startOutgoingRingback();
+      startOutgoingRingback(sessionId);
       return () => {
         console.log("[CALL_RINGTONE] stopped: effect_cleanup (outgoing)");
         stopOutgoingRingback("effect_cleanup");
       };
     }
-  }, [enabled, type]);
+  }, [enabled, type, sessionId]);
 }

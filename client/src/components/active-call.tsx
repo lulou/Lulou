@@ -193,7 +193,8 @@ export function ActiveCallOverlay({
 
   // Outgoing ringback tone: play only while the caller is waiting for an answer.
   // Stops automatically when isRinging becomes false (answered) or on unmount.
-  useCallRingtone("outgoing", isRinging && isCaller);
+  // Pass callSessionId so the armed-session guard verifies this is a live call.
+  useCallRingtone("outgoing", isRinging && isCaller, callSessionId);
 
   // ── Video call: FaceTime-like auto-hide controls ──────────────────────────
   // Controls start visible, then auto-hide after 3 s of inactivity.

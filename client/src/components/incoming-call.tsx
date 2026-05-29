@@ -306,7 +306,9 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss, onAn
 
   // ringEnabled is a one-way latch — see comment above silenceRing() for why
   // we never use `!isPending` here.
-  useCallRingtone("incoming", ringEnabled);
+  // Pass callSessionId so the armed-session guard in call-audio.ts can verify
+  // this is a live ring before producing any audio.
+  useCallRingtone("incoming", ringEnabled, match.callSessionId);
 
   const photo = match.profile.photos?.[0];
 

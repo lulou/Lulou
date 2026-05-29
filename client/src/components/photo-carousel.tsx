@@ -111,11 +111,11 @@ export function PhotoCarousel({
         : `calc(${i - currentIdx} * ${step} + ${dragOffset}px)`;
       if (pxStep > 0) {
         // dist: 0 = perfectly centred, 1 = fully at adjacent slot.
-        // Incoming photo scales from 0.92 → 1.0 as it reaches centre;
-        // outgoing photo scales from 1.0 → 0.92 as it leaves.
+        // Incoming photo scales from 0.95 → 1.0 as it reaches centre;
+        // outgoing photo scales from 1.0 → 0.95 as it leaves.
         const pxOff = (i - currentIdx) * pxStep + dragOffset;
         const dist = Math.min(1, Math.abs(pxOff) / pxStep);
-        const scale = (1 - 0.08 * dist).toFixed(4);
+        const scale = (1 - 0.05 * dist).toFixed(4);
         el.style.transform = `translateX(${txExpr}) scale(${scale})`;
       } else {
         el.style.transform = `translateX(${txExpr})`;
@@ -325,7 +325,6 @@ export function PhotoCarousel({
             height: "100%",
             overflow: "hidden",
             borderRadius: "inherit",
-            background: "hsl(var(--muted))",
             // Only promote slides adjacent to the visible one to their own GPU
             // compositing layer. Applying willChange to every slide creates N
             // layers (one per photo) which wastes GPU memory on mobile.

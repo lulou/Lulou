@@ -52,6 +52,11 @@
  *  synchronous, no AVAudioSession restart risk.
  */
 
+import { isArmedSession } from "@/lib/live-call-sessions";
+
+// Internal alias — keeps internal code private while using the shared set.
+const _isSessionArmed = isArmedSession;
+
 // ── WAV generation ─────────────────────────────────────────────────────────
 
 function _makeWavUrl(samples: Float32Array): string {
@@ -330,13 +335,18 @@ export function onAudioUnlocked(cb: () => void): () => void {
 /**
  * Start the incoming ringtone (RECEIVER only).
  *
+ * Pass `sessionId` from the match so the guard can confirm it was armed by a
+ * live Realtime call:ring event.  If the session is not armed (stale DB row,
+ * cache hit, or route-change refetch), the ring is blocked before any audio
+ * is produced — eliminating the "random ring on navigation" bug.
+ *
  * Uses the singleton element. If it has been pre-warmed (any prior gesture),
  * play() succeeds immediately from a React effect. If not yet warmed (cold
  * mobile session with no prior gesture), play() is blocked — the ring starts
  * automatically when _doUnlock fires on the next touch. Vibration is triggered
  * as an immediate tactile fallback on Android.
  */
-export function startIncomingRingtone(): void {
+export function startIncomingRingtone(sessionId?: string | null): void {
   try {
     if (typeof window === "undefined") return;
     // Safety guard: if the audio unlock listeners were never registered, the user
@@ -345,6 +355,25 @@ export function startIncomingRingtone(): void {
       console.log("[CALL_AUDIO_GUARD] blocked call audio because user is logged out");
       return;
     }
+
+    // ── Armed-session guard ──────────────────────────────────────────────
+    // Only sessions confirmed by a live Realtime call:ring event may play
+    // audio. Stale DB rows (refetch, cache hits, route-change polls) are
+    // blocked here — they can reach incomingCall memo if the session was
+    // previously armed but the end signal was lost, so this is the final
+    // firewall preventing ghost rings on navigation.
+    if (sessionId && !_isSessionArmed(sessionId)) {
+      console.log("[RING_DEBUG] blocked stale trigger — session not armed", {
+        sessionId: sessionId.slice(0, 8),
+        source: "startIncomingRingtone",
+      });
+      return;
+    }
+    console.log("[RING_DEBUG] verified live call trigger", {
+      sessionId: sessionId?.slice(0, 8) ?? "unknown",
+      source: "startIncomingRingtone",
+    });
+
     const el = _ensureRingtoneEl();
     if (!el) { console.warn("[CALL_RINGTONE] ringtone element unavailable"); return; }
 
@@ -393,8 +422,11 @@ export function stopIncomingRingtone(reason: string): void {
 
 /**
  * Start the outgoing ringback (CALLER only, while waiting for answer).
+ *
+ * Pass `sessionId` so the armed-session guard can confirm this is a live call
+ * before any audio plays.  See startIncomingRingtone for the full rationale.
  */
-export function startOutgoingRingback(): void {
+export function startOutgoingRingback(sessionId?: string | null): void {
   try {
     if (typeof window === "undefined") return;
     // Safety guard: same auth check as startIncomingRingtone.
@@ -402,6 +434,20 @@ export function startOutgoingRingback(): void {
       console.log("[CALL_AUDIO_GUARD] blocked call audio because user is logged out");
       return;
     }
+
+    // ── Armed-session guard ──────────────────────────────────────────────
+    if (sessionId && !_isSessionArmed(sessionId)) {
+      console.log("[RING_DEBUG] blocked stale trigger — session not armed", {
+        sessionId: sessionId.slice(0, 8),
+        source: "startOutgoingRingback",
+      });
+      return;
+    }
+    console.log("[RING_DEBUG] verified live call trigger", {
+      sessionId: sessionId?.slice(0, 8) ?? "unknown",
+      source: "startOutgoingRingback",
+    });
+
     const el = _ensureRingbackEl();
     if (!el) return;
 

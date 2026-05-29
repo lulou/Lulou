@@ -69,3 +69,11 @@ export function clearAllArmedSessions(): void {
   console.log("[LIVE_CALL] all sessions disarmed (logout/reset)");
   notifyArmChange();
 }
+
+/**
+ * Returns true if ANY session is currently armed (useful as a quick pre-flight
+ * check before starting audio, without needing a specific session ID).
+ */
+export function hasAnyArmedSession(): boolean {
+  return _armedSessionIds.size > 0;
+}
