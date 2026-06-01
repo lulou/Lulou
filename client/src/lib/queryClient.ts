@@ -357,6 +357,7 @@ export async function batchPrefetchPhotos(userIds: string[]): Promise<void> {
     }
 
     for (const [userId, photos] of Object.entries(data)) {
+      console.log(`[PHOTO_DEBUG] cache photos length userId=${userId.slice(0,8)} count=${photos.length} urls=${photos.slice(0,3).map((u: string)=>u.slice(0,60)).join(" | ")}`);
       queryClient.setQueryData(["/api/profiles", userId, "photos"], { photos });
       if (photos[0]) {
         if (isMobile) scheduleIdle(() => preloadPhoto(photos[0]));

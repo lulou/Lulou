@@ -297,6 +297,11 @@ export function PhotoCarousel({
 
   const n = photos.length;
 
+  // [PHOTO_DEBUG] — logs fire on every render where photos changes length
+  if (typeof window !== "undefined") {
+    console.log(`[PHOTO_DEBUG] carousel photos length count=${n} urls=${photos.slice(0,3).map(u=>u.slice(0,60)).join(" | ")}`);
+  }
+
   return (
     <div
       ref={containerRef}
@@ -314,6 +319,8 @@ export function PhotoCarousel({
       )}
 
       {/* Slides — position:absolute so 100% == container width, no JS measurement */}
+      {/* [PHOTO_DEBUG] rendered slide count logged inline */}
+      {n > 0 && console.log(`[PHOTO_DEBUG] rendered slide count count=${n} dotIdx=${dotIdx}`)}
       {photos.map((photo, i) => (
         <div
           key={i}

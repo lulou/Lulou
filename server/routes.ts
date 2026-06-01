@@ -585,6 +585,7 @@ export async function registerRoutes(
       const { userId } = req.params;
       if (!userId) return res.status(400).json({ message: "Missing userId" });
       const photos = await storage.getProfilePhotos(userId);
+      console.log(`[PHOTO_DEBUG] api photos length userId=${userId.slice(0,8)} count=${photos.length} urls=${photos.slice(0,3).map(u=>u.slice(0,60)).join(" | ")}`);
       devPerf("/api/profiles/:userId/photos", Date.now() - t0, {
         userId: userId.slice(0, 8),
         count: photos.length,
