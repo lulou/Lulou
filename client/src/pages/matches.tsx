@@ -892,6 +892,7 @@ function SystemGuidanceMessage({ children, testId }: { children: ReactNode; test
 function ProfilePanel({ profile, onClose }: { profile: Profile; onClose: () => void }) {
   const { data: photoData, isLoading: isPhotosLoading } = useQuery<{ photos: string[] }>({
     queryKey: ["/api/profiles", profile.userId, "photos"],
+    enabled: !!profile.userId,
     staleTime: 5 * 60 * 1000,
   });
   const photos = photoData?.photos ?? profile.photos ?? EMPTY_PHOTOS;
