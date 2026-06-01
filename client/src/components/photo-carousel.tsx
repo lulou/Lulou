@@ -50,27 +50,6 @@ export function PhotoCarousel({
   const containerRef = useRef<HTMLDivElement>(null);
   const slideRefs = useRef<(HTMLDivElement | null)[]>([]);
 
-  // Stable ref callbacks — one per slide index, created once and never recreated.
-  //
-  // If ref callbacks are inline arrow functions, React treats each render's arrow as
-  // a NEW function reference.  React 18 therefore calls:
-  //   old callback(null)  →  slideRefs.current[i] = null   ← brief null window
-  //   new callback(el)    →  slideRefs.current[i] = el
-  //
-  // In the Chatroom, MatchChat re-renders constantly (realtime messages, 5-second
-  // polling, typing indicators).  Any touchmove that fires inside that null window
-  // finds slideRefs.current[i] === null, applyPositions skips the slide, and the
-  // photo freezes for that frame — making the drag feel like an instant snap.
-  //
-  // Storing ONE stable function per index means React sees the same reference every
-  // render → skips the null-cleanup step → slideRefs is always populated mid-drag.
-  const slideRefFns = useRef<Array<(el: HTMLDivElement | null) => void>>([]);
-  // Lazily extend to cover any new photos added
-  while (slideRefFns.current.length < photos.length) {
-    const i = slideRefFns.current.length;
-    slideRefFns.current.push((el) => { slideRefs.current[i] = el; });
-  }
-
   const [internalIdx, setInternalIdx] = useState(0);
   const [dotIdx, setDotIdx] = useState(0); // drives dot/arrow render only
 
@@ -99,29 +78,14 @@ export function PhotoCarousel({
     const g = gapRef.current;
     const transition = animated ? "transform 0.35s cubic-bezier(0.25, 1, 0.5, 1)" : "none";
     const step = g === 0 ? "100%" : `(100% + ${g}px)`;
-    // Pixel step used only for scale interpolation — doesn't affect layout math.
-    // containerRef is a stable ref so safe to read inside this callback.
-    const cw = containerRef.current?.offsetWidth ?? 0;
-    const pxStep = cw > 0 ? cw + g : 0;
     slideRefs.current.forEach((el, i) => {
       if (!el) return;
       el.style.transition = transition;
-      const txExpr = dragOffset === 0
-        ? `calc(${i - currentIdx} * ${step})`
-        : `calc(${i - currentIdx} * ${step} + ${dragOffset}px)`;
-      if (pxStep > 0) {
-        // dist: 0 = perfectly centred, 1 = fully at adjacent slot.
-        // Incoming photo scales from 0.95 → 1.0 as it reaches centre;
-        // outgoing photo scales from 1.0 → 0.95 as it leaves.
-        const pxOff = (i - currentIdx) * pxStep + dragOffset;
-        const dist = Math.min(1, Math.abs(pxOff) / pxStep);
-        const scale = (1 - 0.05 * dist).toFixed(4);
-        el.style.transform = `translateX(${txExpr}) scale(${scale})`;
-      } else {
-        el.style.transform = `translateX(${txExpr})`;
-      }
+      el.style.transform = dragOffset === 0
+        ? `translateX(calc(${i - currentIdx} * ${step}))`
+        : `translateX(calc(${i - currentIdx} * ${step} + ${dragOffset}px))`;
     });
-  }, []); // containerRef & slideRefs are stable refs — safe without dep listing
+  }, []);
 
   /**
    * Commit a new photo index.
@@ -169,38 +133,48 @@ export function PhotoCarousel({
     });
   }, [photos, dotIdx]);
 
-  // ── Unified drag via Pointer Events (mouse + touch) ─────────────────────
-  //
-  // Why Pointer Events instead of Touch Events:
-  //   The photo carousel lives inside scrollable panels (matches ProfilePanel,
-  //   mobile bottom sheet) that register their own passive touchstart listeners.
-  //   Once the browser commits to a scroll gesture on touchstart it ignores
-  //   subsequent e.preventDefault() calls in touchmove — our horizontal drag
-  //   was being silently swallowed.
-  //
-  //   Pointer Events + setPointerCapture solves this: once we confirm the
-  //   gesture is horizontal we capture the pointerId, which locks all future
-  //   pointer events to our element and prevents any parent from stealing them.
-  //
-  //   touch-action:"none" (set on the container) tells the browser not to
-  //   pre-claim any gesture at all, so the very first pointermove is ours.
+  // ── Drag / swipe via native event listeners ──────────────────────────────
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
 
-    let startX = 0, startY = 0;
-    let dir: "h" | "v" | null = null;
-    let activeId: number | null = null;
+    // ── Touch ──────────────────────────────────────────────────────────────
+    let tStartX = 0, tStartY = 0;
+    let tDir: "h" | "v" | null = null;
+    let tActive = false;
 
-    const settle = (finalDx: number) => {
+    const onTouchStart = (e: TouchEvent) => {
+      tStartX = e.touches[0].clientX;
+      tStartY = e.touches[0].clientY;
+      tDir = null;
+      tActive = true;
+      applyPositions(idxRef.current, 0, false); // cancel any ongoing spring
+    };
+
+    const onTouchMove = (e: TouchEvent) => {
+      if (!tActive) return;
+      const dx = e.touches[0].clientX - tStartX;
+      const dy = e.touches[0].clientY - tStartY;
+      if (!tDir) {
+        if (Math.abs(dx) < 5 && Math.abs(dy) < 5) return;
+        tDir = Math.abs(dx) >= Math.abs(dy) ? "h" : "v";
+      }
+      if (tDir === "h") {
+        e.preventDefault(); // block page scroll only during horizontal swipe
+        applyPositions(idxRef.current, dx, false); // photo follows finger
+      }
+    };
+
+    const settle = (finalDx: number, dir: "h" | "v" | null) => {
+      if (dir !== "h") return;
       const w = el.offsetWidth || 1;
-      // Lower threshold (18 % / min 30 px) so a normal swipe always commits.
-      const threshold = Math.max(30, w * 0.18);
+      const threshold = Math.max(44, w * 0.22);
       if (Math.abs(finalDx) >= threshold) {
         const newIdx = finalDx < 0
           ? Math.min(idxRef.current + 1, nRef.current - 1)
           : Math.max(idxRef.current - 1, 0);
         if (newIdx !== idxRef.current) {
+          // Animate naturally from current drag position to final position
           applyPositions(newIdx, 0, true);
           commitIdx(newIdx, true); // skip useLayoutEffect re-animation
           return;
@@ -209,64 +183,79 @@ export function PhotoCarousel({
       applyPositions(idxRef.current, 0, true); // spring back
     };
 
+    const onTouchEnd = (e: TouchEvent) => {
+      if (!tActive) return;
+      tActive = false;
+      settle(e.changedTouches[0].clientX - tStartX, tDir);
+      tDir = null;
+    };
+    const onTouchCancel = () => {
+      if (!tActive) return;
+      tActive = false;
+      applyPositions(idxRef.current, 0, true);
+      tDir = null;
+    };
+
+    // ── Pointer (mouse drag) ───────────────────────────────────────────────
+    let pStartX = 0, pStartY = 0;
+    let pDir: "h" | "v" | null = null;
+    let pId: number | null = null;
+
     const onPointerDown = (e: PointerEvent) => {
-      if (activeId !== null) return; // already tracking a pointer
-      // Don't swallow button/link clicks — let them fire normally.
+      if (e.pointerType === "touch") return;
+      // Skip drag setup when the pointer lands on an interactive child element
+      // (button, link, etc.). setPointerCapture redirects all pointer events —
+      // including the synthesised click — to the container, which silently swallows
+      // the button's click handler. Returning early lets the native click fire normally.
       const target = e.target as HTMLElement;
       if (target.closest("button, a, [role='button']")) return;
-      activeId = e.pointerId;
-      startX  = e.clientX;
-      startY  = e.clientY;
-      dir     = null;
-      applyPositions(idxRef.current, 0, false); // cancel any ongoing spring
+      pStartX = e.clientX;
+      pStartY = e.clientY;
+      pDir = null;
+      pId = e.pointerId;
+      el.setPointerCapture(e.pointerId);
+      applyPositions(idxRef.current, 0, false);
     };
 
     const onPointerMove = (e: PointerEvent) => {
-      if (e.pointerId !== activeId) return;
-      const dx = e.clientX - startX;
-      const dy = e.clientY - startY;
-      if (!dir) {
-        if (Math.abs(dx) < 4 && Math.abs(dy) < 4) return; // dead-zone
-        dir = Math.abs(dx) >= Math.abs(dy) ? "h" : "v";
-        if (dir === "v") {
-          // Vertical intent — release capture so the parent can scroll.
-          activeId = null;
-          applyPositions(idxRef.current, 0, false);
-          return;
-        }
-        // Horizontal confirmed — capture pointer so no parent can steal it.
-        try { el.setPointerCapture(e.pointerId); } catch { /* ignore */ }
+      if (e.pointerType === "touch" || e.pointerId !== pId) return;
+      const dx = e.clientX - pStartX;
+      const dy = e.clientY - pStartY;
+      if (!pDir) {
+        if (Math.abs(dx) < 5) return;
+        pDir = Math.abs(dx) >= Math.abs(dy) ? "h" : "v";
+        if (pDir === "v") { pId = null; return; }
       }
-      applyPositions(idxRef.current, dx, false); // photo follows finger 1-to-1
+      if (pDir === "h") applyPositions(idxRef.current, dx, false);
     };
 
     const onPointerUp = (e: PointerEvent) => {
-      if (e.pointerId !== activeId) return;
-      const capturedDx = e.clientX - startX;
-      activeId = null;
-      dir      = null;
-      settle(capturedDx);
+      if (e.pointerType === "touch" || e.pointerId !== pId) return;
+      const capturedDir = pDir;
+      const capturedDx = e.clientX - pStartX;
+      pId = null;
+      pDir = null;
+      settle(capturedDx, capturedDir);
     };
 
-    const onPointerCancel = (e: PointerEvent) => {
-      if (e.pointerId !== activeId) return;
-      activeId = null;
-      dir      = null;
-      applyPositions(idxRef.current, 0, true); // spring back to current
-    };
-
-    el.addEventListener("pointerdown",   onPointerDown);
-    el.addEventListener("pointermove",   onPointerMove);
-    el.addEventListener("pointerup",     onPointerUp);
-    el.addEventListener("pointerleave",  onPointerUp);
-    el.addEventListener("pointercancel", onPointerCancel);
+    el.addEventListener("touchstart",  onTouchStart,  { passive: true  });
+    el.addEventListener("touchmove",   onTouchMove,   { passive: false });
+    el.addEventListener("touchend",    onTouchEnd,    { passive: true  });
+    el.addEventListener("touchcancel", onTouchCancel, { passive: true  });
+    el.addEventListener("pointerdown", onPointerDown);
+    el.addEventListener("pointermove", onPointerMove);
+    el.addEventListener("pointerup",   onPointerUp);
+    el.addEventListener("pointerleave",onPointerUp);
 
     return () => {
-      el.removeEventListener("pointerdown",   onPointerDown);
-      el.removeEventListener("pointermove",   onPointerMove);
-      el.removeEventListener("pointerup",     onPointerUp);
-      el.removeEventListener("pointerleave",  onPointerUp);
-      el.removeEventListener("pointercancel", onPointerCancel);
+      el.removeEventListener("touchstart",  onTouchStart);
+      el.removeEventListener("touchmove",   onTouchMove);
+      el.removeEventListener("touchend",    onTouchEnd);
+      el.removeEventListener("touchcancel", onTouchCancel);
+      el.removeEventListener("pointerdown", onPointerDown);
+      el.removeEventListener("pointermove", onPointerMove);
+      el.removeEventListener("pointerup",   onPointerUp);
+      el.removeEventListener("pointerleave",onPointerUp);
     };
   }, [applyPositions, commitIdx]); // stable callbacks → registers once
 
@@ -276,7 +265,7 @@ export function PhotoCarousel({
     <div
       ref={containerRef}
       className={`relative overflow-hidden select-none ${className}`}
-      style={{ height, touchAction: "none", borderRadius: "inherit", ...style }}
+      style={{ height, touchAction: "pan-y", background: "hsl(var(--muted))", ...style }}
       data-testid="photo-carousel"
     >
       {n === 0 && (
@@ -292,20 +281,13 @@ export function PhotoCarousel({
       {photos.map((photo, i) => (
         <div
           key={i}
-          ref={slideRefFns.current[i]}
+          ref={el => { slideRefs.current[i] = el; }}
           style={{
             position: "absolute",
             inset: 0,
             width: "100%",
             height: "100%",
-            // Each slide clips its own image to rounded corners so the entering
-            // photo has a soft curved leading edge (floating-card look) rather
-            // than a hard rectangular strip sliding in from the side.
-            overflow: "hidden",
-            borderRadius: "inherit",
-            // Current slide stays on top so the entering card slides in from
-            // behind, not over the top of, the outgoing photo.
-            zIndex: i === dotIdx ? 2 : 1,
+            background: "hsl(var(--muted))",
             // Only promote slides adjacent to the visible one to their own GPU
             // compositing layer. Applying willChange to every slide creates N
             // layers (one per photo) which wastes GPU memory on mobile.
