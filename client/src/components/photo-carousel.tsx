@@ -323,6 +323,14 @@ export function PhotoCarousel({
             inset: 0,
             width: "100%",
             height: "100%",
+            // Each slide clips its own image to rounded corners so the entering
+            // photo has a soft curved leading edge (floating-card look) rather
+            // than a hard rectangular strip sliding in from the side.
+            overflow: "hidden",
+            borderRadius: "inherit",
+            // Current slide stays on top so the entering card slides in from
+            // behind, not over the top of, the outgoing photo.
+            zIndex: i === dotIdx ? 2 : 1,
             // Only promote slides adjacent to the visible one to their own GPU
             // compositing layer. Applying willChange to every slide creates N
             // layers (one per photo) which wastes GPU memory on mobile.
