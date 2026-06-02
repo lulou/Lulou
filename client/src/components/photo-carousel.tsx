@@ -95,6 +95,7 @@ export function PhotoCarousel({
   const commitIdx = useCallback((newIdx: number, alreadyAnimated = false) => {
     const clamped = Math.max(0, Math.min(nRef.current - 1, newIdx));
     console.log(`[CAROUSEL_DEBUG] index changed from=${idxRef.current} to=${clamped} n=${nRef.current}`);
+    console.log(`[CAROUSEL_FIX] commit index from=${idxRef.current} to=${clamped}`);
     idxRef.current = clamped;
     skipNextLayoutEffect.current = alreadyAnimated;
     if (controlledIdx === undefined) setInternalIdx(clamped);
@@ -135,51 +136,45 @@ export function PhotoCarousel({
     });
   }, [photos, dotIdx]);
 
-  // ── Drag / swipe via native event listeners ──────────────────────────────
+  // ── Drag / swipe via Pointer Events (handles mouse + touch + stylus) ────
+  //
+  // Why Pointer Events instead of Touch Events:
+  //   The carousel lives inside overflow-y-auto scroll containers (Discover,
+  //   Matches ProfilePanel). On iOS Safari, registering a passive touchstart
+  //   lets the browser commit to a vertical scroll gesture before our non-passive
+  //   touchmove e.preventDefault() can fire — the gesture is stolen and horizontal
+  //   drags never commit. Pointer Events solve this differently:
+  //
+  //   1. setPointerCapture in onPointerDown routes ALL subsequent pointermove /
+  //      pointerup / pointercancel events to our element, even when the finger
+  //      drifts outside its bounds.
+  //   2. Once we confirm horizontal intent (|dx| > |dy| past dead zone) we flip
+  //      el.style.touchAction to "none", which tells the browser it must not
+  //      claim any native gesture for the remainder of this pointer sequence.
+  //   3. If the browser detects a vertical scroll first it fires pointercancel
+  //      (not pointermove), so we never mistake scroll for drag — we simply
+  //      restore state and let the browser scroll.
+  //   4. On pointer-up we always restore touchAction to "pan-y" so vertical
+  //      scrolling continues to work normally after the drag ends.
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
 
-    // ── Touch ──────────────────────────────────────────────────────────────
-    let tStartX = 0, tStartY = 0;
-    let tDir: "h" | "v" | null = null;
-    let tActive = false;
+    let pStartX = 0, pStartY = 0;
+    let pDir: "h" | "v" | null = null;
+    let pId: number | null = null;
 
-    const onTouchStart = (e: TouchEvent) => {
-      tStartX = e.touches[0].clientX;
-      tStartY = e.touches[0].clientY;
-      tDir = null;
-      tActive = true;
-      console.log(`[CAROUSEL_DEBUG] drag start (touch) x=${tStartX.toFixed(0)} n=${nRef.current} idx=${idxRef.current}`);
-      applyPositions(idxRef.current, 0, false); // cancel any ongoing spring
-    };
-
-    const onTouchMove = (e: TouchEvent) => {
-      if (!tActive) return;
-      const dx = e.touches[0].clientX - tStartX;
-      const dy = e.touches[0].clientY - tStartY;
-      if (!tDir) {
-        if (Math.abs(dx) < 5 && Math.abs(dy) < 5) return;
-        tDir = Math.abs(dx) >= Math.abs(dy) ? "h" : "v";
-      }
-      if (tDir === "h") {
-        e.preventDefault(); // block page scroll only during horizontal swipe
-        console.log(`[CAROUSEL_DEBUG] drag move dx=${dx.toFixed(0)} tDir=${tDir} defaultPrevented=${e.defaultPrevented}`);
-        applyPositions(idxRef.current, dx, false); // photo follows finger
-      }
-    };
-
+    // ── settle: decide commit or snap-back after drag ends ─────────────────
     const settle = (finalDx: number, dir: "h" | "v" | null) => {
       const w = el.offsetWidth || 1;
       const threshold = Math.max(44, w * 0.22);
-      console.log(`[CAROUSEL_DEBUG] drag end finalDx=${finalDx.toFixed(0)} dir=${dir} threshold=${threshold.toFixed(0)} willCommit=${dir==="h" && Math.abs(finalDx)>=threshold}`);
+      console.log(`[CAROUSEL_DEBUG] drag end finalDx=${finalDx.toFixed(0)} dir=${dir} threshold=${threshold.toFixed(0)} willCommit=${dir === "h" && Math.abs(finalDx) >= threshold}`);
       if (dir !== "h") return;
       if (Math.abs(finalDx) >= threshold) {
         const newIdx = finalDx < 0
           ? Math.min(idxRef.current + 1, nRef.current - 1)
           : Math.max(idxRef.current - 1, 0);
         if (newIdx !== idxRef.current) {
-          // Animate naturally from current drag position to final position
           applyPositions(newIdx, 0, true);
           commitIdx(newIdx, true); // skip useLayoutEffect re-animation
           return;
@@ -188,50 +183,55 @@ export function PhotoCarousel({
       applyPositions(idxRef.current, 0, true); // spring back
     };
 
-    const onTouchEnd = (e: TouchEvent) => {
-      if (!tActive) return;
-      tActive = false;
-      settle(e.changedTouches[0].clientX - tStartX, tDir);
-      tDir = null;
+    // ── reset: called on pointerup, pointerleave, pointercancel ───────────
+    const reset = (animate: boolean) => {
+      pId = null;
+      pDir = null;
+      el.style.touchAction = "pan-y"; // restore so vertical scroll works again
     };
-    const onTouchCancel = () => {
-      if (!tActive) return;
-      tActive = false;
-      applyPositions(idxRef.current, 0, true);
-      tDir = null;
-    };
-
-    // ── Pointer (mouse drag) ───────────────────────────────────────────────
-    let pStartX = 0, pStartY = 0;
-    let pDir: "h" | "v" | null = null;
-    let pId: number | null = null;
 
     const onPointerDown = (e: PointerEvent) => {
       console.log(`[CAROUSEL_DEBUG] drag start (pointer) type=${e.pointerType} x=${e.clientX.toFixed(0)} n=${nRef.current} idx=${idxRef.current}`);
-      if (e.pointerType === "touch") return;
-      // Skip drag setup when the pointer lands on an interactive child element
-      // (button, link, etc.). setPointerCapture redirects all pointer events —
-      // including the synthesised click — to the container, which silently swallows
-      // the button's click handler. Returning early lets the native click fire normally.
+      // Ignore if another pointer is already active
+      if (pId !== null) return;
+      // Let clicks on buttons/links pass through uninterrupted
       const target = e.target as HTMLElement;
       if (target.closest("button, a, [role='button']")) return;
       pStartX = e.clientX;
       pStartY = e.clientY;
       pDir = null;
       pId = e.pointerId;
+      // Capture immediately so we receive pointermove/up/cancel even when the
+      // pointer leaves the element (critical for fast swipes on mobile).
       el.setPointerCapture(e.pointerId);
-      applyPositions(idxRef.current, 0, false);
+      applyPositions(idxRef.current, 0, false); // cancel any in-progress spring
     };
 
     const onPointerMove = (e: PointerEvent) => {
-      if (e.pointerType === "touch" || e.pointerId !== pId) return;
+      if (pId === null || e.pointerId !== pId) return;
       const dx = e.clientX - pStartX;
       const dy = e.clientY - pStartY;
+
+      // ── Dead zone: wait for unambiguous movement ──────────────────────────
       if (!pDir) {
-        if (Math.abs(dx) < 5) return;
-        pDir = Math.abs(dx) >= Math.abs(dy) ? "h" : "v";
-        if (pDir === "v") { pId = null; return; }
+        if (Math.abs(dx) < 6 && Math.abs(dy) < 6) return;
+        pDir = Math.abs(dx) > Math.abs(dy) ? "h" : "v";
+
+        if (pDir === "v") {
+          // Vertical intent confirmed — release capture so the browser can
+          // resume native scroll on the overflow-y-auto parent container.
+          console.log(`[CAROUSEL_FIX] vertical scroll allowed dx=${dx.toFixed(0)} dy=${dy.toFixed(0)}`);
+          try { el.releasePointerCapture(e.pointerId); } catch (_) {}
+          reset(false);
+          return;
+        }
+
+        // Horizontal intent confirmed — lock out native scroll for the rest
+        // of this pointer sequence so the scroll container cannot steal it.
+        console.log(`[CAROUSEL_FIX] horizontal drag captured dx=${dx.toFixed(0)} dy=${dy.toFixed(0)}`);
+        el.style.touchAction = "none";
       }
+
       if (pDir === "h") {
         console.log(`[CAROUSEL_DEBUG] drag move dx=${dx.toFixed(0)} pDir=${pDir}`);
         applyPositions(idxRef.current, dx, false);
@@ -239,32 +239,34 @@ export function PhotoCarousel({
     };
 
     const onPointerUp = (e: PointerEvent) => {
-      if (e.pointerType === "touch" || e.pointerId !== pId) return;
+      if (pId === null || e.pointerId !== pId) return;
       const capturedDir = pDir;
       const capturedDx = e.clientX - pStartX;
-      pId = null;
-      pDir = null;
+      reset(false);
       settle(capturedDx, capturedDir);
     };
 
-    el.addEventListener("touchstart",  onTouchStart,  { passive: true  });
-    el.addEventListener("touchmove",   onTouchMove,   { passive: false });
-    el.addEventListener("touchend",    onTouchEnd,    { passive: true  });
-    el.addEventListener("touchcancel", onTouchCancel, { passive: true  });
-    el.addEventListener("pointerdown", onPointerDown);
-    el.addEventListener("pointermove", onPointerMove);
-    el.addEventListener("pointerup",   onPointerUp);
-    el.addEventListener("pointerleave",onPointerUp);
+    // pointercancel fires when the browser reclaims the gesture (e.g. the OS
+    // scroll view committed to a vertical scroll before we set touchAction:"none").
+    // Spring back and restore so the next gesture starts clean.
+    const onPointerCancel = (e: PointerEvent) => {
+      if (pId === null || e.pointerId !== pId) return;
+      reset(true);
+      applyPositions(idxRef.current, 0, true);
+    };
+
+    el.addEventListener("pointerdown",  onPointerDown);
+    el.addEventListener("pointermove",  onPointerMove);
+    el.addEventListener("pointerup",    onPointerUp);
+    el.addEventListener("pointerleave", onPointerUp);
+    el.addEventListener("pointercancel",onPointerCancel);
 
     return () => {
-      el.removeEventListener("touchstart",  onTouchStart);
-      el.removeEventListener("touchmove",   onTouchMove);
-      el.removeEventListener("touchend",    onTouchEnd);
-      el.removeEventListener("touchcancel", onTouchCancel);
-      el.removeEventListener("pointerdown", onPointerDown);
-      el.removeEventListener("pointermove", onPointerMove);
-      el.removeEventListener("pointerup",   onPointerUp);
-      el.removeEventListener("pointerleave",onPointerUp);
+      el.removeEventListener("pointerdown",  onPointerDown);
+      el.removeEventListener("pointermove",  onPointerMove);
+      el.removeEventListener("pointerup",    onPointerUp);
+      el.removeEventListener("pointerleave", onPointerUp);
+      el.removeEventListener("pointercancel",onPointerCancel);
     };
   }, [applyPositions, commitIdx]); // stable callbacks → registers once
 
