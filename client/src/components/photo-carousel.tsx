@@ -53,6 +53,7 @@ export function PhotoCarousel({
   // drag effect without adding state deps or triggering React re-renders.
   const dbgOverlayRef = useRef<HTMLDivElement>(null);
   const dbgCommitRef = useRef(false);
+  const dbgDownCount = useRef(0);
 
   const [internalIdx, setInternalIdx] = useState(0);
   const [dotIdx, setDotIdx] = useState(0); // drives dot/arrow render only
@@ -203,6 +204,14 @@ export function PhotoCarousel({
     };
 
     const onPointerDown = (e: PointerEvent) => {
+      // Increment counter BEFORE any guards — proves the listener fires at all.
+      dbgDownCount.current += 1;
+      const el2 = dbgOverlayRef.current;
+      if (el2) {
+        const rows = el2.querySelectorAll("span");
+        if (rows[4]) rows[4].textContent = `pointer down count: ${dbgDownCount.current}`;
+      }
+
       if (pId !== null) return;
       const target = e.target as HTMLElement;
       if (target.closest("button, a, [role='button']")) return;
@@ -326,6 +335,7 @@ export function PhotoCarousel({
         <span style={{ display: "block" }}>dragging: false</span>
         <span style={{ display: "block" }}>dx: 0</span>
         <span style={{ display: "block" }}>commit fired: false</span>
+        <span style={{ display: "block", color: "#f90" }}>pointer down count: 0</span>
       </div>
       {/* photo index shown via React state so it updates on commitIdx */}
       <div style={{
