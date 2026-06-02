@@ -325,9 +325,22 @@ function CallDetectors({ userId }: { userId: string }) {
   //   the ring element (capture-phase _doUnlock fires after synthetic onClick
   //   completes in the same event dispatch).  Both layers together ensure the
   //   ring is cleared before any new audio can start from the warm-up path.
+  // hasActiveCallRef: tracks whether any call overlay is currently showing.
+  // Updated on every render (before effects run) so the location effect always
+  // reads the current value without needing it in the deps array.
+  const hasActiveCallRef = useRef(false);
+
   const [location] = useLocation();
   useEffect(() => {
     stopAllNonVoiceCallAudio("tab_navigation_guard");
+    // If no call is currently active, disarm all armed sessions.
+    // A full-screen call overlay (position:fixed) blocks navigation while a
+    // real call is in progress, so navigating away always means the call has
+    // ended or was never live.  Clearing here prevents stale armed sessions
+    // from triggering audio when the user opens a cached Matches/Messages tab.
+    if (!hasActiveCallRef.current) {
+      clearAllArmedSessions();
+    }
     console.log("[CALL_AUDIO_GUARD] stopped ringtone/ringback on navigation", { location });
   }, [location]);
 
@@ -780,6 +793,11 @@ function CallDetectors({ userId }: { userId: string }) {
   }), [matches, userId, isEndedCall, cancelledTick, armedTick]);
 
   const activeCall = answeredCall || callerRingingCall;
+
+  // Update ref so the location-change effect knows whether a call is live.
+  // Must be set during render (not in an effect) so it reflects the current
+  // state before the effect runs.
+  hasActiveCallRef.current = !!(incomingCall || callerRingingCall || activeCall);
 
   // ── [CALL_ROLE] Role detection log ─────────────────────────────────────────
   // Fires whenever role-relevant state changes so call logs can confirm which

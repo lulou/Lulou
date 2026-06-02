@@ -238,7 +238,12 @@ export function PhotoCarousel({
     };
 
     el.addEventListener("pointerdown",   onPointerDown);
-    el.addEventListener("pointermove",   onPointerMove);
+    // passive:false required: Chrome/Android marks pointermove passive when an
+    // overflow-y-auto ancestor exists, silently ignoring e.preventDefault().
+    // Without this, the scroll container claims the gesture before we can set
+    // touchAction:"none", and the browser fires pointercancel instead of
+    // delivering horizontal pointermove events to our handler.
+    el.addEventListener("pointermove",   onPointerMove, { passive: false });
     el.addEventListener("pointerup",     onPointerUp);
     el.addEventListener("pointercancel", onPointerCancel);
 

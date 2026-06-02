@@ -362,40 +362,6 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss, onAn
         />
       </div>
 
-      {/* ── DEBUG BAR (temporary) ── */}
-      <div
-        style={{
-          position: "fixed",
-          top: 0,
-          left: 0,
-          right: 0,
-          zIndex: 9999,
-          background: "rgba(0,0,0,0.88)",
-          color: "#fff",
-          fontSize: 12,
-          fontFamily: "monospace",
-          padding: "8px 12px",
-          textAlign: "center",
-          lineHeight: 1.8,
-          pointerEvents: "none",
-        }}
-      >
-        <div>currentUserId: <b>{user?.id ?? "null"}</b></div>
-        <div>callInitiatorId: <b>{match.callInitiatorId ?? "null"}</b></div>
-        <div>
-          isReceiver:{" "}
-          <b style={{ color: isReceiver ? "#4ade80" : "#f87171", fontSize: 14 }}>
-            {String(isReceiver)}
-          </b>
-          {isCaller && (
-            <span style={{ color: "#f87171", marginLeft: 8 }}>
-              ⚠ WRONG COMPONENT — caller should not see IncomingCallOverlay
-            </span>
-          )}
-        </div>
-      </div>
-      {/* ── END DEBUG BAR ── */}
-
       {/* Top label */}
       <div className="relative z-10 flex flex-col items-center pt-16 pb-4">
         <p className="text-white/35 text-[10px] tracking-[0.3em] uppercase font-medium">
@@ -506,25 +472,6 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss, onAn
         style={{ bottom: "calc(env(safe-area-inset-bottom, 0px) + 40px)" }}
         data-testid="callee-button-bar"
       >
-        {/* ── Confirmation label — always visible when this bar renders ── */}
-        <div
-          style={{
-            background: "rgba(0,180,0,0.85)",
-            color: "#fff",
-            fontFamily: "monospace",
-            fontWeight: 700,
-            fontSize: 13,
-            padding: "4px 16px",
-            borderRadius: 6,
-            letterSpacing: 1,
-            pointerEvents: "none",
-            userSelect: "none",
-          }}
-          data-testid="callee-buttons-active-label"
-        >
-          CALLEE BUTTONS ACTIVE
-        </div>
-
         <div className="flex items-center justify-center gap-20" data-testid="incoming-call-actions">
 
           {/* ── DECLINE button (red) ── */}

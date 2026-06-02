@@ -362,15 +362,18 @@ export function startIncomingRingtone(sessionId?: string | null): void {
     // blocked here — they can reach incomingCall memo if the session was
     // previously armed but the end signal was lost, so this is the final
     // firewall preventing ghost rings on navigation.
-    if (sessionId && !_isSessionArmed(sessionId)) {
+    //
+    // NOTE: null/undefined sessionId is also blocked — a missing session ID
+    // means the call state came from stale/partial data, not a live signal.
+    if (!sessionId || !_isSessionArmed(sessionId)) {
       console.log("[RING_DEBUG] blocked stale trigger — session not armed", {
-        sessionId: sessionId.slice(0, 8),
+        sessionId: sessionId ? sessionId.slice(0, 8) : "null",
         source: "startIncomingRingtone",
       });
       return;
     }
     console.log("[RING_DEBUG] verified live call trigger", {
-      sessionId: sessionId?.slice(0, 8) ?? "unknown",
+      sessionId: sessionId.slice(0, 8),
       source: "startIncomingRingtone",
     });
 
@@ -436,15 +439,16 @@ export function startOutgoingRingback(sessionId?: string | null): void {
     }
 
     // ── Armed-session guard ──────────────────────────────────────────────
-    if (sessionId && !_isSessionArmed(sessionId)) {
+    // null/undefined sessionId is blocked — same rule as startIncomingRingtone.
+    if (!sessionId || !_isSessionArmed(sessionId)) {
       console.log("[RING_DEBUG] blocked stale trigger — session not armed", {
-        sessionId: sessionId.slice(0, 8),
+        sessionId: sessionId ? sessionId.slice(0, 8) : "null",
         source: "startOutgoingRingback",
       });
       return;
     }
     console.log("[RING_DEBUG] verified live call trigger", {
-      sessionId: sessionId?.slice(0, 8) ?? "unknown",
+      sessionId: sessionId.slice(0, 8),
       source: "startOutgoingRingback",
     });
 
