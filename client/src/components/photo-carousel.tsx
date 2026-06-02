@@ -49,6 +49,10 @@ export function PhotoCarousel({
 }: PhotoCarouselProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const slideRefs = useRef<(HTMLDivElement | null)[]>([]);
+  // Diagnostic overlay — direct DOM mutations so they work at 60fps from the
+  // drag effect without adding state deps or triggering React re-renders.
+  const dbgOverlayRef = useRef<HTMLDivElement>(null);
+  const dbgCommitRef = useRef(false);
 
   const [internalIdx, setInternalIdx] = useState(0);
   const [dotIdx, setDotIdx] = useState(0); // drives dot/arrow render only
@@ -99,6 +103,11 @@ export function PhotoCarousel({
     skipNextLayoutEffect.current = alreadyAnimated;
     if (controlledIdx === undefined) setInternalIdx(clamped);
     onIndexChange?.(clamped);
+    dbgCommitRef.current = true;
+    if (dbgOverlayRef.current) {
+      const rows = dbgOverlayRef.current.querySelectorAll("span");
+      if (rows[3]) rows[3].textContent = `commit fired: true → index now ${clamped}`;
+    }
     console.log(`[CAROUSEL_FIX] index now ${clamped} (onIndexChange=${!!onIndexChange})`);
     setDotIdx(clamped);
   }, [controlledIdx, onIndexChange]);
@@ -183,6 +192,16 @@ export function PhotoCarousel({
       applyPositions(idxRef.current, 0, true); // snap back to current
     };
 
+    // ── Inline helper: update diagnostic overlay via direct DOM ─────────────
+    const dbgUpdate = (dragging: boolean, dx: number) => {
+      const el2 = dbgOverlayRef.current;
+      if (!el2) return;
+      const rows = el2.querySelectorAll("span");
+      if (rows[1]) rows[1].textContent = `dragging: ${dragging}`;
+      if (rows[2]) rows[2].textContent = `dx: ${Math.round(dx)}`;
+      if (rows[3] && !dbgCommitRef.current) rows[3].textContent = "commit fired: false";
+    };
+
     const onPointerDown = (e: PointerEvent) => {
       if (pId !== null) return; // ignore extra touch points (pinch etc.)
       const target = e.target as HTMLElement;
@@ -192,6 +211,8 @@ export function PhotoCarousel({
       pStartY = e.clientY;
       pDir = null;
       pId = e.pointerId;
+      dbgCommitRef.current = false;
+      dbgUpdate(true, 0);
       // DO NOT setPointerCapture here. Early capture triggers an immediate
       // pointercancel on iOS Safari when the OS scroll recognizer is active,
       // killing the gesture before we can detect its direction.
@@ -222,6 +243,7 @@ export function PhotoCarousel({
       }
 
       if (pDir === "h") {
+        dbgUpdate(true, dx);
         applyPositions(idxRef.current, dx, false); // slide follows finger 1:1
       }
     };
@@ -230,6 +252,7 @@ export function PhotoCarousel({
       if (pId === null || e.pointerId !== pId) return;
       const capturedDir = pDir;
       const capturedDx = e.clientX - pStartX;
+      dbgUpdate(false, capturedDx);
       if (capturedDir === "h") {
         endDrag(capturedDx);
       } else {
@@ -282,6 +305,31 @@ export function PhotoCarousel({
           </svg>
         </div>
       )}
+
+      {/* ── DIAGNOSTIC OVERLAY (temporary) ── */}
+      <div
+        ref={dbgOverlayRef}
+        style={{
+          position: "absolute", top: 6, left: 6, zIndex: 9999,
+          background: "rgba(0,0,0,0.82)", color: "#0f0", fontSize: 11,
+          padding: "5px 9px", borderRadius: 6, pointerEvents: "none",
+          fontFamily: "monospace", lineHeight: 1.6, whiteSpace: "nowrap",
+        }}
+      >
+        <span style={{ display: "block", color: "#ff0" }}>LIVE PHOTO CAROUSEL VERSION</span>
+        <span style={{ display: "block" }}>dragging: false</span>
+        <span style={{ display: "block" }}>dx: 0</span>
+        <span style={{ display: "block" }}>commit fired: false</span>
+      </div>
+      {/* photo index shown via React state so it updates on commitIdx */}
+      <div style={{
+        position: "absolute", top: 6, right: 6, zIndex: 9999,
+        background: "rgba(0,0,0,0.82)", color: "#0ff", fontSize: 11,
+        padding: "5px 9px", borderRadius: 6, pointerEvents: "none",
+        fontFamily: "monospace",
+      }}>
+        photo index: {dotIdx} / total: {n}
+      </div>
 
       {/* Slides — position:absolute so 100% == container width, no JS measurement */}
       {photos.map((photo, i) => (
