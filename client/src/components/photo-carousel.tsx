@@ -49,11 +49,6 @@ export function PhotoCarousel({
 }: PhotoCarouselProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const slideRefs = useRef<(HTMLDivElement | null)[]>([]);
-  // Diagnostic overlay — direct DOM mutations so they work at 60fps from the
-  // drag effect without adding state deps or triggering React re-renders.
-  const dbgOverlayRef = useRef<HTMLDivElement>(null);
-  const dbgCommitRef = useRef(false);
-  const dbgDownCount = useRef(0);
 
   const [internalIdx, setInternalIdx] = useState(0);
   const [dotIdx, setDotIdx] = useState(0); // drives dot/arrow render only
@@ -99,17 +94,10 @@ export function PhotoCarousel({
    */
   const commitIdx = useCallback((newIdx: number, alreadyAnimated = false) => {
     const clamped = Math.max(0, Math.min(nRef.current - 1, newIdx));
-    console.log(`[CAROUSEL_FIX] commit index prev=${idxRef.current} next=${clamped} n=${nRef.current}`);
     idxRef.current = clamped;
     skipNextLayoutEffect.current = alreadyAnimated;
     if (controlledIdx === undefined) setInternalIdx(clamped);
     onIndexChange?.(clamped);
-    dbgCommitRef.current = true;
-    if (dbgOverlayRef.current) {
-      const rows = dbgOverlayRef.current.querySelectorAll("span");
-      if (rows[3]) rows[3].textContent = `commit fired: true → index now ${clamped}`;
-    }
-    console.log(`[CAROUSEL_FIX] index now ${clamped} (onIndexChange=${!!onIndexChange})`);
     setDotIdx(clamped);
   }, [controlledIdx, onIndexChange]);
 
@@ -147,22 +135,22 @@ export function PhotoCarousel({
 
   // ── Drag / swipe — unified Pointer Events (mouse + touch + stylus) ───────
   //
-  // Why NOT setPointerCapture in onPointerDown:
-  //   Calling setPointerCapture immediately in pointerdown causes iOS Safari's
-  //   scroll recognizer to fire pointercancel right away (the OS sees the JS
-  //   capture and cancels the pointer sequence so its own scroll can proceed).
-  //   Our pointercancel handler then resets state — the carousel never moves.
-  //
-  // The correct sequence:
-  //   1. pointerdown  — record start, save pointerId, DO NOT capture yet.
-  //   2. pointermove  — measure dx/dy; stay in dead zone until ≥5px moved.
-  //   3a. direction="h" — NOW call setPointerCapture (safe: horizontal gestures
-  //       don't conflict with the scroll recognizer) + set touchAction:"none"
-  //       so the overflow-y-auto parent cannot steal the rest of the gesture.
-  //       Then move slides 1:1 with the pointer.
+  // Sequence:
+  //   1. pointerdown  — record start position, save pointerId. DO NOT capture
+  //                     yet: setPointerCapture in pointerdown causes the iOS
+  //                     scroll recognizer to fire pointercancel immediately,
+  //                     resetting state before any movement is measured.
+  //   2. pointermove  — wait for ≥5px movement (dead zone), then lock direction.
+  //   3a. direction="h" — call setPointerCapture (safe now: horizontal intent
+  //                        is confirmed, scroll recognizer won't claim it) +
+  //                        touchAction:"none" + preventDefault. Move slides 1:1.
   //   3b. direction="v" — drop tracking (pId=null); browser scrolls freely.
-  //   4. pointerup    — commit if past threshold, else spring back.
-  //   5. pointercancel — browser reclaimed (e.g. fast vertical on iOS); restore.
+  //   4. pointerup    — commit index if past threshold, else spring back.
+  //   5. pointercancel — browser reclaimed gesture; restore and snap back.
+  //   No pointerleave listener — without early capture the pointer can exit the
+  //   element bounds before direction is determined; pointerleave would kill the
+  //   gesture. Touch has implicit capture so moves still arrive; mouse stays
+  //   within the element for the brief dead-zone window in practice.
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -171,64 +159,33 @@ export function PhotoCarousel({
     let pDir: "h" | "v" | null = null;
     let pId: number | null = null;
 
-    // ── endDrag: commit index or spring back, always restores touchAction ──
     const endDrag = (finalDx: number) => {
       const w = el.offsetWidth || 1;
       const threshold = Math.max(44, w * 0.22);
-      const willCommit = Math.abs(finalDx) >= threshold;
-      console.log(`[CAROUSEL_FIX] threshold passed=${willCommit} dx=${finalDx.toFixed(0)} threshold=${threshold.toFixed(0)} idx=${idxRef.current} n=${nRef.current}`);
-      el.style.touchAction = "pan-y"; // always restore
+      el.style.touchAction = "pan-y";
       pId = null;
       pDir = null;
-      if (willCommit) {
+      if (Math.abs(finalDx) >= threshold) {
         const newIdx = finalDx < 0
           ? Math.min(idxRef.current + 1, nRef.current - 1)
           : Math.max(idxRef.current - 1, 0);
         if (newIdx !== idxRef.current) {
           applyPositions(newIdx, 0, true);
-          commitIdx(newIdx, true); // animates + skips redundant useLayoutEffect
+          commitIdx(newIdx, true);
           return;
         }
       }
-      applyPositions(idxRef.current, 0, true); // snap back to current
-    };
-
-    // ── Inline helper: update diagnostic overlay via direct DOM ─────────────
-    const dbgUpdate = (dragging: boolean, dx: number) => {
-      const el2 = dbgOverlayRef.current;
-      if (!el2) return;
-      const rows = el2.querySelectorAll("span");
-      if (rows[1]) rows[1].textContent = `dragging: ${dragging}`;
-      if (rows[2]) rows[2].textContent = `dx: ${Math.round(dx)}`;
-      if (rows[3] && !dbgCommitRef.current) rows[3].textContent = "commit fired: false";
+      applyPositions(idxRef.current, 0, true);
     };
 
     const onPointerDown = (e: PointerEvent) => {
-      // Increment counter BEFORE any guards — proves the listener fires at all.
-      dbgDownCount.current += 1;
-      const el2 = dbgOverlayRef.current;
-      if (el2) {
-        const rows = el2.querySelectorAll("span");
-        if (rows[4]) rows[4].textContent = `pointer down count: ${dbgDownCount.current}`;
-      }
-
       if (pId !== null) return;
-      const target = e.target as HTMLElement;
-      if (target.closest("button, a, [role='button']")) return;
-      console.log(`[CAROUSEL_FIX] drag start type=${e.pointerType} x=${e.clientX.toFixed(0)} n=${nRef.current} idx=${idxRef.current}`);
+      if ((e.target as HTMLElement).closest("button, a, [role='button']")) return;
       pStartX = e.clientX;
       pStartY = e.clientY;
       pDir = null;
       pId = e.pointerId;
-      dbgCommitRef.current = false;
-      dbgUpdate(true, 0);
-      // setPointerCapture immediately so ALL subsequent pointermove/up/cancel
-      // events are routed to this element regardless of where the pointer goes.
-      // This also prevents pointerleave from firing mid-gesture (captured pointers
-      // don't trigger pointerleave). On iOS, pointercancel fires instead of
-      // pointermove when the browser claims a vertical scroll — we handle that
-      // below by snapping back and restoring state.
-      el.setPointerCapture(e.pointerId);
+      // No setPointerCapture here — see comment above.
       applyPositions(idxRef.current, 0, false);
     };
 
@@ -240,24 +197,22 @@ export function PhotoCarousel({
       if (!pDir) {
         if (Math.abs(dx) < 5 && Math.abs(dy) < 5) return; // dead zone
         pDir = Math.abs(dx) >= Math.abs(dy) ? "h" : "v";
+
         if (pDir === "v") {
-          // Vertical confirmed — release capture so browser scrolls freely.
-          // pointercancel will follow shortly on iOS; on desktop this is enough.
-          try { el.releasePointerCapture(e.pointerId); } catch (_) {}
-          el.style.touchAction = "pan-y";
+          // Vertical — release tracking, let scroll container take over.
           pId = null;
           pDir = null;
           return;
         }
-        // Horizontal confirmed
-        console.log(`[CAROUSEL_FIX] horizontal captured dx=${dx.toFixed(0)} dy=${dy.toFixed(0)}`);
-        el.style.touchAction = "none"; // block scroll container for this gesture
+
+        // Horizontal confirmed — now safe to capture.
+        el.setPointerCapture(e.pointerId);
+        el.style.touchAction = "none";
         e.preventDefault();
       }
 
       if (pDir === "h") {
         e.preventDefault();
-        dbgUpdate(true, dx);
         applyPositions(idxRef.current, dx, false);
       }
     };
@@ -269,27 +224,19 @@ export function PhotoCarousel({
       pId = null;
       pDir = null;
       el.style.touchAction = "pan-y";
-      dbgUpdate(false, capturedDx);
       if (capturedDir === "h") {
         endDrag(capturedDx);
       }
-      // vertical / tap — no slide change, state already cleared above
     };
 
-    // pointercancel: browser claimed the gesture (OS vertical scroll, zoom, etc.)
-    // Spring back and restore so next gesture starts clean.
     const onPointerCancel = (e: PointerEvent) => {
       if (pId === null || e.pointerId !== pId) return;
       pId = null;
       pDir = null;
       el.style.touchAction = "pan-y";
-      dbgUpdate(false, 0);
       applyPositions(idxRef.current, 0, true);
     };
 
-    // NOTE: no "pointerleave" listener. With setPointerCapture active, pointerleave
-    // does not fire during a drag. Adding it would kill every gesture the moment
-    // the pointer briefly exits the element bounds before direction is determined.
     el.addEventListener("pointerdown",   onPointerDown);
     el.addEventListener("pointermove",   onPointerMove);
     el.addEventListener("pointerup",     onPointerUp);
@@ -301,7 +248,7 @@ export function PhotoCarousel({
       el.removeEventListener("pointerup",     onPointerUp);
       el.removeEventListener("pointercancel", onPointerCancel);
     };
-  }, [applyPositions, commitIdx]); // stable callbacks → registers once
+  }, [applyPositions, commitIdx]);
 
   const n = photos.length;
 
@@ -320,32 +267,6 @@ export function PhotoCarousel({
           </svg>
         </div>
       )}
-
-      {/* ── DIAGNOSTIC OVERLAY (temporary) ── */}
-      <div
-        ref={dbgOverlayRef}
-        style={{
-          position: "absolute", top: 6, left: 6, zIndex: 9999,
-          background: "rgba(0,0,0,0.82)", color: "#0f0", fontSize: 11,
-          padding: "5px 9px", borderRadius: 6, pointerEvents: "none",
-          fontFamily: "monospace", lineHeight: 1.6, whiteSpace: "nowrap",
-        }}
-      >
-        <span style={{ display: "block", color: "#ff0" }}>LIVE PHOTO CAROUSEL VERSION</span>
-        <span style={{ display: "block" }}>dragging: false</span>
-        <span style={{ display: "block" }}>dx: 0</span>
-        <span style={{ display: "block" }}>commit fired: false</span>
-        <span style={{ display: "block", color: "#f90" }}>pointer down count: 0</span>
-      </div>
-      {/* photo index shown via React state so it updates on commitIdx */}
-      <div style={{
-        position: "absolute", top: 6, right: 6, zIndex: 9999,
-        background: "rgba(0,0,0,0.82)", color: "#0ff", fontSize: 11,
-        padding: "5px 9px", borderRadius: 6, pointerEvents: "none",
-        fontFamily: "monospace",
-      }}>
-        photo index: {dotIdx} / total: {n}
-      </div>
 
       {/* Slides — position:absolute so 100% == container width, no JS measurement */}
       {photos.map((photo, i) => (
