@@ -1,4 +1,5 @@
 import { memo, useState, type ReactNode } from "react";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import { PhotoCarousel } from "@/components/photo-carousel";
 import { isMobile } from "@/lib/perf";
 
@@ -39,13 +40,9 @@ interface ProfilePhotoViewerProps {
 /**
  * Single source of truth for the Discovery-style profile photo viewer.
  *
- * Behaviour is identical to the original `PhotoBubbles` component in discover.tsx:
- *  • isLoading                → shimmer skeleton (mobile: static muted; desktop: animated gradient)
- *  • photos.length === 0      → silhouette fallback
- *  • photos.length > 0        → uncontrolled PhotoCarousel, no arrows, pill dot indicators,
- *                               bottom gradient overlay
- *
- * Used by: Discovery (PhotoBubbles), Intention Wheel detail view, Chatroom ProfilePanel.
+ * Tap left 40% → previous photo. Tap right 60% → next photo.
+ * Arrow buttons visible when there is a photo in that direction.
+ * Dots update in sync.
  */
 export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
   photos,
@@ -58,10 +55,14 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
 }: ProfilePhotoViewerProps) {
   const [photoIndex, setPhotoIndex] = useState(0);
 
+  const n = photos.length;
+  const safeIdx = n === 0 ? 0 : Math.min(photoIndex, n - 1);
+
+  const goTo = (next: number) => {
+    setPhotoIndex(Math.max(0, Math.min(n - 1, next)));
+  };
+
   // ── Loading shimmer ────────────────────────────────────────────────────────
-  // Mobile: static muted colour — the shimmer keyframe scrolls background-position
-  // every frame, which forces a continuous GPU repaint on iOS (very expensive).
-  // Desktop: animated gradient sweep.
   if (isLoading) {
     return (
       <div
@@ -101,17 +102,24 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
     );
   }
 
-  // ── Photo carousel ─────────────────────────────────────────────────────────
+  // ── Photo viewer ───────────────────────────────────────────────────────────
   return (
-    <PhotoCarousel
-      photos={photos}
-      height={height}
-      showArrows={false}
-      showDots={false}
-      onIndexChange={setPhotoIndex}
-      className={className}
+    <div
+      className={`relative overflow-hidden ${className}`}
+      style={{ height }}
+      data-testid="profile-photo-viewer"
     >
-      {/* Bottom gradient — same values as the original PhotoBubbles */}
+      {/* Photo — renders a single image, no drag, just shows the current one */}
+      <PhotoCarousel
+        photos={photos}
+        height={height}
+        currentIndex={safeIdx}
+        onIndexChange={setPhotoIndex}
+        showArrows={false}
+        showDots={false}
+      />
+
+      {/* Bottom gradient */}
       <div
         className="absolute inset-0 pointer-events-none"
         style={{ background: "linear-gradient(to top, rgba(0,0,0,0.62) 0%, rgba(0,0,0,0.1) 48%, transparent 68%)" }}
@@ -120,19 +128,93 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
       {/* Caller-supplied overlay content (close button, etc.) */}
       {children}
 
-      {/* Bottom bar: [dots ← left | action → right] then optional name slot below */}
-      <div className="absolute bottom-0 left-0 right-0 px-4 pb-4 z-10">
+      {/* ── Tap zones — z:30 so they sit above gradient + children ── */}
+      {n > 1 && safeIdx > 0 && (
+        <button
+          aria-label="Previous photo"
+          data-testid="button-viewer-tap-prev"
+          onClick={() => goTo(safeIdx - 1)}
+          style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            width: "40%",
+            height: "100%",
+            background: "transparent",
+            border: "none",
+            cursor: "w-resize",
+            zIndex: 30,
+          }}
+        />
+      )}
+      {n > 1 && safeIdx < n - 1 && (
+        <button
+          aria-label="Next photo"
+          data-testid="button-viewer-tap-next"
+          onClick={() => goTo(safeIdx + 1)}
+          style={{
+            position: "absolute",
+            top: 0,
+            right: 0,
+            width: "60%",
+            height: "100%",
+            background: "transparent",
+            border: "none",
+            cursor: "e-resize",
+            zIndex: 30,
+          }}
+        />
+      )}
+
+      {/* ── Arrow buttons — z:40 so they are always clickable ── */}
+      {n > 1 && safeIdx > 0 && (
+        <button
+          className="absolute left-2.5 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full flex items-center justify-center active:scale-90 transition-transform"
+          style={{
+            background: "rgba(0,0,0,0.38)",
+            backdropFilter: "blur(8px)",
+            WebkitBackdropFilter: "blur(8px)",
+            border: "1px solid rgba(255,255,255,0.18)",
+            zIndex: 40,
+          }}
+          onClick={() => goTo(safeIdx - 1)}
+          data-testid="button-viewer-prev"
+          aria-label="Previous photo"
+        >
+          <ChevronLeft className="w-4 h-4 text-white" />
+        </button>
+      )}
+      {n > 1 && safeIdx < n - 1 && (
+        <button
+          className="absolute right-2.5 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full flex items-center justify-center active:scale-90 transition-transform"
+          style={{
+            background: "rgba(0,0,0,0.38)",
+            backdropFilter: "blur(8px)",
+            WebkitBackdropFilter: "blur(8px)",
+            border: "1px solid rgba(255,255,255,0.18)",
+            zIndex: 40,
+          }}
+          onClick={() => goTo(safeIdx + 1)}
+          data-testid="button-viewer-next"
+          aria-label="Next photo"
+        >
+          <ChevronRight className="w-4 h-4 text-white" />
+        </button>
+      )}
+
+      {/* ── Bottom bar: dots + action ── */}
+      <div className="absolute bottom-0 left-0 right-0 px-4 pb-4" style={{ zIndex: 40 }}>
         <div className="flex items-end justify-between">
-          {photos.length > 1 ? (
-            <div className="flex items-center gap-1.5 pb-0.5">
+          {n > 1 ? (
+            <div className="flex items-center gap-1.5 pb-0.5 pointer-events-none">
               {photos.map((_, i) => (
                 <div
                   key={i}
                   style={{
-                    width: i === photoIndex ? 24 : 7,
+                    width: i === safeIdx ? 24 : 7,
                     height: 7,
                     borderRadius: 3.5,
-                    backgroundColor: i === photoIndex ? "white" : "rgba(255,255,255,0.42)",
+                    backgroundColor: i === safeIdx ? "white" : "rgba(255,255,255,0.42)",
                     transition: "width 0.25s ease, background-color 0.25s ease",
                     flexShrink: 0,
                   }}
@@ -146,6 +228,6 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
         </div>
         {nameSlot && <div className="mt-2">{nameSlot}</div>}
       </div>
-    </PhotoCarousel>
+    </div>
   );
 });
