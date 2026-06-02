@@ -94,10 +94,12 @@ export function PhotoCarousel({
    */
   const commitIdx = useCallback((newIdx: number, alreadyAnimated = false) => {
     const clamped = Math.max(0, Math.min(nRef.current - 1, newIdx));
+    console.log(`[CAROUSEL_DEBUG] index changed from=${idxRef.current} to=${clamped} n=${nRef.current}`);
     idxRef.current = clamped;
     skipNextLayoutEffect.current = alreadyAnimated;
     if (controlledIdx === undefined) setInternalIdx(clamped);
     onIndexChange?.(clamped);
+    console.log(`[CAROUSEL_DEBUG] onIndexChange fired clamped=${clamped} hasCallback=${!!onIndexChange}`);
     setDotIdx(clamped); // immediate dot/arrow update
   }, [controlledIdx, onIndexChange]);
 
@@ -148,6 +150,7 @@ export function PhotoCarousel({
       tStartY = e.touches[0].clientY;
       tDir = null;
       tActive = true;
+      console.log(`[CAROUSEL_DEBUG] drag start (touch) x=${tStartX.toFixed(0)} n=${nRef.current} idx=${idxRef.current}`);
       applyPositions(idxRef.current, 0, false); // cancel any ongoing spring
     };
 
@@ -161,14 +164,16 @@ export function PhotoCarousel({
       }
       if (tDir === "h") {
         e.preventDefault(); // block page scroll only during horizontal swipe
+        console.log(`[CAROUSEL_DEBUG] drag move dx=${dx.toFixed(0)} tDir=${tDir} defaultPrevented=${e.defaultPrevented}`);
         applyPositions(idxRef.current, dx, false); // photo follows finger
       }
     };
 
     const settle = (finalDx: number, dir: "h" | "v" | null) => {
-      if (dir !== "h") return;
       const w = el.offsetWidth || 1;
       const threshold = Math.max(44, w * 0.22);
+      console.log(`[CAROUSEL_DEBUG] drag end finalDx=${finalDx.toFixed(0)} dir=${dir} threshold=${threshold.toFixed(0)} willCommit=${dir==="h" && Math.abs(finalDx)>=threshold}`);
+      if (dir !== "h") return;
       if (Math.abs(finalDx) >= threshold) {
         const newIdx = finalDx < 0
           ? Math.min(idxRef.current + 1, nRef.current - 1)
@@ -202,6 +207,7 @@ export function PhotoCarousel({
     let pId: number | null = null;
 
     const onPointerDown = (e: PointerEvent) => {
+      console.log(`[CAROUSEL_DEBUG] drag start (pointer) type=${e.pointerType} x=${e.clientX.toFixed(0)} n=${nRef.current} idx=${idxRef.current}`);
       if (e.pointerType === "touch") return;
       // Skip drag setup when the pointer lands on an interactive child element
       // (button, link, etc.). setPointerCapture redirects all pointer events —
@@ -226,7 +232,10 @@ export function PhotoCarousel({
         pDir = Math.abs(dx) >= Math.abs(dy) ? "h" : "v";
         if (pDir === "v") { pId = null; return; }
       }
-      if (pDir === "h") applyPositions(idxRef.current, dx, false);
+      if (pDir === "h") {
+        console.log(`[CAROUSEL_DEBUG] drag move dx=${dx.toFixed(0)} pDir=${pDir}`);
+        applyPositions(idxRef.current, dx, false);
+      }
     };
 
     const onPointerUp = (e: PointerEvent) => {
