@@ -94,14 +94,13 @@ export function PhotoCarousel({
    */
   const commitIdx = useCallback((newIdx: number, alreadyAnimated = false) => {
     const clamped = Math.max(0, Math.min(nRef.current - 1, newIdx));
-    console.log(`[CAROUSEL_DEBUG] index changed from=${idxRef.current} to=${clamped} n=${nRef.current}`);
-    console.log(`[CAROUSEL_FIX] commit index from=${idxRef.current} to=${clamped}`);
+    console.log(`[CAROUSEL_FIX] commit index prev=${idxRef.current} next=${clamped} n=${nRef.current}`);
     idxRef.current = clamped;
     skipNextLayoutEffect.current = alreadyAnimated;
     if (controlledIdx === undefined) setInternalIdx(clamped);
     onIndexChange?.(clamped);
-    console.log(`[CAROUSEL_DEBUG] onIndexChange fired clamped=${clamped} hasCallback=${!!onIndexChange}`);
-    setDotIdx(clamped); // immediate dot/arrow update
+    console.log(`[CAROUSEL_FIX] index now ${clamped} (onIndexChange=${!!onIndexChange})`);
+    setDotIdx(clamped);
   }, [controlledIdx, onIndexChange]);
 
   // Re-position slides whenever the photos array is populated or its length changes.
@@ -136,26 +135,24 @@ export function PhotoCarousel({
     });
   }, [photos, dotIdx]);
 
-  // ── Drag / swipe via Pointer Events (handles mouse + touch + stylus) ────
+  // ── Drag / swipe — unified Pointer Events (mouse + touch + stylus) ───────
   //
-  // Why Pointer Events instead of Touch Events:
-  //   The carousel lives inside overflow-y-auto scroll containers (Discover,
-  //   Matches ProfilePanel). On iOS Safari, registering a passive touchstart
-  //   lets the browser commit to a vertical scroll gesture before our non-passive
-  //   touchmove e.preventDefault() can fire — the gesture is stolen and horizontal
-  //   drags never commit. Pointer Events solve this differently:
+  // Why NOT setPointerCapture in onPointerDown:
+  //   Calling setPointerCapture immediately in pointerdown causes iOS Safari's
+  //   scroll recognizer to fire pointercancel right away (the OS sees the JS
+  //   capture and cancels the pointer sequence so its own scroll can proceed).
+  //   Our pointercancel handler then resets state — the carousel never moves.
   //
-  //   1. setPointerCapture in onPointerDown routes ALL subsequent pointermove /
-  //      pointerup / pointercancel events to our element, even when the finger
-  //      drifts outside its bounds.
-  //   2. Once we confirm horizontal intent (|dx| > |dy| past dead zone) we flip
-  //      el.style.touchAction to "none", which tells the browser it must not
-  //      claim any native gesture for the remainder of this pointer sequence.
-  //   3. If the browser detects a vertical scroll first it fires pointercancel
-  //      (not pointermove), so we never mistake scroll for drag — we simply
-  //      restore state and let the browser scroll.
-  //   4. On pointer-up we always restore touchAction to "pan-y" so vertical
-  //      scrolling continues to work normally after the drag ends.
+  // The correct sequence:
+  //   1. pointerdown  — record start, save pointerId, DO NOT capture yet.
+  //   2. pointermove  — measure dx/dy; stay in dead zone until ≥5px moved.
+  //   3a. direction="h" — NOW call setPointerCapture (safe: horizontal gestures
+  //       don't conflict with the scroll recognizer) + set touchAction:"none"
+  //       so the overflow-y-auto parent cannot steal the rest of the gesture.
+  //       Then move slides 1:1 with the pointer.
+  //   3b. direction="v" — drop tracking (pId=null); browser scrolls freely.
+  //   4. pointerup    — commit if past threshold, else spring back.
+  //   5. pointercancel — browser reclaimed (e.g. fast vertical on iOS); restore.
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -164,47 +161,41 @@ export function PhotoCarousel({
     let pDir: "h" | "v" | null = null;
     let pId: number | null = null;
 
-    // ── settle: decide commit or snap-back after drag ends ─────────────────
-    const settle = (finalDx: number, dir: "h" | "v" | null) => {
+    // ── endDrag: commit index or spring back, always restores touchAction ──
+    const endDrag = (finalDx: number) => {
       const w = el.offsetWidth || 1;
       const threshold = Math.max(44, w * 0.22);
-      console.log(`[CAROUSEL_DEBUG] drag end finalDx=${finalDx.toFixed(0)} dir=${dir} threshold=${threshold.toFixed(0)} willCommit=${dir === "h" && Math.abs(finalDx) >= threshold}`);
-      if (dir !== "h") return;
-      if (Math.abs(finalDx) >= threshold) {
+      const willCommit = Math.abs(finalDx) >= threshold;
+      console.log(`[CAROUSEL_FIX] threshold passed=${willCommit} dx=${finalDx.toFixed(0)} threshold=${threshold.toFixed(0)} idx=${idxRef.current} n=${nRef.current}`);
+      el.style.touchAction = "pan-y"; // always restore
+      pId = null;
+      pDir = null;
+      if (willCommit) {
         const newIdx = finalDx < 0
           ? Math.min(idxRef.current + 1, nRef.current - 1)
           : Math.max(idxRef.current - 1, 0);
         if (newIdx !== idxRef.current) {
           applyPositions(newIdx, 0, true);
-          commitIdx(newIdx, true); // skip useLayoutEffect re-animation
+          commitIdx(newIdx, true); // animates + skips redundant useLayoutEffect
           return;
         }
       }
-      applyPositions(idxRef.current, 0, true); // spring back
-    };
-
-    // ── reset: called on pointerup, pointerleave, pointercancel ───────────
-    const reset = (animate: boolean) => {
-      pId = null;
-      pDir = null;
-      el.style.touchAction = "pan-y"; // restore so vertical scroll works again
+      applyPositions(idxRef.current, 0, true); // snap back to current
     };
 
     const onPointerDown = (e: PointerEvent) => {
-      console.log(`[CAROUSEL_DEBUG] drag start (pointer) type=${e.pointerType} x=${e.clientX.toFixed(0)} n=${nRef.current} idx=${idxRef.current}`);
-      // Ignore if another pointer is already active
-      if (pId !== null) return;
-      // Let clicks on buttons/links pass through uninterrupted
+      if (pId !== null) return; // ignore extra touch points (pinch etc.)
       const target = e.target as HTMLElement;
       if (target.closest("button, a, [role='button']")) return;
+      console.log(`[CAROUSEL_FIX] drag start type=${e.pointerType} x=${e.clientX.toFixed(0)} n=${nRef.current} idx=${idxRef.current}`);
       pStartX = e.clientX;
       pStartY = e.clientY;
       pDir = null;
       pId = e.pointerId;
-      // Capture immediately so we receive pointermove/up/cancel even when the
-      // pointer leaves the element (critical for fast swipes on mobile).
-      el.setPointerCapture(e.pointerId);
-      applyPositions(idxRef.current, 0, false); // cancel any in-progress spring
+      // DO NOT setPointerCapture here. Early capture triggers an immediate
+      // pointercancel on iOS Safari when the OS scroll recognizer is active,
+      // killing the gesture before we can detect its direction.
+      applyPositions(idxRef.current, 0, false); // cancel any running spring
     };
 
     const onPointerMove = (e: PointerEvent) => {
@@ -212,29 +203,26 @@ export function PhotoCarousel({
       const dx = e.clientX - pStartX;
       const dy = e.clientY - pStartY;
 
-      // ── Dead zone: wait for unambiguous movement ──────────────────────────
+      // Dead zone — wait for unambiguous movement before locking direction
       if (!pDir) {
-        if (Math.abs(dx) < 6 && Math.abs(dy) < 6) return;
+        if (Math.abs(dx) < 5 && Math.abs(dy) < 5) return;
         pDir = Math.abs(dx) > Math.abs(dy) ? "h" : "v";
 
         if (pDir === "v") {
-          // Vertical intent confirmed — release capture so the browser can
-          // resume native scroll on the overflow-y-auto parent container.
-          console.log(`[CAROUSEL_FIX] vertical scroll allowed dx=${dx.toFixed(0)} dy=${dy.toFixed(0)}`);
-          try { el.releasePointerCapture(e.pointerId); } catch (_) {}
-          reset(false);
+          // Vertical — stop tracking, let the scroll container take over
+          pId = null;
           return;
         }
 
-        // Horizontal intent confirmed — lock out native scroll for the rest
-        // of this pointer sequence so the scroll container cannot steal it.
-        console.log(`[CAROUSEL_FIX] horizontal drag captured dx=${dx.toFixed(0)} dy=${dy.toFixed(0)}`);
-        el.style.touchAction = "none";
+        // Horizontal confirmed — safe to capture now (no conflict with iOS scroll)
+        console.log(`[CAROUSEL_FIX] horizontal captured dx=${dx.toFixed(0)} dy=${dy.toFixed(0)}`);
+        try { el.setPointerCapture(e.pointerId); } catch (_) { /* pointer may have ended */ }
+        el.style.touchAction = "none"; // prevent overflow-y-auto from stealing gesture
+        e.preventDefault();
       }
 
       if (pDir === "h") {
-        console.log(`[CAROUSEL_DEBUG] drag move dx=${dx.toFixed(0)} pDir=${pDir}`);
-        applyPositions(idxRef.current, dx, false);
+        applyPositions(idxRef.current, dx, false); // slide follows finger 1:1
       }
     };
 
@@ -242,17 +230,24 @@ export function PhotoCarousel({
       if (pId === null || e.pointerId !== pId) return;
       const capturedDir = pDir;
       const capturedDx = e.clientX - pStartX;
-      reset(false);
-      settle(capturedDx, capturedDir);
+      if (capturedDir === "h") {
+        endDrag(capturedDx);
+      } else {
+        // Tap or vertical gesture — no slide change, just clean up
+        el.style.touchAction = "pan-y";
+        pId = null;
+        pDir = null;
+      }
     };
 
-    // pointercancel fires when the browser reclaims the gesture (e.g. the OS
-    // scroll view committed to a vertical scroll before we set touchAction:"none").
-    // Spring back and restore so the next gesture starts clean.
+    // pointercancel = browser reclaimed the gesture (e.g. OS scroll on iOS).
+    // Only fires after a capture; if no capture exists this won't fire.
     const onPointerCancel = (e: PointerEvent) => {
       if (pId === null || e.pointerId !== pId) return;
-      reset(true);
-      applyPositions(idxRef.current, 0, true);
+      el.style.touchAction = "pan-y";
+      pId = null;
+      pDir = null;
+      applyPositions(idxRef.current, 0, true); // spring back
     };
 
     el.addEventListener("pointerdown",  onPointerDown);
