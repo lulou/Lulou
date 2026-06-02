@@ -203,7 +203,7 @@ export function PhotoCarousel({
     };
 
     const onPointerDown = (e: PointerEvent) => {
-      if (pId !== null) return; // ignore extra touch points (pinch etc.)
+      if (pId !== null) return;
       const target = e.target as HTMLElement;
       if (target.closest("button, a, [role='button']")) return;
       console.log(`[CAROUSEL_FIX] drag start type=${e.pointerType} x=${e.clientX.toFixed(0)} n=${nRef.current} idx=${idxRef.current}`);
@@ -213,10 +213,14 @@ export function PhotoCarousel({
       pId = e.pointerId;
       dbgCommitRef.current = false;
       dbgUpdate(true, 0);
-      // DO NOT setPointerCapture here. Early capture triggers an immediate
-      // pointercancel on iOS Safari when the OS scroll recognizer is active,
-      // killing the gesture before we can detect its direction.
-      applyPositions(idxRef.current, 0, false); // cancel any running spring
+      // setPointerCapture immediately so ALL subsequent pointermove/up/cancel
+      // events are routed to this element regardless of where the pointer goes.
+      // This also prevents pointerleave from firing mid-gesture (captured pointers
+      // don't trigger pointerleave). On iOS, pointercancel fires instead of
+      // pointermove when the browser claims a vertical scroll — we handle that
+      // below by snapping back and restoring state.
+      el.setPointerCapture(e.pointerId);
+      applyPositions(idxRef.current, 0, false);
     };
 
     const onPointerMove = (e: PointerEvent) => {
@@ -224,27 +228,28 @@ export function PhotoCarousel({
       const dx = e.clientX - pStartX;
       const dy = e.clientY - pStartY;
 
-      // Dead zone — wait for unambiguous movement before locking direction
       if (!pDir) {
-        if (Math.abs(dx) < 5 && Math.abs(dy) < 5) return;
-        pDir = Math.abs(dx) > Math.abs(dy) ? "h" : "v";
-
+        if (Math.abs(dx) < 5 && Math.abs(dy) < 5) return; // dead zone
+        pDir = Math.abs(dx) >= Math.abs(dy) ? "h" : "v";
         if (pDir === "v") {
-          // Vertical — stop tracking, let the scroll container take over
+          // Vertical confirmed — release capture so browser scrolls freely.
+          // pointercancel will follow shortly on iOS; on desktop this is enough.
+          try { el.releasePointerCapture(e.pointerId); } catch (_) {}
+          el.style.touchAction = "pan-y";
           pId = null;
+          pDir = null;
           return;
         }
-
-        // Horizontal confirmed — safe to capture now (no conflict with iOS scroll)
+        // Horizontal confirmed
         console.log(`[CAROUSEL_FIX] horizontal captured dx=${dx.toFixed(0)} dy=${dy.toFixed(0)}`);
-        try { el.setPointerCapture(e.pointerId); } catch (_) { /* pointer may have ended */ }
-        el.style.touchAction = "none"; // prevent overflow-y-auto from stealing gesture
+        el.style.touchAction = "none"; // block scroll container for this gesture
         e.preventDefault();
       }
 
       if (pDir === "h") {
+        e.preventDefault();
         dbgUpdate(true, dx);
-        applyPositions(idxRef.current, dx, false); // slide follows finger 1:1
+        applyPositions(idxRef.current, dx, false);
       }
     };
 
@@ -252,39 +257,40 @@ export function PhotoCarousel({
       if (pId === null || e.pointerId !== pId) return;
       const capturedDir = pDir;
       const capturedDx = e.clientX - pStartX;
+      pId = null;
+      pDir = null;
+      el.style.touchAction = "pan-y";
       dbgUpdate(false, capturedDx);
       if (capturedDir === "h") {
         endDrag(capturedDx);
-      } else {
-        // Tap or vertical gesture — no slide change, just clean up
-        el.style.touchAction = "pan-y";
-        pId = null;
-        pDir = null;
       }
+      // vertical / tap — no slide change, state already cleared above
     };
 
-    // pointercancel = browser reclaimed the gesture (e.g. OS scroll on iOS).
-    // Only fires after a capture; if no capture exists this won't fire.
+    // pointercancel: browser claimed the gesture (OS vertical scroll, zoom, etc.)
+    // Spring back and restore so next gesture starts clean.
     const onPointerCancel = (e: PointerEvent) => {
       if (pId === null || e.pointerId !== pId) return;
-      el.style.touchAction = "pan-y";
       pId = null;
       pDir = null;
-      applyPositions(idxRef.current, 0, true); // spring back
+      el.style.touchAction = "pan-y";
+      dbgUpdate(false, 0);
+      applyPositions(idxRef.current, 0, true);
     };
 
-    el.addEventListener("pointerdown",  onPointerDown);
-    el.addEventListener("pointermove",  onPointerMove);
-    el.addEventListener("pointerup",    onPointerUp);
-    el.addEventListener("pointerleave", onPointerUp);
-    el.addEventListener("pointercancel",onPointerCancel);
+    // NOTE: no "pointerleave" listener. With setPointerCapture active, pointerleave
+    // does not fire during a drag. Adding it would kill every gesture the moment
+    // the pointer briefly exits the element bounds before direction is determined.
+    el.addEventListener("pointerdown",   onPointerDown);
+    el.addEventListener("pointermove",   onPointerMove);
+    el.addEventListener("pointerup",     onPointerUp);
+    el.addEventListener("pointercancel", onPointerCancel);
 
     return () => {
-      el.removeEventListener("pointerdown",  onPointerDown);
-      el.removeEventListener("pointermove",  onPointerMove);
-      el.removeEventListener("pointerup",    onPointerUp);
-      el.removeEventListener("pointerleave", onPointerUp);
-      el.removeEventListener("pointercancel",onPointerCancel);
+      el.removeEventListener("pointerdown",   onPointerDown);
+      el.removeEventListener("pointermove",   onPointerMove);
+      el.removeEventListener("pointerup",     onPointerUp);
+      el.removeEventListener("pointercancel", onPointerCancel);
     };
   }, [applyPositions, commitIdx]); // stable callbacks → registers once
 
