@@ -137,12 +137,17 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
         ref={emblaRef}
         style={{ height: "100%", overflow: "hidden", touchAction: "pan-y" }}
       >
-        {/* Embla container — flex row of slides */}
-        <div style={{ display: "flex", height: "100%" }}>
+        {/* Embla container — flex row of slides.
+            touch-action:pan-y is also set here and on each slide because
+            CSS touch-action is NOT inherited — iOS Safari reads it from the
+            TOUCH TARGET element specifically. Without it on the slide divs,
+            Safari can fire pointercancel on horizontal swipes, cancelling
+            Embla's drag tracking even though the viewport has pan-y. */}
+        <div style={{ display: "flex", height: "100%", touchAction: "pan-y" }}>
           {photos.map((photo, i) => (
             <div
               key={i}
-              style={{ flex: "0 0 100%", minWidth: 0, height: "100%", position: "relative" }}
+              style={{ flex: "0 0 100%", minWidth: 0, height: "100%", position: "relative", touchAction: "pan-y" }}
               data-testid={`carousel-slide-${i}`}
             >
               {/* Only render <img> for current ±1 to keep GPU memory low */}
@@ -172,18 +177,6 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
             </div>
           ))}
         </div>
-      </div>
-
-      {/* ── EMBLA PROOF LABEL ── remove after confirming live */}
-      <div
-        style={{
-          position: "absolute", top: 10, left: 10, zIndex: 999,
-          background: "lime", color: "black", fontWeight: "bold",
-          fontSize: 13, padding: "4px 10px", borderRadius: 6,
-          pointerEvents: "none", lineHeight: 1.4,
-        }}
-      >
-        EMBLA ACTIVE<br />carousel type: embla
       </div>
 
       {/* Bottom gradient — above slides, below interactive elements */}

@@ -24,15 +24,6 @@ import { EMPTY_PHOTOS } from "@/lib/image-utils";
 // re-renders when photos/name/disabled/loading state actually changes.
 const PhotoBubbles = memo(function PhotoBubbles({ photos, name: _name, onOpen, isDisabled, isPhotosLoading }: { photos: string[]; name: string; onOpen: () => void; isDisabled?: boolean; isPhotosLoading?: boolean }) {
   return (
-    <div style={{ position: "relative" }}>
-      <div style={{
-        position: "absolute", top: 8, left: 8, zIndex: 9999,
-        background: "red", color: "white", fontWeight: "bold",
-        fontSize: 13, padding: "4px 10px", borderRadius: 6,
-        pointerEvents: "none", lineHeight: 1.4,
-      }}>
-        DISCOVERY LIVE COMPONENT
-      </div>
     <ProfilePhotoViewer
       photos={photos}
       isLoading={isPhotosLoading}
@@ -48,7 +39,6 @@ const PhotoBubbles = memo(function PhotoBubbles({ photos, name: _name, onOpen, i
         </button>
       }
     />
-    </div>
   );
 });
 
@@ -517,9 +507,6 @@ export default function Discover() {
   return (
     <div className="flex-1 overflow-y-auto">
       <div className="sticky top-0 z-30 bg-background/95 backdrop-blur-sm border-b px-5 py-3">
-        <div style={{ fontSize: 10, fontFamily: "monospace", color: "red", fontWeight: "bold", marginBottom: 2 }}>
-          DEPLOY HASH: 91273212d484feb117d4f602e1babf7790831da6
-        </div>
         <div className="max-w-md mx-auto flex items-center gap-2">
           <h1 className="font-serif text-lg font-bold truncate" data-testid="text-discover-sticky-name">
             {displayProfile.firstName}, {displayProfile.age}

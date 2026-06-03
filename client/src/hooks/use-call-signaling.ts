@@ -1,8 +1,9 @@
 import { useEffect, useRef } from "react";
 import { supabase } from "@/lib/supabase";
 import { queryClient } from "@/lib/queryClient";
-import { markCallSessionCancelled, isCallSessionCancelled, isStartupCancelledOnly, clearStartupCancelledSession } from "@/lib/cancelled-calls";
+import { markCallSessionCancelled, isCallSessionCancelled, isStartupCancelledOnly } from "@/lib/cancelled-calls";
 import { armCallSession } from "@/lib/live-call-sessions";
+import { APP_LOAD_TIME } from "@/lib/app-load-time";
 
 type CallSignalEvent =
   | { type: "call:ring"; matchId: string; callerId: string; callerName: string; callSessionId?: string }
@@ -91,13 +92,51 @@ export function useCallSignaling(matchIds: string[], userId: string) {
         if (event.type === "call:ring") {
           const ring = event as any;
           const ringSessionId = ring.callSessionId ?? null;
-          // A rering proves the call is still live. If the startup sweep marked
-          // this session as cancelled (startup-only, not user action), lift the
-          // block now so the overlay and ringtone can start. Sessions cancelled by
-          // a real user action (decline/end) are never in startupOnlyKeys and are
-          // unaffected — their cancellation remains permanent.
+
+          // ── Pre-load ring guard ─────────────────────────────────────────────
+          // Block calls that started before this browser session regardless of
+          // whether the startup sweep has run yet. The sweep is a useEffect and
+          // may not have executed when the first rering arrives (Realtime connects
+          // fast; /api/matches fetch is slower). Without this check the session
+          // gets armed, ringtone starts, sweep runs and stops it, next rering
+          // re-arms, sweep stops it again — an oscillating ring every ~10 s.
+          //
+          // Strategy A — cache already has the match (most common on revisit):
+          //   Read callStartedAt from the TanStack Query cache. If it predates
+          //   APP_LOAD_TIME, permanently cancel and bail.
+          //
+          // Strategy B — cache is empty (cold first load):
+          //   Fall through to the isStartupCancelledOnly check; the sweep will
+          //   mark it startup-cancelled after the first /api/matches response, and
+          //   the NEXT rering will hit Strategy A or the isStartupCancelledOnly
+          //   block below.
+          const cachedMatches = queryClient.getQueryData<any[]>(["/api/matches"]);
+          const cachedCallStartAt = cachedMatches?.find((m: any) => m.id === matchId)?.callStartedAt;
+          if (cachedCallStartAt) {
+            const callStartMs = new Date(cachedCallStartAt).getTime();
+            if (callStartMs > 0 && callStartMs < APP_LOAD_TIME) {
+              console.log("[CALL_SIGNAL] PRE_LOAD_RING_BLOCKED stale call predates session", {
+                matchId, callStartMs, APP_LOAD_TIME, delta: APP_LOAD_TIME - callStartMs,
+              });
+              markCallSessionCancelled(matchId, ringSessionId);
+              return;
+            }
+          }
+
+          // ── Startup-cancelled block ─────────────────────────────────────────
+          // The startup sweep runs this path for calls whose callStartedAt was
+          // confirmed < APP_LOAD_TIME by the /api/matches response.  Previously
+          // we called clearStartupCancelledSession() here to allow live rererings
+          // to lift the block — but that created an oscillation: sweep blocks →
+          // rering lifts → sweep blocks again every 10 s poll.
+          //
+          // Correct behaviour: once the sweep marks a pre-load call startup-
+          // cancelled, NO rering should re-enable it.  If the caller wants to
+          // reach the refreshed user they must start a new call (new sessionId).
           if (isStartupCancelledOnly(matchId, ringSessionId)) {
-            clearStartupCancelledSession(matchId, ringSessionId);
+            console.log("[CALL_SIGNAL] STARTUP_RERING_BLOCKED permanently cancelled pre-load rering", { matchId });
+            markCallSessionCancelled(matchId, ringSessionId);
+            return;
           }
           // Skip stale ring signals for sessions that were cancelled by user action
           if (isCallSessionCancelled(matchId, ringSessionId)) {

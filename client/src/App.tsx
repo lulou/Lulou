@@ -250,7 +250,7 @@ function clearCallFromCache(
 // Captured once at module load. Any call whose callStartedAt predates this
 // timestamp is treated as potentially stale and blocked until a live rering
 // proves the call is still active.
-const APP_LOAD_TIME = Date.now();
+import { APP_LOAD_TIME } from "@/lib/app-load-time";
 
 
 function CallDetectors({ userId }: { userId: string }) {
