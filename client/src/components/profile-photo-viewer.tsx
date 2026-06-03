@@ -10,25 +10,10 @@ interface ProfilePhotoViewerProps {
   isLoading?: boolean;
   height?: number;
   className?: string;
-  /** Rendered in the bottom-right corner (e.g. Open / Like button). */
   action?: ReactNode;
   nameSlot?: ReactNode;
 }
 
-/**
- * Profile photo viewer — pure Embla carousel.
- *
- * Structure follows Embla v8 docs exactly:
- *   outer wrapper  → position:relative, NO overflow:hidden, NO touch handlers
- *   embla viewport → overflow:hidden (ONLY here), emblaRef attached
- *   embla container → display:flex, touch-action:pan-y pinch-zoom (per Embla docs)
- *   embla slides    → flex:0 0 100%, min-width:0
- *   images          → pointer-events:none, draggable=false
- *
- * No arrow buttons, no tap zones, no onClick overlays.
- * Dots and action button sit below the viewport in z-order (pointer-events:none
- * on dots so they never intercept the drag gesture).
- */
 export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
   photos,
   isLoading = false,
@@ -40,10 +25,8 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
   const n = photos.length;
 
   const [emblaRef, emblaApi] = useEmblaCarousel({ loop: false });
-
   const [selectedIndex, setSelectedIndex] = useState(0);
 
-  // Sync dot indicator with Embla's selected snap
   useEffect(() => {
     if (!emblaApi) return;
     const onSelect = () => setSelectedIndex(emblaApi.selectedScrollSnap());
@@ -52,7 +35,6 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
     return () => { emblaApi.off("select", onSelect); };
   }, [emblaApi]);
 
-  // Reset to first slide when a new profile loads
   useEffect(() => {
     if (!emblaApi) return;
     emblaApi.reInit({ loop: false });
@@ -60,7 +42,6 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
     setSelectedIndex(0);
   }, [photos, emblaApi]);
 
-  // Preload neighbours
   useEffect(() => {
     [selectedIndex - 1, selectedIndex, selectedIndex + 1].forEach(i => {
       if (photos[i]) preloadPhoto(photos[i]);
@@ -78,7 +59,7 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
             ? "hsl(var(--muted))"
             : "linear-gradient(90deg, hsl(var(--muted)) 25%, hsl(var(--muted-foreground)/0.08) 50%, hsl(var(--muted)) 75%)",
           backgroundSize: isMobile ? undefined : "200% 100%",
-          animation:      isMobile ? undefined : "shimmer 1.4s infinite linear",
+          animation: isMobile ? undefined : "shimmer 1.4s infinite linear",
         }}
         data-testid="photo-loading-skeleton"
       />
@@ -107,72 +88,51 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
   // ── Photo carousel ───────────────────────────────────────────────────────────
   return (
     <div
-      className={`relative ${className}`}
+      className={`relative w-full ${className}`}
       style={{ height, background: "hsl(var(--muted))" }}
       data-testid="profile-photo-viewer"
     >
-      {/*
-        Embla viewport — overflow:hidden is the ONLY clip applied.
-        No touch-action override here; Embla sets it on this element via JS.
-        No pointer-events override; this element must freely receive all events.
-      */}
+      {/* Embla viewport — receives all pointer/touch events directly */}
       <div
         ref={emblaRef}
-        style={{ height: "100%", overflow: "hidden" }}
+        className="h-full w-full overflow-hidden"
+        style={{ touchAction: "pan-y pinch-zoom" }}
       >
-        {/*
-          Embla container — per Embla v8 docs, touch-action belongs HERE.
-          "pan-y pinch-zoom" tells iOS Safari: let Embla own horizontal drag,
-          keep vertical scroll and pinch-zoom native.
-        */}
-        <div
-          style={{
-            display: "flex",
-            height: "100%",
-            touchAction: "pan-y pinch-zoom",
-            userSelect: "none",
-          }}
-        >
+        {/* Embla container — flex row of slides */}
+        <div style={{ display: "flex", height: "100%" }}>
           {photos.map((photo, i) => (
             <div
               key={i}
-              style={{ flex: "0 0 100%", minWidth: 0, height: "100%", position: "relative" }}
+              style={{ flex: "0 0 100%", minWidth: 0, height: "100%" }}
               data-testid={`carousel-slide-${i}`}
             >
-              {Math.abs(i - selectedIndex) <= 1 && (
-                <img
-                  src={photo}
-                  alt={`Photo ${i + 1}`}
-                  loading={i === selectedIndex ? "eager" : "lazy"}
-                  decoding="async"
-                  draggable={false}
-                  style={{
-                    width: "100%",
-                    height: "100%",
-                    objectFit: "cover",
-                    objectPosition: "center top",
-                    opacity: decodedPhotos.has(photo) ? 1 : 0,
-                    transition: "opacity 0.08s ease",
-                    pointerEvents: "none",
-                    userSelect: "none",
-                  }}
-                  onLoad={e => {
-                    decodedPhotos.add(photo);
-                    (e.currentTarget as HTMLImageElement).style.opacity = "1";
-                  }}
-                  data-testid={`img-carousel-photo-${i}`}
-                />
-              )}
+              <img
+                src={photo}
+                alt={`Photo ${i + 1}`}
+                loading={i === selectedIndex ? "eager" : "lazy"}
+                decoding="async"
+                draggable={false}
+                style={{
+                  width: "100%",
+                  height: "100%",
+                  objectFit: "cover",
+                  objectPosition: "center top",
+                  opacity: decodedPhotos.has(photo) ? 1 : 0,
+                  transition: "opacity 0.08s ease",
+                  display: "block",
+                }}
+                onLoad={e => {
+                  decodedPhotos.add(photo);
+                  (e.currentTarget as HTMLImageElement).style.opacity = "1";
+                }}
+                data-testid={`img-carousel-photo-${i}`}
+              />
             </div>
           ))}
         </div>
       </div>
 
-      {/*
-        Gradient overlay — pointer-events:none so it NEVER intercepts drag.
-        Rendered as a sibling of the viewport (not a child) so it does not
-        affect Embla's container measurement.
-      */}
+      {/* Gradient — pointer-events:none, never intercepts drag */}
       <div
         aria-hidden="true"
         style={{
@@ -217,17 +177,18 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
         </div>
       )}
 
-      {/* Action button (e.g. Open / Like) */}
+      {/* Action button — wrapper is pointer-events:none so only the button itself is clickable */}
       {action && (
         <div
           style={{
             position: "absolute",
             bottom: 12,
             right: 14,
-            zIndex: 2,
+            zIndex: 3,
+            pointerEvents: "none",
           }}
         >
-          {action}
+          <div style={{ pointerEvents: "auto" }}>{action}</div>
         </div>
       )}
 
@@ -239,9 +200,10 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
             left: 16,
             right: 16,
             zIndex: 2,
+            pointerEvents: "none",
           }}
         >
-          {nameSlot}
+          <div style={{ pointerEvents: "auto" }}>{nameSlot}</div>
         </div>
       )}
     </div>
