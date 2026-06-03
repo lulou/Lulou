@@ -1,4 +1,4 @@
-import { memo, useState, useEffect, type ReactNode } from "react";
+import { memo, useState, useEffect, useCallback, useRef, type ReactNode } from "react";
 import useEmblaCarousel from "embla-carousel-react";
 import { decodedPhotos, preloadPhoto } from "@/lib/image-utils";
 import { isMobile } from "@/lib/perf";
@@ -14,6 +14,26 @@ interface ProfilePhotoViewerProps {
   nameSlot?: ReactNode;
 }
 
+/**
+ * Profile photo viewer — Embla carousel with iOS Safari drag fix.
+ *
+ * Root cause of "drag doesn't work on iPhone":
+ *   The viewer lives inside `overflow-y: auto` (the page scroll container).
+ *   iOS Safari claims ANY touch gesture that starts inside a native scroll
+ *   container and fires `touchcancel` / `pointercancel` the moment movement
+ *   is detected, terminating Embla's drag mid-gesture.
+ *
+ * Fix:
+ *   Attach a non-passive `touchmove` listener to the Embla root node.
+ *   When the gesture is primarily horizontal (|dx| > |dy|), call
+ *   `event.preventDefault()`. This tells Safari "this gesture belongs to JS"
+ *   before it can fire touchcancel. Vertical scroll still works because we
+ *   only preventDefault on horizontal moves.
+ *
+ * Why click still worked without this fix:
+ *   A tap has no movement, so touchcancel never fires. Click → Embla snap
+ *   was working through a completely different code path.
+ */
 export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
   photos,
   isLoading = false,
@@ -27,6 +47,69 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
   const [emblaRef, emblaApi] = useEmblaCarousel({ loop: false });
   const [selectedIndex, setSelectedIndex] = useState(0);
 
+  // Track the Embla root DOM node so we can attach non-passive listeners.
+  // emblaRef is a callback ref; we wrap it to also capture the node ourselves.
+  const viewportNodeRef = useRef<HTMLDivElement | null>(null);
+  const setRefs = useCallback(
+    (node: HTMLDivElement | null) => {
+      viewportNodeRef.current = node;
+      // Forward to Embla's callback ref
+      if (typeof emblaRef === "function") emblaRef(node);
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [emblaRef],
+  );
+
+  // ── iOS Safari horizontal-drag fix ────────────────────────────────────────
+  // A non-passive touchmove listener that calls preventDefault() for
+  // horizontal gestures, preventing the native scroll container from claiming
+  // the touch before Embla can complete the drag.
+  useEffect(() => {
+    const el = viewportNodeRef.current;
+    if (!el) return;
+
+    let startX = 0;
+    let startY = 0;
+    let decided = false; // direction decided for this gesture?
+
+    const onTouchStart = (e: TouchEvent) => {
+      startX = e.touches[0].clientX;
+      startY = e.touches[0].clientY;
+      decided = false;
+    };
+
+    const onTouchMove = (e: TouchEvent) => {
+      if (decided) {
+        // Already determined this gesture is horizontal — keep blocking.
+        const dx = Math.abs(e.touches[0].clientX - startX);
+        const dy = Math.abs(e.touches[0].clientY - startY);
+        if (dx > dy) e.preventDefault();
+        return;
+      }
+      const dx = Math.abs(e.touches[0].clientX - startX);
+      const dy = Math.abs(e.touches[0].clientY - startY);
+      if (dx < 3 && dy < 3) return; // not enough movement yet
+      decided = true;
+      if (dx > dy) {
+        // Horizontal gesture — claim it for Embla before Safari does.
+        e.preventDefault();
+      }
+    };
+
+    el.addEventListener("touchstart", onTouchStart, { passive: true });
+    // passive:false is required so preventDefault() is honoured.
+    el.addEventListener("touchmove", onTouchMove, { passive: false });
+
+    return () => {
+      el.removeEventListener("touchstart", onTouchStart);
+      el.removeEventListener("touchmove", onTouchMove);
+    };
+  // Re-attach whenever the DOM node changes (profile switch / reInit).
+  // viewportNodeRef.current is stable but we depend on emblaApi so the
+  // effect re-runs after Embla initialises and we know the node is live.
+  }, [emblaApi]);
+
+  // ── Sync dot indicator ─────────────────────────────────────────────────────
   useEffect(() => {
     if (!emblaApi) return;
     const onSelect = () => setSelectedIndex(emblaApi.selectedScrollSnap());
@@ -35,6 +118,7 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
     return () => { emblaApi.off("select", onSelect); };
   }, [emblaApi]);
 
+  // ── Reset carousel when a new profile is shown ────────────────────────────
   useEffect(() => {
     if (!emblaApi) return;
     emblaApi.reInit({ loop: false });
@@ -42,13 +126,14 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
     setSelectedIndex(0);
   }, [photos, emblaApi]);
 
+  // ── Preload neighbours ─────────────────────────────────────────────────────
   useEffect(() => {
     [selectedIndex - 1, selectedIndex, selectedIndex + 1].forEach(i => {
       if (photos[i]) preloadPhoto(photos[i]);
     });
   }, [photos, selectedIndex]);
 
-  // ── Loading shimmer ──────────────────────────────────────────────────────────
+  // ── Loading shimmer ────────────────────────────────────────────────────────
   if (isLoading) {
     return (
       <div
@@ -66,7 +151,7 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
     );
   }
 
-  // ── Empty state ──────────────────────────────────────────────────────────────
+  // ── Empty state ────────────────────────────────────────────────────────────
   if (n === 0) {
     return (
       <div
@@ -85,20 +170,25 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
     );
   }
 
-  // ── Photo carousel ───────────────────────────────────────────────────────────
+  // ── Photo carousel ─────────────────────────────────────────────────────────
   return (
     <div
       className={`relative w-full ${className}`}
       style={{ height, background: "hsl(var(--muted))" }}
       data-testid="profile-photo-viewer"
     >
-      {/* Embla viewport — receives all pointer/touch events directly */}
+      {/*
+        Embla viewport — the interactive surface.
+        touch-action:pan-y pinch-zoom lets Embla own horizontal events at the
+        CSS level; the non-passive touchmove listener above enforces this on
+        iOS Safari which ignores CSS touch-action when inside a scroll container.
+      */}
       <div
-        ref={emblaRef}
+        ref={setRefs}
         className="h-full w-full overflow-hidden"
         style={{ touchAction: "pan-y pinch-zoom" }}
       >
-        {/* Embla container — flex row of slides */}
+        {/* Embla container */}
         <div style={{ display: "flex", height: "100%" }}>
           {photos.map((photo, i) => (
             <div
@@ -120,6 +210,7 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
                   opacity: decodedPhotos.has(photo) ? 1 : 0,
                   transition: "opacity 0.08s ease",
                   display: "block",
+                  userSelect: "none",
                 }}
                 onLoad={e => {
                   decodedPhotos.add(photo);
@@ -132,7 +223,7 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
         </div>
       </div>
 
-      {/* Gradient — pointer-events:none, never intercepts drag */}
+      {/* Gradient — pointer-events:none */}
       <div
         aria-hidden="true"
         style={{
@@ -177,7 +268,7 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
         </div>
       )}
 
-      {/* Action button — wrapper is pointer-events:none so only the button itself is clickable */}
+      {/* Action button — wrapper is pointer-events:none, button itself is auto */}
       {action && (
         <div
           style={{
