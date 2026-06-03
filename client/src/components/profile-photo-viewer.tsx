@@ -44,12 +44,12 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
 }: ProfilePhotoViewerProps) {
   const n = photos.length;
 
-  const [emblaRef, emblaApi] = useEmblaCarousel({
-    loop: false,
-    // Disable drag when there is only one photo so that vertical scroll
-    // in a parent container is not accidentally intercepted.
-    watchDrag: n > 1,
-  });
+  // watchDrag is always true — single-slide carousels simply have nowhere to
+  // scroll so Embla handles them gracefully without needing watchDrag:false.
+  // Previously this was `n > 1` which initialises as false on the first
+  // render (photos not yet loaded), and the reInit() call below could race
+  // Embla's own reactive-option update leaving drag permanently disabled.
+  const [emblaRef, emblaApi] = useEmblaCarousel({ loop: false });
 
   const [selectedIndex, setSelectedIndex] = useState(0);
 
@@ -62,10 +62,12 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
     return () => { emblaApi.off("select", onSelect); };
   }, [emblaApi]);
 
-  // Re-initialise carousel when photos array changes (new profile loaded)
+  // Re-initialise carousel when photos array changes (new profile loaded).
+  // Pass options explicitly so we never accidentally inherit a stale
+  // watchDrag:false from a previous init cycle.
   useEffect(() => {
     if (!emblaApi) return;
-    emblaApi.reInit();
+    emblaApi.reInit({ loop: false });
     emblaApi.scrollTo(0, true); // jump to first photo instantly
     setSelectedIndex(0);
   }, [photos, emblaApi]);
@@ -119,12 +121,22 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
   // ── Photo viewer ────────────────────────────────────────────────────────────
   return (
     <div
-      className={`relative overflow-hidden select-none ${className}`}
+      className={`relative select-none ${className}`}
       style={{ height, background: "hsl(var(--muted))" }}
       data-testid="profile-photo-viewer"
     >
-      {/* Embla viewport — emblaRef is a callback ref managed by embla */}
-      <div ref={emblaRef} style={{ height: "100%", overflow: "hidden" }}>
+      {/*
+        Embla viewport — the ONLY element that should have overflow:hidden.
+        Previously the outer div also had overflow-hidden (double-nesting),
+        which on iOS Safari can cause the outer hidden container to absorb
+        touch events before they reach the embla pointer listeners.
+        touch-action:pan-y allows the parent page to scroll vertically while
+        Embla intercepts horizontal pointer movement for drag.
+      */}
+      <div
+        ref={emblaRef}
+        style={{ height: "100%", overflow: "hidden", touchAction: "pan-y" }}
+      >
         {/* Embla container — flex row of slides */}
         <div style={{ display: "flex", height: "100%" }}>
           {photos.map((photo, i) => (
