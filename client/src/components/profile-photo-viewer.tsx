@@ -1,4 +1,4 @@
-import { memo, useState, useRef, useEffect, useLayoutEffect, type ReactNode } from "react";
+import { memo, useState, useRef, useLayoutEffect, useEffect, useCallback, type ReactNode } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { decodedPhotos, preloadPhoto } from "@/lib/image-utils";
 import { isMobile } from "@/lib/perf";
@@ -16,27 +16,24 @@ interface ProfilePhotoViewerProps {
 }
 
 /**
- * Profile photo viewer with drag-pull navigation.
+ * Profile photo viewer with drag-pull + tap navigation.
  *
- * Drag/swipe: photos follow the finger/mouse horizontally in real-time.
- *   Release past threshold  → commits to next/prev photo (animated spring).
- *   Release below threshold → snaps back.
- * Tap fallback: transparent tap-zone buttons cover left 40% / right 60%.
- *   A real drag calls e.preventDefault() during pointermove, which suppresses
- *   the click event. A plain tap (no drag) still fires click normally.
- * Arrow buttons and dot indicators update in sync.
+ * Bug fixes applied:
  *
- * Pointer Events sequence (avoids the iOS pointercancel bug):
- *   pointerdown  — record start, save pointerId. NO setPointerCapture yet.
- *   pointermove  — wait for ≥5px dead zone, detect direction.
- *                  Vertical → release tracking (browser scrolls freely).
- *                  Horizontal confirmed → setPointerCapture NOW (safe: scroll
- *                  recognizer won't fire pointercancel once direction is known)
- *                  + touchAction:"none" + e.preventDefault().
- *   pointerup    — commit if past threshold, else spring back.
- *   pointercancel — browser reclaimed; snap back.
- * pointermove listener is { passive:false } so preventDefault() is honoured
- * even when an overflow-y-auto ancestor exists (Chrome/Android behaviour).
+ * FIX 1 — Callback ref instead of useEffect([]):
+ *   useEffect(fn, []) runs once after the FIRST render. If that render is the
+ *   loading shimmer or empty-state (no container div), containerRef is null,
+ *   the effect bails, and listeners are never attached when photos later arrive.
+ *   A callback ref fires exactly when the element mounts/unmounts regardless of
+ *   render order, guaranteeing listeners are always attached after photo load.
+ *
+ * FIX 2 — <div> tap zones instead of <button>:
+ *   Browsers (Chrome/Safari/Firefox) apply implicit pointer capture to <button>
+ *   on pointerdown. This locks subsequent pointermove events to the button,
+ *   interfering with our explicit el.setPointerCapture() call. Plain <div>
+ *   elements have no implicit pointer capture. Tap detection is moved into onUp:
+ *   if no directional movement was detected (dir stays null), the pointer release
+ *   position determines prev/next.
  */
 export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
   photos,
@@ -51,18 +48,20 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
   const n = photos.length;
   const safeIdx = n === 0 ? 0 : Math.min(photoIndex, n - 1);
 
-  // Refs for stale-closure safety — updated synchronously before effects run
+  // Stale-closure-safe refs — updated synchronously on every render
   const idxRef = useRef(safeIdx);
-  const nRef  = useRef(n);
+  const nRef   = useRef(n);
   idxRef.current = safeIdx;
   nRef.current   = n;
 
-  const containerRef = useRef<HTMLDivElement>(null);
-  const slideRefs    = useRef<(HTMLDivElement | null)[]>([]);
-  const isMounted    = useRef(false);
-  const skipLayout   = useRef(false); // drag handler pre-animated — skip layout re-run
+  const slideRefs  = useRef<(HTMLDivElement | null)[]>([]);
+  const isMounted  = useRef(false);
+  const skipLayout = useRef(false);
+  const cleanupRef = useRef<(() => void) | null>(null);
 
-  // ── Direct-DOM slide positioning (zero React re-renders during drag) ────────
+  // Direct-DOM slide positioning — zero React re-renders during drag
+  // applyPositions only reads slideRefs.current (always up to date), so it is
+  // safe to call from inside the stable callback-ref closure.
   const applyPositions = (atIdx: number, dragOffset: number, animated: boolean) => {
     const tr = animated ? "transform 0.32s cubic-bezier(0.25, 1, 0.5, 1)" : "none";
     slideRefs.current.forEach((el, i) => {
@@ -74,45 +73,23 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
     });
   };
 
-  // Re-position on photos array length change (handles async photo load)
-  useLayoutEffect(() => {
-    applyPositions(idxRef.current, 0, false);
-  }, [photos.length]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Sync when committed index changes
-  useLayoutEffect(() => {
-    const shouldAnimate = isMounted.current;
-    isMounted.current = true;
-    if (skipLayout.current) { skipLayout.current = false; return; }
-    applyPositions(safeIdx, 0, shouldAnimate);
-  }, [safeIdx]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Preload current ±1
-  useEffect(() => {
-    [safeIdx - 1, safeIdx, safeIdx + 1].forEach(i => {
-      if (photos[i]) preloadPhoto(photos[i]);
-    });
-  }, [photos, safeIdx]);
-
-  // Reset index when profile changes (photos array replaced entirely)
-  const prevPhotosRef = useRef(photos);
-  if (prevPhotosRef.current !== photos) {
-    prevPhotosRef.current = photos;
-    if (photoIndex !== 0) setPhotoIndex(0);
-  }
-
-  // ── Drag / swipe via Pointer Events ────────────────────────────────────────
-  useEffect(() => {
-    const el = containerRef.current;
+  // ── Callback ref ─────────────────────────────────────────────────────────────
+  // Called with the element when it mounts, null when it unmounts.
+  // useCallback(fn, []) keeps identity stable so React does not re-run it on
+  // every render (which would cause a mount→unmount→remount loop).
+  const containerCallbackRef = useCallback((el: HTMLDivElement | null) => {
+    // Clean up previous listeners before re-attaching (or when unmounting)
+    cleanupRef.current?.();
+    cleanupRef.current = null;
     if (!el) return;
 
     let pId: number | null = null;
     let startX = 0, startY = 0;
     let dir: "h" | "v" | null = null;
 
-    const commit = (dx: number) => {
-      const threshold = Math.max(44, (el.offsetWidth || 300) * 0.22);
+    const commitDrag = (dx: number) => {
       el.style.touchAction = "pan-y";
+      const threshold = Math.max(44, (el.offsetWidth || 300) * 0.22);
       if (Math.abs(dx) >= threshold) {
         const next = dx < 0
           ? Math.min(idxRef.current + 1, nRef.current - 1)
@@ -127,8 +104,22 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
       applyPositions(idxRef.current, 0, true);
     };
 
+    // Tap: press and release with no directional movement (dir stayed null)
+    const commitTap = (tapClientX: number) => {
+      const rect = el.getBoundingClientRect();
+      const tapX = tapClientX - rect.left;
+      const goRight = tapX > el.offsetWidth * 0.4; // left 40% = prev, rest = next
+      if (goRight && idxRef.current < nRef.current - 1) {
+        setPhotoIndex(idxRef.current + 1);
+      } else if (!goRight && idxRef.current > 0) {
+        setPhotoIndex(idxRef.current - 1);
+      }
+    };
+
     const onDown = (e: PointerEvent) => {
       if (pId !== null) return;
+      // Skip drags that originate on the frosted arrow buttons
+      if ((e.target as HTMLElement).closest("[data-drag-ignore]")) return;
       pId = e.pointerId;
       startX = e.clientX;
       startY = e.clientY;
@@ -144,9 +135,11 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
       if (!dir) {
         if (Math.abs(dx) < 5 && Math.abs(dy) < 5) return; // dead zone
         dir = Math.abs(dx) >= Math.abs(dy) ? "h" : "v";
-        if (dir === "v") { pId = null; dir = null; return; } // let scroll take over
-
-        // Horizontal confirmed — safe to capture now (iOS won't fire pointercancel)
+        if (dir === "v") {
+          // Vertical intent — release tracking so the scroll container takes over
+          pId = null; dir = null; return;
+        }
+        // Horizontal confirmed — NOW safe to capture (iOS won't fire pointercancel)
         el.setPointerCapture(e.pointerId);
         el.style.touchAction = "none";
         e.preventDefault();
@@ -162,9 +155,17 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
       if (pId === null || e.pointerId !== pId) return;
       const capturedDir = dir;
       const dx = e.clientX - startX;
+      const upClientX = e.clientX;
       pId = null; dir = null;
       el.style.touchAction = "pan-y";
-      if (capturedDir === "h") commit(dx);
+
+      if (capturedDir === "h") {
+        commitDrag(dx);
+      } else if (capturedDir === null) {
+        // No directional movement detected → treat as a tap
+        commitTap(upClientX);
+      }
+      // capturedDir === "v" is already handled in onMove (pId cleared there)
     };
 
     const onCancel = (e: PointerEvent) => {
@@ -178,13 +179,41 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
     el.addEventListener("pointermove",   onMove,   { passive: false });
     el.addEventListener("pointerup",     onUp);
     el.addEventListener("pointercancel", onCancel);
-    return () => {
+
+    cleanupRef.current = () => {
       el.removeEventListener("pointerdown",   onDown);
       el.removeEventListener("pointermove",   onMove);
       el.removeEventListener("pointerup",     onUp);
       el.removeEventListener("pointercancel", onCancel);
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Re-position immediately when photos array length changes (async photo load)
+  useLayoutEffect(() => {
+    applyPositions(idxRef.current, 0, false);
+  }, [photos.length]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Animated sync whenever committed index changes
+  useLayoutEffect(() => {
+    const shouldAnimate = isMounted.current;
+    isMounted.current = true;
+    if (skipLayout.current) { skipLayout.current = false; return; }
+    applyPositions(safeIdx, 0, shouldAnimate);
+  }, [safeIdx]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Preload current ±1 neighbours
+  useEffect(() => {
+    [safeIdx - 1, safeIdx, safeIdx + 1].forEach(i => {
+      if (photos[i]) preloadPhoto(photos[i]);
+    });
+  }, [photos, safeIdx]);
+
+  // Reset to photo 0 when a new profile's photos array arrives
+  const prevPhotosRef = useRef(photos);
+  if (prevPhotosRef.current !== photos) {
+    prevPhotosRef.current = photos;
+    if (photoIndex !== 0) setPhotoIndex(0);
+  }
 
   // ── Loading shimmer ─────────────────────────────────────────────────────────
   if (isLoading) {
@@ -225,12 +254,13 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
   // ── Photo viewer ────────────────────────────────────────────────────────────
   return (
     <div
-      ref={containerRef}
+      ref={containerCallbackRef}
       className={`relative overflow-hidden select-none ${className}`}
       style={{ height, touchAction: "pan-y", background: "hsl(var(--muted))" }}
       data-testid="profile-photo-viewer"
     >
-      {/* Photo slides — position:absolute so "100%" == container width */}
+      {/* Photo slides — position:absolute so "100%" == container width.
+          Transform is owned entirely by applyPositions (not set in JSX). */}
       {photos.map((photo, i) => (
         <div
           key={i}
@@ -240,12 +270,10 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
             inset: 0,
             width: "100%",
             height: "100%",
-            // transform is owned entirely by applyPositions — not set in JSX
             willChange: Math.abs(i - safeIdx) <= 1 ? "transform" : "auto",
           }}
           data-testid={`carousel-slide-${i}`}
         >
-          {/* Only decode images for current ±1 to save GPU memory */}
           {Math.abs(i - safeIdx) <= 1 && (
             <img
               src={photo}
@@ -271,7 +299,7 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
         </div>
       ))}
 
-      {/* Bottom gradient — pointer-events:none so it never swallows taps */}
+      {/* Bottom gradient — pointer-events:none so drag passes through */}
       <div
         className="absolute inset-0 pointer-events-none"
         style={{ background: "linear-gradient(to top, rgba(0,0,0,0.62) 0%, rgba(0,0,0,0.1) 48%, transparent 68%)" }}
@@ -280,39 +308,11 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
       {/* Caller-supplied overlay (close button, etc.) */}
       {children}
 
-      {/* Tap zones — fallback for tap-only interactions.
-          A real horizontal drag calls e.preventDefault() in pointermove,
-          which suppresses the click event so both coexist cleanly. */}
+      {/* Arrow buttons — data-drag-ignore prevents drag from starting on them.
+          These are small (36×36 px) centred targets; click still works. */}
       {n > 1 && safeIdx > 0 && (
         <button
-          aria-label="Previous photo"
-          data-testid="button-viewer-tap-prev"
-          onClick={() => setPhotoIndex(i => Math.max(0, i - 1))}
-          style={{
-            position: "absolute", top: 0, left: 0,
-            width: "40%", height: "100%",
-            background: "transparent", border: "none",
-            cursor: "w-resize", zIndex: 30,
-          }}
-        />
-      )}
-      {n > 1 && safeIdx < n - 1 && (
-        <button
-          aria-label="Next photo"
-          data-testid="button-viewer-tap-next"
-          onClick={() => setPhotoIndex(i => Math.min(nRef.current - 1, i + 1))}
-          style={{
-            position: "absolute", top: 0, right: 0,
-            width: "60%", height: "100%",
-            background: "transparent", border: "none",
-            cursor: "e-resize", zIndex: 30,
-          }}
-        />
-      )}
-
-      {/* Arrow buttons — always above tap zones */}
-      {n > 1 && safeIdx > 0 && (
-        <button
+          data-drag-ignore
           className="absolute left-2.5 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full flex items-center justify-center active:scale-90 transition-transform"
           style={{
             background: "rgba(0,0,0,0.38)",
@@ -329,6 +329,7 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
       )}
       {n > 1 && safeIdx < n - 1 && (
         <button
+          data-drag-ignore
           className="absolute right-2.5 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full flex items-center justify-center active:scale-90 transition-transform"
           style={{
             background: "rgba(0,0,0,0.38)",
@@ -344,11 +345,11 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
         </button>
       )}
 
-      {/* Bottom bar: dots + action */}
-      <div className="absolute bottom-0 left-0 right-0 px-4 pb-4" style={{ zIndex: 40 }}>
+      {/* Bottom bar: dots + action slot */}
+      <div className="absolute bottom-0 left-0 right-0 px-4 pb-4" style={{ zIndex: 40, pointerEvents: "none" }}>
         <div className="flex items-end justify-between">
           {n > 1 ? (
-            <div className="flex items-center gap-1.5 pb-0.5 pointer-events-none">
+            <div className="flex items-center gap-1.5 pb-0.5">
               {photos.map((_, i) => (
                 <div
                   key={i}
@@ -366,9 +367,9 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
           ) : (
             <div />
           )}
-          {action}
+          <div style={{ pointerEvents: "auto" }}>{action}</div>
         </div>
-        {nameSlot && <div className="mt-2">{nameSlot}</div>}
+        {nameSlot && <div className="mt-2" style={{ pointerEvents: "auto" }}>{nameSlot}</div>}
       </div>
     </div>
   );
