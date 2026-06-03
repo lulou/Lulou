@@ -162,6 +162,18 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
         </div>
       </div>
 
+      {/* ── EMBLA PROOF LABEL ── remove after confirming live */}
+      <div
+        style={{
+          position: "absolute", top: 10, left: 10, zIndex: 999,
+          background: "lime", color: "black", fontWeight: "bold",
+          fontSize: 13, padding: "4px 10px", borderRadius: 6,
+          pointerEvents: "none", lineHeight: 1.4,
+        }}
+      >
+        EMBLA ACTIVE<br />carousel type: embla
+      </div>
+
       {/* Bottom gradient — above slides, below interactive elements */}
       <div
         className="absolute inset-0 pointer-events-none"
