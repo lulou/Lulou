@@ -1,4 +1,5 @@
 import { memo, useState, useEffect, useCallback, useRef, type ReactNode } from "react";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import useEmblaCarousel from "embla-carousel-react";
 import { decodedPhotos, preloadPhoto } from "@/lib/image-utils";
 import { isMobile } from "@/lib/perf";
@@ -235,6 +236,62 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
           zIndex: 1,
         }}
       />
+
+      {/* Arrow buttons — small, sit at mid-height on each edge */}
+      {n > 1 && selectedIndex > 0 && (
+        <button
+          onClick={() => emblaApi?.scrollPrev()}
+          aria-label="Previous photo"
+          data-testid="button-viewer-prev"
+          style={{
+            position: "absolute",
+            left: 10,
+            top: "50%",
+            transform: "translateY(-50%)",
+            zIndex: 3,
+            width: 36,
+            height: 36,
+            borderRadius: "50%",
+            background: "rgba(0,0,0,0.38)",
+            backdropFilter: "blur(8px)",
+            WebkitBackdropFilter: "blur(8px)",
+            border: "1px solid rgba(255,255,255,0.18)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            cursor: "pointer",
+          }}
+        >
+          <ChevronLeft style={{ width: 16, height: 16, color: "white" }} />
+        </button>
+      )}
+      {n > 1 && selectedIndex < n - 1 && (
+        <button
+          onClick={() => emblaApi?.scrollNext()}
+          aria-label="Next photo"
+          data-testid="button-viewer-next"
+          style={{
+            position: "absolute",
+            right: 10,
+            top: "50%",
+            transform: "translateY(-50%)",
+            zIndex: 3,
+            width: 36,
+            height: 36,
+            borderRadius: "50%",
+            background: "rgba(0,0,0,0.38)",
+            backdropFilter: "blur(8px)",
+            WebkitBackdropFilter: "blur(8px)",
+            border: "1px solid rgba(255,255,255,0.18)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            cursor: "pointer",
+          }}
+        >
+          <ChevronRight style={{ width: 16, height: 16, color: "white" }} />
+        </button>
+      )}
 
       {/* Dot indicators — pointer-events:none */}
       {n > 1 && (
