@@ -384,6 +384,15 @@ function CallDetectors({ userId }: { userId: string }) {
     // scenario where _ringtoneActive/_ringbackActive were left true by a crash.
     // Runs before the first /api/matches fetch completes so no overlay can start
     // audio before this sweep.
+    //
+    // Also clear all armed sessions immediately.  A Realtime call:ring event can
+    // arrive before the startup staleness sweep (below) has run.  If it does, it
+    // arms the session and startIncomingRingtone() would pass the armed-session
+    // guard. Clearing here ensures the armed set is always empty at startup so
+    // only events received AFTER auth + startup sweep can trigger audio.
+    // The startup sweep re-arms any session that a live rering proves is still
+    // active (via clearStartupCancelledSession in use-call-signaling.ts).
+    clearAllArmedSessions();
     stopAllCallSounds("calldetectors_mount");
     console.log("[STARTUP_AUDIO] stopped before auth", { userId: userId.slice(0, 8) });
     console.log("[CALL_AUDIO_GUARD] stopped audio before auth", { userId: userId.slice(0, 8) });
@@ -584,6 +593,14 @@ function CallDetectors({ userId }: { userId: string }) {
           : "callee-side: blocked until live rering lifts the hold",
       });
 
+      // Explicitly disarm the session in addition to marking it startup-cancelled.
+      // Without this, a call:ring Realtime event that races the startup sweep
+      // (arrives before this effect runs) arms the session first, the sweep then
+      // marks it startup-cancelled but leaves it armed — so the overlay and audio
+      // still fire because isArmedSession() returns true.  Disarming here ensures
+      // the armed-session guard in startIncomingRingtone() blocks the stale ring
+      // even if the Realtime event beat the sweep.
+      disarmCallSession(m.callSessionId);
       stopAllNonVoiceCallAudio("startup_sweep");
       markStartupCancelledSession(m.id, m.callSessionId);
       clearCallFromCache(qc, m.id);

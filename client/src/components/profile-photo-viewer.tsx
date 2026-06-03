@@ -1,5 +1,6 @@
-import { memo, useState, useRef, useLayoutEffect, useEffect, useCallback, type ReactNode } from "react";
+import { memo, useState, useEffect, type ReactNode } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
+import useEmblaCarousel from "embla-carousel-react";
 import { decodedPhotos, preloadPhoto } from "@/lib/image-utils";
 import { isMobile } from "@/lib/perf";
 
@@ -16,24 +17,21 @@ interface ProfilePhotoViewerProps {
 }
 
 /**
- * Profile photo viewer with drag-pull + tap navigation.
+ * Profile photo viewer — drag/swipe powered by embla-carousel-react.
  *
- * Bug fixes applied:
+ * Embla is a battle-tested library that handles Pointer Events, Touch Events,
+ * implicit pointer capture, iOS scroll-lock, and cross-browser edge cases
+ * internally. Replacing the custom drag system removes all five layers of
+ * bespoke pointer-event fixes that were failing on mobile.
  *
- * FIX 1 — Callback ref instead of useEffect([]):
- *   useEffect(fn, []) runs once after the FIRST render. If that render is the
- *   loading shimmer or empty-state (no container div), containerRef is null,
- *   the effect bails, and listeners are never attached when photos later arrive.
- *   A callback ref fires exactly when the element mounts/unmounts regardless of
- *   render order, guaranteeing listeners are always attached after photo load.
+ * Navigation:
+ *  - Drag/swipe left-right (mouse or touch) — handled by embla
+ *  - Arrow buttons (left / right)
+ *  - Dot indicators update via embla's 'select' event
  *
- * FIX 2 — <div> tap zones instead of <button>:
- *   Browsers (Chrome/Safari/Firefox) apply implicit pointer capture to <button>
- *   on pointerdown. This locks subsequent pointermove events to the button,
- *   interfering with our explicit el.setPointerCapture() call. Plain <div>
- *   elements have no implicit pointer capture. Tap detection is moved into onUp:
- *   if no directional movement was detected (dir stays null), the pointer release
- *   position determines prev/next.
+ * Tap (single click with no drag) is handled natively by embla: embla does not
+ * move the carousel for a click alone, so a click on the left/right arrow
+ * buttons fires their onClick normally.
  */
 export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
   photos,
@@ -44,176 +42,43 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
   nameSlot,
   children,
 }: ProfilePhotoViewerProps) {
-  const [photoIndex, setPhotoIndex] = useState(0);
   const n = photos.length;
-  const safeIdx = n === 0 ? 0 : Math.min(photoIndex, n - 1);
 
-  // Stale-closure-safe refs — updated synchronously on every render
-  const idxRef = useRef(safeIdx);
-  const nRef   = useRef(n);
-  idxRef.current = safeIdx;
-  nRef.current   = n;
+  const [emblaRef, emblaApi] = useEmblaCarousel({
+    loop: false,
+    // Disable drag when there is only one photo so that vertical scroll
+    // in a parent container is not accidentally intercepted.
+    watchDrag: n > 1,
+  });
 
-  const slideRefs  = useRef<(HTMLDivElement | null)[]>([]);
-  const isMounted  = useRef(false);
-  const skipLayout = useRef(false);
-  const cleanupRef = useRef<(() => void) | null>(null);
+  const [selectedIndex, setSelectedIndex] = useState(0);
 
-  // Direct-DOM slide positioning — zero React re-renders during drag
-  // applyPositions only reads slideRefs.current (always up to date), so it is
-  // safe to call from inside the stable callback-ref closure.
-  const applyPositions = (atIdx: number, dragOffset: number, animated: boolean) => {
-    const tr = animated ? "transform 0.32s cubic-bezier(0.25, 1, 0.5, 1)" : "none";
-    slideRefs.current.forEach((el, i) => {
-      if (!el) return;
-      el.style.transition = tr;
-      el.style.transform  = dragOffset === 0
-        ? `translateX(calc(${i - atIdx} * 100%))`
-        : `translateX(calc(${i - atIdx} * 100% + ${dragOffset}px))`;
-    });
-  };
-
-  // ── Callback ref ─────────────────────────────────────────────────────────────
-  // Called with the element when it mounts, null when it unmounts.
-  // useCallback(fn, []) keeps identity stable so React does not re-run it on
-  // every render (which would cause a mount→unmount→remount loop).
-  const containerCallbackRef = useCallback((el: HTMLDivElement | null) => {
-    // Clean up previous listeners before re-attaching (or when unmounting)
-    cleanupRef.current?.();
-    cleanupRef.current = null;
-    if (!el) return;
-
-    let pId: number | null = null;
-    let startX = 0, startY = 0;
-    let dir: "h" | "v" | null = null;
-
-    const commitDrag = (dx: number) => {
-      el.style.touchAction = "pan-y";
-      const threshold = Math.max(44, (el.offsetWidth || 300) * 0.22);
-      if (Math.abs(dx) >= threshold) {
-        const next = dx < 0
-          ? Math.min(idxRef.current + 1, nRef.current - 1)
-          : Math.max(idxRef.current - 1, 0);
-        if (next !== idxRef.current) {
-          applyPositions(next, 0, true);
-          skipLayout.current = true;
-          setPhotoIndex(next);
-          return;
-        }
-      }
-      applyPositions(idxRef.current, 0, true);
-    };
-
-    // Tap: press and release with no directional movement (dir stayed null)
-    const commitTap = (tapClientX: number) => {
-      const rect = el.getBoundingClientRect();
-      const tapX = tapClientX - rect.left;
-      const goRight = tapX > el.offsetWidth * 0.4; // left 40% = prev, rest = next
-      if (goRight && idxRef.current < nRef.current - 1) {
-        setPhotoIndex(idxRef.current + 1);
-      } else if (!goRight && idxRef.current > 0) {
-        setPhotoIndex(idxRef.current - 1);
-      }
-    };
-
-    const onDown = (e: PointerEvent) => {
-      if (pId !== null) return;
-      // Skip drags that originate on the frosted arrow buttons
-      if ((e.target as HTMLElement).closest("[data-drag-ignore]")) return;
-      pId = e.pointerId;
-      startX = e.clientX;
-      startY = e.clientY;
-      dir = null;
-      applyPositions(idxRef.current, 0, false); // cancel any in-progress spring
-    };
-
-    const onMove = (e: PointerEvent) => {
-      if (pId === null || e.pointerId !== pId) return;
-      const dx = e.clientX - startX;
-      const dy = e.clientY - startY;
-
-      if (!dir) {
-        if (Math.abs(dx) < 5 && Math.abs(dy) < 5) return; // dead zone
-        dir = Math.abs(dx) >= Math.abs(dy) ? "h" : "v";
-        if (dir === "v") {
-          // Vertical intent — release tracking so the scroll container takes over
-          pId = null; dir = null; return;
-        }
-        // Horizontal confirmed — NOW safe to capture (iOS won't fire pointercancel)
-        el.setPointerCapture(e.pointerId);
-        el.style.touchAction = "none";
-        e.preventDefault();
-      }
-
-      if (dir === "h") {
-        e.preventDefault();
-        applyPositions(idxRef.current, dx, false);
-      }
-    };
-
-    const onUp = (e: PointerEvent) => {
-      if (pId === null || e.pointerId !== pId) return;
-      const capturedDir = dir;
-      const dx = e.clientX - startX;
-      const upClientX = e.clientX;
-      pId = null; dir = null;
-      el.style.touchAction = "pan-y";
-
-      if (capturedDir === "h") {
-        commitDrag(dx);
-      } else if (capturedDir === null) {
-        // No directional movement detected → treat as a tap
-        commitTap(upClientX);
-      }
-      // capturedDir === "v" is already handled in onMove (pId cleared there)
-    };
-
-    const onCancel = (e: PointerEvent) => {
-      if (pId === null || e.pointerId !== pId) return;
-      pId = null; dir = null;
-      el.style.touchAction = "pan-y";
-      applyPositions(idxRef.current, 0, true);
-    };
-
-    el.addEventListener("pointerdown",   onDown);
-    el.addEventListener("pointermove",   onMove,   { passive: false });
-    el.addEventListener("pointerup",     onUp);
-    el.addEventListener("pointercancel", onCancel);
-
-    cleanupRef.current = () => {
-      el.removeEventListener("pointerdown",   onDown);
-      el.removeEventListener("pointermove",   onMove);
-      el.removeEventListener("pointerup",     onUp);
-      el.removeEventListener("pointercancel", onCancel);
-    };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Re-position immediately when photos array length changes (async photo load)
-  useLayoutEffect(() => {
-    applyPositions(idxRef.current, 0, false);
-  }, [photos.length]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Animated sync whenever committed index changes
-  useLayoutEffect(() => {
-    const shouldAnimate = isMounted.current;
-    isMounted.current = true;
-    if (skipLayout.current) { skipLayout.current = false; return; }
-    applyPositions(safeIdx, 0, shouldAnimate);
-  }, [safeIdx]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Preload current ±1 neighbours
+  // Keep selected index in sync with embla scroll position
   useEffect(() => {
-    [safeIdx - 1, safeIdx, safeIdx + 1].forEach(i => {
+    if (!emblaApi) return;
+    const onSelect = () => setSelectedIndex(emblaApi.selectedScrollSnap());
+    emblaApi.on("select", onSelect);
+    onSelect(); // sync immediately on init
+    return () => { emblaApi.off("select", onSelect); };
+  }, [emblaApi]);
+
+  // Re-initialise carousel when photos array changes (new profile loaded)
+  useEffect(() => {
+    if (!emblaApi) return;
+    emblaApi.reInit();
+    emblaApi.scrollTo(0, true); // jump to first photo instantly
+    setSelectedIndex(0);
+  }, [photos, emblaApi]);
+
+  // Preload current photo and immediate neighbours
+  useEffect(() => {
+    [selectedIndex - 1, selectedIndex, selectedIndex + 1].forEach(i => {
       if (photos[i]) preloadPhoto(photos[i]);
     });
-  }, [photos, safeIdx]);
+  }, [photos, selectedIndex]);
 
-  // Reset to photo 0 when a new profile's photos array arrives
-  const prevPhotosRef = useRef(photos);
-  if (prevPhotosRef.current !== photos) {
-    prevPhotosRef.current = photos;
-    if (photoIndex !== 0) setPhotoIndex(0);
-  }
+  const canPrev = selectedIndex > 0;
+  const canNext = selectedIndex < n - 1;
 
   // ── Loading shimmer ─────────────────────────────────────────────────────────
   if (isLoading) {
@@ -254,52 +119,50 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
   // ── Photo viewer ────────────────────────────────────────────────────────────
   return (
     <div
-      ref={containerCallbackRef}
       className={`relative overflow-hidden select-none ${className}`}
-      style={{ height, touchAction: "pan-y", background: "hsl(var(--muted))" }}
+      style={{ height, background: "hsl(var(--muted))" }}
       data-testid="profile-photo-viewer"
     >
-      {/* Photo slides — position:absolute so "100%" == container width.
-          Transform is owned entirely by applyPositions (not set in JSX). */}
-      {photos.map((photo, i) => (
-        <div
-          key={i}
-          ref={el => { slideRefs.current[i] = el; }}
-          style={{
-            position: "absolute",
-            inset: 0,
-            width: "100%",
-            height: "100%",
-            willChange: Math.abs(i - safeIdx) <= 1 ? "transform" : "auto",
-          }}
-          data-testid={`carousel-slide-${i}`}
-        >
-          {Math.abs(i - safeIdx) <= 1 && (
-            <img
-              src={photo}
-              alt={`Photo ${i + 1}`}
-              loading={i === safeIdx ? "eager" : "lazy"}
-              decoding="async"
-              draggable={false}
-              style={{
-                width: "100%",
-                height: "100%",
-                objectFit: "cover",
-                objectPosition: "center top",
-                opacity: decodedPhotos.has(photo) ? 1 : 0,
-                transition: "opacity 0.08s ease",
-              }}
-              onLoad={e => {
-                decodedPhotos.add(photo);
-                (e.currentTarget as HTMLImageElement).style.opacity = "1";
-              }}
-              data-testid={`img-carousel-photo-${i}`}
-            />
-          )}
+      {/* Embla viewport — emblaRef is a callback ref managed by embla */}
+      <div ref={emblaRef} style={{ height: "100%", overflow: "hidden" }}>
+        {/* Embla container — flex row of slides */}
+        <div style={{ display: "flex", height: "100%" }}>
+          {photos.map((photo, i) => (
+            <div
+              key={i}
+              style={{ flex: "0 0 100%", minWidth: 0, height: "100%", position: "relative" }}
+              data-testid={`carousel-slide-${i}`}
+            >
+              {/* Only render <img> for current ±1 to keep GPU memory low */}
+              {Math.abs(i - selectedIndex) <= 1 && (
+                <img
+                  src={photo}
+                  alt={`Photo ${i + 1}`}
+                  loading={i === selectedIndex ? "eager" : "lazy"}
+                  decoding="async"
+                  draggable={false}
+                  style={{
+                    width: "100%",
+                    height: "100%",
+                    objectFit: "cover",
+                    objectPosition: "center top",
+                    opacity: decodedPhotos.has(photo) ? 1 : 0,
+                    transition: "opacity 0.08s ease",
+                    pointerEvents: "none", // embla owns drag; images must not catch pointer events
+                  }}
+                  onLoad={e => {
+                    decodedPhotos.add(photo);
+                    (e.currentTarget as HTMLImageElement).style.opacity = "1";
+                  }}
+                  data-testid={`img-carousel-photo-${i}`}
+                />
+              )}
+            </div>
+          ))}
         </div>
-      ))}
+      </div>
 
-      {/* Bottom gradient — pointer-events:none so drag passes through */}
+      {/* Bottom gradient — above slides, below interactive elements */}
       <div
         className="absolute inset-0 pointer-events-none"
         style={{ background: "linear-gradient(to top, rgba(0,0,0,0.62) 0%, rgba(0,0,0,0.1) 48%, transparent 68%)" }}
@@ -308,11 +171,9 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
       {/* Caller-supplied overlay (close button, etc.) */}
       {children}
 
-      {/* Arrow buttons — data-drag-ignore prevents drag from starting on them.
-          These are small (36×36 px) centred targets; click still works. */}
-      {n > 1 && safeIdx > 0 && (
+      {/* Arrow buttons */}
+      {n > 1 && canPrev && (
         <button
-          data-drag-ignore
           className="absolute left-2.5 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full flex items-center justify-center active:scale-90 transition-transform"
           style={{
             background: "rgba(0,0,0,0.38)",
@@ -320,16 +181,15 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
             border: "1px solid rgba(255,255,255,0.18)",
             zIndex: 40,
           }}
-          onClick={() => setPhotoIndex(i => Math.max(0, i - 1))}
+          onClick={() => emblaApi?.scrollPrev()}
           data-testid="button-viewer-prev"
           aria-label="Previous photo"
         >
           <ChevronLeft className="w-4 h-4 text-white" />
         </button>
       )}
-      {n > 1 && safeIdx < n - 1 && (
+      {n > 1 && canNext && (
         <button
-          data-drag-ignore
           className="absolute right-2.5 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full flex items-center justify-center active:scale-90 transition-transform"
           style={{
             background: "rgba(0,0,0,0.38)",
@@ -337,7 +197,7 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
             border: "1px solid rgba(255,255,255,0.18)",
             zIndex: 40,
           }}
-          onClick={() => setPhotoIndex(i => Math.min(nRef.current - 1, i + 1))}
+          onClick={() => emblaApi?.scrollNext()}
           data-testid="button-viewer-next"
           aria-label="Next photo"
         >
@@ -345,7 +205,7 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
         </button>
       )}
 
-      {/* Bottom bar: dots + action slot */}
+      {/* Bottom bar: dots + action */}
       <div className="absolute bottom-0 left-0 right-0 px-4 pb-4" style={{ zIndex: 40, pointerEvents: "none" }}>
         <div className="flex items-end justify-between">
           {n > 1 ? (
@@ -354,10 +214,10 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
                 <div
                   key={i}
                   style={{
-                    width: i === safeIdx ? 24 : 7,
+                    width: i === selectedIndex ? 24 : 7,
                     height: 7,
                     borderRadius: 3.5,
-                    backgroundColor: i === safeIdx ? "white" : "rgba(255,255,255,0.42)",
+                    backgroundColor: i === selectedIndex ? "white" : "rgba(255,255,255,0.42)",
                     transition: "width 0.25s ease, background-color 0.25s ease",
                     flexShrink: 0,
                   }}
