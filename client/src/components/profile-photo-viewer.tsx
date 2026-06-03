@@ -129,7 +129,6 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
 
     const onDown = (e: PointerEvent) => {
       if (pId !== null) return;
-      if ((e.target as HTMLElement).closest("button, a, [role='button']")) return;
       pId = e.pointerId;
       startX = e.clientX;
       startY = e.clientY;
