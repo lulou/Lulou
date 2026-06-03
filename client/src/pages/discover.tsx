@@ -24,6 +24,15 @@ import { EMPTY_PHOTOS } from "@/lib/image-utils";
 // re-renders when photos/name/disabled/loading state actually changes.
 const PhotoBubbles = memo(function PhotoBubbles({ photos, name: _name, onOpen, isDisabled, isPhotosLoading }: { photos: string[]; name: string; onOpen: () => void; isDisabled?: boolean; isPhotosLoading?: boolean }) {
   return (
+    <div style={{ position: "relative" }}>
+      <div style={{
+        position: "absolute", top: 8, left: 8, zIndex: 9999,
+        background: "red", color: "white", fontWeight: "bold",
+        fontSize: 13, padding: "4px 10px", borderRadius: 6,
+        pointerEvents: "none", lineHeight: 1.4,
+      }}>
+        DISCOVERY LIVE COMPONENT
+      </div>
     <ProfilePhotoViewer
       photos={photos}
       isLoading={isPhotosLoading}
@@ -39,6 +48,7 @@ const PhotoBubbles = memo(function PhotoBubbles({ photos, name: _name, onOpen, i
         </button>
       }
     />
+    </div>
   );
 });
 
