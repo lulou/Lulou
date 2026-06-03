@@ -517,6 +517,9 @@ export default function Discover() {
   return (
     <div className="flex-1 overflow-y-auto">
       <div className="sticky top-0 z-30 bg-background/95 backdrop-blur-sm border-b px-5 py-3">
+        <div style={{ fontSize: 10, fontFamily: "monospace", color: "red", fontWeight: "bold", marginBottom: 2 }}>
+          DEPLOY HASH: 91273212d484feb117d4f602e1babf7790831da6
+        </div>
         <div className="max-w-md mx-auto flex items-center gap-2">
           <h1 className="font-serif text-lg font-bold truncate" data-testid="text-discover-sticky-name">
             {displayProfile.firstName}, {displayProfile.age}
