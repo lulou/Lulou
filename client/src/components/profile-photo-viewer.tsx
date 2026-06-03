@@ -1,5 +1,4 @@
 import { memo, useState, useEffect, type ReactNode } from "react";
-import { ChevronLeft, ChevronRight } from "lucide-react";
 import useEmblaCarousel from "embla-carousel-react";
 import { decodedPhotos, preloadPhoto } from "@/lib/image-utils";
 import { isMobile } from "@/lib/perf";
@@ -11,27 +10,24 @@ interface ProfilePhotoViewerProps {
   isLoading?: boolean;
   height?: number;
   className?: string;
+  /** Rendered in the bottom-right corner (e.g. Open / Like button). */
   action?: ReactNode;
   nameSlot?: ReactNode;
-  children?: ReactNode;
 }
 
 /**
- * Profile photo viewer — drag/swipe powered by embla-carousel-react.
+ * Profile photo viewer — pure Embla carousel.
  *
- * Embla is a battle-tested library that handles Pointer Events, Touch Events,
- * implicit pointer capture, iOS scroll-lock, and cross-browser edge cases
- * internally. Replacing the custom drag system removes all five layers of
- * bespoke pointer-event fixes that were failing on mobile.
+ * Structure follows Embla v8 docs exactly:
+ *   outer wrapper  → position:relative, NO overflow:hidden, NO touch handlers
+ *   embla viewport → overflow:hidden (ONLY here), emblaRef attached
+ *   embla container → display:flex, touch-action:pan-y pinch-zoom (per Embla docs)
+ *   embla slides    → flex:0 0 100%, min-width:0
+ *   images          → pointer-events:none, draggable=false
  *
- * Navigation:
- *  - Drag/swipe left-right (mouse or touch) — handled by embla
- *  - Arrow buttons (left / right)
- *  - Dot indicators update via embla's 'select' event
- *
- * Tap (single click with no drag) is handled natively by embla: embla does not
- * move the carousel for a click alone, so a click on the left/right arrow
- * buttons fires their onClick normally.
+ * No arrow buttons, no tap zones, no onClick overlays.
+ * Dots and action button sit below the viewport in z-order (pointer-events:none
+ * on dots so they never intercept the drag gesture).
  */
 export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
   photos,
@@ -40,49 +36,38 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
   className = "",
   action,
   nameSlot,
-  children,
 }: ProfilePhotoViewerProps) {
   const n = photos.length;
 
-  // watchDrag is always true — single-slide carousels simply have nowhere to
-  // scroll so Embla handles them gracefully without needing watchDrag:false.
-  // Previously this was `n > 1` which initialises as false on the first
-  // render (photos not yet loaded), and the reInit() call below could race
-  // Embla's own reactive-option update leaving drag permanently disabled.
   const [emblaRef, emblaApi] = useEmblaCarousel({ loop: false });
 
   const [selectedIndex, setSelectedIndex] = useState(0);
 
-  // Keep selected index in sync with embla scroll position
+  // Sync dot indicator with Embla's selected snap
   useEffect(() => {
     if (!emblaApi) return;
     const onSelect = () => setSelectedIndex(emblaApi.selectedScrollSnap());
     emblaApi.on("select", onSelect);
-    onSelect(); // sync immediately on init
+    onSelect();
     return () => { emblaApi.off("select", onSelect); };
   }, [emblaApi]);
 
-  // Re-initialise carousel when photos array changes (new profile loaded).
-  // Pass options explicitly so we never accidentally inherit a stale
-  // watchDrag:false from a previous init cycle.
+  // Reset to first slide when a new profile loads
   useEffect(() => {
     if (!emblaApi) return;
     emblaApi.reInit({ loop: false });
-    emblaApi.scrollTo(0, true); // jump to first photo instantly
+    emblaApi.scrollTo(0, true);
     setSelectedIndex(0);
   }, [photos, emblaApi]);
 
-  // Preload current photo and immediate neighbours
+  // Preload neighbours
   useEffect(() => {
     [selectedIndex - 1, selectedIndex, selectedIndex + 1].forEach(i => {
       if (photos[i]) preloadPhoto(photos[i]);
     });
   }, [photos, selectedIndex]);
 
-  const canPrev = selectedIndex > 0;
-  const canNext = selectedIndex < n - 1;
-
-  // ── Loading shimmer ─────────────────────────────────────────────────────────
+  // ── Loading shimmer ──────────────────────────────────────────────────────────
   if (isLoading) {
     return (
       <div
@@ -100,7 +85,7 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
     );
   }
 
-  // ── Empty state ─────────────────────────────────────────────────────────────
+  // ── Empty state ──────────────────────────────────────────────────────────────
   if (n === 0) {
     return (
       <div
@@ -112,45 +97,48 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
           <circle cx="40" cy="28" r="14" fill="currentColor" />
           <ellipse cx="40" cy="62" rx="24" ry="16" fill="currentColor" />
         </svg>
-        {action && <div className="absolute bottom-5 left-1/2 -translate-x-1/2">{action}</div>}
-        {children}
+        {action && (
+          <div className="absolute bottom-5 left-1/2 -translate-x-1/2">{action}</div>
+        )}
       </div>
     );
   }
 
-  // ── Photo viewer ────────────────────────────────────────────────────────────
+  // ── Photo carousel ───────────────────────────────────────────────────────────
   return (
     <div
-      className={`relative select-none ${className}`}
+      className={`relative ${className}`}
       style={{ height, background: "hsl(var(--muted))" }}
       data-testid="profile-photo-viewer"
     >
       {/*
-        Embla viewport — the ONLY element that should have overflow:hidden.
-        Previously the outer div also had overflow-hidden (double-nesting),
-        which on iOS Safari can cause the outer hidden container to absorb
-        touch events before they reach the embla pointer listeners.
-        touch-action:pan-y allows the parent page to scroll vertically while
-        Embla intercepts horizontal pointer movement for drag.
+        Embla viewport — overflow:hidden is the ONLY clip applied.
+        No touch-action override here; Embla sets it on this element via JS.
+        No pointer-events override; this element must freely receive all events.
       */}
       <div
         ref={emblaRef}
-        style={{ height: "100%", overflow: "hidden", touchAction: "pan-y" }}
+        style={{ height: "100%", overflow: "hidden" }}
       >
-        {/* Embla container — flex row of slides.
-            touch-action:pan-y is also set here and on each slide because
-            CSS touch-action is NOT inherited — iOS Safari reads it from the
-            TOUCH TARGET element specifically. Without it on the slide divs,
-            Safari can fire pointercancel on horizontal swipes, cancelling
-            Embla's drag tracking even though the viewport has pan-y. */}
-        <div style={{ display: "flex", height: "100%", touchAction: "pan-y" }}>
+        {/*
+          Embla container — per Embla v8 docs, touch-action belongs HERE.
+          "pan-y pinch-zoom" tells iOS Safari: let Embla own horizontal drag,
+          keep vertical scroll and pinch-zoom native.
+        */}
+        <div
+          style={{
+            display: "flex",
+            height: "100%",
+            touchAction: "pan-y pinch-zoom",
+            userSelect: "none",
+          }}
+        >
           {photos.map((photo, i) => (
             <div
               key={i}
-              style={{ flex: "0 0 100%", minWidth: 0, height: "100%", position: "relative", touchAction: "pan-y" }}
+              style={{ flex: "0 0 100%", minWidth: 0, height: "100%", position: "relative" }}
               data-testid={`carousel-slide-${i}`}
             >
-              {/* Only render <img> for current ±1 to keep GPU memory low */}
               {Math.abs(i - selectedIndex) <= 1 && (
                 <img
                   src={photo}
@@ -165,7 +153,8 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
                     objectPosition: "center top",
                     opacity: decodedPhotos.has(photo) ? 1 : 0,
                     transition: "opacity 0.08s ease",
-                    pointerEvents: "none", // embla owns drag; images must not catch pointer events
+                    pointerEvents: "none",
+                    userSelect: "none",
                   }}
                   onLoad={e => {
                     decodedPhotos.add(photo);
@@ -179,75 +168,82 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
         </div>
       </div>
 
-      {/* Bottom gradient — above slides, below interactive elements */}
+      {/*
+        Gradient overlay — pointer-events:none so it NEVER intercepts drag.
+        Rendered as a sibling of the viewport (not a child) so it does not
+        affect Embla's container measurement.
+      */}
       <div
-        className="absolute inset-0 pointer-events-none"
-        style={{ background: "linear-gradient(to top, rgba(0,0,0,0.62) 0%, rgba(0,0,0,0.1) 48%, transparent 68%)" }}
+        aria-hidden="true"
+        style={{
+          position: "absolute",
+          inset: 0,
+          pointerEvents: "none",
+          background:
+            "linear-gradient(to top, rgba(0,0,0,0.62) 0%, rgba(0,0,0,0.1) 48%, transparent 68%)",
+          zIndex: 1,
+        }}
       />
 
-      {/* Caller-supplied overlay (close button, etc.) */}
-      {children}
-
-      {/* Arrow buttons */}
-      {n > 1 && canPrev && (
-        <button
-          className="absolute left-2.5 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full flex items-center justify-center active:scale-90 transition-transform"
+      {/* Dot indicators — pointer-events:none */}
+      {n > 1 && (
+        <div
+          aria-hidden="true"
           style={{
-            background: "rgba(0,0,0,0.38)",
-            backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)",
-            border: "1px solid rgba(255,255,255,0.18)",
-            zIndex: 40,
+            position: "absolute",
+            bottom: 14,
+            left: 16,
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            pointerEvents: "none",
+            zIndex: 2,
           }}
-          onClick={() => emblaApi?.scrollPrev()}
-          data-testid="button-viewer-prev"
-          aria-label="Previous photo"
         >
-          <ChevronLeft className="w-4 h-4 text-white" />
-        </button>
-      )}
-      {n > 1 && canNext && (
-        <button
-          className="absolute right-2.5 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full flex items-center justify-center active:scale-90 transition-transform"
-          style={{
-            background: "rgba(0,0,0,0.38)",
-            backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)",
-            border: "1px solid rgba(255,255,255,0.18)",
-            zIndex: 40,
-          }}
-          onClick={() => emblaApi?.scrollNext()}
-          data-testid="button-viewer-next"
-          aria-label="Next photo"
-        >
-          <ChevronRight className="w-4 h-4 text-white" />
-        </button>
-      )}
-
-      {/* Bottom bar: dots + action */}
-      <div className="absolute bottom-0 left-0 right-0 px-4 pb-4" style={{ zIndex: 40, pointerEvents: "none" }}>
-        <div className="flex items-end justify-between">
-          {n > 1 ? (
-            <div className="flex items-center gap-1.5 pb-0.5">
-              {photos.map((_, i) => (
-                <div
-                  key={i}
-                  style={{
-                    width: i === selectedIndex ? 24 : 7,
-                    height: 7,
-                    borderRadius: 3.5,
-                    backgroundColor: i === selectedIndex ? "white" : "rgba(255,255,255,0.42)",
-                    transition: "width 0.25s ease, background-color 0.25s ease",
-                    flexShrink: 0,
-                  }}
-                />
-              ))}
-            </div>
-          ) : (
-            <div />
-          )}
-          <div style={{ pointerEvents: "auto" }}>{action}</div>
+          {photos.map((_, i) => (
+            <div
+              key={i}
+              style={{
+                width: i === selectedIndex ? 24 : 7,
+                height: 7,
+                borderRadius: 3.5,
+                backgroundColor:
+                  i === selectedIndex ? "white" : "rgba(255,255,255,0.42)",
+                transition: "width 0.25s ease, background-color 0.25s ease",
+                flexShrink: 0,
+              }}
+            />
+          ))}
         </div>
-        {nameSlot && <div className="mt-2" style={{ pointerEvents: "auto" }}>{nameSlot}</div>}
-      </div>
+      )}
+
+      {/* Action button (e.g. Open / Like) */}
+      {action && (
+        <div
+          style={{
+            position: "absolute",
+            bottom: 12,
+            right: 14,
+            zIndex: 2,
+          }}
+        >
+          {action}
+        </div>
+      )}
+
+      {nameSlot && (
+        <div
+          style={{
+            position: "absolute",
+            bottom: 50,
+            left: 16,
+            right: 16,
+            zIndex: 2,
+          }}
+        >
+          {nameSlot}
+        </div>
+      )}
     </div>
   );
 });
