@@ -503,6 +503,8 @@ export default function Discover() {
   const greenFlags = displayProfile.greenFlags || [];
   const conversationStarters = displayProfile.conversationStarters || [];
   const questions = displayProfile.questions || [];
+  const customQuestions: Array<{ question: string; answer: string }> = (displayProfile as any).customQuestions || [];
+  const customQAsItems = customQuestions.map(cq => `${cq.question} ${cq.answer}`);
 
   return (
     <div className="flex-1 overflow-y-auto">
@@ -555,13 +557,13 @@ export default function Discover() {
                   </div>
                 )}
 
-                {questions.length > 0 && (
+                {(questions.length > 0 || customQAsItems.length > 0) && (
                   <div className="space-y-3" data-testid="section-questions">
                     <div className="flex items-center gap-1.5">
                       <HelpCircle className="w-3.5 h-3.5 text-primary" />
                       <p className="text-xs font-medium tracking-wider uppercase text-primary">{t("ask_me")}</p>
                     </div>
-                    <SlideCards items={questions} type="question" onReply={handleReply} />
+                    <SlideCards items={[...questions, ...customQAsItems]} type="question" onReply={handleReply} />
                   </div>
                 )}
 

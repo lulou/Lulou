@@ -15,7 +15,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { cleanErrorMessage, withRetry } from "@/lib/profile-upsert";
 import { writeDebug } from "@/lib/debug-store";
 import { SIGNALS, GREEN_FLAGS, DATING_INTENTS, CONNECTION_STYLES, CONVERSATION_STARTERS, PROFILE_QUESTIONS } from "@shared/schema";
-import { Loader2, ArrowRight, ArrowLeft, Check, AlertCircle } from "lucide-react";
+import { Loader2, ArrowRight, ArrowLeft, Check, AlertCircle, Plus, X } from "lucide-react";
 import { LulouFlowerIcon } from "@/components/app-layout";
 import type { Profile } from "@shared/schema";
 import { convertPhotoToJpeg } from "@/lib/photo-utils";
@@ -111,6 +111,7 @@ function buildInitialFormData(profile: Profile | null, userEmail = "") {
       conversationStarters: [] as string[],
       starterAnswers: {} as Record<string, string>,
       questions: [] as string[],
+      customQuestions: [] as Array<{ question: string; answer: string }>,
     };
   }
 
@@ -135,6 +136,7 @@ function buildInitialFormData(profile: Profile | null, userEmail = "") {
     conversationStarters: starters,
     starterAnswers: answers,
     questions: profile.questions ?? [],
+    customQuestions: (profile as any).customQuestions ?? [],
   };
 }
 
@@ -153,6 +155,7 @@ export default function Onboarding({ existingProfile = null, userEmail = "" }: O
   const queryClient = useQueryClient();
 
   const [formData, setFormData] = useState(() => buildInitialFormData(existingProfile, userEmail));
+  const [customQDraft, setCustomQDraft] = useState({ question: "", answer: "" });
 
   const createProfile = useMutation({
     mutationFn: async () => {
@@ -163,6 +166,7 @@ export default function Onboarding({ existingProfile = null, userEmail = "" }: O
       const payload = {
         ...rest,
         conversationStarters: fullStarters,
+        customQuestions: formData.customQuestions,
         onboardingComplete: true,
       };
       console.log("[PROFILE_SAVE] START", { label: "createProfile", fieldKeys: Object.keys(payload) });
@@ -516,6 +520,67 @@ export default function Onboarding({ existingProfile = null, userEmail = "" }: O
                 <p className="text-xs text-muted-foreground">
                   {formData.questions.length}/3 selected (min 2)
                 </p>
+
+                {/* ── Custom questions ─────────────────────────────────── */}
+                <div className="pt-2 space-y-2">
+                  <p className="text-xs font-medium tracking-wider uppercase text-primary">Your own questions</p>
+                  {formData.customQuestions.map((cq, i) => (
+                    <Card key={i} className="p-3 border-primary/30 bg-primary/3" data-testid={`card-custom-question-${i}`}>
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-primary truncate">{cq.question}</p>
+                          {cq.answer && <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{cq.answer}</p>}
+                        </div>
+                        <button
+                          className="shrink-0 w-5 h-5 rounded-full bg-muted flex items-center justify-center text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors"
+                          onClick={() => setFormData(prev => ({ ...prev, customQuestions: prev.customQuestions.filter((_, j) => j !== i) }))}
+                          data-testid={`button-remove-custom-question-${i}`}
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </div>
+                    </Card>
+                  ))}
+
+                  {formData.customQuestions.length < 3 && (
+                    <Card className="p-3 space-y-2 border-dashed" data-testid="card-add-custom-question">
+                      <p className="text-xs text-muted-foreground font-medium">Write your own question</p>
+                      <Input
+                        value={customQDraft.question}
+                        onChange={e => setCustomQDraft(prev => ({ ...prev, question: e.target.value }))}
+                        placeholder="e.g. What's your idea of a perfect date?"
+                        maxLength={150}
+                        className="text-sm"
+                        data-testid="input-custom-question-text"
+                      />
+                      <Input
+                        value={customQDraft.answer}
+                        onChange={e => setCustomQDraft(prev => ({ ...prev, answer: e.target.value }))}
+                        placeholder="Your answer..."
+                        maxLength={200}
+                        className="text-sm"
+                        data-testid="input-custom-question-answer"
+                      />
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={!customQDraft.question.trim() || !customQDraft.answer.trim()}
+                        onClick={() => {
+                          if (!customQDraft.question.trim() || !customQDraft.answer.trim()) return;
+                          setFormData(prev => ({
+                            ...prev,
+                            customQuestions: [...prev.customQuestions, { question: customQDraft.question.trim(), answer: customQDraft.answer.trim() }],
+                          }));
+                          setCustomQDraft({ question: "", answer: "" });
+                        }}
+                        className="gap-1.5"
+                        data-testid="button-add-custom-question"
+                      >
+                        <Plus className="w-3.5 h-3.5" /> Add question
+                      </Button>
+                    </Card>
+                  )}
+                </div>
               </div>
             )}
 

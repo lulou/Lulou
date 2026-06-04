@@ -1,5 +1,5 @@
 import { sql, relations } from "drizzle-orm";
-import { pgTable, text, varchar, integer, boolean, timestamp, index, doublePrecision } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, boolean, timestamp, index, doublePrecision, json } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -21,6 +21,7 @@ export const profiles = pgTable("profiles", {
   connectionStyle: text("connection_style").notNull(),
   conversationStarters: text("conversation_starters").array(),
   questions: text("questions").array(),
+  customQuestions: json("custom_questions").$type<Array<{ question: string; answer: string }>>(),
   locationRadius: integer("location_radius").default(25),
   latitude: doublePrecision("latitude"),
   longitude: doublePrecision("longitude"),

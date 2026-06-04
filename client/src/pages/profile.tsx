@@ -35,6 +35,8 @@ import {
   ChevronRight,
   Menu,
   Sparkles,
+  Plus,
+  ChevronUp,
 } from "lucide-react";
 import { DragScrollRow } from "@/components/drag-scroll-row";
 import { ElevateModal } from "@/components/elevate-modal";
@@ -408,6 +410,9 @@ export default function ProfilePage() {
   const [editStarterAnswers, setEditStarterAnswers] = useState<Record<string, string>>({});
   const [editingQuestions, setEditingQuestions] = useState(false);
   const [editQuestions, setEditQuestions] = useState<string[]>([]);
+  const [editCustomQList, setEditCustomQList] = useState<Array<{ question: string; answer: string }>>([]);
+  const [newCustomQDraft, setNewCustomQDraft] = useState({ question: "", answer: "" });
+  const [editingCustomQ, setEditingCustomQ] = useState<number | null>(null);
 
   const initSettings = () => {
     if (profile) {
@@ -461,6 +466,9 @@ export default function ProfilePage() {
   const startEditingQuestions = () => {
     if (profile) {
       setEditQuestions([...(profile.questions || [])]);
+      setEditCustomQList([...((profile as any).customQuestions || [])]);
+      setNewCustomQDraft({ question: "", answer: "" });
+      setEditingCustomQ(null);
       setEditingQuestions(true);
     }
   };
@@ -504,7 +512,7 @@ export default function ProfilePage() {
 
   const saveQuestionsMut = useMutation({
     mutationFn: async () => {
-      return upsertProfile({ questions: editQuestions });
+      return apiRequest("POST", "/api/profile", { questions: editQuestions, customQuestions: editCustomQList });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/profile"] });
@@ -514,10 +522,18 @@ export default function ProfilePage() {
     onError: (err: any) => {
       const msg = cleanErrorMessage(err);
       console.error("[PROFILE_SAVE] saveQuestionsMut FAILED", { rawError: err?.message, cleanedError: msg });
-      // editQuestions is intentionally NOT cleared — user's selections are preserved.
       toast({ title: "Couldn't save questions", description: msg, variant: "destructive" });
     },
   });
+
+  const moveCustomQ = (from: number, to: number) => {
+    setEditCustomQList(prev => {
+      const next = [...prev];
+      const [item] = next.splice(from, 1);
+      next.splice(to, 0, item);
+      return next;
+    });
+  };
 
   const toggle = (section: string) => {
     if (section === "settings" && expandedSection !== "settings") {
@@ -1024,12 +1040,97 @@ export default function ProfilePage() {
               );
             })}
             <p className="text-xs text-muted-foreground">{editQuestions.length}/3 selected (min 2)</p>
+
+            {/* ── Custom Questions ───────────────────────────────── */}
+            <div className="pt-2 border-t space-y-2">
+              <p className="text-xs font-medium tracking-wider uppercase text-primary">Your own questions</p>
+              {editCustomQList.map((cq, i) => (
+                <Card key={i} className="p-3 border-primary/30 bg-primary/3 space-y-1" data-testid={`card-edit-custom-question-${i}`}>
+                  {editingCustomQ === i ? (
+                    <div className="space-y-2">
+                      <Input
+                        value={cq.question}
+                        onChange={e => setEditCustomQList(prev => prev.map((q, j) => j === i ? { ...q, question: e.target.value } : q))}
+                        placeholder="Question"
+                        maxLength={150}
+                        className="text-sm"
+                        data-testid={`input-edit-custom-q-text-${i}`}
+                      />
+                      <Input
+                        value={cq.answer}
+                        onChange={e => setEditCustomQList(prev => prev.map((q, j) => j === i ? { ...q, answer: e.target.value } : q))}
+                        placeholder="Answer"
+                        maxLength={200}
+                        className="text-sm"
+                        data-testid={`input-edit-custom-q-answer-${i}`}
+                      />
+                      <Button size="sm" variant="outline" onClick={() => setEditingCustomQ(null)} data-testid={`button-done-custom-q-${i}`}>Done</Button>
+                    </div>
+                  ) : (
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-primary truncate">{cq.question}</p>
+                        {cq.answer && <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{cq.answer}</p>}
+                      </div>
+                      <div className="flex items-center gap-1 shrink-0">
+                        <button onClick={() => moveCustomQ(i, i - 1)} disabled={i === 0} className="w-6 h-6 rounded flex items-center justify-center text-muted-foreground disabled:opacity-30 hover:bg-muted transition-colors" data-testid={`button-move-custom-q-up-${i}`}><ChevronUp className="w-3.5 h-3.5" /></button>
+                        <button onClick={() => moveCustomQ(i, i + 1)} disabled={i === editCustomQList.length - 1} className="w-6 h-6 rounded flex items-center justify-center text-muted-foreground disabled:opacity-30 hover:bg-muted transition-colors" data-testid={`button-move-custom-q-down-${i}`}><ChevronDown className="w-3.5 h-3.5" /></button>
+                        <button onClick={() => setEditingCustomQ(i)} className="w-6 h-6 rounded flex items-center justify-center text-muted-foreground hover:bg-muted transition-colors" data-testid={`button-edit-custom-q-${i}`}><Pencil className="w-3 h-3" /></button>
+                        <button onClick={() => { setEditCustomQList(prev => prev.filter((_, j) => j !== i)); if (editingCustomQ === i) setEditingCustomQ(null); }} className="w-6 h-6 rounded flex items-center justify-center text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors" data-testid={`button-delete-custom-q-${i}`}><X className="w-3 h-3" /></button>
+                      </div>
+                    </div>
+                  )}
+                </Card>
+              ))}
+
+              {editCustomQList.length < 3 && editingCustomQ === null && (
+                <Card className="p-3 space-y-2 border-dashed" data-testid="card-add-custom-q">
+                  <p className="text-xs text-muted-foreground">Write your own question</p>
+                  <Input
+                    value={newCustomQDraft.question}
+                    onChange={e => setNewCustomQDraft(prev => ({ ...prev, question: e.target.value }))}
+                    placeholder="e.g. What's your idea of a perfect date?"
+                    maxLength={150}
+                    className="text-sm"
+                    data-testid="input-new-custom-q-text"
+                  />
+                  <Input
+                    value={newCustomQDraft.answer}
+                    onChange={e => setNewCustomQDraft(prev => ({ ...prev, answer: e.target.value }))}
+                    placeholder="Your answer..."
+                    maxLength={200}
+                    className="text-sm"
+                    data-testid="input-new-custom-q-answer"
+                  />
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={!newCustomQDraft.question.trim() || !newCustomQDraft.answer.trim()}
+                    onClick={() => {
+                      if (!newCustomQDraft.question.trim() || !newCustomQDraft.answer.trim()) return;
+                      setEditCustomQList(prev => [...prev, { question: newCustomQDraft.question.trim(), answer: newCustomQDraft.answer.trim() }]);
+                      setNewCustomQDraft({ question: "", answer: "" });
+                    }}
+                    className="gap-1.5"
+                    data-testid="button-add-custom-q"
+                  >
+                    <Plus className="w-3.5 h-3.5" /> Add question
+                  </Button>
+                </Card>
+              )}
+            </div>
           </Card>
-        ) : profile.questions && profile.questions.length > 0 ? (
+        ) : (profile.questions && profile.questions.length > 0) || ((profile as any).customQuestions && (profile as any).customQuestions.length > 0) ? (
           <div className="space-y-2">
-            {profile.questions.map((question: string, i: number) => (
-              <Card key={i} className="p-3" data-testid={`card-my-question-${i}`}>
+            {(profile.questions || []).map((question: string, i: number) => (
+              <Card key={`lulou-${i}`} className="p-3" data-testid={`card-my-question-${i}`}>
                 <p className="text-sm">{question}</p>
+              </Card>
+            ))}
+            {((profile as any).customQuestions || []).map((cq: { question: string; answer: string }, i: number) => (
+              <Card key={`custom-${i}`} className="p-3 border-primary/20 bg-primary/3" data-testid={`card-my-custom-question-${i}`}>
+                <p className="text-sm font-medium text-primary">{cq.question}</p>
+                {cq.answer && <p className="text-xs text-muted-foreground mt-1">{cq.answer}</p>}
               </Card>
             ))}
           </div>

@@ -272,7 +272,7 @@ export function setHasIsPausedColumn(val: boolean) {
 const MATCH_PROFILE_COLS = [
   "id", "user_id", "first_name", "age", "gender", "dating_preference",
   "location", "height", "signals", "dating_intent", "green_flags",
-  "connection_style", "conversation_starters", "questions",
+  "connection_style", "conversation_starters", "questions", "custom_questions",
   "location_radius", "preferred_age_min", "preferred_age_max",
   "email", "phone_number", "photo_verified", "onboarding_complete", "created_at",
 ].join(", ");
@@ -282,7 +282,7 @@ const MATCH_PROFILE_COLS = [
 const LIKES_PROFILE_COLS = [
   "id", "user_id", "first_name", "age", "gender", "dating_preference",
   "location", "height", "photos", "signals", "dating_intent", "green_flags",
-  "connection_style", "conversation_starters", "questions",
+  "connection_style", "conversation_starters", "questions", "custom_questions",
   "location_radius", "preferred_age_min", "preferred_age_max",
   "email", "phone_number", "photo_verified", "onboarding_complete", "created_at",
 ].join(", ");
@@ -306,6 +306,7 @@ function mapProfile(row: any): Profile {
     connectionStyle: row.connection_style,
     conversationStarters: row.conversation_starters,
     questions: row.questions,
+    customQuestions: row.custom_questions ?? [],
     locationRadius: row.location_radius,
     preferredAgeMin: row.preferred_age_min,
     preferredAgeMax: row.preferred_age_max,
@@ -398,6 +399,7 @@ function profileToDbRow(data: Partial<InsertProfile> & { latitude?: number | nul
   if (data.connectionStyle !== undefined) row.connection_style = data.connectionStyle;
   if (data.conversationStarters !== undefined) row.conversation_starters = data.conversationStarters;
   if (data.questions !== undefined) row.questions = data.questions;
+  if ((data as any).customQuestions !== undefined) row.custom_questions = (data as any).customQuestions;
   if (data.locationRadius !== undefined) row.location_radius = data.locationRadius;
   if (data.preferredAgeMin !== undefined) row.preferred_age_min = data.preferredAgeMin;
   if (data.preferredAgeMax !== undefined) row.preferred_age_max = data.preferredAgeMax;
@@ -682,7 +684,7 @@ export class SupabaseStorage implements IStorage {
       "id", "user_id", "first_name", "age", "gender", "dating_preference",
       "location", ...(_hasLatLngColumns ? ["latitude", "longitude"] : []), "height",
       "signals", "dating_intent", "green_flags",
-      "connection_style", "conversation_starters", "questions",
+      "connection_style", "conversation_starters", "questions", "custom_questions",
       "location_radius", "preferred_age_min", "preferred_age_max",
       "email", "phone_number", "photo_verified", "onboarding_complete", "created_at",
     ].join(", ");
@@ -1621,7 +1623,7 @@ export class SupabaseStorage implements IStorage {
       "id", "user_id", "first_name", "age", "gender", "dating_preference",
       "location", ...(_hasLatLngColumns ? ["latitude", "longitude"] : []), "height",
       "signals", "dating_intent", "green_flags",
-      "connection_style", "conversation_starters", "questions",
+      "connection_style", "conversation_starters", "questions", "custom_questions",
       "location_radius", "preferred_age_min", "preferred_age_max",
       "email", "phone_number", "photo_verified", "onboarding_complete", "created_at",
     ].join(", ");

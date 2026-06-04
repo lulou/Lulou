@@ -199,6 +199,37 @@ app.use((req, res, next) => {
     console.warn("[STARTUP] Could not verify is_paused column:", err?.message);
   }
 
+  // Auto-add custom_questions column to Supabase profiles.
+  // Stores user-created Q&A pairs as JSONB alongside the Lulou prompt system.
+  try {
+    const { createClient } = await import("@supabase/supabase-js");
+    const supabaseUrl = process.env.VITE_SUPABASE_URL!;
+    const serviceKey  = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+    const adminSb = createClient(supabaseUrl, serviceKey);
+    const { error: checkErr } = await adminSb.from("profiles").select("custom_questions").limit(1);
+    if (checkErr?.message?.includes("does not exist")) {
+      try {
+        const { Pool: PgPool } = await import("pg");
+        const projectRef = supabaseUrl.replace("https://", "").replace(".supabase.co", "");
+        const dbPass = process.env.SUPABASE_DB_PASSWORD;
+        if (dbPass && projectRef) {
+          const pgPool = new PgPool({
+            connectionString: `postgresql://postgres:${dbPass}@db.${projectRef}.supabase.co:5432/postgres`,
+            ssl: { rejectUnauthorized: false },
+          });
+          await pgPool.query("ALTER TABLE profiles ADD COLUMN IF NOT EXISTS custom_questions jsonb DEFAULT '[]'::jsonb");
+          await pgPool.end();
+          console.log("[STARTUP] custom_questions column added to Supabase profiles");
+        }
+      } catch (pgErr: any) {
+        console.warn("[STARTUP] Could not add custom_questions column via pg:", pgErr?.message);
+        console.warn("  Run manually: ALTER TABLE profiles ADD COLUMN IF NOT EXISTS custom_questions jsonb DEFAULT '[]'::jsonb;");
+      }
+    }
+  } catch (err: any) {
+    console.warn("[STARTUP] Could not verify custom_questions column:", err?.message);
+  }
+
   await registerRoutes(httpServer, app);
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
