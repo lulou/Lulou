@@ -5,23 +5,34 @@ interface DragPhotoViewerProps {
   height?: number;
 }
 
-const THRESHOLD_RATIO = 0.28;
-const ROTATE_FACTOR   = 0.055;
-const FLY_DEG         = 24;
+const THRESHOLD_RATIO = 0.28;  // fraction of card width to commit a swipe
+const ROTATE_MAX      = 14;    // max tilt degrees at card edge
+const FLY_DEG         = 22;    // rotation when card flies off
 
 /**
- * Stacked-card drag viewer.
+ * Card-stack photo viewer. No library, raw pointer events.
  *
- * Visual model:
- *   Two position-absolute cards in the same container slot.
- *   Front card (z=2): draggable, tilts and translates during drag, flies off on commit.
- *   Back card  (z=1): starts fully hidden (opacity 0, scale 0.88, shifted down 20 px).
- *     As the front card is dragged it fades in and scales up — it is NEVER visible
- *     at rest, so the two photos can never appear side-by-side or connected.
- *     When the front card commits a fly-off the back card immediately targets full
- *     size, so both animations run in parallel and the transition looks natural.
- *   key={peekIdx} on the back card ensures React creates a fresh DOM element each
- *     time the next photo changes, avoiding leftover CSS transform state.
+ * Depth model:
+ *   Front card — current photo. Sits at z=2, full size.
+ *   Back card  — next photo. Sits at z=1, always visually smaller and lower.
+ *
+ * Motion design to avoid the "filmstrip" / "connected" look:
+ *   Front card exits SIDEWAYS (translateX + rotate).
+ *   Back card rises FORWARD (translateY from below + scale up).
+ *   These perpendicular trajectories make it perceptually obvious the two
+ *   photos are at different depths, not on the same horizontal plane.
+ *
+ * Scale discipline:
+ *   Back card scales from 0.80 → 0.95 during the drag (never reaches 1.0
+ *   during drag). It only snaps to 1.0 when fly-off is committed, with a
+ *   CSS transition that runs simultaneously with the front card flying out.
+ *   This guarantees the back card is always noticeably smaller than the
+ *   front card during any mid-drag state.
+ *
+ * Opacity:
+ *   Back card uses easeOut opacity curve so it becomes visible quickly at
+ *   the start of a drag, giving immediate feedback without being opaque at
+ *   rest (opacity 0 at rest → no "ghost" photo visible through the current card).
  */
 export function DragPhotoViewer({ photos, height = 500 }: DragPhotoViewerProps) {
   const n = photos.length;
@@ -35,7 +46,7 @@ export function DragPhotoViewer({ photos, height = 500 }: DragPhotoViewerProps) 
   const startX  = useRef(0);
   const lastDX  = useRef(0);
 
-  // ── iOS Safari: prevent the scroll container from hijacking horizontal drags
+  // iOS Safari: prevent scroll container from firing touchcancel on horizontal drags
   useEffect(() => {
     const el = rootRef.current;
     if (!el || n <= 1) return;
@@ -60,7 +71,7 @@ export function DragPhotoViewer({ photos, height = 500 }: DragPhotoViewerProps) 
     };
   }, [n]);
 
-  // ── Pointer handlers ──────────────────────────────────────────────────────
+  // Pointer handlers
   const onPointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     if (n <= 1 || flyDir !== null) return;
     e.currentTarget.setPointerCapture(e.pointerId);
@@ -87,6 +98,7 @@ export function DragPhotoViewer({ photos, height = 500 }: DragPhotoViewerProps) 
     else setDragX(0);
   }, [dragging, index, n]);
 
+  // Front card fly-off complete → advance index, reset
   const onFrontTransitionEnd = useCallback(() => {
     if (!flyDir) return;
     setIndex(i => flyDir === "left" ? i + 1 : i - 1);
@@ -94,10 +106,13 @@ export function DragPhotoViewer({ photos, height = 500 }: DragPhotoViewerProps) 
     setDragX(0);
   }, [flyDir]);
 
-  // ── Derived values ────────────────────────────────────────────────────────
-  const cardW    = rootRef.current?.offsetWidth ?? 375;
-  const progress = Math.min(Math.abs(dragX) / Math.max(cardW, 1), 1);
+  // Derived state
+  const cardW = rootRef.current?.offsetWidth ?? 375;
 
+  // Raw progress 0→1 (fraction of card width dragged)
+  const rawProgress = Math.min(Math.abs(dragX) / Math.max(cardW, 1), 1);
+
+  // Which photo sits behind the front card
   const peekIdx = (dragX < 0 && index < n - 1) ? index + 1
                 : (dragX > 0 && index > 0)      ? index - 1
                 : (index < n - 1)               ? index + 1
@@ -105,33 +120,69 @@ export function DragPhotoViewer({ photos, height = 500 }: DragPhotoViewerProps) 
                 : -1;
   const showBack = n > 1 && peekIdx !== -1;
 
-  // ── Front card ────────────────────────────────────────────────────────────
-  const tilt = dragX * ROTATE_FACTOR;
+  // ── Front card styles ─────────────────────────────────────────────────────
+  // Tilt is capped at ROTATE_MAX regardless of drag distance.
+  const tilt = Math.max(-ROTATE_MAX, Math.min(ROTATE_MAX, dragX * 0.06));
+
   let frontTransform  = `translateX(${dragX}px) rotate(${tilt}deg)`;
-  let frontTransition: string = dragging
+  let frontTransition = dragging
     ? "none"
-    : "transform 0.32s cubic-bezier(0.25,0.46,0.45,0.94)";
+    : "transform 0.34s cubic-bezier(0.25, 0.46, 0.45, 0.94)";
 
   if (flyDir === "left") {
-    frontTransform  = `translateX(-160%) rotate(-${FLY_DEG}deg)`;
-    frontTransition = "transform 0.38s ease-in";
+    frontTransform  = `translateX(-140%) rotate(-${FLY_DEG}deg)`;
+    frontTransition = "transform 0.40s cubic-bezier(0.55, 0, 1, 0.45)";
   } else if (flyDir === "right") {
-    frontTransform  = `translateX(160%) rotate(${FLY_DEG}deg)`;
-    frontTransition = "transform 0.38s ease-in";
+    frontTransform  = `translateX(140%) rotate(${FLY_DEG}deg)`;
+    frontTransition = "transform 0.40s cubic-bezier(0.55, 0, 1, 0.45)";
   }
 
-  // ── Back card ─────────────────────────────────────────────────────────────
-  // At rest (progress=0)  : scale=0.88, opacity=0,   translateY=+20px  → hidden
-  // Full drag (progress=1): scale=1.00, opacity=0.92, translateY=0      → fully visible
-  // Fly-off committed     : scale=1.00, opacity=1.0,  translateY=0      → parallel with front fly-off
-  const flying      = flyDir !== null;
-  const backScale   = flying ? 1.0 : 0.88 + progress * 0.12;
-  const backOpacity = flying ? 1.0 : progress * 0.92;
-  const backTY      = flying ? 0   : 20 * (1 - progress);
+  // ── Back card styles ──────────────────────────────────────────────────────
+  //
+  // EaseOut opacity: appears quickly at the start of drag, so user gets
+  // immediate visual feedback that another card is waiting.
+  //   opacityP = 1 − (1 − rawProgress)²   →  easeOut quadratic
+  //
+  // Scale: rises from 0.80 → 0.95 during drag (never reaches 1.0 mid-drag).
+  //   The persistent 5%+ size gap prevents the back card from ever looking
+  //   the same size as the front card while they are simultaneously visible.
+  //
+  // translateY: rises from +60px → +4px during drag.
+  //   Downward-shifted starting position + vertical upward motion = clear
+  //   "coming forward from behind" depth cue.
+  //
+  // Fly-off: back card snaps to scale 1.0, translateY 0, opacity 1.0 with a
+  //   smooth CSS transition that runs in parallel with the front card flying out.
+  //   When the front card's transitionEnd fires, the back card is already at
+  //   full size, so the swap looks instantaneous.
+
+  const flying = flyDir !== null;
+
+  let backScale: number;
+  let backOpacity: number;
+  let backTY: number;
+
+  if (flying) {
+    backScale   = 1.0;
+    backOpacity = 1.0;
+    backTY      = 0;
+  } else {
+    const opacityP = 1 - Math.pow(1 - rawProgress, 2); // easeOut
+    backScale   = 0.80 + rawProgress * 0.15;            // 0.80 → 0.95
+    backOpacity = Math.min(opacityP * 1.15, 0.97);      // 0 → 0.97 (easeOut)
+    backTY      = 60 - rawProgress * 56;                // 60px → 4px
+  }
 
   const backTransition = dragging
     ? "none"
-    : "transform 0.35s cubic-bezier(0.25,0.46,0.45,0.94), opacity 0.35s ease";
+    : flying
+      ? "transform 0.38s cubic-bezier(0.25, 0.46, 0.45, 0.94), opacity 0.22s ease"
+      : "transform 0.30s cubic-bezier(0.25, 0.46, 0.45, 0.94), opacity 0.30s ease";
+
+  // Shadow on front card intensifies while dragging to emphasise it lifting
+  const frontShadow = dragging
+    ? "0 20px 60px rgba(0,0,0,0.45), 0 6px 20px rgba(0,0,0,0.25)"
+    : "0 8px 32px rgba(0,0,0,0.28)";
 
   return (
     <div
@@ -145,13 +196,18 @@ export function DragPhotoViewer({ photos, height = 500 }: DragPhotoViewerProps) 
         cursor:      n > 1 ? (dragging ? "grabbing" : "grab") : "default",
         userSelect:  "none",
         background:  "transparent",
+        // Allow back card shadow to render without clipping
+        overflow:    "visible",
       }}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={commitDrag}
       onPointerCancel={commitDrag}
     >
-      {/* Back card — hidden at rest, emerges as front card is dragged away */}
+      {/* ── Back card ──────────────────────────────────────────────────────
+          Completely hidden at rest. Rises forward as front card is dragged.
+          key={peekIdx} forces remount when the target photo changes,
+          preventing leftover CSS transform state from the previous card.     */}
       {showBack && (
         <div
           key={peekIdx}
@@ -160,8 +216,8 @@ export function DragPhotoViewer({ photos, height = 500 }: DragPhotoViewerProps) 
             inset:           "0 6px",
             borderRadius:    22,
             overflow:        "hidden",
-            boxShadow:       "0 4px 20px rgba(0,0,0,0.18)",
-            transform:       `scale(${backScale}) translateY(${backTY}px)`,
+            boxShadow:       "0 4px 16px rgba(0,0,0,0.22)",
+            transform:       `scale(${backScale.toFixed(4)}) translateY(${backTY.toFixed(1)}px)`,
             opacity:         backOpacity,
             transition:      backTransition,
             zIndex:          1,
@@ -170,7 +226,7 @@ export function DragPhotoViewer({ photos, height = 500 }: DragPhotoViewerProps) 
         >
           <img
             src={photos[peekIdx]}
-            alt={`Photo ${peekIdx + 1}`}
+            alt=""
             draggable={false}
             style={{
               width: "100%", height: "100%",
@@ -178,22 +234,37 @@ export function DragPhotoViewer({ photos, height = 500 }: DragPhotoViewerProps) 
               display: "block", pointerEvents: "none", userSelect: "none",
             }}
           />
+          {/* Dim overlay: simulates front card casting a shadow on the back card.
+              Fades out as the front card moves away (1−rawProgress).              */}
+          <div
+            aria-hidden="true"
+            style={{
+              position: "absolute", inset: 0,
+              background: "rgba(0,0,0,0.28)",
+              opacity: flying ? 0 : (1 - rawProgress),
+              transition: dragging ? "none" : "opacity 0.30s ease",
+              pointerEvents: "none",
+              borderRadius: 22,
+            }}
+          />
         </div>
       )}
 
-      {/* Front card — current photo, draggable */}
+      {/* ── Front card ─────────────────────────────────────────────────────
+          transformOrigin "50% 80%" pivots near the lower third of the card,
+          giving a natural "hand holding the card" tilt feel.                 */}
       <div
         style={{
           position:        "absolute",
           inset:           "0 6px",
           borderRadius:    22,
           overflow:        "hidden",
-          boxShadow:       "0 10px 40px rgba(0,0,0,0.30)",
+          boxShadow:       frontShadow,
           transform:       frontTransform,
           transition:      frontTransition,
           zIndex:          2,
           willChange:      "transform",
-          transformOrigin: "center bottom",
+          transformOrigin: "50% 80%",
         }}
         onTransitionEnd={flyDir ? onFrontTransitionEnd : undefined}
       >
@@ -207,23 +278,25 @@ export function DragPhotoViewer({ photos, height = 500 }: DragPhotoViewerProps) 
             display: "block", pointerEvents: "none", userSelect: "none",
           }}
         />
+        {/* Vignette so dots stay readable over any photo */}
         <div
           aria-hidden="true"
           style={{
             position: "absolute", inset: 0, pointerEvents: "none",
-            background: "linear-gradient(to top, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0.08) 40%, transparent 60%)",
+            background: "linear-gradient(to top, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0.05) 38%, transparent 55%)",
           }}
         />
       </div>
 
-      {/* Dots */}
+      {/* ── Dots ───────────────────────────────────────────────────────── */}
       {n > 1 && (
         <div
           aria-hidden="true"
           style={{
             position:       "absolute",
-            bottom:         16,
-            left:           0, right: 0,
+            bottom:         14,
+            left:           0,
+            right:          0,
             display:        "flex",
             justifyContent: "center",
             alignItems:     "center",
@@ -236,11 +309,11 @@ export function DragPhotoViewer({ photos, height = 500 }: DragPhotoViewerProps) 
             <div
               key={i}
               style={{
-                width:        i === index ? 22 : 7,
-                height:       7,
-                borderRadius: 3.5,
-                background:   i === index ? "white" : "rgba(255,255,255,0.46)",
-                transition:   "width 0.25s ease",
+                width:        i === index ? 20 : 6,
+                height:       6,
+                borderRadius: 3,
+                background:   i === index ? "white" : "rgba(255,255,255,0.50)",
+                transition:   "width 0.22s ease",
                 flexShrink:   0,
               }}
             />
