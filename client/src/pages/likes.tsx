@@ -573,6 +573,7 @@ function LikeCard({
   onConnectionFull: () => void;
   onOpenProfile: () => void;
 }) {
+  const { t } = useLanguageContext();
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
