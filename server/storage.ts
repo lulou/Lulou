@@ -262,6 +262,15 @@ export function setHasLatLngColumns(val: boolean) {
   console.log(`[STORAGE] lat/lng columns ${val ? "AVAILABLE" : "NOT YET MIGRATED"}`);
 }
 
+// Set to true by setHasCustomQColumn() called from server startup.
+// When false, custom_questions is omitted from SELECT lists so existing
+// deployments where the column hasn't been added yet don't break.
+let _hasCustomQColumn = false;
+export function setHasCustomQColumn(val: boolean) {
+  _hasCustomQColumn = val;
+  if (val) console.log("[STORAGE] custom_questions column AVAILABLE");
+}
+
 let _hasIsPausedColumn = false;
 export function setHasIsPausedColumn(val: boolean) {
   _hasIsPausedColumn = val;
@@ -272,7 +281,8 @@ export function setHasIsPausedColumn(val: boolean) {
 const MATCH_PROFILE_COLS = [
   "id", "user_id", "first_name", "age", "gender", "dating_preference",
   "location", "height", "signals", "dating_intent", "green_flags",
-  "connection_style", "conversation_starters", "questions", "custom_questions",
+  "connection_style", "conversation_starters", "questions",
+  ...(_hasCustomQColumn ? ["custom_questions"] : []),
   "location_radius", "preferred_age_min", "preferred_age_max",
   "email", "phone_number", "photo_verified", "onboarding_complete", "created_at",
 ].join(", ");
@@ -282,7 +292,8 @@ const MATCH_PROFILE_COLS = [
 const LIKES_PROFILE_COLS = [
   "id", "user_id", "first_name", "age", "gender", "dating_preference",
   "location", "height", "photos", "signals", "dating_intent", "green_flags",
-  "connection_style", "conversation_starters", "questions", "custom_questions",
+  "connection_style", "conversation_starters", "questions",
+  ...(_hasCustomQColumn ? ["custom_questions"] : []),
   "location_radius", "preferred_age_min", "preferred_age_max",
   "email", "phone_number", "photo_verified", "onboarding_complete", "created_at",
 ].join(", ");
@@ -684,7 +695,8 @@ export class SupabaseStorage implements IStorage {
       "id", "user_id", "first_name", "age", "gender", "dating_preference",
       "location", ...(_hasLatLngColumns ? ["latitude", "longitude"] : []), "height",
       "signals", "dating_intent", "green_flags",
-      "connection_style", "conversation_starters", "questions", "custom_questions",
+      "connection_style", "conversation_starters", "questions",
+      ...(_hasCustomQColumn ? ["custom_questions"] : []),
       "location_radius", "preferred_age_min", "preferred_age_max",
       "email", "phone_number", "photo_verified", "onboarding_complete", "created_at",
     ].join(", ");
@@ -1623,7 +1635,8 @@ export class SupabaseStorage implements IStorage {
       "id", "user_id", "first_name", "age", "gender", "dating_preference",
       "location", ...(_hasLatLngColumns ? ["latitude", "longitude"] : []), "height",
       "signals", "dating_intent", "green_flags",
-      "connection_style", "conversation_starters", "questions", "custom_questions",
+      "connection_style", "conversation_starters", "questions",
+      ...(_hasCustomQColumn ? ["custom_questions"] : []),
       "location_radius", "preferred_age_min", "preferred_age_max",
       "email", "phone_number", "photo_verified", "onboarding_complete", "created_at",
     ].join(", ");

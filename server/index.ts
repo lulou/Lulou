@@ -199,15 +199,19 @@ app.use((req, res, next) => {
     console.warn("[STARTUP] Could not verify is_paused column:", err?.message);
   }
 
-  // Auto-add custom_questions column to Supabase profiles.
-  // Stores user-created Q&A pairs as JSONB alongside the Lulou prompt system.
+  // Check / auto-add custom_questions column to Supabase profiles.
+  // Guards storage.ts column lists via _hasCustomQColumn flag so queries
+  // don't fail if the column doesn't exist yet.
   try {
     const { createClient } = await import("@supabase/supabase-js");
+    const { setHasCustomQColumn } = await import("./storage");
     const supabaseUrl = process.env.VITE_SUPABASE_URL!;
     const serviceKey  = process.env.SUPABASE_SERVICE_ROLE_KEY!;
     const adminSb = createClient(supabaseUrl, serviceKey);
     const { error: checkErr } = await adminSb.from("profiles").select("custom_questions").limit(1);
-    if (checkErr?.message?.includes("does not exist")) {
+    if (!checkErr) {
+      setHasCustomQColumn(true);
+    } else if (checkErr.message?.includes("does not exist")) {
       try {
         const { Pool: PgPool } = await import("pg");
         const projectRef = supabaseUrl.replace("https://", "").replace(".supabase.co", "");
@@ -219,6 +223,7 @@ app.use((req, res, next) => {
           });
           await pgPool.query("ALTER TABLE profiles ADD COLUMN IF NOT EXISTS custom_questions jsonb DEFAULT '[]'::jsonb");
           await pgPool.end();
+          setHasCustomQColumn(true);
           console.log("[STARTUP] custom_questions column added to Supabase profiles");
         }
       } catch (pgErr: any) {
