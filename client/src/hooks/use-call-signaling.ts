@@ -4,6 +4,7 @@ import { queryClient } from "@/lib/queryClient";
 import { markCallSessionCancelled, isCallSessionCancelled, isStartupCancelledOnly } from "@/lib/cancelled-calls";
 import { armCallSession } from "@/lib/live-call-sessions";
 import { APP_LOAD_TIME } from "@/lib/app-load-time";
+import { isStartupSweepComplete } from "@/lib/startup-sweep";
 
 type CallSignalEvent =
   | { type: "call:ring"; matchId: string; callerId: string; callerName: string; callSessionId?: string }
@@ -138,6 +139,28 @@ export function useCallSignaling(matchIds: string[], userId: string) {
             markCallSessionCancelled(matchId, ringSessionId);
             return;
           }
+          // ── Pre-sweep block ─────────────────────────────────────────────────
+          // The startup staleness sweep needs one /api/matches response to
+          // determine whether callStartedAt predates APP_LOAD_TIME (Strategy A
+          // in the pre-load guard above).  On a cold refresh the cache is empty
+          // so Strategy A is skipped; the sweep then runs ~1-3 s later.
+          //
+          // A rering can arrive in that gap (~200 ms after Realtime connects)
+          // BEFORE the sweep has confirmed whether this call is stale.  Without
+          // this guard the session would be armed, audio would start, and the
+          // sweep would stop it a second later — exactly the "rings once on
+          // refresh" bug.
+          //
+          // Fix: do NOT arm the session until the startup sweep is complete.
+          // The rering interval is 2 s, so the next rering will arrive after
+          // the sweep has run and genuine live calls will ring normally then.
+          // Pre-load stale calls will have been startup-cancelled by the sweep
+          // and will hit isStartupCancelledOnly → blocked permanently.
+          if (!isStartupSweepComplete()) {
+            console.log("[CALL_SIGNAL] PRE_SWEEP_RING_BLOCKED — startup sweep not yet complete, deferring to next rering", { matchId, callSessionId: ringSessionId?.slice(0, 8) });
+            return;
+          }
+
           // Skip stale ring signals for sessions that were cancelled by user action
           if (isCallSessionCancelled(matchId, ringSessionId)) {
             console.log("[CALL_SIGNAL] STALE_RING_BLOCKED", { matchId, callSessionId: ringSessionId, reason: "session_already_cancelled" });

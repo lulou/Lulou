@@ -51,6 +51,7 @@ if (typeof window !== "undefined") {
 import { useCallSignaling, setCallEndedHandler, setCallRingHandler, clearDedupeForMatch } from "@/hooks/use-call-signaling";
 import { stopAllNonVoiceCallAudio, stopAllCallSounds, registerCallAudioUnlock, unregisterCallAudioUnlock } from "@/lib/call-audio";
 import { isArmedSession, armCallSession, disarmCallSession, clearAllArmedSessions, setOnArmChange } from "@/lib/live-call-sessions";
+import { markStartupSweepComplete, resetStartupSweep } from "@/lib/startup-sweep";
 import { markCallSessionCancelled, markStartupCancelledSession, isCallSessionCancelled, clearCancelledSession, setOnCancelledSessionChange } from "@/lib/cancelled-calls";
 import type { Profile, Match } from "@shared/schema";
 import { Loader2 } from "lucide-react";
@@ -394,6 +395,7 @@ function CallDetectors({ userId }: { userId: string }) {
     // The startup sweep re-arms any session that a live rering proves is still
     // active (via clearStartupCancelledSession in use-call-signaling.ts).
     clearAllArmedSessions();
+    resetStartupSweep();
     stopAllCallSounds("calldetectors_mount");
     console.log("[STARTUP_AUDIO] stopped before auth", { userId: userId.slice(0, 8) });
     console.log("[CALL_AUDIO_GUARD] stopped audio before auth", { userId: userId.slice(0, 8) });
@@ -408,6 +410,7 @@ function CallDetectors({ userId }: { userId: string }) {
       unregisterCallAudioUnlock();
       stopAllCallSounds("call_detectors_unmount");
       clearAllArmedSessions();
+      resetStartupSweep();
       console.log("[CALL_AUDIO_GUARD] cleared stale call timers on logout", { userId: userId.slice(0, 8) });
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -614,6 +617,11 @@ function CallDetectors({ userId }: { userId: string }) {
     if (!startupDoneRef.current) {
       startupDoneRef.current = true;
       setStartupVerified(true);
+      // Allow incoming call:ring events to arm sessions now that we have
+      // confirmed the first /api/matches response. Any pre-load stale calls
+      // have been marked startup-cancelled above, so rerings that arrive
+      // from this point are safe to process.
+      markStartupSweepComplete();
     }
   }, [matches, userId, qc]);
 
