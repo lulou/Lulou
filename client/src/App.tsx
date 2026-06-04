@@ -21,6 +21,7 @@ import IntentPage from "@/pages/intent";
 import LikesPage from "@/pages/likes";
 import ElevateSuccessPage from "@/pages/elevate-success";
 import ExtrasSuccessPage from "@/pages/extras-success";
+import DragTestPage from "@/pages/drag-test";
 // Dev-only perf overlay stays lazy — never adds to production bundle.
 const PerfOverlayLazy = import.meta.env.DEV
   ? lazy(() => import("@/components/perf-overlay").then(m => ({ default: m.PerfOverlay })))
@@ -1185,6 +1186,10 @@ const SPINNER_TIMEOUT_MS = 12_000;
 
 function AppContent() {
   const [location] = useLocation();
+
+  // ── Unauthenticated test route ────────────────────────────────────────────
+  if (location === "/drag-test") return <DragTestPage />;
+
   const { user, isLoading: authLoading, profileReady, clearingCache, logout } = useAuth();
 
   // IMPORTANT: This query uses a dedicated key "profile-exists-check" that is intentionally
