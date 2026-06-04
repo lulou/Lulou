@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import { supabase } from "@/lib/supabase";
 import { queryClient } from "@/lib/queryClient";
-import { markCallSessionCancelled, isCallSessionCancelled, isStartupCancelledOnly } from "@/lib/cancelled-calls";
+import { markCallSessionCancelled, markStartupCancelledSession, isCallSessionCancelled, isStartupCancelledOnly } from "@/lib/cancelled-calls";
 import { armCallSession } from "@/lib/live-call-sessions";
 import { APP_LOAD_TIME } from "@/lib/app-load-time";
 import { isStartupSweepComplete } from "@/lib/startup-sweep";
@@ -157,7 +157,15 @@ export function useCallSignaling(matchIds: string[], userId: string) {
           // Pre-load stale calls will have been startup-cancelled by the sweep
           // and will hit isStartupCancelledOnly → blocked permanently.
           if (!isStartupSweepComplete()) {
-            console.log("[CALL_SIGNAL] PRE_SWEEP_RING_BLOCKED — startup sweep not yet complete, deferring to next rering", { matchId, callSessionId: ringSessionId?.slice(0, 8) });
+            // Mark startup-cancelled NOW (not just on the next rering).
+            // If the server clears callStartedAt before the first /api/matches
+            // response, the startup sweep will see no stale call and skip the
+            // match entirely — leaving the session un-cancelled.  Recording it
+            // here ensures that even in that race window, the session is
+            // blocked once the sweep completes and `isStartupCancelledOnly`
+            // is re-checked on the next rering.
+            markStartupCancelledSession(matchId, ringSessionId);
+            console.log("[CALL_SIGNAL] PRE_SWEEP_RING_BLOCKED — startup sweep not yet complete, session marked startup-cancelled", { matchId, callSessionId: ringSessionId?.slice(0, 8) });
             return;
           }
 
@@ -221,6 +229,14 @@ export function useCallSignaling(matchIds: string[], userId: string) {
           // (receiver was already armed on call:ring). Without this, a caller who
           // refreshed between ring and answer would not have the session armed and
           // ActiveCallOverlay would fail to mount.
+          // Guard: if the startup sweep hasn't run yet, a stale call:answered
+          // replayed from a previous session could arm a dead session before the
+          // sweep can cancel it.  Block until sweep is complete.
+          if (!isStartupSweepComplete()) {
+            markStartupCancelledSession(matchId, answeredSid);
+            console.log("[CALL_SIGNAL] PRE_SWEEP_ANSWERED_BLOCKED", { matchId, callSessionId: answeredSid?.slice(0, 8) });
+            return;
+          }
           armCallSession(answeredSid);
           // If the startup sweep marked this session as startup-cancelled-only
           // (caller-side), lift the block now so answeredCall can mount the overlay.

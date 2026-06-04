@@ -416,6 +416,37 @@ function CallDetectors({ userId }: { userId: string }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // ── bfcache restore guard ────────────────────────────────────────────────
+  // When the browser restores this page from the back-forward cache (back/forward
+  // navigation, tab restore), React effects do NOT re-run.  This means:
+  //   • _armedSessionIds (module-level Set) retains any sessions that were armed
+  //     before the page was hidden — a stale armed session would pass isArmedSession()
+  //     and let IncomingCallOverlay mount with ringEnabled=true → ringtone plays.
+  //   • startupDoneRef.current remains true → the startup sweep won't re-run.
+  //   • startupVerified remains true → forcedIncomingMatch is live immediately.
+  // Fixing this requires a window "pageshow" listener (the only event that fires on
+  // bfcache restore).  Because this useEffect's closure persists in the bfcache, the
+  // registered listener runs on restore even though React effects don't re-run.
+  useEffect(() => {
+    const handlePageShow = (e: PageTransitionEvent) => {
+      if (!e.persisted) return; // normal load — React effects handle this already
+      console.log("[BFCACHE] page restored from bfcache — resetting call state");
+      // 1. Disarm all sessions so no overlay can mount until the sweep re-runs.
+      clearAllArmedSessions();
+      // 2. Stop any audio that was playing before the page was hidden.
+      stopAllCallSounds("bfcache_pageshow");
+      // 3. Reset startup sweep so re-arming is blocked until next /api/matches sweep.
+      resetStartupSweep();
+      startupDoneRef.current = false;
+      // 4. Hide overlays until sweep confirms which (if any) call is live.
+      setStartupVerified(false);
+      // 5. Force a fresh /api/matches fetch so the startup sweep re-runs immediately.
+      qc.invalidateQueries({ queryKey: ["/api/matches"] });
+    };
+    window.addEventListener("pageshow", handlePageShow);
+    return () => window.removeEventListener("pageshow", handlePageShow);
+  }, [qc]);
+
   // Register ring-state handler: pauses polling while ring is active (Bug 2 fix).
   // Uses a ref so the interval function always reads the current value without
   // needing to be recreated on every render.

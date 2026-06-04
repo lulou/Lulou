@@ -26,7 +26,7 @@ export default function DragTestPage() {
         Drag left/right to test · vertical scroll still works · dots update on swipe
       </p>
 
-      <div style={{ width: "100%", maxWidth: 400, borderRadius: 16, overflow: "hidden" }}>
+      <div style={{ width: "100%", maxWidth: 400 }}>
         <DragPhotoViewer photos={TEST_PHOTOS} height={500} />
       </div>
 
