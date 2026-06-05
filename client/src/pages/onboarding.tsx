@@ -112,6 +112,8 @@ function buildInitialFormData(profile: Profile | null, userEmail = "") {
       starterAnswers: {} as Record<string, string>,
       questions: [] as string[],
       customQuestions: [] as Array<{ question: string; answer: string }>,
+      viewerQuestions: [] as Array<{ question: string }>,
+      customStarters: [] as string[],
     };
   }
 
@@ -137,6 +139,8 @@ function buildInitialFormData(profile: Profile | null, userEmail = "") {
     starterAnswers: answers,
     questions: profile.questions ?? [],
     customQuestions: (profile as any).customQuestions ?? [],
+    viewerQuestions: ((profile as any).viewerQuestions ?? []) as Array<{ question: string }>,
+    customStarters: ((profile as any).customStarters ?? []) as string[],
   };
 }
 
@@ -156,6 +160,8 @@ export default function Onboarding({ existingProfile = null, userEmail = "" }: O
 
   const [formData, setFormData] = useState(() => buildInitialFormData(existingProfile, userEmail));
   const [customQDraft, setCustomQDraft] = useState({ question: "", answer: "" });
+  const [viewerQDraft, setViewerQDraft] = useState("");
+  const [customStarterDraft, setCustomStarterDraft] = useState("");
 
   const createProfile = useMutation({
     mutationFn: async () => {
@@ -490,6 +496,55 @@ export default function Onboarding({ existingProfile = null, userEmail = "" }: O
                     />
                   </div>
                 ))}
+
+                {/* ── Custom conversation starters ─────────────────── */}
+                <div className="pt-2 space-y-2">
+                  <p className="text-xs font-medium tracking-wider uppercase text-primary">Write your own</p>
+                  {formData.customStarters.map((s, i) => (
+                    <div key={i} className="flex items-center gap-2">
+                      <p className="flex-1 text-sm border rounded-md px-3 py-2 bg-muted/30">{s}</p>
+                      <button
+                        className="shrink-0 w-6 h-6 rounded-full bg-muted flex items-center justify-center text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors"
+                        onClick={() => setFormData(prev => ({ ...prev, customStarters: prev.customStarters.filter((_, j) => j !== i) }))}
+                        data-testid={`button-remove-custom-starter-${i}`}
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
+                  ))}
+                  {formData.customStarters.length < 3 && (
+                    <div className="flex gap-2">
+                      <Input
+                        value={customStarterDraft}
+                        onChange={e => setCustomStarterDraft(e.target.value)}
+                        placeholder="e.g. Ask me about my last adventure..."
+                        maxLength={120}
+                        className="text-sm"
+                        data-testid="input-custom-starter-draft"
+                        onKeyDown={e => {
+                          if (e.key === "Enter" && customStarterDraft.trim()) {
+                            setFormData(prev => ({ ...prev, customStarters: [...prev.customStarters, customStarterDraft.trim()] }));
+                            setCustomStarterDraft("");
+                          }
+                        }}
+                      />
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={!customStarterDraft.trim()}
+                        onClick={() => {
+                          if (!customStarterDraft.trim()) return;
+                          setFormData(prev => ({ ...prev, customStarters: [...prev.customStarters, customStarterDraft.trim()] }));
+                          setCustomStarterDraft("");
+                        }}
+                        data-testid="button-add-custom-starter"
+                        className="shrink-0 gap-1"
+                      >
+                        <Plus className="w-3.5 h-3.5" /> Add
+                      </Button>
+                    </div>
+                  )}
+                </div>
               </div>
             )}
 
@@ -521,10 +576,60 @@ export default function Onboarding({ existingProfile = null, userEmail = "" }: O
                   {formData.questions.length}/3 selected (min 2)
                 </p>
 
+                {/* ── Questions for viewers to answer ─────────────────── */}
+                <div className="pt-2 space-y-2">
+                  <p className="text-xs font-medium tracking-wider uppercase text-primary">Ask your viewers</p>
+                  <p className="text-xs text-muted-foreground">Write a question you'd like people viewing your profile to answer.</p>
+                  {formData.viewerQuestions.map((vq, i) => (
+                    <div key={i} className="flex items-center gap-2">
+                      <p className="flex-1 text-sm border rounded-md px-3 py-2 bg-muted/30">{vq.question}</p>
+                      <button
+                        className="shrink-0 w-6 h-6 rounded-full bg-muted flex items-center justify-center text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors"
+                        onClick={() => setFormData(prev => ({ ...prev, viewerQuestions: prev.viewerQuestions.filter((_, j) => j !== i) }))}
+                        data-testid={`button-remove-viewer-q-${i}`}
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
+                  ))}
+                  {formData.viewerQuestions.length < 3 && (
+                    <div className="flex gap-2">
+                      <Input
+                        value={viewerQDraft}
+                        onChange={e => setViewerQDraft(e.target.value)}
+                        placeholder="e.g. What's a random fact about you?"
+                        maxLength={150}
+                        className="text-sm"
+                        data-testid="input-viewer-q-draft"
+                        onKeyDown={e => {
+                          if (e.key === "Enter" && viewerQDraft.trim()) {
+                            setFormData(prev => ({ ...prev, viewerQuestions: [...prev.viewerQuestions, { question: viewerQDraft.trim() }] }));
+                            setViewerQDraft("");
+                          }
+                        }}
+                      />
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={!viewerQDraft.trim()}
+                        onClick={() => {
+                          if (!viewerQDraft.trim()) return;
+                          setFormData(prev => ({ ...prev, viewerQuestions: [...prev.viewerQuestions, { question: viewerQDraft.trim() }] }));
+                          setViewerQDraft("");
+                        }}
+                        data-testid="button-add-viewer-q"
+                        className="shrink-0 gap-1"
+                      >
+                        <Plus className="w-3.5 h-3.5" /> Add
+                      </Button>
+                    </div>
+                  )}
+                </div>
+
                 {/* ── Custom questions ─────────────────────────────────── */}
                 <div className="pt-2 space-y-2">
                   <p className="text-xs font-medium tracking-wider uppercase text-primary">Your own questions</p>
-                  {formData.customQuestions.map((cq, i) => (
+                  {(formData.customQuestions as Array<{ question: string; answer: string }>).map((cq, i) => (
                     <Card key={i} className="p-3 border-primary/30 bg-primary/3" data-testid={`card-custom-question-${i}`}>
                       <div className="flex items-start justify-between gap-2">
                         <div className="flex-1 min-w-0">
@@ -533,7 +638,7 @@ export default function Onboarding({ existingProfile = null, userEmail = "" }: O
                         </div>
                         <button
                           className="shrink-0 w-5 h-5 rounded-full bg-muted flex items-center justify-center text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors"
-                          onClick={() => setFormData(prev => ({ ...prev, customQuestions: prev.customQuestions.filter((_, j) => j !== i) }))}
+                          onClick={() => setFormData(prev => ({ ...prev, customQuestions: prev.customQuestions.filter((_: { question: string; answer: string }, j: number) => j !== i) }))}
                           data-testid={`button-remove-custom-question-${i}`}
                         >
                           <X className="w-3 h-3" />

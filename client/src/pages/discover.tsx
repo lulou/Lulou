@@ -505,6 +505,9 @@ export default function Discover() {
   const questions = displayProfile.questions || [];
   const customQuestions: Array<{ question: string; answer: string }> = (displayProfile as any).customQuestions || [];
   const customQAsItems = customQuestions.map(cq => `${cq.question} ${cq.answer}`);
+  const viewerQuestions: Array<{ question: string }> = (displayProfile as any).viewerQuestions || [];
+  const customStarters: string[] = (displayProfile as any).customStarters || [];
+  const allStarters = [...conversationStarters, ...customStarters];
 
   return (
     <div className="flex-1 overflow-y-auto">
@@ -547,13 +550,23 @@ export default function Discover() {
               />
 
               <div className="px-5 pb-5 pt-3 space-y-5" data-testid="profile-about-section">
-                {conversationStarters.length > 0 && (
+                {allStarters.length > 0 && (
                   <div className="space-y-3" data-testid="section-conversation-starters">
                     <div className="flex items-center gap-1.5">
                       <MessageCircle className="w-3.5 h-3.5 text-primary" />
                       <p className="text-xs font-medium tracking-wider uppercase text-primary">{t("conversation_starters")}</p>
                     </div>
-                    <SlideCards items={conversationStarters} type="starter" onReply={handleReply} />
+                    <SlideCards items={allStarters} type="starter" onReply={handleReply} />
+                  </div>
+                )}
+
+                {viewerQuestions.length > 0 && (
+                  <div className="space-y-3" data-testid="section-viewer-questions">
+                    <div className="flex items-center gap-1.5">
+                      <HelpCircle className="w-3.5 h-3.5 text-primary" />
+                      <p className="text-xs font-medium tracking-wider uppercase text-primary">They'd love to know</p>
+                    </div>
+                    <SlideCards items={viewerQuestions.map(vq => vq.question)} type="starter" onReply={handleReply} />
                   </div>
                 )}
 

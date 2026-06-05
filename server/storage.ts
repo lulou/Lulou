@@ -271,6 +271,18 @@ export function setHasCustomQColumn(val: boolean) {
   if (val) console.log("[STORAGE] custom_questions column AVAILABLE");
 }
 
+let _hasViewerQColumn = false;
+export function setHasViewerQColumn(val: boolean) {
+  _hasViewerQColumn = val;
+  if (val) console.log("[STORAGE] viewer_questions column AVAILABLE");
+}
+
+let _hasCustomStartersColumn = false;
+export function setHasCustomStartersColumn(val: boolean) {
+  _hasCustomStartersColumn = val;
+  if (val) console.log("[STORAGE] custom_starters column AVAILABLE");
+}
+
 let _hasIsPausedColumn = false;
 export function setHasIsPausedColumn(val: boolean) {
   _hasIsPausedColumn = val;
@@ -278,25 +290,33 @@ export function setHasIsPausedColumn(val: boolean) {
 }
 
 // Matches & Likes pages don't need coordinates (no distance filter applies there).
-const MATCH_PROFILE_COLS = [
-  "id", "user_id", "first_name", "age", "gender", "dating_preference",
-  "location", "height", "signals", "dating_intent", "green_flags",
-  "connection_style", "conversation_starters", "questions",
-  ...(_hasCustomQColumn ? ["custom_questions"] : []),
-  "location_radius", "preferred_age_min", "preferred_age_max",
-  "email", "phone_number", "photo_verified", "onboarding_complete", "created_at",
-].join(", ");
+// Function (not const) so guard flags are evaluated at call-time, not module-init.
+function getMatchProfileCols(): string {
+  return [
+    "id", "user_id", "first_name", "age", "gender", "dating_preference",
+    "location", "height", "signals", "dating_intent", "green_flags",
+    "connection_style", "conversation_starters", "questions",
+    ...(_hasCustomQColumn ? ["custom_questions"] : []),
+    ...(_hasViewerQColumn ? ["viewer_questions"] : []),
+    ...(_hasCustomStartersColumn ? ["custom_starters"] : []),
+    "location_radius", "preferred_age_min", "preferred_age_max",
+    "email", "phone_number", "photo_verified", "onboarding_complete", "created_at",
+  ].join(", ");
+}
 
-// Profile columns for Likes page — same as MATCH_PROFILE_COLS but includes `photos`
-// so the LikeCard and full-screen ProfileModal can show images.
-const LIKES_PROFILE_COLS = [
-  "id", "user_id", "first_name", "age", "gender", "dating_preference",
-  "location", "height", "photos", "signals", "dating_intent", "green_flags",
-  "connection_style", "conversation_starters", "questions",
-  ...(_hasCustomQColumn ? ["custom_questions"] : []),
-  "location_radius", "preferred_age_min", "preferred_age_max",
-  "email", "phone_number", "photo_verified", "onboarding_complete", "created_at",
-].join(", ");
+// Profile columns for Likes page — includes `photos` for LikeCard and ProfileModal.
+function getLikesProfileCols(): string {
+  return [
+    "id", "user_id", "first_name", "age", "gender", "dating_preference",
+    "location", "height", "photos", "signals", "dating_intent", "green_flags",
+    "connection_style", "conversation_starters", "questions",
+    ...(_hasCustomQColumn ? ["custom_questions"] : []),
+    ...(_hasViewerQColumn ? ["viewer_questions"] : []),
+    ...(_hasCustomStartersColumn ? ["custom_starters"] : []),
+    "location_radius", "preferred_age_min", "preferred_age_max",
+    "email", "phone_number", "photo_verified", "onboarding_complete", "created_at",
+  ].join(", ");
+}
 
 function mapProfile(row: any): Profile {
   return {
@@ -318,6 +338,8 @@ function mapProfile(row: any): Profile {
     conversationStarters: row.conversation_starters,
     questions: row.questions,
     customQuestions: row.custom_questions ?? [],
+    viewerQuestions: row.viewer_questions ?? [],
+    customStarters: row.custom_starters ?? [],
     locationRadius: row.location_radius,
     preferredAgeMin: row.preferred_age_min,
     preferredAgeMax: row.preferred_age_max,
@@ -411,6 +433,8 @@ function profileToDbRow(data: Partial<InsertProfile> & { latitude?: number | nul
   if (data.conversationStarters !== undefined) row.conversation_starters = data.conversationStarters;
   if (data.questions !== undefined) row.questions = data.questions;
   if ((data as any).customQuestions !== undefined) row.custom_questions = (data as any).customQuestions;
+  if ((data as any).viewerQuestions !== undefined) row.viewer_questions = (data as any).viewerQuestions;
+  if ((data as any).customStarters !== undefined) row.custom_starters = (data as any).customStarters;
   if (data.locationRadius !== undefined) row.location_radius = data.locationRadius;
   if (data.preferredAgeMin !== undefined) row.preferred_age_min = data.preferredAgeMin;
   if (data.preferredAgeMax !== undefined) row.preferred_age_max = data.preferredAgeMax;
@@ -445,7 +469,7 @@ export class SupabaseStorage implements IStorage {
   async getProfileMeta(userId: string): Promise<Profile | undefined> {
     const { data, error } = await this.sb
       .from("profiles")
-      .select(MATCH_PROFILE_COLS)
+      .select(getMatchProfileCols())
       .eq("user_id", userId)
       .maybeSingle();
     if (error || !data) return undefined;
@@ -697,6 +721,8 @@ export class SupabaseStorage implements IStorage {
       "signals", "dating_intent", "green_flags",
       "connection_style", "conversation_starters", "questions",
       ...(_hasCustomQColumn ? ["custom_questions"] : []),
+      ...(_hasViewerQColumn ? ["viewer_questions"] : []),
+      ...(_hasCustomStartersColumn ? ["custom_starters"] : []),
       "location_radius", "preferred_age_min", "preferred_age_max",
       "email", "phone_number", "photo_verified", "onboarding_complete", "created_at",
     ].join(", ");
@@ -954,7 +980,7 @@ export class SupabaseStorage implements IStorage {
     const [profilesResult, messagesResult] = await Promise.all([
       this.sb
         .from("profiles")
-        .select(MATCH_PROFILE_COLS)
+        .select(getMatchProfileCols())
         .in("user_id", otherUserIds),
       this.sb
         .from("messages")
@@ -1046,7 +1072,7 @@ export class SupabaseStorage implements IStorage {
     const MSG_COLS = "id, match_id, sender_id, content, reaction, created_at";
     const t1 = Date.now();
     const [profileResult, msgResult] = await Promise.all([
-      this.sb.from("profiles").select(MATCH_PROFILE_COLS).eq("user_id", otherUserId).maybeSingle(),
+      this.sb.from("profiles").select(getMatchProfileCols()).eq("user_id", otherUserId).maybeSingle(),
       this.sb.from("messages").select(MSG_COLS).eq("match_id", matchId)
         .order("created_at", { ascending: false }).limit(40),
     ]);
@@ -1637,6 +1663,8 @@ export class SupabaseStorage implements IStorage {
       "signals", "dating_intent", "green_flags",
       "connection_style", "conversation_starters", "questions",
       ...(_hasCustomQColumn ? ["custom_questions"] : []),
+      ...(_hasViewerQColumn ? ["viewer_questions"] : []),
+      ...(_hasCustomStartersColumn ? ["custom_starters"] : []),
       "location_radius", "preferred_age_min", "preferred_age_max",
       "email", "phone_number", "photo_verified", "onboarding_complete", "created_at",
     ].join(", ");
@@ -2001,7 +2029,7 @@ export class SupabaseStorage implements IStorage {
     const fromIds = [...new Set(requests.map(r => r.from_user_id))];
     const { data: profileRows } = await this.sb
       .from("profiles")
-      .select(MATCH_PROFILE_COLS)
+      .select(getMatchProfileCols())
       .in("user_id", fromIds);
 
     const profileMap = new Map<string, any>((profileRows ?? []).map(p => [p.user_id, p]));
@@ -2025,7 +2053,7 @@ export class SupabaseStorage implements IStorage {
     const toIds = [...new Set(requests.map(r => r.to_user_id))];
     const { data: profileRows } = await this.sb
       .from("profiles")
-      .select(MATCH_PROFILE_COLS)
+      .select(getMatchProfileCols())
       .in("user_id", toIds);
 
     const profileMap = new Map<string, any>((profileRows ?? []).map(p => [p.user_id, p]));
@@ -2198,7 +2226,7 @@ export class SupabaseStorage implements IStorage {
     const fromUserIds = incomingOpens.map((o: any) => o.from_user_id);
     const { data: profileRows } = await this.sb
       .from("profiles")
-      .select(MATCH_PROFILE_COLS)
+      .select(getMatchProfileCols())
       .in("user_id", fromUserIds);
 
     const profileMap = new Map<string, any>();

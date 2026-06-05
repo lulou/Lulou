@@ -22,6 +22,8 @@ export const profiles = pgTable("profiles", {
   conversationStarters: text("conversation_starters").array(),
   questions: text("questions").array(),
   customQuestions: json("custom_questions").$type<Array<{ question: string; answer: string }>>(),
+  viewerQuestions: json("viewer_questions").$type<Array<{ question: string }>>(),
+  customStarters: json("custom_starters").$type<string[]>(),
   locationRadius: integer("location_radius").default(25),
   latitude: doublePrecision("latitude"),
   longitude: doublePrecision("longitude"),
