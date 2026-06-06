@@ -458,8 +458,8 @@ function profileToDbRow(data: Partial<InsertProfile> & { latitude?: number | nul
   if (data.gender !== undefined) row.gender = data.gender;
   if (data.datingPreference !== undefined) row.dating_preference = data.datingPreference;
   if (data.location !== undefined) row.location = data.location;
-  if (data.latitude !== undefined) row.latitude = data.latitude;
-  if (data.longitude !== undefined) row.longitude = data.longitude;
+  if (_hasLatLngColumns && data.latitude !== undefined) row.latitude = data.latitude;
+  if (_hasLatLngColumns && data.longitude !== undefined) row.longitude = data.longitude;
   if (data.height !== undefined) row.height = data.height;
   if (data.photos !== undefined) row.photos = data.photos;
   if (data.signals !== undefined) row.signals = data.signals;
@@ -535,9 +535,9 @@ export class SupabaseStorage implements IStorage {
 
     // When the location text changes, geocode it and persist coordinates so
     // the distance filter in getDiscoverProfiles / getPopularProfiles can work.
-    if (data.location) {
+    if (data.location && _hasLatLngColumns) {
       const coords = await geocodeLocation(data.location);
-      if (coords && _hasLatLngColumns) {
+      if (coords) {
         row.latitude  = coords.lat;
         row.longitude = coords.lng;
         console.log(`[GEOCODE] "${data.location}" → lat=${coords.lat.toFixed(4)}, lng=${coords.lng.toFixed(4)}`);
@@ -800,14 +800,16 @@ export class SupabaseStorage implements IStorage {
     const normGender = normalizeGender(gender);
     const normPref   = normalizeDatingPreference(preference);
 
-    // 1. Filter by what the current user wants to see (their preference → target gender)
-    const targetGenders = getGendersForPreference(normPref);
+    // 1. Filter by what the current user wants to see (their preference → target gender).
+    //    Skip when preference is unset — show all genders rather than nothing.
+    const targetGenders = normPref ? getGendersForPreference(normPref) : null;
     if (targetGenders && targetGenders.length > 0) {
       profilesQuery = profilesQuery.in("gender", targetGenders);
     }
 
-    // 2. Mutual filter: candidate must also be interested in the current user's gender
-    const candidateMustPrefer = getPreferencesThatIncludeGender(normGender);
+    // 2. Mutual filter: candidate must also be interested in the current user's gender.
+    //    Skip when current user's gender is unset — don't collapse pool to "everyone"-only.
+    const candidateMustPrefer = normGender ? getPreferencesThatIncludeGender(normGender) : [];
     if (candidateMustPrefer.length > 0) {
       profilesQuery = profilesQuery.in("dating_preference", candidateMustPrefer);
     }
@@ -1722,12 +1724,12 @@ export class SupabaseStorage implements IStorage {
     const effectiveAgeMax = Math.min(99, ageMax);
 
     // Pre-compute mutual-compat filter values — identical to getDiscoverProfiles.
-    // FIX: removed the `gender ?` short-circuit on candidateMustPrefer; always compute it
-    // so the mutual-compat filter is applied consistently regardless of whether gender is set.
+    // Skip each filter when the corresponding field is unset so the pool is never
+    // collapsed to an empty-or-"everyone"-only set when the profile is incomplete.
     const normGender = normalizeGender(gender);
     const normPref   = normalizeDatingPreference(preference);
-    const targetGenders       = getGendersForPreference(normPref);
-    const candidateMustPrefer = getPreferencesThatIncludeGender(normGender);
+    const targetGenders       = normPref ? getGendersForPreference(normPref) : null;
+    const candidateMustPrefer = normGender ? getPreferencesThatIncludeGender(normGender) : [];
 
     console.log("[WHEEL] mutual-compat + age filters:", {
       userId: userId ?? "(none)",
