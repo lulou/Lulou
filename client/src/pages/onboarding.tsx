@@ -498,8 +498,9 @@ export default function Onboarding({ existingProfile = null, userEmail = "" }: O
                 ))}
 
                 {/* ── Custom conversation starters ─────────────────── */}
-                <div className="pt-2 space-y-2">
-                  <p className="text-xs font-medium tracking-wider uppercase text-primary">Write your own</p>
+                <div className="pt-3 border-t space-y-2">
+                  <p className="text-sm font-semibold text-foreground">Write your own conversation starter</p>
+                  <p className="text-xs text-muted-foreground">Add your own prompts for people to respond to — separate from Lulou's suggestions.</p>
                   {formData.customStarters.map((s, i) => (
                     <div key={i} className="flex items-center gap-2">
                       <p className="flex-1 text-sm border rounded-md px-3 py-2 bg-muted/30">{s}</p>
@@ -577,9 +578,9 @@ export default function Onboarding({ existingProfile = null, userEmail = "" }: O
                 </p>
 
                 {/* ── Questions for viewers to answer ─────────────────── */}
-                <div className="pt-2 space-y-2">
-                  <p className="text-xs font-medium tracking-wider uppercase text-primary">Ask your viewers</p>
-                  <p className="text-xs text-muted-foreground">Write a question you'd like people viewing your profile to answer.</p>
+                <div className="pt-3 border-t space-y-2">
+                  <p className="text-sm font-semibold text-foreground">Write a question for people viewing your profile</p>
+                  <p className="text-xs text-muted-foreground">Visitors can answer this — great for sparking real conversations.</p>
                   {formData.viewerQuestions.map((vq, i) => (
                     <div key={i} className="flex items-center gap-2">
                       <p className="flex-1 text-sm border rounded-md px-3 py-2 bg-muted/30">{vq.question}</p>

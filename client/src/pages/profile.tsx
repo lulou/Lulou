@@ -418,6 +418,14 @@ export default function ProfilePage() {
   const [editViewerQList, setEditViewerQList] = useState<Array<{ question: string }>>([]);
   const [newViewerQDraft, setNewViewerQDraft] = useState("");
 
+  // Keep standalone custom-prompt state in sync whenever profile data refreshes
+  useEffect(() => {
+    if (profile) {
+      setEditCustomStarterList((profile as any).customStarters ?? []);
+      setEditViewerQList((profile as any).viewerQuestions ?? []);
+    }
+  }, [profile]);
+
   const initSettings = () => {
     if (profile) {
       setSettingsForm({
@@ -463,8 +471,6 @@ export default function ProfilePage() {
       });
       setEditStarters(prompts);
       setEditStarterAnswers(answers);
-      setEditCustomStarterList([...((profile as any).customStarters || [])]);
-      setNewCustomStarterDraft("");
       setEditingStarters(true);
     }
   };
@@ -475,8 +481,6 @@ export default function ProfilePage() {
       setEditCustomQList([...((profile as any).customQuestions || [])]);
       setNewCustomQDraft({ question: "", answer: "" });
       setEditingCustomQ(null);
-      setEditViewerQList([...((profile as any).viewerQuestions || [])]);
-      setNewViewerQDraft("");
       setEditingQuestions(true);
     }
   };
@@ -503,7 +507,7 @@ export default function ProfilePage() {
         const answer = editStarterAnswers[s];
         return answer ? `${s} ${answer}` : s;
       });
-      return apiRequest("POST", "/api/profile", { conversationStarters: fullStarters, customStarters: editCustomStarterList });
+      return apiRequest("POST", "/api/profile", { conversationStarters: fullStarters });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/profile"] });
@@ -520,7 +524,7 @@ export default function ProfilePage() {
 
   const saveQuestionsMut = useMutation({
     mutationFn: async () => {
-      return apiRequest("POST", "/api/profile", { questions: editQuestions, customQuestions: editCustomQList, viewerQuestions: editViewerQList });
+      return apiRequest("POST", "/api/profile", { questions: editQuestions, customQuestions: editCustomQList });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/profile"] });
@@ -531,6 +535,30 @@ export default function ProfilePage() {
       const msg = cleanErrorMessage(err);
       console.error("[PROFILE_SAVE] saveQuestionsMut FAILED", { rawError: err?.message, cleanedError: msg });
       toast({ title: "Couldn't save questions", description: msg, variant: "destructive" });
+    },
+  });
+
+  const saveCustomStartersMut = useMutation({
+    mutationFn: async (starters: string[]) =>
+      apiRequest("POST", "/api/profile", { customStarters: starters }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/profile"] });
+    },
+    onError: (err: any) => {
+      const msg = cleanErrorMessage(err);
+      toast({ title: "Couldn't save starters", description: msg, variant: "destructive" });
+    },
+  });
+
+  const saveViewerQsMut = useMutation({
+    mutationFn: async (questions: Array<{ question: string }>) =>
+      apiRequest("POST", "/api/profile", { viewerQuestions: questions }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/profile"] });
+    },
+    onError: (err: any) => {
+      const msg = cleanErrorMessage(err);
+      toast({ title: "Couldn't save viewer questions", description: msg, variant: "destructive" });
     },
   });
 
@@ -993,54 +1021,6 @@ export default function ProfilePage() {
               </div>
             ))}
 
-            {/* ── Custom starters ───────────────────────────── */}
-            <div className="pt-2 border-t space-y-2">
-              <p className="text-xs font-medium tracking-wider uppercase text-primary">Write your own</p>
-              {editCustomStarterList.map((s, i) => (
-                <div key={i} className="flex items-center gap-2">
-                  <p className="flex-1 text-sm border rounded-md px-3 py-2 bg-muted/30">{s}</p>
-                  <button
-                    onClick={() => setEditCustomStarterList(prev => prev.filter((_, j) => j !== i))}
-                    className="w-6 h-6 rounded flex items-center justify-center text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors"
-                    data-testid={`button-remove-edit-custom-starter-${i}`}
-                  >
-                    <X className="w-3 h-3" />
-                  </button>
-                </div>
-              ))}
-              {editCustomStarterList.length < 3 && (
-                <div className="flex gap-2">
-                  <Input
-                    value={newCustomStarterDraft}
-                    onChange={e => setNewCustomStarterDraft(e.target.value)}
-                    placeholder="e.g. Ask me about my last adventure..."
-                    maxLength={120}
-                    className="text-sm"
-                    data-testid="input-new-custom-starter"
-                    onKeyDown={e => {
-                      if (e.key === "Enter" && newCustomStarterDraft.trim()) {
-                        setEditCustomStarterList(prev => [...prev, newCustomStarterDraft.trim()]);
-                        setNewCustomStarterDraft("");
-                      }
-                    }}
-                  />
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={!newCustomStarterDraft.trim()}
-                    onClick={() => {
-                      if (!newCustomStarterDraft.trim()) return;
-                      setEditCustomStarterList(prev => [...prev, newCustomStarterDraft.trim()]);
-                      setNewCustomStarterDraft("");
-                    }}
-                    className="shrink-0 gap-1"
-                    data-testid="button-add-edit-custom-starter"
-                  >
-                    <Plus className="w-3.5 h-3.5" /> Add
-                  </Button>
-                </div>
-              )}
-            </div>
           </Card>
         ) : (profile.conversationStarters && profile.conversationStarters.length > 0) || ((profile as any).customStarters && (profile as any).customStarters.length > 0) ? (
           <div className="space-y-2">
@@ -1183,55 +1163,6 @@ export default function ProfilePage() {
               )}
             </div>
 
-            {/* ── Viewer questions ───────────────────────────── */}
-            <div className="pt-2 border-t space-y-2">
-              <p className="text-xs font-medium tracking-wider uppercase text-primary">Ask your viewers</p>
-              <p className="text-xs text-muted-foreground">A question you'd like people viewing your profile to answer.</p>
-              {editViewerQList.map((vq, i) => (
-                <div key={i} className="flex items-center gap-2">
-                  <p className="flex-1 text-sm border rounded-md px-3 py-2 bg-muted/30">{vq.question}</p>
-                  <button
-                    onClick={() => setEditViewerQList(prev => prev.filter((_, j) => j !== i))}
-                    className="w-6 h-6 rounded flex items-center justify-center text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors"
-                    data-testid={`button-delete-viewer-q-${i}`}
-                  >
-                    <X className="w-3 h-3" />
-                  </button>
-                </div>
-              ))}
-              {editViewerQList.length < 3 && (
-                <div className="flex gap-2">
-                  <Input
-                    value={newViewerQDraft}
-                    onChange={e => setNewViewerQDraft(e.target.value)}
-                    placeholder="e.g. What's a random fact about you?"
-                    maxLength={150}
-                    className="text-sm"
-                    data-testid="input-new-viewer-q"
-                    onKeyDown={e => {
-                      if (e.key === "Enter" && newViewerQDraft.trim()) {
-                        setEditViewerQList(prev => [...prev, { question: newViewerQDraft.trim() }]);
-                        setNewViewerQDraft("");
-                      }
-                    }}
-                  />
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={!newViewerQDraft.trim()}
-                    onClick={() => {
-                      if (!newViewerQDraft.trim()) return;
-                      setEditViewerQList(prev => [...prev, { question: newViewerQDraft.trim() }]);
-                      setNewViewerQDraft("");
-                    }}
-                    className="shrink-0 gap-1"
-                    data-testid="button-add-viewer-q"
-                  >
-                    <Plus className="w-3.5 h-3.5" /> Add
-                  </Button>
-                </div>
-              )}
-            </div>
           </Card>
         ) : (profile.questions && profile.questions.length > 0) || ((profile as any).customQuestions && (profile as any).customQuestions.length > 0) || ((profile as any).viewerQuestions && (profile as any).viewerQuestions.length > 0) ? (
           <div className="space-y-2">
@@ -1257,6 +1188,137 @@ export default function ProfilePage() {
           <p className="text-sm text-muted-foreground">No questions yet. Tap Edit to add some.</p>
         )}
       </div>
+
+      {/* ── Your own conversation starters — always visible ─────────────── */}
+      <div className="space-y-3" data-testid="section-custom-starters">
+        <div className="flex items-center gap-2">
+          <Sparkles className="w-4 h-4 text-primary" />
+          <p className="text-sm font-semibold text-foreground">Your own conversation starters</p>
+        </div>
+        <p className="text-xs text-muted-foreground">Write starters for people to reply to — these appear alongside Lulou's prompts on your profile.</p>
+        <div className="space-y-2">
+          {editCustomStarterList.map((s, i) => (
+            <div key={i} className="flex items-center gap-2">
+              <Card className="flex-1 p-3 bg-primary/3 border-primary/20" data-testid={`card-custom-starter-${i}`}>
+                <p className="text-sm">{s}</p>
+              </Card>
+              <button
+                onClick={() => {
+                  const next = editCustomStarterList.filter((_, j) => j !== i);
+                  setEditCustomStarterList(next);
+                  saveCustomStartersMut.mutate(next);
+                }}
+                className="w-7 h-7 rounded-full flex items-center justify-center text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors shrink-0"
+                data-testid={`button-delete-custom-starter-${i}`}
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          ))}
+          {editCustomStarterList.length < 5 && (
+            <div className="flex gap-2">
+              <Input
+                value={newCustomStarterDraft}
+                onChange={e => setNewCustomStarterDraft(e.target.value)}
+                placeholder="e.g. Ask me about my last adventure…"
+                maxLength={120}
+                className="text-sm"
+                data-testid="input-custom-starter"
+                onKeyDown={e => {
+                  if (e.key === "Enter" && newCustomStarterDraft.trim()) {
+                    const next = [...editCustomStarterList, newCustomStarterDraft.trim()];
+                    setEditCustomStarterList(next);
+                    setNewCustomStarterDraft("");
+                    saveCustomStartersMut.mutate(next);
+                  }
+                }}
+              />
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={!newCustomStarterDraft.trim() || saveCustomStartersMut.isPending}
+                onClick={() => {
+                  if (!newCustomStarterDraft.trim()) return;
+                  const next = [...editCustomStarterList, newCustomStarterDraft.trim()];
+                  setEditCustomStarterList(next);
+                  setNewCustomStarterDraft("");
+                  saveCustomStartersMut.mutate(next);
+                }}
+                className="shrink-0 gap-1"
+                data-testid="button-add-custom-starter"
+              >
+                <Plus className="w-3.5 h-3.5" /> Add
+              </Button>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ── Write a question for your viewers — always visible ────────────── */}
+      <div className="space-y-3" data-testid="section-viewer-questions">
+        <div className="flex items-center gap-2">
+          <HelpCircle className="w-4 h-4 text-primary" />
+          <p className="text-sm font-semibold text-foreground">Write a question for your viewers</p>
+        </div>
+        <p className="text-xs text-muted-foreground">People visiting your profile can answer these — great for sparking real conversations.</p>
+        <div className="space-y-2">
+          {editViewerQList.map((vq, i) => (
+            <div key={i} className="flex items-center gap-2">
+              <Card className="flex-1 p-3 bg-primary/3 border-primary/20" data-testid={`card-viewer-question-${i}`}>
+                <p className="text-sm">{vq.question}</p>
+              </Card>
+              <button
+                onClick={() => {
+                  const next = editViewerQList.filter((_, j) => j !== i);
+                  setEditViewerQList(next);
+                  saveViewerQsMut.mutate(next);
+                }}
+                className="w-7 h-7 rounded-full flex items-center justify-center text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors shrink-0"
+                data-testid={`button-delete-viewer-q-${i}`}
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          ))}
+          {editViewerQList.length < 3 && (
+            <div className="flex gap-2">
+              <Input
+                value={newViewerQDraft}
+                onChange={e => setNewViewerQDraft(e.target.value)}
+                placeholder="e.g. What's a random fact about you?"
+                maxLength={150}
+                className="text-sm"
+                data-testid="input-viewer-q"
+                onKeyDown={e => {
+                  if (e.key === "Enter" && newViewerQDraft.trim()) {
+                    const next = [...editViewerQList, { question: newViewerQDraft.trim() }];
+                    setEditViewerQList(next);
+                    setNewViewerQDraft("");
+                    saveViewerQsMut.mutate(next);
+                  }
+                }}
+              />
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={!newViewerQDraft.trim() || saveViewerQsMut.isPending}
+                onClick={() => {
+                  if (!newViewerQDraft.trim()) return;
+                  const next = [...editViewerQList, { question: newViewerQDraft.trim() }];
+                  setEditViewerQList(next);
+                  setNewViewerQDraft("");
+                  saveViewerQsMut.mutate(next);
+                }}
+                className="shrink-0 gap-1"
+                data-testid="button-add-viewer-q"
+              >
+                <Plus className="w-3.5 h-3.5" /> Add
+              </Button>
+            </div>
+          )}
+        </div>
+      </div>
+
       </>)}
 
       {/* ⑤ Main/profile picture — below More About Me */}
