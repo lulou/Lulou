@@ -582,7 +582,7 @@ export default function Discover() {
                   <div className="space-y-3" data-testid="section-conversation-starters">
                     <div className="flex items-center gap-1.5">
                       <MessageCircle className="w-3.5 h-3.5 text-primary" />
-                      <p className="text-xs font-medium tracking-wider uppercase text-primary">{t("conversation_starters")}</p>
+                      <p className="text-xs font-semibold tracking-widest uppercase text-primary">{t("conversation_starters")}</p>
                     </div>
                     <SlideCards items={allStarters} type="starter" onReply={handleReply} />
                   </div>
@@ -592,7 +592,7 @@ export default function Discover() {
                   <div className="space-y-3" data-testid="section-viewer-questions">
                     <div className="flex items-center gap-1.5">
                       <HelpCircle className="w-3.5 h-3.5 text-primary" />
-                      <p className="text-xs font-medium tracking-wider uppercase text-primary">They'd love to know</p>
+                      <p className="text-xs font-semibold tracking-widest uppercase text-primary">They'd love to know</p>
                     </div>
                     <SlideCards items={viewerQuestions.map(vq => vq.question)} type="starter" onReply={handleReply} />
                   </div>
@@ -602,14 +602,14 @@ export default function Discover() {
                   <div className="space-y-3" data-testid="section-questions">
                     <div className="flex items-center gap-1.5">
                       <HelpCircle className="w-3.5 h-3.5 text-primary" />
-                      <p className="text-xs font-medium tracking-wider uppercase text-primary">{t("ask_me")}</p>
+                      <p className="text-xs font-semibold tracking-widest uppercase text-primary">{t("ask_me")}</p>
                     </div>
                     <SlideCards items={[...questions, ...customQAsItems]} type="question" onReply={handleReply} />
                   </div>
                 )}
 
                 <div className="flex items-baseline gap-2 flex-wrap">
-                  <h2 className="font-serif text-2xl font-bold" style={{ animation: "discoverNameEnter 0.45s 0.22s ease both" }} data-testid="text-profile-name">
+                  <h2 className="font-serif text-3xl font-bold tracking-tight" style={{ animation: "discoverNameEnter 0.45s 0.22s ease both" }} data-testid="text-profile-name">
                     {displayProfile.firstName}, {displayProfile.age}
                   </h2>
                   {displayProfile.height && (
@@ -635,7 +635,7 @@ export default function Discover() {
                 </div>
 
                 <div className="space-y-2">
-                  <p className="text-xs font-medium tracking-wider uppercase text-primary">{t("personality")}</p>
+                  <p className="text-xs font-semibold tracking-widest uppercase text-primary">{t("personality")}</p>
                   <DragScrollRow>
                     {allSignals.map(signal => (
                       <Badge key={signal} variant="secondary" className="text-sm py-1.5 px-3 shrink-0 no-default-active-elevate" data-testid={`badge-signal-${signal}`}>
@@ -646,12 +646,12 @@ export default function Discover() {
                 </div>
 
                 <div className="space-y-2">
-                  <p className="text-xs font-medium tracking-wider uppercase text-primary">{t("looking_for")}</p>
-                  <p className="font-medium" data-testid="text-profile-intent">{displayProfile.datingIntent}</p>
+                  <p className="text-xs font-semibold tracking-widest uppercase text-primary">{t("looking_for")}</p>
+                  <p className="text-base font-semibold" data-testid="text-profile-intent">{displayProfile.datingIntent}</p>
                 </div>
 
                 <div className="space-y-2">
-                  <p className="text-xs font-medium tracking-wider uppercase text-primary">{t("green_flags_label")}</p>
+                  <p className="text-xs font-semibold tracking-widest uppercase text-primary">{t("green_flags_label")}</p>
                   <DragScrollRow>
                     {allGreenFlags.map(flag => (
                       <Badge key={flag} variant="outline" className="text-sm py-1.5 px-3 shrink-0 no-default-active-elevate" data-testid={`badge-flag-${flag}`}>
@@ -662,8 +662,8 @@ export default function Discover() {
                 </div>
 
                 <div className="space-y-2">
-                  <p className="text-xs font-medium tracking-wider uppercase text-primary">{t("pace_label")}</p>
-                  <p className="font-medium" data-testid="text-profile-style">{displayProfile.connectionStyle}</p>
+                  <p className="text-xs font-semibold tracking-widest uppercase text-primary">{t("pace_label")}</p>
+                  <p className="text-base font-semibold" data-testid="text-profile-style">{displayProfile.connectionStyle}</p>
                 </div>
               </div>
             </Card>

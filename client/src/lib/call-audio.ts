@@ -52,7 +52,8 @@
  *  synchronous, no AVAudioSession restart risk.
  */
 
-import { isArmedSession } from "@/lib/live-call-sessions";
+import { isArmedSession, clearAllArmedSessions } from "@/lib/live-call-sessions";
+import { isStartupSweepComplete, resetStartupSweep } from "@/lib/startup-sweep";
 
 // Internal alias — keeps internal code private while using the shared set.
 const _isSessionArmed = isArmedSession;
@@ -356,6 +357,20 @@ export function startIncomingRingtone(sessionId?: string | null): void {
       return;
     }
 
+    // ── Startup-sweep guard ──────────────────────────────────────────────
+    // The startup sweep must complete before any ringtone plays. This is the
+    // definitive firewall: even if a session is somehow armed before the sweep
+    // runs (timing race on bfcache restore or rapid Realtime reconnect), no
+    // audio can play until the first /api/matches pass has classified all
+    // pre-load call state as stale.
+    if (!isStartupSweepComplete()) {
+      console.log("[RING_DEBUG] STARTUP_AUDIO_BLOCKED incoming ring — sweep not complete", {
+        sessionId: sessionId ? sessionId.slice(0, 8) : "null",
+        source: "startIncomingRingtone",
+      });
+      return;
+    }
+
     // ── Armed-session guard ──────────────────────────────────────────────
     // Only sessions confirmed by a live Realtime call:ring event may play
     // audio. Stale DB rows (refetch, cache hits, route-change polls) are
@@ -435,6 +450,15 @@ export function startOutgoingRingback(sessionId?: string | null): void {
     // Safety guard: same auth check as startIncomingRingtone.
     if (!_unlockListenersRegistered && !_audioUnlocked) {
       console.log("[CALL_AUDIO_GUARD] blocked call audio because user is logged out");
+      return;
+    }
+
+    // ── Startup-sweep guard — same rule as startIncomingRingtone ──────────
+    if (!isStartupSweepComplete()) {
+      console.log("[RING_DEBUG] STARTUP_AUDIO_BLOCKED outgoing ringback — sweep not complete", {
+        sessionId: sessionId ? sessionId.slice(0, 8) : "null",
+        source: "startOutgoingRingback",
+      });
       return;
     }
 
@@ -539,6 +563,15 @@ export type RingtoneNode = { osc: OscillatorNode; gain: GainNode };
 // ── Page leave cleanup ─────────────────────────────────────────────────────
 
 if (typeof window !== "undefined") {
-  window.addEventListener("pagehide",     () => stopAllCallSounds("pagehide"));
+  window.addEventListener("pagehide", () => {
+    stopAllCallSounds("pagehide");
+    // Clear armed sessions and reset startup sweep so that if the browser
+    // restores the page from bfcache, no stale sessions can trigger audio
+    // before the sweep re-runs. Belt-and-suspenders alongside the pageshow
+    // handler in CallDetectors which does the same on bfcache restore.
+    clearAllArmedSessions();
+    resetStartupSweep();
+    console.log("[CALL_AUDIO_GUARD] pagehide — armed sessions cleared, sweep reset");
+  });
   window.addEventListener("beforeunload", () => stopAllCallSounds("beforeunload"));
 }

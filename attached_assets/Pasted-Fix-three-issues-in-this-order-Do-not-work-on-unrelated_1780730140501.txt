@@ -1,0 +1,46 @@
+Fix three issues, in this order. Do not work on unrelated features.
+
+Incoming ring on refresh is back — highest priority
+Bug:
+The app plays incoming ringtone/ringback when refreshed even though there is no fresh incoming call.
+
+Hard rule:
+Refresh/startup/navigation must be silent unless a fresh realtime call event occurs after auth is confirmed.
+
+Fix:
+
+Stop all ringtone/ringback/call audio immediately on app startup.
+Clear all armed/stale call sessions on startup.
+Clear all armed/stale call sessions on pagehide/pageshow/bfcache restore.
+Do not start ringtone/ringback from cached /api/matches, old callStartedAt, old callSessionId, or refetched stale match data.
+Ringtone can only start from a fresh realtime call:ring event received after current app load time and after startup sweep is complete.
+If auth is loading or user is null, force silence.
+Add logs showing the exact blocked stale source.
+Discovery photo bubble transition did not work
+Bug:
+The photo transition still has not changed.
+
+Clarification:
+Do not animate the whole Discovery profile card. I mean the photo viewer inside each Discovery profile.
+
+Fix:
+
+Find the exact live Discovery photo component.
+Apply the bubble/card roll effect to photo changes inside that component.
+If the current photo viewer is still click/tap, make the click/tap photo change use a premium bubble transition.
+Do not touch profile filtering, backend, calls, chat, or Intention Wheel logic.
+Make Discovery profile writing look premium/bolder
+Improve text across Discovery profile cards:
+
+Names should feel stronger and more premium.
+Profile details should be more readable.
+Conversation starters/questions/green flags/personality text should be bolder, cleaner, and less cheap-looking.
+Improve typography hierarchy, spacing, contrast, and card polish.
+Keep mobile-first design.
+Do not overdo it; make it elegant and premium.
+Report:
+
+exact files changed
+exact root cause for refresh ringing
+exact live photo component changed
+exact typography changes made

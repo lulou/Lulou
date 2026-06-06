@@ -47,11 +47,9 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
 
   const [emblaRef, emblaApi] = useEmblaCarousel({ loop: false });
   const [selectedIndex, setSelectedIndex] = useState(0);
-  // Incremented each time a photo transition fires; drives the animation key.
-  const [animKey, setAnimKey] = useState(0);
-  const directionRef = useRef<"fwd" | "bwd">("fwd");
-  // Suppresses the bubble animation on profile-switch resets (scrollTo(0,instant)).
-  const suppressNextAnimRef = useRef(false);
+  // Overlay state drives the bubble animation on tap/arrow photo changes.
+  const [photoOverlay, setPhotoOverlay] = useState<{ src: string; direction: "fwd" | "bwd"; id: number } | null>(null);
+  const overlayTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Track the Embla root DOM node so we can attach non-passive listeners.
   // emblaRef is a callback ref; we wrap it to also capture the node ourselves.
@@ -118,16 +116,7 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
   // ── Sync dot indicator + bubble animation on photo change ─────────────────
   useEffect(() => {
     if (!emblaApi) return;
-    const onSelect = () => {
-      const newIdx = emblaApi.selectedScrollSnap();
-      const oldIdx = emblaApi.previousScrollSnap();
-      directionRef.current = newIdx >= oldIdx ? "fwd" : "bwd";
-      setSelectedIndex(newIdx);
-      if (!suppressNextAnimRef.current) {
-        setAnimKey(k => k + 1);
-      }
-      suppressNextAnimRef.current = false;
-    };
+    const onSelect = () => setSelectedIndex(emblaApi.selectedScrollSnap());
     emblaApi.on("select", onSelect);
     onSelect();
     return () => { emblaApi.off("select", onSelect); };
@@ -136,9 +125,6 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
   // ── Reset carousel when a new profile is shown ────────────────────────────
   useEffect(() => {
     if (!emblaApi) return;
-    // Mark as reset so the next select event doesn't trigger a bubble animation
-    // (profile switches should not play the photo enter effect).
-    suppressNextAnimRef.current = true;
     emblaApi.reInit({ loop: false });
     emblaApi.scrollTo(0, true);
     setSelectedIndex(0);
@@ -150,6 +136,54 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
       if (photos[i]) preloadPhoto(photos[i]);
     });
   }, [photos, selectedIndex]);
+
+  // ── Navigate with bubble animation ────────────────────────────────────────
+  // Arrow buttons and taps call this instead of emblaApi.scrollNext/Prev() so
+  // the transition uses a premium overlay pop rather than Embla's default slide.
+  // Drag gestures go through Embla naturally (no overlay, no select-event anim).
+  const navigatePhoto = useCallback((newIdx: number, direction: "fwd" | "bwd") => {
+    if (!emblaApi || newIdx < 0 || newIdx >= n) return;
+    emblaApi.scrollTo(newIdx, true); // instant jump — no Embla slide animation
+    if (overlayTimerRef.current) clearTimeout(overlayTimerRef.current);
+    const id = Date.now();
+    setPhotoOverlay({ src: photos[newIdx], direction, id });
+    overlayTimerRef.current = setTimeout(
+      () => setPhotoOverlay(o => (o?.id === id ? null : o)),
+      500,
+    );
+  }, [emblaApi, n, photos]);
+
+  // ── Tap-to-advance on touch devices ───────────────────────────────────────
+  // Distinguishes a tap (< 16 px movement) from a drag. Right half → next,
+  // left half → prev. Runs in a separate effect so deps update with selectedIndex.
+  useEffect(() => {
+    const el = viewportNodeRef.current;
+    if (!el || !emblaApi || n <= 1) return;
+    let tapX = 0;
+    let tapY = 0;
+    const onStart = (e: TouchEvent) => {
+      tapX = e.touches[0].clientX;
+      tapY = e.touches[0].clientY;
+    };
+    const onEnd = (e: TouchEvent) => {
+      const dx = Math.abs(e.changedTouches[0].clientX - tapX);
+      const dy = Math.abs(e.changedTouches[0].clientY - tapY);
+      if (dx > 16 || dy > 16) return; // drag — let Embla handle it
+      const rect = el.getBoundingClientRect();
+      const x = e.changedTouches[0].clientX - rect.left;
+      const goFwd = x > rect.width / 2;
+      navigatePhoto(goFwd ? selectedIndex + 1 : selectedIndex - 1, goFwd ? "fwd" : "bwd");
+    };
+    el.addEventListener("touchstart", onStart, { passive: true });
+    el.addEventListener("touchend", onEnd, { passive: true });
+    return () => {
+      el.removeEventListener("touchstart", onStart);
+      el.removeEventListener("touchend", onEnd);
+    };
+  }, [emblaApi, n, selectedIndex, navigatePhoto]);
+
+  // Cleanup overlay timer on unmount.
+  useEffect(() => () => { if (overlayTimerRef.current) clearTimeout(overlayTimerRef.current); }, []);
 
   // ── Loading shimmer ────────────────────────────────────────────────────────
   if (isLoading) {
@@ -214,50 +248,61 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
               style={{ flex: "0 0 100%", minWidth: 0, height: "100%" }}
               data-testid={`carousel-slide-${i}`}
             >
-              {/*
-                Inner wrapper keyed on animKey so React re-mounts it whenever
-                the active photo changes, restarting the CSS animation cleanly.
-                Only the selected slide gets a new key; others stay stable.
-                This div never affects Embla's layout (it fills its parent exactly).
-              */}
-              <div
-                key={i === selectedIndex ? `a${animKey}` : `s${i}`}
+              <img
+                src={photo}
+                alt={`Photo ${i + 1}`}
+                loading={i === selectedIndex ? "eager" : "lazy"}
+                decoding="async"
+                draggable={false}
                 style={{
                   width: "100%",
                   height: "100%",
-                  animation:
-                    i === selectedIndex && animKey > 0
-                      ? `${directionRef.current === "fwd" ? "photoEnterRight" : "photoEnterLeft"} 0.42s cubic-bezier(0.16, 1, 0.3, 1) both`
-                      : undefined,
+                  objectFit: "cover",
+                  objectPosition: "center top",
+                  opacity: decodedPhotos.has(photo) ? 1 : 0,
+                  transition: "opacity 0.08s ease",
+                  display: "block",
+                  userSelect: "none",
                 }}
-              >
-                <img
-                  src={photo}
-                  alt={`Photo ${i + 1}`}
-                  loading={i === selectedIndex ? "eager" : "lazy"}
-                  decoding="async"
-                  draggable={false}
-                  style={{
-                    width: "100%",
-                    height: "100%",
-                    objectFit: "cover",
-                    objectPosition: "center top",
-                    opacity: decodedPhotos.has(photo) ? 1 : 0,
-                    transition: "opacity 0.08s ease",
-                    display: "block",
-                    userSelect: "none",
-                  }}
-                  onLoad={e => {
-                    decodedPhotos.add(photo);
-                    (e.currentTarget as HTMLImageElement).style.opacity = "1";
-                  }}
-                  data-testid={`img-carousel-photo-${i}`}
-                />
-              </div>
+                onLoad={e => {
+                  decodedPhotos.add(photo);
+                  (e.currentTarget as HTMLImageElement).style.opacity = "1";
+                }}
+                data-testid={`img-carousel-photo-${i}`}
+              />
             </div>
           ))}
         </div>
       </div>
+
+      {/* Photo transition overlay — bubble animation on tap/arrow navigation.
+          Plays over the settled carousel so the effect is always visible,
+          regardless of when Embla finishes its (instant) scroll. */}
+      {photoOverlay && (
+        <div
+          key={photoOverlay.id}
+          aria-hidden="true"
+          style={{
+            position: "absolute",
+            inset: 0,
+            zIndex: 5,
+            animation: `${photoOverlay.direction === "fwd" ? "photoEnterRight" : "photoEnterLeft"} 0.42s cubic-bezier(0.16, 1, 0.3, 1) both`,
+          }}
+        >
+          <img
+            src={photoOverlay.src}
+            alt=""
+            draggable={false}
+            style={{
+              width: "100%",
+              height: "100%",
+              objectFit: "cover",
+              objectPosition: "center top",
+              display: "block",
+            }}
+          />
+        </div>
+      )}
 
       {/* Gradient — pointer-events:none */}
       <div
@@ -275,7 +320,7 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
       {/* Arrow buttons — small, sit at mid-height on each edge */}
       {n > 1 && selectedIndex > 0 && (
         <button
-          onClick={() => emblaApi?.scrollPrev()}
+          onClick={() => navigatePhoto(selectedIndex - 1, "bwd")}
           aria-label="Previous photo"
           data-testid="button-viewer-prev"
           style={{
@@ -302,7 +347,7 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
       )}
       {n > 1 && selectedIndex < n - 1 && (
         <button
-          onClick={() => emblaApi?.scrollNext()}
+          onClick={() => navigatePhoto(selectedIndex + 1, "fwd")}
           aria-label="Next photo"
           data-testid="button-viewer-next"
           style={{
