@@ -296,6 +296,15 @@ function containsContactInfo(text: string): boolean {
   return false;
 }
 
+function calculateAgeFromDob(dob: string): number {
+  const today = new Date();
+  const birth = new Date(dob);
+  let age = today.getFullYear() - birth.getFullYear();
+  const m = today.getMonth() - birth.getMonth();
+  if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) age--;
+  return age;
+}
+
 const profileBodySchema = z.object({
   firstName: z.string().min(1).max(50),
   age: z.number().int().min(18).max(99),
@@ -318,6 +327,13 @@ const profileBodySchema = z.object({
   photoVerified: z.boolean().optional(),
   onboardingComplete: z.boolean().optional(),
   isPaused: z.boolean().optional(),
+  dateOfBirth: z.string().max(10).optional().nullable(),
+  pronouns: z.string().max(30).optional().nullable(),
+  customGreenFlags: z.array(z.string().max(60)).max(5).optional(),
+  customSignals: z.array(z.string().max(60)).max(5).optional(),
+  customQuestions: z.array(z.object({ question: z.string().max(150), answer: z.string().max(200) })).max(3).optional(),
+  viewerQuestions: z.array(z.object({ question: z.string().max(150) })).max(3).optional(),
+  customStarters: z.array(z.string().max(120)).max(5).optional(),
 });
 
 const profileUpdateSchema = profileBodySchema.partial();
@@ -605,6 +621,16 @@ export async function registerRoutes(
       const parsed = profileUpdateSchema.safeParse(req.body);
       if (!parsed.success) {
         return res.status(400).json({ message: "Invalid profile data", errors: parsed.error.flatten() });
+      }
+      // Server-side 18+ enforcement
+      const pd = parsed.data as any;
+      if (pd.dateOfBirth) {
+        const dobAge = calculateAgeFromDob(pd.dateOfBirth);
+        if (dobAge < 18) {
+          return res.status(400).json({ message: "You must be 18 or older to use Lulou." });
+        }
+      } else if (typeof pd.age === "number" && pd.age < 18) {
+        return res.status(400).json({ message: "You must be 18 or older to use Lulou." });
       }
       const payload = { ...parsed.data, userId };
       const result = await storage.updateProfile(userId, payload);
@@ -1528,8 +1554,12 @@ export async function registerRoutes(
       const userId = req.user.id;
       const myProfile = await storage.getProfileMeta(userId);
       console.log(`[WHEEL] getProfileMeta: ${Date.now() - t0} ms`);
-      const preference = myProfile?.datingPreference;
-      const gender = myProfile?.gender;
+      if (!myProfile) {
+        devPerf("/api/popular", Date.now() - t0, { status: 200, reason: "no-profile-empty" });
+        return res.json([]);
+      }
+      const preference = myProfile.datingPreference;
+      const gender = myProfile.gender;
 
       console.log("[WHEEL] /api/popular called:", { userId, preference, gender });
 

@@ -417,12 +417,18 @@ export default function ProfilePage() {
   const [newCustomStarterDraft, setNewCustomStarterDraft] = useState("");
   const [editViewerQList, setEditViewerQList] = useState<Array<{ question: string }>>([]);
   const [newViewerQDraft, setNewViewerQDraft] = useState("");
+  const [editCustomGreenFlagList, setEditCustomGreenFlagList] = useState<string[]>([]);
+  const [newCustomGreenFlagDraft, setNewCustomGreenFlagDraft] = useState("");
+  const [editCustomSignalList, setEditCustomSignalList] = useState<string[]>([]);
+  const [newCustomSignalDraft, setNewCustomSignalDraft] = useState("");
 
   // Keep standalone custom-prompt state in sync whenever profile data refreshes
   useEffect(() => {
     if (profile) {
       setEditCustomStarterList((profile as any).customStarters ?? []);
       setEditViewerQList((profile as any).viewerQuestions ?? []);
+      setEditCustomGreenFlagList((profile as any).customGreenFlags ?? []);
+      setEditCustomSignalList((profile as any).customSignals ?? []);
     }
   }, [profile]);
 
@@ -434,6 +440,7 @@ export default function ProfilePage() {
         datingPreference: profile.datingPreference,
         datingIntent: profile.datingIntent,
         connectionStyle: profile.connectionStyle,
+        pronouns: (profile as any).pronouns || "",
       });
     }
   };
@@ -559,6 +566,30 @@ export default function ProfilePage() {
     onError: (err: any) => {
       const msg = cleanErrorMessage(err);
       toast({ title: "Couldn't save viewer questions", description: msg, variant: "destructive" });
+    },
+  });
+
+  const saveCustomGreenFlagsMut = useMutation({
+    mutationFn: async (flags: string[]) =>
+      apiRequest("POST", "/api/profile", { customGreenFlags: flags }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/profile"] });
+    },
+    onError: (err: any) => {
+      const msg = cleanErrorMessage(err);
+      toast({ title: "Couldn't save green flags", description: msg, variant: "destructive" });
+    },
+  });
+
+  const saveCustomSignalsMut = useMutation({
+    mutationFn: async (signals: string[]) =>
+      apiRequest("POST", "/api/profile", { customSignals: signals }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/profile"] });
+    },
+    onError: (err: any) => {
+      const msg = cleanErrorMessage(err);
+      toast({ title: "Couldn't save personality traits", description: msg, variant: "destructive" });
     },
   });
 
@@ -793,6 +824,26 @@ export default function ProfilePage() {
                   <SelectItem value="Slow & Intentional">Slow & Intentional</SelectItem>
                   <SelectItem value="Steady with Momentum">Steady with Momentum</SelectItem>
                   <SelectItem value="Ready to Meet Soon">Ready to Meet Soon</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Pronouns <span className="text-muted-foreground">(optional)</span></Label>
+              <Select
+                value={settingsForm.pronouns || ""}
+                onValueChange={v => setSettingsForm(prev => ({ ...prev, pronouns: v }))}
+              >
+                <SelectTrigger data-testid="select-settings-pronouns">
+                  <SelectValue placeholder="Select pronouns" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="she/her">she/her</SelectItem>
+                  <SelectItem value="he/him">he/him</SelectItem>
+                  <SelectItem value="they/them">they/them</SelectItem>
+                  <SelectItem value="she/they">she/they</SelectItem>
+                  <SelectItem value="he/they">he/they</SelectItem>
+                  <SelectItem value="any pronouns">any pronouns</SelectItem>
+                  <SelectItem value="ask me">ask me</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -1040,6 +1091,134 @@ export default function ProfilePage() {
                 }}
                 className="shrink-0 gap-1"
                 data-testid="button-add-viewer-q"
+              >
+                <Plus className="w-3.5 h-3.5" /> Add
+              </Button>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="space-y-3" data-testid="section-custom-green-flags">
+        <div className="flex items-center gap-2">
+          <span className="text-primary text-sm">🟩</span>
+          <p className="text-sm font-semibold text-foreground">Your own green flags</p>
+        </div>
+        <p className="text-xs text-muted-foreground">Traits you look for that aren't on the preset list. Up to 3.</p>
+        <div className="space-y-2">
+          {editCustomGreenFlagList.map((flag, i) => (
+            <div key={i} className="flex items-center gap-2">
+              <Card className="flex-1 p-3 bg-primary/3 border-primary/20" data-testid={`card-custom-green-flag-${i}`}>
+                <p className="text-sm">{flag}</p>
+              </Card>
+              <button
+                onClick={() => {
+                  const next = editCustomGreenFlagList.filter((_, j) => j !== i);
+                  setEditCustomGreenFlagList(next);
+                  saveCustomGreenFlagsMut.mutate(next);
+                }}
+                className="w-7 h-7 rounded-full flex items-center justify-center text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors shrink-0"
+                data-testid={`button-delete-custom-green-flag-${i}`}
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          ))}
+          {editCustomGreenFlagList.length < 3 && (
+            <div className="flex gap-2">
+              <Input
+                value={newCustomGreenFlagDraft}
+                onChange={e => setNewCustomGreenFlagDraft(e.target.value)}
+                placeholder="e.g. Makes me laugh, Loves cooking…"
+                maxLength={40}
+                className="text-sm"
+                data-testid="input-custom-green-flag"
+                onKeyDown={e => {
+                  if (e.key === "Enter" && newCustomGreenFlagDraft.trim()) {
+                    const next = [...editCustomGreenFlagList, newCustomGreenFlagDraft.trim()];
+                    setEditCustomGreenFlagList(next);
+                    setNewCustomGreenFlagDraft("");
+                    saveCustomGreenFlagsMut.mutate(next);
+                  }
+                }}
+              />
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={!newCustomGreenFlagDraft.trim() || saveCustomGreenFlagsMut.isPending}
+                onClick={() => {
+                  if (!newCustomGreenFlagDraft.trim()) return;
+                  const next = [...editCustomGreenFlagList, newCustomGreenFlagDraft.trim()];
+                  setEditCustomGreenFlagList(next);
+                  setNewCustomGreenFlagDraft("");
+                  saveCustomGreenFlagsMut.mutate(next);
+                }}
+                className="shrink-0 gap-1"
+                data-testid="button-add-custom-green-flag"
+              >
+                <Plus className="w-3.5 h-3.5" /> Add
+              </Button>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="space-y-3" data-testid="section-custom-signals">
+        <div className="flex items-center gap-2">
+          <span className="text-primary text-sm">✨</span>
+          <p className="text-sm font-semibold text-foreground">Your own personality traits</p>
+        </div>
+        <p className="text-xs text-muted-foreground">Traits that describe you but aren't on the preset list. Up to 3.</p>
+        <div className="space-y-2">
+          {editCustomSignalList.map((signal, i) => (
+            <div key={i} className="flex items-center gap-2">
+              <Card className="flex-1 p-3 bg-primary/3 border-primary/20" data-testid={`card-custom-signal-${i}`}>
+                <p className="text-sm">{signal}</p>
+              </Card>
+              <button
+                onClick={() => {
+                  const next = editCustomSignalList.filter((_, j) => j !== i);
+                  setEditCustomSignalList(next);
+                  saveCustomSignalsMut.mutate(next);
+                }}
+                className="w-7 h-7 rounded-full flex items-center justify-center text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors shrink-0"
+                data-testid={`button-delete-custom-signal-${i}`}
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          ))}
+          {editCustomSignalList.length < 3 && (
+            <div className="flex gap-2">
+              <Input
+                value={newCustomSignalDraft}
+                onChange={e => setNewCustomSignalDraft(e.target.value)}
+                placeholder="e.g. Dog lover, Bookworm…"
+                maxLength={40}
+                className="text-sm"
+                data-testid="input-custom-signal"
+                onKeyDown={e => {
+                  if (e.key === "Enter" && newCustomSignalDraft.trim()) {
+                    const next = [...editCustomSignalList, newCustomSignalDraft.trim()];
+                    setEditCustomSignalList(next);
+                    setNewCustomSignalDraft("");
+                    saveCustomSignalsMut.mutate(next);
+                  }
+                }}
+              />
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={!newCustomSignalDraft.trim() || saveCustomSignalsMut.isPending}
+                onClick={() => {
+                  if (!newCustomSignalDraft.trim()) return;
+                  const next = [...editCustomSignalList, newCustomSignalDraft.trim()];
+                  setEditCustomSignalList(next);
+                  setNewCustomSignalDraft("");
+                  saveCustomSignalsMut.mutate(next);
+                }}
+                className="shrink-0 gap-1"
+                data-testid="button-add-custom-signal"
               >
                 <Plus className="w-3.5 h-3.5" /> Add
               </Button>

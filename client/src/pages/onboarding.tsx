@@ -114,6 +114,9 @@ function buildInitialFormData(profile: Profile | null, userEmail = "") {
       customQuestions: [] as Array<{ question: string; answer: string }>,
       viewerQuestions: [] as Array<{ question: string }>,
       customStarters: [] as string[],
+      pronouns: "",
+      customGreenFlags: [] as string[],
+      customSignals: [] as string[],
     };
   }
 
@@ -122,7 +125,7 @@ function buildInitialFormData(profile: Profile | null, userEmail = "") {
   return {
     firstName: profile.firstName && profile.firstName !== "New User" ? profile.firstName : "",
     age: (profile.age ?? 0) >= 18 ? profile.age! : 25,
-    dateOfBirth: "",
+    dateOfBirth: (profile as any).dateOfBirth ?? "",
     gender: profile.gender && profile.gender !== "Prefer not to say" ? profile.gender : "",
     datingPreference: profile.datingPreference && profile.datingPreference !== "Everyone" ? profile.datingPreference : "",
     location: profile.location && profile.location !== "Not set" ? profile.location : "",
@@ -141,6 +144,9 @@ function buildInitialFormData(profile: Profile | null, userEmail = "") {
     customQuestions: (profile as any).customQuestions ?? [],
     viewerQuestions: ((profile as any).viewerQuestions ?? []) as Array<{ question: string }>,
     customStarters: ((profile as any).customStarters ?? []) as string[],
+    pronouns: (profile as any).pronouns ?? "",
+    customGreenFlags: ((profile as any).customGreenFlags ?? []) as string[],
+    customSignals: ((profile as any).customSignals ?? []) as string[],
   };
 }
 
@@ -367,6 +373,21 @@ export default function Onboarding({ existingProfile = null, userEmail = "" }: O
                       <SelectItem value="trans women">{t("pref_trans_women")}</SelectItem>
                       <SelectItem value="trans men">{t("pref_trans_men")}</SelectItem>
                       <SelectItem value="everyone">{t("pref_everyone")}</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Pronouns <span className="text-muted-foreground text-xs">(optional)</span></Label>
+                  <Select value={formData.pronouns} onValueChange={v => update("pronouns", v)}>
+                    <SelectTrigger data-testid="select-pronouns"><SelectValue placeholder="Select pronouns" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="she/her">she/her</SelectItem>
+                      <SelectItem value="he/him">he/him</SelectItem>
+                      <SelectItem value="they/them">they/them</SelectItem>
+                      <SelectItem value="she/they">she/they</SelectItem>
+                      <SelectItem value="he/they">he/they</SelectItem>
+                      <SelectItem value="any pronouns">any pronouns</SelectItem>
+                      <SelectItem value="ask me">ask me</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -690,24 +711,66 @@ export default function Onboarding({ existingProfile = null, userEmail = "" }: O
             )}
 
             {step === 4 && (
-              <div className="flex flex-wrap gap-2">
-                {SIGNALS.map(signal => (
-                  <Badge
-                    key={signal}
-                    variant={formData.signals.includes(signal) ? "default" : "outline"}
-                    className={`cursor-pointer text-sm py-2 px-4 transition-all ${
-                      formData.signals.includes(signal) ? "bg-primary text-primary-foreground" : ""
-                    }`}
-                    onClick={() => toggleArrayItem("signals", signal, 5)}
-                    data-testid={`badge-signal-${signal.toLowerCase().replace(/\s+/g, "-")}`}
-                  >
-                    {formData.signals.includes(signal) && <Check className="w-3 h-3 mr-1" />}
-                    {signal}
-                  </Badge>
-                ))}
-                <p className="w-full text-xs text-muted-foreground mt-2">
-                  {formData.signals.length}/5 selected
-                </p>
+              <div className="space-y-4">
+                <div className="flex flex-wrap gap-2">
+                  {SIGNALS.map(signal => (
+                    <Badge
+                      key={signal}
+                      variant={formData.signals.includes(signal) ? "default" : "outline"}
+                      className={`cursor-pointer text-sm py-2 px-4 transition-all ${
+                        formData.signals.includes(signal) ? "bg-primary text-primary-foreground" : ""
+                      }`}
+                      onClick={() => toggleArrayItem("signals", signal, 5)}
+                      data-testid={`badge-signal-${signal.toLowerCase().replace(/\s+/g, "-")}`}
+                    >
+                      {formData.signals.includes(signal) && <Check className="w-3 h-3 mr-1" />}
+                      {signal}
+                    </Badge>
+                  ))}
+                  <p className="w-full text-xs text-muted-foreground mt-2">
+                    {formData.signals.length}/5 selected
+                  </p>
+                </div>
+                <div className="space-y-2 pt-2 border-t">
+                  <p className="text-sm font-medium">Your own trait <span className="text-muted-foreground text-xs">(optional, up to 3)</span></p>
+                  <div className="flex flex-wrap gap-2">
+                    {formData.customSignals.map((s, i) => (
+                      <Badge key={i} variant="secondary" className="gap-1.5 text-sm py-1.5 px-3">
+                        {s}
+                        <button onClick={() => setFormData(prev => ({ ...prev, customSignals: prev.customSignals.filter((_, j) => j !== i) }))} data-testid={`button-remove-custom-signal-${i}`}>
+                          <X className="w-3 h-3" />
+                        </button>
+                      </Badge>
+                    ))}
+                  </div>
+                  {formData.customSignals.length < 3 && (
+                    <div className="flex gap-2">
+                      <Input
+                        placeholder="e.g. Dog lover, Bookworm…"
+                        maxLength={40}
+                        className="text-sm"
+                        data-testid="input-custom-signal-draft"
+                        onKeyDown={e => {
+                          if (e.key === "Enter") {
+                            const val = (e.target as HTMLInputElement).value.trim();
+                            if (val) {
+                              setFormData(prev => ({ ...prev, customSignals: [...prev.customSignals, val] }));
+                              (e.target as HTMLInputElement).value = "";
+                            }
+                          }
+                        }}
+                      />
+                      <Button size="sm" variant="outline" className="shrink-0 gap-1" data-testid="button-add-custom-signal"
+                        onClick={e => {
+                          const input = (e.currentTarget.previousElementSibling as HTMLInputElement);
+                          const val = input?.value?.trim();
+                          if (val) { setFormData(prev => ({ ...prev, customSignals: [...prev.customSignals, val] })); input.value = ""; }
+                        }}>
+                        <Plus className="w-3.5 h-3.5" /> Add
+                      </Button>
+                    </div>
+                  )}
+                </div>
               </div>
             )}
 
@@ -736,24 +799,66 @@ export default function Onboarding({ existingProfile = null, userEmail = "" }: O
             )}
 
             {step === 6 && (
-              <div className="flex flex-wrap gap-2">
-                {GREEN_FLAGS.map(flag => (
-                  <Badge
-                    key={flag}
-                    variant={formData.greenFlags.includes(flag) ? "default" : "outline"}
-                    className={`cursor-pointer text-sm py-2 px-4 transition-all ${
-                      formData.greenFlags.includes(flag) ? "bg-primary text-primary-foreground" : ""
-                    }`}
-                    onClick={() => toggleArrayItem("greenFlags", flag, 4)}
-                    data-testid={`badge-flag-${flag.toLowerCase().replace(/\s+/g, "-")}`}
-                  >
-                    {formData.greenFlags.includes(flag) && <Check className="w-3 h-3 mr-1" />}
-                    {flag}
-                  </Badge>
-                ))}
-                <p className="w-full text-xs text-muted-foreground mt-2">
-                  {formData.greenFlags.length}/4 selected (minimum 3)
-                </p>
+              <div className="space-y-4">
+                <div className="flex flex-wrap gap-2">
+                  {GREEN_FLAGS.map(flag => (
+                    <Badge
+                      key={flag}
+                      variant={formData.greenFlags.includes(flag) ? "default" : "outline"}
+                      className={`cursor-pointer text-sm py-2 px-4 transition-all ${
+                        formData.greenFlags.includes(flag) ? "bg-primary text-primary-foreground" : ""
+                      }`}
+                      onClick={() => toggleArrayItem("greenFlags", flag, 4)}
+                      data-testid={`badge-flag-${flag.toLowerCase().replace(/\s+/g, "-")}`}
+                    >
+                      {formData.greenFlags.includes(flag) && <Check className="w-3 h-3 mr-1" />}
+                      {flag}
+                    </Badge>
+                  ))}
+                  <p className="w-full text-xs text-muted-foreground mt-2">
+                    {formData.greenFlags.length}/4 selected (minimum 3)
+                  </p>
+                </div>
+                <div className="space-y-2 pt-2 border-t">
+                  <p className="text-sm font-medium">Your own green flag <span className="text-muted-foreground text-xs">(optional, up to 3)</span></p>
+                  <div className="flex flex-wrap gap-2">
+                    {formData.customGreenFlags.map((f, i) => (
+                      <Badge key={i} variant="outline" className="gap-1.5 text-sm py-1.5 px-3">
+                        {f}
+                        <button onClick={() => setFormData(prev => ({ ...prev, customGreenFlags: prev.customGreenFlags.filter((_, j) => j !== i) }))} data-testid={`button-remove-custom-flag-${i}`}>
+                          <X className="w-3 h-3" />
+                        </button>
+                      </Badge>
+                    ))}
+                  </div>
+                  {formData.customGreenFlags.length < 3 && (
+                    <div className="flex gap-2">
+                      <Input
+                        placeholder="e.g. Makes me laugh, Loves cooking…"
+                        maxLength={40}
+                        className="text-sm"
+                        data-testid="input-custom-green-flag-draft"
+                        onKeyDown={e => {
+                          if (e.key === "Enter") {
+                            const val = (e.target as HTMLInputElement).value.trim();
+                            if (val) {
+                              setFormData(prev => ({ ...prev, customGreenFlags: [...prev.customGreenFlags, val] }));
+                              (e.target as HTMLInputElement).value = "";
+                            }
+                          }
+                        }}
+                      />
+                      <Button size="sm" variant="outline" className="shrink-0 gap-1" data-testid="button-add-custom-green-flag"
+                        onClick={e => {
+                          const input = (e.currentTarget.previousElementSibling as HTMLInputElement);
+                          const val = input?.value?.trim();
+                          if (val) { setFormData(prev => ({ ...prev, customGreenFlags: [...prev.customGreenFlags, val] })); input.value = ""; }
+                        }}>
+                        <Plus className="w-3.5 h-3.5" /> Add
+                      </Button>
+                    </div>
+                  )}
+                </div>
               </div>
             )}
 

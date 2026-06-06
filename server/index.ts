@@ -303,6 +303,74 @@ app.use((req, res, next) => {
     console.warn("[STARTUP] Could not verify custom_starters column:", err?.message);
   }
 
+  // Check / auto-add date_of_birth column to Supabase profiles.
+  try {
+    const { createClient: createClientDOB } = await import("@supabase/supabase-js");
+    const { setHasDateOfBirthColumn } = await import("./storage");
+    const supabaseUrl = process.env.VITE_SUPABASE_URL!;
+    const serviceKey  = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+    const adminSbDOB = createClientDOB(supabaseUrl, serviceKey);
+    const { error: checkErrDOB } = await adminSbDOB.from("profiles").select("date_of_birth").limit(1);
+    if (!checkErrDOB) {
+      setHasDateOfBirthColumn(true);
+    } else if (checkErrDOB.message?.includes("does not exist")) {
+      console.warn("[STARTUP] date_of_birth column missing — run: ALTER TABLE profiles ADD COLUMN IF NOT EXISTS date_of_birth date;");
+    }
+  } catch (err: any) {
+    console.warn("[STARTUP] Could not verify date_of_birth column:", err?.message);
+  }
+
+  // Check / auto-add pronouns column to Supabase profiles.
+  try {
+    const { createClient: createClientPN } = await import("@supabase/supabase-js");
+    const { setHasPronounsColumn } = await import("./storage");
+    const supabaseUrl = process.env.VITE_SUPABASE_URL!;
+    const serviceKey  = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+    const adminSbPN = createClientPN(supabaseUrl, serviceKey);
+    const { error: checkErrPN } = await adminSbPN.from("profiles").select("pronouns").limit(1);
+    if (!checkErrPN) {
+      setHasPronounsColumn(true);
+    } else if (checkErrPN.message?.includes("does not exist")) {
+      console.warn("[STARTUP] pronouns column missing — run: ALTER TABLE profiles ADD COLUMN IF NOT EXISTS pronouns text;");
+    }
+  } catch (err: any) {
+    console.warn("[STARTUP] Could not verify pronouns column:", err?.message);
+  }
+
+  // Check / auto-add custom_green_flags column to Supabase profiles.
+  try {
+    const { createClient: createClientCGF } = await import("@supabase/supabase-js");
+    const { setHasCustomGreenFlagsColumn } = await import("./storage");
+    const supabaseUrl = process.env.VITE_SUPABASE_URL!;
+    const serviceKey  = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+    const adminSbCGF = createClientCGF(supabaseUrl, serviceKey);
+    const { error: checkErrCGF } = await adminSbCGF.from("profiles").select("custom_green_flags").limit(1);
+    if (!checkErrCGF) {
+      setHasCustomGreenFlagsColumn(true);
+    } else if (checkErrCGF.message?.includes("does not exist")) {
+      console.warn("[STARTUP] custom_green_flags column missing — run: ALTER TABLE profiles ADD COLUMN IF NOT EXISTS custom_green_flags jsonb DEFAULT '[]'::jsonb;");
+    }
+  } catch (err: any) {
+    console.warn("[STARTUP] Could not verify custom_green_flags column:", err?.message);
+  }
+
+  // Check / auto-add custom_signals column to Supabase profiles.
+  try {
+    const { createClient: createClientCS2 } = await import("@supabase/supabase-js");
+    const { setHasCustomSignalsColumn } = await import("./storage");
+    const supabaseUrl = process.env.VITE_SUPABASE_URL!;
+    const serviceKey  = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+    const adminSbCS2 = createClientCS2(supabaseUrl, serviceKey);
+    const { error: checkErrCS2 } = await adminSbCS2.from("profiles").select("custom_signals").limit(1);
+    if (!checkErrCS2) {
+      setHasCustomSignalsColumn(true);
+    } else if (checkErrCS2.message?.includes("does not exist")) {
+      console.warn("[STARTUP] custom_signals column missing — run: ALTER TABLE profiles ADD COLUMN IF NOT EXISTS custom_signals jsonb DEFAULT '[]'::jsonb;");
+    }
+  } catch (err: any) {
+    console.warn("[STARTUP] Could not verify custom_signals column:", err?.message);
+  }
+
   await registerRoutes(httpServer, app);
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {

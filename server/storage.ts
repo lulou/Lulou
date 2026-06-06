@@ -283,6 +283,30 @@ export function setHasCustomStartersColumn(val: boolean) {
   if (val) console.log("[STORAGE] custom_starters column AVAILABLE");
 }
 
+let _hasDateOfBirthColumn = false;
+export function setHasDateOfBirthColumn(val: boolean) {
+  _hasDateOfBirthColumn = val;
+  if (val) console.log("[STORAGE] date_of_birth column AVAILABLE");
+}
+
+let _hasPronounsColumn = false;
+export function setHasPronounsColumn(val: boolean) {
+  _hasPronounsColumn = val;
+  if (val) console.log("[STORAGE] pronouns column AVAILABLE");
+}
+
+let _hasCustomGreenFlagsColumn = false;
+export function setHasCustomGreenFlagsColumn(val: boolean) {
+  _hasCustomGreenFlagsColumn = val;
+  if (val) console.log("[STORAGE] custom_green_flags column AVAILABLE");
+}
+
+let _hasCustomSignalsColumn = false;
+export function setHasCustomSignalsColumn(val: boolean) {
+  _hasCustomSignalsColumn = val;
+  if (val) console.log("[STORAGE] custom_signals column AVAILABLE");
+}
+
 let _hasIsPausedColumn = false;
 export function setHasIsPausedColumn(val: boolean) {
   _hasIsPausedColumn = val;
@@ -299,6 +323,10 @@ function getMatchProfileCols(): string {
     ...(_hasCustomQColumn ? ["custom_questions"] : []),
     ...(_hasViewerQColumn ? ["viewer_questions"] : []),
     ...(_hasCustomStartersColumn ? ["custom_starters"] : []),
+    ...(_hasDateOfBirthColumn ? ["date_of_birth"] : []),
+    ...(_hasPronounsColumn ? ["pronouns"] : []),
+    ...(_hasCustomGreenFlagsColumn ? ["custom_green_flags"] : []),
+    ...(_hasCustomSignalsColumn ? ["custom_signals"] : []),
     "location_radius", "preferred_age_min", "preferred_age_max",
     "email", "phone_number", "photo_verified", "onboarding_complete", "created_at",
   ].join(", ");
@@ -313,6 +341,10 @@ function getLikesProfileCols(): string {
     ...(_hasCustomQColumn ? ["custom_questions"] : []),
     ...(_hasViewerQColumn ? ["viewer_questions"] : []),
     ...(_hasCustomStartersColumn ? ["custom_starters"] : []),
+    ...(_hasDateOfBirthColumn ? ["date_of_birth"] : []),
+    ...(_hasPronounsColumn ? ["pronouns"] : []),
+    ...(_hasCustomGreenFlagsColumn ? ["custom_green_flags"] : []),
+    ...(_hasCustomSignalsColumn ? ["custom_signals"] : []),
     "location_radius", "preferred_age_min", "preferred_age_max",
     "email", "phone_number", "photo_verified", "onboarding_complete", "created_at",
   ].join(", ");
@@ -340,6 +372,10 @@ function mapProfile(row: any): Profile {
     customQuestions: row.custom_questions ?? [],
     viewerQuestions: row.viewer_questions ?? [],
     customStarters: row.custom_starters ?? [],
+    dateOfBirth: row.date_of_birth ?? null,
+    pronouns: row.pronouns ?? null,
+    customGreenFlags: row.custom_green_flags ?? [],
+    customSignals: row.custom_signals ?? [],
     locationRadius: row.location_radius,
     preferredAgeMin: row.preferred_age_min,
     preferredAgeMax: row.preferred_age_max,
@@ -432,9 +468,13 @@ function profileToDbRow(data: Partial<InsertProfile> & { latitude?: number | nul
   if (data.connectionStyle !== undefined) row.connection_style = data.connectionStyle;
   if (data.conversationStarters !== undefined) row.conversation_starters = data.conversationStarters;
   if (data.questions !== undefined) row.questions = data.questions;
-  if ((data as any).customQuestions !== undefined) row.custom_questions = (data as any).customQuestions;
-  if ((data as any).viewerQuestions !== undefined) row.viewer_questions = (data as any).viewerQuestions;
-  if ((data as any).customStarters !== undefined) row.custom_starters = (data as any).customStarters;
+  if (_hasCustomQColumn && (data as any).customQuestions !== undefined) row.custom_questions = (data as any).customQuestions;
+  if (_hasViewerQColumn && (data as any).viewerQuestions !== undefined) row.viewer_questions = (data as any).viewerQuestions;
+  if (_hasCustomStartersColumn && (data as any).customStarters !== undefined) row.custom_starters = (data as any).customStarters;
+  if (_hasDateOfBirthColumn && (data as any).dateOfBirth !== undefined) row.date_of_birth = (data as any).dateOfBirth || null;
+  if (_hasPronounsColumn && (data as any).pronouns !== undefined) row.pronouns = (data as any).pronouns || null;
+  if (_hasCustomGreenFlagsColumn && (data as any).customGreenFlags !== undefined) row.custom_green_flags = (data as any).customGreenFlags;
+  if (_hasCustomSignalsColumn && (data as any).customSignals !== undefined) row.custom_signals = (data as any).customSignals;
   if (data.locationRadius !== undefined) row.location_radius = data.locationRadius;
   if (data.preferredAgeMin !== undefined) row.preferred_age_min = data.preferredAgeMin;
   if (data.preferredAgeMax !== undefined) row.preferred_age_max = data.preferredAgeMax;
@@ -497,7 +537,7 @@ export class SupabaseStorage implements IStorage {
     // the distance filter in getDiscoverProfiles / getPopularProfiles can work.
     if (data.location) {
       const coords = await geocodeLocation(data.location);
-      if (coords) {
+      if (coords && _hasLatLngColumns) {
         row.latitude  = coords.lat;
         row.longitude = coords.lng;
         console.log(`[GEOCODE] "${data.location}" → lat=${coords.lat.toFixed(4)}, lng=${coords.lng.toFixed(4)}`);
@@ -723,6 +763,10 @@ export class SupabaseStorage implements IStorage {
       ...(_hasCustomQColumn ? ["custom_questions"] : []),
       ...(_hasViewerQColumn ? ["viewer_questions"] : []),
       ...(_hasCustomStartersColumn ? ["custom_starters"] : []),
+      ...(_hasDateOfBirthColumn ? ["date_of_birth"] : []),
+      ...(_hasPronounsColumn ? ["pronouns"] : []),
+      ...(_hasCustomGreenFlagsColumn ? ["custom_green_flags"] : []),
+      ...(_hasCustomSignalsColumn ? ["custom_signals"] : []),
       "location_radius", "preferred_age_min", "preferred_age_max",
       "email", "phone_number", "photo_verified", "onboarding_complete", "created_at",
     ].join(", ");
@@ -1665,6 +1709,10 @@ export class SupabaseStorage implements IStorage {
       ...(_hasCustomQColumn ? ["custom_questions"] : []),
       ...(_hasViewerQColumn ? ["viewer_questions"] : []),
       ...(_hasCustomStartersColumn ? ["custom_starters"] : []),
+      ...(_hasDateOfBirthColumn ? ["date_of_birth"] : []),
+      ...(_hasPronounsColumn ? ["pronouns"] : []),
+      ...(_hasCustomGreenFlagsColumn ? ["custom_green_flags"] : []),
+      ...(_hasCustomSignalsColumn ? ["custom_signals"] : []),
       "location_radius", "preferred_age_min", "preferred_age_max",
       "email", "phone_number", "photo_verified", "onboarding_complete", "created_at",
     ].join(", ");

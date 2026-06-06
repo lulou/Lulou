@@ -15,6 +15,7 @@ import type { Profile } from "@shared/schema";
 import { MapPin, Ruler, MessageCircle, HelpCircle, Send } from "lucide-react";
 import { LulouFlowerIcon } from "@/components/app-layout";
 import { EMPTY_PHOTOS } from "@/lib/image-utils";
+import { getStarSign, STAR_SIGN_EMOJI } from "@/lib/star-sign";
 
 // Full-width draggable photo card.
 // Uses ProfilePhotoViewer (shared): photos follow finger, spring-settle on release, gap between slides.
@@ -508,6 +509,13 @@ export default function Discover() {
   const viewerQuestions: Array<{ question: string }> = (displayProfile as any).viewerQuestions || [];
   const customStarters: string[] = (displayProfile as any).customStarters || [];
   const allStarters = [...conversationStarters, ...customStarters];
+  const customGreenFlags: string[] = (displayProfile as any).customGreenFlags || [];
+  const customSignals: string[] = (displayProfile as any).customSignals || [];
+  const allGreenFlags = [...greenFlags, ...customGreenFlags];
+  const allSignals = [...signals, ...customSignals];
+  const pronouns: string | null = (displayProfile as any).pronouns || null;
+  const dateOfBirth: string | null = (displayProfile as any).dateOfBirth || null;
+  const starSign = getStarSign(dateOfBirth);
 
   return (
     <div className="flex-1 overflow-y-auto">
@@ -594,12 +602,22 @@ export default function Discover() {
                     <MapPin className="w-3.5 h-3.5" />
                     <span data-testid="text-profile-location">{displayProfile.location}</span>
                   </div>
+                  {starSign && (
+                    <span className="text-sm text-muted-foreground" data-testid="text-profile-star-sign">
+                      {STAR_SIGN_EMOJI[starSign]} {starSign}
+                    </span>
+                  )}
+                  {pronouns && (
+                    <span className="text-xs text-muted-foreground border border-muted-foreground/30 rounded-full px-2 py-0.5" data-testid="text-profile-pronouns">
+                      {pronouns}
+                    </span>
+                  )}
                 </div>
 
                 <div className="space-y-2">
                   <p className="text-xs font-medium tracking-wider uppercase text-primary">{t("personality")}</p>
                   <DragScrollRow>
-                    {signals.map(signal => (
+                    {allSignals.map(signal => (
                       <Badge key={signal} variant="secondary" className="text-sm py-1.5 px-3 shrink-0 no-default-active-elevate" data-testid={`badge-signal-${signal}`}>
                         {signal}
                       </Badge>
@@ -615,7 +633,7 @@ export default function Discover() {
                 <div className="space-y-2">
                   <p className="text-xs font-medium tracking-wider uppercase text-primary">{t("green_flags_label")}</p>
                   <DragScrollRow>
-                    {greenFlags.map(flag => (
+                    {allGreenFlags.map(flag => (
                       <Badge key={flag} variant="outline" className="text-sm py-1.5 px-3 shrink-0 no-default-active-elevate" data-testid={`badge-flag-${flag}`}>
                         {flag}
                       </Badge>
