@@ -241,6 +241,11 @@ export default function Discover() {
   const [accumulatedProfiles, setAccumulatedProfiles] = useState<Profile[]>([]);
   const refetchInProgress = useRef(false);
 
+  // Exit animation state — true while the current card is animating out
+  const [isExiting, setIsExiting] = useState(false);
+  const exitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (exitTimerRef.current) clearTimeout(exitTimerRef.current); }, []);
+
   // Track how long the loading skeleton has been visible so we can show a
   // "still loading" fallback after 8 seconds instead of a blank skeleton forever.
   const [loadingTooLong, setLoadingTooLong] = useState(false);
@@ -396,9 +401,20 @@ export default function Discover() {
     },
   });
 
+  // Play the bubble-exit animation, then fire the interaction after it completes.
+  // Mirrors the Intention Wheel's card-disperse timing (280 ms matches discoverCardExit).
+  const triggerInteract = useCallback((type: "open" | "close") => {
+    if (exitTimerRef.current) clearTimeout(exitTimerRef.current);
+    setIsExiting(true);
+    exitTimerRef.current = setTimeout(() => {
+      setIsExiting(false);
+      interact.mutate(type);
+    }, 280);
+  }, [interact.mutate]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Stable callbacks — prevent SlideCards / PhotoBubbles from re-rendering
   // when parent mutation state changes but these handlers haven't changed.
-  const handleOpen = useCallback(() => interact.mutate("open"), [interact.mutate]);
+  const handleOpen = useCallback(() => triggerInteract("open"), [triggerInteract]);
 
   const handleReply = useCallback((_promptText: string, _reply: string) => {
     toast({
@@ -545,7 +561,11 @@ export default function Discover() {
         */}
         <div
           key={displayProfile.id}
-          style={{ animation: "fadeIn 0.12s ease both" }}
+          style={{
+            animation: isExiting
+              ? "discoverCardExit 0.28s cubic-bezier(0.4, 0, 0.2, 1) both"
+              : "discoverCardEnter 0.48s cubic-bezier(0.16, 1, 0.3, 1) both",
+          }}
           data-testid="profile-container"
         >
             <Card className="overflow-hidden" data-testid="card-profile">
@@ -553,7 +573,7 @@ export default function Discover() {
                 photos={photos}
                 name={displayProfile.firstName}
                 onOpen={handleOpen}
-                isDisabled={interact.isPending}
+                isDisabled={interact.isPending || isExiting}
                 isPhotosLoading={isPhotosLoading}
               />
 
@@ -589,7 +609,7 @@ export default function Discover() {
                 )}
 
                 <div className="flex items-baseline gap-2 flex-wrap">
-                  <h2 className="font-serif text-2xl font-bold" data-testid="text-profile-name">
+                  <h2 className="font-serif text-2xl font-bold" style={{ animation: "discoverNameEnter 0.45s 0.22s ease both" }} data-testid="text-profile-name">
                     {displayProfile.firstName}, {displayProfile.age}
                   </h2>
                   {displayProfile.height && (
@@ -652,8 +672,8 @@ export default function Discover() {
 
       <button
         className="fixed bottom-20 right-4 z-40 w-12 h-12 rounded-full border border-muted-foreground/20 bg-background/90 backdrop-blur-sm flex items-center justify-center text-lg shadow-lg transition-all active:scale-90 hover:border-muted-foreground/40 hover:shadow-xl"
-        onClick={() => interact.mutate("close")}
-        disabled={interact.isPending}
+        onClick={() => triggerInteract("close")}
+        disabled={interact.isPending || isExiting}
         data-testid="button-close"
       >
         <span role="img" aria-label="Close">🌙</span>
