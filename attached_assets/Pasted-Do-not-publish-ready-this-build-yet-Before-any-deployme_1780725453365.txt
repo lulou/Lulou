@@ -1,0 +1,73 @@
+Do not publish-ready this build yet.
+
+Before any deployment, provide a verification report for the fixes you just made.
+
+Report the following:
+
+Discovery vs Intention Wheel
+Exact root cause of Discovery being empty while Intention Wheel had users.
+Exact file(s) changed.
+How it was fixed.
+Why the fix will not break Intention Wheel.
+Gender / preference matching
+Test case:
+Male
+Interested in Women
+Explain:
+
+Why males were appearing.
+Exact file(s) changed.
+How Discovery and Intention Wheel now filter correctly.
+Custom conversation starters
+Confirm onboarding saves them.
+Confirm they are stored in the database.
+Confirm they are returned by profile APIs.
+Confirm they display on profiles.
+Show exact file(s) changed.
+Viewer questions
+Confirm onboarding saves them.
+Confirm they are stored in the database.
+Confirm they are returned by profile APIs.
+Confirm they display on profiles.
+Show exact file(s) changed.
+Date of birth
+Confirm DOB saves correctly.
+Confirm DOB editing works.
+Confirm age calculation is correct everywhere.
+18+ enforcement
+Explain where account creation is blocked for under-18 users.
+Show the validation logic used.
+Show the user-facing error message.
+Email verification
+Confirm whether email verification is enabled.
+Confirm verification emails are sent.
+Confirm unverified users cannot activate accounts.
+Report any Supabase settings required.
+Star sign
+Confirm star sign is calculated from DOB.
+Confirm where it is displayed.
+Show file(s) changed.
+Pronouns
+Confirm pronoun selection exists.
+Confirm where users select it.
+Confirm where it displays on profiles.
+Custom green flags and personality traits
+Confirm users can add their own.
+Confirm add/edit/delete works.
+Confirm they display on profiles.
+Regression check
+Confirm that your changes did NOT break:
+Likes
+Discovery
+Intention Wheel
+Connections
+Chat
+Calls
+Profile save
+Onboarding
+Finally provide:
+
+Exact files changed
+Whether database changes were required
+Any SQL that still needs to be run manually
+Do not make further changes. Report only.
