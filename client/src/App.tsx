@@ -607,23 +607,7 @@ function CallDetectors({ userId }: { userId: string }) {
 
       // Only block calls that were ringing BEFORE this browser session started.
       const callStartMs = new Date(m.callStartedAt).getTime();
-      if (callStartMs >= APP_LOAD_TIME) {
-        // [DIAG_RING] A call with callStartedAt >= APP_LOAD_TIME is NOT cancelled
-        // by the sweep. If this is happening right after a refresh with a dead
-        // call, it means the optimistic-patch wrote callStartedAt=NOW for a
-        // call whose real DB timestamp is < APP_LOAD_TIME. The sweep sees the
-        // patched (future) timestamp and skips it.
-        console.log("[DIAG_RING] SWEEP_SKIP_POSTLOAD — call appears post-load, sweep leaving it alone", {
-          matchId: m.id,
-          callSessionId: m.callSessionId?.slice(0, 8),
-          callStartMs,
-          APP_LOAD_TIME,
-          delta_ms: callStartMs - APP_LOAD_TIME,
-          isOptimisticPatch: callStartMs - APP_LOAD_TIME < 30_000,
-          note: "delta near-zero or positive = likely written by optimistic rering patch (callStartedAt=NOW)",
-        });
-        continue;
-      }
+      if (callStartMs >= APP_LOAD_TIME) continue;
 
       const ageMs = Date.now() - callStartMs;
       const isCallerSide = m.callInitiatorId === userId;
@@ -662,26 +646,38 @@ function CallDetectors({ userId }: { userId: string }) {
     }
 
     if (!startupDoneRef.current) {
+      // ── Cache-vs-network guard ─────────────────────────────────────────────
+      // Root cause of "ring on refresh" bug:
+      //   TanStack Query can serve cached data instantly while a network fetch
+      //   is still in flight. If the previous session called clearCallFromCache
+      //   the cache shows callStartedAt=null (clean). The sweep finds nothing
+      //   stale and marks itself complete. Then a Realtime call:ring rering
+      //   arrives before the network response, passes all guards (sweep says
+      //   done, session not previously cancelled), arms the session, and writes
+      //   callStartedAt=NOW via optimistic patch — bypassing the APP_LOAD_TIME
+      //   guard that would have caught the real (< APP_LOAD_TIME) value. The
+      //   ring fires on the user's first gesture via the audio warm-up path.
+      //
+      // Fix: only mark the sweep complete when no network fetch is pending.
+      //   If fetchStatus==="fetching" the cache hit happened; defer to the
+      //   next effect run (which fires when the network response arrives and
+      //   updates `matches`). Pre-load stale calls are still cancelled in the
+      //   loop above — only the sweep-complete signal is held back.
+      const qs = qc.getQueryState(["/api/matches"]);
+      const networkStillPending = qs?.fetchStatus === "fetching";
+      if (networkStillPending) {
+        console.log("[CALL_BOOT] startup sweep deferred — network fetch still pending (cache hit)", {
+          matchCount: matches.length,
+          fetchStatus: qs?.fetchStatus,
+        });
+        return;
+      }
       startupDoneRef.current = true;
       setStartupVerified(true);
       // Allow incoming call:ring events to arm sessions now that we have
-      // confirmed the first /api/matches response. Any pre-load stale calls
-      // have been marked startup-cancelled above, so rerings that arrive
+      // confirmed the first /api/matches network response. Any pre-load stale
+      // calls have been marked startup-cancelled above, so rerings that arrive
       // from this point are safe to process.
-      //
-      // [DIAG_RING] SWEEP_MARKED_COMPLETE — This is the critical moment.
-      // If this fires on CACHED data (not network), a rering can arrive
-      // before the network response and arm a session whose real callStartedAt
-      // (< APP_LOAD_TIME) would have been blocked by the sweep.
-      const qs = qc.getQueryState(["/api/matches"]);
-      console.log("[DIAG_RING] SWEEP_MARKED_COMPLETE", {
-        hadStale,
-        matchCount: matches.length,
-        queryFetchStatus: qs?.fetchStatus,   // "fetching" = network still in-flight (cache served first)
-        queryDataUpdatedAt: qs?.dataUpdatedAt,
-        isCacheHit: qs?.fetchStatus === "fetching",
-        note: "if fetchStatus=fetching: sweep completed on CACHED data — rerings arriving before network response can bypass pre-load guard",
-      });
       markStartupSweepComplete();
     }
   }, [matches, userId, qc]);

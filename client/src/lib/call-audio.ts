@@ -387,13 +387,6 @@ export function startIncomingRingtone(sessionId?: string | null): void {
       });
       return;
     }
-    console.log("[DIAG_RING] ALL_GUARDS_PASSED — ring is starting", {
-      sessionId: sessionId.slice(0, 8),
-      audioAlreadyUnlocked: _audioUnlocked,
-      willPlayImmediately: _audioUnlocked,
-      willWaitForFirstGesture: !_audioUnlocked,
-      note: "if willWaitForFirstGesture=true, ring will play on next tap/click via _doUnlock warm-up",
-    });
     console.log("[RING_DEBUG] verified live call trigger", {
       sessionId: sessionId.slice(0, 8),
       source: "startIncomingRingtone",
