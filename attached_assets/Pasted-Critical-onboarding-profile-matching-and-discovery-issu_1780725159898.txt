@@ -1,0 +1,110 @@
+Critical onboarding, profile, matching and discovery issues.
+
+Do not work on photo drag, calls, ringtone, chat, payments, or unrelated UI.
+
+Investigate and fix the following:
+
+Date of birth
+DOB must save correctly.
+Users must be able to edit DOB correctly.
+Age calculation must be accurate everywhere.
+Minimum age requirement
+Lulou is strictly 18+.
+Make this clear before account creation.
+If DOB indicates under 18, account creation must be blocked.
+Show a clear error message explaining that users must be 18 or older.
+Email verification
+New users were able to create accounts without verifying email.
+Verify whether Supabase email confirmation is enabled.
+Require email verification before account activation.
+Ensure verification emails are actually sent.
+Report the exact configuration and code changes required.
+Gender and preference matching bug
+Test case:
+
+User selected Male.
+Interested in Women.
+Discovery and Intention Wheel still showed males.
+Find the exact filtering failure.
+Confirm whether the bug is:
+
+onboarding data not saving,
+profile data not saving,
+discovery query,
+intention wheel query,
+matching logic,
+cached profile data.
+Fix both Discovery and Intention Wheel.
+Discovery is empty
+Discovery currently shows no users.
+Intention Wheel is populated.
+Diagnose why the two systems return different results.
+Compare:
+
+Discovery API response
+Intention Wheel API response
+filters
+exclusions
+gender filtering
+distance filtering
+liked/matched exclusions
+profile completeness requirements
+Report exact root cause and fix.
+Custom conversation starters not appearing
+User created custom conversation starters during onboarding.
+They do not appear on the profile.
+Trace:
+
+onboarding save
+database storage
+profile retrieval
+profile display
+Fix the full path.
+Viewer questions not appearing
+User created custom questions for profile viewers to answer.
+They do not appear on the profile.
+Trace:
+
+onboarding save
+database storage
+profile retrieval
+profile display
+Fix the full path.
+Custom green flags
+Add ability for users to create their own green flags.
+Requirements:
+Keep existing preset green flags.
+Add custom green flags.
+Add/edit/delete.
+Display on profiles.
+Custom personality traits
+Add ability for users to create their own personality traits.
+Requirements:
+Keep existing preset traits.
+Add custom traits.
+Add/edit/delete.
+Display on profiles.
+Star sign
+Automatically calculate zodiac/star sign from DOB.
+Display on user profile.
+Store or compute consistently.
+Visible to other users.
+Pronouns
+Add optional pronoun selection.
+Examples:
+
+He/Him
+She/Her
+They/Them
+He/They
+She/They
+Custom
+Display on profile for other users.
+Before making broad changes:
+Report:
+
+Exact root cause for Discovery being empty.
+Exact root cause for gender/preference mismatch.
+Exact root cause for missing custom starters/questions.
+Which database changes are required.
+Which files will be changed.
