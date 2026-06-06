@@ -47,6 +47,11 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
 
   const [emblaRef, emblaApi] = useEmblaCarousel({ loop: false });
   const [selectedIndex, setSelectedIndex] = useState(0);
+  // Incremented each time a photo transition fires; drives the animation key.
+  const [animKey, setAnimKey] = useState(0);
+  const directionRef = useRef<"fwd" | "bwd">("fwd");
+  // Suppresses the bubble animation on profile-switch resets (scrollTo(0,instant)).
+  const suppressNextAnimRef = useRef(false);
 
   // Track the Embla root DOM node so we can attach non-passive listeners.
   // emblaRef is a callback ref; we wrap it to also capture the node ourselves.
@@ -110,10 +115,19 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
   // effect re-runs after Embla initialises and we know the node is live.
   }, [emblaApi]);
 
-  // ── Sync dot indicator ─────────────────────────────────────────────────────
+  // ── Sync dot indicator + bubble animation on photo change ─────────────────
   useEffect(() => {
     if (!emblaApi) return;
-    const onSelect = () => setSelectedIndex(emblaApi.selectedScrollSnap());
+    const onSelect = () => {
+      const newIdx = emblaApi.selectedScrollSnap();
+      const oldIdx = emblaApi.previousScrollSnap();
+      directionRef.current = newIdx >= oldIdx ? "fwd" : "bwd";
+      setSelectedIndex(newIdx);
+      if (!suppressNextAnimRef.current) {
+        setAnimKey(k => k + 1);
+      }
+      suppressNextAnimRef.current = false;
+    };
     emblaApi.on("select", onSelect);
     onSelect();
     return () => { emblaApi.off("select", onSelect); };
@@ -122,6 +136,9 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
   // ── Reset carousel when a new profile is shown ────────────────────────────
   useEffect(() => {
     if (!emblaApi) return;
+    // Mark as reset so the next select event doesn't trigger a bubble animation
+    // (profile switches should not play the photo enter effect).
+    suppressNextAnimRef.current = true;
     emblaApi.reInit({ loop: false });
     emblaApi.scrollTo(0, true);
     setSelectedIndex(0);
@@ -197,28 +214,46 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
               style={{ flex: "0 0 100%", minWidth: 0, height: "100%" }}
               data-testid={`carousel-slide-${i}`}
             >
-              <img
-                src={photo}
-                alt={`Photo ${i + 1}`}
-                loading={i === selectedIndex ? "eager" : "lazy"}
-                decoding="async"
-                draggable={false}
+              {/*
+                Inner wrapper keyed on animKey so React re-mounts it whenever
+                the active photo changes, restarting the CSS animation cleanly.
+                Only the selected slide gets a new key; others stay stable.
+                This div never affects Embla's layout (it fills its parent exactly).
+              */}
+              <div
+                key={i === selectedIndex ? `a${animKey}` : `s${i}`}
                 style={{
                   width: "100%",
                   height: "100%",
-                  objectFit: "cover",
-                  objectPosition: "center top",
-                  opacity: decodedPhotos.has(photo) ? 1 : 0,
-                  transition: "opacity 0.08s ease",
-                  display: "block",
-                  userSelect: "none",
+                  animation:
+                    i === selectedIndex && animKey > 0
+                      ? `${directionRef.current === "fwd" ? "photoEnterRight" : "photoEnterLeft"} 0.42s cubic-bezier(0.16, 1, 0.3, 1) both`
+                      : undefined,
                 }}
-                onLoad={e => {
-                  decodedPhotos.add(photo);
-                  (e.currentTarget as HTMLImageElement).style.opacity = "1";
-                }}
-                data-testid={`img-carousel-photo-${i}`}
-              />
+              >
+                <img
+                  src={photo}
+                  alt={`Photo ${i + 1}`}
+                  loading={i === selectedIndex ? "eager" : "lazy"}
+                  decoding="async"
+                  draggable={false}
+                  style={{
+                    width: "100%",
+                    height: "100%",
+                    objectFit: "cover",
+                    objectPosition: "center top",
+                    opacity: decodedPhotos.has(photo) ? 1 : 0,
+                    transition: "opacity 0.08s ease",
+                    display: "block",
+                    userSelect: "none",
+                  }}
+                  onLoad={e => {
+                    decodedPhotos.add(photo);
+                    (e.currentTarget as HTMLImageElement).style.opacity = "1";
+                  }}
+                  data-testid={`img-carousel-photo-${i}`}
+                />
+              </div>
             </div>
           ))}
         </div>
