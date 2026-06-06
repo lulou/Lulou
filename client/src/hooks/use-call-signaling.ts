@@ -113,6 +113,21 @@ export function useCallSignaling(matchIds: string[], userId: string) {
           //   block below.
           const cachedMatches = queryClient.getQueryData<any[]>(["/api/matches"]);
           const cachedCallStartAt = cachedMatches?.find((m: any) => m.id === matchId)?.callStartedAt;
+          // ── [DIAG_RING] Guard-state snapshot ──────────────────────────────────
+          // This log appears for EVERY rering. On a clean-cache refresh the key
+          // field is cachedCallStartAt: null — that causes Strategy A to be
+          // skipped, which is one link in the ring-on-refresh chain.
+          console.log("[DIAG_RING] call:ring guard-states", {
+            matchId,
+            callSessionId: ringSessionId?.slice(0, 8),
+            cachedCallStartAt: cachedCallStartAt ?? null,
+            cachedCallStartAtIsNull: cachedCallStartAt == null,
+            sweepComplete: isStartupSweepComplete(),
+            isStartupCancelledOnly: isStartupCancelledOnly(matchId, ringSessionId),
+            isCancelled: isCallSessionCancelled(matchId, ringSessionId),
+            APP_LOAD_TIME,
+            nowMs: Date.now(),
+          });
           if (cachedCallStartAt) {
             const callStartMs = new Date(cachedCallStartAt).getTime();
             if (callStartMs > 0 && callStartMs < APP_LOAD_TIME) {
@@ -177,6 +192,12 @@ export function useCallSignaling(matchIds: string[], userId: string) {
             // session is confirmed active. Only armed sessions may trigger overlays
             // or audio — DB-polled data alone cannot arm a session.
             armCallSession(ringSessionId);
+            console.log("[DIAG_RING] SESSION_ARMED — all guards passed, session armed by Realtime call:ring", {
+              matchId,
+              callSessionId: ringSessionId?.slice(0, 8),
+              sweepCompleteAtArmTime: isStartupSweepComplete(),
+              note: "if cachedCallStartAt was null above, optimistic patch is about to write callStartedAt=NOW (>= APP_LOAD_TIME), bypassing sweep APP_LOAD_TIME check",
+            });
             console.log("[RING_DEBUG] verified live call trigger — armed by Realtime call:ring", {
               matchId,
               sessionId: ringSessionId?.slice(0, 8) ?? "none",

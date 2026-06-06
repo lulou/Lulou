@@ -607,7 +607,23 @@ function CallDetectors({ userId }: { userId: string }) {
 
       // Only block calls that were ringing BEFORE this browser session started.
       const callStartMs = new Date(m.callStartedAt).getTime();
-      if (callStartMs >= APP_LOAD_TIME) continue;
+      if (callStartMs >= APP_LOAD_TIME) {
+        // [DIAG_RING] A call with callStartedAt >= APP_LOAD_TIME is NOT cancelled
+        // by the sweep. If this is happening right after a refresh with a dead
+        // call, it means the optimistic-patch wrote callStartedAt=NOW for a
+        // call whose real DB timestamp is < APP_LOAD_TIME. The sweep sees the
+        // patched (future) timestamp and skips it.
+        console.log("[DIAG_RING] SWEEP_SKIP_POSTLOAD — call appears post-load, sweep leaving it alone", {
+          matchId: m.id,
+          callSessionId: m.callSessionId?.slice(0, 8),
+          callStartMs,
+          APP_LOAD_TIME,
+          delta_ms: callStartMs - APP_LOAD_TIME,
+          isOptimisticPatch: callStartMs - APP_LOAD_TIME < 30_000,
+          note: "delta near-zero or positive = likely written by optimistic rering patch (callStartedAt=NOW)",
+        });
+        continue;
+      }
 
       const ageMs = Date.now() - callStartMs;
       const isCallerSide = m.callInitiatorId === userId;
@@ -652,6 +668,20 @@ function CallDetectors({ userId }: { userId: string }) {
       // confirmed the first /api/matches response. Any pre-load stale calls
       // have been marked startup-cancelled above, so rerings that arrive
       // from this point are safe to process.
+      //
+      // [DIAG_RING] SWEEP_MARKED_COMPLETE — This is the critical moment.
+      // If this fires on CACHED data (not network), a rering can arrive
+      // before the network response and arm a session whose real callStartedAt
+      // (< APP_LOAD_TIME) would have been blocked by the sweep.
+      const qs = qc.getQueryState(["/api/matches"]);
+      console.log("[DIAG_RING] SWEEP_MARKED_COMPLETE", {
+        hadStale,
+        matchCount: matches.length,
+        queryFetchStatus: qs?.fetchStatus,   // "fetching" = network still in-flight (cache served first)
+        queryDataUpdatedAt: qs?.dataUpdatedAt,
+        isCacheHit: qs?.fetchStatus === "fetching",
+        note: "if fetchStatus=fetching: sweep completed on CACHED data — rerings arriving before network response can bypass pre-load guard",
+      });
       markStartupSweepComplete();
     }
   }, [matches, userId, qc]);
