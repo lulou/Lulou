@@ -459,46 +459,8 @@ export default function Onboarding({ existingProfile = null, userEmail = "" }: O
 
             {step === 2 && (
               <div className="space-y-4">
-                <div className="flex flex-wrap gap-2">
-                  {CONVERSATION_STARTERS.map(starter => {
-                    const selected = formData.conversationStarters.includes(starter);
-                    return (
-                      <Badge
-                        key={starter}
-                        variant={selected ? "default" : "outline"}
-                        className={`cursor-pointer text-sm py-2 px-4 transition-all ${
-                          selected ? "bg-primary text-primary-foreground" : ""
-                        }`}
-                        onClick={() => toggleArrayItem("conversationStarters", starter, 3)}
-                        data-testid={`badge-starter-${starter.slice(0, 20).toLowerCase().replace(/\s+/g, "-")}`}
-                      >
-                        {selected && <Check className="w-3 h-3 mr-1" />}
-                        {starter}
-                      </Badge>
-                    );
-                  })}
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  {formData.conversationStarters.length}/3 selected (min 2)
-                </p>
-                {formData.conversationStarters.map(starter => (
-                  <div key={starter} className="space-y-1.5">
-                    <p className="text-sm font-medium text-primary">{starter}</p>
-                    <Input
-                      value={formData.starterAnswers[starter] || ""}
-                      onChange={e => setFormData(prev => ({
-                        ...prev,
-                        starterAnswers: { ...prev.starterAnswers, [starter]: e.target.value }
-                      }))}
-                      placeholder="Your answer..."
-                      maxLength={200}
-                      data-testid={`input-starter-answer-${starter.slice(0, 20).toLowerCase().replace(/\s+/g, "-")}`}
-                    />
-                  </div>
-                ))}
-
                 {/* ── Custom conversation starters ─────────────────── */}
-                <div className="pt-3 border-t space-y-2">
+                <div className="space-y-2 pb-3 border-b">
                   <p className="text-sm font-semibold text-foreground">Write your own conversation starter</p>
                   <p className="text-xs text-muted-foreground">Add your own prompts for people to respond to — separate from Lulou's suggestions.</p>
                   {formData.customStarters.map((s, i) => (
@@ -546,39 +508,51 @@ export default function Onboarding({ existingProfile = null, userEmail = "" }: O
                     </div>
                   )}
                 </div>
+                <div className="flex flex-wrap gap-2">
+                  {CONVERSATION_STARTERS.map(starter => {
+                    const selected = formData.conversationStarters.includes(starter);
+                    return (
+                      <Badge
+                        key={starter}
+                        variant={selected ? "default" : "outline"}
+                        className={`cursor-pointer text-sm py-2 px-4 transition-all ${
+                          selected ? "bg-primary text-primary-foreground" : ""
+                        }`}
+                        onClick={() => toggleArrayItem("conversationStarters", starter, 3)}
+                        data-testid={`badge-starter-${starter.slice(0, 20).toLowerCase().replace(/\s+/g, "-")}`}
+                      >
+                        {selected && <Check className="w-3 h-3 mr-1" />}
+                        {starter}
+                      </Badge>
+                    );
+                  })}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {formData.conversationStarters.length}/3 selected (min 2)
+                </p>
+                {formData.conversationStarters.map(starter => (
+                  <div key={starter} className="space-y-1.5">
+                    <p className="text-sm font-medium text-primary">{starter}</p>
+                    <Input
+                      value={formData.starterAnswers[starter] || ""}
+                      onChange={e => setFormData(prev => ({
+                        ...prev,
+                        starterAnswers: { ...prev.starterAnswers, [starter]: e.target.value }
+                      }))}
+                      placeholder="Your answer..."
+                      maxLength={200}
+                      data-testid={`input-starter-answer-${starter.slice(0, 20).toLowerCase().replace(/\s+/g, "-")}`}
+                    />
+                  </div>
+                ))}
+
               </div>
             )}
 
             {step === 3 && (
               <div className="space-y-3">
-                {PROFILE_QUESTIONS.map(question => {
-                  const selected = formData.questions.includes(question);
-                  return (
-                    <Card
-                      key={question}
-                      className={`p-4 cursor-pointer transition-all hover-elevate ${
-                        selected ? "border-primary bg-primary/5" : ""
-                      }`}
-                      onClick={() => toggleArrayItem("questions", question, 3)}
-                      data-testid={`card-question-${question.slice(0, 25).toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-sm">{question}</span>
-                        {selected && (
-                          <div className="w-5 h-5 rounded-full bg-primary flex items-center justify-center shrink-0">
-                            <Check className="w-3 h-3 text-primary-foreground" />
-                          </div>
-                        )}
-                      </div>
-                    </Card>
-                  );
-                })}
-                <p className="text-xs text-muted-foreground">
-                  {formData.questions.length}/3 selected (min 2)
-                </p>
-
                 {/* ── Questions for viewers to answer ─────────────────── */}
-                <div className="pt-3 border-t space-y-2">
+                <div className="space-y-2 pb-3 border-b">
                   <p className="text-sm font-semibold text-foreground">Write a question for people viewing your profile</p>
                   <p className="text-xs text-muted-foreground">Visitors can answer this — great for sparking real conversations.</p>
                   {formData.viewerQuestions.map((vq, i) => (
@@ -626,6 +600,31 @@ export default function Onboarding({ existingProfile = null, userEmail = "" }: O
                     </div>
                   )}
                 </div>
+                {PROFILE_QUESTIONS.map(question => {
+                  const selected = formData.questions.includes(question);
+                  return (
+                    <Card
+                      key={question}
+                      className={`p-4 cursor-pointer transition-all hover-elevate ${
+                        selected ? "border-primary bg-primary/5" : ""
+                      }`}
+                      onClick={() => toggleArrayItem("questions", question, 3)}
+                      data-testid={`card-question-${question.slice(0, 25).toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-sm">{question}</span>
+                        {selected && (
+                          <div className="w-5 h-5 rounded-full bg-primary flex items-center justify-center shrink-0">
+                            <Check className="w-3 h-3 text-primary-foreground" />
+                          </div>
+                        )}
+                      </div>
+                    </Card>
+                  );
+                })}
+                <p className="text-xs text-muted-foreground">
+                  {formData.questions.length}/3 selected (min 2)
+                </p>
 
                 {/* ── Custom questions ─────────────────────────────────── */}
                 <div className="pt-2 space-y-2">
