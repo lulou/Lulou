@@ -1757,10 +1757,6 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
   return (
     <div className="flex h-full min-h-0 overflow-hidden" data-testid={`card-match-${match.id}`}>
       <div className="flex flex-col flex-1 min-w-0 min-h-0">
-      {/* PROOF LABEL — remove after verification */}
-      <div style={{ background: "#22c55e", color: "#fff", fontWeight: 900, fontSize: 11, textAlign: "center", padding: "3px 8px", letterSpacing: "0.08em" }}>
-        LIVE FIX ACTIVE — PHONE ICON
-      </div>
       <div className="flex items-center gap-3 px-4 py-3 border-b bg-background/95 backdrop-blur-sm sticky top-0 z-10">
         <Button
           size="icon"

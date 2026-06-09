@@ -1059,10 +1059,6 @@ export default function SettingsPage() {
             <SheetTitle className="font-serif">{t("lulou_extras")}</SheetTitle>
           </SheetHeader>
           <div className="flex-1 overflow-y-auto px-5 pb-8 pt-4 space-y-4">
-            {/* PROOF LABEL — remove after verification */}
-            <div style={{ background: "#22c55e", color: "#fff", fontWeight: 900, fontSize: 11, textAlign: "center", padding: "4px 8px", borderRadius: 6, letterSpacing: "0.08em" }}>
-              LIVE FIX ACTIVE — EXTRAS REDESIGN
-            </div>
             {/* Membership */}
             <div className="rounded-2xl bg-gradient-to-br from-primary/10 to-primary/5 border border-primary/20 p-5">
               <div className="flex items-center gap-2 mb-1">
