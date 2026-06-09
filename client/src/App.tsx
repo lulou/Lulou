@@ -54,7 +54,8 @@ import { isArmedSession, armCallSession, disarmCallSession, clearAllArmedSession
 import { markStartupSweepComplete, resetStartupSweep } from "@/lib/startup-sweep";
 import { markCallSessionCancelled, markStartupCancelledSession, isCallSessionCancelled, clearCancelledSession, setOnCancelledSessionChange } from "@/lib/cancelled-calls";
 import type { Profile, Match } from "@shared/schema";
-import { Loader2 } from "lucide-react";
+import { Loader2, Mail, CheckCircle } from "lucide-react";
+import { supabase } from "@/lib/supabase";
 
 // ── Global debug store ───────────────────────────────────────────────────────
 // Imported from a shared module so landing.tsx and use-auth.ts can also write
@@ -1249,6 +1250,78 @@ async function checkProfileExists(
 // where the request stalls without triggering a TCP reset.
 const SPINNER_TIMEOUT_MS = 12_000;
 
+// ── Email verification gate ──────────────────────────────────────────────────
+// Standalone component so it can use useState without violating the rules
+// of hooks (hooks can't be called conditionally inside AppContent).
+function VerifyEmailGate({ email, onSignOut }: { email: string | undefined; onSignOut: () => void }) {
+  const [resendLoading, setResendLoading] = useState(false);
+  const [resendSent, setResendSent] = useState(false);
+  const [resendError, setResendError] = useState<string | null>(null);
+
+  const handleResend = useCallback(async () => {
+    if (!email) return;
+    setResendLoading(true);
+    setResendError(null);
+    try {
+      const { error } = await supabase.auth.resend({ type: "signup", email });
+      if (error) throw error;
+      setResendSent(true);
+    } catch (err: any) {
+      setResendError(err?.message ?? "Could not resend — try again.");
+    } finally {
+      setResendLoading(false);
+    }
+  }, [email]);
+
+  return (
+    <div className="min-h-screen bg-background flex flex-col items-center justify-center px-6 gap-8" data-testid="screen-verify-email-gate">
+      <div className="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center">
+        <Mail className="w-6 h-6 text-primary" />
+      </div>
+      <div className="w-full max-w-sm space-y-3 text-center">
+        <h1 className="font-serif text-2xl font-bold">Verify your email</h1>
+        <p className="text-sm text-muted-foreground leading-relaxed">
+          We sent a confirmation link to{" "}
+          <strong className="text-foreground">{email}</strong>.
+          Click the link to activate your account.
+        </p>
+        <p className="text-xs text-muted-foreground">Already confirmed? Sign out and sign back in.</p>
+      </div>
+      <div className="w-full max-w-sm space-y-3">
+        {resendSent ? (
+          <div className="flex items-center gap-2 justify-center text-sm text-primary py-2">
+            <CheckCircle className="w-4 h-4" />
+            Confirmation email resent — check your inbox.
+          </div>
+        ) : (
+          <button
+            className="w-full py-2.5 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-60 flex items-center justify-center gap-2"
+            onClick={handleResend}
+            disabled={resendLoading || !email}
+            data-testid="button-resend-verify-gate"
+          >
+            {resendLoading ? (
+              <><Loader2 className="w-4 h-4 animate-spin" /> Resending…</>
+            ) : (
+              "Resend confirmation email"
+            )}
+          </button>
+        )}
+        {resendError && (
+          <p className="text-xs text-destructive text-center">{resendError}</p>
+        )}
+        <button
+          className="w-full py-2.5 rounded-md border text-sm font-medium hover:bg-muted transition-colors"
+          onClick={onSignOut}
+          data-testid="button-signout-verify-gate"
+        >
+          Sign out
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function AppContent() {
   const [location] = useLocation();
 
@@ -1492,29 +1565,7 @@ function AppContent() {
   // the user clicks the confirmation link sent by Supabase on sign-up.
   if (!user.email_confirmed_at) {
     console.log("[SETUP] FINAL_APP_GATE: email_not_confirmed — showing verification screen", { userId: user.id });
-    return (
-      <div className="min-h-screen bg-background flex flex-col items-center justify-center px-6 gap-8" data-testid="screen-verify-email-gate">
-        <div className="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center">
-          <Loader2 className="w-6 h-6 text-primary" />
-        </div>
-        <div className="w-full max-w-sm space-y-3 text-center">
-          <h1 className="font-serif text-2xl font-bold">Verify your email</h1>
-          <p className="text-sm text-muted-foreground leading-relaxed">
-            We sent a confirmation link to{" "}
-            <strong className="text-foreground">{user.email}</strong>.
-            Click the link to activate your account.
-          </p>
-          <p className="text-xs text-muted-foreground">Already confirmed? Sign out and sign back in.</p>
-        </div>
-        <button
-          className="w-full max-w-sm py-2.5 rounded-md border text-sm font-medium hover:bg-muted transition-colors"
-          onClick={logout}
-          data-testid="button-signout-verify-gate"
-        >
-          Sign out
-        </button>
-      </div>
-    );
+    return <VerifyEmailGate email={user.email ?? undefined} onSignOut={logout} />;
   }
 
   // ── EARLY BYPASS EXIT ─────────────────────────────────────────────────────

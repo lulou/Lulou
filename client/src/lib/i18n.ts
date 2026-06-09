@@ -748,6 +748,8 @@ export const TRANSLATIONS = {
     // matches.tsx call duration fragments
     duration_10_min:              "10-minute",
     duration_15_min:              "15-minute",
+    tonight_connections:          "Tonight's possible connections",
+    spin_random_desc:             "Every spin is random — yours could be any of them",
     // profile.tsx settings form options
     ph_city_state:                "City, State",
     intent_meaningful:            "Meaningful Relationship",

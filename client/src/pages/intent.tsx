@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { Loader2, RotateCw, X, MapPin, Lock, Star, Crown, MessageCircle, HelpCircle, Heart, Moon, Volume2, VolumeX, ChevronRight } from "lucide-react";
@@ -14,6 +14,8 @@ import type { Profile } from "@shared/schema";
 import { ProfilePhotoViewer } from "@/components/profile-photo-viewer";
 import { EMPTY_PHOTOS } from "@/lib/image-utils";
 import { useLanguageContext } from "@/contexts/language-context";
+import { stopAllNonVoiceCallAudio } from "@/lib/call-audio";
+import { clearAllArmedSessions } from "@/lib/live-call-sessions";
 
 /** Fisher-Yates shuffle — returns a new array, does not mutate input. */
 function shuffleArray<T>(arr: T[]): T[] {
@@ -123,31 +125,32 @@ function useWheelAudio(muted: boolean) {
     }
   }, [tick]);
 
-  // Three-note ascending arpeggio: C5 → E5 → G5 (major triad, 140ms stagger).
-  // Soft sine waves with natural decay envelope — subtle, elegant, not cheesy.
+  // Premium landing chime: warm G major chord (G4 + D5 + G5) with long natural decay.
+  // Richer, warmer, and more neutral than a high-pitched arpeggio.
   const playChime = useCallback(() => {
     if (muted) return;
     const ctx = ctxRef.current;
     if (!ctx || ctx.state !== "running") return;
     try {
-      const t = ctx.currentTime;
-      const notes: [number, number, number, number][] = [
-        [523.25, 0,    0.025, 0.90],  // C5
-        [659.25, 0.14, 0.025, 0.80],  // E5
-        [783.99, 0.28, 0.025, 0.70],  // G5
+      const now = ctx.currentTime;
+      // [freq, offset, attackDur, peakGain, decayDur]
+      const tones: [number, number, number, number, number][] = [
+        [392.00, 0.00, 0.045, 0.20, 2.00],  // G4 — warm fundamental
+        [587.33, 0.05, 0.045, 0.13, 1.60],  // D5 — perfect fifth
+        [783.99, 0.09, 0.040, 0.07, 1.20],  // G5 — octave sparkle
       ];
-      for (const [freq, offset, attack, dur] of notes) {
+      for (const [freq, offset, attack, peak, decay] of tones) {
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
         osc.type = "sine";
         osc.frequency.value = freq;
-        gain.gain.setValueAtTime(0, t + offset);
-        gain.gain.linearRampToValueAtTime(0.13, t + offset + attack);
-        gain.gain.exponentialRampToValueAtTime(0.001, t + offset + dur);
+        gain.gain.setValueAtTime(0, now + offset);
+        gain.gain.linearRampToValueAtTime(peak, now + offset + attack);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + offset + decay);
         osc.connect(gain);
         gain.connect(ctx.destination);
-        osc.start(t + offset);
-        osc.stop(t + offset + dur + 0.05);
+        osc.start(now + offset);
+        osc.stop(now + offset + decay + 0.1);
       }
     } catch {}
   }, [muted]);
@@ -568,6 +571,73 @@ function MatchRevealOverlay({
   );
 }
 
+// ── Candidates preview strip ─────────────────────────────────────────────────
+// Shows up to 7 profile bubbles BEFORE spinning to build excitement.
+// The displayed order has NO effect on the winner — the winner is always chosen
+// with Math.random() at spin time from the full shuffled pool.
+function CandidatesPreview({ items }: { items: Profile[] }) {
+  const { t } = useLanguageContext();
+  const preview = useMemo(() => items.slice(0, Math.min(7, items.length)), [items]);
+  if (preview.length < 2) return null;
+
+  return (
+    <div
+      style={{
+        width: "100%", padding: "4px 20px 8px",
+        animation: "previewFadeIn 0.7s 0.2s ease both",
+      }}
+    >
+      <p style={{
+        fontSize: 9, fontWeight: 800, letterSpacing: "0.22em",
+        textTransform: "uppercase", textAlign: "center",
+        color: "hsl(var(--muted-foreground))",
+        marginBottom: 10, opacity: 0.7,
+      }}>
+        {t("tonight_connections")}
+      </p>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+        {preview.map((profile, i) => (
+          <div
+            key={profile.userId}
+            style={{ flexShrink: 0, animation: `previewBubbleIn 0.45s ${0.08 + i * 0.06}s ease both` }}
+          >
+            <div style={{
+              width: 40, height: 40, borderRadius: "50%", overflow: "hidden",
+              position: "relative",
+              boxShadow: "0 2px 10px rgba(188,78,96,0.18), 0 1px 4px rgba(0,0,0,0.16)",
+              border: "1.5px solid rgba(212,92,116,0.28)",
+            }}>
+              <ProfilePhoto userId={profile.userId} className="w-full h-full" />
+              <div style={{
+                position: "absolute", inset: 0,
+                background: "rgba(8,2,14,0.08)",
+              }} />
+            </div>
+          </div>
+        ))}
+        {items.length > 7 && (
+          <div style={{
+            width: 40, height: 40, borderRadius: "50%", flexShrink: 0,
+            background: "hsl(var(--muted))",
+            border: "1.5px solid rgba(212,92,116,0.18)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+          }}>
+            <span style={{ fontSize: 10, fontWeight: 700, color: "hsl(var(--muted-foreground))" }}>
+              +{items.length - 7}
+            </span>
+          </div>
+        )}
+      </div>
+      <p style={{
+        fontSize: 10, textAlign: "center", marginTop: 8, fontStyle: "italic",
+        color: "hsl(var(--muted-foreground))", opacity: 0.6,
+      }}>
+        {t("spin_random_desc")}
+      </p>
+    </div>
+  );
+}
+
 // ── Constants ────────────────────────────────────────────────────────────────
 const ITEM_WIDTH = 156;
 const ITEM_HEIGHT = 208;
@@ -583,8 +653,21 @@ type SpinStatus = {
   canSpin: boolean;
 };
 
-function easeOutExpo(t: number): number {
-  return t >= 1 ? 1 : 1 - Math.pow(2, -11 * t);
+// Custom "prize wheel" ease: slow wind-up → thrilling main spin → suspenseful crawl.
+// Phase 1 (0–8 %):  quadratic ease-in — wheel barely starts moving (anticipation).
+// Phase 2 (8–65 %): near-linear fast spin — the exciting rush.
+// Phase 3 (65–100%): cubic+ ease-out — dramatic deceleration, wheel creeps to a stop.
+function spinEase(t: number): number {
+  if (t < 0.08) {
+    const p = t / 0.08;
+    return p * p * 0.02;
+  }
+  if (t < 0.65) {
+    const p = (t - 0.08) / 0.57;
+    return 0.02 + p * 0.82;
+  }
+  const p = (t - 0.65) / 0.35;
+  return 0.84 + (1 - Math.pow(1 - p, 3.2)) * 0.16;
 }
 
 // ── Main page ────────────────────────────────────────────────────────────────
@@ -675,7 +758,7 @@ export default function IntentPage() {
   const items = shuffledItemsRef.current.length > 0 ? shuffledItemsRef.current : (profiles || []);
   const count = items.length;
   const angleStep = count > 0 ? 360 / count : 0;
-  const radius = count > 4 ? Math.max(210, count * 30) : 190;
+  const radius = count > 4 ? Math.max(188, count * 26) : 172;
   const canSpin = spinStatus?.canSpin ?? false;
 
   const glide = useCallback(() => {
@@ -770,20 +853,23 @@ export default function IntentPage() {
     setShowMatchReveal(false);
     setMatchRevealProfile(null);
 
+    // Winner is chosen fresh at spin time — preview order has NO influence.
     const targetIndex = Math.floor(Math.random() * count);
     const landedProfile = items[targetIndex];
 
     console.log("[INTENT] SPIN_START", { totalUsers: count });
-    console.log("[INTENT] SPIN_SELECTED", { selectedIndex: targetIndex, selectedName: landedProfile?.firstName });
+    console.log("[INTENT] SPIN_SELECTED", { selectedIndex: targetIndex, selectedName: landedProfile?.firstName, randomSource: "Math.random()" });
 
     const targetAngle = targetIndex * angleStep;
     const currentAngle = angleRef.current;
-    const fullSpins = (4 + Math.floor(Math.random() * 2)) * 360;
+    // 5–8 full rotations — randomised so landing position is unpredictable.
+    const fullSpins = (5 + Math.floor(Math.random() * 4)) * 360;
     const normalizedCurrent = ((currentAngle % 360) + 360) % 360;
     let diff = targetAngle - normalizedCurrent;
     if (diff < 0) diff += 360;
     const totalRotation = fullSpins + diff;
-    const duration = 3800 + Math.random() * 1200;
+    // 6.5–8s total: long enough for wind-up, fast spin, and suspenseful crawl.
+    const duration = 6500 + Math.random() * 1500;
     const startTime = performance.now();
     const startAngle = currentAngle;
 
@@ -792,8 +878,8 @@ export default function IntentPage() {
     const animate = (now: number) => {
       const elapsed = now - startTime;
       const rawT = Math.min(elapsed / duration, 1);
-      const newAngle = startAngle + totalRotation * easeOutExpo(rawT);
-      tickFromAngle(newAngle, 2 + rawT * rawT * 16);
+      const newAngle = startAngle + totalRotation * spinEase(rawT);
+      tickFromAngle(newAngle, 2 + rawT * rawT * 14);
       angleRef.current = newAngle;
       setAngle(newAngle);
 
@@ -846,6 +932,18 @@ export default function IntentPage() {
     const t0 = performance.now();
     console.log("[INTENT] MOUNTED");
     return () => console.log("[INTENT] UNMOUNTED after", Math.round(performance.now() - t0), "ms");
+  }, []);
+
+  // ── Stale-ring guard ──────────────────────────────────────────────────────
+  // Belt-and-suspenders: stop any audio and clear all armed call sessions the
+  // moment this page mounts. App.tsx location-change effect already does this
+  // but may run *before* some async query resolves and potentially re-arms a
+  // session from cached DB data. This guard runs AFTER mount, providing a
+  // second line of defence against ringtone starting on the Intention Wheel.
+  useEffect(() => {
+    stopAllNonVoiceCallAudio("intent_page_mount");
+    clearAllArmedSessions();
+    console.log("[INTENT] RING_GUARD: stopped audio + cleared armed sessions on mount — stale ring blocked");
   }, []);
 
   if (isLoading) {
@@ -961,6 +1059,14 @@ export default function IntentPage() {
           14%  { opacity: 1; }
           82%  { opacity: 0.52; }
           100% { transform: translateY(-150px) scale(0.45); opacity: 0; }
+        }
+        @keyframes previewFadeIn {
+          from { opacity: 0; transform: translateY(5px); }
+          to   { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes previewBubbleIn {
+          from { opacity: 0; transform: scale(0.65); }
+          to   { opacity: 1; transform: scale(1); }
         }
       `}</style>
 
@@ -1099,6 +1205,11 @@ export default function IntentPage() {
             }} />
           )}
         </div>
+
+        {/* ── Candidates preview strip ── */}
+        {!isSpinning && !dispersed && !showPurchase && !showProfile && canSpin && (
+          <CandidatesPreview items={items} />
+        )}
 
         {/* ── Spin button & streak ── */}
         {!dispersed && !showPurchase && (
