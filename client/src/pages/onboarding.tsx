@@ -900,7 +900,7 @@ export default function Onboarding({ existingProfile = null, userEmail = "" }: O
               disabled={!canProceed() || createProfile.isPending}
               data-testid="button-next"
             >
-              {step === STEPS.length - 1 ? (
+              {step === STEP_KEYS.length - 1 ? (
                 createProfile.isPending ? t("creating_profile_label") : t("complete_profile_label")
               ) : (
                 <>Continue <ArrowRight className="w-4 h-4 ml-2" /></>

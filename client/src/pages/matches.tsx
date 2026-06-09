@@ -166,12 +166,12 @@ function SpinRequestCard({ request, type }: { request: SpinRequestWithProfile; t
       if (data.matchCreated) {
         toast({
           title: t("connected_toast"),
-          description: `You and ${request.profile.firstName} are now matched! Check your connections.`,
+          description: t("now_matched_desc").replace("{name}", request.profile.firstName),
         });
       } else if (data.status === "declined") {
         toast({
           title: t("declined_toast"),
-          description: `You passed on ${request.profile.firstName}'s request.`,
+          description: t("passed_on_desc").replace("{name}", request.profile.firstName),
         });
       }
       queryClient.invalidateQueries({ queryKey: ["/api/spin-requests"] });
@@ -357,7 +357,7 @@ function ReadyToMeetInline({ detail, matchId, profileName }: { detail: MatchDeta
           <div className="text-center space-y-1">
             <PhoneForwarded className="w-5 h-5 text-primary mx-auto" />
             <p className="font-medium text-sm">{t("add_your_phone_title")}</p>
-            <p className="text-xs text-muted-foreground">It will be sent as a message to {profileName}</p>
+            <p className="text-xs text-muted-foreground">{t("phone_sent_as_message").replace("{name}", profileName)}</p>
           </div>
           <Input type="tel" value={phoneNumber} onChange={e => setPhoneNumber(e.target.value)} placeholder={t("your_phone_ph")} maxLength={20} data-testid={`input-phone-inline-${matchId}`} />
           <div className="flex items-center gap-2 justify-center">

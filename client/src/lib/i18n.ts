@@ -541,6 +541,9 @@ export const TRANSLATIONS = {
     waiting_face_call_unlock:     "Waiting for them to finish their messages before the face call unlocks.",
     // matches: inline call + date slots + decline
     decline_label:                "Decline",
+    now_matched_desc:             "You and {name} are now matched! Check your connections.",
+    passed_on_desc:               "You passed on {name}'s request.",
+    phone_sent_as_message:        "It will be sent as a message to {name}",
     answering_label:              "Answering…",
     answer_label:                 "Answer",
     day_sun:                      "Sun",
