@@ -1687,39 +1687,39 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
     const msgs: { id: string; text: string }[] = [];
     if (callStage === 0) {
       if (messagesRemaining <= 5 && messagesRemaining > 1) {
-        msgs.push({ id: "stage0-approaching", text: "Looks like you two are getting along well. Your first call stage is coming up soon — start thinking about when you'd like to talk." });
+        msgs.push({ id: "stage0-approaching", text: t("stage0_approaching") });
       }
       if (messagesRemaining <= 1 || isLimitReached) {
-        msgs.push({ id: "stage0-limit", text: "You've reached your call stage. When you're ready, start your first call." });
+        msgs.push({ id: "stage0-limit", text: t("stage0_limit") });
       }
     }
     if (callStage === 1) {
-      msgs.push({ id: "stage1-welcome", text: "Nice call! Head back to chat and continue getting to know each other." });
-      msgs.push({ id: "stage1-info", text: "You can now send 12 messages each before your next call unlocks." });
+      msgs.push({ id: "stage1-welcome", text: t("stage1_welcome") });
+      msgs.push({ id: "stage1-info", text: t("stage1_info") });
       if (myPostCallMessages >= 6 && !myPostCallLimitReached) {
-        msgs.push({ id: "stage1-approaching", text: "Your next call stage is getting close. Start thinking about when you'd like to talk again." });
+        msgs.push({ id: "stage1-approaching", text: t("stage1_approaching") });
       }
       if (myPostCallRemaining <= 2 && !myPostCallLimitReached) {
-        msgs.push({ id: "stage1-near-limit", text: "Just a couple messages left before your second call unlocks." });
+        msgs.push({ id: "stage1-near-limit", text: t("stage1_near_limit") });
       }
       if (bothPostCallLimitReached) {
-        msgs.push({ id: "stage1-unlocked", text: "You've unlocked your second call. Pick a time that suits you both." });
+        msgs.push({ id: "stage1-unlocked", text: t("stage1_unlocked") });
       }
     }
     if (callStage === 2) {
-      msgs.push({ id: "stage2-welcome", text: "Great second call! You each have 20 messages before the face call unlocks." });
+      msgs.push({ id: "stage2-welcome", text: t("stage2_welcome") });
       if (myStage2Messages >= 10 && !myStage2LimitReached) {
-        msgs.push({ id: "stage2-approaching", text: "Getting close — keep the conversation going." });
+        msgs.push({ id: "stage2-approaching", text: t("stage2_approaching") });
       }
       if (myStage2Remaining <= 3 && !myStage2LimitReached) {
-        msgs.push({ id: "stage2-near-limit", text: `Just ${myStage2Remaining} message${myStage2Remaining !== 1 ? "s" : ""} left before the face call unlocks.` });
+        msgs.push({ id: "stage2-near-limit", text: myStage2Remaining === 1 ? t("stage2_near_limit_one") : t("stage2_near_limit_many").replace("{n}", String(myStage2Remaining)) });
       }
       if (bothStage2LimitReached) {
-        msgs.push({ id: "stage2-unlocked", text: "Face call unlocked! Opt in when you're both ready to see each other." });
+        msgs.push({ id: "stage2-unlocked", text: t("stage2_unlocked") });
       }
     }
     return msgs;
-  }, [callStage, messagesRemaining, isLimitReached, myPostCallMessages, myPostCallRemaining, myPostCallLimitReached, bothPostCallLimitReached, myStage2Messages, myStage2Remaining, myStage2LimitReached, bothStage2LimitReached]);
+  }, [t, callStage, messagesRemaining, isLimitReached, myPostCallMessages, myPostCallRemaining, myPostCallLimitReached, bothPostCallLimitReached, myStage2Messages, myStage2Remaining, myStage2LimitReached, bothStage2LimitReached]);
 
   // Track the message-list index at which each guidance message first appeared so it
   // stays at that position and gets pushed upward naturally as new messages arrive.
@@ -2281,7 +2281,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                     <span className="w-1.5 h-1.5 bg-muted-foreground/50 rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
                     <span className="w-1.5 h-1.5 bg-muted-foreground/50 rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
                   </span>
-                  <span>{match.profile.firstName} is typing...</span>
+                  <span>{match.profile.firstName} {t("is_typing_label")}</span>
                 </div>
               )}
               {myPostCallLimitReached ? (
@@ -2355,7 +2355,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                     <span className="w-1.5 h-1.5 bg-muted-foreground/50 rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
                     <span className="w-1.5 h-1.5 bg-muted-foreground/50 rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
                   </span>
-                  <span>{match.profile.firstName} is typing...</span>
+                  <span>{match.profile.firstName} {t("is_typing_label")}</span>
                 </div>
               )}
               {myStage2LimitReached ? (
@@ -2476,7 +2476,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                     <ChevronLeft className="w-3 h-3" /> Back
                   </button>
                   <div className="text-center space-y-1">
-                    <p className="font-semibold text-sm">End this match?</p>
+                    <p className="font-semibold text-sm">{t("end_this_match_confirm")}</p>
                     <p className="text-xs text-muted-foreground">{t("removed_from_matches").replace("{name}", match.profile.firstName)}</p>
                   </div>
                   <div className="flex gap-2">
@@ -2496,8 +2496,8 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                 <div className="next-step-anim space-y-3">
                   <div className="text-center space-y-1">
                     <Phone className="w-4 h-4 text-primary mx-auto" />
-                    <p className="font-semibold text-sm">Time for your first call!</p>
-                    <p className="text-xs text-muted-foreground">You've reached the message limit. Start a call with {match.profile.firstName} to keep connecting.</p>
+                    <p className="font-semibold text-sm">{t("time_for_first_call")}</p>
+                    <p className="text-xs text-muted-foreground">{t("reached_message_limit_call").replace("{name}", match.profile.firstName)}</p>
                   </div>
                   <div className="grid grid-cols-2 gap-2">
                     <button
@@ -2509,8 +2509,8 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                       <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center">
                         <Phone className="w-4 h-4 text-primary" />
                       </div>
-                      <p className="text-xs font-semibold leading-tight">Start a Call</p>
-                      <span className="text-[10px] text-muted-foreground">Free</span>
+                      <p className="text-xs font-semibold leading-tight">{t("start_a_call_btn")}</p>
+                      <span className="text-[10px] text-muted-foreground">{t("free_label")}</span>
                     </button>
                     <button
                       onClick={() => setNextStepChoice('end')}
@@ -2521,8 +2521,8 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                       <div className="w-9 h-9 rounded-full flex items-center justify-center" style={{ background: "hsl(var(--background)/0.6)" }}>
                         <X className="w-4 h-4 text-muted-foreground" />
                       </div>
-                      <p className="text-xs font-semibold text-muted-foreground leading-tight">End Match</p>
-                      <span className="text-[10px] text-muted-foreground">Not the right fit</span>
+                      <p className="text-xs font-semibold text-muted-foreground leading-tight">{t("end_match_btn")}</p>
+                      <span className="text-[10px] text-muted-foreground">{t("not_right_fit_label")}</span>
                     </button>
                   </div>
                 </div>
@@ -2537,7 +2537,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                     <span className="w-1.5 h-1.5 bg-muted-foreground/50 rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
                     <span className="w-1.5 h-1.5 bg-muted-foreground/50 rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
                   </span>
-                  <span>{match.profile.firstName} is typing...</span>
+                  <span>{match.profile.firstName} {t("is_typing_label")}</span>
                 </div>
               )}
               {messagesRemaining <= 5 && messagesRemaining > 1 && (

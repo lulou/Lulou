@@ -230,18 +230,18 @@ function ConfettiBurst({ active }: { active: boolean }) {
 }
 
 // ── Premium match reveal taglines ────────────────────────────────────────────
-const MATCH_TAGLINES = [
-  "Two energies aligned.",
-  "The wheel found something interesting.",
-  "This connection feels rare.",
-  "Someone worth meeting just appeared.",
-  "A meaningful spark just landed.",
-  "The wheel had good taste.",
-  "This feels like something real.",
-  "Not every spin lands like this.",
-  "Something genuine started here.",
-  "A rare connection just appeared.",
-];
+const MATCH_TAGLINE_KEYS = [
+  "tagline_two_energies",
+  "tagline_wheel_interesting",
+  "tagline_connection_rare",
+  "tagline_worth_meeting",
+  "tagline_spark_landed",
+  "tagline_wheel_good_taste",
+  "tagline_feels_real",
+  "tagline_not_every_spin",
+  "tagline_genuine_started",
+  "tagline_rare_appeared",
+] as const;
 
 // Floating particle row — purely decorative, generated once per mount.
 const REVEAL_PARTICLES = Array.from({ length: 20 }, (_, i) => ({
@@ -274,7 +274,8 @@ function MatchRevealOverlay({
   onElevate: () => void;
 }) {
   const { t } = useLanguageContext();
-  const tagline = useRef(MATCH_TAGLINES[Math.floor(Math.random() * MATCH_TAGLINES.length)]).current;
+  const taglineKey = useRef(MATCH_TAGLINE_KEYS[Math.floor(Math.random() * MATCH_TAGLINE_KEYS.length)]).current;
+  const tagline = t(taglineKey);
 
   useEffect(() => {
     const chimeTimer = setTimeout(playChime, 200);
@@ -973,7 +974,7 @@ export default function IntentPage() {
             <button
               onClick={toggleMute}
               data-testid="button-toggle-sound"
-              title={muted ? "Enable sound" : "Mute sound"}
+              title={muted ? t("enable_sound_title") : t("mute_sound_title")}
               style={{
                 width: 32, height: 32, borderRadius: "50%",
                 border: "1.5px solid hsl(var(--border))",
@@ -1162,14 +1163,14 @@ export default function IntentPage() {
                            isCurrentDay ? <div className="h-full bg-primary/60 rounded-full transition-all duration-500" style={{ width: `${Math.min(dailyLikes / DAILY_LIKE_GOAL, 1) * 100}%` }} /> : null}
                         </div>
                         <span className="text-[10px] text-muted-foreground">
-                          {isDone ? "✓" : isCurrentDay ? `${dailyLikes}/${DAILY_LIKE_GOAL}` : `Day ${i + 1}`}
+                          {isDone ? "✓" : isCurrentDay ? `${dailyLikes}/${DAILY_LIKE_GOAL}` : `${t("day_label")} ${i + 1}`}
                         </span>
                       </div>
                     );
                   })}
                 </div>
                 <p className="text-[10px] text-muted-foreground text-center">
-                  Like {DAILY_LIKE_GOAL}× daily for {STREAK_GOAL} days to earn a free spin
+                  {t("like_daily_earn_spin_desc").replace("{n}", String(DAILY_LIKE_GOAL)).replace("{days}", String(STREAK_GOAL))}
                 </p>
               </div>
             )}
@@ -1193,10 +1194,10 @@ export default function IntentPage() {
               </div>
               <div className="space-y-2">
                 <Button className="w-full gap-2" onClick={() => toast({ title: t("coming_soon_title"), description: t("spin_packs_soon_desc") })} data-testid="button-buy-1-spin">
-                  <RotateCw className="w-4 h-4" /> 1 Spin - $1.49
+                  <RotateCw className="w-4 h-4" /> {t("one_spin_price")}
                 </Button>
                 <Button className="w-full gap-2" variant="outline" onClick={() => toast({ title: t("coming_soon_title"), description: t("spin_packs_soon_desc") })} data-testid="button-buy-2-spins">
-                  <RotateCw className="w-4 h-4" /> 2 Spins - $2.49
+                  <RotateCw className="w-4 h-4" /> {t("two_spins_price")}
                 </Button>
               </div>
               {!streakComplete && (
@@ -1209,7 +1210,7 @@ export default function IntentPage() {
                     <span className="text-xs font-medium whitespace-nowrap">{consecutiveDays}/{STREAK_GOAL}</span>
                   </div>
                   <p className="text-xs text-muted-foreground text-center">
-                    Send {DAILY_LIKE_GOAL} likes daily for {STREAK_GOAL} days in a row
+                    {t("send_likes_streak_desc").replace("{n}", String(DAILY_LIKE_GOAL)).replace("{days}", String(STREAK_GOAL))}
                   </p>
                 </div>
               )}
