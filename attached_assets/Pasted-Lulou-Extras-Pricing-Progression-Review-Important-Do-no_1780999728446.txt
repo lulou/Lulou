@@ -1,0 +1,308 @@
+Lulou – Extras, Pricing & Progression Review
+
+Important:
+
+Do not implement immediately.
+
+First review the proposal and provide:
+
+files that need changing
+database changes required
+Stripe changes required
+migration requirements
+rollout order
+risks
+pricing recommendations
+user psychology reasoning
+
+Do not break:
+
+Discovery
+Intention Wheel
+Matching
+Chat
+Calls
+Payments
+Existing memberships
+Existing Extras
+
+⸻
+
+PART 1 – Simplify Membership
+
+Proposed Membership:
+
+$14.99/month
+
+Membership should remove friction.
+
+Membership includes:
+
+Priority Discovery
+1 Undo Last Pass per month
+1 Undo Last Unmatch per month
+1 Phone Call Credit per month
+Future Voice Notes Unlock access (if included later)
+
+Membership should NOT replace call packs.
+
+⸻
+
+PART 2 – Replace Old Call Extras
+
+Remove:
+
+Extra Call
+Video Call
+
+Replace with:
+
+Starter Pack
+
+1 Phone Call Credit
+$3.99
+
+Connection Pack
+
+3 Phone Call Credits
+$9.99
+
+Premium Pack
+
+5 Phone Call Credits
+$14.99
+
+Chemistry Pack
+
+3 Phone Call Credits
+1 Video Call Credit
+$12.99
+
+Deep Connection Pack
+
+5 Phone Call Credits
+3 Video Call Credits
+$19.99
+
+Rules:
+
+No call pack should cost more than membership.
+Credits remain account-level.
+Credits usable with any current or future match.
+Credits only deducted after a successful connected call lasting 30+ seconds.
+
+⸻
+
+PART 3 – +5 Messages Rework
+
+Current issue:
+
++5 Messages feels disconnected from the user journey.
+
+Lulou journey:
+
+Discovery
+→ Match
+→ Chat
+→ Phone Call
+→ Meet
+
+Many users will reach the call stage but not feel comfortable enough yet.
+
+Purpose of message packs:
+
+“I like this person but I’m not ready for a phone call.”
+
+Review:
+
++5 Messages
++10 Messages
+Message bundles
+
+and recommend the best approach.
+
+Important:
+
+Chat eventually becomes unlimited.
+
+Message purchases should only help users extend conversation before reaching that stage.
+
+⸻
+
+PART 4 – Voice Notes Unlock
+
+Future feature.
+
+One-time purchase.
+
+Permanent access.
+
+Not a subscription.
+
+Not pay-per-message.
+
+Not tied to specific matches.
+
+If purchased:
+
+Voice note icon becomes active.
+Voice notes available across all current and future matches.
+
+Conversation rule:
+
+If one user owns Voice Notes Unlock:
+
+Both users in that conversation can exchange voice notes.
+
+Reason:
+
+Voice notes are a conversation feature.
+
+One-way voice messaging creates a poor experience.
+
+Review:
+
+pricing
+storage
+moderation
+duration limits
+upload limits
+UX
+
+before implementation.
+
+⸻
+
+PART 5 – Undo Last Pass
+
+Purpose:
+
+Recover accidental passes.
+
+Rules:
+
+Most recent pass only
+24-hour window
+Free for members
+Optional paid extra for non-members
+
+Must not affect:
+
+likes
+matches
+wheel results
+
+⸻
+
+PART 6 – Undo Last Unmatch
+
+New feature.
+
+Purpose:
+
+Allow users to recover from regretted unmatches.
+
+Examples:
+
+emotional reaction
+misunderstanding
+accidental unmatch
+instant regret
+
+Rules:
+
+Only most recent unmatch
+Available for 24 hours
+Restores:
+match
+chat history
+conversation progress
+call stage
+
+If technically possible.
+
+Pricing:
+
+Members:
+
+1 free Undo Last Unmatch per month
+
+Non-members:
+
+$2.99
+
+Important:
+
+The other user should not receive notifications.
+
+No:
+
+“You were unmatched”
+“You matched again”
+
+Restoration should be silent.
+
+Review whether:
+
+24 hours is correct
+48 hours is better
+1 free per month is sufficient
+
+⸻
+
+PART 7 – Extras Page Structure
+
+Section 1
+
+Lulou Membership
+
+Section 2
+
+Connection Credits
+
+Starter Pack
+Connection Pack
+Premium Pack
+Chemistry Pack
+Deep Connection Pack
+
+Section 3
+
+Conversation Extras
+
++5 Messages
+Undo Last Pass
+Undo Last Unmatch
+Voice Notes Unlock (future)
+
+Goal:
+
+Premium.
+
+Clean.
+
+Easy to understand.
+
+Not cluttered.
+
+⸻
+
+PART 8 – Revenue Review
+
+Provide recommendations for:
+
+final pricing
+conversion impact
+revenue impact
+user psychology
+
+Answer:
+
+Is Membership $14.99 the right price?
+Should Voice Notes Unlock be separate or included?
+Is $2.99 correct for Undo Last Unmatch?
+Should Undo Last Pass remain free for members?
+Are call pack prices balanced?
+Does the value hierarchy make sense?
+
+Do not implement until the plan is reviewed and approved.
