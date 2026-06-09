@@ -1,0 +1,69 @@
+Fix these visible live-app issues. Do not work on unrelated features.
+
+Evidence from live app:
+
+Extras page is still not fully updated/polished.
+Chatroom icons are still not visible/updated.
+Intention Wheel looks squashed on phone/mobile.
+Do not tell me features exist in code unless they are visible in the actual app.
+
+Task 1 — Extras page
+The Extras screen currently still looks unfinished and inconsistent.
+
+Fix:
+
+Keep the current visible packs, but polish the layout.
+Make “Call Credit Packs” section clear and premium.
+Ensure all packs are visible:
+
+Starter Pack
+Connection Pack
+Premium Pack
+Chemistry Pack
+Deep Connection Pack
+Remove old “Extra Call” and “Video Call” if they still appear anywhere.
+Make pricing hierarchy consistent.
+Make the page look premium, not cheap or half-finished.
+Task 2 — Chatroom icons
+The chatroom still does not show the expected updated icons.
+
+Fix:
+
+Find the exact live chatroom component being rendered.
+Add/update visible chatroom action icons.
+Phone icon should be visible.
+Phone icon should be grey when no phone credits are available.
+Phone icon should glow/turn green when phone credits are available.
+Video icon should not appear in normal chat flow.
+If no credits, tapping phone should clearly direct user to Extras or show “You need phone credits”.
+Confirm which progression stage these icons appear in.
+If icons are currently hidden until a later stage, explain that and add the correct visible UI where appropriate.
+Task 3 — Intention Wheel mobile layout
+The Intention Wheel looks squashed on phone/mobile.
+
+Fix:
+
+Audit mobile CSS/layout for the wheel.
+Make the wheel responsive on small screens.
+Prevent photos/profile bubbles from being compressed.
+Preserve spacing between wheel photos.
+Do not make photos touch.
+Keep the wheel premium and clean.
+Test on mobile viewport dimensions.
+Required report:
+
+Exact file paths changed.
+Exact component responsible for current Extras screen.
+Exact component responsible for current chatroom screen.
+Exact component responsible for mobile Intention Wheel layout.
+Screenshot/proof from running app or clear verification steps.
+Confirm git status shows modified files after changes.
+Do not touch:
+
+ringtone/call audio logic
+WebRTC/TURN
+Discovery filters
+backend matching
+auth/email verification
+language system
+photo drag animation

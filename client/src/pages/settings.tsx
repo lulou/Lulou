@@ -47,6 +47,7 @@ import {
   Bot,
   FileText,
   Phone,
+  Video,
   Mail,
   Bell,
   Crown,
@@ -1098,50 +1099,53 @@ export default function SettingsPage() {
               onBuy={() => startCheckout("undo-close")}
             />
 
-            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground/65 pt-2">
-              Call Credit Packs
-            </p>
+            <div className="flex items-center gap-3 pt-1">
+              <div className="flex-1 h-px bg-border/40" />
+              <div className="flex items-center gap-1.5">
+                <Phone className="w-3 h-3 text-primary/60" />
+                <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/55">Call Credits</p>
+              </div>
+              <div className="flex-1 h-px bg-border/40" />
+            </div>
 
-            <ExtrasItem
-              title={t("extras_starter_pack_title")}
-              description={t("extras_starter_pack_desc")}
-              price="$4.99"
-              itemId="starter-pack"
-              loading={checkoutLoading === "starter-pack"}
-              onBuy={() => startCheckout("starter-pack")}
-            />
-            <ExtrasItem
-              title={t("extras_connection_pack_title")}
-              description={t("extras_connection_pack_desc")}
-              price="$12.99"
-              itemId="connection-pack"
-              loading={checkoutLoading === "connection-pack"}
-              onBuy={() => startCheckout("connection-pack")}
-            />
-            <ExtrasItem
-              title={t("extras_premium_pack_title")}
-              description={t("extras_premium_pack_desc")}
-              price="$19.99"
-              itemId="premium-pack"
-              loading={checkoutLoading === "premium-pack"}
-              onBuy={() => startCheckout("premium-pack")}
-            />
-            <ExtrasItem
-              title={t("extras_chemistry_pack_title")}
-              description={t("extras_chemistry_pack_desc")}
-              price="$16.99"
-              itemId="chemistry-pack"
-              loading={checkoutLoading === "chemistry-pack"}
-              onBuy={() => startCheckout("chemistry-pack")}
-            />
-            <ExtrasItem
-              title={t("extras_deep_conn_pack_title")}
-              description={t("extras_deep_conn_pack_desc")}
-              price="$27.99"
-              itemId="deep-connection-pack"
-              loading={checkoutLoading === "deep-connection-pack"}
-              onBuy={() => startCheckout("deep-connection-pack")}
-            />
+            <div className="space-y-2.5">
+              <CallPackItem
+                title={t("extras_starter_pack_title")}
+                phoneCredits={1} videoCredits={0}
+                price="$4.99" itemId="starter-pack"
+                loading={checkoutLoading === "starter-pack"}
+                onBuy={() => startCheckout("starter-pack")}
+              />
+              <CallPackItem
+                title={t("extras_connection_pack_title")}
+                phoneCredits={3} videoCredits={0}
+                price="$12.99" itemId="connection-pack"
+                loading={checkoutLoading === "connection-pack"}
+                onBuy={() => startCheckout("connection-pack")}
+              />
+              <CallPackItem
+                title={t("extras_premium_pack_title")}
+                phoneCredits={5} videoCredits={0}
+                price="$19.99" itemId="premium-pack"
+                loading={checkoutLoading === "premium-pack"}
+                onBuy={() => startCheckout("premium-pack")}
+                isBestValue
+              />
+              <CallPackItem
+                title={t("extras_chemistry_pack_title")}
+                phoneCredits={3} videoCredits={1}
+                price="$16.99" itemId="chemistry-pack"
+                loading={checkoutLoading === "chemistry-pack"}
+                onBuy={() => startCheckout("chemistry-pack")}
+              />
+              <CallPackItem
+                title={t("extras_deep_conn_pack_title")}
+                phoneCredits={5} videoCredits={3}
+                price="$27.99" itemId="deep-connection-pack"
+                loading={checkoutLoading === "deep-connection-pack"}
+                onBuy={() => startCheckout("deep-connection-pack")}
+              />
+            </div>
           </div>
         </SheetContent>
       </Sheet>
@@ -1667,20 +1671,90 @@ function ExtrasItem({
   onBuy: () => void;
 }) {
   return (
-    <div className="flex items-center gap-3 p-4 rounded-xl border border-border/60">
+    <div className="flex items-start gap-4 p-4 rounded-2xl border border-border/70 bg-card/50">
       <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium">{title}</p>
-        <p className="text-xs text-muted-foreground mt-0.5">{description}</p>
+        <p className="text-sm font-semibold leading-tight">{title}</p>
+        <p className="text-xs text-muted-foreground mt-1 leading-snug">{description}</p>
       </div>
-      <Button
-        size="sm"
-        variant="outline"
-        disabled={loading}
-        onClick={onBuy}
-        data-testid={`button-buy-${itemId}`}
-      >
-        {loading ? "…" : price}
-      </Button>
+      <div className="shrink-0 flex flex-col items-end gap-2 pt-0.5">
+        <span className="text-sm font-bold tabular-nums">{price}</span>
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={loading}
+          onClick={onBuy}
+          className="h-7 text-xs px-3"
+          data-testid={`button-buy-${itemId}`}
+        >
+          {loading ? "…" : "Buy"}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function CallPackItem({
+  title,
+  phoneCredits,
+  videoCredits,
+  price,
+  itemId,
+  loading,
+  onBuy,
+  isBestValue,
+}: {
+  title: string;
+  phoneCredits: number;
+  videoCredits: number;
+  price: string;
+  itemId: string;
+  loading: boolean;
+  onBuy: () => void;
+  isBestValue?: boolean;
+}) {
+  return (
+    <div className={`relative rounded-2xl border p-4 transition-all ${
+      isBestValue
+        ? "border-primary/40 bg-gradient-to-br from-primary/[0.08] to-primary/[0.03] shadow-sm"
+        : "border-border/60 bg-card/50"
+    }`}>
+      {isBestValue && (
+        <span className="absolute -top-2.5 left-4 px-2.5 py-0.5 rounded-full bg-primary text-primary-foreground text-[9px] font-bold tracking-widest uppercase">
+          Best Value
+        </span>
+      )}
+      <div className="flex items-center gap-3">
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-semibold leading-tight">{title}</p>
+          <div className="flex items-center gap-3 mt-1.5">
+            {phoneCredits > 0 && (
+              <span className="flex items-center gap-1 text-[11px] font-medium text-muted-foreground">
+                <Phone className="w-3 h-3 text-primary/70" />
+                {phoneCredits} call{phoneCredits !== 1 ? "s" : ""}
+              </span>
+            )}
+            {videoCredits > 0 && (
+              <span className="flex items-center gap-1 text-[11px] font-medium text-muted-foreground">
+                <Video className="w-3 h-3 text-primary/50" />
+                {videoCredits} video
+              </span>
+            )}
+          </div>
+        </div>
+        <div className="shrink-0 flex flex-col items-end gap-2">
+          <span className="text-base font-bold tabular-nums">{price}</span>
+          <Button
+            size="sm"
+            variant={isBestValue ? "default" : "outline"}
+            disabled={loading}
+            onClick={onBuy}
+            className="h-7 text-xs px-3.5"
+            data-testid={`button-buy-${itemId}`}
+          >
+            {loading ? "…" : "Get Pack"}
+          </Button>
+        </div>
+      </div>
     </div>
   );
 }

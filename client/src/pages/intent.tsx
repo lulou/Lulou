@@ -577,13 +577,22 @@ function MatchRevealOverlay({
 // with Math.random() at spin time from the full shuffled pool.
 function CandidatesPreview({ items }: { items: Profile[] }) {
   const { t } = useLanguageContext();
-  const preview = useMemo(() => items.slice(0, Math.min(7, items.length)), [items]);
+  const [vw, setVw] = useState(() => typeof window !== "undefined" ? window.innerWidth : 390);
+  useEffect(() => {
+    const h = () => setVw(window.innerWidth);
+    window.addEventListener("resize", h);
+    return () => window.removeEventListener("resize", h);
+  }, []);
+  const bubbleSize = vw < 380 ? 30 : 38;
+  const bubbleGap  = vw < 380 ? 4  : 6;
+  const maxCount   = vw < 380 ? 5  : 7;
+  const preview = useMemo(() => items.slice(0, Math.min(maxCount, items.length)), [items, maxCount]);
   if (preview.length < 2) return null;
 
   return (
     <div
       style={{
-        width: "100%", padding: "4px 20px 8px",
+        width: "100%", padding: "4px 16px 8px",
         animation: "previewFadeIn 0.7s 0.2s ease both",
       }}
     >
@@ -595,14 +604,14 @@ function CandidatesPreview({ items }: { items: Profile[] }) {
       }}>
         {t("tonight_connections")}
       </p>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: bubbleGap }}>
         {preview.map((profile, i) => (
           <div
             key={profile.userId}
             style={{ flexShrink: 0, animation: `previewBubbleIn 0.45s ${0.08 + i * 0.06}s ease both` }}
           >
             <div style={{
-              width: 40, height: 40, borderRadius: "50%", overflow: "hidden",
+              width: bubbleSize, height: bubbleSize, borderRadius: "50%", overflow: "hidden",
               position: "relative",
               boxShadow: "0 2px 10px rgba(188,78,96,0.18), 0 1px 4px rgba(0,0,0,0.16)",
               border: "1.5px solid rgba(212,92,116,0.28)",
@@ -615,15 +624,15 @@ function CandidatesPreview({ items }: { items: Profile[] }) {
             </div>
           </div>
         ))}
-        {items.length > 7 && (
+        {items.length > maxCount && (
           <div style={{
-            width: 40, height: 40, borderRadius: "50%", flexShrink: 0,
+            width: bubbleSize, height: bubbleSize, borderRadius: "50%", flexShrink: 0,
             background: "hsl(var(--muted))",
             border: "1.5px solid rgba(212,92,116,0.18)",
             display: "flex", alignItems: "center", justifyContent: "center",
           }}>
             <span style={{ fontSize: 10, fontWeight: 700, color: "hsl(var(--muted-foreground))" }}>
-              +{items.length - 7}
+              +{items.length - maxCount}
             </span>
           </div>
         )}
@@ -760,6 +769,17 @@ export default function IntentPage() {
   const angleStep = count > 0 ? 360 / count : 0;
   const radius = count > 4 ? Math.max(188, count * 26) : 172;
   const canSpin = spinStatus?.canSpin ?? false;
+
+  // Responsive wheel card dimensions — shrink on narrow phones to prevent clipping
+  const [viewportW, setViewportW] = useState(() => typeof window !== "undefined" ? window.innerWidth : 390);
+  useEffect(() => {
+    const h = () => setViewportW(window.innerWidth);
+    window.addEventListener("resize", h);
+    return () => window.removeEventListener("resize", h);
+  }, []);
+  const itemWidth  = viewportW < 380 ? 118 : viewportW < 430 ? 136 : ITEM_WIDTH;
+  const itemHeight = Math.round(itemWidth * (ITEM_HEIGHT / ITEM_WIDTH));
+  const wheelBufferY = viewportW < 380 ? 130 : 160;
 
   const glide = useCallback(() => {
     velocity.current *= 0.94;
@@ -1135,7 +1155,7 @@ export default function IntentPage() {
         <div
           className="relative select-none touch-manipulation"
           style={{
-            width: "100%", height: ITEM_HEIGHT + 180,
+            width: "100%", height: itemHeight + wheelBufferY,
             perspective: "1000px",
             transition: dispersed ? "opacity 0.55s ease" : undefined,
             opacity: dispersed ? 0 : 1,
@@ -1154,7 +1174,7 @@ export default function IntentPage() {
             style={{
               transformStyle: "preserve-3d",
               transform: `translateX(-50%) translateY(-50%) rotateY(${-angle}deg)`,
-              width: ITEM_WIDTH, height: ITEM_HEIGHT,
+              width: itemWidth, height: itemHeight,
             }}
           >
             {items.map((profile, i) => {
@@ -1179,7 +1199,7 @@ export default function IntentPage() {
                 <div
                   key={profile.id}
                   style={{
-                    width: ITEM_WIDTH, height: ITEM_HEIGHT,
+                    width: itemWidth, height: itemHeight,
                     borderRadius: 20, overflow: "hidden",
                     position: "absolute", left: 0, top: 0,
                     transform: dispersed && !isSelected
@@ -1216,7 +1236,7 @@ export default function IntentPage() {
             <div style={{
               position: "absolute", left: "50%", top: "50%",
               transform: "translateX(-50%) translateY(-50%)",
-              width: ITEM_WIDTH + 16, height: ITEM_HEIGHT + 16, borderRadius: 26,
+              width: itemWidth + 16, height: itemHeight + 16, borderRadius: 26,
               border: isSpinning ? "1.5px solid rgba(188,78,96,0.55)" : "1.5px solid rgba(188,78,96,0.25)",
               boxShadow: isSpinning ? "0 0 32px 8px rgba(188,78,96,0.20), inset 0 0 24px rgba(188,78,96,0.10)" : "0 0 16px 4px rgba(188,78,96,0.08), inset 0 0 12px rgba(188,78,96,0.05)",
               animation: isSpinning ? "reticleGlow 0.6s ease-in-out infinite" : "reticleGlow 2.8s ease-in-out infinite",

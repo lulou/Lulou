@@ -1804,6 +1804,32 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
           </div>
         </button>
         <div className="flex items-center gap-1.5 shrink-0">
+          {!allCallsDone && (
+            <button
+              onClick={() => {
+                if (!callCreditsData) return;
+                if ((phoneCredits ?? 0) > 0) {
+                  toast({ title: t("credits_ready_header"), description: t("credits_ready_body") });
+                } else {
+                  toast({ title: t("need_credits_header"), description: t("need_phone_credits_msg") });
+                }
+              }}
+              className="w-7 h-7 flex items-center justify-center rounded-full transition-all active:scale-95"
+              data-testid={`button-phone-credit-indicator-${match.id}`}
+              title={(phoneCredits ?? 0) > 0 ? "Phone credits available" : "Get phone credits"}
+            >
+              <Phone
+                className="w-3.5 h-3.5 transition-all duration-300"
+                style={
+                  !callCreditsData
+                    ? { color: "hsl(var(--muted-foreground))", opacity: 0.35 }
+                    : (phoneCredits ?? 0) > 0
+                    ? { color: "rgb(34 197 94)", filter: "drop-shadow(0 0 5px rgba(34,197,94,0.65))" }
+                    : { color: "hsl(var(--muted-foreground))", opacity: 0.45 }
+                }
+              />
+            </button>
+          )}
           <Badge variant="outline" className="text-[10px] px-1.5 py-0" data-testid={`badge-messages-remaining-${match.id}`}>
             {allCallsDone ? t("all_calls_done") : callStage === 2 && bothStage2LimitReached ? t("ready_to_meet_badge") : callStage === 2 ? t("n_left_msg").replace("{n}", String(myStage2Remaining)) : callStage === 1 && bothPostCallLimitReached ? t("second_call_ready_badge") : callStage === 1 ? t("n_postcall_left").replace("{n}", String(myPostCallRemaining)) : messagesRemaining > 0 ? t("n_msg_left").replace("{n}", String(messagesRemaining)) : t("call_time_badge")}
           </Badge>
