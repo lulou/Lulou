@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Sparkles, Zap, Eye, Heart } from "lucide-react";
 import { useTabActive } from "@/hooks/use-tab-active";
 import { useCountdownSecs, useAnimatedCount, formatCountdown } from "@/lib/elevate-utils";
+import { useLanguageContext } from "@/contexts/language-context";
 
 // Inject shimmer + glow keyframes synchronously at module load so they are
 // guaranteed to exist before any ElevateStatusCard render.  Doing it in a
@@ -122,6 +123,7 @@ export function ElevateStatusCard({
   elevateType: string;
   expiresAt: string | null;
 }) {
+  const { t } = useLanguageContext();
   const isSuper = elevateType === "super_elevate";
   const isActive = useTabActive();
   const expiresAt = expiresAtStr ? new Date(expiresAtStr) : null;
@@ -186,10 +188,10 @@ export function ElevateStatusCard({
                 className={isSuper ? "super-shimmer-text" : "elevate-shimmer-text"}
                 style={{ fontFamily: "inherit", fontWeight: 700, fontSize: "0.875rem" }}
               >
-                {isSuper ? "Super Elevate" : "Elevate"}
+                {isSuper ? t("super_elevate_label") : t("elevate_label")}
               </span>
               <PulseDot isSuper={isSuper} />
-              <span className="text-xs font-medium text-primary/80">Live</span>
+              <span className="text-xs font-medium text-primary/80">{t("live_label")}</span>
             </div>
           </div>
 
@@ -209,19 +211,16 @@ export function ElevateStatusCard({
 
         {/* Stats row */}
         <div className="flex items-center gap-2 flex-wrap">
-          <StatChip icon={Eye} value={views} label="views" isSuper={isSuper} />
-          <StatChip icon={Heart} value={matches} label="matches" isSuper={isSuper} />
+          <StatChip icon={Eye} value={views} label={t("views_label")} isSuper={isSuper} />
+          <StatChip icon={Heart} value={matches} label={t("matches_label")} isSuper={isSuper} />
           <span className="text-xs text-muted-foreground ml-auto hidden sm:block">
-            {isSuper ? "8× priority" : "3× visibility"}
+            {isSuper ? t("eight_x_priority") : t("three_x_visibility")}
           </span>
         </div>
 
         {/* Tagline */}
         <p className="text-xs mt-2.5" style={{ color: isSuper ? "hsl(350 45% 55%)" : "hsl(350 45% 55%)" }}>
-          {isSuper
-            ? "You're at the top of Discovery and the Intention Wheel"
-            : "You're being discovered by more people right now"
-          }
+          {isSuper ? t("super_elevate_tagline") : t("elevate_tagline")}
         </p>
       </div>
     </div>

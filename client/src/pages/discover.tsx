@@ -24,6 +24,7 @@ import { getStarSign, STAR_SIGN_EMOJI } from "@/lib/star-sign";
 // Thin wrapper around the shared ProfilePhotoViewer — memoised so it only
 // re-renders when photos/name/disabled/loading state actually changes.
 const PhotoBubbles = memo(function PhotoBubbles({ photos, name: _name, onOpen, isDisabled, isPhotosLoading }: { photos: string[]; name: string; onOpen: () => void; isDisabled?: boolean; isPhotosLoading?: boolean }) {
+  const { t } = useLanguageContext();
   return (
     <ProfilePhotoViewer
       photos={photos}
@@ -36,7 +37,7 @@ const PhotoBubbles = memo(function PhotoBubbles({ photos, name: _name, onOpen, i
           data-testid="button-open"
         >
           <span className="text-lg leading-none">❤️</span>
-          Open
+          {t("open")}
         </button>
       }
     />
@@ -46,6 +47,7 @@ const PhotoBubbles = memo(function PhotoBubbles({ photos, name: _name, onOpen, i
 // Memoised: only re-renders when items/type/onReply actually change.
 // Prevents re-render when parent mutation isPending state toggles (2× per tap).
 const SlideCards = memo(function SlideCards({ items, type, onReply }: { items: string[]; type: "starter" | "question"; onReply: (text: string, reply: string) => void }) {
+  const { t } = useLanguageContext();
   const scrollRef = useRef<HTMLDivElement>(null);
   const isDragging = useRef(false);
   const didDrag = useRef(false);
@@ -201,7 +203,7 @@ const SlideCards = memo(function SlideCards({ items, type, onReply }: { items: s
           <Input
             value={reply}
             onChange={e => setReply(e.target.value.slice(0, 200))}
-            placeholder={isStarter ? "Reply to this..." : "Share your answer..."}
+            placeholder={isStarter ? t("reply_to_this") : t("share_your_answer")}
             className="text-sm"
             onKeyDown={e => {
               if (e.key === "Enter" && reply.trim() && activeIndex !== null) handleSend(items[activeIndex]);
@@ -382,8 +384,8 @@ export default function Discover() {
       } catch (err: any) {
         console.error("INTERACTION_ERROR", type, err?.message || err);
         toast({
-          title: type === "open" ? "Couldn't send like" : "Couldn't close",
-          description: err?.message || "Something went wrong. Try again.",
+          title: type === "open" ? t("couldnt_send_like") : t("couldnt_close_action"),
+          description: err?.message || t("something_went_wrong"),
           variant: "destructive",
         });
         return { skipped: true };
@@ -394,7 +396,7 @@ export default function Discover() {
       if (data?.matched) {
         toast({
           title: t("its_mutual"),
-          description: `You and ${data.profileId ? accumulatedProfiles.find(p => p.userId === data.profileId)?.firstName : currentProfile?.firstName} both opened up.`,
+          description: t("now_matched_desc").replace("{name}", (data.profileId ? accumulatedProfiles.find(p => p.userId === data.profileId)?.firstName : currentProfile?.firstName) ?? ""),
         });
         queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
       }
@@ -446,7 +448,7 @@ export default function Discover() {
   const handleReply = useCallback((_promptText: string, _reply: string) => {
     toast({
       title: t("reply_noted"),
-      description: `When you match with ${currentProfile?.firstName}, your reply will be sent as your first message.`,
+      description: t("reply_will_be_sent").replace("{name}", currentProfile?.firstName ?? ""),
     });
   }, [toast, t, currentProfile?.firstName]);
 
@@ -477,7 +479,7 @@ export default function Discover() {
               <LulouFlowerIcon className="w-8 h-8 text-primary/60" />
             </div>
             <h2 className="font-serif text-xl font-bold" data-testid="text-discover-slow">{t("loading_slow")}</h2>
-            <p className="text-muted-foreground text-sm">This is taking longer than usual. Tap retry to try again.</p>
+            <p className="text-muted-foreground text-sm">{t("loading_slow_desc")}</p>
             <button
               className="px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm font-medium"
               onClick={() => { setLoadingTooLong(false); refetch(); }}
@@ -619,7 +621,7 @@ export default function Discover() {
                   <div className="space-y-3" data-testid="section-viewer-questions">
                     <div className="flex items-center gap-1.5">
                       <HelpCircle className="w-3.5 h-3.5 text-primary" />
-                      <p className="text-xs font-semibold tracking-widest uppercase text-primary">They'd love to know</p>
+                      <p className="text-xs font-semibold tracking-widest uppercase text-primary">{t("they_love_to_know")}</p>
                     </div>
                     <SlideCards items={viewerQuestions.map(vq => vq.question)} type="starter" onReply={handleReply} />
                   </div>
@@ -703,7 +705,7 @@ export default function Discover() {
         disabled={interact.isPending || isExiting}
         data-testid="button-close"
       >
-        <span role="img" aria-label="Close">🌙</span>
+        <span role="img" aria-label={t("close_label")}>🌙</span>
       </button>
 
       <button
@@ -713,7 +715,7 @@ export default function Discover() {
         title={t("undo_pass_label")}
         data-testid="button-undo-pass"
       >
-        <span role="img" aria-label="Undo">↩️</span>
+        <span role="img" aria-label={t("undo_label")}>↩️</span>
       </button>
     </div>
   );

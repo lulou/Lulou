@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useLanguageContext } from "@/contexts/language-context";
+import { type TranslationKey } from "@/lib/i18n";
 import { usePerfTrace, useRenderCount, isMobile, scheduleIdle } from "@/lib/perf";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card } from "@/components/ui/card";
@@ -28,15 +29,15 @@ type ElevateStatus = { type: string | null; expiresAt: string | null; active: bo
 // ─── Match Overlay ─────────────────────────────────────────────────────────────
 
 // Premium taglines — one is chosen at component mount, never changes mid-display.
-const MATCH_TAGLINES_LIKES = [
-  "Two people. One spark.",
-  "Something rare just happened.",
-  "A new connection arrived.",
-  "Mutual interest. Worth exploring.",
-  "The feeling is mutual.",
-  "This one feels different.",
-  "A genuine connection started here.",
-  "Someone felt the same.",
+const MATCH_TAGLINE_KEYS: TranslationKey[] = [
+  "match_tagline_1",
+  "match_tagline_2",
+  "match_tagline_3",
+  "match_tagline_4",
+  "match_tagline_5",
+  "match_tagline_6",
+  "match_tagline_7",
+  "match_tagline_8",
 ];
 
 // Inject matchFloat keyframe once at module load so it is always defined before
@@ -69,7 +70,7 @@ const MATCH_OVERLAY_PARTICLES = Array.from({ length: 20 }, (_, i) => ({
 function MatchOverlay({ celebration, onClose }: { celebration: MatchCelebration; onClose: () => void }) {
   const { t } = useLanguageContext();
   const [phase, setPhase] = useState<"enter" | "visible" | "exit">("enter");
-  const tagline = useRef(MATCH_TAGLINES_LIKES[Math.floor(Math.random() * MATCH_TAGLINES_LIKES.length)]).current;
+  const taglineKey = useRef(MATCH_TAGLINE_KEYS[Math.floor(Math.random() * MATCH_TAGLINE_KEYS.length)]).current;
 
   useEffect(() => {
     const timerId = setTimeout(() => setPhase("visible"), 50);
@@ -186,7 +187,7 @@ function MatchOverlay({ celebration, onClose }: { celebration: MatchCelebration;
           }}
           data-testid="text-match-made"
         >
-          {tagline}
+          {t(taglineKey)}
         </p>
 
         {/* Rose divider */}
@@ -281,8 +282,8 @@ function ProfileModal({
         return res.json();
       } catch (err: any) {
         toast({
-          title: type === "open" ? "Couldn't send like" : "Couldn't close",
-          description: err?.message || "Something went wrong. Try again.",
+          title: type === "open" ? t("couldnt_send_like") : t("couldnt_close_action"),
+          description: err?.message || t("something_went_wrong"),
           variant: "destructive",
         });
         return { skipped: true };
@@ -298,7 +299,7 @@ function ProfileModal({
       } else if (data.connectionLimitReached) {
         onConnectionFull();
       } else {
-        toast({ title: "Passed", description: `You passed on ${profile.firstName}.` });
+        toast({ title: t("passed_title"), description: t("passed_on_name").replace("{name}", profile.firstName) });
       }
     },
   });
@@ -345,7 +346,7 @@ function ProfileModal({
           style={{ background: "hsl(0 0% 0% / 0.4)", backdropFilter: "blur(8px)" }}
           onClick={handleClose}
           data-testid="button-close-profile-modal"
-          aria-label="Close profile"
+          aria-label={t("close_profile_aria")}
         >
           <ChevronLeft className="w-5 h-5 text-white" />
         </button>
@@ -367,7 +368,7 @@ function ProfileModal({
             style={{ background: "hsl(0 0% 0% / 0.35)", backdropFilter: "blur(6px)" }}
             onClick={() => setPhotoIndex(i => Math.max(0, i - 1))}
             data-testid="button-modal-prev-photo"
-            aria-label="Previous photo"
+            aria-label={t("prev_photo_aria")}
           >
             <ChevronLeft className="w-4 h-4 text-white" />
           </button>
@@ -380,7 +381,7 @@ function ProfileModal({
             style={{ background: "hsl(0 0% 0% / 0.35)", backdropFilter: "blur(6px)" }}
             onClick={() => setPhotoIndex(i => Math.min(photos.length - 1, i + 1))}
             data-testid="button-modal-next-photo"
-            aria-label="Next photo"
+            aria-label={t("next_photo_aria")}
           >
             <ChevronRight className="w-4 h-4 text-white" />
           </button>
@@ -427,7 +428,7 @@ function ProfileModal({
                 variant="secondary"
                 className="text-xs px-2 py-0.5 bg-white/20 text-white border-white/30 backdrop-blur-sm shrink-0"
               >
-                Verified
+                {t("verified_label")}
               </Badge>
             )}
           </div>
@@ -481,7 +482,7 @@ function ProfileModal({
         {/* Green flags */}
         {greenFlags.length > 0 && (
           <div className="space-y-2.5">
-            <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-widest">Green Flags</p>
+            <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-widest">{t("green_flags_label")}</p>
             <div className="flex flex-wrap gap-2">
               {greenFlags.map((g: string) => (
                 <Badge key={g} variant="secondary" className="text-sm px-3 py-1 rounded-full">
@@ -495,7 +496,7 @@ function ProfileModal({
         {/* Conversation starters */}
         {conversationStarters.length > 0 && (
           <div className="space-y-2.5">
-            <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-widest">Conversation Starters</p>
+            <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-widest">{t("section_conversation_starters")}</p>
             <div className="space-y-2">
               {conversationStarters.map((s: string, i: number) => (
                 <div
@@ -594,8 +595,8 @@ function LikeCard({
         return res.json();
       } catch (err: any) {
         toast({
-          title: type === "open" ? "Couldn't send like" : "Couldn't close",
-          description: err?.message || "Something went wrong. Try again.",
+          title: type === "open" ? t("couldnt_send_like") : t("couldnt_close_action"),
+          description: err?.message || t("something_went_wrong"),
           variant: "destructive",
         });
         return { skipped: true };
@@ -610,7 +611,7 @@ function LikeCard({
       } else if (data.connectionLimitReached) {
         onConnectionFull();
       } else {
-        toast({ title: "Passed", description: `You passed on ${open.profile.firstName}.` });
+        toast({ title: t("passed_title"), description: t("passed_on_name").replace("{name}", open.profile.firstName) });
       }
     },
   });
@@ -656,7 +657,7 @@ function LikeCard({
             className="absolute top-3 right-3 px-2 py-0.5 rounded-full text-white text-[11px] font-medium"
             style={{ background: "rgba(0,0,0,0.4)", backdropFilter: "blur(4px)" }}
           >
-            {photoCount} photos
+            {t("n_photos").replace("{n}", String(photoCount))}
           </div>
         )}
         {/* Name + age overlay */}
@@ -681,7 +682,7 @@ function LikeCard({
                 variant="secondary"
                 className="text-[10px] px-2 py-0.5 bg-white/20 text-white border-white/30 backdrop-blur-sm flex-shrink-0"
               >
-                Verified
+                {t("verified_label")}
               </Badge>
             )}
           </div>
@@ -709,7 +710,7 @@ function LikeCard({
         {/* View full profile hint */}
         <p className="text-xs text-muted-foreground flex items-center gap-1">
           <Eye className="w-3 h-3" />
-          Tap to view full profile
+          {t("tap_view_full_profile")}
         </p>
 
         {/* Action buttons — stop propagation so they don't open the modal */}
@@ -766,8 +767,8 @@ export default function LikesPage() {
     const params = new URLSearchParams(window.location.search);
     if (params.get("checkout") === "cancelled") {
       toast({
-        title: "Checkout cancelled",
-        description: "No payment was made. You can boost your profile whenever you're ready.",
+        title: t("checkout_cancelled_title"),
+        description: t("checkout_cancelled_desc"),
       });
       window.history.replaceState({}, "", "/likes");
     }
@@ -882,7 +883,7 @@ export default function LikesPage() {
             )}
 
             <p className="text-xs text-muted-foreground">
-              When someone opens your profile, they'll appear here.
+              {t("likes_appear_here")}
             </p>
           </div>
         </div>
@@ -912,13 +913,13 @@ export default function LikesPage() {
                   data-testid="button-elevate-header"
                 >
                   <Sparkles className="w-3 h-3" />
-                  Elevate
+                  {t("elevate_label")}
                 </button>
               )}
             </div>
           </div>
           <p className="text-sm text-muted-foreground">
-            These people opened your profile. Tap a card to see their full profile.
+            {t("who_liked_you_desc")}
           </p>
         </div>
 
@@ -937,8 +938,8 @@ export default function LikesPage() {
             <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center">
               <Lock className="w-6 h-6 text-primary" />
             </div>
-            <p className="font-serif text-base font-semibold text-foreground">Connections room is full</p>
-            <p className="text-sm text-muted-foreground">Close a connection to free up space</p>
+            <p className="font-serif text-base font-semibold text-foreground">{t("connections_room_full")}</p>
+            <p className="text-sm text-muted-foreground">{t("close_conn_free_space")}</p>
           </div>
         )}
 

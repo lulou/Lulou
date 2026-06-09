@@ -16,22 +16,23 @@ import { PhotoCarousel } from "@/components/photo-carousel";
 import { Input } from "@/components/ui/input";
 import type { Message, Match, Profile } from "@shared/schema";
 import { useLanguageContext } from "@/contexts/language-context";
+import { type TranslationKey } from "@/lib/i18n";
 
 const MAX_MESSAGES_PER_USER = 15;
 const MAX_CHARS = 500;
 
 type MatchDetail = Match & { profile: Profile; messages: Message[] };
 
-function generateDateSlots(): { label: string; value: string }[] {
+function generateDateSlots(t: (key: TranslationKey) => string): { label: string; value: string }[] {
   const slots: { label: string; value: string }[] = [];
   const now = new Date();
-  const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-  const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const dayNames = [t("day_sun"), t("day_mon"), t("day_tue"), t("day_wed"), t("day_thu"), t("day_fri"), t("day_sat")];
+  const monthNames = [t("month_jan"), t("month_feb"), t("month_mar"), t("month_apr"), t("month_may"), t("month_jun"), t("month_jul"), t("month_aug"), t("month_sep"), t("month_oct"), t("month_nov"), t("month_dec")];
   const timeSlots = [
-    { label: "Morning (10am)", time: "10:00" },
-    { label: "Afternoon (2pm)", time: "14:00" },
-    { label: "Evening (7pm)", time: "19:00" },
-    { label: "Late evening (8:30pm)", time: "20:30" },
+    { label: t("time_morning"), time: "10:00" },
+    { label: t("time_afternoon"), time: "14:00" },
+    { label: t("time_evening"), time: "19:00" },
+    { label: t("time_late_evening"), time: "20:30" },
   ];
 
   for (let d = 1; d <= 7; d++) {
@@ -51,12 +52,13 @@ function generateDateSlots(): { label: string; value: string }[] {
 function ReadyToMeetSection({ matchDetail, matchId }: { matchDetail: MatchDetail; matchId: string }) {
   const { user } = useAuth();
   const { toast } = useToast();
+  const { t } = useLanguageContext();
   const queryClient = useQueryClient();
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [selectedSlots, setSelectedSlots] = useState<string[]>([]);
   const [showPhoneInput, setShowPhoneInput] = useState(false);
   const [phoneNumber, setPhoneNumber] = useState("");
-  const dateSlots = generateDateSlots();
+  const dateSlots = generateDateSlots(t);
 
   const isUser1 = matchDetail.user1Id === user?.id;
   const myAvailability = isUser1 ? matchDetail.meetAvailability1 : matchDetail.meetAvailability2;
@@ -77,11 +79,11 @@ function ReadyToMeetSection({ matchDetail, matchId }: { matchDetail: MatchDetail
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/matches", matchId] });
-      toast({ title: "Availability shared", description: `${matchDetail.profile.firstName} will see when you're free.` });
+      toast({ title: t("availability_shared"), description: t("availability_shared_desc").replace("{name}", matchDetail.profile.firstName) });
       setShowDatePicker(false);
     },
     onError: (error: Error) => {
-      toast({ title: "Could not save", description: error.message, variant: "destructive" });
+      toast({ title: t("could_not_save"), description: error.message, variant: "destructive" });
     },
   });
 
@@ -96,11 +98,11 @@ function ReadyToMeetSection({ matchDetail, matchId }: { matchDetail: MatchDetail
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/matches", matchId] });
       queryClient.invalidateQueries({ queryKey: ["/api/profile"] });
-      toast({ title: "Number shared", description: `Your number has been sent to ${matchDetail.profile.firstName}.` });
+      toast({ title: t("number_shared_title"), description: t("number_sent_to_desc").replace("{name}", matchDetail.profile.firstName) });
       setShowPhoneInput(false);
     },
     onError: (error: Error) => {
-      toast({ title: "Could not share number", description: error.message, variant: "destructive" });
+      toast({ title: t("could_not_share"), description: error.message, variant: "destructive" });
     },
   });
 
@@ -126,14 +128,14 @@ function ReadyToMeetSection({ matchDetail, matchId }: { matchDetail: MatchDetail
         <Card className="p-5 space-y-4 bg-primary/5 border-primary/20">
           <div className="text-center space-y-2">
             <PhoneForwarded className="w-6 h-6 text-primary mx-auto" />
-            <p className="font-medium text-sm">Add your phone number</p>
-            <p className="text-xs text-muted-foreground">Your number will be sent as a message to {matchDetail.profile.firstName}</p>
+            <p className="font-medium text-sm">{t("add_your_phone_title")}</p>
+            <p className="text-xs text-muted-foreground">{t("number_will_be_sent_to").replace("{name}", matchDetail.profile.firstName)}</p>
           </div>
           <Input
             type="tel"
             value={phoneNumber}
             onChange={e => setPhoneNumber(e.target.value)}
-            placeholder="Your phone number"
+            placeholder={t("your_phone_ph")}
             maxLength={20}
             data-testid="input-phone-number"
           />
@@ -144,10 +146,10 @@ function ReadyToMeetSection({ matchDetail, matchId }: { matchDetail: MatchDetail
               disabled={!phoneNumber.trim() || savePhoneAndExchange.isPending}
               data-testid="button-confirm-exchange"
             >
-              {savePhoneAndExchange.isPending ? "Sending..." : "Share My Number"}
+              {savePhoneAndExchange.isPending ? t("sending_ellipsis") : t("share_my_number")}
             </Button>
             <Button size="sm" variant="outline" onClick={() => setShowPhoneInput(false)} data-testid="button-cancel-phone">
-              Cancel
+              {t("cancel")}
             </Button>
           </div>
         </Card>
@@ -161,8 +163,8 @@ function ReadyToMeetSection({ matchDetail, matchId }: { matchDetail: MatchDetail
         <Card className="p-5 space-y-4 bg-primary/5 border-primary/20">
           <div className="text-center space-y-2">
             <Calendar className="w-6 h-6 text-primary mx-auto" />
-            <p className="font-medium text-sm">When are you free to meet?</p>
-            <p className="text-xs text-muted-foreground">Select up to 5 time slots</p>
+            <p className="font-medium text-sm">{t("when_are_you_free")}</p>
+            <p className="text-xs text-muted-foreground">{t("select_5_slots")}</p>
           </div>
           <div className="max-h-60 overflow-y-auto space-y-1.5">
             {dateSlots.map(slot => {
@@ -186,7 +188,7 @@ function ReadyToMeetSection({ matchDetail, matchId }: { matchDetail: MatchDetail
               );
             })}
           </div>
-          <p className="text-xs text-muted-foreground text-center">{selectedSlots.length}/5 selected</p>
+          <p className="text-xs text-muted-foreground text-center">{t("n_of_5_selected").replace("{n}", String(selectedSlots.length))}</p>
           <div className="flex items-center gap-2 justify-center">
             <Button
               size="sm"
@@ -194,10 +196,10 @@ function ReadyToMeetSection({ matchDetail, matchId }: { matchDetail: MatchDetail
               disabled={selectedSlots.length === 0 || saveAvailability.isPending}
               data-testid="button-save-availability"
             >
-              {saveAvailability.isPending ? "Saving..." : "Share Availability"}
+              {saveAvailability.isPending ? t("saving_ellipsis") : t("share_availability_btn")}
             </Button>
             <Button size="sm" variant="outline" onClick={() => setShowDatePicker(false)} data-testid="button-cancel-dates">
-              Cancel
+              {t("cancel")}
             </Button>
           </div>
         </Card>
@@ -210,15 +212,15 @@ function ReadyToMeetSection({ matchDetail, matchId }: { matchDetail: MatchDetail
       <div className="p-4 border-t">
         <Card className="p-5 text-center space-y-3 bg-primary/5 border-primary/20">
           <Heart className="w-6 h-6 text-primary mx-auto" />
-          <p className="font-medium text-sm">Number shared</p>
+          <p className="font-medium text-sm">{t("number_shared_title")}</p>
           <p className="text-xs text-muted-foreground">
             {theirNumberExchanged
-              ? `You've both exchanged numbers. Time to plan something special!`
-              : `Your number has been sent. Waiting for ${matchDetail.profile.firstName} to share theirs.`}
+              ? t("both_exchanged_numbers")
+              : t("number_sent_waiting").replace("{name}", matchDetail.profile.firstName)}
           </p>
           {matchingSlots.length > 0 && (
             <div className="space-y-1 pt-2">
-              <p className="text-xs font-medium text-muted-foreground">Your matching date times:</p>
+              <p className="text-xs font-medium text-muted-foreground">{t("your_matching_times")}</p>
               <div className="flex flex-wrap gap-1 justify-center">
                 {matchingSlots.map((s: string) => {
                   const matched = dateSlots.find(d => d.value === s);
@@ -236,18 +238,18 @@ function ReadyToMeetSection({ matchDetail, matchId }: { matchDetail: MatchDetail
     <div className="p-4 border-t">
       <Card className="p-5 text-center space-y-4 bg-primary/5 border-primary/20">
         <Check className="w-6 h-6 text-primary mx-auto" />
-        <p className="font-medium text-sm">All calls completed</p>
-        <p className="text-xs text-muted-foreground">You've had wonderful conversations. Ready to meet in real life?</p>
+        <p className="font-medium text-sm">{t("all_calls_completed")}</p>
+        <p className="text-xs text-muted-foreground">{t("ready_to_meet_real")}</p>
 
         {mySlots.length > 0 && theirSlots.length > 0 && matchingSlots.length > 0 ? (
           <div className="space-y-3 pt-2">
             <div className="flex items-center gap-2 justify-center">
               <Heart className="w-4 h-4 text-primary" />
-              <p className="font-medium text-sm text-primary">Your date is on the cards!</p>
+              <p className="font-medium text-sm text-primary">{t("your_date_on_cards")}</p>
               <Heart className="w-4 h-4 text-primary" />
             </div>
             <div className="space-y-1.5">
-              <p className="text-xs font-medium text-muted-foreground">You both matched on:</p>
+              <p className="text-xs font-medium text-muted-foreground">{t("you_both_matched_on")}</p>
               <div className="flex flex-wrap gap-1 justify-center">
                 {matchingSlots.map((s: string) => {
                   const matched = dateSlots.find(d => d.value === s);
@@ -257,10 +259,10 @@ function ReadyToMeetSection({ matchDetail, matchId }: { matchDetail: MatchDetail
             </div>
             <div className="flex flex-col gap-2 items-center pt-1">
               <Button size="sm" onClick={handleExchangeNumber} data-testid="button-exchange-number">
-                <PhoneForwarded className="w-4 h-4 mr-2" /> Exchange Number
+                <PhoneForwarded className="w-4 h-4 mr-2" /> {t("exchange_number_btn")}
               </Button>
               <Button size="sm" variant="outline" onClick={() => { setSelectedSlots([...mySlots]); setShowDatePicker(true); }} data-testid="button-update-availability">
-                <Calendar className="w-4 h-4 mr-2" /> Update Availability
+                <Calendar className="w-4 h-4 mr-2" /> {t("update_availability_btn")}
               </Button>
             </div>
           </div>
@@ -268,7 +270,7 @@ function ReadyToMeetSection({ matchDetail, matchId }: { matchDetail: MatchDetail
           <>
             {mySlots.length > 0 && (
               <div className="space-y-1.5">
-                <p className="text-xs font-medium text-muted-foreground">Your availability:</p>
+                <p className="text-xs font-medium text-muted-foreground">{t("your_availability_lbl")}</p>
                 <div className="flex flex-wrap gap-1 justify-center">
                   {mySlots.map((s: string) => {
                     const matched = dateSlots.find(d => d.value === s);
@@ -280,7 +282,7 @@ function ReadyToMeetSection({ matchDetail, matchId }: { matchDetail: MatchDetail
 
             {theirSlots.length > 0 && (
               <div className="space-y-1.5">
-                <p className="text-xs font-medium text-muted-foreground">{matchDetail.profile.firstName}'s availability:</p>
+                <p className="text-xs font-medium text-muted-foreground">{t("their_availability_lbl").replace("{name}", matchDetail.profile.firstName)}</p>
                 <div className="flex flex-wrap gap-1 justify-center">
                   {theirSlots.map((s: string) => {
                     const matched = dateSlots.find(d => d.value === s);
@@ -291,17 +293,17 @@ function ReadyToMeetSection({ matchDetail, matchId }: { matchDetail: MatchDetail
             )}
 
             {mySlots.length > 0 && theirSlots.length > 0 && matchingSlots.length === 0 && (
-              <p className="text-xs text-muted-foreground">No matching times yet. Try updating your availability!</p>
+              <p className="text-xs text-muted-foreground">{t("no_matching_times")}</p>
             )}
 
             <div className="flex flex-col gap-2 items-center">
               {mySlots.length === 0 ? (
                 <Button size="sm" onClick={() => setShowDatePicker(true)} data-testid="button-ready-to-meet">
-                  <Calendar className="w-4 h-4 mr-2" /> Ready to Meet
+                  <Calendar className="w-4 h-4 mr-2" /> {t("ready_to_meet")}
                 </Button>
               ) : (
                 <Button size="sm" variant="outline" onClick={() => { setSelectedSlots([...mySlots]); setShowDatePicker(true); }} data-testid="button-update-availability">
-                  <Calendar className="w-4 h-4 mr-2" /> Update Availability
+                  <Calendar className="w-4 h-4 mr-2" /> {t("update_availability_btn")}
                 </Button>
               )}
             </div>
@@ -358,11 +360,11 @@ export default function Messaging() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
-      toast({ title: "Connection closed", description: "You can now connect with someone new." });
+      toast({ title: t("connection_closed_title"), description: t("connection_closed_desc") });
       navigate("/matches");
     },
     onError: (error: Error) => {
-      toast({ title: "Could not close connection", description: error.message, variant: "destructive" });
+      toast({ title: t("could_not_close_connection"), description: error.message, variant: "destructive" });
     },
   });
 
@@ -455,7 +457,7 @@ export default function Messaging() {
       if (context?.previousMsgs) {
         queryClient.setQueryData(["/api/matches", matchId, "messages"], context.previousMsgs);
       }
-      toast({ title: "Could not send", description: error.message, variant: "destructive" });
+      toast({ title: t("could_not_send_title"), description: error.message, variant: "destructive" });
     },
   });
 
@@ -624,22 +626,22 @@ export default function Messaging() {
   const callStage = matchDetail?.callStage ?? 0;
   const allCallsDone = callStage >= 4;
 
-  const statusLabel = allCallsDone ? "Ready to meet"
-    : callStage === 3 ? "Face call stage"
-    : callStage === 2 ? "20 msg stage"
-    : callStage === 1 ? "2nd call ready"
-    : messagesRemaining > 0 ? `${messagesRemaining} left`
-    : "Call time";
+  const statusLabel = allCallsDone ? t("status_ready_to_meet")
+    : callStage === 3 ? t("status_face_call_stage")
+    : callStage === 2 ? t("status_20_msg_stage")
+    : callStage === 1 ? t("second_call_ready_badge")
+    : messagesRemaining > 0 ? t("n_msg_left").replace("{n}", String(messagesRemaining))
+    : t("call_time_badge");
 
   const callPrompt = callStage === 0
-    ? { icon: Phone, title: "You've both shared a lot", desc: "Ready to hear each other's voice? Your first call is 10 minutes.", button: "Start First Call" }
+    ? { icon: Phone, title: t("call_prompt_stage0_title"), desc: t("call_prompt_stage0_desc"), button: t("start_first_call") }
     : callStage === 1
-    ? { icon: Phone, title: "First call went great!", desc: "Ready for a longer 15-minute call?", button: "Start Second Call" }
+    ? { icon: Phone, title: t("call_prompt_stage1_title"), desc: t("call_prompt_stage1_desc"), button: t("start_second_call") }
     : callStage === 2
-    ? { icon: Phone, title: "Keep getting to know each other", desc: "You have 20 messages each before the face call unlocks.", button: "View on Connections" }
+    ? { icon: Phone, title: t("call_prompt_stage2_title"), desc: t("call_prompt_stage2_desc"), button: t("view_on_connections_btn") }
     : callStage === 3
-    ? { icon: Video, title: "Ready to see each other?", desc: "Both of you need to accept for a 10-minute face call.", button: "View on Connections" }
-    : { icon: Check, title: "All calls completed", desc: "You've had wonderful conversations. Ready to meet in real life?", button: "" };
+    ? { icon: Video, title: t("ready_to_see_each_other"), desc: t("face_call_desc"), button: t("view_on_connections_btn") }
+    : { icon: Check, title: t("all_calls_completed"), desc: t("ready_to_meet_real"), button: "" };
 
   // shellProfile is always non-null here (guaranteed by the guard above)
   const profile = shellProfile;
@@ -723,7 +725,7 @@ export default function Messaging() {
       {showCloseConfirm && (
         <div className="px-4 py-2 bg-destructive/5 border-b">
           <p className="text-xs text-center text-muted-foreground">
-            Close your connection with {profile.firstName}? This frees a spot for a new connection.
+            {t("close_connection_confirm").replace("{name}", profile.firstName)}
           </p>
         </div>
       )}
@@ -761,7 +763,7 @@ export default function Messaging() {
             {allMessages.length === 0 && !isDetailLoading && (
               <div className="text-center py-12 space-y-2">
                 <p className="text-muted-foreground text-sm">{t("convo_beginning")}</p>
-                <p className="text-xs text-muted-foreground">You each have {MAX_MESSAGES_PER_USER} messages. Make them count.</p>
+                <p className="text-xs text-muted-foreground">{t("initial_messages_info").replace("{n}", String(MAX_MESSAGES_PER_USER))}</p>
               </div>
             )}
             {allMessages.map(msg => {
@@ -810,7 +812,7 @@ export default function Messaging() {
                 <p className="text-xs text-muted-foreground">{callPrompt.desc}</p>
                 {callStage === 3 ? (
                   <Button size="sm" onClick={() => navigate("/matches")} data-testid="button-go-to-connections">
-                    <Video className="w-4 h-4 mr-2" /> Go to Connections
+                    <Video className="w-4 h-4 mr-2" /> {t("go_to_connections_btn")}
                   </Button>
                 ) : callPrompt.button ? (
                   <Button size="sm" onClick={() => navigate("/matches")} data-testid="button-call-prompt">
@@ -827,7 +829,7 @@ export default function Messaging() {
                 <Textarea
                   value={message}
                   onChange={e => setMessage(e.target.value.slice(0, MAX_CHARS))}
-                  placeholder="Write something meaningful..."
+                  placeholder={t("write_meaningful_placeholder")}
                   className="resize-none min-h-[44px] max-h-[120px] text-sm"
                   onKeyDown={e => {
                     if (e.key === "Enter" && !e.shiftKey) {
@@ -897,14 +899,14 @@ export default function Messaging() {
 
             {profile.datingIntent && (
               <div>
-                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">Here for</p>
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">{t("here_for_label")}</p>
                 <Badge variant="secondary" className="text-sm">{profile.datingIntent}</Badge>
               </div>
             )}
 
             {profile.signals?.length > 0 && (
               <div>
-                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">Vibe</p>
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">{t("vibe_label")}</p>
                 <div className="flex flex-wrap gap-1.5">
                   {profile.signals.map((s: string, i: number) => (
                     <Badge key={i} variant="outline" className="text-xs">{s}</Badge>
@@ -915,7 +917,7 @@ export default function Messaging() {
 
             {profile.greenFlags?.length > 0 && (
               <div>
-                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">Green flags</p>
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">{t("green_flags_label")}</p>
                 <div className="flex flex-col gap-1">
                   {profile.greenFlags.map((f: string, i: number) => (
                     <p key={i} className="text-sm flex items-start gap-1.5">
@@ -928,14 +930,14 @@ export default function Messaging() {
 
             {profile.connectionStyle && (
               <div>
-                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1">Connection style</p>
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1">{t("section_connection_style")}</p>
                 <p className="text-sm">{profile.connectionStyle}</p>
               </div>
             )}
 
             {profile.conversationStarters && profile.conversationStarters.length > 0 && (
               <div>
-                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">Ask me about</p>
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">{t("ask_me_about_label")}</p>
                 <div className="space-y-1.5">
                   {profile.conversationStarters.map((cs: string, i: number) => (
                     <p key={i} className="text-sm text-muted-foreground italic">"{cs}"</p>
@@ -950,7 +952,7 @@ export default function Messaging() {
               onClick={() => setActiveTab("chat")}
               data-testid="button-return-to-chat"
             >
-              <MessageCircle className="w-4 h-4 mr-2" /> Back to chat
+              <MessageCircle className="w-4 h-4 mr-2" /> {t("back_to_chat_btn")}
             </Button>
           </div>
         </div>

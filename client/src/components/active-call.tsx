@@ -1260,7 +1260,7 @@ export function ActiveCallOverlay({
                 data-testid="banner-two-min-warning"
               >
                 <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
-                <span className="text-amber-300 text-xs">2 minutes remaining</span>
+                <span className="text-amber-300 text-xs">{t("two_min_remaining")}</span>
               </div>
             )}
             {isConnected && warning === "one_min" && remaining > 10 && !timerExpiredMsg && (
@@ -1270,7 +1270,7 @@ export function ActiveCallOverlay({
                 data-testid="banner-one-min-warning"
               >
                 <AlertTriangle className="w-3.5 h-3.5 text-red-400" />
-                <span className="text-red-300 text-xs">Less than a minute remaining</span>
+                <span className="text-red-300 text-xs">{t("less_than_minute")}</span>
               </div>
             )}
             {isConnected && warning === "ten_sec" && !timerExpiredMsg && (
@@ -1280,7 +1280,7 @@ export function ActiveCallOverlay({
                 data-testid="banner-ten-sec-warning"
               >
                 <AlertTriangle className="w-3.5 h-3.5 text-red-300" />
-                <span className="text-red-200 text-xs font-medium">10 seconds remaining!</span>
+                <span className="text-red-200 text-xs font-medium">{t("ten_sec_remaining")}</span>
               </div>
             )}
           </>
