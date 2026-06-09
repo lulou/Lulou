@@ -264,7 +264,7 @@ export function useCallSignaling(matchIds: string[], userId: string) {
             if (!old || !Array.isArray(old)) return old;
             return old.map((m: any) => m.id === matchId ? { ...m, ...answeredPatch } : m);
           });
-          queryClient.setQueriesData<any>({ queryKey: ["/api/matches", matchId] }, (old) => {
+          queryClient.setQueriesData<any>({ queryKey: ["/api/matches", matchId] }, (old: any) => {
             if (!old || Array.isArray(old)) return old;
             return { ...old, ...answeredPatch };
           });

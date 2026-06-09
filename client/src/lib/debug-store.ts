@@ -89,6 +89,31 @@ export interface DebugSnapshot {
   profileInsertSucceeded: boolean;
   profileFetchMethodUsed: string | null;
   profileErrorMessage: string | null;
+  // Timing / race debug
+  authTimeoutPathEntered: boolean;
+  authAbortControllerUsed: boolean;
+  authAbortTriggered: boolean;
+  authRequestStartedAt: number | null;
+  authRequestEndedAt: number | null;
+  authElapsedMs: number | null;
+  supabaseSignInResolved: boolean;
+  supabaseSignInRejected: boolean;
+  rawSupabaseAuthError: string | null;
+  timeoutMessageSource: string | null;
+  // Post-call no-session path
+  submitHandlerNoSession: boolean;
+  noSessionSilentFailure: boolean;
+  // Real input focus tracking
+  realEmailInputFocused: boolean;
+  realEmailEfp: string | undefined;
+  // Auth fetch debug (separate HTTP fetch used in some paths)
+  authFetchStarted: boolean;
+  authFetchCallCount: number;
+  authResponseStatus: number | null;
+  authResponseContentType: string | null;
+  authParseMode: "text" | "json" | null;
+  authReturnedHtml: boolean;
+  authUserFacingError: string | null;
   // Error log
   errors: string[];
 }
@@ -142,6 +167,27 @@ export const _dbg: DebugSnapshot = {
   profileInsertSucceeded: false,
   profileFetchMethodUsed: null,
   profileErrorMessage: null,
+  authTimeoutPathEntered: false,
+  authAbortControllerUsed: false,
+  authAbortTriggered: false,
+  authRequestStartedAt: null,
+  authRequestEndedAt: null,
+  authElapsedMs: null,
+  supabaseSignInResolved: false,
+  supabaseSignInRejected: false,
+  rawSupabaseAuthError: null,
+  timeoutMessageSource: null,
+  submitHandlerNoSession: false,
+  noSessionSilentFailure: false,
+  realEmailInputFocused: false,
+  realEmailEfp: undefined,
+  authFetchStarted: false,
+  authFetchCallCount: 0,
+  authResponseStatus: null,
+  authResponseContentType: null,
+  authParseMode: null,
+  authReturnedHtml: false,
+  authUserFacingError: null,
   errors: [],
 };
 

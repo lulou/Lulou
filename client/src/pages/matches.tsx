@@ -1136,7 +1136,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
           senderId: user?.id || "",
           content: vars.content,
           reaction: null,
-          createdAt: new Date().toISOString(),
+          createdAt: new Date(),
         };
         queryClient.setQueryData<MatchDetail>(["/api/matches", match.id], {
           ...previous,
@@ -1919,7 +1919,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                       >
                         <p className="leading-relaxed">{renderMessageContent(msg.content, t)}</p>
                         <p className={`text-[10px] mt-1.5 leading-none opacity-60 ${isMe ? "text-primary-foreground" : "text-muted-foreground"}`} data-testid={`timestamp-${msg.id}`}>
-                          {formatTimestamp(msg.createdAt)}
+                          {formatTimestamp(msg.createdAt as unknown as string | null)}
                         </p>
                       </div>
                       {hasReaction && (

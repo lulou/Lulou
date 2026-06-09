@@ -43,14 +43,11 @@ console.log(`[SERVER_AUTH] SUPABASE_URL resolved from ${_urlSource}:`, supabaseU
 console.log(`[SERVER_AUTH] SUPABASE_KEY resolved from ${_keySource}: length=${supabaseAnonKey.length}`);
 console.log("[SERVER_AUTH] SERVICE_ROLE_KEY:", serviceRoleKey ? `length=${serviceRoleKey.length}` : "NOT SET");
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
-  realtime: { enabled: false },
-});
+export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 export const supabaseAdmin: SupabaseClient = isValidJwt(serviceRoleKey)
   ? createClient(supabaseUrl, serviceRoleKey!, {
       auth: { autoRefreshToken: false, persistSession: false },
-      realtime: { enabled: false },
     })
   : supabase;
 
@@ -61,6 +58,5 @@ export function createUserClient(authorizationHeader: string): SupabaseClient {
     global: {
       headers: { Authorization: authorizationHeader },
     },
-    realtime: { enabled: false },
   });
 }

@@ -932,7 +932,7 @@ export function ActiveCallOverlay({
           if (!Array.isArray(old)) return old;
           return old.map((m: any) => m.id === matchId ? { ...m, ...patch } : m);
         });
-        queryClient.setQueriesData<any>({ queryKey: ["/api/matches", matchId] }, (old) => {
+        queryClient.setQueriesData<any>({ queryKey: ["/api/matches", matchId] }, (old: any) => {
           if (!old) return old;
           return { ...old, ...patch };
         });

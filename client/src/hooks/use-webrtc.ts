@@ -171,6 +171,13 @@ type SignalMessage =
   | { type: "webrtc:hangup"; from: string }
   | { type: "webrtc:ready"; from: string };
 
+type SignalPayload =
+  | { type: "webrtc:offer"; sdp: string }
+  | { type: "webrtc:answer"; sdp: string }
+  | { type: "webrtc:ice"; candidate: RTCIceCandidateInit }
+  | { type: "webrtc:hangup" }
+  | { type: "webrtc:ready" };
+
 export type WebRTCState = "idle" | "requesting-media" | "connecting" | "connected" | "reconnecting" | "failed" | "closed";
 
 interface UseWebRTCOptions {
@@ -275,7 +282,7 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
     });
     callDebug.event("effect: webrtc enabled, init starting");
 
-    const broadcastOnChannel = (msg: Omit<SignalMessage, "from">) => {
+    const broadcastOnChannel = (msg: SignalPayload) => {
       const channel = channelRef.current;
       if (!channel) return;
       channel.send({

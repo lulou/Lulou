@@ -165,7 +165,7 @@ export interface IStorage {
   createMessage(data: InsertMessage): Promise<Message>;
   getUserMessageCount(matchId: string, userId: string): Promise<number>;
   incrementMessageCount(matchId: string, userId: string): Promise<void>;
-  startCall(matchId: string, userId: string): Promise<{ match: Match; status: "created" | "reused" | "blocked" } | undefined>;
+  startCall(matchId: string, userId: string): Promise<{ match: Match; status: "created" | "reused" | "blocked" | "self_call" } | undefined>;
   answerCall(matchId: string, userId: string): Promise<Match | undefined>;
   cancelCall(matchId: string, userId: string): Promise<Match | undefined>;
   completeCall(matchId: string, userId: string, options?: CompleteCallOptions): Promise<CompleteCallResult | undefined>;
@@ -1058,7 +1058,7 @@ export class SupabaseStorage implements IStorage {
     // Build profile lookup: user_id → profile row
     const profileByUserId = new Map<string, any>();
     for (const p of profilesResult.data ?? []) {
-      profileByUserId.set(p.user_id, p);
+      profileByUserId.set((p as any).user_id, p);
     }
 
     // Build last-message map: messages are already ordered DESC, first per match_id = latest
@@ -2091,7 +2091,7 @@ export class SupabaseStorage implements IStorage {
       .select(getMatchProfileCols())
       .in("user_id", fromIds);
 
-    const profileMap = new Map<string, any>((profileRows ?? []).map(p => [p.user_id, p]));
+    const profileMap = new Map<string, any>((profileRows ?? []).map(p => [(p as any).user_id, p]));
     const result: (SpinRequest & { profile: Profile })[] = [];
     for (const req of requests) {
       const p = profileMap.get(req.from_user_id);
@@ -2115,7 +2115,7 @@ export class SupabaseStorage implements IStorage {
       .select(getMatchProfileCols())
       .in("user_id", toIds);
 
-    const profileMap = new Map<string, any>((profileRows ?? []).map(p => [p.user_id, p]));
+    const profileMap = new Map<string, any>((profileRows ?? []).map(p => [(p as any).user_id, p]));
     const result: (SpinRequest & { profile: Profile })[] = [];
     for (const req of requests) {
       const p = profileMap.get(req.to_user_id);
@@ -2290,7 +2290,7 @@ export class SupabaseStorage implements IStorage {
 
     const profileMap = new Map<string, any>();
     for (const row of profileRows ?? []) {
-      profileMap.set(row.user_id, row);
+      profileMap.set((row as any).user_id, row);
     }
 
     return incomingOpens

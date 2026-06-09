@@ -2183,9 +2183,9 @@ export async function registerRoutes(
   };
 
   app.post("/api/stripe/elevate-checkout", isAuthenticated, async (req: any, res) => {
+    const userId: string = req.user.id;
+    const { packId, cancelPath } = req.body as { packId?: string; cancelPath?: string };
     try {
-      const userId = req.user.id;
-      const { packId, cancelPath } = req.body;
       const pack = ELEVATE_PACKS[packId as keyof typeof ELEVATE_PACKS];
       if (!pack) {
         return res.status(400).json({ message: "Invalid pack ID. Must be one of: elevate-1, elevate-3, elevate-5, super-elevate" });
@@ -2193,7 +2193,7 @@ export async function registerRoutes(
 
       // Only allow known safe cancel paths — default to /likes
       const allowedCancelPaths = ["/likes", "/profile"];
-      const safeCancelPath = allowedCancelPaths.includes(cancelPath) ? cancelPath : "/likes";
+      const safeCancelPath = allowedCancelPaths.includes(cancelPath ?? "") ? (cancelPath ?? "/likes") : "/likes";
 
       const stripe = await getUncachableStripeClient();
       const baseUrl = process.env.FRONTEND_URL ??
@@ -2249,9 +2249,9 @@ export async function registerRoutes(
   // Called by /elevate/success after redirect. Awards credits, does NOT activate yet.
 
   app.post("/api/stripe/elevate-activate", isAuthenticated, async (req: any, res) => {
+    const userId: string = req.user.id;
+    const { sessionId } = req.body as { sessionId?: string };
     try {
-      const userId = req.user.id;
-      const { sessionId } = req.body;
       if (!sessionId) return res.status(400).json({ message: "sessionId required" });
 
       const stripe = await getUncachableStripeClient();

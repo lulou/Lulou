@@ -13,6 +13,7 @@ interface ProfilePhotoViewerProps {
   className?: string;
   action?: ReactNode;
   nameSlot?: ReactNode;
+  children?: ReactNode;
 }
 
 /**

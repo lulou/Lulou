@@ -106,7 +106,7 @@ export function useRealtimeMessages(matchId: string | undefined, enabled: boolea
           lastMessage: {
             content: newMsg.content,
             senderId: newMsg.senderId,
-            createdAt: newMsg.createdAt ? new Date(newMsg.createdAt as string) : null,
+            createdAt: newMsg.createdAt ? new Date(newMsg.createdAt as unknown as string) : null,
           },
         };
         return updated;

@@ -404,7 +404,7 @@ export default function Messaging() {
         senderId: user?.id || "",
         content: vars.content,
         reaction: null,
-        createdAt: new Date().toISOString(),
+        createdAt: new Date(),
       };
 
       // Optimistic append to messages cache
@@ -539,7 +539,7 @@ export default function Messaging() {
       const msgCount = msgsData.messages?.length ?? 0;
       console.log("[CHAT_LOAD] msgs_loaded", { matchId, msgCount, hasMore: msgsData.hasMore, ms });
       setHasMoreMessages(msgsData.hasMore);
-      if (msgCount > 0) oldestCursorRef.current = msgsData.messages[0].createdAt as string;
+      if (msgCount > 0) oldestCursorRef.current = msgsData.messages[0].createdAt as unknown as string;
     }
   }, [msgsData]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -906,7 +906,7 @@ export default function Messaging() {
               <div>
                 <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">Vibe</p>
                 <div className="flex flex-wrap gap-1.5">
-                  {profile.signals.map((s, i) => (
+                  {profile.signals.map((s: string, i: number) => (
                     <Badge key={i} variant="outline" className="text-xs">{s}</Badge>
                   ))}
                 </div>
@@ -917,7 +917,7 @@ export default function Messaging() {
               <div>
                 <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">Green flags</p>
                 <div className="flex flex-col gap-1">
-                  {profile.greenFlags.map((f, i) => (
+                  {profile.greenFlags.map((f: string, i: number) => (
                     <p key={i} className="text-sm flex items-start gap-1.5">
                       <span className="text-emerald-500 mt-0.5">✓</span>{f}
                     </p>
@@ -937,7 +937,7 @@ export default function Messaging() {
               <div>
                 <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">Ask me about</p>
                 <div className="space-y-1.5">
-                  {profile.conversationStarters.map((cs, i) => (
+                  {profile.conversationStarters.map((cs: string, i: number) => (
                     <p key={i} className="text-sm text-muted-foreground italic">"{cs}"</p>
                   ))}
                 </div>

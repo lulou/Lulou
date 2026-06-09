@@ -242,7 +242,7 @@ function clearCallFromCache(
     return old.map(m => m.id === matchId ? { ...m, ...cleared } : m);
   });
   // Also explicitly clear the detail query so the inline call UI resets
-  qc.setQueriesData<any>({ queryKey: ["/api/matches", matchId] }, (old) => {
+  qc.setQueriesData<any>({ queryKey: ["/api/matches", matchId] }, (old: any) => {
     if (!old || Array.isArray(old)) return old;
     return { ...old, ...cleared };
   });
@@ -1138,7 +1138,7 @@ function CallDetectors({ userId }: { userId: string }) {
                   isCaller={overlayForActive.callInitiatorId === userId}
                   isVideo={isActiveVideo}
                   isRinging={!overlayForActive.callAnswered}
-                  callerName={overlayForActive.profile?.name || overlayForActive.profile?.firstName || "Unknown"}
+                  callerName={overlayForActive.profile?.firstName || "Unknown"}
                   callerPhoto={overlayForActive.profile?.photos?.[0] || undefined}
                   callStage={overlayForActive.callStage || 0}
                   onCallEnd={handleActiveCallEnd}
