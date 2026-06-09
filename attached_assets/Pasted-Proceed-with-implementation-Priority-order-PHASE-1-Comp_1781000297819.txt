@@ -1,0 +1,121 @@
+Proceed with implementation.
+
+Priority order:
+
+PHASE 1 – Complete Translation Coverage
+
+Implement:
+
+Add all missing translation keys.
+Add all missing language entries.
+Add Chinese Simplified translations.
+Add Chinese Traditional translations.
+Bring all supported languages to the same key count as English.
+Target:
+
+Every language must have the same translation key count as English.
+
+No language should be operating at:
+
+24%
+21%
+0%
+Target coverage:
+
+100% for all supported languages.
+
+
+PHASE 2 – Remove Remaining Hardcoded English
+
+Replace all hardcoded strings with translation keys.
+
+Priority files:
+
+messaging.tsx
+matches.tsx
+elevate-modal.tsx
+elevate-status-card.tsx
+likes.tsx
+profile.tsx
+settings.tsx
+active-call.tsx
+discover.tsx
+Everything visible to users must use t().
+
+No visible English strings should remain.
+
+
+PHASE 3 – Connect Missing Components
+
+Connect:
+
+elevate-modal.tsx
+elevate-status-card.tsx
+to the LanguageProvider.
+
+No component should bypass the translation system.
+
+
+PHASE 4 – Server Error Translation Strategy
+
+Current issue:
+
+Server routes return English messages.
+
+Implement the cleanest solution:
+
+Preferred:
+
+return error codes
+translate client-side
+Example:
+
+Instead of:
+
+“You’ve reached your connection limit”
+
+Return:
+
+CONNECTION_LIMIT_REACHED
+
+Then translate through the language system.
+
+Audit all server messages and implement a scalable approach.
+
+
+PHASE 5 – Validation
+
+After implementation provide:
+
+total translation keys
+total languages
+key count per language
+files changed
+hardcoded strings remaining (if any)
+untranslated strings remaining (if any)
+
+Success Criteria
+
+A user should be able to:
+
+Select any supported language.
+Navigate the entire app.
+Never encounter English unless:
+
+user-generated content
+names
+bios
+user-written messages
+user-written questions
+user-written conversation starters
+Everything else must be translated.
+
+
+Before claiming complete:
+
+Run a final audit and report:
+
+translation coverage percentage per language
+hardcoded string count
+remaining English strings
+Do not claim 100% coverage unless the audit confirms it.
