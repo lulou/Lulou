@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { CheckCircle2, XCircle, Loader2, Crown, ArrowRight, Gift, MessageSquare, Phone, Video } from "lucide-react";
+import { useLanguageContext } from "@/contexts/language-context";
 
 type Phase = "verifying" | "active" | "error";
 
@@ -21,6 +22,7 @@ const MEMBERSHIP_PERKS = [
 ];
 
 export default function ExtrasSuccessPage() {
+  const { t } = useLanguageContext();
   const [, navigate] = useLocation();
   const [phase, setPhase] = useState<Phase>("verifying");
   const [itemId, setItemId] = useState<string>("");
@@ -34,7 +36,7 @@ export default function ExtrasSuccessPage() {
     setItemId(item);
 
     if (!sessionId) {
-      setErrorMsg("Missing payment session. Please try again.");
+      setErrorMsg(t("missing_session"));
       setPhase("error");
       return;
     }
@@ -59,14 +61,14 @@ export default function ExtrasSuccessPage() {
         if (res.status === 402 && tries < maxTries) {
           setTimeout(verify, interval);
         } else {
-          setErrorMsg(data.message ?? "Payment verification failed. If you were charged, contact support.");
+          setErrorMsg(data.message ?? t("payment_verify_failed"));
           setPhase("error");
         }
       } catch {
         if (tries < maxTries) {
           setTimeout(verify, interval * 1.5);
         } else {
-          setErrorMsg("Network error. Please check your connection and try again.");
+          setErrorMsg(t("network_error_retry"));
           setPhase("error");
         }
       }
@@ -82,7 +84,7 @@ export default function ExtrasSuccessPage() {
     <div className="min-h-screen bg-background">
       <div className="flex items-center gap-2 px-5 pt-5 pb-2 max-w-md mx-auto">
         <Crown className="w-5 h-5 text-primary" />
-        <span className="font-serif font-semibold text-base">Lulou Extras</span>
+        <span className="font-serif font-semibold text-base">{t("lulou_extras")}</span>
       </div>
 
       <div className="max-w-md mx-auto px-5 py-4 space-y-5">
@@ -93,8 +95,8 @@ export default function ExtrasSuccessPage() {
               <Loader2 className="w-9 h-9 text-primary animate-spin" />
             </div>
             <div className="text-center">
-              <h1 className="font-serif text-2xl font-bold mb-2">Confirming payment…</h1>
-              <p className="text-sm text-muted-foreground">Verifying your purchase and adding it to your account.</p>
+              <h1 className="font-serif text-2xl font-bold mb-2">{t("confirming_payment")}</h1>
+              <p className="text-sm text-muted-foreground">{t("verifying_extras_purchase")}</p>
             </div>
           </div>
         )}
@@ -107,7 +109,7 @@ export default function ExtrasSuccessPage() {
               </div>
               <div>
                 <h1 className="font-serif text-xl font-bold">
-                  {isMembership ? "Membership activated!" : "Added to your account!"}
+                  {isMembership ? t("membership_activated") : t("added_to_account")}
                 </h1>
                 <p className="text-sm text-muted-foreground">{itemName || info?.label}</p>
               </div>
@@ -146,9 +148,7 @@ export default function ExtrasSuccessPage() {
             >
               <Gift className="w-4 h-4 text-primary shrink-0 mt-0.5" />
               <p className="text-xs text-muted-foreground">
-                {isMembership
-                  ? "Your benefits are now active and can be used across all your conversations."
-                  : "This extra is saved to your account and can be used in any conversation from the chat screen."}
+                {isMembership ? t("membership_benefits_active") : t("extra_saved_to_account")}
               </p>
             </div>
 
@@ -158,12 +158,12 @@ export default function ExtrasSuccessPage() {
               onClick={() => navigate("/matches")}
               data-testid="button-extras-continue"
             >
-              Go to Matches
+              {t("go_to_matches")}
               <ArrowRight className="w-5 h-5" />
             </button>
 
             <p className="text-center text-xs text-muted-foreground pb-6">
-              You can view all your available extras from your profile at any time.
+              {t("view_extras_profile_note")}
             </p>
           </>
         )}
@@ -174,7 +174,7 @@ export default function ExtrasSuccessPage() {
               <XCircle className="w-9 h-9 text-destructive" />
             </div>
             <div className="text-center">
-              <h1 className="font-serif text-2xl font-bold mb-2">Something went wrong</h1>
+              <h1 className="font-serif text-2xl font-bold mb-2">{t("something_went_wrong")}</h1>
               <p className="text-sm text-muted-foreground mb-6">{errorMsg}</p>
             </div>
             <button
@@ -182,7 +182,7 @@ export default function ExtrasSuccessPage() {
               onClick={() => navigate("/profile")}
               data-testid="button-extras-error-back"
             >
-              Back to profile
+              {t("back")}
             </button>
           </div>
         )}

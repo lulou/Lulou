@@ -158,14 +158,14 @@ export default function SettingsPage() {
       if (url) {
         window.location.href = url;
       } else {
-        toast({ title: `Connected to ${provider}` });
+        toast({ title: `${t("connected_to_provider")} ${provider}` });
       }
     } catch (err: any) {
       const msg = err?.message ?? "";
       const hint = msg.toLowerCase().includes("manual linking")
-        ? "Enable 'Allow manual linking' in your Supabase Auth settings."
+        ? t("enable_manual_linking")
         : msg;
-      toast({ title: t("connect_btn") + " failed", description: hint, variant: "destructive" });
+      toast({ title: t("connect_failed_title"), description: hint, variant: "destructive" });
     } finally {
       setConnectingProvider(null);
     }
@@ -177,9 +177,9 @@ export default function SettingsPage() {
     try {
       await supabase.auth.unlinkIdentity(identity as any);
       setIdentities(prev => prev.filter(i => i.provider !== provider));
-      toast({ title: "Disconnected", description: `${provider} account removed.` });
+      toast({ title: t("disconnected_title"), description: `${provider} ${t("provider_removed")}` });
     } catch (err: any) {
-      toast({ title: "Could not disconnect", description: err?.message, variant: "destructive" });
+      toast({ title: t("could_not_disconnect"), description: err?.message, variant: "destructive" });
     }
   };
 
@@ -215,11 +215,11 @@ export default function SettingsPage() {
       setSelfieStep("camera"); // render <video> element first, then attach in useEffect
     } catch (err: any) {
       const description =
-        err?.name === "NotAllowedError"  ? "Camera permission denied. Please allow access in your browser settings." :
-        err?.name === "NotFoundError"    ? "No camera found on this device." :
-        err?.name === "NotReadableError" ? "Camera is in use by another app." :
-                                           "Please allow camera access in your browser settings.";
-      toast({ title: "Camera error", description, variant: "destructive" });
+        err?.name === "NotAllowedError"  ? t("cam_permission_denied") :
+        err?.name === "NotFoundError"    ? t("cam_not_found") :
+        err?.name === "NotReadableError" ? t("cam_in_use") :
+                                           t("cam_allow_access");
+      toast({ title: t("camera_error_title"), description, variant: "destructive" });
     }
   }, [toast]);
 
@@ -323,10 +323,10 @@ export default function SettingsPage() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["/api/profile"] });
       setSelfieStep("done");
-      toast({ title: "Verified!", description: "Your profile now shows a verified badge." });
+      toast({ title: t("verified_title"), description: t("verified_desc_settings") });
     },
     onError: (err: any) => {
-      toast({ title: "Verification failed", description: err?.message, variant: "destructive" });
+        toast({ title: t("verification_failed"), description: err?.message, variant: "destructive" });
     },
   });
 
@@ -352,14 +352,14 @@ export default function SettingsPage() {
     onSuccess: (_data, paused) => {
       qc.invalidateQueries({ queryKey: ["/api/profile"] });
       toast({
-        title: paused ? "Account paused" : "Account reactivated",
+        title: paused ? t("account_paused_title") : t("account_reactivated_title"),
         description: paused
-          ? "Your profile is hidden. Your matches are safe."
-          : "Your profile is visible again.",
+          ? t("profile_hidden_desc")
+          : t("profile_visible_desc"),
       });
     },
     onError: (err: any) => {
-      toast({ title: "Failed", description: err?.message, variant: "destructive" });
+      toast({ title: t("failed_toast"), description: err?.message, variant: "destructive" });
     },
   });
 
@@ -374,10 +374,10 @@ export default function SettingsPage() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["/api/profile"] });
       setShowPhoneDialog(false);
-      toast({ title: "Phone number updated" });
+      toast({ title: t("phone_updated_title") });
     },
     onError: (err: any) => {
-      toast({ title: "Failed to save", description: err?.message, variant: "destructive" });
+      toast({ title: t("failed_to_save"), description: err?.message, variant: "destructive" });
     },
   });
 
@@ -428,7 +428,7 @@ export default function SettingsPage() {
       toast({ title: `${contacts.length} contact${contacts.length !== 1 ? "s" : ""} blocked` });
     },
     onError: () => {
-      toast({ title: "Failed to block contacts", variant: "destructive" });
+      toast({ title: t("failed_to_block_contacts"), variant: "destructive" });
     },
   });
 
@@ -440,10 +440,10 @@ export default function SettingsPage() {
       setAddPhone("");
       setAddEmail("");
       setShowAddForm(false);
-      toast({ title: "Contact blocked" });
+      toast({ title: t("contact_blocked_toast") });
     },
     onError: (err: any) => {
-      toast({ title: "Failed", description: err?.message, variant: "destructive" });
+      toast({ title: t("failed_toast"), description: err?.message, variant: "destructive" });
     },
   });
 
@@ -451,7 +451,7 @@ export default function SettingsPage() {
     mutationFn: (id: string) => apiRequest("DELETE", `/api/blocked-contacts/${id}`),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["/api/blocked-contacts"] });
-      toast({ title: "Contact unblocked" });
+      toast({ title: t("contact_unblocked") });
     },
   });
 
@@ -464,7 +464,7 @@ export default function SettingsPage() {
       const data = await apiRequest("POST", "/api/stripe/extras-checkout", { itemId }) as any;
       if (data?.url) window.location.href = data.url;
     } catch (err: any) {
-      toast({ title: "Checkout failed", description: err?.message, variant: "destructive" });
+      toast({ title: t("checkout_failed"), description: err?.message, variant: "destructive" });
     } finally {
       setCheckoutLoading(null);
     }
@@ -474,8 +474,8 @@ export default function SettingsPage() {
   const handleDeleteConfirm = () => {
     setShowDeleteDialog(false);
     toast({
-      title: "Account deletion requested",
-      description: "Email support@lulou.dating within 48 hours to complete deletion.",
+      title: t("account_deletion_title"),
+      description: t("account_deletion_desc"),
     });
   };
 

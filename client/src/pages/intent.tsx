@@ -13,6 +13,7 @@ import { useTabActive } from "@/hooks/use-tab-active";
 import type { Profile } from "@shared/schema";
 import { ProfilePhotoViewer } from "@/components/profile-photo-viewer";
 import { EMPTY_PHOTOS } from "@/lib/image-utils";
+import { useLanguageContext } from "@/contexts/language-context";
 
 /** Fisher-Yates shuffle — returns a new array, does not mutate input. */
 function shuffleArray<T>(arr: T[]): T[] {
@@ -272,11 +273,12 @@ function MatchRevealOverlay({
   onDiscover: () => void;
   onElevate: () => void;
 }) {
+  const { t } = useLanguageContext();
   const tagline = useRef(MATCH_TAGLINES[Math.floor(Math.random() * MATCH_TAGLINES.length)]).current;
 
   useEffect(() => {
-    const t = setTimeout(playChime, 200);
-    return () => clearTimeout(t);
+    const chimeTimer = setTimeout(playChime, 200);
+    return () => clearTimeout(chimeTimer);
   }, [playChime]);
 
   return (
@@ -430,7 +432,7 @@ function MatchRevealOverlay({
           marginBottom: 14,
           animation: "matchRevealTagline 0.38s 0.72s ease both",
         }}>
-          {isExisting ? "✦  Reconnected  ✦" : "✦  Connection Opened  ✦"}
+          {isExisting ? t("reconnected_label") : t("connection_opened_label")}
         </p>
 
         {/* ⑤ 3× Elevate upgrade section */}
@@ -466,10 +468,10 @@ function MatchRevealOverlay({
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>
             <p style={{ fontSize: 12, fontWeight: 700, color: "rgba(255,210,222,0.92)", lineHeight: 1.3, margin: 0 }}>
-              Get 3× more visibility with Elevate
+              {t("elevate_3x_title")}
             </p>
             <p style={{ fontSize: 11, color: "rgba(255,175,195,0.52)", lineHeight: 1.3, margin: "2px 0 0" }}>
-              Boost your profile and match faster
+              {t("elevate_3x_desc")}
             </p>
           </div>
           <span style={{ fontSize: 14, color: "rgba(255,170,190,0.55)", flexShrink: 0, lineHeight: 1 }}>›</span>
@@ -526,7 +528,7 @@ function MatchRevealOverlay({
             onMouseDown={e => { (e.currentTarget as HTMLElement).style.transform = "translateY(1px) scale(0.985)"; }}
             onMouseUp={e => { (e.currentTarget as HTMLElement).style.transform = "translateY(-1px)"; }}
           >
-            Start Conversation
+            {t("start_conversation")}
           </button>
 
           {/* Secondary — Keep Exploring */}
@@ -557,7 +559,7 @@ function MatchRevealOverlay({
               el.style.borderColor = "rgba(255,255,255,0.11)";
             }}
           >
-            Keep Exploring
+            {t("keep_exploring")}
           </button>
         </div>
       </div>
@@ -586,6 +588,7 @@ function easeOutExpo(t: number): number {
 
 // ── Main page ────────────────────────────────────────────────────────────────
 export default function IntentPage() {
+  const { t } = useLanguageContext();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const isActive = useTabActive();
@@ -747,9 +750,9 @@ export default function IntentPage() {
     },
     onError: (error: any) => {
       const raw = error?.message || "";
-      let msg = "Something went wrong. Try again.";
+      let msg = t("something_went_wrong") + " Try again.";
       try { const p = JSON.parse(raw); if (p?.message) msg = p.message; } catch {}
-      toast({ title: "Could not connect", description: msg, variant: "destructive" });
+      toast({ title: t("could_not_connect_title"), description: msg, variant: "destructive" });
     },
   });
 
@@ -1122,7 +1125,7 @@ export default function IntentPage() {
               >
                 <RotateCw style={{ width: 26, height: 26, animation: isSpinning ? "spinBtn 0.65s linear infinite" : "none" }} />
                 <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.13em", textTransform: "uppercase", opacity: 0.93 }}>
-                  {isSpinning ? "…" : "Spin"}
+                  {isSpinning ? "…" : t("spin_label")}
                 </span>
               </button>
             ) : (
@@ -1181,24 +1184,24 @@ export default function IntentPage() {
                 <div className="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center mx-auto">
                   <Crown className="w-7 h-7 text-primary" />
                 </div>
-                <h3 className="font-serif text-xl font-bold">Want more spins?</h3>
+                <h3 className="font-serif text-xl font-bold">{t("want_more_spins")}</h3>
                 <p className="text-sm text-muted-foreground leading-relaxed">
                   {streakComplete
-                    ? "Your 3-day streak earned you a spin! Purchase extra spins to keep discovering."
-                    : `Build a ${STREAK_GOAL}-day like streak to earn a free spin, or purchase extra spins.`}
+                    ? t("earned_spin_desc")
+                    : t("build_streak_desc").replace("{n}", String(STREAK_GOAL))}
                 </p>
               </div>
               <div className="space-y-2">
-                <Button className="w-full gap-2" onClick={() => toast({ title: "Coming soon", description: "Spin packs will be available shortly." })} data-testid="button-buy-1-spin">
+                <Button className="w-full gap-2" onClick={() => toast({ title: t("coming_soon_title"), description: t("spin_packs_soon_desc") })} data-testid="button-buy-1-spin">
                   <RotateCw className="w-4 h-4" /> 1 Spin - $1.49
                 </Button>
-                <Button className="w-full gap-2" variant="outline" onClick={() => toast({ title: "Coming soon", description: "Spin packs will be available shortly." })} data-testid="button-buy-2-spins">
+                <Button className="w-full gap-2" variant="outline" onClick={() => toast({ title: t("coming_soon_title"), description: t("spin_packs_soon_desc") })} data-testid="button-buy-2-spins">
                   <RotateCw className="w-4 h-4" /> 2 Spins - $2.49
                 </Button>
               </div>
               {!streakComplete && (
                 <div className="border-t pt-4 space-y-2">
-                  <p className="text-xs font-medium text-center text-muted-foreground">Or earn a free spin</p>
+                  <p className="text-xs font-medium text-center text-muted-foreground">{t("or_earn_free_spin")}</p>
                   <div className="flex items-center gap-3">
                     {Array.from({ length: STREAK_GOAL }).map((_, i) => (
                       <div key={i} className={`flex-1 h-2 rounded-full ${i < consecutiveDays ? "bg-primary" : "bg-muted"}`} />
@@ -1211,7 +1214,7 @@ export default function IntentPage() {
                 </div>
               )}
               <Button variant="ghost" size="sm" className="w-full" onClick={() => setShowPurchase(false)} data-testid="button-dismiss-purchase">
-                Maybe later
+                {t("maybe_later")}
               </Button>
             </Card>
           </div>
@@ -1395,7 +1398,7 @@ export default function IntentPage() {
                     : <Heart className="w-5 h-5 text-white fill-current" />
                   }
                   <span className="text-xs text-white font-semibold tracking-wide">
-                    {wheelOpen.isPending ? "Connecting…" : "Connect"}
+                    {wheelOpen.isPending ? t("connecting_label") : t("connect_label")}
                   </span>
                 </button>
               </div>

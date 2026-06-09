@@ -21,7 +21,7 @@ import type { Profile } from "@shared/schema";
 import { convertPhotoToJpeg } from "@/lib/photo-utils";
 import { useUnits, formatDistance } from "@/lib/units";
 
-const STEPS = ["Basics", "Photos", "Starters", "Questions", "Signals", "Intent", "Green Flags", "Pace"];
+const STEP_KEYS = ["ob_step_basics","ob_step_photos","ob_step_starters","ob_step_questions","ob_step_signals","ob_step_intent","ob_step_green_flags","ob_step_pace"] as const;
 
 function RadiusLabel({ locationRadius }: { locationRadius: number }) {
   const [units] = useUnits();
@@ -246,8 +246,10 @@ export default function Onboarding({ existingProfile = null, userEmail = "" }: O
     }
   };
 
+  const stepLabels = STEP_KEYS.map(k => t(k as any));
+
   const handleNext = () => {
-    if (step < STEPS.length - 1) setStep(step + 1);
+    if (step < STEP_KEYS.length - 1) setStep(step + 1);
     else createProfile.mutate();
   };
 
@@ -279,7 +281,7 @@ export default function Onboarding({ existingProfile = null, userEmail = "" }: O
         <div className="w-full max-w-lg space-y-8">
           <div className="space-y-2">
             <div className="flex items-center gap-2 mb-6">
-              {STEPS.map((s, i) => (
+              {STEP_KEYS.map((s, i) => (
                 <div
                   key={s}
                   className={`h-1 flex-1 rounded-md transition-colors duration-300 ${i <= step ? "bg-primary" : "bg-muted"}`}
@@ -287,7 +289,7 @@ export default function Onboarding({ existingProfile = null, userEmail = "" }: O
                 />
               ))}
             </div>
-            <p className="text-xs font-medium tracking-wider uppercase text-primary">{STEPS[step]}</p>
+            <p className="text-xs font-medium tracking-wider uppercase text-primary">{stepLabels[step]}</p>
             <h2 className="font-serif text-2xl font-bold" data-testid="text-step-title">
               {step === 0 && t("ob_title_0")}
               {step === 1 && t("ob_title_1")}
@@ -324,7 +326,7 @@ export default function Onboarding({ existingProfile = null, userEmail = "" }: O
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="dob">Date of Birth</Label>
+                  <Label htmlFor="dob">{t("label_dob")}</Label>
                   <Input
                     id="dob"
                     type="date"
@@ -340,7 +342,7 @@ export default function Onboarding({ existingProfile = null, userEmail = "" }: O
                   {formData.dateOfBirth && calculateAgeFromDob(formData.dateOfBirth) < 18 && (
                     <p className="text-xs text-destructive flex items-center gap-1.5 mt-1" data-testid="text-under-18-error">
                       <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-                      You must be 18 or older to use Lulou.
+                      {t("under_18_error")}
                     </p>
                   )}
                 </div>
@@ -377,9 +379,9 @@ export default function Onboarding({ existingProfile = null, userEmail = "" }: O
                   </Select>
                 </div>
                 <div className="space-y-2">
-                  <Label>Pronouns <span className="text-muted-foreground text-xs">(optional)</span></Label>
+                  <Label>{t("label_pronouns_opt")}</Label>
                   <Select value={formData.pronouns} onValueChange={v => update("pronouns", v)}>
-                    <SelectTrigger data-testid="select-pronouns"><SelectValue placeholder="Select pronouns" /></SelectTrigger>
+                    <SelectTrigger data-testid="select-pronouns"><SelectValue placeholder={t("sel_pronouns")} /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="she/her">she/her</SelectItem>
                       <SelectItem value="he/him">he/him</SelectItem>
@@ -425,24 +427,24 @@ export default function Onboarding({ existingProfile = null, userEmail = "" }: O
                   <RadiusDescription locationRadius={formData.locationRadius} />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="email">Email address</Label>
+                  <Label htmlFor="email">{t("ob_email_label")}</Label>
                   <Input
                     id="email"
                     type="email"
                     value={formData.email}
                     onChange={e => update("email", e.target.value)}
-                    placeholder="your@email.com"
+                    placeholder={t("ob_email_ph")}
                     data-testid="input-email"
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="phoneNumber">Phone number (optional)</Label>
+                  <Label htmlFor="phoneNumber">{t("ob_phone_label")}</Label>
                   <Input
                     id="phoneNumber"
                     type="tel"
                     value={formData.phoneNumber}
                     onChange={e => update("phoneNumber", e.target.value)}
-                    placeholder="e.g. +44 7700 900123"
+                    placeholder={t("ob_phone_ph")}
                     data-testid="input-phone-number"
                   />
                 </div>
@@ -473,7 +475,7 @@ export default function Onboarding({ existingProfile = null, userEmail = "" }: O
                   ))}
                 </div>
                 <p className="text-xs text-muted-foreground text-center">
-                  {formData.photos.length}/6 photos added (minimum 2)
+                  {formData.photos.length}/6 {t("photos_count_msg")}
                 </p>
               </div>
             )}
@@ -482,8 +484,8 @@ export default function Onboarding({ existingProfile = null, userEmail = "" }: O
               <div className="space-y-4">
                 {/* ── Custom conversation starters ─────────────────── */}
                 <div className="space-y-2 pb-3 border-b">
-                  <p className="text-sm font-semibold text-foreground">Write your own conversation starter</p>
-                  <p className="text-xs text-muted-foreground">Add your own prompts for people to respond to — separate from Lulou's suggestions.</p>
+                  <p className="text-sm font-semibold text-foreground">{t("custom_starter_title")}</p>
+                  <p className="text-xs text-muted-foreground">{t("custom_starter_desc")}</p>
                   {formData.customStarters.map((s, i) => (
                     <div key={i} className="flex items-center gap-2">
                       <p className="flex-1 text-sm border rounded-md px-3 py-2 bg-muted/30">{s}</p>
@@ -549,7 +551,7 @@ export default function Onboarding({ existingProfile = null, userEmail = "" }: O
                   })}
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  {formData.conversationStarters.length}/3 selected (min 2)
+                  {formData.conversationStarters.length}{t("starters_selected_count")}
                 </p>
                 {formData.conversationStarters.map(starter => (
                   <div key={starter} className="space-y-1.5">
@@ -560,7 +562,7 @@ export default function Onboarding({ existingProfile = null, userEmail = "" }: O
                         ...prev,
                         starterAnswers: { ...prev.starterAnswers, [starter]: e.target.value }
                       }))}
-                      placeholder="Your answer..."
+                      placeholder={t("your_answer_ph")}
                       maxLength={200}
                       data-testid={`input-starter-answer-${starter.slice(0, 20).toLowerCase().replace(/\s+/g, "-")}`}
                     />
@@ -574,8 +576,8 @@ export default function Onboarding({ existingProfile = null, userEmail = "" }: O
               <div className="space-y-3">
                 {/* ── Questions for viewers to answer ─────────────────── */}
                 <div className="space-y-2 pb-3 border-b">
-                  <p className="text-sm font-semibold text-foreground">Write a question for people viewing your profile</p>
-                  <p className="text-xs text-muted-foreground">Visitors can answer this — great for sparking real conversations.</p>
+                  <p className="text-sm font-semibold text-foreground">{t("write_own_question_title")}</p>
+                  <p className="text-xs text-muted-foreground">{t("write_own_question_desc")}</p>
                   {formData.viewerQuestions.map((vq, i) => (
                     <div key={i} className="flex items-center gap-2">
                       <p className="flex-1 text-sm border rounded-md px-3 py-2 bg-muted/30">{vq.question}</p>
@@ -644,12 +646,12 @@ export default function Onboarding({ existingProfile = null, userEmail = "" }: O
                   );
                 })}
                 <p className="text-xs text-muted-foreground">
-                  {formData.questions.length}/3 selected (min 2)
+                  {formData.questions.length}{t("starters_selected_count")}
                 </p>
 
                 {/* ── Custom questions ─────────────────────────────────── */}
                 <div className="pt-2 space-y-2">
-                  <p className="text-xs font-medium tracking-wider uppercase text-primary">Your own questions</p>
+                  <p className="text-xs font-medium tracking-wider uppercase text-primary">{t("write_own_question_title")}</p>
                   {(formData.customQuestions as Array<{ question: string; answer: string }>).map((cq, i) => (
                     <Card key={i} className="p-3 border-primary/30 bg-primary/3" data-testid={`card-custom-question-${i}`}>
                       <div className="flex items-start justify-between gap-2">
@@ -670,7 +672,7 @@ export default function Onboarding({ existingProfile = null, userEmail = "" }: O
 
                   {formData.customQuestions.length < 3 && (
                     <Card className="p-3 space-y-2 border-dashed" data-testid="card-add-custom-question">
-                      <p className="text-xs text-muted-foreground font-medium">Write your own question</p>
+                      <p className="text-xs text-muted-foreground font-medium">{t("write_own_question_title")}</p>
                       <Input
                         value={customQDraft.question}
                         onChange={e => setCustomQDraft(prev => ({ ...prev, question: e.target.value }))}

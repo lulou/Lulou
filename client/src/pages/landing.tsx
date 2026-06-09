@@ -6,6 +6,7 @@ import { LulouFlowerIcon } from "@/components/app-layout";
 import { supabase, lastAuthFetchDebug, resetAuthFetchDebug, SUPABASE_URL, SUPABASE_KEY_LEN, AUTH_ENDPOINT } from "@/lib/supabase";
 import { useToast } from "@/hooks/use-toast";
 import { writeDebug, pushDebugError } from "@/lib/debug-store";
+import { useLanguageContext } from "@/contexts/language-context";
 
 type AuthMode = "signin" | "signup";
 type AuthErrorKind = "credentials" | "already-exists" | "network" | "rate-limit" | "auth";
@@ -165,6 +166,7 @@ interface RawAuthError {
 }
 
 export default function Landing() {
+  const { t } = useLanguageContext();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -745,7 +747,7 @@ export default function Landing() {
           <LulouFlowerIcon className="w-7 h-7 text-primary" />
         </div>
         <div className="w-full max-w-sm space-y-3 text-center">
-          <h1 className="font-serif text-2xl font-bold">Check your email</h1>
+          <h1 className="font-serif text-2xl font-bold">{t("landing_check_your_email")}</h1>
           <p className="text-muted-foreground text-sm leading-relaxed">
             We sent a confirmation link to{" "}
             <strong className="text-foreground">{verificationEmail}</strong>.
@@ -756,7 +758,7 @@ export default function Landing() {
           {resendSent ? (
             <div className="flex items-center gap-2 justify-center text-sm text-primary py-2">
               <CheckCircle className="w-4 h-4" />
-              Confirmation email resent!
+              {t("landing_conf_resent")}
             </div>
           ) : (
             <Button
@@ -766,9 +768,9 @@ export default function Landing() {
               data-testid="button-resend-verification"
             >
               {resendLoading ? (
-                <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Resending…</>
+                <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> {t("landing_resending")}</>
               ) : (
-                "Resend confirmation email"
+                t("landing_resend_conf_email")
               )}
             </Button>
           )}
@@ -781,7 +783,7 @@ export default function Landing() {
             className="w-full text-sm text-muted-foreground hover:text-primary transition-colors py-2"
             data-testid="button-back-to-signin"
           >
-            Back to sign in
+            {t("landing_back_to_signin")}
           </button>
         </div>
       </div>
@@ -802,7 +804,7 @@ export default function Landing() {
             data-testid="link-switch-account"
           >
             <RefreshCw className="w-3.5 h-3.5" />
-            Switch Account
+            {t("landing_switch_account")}
           </button>
         </div>
       </nav>
@@ -814,13 +816,13 @@ export default function Landing() {
         <div className="max-w-6xl mx-auto grid lg:grid-cols-2 gap-16 items-center">
           <div className="space-y-8">
             <div className="space-y-4">
-              <p className="text-sm font-medium tracking-wider uppercase text-primary" data-testid="text-tagline">Intentional Dating</p>
+              <p className="text-sm font-medium tracking-wider uppercase text-primary" data-testid="text-tagline">{t("landing_intentional_dating")}</p>
               <h1 className="font-serif text-5xl lg:text-6xl font-bold leading-tight tracking-tight" data-testid="text-hero-headline">
-                Where real connections
-                <span className="text-primary"> flourish</span>
+                {t("landing_hero_1")}
+                <span className="text-primary"> {t("landing_hero_flourish")}</span>
               </h1>
               <p className="text-lg text-muted-foreground leading-relaxed max-w-lg" data-testid="text-hero-description">
-                Move beyond endless swiping. Lulou guides you from matching to meaningful conversations to meeting in real life.
+                {t("landing_hero_desc")}
               </p>
             </div>
 
@@ -841,17 +843,17 @@ export default function Landing() {
                     <div className="space-y-1">
                       <p className="font-semibold text-amber-900 text-sm leading-snug" data-testid="text-outage-heading">
                         {rawAuthError?.code === "timeout"
-                          ? "Login server didn't respond"
+                          ? t("landing_server_no_respond")
                           : rawAuthError?.code === "no-session"
-                          ? "Login service unavailable"
+                          ? t("landing_service_unavailable")
                           : rawAuthError?.code === "html_response_outage"
-                          ? "Login server returned an HTML error page"
+                          ? t("landing_html_error_page")
                           : rawAuthError?.name === "SyntaxError" || rawAuthError?.message?.toLowerCase().includes("unexpected token")
-                          ? "Login server returned an unexpected response"
-                          : "Connection problem"}
+                          ? t("landing_unexpected_response")
+                          : t("landing_conn_problem")}
                       </p>
                       <p className="text-sm text-amber-800 leading-snug" data-testid="text-outage-message">
-                        Lulou is having trouble reaching the login service right now. Please try again shortly.
+                        {t("network_error_retry")}
                       </p>
                     </div>
                   </div>
@@ -865,7 +867,7 @@ export default function Landing() {
                     }}
                     className="self-start inline-flex items-center gap-1.5 rounded-md bg-amber-700 hover:bg-amber-800 text-white px-4 py-2 text-xs font-semibold transition-colors"
                   >
-                    Try Login Again
+                    {t("landing_try_login_again")}
                   </button>
                 </div>
               )}
@@ -874,7 +876,7 @@ export default function Landing() {
                 <Input
                   ref={emailRef}
                   type="email"
-                  placeholder="Enter your email"
+                  placeholder={t("landing_email_ph")}
                   value={email}
                   onFocus={(e) => {
                     // Capture what element is at the input's center — confirms
@@ -907,7 +909,7 @@ export default function Landing() {
                   <Input
                     ref={passwordRef}
                     type={showPassword ? "text" : "password"}
-                    placeholder="Password"
+                    placeholder={t("landing_password_ph")}
                     value={password}
                     onChange={(e) => {
                       const v = e.target.value;
@@ -939,7 +941,7 @@ export default function Landing() {
                       className="text-xs text-primary hover:underline disabled:opacity-40 disabled:cursor-not-allowed"
                       data-testid="link-forgot-password"
                     >
-                      {resetLoading ? "Sending reset email…" : "Forgot password?"}
+                      {resetLoading ? t("landing_sending_reset") : t("landing_forgot_password")}
                     </button>
                   </div>
                 )}
@@ -953,8 +955,8 @@ export default function Landing() {
                 >
                   <CheckCircle className="w-4 h-4 mt-0.5 shrink-0" />
                   <div className="space-y-0.5">
-                    <p className="font-medium leading-tight">Reset email sent</p>
-                    <p className="text-xs opacity-80">Check your inbox for a link to reset your password.</p>
+                    <p className="font-medium leading-tight">{t("landing_reset_sent_title")}</p>
+                    <p className="text-xs opacity-80">{t("landing_reset_sent_desc")}</p>
                   </div>
                 </div>
               )}
@@ -982,26 +984,26 @@ export default function Landing() {
                           ── auth/other      → red box, AlertCircle icon       */}
                       <p className="font-semibold leading-tight" data-testid="text-auth-error-heading">
                         {authError.kind === "already-exists"
-                          ? "Account already exists"
+                          ? t("landing_account_exists")
                           : authError.kind === "credentials"
-                          ? "Incorrect email or password"
+                          ? t("landing_wrong_credentials")
                           : authError.kind === "rate-limit"
-                          ? "Too many attempts"
+                          ? t("landing_too_many_attempts")
                           : authError.kind === "network"
                           ? (rawAuthError?.code === "timeout"
-                              ? "Login server didn't respond"
+                              ? t("landing_server_no_respond")
                               : rawAuthError?.code === "no-session"
-                              ? "Login service unavailable"
+                              ? t("landing_service_unavailable")
                               : rawAuthError?.code === "html_response_outage"
-                              ? "Login server returned an HTML error page"
+                              ? t("landing_html_error_page")
                               : rawAuthError?.name === "SyntaxError" || rawAuthError?.message?.toLowerCase().includes("unexpected token")
-                              ? "Login server returned an unexpected response"
-                              : "Connection problem")
+                              ? t("landing_unexpected_response")
+                              : t("landing_conn_problem"))
                           : authError.kind === "auth"
-                          ? "Cannot sign in"
+                          ? t("landing_cannot_sign_in")
                           : mode === "signup"
-                          ? "Sign up failed"
-                          : "Sign in failed"}
+                          ? t("landing_sign_up_failed")
+                          : t("landing_sign_in_failed")}
                       </p>
                       {/* Classified message — friendly, no raw technical strings */}
                       <p className="text-sm leading-snug break-words" data-testid="text-auth-error-detail">
@@ -1023,7 +1025,7 @@ export default function Landing() {
                           }}
                           className="mt-1 inline-flex items-center gap-1.5 rounded-md bg-amber-800/20 hover:bg-amber-800/30 px-3 py-1.5 text-xs font-semibold text-amber-900 transition-colors"
                         >
-                          Try Login Again
+                          {t("landing_try_login_again")}
                         </button>
                       )}
                       {/* Raw error details — collapsible, keeps exact Supabase
@@ -1037,7 +1039,7 @@ export default function Landing() {
                             data-testid="button-toggle-raw-error"
                           >
                             {showRawError ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-                            {showRawError ? "Hide" : "Show"} technical details
+                            {showRawError ? t("landing_hide") : t("landing_show")} {t("landing_technical_details")}
                           </button>
                           {showRawError && (
                             <pre
@@ -1060,7 +1062,7 @@ code:    ${rawAuthError.code}`}
                           className="text-xs font-medium underline underline-offset-2 mt-0.5"
                           data-testid="button-switch-to-signin"
                         >
-                          Sign in instead
+                          {t("landing_sign_in_instead")}
                         </button>
                       )}
                       {authError.kind === "credentials" && mode === "signin" && (
@@ -1071,7 +1073,7 @@ code:    ${rawAuthError.code}`}
                           className="text-xs font-medium underline underline-offset-2 mt-0.5 disabled:opacity-50"
                           data-testid="button-reset-password"
                         >
-                          {resetLoading ? "Sending…" : "Forgot your password?"}
+                          {resetLoading ? t("landing_sending_reset") : t("landing_forgot_your_password")}
                         </button>
                       )}
                     </div>
@@ -1090,12 +1092,12 @@ code:    ${rawAuthError.code}`}
                 {loading ? (
                   <>
                     <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                    {mode === "signup" ? "Creating account..." : "Signing in..."}
+                    {mode === "signup" ? t("landing_creating") : t("landing_signing_in")}
                   </>
                 ) : (
                   <>
                     <Lock className="w-4 h-4 mr-2" />
-                    {mode === "signup" ? "Create Account" : "Sign In"}
+                    {mode === "signup" ? t("landing_create_account") : t("landing_sign_in")}
                   </>
                 )}
               </Button>
@@ -1106,7 +1108,7 @@ code:    ${rawAuthError.code}`}
                   className="text-sm text-primary hover:underline"
                   data-testid="link-toggle-auth-mode"
                 >
-                  {mode === "signup" ? "Already have an account? Sign in" : "New here? Create account"}
+                  {mode === "signup" ? t("landing_have_account") : t("landing_new_here")}
                 </button>
               </div>
             </form>
@@ -1114,11 +1116,11 @@ code:    ${rawAuthError.code}`}
             <div className="flex items-center gap-6 flex-wrap text-sm text-muted-foreground">
               <div className="flex items-center gap-2">
                 <Shield className="w-4 h-4 text-primary" />
-                <span>Verified profiles</span>
+                <span>{t("landing_verified_profiles")}</span>
               </div>
               <div className="flex items-center gap-2">
                 <Heart className="w-4 h-4 text-primary" />
-                <span>No games</span>
+                <span>{t("landing_no_games")}</span>
               </div>
             </div>
           </div>
@@ -1140,28 +1142,28 @@ code:    ${rawAuthError.code}`}
       <section className="py-24 px-6 bg-card/50">
         <div className="max-w-5xl mx-auto">
           <div className="text-center mb-16 space-y-3">
-            <p className="text-sm font-medium tracking-wider uppercase text-primary">How It Works</p>
-            <h2 className="font-serif text-3xl lg:text-4xl font-bold" data-testid="text-how-it-works">A journey, not a game</h2>
-            <p className="text-muted-foreground max-w-xl mx-auto">Every feature in Lulou is designed to move you toward a real connection, not keep you scrolling.</p>
+            <p className="text-sm font-medium tracking-wider uppercase text-primary">{t("landing_how_it_works")}</p>
+            <h2 className="font-serif text-3xl lg:text-4xl font-bold" data-testid="text-how-it-works">{t("landing_journey_title")}</h2>
+            <p className="text-muted-foreground max-w-xl mx-auto">{t("landing_journey_desc")}</p>
           </div>
 
           <div className="grid md:grid-cols-3 gap-8">
             <FeatureCard
               icon={<LulouFlowerIcon className="w-5 h-5" />}
-              title="Discover with intention"
-              description="View one profile at a time. No swiping, no rush. Decide thoughtfully who you want to open up to."
+              title={t("landing_feat_discover_title")}
+              description={t("landing_feat_discover_desc")}
               testId="card-feature-discover"
             />
             <FeatureCard
               icon={<MessageCircle className="w-5 h-5" />}
-              title="Conversations that matter"
-              description="Limited messages encourage meaningful exchanges. When it's time, Lulou nudges you toward a real call."
+              title={t("landing_feat_convo_title")}
+              description={t("landing_feat_convo_desc")}
               testId="card-feature-message"
             />
             <FeatureCard
               icon={<Phone className="w-5 h-5" />}
-              title="From screen to scene"
-              description="Your first voice call is always free. Lulou is designed to help you meet, not message forever."
+              title={t("landing_feat_call_title")}
+              description={t("landing_feat_call_desc")}
               testId="card-feature-call"
             />
           </div>
@@ -1170,9 +1172,9 @@ code:    ${rawAuthError.code}`}
 
       <section className="py-24 px-6">
         <div className="max-w-4xl mx-auto text-center space-y-8">
-          <h2 className="font-serif text-3xl lg:text-4xl font-bold" data-testid="text-cta-heading">Ready to find something real?</h2>
+          <h2 className="font-serif text-3xl lg:text-4xl font-bold" data-testid="text-cta-heading">{t("landing_cta_title")}</h2>
           <p className="text-lg text-muted-foreground max-w-xl mx-auto">
-            Lulou is for people who are done with the noise. Step into a calmer, more intentional way to date.
+            {t("landing_cta_desc")}
           </p>
         </div>
       </section>
@@ -1183,7 +1185,7 @@ code:    ${rawAuthError.code}`}
             <LulouFlowerIcon className="w-5 h-5 text-primary" />
             <span className="font-serif font-medium text-foreground">Lulou</span>
           </div>
-          <p>Designed for real connection.</p>
+          <p>{t("landing_designed_for")}</p>
         </div>
       </footer>
 

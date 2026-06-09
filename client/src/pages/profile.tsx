@@ -81,7 +81,7 @@ export default function ProfilePage() {
       const params = new URLSearchParams(window.location.search);
       if (params.get("checkout") === "cancelled") {
         if (_DEV) console.log("[STRIPE_CANCEL] Detected ?checkout=cancelled on /profile — showing toast and clearing param");
-        toast({ title: "Payment cancelled", description: "Your purchase was not completed." });
+        toast({ title: t("payment_cancelled"), description: t("purchase_not_completed") });
         const url = new URL(window.location.href);
         url.searchParams.delete("checkout");
         window.history.replaceState({}, "", url.toString());
@@ -234,7 +234,7 @@ export default function ProfilePage() {
     onError: (err: any) => {
       const msg = cleanErrorMessage(err);
       console.error("[PROFILE_SAVE] updateProfileField FAILED", { rawError: err?.message, cleanedError: msg });
-      toast({ title: "Couldn't save change", description: msg, variant: "destructive" });
+      toast({ title: t("couldnt_save_change"), description: msg, variant: "destructive" });
     },
   });
 
@@ -262,14 +262,14 @@ export default function ProfilePage() {
 
     if (oversized) {
       toast({
-        title: "Optimising photos…",
-        description: "Your photos are being compressed to improve loading speed.",
+        title: t("optimising_photos"),
+        description: t("optimising_photos_desc"),
       });
       const recompressed = await Promise.all(
         existing.map(p => p.length > OVERSIZED_THRESHOLD ? recompressPhotoDataUrl(p) : Promise.resolve(p))
       );
       setEditPhotos(recompressed);
-      toast({ title: "Photos ready", description: "Save to apply the optimised versions." });
+      toast({ title: t("photos_ready"), description: t("photos_ready_desc") });
     } else {
       setEditPhotos(existing);
     }
@@ -314,8 +314,8 @@ export default function ProfilePage() {
       } catch (err: any) {
         console.error("[PHOTOS] Replacement failed:", err?.message);
         toast({
-          title: "Photo not replaced",
-          description: err?.message || "Could not process this photo. Try a JPEG or PNG.",
+          title: t("photo_not_replaced"),
+          description: err?.message || t("photo_process_failed"),
           variant: "destructive",
         });
       }
@@ -332,8 +332,8 @@ export default function ProfilePage() {
         } catch (err: any) {
           console.error("[PHOTOS] Conversion failed:", file.name, err?.message);
           toast({
-            title: "Photo not added",
-            description: err?.message || "Could not process this photo. Try a JPEG or PNG.",
+            title: t("photo_not_added"),
+            description: err?.message || t("photo_process_failed"),
             variant: "destructive",
           });
         }
@@ -518,14 +518,13 @@ export default function ProfilePage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/profile"] });
-      toast({ title: "Conversation starters updated" });
+      toast({ title: t("starters_updated_toast") });
       setEditingStarters(false);
     },
     onError: (err: any) => {
       const msg = cleanErrorMessage(err);
       console.error("[PROFILE_SAVE] saveStarters FAILED", { rawError: err?.message, cleanedError: msg });
-      // editStarters / editStarterAnswers are intentionally NOT cleared — user's selections are preserved.
-      toast({ title: "Couldn't save starters", description: msg, variant: "destructive" });
+      toast({ title: t("couldnt_save_starters"), description: msg, variant: "destructive" });
     },
   });
 
@@ -535,13 +534,13 @@ export default function ProfilePage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/profile"] });
-      toast({ title: "Questions updated" });
+      toast({ title: t("questions_updated_toast") });
       setEditingQuestions(false);
     },
     onError: (err: any) => {
       const msg = cleanErrorMessage(err);
       console.error("[PROFILE_SAVE] saveQuestionsMut FAILED", { rawError: err?.message, cleanedError: msg });
-      toast({ title: "Couldn't save questions", description: msg, variant: "destructive" });
+      toast({ title: t("couldnt_save_questions"), description: msg, variant: "destructive" });
     },
   });
 
@@ -553,7 +552,7 @@ export default function ProfilePage() {
     },
     onError: (err: any) => {
       const msg = cleanErrorMessage(err);
-      toast({ title: "Couldn't save starters", description: msg, variant: "destructive" });
+      toast({ title: t("couldnt_save_starters"), description: msg, variant: "destructive" });
     },
   });
 
@@ -565,7 +564,7 @@ export default function ProfilePage() {
     },
     onError: (err: any) => {
       const msg = cleanErrorMessage(err);
-      toast({ title: "Couldn't save viewer questions", description: msg, variant: "destructive" });
+      toast({ title: t("couldnt_save_viewer_q"), description: msg, variant: "destructive" });
     },
   });
 
@@ -577,7 +576,7 @@ export default function ProfilePage() {
     },
     onError: (err: any) => {
       const msg = cleanErrorMessage(err);
-      toast({ title: "Couldn't save green flags", description: msg, variant: "destructive" });
+      toast({ title: t("couldnt_save_flags"), description: msg, variant: "destructive" });
     },
   });
 
@@ -589,7 +588,7 @@ export default function ProfilePage() {
     },
     onError: (err: any) => {
       const msg = cleanErrorMessage(err);
-      toast({ title: "Couldn't save personality traits", description: msg, variant: "destructive" });
+      toast({ title: t("couldnt_save_traits"), description: msg, variant: "destructive" });
     },
   });
 

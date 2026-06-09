@@ -81,10 +81,10 @@ function CallTimer({ match, onComplete, isFaceCall }: { match: MatchDetail; onCo
 
   const stageLabel = isFaceCall ? t("face_call_label") : callStage === 0 ? t("first_call") : t("second_call");
   const completeMessage = callStage === 0
-    ? "Great first call! Ready for a longer conversation?"
+    ? t("complete_msg_stage_0")
     : callStage === 1
-    ? "Wonderful second call! Would you like to see each other face-to-face?"
-    : "Amazing face call! Ready to meet in real life?";
+    ? t("complete_msg_stage_1")
+    : t("complete_msg_stage_2");
 
   return (
     <div className="p-5 border-t" data-testid={`call-timer-${match.id}`}>
@@ -156,6 +156,7 @@ function SpinRequestCard({ request, type }: { request: SpinRequestWithProfile; t
   });
   const spinAvatarSrc = spinPhotosData?.photos?.[0];
 
+  const { t } = useLanguageContext();
   const respond = useMutation({
     mutationFn: async (accept: boolean) => {
       const res = await apiRequest("POST", `/api/spin-requests/${request.id}/respond`, { accept });
@@ -164,12 +165,12 @@ function SpinRequestCard({ request, type }: { request: SpinRequestWithProfile; t
     onSuccess: (data: any) => {
       if (data.matchCreated) {
         toast({
-          title: "Connected",
+          title: t("connected_toast"),
           description: `You and ${request.profile.firstName} are now matched! Check your connections.`,
         });
       } else if (data.status === "declined") {
         toast({
-          title: "Declined",
+          title: t("declined_toast"),
           description: `You passed on ${request.profile.firstName}'s request.`,
         });
       }
@@ -178,8 +179,8 @@ function SpinRequestCard({ request, type }: { request: SpinRequestWithProfile; t
     },
     onError: () => {
       toast({
-        title: "Something went wrong",
-        description: "Please try again.",
+        title: t("something_went_wrong"),
+        description: t("retry"),
         variant: "destructive",
       });
     },
@@ -189,11 +190,11 @@ function SpinRequestCard({ request, type }: { request: SpinRequestWithProfile; t
     ? (() => {
         const diff = Date.now() - new Date(request.createdAt).getTime();
         const mins = Math.floor(diff / 60000);
-        if (mins < 1) return "Just now";
-        if (mins < 60) return `${mins}m ago`;
+        if (mins < 1) return t("just_now");
+        if (mins < 60) return `${mins}${t("time_ago_min")}`;
         const hrs = Math.floor(mins / 60);
-        if (hrs < 24) return `${hrs}h ago`;
-        return `${Math.floor(hrs / 24)}d ago`;
+        if (hrs < 24) return `${hrs}${t("time_ago_hr")}`;
+        return `${Math.floor(hrs / 24)}${t("time_ago_day")}`;
       })()
     : "";
 
@@ -208,7 +209,7 @@ function SpinRequestCard({ request, type }: { request: SpinRequestWithProfile; t
                 {request.profile.firstName}, {request.profile.age}
               </h3>
               <Badge variant="outline" className="text-xs">
-                <Sparkles className="w-3 h-3 mr-1" /> Via Intention Wheel
+                <Sparkles className="w-3 h-3 mr-1" /> {t("via_intention_wheel")}
               </Badge>
             </div>
             {request.profile.location && (
@@ -249,8 +250,8 @@ function SpinRequestCard({ request, type }: { request: SpinRequestWithProfile; t
         {type === "outgoing" && (
           <div className="mt-3">
             <Badge variant="secondary" className="text-xs" data-testid={`badge-request-status-${request.id}`}>
-              {request.status === "pending" ? "Waiting for response" :
-               request.status === "accepted" ? "Accepted" : "Declined"}
+              {request.status === "pending" ? t("waiting_for_response") :
+               request.status === "accepted" ? t("accepted_label") : t("declined_toast")}
             </Badge>
           </div>
         )}
@@ -282,6 +283,7 @@ function generateDateSlots(): { label: string; value: string }[] {
 }
 
 function ReadyToMeetInline({ detail, matchId, profileName }: { detail: MatchDetail; matchId: string; profileName: string }) {
+  const { t } = useLanguageContext();
   const { user } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -309,10 +311,10 @@ function ReadyToMeetInline({ detail, matchId, profileName }: { detail: MatchDeta
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/matches", matchId] });
-      toast({ title: "Availability shared" });
+      toast({ title: t("availability_shared") });
       setShowDatePicker(false);
     },
-    onError: (e: Error) => { toast({ title: "Could not save", description: e.message, variant: "destructive" }); },
+    onError: (e: Error) => { toast({ title: t("could_not_save"), description: e.message, variant: "destructive" }); },
   });
 
   const savePhoneAndExchange = useMutation({
@@ -326,10 +328,10 @@ function ReadyToMeetInline({ detail, matchId, profileName }: { detail: MatchDeta
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/matches", matchId] });
       queryClient.invalidateQueries({ queryKey: ["/api/profile"] });
-      toast({ title: "Number shared" });
+      toast({ title: t("number_shared_title") });
       setShowPhoneInput(false);
     },
-    onError: (e: Error) => { toast({ title: "Could not share", description: e.message, variant: "destructive" }); },
+    onError: (e: Error) => { toast({ title: t("could_not_share"), description: e.message, variant: "destructive" }); },
   });
 
   const toggleSlot = (value: string) => {
@@ -354,13 +356,13 @@ function ReadyToMeetInline({ detail, matchId, profileName }: { detail: MatchDeta
         <Card className="p-4 space-y-3 bg-primary/5 border-primary/20">
           <div className="text-center space-y-1">
             <PhoneForwarded className="w-5 h-5 text-primary mx-auto" />
-            <p className="font-medium text-sm">Add your phone number</p>
+            <p className="font-medium text-sm">{t("add_your_phone_title")}</p>
             <p className="text-xs text-muted-foreground">It will be sent as a message to {profileName}</p>
           </div>
-          <Input type="tel" value={phoneNumber} onChange={e => setPhoneNumber(e.target.value)} placeholder="Your phone number" maxLength={20} data-testid={`input-phone-inline-${matchId}`} />
+          <Input type="tel" value={phoneNumber} onChange={e => setPhoneNumber(e.target.value)} placeholder={t("your_phone_ph")} maxLength={20} data-testid={`input-phone-inline-${matchId}`} />
           <div className="flex items-center gap-2 justify-center">
             <Button size="sm" onClick={() => savePhoneAndExchange.mutate()} disabled={!phoneNumber.trim() || savePhoneAndExchange.isPending} data-testid={`button-confirm-exchange-inline-${matchId}`}>
-              {savePhoneAndExchange.isPending ? "Sending..." : "Share My Number"}
+              {savePhoneAndExchange.isPending ? t("sending_ellipsis") : t("share_my_number")}
             </Button>
             <Button size="sm" variant="outline" onClick={() => setShowPhoneInput(false)}>Cancel</Button>
           </div>
@@ -375,8 +377,8 @@ function ReadyToMeetInline({ detail, matchId, profileName }: { detail: MatchDeta
         <Card className="p-4 space-y-3 bg-primary/5 border-primary/20">
           <div className="text-center space-y-1">
             <Calendar className="w-5 h-5 text-primary mx-auto" />
-            <p className="font-medium text-sm">When are you free?</p>
-            <p className="text-xs text-muted-foreground">Select up to 5 time slots</p>
+            <p className="font-medium text-sm">{t("when_are_you_free")}</p>
+            <p className="text-xs text-muted-foreground">{t("select_5_slots")}</p>
           </div>
           <div className="max-h-48 overflow-y-auto space-y-1">
             {dateSlots.map(slot => {
@@ -391,10 +393,10 @@ function ReadyToMeetInline({ detail, matchId, profileName }: { detail: MatchDeta
               );
             })}
           </div>
-          <p className="text-xs text-muted-foreground text-center">{selectedSlots.length}/5 selected</p>
+          <p className="text-xs text-muted-foreground text-center">{selectedSlots.length}/5 {t("slots_selected_label")}</p>
           <div className="flex items-center gap-2 justify-center">
             <Button size="sm" onClick={() => saveAvailability.mutate()} disabled={selectedSlots.length === 0 || saveAvailability.isPending} data-testid={`button-save-avail-inline-${matchId}`}>
-              {saveAvailability.isPending ? "Saving..." : "Share Availability"}
+              {saveAvailability.isPending ? t("saving_ellipsis") : t("share_availability_btn")}
             </Button>
             <Button size="sm" variant="outline" onClick={() => setShowDatePicker(false)}>Cancel</Button>
           </div>
@@ -408,13 +410,13 @@ function ReadyToMeetInline({ detail, matchId, profileName }: { detail: MatchDeta
       <div className="p-4 border-t">
         <Card className="p-4 text-center space-y-2 bg-primary/5 border-primary/20">
           <Heart className="w-5 h-5 text-primary mx-auto" />
-          <p className="font-medium text-sm">Number shared</p>
+          <p className="font-medium text-sm">{t("number_shared_title")}</p>
           <p className="text-xs text-muted-foreground">
-            {theirNumberExchanged ? "You've both exchanged numbers!" : `Waiting for ${profileName} to share theirs.`}
+            {theirNumberExchanged ? t("both_exchanged_numbers") : t("waiting_for_their_number")}
           </p>
           {matchingSlots.length > 0 && (
             <div className="space-y-1 pt-1">
-              <p className="text-xs font-medium text-muted-foreground">Your matching date times:</p>
+              <p className="text-xs font-medium text-muted-foreground">{t("your_matching_times")}</p>
               <div className="flex flex-wrap gap-1 justify-center">
                 {matchingSlots.map((s: string) => { const m = dateSlots.find(d => d.value === s); return <Badge key={s} className="text-xs bg-primary/15 text-primary border-primary/30">{m?.label || s}</Badge>; })}
               </div>
@@ -429,28 +431,28 @@ function ReadyToMeetInline({ detail, matchId, profileName }: { detail: MatchDeta
     <div className="p-4 border-t">
       <Card className="p-4 text-center space-y-3 bg-primary/5 border-primary/20">
         <Check className="w-5 h-5 text-primary mx-auto" />
-        <p className="font-medium text-sm">All calls completed</p>
-        <p className="text-xs text-muted-foreground">Ready to meet in real life?</p>
+        <p className="font-medium text-sm">{t("all_calls_completed")}</p>
+        <p className="text-xs text-muted-foreground">{t("ready_to_meet_real")}</p>
 
         {mySlots.length > 0 && theirSlots.length > 0 && matchingSlots.length > 0 ? (
           <div className="space-y-2 pt-1">
             <div className="flex items-center gap-2 justify-center">
               <Heart className="w-3.5 h-3.5 text-primary" />
-              <p className="font-medium text-xs text-primary">Your date is on the cards!</p>
+              <p className="font-medium text-xs text-primary">{t("your_date_on_cards")}</p>
               <Heart className="w-3.5 h-3.5 text-primary" />
             </div>
             <div className="space-y-1">
-              <p className="text-xs font-medium text-muted-foreground">You both matched on:</p>
+              <p className="text-xs font-medium text-muted-foreground">{t("you_both_matched_on")}</p>
               <div className="flex flex-wrap gap-1 justify-center">
                 {matchingSlots.map((s: string) => { const m = dateSlots.find(d => d.value === s); return <Badge key={s} className="text-xs bg-primary/15 text-primary border-primary/30">{m?.label || s}</Badge>; })}
               </div>
             </div>
             <div className="flex flex-col gap-2 items-center pt-1">
               <Button size="sm" onClick={handleExchangeNumber} data-testid={`button-exchange-number-${matchId}`}>
-                <PhoneForwarded className="w-4 h-4 mr-2" /> Exchange Number
+                <PhoneForwarded className="w-4 h-4 mr-2" /> {t("exchange_number_btn")}
               </Button>
               <Button size="sm" variant="outline" onClick={() => { setSelectedSlots([...mySlots]); setShowDatePicker(true); }} data-testid={`button-update-avail-${matchId}`}>
-                <Calendar className="w-4 h-4 mr-2" /> Update Availability
+                <Calendar className="w-4 h-4 mr-2" /> {t("update_availability_btn")}
               </Button>
             </div>
           </div>
@@ -458,7 +460,7 @@ function ReadyToMeetInline({ detail, matchId, profileName }: { detail: MatchDeta
           <>
             {mySlots.length > 0 && (
               <div className="space-y-1">
-                <p className="text-xs font-medium text-muted-foreground">Your availability:</p>
+                <p className="text-xs font-medium text-muted-foreground">{t("your_availability_lbl")}</p>
                 <div className="flex flex-wrap gap-1 justify-center">
                   {mySlots.map((s: string) => { const m = dateSlots.find(d => d.value === s); return <Badge key={s} variant="secondary" className="text-xs">{m?.label || s}</Badge>; })}
                 </div>
@@ -473,16 +475,16 @@ function ReadyToMeetInline({ detail, matchId, profileName }: { detail: MatchDeta
               </div>
             )}
             {mySlots.length > 0 && theirSlots.length > 0 && matchingSlots.length === 0 && (
-              <p className="text-xs text-muted-foreground">No matching times yet. Try updating your availability!</p>
+              <p className="text-xs text-muted-foreground">{t("no_matching_times")}</p>
             )}
             <div className="flex flex-col gap-2 items-center">
               {mySlots.length === 0 ? (
                 <Button size="sm" onClick={() => setShowDatePicker(true)} data-testid={`button-ready-to-meet-${matchId}`}>
-                  <Calendar className="w-4 h-4 mr-2" /> Ready to Meet
+                  <Calendar className="w-4 h-4 mr-2" /> {t("ready_to_meet")}
                 </Button>
               ) : (
                 <Button size="sm" variant="outline" onClick={() => { setSelectedSlots([...mySlots]); setShowDatePicker(true); }} data-testid={`button-update-avail-${matchId}`}>
-                  <Calendar className="w-4 h-4 mr-2" /> Update Availability
+                  <Calendar className="w-4 h-4 mr-2" /> {t("update_availability_btn")}
                 </Button>
               )}
             </div>
@@ -574,6 +576,7 @@ function CallSchedulingCard({
   startCallPending: boolean;
   onStartCall: () => void;
 }) {
+  const { t } = useLanguageContext();
   const { user } = useAuth();
   const [showPicker, setShowPicker] = useState(false);
   const [selectedTime, setSelectedTime] = useState("");
@@ -582,8 +585,8 @@ function CallSchedulingCard({
   const { toast } = useToast();
 
   useEffect(() => {
-    const t = setInterval(() => setNow(Date.now()), 15000);
-    return () => clearInterval(t);
+    const ticker = setInterval(() => setNow(Date.now()), 15000);
+    return () => clearInterval(ticker);
   }, []);
 
   const scheduleData = useMemo(() => {
@@ -596,8 +599,8 @@ function CallSchedulingCard({
 
   useEffect(() => {
     if (scheduleData?.type === "accept") {
-      const t = new Date(scheduleData.proposedTime).getTime();
-      if (t <= now + 5 * 60 * 1000) {
+      const scheduledTs = new Date(scheduleData.proposedTime).getTime();
+      if (scheduledTs <= now + 5 * 60 * 1000) {
         console.log("[CALL_SCHEDULE] CALL_READY_TO_START", { matchId, callStage, scheduledTime: scheduleData.proposedTime });
       }
     }
@@ -614,7 +617,7 @@ function CallSchedulingCard({
       setSelectedTime("");
     },
     onError: (err: any) => {
-      toast({ title: "Couldn't schedule call", description: err?.message || "Something went wrong", variant: "destructive" });
+      toast({ title: t("couldnt_schedule_call"), description: err?.message || t("something_went_wrong"), variant: "destructive" });
     },
   });
 
@@ -626,10 +629,10 @@ function CallSchedulingCard({
   const isVideoCall = callStage === 1; // Second call is video
 
   const quickTimes = [
-    { label: "Available now", value: new Date().toISOString() },
-    { label: "In 30 minutes", value: new Date(now + 30 * 60000).toISOString() },
-    { label: "In 1 hour", value: new Date(now + 60 * 60000).toISOString() },
-    { label: "In 2 hours", value: new Date(now + 2 * 60 * 60000).toISOString() },
+    { label: t("call_time_now"), value: new Date().toISOString() },
+    { label: t("call_time_30m"), value: new Date(now + 30 * 60000).toISOString() },
+    { label: t("call_time_1h"), value: new Date(now + 60 * 60000).toISOString() },
+    { label: t("call_time_2h"), value: new Date(now + 2 * 60 * 60000).toISOString() },
   ];
 
   const propose = (time: string) => scheduleMutation.mutate({ action: "propose", proposedTime: time });
@@ -646,19 +649,19 @@ function CallSchedulingCard({
               <Phone className="w-5 h-5 text-green-600 dark:text-green-400" />
             )}
             <p className="font-semibold text-sm text-green-700 dark:text-green-400">
-              {isVideoCall ? "It's time to see each other!" : "It's time to talk!"}
+              {isVideoCall ? t("its_time_to_see") : t("its_time_to_talk")}
             </p>
           </div>
           <p className="text-xs text-muted-foreground">
             {isVideoCall
-              ? "Your second call is a video call. Start when you're both ready."
-              : `Your ${callLabel} call is ready. Start when you're both on.`}
+              ? t("second_call_video_desc")
+              : t("call_ready_start")}
           </p>
           <Button size="sm" onClick={onStartCall} disabled={startCallPending} className="bg-green-600 hover:bg-green-700 text-white" data-testid={`button-start-scheduled-call-${matchId}`}>
             {isVideoCall ? (
-              <><Video className="w-4 h-4 mr-2" /> Start Video Call</>
+              <><Video className="w-4 h-4 mr-2" /> {t("start_video_call")}</>
             ) : (
-              <><Phone className="w-4 h-4 mr-2" /> Start {callLabel === "first" ? "First" : "Second"} Call</>
+              <><Phone className="w-4 h-4 mr-2" /> {callLabel === "first" ? t("start_first_call") : t("start_second_call")}</>
             )}
           </Button>
         </Card>
@@ -671,16 +674,16 @@ function CallSchedulingCard({
       <div className="p-4 border-t" data-testid={`call-schedule-confirmed-${matchId}`}>
         <Card className="p-4 text-center space-y-2.5 bg-primary/5 border-primary/20">
           <Check className="w-5 h-5 text-primary mx-auto" />
-          <p className="font-medium text-sm">Call confirmed</p>
+          <p className="font-medium text-sm">{t("call_confirmed")}</p>
           <p className="text-xs font-medium text-primary">{scheduledTime.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" })} at {scheduledTime.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</p>
           <p className="text-xs text-muted-foreground">{formatScheduledTime(scheduledTime, now)} — the Start button will appear 5 min before</p>
-          <Button size="sm" variant="ghost" className="text-xs text-muted-foreground h-7" onClick={() => { setShowPicker(true); }} data-testid={`button-reschedule-${matchId}`}>Change time</Button>
+          <Button size="sm" variant="ghost" className="text-xs text-muted-foreground h-7" onClick={() => { setShowPicker(true); }} data-testid={`button-reschedule-${matchId}`}>{t("change_time")}</Button>
           {showPicker && (
             <TimePickerInline
               quickTimes={quickTimes}
               selectedTime={selectedTime}
               setSelectedTime={setSelectedTime}
-              confirmLabel="Reschedule"
+              confirmLabel={t("reschedule_label")}
               onConfirm={() => { if (selectedTime) reschedule(selectedTime); }}
               onCancel={() => { setShowPicker(false); setSelectedTime(""); }}
             />
@@ -696,21 +699,21 @@ function CallSchedulingCard({
         <Card className="p-4 space-y-3 bg-primary/5 border-primary/20">
           <div className="flex items-center gap-2">
             <Clock className="w-4 h-4 text-primary shrink-0" />
-            <p className="font-medium text-sm">Waiting for {matchName}…</p>
+            <p className="font-medium text-sm">{t("waiting_for_name").replace("{name}", matchName)}</p>
           </div>
           {scheduledTime && (
-            <p className="text-xs text-muted-foreground">You proposed {formatScheduledTime(scheduledTime, now)} ({scheduledTime.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })})</p>
+            <p className="text-xs text-muted-foreground">{t("you_proposed")} {formatScheduledTime(scheduledTime, now)} ({scheduledTime.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })})</p>
           )}
           {!showPicker ? (
             <Button size="sm" variant="outline" className="w-full" onClick={() => setShowPicker(true)} data-testid={`button-change-proposal-${matchId}`}>
-              <Clock className="w-3.5 h-3.5 mr-1.5" /> Suggest a different time
+              <Clock className="w-3.5 h-3.5 mr-1.5" /> {t("suggest_different_time")}
             </Button>
           ) : (
             <TimePickerInline
               quickTimes={quickTimes}
               selectedTime={selectedTime}
               setSelectedTime={setSelectedTime}
-              confirmLabel="Update proposal"
+              confirmLabel={t("update_proposal")}
               onConfirm={() => { if (selectedTime) reschedule(selectedTime); }}
               onCancel={() => { setShowPicker(false); setSelectedTime(""); }}
             />
@@ -731,19 +734,19 @@ function CallSchedulingCard({
               <Phone className="w-4 h-4 text-primary shrink-0" />
             )}
             <p className="font-medium text-sm">
-              {matchName} wants to schedule your {isVideoCall ? "video call" : `${callLabel} call`}
+              {t("wants_to_schedule").replace("{name}", matchName).replace("{type}", isVideoCall ? t("video_call_label") : `${t(callLabel === "first" ? "first_label" : "second_label")} ${t("call_label")}`)}
             </p>
           </div>
           {scheduledTime && (
-            <p className="text-xs text-muted-foreground">Proposed: {formatScheduledTime(scheduledTime, now)} ({scheduledTime.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })})</p>
+            <p className="text-xs text-muted-foreground">{t("proposed_label")} {formatScheduledTime(scheduledTime, now)} ({scheduledTime.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })})</p>
           )}
           {!showPicker ? (
             <div className="flex gap-2">
               <Button size="sm" className="flex-1" onClick={() => scheduleMutation.mutate({ action: "accept" })} disabled={scheduleMutation.isPending} data-testid={`button-accept-schedule-${matchId}`}>
-                <Check className="w-3.5 h-3.5 mr-1" /> Accept
+                <Check className="w-3.5 h-3.5 mr-1" /> {t("accept")}
               </Button>
               <Button size="sm" variant="outline" className="flex-1" onClick={() => setShowPicker(true)} data-testid={`button-suggest-time-${matchId}`}>
-                <Clock className="w-3.5 h-3.5 mr-1" /> Different time
+                <Clock className="w-3.5 h-3.5 mr-1" /> {t("different_time")}
               </Button>
               <Button size="sm" variant="ghost" className="shrink-0 px-2" onClick={() => scheduleMutation.mutate({ action: "decline" })} disabled={scheduleMutation.isPending} data-testid={`button-decline-schedule-${matchId}`}>
                 <X className="w-4 h-4" />
@@ -754,7 +757,7 @@ function CallSchedulingCard({
               quickTimes={quickTimes}
               selectedTime={selectedTime}
               setSelectedTime={setSelectedTime}
-              confirmLabel="Propose this time"
+              confirmLabel={t("propose_this_time")}
               onConfirm={() => { if (selectedTime) reschedule(selectedTime); }}
               onCancel={() => { setShowPicker(false); setSelectedTime(""); }}
             />
@@ -768,18 +771,18 @@ function CallSchedulingCard({
     return (
       <div className="p-4 border-t" data-testid={`call-schedule-declined-${matchId}`}>
         <Card className="p-4 space-y-3 bg-primary/5 border-primary/20">
-          <p className="font-medium text-sm text-center">That time didn't work</p>
-          <p className="text-xs text-muted-foreground text-center">Either of you can suggest a new time.</p>
+          <p className="font-medium text-sm text-center">{t("that_time_didnt_work")}</p>
+          <p className="text-xs text-muted-foreground text-center">{t("either_suggest_new_time")}</p>
           {!showPicker ? (
             <Button size="sm" className="w-full" onClick={() => setShowPicker(true)} data-testid={`button-propose-new-time-${matchId}`}>
-              <Calendar className="w-4 h-4 mr-2" /> Propose a new time
+              <Calendar className="w-4 h-4 mr-2" /> {t("propose_new_time")}
             </Button>
           ) : (
             <TimePickerInline
               quickTimes={quickTimes}
               selectedTime={selectedTime}
               setSelectedTime={setSelectedTime}
-              confirmLabel="Send proposal"
+              confirmLabel={t("send_proposal")}
               onConfirm={() => { if (selectedTime) reschedule(selectedTime); }}
               onCancel={() => { setShowPicker(false); setSelectedTime(""); }}
             />
@@ -798,12 +801,12 @@ function CallSchedulingCard({
           <Phone className="w-5 h-5 text-primary mx-auto" />
         )}
         <p className="font-medium text-sm text-center">
-          {callStage === 0 ? "Ready for your first call?" : "Ready for your video call?"}
+          {callStage === 0 ? t("ready_first_call") : t("ready_video_call")}
         </p>
         <p className="text-xs text-muted-foreground text-center">
           {isVideoCall
-            ? `Schedule your ${callDuration} video call — camera and mic will be used.`
-            : `Schedule your ${callDuration} ${callLabel} call. Pick a time that works for you.`}
+            ? t("schedule_video_call_desc").replace("{duration}", callDuration)
+            : t("schedule_voice_call_desc").replace("{duration}", callDuration).replace("{label}", callLabel)}
         </p>
         {!showPicker ? (
           <div className="space-y-2">
@@ -821,7 +824,7 @@ function CallSchedulingCard({
               </Button>
             ))}
             <Button size="sm" variant="ghost" className="w-full text-muted-foreground" onClick={() => setShowPicker(true)} data-testid={`button-pick-time-${matchId}`}>
-              <Calendar className="w-4 h-4 mr-2" /> Pick a specific time
+              <Calendar className="w-4 h-4 mr-2" /> {t("pick_specific_time")}
             </Button>
           </div>
         ) : (
@@ -829,7 +832,7 @@ function CallSchedulingCard({
             quickTimes={[]}
             selectedTime={selectedTime}
             setSelectedTime={setSelectedTime}
-            confirmLabel="Propose this time"
+            confirmLabel={t("propose_this_time")}
             onConfirm={() => { if (selectedTime) propose(selectedTime); }}
             onCancel={() => { setShowPicker(false); setSelectedTime(""); }}
           />
@@ -840,7 +843,8 @@ function CallSchedulingCard({
 }
 
 function SparkProgressBar({ sparkStep }: { sparkStep: number }) {
-  const steps = ["Match", "Chat", "1st Call", "2nd Call", "Meet"];
+  const { t } = useLanguageContext();
+  const steps = [t("spark_match"), t("spark_chat"), t("spark_1st_call"), t("spark_2nd_call"), t("spark_meet")];
   return (
     <div className="px-4 py-2.5 bg-primary/[0.03] border-b flex items-center justify-center" data-testid="spark-progress-bar">
       {steps.map((label, i) => {
@@ -1189,7 +1193,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
       if (context?.previous) {
         queryClient.setQueryData(["/api/matches", match.id], context.previous);
       }
-      toast({ title: "Could not send", description: error.message, variant: "destructive" });
+      toast({ title: t("could_not_send_title"), description: error.message, variant: "destructive" });
     },
   });
 
@@ -1264,13 +1268,13 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
       // broad list refetch needed.  Detail invalidation ensures fresh data.
       queryClient.invalidateQueries({ queryKey: ["/api/matches", match.id], exact: true });
       if (data?.status === "repaired") {
-        toast({ title: "Call cleared", description: "You can now retry your call." });
+        toast({ title: t("call_cleared_title"), description: t("call_cleared_desc") });
       }
     },
     onError: (error: Error) => {
       console.error("[CALL_REPAIR] REPAIR_FAILED", { matchId: match.id, error: error.message });
       queryClient.invalidateQueries({ queryKey: ["/api/matches"], exact: true });
-      toast({ title: "Couldn't clear call", description: "Please try again in a moment.", variant: "destructive" });
+      toast({ title: t("couldnt_clear_call_title"), description: t("couldnt_clear_call_desc"), variant: "destructive" });
     },
   });
 
@@ -1295,7 +1299,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
       } as any);
       mergeCallFields(queryClient, match.id, { callStartedAt: null, callInitiatorId: null, callAnswered: false, callCompleted: false, callSessionId: null });
       console.log("[CALL_SESSION] CHAT_STATE_PRESERVED", { matchId: match.id, reason: "caller_cancelled_inline", note: "messages and thread intact" });
-      toast({ title: "Call cancelled" });
+      toast({ title: t("call_cancelled_title") });
     },
     onError: (error: Error) => {
       const isAuth = error.message === "Unauthorized" || error.message.startsWith("401");
@@ -1331,17 +1335,17 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
       console.log("[CALL_UI] CALL_STATE_CLEARED", { matchId: match.id, newStage: data.callStage, callCounted: data.callCounted });
       mergeCallFields(queryClient, match.id, data);
       if (!data.callCounted) {
-        toast({ title: "Call ended", description: "The call didn't connect long enough to count — your call slot has been returned." });
+        toast({ title: t("call_ended_title"), description: t("call_not_counted_desc") });
       } else {
         const stage = data.callStage || 0;
         if (stage === 1) {
-          toast({ title: "First call completed", description: "You now have 12 messages each before your next call." });
+          toast({ title: t("first_call_completed_title"), description: t("first_call_completed_desc") });
         } else if (stage === 2) {
-          toast({ title: "Second call completed", description: "You each have 20 messages before the face call unlocks." });
+          toast({ title: t("second_call_completed_title"), description: t("second_call_completed_desc") });
         } else if (stage === 3) {
-          toast({ title: "Face call stage unlocked", description: "Would you like a face-to-face video call?" });
+          toast({ title: t("face_call_stage_title"), description: t("face_call_stage_desc") });
         } else {
-          toast({ title: "Call completed", description: "Great conversation! Ready to meet in person?" });
+          toast({ title: t("call_completed_title"), description: t("call_completed_desc") });
         }
       }
     },
@@ -1350,7 +1354,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
       markCallSessionCancelled(match.id, lastCallSessionIdRef.current);
       mergeCallFields(queryClient, match.id, { callStartedAt: null, callInitiatorId: null, callAnswered: false, callCompleted: false, callSessionId: null });
       broadcastCallSignal(match.id, { type: "call:ended" as any, matchId: match.id, userId: user?.id || "" });
-      toast({ title: "Call ended", description: "Connection lost. Returning to chat.", variant: "destructive" });
+      toast({ title: t("call_ended_title"), description: t("connection_lost_desc"), variant: "destructive" });
     },
   });
 
@@ -1373,7 +1377,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
       console.error("[CALL_UI] CALL_ANSWER_FAILED", { matchId: match.id, error: error.message });
       markCallSessionCancelled(match.id, lastCallSessionIdRef.current);
       mergeCallFields(queryClient, match.id, { callStartedAt: null, callInitiatorId: null, callAnswered: false, callCompleted: false, callSessionId: null });
-      toast({ title: "Couldn't answer call", description: error.message, variant: "destructive" });
+      toast({ title: t("couldnt_answer_title"), description: error.message, variant: "destructive" });
     },
   });
 
@@ -1395,11 +1399,11 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
       } as any);
       mergeCallFields(queryClient, match.id, { callStartedAt: null, callInitiatorId: null, callAnswered: false, callCompleted: false, callSessionId: null });
       console.log("[CALL_SESSION] CHAT_STATE_PRESERVED", { matchId: match.id, reason: "receiver_declined_inline", note: "messages and thread intact" });
-      toast({ title: "Call declined" });
+      toast({ title: t("call_declined_title") });
     },
     onError: (error: Error) => {
       console.error("[CALL_UI] CALL_DECLINE_FAILED", { matchId: match.id, error: error.message });
-      toast({ title: "Couldn't decline call", description: error.message, variant: "destructive" });
+      toast({ title: t("couldnt_decline_title"), description: error.message, variant: "destructive" });
     },
   });
 
@@ -1410,11 +1414,11 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
     },
     onSuccess: (data: any) => {
       mergeCallFields(queryClient, match.id, data);
-      toast({ title: "Face call accepted", description: "Waiting for them to accept too..." });
+      toast({ title: t("face_call_accepted_title"), description: t("face_call_accepted_desc") });
     },
     onError: (error: Error) => {
       console.error("[FACE_CALL_ACCEPT] FRONTEND_ERROR", { matchId: match.id, error: error.message });
-      toast({ title: "Accept face call failed", description: error.message, variant: "destructive" });
+      toast({ title: t("face_call_failed_title"), description: error.message, variant: "destructive" });
     },
   });
 
@@ -1425,11 +1429,11 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
     },
     onSuccess: (data: any) => {
       mergeCallFields(queryClient, match.id, data);
-      toast({ title: "Face call skipped", description: "No worries - you can always meet in person instead." });
+      toast({ title: t("face_call_skipped_title"), description: t("face_call_skipped_desc") });
     },
     onError: (error: Error) => {
       console.error("[FACE_CALL_DECLINE] FRONTEND_ERROR", { matchId: match.id, error: error.message });
-      toast({ title: "Decline face call failed", description: error.message, variant: "destructive" });
+      toast({ title: t("decline_face_call_failed"), description: error.message, variant: "destructive" });
     },
   });
 
@@ -1440,7 +1444,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/matches"], exact: true });
-      toast({ title: "Connection removed", description: `${match.profile.firstName} has been removed from your connections.` });
+      toast({ title: t("connection_removed_title"), description: `${match.profile.firstName} has been removed from your connections.` });
     },
     onError: (error: Error) => {
       toast({ title: "Error", description: error.message, variant: "destructive" });
@@ -1562,10 +1566,10 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/benefits"] });
       setDismissedExtension(false);
-      toast({ title: "5 more messages added", description: "Your conversation has a little more room." });
+      toast({ title: t("messages_added_title"), description: t("messages_added_desc") });
     },
     onError: (error: Error) => {
-      toast({ title: "Could not activate", description: error.message, variant: "destructive" });
+      toast({ title: t("could_not_activate_title"), description: error.message, variant: "destructive" });
     },
   });
 
@@ -1670,7 +1674,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
     const selfCancelled = iCancelledRef.current;
     if (wasRinging && !isRingingNow && !isCallActive && !selfCancelled) {
       console.log("[CALL_UI] CALL_DECLINED", { matchId: match.id, reason: "declined_by_receiver_detected", callSessionId: lastCallSessionIdRef.current });
-      toast({ title: `${match.profile.firstName} declined`, description: "They weren't available right now. Try again later." });
+      toast({ title: t("name_declined_title").replace("{name}", match.profile.firstName), description: t("name_declined_desc") });
     }
     if (isCallActive || !isRingingNow) {
       wasRingingRef.current = false;
@@ -1964,9 +1968,9 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                 </div>
                 <div className="text-center space-y-1">
                   <p className="text-white font-serif font-semibold text-base" data-testid={`text-outgoing-call-${match.id}`}>
-                    Calling {match.profile.firstName}…
+                    {t("calling_name").replace("{name}", match.profile.firstName)}
                   </p>
-                  <p className="text-white/40 text-xs">Waiting for them to pick up</p>
+                  <p className="text-white/40 text-xs">{t("waiting_to_pick_up")}</p>
                 </div>
                 <button
                   className="flex items-center gap-2 px-5 py-2 rounded-full text-sm font-medium active:scale-95 transition-all"
@@ -2194,23 +2198,23 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                 <Video className="w-5 h-5 text-primary mx-auto" />
                 {myFaceCallAccepted ? (
                   <>
-                    <p className="font-medium text-sm">You're in for a face call</p>
+                    <p className="font-medium text-sm">{t("youre_in_for_face_call")}</p>
                     <p className="text-xs text-muted-foreground">
-                      Waiting for {match.profile.firstName} to accept the face call...
+                      {t("waiting_for_face_accept")}
                     </p>
                     <Badge variant="secondary" className="text-xs mx-auto" data-testid={`badge-face-call-waiting-${match.id}`}>
-                      <Clock className="w-3 h-3 mr-1" /> Waiting for response
+                      <Clock className="w-3 h-3 mr-1" /> {t("waiting_for_response_badge")}
                     </Badge>
                   </>
                 ) : (
                   <>
-                    <p className="font-medium text-sm">Ready to see each other?</p>
+                    <p className="font-medium text-sm">{t("ready_to_see_each_other")}</p>
                     <p className="text-xs text-muted-foreground">
-                      After two great calls, you can opt into a 10-minute face-to-face video call. Both of you need to accept.
+                      {t("face_call_desc")}
                     </p>
                     {theirFaceCallAccepted && (
                       <Badge variant="secondary" className="text-xs mx-auto">
-                        {match.profile.firstName} has accepted
+                        {t("name_has_accepted").replace("{name}", match.profile.firstName)}
                       </Badge>
                     )}
                     <div className="flex items-center gap-2 justify-center">
@@ -2220,7 +2224,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                         disabled={acceptFaceCall.isPending}
                         data-testid={`button-accept-face-call-${match.id}`}
                       >
-                        <Video className="w-4 h-4 mr-2" /> {acceptFaceCall.isPending ? "Accepting..." : "Accept Face Call"}
+                        <Video className="w-4 h-4 mr-2" /> {acceptFaceCall.isPending ? t("accepting_label") : t("accept_face_call")}
                       </Button>
                       <Button
                         size="sm"
@@ -2229,7 +2233,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                         disabled={declineFaceCall.isPending}
                         data-testid={`button-decline-face-call-${match.id}`}
                       >
-                        Skip
+                        {t("skip_label")}
                       </Button>
                     </div>
                   </>
@@ -2281,18 +2285,18 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
               )}
               {myPostCallLimitReached ? (
                 <div className="p-4 text-center space-y-1" data-testid={`waiting-their-postcall-${match.id}`}>
-                  <p className="text-sm font-medium text-primary">Your post-call messages are sent!</p>
+                  <p className="text-sm font-medium text-primary">{t("postcall_messages_sent")}</p>
                   <p className="text-xs text-muted-foreground">
-                    Waiting for {match.profile.firstName} to send their messages before your second call unlocks.
+                    {t("waiting_second_call_unlock")}
                   </p>
                 </div>
               ) : (
                 <div className="p-3 space-y-2" style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom, 0.75rem))" }}>
                   {myPostCallMessages === 0 && (
-                    <StageHint>Great call! You each have 12 messages before your second call unlocks.</StageHint>
+                    <StageHint>{t("great_call_hint")}</StageHint>
                   )}
                   {myPostCallMessages >= 8 && myPostCallMessages < 12 && (
-                    <StageHint>Almost there — {myPostCallRemaining} message{myPostCallRemaining !== 1 ? "s" : ""} left before your second call is ready.</StageHint>
+                    <StageHint>{t("almost_there_hint").replace("{n}", String(myPostCallRemaining)).replace("{s}", myPostCallRemaining !== 1 ? "s" : "")}</StageHint>
                   )}
                   <div className="flex gap-2 items-end">
                     <Textarea
@@ -2301,7 +2305,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                         setMessage(e.target.value.slice(0, MAX_CHARS));
                         if (e.target.value.trim()) sendTyping();
                       }}
-                      placeholder="Keep the momentum going..."
+                      placeholder={t("keep_momentum_placeholder")}
                       className="resize-none min-h-[44px] max-h-[80px] text-sm"
                       onKeyDown={e => {
                         if (e.key === "Enter" && !e.shiftKey) {
@@ -2355,20 +2359,20 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
               )}
               {myStage2LimitReached ? (
                 <div className="p-4 text-center space-y-1" data-testid={`waiting-their-stage2-${match.id}`}>
-                  <p className="text-sm font-medium text-primary">Your messages are sent!</p>
+                  <p className="text-sm font-medium text-primary">{t("your_messages_sent")}</p>
                   <p className="text-xs text-muted-foreground">
                     {theirStage2LimitReached
-                      ? "The face call stage is now unlocked."
-                      : `Waiting for ${match.profile.firstName} to finish their messages before the face call unlocks.`}
+                      ? t("face_call_unlocked")
+                      : t("waiting_face_call_unlock")}
                   </p>
                 </div>
               ) : (
                 <div className="p-3 space-y-2" style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom, 0.75rem))" }}>
                   {myStage2Messages === 0 && (
-                    <StageHint>Great second call! You each have 20 messages before the face call unlocks.</StageHint>
+                    <StageHint>{t("great_second_call_hint")}</StageHint>
                   )}
                   {myStage2Messages >= 16 && myStage2Messages < 20 && (
-                    <StageHint>Almost there — {myStage2Remaining} message{myStage2Remaining !== 1 ? "s" : ""} left before the face call is ready.</StageHint>
+                    <StageHint>{t("almost_face_call_hint").replace("{n}", String(myStage2Remaining)).replace("{s}", myStage2Remaining !== 1 ? "s" : "")}</StageHint>
                   )}
                   <div className="flex gap-2 items-end">
                     <Textarea
@@ -2377,7 +2381,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                         setMessage(e.target.value.slice(0, MAX_CHARS));
                         if (e.target.value.trim()) sendTyping();
                       }}
-                      placeholder="Keep getting to know each other..."
+                      placeholder={t("getting_to_know_placeholder")}
                       className="resize-none min-h-[44px] max-h-[80px] text-sm"
                       onKeyDown={e => {
                         if (e.key === "Enter" && !e.shiftKey) {
@@ -2536,10 +2540,10 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                 </div>
               )}
               {messagesRemaining <= 5 && messagesRemaining > 1 && (
-                <StageHint>You two are really connecting! A few messages left before you can choose what's next.</StageHint>
+                <StageHint>{t("really_connecting_hint")}</StageHint>
               )}
               {messagesRemaining === 1 && (
-                <StageHint>This is your last message — make it count. You'll choose what's next after.</StageHint>
+                <StageHint>{t("last_message_hint")}</StageHint>
               )}
               <div className="flex gap-2 items-end">
                 <Textarea
@@ -2548,7 +2552,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                     setMessage(e.target.value.slice(0, MAX_CHARS));
                     if (e.target.value.trim()) sendTyping();
                   }}
-                  placeholder="Write something meaningful..."
+                  placeholder={t("write_meaningful_placeholder")}
                   className="resize-none min-h-[44px] max-h-[80px] text-sm"
                   onKeyDown={e => {
                     if (e.key === "Enter" && !e.shiftKey) {
@@ -2686,8 +2690,8 @@ const MatchCard = memo(function MatchCard({ match, unreadCount, userId, onOpen }
           </h3>
           <p className="text-xs text-muted-foreground truncate mt-0.5" data-testid={`text-last-message-${match.id}`}>
             {match.lastMessage
-              ? (match.lastMessage.senderId === userId ? "You: " : "") + match.lastMessage.content
-              : match.profile.datingIntent || "Start the conversation"}
+              ? (match.lastMessage.senderId === userId ? t("you_label") : "") + match.lastMessage.content
+              : match.profile.datingIntent || t("start_conversation")}
           </p>
         </div>
         <ChevronDown className="w-4 h-4 text-muted-foreground/40 shrink-0" />

@@ -4,6 +4,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useQuery } from "@tanstack/react-query";
 import { Sparkles, Zap, CheckCircle2, XCircle, Loader2, Gift, ArrowRight, Eye, Heart } from "lucide-react";
 import { useCountdownSecs, useAnimatedCount, formatCountdown } from "@/lib/elevate-utils";
+import { useLanguageContext } from "@/contexts/language-context";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -27,6 +28,7 @@ type SessionStats = {
 // ── Live status card (standalone, no tab context needed) ──────────────────────
 
 function LiveStatusCard({ boostInfo }: { boostInfo: BoostInfo }) {
+  const { t } = useLanguageContext();
   const isSuper = boostInfo.elevateType === "super_elevate";
   const expiresAt = boostInfo.expiresAt ? new Date(boostInfo.expiresAt) : null;
   const secs = useCountdownSecs(expiresAt);
@@ -84,7 +86,7 @@ function LiveStatusCard({ boostInfo }: { boostInfo: BoostInfo }) {
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-60 bg-primary" />
                 <span className="relative inline-flex rounded-full h-2 w-2 bg-primary" />
               </span>
-              <span className="text-xs font-medium text-primary/80">Live</span>
+              <span className="text-xs font-medium text-primary/80">{t("live_label")}</span>
             </div>
           </div>
 
@@ -110,7 +112,7 @@ function LiveStatusCard({ boostInfo }: { boostInfo: BoostInfo }) {
           >
             <Eye className="w-5 h-5 text-primary mb-1" />
             <span className="text-2xl font-bold tabular-nums text-primary">{views}</span>
-            <span className="text-xs text-muted-foreground">profile views</span>
+            <span className="text-xs text-muted-foreground">{t("profile_views_label")}</span>
           </div>
           <div
             className="flex flex-col items-center py-3 rounded-xl"
@@ -118,16 +120,13 @@ function LiveStatusCard({ boostInfo }: { boostInfo: BoostInfo }) {
           >
             <Heart className="w-5 h-5 text-primary mb-1" />
             <span className="text-2xl font-bold tabular-nums text-primary">{matches}</span>
-            <span className="text-xs text-muted-foreground">matches</span>
+            <span className="text-xs text-muted-foreground">{t("match")}</span>
           </div>
         </div>
 
         {/* Tagline */}
         <p className="text-xs text-center" style={{ color: "hsl(350 45% 58%)" }}>
-          {isSuper
-            ? "You're at the top of Discovery and the Intention Wheel right now"
-            : "You're being discovered by more people right now"
-          }
+          {isSuper ? t("top_of_discovery") : t("being_discovered")}
         </p>
       </div>
     </div>
@@ -137,6 +136,7 @@ function LiveStatusCard({ boostInfo }: { boostInfo: BoostInfo }) {
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function ElevateSuccessPage() {
+  const { t } = useLanguageContext();
   const [, navigate] = useLocation();
   const [phase, setPhase] = useState<Phase>("verifying");
   const [boostInfo, setBoostInfo] = useState<BoostInfo | null>(null);
@@ -147,7 +147,7 @@ export default function ElevateSuccessPage() {
     const sessionId = params.get("session_id");
 
     if (!sessionId) {
-      setErrorMsg("Missing payment session. Please try again.");
+      setErrorMsg(t("missing_session"));
       setPhase("error");
       return;
     }
@@ -179,14 +179,14 @@ export default function ElevateSuccessPage() {
         if (res.status === 402 && tries < maxTries) {
           setTimeout(verify, interval);
         } else {
-          setErrorMsg(data.message ?? "Payment verification failed. If you were charged, contact support.");
+          setErrorMsg(data.message ?? t("payment_verify_failed"));
           setPhase("error");
         }
       } catch {
         if (tries < maxTries) {
           setTimeout(verify, interval * 1.5);
         } else {
-          setErrorMsg("Network error. Please check your connection and try again.");
+          setErrorMsg(t("network_error_retry"));
           setPhase("error");
         }
       }
@@ -224,8 +224,8 @@ export default function ElevateSuccessPage() {
               <Loader2 className="w-9 h-9 text-primary animate-spin" />
             </div>
             <div className="text-center">
-              <h1 className="font-serif text-2xl font-bold mb-2">Confirming payment…</h1>
-              <p className="text-sm text-muted-foreground">Verifying your purchase and activating your boost.</p>
+              <h1 className="font-serif text-2xl font-bold mb-2">{t("confirming_payment")}</h1>
+              <p className="text-sm text-muted-foreground">{t("verifying_boost_purchase")}</p>
             </div>
           </div>
         )}
@@ -245,7 +245,7 @@ export default function ElevateSuccessPage() {
                 <CheckCircle2 className="w-6 h-6 text-green-400" />
               </div>
               <div>
-                <h1 className="font-serif text-xl font-bold">Your boost is live!</h1>
+                <h1 className="font-serif text-xl font-bold">{t("boost_is_live")}</h1>
                 <p className="text-sm text-muted-foreground">
                   {boostInfo.durationMinutes} min · {isSuper ? "8×" : "3×"} visibility · Started now
                 </p>
@@ -267,7 +267,7 @@ export default function ElevateSuccessPage() {
                     {remainingCredits} more boost{remainingCredits > 1 ? "s" : ""} saved to your account
                   </p>
                   <p className="text-xs text-muted-foreground">
-                    Activate them anytime from the Elevate screen.
+                    {t("activate_anytime")}
                   </p>
                 </div>
               </div>
@@ -280,12 +280,12 @@ export default function ElevateSuccessPage() {
               onClick={() => navigate("/likes")}
               data-testid="button-elevate-continue"
             >
-              Continue Exploring
+              {t("continue_exploring")}
               <ArrowRight className="w-5 h-5" />
             </button>
 
             <p className="text-center text-xs text-muted-foreground pb-6">
-              Your boost keeps running while you use the app. Check the Likes screen to see real-time stats.
+              {t("boost_running_note")}
             </p>
           </>
         )}
@@ -297,7 +297,7 @@ export default function ElevateSuccessPage() {
               <XCircle className="w-9 h-9 text-destructive" />
             </div>
             <div className="text-center">
-              <h1 className="font-serif text-2xl font-bold mb-2">Something went wrong</h1>
+              <h1 className="font-serif text-2xl font-bold mb-2">{t("something_went_wrong")}</h1>
               <p className="text-sm text-muted-foreground mb-6">{errorMsg}</p>
             </div>
             <button
@@ -305,7 +305,7 @@ export default function ElevateSuccessPage() {
               onClick={() => navigate("/likes")}
               data-testid="button-elevate-error-back"
             >
-              Back to app
+              {t("back_to_app")}
             </button>
           </div>
         )}
