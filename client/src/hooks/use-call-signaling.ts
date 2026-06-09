@@ -112,7 +112,22 @@ export function useCallSignaling(matchIds: string[], userId: string) {
           //   the NEXT rering will hit Strategy A or the isStartupCancelledOnly
           //   block below.
           const cachedMatches = queryClient.getQueryData<any[]>(["/api/matches"]);
-          const cachedCallStartAt = cachedMatches?.find((m: any) => m.id === matchId)?.callStartedAt;
+          const cachedMatchEntry = cachedMatches?.find((m: any) => m.id === matchId);
+          const cachedCallStartAt = cachedMatchEntry?.callStartedAt;
+
+          // ── Already-ended call guard ────────────────────────────────────────
+          // If the cache has this match AND callStartedAt is null, the call is
+          // already over (the 10 s poll cleared it). A Realtime replay of
+          // call:ring on channel reconnect would otherwise re-arm the session
+          // and show the incoming call overlay for a completed call.
+          if (cachedMatchEntry !== undefined && !cachedCallStartAt) {
+            console.log("[CALL_SIGNAL] STALE_RING_BLOCKED cache confirms call already ended", {
+              matchId, callSessionId: ringSessionId?.slice(0, 8),
+            });
+            markCallSessionCancelled(matchId, ringSessionId);
+            return;
+          }
+
           if (cachedCallStartAt) {
             const callStartMs = new Date(cachedCallStartAt).getTime();
             if (callStartMs > 0 && callStartMs < APP_LOAD_TIME) {

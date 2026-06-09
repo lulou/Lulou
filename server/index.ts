@@ -134,6 +134,57 @@ app.use((req, res, next) => {
     console.warn("Stripe price warmup failed (non-fatal):", err.message);
   }
 
+  // Ensure local PostgreSQL tables exist (idempotent — safe to run on every boot).
+  // These tables live in the Replit-managed local DB (Drizzle schema) and must be
+  // created on first deploy or after a DB reset. drizzle-kit push is a CLI tool
+  // that does not run automatically; this startup migration fills that gap.
+  try {
+    const { pool: localPool } = await import("./db");
+    await localPool.query(`
+      CREATE TABLE IF NOT EXISTS user_benefits (
+        id          VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id     VARCHAR NOT NULL,
+        type        TEXT NOT NULL,
+        activated_match_id VARCHAR,
+        created_at  TIMESTAMP DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_user_benefits_user ON user_benefits(user_id);
+
+      CREATE TABLE IF NOT EXISTS user_elevates (
+        id                    VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id               VARCHAR NOT NULL UNIQUE,
+        elevate_type          TEXT NOT NULL DEFAULT 'elevate',
+        expires_at            TIMESTAMP NOT NULL DEFAULT NOW(),
+        activated_at          TIMESTAMP,
+        elevate_credits       INTEGER NOT NULL DEFAULT 0,
+        super_elevate_credits INTEGER NOT NULL DEFAULT 0,
+        created_at            TIMESTAMP DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_user_elevates_user ON user_elevates(user_id);
+
+      CREATE TABLE IF NOT EXISTS call_credits (
+        id             VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id        VARCHAR NOT NULL UNIQUE,
+        phone_credits  INTEGER NOT NULL DEFAULT 0,
+        video_credits  INTEGER NOT NULL DEFAULT 0,
+        updated_at     TIMESTAMP DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_call_credits_user ON call_credits(user_id);
+
+      CREATE TABLE IF NOT EXISTS saved_wheel_profiles (
+        id               VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id          VARCHAR NOT NULL UNIQUE,
+        saved_profile_id VARCHAR NOT NULL,
+        saved_at         TIMESTAMP NOT NULL DEFAULT NOW(),
+        expires_at       TIMESTAMP
+      );
+      CREATE INDEX IF NOT EXISTS idx_saved_wheel_user ON saved_wheel_profiles(user_id);
+    `);
+    console.log("[STARTUP] Local DB tables verified/created: user_benefits, user_elevates, call_credits, saved_wheel_profiles");
+  } catch (err: any) {
+    console.error("[STARTUP] Local DB table migration failed:", err?.message);
+  }
+
   // Check that lat/lng columns exist in Supabase — added for distance filtering.
   // If missing, Discovery/Wheel still work; distance filter is just skipped.
   // Run: ALTER TABLE profiles ADD COLUMN IF NOT EXISTS latitude double precision;
@@ -162,213 +213,76 @@ app.use((req, res, next) => {
     console.warn("[STARTUP] Could not verify distance columns:", err?.message);
   }
 
-  // Auto-add is_paused column to Supabase profiles.
-  // Enables account pause/unpause without a manual migration step.
+  // ── Supabase optional-column probe ──────────────────────────────────────────
+  // Checks all optional profile columns in one pass. Sets guard flags in
+  // storage.ts so queries never reference a column that doesn't exist yet.
+  // If any are missing, prints a single SQL block to copy-paste into the
+  // Supabase SQL editor (Dashboard → SQL Editor → New query).
+  // Direct pg connection is NOT used here — it cannot resolve the Supabase
+  // hostname from the Replit sandbox. Run the SQL block manually if needed.
   try {
-    const { createClient } = await import("@supabase/supabase-js");
-    const { setHasIsPausedColumn } = await import("./storage");
-    const supabaseUrl = process.env.VITE_SUPABASE_URL!;
-    const serviceKey  = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-    const adminSb = createClient(supabaseUrl, serviceKey);
-    // First check if the column already exists
-    const { error: checkErr } = await adminSb.from("profiles").select("is_paused").limit(1);
-    if (!checkErr) {
-      setHasIsPausedColumn(true);
-    } else if (checkErr.message?.includes("does not exist")) {
-      // Try to add column via direct pg connection (SUPABASE_DB_PASSWORD available)
+    const { createClient: _createClientProbe } = await import("@supabase/supabase-js");
+    const {
+      setHasIsPausedColumn,
+      setHasCustomQColumn,
+      setHasViewerQColumn,
+      setHasCustomStartersColumn,
+      setHasDateOfBirthColumn,
+      setHasPronounsColumn,
+      setHasCustomGreenFlagsColumn,
+      setHasCustomSignalsColumn,
+    } = await import("./storage");
+
+    const _supabaseUrl = process.env.VITE_SUPABASE_URL!;
+    const _serviceKey  = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+    const _adminSb = _createClientProbe(_supabaseUrl, _serviceKey);
+
+    type ColDef = {
+      col: string;
+      setter: (v: boolean) => void;
+      sql: string;
+    };
+    const OPTIONAL_COLS: ColDef[] = [
+      { col: "is_paused",          setter: setHasIsPausedColumn,          sql: "ALTER TABLE profiles ADD COLUMN IF NOT EXISTS is_paused boolean DEFAULT false;" },
+      { col: "custom_questions",   setter: setHasCustomQColumn,           sql: "ALTER TABLE profiles ADD COLUMN IF NOT EXISTS custom_questions jsonb DEFAULT '[]'::jsonb;" },
+      { col: "viewer_questions",   setter: setHasViewerQColumn,           sql: "ALTER TABLE profiles ADD COLUMN IF NOT EXISTS viewer_questions jsonb DEFAULT '[]'::jsonb;" },
+      { col: "custom_starters",    setter: setHasCustomStartersColumn,    sql: "ALTER TABLE profiles ADD COLUMN IF NOT EXISTS custom_starters jsonb DEFAULT '[]'::jsonb;" },
+      { col: "date_of_birth",      setter: setHasDateOfBirthColumn,       sql: "ALTER TABLE profiles ADD COLUMN IF NOT EXISTS date_of_birth date;" },
+      { col: "pronouns",           setter: setHasPronounsColumn,          sql: "ALTER TABLE profiles ADD COLUMN IF NOT EXISTS pronouns text;" },
+      { col: "custom_green_flags", setter: setHasCustomGreenFlagsColumn,  sql: "ALTER TABLE profiles ADD COLUMN IF NOT EXISTS custom_green_flags jsonb DEFAULT '[]'::jsonb;" },
+      { col: "custom_signals",     setter: setHasCustomSignalsColumn,     sql: "ALTER TABLE profiles ADD COLUMN IF NOT EXISTS custom_signals jsonb DEFAULT '[]'::jsonb;" },
+    ];
+
+    const missingSql: string[] = [];
+
+    await Promise.all(OPTIONAL_COLS.map(async ({ col, setter, sql }) => {
       try {
-        const { Pool: PgPool } = await import("pg");
-        const projectRef = supabaseUrl.replace("https://", "").replace(".supabase.co", "");
-        const dbPass = process.env.SUPABASE_DB_PASSWORD;
-        if (dbPass && projectRef) {
-          const pgPool = new PgPool({
-            connectionString: `postgresql://postgres:${dbPass}@db.${projectRef}.supabase.co:5432/postgres`,
-            ssl: { rejectUnauthorized: false },
-          });
-          await pgPool.query("ALTER TABLE profiles ADD COLUMN IF NOT EXISTS is_paused boolean DEFAULT false");
-          await pgPool.end();
-          setHasIsPausedColumn(true);
-          console.log("[STARTUP] is_paused column added to Supabase profiles");
+        const { error } = await _adminSb.from("profiles").select(col).limit(1);
+        if (!error) {
+          setter(true);
+          console.log(`[STARTUP] profiles.${col} AVAILABLE`);
+        } else if (error.message?.includes("does not exist")) {
+          missingSql.push(sql);
+        } else {
+          console.warn(`[STARTUP] Could not verify profiles.${col}:`, error.message);
         }
-      } catch (pgErr: any) {
-        console.warn("[STARTUP] Could not add is_paused column via pg:", pgErr?.message);
-        console.warn("  Run manually: ALTER TABLE profiles ADD COLUMN IF NOT EXISTS is_paused boolean DEFAULT false;");
+      } catch (e: any) {
+        console.warn(`[STARTUP] Could not probe profiles.${col}:`, e?.message);
       }
-    }
-  } catch (err: any) {
-    console.warn("[STARTUP] Could not verify is_paused column:", err?.message);
-  }
+    }));
 
-  // Check / auto-add custom_questions column to Supabase profiles.
-  // Guards storage.ts column lists via _hasCustomQColumn flag so queries
-  // don't fail if the column doesn't exist yet.
-  try {
-    const { createClient } = await import("@supabase/supabase-js");
-    const { setHasCustomQColumn } = await import("./storage");
-    const supabaseUrl = process.env.VITE_SUPABASE_URL!;
-    const serviceKey  = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-    const adminSb = createClient(supabaseUrl, serviceKey);
-    const { error: checkErr } = await adminSb.from("profiles").select("custom_questions").limit(1);
-    if (!checkErr) {
-      setHasCustomQColumn(true);
-    } else if (checkErr.message?.includes("does not exist")) {
-      try {
-        const { Pool: PgPool } = await import("pg");
-        const projectRef = supabaseUrl.replace("https://", "").replace(".supabase.co", "");
-        const dbPass = process.env.SUPABASE_DB_PASSWORD;
-        if (dbPass && projectRef) {
-          const pgPool = new PgPool({
-            connectionString: `postgresql://postgres:${dbPass}@db.${projectRef}.supabase.co:5432/postgres`,
-            ssl: { rejectUnauthorized: false },
-          });
-          await pgPool.query("ALTER TABLE profiles ADD COLUMN IF NOT EXISTS custom_questions jsonb DEFAULT '[]'::jsonb");
-          await pgPool.end();
-          setHasCustomQColumn(true);
-          console.log("[STARTUP] custom_questions column added to Supabase profiles");
-        }
-      } catch (pgErr: any) {
-        console.warn("[STARTUP] Could not add custom_questions column via pg:", pgErr?.message);
-        console.warn("  Run manually: ALTER TABLE profiles ADD COLUMN IF NOT EXISTS custom_questions jsonb DEFAULT '[]'::jsonb;");
-      }
+    if (missingSql.length > 0) {
+      console.warn("╔══════════════════════════════════════════════════════════════════╗");
+      console.warn("║  MIGRATION NEEDED — paste this into Supabase Dashboard SQL Editor ║");
+      console.warn("╠══════════════════════════════════════════════════════════════════╣");
+      for (const s of missingSql) console.warn(`║  ${s.padEnd(66)}║`);
+      console.warn("╚══════════════════════════════════════════════════════════════════╝");
+      console.warn("  Affected features are gracefully disabled until the columns exist.");
+    } else {
+      console.log("[STARTUP] All optional Supabase profile columns present ✓");
     }
   } catch (err: any) {
-    console.warn("[STARTUP] Could not verify custom_questions column:", err?.message);
-  }
-
-  // Check / auto-add viewer_questions column to Supabase profiles.
-  try {
-    const { createClient: createClientVQ } = await import("@supabase/supabase-js");
-    const { setHasViewerQColumn } = await import("./storage");
-    const supabaseUrl = process.env.VITE_SUPABASE_URL!;
-    const serviceKey  = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-    const adminSbVQ = createClientVQ(supabaseUrl, serviceKey);
-    const { error: checkErrVQ } = await adminSbVQ.from("profiles").select("viewer_questions").limit(1);
-    if (!checkErrVQ) {
-      setHasViewerQColumn(true);
-    } else if (checkErrVQ.message?.includes("does not exist")) {
-      try {
-        const { Pool: PgPool } = await import("pg");
-        const projectRef = supabaseUrl.replace("https://", "").replace(".supabase.co", "");
-        const dbPass = process.env.SUPABASE_DB_PASSWORD;
-        if (dbPass && projectRef) {
-          const pgPool = new PgPool({
-            connectionString: `postgresql://postgres:${dbPass}@db.${projectRef}.supabase.co:5432/postgres`,
-            ssl: { rejectUnauthorized: false },
-          });
-          await pgPool.query("ALTER TABLE profiles ADD COLUMN IF NOT EXISTS viewer_questions jsonb DEFAULT '[]'::jsonb");
-          await pgPool.end();
-          setHasViewerQColumn(true);
-          console.log("[STARTUP] viewer_questions column added to Supabase profiles");
-        }
-      } catch (pgErr: any) {
-        console.warn("[STARTUP] Could not add viewer_questions column via pg:", pgErr?.message);
-        console.warn("  Run manually: ALTER TABLE profiles ADD COLUMN IF NOT EXISTS viewer_questions jsonb DEFAULT '[]'::jsonb;");
-      }
-    }
-  } catch (err: any) {
-    console.warn("[STARTUP] Could not verify viewer_questions column:", err?.message);
-  }
-
-  // Check / auto-add custom_starters column to Supabase profiles.
-  try {
-    const { createClient: createClientCS } = await import("@supabase/supabase-js");
-    const { setHasCustomStartersColumn } = await import("./storage");
-    const supabaseUrl = process.env.VITE_SUPABASE_URL!;
-    const serviceKey  = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-    const adminSbCS = createClientCS(supabaseUrl, serviceKey);
-    const { error: checkErrCS } = await adminSbCS.from("profiles").select("custom_starters").limit(1);
-    if (!checkErrCS) {
-      setHasCustomStartersColumn(true);
-    } else if (checkErrCS.message?.includes("does not exist")) {
-      try {
-        const { Pool: PgPool } = await import("pg");
-        const projectRef = supabaseUrl.replace("https://", "").replace(".supabase.co", "");
-        const dbPass = process.env.SUPABASE_DB_PASSWORD;
-        if (dbPass && projectRef) {
-          const pgPool = new PgPool({
-            connectionString: `postgresql://postgres:${dbPass}@db.${projectRef}.supabase.co:5432/postgres`,
-            ssl: { rejectUnauthorized: false },
-          });
-          await pgPool.query("ALTER TABLE profiles ADD COLUMN IF NOT EXISTS custom_starters jsonb DEFAULT '[]'::jsonb");
-          await pgPool.end();
-          setHasCustomStartersColumn(true);
-          console.log("[STARTUP] custom_starters column added to Supabase profiles");
-        }
-      } catch (pgErr: any) {
-        console.warn("[STARTUP] Could not add custom_starters column via pg:", pgErr?.message);
-        console.warn("  Run manually: ALTER TABLE profiles ADD COLUMN IF NOT EXISTS custom_starters jsonb DEFAULT '[]'::jsonb;");
-      }
-    }
-  } catch (err: any) {
-    console.warn("[STARTUP] Could not verify custom_starters column:", err?.message);
-  }
-
-  // Check / auto-add date_of_birth column to Supabase profiles.
-  try {
-    const { createClient: createClientDOB } = await import("@supabase/supabase-js");
-    const { setHasDateOfBirthColumn } = await import("./storage");
-    const supabaseUrl = process.env.VITE_SUPABASE_URL!;
-    const serviceKey  = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-    const adminSbDOB = createClientDOB(supabaseUrl, serviceKey);
-    const { error: checkErrDOB } = await adminSbDOB.from("profiles").select("date_of_birth").limit(1);
-    if (!checkErrDOB) {
-      setHasDateOfBirthColumn(true);
-    } else if (checkErrDOB.message?.includes("does not exist")) {
-      console.warn("[STARTUP] date_of_birth column missing — run: ALTER TABLE profiles ADD COLUMN IF NOT EXISTS date_of_birth date;");
-    }
-  } catch (err: any) {
-    console.warn("[STARTUP] Could not verify date_of_birth column:", err?.message);
-  }
-
-  // Check / auto-add pronouns column to Supabase profiles.
-  try {
-    const { createClient: createClientPN } = await import("@supabase/supabase-js");
-    const { setHasPronounsColumn } = await import("./storage");
-    const supabaseUrl = process.env.VITE_SUPABASE_URL!;
-    const serviceKey  = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-    const adminSbPN = createClientPN(supabaseUrl, serviceKey);
-    const { error: checkErrPN } = await adminSbPN.from("profiles").select("pronouns").limit(1);
-    if (!checkErrPN) {
-      setHasPronounsColumn(true);
-    } else if (checkErrPN.message?.includes("does not exist")) {
-      console.warn("[STARTUP] pronouns column missing — run: ALTER TABLE profiles ADD COLUMN IF NOT EXISTS pronouns text;");
-    }
-  } catch (err: any) {
-    console.warn("[STARTUP] Could not verify pronouns column:", err?.message);
-  }
-
-  // Check / auto-add custom_green_flags column to Supabase profiles.
-  try {
-    const { createClient: createClientCGF } = await import("@supabase/supabase-js");
-    const { setHasCustomGreenFlagsColumn } = await import("./storage");
-    const supabaseUrl = process.env.VITE_SUPABASE_URL!;
-    const serviceKey  = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-    const adminSbCGF = createClientCGF(supabaseUrl, serviceKey);
-    const { error: checkErrCGF } = await adminSbCGF.from("profiles").select("custom_green_flags").limit(1);
-    if (!checkErrCGF) {
-      setHasCustomGreenFlagsColumn(true);
-    } else if (checkErrCGF.message?.includes("does not exist")) {
-      console.warn("[STARTUP] custom_green_flags column missing — run: ALTER TABLE profiles ADD COLUMN IF NOT EXISTS custom_green_flags jsonb DEFAULT '[]'::jsonb;");
-    }
-  } catch (err: any) {
-    console.warn("[STARTUP] Could not verify custom_green_flags column:", err?.message);
-  }
-
-  // Check / auto-add custom_signals column to Supabase profiles.
-  try {
-    const { createClient: createClientCS2 } = await import("@supabase/supabase-js");
-    const { setHasCustomSignalsColumn } = await import("./storage");
-    const supabaseUrl = process.env.VITE_SUPABASE_URL!;
-    const serviceKey  = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-    const adminSbCS2 = createClientCS2(supabaseUrl, serviceKey);
-    const { error: checkErrCS2 } = await adminSbCS2.from("profiles").select("custom_signals").limit(1);
-    if (!checkErrCS2) {
-      setHasCustomSignalsColumn(true);
-    } else if (checkErrCS2.message?.includes("does not exist")) {
-      console.warn("[STARTUP] custom_signals column missing — run: ALTER TABLE profiles ADD COLUMN IF NOT EXISTS custom_signals jsonb DEFAULT '[]'::jsonb;");
-    }
-  } catch (err: any) {
-    console.warn("[STARTUP] Could not verify custom_signals column:", err?.message);
+    console.warn("[STARTUP] Optional-column probe failed:", err?.message);
   }
 
   await registerRoutes(httpServer, app);

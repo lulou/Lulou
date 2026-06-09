@@ -2353,6 +2353,38 @@ export async function registerRoutes(
     );
   }
 
+  // ── WebRTC ICE server configuration ────────────────────────────────────────
+  // Serves TURN credentials from server-side env vars (no VITE_ prefix) so
+  // they are never embedded in the frontend bundle. Frontend fetches once per
+  // session and caches the result in module scope.
+  //
+  // Required server env vars to enable TURN (set in Replit Secrets):
+  //   TURN_URL         e.g. "turn:your-server.com:3478?transport=tcp"
+  //   TURN_USERNAME    static username (or generate per-user with time-limits)
+  //   TURN_CREDENTIAL  static credential
+  //
+  // Without these, the endpoint returns STUN-only servers. Calls will still
+  // work on most home networks but WILL fail for users behind symmetric NAT,
+  // corporate firewalls, and most mobile data connections.
+  app.get("/api/webrtc/ice-servers", isAuthenticated, (_req: any, res: any) => {
+    const turnUrl        = process.env.TURN_URL;
+    const turnUsername   = process.env.TURN_USERNAME;
+    const turnCredential = process.env.TURN_CREDENTIAL;
+
+    const iceServers: { urls: string; username?: string; credential?: string }[] = [
+      { urls: "stun:stun.l.google.com:19302" },
+      { urls: "stun:stun1.l.google.com:19302" },
+      { urls: "stun:stun2.l.google.com:19302" },
+    ];
+
+    const hasTurn = !!(turnUrl && turnUsername && turnCredential);
+    if (hasTurn) {
+      iceServers.push({ urls: turnUrl!, username: turnUsername!, credential: turnCredential! });
+    }
+
+    res.json({ iceServers, hasTurn });
+  });
+
   // Global error handler — catches any unhandled errors that escape route try/catch blocks.
   // Without this, Express would return an HTML error page instead of JSON, causing clients
   // to display a literal "Internal Server Error" string from the HTTP status text.
@@ -2372,3 +2404,4 @@ export async function registerRoutes(
 
   return httpServer;
 }
+

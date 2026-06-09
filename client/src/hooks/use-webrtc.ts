@@ -30,18 +30,37 @@ if (typeof window !== "undefined" && !(window as any).__webrtcPatched) {
   console.warn = _intercept(console.warn.bind(console));
 }
 
-const _turnUrl = import.meta.env.VITE_TURN_URL;
-const _turnUsername = import.meta.env.VITE_TURN_USERNAME;
-const _turnCredential = import.meta.env.VITE_TURN_CREDENTIAL;
-
-const ICE_SERVERS: RTCIceServer[] = [
+// ICE servers fetched from the backend (TURN credentials stay server-side).
+// Falls back to STUN-only if the fetch fails or TURN is not configured.
+const _STUN_ONLY: RTCIceServer[] = [
   { urls: "stun:stun.l.google.com:19302" },
   { urls: "stun:stun1.l.google.com:19302" },
   { urls: "stun:stun2.l.google.com:19302" },
-  ...(_turnUrl && _turnUsername && _turnCredential
-    ? [{ urls: _turnUrl, username: _turnUsername, credential: _turnCredential }]
-    : []),
 ];
+// Cached after first successful authenticated fetch. Failures are not cached
+// so that a retry on the next call attempt will succeed once the user is logged in.
+let _iceServersCache: RTCIceServer[] | null = null;
+function fetchIceServers(): Promise<RTCIceServer[]> {
+  if (_iceServersCache) return Promise.resolve(_iceServersCache);
+  return fetch("/api/webrtc/ice-servers")
+    .then(r => r.ok ? r.json() : Promise.reject(r.status))
+    .then(data => {
+      const servers: RTCIceServer[] = Array.isArray(data?.iceServers) && data.iceServers.length > 0
+        ? data.iceServers
+        : _STUN_ONLY;
+      _iceServersCache = servers;
+      if (data?.hasTurn) {
+        console.log("[WebRTC] TURN server configured — relay candidates available");
+      } else {
+        console.warn("[WebRTC] TURN not configured — calls may fail on restricted networks. Set TURN_URL / TURN_USERNAME / TURN_CREDENTIAL in Replit Secrets.");
+      }
+      return servers;
+    })
+    .catch(() => {
+      console.warn("[WebRTC] ICE server fetch failed — using STUN-only fallback");
+      return _STUN_ONLY;
+    });
+}
 
 // ── Callee pre-subscription store ─────────────────────────────────────────
 // IncomingCallOverlay calls calleePresubscribe() on mount so the WebRTC
@@ -144,9 +163,6 @@ export function calleePresubConsume(matchId: string): PresubEntry | null {
   return entry;
 }
 
-if (!_turnUrl || !_turnUsername || !_turnCredential) {
-  console.warn("TURN not configured - calls may fail on restricted networks");
-}
 
 type SignalMessage =
   | { type: "webrtc:offer"; sdp: string; from: string }
@@ -841,17 +857,18 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
 
       if (cleanedUpRef.current) return;
 
-      console.log("[WebRTC] PC_CREATE_START: creating RTCPeerConnection with", ICE_SERVERS.length, "ICE server(s)");
-      const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+      const iceServers = await fetchIceServers();
+      console.log("[WebRTC] PC_CREATE_START: creating RTCPeerConnection with", iceServers.length, "ICE server(s)");
+      const pc = new RTCPeerConnection({ iceServers });
       pcRef.current = pc;
-      callDebug.event(`init: PC created (${ICE_SERVERS.length} ICE server(s))`);
+      callDebug.event(`init: PC created (${iceServers.length} ICE server(s))`);
 
       console.log("[WebRTC] PC_CREATE_DONE — initial states:", {
         connectionState: pc.connectionState,
         iceConnectionState: pc.iceConnectionState,
         iceGatheringState: pc.iceGatheringState,
         signalingState: pc.signalingState,
-        iceServers: ICE_SERVERS.map(s => s.urls),
+        iceServers: iceServers.map((s: RTCIceServer) => s.urls),
       });
 
       const remote = new MediaStream();
