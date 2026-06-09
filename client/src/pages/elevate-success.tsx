@@ -79,7 +79,7 @@ function LiveStatusCard({ boostInfo }: { boostInfo: BoostInfo }) {
             </div>
             <div className="flex items-center gap-2">
               <span className="font-bold text-sm text-primary">
-                {isSuper ? "Super Elevate" : "Elevate"}
+                {isSuper ? t("super_elevate_label") : t("elevate_label")}
               </span>
               {/* Pulsing live indicator */}
               <span className="relative inline-flex h-2 w-2 shrink-0">
@@ -210,7 +210,7 @@ export default function ElevateSuccessPage() {
             : <Sparkles className="w-5 h-5 text-primary" />
           }
           <span className="font-serif font-semibold text-base">
-            {phase === "active" ? (isSuper ? "Super Elevate" : "Elevate") : "Lulou"}
+            {phase === "active" ? (isSuper ? t("super_elevate_label") : t("elevate_label")) : "Lulou"}
           </span>
         </div>
       </div>
@@ -247,7 +247,7 @@ export default function ElevateSuccessPage() {
               <div>
                 <h1 className="font-serif text-xl font-bold">{t("boost_is_live")}</h1>
                 <p className="text-sm text-muted-foreground">
-                  {boostInfo.durationMinutes} min · {isSuper ? "8×" : "3×"} visibility · Started now
+                  {t("boost_started_now").replace("{dur}", String(boostInfo.durationMinutes)).replace("{mult}", isSuper ? "8×" : "3×")}
                 </p>
               </div>
             </div>

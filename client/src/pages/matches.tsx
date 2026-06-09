@@ -242,7 +242,7 @@ function SpinRequestCard({ request, type }: { request: SpinRequestWithProfile; t
               disabled={respond.isPending}
               data-testid={`button-decline-request-${request.id}`}
             >
-              <X className="w-4 h-4" /> Decline
+              <X className="w-4 h-4" /> {t("decline_label")}
             </Button>
           </div>
         )}
@@ -260,16 +260,16 @@ function SpinRequestCard({ request, type }: { request: SpinRequestWithProfile; t
   );
 }
 
-function generateDateSlots(): { label: string; value: string }[] {
+function generateDateSlots(t: (key: string) => string): { label: string; value: string }[] {
   const slots: { label: string; value: string }[] = [];
   const now = new Date();
-  const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-  const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const dayNames = [t("day_sun"), t("day_mon"), t("day_tue"), t("day_wed"), t("day_thu"), t("day_fri"), t("day_sat")];
+  const monthNames = [t("month_jan"), t("month_feb"), t("month_mar"), t("month_apr"), t("month_may"), t("month_jun"), t("month_jul"), t("month_aug"), t("month_sep"), t("month_oct"), t("month_nov"), t("month_dec")];
   const timeSlots = [
-    { label: "Morning (10am)", time: "10:00" },
-    { label: "Afternoon (2pm)", time: "14:00" },
-    { label: "Evening (7pm)", time: "19:00" },
-    { label: "Late evening (8:30pm)", time: "20:30" },
+    { label: t("time_morning"), time: "10:00" },
+    { label: t("time_afternoon"), time: "14:00" },
+    { label: t("time_evening"), time: "19:00" },
+    { label: t("time_late_evening"), time: "20:30" },
   ];
   for (let d = 1; d <= 7; d++) {
     const date = new Date(now);
@@ -291,7 +291,7 @@ function ReadyToMeetInline({ detail, matchId, profileName }: { detail: MatchDeta
   const [selectedSlots, setSelectedSlots] = useState<string[]>([]);
   const [showPhoneInput, setShowPhoneInput] = useState(false);
   const [phoneNumber, setPhoneNumber] = useState("");
-  const dateSlots = generateDateSlots();
+  const dateSlots = generateDateSlots(t as (key: string) => string);
 
   const isUser1 = detail.user1Id === user?.id;
   const myAvailability = isUser1 ? detail.meetAvailability1 : detail.meetAvailability2;
@@ -1064,6 +1064,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
   unreadCount: number;
   onMarkRead: () => void;
 }) {
+  const { t } = useLanguageContext();
   const { user } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -2039,7 +2040,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                     data-testid={`button-decline-inline-${match.id}`}
                   >
                     <PhoneOff className="w-3.5 h-3.5" />
-                    Decline
+                    {t("decline_label")}
                   </button>
                   <button
                     className="flex items-center gap-2 px-6 py-2.5 rounded-full text-sm font-semibold active:scale-95 transition-all"
@@ -2054,7 +2055,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                     data-testid={`button-answer-inline-${match.id}`}
                   >
                     <Phone className="w-3.5 h-3.5" />
-                    {inlineAnswerCall.isPending ? "Answering…" : "Answer"}
+                    {inlineAnswerCall.isPending ? t("answering_label") : t("answer_label")}
                   </button>
                 </div>
               </div>
@@ -2661,6 +2662,7 @@ const MatchCard = memo(function MatchCard({ match, unreadCount, userId, onOpen }
   userId: string | null;
   onOpen: (matchId: string) => void;
 }) {
+  const { t } = useLanguageContext();
   useRenderCount("MatchCard");
   // Lazy-load avatar photo — photos are not included in /api/matches list response
   const { data: cardPhotosData } = useQuery<{ photos: string[] }>({

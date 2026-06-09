@@ -189,7 +189,7 @@ export function ActiveCallOverlay({
   const stageDuration = getStageDuration(callStage);
   const { display: countdownDisplay, remaining, warning } = useCountdownTimer(isConnected, stageDuration);
 
-  const stageLabel = callStage === 0 ? "First call · Audio" : callStage === 1 ? "Second call · Video" : "Face call · Video";
+  const stageLabel = callStage === 0 ? t("first_call_stage_label") : callStage === 1 ? t("second_call_stage_label") : t("face_call_stage_label_audio");
 
   // Outgoing ringback tone: play only while the caller is waiting for an answer.
   // Stops automatically when isRinging becomes false (answered) or on unmount.
@@ -523,17 +523,17 @@ export function ActiveCallOverlay({
   useEffect(() => {
     if (remaining === 0 && isConnected && !endedRef.current) {
       const completeMsg = callStage === 0
-        ? "First call time completed"
+        ? t("timer_first_completed")
         : callStage === 1
-        ? "Second call time completed"
-        : "Call time completed";
+        ? t("timer_second_completed")
+        : t("timer_completed");
       setTimerExpiredMsg(completeMsg);
       console.log("[CALL_UI] TIMER_EXPIRED — auto-ending call", { matchId, callSessionId, callStage, stageDuration });
       // Brief delay so the user sees "Time's up" before the overlay closes
-      const t = setTimeout(() => {
+      const tid = setTimeout(() => {
         finishCallRef.current?.("timer_expired");
       }, 2500);
-      return () => clearTimeout(t);
+      return () => clearTimeout(tid);
     }
   }, [remaining, isConnected, callStage, matchId, callSessionId, stageDuration]);
 
@@ -545,13 +545,13 @@ export function ActiveCallOverlay({
     if (!isFailed || !webrtcEnabled) return;
     // failureReason is now provided directly by useWebRTC — no log scraping needed.
     console.log("[CALL_UI] AUTO_END_SCHEDULED", { matchId, callSessionId, delayMs: 10000, failureReason });
-    const t = setTimeout(() => {
+    const tid2 = setTimeout(() => {
       if (!endedRef.current) {
         console.log("[CALL_UI] AUTO_END_EXECUTING connection_failed", { matchId, callSessionId });
         finishCallRef.current?.("connection_failed");
       }
     }, 10000);
-    return () => clearTimeout(t);
+    return () => clearTimeout(tid2);
   }, [isFailed, webrtcEnabled, matchId, callSessionId]);
 
   // ── Remote stream → audio + video ────────────────────────────────────────
@@ -1023,15 +1023,15 @@ export function ActiveCallOverlay({
         <AlertTriangle className="w-14 h-14 text-amber-400" />
         <div className="text-center space-y-2">
           <p className="text-white text-xl font-semibold">
-            {isVideo ? "Microphone & camera needed" : "Microphone access needed"}
+            {isVideo ? t("mic_camera_needed") : t("mic_needed")}
           </p>
           <p className="text-white/50 text-sm leading-relaxed">
             {isVideo
-              ? "Allow Lulou to use your microphone and camera to connect this call."
-              : "Allow Lulou to use your microphone to connect this call."}
+              ? t("allow_mic_camera")
+              : t("allow_mic")}
           </p>
           <p className="text-white/35 text-xs mt-1">
-            Open your browser or device settings, allow access, then start the call again.
+            {t("open_settings_hint")}
           </p>
         </div>
         <button
@@ -1042,19 +1042,19 @@ export function ActiveCallOverlay({
         >
           <PhoneOff className="w-7 h-7 text-white" />
         </button>
-        <span className="text-white/30 text-xs">Tap to end call</span>
+        <span className="text-white/30 text-xs">{t("tap_to_end")}</span>
         <CallDebugPanel />
       </div>
     );
   }
 
   const statusLabel = (() => {
-    if (isRinging) return isCaller ? "Ringing…" : "Connecting…";
-    if (connectionState === "requesting-media") return isVideo ? "Starting camera…" : "Starting microphone…";
-    if (connectionState === "connecting") return "Connecting…";
-    if (connectionState === "reconnecting") return "Reconnecting…";
+    if (isRinging) return isCaller ? t("ringing_label") : t("connecting_label");
+    if (connectionState === "requesting-media") return isVideo ? t("starting_camera") : t("starting_mic");
+    if (connectionState === "connecting") return t("connecting_label");
+    if (connectionState === "reconnecting") return t("reconnecting_label");
     if (isConnected) return remaining === 0 ? "00:00" : countdownDisplay;
-    return "Connected";
+    return t("connected_label");
   })();
 
   // Warning color for the countdown — escalates as time runs out
@@ -1243,12 +1243,12 @@ export function ActiveCallOverlay({
               {isConnected && remaining > 0 && !showSpinner && (
                 <p className={`text-xs ${warning !== "none" ? timerColor : "text-white/35"}`} data-testid="text-call-remaining">
                   {warning === "ten_sec"
-                    ? "10 seconds remaining!"
+                    ? t("ten_sec_remaining")
                     : warning === "one_min"
-                    ? "Less than a minute remaining"
+                    ? t("less_than_minute")
                     : warning === "two_min"
-                    ? "2 minutes remaining"
-                    : `${Math.ceil(remaining / 60)} min remaining`}
+                    ? t("two_min_remaining")
+                    : t("n_min_remaining").replace("{n}", String(Math.ceil(remaining / 60)))}
                 </p>
               )}
             </div>

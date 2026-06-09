@@ -503,7 +503,7 @@ export default function Onboarding({ existingProfile = null, userEmail = "" }: O
                       <Input
                         value={customStarterDraft}
                         onChange={e => setCustomStarterDraft(e.target.value)}
-                        placeholder="e.g. Ask me about my last adventure..."
+                        placeholder={t("ph_custom_starter")}
                         maxLength={120}
                         className="text-sm"
                         data-testid="input-custom-starter-draft"
@@ -526,7 +526,7 @@ export default function Onboarding({ existingProfile = null, userEmail = "" }: O
                         data-testid="button-add-custom-starter"
                         className="shrink-0 gap-1"
                       >
-                        <Plus className="w-3.5 h-3.5" /> Add
+                        <Plus className="w-3.5 h-3.5" /> {t("add_label")}
                       </Button>
                     </div>
                   )}
@@ -595,7 +595,7 @@ export default function Onboarding({ existingProfile = null, userEmail = "" }: O
                       <Input
                         value={viewerQDraft}
                         onChange={e => setViewerQDraft(e.target.value)}
-                        placeholder="e.g. What's a random fact about you?"
+                        placeholder={t("ph_viewer_question")}
                         maxLength={150}
                         className="text-sm"
                         data-testid="input-viewer-q-draft"
@@ -676,7 +676,7 @@ export default function Onboarding({ existingProfile = null, userEmail = "" }: O
                       <Input
                         value={customQDraft.question}
                         onChange={e => setCustomQDraft(prev => ({ ...prev, question: e.target.value }))}
-                        placeholder="e.g. What's your idea of a perfect date?"
+                        placeholder={t("ph_custom_question")}
                         maxLength={150}
                         className="text-sm"
                         data-testid="input-custom-question-text"
@@ -684,7 +684,7 @@ export default function Onboarding({ existingProfile = null, userEmail = "" }: O
                       <Input
                         value={customQDraft.answer}
                         onChange={e => setCustomQDraft(prev => ({ ...prev, answer: e.target.value }))}
-                        placeholder="Your answer..."
+                        placeholder={t("ph_your_answer")}
                         maxLength={200}
                         className="text-sm"
                         data-testid="input-custom-question-answer"
@@ -748,7 +748,7 @@ export default function Onboarding({ existingProfile = null, userEmail = "" }: O
                   {formData.customSignals.length < 3 && (
                     <div className="flex gap-2">
                       <Input
-                        placeholder="e.g. Dog lover, Bookworm…"
+                        placeholder={t("ph_custom_signal")}
                         maxLength={40}
                         className="text-sm"
                         data-testid="input-custom-signal-draft"
@@ -768,7 +768,7 @@ export default function Onboarding({ existingProfile = null, userEmail = "" }: O
                           const val = input?.value?.trim();
                           if (val) { setFormData(prev => ({ ...prev, customSignals: [...prev.customSignals, val] })); input.value = ""; }
                         }}>
-                        <Plus className="w-3.5 h-3.5" /> Add
+                        <Plus className="w-3.5 h-3.5" /> {t("add_label")}
                       </Button>
                     </div>
                   )}
@@ -836,7 +836,7 @@ export default function Onboarding({ existingProfile = null, userEmail = "" }: O
                   {formData.customGreenFlags.length < 3 && (
                     <div className="flex gap-2">
                       <Input
-                        placeholder="e.g. Makes me laugh, Loves cooking…"
+                        placeholder={t("ph_custom_green_flag")}
                         maxLength={40}
                         className="text-sm"
                         data-testid="input-custom-green-flag-draft"
@@ -901,7 +901,7 @@ export default function Onboarding({ existingProfile = null, userEmail = "" }: O
               data-testid="button-next"
             >
               {step === STEPS.length - 1 ? (
-                createProfile.isPending ? "Creating..." : "Complete Profile"
+                createProfile.isPending ? t("creating_profile_label") : t("complete_profile_label")
               ) : (
                 <>Continue <ArrowRight className="w-4 h-4 ml-2" /></>
               )}
@@ -919,6 +919,7 @@ function PhotoSlot({ index, photo, onSelect, onRemove }: {
   onSelect: (url: string) => void;
   onRemove: () => void;
 }) {
+  const { t } = useLanguageContext();
   const { toast } = useToast();
   const [converting, setConverting] = useState(false);
 
@@ -932,8 +933,8 @@ function PhotoSlot({ index, photo, onSelect, onRemove }: {
       onSelect(jpeg);
     } catch (err: any) {
       toast({
-        title: "Photo not added",
-        description: err?.message || "Could not process this photo. Try a JPEG or PNG.",
+        title: t("photo_not_added_title"),
+        description: err?.message || t("photo_not_added_desc"),
         variant: "destructive",
       });
     } finally {
