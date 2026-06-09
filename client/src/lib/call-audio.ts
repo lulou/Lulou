@@ -54,6 +54,7 @@
 
 import { isArmedSession, clearAllArmedSessions } from "@/lib/live-call-sessions";
 import { isStartupSweepComplete, resetStartupSweep } from "@/lib/startup-sweep";
+import { STARTUP_SILENCE_UNTIL } from "@/lib/app-load-time";
 
 // Internal alias — keeps internal code private while using the shared set.
 const _isSessionArmed = isArmedSession;
@@ -187,6 +188,20 @@ function _ensureRingbackEl(): HTMLAudioElement | null {
  * any context (React effects, Supabase callbacks, etc.).
  */
 function _warmElements(): void {
+  // ── Hard startup suppression ─────────────────────────────────────────────
+  // Belt-and-suspenders for the 5-second silence window.  Even if
+  // _ringtoneActive / _ringbackActive are somehow true (e.g. because a stale
+  // rering slipped through all upstream guards), the warm-up path must not
+  // play audio during the suppression window.  Treat both flags as false.
+  const inSilenceWindow = Date.now() < STARTUP_SILENCE_UNTIL;
+  const ringtoneAllowed  = _ringtoneActive  && !inSilenceWindow;
+  const ringbackAllowed  = _ringbackActive  && !inSilenceWindow;
+  if (inSilenceWindow && (_ringtoneActive || _ringbackActive)) {
+    console.log("[CALL_AUDIO_GUARD] warmup suppressed — inside 5 s startup silence window", {
+      msRemaining: STARTUP_SILENCE_UNTIL - Date.now(),
+    });
+  }
+
   // ── Ringtone ──
   const rt = _ensureRingtoneEl();
   if (rt && !_ringtoneWarm) {
@@ -197,11 +212,11 @@ function _warmElements(): void {
     // before the async .then() fires, even at volume=0.  muted=true is a DOM-level
     // gate that the audio pipeline cannot bypass — guaranteed silence during warm-up.
     const wasMuted = rt.muted;
-    if (!_ringtoneActive) rt.muted = true;
+    if (!ringtoneAllowed) rt.muted = true;
 
     rt.play().then(() => {
-      // If no incoming call is pending, silence immediately (warm-up only).
-      if (!_ringtoneActive) {
+      // If no incoming call is pending (or suppressed), silence immediately.
+      if (!ringtoneAllowed) {
         rt.pause();
         rt.currentTime = 0;
         rt.muted = wasMuted;
@@ -214,7 +229,7 @@ function _warmElements(): void {
     }).catch(() => {
       rt.muted = wasMuted;
       // AbortError from immediate pause is expected and harmless — element is still warm.
-      if (_ringtoneActive) {
+      if (ringtoneAllowed) {
         // Ring was waiting — try once more (should succeed now that element is warm).
         rt.currentTime = 0;
         rt.play().catch(() => {});
@@ -230,10 +245,10 @@ function _warmElements(): void {
     // Same muted=true guard for ringback — prevents the "transition beep" that
     // occurs when Answer is the user's first gesture and _doUnlock fires mid-call.
     const wasMuted = rb.muted;
-    if (!_ringbackActive) rb.muted = true;
+    if (!ringbackAllowed) rb.muted = true;
 
     rb.play().then(() => {
-      if (!_ringbackActive) {
+      if (!ringbackAllowed) {
         rb.pause();
         rb.currentTime = 0;
         rb.muted = wasMuted;
@@ -243,7 +258,7 @@ function _warmElements(): void {
       }
     }).catch(() => {
       rb.muted = wasMuted;
-      if (_ringbackActive) { rb.currentTime = 0; rb.play().catch(() => {}); }
+      if (ringbackAllowed) { rb.currentTime = 0; rb.play().catch(() => {}); }
     });
   }
 }
@@ -357,6 +372,22 @@ export function startIncomingRingtone(sessionId?: string | null): void {
       return;
     }
 
+    // ── Hard startup silence window ──────────────────────────────────────
+    // No ringtone may play for the first 5 seconds after module load.
+    // This is the outermost firewall: it catches every race condition
+    // (cached /api/matches, optimistic patches, early rerings) regardless
+    // of whether the startup sweep has completed or the session is armed.
+    // Any genuine incoming call that starts during this window will still
+    // be ringing via Realtime rerings — the next rering after STARTUP_SILENCE_UNTIL
+    // will pass this guard and start audio normally.
+    if (Date.now() < STARTUP_SILENCE_UNTIL) {
+      console.log("[CALL_AUDIO_GUARD] incoming ring suppressed — inside 5 s startup silence window", {
+        sessionId: sessionId ? sessionId.slice(0, 8) : "null",
+        msRemaining: STARTUP_SILENCE_UNTIL - Date.now(),
+      });
+      return;
+    }
+
     // ── Startup-sweep guard ──────────────────────────────────────────────
     // The startup sweep must complete before any ringtone plays. This is the
     // definitive firewall: even if a session is somehow armed before the sweep
@@ -450,6 +481,15 @@ export function startOutgoingRingback(sessionId?: string | null): void {
     // Safety guard: same auth check as startIncomingRingtone.
     if (!_unlockListenersRegistered && !_audioUnlocked) {
       console.log("[CALL_AUDIO_GUARD] blocked call audio because user is logged out");
+      return;
+    }
+
+    // ── Hard startup silence window — same rule as startIncomingRingtone ──
+    if (Date.now() < STARTUP_SILENCE_UNTIL) {
+      console.log("[CALL_AUDIO_GUARD] outgoing ringback suppressed — inside 5 s startup silence window", {
+        sessionId: sessionId ? sessionId.slice(0, 8) : "null",
+        msRemaining: STARTUP_SILENCE_UNTIL - Date.now(),
+      });
       return;
     }
 
