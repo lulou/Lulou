@@ -1,0 +1,203 @@
+Future Lulou Product Improvements – Call System, Extras & Undo Flow
+
+Important:
+Do not start implementing immediately. First review the proposal and provide an implementation plan that minimizes regressions.
+
+Do not break:
+
+Discovery
+Intention Wheel
+Chat
+Calls
+Matching
+Payments
+Onboarding
+Existing premium features
+Call System Changes
+Current concern:
+
+The app currently has both phone call and video call concepts available inside chat.
+
+After reviewing the user journey, we no longer want video calling to be a standard chat feature.
+
+Reason:
+
+The structured Lulou flow already does a good job of moving people through:
+Discovery → Match → Chat → Intention Wheel → Phone Call → Meet
+
+Mandatory or highly visible video calling may create unnecessary friction.
+
+Many users may not want to be on camera immediately.
+
+A phone call feels lower pressure and more natural.
+
+New Direction
+
+Phone Call = core premium communication feature
+
+Video Call = premium extra only
+
+Requirements:
+
+Remove the video call button from the normal chat experience.
+
+Keep phone call functionality available in chat.
+
+Video calls must remain available through Lulou Extras / Premium Purchases.
+
+Users should not feel forced into video.
+
+Video should be treated as an optional premium upgrade.
+
+Call Bundle System
+Introduce reusable call credits.
+
+Credits must not be tied to a specific match.
+
+Example:
+
+Bad:
+“Buy 5 calls with Sarah”
+
+Good:
+“Buy 5 call credits and use them with any current or future match”
+
+Credits should be account-level.
+
+Suggested Packages
+
+Starter Pack
+
+1 Phone Call
+Connection Pack
+
+3 Phone Calls
+Premium Pack
+
+5 Phone Calls
+Chemistry Pack
+
+3 Phone Calls
+1 Video Call
+Deep Connection Pack
+
+5 Phone Calls
+3 Video Calls
+These are examples only.
+
+Provide recommendations on final pricing structure.
+
+Chat UI Behaviour
+Within chat:
+
+Phone icon:
+
+Visible
+Grey when unavailable
+Green when usable
+Video icon:
+
+Removed from standard chat flow
+OR
+Hidden until the user owns video credits
+Video should not feel like a required next step.
+
+Phone calling should remain the primary communication upgrade.
+
+Discovery Undo Feature
+Add:
+
+“Undo Last Pass”
+
+Purpose:
+
+Recover from accidental passes.
+
+Examples:
+
+Mis-tap
+Swipe mistake
+Accidental rejection
+Rules:
+
+Only undo the most recent pass.
+
+Restore that profile back into Discovery.
+
+Do not affect matches.
+
+Do not affect likes.
+
+Do not create duplicate profiles.
+
+UI suggestion:
+
+Small ↩ icon near the pass action.
+
+Keep it elegant and subtle.
+
+Intention Wheel
+Important:
+
+Do NOT add Undo to the Intention Wheel.
+
+Reason:
+
+The wheel is designed around randomness.
+
+Allowing Undo effectively lets users keep spinning until they get someone they prefer.
+
+That undermines the core concept.
+
+The wheel must remain a true “pick of the draw” experience.
+
+Intention Wheel Save For Later
+Instead of Undo:
+
+Consider a “Save For Later” feature.
+
+Flow:
+
+Spin
+→ Receive random result
+→ User can:
+
+Connect
+Pass
+Save For Later
+Rules:
+
+User still cannot choose another profile.
+
+User still cannot re-spin.
+
+User still cannot browse candidates.
+
+Randomness must remain intact.
+
+Potential restriction:
+
+Only allow 1 saved wheel profile at a time.
+
+Provide implementation recommendations.
+
+Intention Wheel Integrity
+Maintain:
+
+Genuine randomness
+No user selection
+No user browsing
+No wheel manipulation
+Any preview features must not influence the final selected result.
+
+The result must always be chosen independently from the eligible wheel pool.
+
+Before implementation provide:
+
+Files likely to be changed.
+Database changes required.
+Stripe/payment changes required.
+Migration requirements.
+Rollout order.
+Any risks to existing functionality.
+Do not begin implementation until the plan is reviewed.
