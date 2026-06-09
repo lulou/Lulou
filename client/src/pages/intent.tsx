@@ -1150,6 +1150,11 @@ export default function IntentPage() {
         </div>
       </div>
 
+      {/* PROOF LABEL — remove after verification */}
+      <div style={{ background: "#22c55e", color: "#fff", fontWeight: 900, fontSize: 11, textAlign: "center", padding: "3px 8px", letterSpacing: "0.08em", flexShrink: 0 }}>
+        LIVE FIX ACTIVE — WHEEL RESPONSIVE
+      </div>
+
       {/* ── Wheel stage ── */}
       <div className="flex-1 flex flex-col items-center justify-center gap-5 overflow-hidden">
         <div
