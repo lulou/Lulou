@@ -391,7 +391,7 @@ export default function ProfilePage() {
       // setQueryData avoids any refetch and keeps the user on the Profile page.
       if (_DEV) console.log("[PHOTOS] Save successful — updating profile cache directly, staying on Profile page");
       queryClient.setQueryData(["/api/profile"], data);
-      toast({ title: "Photos updated" });
+      toast({ title: t("photos_updated") });
       setEditingPhotos(false);
       setEditPhotos([]);
     },
@@ -400,7 +400,7 @@ export default function ProfilePage() {
       console.error("[PROFILE_SAVE] savePhotos FAILED", { rawError: err?.message, cleanedError: msg });
       // editPhotos is intentionally NOT cleared here — the user's selected
       // photos are preserved so they can retry without re-selecting them.
-      toast({ title: "Could not save photos", description: msg, variant: "destructive" });
+      toast({ title: t("photos_save_error"), description: msg, variant: "destructive" });
     },
   });
 
@@ -451,14 +451,14 @@ export default function ProfilePage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/profile"] });
-      toast({ title: "Settings saved" });
+      toast({ title: t("settings_saved") });
       setExpandedSection(null);
     },
     onError: (err: any) => {
       const msg = cleanErrorMessage(err);
       console.error("[PROFILE_SAVE] saveSettings FAILED", { rawError: err?.message, cleanedError: msg });
       // settingsForm is intentionally NOT cleared — user's edits are preserved for retry.
-      toast({ title: "Settings couldn't be saved", description: msg, variant: "destructive" });
+      toast({ title: t("settings_save_error"), description: msg, variant: "destructive" });
     },
   });
 
@@ -999,7 +999,7 @@ export default function ProfilePage() {
               <Input
                 value={newCustomStarterDraft}
                 onChange={e => setNewCustomStarterDraft(e.target.value)}
-                placeholder="e.g. Ask me about my last adventure…"
+                placeholder={t("ph_custom_starter")}
                 maxLength={120}
                 className="text-sm"
                 data-testid="input-custom-starter"
@@ -1026,7 +1026,7 @@ export default function ProfilePage() {
                 className="shrink-0 gap-1"
                 data-testid="button-add-custom-starter"
               >
-                <Plus className="w-3.5 h-3.5" /> Add
+                <Plus className="w-3.5 h-3.5" /> {t("add_label")}
               </Button>
             </div>
           )}
@@ -1037,9 +1037,9 @@ export default function ProfilePage() {
       <div className="space-y-3" data-testid="section-viewer-questions">
         <div className="flex items-center gap-2">
           <HelpCircle className="w-4 h-4 text-primary" />
-          <p className="text-sm font-semibold text-foreground">Write a question for your viewers</p>
+          <p className="text-sm font-semibold text-foreground">{t("write_q_for_viewers")}</p>
         </div>
-        <p className="text-xs text-muted-foreground">People visiting your profile can answer these — great for sparking real conversations.</p>
+        <p className="text-xs text-muted-foreground">{t("viewers_can_answer_desc")}</p>
         <div className="space-y-2">
           {editViewerQList.map((vq, i) => (
             <div key={i} className="flex items-center gap-2">
@@ -1064,7 +1064,7 @@ export default function ProfilePage() {
               <Input
                 value={newViewerQDraft}
                 onChange={e => setNewViewerQDraft(e.target.value)}
-                placeholder="e.g. What's a random fact about you?"
+                placeholder={t("ph_viewer_question")}
                 maxLength={150}
                 className="text-sm"
                 data-testid="input-viewer-q"
@@ -1091,7 +1091,7 @@ export default function ProfilePage() {
                 className="shrink-0 gap-1"
                 data-testid="button-add-viewer-q"
               >
-                <Plus className="w-3.5 h-3.5" /> Add
+                <Plus className="w-3.5 h-3.5" /> {t("add_label")}
               </Button>
             </div>
           )}
@@ -1101,9 +1101,9 @@ export default function ProfilePage() {
       <div className="space-y-3" data-testid="section-custom-green-flags">
         <div className="flex items-center gap-2">
           <span className="text-primary text-sm">🟩</span>
-          <p className="text-sm font-semibold text-foreground">Your own green flags</p>
+          <p className="text-sm font-semibold text-foreground">{t("your_own_green_flags_title")}</p>
         </div>
-        <p className="text-xs text-muted-foreground">Traits you look for that aren't on the preset list. Up to 3.</p>
+        <p className="text-xs text-muted-foreground">{t("green_flags_not_preset")}</p>
         <div className="space-y-2">
           {editCustomGreenFlagList.map((flag, i) => (
             <div key={i} className="flex items-center gap-2">
@@ -1128,7 +1128,7 @@ export default function ProfilePage() {
               <Input
                 value={newCustomGreenFlagDraft}
                 onChange={e => setNewCustomGreenFlagDraft(e.target.value)}
-                placeholder="e.g. Makes me laugh, Loves cooking…"
+                placeholder={t("ph_custom_green_flag")}
                 maxLength={40}
                 className="text-sm"
                 data-testid="input-custom-green-flag"
@@ -1155,7 +1155,7 @@ export default function ProfilePage() {
                 className="shrink-0 gap-1"
                 data-testid="button-add-custom-green-flag"
               >
-                <Plus className="w-3.5 h-3.5" /> Add
+                <Plus className="w-3.5 h-3.5" /> {t("add_label")}
               </Button>
             </div>
           )}
@@ -1165,9 +1165,9 @@ export default function ProfilePage() {
       <div className="space-y-3" data-testid="section-custom-signals">
         <div className="flex items-center gap-2">
           <span className="text-primary text-sm">✨</span>
-          <p className="text-sm font-semibold text-foreground">Your own personality traits</p>
+          <p className="text-sm font-semibold text-foreground">{t("your_own_traits_title")}</p>
         </div>
-        <p className="text-xs text-muted-foreground">Traits that describe you but aren't on the preset list. Up to 3.</p>
+        <p className="text-xs text-muted-foreground">{t("traits_not_preset")}</p>
         <div className="space-y-2">
           {editCustomSignalList.map((signal, i) => (
             <div key={i} className="flex items-center gap-2">
@@ -1192,7 +1192,7 @@ export default function ProfilePage() {
               <Input
                 value={newCustomSignalDraft}
                 onChange={e => setNewCustomSignalDraft(e.target.value)}
-                placeholder="e.g. Dog lover, Bookworm…"
+                placeholder={t("ph_custom_signal")}
                 maxLength={40}
                 className="text-sm"
                 data-testid="input-custom-signal"
@@ -1219,7 +1219,7 @@ export default function ProfilePage() {
                 className="shrink-0 gap-1"
                 data-testid="button-add-custom-signal"
               >
-                <Plus className="w-3.5 h-3.5" /> Add
+                <Plus className="w-3.5 h-3.5" /> {t("add_label")}
               </Button>
             </div>
           )}
@@ -1235,7 +1235,7 @@ export default function ProfilePage() {
       >
         <div className="flex items-center gap-2.5">
           <Menu className="w-4 h-4 text-muted-foreground" />
-          <span className="text-sm font-medium text-muted-foreground">More about me</span>
+          <span className="text-sm font-medium text-muted-foreground">{t("more_about_me")}</span>
         </div>
         <ChevronDown
           className={`w-4 h-4 text-muted-foreground transition-transform duration-200 ${showExtendedInfo ? "rotate-180" : ""}`}
@@ -1285,13 +1285,13 @@ export default function ProfilePage() {
           </div>
           {!editingStarters ? (
             <Button size="sm" variant="ghost" onClick={startEditingStarters} data-testid="button-edit-starters">
-              <Pencil className="w-3.5 h-3.5 mr-1.5" /> Edit
+              <Pencil className="w-3.5 h-3.5 mr-1.5" /> {t("edit")}
             </Button>
           ) : (
             <div className="flex items-center gap-2">
-              <Button size="sm" variant="ghost" onClick={() => setEditingStarters(false)} data-testid="button-cancel-starters">Cancel</Button>
+              <Button size="sm" variant="ghost" onClick={() => setEditingStarters(false)} data-testid="button-cancel-starters">{t("cancel")}</Button>
               <Button size="sm" onClick={() => saveStarters.mutate()} disabled={saveStarters.isPending || editStarters.length < 2} data-testid="button-save-starters">
-                {saveStarters.isPending ? "Saving..." : "Save"}
+                {saveStarters.isPending ? t("saving_ellipsis") : t("save")}
               </Button>
             </div>
           )}
@@ -1322,7 +1322,7 @@ export default function ProfilePage() {
                 <Input
                   value={editStarterAnswers[starter] || ""}
                   onChange={e => setEditStarterAnswers(prev => ({ ...prev, [starter]: e.target.value }))}
-                  placeholder="Your answer..."
+                  placeholder={t("ph_your_answer")}
                   maxLength={200}
                   data-testid={`input-edit-starter-${starter.slice(0, 20).toLowerCase().replace(/\s+/g, "-")}`}
                 />
@@ -1356,13 +1356,13 @@ export default function ProfilePage() {
           </div>
           {!editingQuestions ? (
             <Button size="sm" variant="ghost" onClick={startEditingQuestions} data-testid="button-edit-questions">
-              <Pencil className="w-3.5 h-3.5 mr-1.5" /> Edit
+              <Pencil className="w-3.5 h-3.5 mr-1.5" /> {t("edit")}
             </Button>
           ) : (
             <div className="flex items-center gap-2">
-              <Button size="sm" variant="ghost" onClick={() => setEditingQuestions(false)} data-testid="button-cancel-questions">Cancel</Button>
+              <Button size="sm" variant="ghost" onClick={() => setEditingQuestions(false)} data-testid="button-cancel-questions">{t("cancel")}</Button>
               <Button size="sm" onClick={() => saveQuestionsMut.mutate()} disabled={saveQuestionsMut.isPending || editQuestions.length < 2} data-testid="button-save-questions">
-                {saveQuestionsMut.isPending ? "Saving..." : "Save"}
+                {saveQuestionsMut.isPending ? t("saving_ellipsis") : t("save")}
               </Button>
             </div>
           )}
@@ -1389,11 +1389,11 @@ export default function ProfilePage() {
                 </Card>
               );
             })}
-            <p className="text-xs text-muted-foreground">{editQuestions.length}/3 selected (min 2)</p>
+            <p className="text-xs text-muted-foreground">{t("n_of_3_selected_min2").replace("{n}", String(editQuestions.length))}</p>
 
             {/* ── Custom Questions ───────────────────────────────── */}
             <div className="pt-2 border-t space-y-2">
-              <p className="text-xs font-medium tracking-wider uppercase text-primary">Your own questions</p>
+              <p className="text-xs font-medium tracking-wider uppercase text-primary">{t("your_own_questions")}</p>
               {editCustomQList.map((cq, i) => (
                 <Card key={i} className="p-3 border-primary/30 bg-primary/3 space-y-1" data-testid={`card-edit-custom-question-${i}`}>
                   {editingCustomQ === i ? (
@@ -1401,7 +1401,7 @@ export default function ProfilePage() {
                       <Input
                         value={cq.question}
                         onChange={e => setEditCustomQList(prev => prev.map((q, j) => j === i ? { ...q, question: e.target.value } : q))}
-                        placeholder="Question"
+                        placeholder={t("ph_question")}
                         maxLength={150}
                         className="text-sm"
                         data-testid={`input-edit-custom-q-text-${i}`}
@@ -1409,12 +1409,12 @@ export default function ProfilePage() {
                       <Input
                         value={cq.answer}
                         onChange={e => setEditCustomQList(prev => prev.map((q, j) => j === i ? { ...q, answer: e.target.value } : q))}
-                        placeholder="Answer"
+                        placeholder={t("ph_answer")}
                         maxLength={200}
                         className="text-sm"
                         data-testid={`input-edit-custom-q-answer-${i}`}
                       />
-                      <Button size="sm" variant="outline" onClick={() => setEditingCustomQ(null)} data-testid={`button-done-custom-q-${i}`}>Done</Button>
+                      <Button size="sm" variant="outline" onClick={() => setEditingCustomQ(null)} data-testid={`button-done-custom-q-${i}`}>{t("done")}</Button>
                     </div>
                   ) : (
                     <div className="flex items-start justify-between gap-2">
@@ -1436,11 +1436,11 @@ export default function ProfilePage() {
               {editCustomQList.length < 3 && editingCustomQ === null && (
                 <Card className="p-3 space-y-2 border-dashed" data-testid="card-add-custom-q">
 
-                  <p className="text-xs text-muted-foreground">Write your own question</p>
+                  <p className="text-xs text-muted-foreground">{t("write_own_question_title")}</p>
                   <Input
                     value={newCustomQDraft.question}
                     onChange={e => setNewCustomQDraft(prev => ({ ...prev, question: e.target.value }))}
-                    placeholder="e.g. What's your idea of a perfect date?"
+                    placeholder={t("ph_custom_question")}
                     maxLength={150}
                     className="text-sm"
                     data-testid="input-new-custom-q-text"
@@ -1448,7 +1448,7 @@ export default function ProfilePage() {
                   <Input
                     value={newCustomQDraft.answer}
                     onChange={e => setNewCustomQDraft(prev => ({ ...prev, answer: e.target.value }))}
-                    placeholder="Your answer..."
+                    placeholder={t("ph_your_answer")}
                     maxLength={200}
                     className="text-sm"
                     data-testid="input-new-custom-q-answer"
@@ -1465,7 +1465,7 @@ export default function ProfilePage() {
                     className="gap-1.5"
                     data-testid="button-add-custom-q"
                   >
-                    <Plus className="w-3.5 h-3.5" /> Add question
+                    <Plus className="w-3.5 h-3.5" /> {t("add_question_label")}
                   </Button>
                 </Card>
               )}

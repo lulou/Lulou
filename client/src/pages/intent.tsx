@@ -1285,8 +1285,8 @@ export default function IntentPage() {
                   <span className="text-white text-xs font-extrabold tracking-tight">3×</span>
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold text-foreground leading-tight">Get 3× more visibility with Elevate</p>
-                  <p className="text-xs text-muted-foreground mt-0.5">Boost your profile and match faster</p>
+                  <p className="text-sm font-semibold text-foreground leading-tight">{t("elevate_3x_title")}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">{t("elevate_3x_desc")}</p>
                 </div>
                 <ChevronRight className="w-4 h-4 text-muted-foreground flex-shrink-0" />
               </div>
@@ -1298,7 +1298,7 @@ export default function IntentPage() {
 
               {selectedProfile.signals && selectedProfile.signals.length > 0 && (
                 <div className="space-y-2">
-                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Signals</p>
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">{t("section_signals")}</p>
                   <div className="flex flex-wrap gap-1.5">
                     {selectedProfile.signals.map((signal, i) => (
                       <Badge key={i} variant="outline" data-testid={`badge-detail-signal-${i}`}>{signal}</Badge>
@@ -1309,7 +1309,7 @@ export default function IntentPage() {
 
               {selectedProfile.greenFlags && selectedProfile.greenFlags.length > 0 && (
                 <div className="space-y-2">
-                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Green Flags</p>
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">{t("section_green_flags")}</p>
                   <div className="flex flex-wrap gap-1.5">
                     {selectedProfile.greenFlags.map((flag, i) => (
                       <Badge key={i} variant="outline" data-testid={`badge-detail-flag-${i}`}>{flag}</Badge>
@@ -1322,7 +1322,7 @@ export default function IntentPage() {
                 <div className="space-y-2">
                   <div className="flex items-center gap-1.5">
                     <MessageCircle className="w-3.5 h-3.5 text-primary" />
-                    <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Conversation Starters</p>
+                    <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">{t("section_conversation_starters")}</p>
                   </div>
                   <div className="space-y-2">
                     {selectedProfile.conversationStarters.map((starter, i) => (
@@ -1338,7 +1338,7 @@ export default function IntentPage() {
                 <div className="space-y-2">
                   <div className="flex items-center gap-1.5">
                     <HelpCircle className="w-3.5 h-3.5 text-primary" />
-                    <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Ask Me</p>
+                    <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">{t("section_ask_me")}</p>
                   </div>
                   <div className="space-y-2">
                     {selectedProfile.questions.map((question, i) => (
@@ -1352,7 +1352,7 @@ export default function IntentPage() {
 
               {selectedProfile.photos && selectedProfile.photos.length > 1 && (
                 <div className="space-y-2">
-                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Photos</p>
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">{t("section_photos")}</p>
                   <div className="grid grid-cols-2 gap-2">
                     {selectedProfile.photos.slice(1).map((photo, i) => (
                       <img key={i} src={photo} alt={`${selectedProfile.firstName} photo ${i + 2}`} className="w-full aspect-square object-cover rounded-md" data-testid={`img-detail-photo-${i + 1}`} />
@@ -1376,10 +1376,10 @@ export default function IntentPage() {
                   }}
                   onClick={closeProfile}
                   data-testid="button-intent-skip"
-                  aria-label="Skip"
+                  aria-label={t("skip_label")}
                 >
                   <Moon className="w-5 h-5 text-muted-foreground" />
-                  <span className="text-xs text-muted-foreground font-medium tracking-wide">Skip</span>
+                  <span className="text-xs text-muted-foreground font-medium tracking-wide">{t("skip_label")}</span>
                 </button>
 
                 {/* Connect button */}
@@ -1392,7 +1392,7 @@ export default function IntentPage() {
                   onClick={() => selectedProfile && wheelOpen.mutate(selectedProfile.userId)}
                   disabled={wheelOpen.isPending}
                   data-testid="button-intent-open"
-                  aria-label="Connect"
+                  aria-label={t("connect_label")}
                 >
                   {wheelOpen.isPending
                     ? <Loader2 className="w-5 h-5 text-white animate-spin" />

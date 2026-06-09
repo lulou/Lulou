@@ -385,13 +385,13 @@ export default function Onboarding({ existingProfile = null, userEmail = "" }: O
                   <Select value={formData.pronouns} onValueChange={v => update("pronouns", v)}>
                     <SelectTrigger data-testid="select-pronouns"><SelectValue placeholder={t("sel_pronouns")} /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="she/her">she/her</SelectItem>
-                      <SelectItem value="he/him">he/him</SelectItem>
-                      <SelectItem value="they/them">they/them</SelectItem>
-                      <SelectItem value="she/they">she/they</SelectItem>
-                      <SelectItem value="he/they">he/they</SelectItem>
-                      <SelectItem value="any pronouns">any pronouns</SelectItem>
-                      <SelectItem value="ask me">ask me</SelectItem>
+                      <SelectItem value="she/her">{t("pronoun_she_her")}</SelectItem>
+                      <SelectItem value="he/him">{t("pronoun_he_him")}</SelectItem>
+                      <SelectItem value="they/them">{t("pronoun_they_them")}</SelectItem>
+                      <SelectItem value="she/they">{t("pronoun_she_they")}</SelectItem>
+                      <SelectItem value="he/they">{t("pronoun_he_they")}</SelectItem>
+                      <SelectItem value="any pronouns">{t("pronoun_any")}</SelectItem>
+                      <SelectItem value="ask me">{t("pronoun_ask_me")}</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>

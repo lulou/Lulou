@@ -6,23 +6,23 @@ import { useLanguageContext } from "@/contexts/language-context";
 
 type Phase = "verifying" | "active" | "error";
 
-const ITEM_LABELS: Record<string, { label: string; description: string; icon: React.ReactNode }> = {
-  "messages-5":  { label: "+5 Messages",      description: "5 extra messages have been added to your account.",           icon: <MessageSquare className="w-6 h-6 text-primary" /> },
-  "extra-call":  { label: "Extra Call",        description: "An extra voice call has been added to your account.",         icon: <Phone className="w-6 h-6 text-primary" /> },
-  "video-call":  { label: "Video Call",        description: "A video call credit has been added to your account.",         icon: <Video className="w-6 h-6 text-primary" /> },
-  "undo-close":  { label: "Undo Last Close",   description: "You can now reopen the last profile you closed.",             icon: <Crown className="w-6 h-6 text-primary" /> },
-  "membership":  { label: "Lulou Membership",  description: "Your membership is active. Benefits have been added.",        icon: <Crown className="w-6 h-6 text-primary" /> },
-};
-
-const MEMBERSHIP_PERKS = [
-  "2 conversation extensions",
-  "1 extra call",
-  "1 video call",
-  "1 undo last close",
-];
-
 export default function ExtrasSuccessPage() {
   const { t } = useLanguageContext();
+
+  const ITEM_LABELS: Record<string, { label: string; description: string; icon: React.ReactNode }> = {
+    "messages-5": { label: t("item_messages5_label"), description: t("item_messages5_desc"), icon: <MessageSquare className="w-6 h-6 text-primary" /> },
+    "extra-call": { label: t("item_extra_call_label"), description: t("item_extra_call_desc"), icon: <Phone className="w-6 h-6 text-primary" /> },
+    "video-call": { label: t("item_video_call_label"), description: t("item_video_call_desc"), icon: <Video className="w-6 h-6 text-primary" /> },
+    "undo-close": { label: t("item_undo_close_label"), description: t("item_undo_close_desc"), icon: <Crown className="w-6 h-6 text-primary" /> },
+    "membership": { label: t("item_membership_lbl"),   description: t("item_membership_dsc"),  icon: <Crown className="w-6 h-6 text-primary" /> },
+  };
+
+  const MEMBERSHIP_PERKS = [
+    t("perk_2_extensions"),
+    t("perk_1_extra_call"),
+    t("perk_1_video_call"),
+    t("perk_1_undo_close"),
+  ];
   const [, navigate] = useLocation();
   const [phase, setPhase] = useState<Phase>("verifying");
   const [itemId, setItemId] = useState<string>("");

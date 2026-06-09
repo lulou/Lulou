@@ -404,14 +404,14 @@ export default function SettingsPage() {
         return ((c.tel ?? []) as string[]).map((tel) => ({ name, tel: tel.trim() }));
       }).filter((c: { name: string; tel: string }) => c.tel);
       if (valid.length === 0) {
-        toast({ title: "No phone numbers in selection" });
+        toast({ title: t("no_phone_numbers_toast") });
         return;
       }
       setPickedContacts(valid);
       setShowPickedList(true);
     } catch (err: any) {
       if (err?.name !== "AbortError") {
-        toast({ title: "Couldn't access contacts", variant: "destructive" });
+        toast({ title: t("contacts_access_error"), variant: "destructive" });
       }
     }
   };
@@ -425,7 +425,7 @@ export default function SettingsPage() {
       qc.invalidateQueries({ queryKey: ["/api/blocked-contacts"] });
       setPickedContacts([]);
       setShowPickedList(false);
-      toast({ title: `${contacts.length} contact${contacts.length !== 1 ? "s" : ""} blocked` });
+      toast({ title: contacts.length === 1 ? t("contact_blocked_toast") : t("contacts_blocked_n").replace("{n}", String(contacts.length)) });
     },
     onError: () => {
       toast({ title: t("failed_to_block_contacts"), variant: "destructive" });
@@ -1015,7 +1015,7 @@ export default function SettingsPage() {
                     onClick={() => { setShowAddForm(false); setAddName(""); setAddPhone(""); setAddEmail(""); }}
                     data-testid="button-cancel-add-contact"
                   >
-                    Cancel
+                    {t("cancel")}
                   </Button>
                   <Button
                     size="sm"
@@ -1023,7 +1023,7 @@ export default function SettingsPage() {
                     onClick={() => addContactMutation.mutate()}
                     data-testid="button-save-blocked-contact"
                   >
-                    {addContactMutation.isPending ? "Blocking…" : "Block"}
+                    {addContactMutation.isPending ? t("blocking_label") : t("block_action")}
                   </Button>
                 </div>
               </div>
@@ -1055,17 +1055,17 @@ export default function SettingsPage() {
       <Sheet open={activeSheet === "extras"} onOpenChange={open => !open && setActiveSheet(null)}>
         <SheetContent side="bottom" className="h-[85vh] flex flex-col p-0">
           <SheetHeader className="px-5 pt-5 pb-3 border-b shrink-0">
-            <SheetTitle className="font-serif">Lulou Extras</SheetTitle>
+            <SheetTitle className="font-serif">{t("lulou_extras")}</SheetTitle>
           </SheetHeader>
           <div className="flex-1 overflow-y-auto px-5 pb-8 pt-4 space-y-4">
             {/* Membership */}
             <div className="rounded-2xl bg-gradient-to-br from-primary/10 to-primary/5 border border-primary/20 p-5">
               <div className="flex items-center gap-2 mb-1">
                 <Crown className="w-4 h-4 text-primary" />
-                <p className="font-serif font-semibold text-base">Lulou Membership</p>
+                <p className="font-serif font-semibold text-base">{t("lulou_membership_title")}</p>
               </div>
               <p className="text-xs text-muted-foreground mb-4">
-                Unlock deeper connections, priority discovery, and all extras included.
+                {t("membership_unlock_desc")}
               </p>
               <Button
                 className="w-full"
@@ -1073,41 +1073,41 @@ export default function SettingsPage() {
                 onClick={() => startCheckout("membership")}
                 data-testid="button-subscribe-membership"
               >
-                {checkoutLoading === "membership" ? "Opening…" : "Join for $19.99/month"}
+                {checkoutLoading === "membership" ? t("opening_label") : t("join_membership")}
               </Button>
             </div>
 
             <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground/65 pt-2">
-              À la carte extras
+              {t("a_la_carte")}
             </p>
 
             <ExtrasItem
-              title="+5 Messages"
-              description="Extend your conversation with 5 more messages each"
+              title={t("extras_messages5_title")}
+              description={t("extras_messages5_desc")}
               price="$4.99"
               itemId="messages-5"
               loading={checkoutLoading === "messages-5"}
               onBuy={() => startCheckout("messages-5")}
             />
             <ExtrasItem
-              title="Undo Last Close"
-              description="Reopen a profile you accidentally closed"
+              title={t("extras_undo_close_title")}
+              description={t("extras_undo_close_desc")}
               price="$2.99"
               itemId="undo-close"
               loading={checkoutLoading === "undo-close"}
               onBuy={() => startCheckout("undo-close")}
             />
             <ExtrasItem
-              title="Extra Call"
-              description="Add a bonus voice call to your connection"
+              title={t("extras_extra_call_title")}
+              description={t("extras_extra_call_desc")}
               price="$4.99"
               itemId="extra-call"
               loading={checkoutLoading === "extra-call"}
               onBuy={() => startCheckout("extra-call")}
             />
             <ExtrasItem
-              title="Video Call"
-              description="Unlock a face-to-face video call (10 minutes)"
+              title={t("extras_video_call_title")}
+              description={t("extras_video_call_desc")}
               price="$6.99"
               itemId="video-call"
               loading={checkoutLoading === "video-call"}
@@ -1121,7 +1121,7 @@ export default function SettingsPage() {
       <Sheet open={activeSheet === "language"} onOpenChange={open => !open && setActiveSheet(null)}>
         <SheetContent side="bottom" className="h-[80vh] flex flex-col p-0">
           <SheetHeader className="px-5 pt-5 pb-3 border-b shrink-0">
-            <SheetTitle className="font-serif">App Language</SheetTitle>
+            <SheetTitle className="font-serif">{t("app_language")}</SheetTitle>
           </SheetHeader>
           <div className="flex-1 overflow-y-auto py-2">
             {LANGUAGES.map(lang => (
