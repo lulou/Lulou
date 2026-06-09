@@ -1,0 +1,232 @@
+Running the full audit in parallel — git history, deployment state, and every feature simultaneously:
+
+13 actions
+Continuing the audit — batching all remaining checks simultaneously:
+
+11 actions
+Getting the remaining data points I need — DB guard flags, commit deployment state, and animation/sound details:
+
+8 actions
+I now have everything I need. Here is the complete, honest audit.
+Deployment State
+Ref	Commit	Status
+1c02e79	Published your App	HEAD — currently deployed
+656a872	Improve call functionality and credit management	✅ Deployed (in 1c02e79)
+28b3bbd	Published your App	Prior deploy
+47a0cdf	Update app to handle new call credit system / remove face call	✅ Deployed
+d36f15b	Published your App	Prior deploy
+203362f	Set up database and install dependencies	✅ Deployed
+9b5e1a4	(origin/main)Translate system-generated chat messages	Last commit on git remote
+ec6d5c7 → bb12344	7 wheel/auth improvements + i18n	✅ Deployed
+e8deee3 → 0208488	i18n full coverage passes	✅ Deployed
+d915f2f → f28e304	More i18n passes	✅ Deployed
+6 commits ahead of origin/main remote — all are deployed via gitsafe-backup/main. The deployed app is current.
+Critical DB caveat affecting multiple features: Tables call_credits, saved_wheel_profiles, user_benefits, and user_elevates live in the local Replit PostgreSQL (managed by Drizzle). These are separate from Supabase. Whether they exist in the production deployment's local DB depends on whether drizzle-kit push ran there. This is unverifiable from code alone and affects several features below.
+Feature Audit
+1. Incoming Ringing Fixes
+Classification: B — Implemented, cannot visually confirm without two live accounts
+Files: client/src/pages/matches.tsx, client/src/lib/live-call-sessions.ts
+Components: MatchChat, CallDetectors
+Code path:
+Stale call cleared after 120s (unanswered) or 5min (answered stuck) — matches.tsx line 1602/1606
+armCallSession / isArmedSession guards prevent phantom rings from stale DB rows — @/lib/live-call-sessions
+endedMatchIdsRef + 90s age check prevents re-ring after a call ends
+Route: /matches — only visible during an active incoming call
+Deployed: Yes
+Usable: Requires two live accounts in a matched state to verify
+2. Email Verification
+Classification: A — Live and working
+File: client/src/App.tsx lines 1256–1319, 1564–1569
+Component: VerifyEmailGate
+Code path: if (!user.email_confirmed_at) → renders full-screen gate with resend button, blocks all app access
+Route: Blocks / and all authenticated routes — shown instead of the app until email is confirmed
+Deployed: Yes
+Usable: Yes. Any newly registered user who hasn't confirmed their email hits this screen. Resend button calls Supabase auth resend.
+3. Language System
+Classification: B — Implemented, not visually confirmable without login
+Files: client/src/contexts/language-context.tsx, client/src/lib/i18n.ts, client/src/pages/settings.tsx line 700
+Components: LanguageProvider (wraps all of App.tsx), SettingRow for language picker
+Code path: Settings → Preferences section → "App Language" row → opens <Sheet> with language list → setLanguage(lang) → saved to localStorage
+Route: /settings — Preferences section
+Deployed: Yes
+Usable: Yes if logged in. Caveat: Non-English translations are incomplete — any key not in a non-English block falls back to English silently.
+4. Discovery Population
+Classification: B — Mechanism live, population depends on real users
+File: server/storage.ts line 761, server/routes.ts line 725
+Component: getDiscoverProfiles()
+Code path: Queries Supabase profiles table, filters by gender/preference match, age range, location radius, excludes already-seen/blocked/matched profiles
+Route: /discover
+Deployed: Yes
+Usable: Returns profiles only if real users matching the current user's preferences exist in the DB. Empty pool shows "All caught up" screen.
+5. Gender/Preference Filtering
+Classification: A — Live in backend
+File: server/storage.ts lines 77–130 (normalizeGender, getPreferencesThatIncludeGender), line 804–813
+Component: getDiscoverProfiles() filter logic
+Code path: Two-way compatibility: candidate's gender matches user's preference AND candidate's preference includes user's gender. Falls back to showing all if preference unset.
+Route: Backend only — affects /discover results
+Deployed: Yes
+Usable: Yes — filtering runs on every discover API call
+6. Custom Conversation Starters
+Classification: B — Implemented, visible in onboarding and profile
+Files: client/src/pages/onboarding.tsx line 487–556, client/src/pages/profile.tsx line 469
+Component: Step 2 of onboarding (ob_step_starters), profile edit section
+Code path: formData.conversationStarters array, custom starters added via text input, min 2 required to proceed
+Route: /onboarding Step 2, /profile edit
+Deployed: Yes
+Usable: Yes for new users going through onboarding, or existing users editing profile
+7. Viewer Questions
+Classification: B — Implemented, visible in onboarding and profile
+Files: client/src/pages/onboarding.tsx lines 583–617, client/src/pages/profile.tsx lines 1036–1067
+Component: Step 3 of onboarding, profile edit section-viewer-questions
+Code path: formData.viewerQuestions array, up to 3 questions, stored as viewerQuestions on profile
+Route: /onboarding Step 3, /profile
+Deployed: Yes
+Usable: Yes
+8. Custom Green Flags
+Classification: B — Implemented, visible in onboarding and profile
+Files: client/src/pages/onboarding.tsx lines 827–855, client/src/pages/profile.tsx
+Component: Step 6 of onboarding (ob_step_green_flags)
+Code path: formData.customGreenFlags array, up to 3, text input + add button
+Route: /onboarding Step 6, /profile
+Deployed: Yes
+Usable: Yes
+9. Custom Personality Traits
+Classification: C — Partially implemented (DB column may not exist in Supabase)
+Files: client/src/pages/onboarding.tsx lines 741–771, server/storage.ts line 313
+Component: Step 4 of onboarding (personality signals), customSignals field
+Code path: _hasCustomSignalsColumn flag probed at startup from Supabase. If the column doesn't exist in the profilestable in Supabase, the flag stays false and custom_signalsis silently excluded from all reads and writes. UI renders but data is never saved.
+Route: /onboarding Step 4, /profile
+Deployed: Yes (UI code)
+Usable: Only if custom_signals column was added to the Supabase profiles table. Whether this was done is unknown from code alone.
+10. Star Sign
+Classification: B — Implemented, visible on discover cards
+Files: client/src/pages/discover.tsx lines 561, 652–654, client/src/lib/star-sign.ts
+Component: Profile card on discover page
+Code path: getStarSign(dateOfBirth) computed from profile's date of birth → emoji + name rendered below profile info
+Route: /discover — visible on each profile card if the profile has a date of birth
+Deployed: Yes
+Usable: Yes, if profiles have DOB set
+11. Pronouns
+Classification: B — Implemented, visible in onboarding and profile
+Files: client/src/pages/onboarding.tsx lines 384–394, client/src/pages/profile.tsx lines 830–839
+Component: Step 1 of onboarding (Basics), profile settings
+Code path: Optional Select dropdown, values: she/her, he/him, they/them, she/they, he/they, any pronouns, ask me
+Route: /onboarding Step 1, /profile
+Deployed: Yes
+Usable: Yes (optional field)
+12–16. Call Bundles (All 5 Packs)
+Classification: B — Implemented, not visually confirmed without login
+Files: client/src/pages/settings.tsx lines 1105–1147, server/routes.ts lines 2052–2061
+Component: Extras <Sheet> in Settings, ExtrasItemcomponents
+Code path: Settings → Subscription section → "Subscribe to Lulou" row (setActiveSheet("extras")) → Sheet renders all 5 packs via Stripe checkout
+Pack	itemId	Price	Credits granted
+Starter Pack	starter-pack	$4.99	1 phone
+Connection Pack	connection-pack	$12.99	3 phone
+Premium Pack	premium-pack	$19.99	5 phone
+Chemistry Pack	chemistry-pack	$16.99	3 phone + 1 video
+Deep Connection Pack	deep-connection-pack	$27.99	5 phone + 3 video
+Route: /settings → Subscription → tap row
+Deployed: Yes
+Usable: Yes if logged in and Stripe is configured. grantCallCredits writes to local call_credits table — see DB caveat.
+17. Phone Credit System
+Classification: C — Code complete, DB table existence in production unverified
+Files: shared/schema.ts lines 165–172, server/storage.ts lines 2438–2471, server/routes.tsline 1573, client/src/pages/matches.tsx lines 1530–1538
+Components: getCallCredits, grantCallCredits, consumeCallCredit in storage; useQuery("/api/call-credits") in MatchChat
+Code path: call_credits table in local PostgreSQL (Drizzle). If table doesn't exist in production DB, GET /api/call-credits throws and the query returns undefined (credits show as undefined → treated as "available" by the guard).
+Route: /matches — shows credit state on "Start Call" button inside CallSchedulingCard when call is ready to schedule
+Deployed: Yes (code). Table existence in production: unknown.
+Usable: Conditionally. Depends on whether local DB was migrated in production.
+18. Credit Consumption After 30-Second Connected Call
+Classification: C — Code wired, same DB caveat
+File: server/routes.ts lines 1441–1471
+Component: POST /api/matches/:matchId/call/completeroute
+Code path: Reads call_initiator_id before completeCall() → if priorInitiatorId === userId && result.counted && connectedDurationMs >= 30_000→ calls consumeCallCredit(userId, "phone")
+Route: Server-side only — triggered when call ends
+Deployed: Yes
+Usable: Only if call_credits table exists in production
+19. Video Call Removal from Normal Chat Flow
+Classification: A — Fixed and deployed
+File: client/src/pages/matches.tsx
+Component: CallSchedulingCard, outgoing ring overlay, incoming ring overlay
+What changed: const isVideoCall = callStage === 1removed entirely. All branches that showed <Video> icon, "Start Video Call" text, "time to see each other" removed. Both ring overlays now unconditionally show <Phone>.
+Route: /matches — visible when a chat is at call-scheduling stage
+Deployed: Yes (656a872)
+Usable: Yes — second voice call no longer displays as a video call
+20. Discovery Undo
+Classification: C — UI exists, functional only with undo-close credits (which users have 0 of by default)
+Files: client/src/pages/discover.tsx lines 709–717, server/routes.ts line 1584
+Component: Fixed ↩️ button, bottom-left of discover page
+Code path: handleUndoPass() → POST /api/discover/undo-pass → checks undo-closecredit in user_benefits table (local Drizzle). If 0 credits: toast "No undo credits". Button always renders but effectively non-functional without purchasing credits from Extras.
+Route: /discover — always visible when logged in
+Deployed: Yes
+Usable: Button renders. Actual undo requires purchasing undo-close credit from Extras. user_benefits is a local Drizzle table — same DB caveat.
+21. Intention Wheel Save For Later
+Classification: C — UI exists, DB table existence in production unverified
+Files: client/src/pages/intent.tsx lines 1516–1533, server/routes.ts lines 1628–1654
+Component: Star button in post-spin winner overlay
+Code path: Only visible after a spin completes and a winner is revealed. saveForLater.mutate(selectedProfile.userId)→ POST /api/wheel/save → writes to saved_wheel_profiles table (local Drizzle).
+Route: /intent — post-spin overlay only
+Deployed: Yes (code)
+Usable: Only after a successful spin, and only if saved_wheel_profiles table exists in production
+22. Intention Wheel Preview Candidates
+Classification: B — Implemented, requires login and 2+ profiles in pool
+File: client/src/pages/intent.tsx lines 574–628, 1229–1231
+Component: CandidatesPreview — shows up to 7 profile photo bubbles above wheel
+Code path: if (preview.length < 2) return null — only renders when 2+ profiles in pool. Bubbles animate with staggered previewBubbleIn CSS animation.
+Route: /intent — above the spin wheel
+Deployed: Yes
+Usable: Yes if 2+ profiles exist in the pool for the current user
+23. Intention Wheel Spacing Improvements
+Classification: C — Values exist in code, no baseline for comparison
+File: client/src/pages/intent.tsx
+What exists: Various gap values (gap: "6px 10px", gap: 6, gap: 11, etc.) and padding values. CSS animations previewFadeIn, previewBubbleIn.
+Cannot confirm: No "before" state accessible. Cannot verify these are different from the prior version.
+24. Intention Wheel Landing Sound Changes
+Classification: B — Implemented, fires on spin completion
+File: client/src/pages/intent.tsx lines 81–90, 128, 284–285
+Component: useWheelSound hook (lines 81–90)
+Code path: AudioContext created on first spin click. On spin complete: setTimeout(playChime, 200) — plays G major chord (G4 + D5 + G5) with decay. Mute toggle persists to localStorage (wheel_sound_muted).
+Route: /intent — fires 200ms after spin settles
+Deployed: Yes
+Usable: Yes — but AudioContext requires a prior user gesture (the spin click itself) to create, which is correctly handled
+25. Discovery Photo Animation Changes
+Classification: C — CSS transition exists, unclear if it's a specific new addition
+File: client/src/pages/discover.tsx line 639
+What exists: Profile name has style={{ animation: "discoverNameEnter 0.45s 0.22s ease both" }}. Comments mention "Pure CSS fade-in replaces framer-motion AnimatePresence" (line 580, 585–586).
+Cannot confirm: Whether photo specifically animates or only the name. No photo-specific keyframe animation found.
+26. Discovery Typography Improvements
+Classification: C — Typography settings exist, no baseline for comparison
+File: client/src/pages/discover.tsx line 639
+What exists: Profile name: font-serif text-3xl font-bold tracking-tight(Playfair Display, 30px, bold, tight tracking). This is the current state.
+Cannot confirm: Whether this is different from before.
+27. Voice Notes Unlock
+Classification: D — Not implemented
+Zero code anywhere in the codebase: voiceNote, VoiceNote, voice_note, audio_message, AudioMessage — all return zero results across all files.
+No DB schema, no routes, no frontend component.
+Commit Summary
+Commit	Description	Deployed
+1c02e79	Published your App (latest deploy trigger)	✅ Live
+656a872	Video icon fix, credit check in chat, consumeCallCredit wired	✅ Live
+28b3bbd	Published your App	✅ Prior
+47a0cdf	call_credits schema, savedWheelProfiles, face call removal	✅ Live
+d36f15b	Published your App	✅ Prior
+203362f	DB setup + dependency install	✅ Live
+9b5e1a4	(origin/main) System message i18n	✅ Live
+ec6d5c7 / 4f6babd	Published	✅ Prior
+bb12344	Wheel/auth improvements + i18n	✅ Live
+e8deee3	Wheel improvements (CandidatesPreview, save for later, etc.)	✅ Live
+0208488 / 7ae4e1d / d915f2f…	i18n coverage passes (6 commits)	✅ Live
+db0c927 / 741b67e / 7fe9946	Incoming call ringtone fix	✅ Live
+Features never implemented (no code exists):
+Voice Notes Unlock
+Top 10 User-Facing Bugs (Priority Order)
+TURN server not configured — Every browser console logs "TURN not configured — calls may fail on restricted networks." Users behind NAT, firewalls, or on mobile networks will have WebRTC peer connections fail silently. Calls appear to connect but audio/video never flows. This affects every call in the app.
+Local Drizzle tables may not exist in production — call_credits, saved_wheel_profiles, user_benefits, user_elevates are in local PostgreSQL. If drizzle-kit push was never run in the production environment, every feature depending on these tables either silently fails or throws 500 errors. This includes: phone credit gating, call bundles working, undo-pass, Elevate boosts, Save For Later.
+Users start with 0 phone credits — The "Start Call" button is disabled by default for all users with no credits. There is no free trial credit granted on signup. New users who reach the call stage will see a disabled grey button with "You need phone credits" — with no way to get a free credit and no clear path shown beyond buying from Extras. The UX has a hard wall.
+custom_signals column guard — _hasCustomSignalsColumn defaults to false. If the Supabase profiles table does not have a custom_signalscolumn, every user's custom personality signals are silently dropped on save. There is no error, no indication to the user that the data was not saved.
+Undo Pass always visible but always fails without credits — The ↩️ button renders on /discover for all users. Tapping it with 0 undo-close credits shows a destructive toast "No undo credits." Users have no way to get this credit without purchasing. The button being always visible but always failing is misleading.
+Discovery pool empty for most users — Until real users sign up with matching gender/preference combinations, /discovershows "All caught up" for everyone. There is no seed data or test-user fallback.
+Non-English languages incomplete — The language system falls back to English for any missing key. Most non-English languages have only partial translations. A user who selects French, German, etc., sees a mixed English/target-language UI with no indication that translation is partial.
+Call credit consumption only works if initiator completes first— consumeCallCredit is only called when result.counted === true. If the callee calls /call/complete before the caller (e.g., they hang up first), the caller gets counted: false and no credit is consumed even for a 30-minute call. Credit deduction is non-deterministic based on who hangs up first.
+Intention Wheel Save For Later: no visual confirmation after save — After tapping the Star button in the post-spin overlay, if the saved_wheel_profiles insert succeeds, there is no UI change (the button doesn't become "saved", no badge, no confirmation). If it fails (table missing), the user sees nothing. The feature gives no feedback in either direction.
+Incoming call rering stale guard complexity — The stale call protection uses armCallSession, endedMatchIdsRef, 90-second age checks, and armedTick/endedTick deps in a useMemo. This guards against phantom rings but the logic is complex enough that edge cases (tab switching, background/foreground, rapid consecutive calls) may still produce phantom ring overlays that cannot be dismissed.
