@@ -110,34 +110,14 @@ app.use((req, res, next) => {
 });
 
 (async () => {
-  // Init Stripe schema & sync
-  try {
-    const { runMigrations } = await import("stripe-replit-sync");
-    const databaseUrl = process.env.DATABASE_URL;
-    if (databaseUrl) {
-      await runMigrations({ databaseUrl });
-      const { getStripeSync } = await import("./stripeClient");
-      const stripeSync = await getStripeSync();
-      const webhookBaseUrl = `https://${process.env.REPLIT_DOMAINS?.split(",")[0]}`;
-      await stripeSync.findOrCreateManagedWebhook(`${webhookBaseUrl}/api/stripe/webhook`);
-      stripeSync.syncBackfill().catch((err: any) => console.error("Stripe backfill error:", err));
-    }
-  } catch (err: any) {
-    console.error("Stripe init error (non-fatal):", err.message);
-  }
+  // ── Phase 1: register routes, set up static serving, then START LISTENING ───
+  // The health-check probe fires immediately after the container starts.
+  // All slow background tasks (Stripe sync, Supabase column probes) must NOT
+  // block the listen() call — they are kicked off after the server is ready.
 
-  // Warm up Stripe price IDs (creates products/prices once if missing)
-  try {
-    const { warmupStripePrices } = await import("./stripePrices");
-    await warmupStripePrices();
-  } catch (err: any) {
-    console.warn("Stripe price warmup failed (non-fatal):", err.message);
-  }
-
-  // Ensure local PostgreSQL tables exist (idempotent — safe to run on every boot).
-  // These tables live in the Replit-managed local DB (Drizzle schema) and must be
-  // created on first deploy or after a DB reset. drizzle-kit push is a CLI tool
-  // that does not run automatically; this startup migration fills that gap.
+  // Ensure local PostgreSQL tables exist before routes are registered so that
+  // the very first request doesn't hit a missing-table error. This is a fast
+  // local PG call (sub-second) so it is safe to await here.
   try {
     const { pool: localPool } = await import("./db");
     await localPool.query(`
@@ -183,106 +163,6 @@ app.use((req, res, next) => {
     console.log("[STARTUP] Local DB tables verified/created: user_benefits, user_elevates, call_credits, saved_wheel_profiles");
   } catch (err: any) {
     console.error("[STARTUP] Local DB table migration failed:", err?.message);
-  }
-
-  // Check that lat/lng columns exist in Supabase — added for distance filtering.
-  // If missing, Discovery/Wheel still work; distance filter is just skipped.
-  // Run: ALTER TABLE profiles ADD COLUMN IF NOT EXISTS latitude double precision;
-  //      ALTER TABLE profiles ADD COLUMN IF NOT EXISTS longitude double precision;
-  try {
-    const { createClient } = await import("@supabase/supabase-js");
-    const { setHasLatLngColumns } = await import("./storage");
-    const supabaseUrl = process.env.VITE_SUPABASE_URL!;
-    const serviceKey  = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-    const adminSb = createClient(supabaseUrl, serviceKey);
-    const { error } = await adminSb.from("profiles").select("latitude, longitude").limit(1);
-    const columnsExist = !error || !error.message?.includes("does not exist");
-    setHasLatLngColumns(columnsExist);
-    if (!columnsExist) {
-      console.error("╔═══════════════════════════════════════════════════════════════╗");
-      console.error("║  MIGRATION REQUIRED — run this SQL in the Supabase SQL editor ║");
-      console.error("╠═══════════════════════════════════════════════════════════════╣");
-      console.error("║  ALTER TABLE profiles ADD COLUMN IF NOT EXISTS                ║");
-      console.error("║    latitude double precision;                                 ║");
-      console.error("║  ALTER TABLE profiles ADD COLUMN IF NOT EXISTS                ║");
-      console.error("║    longitude double precision;                                ║");
-      console.error("╚═══════════════════════════════════════════════════════════════╝");
-      console.error("  Discovery and Wheel work normally — distance filter is skipped.");
-    }
-  } catch (err: any) {
-    console.warn("[STARTUP] Could not verify distance columns:", err?.message);
-  }
-
-  // ── Supabase optional-column probe ──────────────────────────────────────────
-  // Checks all optional profile columns in one pass. Sets guard flags in
-  // storage.ts so queries never reference a column that doesn't exist yet.
-  // If any are missing, prints a single SQL block to copy-paste into the
-  // Supabase SQL editor (Dashboard → SQL Editor → New query).
-  // Direct pg connection is NOT used here — it cannot resolve the Supabase
-  // hostname from the Replit sandbox. Run the SQL block manually if needed.
-  try {
-    const { createClient: _createClientProbe } = await import("@supabase/supabase-js");
-    const {
-      setHasIsPausedColumn,
-      setHasCustomQColumn,
-      setHasViewerQColumn,
-      setHasCustomStartersColumn,
-      setHasDateOfBirthColumn,
-      setHasPronounsColumn,
-      setHasCustomGreenFlagsColumn,
-      setHasCustomSignalsColumn,
-    } = await import("./storage");
-
-    const _supabaseUrl = process.env.VITE_SUPABASE_URL!;
-    const _serviceKey  = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-    const _adminSb = _createClientProbe(_supabaseUrl, _serviceKey);
-
-    type ColDef = {
-      col: string;
-      setter: (v: boolean) => void;
-      sql: string;
-    };
-    const OPTIONAL_COLS: ColDef[] = [
-      { col: "is_paused",          setter: setHasIsPausedColumn,          sql: "ALTER TABLE profiles ADD COLUMN IF NOT EXISTS is_paused boolean DEFAULT false;" },
-      { col: "custom_questions",   setter: setHasCustomQColumn,           sql: "ALTER TABLE profiles ADD COLUMN IF NOT EXISTS custom_questions jsonb DEFAULT '[]'::jsonb;" },
-      { col: "viewer_questions",   setter: setHasViewerQColumn,           sql: "ALTER TABLE profiles ADD COLUMN IF NOT EXISTS viewer_questions jsonb DEFAULT '[]'::jsonb;" },
-      { col: "custom_starters",    setter: setHasCustomStartersColumn,    sql: "ALTER TABLE profiles ADD COLUMN IF NOT EXISTS custom_starters jsonb DEFAULT '[]'::jsonb;" },
-      { col: "date_of_birth",      setter: setHasDateOfBirthColumn,       sql: "ALTER TABLE profiles ADD COLUMN IF NOT EXISTS date_of_birth date;" },
-      { col: "pronouns",           setter: setHasPronounsColumn,          sql: "ALTER TABLE profiles ADD COLUMN IF NOT EXISTS pronouns text;" },
-      { col: "custom_green_flags", setter: setHasCustomGreenFlagsColumn,  sql: "ALTER TABLE profiles ADD COLUMN IF NOT EXISTS custom_green_flags jsonb DEFAULT '[]'::jsonb;" },
-      { col: "custom_signals",     setter: setHasCustomSignalsColumn,     sql: "ALTER TABLE profiles ADD COLUMN IF NOT EXISTS custom_signals jsonb DEFAULT '[]'::jsonb;" },
-    ];
-
-    const missingSql: string[] = [];
-
-    await Promise.all(OPTIONAL_COLS.map(async ({ col, setter, sql }) => {
-      try {
-        const { error } = await _adminSb.from("profiles").select(col).limit(1);
-        if (!error) {
-          setter(true);
-          console.log(`[STARTUP] profiles.${col} AVAILABLE`);
-        } else if (error.message?.includes("does not exist")) {
-          missingSql.push(sql);
-        } else {
-          console.warn(`[STARTUP] Could not verify profiles.${col}:`, error.message);
-        }
-      } catch (e: any) {
-        console.warn(`[STARTUP] Could not probe profiles.${col}:`, e?.message);
-      }
-    }));
-
-    if (missingSql.length > 0) {
-      console.warn("╔══════════════════════════════════════════════════════════════════╗");
-      console.warn("║  MIGRATION NEEDED — paste this into Supabase Dashboard SQL Editor ║");
-      console.warn("╠══════════════════════════════════════════════════════════════════╣");
-      for (const s of missingSql) console.warn(`║  ${s.padEnd(66)}║`);
-      console.warn("╚══════════════════════════════════════════════════════════════════╝");
-      console.warn("  Affected features are gracefully disabled until the columns exist.");
-    } else {
-      console.log("[STARTUP] All optional Supabase profile columns present ✓");
-    }
-  } catch (err: any) {
-    console.warn("[STARTUP] Optional-column probe failed:", err?.message);
   }
 
   await registerRoutes(httpServer, app);
@@ -333,4 +213,132 @@ app.use((req, res, next) => {
 
   process.on("SIGTERM", shutdown);
   process.on("SIGINT", shutdown);
+
+  // ── Phase 2: background tasks (do NOT await — server is already listening) ──
+
+  // Init Stripe schema & sync
+  (async () => {
+    try {
+      const { runMigrations } = await import("stripe-replit-sync");
+      const databaseUrl = process.env.DATABASE_URL;
+      if (databaseUrl) {
+        await runMigrations({ databaseUrl });
+        const { getStripeSync } = await import("./stripeClient");
+        const stripeSync = await getStripeSync();
+        const webhookBaseUrl = `https://${process.env.REPLIT_DOMAINS?.split(",")[0]}`;
+        await stripeSync.findOrCreateManagedWebhook(`${webhookBaseUrl}/api/stripe/webhook`);
+        stripeSync.syncBackfill().catch((err: any) => console.error("Stripe backfill error:", err));
+      }
+    } catch (err: any) {
+      console.error("Stripe init error (non-fatal):", err.message);
+    }
+  })();
+
+  // Warm up Stripe price IDs (creates products/prices once if missing)
+  (async () => {
+    try {
+      const { warmupStripePrices } = await import("./stripePrices");
+      await warmupStripePrices();
+    } catch (err: any) {
+      console.warn("Stripe price warmup failed (non-fatal):", err.message);
+    }
+  })();
+
+  // Check that lat/lng columns exist in Supabase — added for distance filtering.
+  // If missing, Discovery/Wheel still work; distance filter is just skipped.
+  (async () => {
+    try {
+      const { createClient } = await import("@supabase/supabase-js");
+      const { setHasLatLngColumns } = await import("./storage");
+      const supabaseUrl = process.env.VITE_SUPABASE_URL!;
+      const serviceKey  = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+      const adminSb = createClient(supabaseUrl, serviceKey);
+      const { error } = await adminSb.from("profiles").select("latitude, longitude").limit(1);
+      const columnsExist = !error || !error.message?.includes("does not exist");
+      setHasLatLngColumns(columnsExist);
+      if (!columnsExist) {
+        console.error("╔═══════════════════════════════════════════════════════════════╗");
+        console.error("║  MIGRATION REQUIRED — run this SQL in the Supabase SQL editor ║");
+        console.error("╠═══════════════════════════════════════════════════════════════╣");
+        console.error("║  ALTER TABLE profiles ADD COLUMN IF NOT EXISTS                ║");
+        console.error("║    latitude double precision;                                 ║");
+        console.error("║  ALTER TABLE profiles ADD COLUMN IF NOT EXISTS                ║");
+        console.error("║    longitude double precision;                                ║");
+        console.error("╚═══════════════════════════════════════════════════════════════╝");
+        console.error("  Discovery and Wheel work normally — distance filter is skipped.");
+      }
+    } catch (err: any) {
+      console.warn("[STARTUP] Could not verify distance columns:", err?.message);
+    }
+  })();
+
+  // ── Supabase optional-column probe ──────────────────────────────────────────
+  // Checks all optional profile columns in one pass. Sets guard flags in
+  // storage.ts so queries never reference a column that doesn't exist yet.
+  (async () => {
+    try {
+      const { createClient: _createClientProbe } = await import("@supabase/supabase-js");
+      const {
+        setHasIsPausedColumn,
+        setHasCustomQColumn,
+        setHasViewerQColumn,
+        setHasCustomStartersColumn,
+        setHasDateOfBirthColumn,
+        setHasPronounsColumn,
+        setHasCustomGreenFlagsColumn,
+        setHasCustomSignalsColumn,
+      } = await import("./storage");
+
+      const _supabaseUrl = process.env.VITE_SUPABASE_URL!;
+      const _serviceKey  = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+      const _adminSb = _createClientProbe(_supabaseUrl, _serviceKey);
+
+      type ColDef = {
+        col: string;
+        setter: (v: boolean) => void;
+        sql: string;
+      };
+      const OPTIONAL_COLS: ColDef[] = [
+        { col: "is_paused",          setter: setHasIsPausedColumn,          sql: "ALTER TABLE profiles ADD COLUMN IF NOT EXISTS is_paused boolean DEFAULT false;" },
+        { col: "custom_questions",   setter: setHasCustomQColumn,           sql: "ALTER TABLE profiles ADD COLUMN IF NOT EXISTS custom_questions jsonb DEFAULT '[]'::jsonb;" },
+        { col: "viewer_questions",   setter: setHasViewerQColumn,           sql: "ALTER TABLE profiles ADD COLUMN IF NOT EXISTS viewer_questions jsonb DEFAULT '[]'::jsonb;" },
+        { col: "custom_starters",    setter: setHasCustomStartersColumn,    sql: "ALTER TABLE profiles ADD COLUMN IF NOT EXISTS custom_starters jsonb DEFAULT '[]'::jsonb;" },
+        { col: "date_of_birth",      setter: setHasDateOfBirthColumn,       sql: "ALTER TABLE profiles ADD COLUMN IF NOT EXISTS date_of_birth date;" },
+        { col: "pronouns",           setter: setHasPronounsColumn,          sql: "ALTER TABLE profiles ADD COLUMN IF NOT EXISTS pronouns text;" },
+        { col: "custom_green_flags", setter: setHasCustomGreenFlagsColumn,  sql: "ALTER TABLE profiles ADD COLUMN IF NOT EXISTS custom_green_flags jsonb DEFAULT '[]'::jsonb;" },
+        { col: "custom_signals",     setter: setHasCustomSignalsColumn,     sql: "ALTER TABLE profiles ADD COLUMN IF NOT EXISTS custom_signals jsonb DEFAULT '[]'::jsonb;" },
+      ];
+
+      const missingSql: string[] = [];
+
+      await Promise.all(OPTIONAL_COLS.map(async ({ col, setter, sql }) => {
+        try {
+          const { error } = await _adminSb.from("profiles").select(col).limit(1);
+          if (!error) {
+            setter(true);
+            console.log(`[STARTUP] profiles.${col} AVAILABLE`);
+          } else if (error.message?.includes("does not exist")) {
+            missingSql.push(sql);
+          } else {
+            console.warn(`[STARTUP] Could not verify profiles.${col}:`, error.message);
+          }
+        } catch (e: any) {
+          console.warn(`[STARTUP] Could not probe profiles.${col}:`, e?.message);
+        }
+      }));
+
+      if (missingSql.length > 0) {
+        console.warn("╔══════════════════════════════════════════════════════════════════╗");
+        console.warn("║  MIGRATION NEEDED — paste this into Supabase Dashboard SQL Editor ║");
+        console.warn("╠══════════════════════════════════════════════════════════════════╣");
+        for (const s of missingSql) console.warn(`║  ${s.padEnd(66)}║`);
+        console.warn("╚══════════════════════════════════════════════════════════════════╝");
+        console.warn("  Affected features are gracefully disabled until the columns exist.");
+      } else {
+        console.log("[STARTUP] All optional Supabase profile columns present ✓");
+      }
+    } catch (err: any) {
+      console.warn("[STARTUP] Optional-column probe failed:", err?.message);
+    }
+  })();
 })();
