@@ -750,6 +750,21 @@ export const TRANSLATIONS = {
     duration_15_min:              "15-minute",
     tonight_connections:          "Tonight's possible connections",
     spin_random_desc:             "Every spin is random — yours could be any of them",
+    // Email verification gate
+    verify_email_title:           "Verify your email",
+    verify_email_body_pre:        "We sent a confirmation link to",
+    verify_email_body_post:       "Click the link to activate your account.",
+    verify_email_confirmed_note:  "Already confirmed? Sign out and sign back in.",
+    verify_email_resent:          "Confirmation email resent — check your inbox.",
+    verify_email_resend_btn:      "Resend confirmation email",
+    verify_email_resending:       "Resending…",
+    verify_email_signout:         "Sign out",
+    verify_email_resend_err:      "Could not resend — try again.",
+    // Scheduling / call coordination
+    their_availability_lbl:       "{name}'s availability:",
+    sched_now:                    "now",
+    sched_in_min:                 "in {n} min",
+    sched_confirmed_note:         "{time} — Start button appears 5 min before",
     // profile.tsx settings form options
     ph_city_state:                "City, State",
     intent_meaningful:            "Meaningful Relationship",

@@ -233,7 +233,7 @@ function SpinRequestCard({ request, type }: { request: SpinRequestWithProfile; t
               disabled={respond.isPending}
               data-testid={`button-accept-request-${request.id}`}
             >
-              <Check className="w-4 h-4" /> Accept
+              <Check className="w-4 h-4" /> {t("accept")}
             </Button>
             <Button
               variant="outline"
@@ -468,7 +468,7 @@ function ReadyToMeetInline({ detail, matchId, profileName }: { detail: MatchDeta
             )}
             {theirSlots.length > 0 && (
               <div className="space-y-1">
-                <p className="text-xs font-medium text-muted-foreground">{profileName}'s availability:</p>
+                <p className="text-xs font-medium text-muted-foreground">{t("their_availability_lbl").replace("{name}", profileName)}</p>
                 <div className="flex flex-wrap gap-1 justify-center">
                   {theirSlots.map((s: string) => { const m = dateSlots.find(d => d.value === s); return <Badge key={s} variant="outline" className="text-xs">{m?.label || s}</Badge>; })}
                 </div>
@@ -503,10 +503,10 @@ function parseScheduleData(msg: Message): { type: string; proposedBy: string; pr
   catch { return null; }
 }
 
-function formatScheduledTime(d: Date, now: number): string {
+function formatScheduledTime(d: Date, now: number, t: (k: any) => string): string {
   const diff = d.getTime() - now;
-  if (diff <= 60000) return "now";
-  if (diff < 3600000) return `in ${Math.round(diff / 60000)} min`;
+  if (diff <= 60000) return t("sched_now");
+  if (diff < 3600000) return t("sched_in_min").replace("{n}", String(Math.round(diff / 60000)));
   if (diff < 86400000) return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   return d.toLocaleDateString([], { weekday: "short", hour: "2-digit", minute: "2-digit" });
 }
@@ -676,7 +676,7 @@ function CallSchedulingCard({
           <Check className="w-5 h-5 text-primary mx-auto" />
           <p className="font-medium text-sm">{t("call_confirmed")}</p>
           <p className="text-xs font-medium text-primary">{scheduledTime.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" })} at {scheduledTime.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</p>
-          <p className="text-xs text-muted-foreground">{formatScheduledTime(scheduledTime, now)} — the Start button will appear 5 min before</p>
+          <p className="text-xs text-muted-foreground">{t("sched_confirmed_note").replace("{time}", formatScheduledTime(scheduledTime, now, t))}</p>
           <Button size="sm" variant="ghost" className="text-xs text-muted-foreground h-7" onClick={() => { setShowPicker(true); }} data-testid={`button-reschedule-${matchId}`}>{t("change_time")}</Button>
           {showPicker && (
             <TimePickerInline
@@ -702,7 +702,7 @@ function CallSchedulingCard({
             <p className="font-medium text-sm">{t("waiting_for_name").replace("{name}", matchName)}</p>
           </div>
           {scheduledTime && (
-            <p className="text-xs text-muted-foreground">{t("you_proposed")} {formatScheduledTime(scheduledTime, now)} ({scheduledTime.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })})</p>
+            <p className="text-xs text-muted-foreground">{t("you_proposed")} {formatScheduledTime(scheduledTime, now, t)} ({scheduledTime.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })})</p>
           )}
           {!showPicker ? (
             <Button size="sm" variant="outline" className="w-full" onClick={() => setShowPicker(true)} data-testid={`button-change-proposal-${matchId}`}>
@@ -738,7 +738,7 @@ function CallSchedulingCard({
             </p>
           </div>
           {scheduledTime && (
-            <p className="text-xs text-muted-foreground">{t("proposed_label")} {formatScheduledTime(scheduledTime, now)} ({scheduledTime.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })})</p>
+            <p className="text-xs text-muted-foreground">{t("proposed_label")} {formatScheduledTime(scheduledTime, now, t)} ({scheduledTime.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })})</p>
           )}
           {!showPicker ? (
             <div className="flex gap-2">

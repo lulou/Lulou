@@ -73,7 +73,7 @@ if (typeof window !== "undefined") {
   console.log("[STARTUP_AUDIO] stopped before auth");
 }
 import { TabActiveContext } from "@/hooks/use-tab-active";
-import { LanguageProvider } from "@/contexts/language-context";
+import { LanguageProvider, useLanguageContext } from "@/contexts/language-context";
 import { UnitsProvider } from "@/contexts/units-context";
 
 // ── Per-tab error boundary ────────────────────────────────────────────────────
@@ -1254,6 +1254,7 @@ const SPINNER_TIMEOUT_MS = 12_000;
 // Standalone component so it can use useState without violating the rules
 // of hooks (hooks can't be called conditionally inside AppContent).
 function VerifyEmailGate({ email, onSignOut }: { email: string | undefined; onSignOut: () => void }) {
+  const { t } = useLanguageContext();
   const [resendLoading, setResendLoading] = useState(false);
   const [resendSent, setResendSent] = useState(false);
   const [resendError, setResendError] = useState<string | null>(null);
@@ -1267,11 +1268,11 @@ function VerifyEmailGate({ email, onSignOut }: { email: string | undefined; onSi
       if (error) throw error;
       setResendSent(true);
     } catch (err: any) {
-      setResendError(err?.message ?? "Could not resend — try again.");
+      setResendError(err?.message ?? t("verify_email_resend_err"));
     } finally {
       setResendLoading(false);
     }
-  }, [email]);
+  }, [email, t]);
 
   return (
     <div className="min-h-screen bg-background flex flex-col items-center justify-center px-6 gap-8" data-testid="screen-verify-email-gate">
@@ -1279,19 +1280,19 @@ function VerifyEmailGate({ email, onSignOut }: { email: string | undefined; onSi
         <Mail className="w-6 h-6 text-primary" />
       </div>
       <div className="w-full max-w-sm space-y-3 text-center">
-        <h1 className="font-serif text-2xl font-bold">Verify your email</h1>
+        <h1 className="font-serif text-2xl font-bold">{t("verify_email_title")}</h1>
         <p className="text-sm text-muted-foreground leading-relaxed">
-          We sent a confirmation link to{" "}
-          <strong className="text-foreground">{email}</strong>.
-          Click the link to activate your account.
+          {t("verify_email_body_pre")}{" "}
+          <strong className="text-foreground">{email}</strong>.{" "}
+          {t("verify_email_body_post")}
         </p>
-        <p className="text-xs text-muted-foreground">Already confirmed? Sign out and sign back in.</p>
+        <p className="text-xs text-muted-foreground">{t("verify_email_confirmed_note")}</p>
       </div>
       <div className="w-full max-w-sm space-y-3">
         {resendSent ? (
           <div className="flex items-center gap-2 justify-center text-sm text-primary py-2">
             <CheckCircle className="w-4 h-4" />
-            Confirmation email resent — check your inbox.
+            {t("verify_email_resent")}
           </div>
         ) : (
           <button
@@ -1301,9 +1302,9 @@ function VerifyEmailGate({ email, onSignOut }: { email: string | undefined; onSi
             data-testid="button-resend-verify-gate"
           >
             {resendLoading ? (
-              <><Loader2 className="w-4 h-4 animate-spin" /> Resending…</>
+              <><Loader2 className="w-4 h-4 animate-spin" /> {t("verify_email_resending")}</>
             ) : (
-              "Resend confirmation email"
+              t("verify_email_resend_btn")
             )}
           </button>
         )}
@@ -1315,7 +1316,7 @@ function VerifyEmailGate({ email, onSignOut }: { email: string | undefined; onSi
           onClick={onSignOut}
           data-testid="button-signout-verify-gate"
         >
-          Sign out
+          {t("verify_email_signout")}
         </button>
       </div>
     </div>
