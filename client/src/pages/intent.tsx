@@ -840,6 +840,26 @@ export default function IntentPage() {
     },
   });
 
+  const saveForLater = useMutation({
+    mutationFn: async (profileId: string) => {
+      const res = await apiRequest("POST", "/api/wheel/save", { profileId });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({})) as any;
+        throw new Error(d.message || "Failed to save");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/spin-status"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/wheel/saved"] });
+      setShowProfile(false);
+      toast({ title: t("save_for_later_label"), description: t("save_for_later_done") });
+    },
+    onError: (err: any) => {
+      toast({ title: err?.message || t("something_went_wrong"), variant: "destructive" });
+    },
+  });
+
   const spinWheel = () => {
     if (isSpinning || count === 0 || !canSpin) return;
     ensureCtx();
@@ -1477,7 +1497,7 @@ export default function IntentPage() {
           {/* ⑥ CTA action bar */}
           <div className="absolute bottom-0 left-0 right-0 border-t" style={{ background: "hsl(var(--background)/0.96)", backdropFilter: "blur(16px)" }}>
             <div className="px-5 pt-4 pb-6">
-              <div className="flex items-center gap-4">
+              <div className="flex items-center gap-3">
                 {/* Skip button */}
                 <button
                   className="flex-1 flex flex-col items-center gap-1.5 py-3 rounded-2xl border transition-all active:scale-95"
@@ -1491,6 +1511,25 @@ export default function IntentPage() {
                 >
                   <Moon className="w-5 h-5 text-muted-foreground" />
                   <span className="text-xs text-muted-foreground font-medium tracking-wide">{t("skip_label")}</span>
+                </button>
+
+                {/* Save For Later button */}
+                <button
+                  className="flex-1 flex flex-col items-center gap-1.5 py-3 rounded-2xl border transition-all active:scale-95 disabled:opacity-50"
+                  style={{
+                    background: "hsl(var(--muted)/0.5)",
+                    borderColor: "hsl(155 25% 50% / 0.4)",
+                  }}
+                  onClick={() => selectedProfile && saveForLater.mutate(selectedProfile.userId)}
+                  disabled={saveForLater.isPending}
+                  data-testid="button-intent-save-later"
+                  aria-label={t("save_for_later_label")}
+                >
+                  {saveForLater.isPending
+                    ? <Loader2 className="w-5 h-5 text-muted-foreground animate-spin" />
+                    : <Star className="w-5 h-5 text-muted-foreground" />
+                  }
+                  <span className="text-xs text-muted-foreground font-medium tracking-wide">{t("save_for_later_label")}</span>
                 </button>
 
                 {/* Connect button */}

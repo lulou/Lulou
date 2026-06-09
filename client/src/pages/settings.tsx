@@ -1097,21 +1097,50 @@ export default function SettingsPage() {
               loading={checkoutLoading === "undo-close"}
               onBuy={() => startCheckout("undo-close")}
             />
+
+            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground/65 pt-2">
+              Call Credit Packs
+            </p>
+
             <ExtrasItem
-              title={t("extras_extra_call_title")}
-              description={t("extras_extra_call_desc")}
+              title={t("extras_starter_pack_title")}
+              description={t("extras_starter_pack_desc")}
               price="$4.99"
-              itemId="extra-call"
-              loading={checkoutLoading === "extra-call"}
-              onBuy={() => startCheckout("extra-call")}
+              itemId="starter-pack"
+              loading={checkoutLoading === "starter-pack"}
+              onBuy={() => startCheckout("starter-pack")}
             />
             <ExtrasItem
-              title={t("extras_video_call_title")}
-              description={t("extras_video_call_desc")}
-              price="$6.99"
-              itemId="video-call"
-              loading={checkoutLoading === "video-call"}
-              onBuy={() => startCheckout("video-call")}
+              title={t("extras_connection_pack_title")}
+              description={t("extras_connection_pack_desc")}
+              price="$12.99"
+              itemId="connection-pack"
+              loading={checkoutLoading === "connection-pack"}
+              onBuy={() => startCheckout("connection-pack")}
+            />
+            <ExtrasItem
+              title={t("extras_premium_pack_title")}
+              description={t("extras_premium_pack_desc")}
+              price="$19.99"
+              itemId="premium-pack"
+              loading={checkoutLoading === "premium-pack"}
+              onBuy={() => startCheckout("premium-pack")}
+            />
+            <ExtrasItem
+              title={t("extras_chemistry_pack_title")}
+              description={t("extras_chemistry_pack_desc")}
+              price="$16.99"
+              itemId="chemistry-pack"
+              loading={checkoutLoading === "chemistry-pack"}
+              onBuy={() => startCheckout("chemistry-pack")}
+            />
+            <ExtrasItem
+              title={t("extras_deep_conn_pack_title")}
+              description={t("extras_deep_conn_pack_desc")}
+              price="$27.99"
+              itemId="deep-connection-pack"
+              loading={checkoutLoading === "deep-connection-pack"}
+              onBuy={() => startCheckout("deep-connection-pack")}
             />
           </div>
         </SheetContent>

@@ -4,7 +4,7 @@ import { SupabaseStorage, mapMatch, type CompleteCallOptions } from "./storage";
 import { seedDatabase } from "./seed";
 import { z } from "zod";
 import type { Profile } from "@shared/schema";
-import { userBenefits } from "@shared/schema";
+import { userBenefits, callCredits } from "@shared/schema";
 import { supabase, supabaseAdmin, createUserClient, hasServiceRoleKey } from "./supabase";
 import { db } from "./db";
 import { eq, and, isNull } from "drizzle-orm";
@@ -1060,13 +1060,13 @@ export async function registerRoutes(
               if (pc1 >= 20 && pc2 >= 20) {
                 const { error: advErr } = await supabaseAdmin
                   .from("matches")
-                  .update({ call_stage: 3 })
+                  .update({ call_stage: 4 })
                   .eq("id", matchId);
                 if (advErr) {
                   console.error("[CONNECTION_STAGE] STAGE2_ADVANCE_ERROR", { matchId, error: advErr.message });
                 } else {
-                  if (IS_DEV) console.log("[CONNECTION_STAGE] FACE_CALL_UNLOCKED", { matchId, pc1, pc2 });
-                  if (IS_DEV) console.log("[CONNECTION_STAGE] CONNECTION_STAGE_CHANGED", { matchId, from: "post_second_call_messaging", to: "face_call_stage", nextStage: 3 });
+                  if (IS_DEV) console.log("[CONNECTION_STAGE] ALL_CALLS_COMPLETE", { matchId, pc1, pc2 });
+                  if (IS_DEV) console.log("[CONNECTION_STAGE] CONNECTION_STAGE_CHANGED", { matchId, from: "post_second_call_messaging", to: "all_calls_done", nextStage: 4 });
                 }
               }
             }
@@ -1468,83 +1468,13 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/matches/:matchId/face-call/accept", isAuthenticated, async (req: any, res) => {
-    try {
-      const serverStorage = getCallStorage(req);
-      const userId = req.user.id;
-      const matchId = req.params.matchId;
-      console.log("[FACE_CALL_ACCEPT] CALL_API_REQUEST", { path: "/api/matches/:matchId/face-call/accept", matchId, userId });
-      const match = await serverStorage.acceptFaceCall(matchId, userId);
-      if (!match) {
-        console.log("[FACE_CALL_ACCEPT] CALL_API_RESPONSE", { status: 404, matchId, userId });
-        return res.status(404).json({ message: "Match not found or not eligible for face call" });
-      }
-
-      const isDev = process.env.NODE_ENV === "development";
-      const otherUserId = match.user1Id === userId ? match.user2Id : match.user1Id;
-      if (isDev || isSeedUser(otherUserId)) {
-        setTimeout(async () => {
-          try {
-            await serverStorage.acceptFaceCall(matchId, otherUserId);
-            console.log("AUTO_ACCEPT_FACE_CALL", matchId, otherUserId);
-          } catch (err) {
-            console.error("Auto face-call accept error:", err);
-          }
-        }, 1500 + Math.random() * 2000);
-      }
-
-      console.log("[FACE_CALL_ACCEPT] CALL_API_RESPONSE", { status: 200, matchId, userId });
-      res.json(match);
-    } catch (error: any) {
-      const matchId = req.params.matchId;
-      const userId = req.user?.id;
-      console.error("[FACE_CALL_ACCEPT] CALL_ROUTE_ERROR", {
-        CALL_ROUTE_NAME: "POST /api/matches/:matchId/face-call/accept",
-        CALL_ROUTE_ERROR: error?.message,
-        stack: error?.stack,
-        requestPayload: req.body,
-        matchId,
-        userId,
-        callSessionId: null,
-      });
-      res.status(500).json({
-        message: error?.message || "Failed to accept face call",
-        route: "POST /api/matches/:matchId/face-call/accept",
-        detail: error?.stack?.split("\n")[0] || null,
-      });
-    }
+  // face-call/accept and face-call/decline removed — video call is now a premium extra only,
+  // not part of the standard progression. Endpoints retained as no-ops for backwards compatibility.
+  app.post("/api/matches/:matchId/face-call/accept", isAuthenticated, (_req, res) => {
+    res.status(410).json({ message: "Video call accept is no longer part of the standard progression. Purchase a video call credit via Lulou Extras." });
   });
-
-  app.post("/api/matches/:matchId/face-call/decline", isAuthenticated, async (req: any, res) => {
-    try {
-      const serverStorage = getCallStorage(req);
-      const userId = req.user.id;
-      console.log("[FACE_CALL_DECLINE] CALL_API_REQUEST", { path: "/api/matches/:matchId/face-call/decline", matchId: req.params.matchId, userId });
-      const match = await serverStorage.declineFaceCall(req.params.matchId, userId);
-      if (!match) {
-        console.log("[FACE_CALL_DECLINE] CALL_API_RESPONSE", { status: 404, matchId: req.params.matchId, userId });
-        return res.status(404).json({ message: "Match not found" });
-      }
-      console.log("[FACE_CALL_DECLINE] CALL_API_RESPONSE", { status: 200, matchId: req.params.matchId, userId });
-      res.json(match);
-    } catch (error: any) {
-      const matchId = req.params.matchId;
-      const userId = req.user?.id;
-      console.error("[FACE_CALL_DECLINE] CALL_ROUTE_ERROR", {
-        CALL_ROUTE_NAME: "POST /api/matches/:matchId/face-call/decline",
-        CALL_ROUTE_ERROR: error?.message,
-        stack: error?.stack,
-        requestPayload: req.body,
-        matchId,
-        userId,
-        callSessionId: null,
-      });
-      res.status(500).json({
-        message: error?.message || "Failed to decline face call",
-        route: "POST /api/matches/:matchId/face-call/decline",
-        detail: error?.stack?.split("\n")[0] || null,
-      });
-    }
+  app.post("/api/matches/:matchId/face-call/decline", isAuthenticated, (_req, res) => {
+    res.status(410).json({ message: "Video call decline is no longer part of the standard progression." });
   });
 
   app.get("/api/popular", isAuthenticated, async (req: any, res) => {
@@ -1603,11 +1533,98 @@ export async function registerRoutes(
       const streakComplete = consecutiveDays >= 3;
       const canSpin = (streakComplete && hasUnusedStreak) || (!streakComplete && spinsThisWeek === 0);
 
+      const savedWheel = await storage.getSavedWheelProfile(userId);
       if (IS_DEV) console.log(`[SPIN_STATUS] userId=${userId} in ${Date.now() - t0} ms`);
-      res.json({ spinsThisWeek, dailyLikes, consecutiveDays, streakComplete, canSpin });
+      res.json({ spinsThisWeek, dailyLikes, consecutiveDays, streakComplete, canSpin, hasSavedWheelProfile: !!savedWheel });
     } catch (error) {
       console.error(`[SPIN_STATUS] Error after ${Date.now() - t0} ms:`, error);
       res.status(500).json({ message: "Failed to fetch spin status" });
+    }
+  });
+
+  // ── Call Credits ─────────────────────────────────────────────────────────────
+  app.get("/api/call-credits", isAuthenticated, async (req: any, res) => {
+    try {
+      const storage = getStorage(req);
+      const credits = await storage.getCallCredits(req.user.id);
+      res.json(credits);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message || "Failed to fetch call credits" });
+    }
+  });
+
+  // ── Discovery Undo Last Pass ──────────────────────────────────────────────────
+  app.post("/api/discover/undo-pass", isAuthenticated, async (req: any, res) => {
+    try {
+      const storage = getStorage(req);
+      const userId = req.user.id;
+
+      // Check that user has an undo_close benefit
+      const [benefitRow] = await db.select().from(userBenefits)
+        .where(and(eq(userBenefits.userId, userId), eq(userBenefits.type, "undo_close")))
+        .limit(1);
+      if (!benefitRow) {
+        return res.status(402).json({ message: "No undo credits available. Purchase from Lulou Extras." });
+      }
+
+      const lastClose = await storage.getLastClose(userId);
+      if (!lastClose) {
+        return res.status(404).json({ message: "No recent pass to undo." });
+      }
+
+      const deleted = await storage.deleteLastClose(userId, lastClose.interactionId);
+      if (!deleted) {
+        return res.status(500).json({ message: "Failed to undo pass." });
+      }
+
+      // Consume the undo_close benefit
+      await db.delete(userBenefits).where(eq(userBenefits.id, benefitRow.id));
+
+      res.json({ success: true, restoredProfileId: lastClose.toUserId });
+    } catch (err: any) {
+      console.error("[UNDO_PASS]", err.message);
+      res.status(500).json({ message: err.message || "Failed to undo pass" });
+    }
+  });
+
+  // ── Wheel Save For Later ──────────────────────────────────────────────────────
+  app.get("/api/wheel/saved", isAuthenticated, async (req: any, res) => {
+    try {
+      const storage = getStorage(req);
+      const saved = await storage.getSavedWheelProfile(req.user.id);
+      res.json({ saved });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message || "Failed to fetch saved wheel profile" });
+    }
+  });
+
+  app.post("/api/wheel/save", isAuthenticated, async (req: any, res) => {
+    try {
+      const storage = getStorage(req);
+      const userId = req.user.id;
+      const { profileId } = req.body;
+      if (!profileId || typeof profileId !== "string") {
+        return res.status(400).json({ message: "profileId required" });
+      }
+      const existing = await storage.getSavedWheelProfile(userId);
+      if (existing) {
+        return res.status(409).json({ message: "You already have a saved connection. Act on them first." });
+      }
+      const saved = await storage.saveWheelProfile(userId, profileId);
+      res.json({ saved });
+    } catch (err: any) {
+      console.error("[WHEEL_SAVE]", err.message);
+      res.status(500).json({ message: err.message || "Failed to save wheel profile" });
+    }
+  });
+
+  app.delete("/api/wheel/saved", isAuthenticated, async (req: any, res) => {
+    try {
+      const storage = getStorage(req);
+      await storage.deleteSavedWheelProfile(req.user.id);
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message || "Failed to delete saved wheel profile" });
     }
   });
 
@@ -2006,11 +2023,14 @@ export async function registerRoutes(
   // ── Extras / Membership Stripe checkout ───────────────────────────────────
 
   const EXTRAS_ITEMS = {
-    "messages-5": { name: "+5 Messages",      unitAmount: 499,  mode: "payment"      as const, benefitType: "message_extension", quantity: 1 },
-    "extra-call":  { name: "Extra Call",       unitAmount: 499,  mode: "payment"      as const, benefitType: "extra_call",         quantity: 1 },
-    "video-call":  { name: "Video Call",       unitAmount: 699,  mode: "payment"      as const, benefitType: "video_call",         quantity: 1 },
-    "undo-close":  { name: "Undo Last Close",  unitAmount: 299,  mode: "payment"      as const, benefitType: "undo_close",         quantity: 1 },
-    "membership":  { name: "Lulou Membership", unitAmount: 1999, mode: "subscription" as const, benefitType: null,                 quantity: 1 },
+    "messages-5":           { name: "+5 Messages",           unitAmount: 499,  mode: "payment"      as const, benefitType: "message_extension" as const, credits: null,                 quantity: 1 },
+    "undo-close":           { name: "Undo Last Pass",         unitAmount: 299,  mode: "payment"      as const, benefitType: "undo_close"         as const, credits: null,                 quantity: 1 },
+    "membership":           { name: "Lulou Membership",       unitAmount: 1999, mode: "subscription" as const, benefitType: null,                          credits: null,                 quantity: 1 },
+    "starter-pack":         { name: "Starter Pack",           unitAmount: 499,  mode: "payment"      as const, benefitType: null,                          credits: { phone: 1, video: 0 }, quantity: 1 },
+    "connection-pack":      { name: "Connection Pack",        unitAmount: 1299, mode: "payment"      as const, benefitType: null,                          credits: { phone: 3, video: 0 }, quantity: 1 },
+    "premium-pack":         { name: "Premium Pack",           unitAmount: 1999, mode: "payment"      as const, benefitType: null,                          credits: { phone: 5, video: 0 }, quantity: 1 },
+    "chemistry-pack":       { name: "Chemistry Pack",         unitAmount: 1699, mode: "payment"      as const, benefitType: null,                          credits: { phone: 3, video: 1 }, quantity: 1 },
+    "deep-connection-pack": { name: "Deep Connection Pack",   unitAmount: 2799, mode: "payment"      as const, benefitType: null,                          credits: { phone: 5, video: 3 }, quantity: 1 },
   } as const;
 
   type ExtrasItemId = keyof typeof EXTRAS_ITEMS;
@@ -2077,18 +2097,24 @@ export async function registerRoutes(
       const item = itemId ? EXTRAS_ITEMS[itemId] : undefined;
       if (!item) return res.status(400).json({ message: "Unknown item in session metadata" });
 
+      const storage = getStorage(req);
       let grantedTypes: string[] = [];
 
       if (itemId === "membership") {
         const membershipRows = [
           { userId, type: "message_extension" },
           { userId, type: "message_extension" },
-          { userId, type: "extra_call" },
-          { userId, type: "video_call" },
           { userId, type: "undo_close" },
         ];
         await db.insert(userBenefits).values(membershipRows);
-        grantedTypes = membershipRows.map(r => r.type);
+        await storage.grantCallCredits(userId, 3, 1);
+        grantedTypes = [...membershipRows.map(r => r.type), "phone_credits:3", "video_credits:1"];
+      } else if (item.credits) {
+        await storage.grantCallCredits(userId, item.credits.phone, item.credits.video);
+        grantedTypes = [
+          ...(item.credits.phone > 0 ? [`phone_credits:${item.credits.phone}`] : []),
+          ...(item.credits.video > 0 ? [`video_credits:${item.credits.video}`] : []),
+        ];
       } else if (item.benefitType) {
         const rows = Array.from({ length: item.quantity }, () => ({ userId, type: item.benefitType! }));
         await db.insert(userBenefits).values(rows);

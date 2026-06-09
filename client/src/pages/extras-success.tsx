@@ -10,17 +10,22 @@ export default function ExtrasSuccessPage() {
   const { t } = useLanguageContext();
 
   const ITEM_LABELS: Record<string, { label: string; description: string; icon: React.ReactNode }> = {
-    "messages-5": { label: t("item_messages5_label"), description: t("item_messages5_desc"), icon: <MessageSquare className="w-6 h-6 text-primary" /> },
-    "extra-call": { label: t("item_extra_call_label"), description: t("item_extra_call_desc"), icon: <Phone className="w-6 h-6 text-primary" /> },
-    "video-call": { label: t("item_video_call_label"), description: t("item_video_call_desc"), icon: <Video className="w-6 h-6 text-primary" /> },
-    "undo-close": { label: t("item_undo_close_label"), description: t("item_undo_close_desc"), icon: <Crown className="w-6 h-6 text-primary" /> },
-    "membership": { label: t("item_membership_lbl"),   description: t("item_membership_dsc"),  icon: <Crown className="w-6 h-6 text-primary" /> },
+    "messages-5":           { label: t("item_messages5_label"),       description: t("item_messages5_desc"),       icon: <MessageSquare className="w-6 h-6 text-primary" /> },
+    "extra-call":           { label: t("item_extra_call_label"),      description: t("item_extra_call_desc"),      icon: <Phone className="w-6 h-6 text-primary" /> },
+    "video-call":           { label: t("item_video_call_label"),      description: t("item_video_call_desc"),      icon: <Video className="w-6 h-6 text-primary" /> },
+    "undo-close":           { label: t("item_undo_close_label"),      description: t("item_undo_close_desc"),      icon: <Crown className="w-6 h-6 text-primary" /> },
+    "membership":           { label: t("item_membership_lbl"),        description: t("item_membership_dsc"),       icon: <Crown className="w-6 h-6 text-primary" /> },
+    "starter-pack":         { label: t("item_starter_pack_label"),    description: t("item_starter_pack_desc"),    icon: <Phone className="w-6 h-6 text-primary" /> },
+    "connection-pack":      { label: t("item_connection_pack_label"), description: t("item_connection_pack_desc"), icon: <Phone className="w-6 h-6 text-primary" /> },
+    "premium-pack":         { label: t("item_premium_pack_label"),    description: t("item_premium_pack_desc"),    icon: <Phone className="w-6 h-6 text-primary" /> },
+    "chemistry-pack":       { label: t("item_chemistry_pack_label"),  description: t("item_chemistry_pack_desc"),  icon: <Video className="w-6 h-6 text-primary" /> },
+    "deep-connection-pack": { label: t("item_deep_connection_label"), description: t("item_deep_connection_desc"), icon: <Video className="w-6 h-6 text-primary" /> },
   };
 
   const MEMBERSHIP_PERKS = [
     t("perk_2_extensions"),
-    t("perk_1_extra_call"),
-    t("perk_1_video_call"),
+    t("perk_3_phone_credits"),
+    t("perk_1_video_credit"),
     t("perk_1_undo_close"),
   ];
   const [, navigate] = useLocation();

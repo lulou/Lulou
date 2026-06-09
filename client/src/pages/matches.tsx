@@ -1416,35 +1416,6 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
     },
   });
 
-  const acceptFaceCall = useMutation({
-    mutationFn: async () => {
-      const res = await apiRequest("POST", `/api/matches/${match.id}/face-call/accept`, {});
-      return res.json();
-    },
-    onSuccess: (data: any) => {
-      mergeCallFields(queryClient, match.id, data);
-      toast({ title: t("face_call_accepted_title"), description: t("face_call_accepted_desc") });
-    },
-    onError: (error: Error) => {
-      console.error("[FACE_CALL_ACCEPT] FRONTEND_ERROR", { matchId: match.id, error: error.message });
-      toast({ title: t("face_call_failed_title"), description: error.message, variant: "destructive" });
-    },
-  });
-
-  const declineFaceCall = useMutation({
-    mutationFn: async () => {
-      const res = await apiRequest("POST", `/api/matches/${match.id}/face-call/decline`, {});
-      return res.json();
-    },
-    onSuccess: (data: any) => {
-      mergeCallFields(queryClient, match.id, data);
-      toast({ title: t("face_call_skipped_title"), description: t("face_call_skipped_desc") });
-    },
-    onError: (error: Error) => {
-      console.error("[FACE_CALL_DECLINE] FRONTEND_ERROR", { matchId: match.id, error: error.message });
-      toast({ title: t("decline_face_call_failed"), description: error.message, variant: "destructive" });
-    },
-  });
 
   const removeMatch = useMutation({
     mutationFn: async () => {
@@ -1764,10 +1735,6 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
   }, [guidanceMessages, allMessages]);
 
   const allCallsDone = callStage >= 4;
-  const isFaceCallStage = callStage === 3;
-  const myFaceCallAccepted = detail.user1Id === user?.id ? detail.faceCallUser1Accepted : detail.faceCallUser2Accepted;
-  const theirFaceCallAccepted = detail.user1Id === user?.id ? detail.faceCallUser2Accepted : detail.faceCallUser1Accepted;
-  const bothAcceptedFaceCall = detail.faceCallUser1Accepted && detail.faceCallUser2Accepted;
 
   const formatTimestamp = (dateStr: string | null | undefined) => {
     if (!dateStr) return "";
@@ -1838,7 +1805,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
         </button>
         <div className="flex items-center gap-1.5 shrink-0">
           <Badge variant="outline" className="text-[10px] px-1.5 py-0" data-testid={`badge-messages-remaining-${match.id}`}>
-            {allCallsDone ? t("all_calls_done") : callStage === 3 ? t("face_call_stage_badge") : callStage === 2 && bothStage2LimitReached ? t("face_call_ready_badge") : callStage === 2 ? t("n_left_msg").replace("{n}", String(myStage2Remaining)) : callStage === 1 && bothPostCallLimitReached ? t("second_call_ready_badge") : callStage === 1 ? t("n_postcall_left").replace("{n}", String(myPostCallRemaining)) : messagesRemaining > 0 ? t("n_msg_left").replace("{n}", String(messagesRemaining)) : t("call_time_badge")}
+            {allCallsDone ? t("all_calls_done") : callStage === 2 && bothStage2LimitReached ? t("ready_to_meet_badge") : callStage === 2 ? t("n_left_msg").replace("{n}", String(myStage2Remaining)) : callStage === 1 && bothPostCallLimitReached ? t("second_call_ready_badge") : callStage === 1 ? t("n_postcall_left").replace("{n}", String(myPostCallRemaining)) : messagesRemaining > 0 ? t("n_msg_left").replace("{n}", String(messagesRemaining)) : t("call_time_badge")}
           </Badge>
           {showRemoveConfirm ? (
             <div className="flex items-center gap-0.5">
@@ -1968,7 +1935,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                     className="w-16 h-16 rounded-full flex items-center justify-center"
                     style={{ background: "hsl(350 45% 52% / 0.18)", border: "1.5px solid hsl(350 45% 52% / 0.3)" }}
                   >
-                    {(isFaceCallStage && bothAcceptedFaceCall) || callStage === 1 ? (
+                    {callStage === 1 ? (
                       <Video className="w-6 h-6 animate-pulse" style={{ color: "hsl(350 45% 72%)" }} />
                     ) : (
                       <Phone className="w-6 h-6 animate-pulse" style={{ color: "hsl(350 45% 72%)" }} />
@@ -2022,7 +1989,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                     className="w-16 h-16 rounded-full flex items-center justify-center"
                     style={{ background: "hsl(145 60% 35% / 0.2)", border: "1.5px solid hsl(145 60% 45% / 0.35)" }}
                   >
-                    {(isFaceCallStage && bothAcceptedFaceCall) || callStage === 1 ? (
+                    {callStage === 1 ? (
                       <Video className="w-6 h-6 animate-pulse" style={{ color: "hsl(145 60% 60%)" }} />
                     ) : (
                       <Phone className="w-6 h-6 animate-pulse" style={{ color: "hsl(145 60% 60%)" }} />
@@ -2096,14 +2063,12 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                   <div className="relative w-16 h-16 mx-auto">
                     <div className="absolute inset-0 rounded-full bg-green-500/15 animate-pulse" />
                     <div className="absolute inset-0 flex items-center justify-center">
-                      {isFaceCallStage && bothAcceptedFaceCall
-                        ? <Video className="w-6 h-6 text-green-600" />
-                        : <Phone className="w-6 h-6 text-green-600" />}
+                      <Phone className="w-6 h-6 text-green-600" />
                     </div>
                   </div>
                   <div className="space-y-1">
                     <p className="font-medium text-sm" data-testid={`text-call-active-label-${match.id}`}>
-                      {isFaceCallStage && bothAcceptedFaceCall ? t("face_call_in_progress") : callStage === 1 ? t("video_call_in_progress") : t("first_call_in_progress")}
+                      {callStage === 1 ? t("second_call_in_progress") : t("first_call_in_progress")}
                     </p>
                     <p className="text-xs text-muted-foreground">{t("use_overlay_to_manage")}</p>
                   </div>
@@ -2201,73 +2166,6 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                 </div>
               </div>
             )
-          ) : isFaceCallStage && !bothAcceptedFaceCall ? (
-            <div className="p-4 border-t">
-              <Card className="p-4 text-center space-y-3 bg-primary/5 border-primary/20">
-                <Video className="w-5 h-5 text-primary mx-auto" />
-                {myFaceCallAccepted ? (
-                  <>
-                    <p className="font-medium text-sm">{t("youre_in_for_face_call")}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {t("waiting_for_face_accept")}
-                    </p>
-                    <Badge variant="secondary" className="text-xs mx-auto" data-testid={`badge-face-call-waiting-${match.id}`}>
-                      <Clock className="w-3 h-3 mr-1" /> {t("waiting_for_response_badge")}
-                    </Badge>
-                  </>
-                ) : (
-                  <>
-                    <p className="font-medium text-sm">{t("ready_to_see_each_other")}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {t("face_call_desc")}
-                    </p>
-                    {theirFaceCallAccepted && (
-                      <Badge variant="secondary" className="text-xs mx-auto">
-                        {t("name_has_accepted").replace("{name}", match.profile.firstName)}
-                      </Badge>
-                    )}
-                    <div className="flex items-center gap-2 justify-center">
-                      <Button
-                        size="sm"
-                        onClick={() => acceptFaceCall.mutate()}
-                        disabled={acceptFaceCall.isPending}
-                        data-testid={`button-accept-face-call-${match.id}`}
-                      >
-                        <Video className="w-4 h-4 mr-2" /> {acceptFaceCall.isPending ? t("accepting_label") : t("accept_face_call")}
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => declineFaceCall.mutate()}
-                        disabled={declineFaceCall.isPending}
-                        data-testid={`button-decline-face-call-${match.id}`}
-                      >
-                        {t("skip_label")}
-                      </Button>
-                    </div>
-                  </>
-                )}
-              </Card>
-            </div>
-          ) : isFaceCallStage && bothAcceptedFaceCall ? (
-            <div className="p-4 border-t">
-              <Card className="p-4 text-center space-y-3 bg-primary/5 border-primary/20">
-                <Video className="w-5 h-5 text-primary mx-auto" />
-                <p className="font-medium text-sm">You both accepted the face call</p>
-                <p className="text-xs text-muted-foreground">Start your 10-minute face-to-face video call whenever you're ready.</p>
-                <Button
-                  size="sm"
-                  onClick={() => {
-                    console.log("[CALL_UI] CALL_REQUEST_STARTED", { matchId: match.id, callStage, callType: "face", role: "caller" });
-                    startCall.mutate();
-                  }}
-                  disabled={startCall.isPending || hasExistingCall}
-                  data-testid={`button-start-face-call-${match.id}`}
-                >
-                  <Video className="w-4 h-4 mr-2" /> Start Face Call
-                </Button>
-              </Card>
-            </div>
           ) : callStage === 1 && bothPostCallLimitReached ? (
             <CallSchedulingCard
               matchId={match.id}
@@ -2371,8 +2269,8 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                   <p className="text-sm font-medium text-primary">{t("your_messages_sent")}</p>
                   <p className="text-xs text-muted-foreground">
                     {theirStage2LimitReached
-                      ? t("face_call_unlocked")
-                      : t("waiting_face_call_unlock")}
+                      ? t("all_calls_complete_msg")
+                      : t("waiting_calls_complete")}
                   </p>
                 </div>
               ) : (
@@ -2381,7 +2279,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                     <StageHint>{t("great_second_call_hint")}</StageHint>
                   )}
                   {myStage2Messages >= 16 && myStage2Messages < 20 && (
-                    <StageHint>{t("almost_face_call_hint").replace("{n}", String(myStage2Remaining)).replace("{s}", myStage2Remaining !== 1 ? "s" : "")}</StageHint>
+                    <StageHint>{t("almost_done_hint").replace("{n}", String(myStage2Remaining)).replace("{s}", myStage2Remaining !== 1 ? "s" : "")}</StageHint>
                   )}
                   <div className="flex gap-2 items-end">
                     <Textarea

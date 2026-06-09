@@ -3,7 +3,8 @@ import {
   type Interaction, type InsertInteraction,
   type Match, type Message, type InsertMessage,
   type SpinRequest, type BlockedContact,
-  userElevates, blockedContacts,
+  type SavedWheelProfile,
+  userElevates, blockedContacts, callCredits, savedWheelProfiles,
 } from "@shared/schema";
 import { supabase as defaultSupabase } from "./supabase";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -196,6 +197,14 @@ export interface IStorage {
   addElevateCredits(userId: string, type: "elevate" | "super_elevate", quantity: number): Promise<void>;
   getElevateStatus(userId: string): Promise<{ type: string | null; expiresAt: Date | null; active: boolean; elevateCredits: number; superElevateCredits: number }>;
   getElevateSessionStats(userId: string): Promise<{ views: number; matches: number; startedAt: Date | null; active: boolean; expiresAt: Date | null }>;
+  getCallCredits(userId: string): Promise<{ phoneCredits: number; videoCredits: number }>;
+  grantCallCredits(userId: string, phone: number, video: number): Promise<void>;
+  consumeCallCredit(userId: string, type: "phone" | "video"): Promise<boolean>;
+  getSavedWheelProfile(userId: string): Promise<SavedWheelProfile | null>;
+  saveWheelProfile(userId: string, savedProfileId: string): Promise<SavedWheelProfile>;
+  deleteSavedWheelProfile(userId: string): Promise<void>;
+  getLastClose(userId: string): Promise<{ interactionId: string; toUserId: string } | null>;
+  deleteLastClose(userId: string, interactionId: string): Promise<boolean>;
 }
 
 /**
@@ -2422,6 +2431,102 @@ export class SupabaseStorage implements IStorage {
       active,
       expiresAt: row.expiresAt,
     };
+  }
+
+  // ── Call Credits (local Drizzle DB) ─────────────────────────────────────────
+
+  async getCallCredits(userId: string): Promise<{ phoneCredits: number; videoCredits: number }> {
+    const rows = await db.select().from(callCredits).where(eq(callCredits.userId, userId)).limit(1);
+    if (!rows[0]) return { phoneCredits: 0, videoCredits: 0 };
+    return { phoneCredits: rows[0].phoneCredits, videoCredits: rows[0].videoCredits };
+  }
+
+  async grantCallCredits(userId: string, phone: number, video: number): Promise<void> {
+    await db
+      .insert(callCredits)
+      .values({ userId, phoneCredits: phone, videoCredits: video })
+      .onConflictDoUpdate({
+        target: callCredits.userId,
+        set: {
+          phoneCredits: sql`${callCredits.phoneCredits} + ${phone}`,
+          videoCredits: sql`${callCredits.videoCredits} + ${video}`,
+          updatedAt: sql`now()`,
+        },
+      });
+  }
+
+  async consumeCallCredit(userId: string, type: "phone" | "video"): Promise<boolean> {
+    const credits = await this.getCallCredits(userId);
+    if (type === "phone" && credits.phoneCredits <= 0) return false;
+    if (type === "video" && credits.videoCredits <= 0) return false;
+    await db
+      .insert(callCredits)
+      .values({ userId, phoneCredits: type === "phone" ? -1 : 0, videoCredits: type === "video" ? -1 : 0 })
+      .onConflictDoUpdate({
+        target: callCredits.userId,
+        set: {
+          phoneCredits: type === "phone"
+            ? sql`GREATEST(${callCredits.phoneCredits} - 1, 0)`
+            : callCredits.phoneCredits,
+          videoCredits: type === "video"
+            ? sql`GREATEST(${callCredits.videoCredits} - 1, 0)`
+            : callCredits.videoCredits,
+          updatedAt: sql`now()`,
+        },
+      });
+    return true;
+  }
+
+  // ── Saved Wheel Profiles (local Drizzle DB) ──────────────────────────────────
+
+  async getSavedWheelProfile(userId: string): Promise<SavedWheelProfile | null> {
+    const rows = await db.select().from(savedWheelProfiles).where(eq(savedWheelProfiles.userId, userId)).limit(1);
+    if (!rows[0]) return null;
+    if (rows[0].expiresAt && rows[0].expiresAt < new Date()) {
+      await db.delete(savedWheelProfiles).where(eq(savedWheelProfiles.userId, userId));
+      return null;
+    }
+    return rows[0];
+  }
+
+  async saveWheelProfile(userId: string, savedProfileId: string): Promise<SavedWheelProfile> {
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+    const rows = await db
+      .insert(savedWheelProfiles)
+      .values({ userId, savedProfileId, expiresAt })
+      .onConflictDoUpdate({
+        target: savedWheelProfiles.userId,
+        set: { savedProfileId, savedAt: sql`now()`, expiresAt },
+      })
+      .returning();
+    return rows[0];
+  }
+
+  async deleteSavedWheelProfile(userId: string): Promise<void> {
+    await db.delete(savedWheelProfiles).where(eq(savedWheelProfiles.userId, userId));
+  }
+
+  // ── Discovery Undo (Supabase interactions) ──────────────────────────────────
+
+  async getLastClose(userId: string): Promise<{ interactionId: string; toUserId: string } | null> {
+    const { data, error } = await this.sb
+      .from("interactions")
+      .select("id, to_user_id")
+      .eq("from_user_id", userId)
+      .eq("type", "close")
+      .order("created_at", { ascending: false })
+      .limit(1);
+    if (error || !data || data.length === 0) return null;
+    return { interactionId: data[0].id as string, toUserId: data[0].to_user_id as string };
+  }
+
+  async deleteLastClose(userId: string, interactionId: string): Promise<boolean> {
+    const { error } = await this.sb
+      .from("interactions")
+      .delete()
+      .eq("id", interactionId)
+      .eq("from_user_id", userId);
+    return !error;
   }
 }
 

@@ -162,6 +162,26 @@ export const userElevates = pgTable("user_elevates", {
   index("idx_user_elevates_user").on(table.userId),
 ]);
 
+export const callCredits = pgTable("call_credits", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().unique(),
+  phoneCredits: integer("phone_credits").notNull().default(0),
+  videoCredits: integer("video_credits").notNull().default(0),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_call_credits_user").on(table.userId),
+]);
+
+export const savedWheelProfiles = pgTable("saved_wheel_profiles", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().unique(),
+  savedProfileId: varchar("saved_profile_id").notNull(),
+  savedAt: timestamp("saved_at").notNull().defaultNow(),
+  expiresAt: timestamp("expires_at"),
+}, (table) => [
+  index("idx_saved_wheel_user").on(table.userId),
+]);
+
 export const blockedContacts = pgTable("blocked_contacts", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   userId: varchar("user_id").notNull(),
@@ -176,6 +196,8 @@ export const blockedContacts = pgTable("blocked_contacts", {
 export type UserBenefit = typeof userBenefits.$inferSelect;
 export type UserElevate = typeof userElevates.$inferSelect;
 export type BlockedContact = typeof blockedContacts.$inferSelect;
+export type CallCredit = typeof callCredits.$inferSelect;
+export type SavedWheelProfile = typeof savedWheelProfiles.$inferSelect;
 
 export type Profile = typeof profiles.$inferSelect;
 export type InsertProfile = z.infer<typeof insertProfileSchema>;

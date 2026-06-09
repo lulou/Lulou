@@ -401,6 +401,33 @@ export default function Discover() {
     },
   });
 
+  const undoPass = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/discover/undo-pass", {});
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({})) as any;
+        throw new Error(d.message || "Failed to undo");
+      }
+      return res.json() as Promise<{ restoredProfileId: string }>;
+    },
+    onSuccess: (_data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/discover"] });
+      toast({ title: t("undo_pass_label"), description: t("undo_pass_success").replace("{name}", "them") });
+    },
+    onError: (err: any) => {
+      const msg = err?.message || "";
+      if (msg.includes("No undo credits")) {
+        toast({ title: t("undo_pass_no_credits"), variant: "destructive" });
+      } else if (msg.includes("No recent pass")) {
+        toast({ title: t("undo_pass_none"), variant: "destructive" });
+      } else {
+        toast({ title: msg || t("something_went_wrong"), variant: "destructive" });
+      }
+    },
+  });
+
+  const handleUndoPass = () => { undoPass.mutate(); };
+
   // Play the bubble-exit animation, then fire the interaction after it completes.
   // Mirrors the Intention Wheel's card-disperse timing (280 ms matches discoverCardExit).
   const triggerInteract = useCallback((type: "open" | "close") => {
@@ -677,6 +704,16 @@ export default function Discover() {
         data-testid="button-close"
       >
         <span role="img" aria-label="Close">🌙</span>
+      </button>
+
+      <button
+        className="fixed bottom-20 left-4 z-40 w-12 h-12 rounded-full border border-muted-foreground/20 bg-background/90 backdrop-blur-sm flex items-center justify-center text-lg shadow-lg transition-all active:scale-90 hover:border-muted-foreground/40 hover:shadow-xl disabled:opacity-40"
+        onClick={handleUndoPass}
+        disabled={undoPass.isPending || interact.isPending || isExiting}
+        title={t("undo_pass_label")}
+        data-testid="button-undo-pass"
+      >
+        <span role="img" aria-label="Undo">↩️</span>
       </button>
     </div>
   );
