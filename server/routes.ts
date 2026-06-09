@@ -1435,9 +1435,36 @@ export async function registerRoutes(
         callState: options.callState,
       });
 
+      // Capture the initiator before completeCall clears the session — used to
+      // ensure only the caller is charged (prevents double deduction).
+      const { data: priorMatchRow } = await supabaseAdmin
+        .from("matches")
+        .select("call_initiator_id")
+        .eq("id", matchId)
+        .single();
+      const priorInitiatorId: string | null = priorMatchRow?.call_initiator_id ?? null;
+
       const result = await serverStorage.completeCall(matchId, userId, options);
       if (!result) {
         return res.status(404).json({ message: "Match not found" });
+      }
+
+      // Consume one phone credit when:
+      //   1. This user was the call initiator (caller pays, not callee)
+      //   2. The call was counted (first complete wins — natural double-deduction guard)
+      //   3. The peer-to-peer connection lasted at least 30 seconds
+      if (
+        priorInitiatorId === userId &&
+        result.counted &&
+        typeof options.connectedDurationMs === "number" &&
+        options.connectedDurationMs >= 30_000
+      ) {
+        try {
+          const consumed = await serverStorage.consumeCallCredit(userId, "phone");
+          console.log("[CALL_COMPLETE] CREDIT_CONSUMED", { userId, matchId, consumed });
+        } catch (creditErr: any) {
+          console.error("[CALL_COMPLETE] CREDIT_CONSUME_ERROR", { userId, matchId, error: creditErr?.message });
+        }
       }
 
       broadcastCallEvent(matchId, {

@@ -577,6 +577,7 @@ function CallSchedulingCard({
   callStage,
   startCallPending,
   onStartCall,
+  phoneCredits,
 }: {
   matchId: string;
   matchName: string;
@@ -584,6 +585,7 @@ function CallSchedulingCard({
   callStage: number;
   startCallPending: boolean;
   onStartCall: () => void;
+  phoneCredits?: number;
 }) {
   const { t } = useLanguageContext();
   const { user } = useAuth();
@@ -634,7 +636,7 @@ function CallSchedulingCard({
   const scheduledTime = scheduleData?.proposedTime ? new Date(scheduleData.proposedTime) : null;
   const isReadyToStart = scheduleData?.type === "accept" && scheduledTime && scheduledTime.getTime() <= now + 5 * 60 * 1000;
   const callDurationKey = callStage === 0 ? "duration_10_min" : "duration_15_min";
-  const isVideoCall = callStage === 1; // Second call is video
+  const hasPhoneCredits = phoneCredits === undefined || phoneCredits > 0; // undefined = loading, treat as available
 
   const quickTimes = [
     { label: t("call_time_now"), value: new Date().toISOString() },
@@ -651,27 +653,28 @@ function CallSchedulingCard({
       <div className="p-4 border-t" data-testid={`call-schedule-ready-${matchId}`}>
         <Card className="p-4 text-center space-y-3 bg-green-50/60 dark:bg-green-950/20 border-green-200/50 dark:border-green-800/40">
           <div className="flex items-center justify-center gap-2">
-            {isVideoCall ? (
-              <Video className="w-5 h-5 text-green-600 dark:text-green-400" />
-            ) : (
-              <Phone className="w-5 h-5 text-green-600 dark:text-green-400" />
-            )}
+            <Phone className="w-5 h-5 text-green-600 dark:text-green-400" />
             <p className="font-semibold text-sm text-green-700 dark:text-green-400">
-              {isVideoCall ? t("its_time_to_see") : t("its_time_to_talk")}
+              {t("its_time_to_talk")}
             </p>
           </div>
           <p className="text-xs text-muted-foreground">
-            {isVideoCall
-              ? t("second_call_video_desc")
-              : t("call_ready_start")}
+            {t("call_ready_start")}
           </p>
-          <Button size="sm" onClick={onStartCall} disabled={startCallPending} className="bg-green-600 hover:bg-green-700 text-white" data-testid={`button-start-scheduled-call-${matchId}`}>
-            {isVideoCall ? (
-              <><Video className="w-4 h-4 mr-2" /> {t("start_video_call")}</>
-            ) : (
-              <><Phone className="w-4 h-4 mr-2" /> {callStage === 0 ? t("start_first_call") : t("start_second_call")}</>
-            )}
+          <Button
+            size="sm"
+            onClick={onStartCall}
+            disabled={startCallPending || !hasPhoneCredits}
+            className={hasPhoneCredits ? "bg-green-600 hover:bg-green-700 text-white" : "bg-muted text-muted-foreground"}
+            data-testid={`button-start-scheduled-call-${matchId}`}
+          >
+            <Phone className="w-4 h-4 mr-2" /> {callStage === 0 ? t("start_first_call") : t("start_second_call")}
           </Button>
+          {!hasPhoneCredits && (
+            <p className="text-xs text-muted-foreground" data-testid={`text-no-credits-${matchId}`}>
+              {t("need_phone_credits_msg")}
+            </p>
+          )}
         </Card>
       </div>
     );
@@ -736,13 +739,9 @@ function CallSchedulingCard({
       <div className="p-4 border-t" data-testid={`call-schedule-incoming-${matchId}`}>
         <Card className="p-4 space-y-3 bg-primary/5 border-primary/20">
           <div className="flex items-center gap-2">
-            {isVideoCall ? (
-              <Video className="w-4 h-4 text-primary shrink-0" />
-            ) : (
-              <Phone className="w-4 h-4 text-primary shrink-0" />
-            )}
+            <Phone className="w-4 h-4 text-primary shrink-0" />
             <p className="font-medium text-sm">
-              {t("wants_to_schedule").replace("{name}", matchName).replace("{type}", isVideoCall ? t("video_call_label") : `${t(callStage === 0 ? "first_label" : "second_label")} ${t("call_label")}`)}
+              {t("wants_to_schedule").replace("{name}", matchName).replace("{type}", `${t(callStage === 0 ? "first_label" : "second_label")} ${t("call_label")}`)}
             </p>
           </div>
           {scheduledTime && (
@@ -803,18 +802,12 @@ function CallSchedulingCard({
   return (
     <div className="p-4 border-t" data-testid={`call-schedule-initial-${matchId}`}>
       <Card className="p-4 space-y-3 bg-primary/5 border-primary/20">
-        {isVideoCall ? (
-          <Video className="w-5 h-5 text-primary mx-auto" />
-        ) : (
-          <Phone className="w-5 h-5 text-primary mx-auto" />
-        )}
+        <Phone className="w-5 h-5 text-primary mx-auto" />
         <p className="font-medium text-sm text-center">
-          {callStage === 0 ? t("ready_first_call") : t("ready_video_call")}
+          {callStage === 0 ? t("ready_first_call") : t("ready_second_call")}
         </p>
         <p className="text-xs text-muted-foreground text-center">
-          {isVideoCall
-            ? t("schedule_video_call_desc").replace("{duration}", t(callDurationKey))
-            : t("schedule_voice_call_desc").replace("{duration}", t(callDurationKey)).replace("{label}", t(callStage === 0 ? "first_label" : "second_label"))}
+          {t("schedule_voice_call_desc").replace("{duration}", t(callDurationKey)).replace("{label}", t(callStage === 0 ? "first_label" : "second_label"))}
         </p>
         {!showPicker ? (
           <div className="space-y-2">
@@ -1534,6 +1527,13 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
   });
   const hasElevate = !!(elevateStatus?.active || (elevateStatus?.elevateCredits ?? 0) > 0 || (elevateStatus?.superElevateCredits ?? 0) > 0);
 
+  const { data: callCreditsData } = useQuery<{ phoneCredits: number; videoCredits: number }>({
+    queryKey: ["/api/call-credits"],
+    enabled: expanded,
+    staleTime: 30_000,
+  });
+  const phoneCredits = callCreditsData?.phoneCredits;
+
   const activateExtension = useMutation({
     mutationFn: async () => {
       const res = await apiRequest("POST", "/api/benefits/activate", { type: "message_extension", matchId: match.id });
@@ -1935,11 +1935,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                     className="w-16 h-16 rounded-full flex items-center justify-center"
                     style={{ background: "hsl(350 45% 52% / 0.18)", border: "1.5px solid hsl(350 45% 52% / 0.3)" }}
                   >
-                    {callStage === 1 ? (
-                      <Video className="w-6 h-6 animate-pulse" style={{ color: "hsl(350 45% 72%)" }} />
-                    ) : (
-                      <Phone className="w-6 h-6 animate-pulse" style={{ color: "hsl(350 45% 72%)" }} />
-                    )}
+                    <Phone className="w-6 h-6 animate-pulse" style={{ color: "hsl(350 45% 72%)" }} />
                   </div>
                 </div>
                 <div className="text-center space-y-1">
@@ -1989,11 +1985,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                     className="w-16 h-16 rounded-full flex items-center justify-center"
                     style={{ background: "hsl(145 60% 35% / 0.2)", border: "1.5px solid hsl(145 60% 45% / 0.35)" }}
                   >
-                    {callStage === 1 ? (
-                      <Video className="w-6 h-6 animate-pulse" style={{ color: "hsl(145 60% 60%)" }} />
-                    ) : (
-                      <Phone className="w-6 h-6 animate-pulse" style={{ color: "hsl(145 60% 60%)" }} />
-                    )}
+                    <Phone className="w-6 h-6 animate-pulse" style={{ color: "hsl(145 60% 60%)" }} />
                   </div>
                 </div>
                 <div className="text-center space-y-1">
@@ -2173,8 +2165,9 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
               allMessages={allMessages}
               callStage={1}
               startCallPending={startCall.isPending}
+              phoneCredits={phoneCredits}
               onStartCall={() => {
-                console.log("[CALL_UI] CALL_REQUEST_STARTED", { matchId: match.id, callStage: 1, callType: "video_2", role: "caller" });
+                console.log("[CALL_UI] CALL_REQUEST_STARTED", { matchId: match.id, callStage: 1, callType: "voice_2", role: "caller" });
                 startCall.mutate();
               }}
             />
@@ -2369,6 +2362,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                   allMessages={allMessages}
                   callStage={0}
                   startCallPending={startCall.isPending}
+                  phoneCredits={phoneCredits}
                   onStartCall={() => {
                     console.log("[CALL_UI] CALL_REQUEST_STARTED", { matchId: match.id, callStage: 0, callType: "voice_1", role: "caller" });
                     startCall.mutate();

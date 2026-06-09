@@ -1,0 +1,62 @@
+Implement the call credit/chat icon fixes from the audit only.
+
+Do not work on Intention Wheel, Discovery, photos, language, email verification, profile fields, ringtone, payments UI design, or unrelated features.
+
+Fix these live issues:
+
+1. Second voice call incorrectly displays as video
+File: client/src/pages/matches.tsx
+
+Fix:
+- `callStage === 1` is the second voice call, not video.
+- Remove all logic that treats `callStage === 1` as video.
+- Replace Video icons/text/buttons for callStage 1 with Phone icons/text/buttons.
+- Fix lines around:
+ - CallSchedulingCard `isVideoCall`
+ - outgoing ring icon
+ - incoming ring icon
+ - scheduling badge
+ - ready-to-schedule card
+ - “Start Video Call” text
+
+2. Chat phone icon credit state
+File: client/src/pages/matches.tsx
+
+Add:
+- Query `/api/call-credits`
+- Show phone icon grey/disabled when `phoneCredits <= 0`
+- Show phone icon green/glowing/enabled when `phoneCredits > 0`
+- If no credits, tapping phone should open Extras/purchase flow or show clear “You need phone credits” message.
+- Do not show video icon in normal chat.
+
+3. Credit consumption after real connected call
+Files:
+- server/routes.ts
+- server/storage.ts if needed
+
+Fix:
+- `consumeCallCredit(userId, "phone" | "video")` exists but is never called.
+- Call credits must only be consumed after a call is connected and lasts at least 30 seconds.
+- Do NOT consume on button press.
+- Do NOT consume during ringing.
+- Do NOT consume on failed call.
+- Use `connectedDurationMs >= 30000` in the call-end route.
+- Deduct phone credit for normal calls.
+- Deduct video credit only for paid video-extra calls, not normal chat flow.
+- Prevent double deduction for the same call session.
+
+4. Keep call bundles
+Do not remove existing Extras bundles:
+- Starter Pack
+- Connection Pack
+- Premium Pack
+- Chemistry Pack
+- Deep Connection Pack
+
+5. Report
+After changes report:
+- exact files changed
+- exact lines changed
+- how phone credits are checked
+- how/when credits are consumed
+- how double deduction is prevented

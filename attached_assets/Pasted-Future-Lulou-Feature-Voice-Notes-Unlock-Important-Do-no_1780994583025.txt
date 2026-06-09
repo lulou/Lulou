@@ -1,0 +1,167 @@
+Future Lulou Feature – Voice Notes Unlock
+
+Important:
+Do not implement yet.
+
+Review this proposal and provide:
+
+files that would need changing
+database changes required
+Stripe changes required
+migration requirements
+rollout order
+risks
+Do not break:
+
+Chat
+Calls
+Matching
+Discovery
+Intention Wheel
+Existing Extras
+Existing Purchases
+
+Voice Notes Unlock
+
+Concept:
+
+Introduce a one-time purchase called:
+
+“Voice Notes Unlock”
+
+Purpose:
+
+Allow users to send voice notes in chat permanently after a single purchase.
+
+This is NOT:
+
+a subscription
+a recurring payment
+a pay-per-message feature
+The purchase is permanent for that account.
+
+
+User Experience
+
+Before purchase:
+
+Voice note icon is visible in chat.
+Icon is greyed out.
+User can tap it.
+User sees:
+“Unlock Voice Notes”
+After purchase:
+
+Voice note icon becomes active.
+User can record and send voice notes.
+Access is permanent.
+
+Conversation Experience
+
+Important:
+
+If one user has purchased Voice Notes Unlock:
+
+Both users in that chat should be able to exchange voice notes.
+
+Example:
+
+Tom purchases Voice Notes Unlock.
+
+Tom matches with Sarah.
+
+Tom can send voice notes.
+
+Sarah can also reply with voice notes in that conversation.
+
+Reason:
+
+Voice notes are a conversation tool.
+
+Restricting replies would create an awkward experience.
+
+The feature should unlock voice-note conversations rather than only one-way audio messages.
+
+
+Business Logic
+
+Voice Notes Unlock is:
+
+Account-level purchase
+Permanent entitlement
+Never expires
+Works with all current matches
+Works with all future matches
+Not tied to:
+
+individual matches
+individual chats
+monthly subscriptions
+
+Suggested Extras Placement
+
+Voice Notes Unlock should appear inside Lulou Extras.
+
+Example card:
+
+🎤 Voice Notes Unlock
+
+“Bring your personality to life with voice messages.”
+
+One-time purchase.
+Permanent access.
+
+
+Chat UI
+
+Before purchase:
+
+🎤 Grey microphone icon
+
+Tap:
+→ Opens purchase flow
+
+After purchase:
+
+🎤 Active microphone icon
+
+Tap:
+→ Record voice note
+
+
+Storage & Technical Requirements
+
+Review and recommend:
+
+audio storage solution
+upload limits
+maximum recording length
+waveform display
+playback controls
+message delivery
+moderation considerations
+Provide recommendations before implementation.
+
+
+Questions To Answer Before Build
+
+Should voice notes have a maximum duration?
+Recommendation requested.
+Should voice notes auto-delete?
+Recommendation requested.
+Should voice notes count toward any storage limits?
+Recommendation requested.
+What is the cleanest way to allow both users in a conversation to exchange voice notes when only one purchased the unlock?
+Should the unlock also be included in any future membership package?
+
+Before implementation provide:
+
+Files likely to change
+Database changes
+Stripe changes
+Migration requirements
+Rollout order
+Risks
+Recommended pricing
+Recommended voice-note duration limits
+Do not start implementation until the plan is reviewed.
