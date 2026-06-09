@@ -1,0 +1,133 @@
+Lulou – Complete Language System Audit & Fix
+
+Important:
+
+Do not implement blindly.
+
+First audit the current language system and report findings before making changes.
+
+Current issue:
+
+Users can select a language in Settings, but the app is still showing English text in multiple places.
+
+When a user changes language, I expect the entire Lulou experience to change into that language.
+
+A user should not see a mixture of English and their selected language.
+
+
+Goal
+
+Make language selection truly global.
+
+When a user selects a language:
+
+Every button
+Every label
+Every menu
+Every modal
+Every error
+Every toast
+Every onboarding step
+Every profile setting
+Every discovery action
+Every intention wheel screen
+Every match/chat screen
+Every call screen
+Every extras screen
+Every membership screen
+Every notification message
+must use the selected language.
+
+
+Audit Required
+
+Provide:
+
+Languages currently supported
+Percentage coverage for each language
+Files still containing hardcoded English text
+Components still bypassing the translation system
+Missing translation keys
+Duplicate translation keys
+Screens not connected to LanguageProvider
+Any fallbacks currently showing English
+
+Pages To Audit
+
+Login
+Signup
+Email Verification
+Onboarding
+Discovery
+Profile
+Profile Editing
+Matches
+Chat
+Calls
+Intention Wheel
+Settings
+Extras
+Membership
+Notifications
+Empty States
+Error Screens
+Toast Messages
+Admin/System Messages
+
+Translation Rules
+
+Translate:
+
+Buttons
+Labels
+Menus
+Validation
+Errors
+Status messages
+Tooltips
+Empty states
+Success messages
+Call UI
+Wheel UI
+Membership UI
+Extras UI
+Do NOT translate:
+
+User names
+User bios
+User-written answers
+User-written questions
+User-written conversation starters
+User chat messages
+User-generated content
+
+Requirements
+
+Language changes should apply immediately.
+No logout required.
+No refresh required.
+Persist language selection.
+Safe fallback if a translation is missing.
+Never display “undefined”.
+Never display raw translation keys.
+
+Deliverables
+
+Before implementation provide:
+
+Total number of translation keys
+Missing keys by language
+Files requiring changes
+Components requiring changes
+Estimated completion percentage of current translation system
+Then implement:
+
+100% language coverage across the entire app
+consistent translations
+no mixed-language screens
+Finally provide:
+
+files changed
+translation keys added
+languages completed
+remaining untranslated areas (if any)
