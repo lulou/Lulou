@@ -25,14 +25,16 @@ const STEP_KEYS = ["ob_step_basics","ob_step_photos","ob_step_starters","ob_step
 
 function RadiusLabel({ locationRadius }: { locationRadius: number }) {
   const [units] = useUnits();
-  return <Label>Search Radius: {formatDistance(locationRadius, units)}</Label>;
+  const { t } = useLanguageContext();
+  return <Label>{t("search_radius")}: {formatDistance(locationRadius, units)}</Label>;
 }
 
 function RadiusDescription({ locationRadius }: { locationRadius: number }) {
   const [units] = useUnits();
+  const { t } = useLanguageContext();
   return (
     <p className="text-xs text-muted-foreground">
-      People within {formatDistance(locationRadius, units)} of your location
+      {t("people_within_radius").replace("{distance}", formatDistance(locationRadius, units))}
     </p>
   );
 }
@@ -704,7 +706,7 @@ export default function Onboarding({ existingProfile = null, userEmail = "" }: O
                         className="gap-1.5"
                         data-testid="button-add-custom-question"
                       >
-                        <Plus className="w-3.5 h-3.5" /> Add question
+                        <Plus className="w-3.5 h-3.5" /> {t("add_question_label")}
                       </Button>
                     </Card>
                   )}
@@ -730,11 +732,11 @@ export default function Onboarding({ existingProfile = null, userEmail = "" }: O
                     </Badge>
                   ))}
                   <p className="w-full text-xs text-muted-foreground mt-2">
-                    {formData.signals.length}/5 selected
+                    {t("n_of_5_selected").replace("{n}", String(formData.signals.length))}
                   </p>
                 </div>
                 <div className="space-y-2 pt-2 border-t">
-                  <p className="text-sm font-medium">Your own trait <span className="text-muted-foreground text-xs">(optional, up to 3)</span></p>
+                  <p className="text-sm font-medium">{t("your_own_trait_label")} <span className="text-muted-foreground text-xs">{t("optional_up_to_3")}</span></p>
                   <div className="flex flex-wrap gap-2">
                     {formData.customSignals.map((s, i) => (
                       <Badge key={i} variant="secondary" className="gap-1.5 text-sm py-1.5 px-3">
@@ -818,11 +820,11 @@ export default function Onboarding({ existingProfile = null, userEmail = "" }: O
                     </Badge>
                   ))}
                   <p className="w-full text-xs text-muted-foreground mt-2">
-                    {formData.greenFlags.length}/4 selected (minimum 3)
+                    {t("n_of_4_selected_min3").replace("{n}", String(formData.greenFlags.length))}
                   </p>
                 </div>
                 <div className="space-y-2 pt-2 border-t">
-                  <p className="text-sm font-medium">Your own green flag <span className="text-muted-foreground text-xs">(optional, up to 3)</span></p>
+                  <p className="text-sm font-medium">{t("your_own_green_flag_label")} <span className="text-muted-foreground text-xs">{t("optional_up_to_3")}</span></p>
                   <div className="flex flex-wrap gap-2">
                     {formData.customGreenFlags.map((f, i) => (
                       <Badge key={i} variant="outline" className="gap-1.5 text-sm py-1.5 px-3">

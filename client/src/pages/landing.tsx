@@ -749,9 +749,9 @@ export default function Landing() {
         <div className="w-full max-w-sm space-y-3 text-center">
           <h1 className="font-serif text-2xl font-bold">{t("landing_check_your_email")}</h1>
           <p className="text-muted-foreground text-sm leading-relaxed">
-            We sent a confirmation link to{" "}
-            <strong className="text-foreground">{verificationEmail}</strong>.
-            Click it to activate your account, then sign in here.
+            {t("conf_link_sent_to")}{" "}
+            <strong className="text-foreground">{verificationEmail}</strong>.{" "}
+            {t("conf_link_click_to_activate")}
           </p>
         </div>
         <div className="w-full max-w-sm space-y-3">
@@ -1007,7 +1007,7 @@ export default function Landing() {
                       </p>
                       {/* Classified message — friendly, no raw technical strings */}
                       <p className="text-sm leading-snug break-words" data-testid="text-auth-error-detail">
-                        {authError.message}
+                        {authError.kind === "auth" ? t("email_not_confirmed_msg") : authError.message}
                       </p>
                       {/* Try Again button — only for network/timeout failures.
                           Uses formRef.requestSubmit() so it re-runs the full

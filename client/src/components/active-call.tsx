@@ -994,14 +994,14 @@ export function ActiveCallOverlay({
             {t("connection_failed_desc")}
           </p>
           <p className="text-green-400 text-xs font-mono mt-1" data-testid="text-failure-reason">
-            Failure reason: {failureReason || "detecting…"}
+            {t("failure_reason_label")}{failureReason || t("detecting_label")}
           </p>
         </div>
         <button
           className="w-16 h-16 rounded-full flex items-center justify-center bg-red-600 active:scale-95 transition-all shadow-lg"
           onClick={() => finishCall("connection_failed")}
           data-testid="button-end-call-failed"
-          aria-label="End call"
+          aria-label={t("call_end_label")}
         >
           <PhoneOff className="w-7 h-7 text-white" />
         </button>
@@ -1037,7 +1037,7 @@ export function ActiveCallOverlay({
           className="w-16 h-16 rounded-full flex items-center justify-center bg-red-600 active:scale-95 transition-all shadow-lg"
           onClick={() => finishCall("permission_denied")}
           data-testid="button-end-call-permission"
-          aria-label="End call"
+          aria-label={t("call_end_label")}
         >
           <PhoneOff className="w-7 h-7 text-white" />
         </button>
@@ -1357,7 +1357,7 @@ export function ActiveCallOverlay({
             }}
             onClick={() => finishCall(isRinging && isCaller ? "caller_cancelled" : "user_hangup")}
             data-testid="button-end-call"
-            aria-label={isRinging && isCaller ? "Cancel call" : "End call"}
+            aria-label={isRinging && isCaller ? t("cancel_call_btn") : t("call_end_label")}
           >
             <PhoneOff className="w-8 h-8 text-white" />
           </button>
