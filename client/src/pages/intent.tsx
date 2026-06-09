@@ -865,7 +865,7 @@ export default function IntentPage() {
       <div className="flex-1 flex items-center justify-center">
         <div className="flex flex-col items-center gap-3">
           <Loader2 className="w-8 h-8 text-primary animate-spin" />
-          <p className="text-sm text-muted-foreground">Loading...</p>
+          <p className="text-sm text-muted-foreground">{t("loading_label")}</p>
         </div>
       </div>
     );
@@ -876,7 +876,7 @@ export default function IntentPage() {
       <div className="flex-1 flex items-center justify-center p-6">
         <div className="text-center space-y-2">
           <LulouFlowerIcon className="w-10 h-10 text-muted-foreground mx-auto opacity-60" />
-          <p className="text-muted-foreground text-sm">Unable to load profiles right now</p>
+          <p className="text-muted-foreground text-sm">{t("unable_to_load_profiles")}</p>
         </div>
       </div>
     );
@@ -887,7 +887,7 @@ export default function IntentPage() {
       <div className="flex-1 flex items-center justify-center p-6">
         <div className="text-center space-y-2">
           <LulouFlowerIcon className="w-10 h-10 text-primary mx-auto opacity-60" />
-          <p className="text-muted-foreground text-sm">No profiles to show yet</p>
+          <p className="text-muted-foreground text-sm">{t("no_profiles_yet")}</p>
         </div>
       </div>
     );
@@ -968,7 +968,7 @@ export default function IntentPage() {
       <div className="px-5 pt-5 pb-1">
         <div className="flex items-center justify-between gap-4 flex-wrap">
           <h1 className="font-serif text-2xl font-semibold tracking-tight" data-testid="text-intent-title">
-            Intention Wheel
+            {t("intention_wheel_title")}
           </h1>
           <div className="flex items-center gap-3">
             <button
@@ -989,7 +989,7 @@ export default function IntentPage() {
             <div data-testid="streak-indicator">
               {streakComplete ? (
                 <Badge variant="secondary" className="text-xs" data-testid="badge-streak-complete">
-                  <Star className="w-3 h-3 mr-1" /> Spin earned
+                  <Star className="w-3 h-3 mr-1" /> {t("spin_earned_label")}
                 </Badge>
               ) : (
                 <div className="flex items-center gap-1.5">

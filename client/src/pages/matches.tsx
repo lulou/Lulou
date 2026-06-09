@@ -526,6 +526,7 @@ function TimePickerInline({
   onCancel: () => void;
   confirmLabel?: string;
 }) {
+  const { t } = useLanguageContext();
   return (
     <div className="space-y-2 pt-1">
       {quickTimes.map(qt => (
@@ -538,7 +539,7 @@ function TimePickerInline({
         </button>
       ))}
       <div className="flex items-center gap-1.5 pt-0.5">
-        <span className="text-xs text-muted-foreground shrink-0">Pick a time:</span>
+        <span className="text-xs text-muted-foreground shrink-0">{t("pick_a_time_label")}</span>
         <Input
           type="datetime-local"
           min={new Date().toISOString().slice(0, 16)}
@@ -554,7 +555,7 @@ function TimePickerInline({
           {confirmLabel}
         </Button>
         <Button size="sm" variant="outline" onClick={onCancel} className="flex-1" data-testid="button-cancel-time">
-          Cancel
+          {t("cancel_btn")}
         </Button>
       </div>
     </div>
@@ -1445,7 +1446,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/matches"], exact: true });
-      toast({ title: t("connection_removed_title"), description: `${match.profile.firstName} has been removed from your connections.` });
+      toast({ title: t("connection_removed_title"), description: t("connection_removed_desc").replace("{name}", match.profile.firstName) });
     },
     onError: (error: Error) => {
       toast({ title: "Error", description: error.message, variant: "destructive" });
@@ -2107,7 +2108,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
               <div>
                 <div className="px-4 pt-3 pb-1">
                   <button onClick={() => setFinalChoice(null)} className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors" data-testid="button-back-to-final-options">
-                    <ChevronLeft className="w-3 h-3" /> Back
+                    <ChevronLeft className="w-3 h-3" /> {t("back_label")}
                   </button>
                 </div>
                 {matchDetail ? (
@@ -2120,7 +2121,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
               <div className="p-4 border-t" data-testid={`final-end-confirm-${match.id}`}>
                 <div className="rounded-2xl border border-destructive/15 bg-destructive/5 p-4 space-y-3">
                   <button onClick={() => setFinalChoice(null)} className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors">
-                    <ChevronLeft className="w-3 h-3" /> Back
+                    <ChevronLeft className="w-3 h-3" /> {t("back_label")}
                   </button>
                   <div className="text-center space-y-1">
                     <p className="font-semibold text-sm">{t("end_conversation_confirm")}</p>
@@ -2454,7 +2455,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
               <div>
                 <div className="px-4 pt-3 pb-1">
                   <button onClick={() => setNextStepChoice(null)} className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors" data-testid="button-back-to-next-step">
-                    <ChevronLeft className="w-3 h-3" /> Back
+                    <ChevronLeft className="w-3 h-3" /> {t("back_label")}
                   </button>
                 </div>
                 <CallSchedulingCard
@@ -2473,7 +2474,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
               <div className="p-4 border-t" data-testid={`next-step-end-confirm-${match.id}`}>
                 <div className="rounded-2xl border border-destructive/15 bg-destructive/5 p-4 space-y-3">
                   <button onClick={() => setNextStepChoice(null)} className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors">
-                    <ChevronLeft className="w-3 h-3" /> Back
+                    <ChevronLeft className="w-3 h-3" /> {t("back_label")}
                   </button>
                   <div className="text-center space-y-1">
                     <p className="font-semibold text-sm">{t("end_this_match_confirm")}</p>
@@ -2897,9 +2898,9 @@ export default function Matches() {
           <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center mx-auto">
             <LulouFlowerIcon className="w-8 h-8 text-primary" />
           </div>
-          <h2 className="font-serif text-2xl font-bold" data-testid="text-no-matches">No connections yet</h2>
+          <h2 className="font-serif text-2xl font-bold" data-testid="text-no-matches">{t("no_connections_yet")}</h2>
           <p className="text-muted-foreground text-sm">
-            When someone sends you a message through the Intention Wheel, or you match on Discover, you'll see them here.
+            {t("wheel_or_discover_empty_desc")}
           </p>
         </div>
       </div>
@@ -2929,16 +2930,16 @@ export default function Matches() {
       <div className="p-6 space-y-6 max-w-lg mx-auto w-full">
       <div className="space-y-1">
         <div className="flex items-center justify-between gap-2 flex-wrap">
-          <h1 className="font-serif text-2xl font-bold" data-testid="text-matches-title">Your Connections</h1>
+          <h1 className="font-serif text-2xl font-bold" data-testid="text-matches-title">{t("your_connections_title")}</h1>
           <Badge variant={atLimit ? "destructive" : "secondary"} className="text-xs" data-testid="badge-connection-count">
             {connectionCount}/{MAX_CONNECTIONS}
           </Badge>
         </div>
         <p className="text-sm text-muted-foreground">
           {atLimit && t("connection_limit_reached")}
-          {!atLimit && incomingRequests.length > 0 && `${incomingRequests.length} pending ${incomingRequests.length === 1 ? "request" : "requests"}`}
+          {!atLimit && incomingRequests.length > 0 && (incomingRequests.length === 1 ? t("n_pending_request").replace("{n}", "1") : t("n_pending_requests").replace("{n}", String(incomingRequests.length)))}
           {!atLimit && incomingRequests.length > 0 && matches && matches.length > 0 && " · "}
-          {!atLimit && matches && matches.length > 0 && `${matches.length} ${matches.length === 1 ? "connection" : "connections"}`}
+          {!atLimit && matches && matches.length > 0 && (matches.length === 1 ? t("n_connection_one").replace("{n}", "1") : t("n_connections_many").replace("{n}", String(matches.length)))}
         </p>
       </div>
 
@@ -2962,11 +2963,11 @@ export default function Matches() {
         <div className="space-y-3" data-testid="section-incoming-requests">
           <div className="flex items-center gap-2">
             <Sparkles className="w-4 h-4 text-primary" />
-            <h2 className="font-semibold text-sm">Incoming Requests</h2>
+            <h2 className="font-semibold text-sm">{t("incoming_requests_title")}</h2>
             <Badge variant="secondary" className="text-xs">{incomingRequests.length}</Badge>
           </div>
           <p className="text-xs text-muted-foreground">
-            These people found you through the Intention Wheel and sent you a message. Accept to start a conversation.
+            {t("incoming_requests_desc")}
           </p>
           {incomingRequests.map(req => (
             <SpinRequestCard key={req.id} request={req} type="incoming" />
@@ -2978,7 +2979,7 @@ export default function Matches() {
         <div className="space-y-3" data-testid="section-outgoing-requests">
           <div className="flex items-center gap-2">
             <Send className="w-4 h-4 text-muted-foreground" />
-            <h2 className="font-semibold text-sm text-muted-foreground">Sent Requests</h2>
+            <h2 className="font-semibold text-sm text-muted-foreground">{t("sent_requests_title")}</h2>
             <Badge variant="outline" className="text-xs">{outgoingPending.length}</Badge>
           </div>
           {outgoingPending.map(req => (
@@ -2995,7 +2996,7 @@ export default function Matches() {
               onClick={() => handleTabChange("new")}
               data-testid="tab-new-connections"
             >
-              New Connections
+              {t("new_connections_tab")}
               {newConnections.length > 0 && (
                 <Badge variant="secondary" className="text-xs px-1.5 h-4">{newConnections.length}</Badge>
               )}
@@ -3005,7 +3006,7 @@ export default function Matches() {
               onClick={() => handleTabChange("active")}
               data-testid="tab-active-chats"
             >
-              Active Chats
+              {t("active_chats_tab")}
               {totalUnread > 0 && (
                 <Badge variant="destructive" className="text-xs px-1.5 h-4">{totalUnread}</Badge>
               )}
@@ -3036,7 +3037,7 @@ export default function Matches() {
             <div className="space-y-2" data-testid="tab-panel-active">
               {activeChats.length === 0 ? (
                 <p className="text-sm text-muted-foreground text-center py-6">
-                  No active chats yet. Open a new connection to start talking.
+                  {t("no_active_chats_yet")}
                 </p>
               ) : (
                 activeChats.slice(0, visibleCount).map(match => (
