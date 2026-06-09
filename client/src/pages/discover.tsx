@@ -418,7 +418,9 @@ export default function Discover() {
     },
     onError: (err: any) => {
       const msg = err?.message || "";
-      if (msg.includes("No undo credits")) {
+      if (msg.includes("Free daily undo already used")) {
+        toast({ title: t("undo_daily_used"), variant: "destructive" });
+      } else if (msg.includes("No undo credits")) {
         toast({ title: t("undo_pass_no_credits"), variant: "destructive" });
       } else if (msg.includes("No recent pass")) {
         toast({ title: t("undo_pass_none"), variant: "destructive" });

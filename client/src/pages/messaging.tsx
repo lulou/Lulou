@@ -640,7 +640,7 @@ export default function Messaging() {
     : callStage === 2
     ? { icon: Phone, title: t("call_prompt_stage2_title"), desc: t("call_prompt_stage2_desc"), button: t("view_on_connections_btn") }
     : callStage === 3
-    ? { icon: Video, title: t("ready_to_see_each_other"), desc: t("face_call_desc"), button: t("view_on_connections_btn") }
+    ? { icon: Phone, title: t("call_prompt_stage2_title"), desc: t("call_prompt_stage2_desc"), button: t("view_on_connections_btn") }
     : { icon: Check, title: t("all_calls_completed"), desc: t("ready_to_meet_real"), button: "" };
 
   // shellProfile is always non-null here (guaranteed by the guard above)
@@ -810,11 +810,7 @@ export default function Messaging() {
                 <callPrompt.icon className="w-6 h-6 text-primary mx-auto" />
                 <p className="font-medium text-sm">{callPrompt.title}</p>
                 <p className="text-xs text-muted-foreground">{callPrompt.desc}</p>
-                {callStage === 3 ? (
-                  <Button size="sm" onClick={() => navigate("/matches")} data-testid="button-go-to-connections">
-                    <Video className="w-4 h-4 mr-2" /> {t("go_to_connections_btn")}
-                  </Button>
-                ) : callPrompt.button ? (
+                {callPrompt.button ? (
                   <Button size="sm" onClick={() => navigate("/matches")} data-testid="button-call-prompt">
                     <Phone className="w-4 h-4 mr-2" /> {callPrompt.button}
                   </Button>

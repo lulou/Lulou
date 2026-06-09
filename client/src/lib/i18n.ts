@@ -783,6 +783,7 @@ export const TRANSLATIONS = {
     extras_video_call_desc:       "Unlock a face-to-face video call (10 minutes)",
     undo_pass_label:              "Undo Last Pass",
     undo_pass_no_credits:         "No undo credits — buy from Lulou Extras.",
+    undo_daily_used:              "Free undo used today — get credits from Lulou Extras.",
     undo_pass_none:               "Nothing to undo.",
     undo_pass_success:            "Pass undone — {name} is back!",
     save_for_later_label:         "Save for later",

@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback, useMemo, memo, Fragment, type ReactNode } from "react";
+import { useLocation } from "wouter";
 import { useLanguageContext } from "@/contexts/language-context";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card } from "@/components/ui/card";
@@ -1069,6 +1070,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
   const { user } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const [, navigate] = useLocation();
   const isActive = useTabActive();
   const [message, setMessage] = useState("");
   const [showProfilePanel, setShowProfilePanel] = useState(false);
@@ -1812,6 +1814,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                   toast({ title: t("credits_ready_header"), description: t("credits_ready_body") });
                 } else {
                   toast({ title: t("need_credits_header"), description: t("need_phone_credits_msg") });
+                  navigate("/settings");
                 }
               }}
               className="w-7 h-7 flex items-center justify-center rounded-full transition-all active:scale-95"

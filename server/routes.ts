@@ -1586,12 +1586,29 @@ export async function registerRoutes(
       const storage = getStorage(req);
       const userId = req.user.id;
 
-      // Check that user has an undo_close benefit
-      const [benefitRow] = await db.select().from(userBenefits)
-        .where(and(eq(userBenefits.userId, userId), eq(userBenefits.type, "undo_close")))
+      // One free undo per user per calendar day (UTC).
+      // Tracked via a "daily_undo_used" row in user_benefits (createdAt = when used).
+      const todayUtc = new Date();
+      todayUtc.setUTCHours(0, 0, 0, 0);
+
+      const [dailyRow] = await db.select().from(userBenefits)
+        .where(and(eq(userBenefits.userId, userId), eq(userBenefits.type, "daily_undo_used")))
         .limit(1);
-      if (!benefitRow) {
-        return res.status(402).json({ message: "No undo credits available. Purchase from Lulou Extras." });
+
+      const usedFreeToday = !!(dailyRow?.createdAt && dailyRow.createdAt >= todayUtc);
+      let usePaidCredit = false;
+      let paidBenefitId: string | null = null;
+
+      if (usedFreeToday) {
+        // Free undo already used today — fall back to paid credits
+        const [benefitRow] = await db.select().from(userBenefits)
+          .where(and(eq(userBenefits.userId, userId), eq(userBenefits.type, "undo_close")))
+          .limit(1);
+        if (!benefitRow) {
+          return res.status(402).json({ message: "Free daily undo already used. Purchase undo credits from Lulou Extras." });
+        }
+        usePaidCredit = true;
+        paidBenefitId = benefitRow.id;
       }
 
       const lastClose = await storage.getLastClose(userId);
@@ -1604,8 +1621,14 @@ export async function registerRoutes(
         return res.status(500).json({ message: "Failed to undo pass." });
       }
 
-      // Consume the undo_close benefit
-      await db.delete(userBenefits).where(eq(userBenefits.id, benefitRow.id));
+      // Consume the appropriate credit
+      if (usePaidCredit && paidBenefitId) {
+        await db.delete(userBenefits).where(eq(userBenefits.id, paidBenefitId));
+      } else {
+        // Mark free daily undo as used (replace any old record for this user)
+        await db.delete(userBenefits).where(and(eq(userBenefits.userId, userId), eq(userBenefits.type, "daily_undo_used")));
+        await db.insert(userBenefits).values({ userId, type: "daily_undo_used" });
+      }
 
       res.json({ success: true, restoredProfileId: lastClose.toUserId });
     } catch (err: any) {
