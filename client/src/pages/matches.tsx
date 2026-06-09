@@ -496,6 +496,14 @@ function ReadyToMeetInline({ detail, matchId, profileName }: { detail: MatchDeta
 }
 
 const SCHEDULE_PREFIX = "__SCHEDULE__:";
+const PHONE_PREFIX = "__PHONE__:";
+
+function renderMessageContent(content: string, t: (k: any) => string): string {
+  if (content.startsWith(PHONE_PREFIX)) {
+    return `${t("my_number_is")} ${content.slice(PHONE_PREFIX.length)}`;
+  }
+  return content;
+}
 
 function parseScheduleData(msg: Message): { type: string; proposedBy: string; proposedTime: string; stage: number } | null {
   if (!msg.content.startsWith(SCHEDULE_PREFIX)) return null;
@@ -1892,8 +1900,8 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
             )}
             {!matchLoading && !matchError && allMessages.length === 0 && (
               <div className="text-center py-6 space-y-2">
-                <p className="text-muted-foreground text-sm">Start of your conversation</p>
-                <p className="text-xs text-muted-foreground">You each have {MAX_MESSAGES_PER_USER} messages. Make them count.</p>
+                <p className="text-muted-foreground text-sm">{t("chat_start_label")}</p>
+                <p className="text-xs text-muted-foreground">{t("initial_messages_info").replace("{n}", String(MAX_MESSAGES_PER_USER))}</p>
               </div>
             )}
             {guidanceByIndex.visibleMsgs.map((msg, i) => {
@@ -1912,7 +1920,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                         onClick={() => handleMessageTap(msg)}
                         data-testid={`message-${msg.id}`}
                       >
-                        <p className="leading-relaxed">{msg.content}</p>
+                        <p className="leading-relaxed">{renderMessageContent(msg.content, t)}</p>
                         <p className={`text-[10px] mt-1.5 leading-none opacity-60 ${isMe ? "text-primary-foreground" : "text-muted-foreground"}`} data-testid={`timestamp-${msg.id}`}>
                           {formatTimestamp(msg.createdAt)}
                         </p>
@@ -2692,7 +2700,7 @@ const MatchCard = memo(function MatchCard({ match, unreadCount, userId, onOpen }
           </h3>
           <p className="text-xs text-muted-foreground truncate mt-0.5" data-testid={`text-last-message-${match.id}`}>
             {match.lastMessage
-              ? (match.lastMessage.senderId === userId ? t("you_label") : "") + match.lastMessage.content
+              ? (match.lastMessage.senderId === userId ? t("you_label") : "") + renderMessageContent(match.lastMessage.content, t)
               : match.profile.datingIntent || t("start_conversation")}
           </p>
         </div>

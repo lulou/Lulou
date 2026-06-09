@@ -1908,7 +1908,7 @@ export async function registerRoutes(
       await storage.createMessage({
         matchId,
         senderId: userId,
-        content: `My number is ${profile.phoneNumber}`,
+        content: `__PHONE__:${profile.phoneNumber}`,
       });
 
       res.json(match);

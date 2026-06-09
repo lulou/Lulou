@@ -586,6 +586,11 @@ export const TRANSLATIONS = {
     no_new_connections:           "No new connections yet.",
     cancel_btn:                   "Cancel",
     confirm_time_label:           "Confirm time",
+    // matches: phone-number exchange system message
+    my_number_is:                 "My number is",
+    // matches: empty-state strings
+    chat_start_label:             "Start of your conversation",
+    initial_messages_info:        "You each have {n} messages. Make them count.",
     // matches: guidance messages in chat
     stage0_approaching:           "Looks like you two are getting along well. Your first call stage is coming up soon — start thinking about when you'd like to talk.",
     stage0_limit:                 "You've reached your call stage. When you're ready, start your first call.",
@@ -1225,6 +1230,9 @@ export const TRANSLATIONS = {
     cancel_btn:                   "Cancelar",
     keep_btn:                     "Conservar",
     end_conversation_btn:         "Terminar conversación",
+    my_number_is:                 "Mi número es",
+    chat_start_label:             "Inicio de tu conversación",
+    initial_messages_info:        "Cada uno tiene {n} mensajes. Úsalos bien.",
   },
   fr: {
     discover:     "Découvrir",
@@ -1446,6 +1454,9 @@ export const TRANSLATIONS = {
     cancel_btn:                   "Annuler",
     keep_btn:                     "Garder",
     end_conversation_btn:         "Terminer la conversation",
+    my_number_is:                 "Mon numéro est",
+    chat_start_label:             "Début de votre conversation",
+    initial_messages_info:        "Vous avez chacun {n} messages. Faites-les compter.",
   },
   de: {
     discover:     "Entdecken",
@@ -1667,6 +1678,9 @@ export const TRANSLATIONS = {
     cancel_btn:                   "Abbrechen",
     keep_btn:                     "Behalten",
     end_conversation_btn:         "Gespräch beenden",
+    my_number_is:                 "Meine Nummer ist",
+    chat_start_label:             "Beginn deiner Unterhaltung",
+    initial_messages_info:        "Ihr habt jeweils {n} Nachrichten. Macht sie zählen.",
   },
   pt: {
     discover:     "Descobrir",
@@ -1888,6 +1902,9 @@ export const TRANSLATIONS = {
     cancel_btn:                   "Cancelar",
     keep_btn:                     "Manter",
     end_conversation_btn:         "Encerrar conversa",
+    my_number_is:                 "Meu número é",
+    chat_start_label:             "Início da sua conversa",
+    initial_messages_info:        "Vocês têm {n} mensagens cada. Aproveitem-nas.",
   },
   it: {
     discover:     "Scopri",
@@ -2109,6 +2126,9 @@ export const TRANSLATIONS = {
     cancel_btn:                   "Annulla",
     keep_btn:                     "Mantieni",
     end_conversation_btn:         "Termina conversazione",
+    my_number_is:                 "Il mio numero è",
+    chat_start_label:             "Inizio della tua conversazione",
+    initial_messages_info:        "Avete {n} messaggi ciascuno. Usateli bene.",
   },
   nl: {
     discover:     "Ontdekken",
@@ -2308,6 +2328,9 @@ export const TRANSLATIONS = {
     call_camera_hide:      "Camera verbergen",
     call_camera_show:      "Camera inschakelen",
     call_end_label:        "Gesprek beëindigen",
+    my_number_is:                 "Mijn nummer is",
+    chat_start_label:             "Begin van je gesprek",
+    initial_messages_info:        "Jullie hebben elk {n} berichten. Maak ze de moeite waard.",
   },
   pl: {
     discover:     "Odkryj",
@@ -2507,6 +2530,9 @@ export const TRANSLATIONS = {
     call_camera_hide:      "Ukryj kamerę",
     call_camera_show:      "Włącz kamerę",
     call_end_label:        "Zakończ połączenie",
+    my_number_is:                 "Mój numer to",
+    chat_start_label:             "Początek rozmowy",
+    initial_messages_info:        "Macie po {n} wiadomości. Niech się liczą.",
   },
   ru: {
     discover:     "Открыть",
@@ -2706,6 +2732,9 @@ export const TRANSLATIONS = {
     call_camera_hide:      "Скрыть камеру",
     call_camera_show:      "Включить камеру",
     call_end_label:        "Завершить звонок",
+    my_number_is:                 "Мой номер",
+    chat_start_label:             "Начало вашей беседы",
+    initial_messages_info:        "У каждого из вас по {n} сообщений. Используйте их с умом.",
   },
   ar: {
     discover:     "اكتشف",
@@ -2905,6 +2934,9 @@ export const TRANSLATIONS = {
     call_camera_hide:      "إخفاء الكاميرا",
     call_camera_show:      "تفعيل الكاميرا",
     call_end_label:        "إنهاء المكالمة",
+    my_number_is:                 "رقمي هو",
+    chat_start_label:             "بداية محادثتك",
+    initial_messages_info:        "لدى كل منكما {n} رسائل. اجعلوها تستحق.",
   },
   "zh-CN": {
     discover:     "发现",
@@ -3104,6 +3136,9 @@ export const TRANSLATIONS = {
     call_camera_hide:      "关闭摄像头",
     call_camera_show:      "开启摄像头",
     call_end_label:        "结束通话",
+    my_number_is:                 "我的号码是",
+    chat_start_label:             "对话开始",
+    initial_messages_info:        "你们各有 {n} 条消息。好好利用它们。",
   },
   "zh-TW": {
     discover:     "探索",
@@ -3303,6 +3338,9 @@ export const TRANSLATIONS = {
     call_camera_hide:      "關閉鏡頭",
     call_camera_show:      "開啟鏡頭",
     call_end_label:        "結束通話",
+    my_number_is:                 "我的號碼是",
+    chat_start_label:             "對話開始",
+    initial_messages_info:        "你們各有 {n} 則訊息。好好把握。",
   },
   ja: {
     discover:     "発見",
@@ -3502,6 +3540,9 @@ export const TRANSLATIONS = {
     call_camera_hide:      "カメラ非表示",
     call_camera_show:      "カメラオン",
     call_end_label:        "通話終了",
+    my_number_is:                 "私の番号は",
+    chat_start_label:             "会話の始まり",
+    initial_messages_info:        "それぞれ {n} 件のメッセージがあります。大切に使いましょう。",
   },
   ko: {
     discover:     "발견",
@@ -3701,6 +3742,9 @@ export const TRANSLATIONS = {
     call_camera_hide:      "카메라 숨기기",
     call_camera_show:      "카메라 켜기",
     call_end_label:        "통화 종료",
+    my_number_is:                 "제 번호는",
+    chat_start_label:             "대화의 시작",
+    initial_messages_info:        "각각 {n}개의 메시지가 있습니다. 소중히 사용하세요.",
   },
   hi: {
     discover:     "खोजें",
@@ -3900,6 +3944,9 @@ export const TRANSLATIONS = {
     call_camera_hide:      "कैमरा छुपाएं",
     call_camera_show:      "कैमरा चालू करें",
     call_end_label:        "कॉल समाप्त करें",
+    my_number_is:                 "मेरा नंबर है",
+    chat_start_label:             "आपकी बातचीत की शुरुआत",
+    initial_messages_info:        "आप दोनों के पास {n} संदेश हैं। इन्हें सार्थक बनाएं।",
   },
   sw: {
     discover:     "Gundua",
@@ -4099,6 +4146,9 @@ export const TRANSLATIONS = {
     call_camera_hide:      "Ficha kamera",
     call_camera_show:      "Washa kamera",
     call_end_label:        "Maliza simu",
+    my_number_is:                 "Nambari yangu ni",
+    chat_start_label:             "Mwanzo wa mazungumzo yako",
+    initial_messages_info:        "Kila mmoja wenu ana ujumbe {n}. Fanyeni kuwa na maana.",
   },
 } as const;
 
