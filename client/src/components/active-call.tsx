@@ -989,10 +989,9 @@ export function ActiveCallOverlay({
       >
         <WifiOff className="w-14 h-14 text-red-400" />
         <div className="text-center space-y-2">
-          <p className="text-white text-xl font-semibold">Connection failed</p>
+          <p className="text-white text-xl font-semibold">{t("connection_failed_title")}</p>
           <p className="text-white/50 text-sm leading-relaxed">
-            The call couldn't connect. This usually happens on mobile data or restricted Wi-Fi.
-            Try moving to a better connection and starting a new call.
+            {t("connection_failed_desc")}
           </p>
           <p className="text-green-400 text-xs font-mono mt-1" data-testid="text-failure-reason">
             Failure reason: {failureReason || "detecting…"}
@@ -1006,7 +1005,7 @@ export function ActiveCallOverlay({
         >
           <PhoneOff className="w-7 h-7 text-white" />
         </button>
-        <span className="text-white/30 text-xs">Tap to end (auto-closes in 10s)</span>
+        <span className="text-white/30 text-xs">{t("tap_to_end_auto")}</span>
         <CallDebugPanel />
       </div>
     );
@@ -1217,7 +1216,7 @@ export function ActiveCallOverlay({
         {timerExpiredMsg ? (
           <div className="text-center space-y-1.5 mt-1" data-testid="text-timer-expired">
             <p className="text-white text-2xl font-serif font-bold">{timerExpiredMsg}</p>
-            <p className="text-white/45 text-sm">Ending call…</p>
+            <p className="text-white/45 text-sm">{t("ending_call_label")}</p>
           </div>
         ) : (
           <>
@@ -1294,7 +1293,7 @@ export function ActiveCallOverlay({
             style={{ background: "hsl(38 90% 50% / 0.15)", border: "1px solid hsl(38 90% 50% / 0.3)" }}
           >
             <WifiOff className="w-3.5 h-3.5 text-amber-400" />
-            <span className="text-amber-300 text-xs">Weak connection — reconnecting</span>
+            <span className="text-amber-300 text-xs">{t("weak_connection_label")}</span>
           </div>
         )}
 

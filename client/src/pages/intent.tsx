@@ -750,7 +750,7 @@ export default function IntentPage() {
     },
     onError: (error: any) => {
       const raw = error?.message || "";
-      let msg = t("something_went_wrong") + " Try again.";
+      let msg = t("something_went_wrong_retry").replace("{msg}", t("something_went_wrong"));
       try { const p = JSON.parse(raw); if (p?.message) msg = p.message; } catch {}
       toast({ title: t("could_not_connect_title"), description: msg, variant: "destructive" });
     },
@@ -853,9 +853,9 @@ export default function IntentPage() {
         <div className="flex-1 flex items-center justify-center p-6">
           <div className="text-center space-y-4 max-w-sm">
             <LulouFlowerIcon className="w-10 h-10 text-primary/60 mx-auto" />
-            <p className="font-serif text-lg font-semibold">Still loading profiles…</p>
-            <p className="text-muted-foreground text-sm">This is taking longer than usual.</p>
-            <button className="px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm font-medium" onClick={() => refetchProfiles()} data-testid="button-retry-intent">Retry</button>
+            <p className="font-serif text-lg font-semibold">{t("still_loading_profiles")}</p>
+            <p className="text-muted-foreground text-sm">{t("loading_taking_longer")}</p>
+            <button className="px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm font-medium" onClick={() => refetchProfiles()} data-testid="button-retry-intent">{t("retry_btn")}</button>
           </div>
         </div>
       );

@@ -264,7 +264,9 @@ export default function ElevateSuccessPage() {
                 <Gift className="w-5 h-5 text-primary shrink-0" />
                 <div>
                   <p className="text-sm font-semibold">
-                    {remainingCredits} more boost{remainingCredits > 1 ? "s" : ""} saved to your account
+                    {remainingCredits > 1
+                      ? t("remaining_boosts_many").replace("{n}", String(remainingCredits))
+                      : t("remaining_boosts_one").replace("{n}", String(remainingCredits))}
                   </p>
                   <p className="text-xs text-muted-foreground">
                     {t("activate_anytime")}

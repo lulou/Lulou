@@ -364,7 +364,7 @@ function ReadyToMeetInline({ detail, matchId, profileName }: { detail: MatchDeta
             <Button size="sm" onClick={() => savePhoneAndExchange.mutate()} disabled={!phoneNumber.trim() || savePhoneAndExchange.isPending} data-testid={`button-confirm-exchange-inline-${matchId}`}>
               {savePhoneAndExchange.isPending ? t("sending_ellipsis") : t("share_my_number")}
             </Button>
-            <Button size="sm" variant="outline" onClick={() => setShowPhoneInput(false)}>Cancel</Button>
+            <Button size="sm" variant="outline" onClick={() => setShowPhoneInput(false)}>{t("cancel_btn")}</Button>
           </div>
         </Card>
       </div>
@@ -398,7 +398,7 @@ function ReadyToMeetInline({ detail, matchId, profileName }: { detail: MatchDeta
             <Button size="sm" onClick={() => saveAvailability.mutate()} disabled={selectedSlots.length === 0 || saveAvailability.isPending} data-testid={`button-save-avail-inline-${matchId}`}>
               {saveAvailability.isPending ? t("saving_ellipsis") : t("share_availability_btn")}
             </Button>
-            <Button size="sm" variant="outline" onClick={() => setShowDatePicker(false)}>Cancel</Button>
+            <Button size="sm" variant="outline" onClick={() => setShowDatePicker(false)}>{t("cancel_btn")}</Button>
           </div>
         </Card>
       </div>
@@ -517,7 +517,7 @@ function TimePickerInline({
   setSelectedTime,
   onConfirm,
   onCancel,
-  confirmLabel = "Confirm time",
+  confirmLabel,
 }: {
   quickTimes: { label: string; value: string }[];
   selectedTime: string;
@@ -1236,12 +1236,12 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
       const isSelfCall = error.message?.includes("own account");
       console.error("[CALL_UI] CALL_START_FAILED", { matchId: match.id, route: "call/start", error: error.message, isAuth, isSelfCall });
       toast({
-        title: isSelfCall ? "Can't call yourself" : isAuth ? "Session expired" : "Call failed",
+        title: isSelfCall ? t("cant_call_yourself_title") : isAuth ? t("session_expired_title") : t("call_failed_title"),
         description: isSelfCall
-          ? "You can't call your own account."
+          ? t("cant_call_yourself_desc")
           : isAuth
-            ? "Please refresh and try again."
-            : (error.message || "Unknown server error"),
+            ? t("please_refresh_desc")
+            : (error.message || t("unknown_server_error")),
         variant: "destructive",
       });
     },
@@ -1308,8 +1308,8 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
       markCallSessionCancelled(match.id, lastCallSessionIdRef.current);
       mergeCallFields(queryClient, match.id, { callStartedAt: null, callInitiatorId: null, callAnswered: false, callCompleted: false, callSessionId: null });
       toast({
-        title: isAuth ? "Session expired" : "Cancel failed",
-        description: isAuth ? "Please refresh and try again." : error.message,
+        title: isAuth ? t("session_expired_title") : t("cancel_failed_title"),
+        description: isAuth ? t("please_refresh_desc") : error.message,
         variant: "destructive",
       });
     },
@@ -1824,13 +1824,13 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
               }}
             >
               <User className="w-2.5 h-2.5" />
-              {showProfilePanel ? "Hide profile" : "View profile"}
+              {showProfilePanel ? t("hide_profile_btn") : t("view_profile_btn")}
             </span>
           </div>
         </button>
         <div className="flex items-center gap-1.5 shrink-0">
           <Badge variant="outline" className="text-[10px] px-1.5 py-0" data-testid={`badge-messages-remaining-${match.id}`}>
-            {allCallsDone ? "All calls done" : callStage === 3 ? "Face call stage" : callStage === 2 && bothStage2LimitReached ? "Face call ready" : callStage === 2 ? `${myStage2Remaining} left (20 msg)` : callStage === 1 && bothPostCallLimitReached ? "2nd call ready" : callStage === 1 ? `${myPostCallRemaining} post-call left` : messagesRemaining > 0 ? `${messagesRemaining} left` : "Call time"}
+            {allCallsDone ? t("all_calls_done") : callStage === 3 ? t("face_call_stage_badge") : callStage === 2 && bothStage2LimitReached ? t("face_call_ready_badge") : callStage === 2 ? t("n_left_msg").replace("{n}", String(myStage2Remaining)) : callStage === 1 && bothPostCallLimitReached ? t("second_call_ready_badge") : callStage === 1 ? t("n_postcall_left").replace("{n}", String(myPostCallRemaining)) : messagesRemaining > 0 ? t("n_msg_left").replace("{n}", String(messagesRemaining)) : t("call_time_badge")}
           </Badge>
           {showRemoveConfirm ? (
             <div className="flex items-center gap-0.5">
@@ -1886,7 +1886,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                     message: err?.message,
                     stack: err?.stack,
                   });
-                  return "Could not load messages. Pull down to retry.";
+                  return t("could_not_load_messages");
                 })()}
               </div>
             )}
@@ -1988,9 +1988,9 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                   data-testid={`button-cancel-call-${match.id}`}
                 >
                   <PhoneOff className="w-3.5 h-3.5" />
-                  {cancelCall.isPending ? "Cancelling…" : "Cancel Call"}
+                  {cancelCall.isPending ? t("cancelling_label") : t("cancel_call_btn")}
                 </button>
-                <p className="text-white/25 text-[11px]">If they don't pick up, it won't count as your call</p>
+                <p className="text-white/25 text-[11px]">{t("if_they_dont_pick_up")}</p>
               </div>
             </div>
           ) : isCallRinging && !iAmCaller ? (
@@ -2080,7 +2080,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                     onClick={() => repairCall.mutate()}
                     data-testid={`button-repair-call-${match.id}`}
                   >
-                    {repairCall.isPending ? "Clearing…" : "Clear & Retry Call"}
+                    {repairCall.isPending ? t("clearing_label") : t("clear_retry_call")}
                   </Button>
                 </div>
               ) : (
@@ -2095,9 +2095,9 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                   </div>
                   <div className="space-y-1">
                     <p className="font-medium text-sm" data-testid={`text-call-active-label-${match.id}`}>
-                      {isFaceCallStage && bothAcceptedFaceCall ? "Face call in progress" : callStage === 1 ? "Video call in progress" : "First call in progress"}
+                      {isFaceCallStage && bothAcceptedFaceCall ? t("face_call_in_progress") : callStage === 1 ? t("video_call_in_progress") : t("first_call_in_progress")}
                     </p>
-                    <p className="text-xs text-muted-foreground">Use the call overlay to manage your call</p>
+                    <p className="text-xs text-muted-foreground">{t("use_overlay_to_manage")}</p>
                   </div>
                 </div>
               )}
@@ -2123,13 +2123,13 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                     <ChevronLeft className="w-3 h-3" /> Back
                   </button>
                   <div className="text-center space-y-1">
-                    <p className="font-semibold text-sm">End this conversation?</p>
-                    <p className="text-xs text-muted-foreground">{match.profile.firstName} will be removed from your matches. This can't be undone.</p>
+                    <p className="font-semibold text-sm">{t("end_conversation_confirm")}</p>
+                    <p className="text-xs text-muted-foreground">{t("removed_from_matches").replace("{name}", match.profile.firstName)}</p>
                   </div>
                   <div className="flex gap-2">
-                    <Button size="sm" variant="outline" className="flex-1" onClick={() => setFinalChoice(null)} data-testid={`button-cancel-end-final-${match.id}`}>Keep</Button>
+                    <Button size="sm" variant="outline" className="flex-1" onClick={() => setFinalChoice(null)} data-testid={`button-cancel-end-final-${match.id}`}>{t("keep_btn")}</Button>
                     <Button size="sm" variant="destructive" className="flex-1" onClick={() => removeMatch.mutate()} disabled={removeMatch.isPending} data-testid={`button-confirm-end-final-${match.id}`}>
-                      {removeMatch.isPending ? "Removing…" : "End Conversation"}
+                      {removeMatch.isPending ? t("removing_label") : t("end_conversation_btn")}
                     </Button>
                   </div>
                 </div>
@@ -2444,7 +2444,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                     disabled={activateExtension.isPending}
                     data-testid={`button-activate-extension-${match.id}`}
                   >
-                    {activateExtension.isPending ? "Activating..." : "Add 5 messages"}
+                    {activateExtension.isPending ? t("activating_label") : t("add_5_messages_btn")}
                   </Button>
                 </div>
               </div>
@@ -2477,12 +2477,12 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                   </button>
                   <div className="text-center space-y-1">
                     <p className="font-semibold text-sm">End this match?</p>
-                    <p className="text-xs text-muted-foreground">{match.profile.firstName} will be removed from your matches. This can't be undone.</p>
+                    <p className="text-xs text-muted-foreground">{t("removed_from_matches").replace("{name}", match.profile.firstName)}</p>
                   </div>
                   <div className="flex gap-2">
-                    <Button size="sm" variant="outline" className="flex-1" onClick={() => setNextStepChoice(null)} data-testid={`button-cancel-end-nextstep-${match.id}`}>Keep</Button>
+                    <Button size="sm" variant="outline" className="flex-1" onClick={() => setNextStepChoice(null)} data-testid={`button-cancel-end-nextstep-${match.id}`}>{t("keep_btn")}</Button>
                     <Button size="sm" variant="destructive" className="flex-1" onClick={() => removeMatch.mutate()} disabled={removeMatch.isPending} data-testid={`button-confirm-end-nextstep-${match.id}`}>
-                      {removeMatch.isPending ? "Removing…" : "End Match"}
+                      {removeMatch.isPending ? t("removing_label") : t("end_match_btn")}
                     </Button>
                   </div>
                 </div>
@@ -2703,6 +2703,7 @@ const MatchCard = memo(function MatchCard({ match, unreadCount, userId, onOpen }
 });
 
 export default function Matches() {
+  const { t } = useLanguageContext();
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const isActive = useTabActive();
@@ -2859,7 +2860,7 @@ export default function Matches() {
   );
 
   if (fetchFailed) {
-    const errMsg = matchesError?.message || requestsError?.message || "Could not load connections";
+    const errMsg = matchesError?.message || requestsError?.message || t("could_not_load_connections");
     console.error("MATCHES_FETCH_ERROR", errMsg);
     return (
       <div className="flex-1 flex flex-col">
@@ -2934,7 +2935,7 @@ export default function Matches() {
           </Badge>
         </div>
         <p className="text-sm text-muted-foreground">
-          {atLimit && "Connection limit reached - remove a chat to connect with new people"}
+          {atLimit && t("connection_limit_reached")}
           {!atLimit && incomingRequests.length > 0 && `${incomingRequests.length} pending ${incomingRequests.length === 1 ? "request" : "requests"}`}
           {!atLimit && incomingRequests.length > 0 && matches && matches.length > 0 && " · "}
           {!atLimit && matches && matches.length > 0 && `${matches.length} ${matches.length === 1 ? "connection" : "connections"}`}
@@ -3015,7 +3016,7 @@ export default function Matches() {
             <div className="space-y-2" data-testid="tab-panel-new">
               {newConnections.length === 0 ? (
                 <p className="text-sm text-muted-foreground text-center py-6">
-                  {activeChats.length > 0 ? "All your connections have active chats." : "No new connections yet."}
+                  {activeChats.length > 0 ? t("all_chats_have_active") : t("no_new_connections")}
                 </p>
               ) : (
                 newConnections.slice(0, visibleCount).map(match => (
