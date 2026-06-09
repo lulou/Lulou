@@ -625,8 +625,7 @@ function CallSchedulingCard({
   const iAmProposer = scheduleData?.proposedBy === user?.id;
   const scheduledTime = scheduleData?.proposedTime ? new Date(scheduleData.proposedTime) : null;
   const isReadyToStart = scheduleData?.type === "accept" && scheduledTime && scheduledTime.getTime() <= now + 5 * 60 * 1000;
-  const callLabel = callStage === 0 ? "first" : "second";
-  const callDuration = callStage === 0 ? "10-minute" : "15-minute";
+  const callDurationKey = callStage === 0 ? "duration_10_min" : "duration_15_min";
   const isVideoCall = callStage === 1; // Second call is video
 
   const quickTimes = [
@@ -662,7 +661,7 @@ function CallSchedulingCard({
             {isVideoCall ? (
               <><Video className="w-4 h-4 mr-2" /> {t("start_video_call")}</>
             ) : (
-              <><Phone className="w-4 h-4 mr-2" /> {callLabel === "first" ? t("start_first_call") : t("start_second_call")}</>
+              <><Phone className="w-4 h-4 mr-2" /> {callStage === 0 ? t("start_first_call") : t("start_second_call")}</>
             )}
           </Button>
         </Card>
@@ -735,7 +734,7 @@ function CallSchedulingCard({
               <Phone className="w-4 h-4 text-primary shrink-0" />
             )}
             <p className="font-medium text-sm">
-              {t("wants_to_schedule").replace("{name}", matchName).replace("{type}", isVideoCall ? t("video_call_label") : `${t(callLabel === "first" ? "first_label" : "second_label")} ${t("call_label")}`)}
+              {t("wants_to_schedule").replace("{name}", matchName).replace("{type}", isVideoCall ? t("video_call_label") : `${t(callStage === 0 ? "first_label" : "second_label")} ${t("call_label")}`)}
             </p>
           </div>
           {scheduledTime && (
@@ -806,8 +805,8 @@ function CallSchedulingCard({
         </p>
         <p className="text-xs text-muted-foreground text-center">
           {isVideoCall
-            ? t("schedule_video_call_desc").replace("{duration}", callDuration)
-            : t("schedule_voice_call_desc").replace("{duration}", callDuration).replace("{label}", callLabel)}
+            ? t("schedule_video_call_desc").replace("{duration}", t(callDurationKey))
+            : t("schedule_voice_call_desc").replace("{duration}", t(callDurationKey)).replace("{label}", t(callStage === 0 ? "first_label" : "second_label"))}
         </p>
         {!showPicker ? (
           <div className="space-y-2">

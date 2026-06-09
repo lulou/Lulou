@@ -1179,30 +1179,30 @@ export default function SettingsPage() {
             <SheetTitle className="font-serif">{t("privacy_policy")}</SheetTitle>
           </SheetHeader>
           <div className="flex-1 overflow-y-auto px-5 pb-10 pt-5 space-y-5 text-sm text-muted-foreground leading-relaxed">
-            <p className="text-base font-semibold text-foreground">Last updated: January 2025</p>
+            <p className="text-base font-semibold text-foreground">{t("pp_updated")}</p>
             <section>
-              <h3 className="font-semibold text-foreground mb-2">Information We Collect</h3>
-              <p>We collect information you provide when creating a profile: name, age, photos, and preferences. We also collect usage data such as interactions, swipes, and message timestamps (not message content) to improve the service.</p>
+              <h3 className="font-semibold text-foreground mb-2">{t("pp_s1_title")}</h3>
+              <p>{t("pp_s1_body")}</p>
             </section>
             <section>
-              <h3 className="font-semibold text-foreground mb-2">How We Use Your Information</h3>
-              <p>Your information is used to match you with compatible people, personalise your experience, ensure safety on the platform, and communicate with you about your account. We do not sell your personal data to third parties.</p>
+              <h3 className="font-semibold text-foreground mb-2">{t("pp_s2_title")}</h3>
+              <p>{t("pp_s2_body")}</p>
             </section>
             <section>
-              <h3 className="font-semibold text-foreground mb-2">Photos & Media</h3>
-              <p>Photos you upload are stored securely in our cloud infrastructure. Profile photos are visible to other members. We do not use your photos to train AI models.</p>
+              <h3 className="font-semibold text-foreground mb-2">{t("pp_s3_title")}</h3>
+              <p>{t("pp_s3_body")}</p>
             </section>
             <section>
-              <h3 className="font-semibold text-foreground mb-2">Data Retention</h3>
-              <p>Your data is retained while your account is active. When you delete your account, your personal data is removed within 30 days. Some anonymised usage statistics may be retained for analytics.</p>
+              <h3 className="font-semibold text-foreground mb-2">{t("pp_s4_title")}</h3>
+              <p>{t("pp_s4_body")}</p>
             </section>
             <section>
-              <h3 className="font-semibold text-foreground mb-2">Your Rights</h3>
-              <p>You have the right to access, correct, or delete your data at any time. You may download a copy of your data from the "Download my data" section in settings. For further requests, contact privacy@lulou.dating.</p>
+              <h3 className="font-semibold text-foreground mb-2">{t("pp_s5_title")}</h3>
+              <p>{t("pp_s5_body")}</p>
             </section>
             <section>
-              <h3 className="font-semibold text-foreground mb-2">Contact</h3>
-              <p>Questions about this policy? Email us at privacy@lulou.dating.</p>
+              <h3 className="font-semibold text-foreground mb-2">{t("pp_s6_title")}</h3>
+              <p>{t("pp_s6_body")}</p>
             </section>
           </div>
         </SheetContent>
@@ -1215,30 +1215,30 @@ export default function SettingsPage() {
             <SheetTitle className="font-serif">{t("terms_of_service")}</SheetTitle>
           </SheetHeader>
           <div className="flex-1 overflow-y-auto px-5 pb-10 pt-5 space-y-5 text-sm text-muted-foreground leading-relaxed">
-            <p className="text-base font-semibold text-foreground">Last updated: January 2025</p>
+            <p className="text-base font-semibold text-foreground">{t("pp_updated")}</p>
             <section>
-              <h3 className="font-semibold text-foreground mb-2">Acceptance of Terms</h3>
-              <p>By creating an account on Lulou, you agree to these Terms of Service. If you do not agree, please do not use the platform.</p>
+              <h3 className="font-semibold text-foreground mb-2">{t("tos_s1_title")}</h3>
+              <p>{t("tos_s1_body")}</p>
             </section>
             <section>
-              <h3 className="font-semibold text-foreground mb-2">Eligibility</h3>
-              <p>You must be 18 years or older to use Lulou. By registering, you confirm you meet this requirement. We may request verification at any time.</p>
+              <h3 className="font-semibold text-foreground mb-2">{t("tos_s2_title")}</h3>
+              <p>{t("tos_s2_body")}</p>
             </section>
             <section>
-              <h3 className="font-semibold text-foreground mb-2">Acceptable Use</h3>
-              <p>You agree to treat all members with respect, provide truthful information in your profile, not share contact details in the early messaging stages, and not use the platform for commercial solicitation, harassment, or illegal activity.</p>
+              <h3 className="font-semibold text-foreground mb-2">{t("tos_s3_title")}</h3>
+              <p>{t("tos_s3_body")}</p>
             </section>
             <section>
-              <h3 className="font-semibold text-foreground mb-2">Content Ownership</h3>
-              <p>You retain ownership of photos and content you upload. By uploading, you grant Lulou a non-exclusive licence to display that content to other members as part of the service.</p>
+              <h3 className="font-semibold text-foreground mb-2">{t("tos_s4_title")}</h3>
+              <p>{t("tos_s4_body")}</p>
             </section>
             <section>
-              <h3 className="font-semibold text-foreground mb-2">Termination</h3>
-              <p>We may suspend or terminate accounts that violate these terms. You may delete your account at any time from the Settings page.</p>
+              <h3 className="font-semibold text-foreground mb-2">{t("tos_s5_title")}</h3>
+              <p>{t("tos_s5_body")}</p>
             </section>
             <section>
-              <h3 className="font-semibold text-foreground mb-2">Contact</h3>
-              <p>Questions? Email legal@lulou.dating.</p>
+              <h3 className="font-semibold text-foreground mb-2">{t("tos_s6_title")}</h3>
+              <p>{t("tos_s6_body")}</p>
             </section>
           </div>
         </SheetContent>
@@ -1255,10 +1255,9 @@ export default function SettingsPage() {
               <Download className="w-7 h-7 text-primary" />
             </div>
             <div className="space-y-2 max-w-xs">
-              <p className="font-medium">Export your personal data</p>
+              <p className="font-medium">{t("export_data_title")}</p>
               <p className="text-sm text-muted-foreground">
-                Download a JSON file containing your profile information, preferences, and account details.
-                Message content is not included for privacy reasons.
+                {t("export_data_desc")}
               </p>
             </div>
             <Button
@@ -1302,20 +1301,20 @@ export default function SettingsPage() {
           </SheetHeader>
           <div className="flex-1 overflow-y-auto px-5 pb-10 pt-5 space-y-4">
             {[
-              { emoji: "📞", title: "Start with a voice call", body: "Lulou's structured call system lets you hear someone's voice before meeting. Pay attention to how they make you feel." },
-              { emoji: "🚩", title: "Trust red flags early", body: "If someone pressures you to share contact details, asks for money, or makes you uncomfortable, block and report them immediately." },
-              { emoji: "📍", title: "Meet in public first", body: "Always choose a busy, public location for a first meeting — a café, park, or shopping area. Tell a friend or family member where you're going." },
-              { emoji: "🚗", title: "Arrange your own transport", body: "Drive yourself, use public transport, or book your own taxi to and from dates so you stay in control of when you leave." },
-              { emoji: "📱", title: "Share your plans", body: "Tell someone you trust the name of the person you're meeting, the location, and when you expect to be back. Check in with them during the date." },
-              { emoji: "🍹", title: "Watch your drinks", body: "Never leave your drink unattended. If you feel suddenly unwell, ask a member of staff for help immediately." },
-              { emoji: "🚫", title: "Never share financial details", body: "Legitimate connections on Lulou will never ask for money, bank details, or gift cards. Any such request is a scam — report it." },
-              { emoji: "🆘", title: "Emergency resources", body: "In the UK: Victim Support 0808 168 9111. In the US: Crisis Text Line — text HOME to 741741. Always call 999 or 911 in an emergency." },
+              { emoji: "📞", titleKey: "tip_voice_call_title", bodyKey: "tip_voice_call_body" },
+              { emoji: "🚩", titleKey: "tip_red_flags_title",  bodyKey: "tip_red_flags_body" },
+              { emoji: "📍", titleKey: "tip_public_title",     bodyKey: "tip_public_body" },
+              { emoji: "🚗", titleKey: "tip_transport_title",  bodyKey: "tip_transport_body" },
+              { emoji: "📱", titleKey: "tip_share_plans_title",bodyKey: "tip_share_plans_body" },
+              { emoji: "🍹", titleKey: "tip_drinks_title",     bodyKey: "tip_drinks_body" },
+              { emoji: "🚫", titleKey: "tip_financial_title",  bodyKey: "tip_financial_body" },
+              { emoji: "🆘", titleKey: "tip_emergency_title",  bodyKey: "tip_emergency_body" },
             ].map(tip => (
-              <div key={tip.title} className="flex gap-3 p-4 rounded-xl bg-muted/40">
+              <div key={tip.titleKey} className="flex gap-3 p-4 rounded-xl bg-muted/40">
                 <span className="text-2xl shrink-0 mt-0.5">{tip.emoji}</span>
                 <div>
-                  <p className="font-medium text-sm mb-0.5">{tip.title}</p>
-                  <p className="text-xs text-muted-foreground leading-relaxed">{tip.body}</p>
+                  <p className="font-medium text-sm mb-0.5">{t(tip.titleKey as any)}</p>
+                  <p className="text-xs text-muted-foreground leading-relaxed">{t(tip.bodyKey as any)}</p>
                 </div>
               </div>
             ))}
@@ -1330,21 +1329,21 @@ export default function SettingsPage() {
             <SheetTitle className="font-serif">{t("member_principles")}</SheetTitle>
           </SheetHeader>
           <div className="flex-1 overflow-y-auto px-5 pb-10 pt-5 space-y-4">
-            <p className="text-sm text-muted-foreground">Lulou is built on the belief that genuine connection starts with genuine people. By joining, you commit to these principles:</p>
+            <p className="text-sm text-muted-foreground">{t("mp_intro")}</p>
             {[
-              { num: "01", title: "Intention over entertainment", body: "Use Lulou because you genuinely want to meet someone. Not to collect matches, pass time, or validate yourself." },
-              { num: "02", title: "Honesty in your profile", body: "Your photos and information represent who you truly are — recent, accurate, and yours. No filters that distort reality, no stock photos, no misleading bios." },
-              { num: "03", title: "Respect in every message", body: "Every person you interact with is a human being worthy of dignity. Communicate as you would want to be communicated with." },
-              { num: "04", title: "Follow the process", body: "The steps from match to call to meet exist for a reason. Respect the structure. Don't pressure connections to skip stages or share contact details early." },
-              { num: "05", title: "Show up when you commit", body: "If you schedule a call or a meeting, honour it. If you need to cancel, do so with notice and an explanation." },
-              { num: "06", title: "Graceful exits", body: "It's okay to not feel a connection. Unmatch or say you don't feel it — but do it kindly. Ghosting is not graceful." },
-              { num: "07", title: "Safety first — always", body: "Report anything that feels wrong. Block harassment immediately. Your safety matters more than being polite about it." },
+              { num: "01", titleKey: "mp_01_title", bodyKey: "mp_01_body" },
+              { num: "02", titleKey: "mp_02_title", bodyKey: "mp_02_body" },
+              { num: "03", titleKey: "mp_03_title", bodyKey: "mp_03_body" },
+              { num: "04", titleKey: "mp_04_title", bodyKey: "mp_04_body" },
+              { num: "05", titleKey: "mp_05_title", bodyKey: "mp_05_body" },
+              { num: "06", titleKey: "mp_06_title", bodyKey: "mp_06_body" },
+              { num: "07", titleKey: "mp_07_title", bodyKey: "mp_07_body" },
             ].map(p => (
               <div key={p.num} className="flex gap-4 p-4 rounded-xl bg-muted/40">
                 <span className="font-serif text-2xl font-bold text-primary/40 shrink-0 leading-none mt-0.5">{p.num}</span>
                 <div>
-                  <p className="font-medium text-sm mb-0.5">{p.title}</p>
-                  <p className="text-xs text-muted-foreground leading-relaxed">{p.body}</p>
+                  <p className="font-medium text-sm mb-0.5">{t(p.titleKey as any)}</p>
+                  <p className="text-xs text-muted-foreground leading-relaxed">{t(p.bodyKey as any)}</p>
                 </div>
               </div>
             ))}
@@ -1358,27 +1357,27 @@ export default function SettingsPage() {
             <SheetTitle className="font-serif">{t("licences")}</SheetTitle>
           </SheetHeader>
           <div className="flex-1 overflow-y-auto px-5 pb-10 pt-5 space-y-6">
-            <p className="text-sm text-muted-foreground">Lulou Dating is built with open-source software. We gratefully acknowledge the following projects:</p>
+            <p className="text-sm text-muted-foreground">{t("lic_intro")}</p>
             {[
-              { name: "React", licence: "MIT", desc: "A JavaScript library for building user interfaces." },
-              { name: "Vite", licence: "MIT", desc: "Next generation frontend tooling." },
-              { name: "Tailwind CSS", licence: "MIT", desc: "A utility-first CSS framework." },
-              { name: "Radix UI / shadcn/ui", licence: "MIT", desc: "Accessible component primitives." },
-              { name: "Express", licence: "MIT", desc: "Fast, unopinionated web framework for Node.js." },
-              { name: "Supabase", licence: "Apache 2.0", desc: "Open-source Firebase alternative with Postgres." },
-              { name: "Drizzle ORM", licence: "Apache 2.0", desc: "TypeScript ORM for SQL databases." },
-              { name: "TanStack Query", licence: "MIT", desc: "Powerful data-fetching and caching for React." },
-              { name: "Lucide Icons", licence: "ISC", desc: "Beautiful & consistent open-source icons." },
-              { name: "Wouter", licence: "ISC", desc: "Minimalist routing for React." },
-              { name: "Zod", licence: "MIT", desc: "TypeScript-first schema validation." },
-              { name: "WebRTC (browser native)", licence: "W3C / IETF", desc: "Real-time peer-to-peer audio and video." },
+              { name: "React",                   licence: "MIT",        descKey: "lib_react_desc" },
+              { name: "Vite",                    licence: "MIT",        descKey: "lib_vite_desc" },
+              { name: "Tailwind CSS",            licence: "MIT",        descKey: "lib_tailwind_desc" },
+              { name: "Radix UI / shadcn/ui",    licence: "MIT",        descKey: "lib_radix_desc" },
+              { name: "Express",                 licence: "MIT",        descKey: "lib_express_desc" },
+              { name: "Supabase",                licence: "Apache 2.0", descKey: "lib_supabase_desc" },
+              { name: "Drizzle ORM",             licence: "Apache 2.0", descKey: "lib_drizzle_desc" },
+              { name: "TanStack Query",          licence: "MIT",        descKey: "lib_tanstack_desc" },
+              { name: "Lucide Icons",            licence: "ISC",        descKey: "lib_lucide_desc" },
+              { name: "Wouter",                  licence: "ISC",        descKey: "lib_wouter_desc" },
+              { name: "Zod",                     licence: "MIT",        descKey: "lib_zod_desc" },
+              { name: "WebRTC (browser native)", licence: "W3C / IETF", descKey: "lib_webrtc_desc" },
             ].map(lib => (
               <div key={lib.name} className="border-b border-border/50 pb-4 last:border-0">
                 <div className="flex items-center justify-between mb-0.5">
                   <p className="font-medium text-sm">{lib.name}</p>
                   <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-full">{lib.licence}</span>
                 </div>
-                <p className="text-xs text-muted-foreground">{lib.desc}</p>
+                <p className="text-xs text-muted-foreground">{t(lib.descKey as any)}</p>
               </div>
             ))}
           </div>
@@ -1391,27 +1390,27 @@ export default function SettingsPage() {
             <SheetTitle className="font-serif">{t("privacy_preferences")}</SheetTitle>
           </SheetHeader>
           <div className="flex-1 overflow-y-auto px-5 pb-10 pt-5 space-y-6">
-            <p className="text-sm text-muted-foreground">We believe your data is yours. Here's exactly what we collect and why:</p>
+            <p className="text-sm text-muted-foreground">{t("pprefs_intro")}</p>
             {[
-              { title: "Profile information", desc: "Your name, photos, and dating preferences are stored to power your profile and matching. This data is never sold to third parties.", required: true },
-              { title: "Messages", desc: "Conversation content is stored on our servers to deliver your messages. Messages are deleted 30 days after a connection is closed.", required: true },
-              { title: "Location (general)", desc: "Your city or region is used to show you people nearby. We do not track your precise GPS location.", required: true },
-              { title: "Usage analytics", desc: "Anonymous usage patterns help us improve the app. No personally identifiable information is included in analytics.", required: false },
-              { title: "Push notifications", desc: "Device tokens are used only to deliver match and message alerts. You can disable this in your device settings.", required: false },
+              { titleKey: "pprefs_1_title", descKey: "pprefs_1_desc", required: true },
+              { titleKey: "pprefs_2_title", descKey: "pprefs_2_desc", required: true },
+              { titleKey: "pprefs_3_title", descKey: "pprefs_3_desc", required: true },
+              { titleKey: "pprefs_4_title", descKey: "pprefs_4_desc", required: false },
+              { titleKey: "pprefs_5_title", descKey: "pprefs_5_desc", required: false },
             ].map(item => (
-              <div key={item.title} className="flex gap-4 p-4 rounded-xl bg-muted/30 border border-border/40">
+              <div key={item.titleKey} className="flex gap-4 p-4 rounded-xl bg-muted/30 border border-border/40">
                 <div className="flex-1">
                   <div className="flex items-center gap-2 mb-1">
-                    <p className="font-medium text-sm">{item.title}</p>
+                    <p className="font-medium text-sm">{t(item.titleKey as any)}</p>
                     {item.required && (
-                      <span className="text-[10px] uppercase tracking-wide text-primary/70 font-semibold bg-primary/10 px-1.5 py-0.5 rounded-full">Required</span>
+                      <span className="text-[10px] uppercase tracking-wide text-primary/70 font-semibold bg-primary/10 px-1.5 py-0.5 rounded-full">{t("required_label")}</span>
                     )}
                   </div>
-                  <p className="text-xs text-muted-foreground leading-relaxed">{item.desc}</p>
+                  <p className="text-xs text-muted-foreground leading-relaxed">{t(item.descKey as any)}</p>
                 </div>
               </div>
             ))}
-            <p className="text-xs text-muted-foreground/60 pt-2">For full details, read our Privacy Policy. To request deletion of your data, use the Download &amp; Delete option in settings.</p>
+            <p className="text-xs text-muted-foreground/60 pt-2">{t("pprefs_footer")}</p>
           </div>
         </SheetContent>
       </Sheet>
@@ -1424,7 +1423,7 @@ export default function SettingsPage() {
       <Dialog open={showPhoneDialog} onOpenChange={setShowPhoneDialog}>
         <DialogContent className="max-w-sm">
           <DialogHeader>
-            <DialogTitle className="font-serif">Edit Phone Number</DialogTitle>
+            <DialogTitle className="font-serif">{t("edit_phone_title")}</DialogTitle>
           </DialogHeader>
           <div className="py-2">
             <Input
@@ -1435,19 +1434,19 @@ export default function SettingsPage() {
               data-testid="input-phone-number"
             />
             <p className="text-xs text-muted-foreground mt-2">
-              Used only for account recovery and safety. Never shared publicly.
+              {t("phone_privacy_note")}
             </p>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowPhoneDialog(false)} data-testid="button-phone-cancel">
-              Cancel
+              {t("cancel")}
             </Button>
             <Button
               disabled={phoneMutation.isPending}
               onClick={() => phoneMutation.mutate(phoneInput.trim())}
               data-testid="button-phone-save"
             >
-              {phoneMutation.isPending ? "Saving…" : "Save"}
+              {phoneMutation.isPending ? t("saving_msg") : t("save")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1457,19 +1456,19 @@ export default function SettingsPage() {
       <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete your account?</AlertDialogTitle>
+            <AlertDialogTitle>{t("delete_account_title")}</AlertDialogTitle>
             <AlertDialogDescription>
-              This permanently removes your profile, all matches, and all messages. This cannot be undone.
+              {t("delete_account_dialog_desc")}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel data-testid="button-delete-cancel">Cancel</AlertDialogCancel>
+            <AlertDialogCancel data-testid="button-delete-cancel">{t("cancel")}</AlertDialogCancel>
             <AlertDialogAction
               onClick={handleDeleteConfirm}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               data-testid="button-delete-confirm"
             >
-              Delete account
+              {t("delete_account_confirm_btn")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

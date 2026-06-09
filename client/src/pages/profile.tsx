@@ -761,7 +761,7 @@ export default function ProfilePage() {
                 id="settings-location"
                 value={settingsForm.location || ""}
                 onChange={e => setSettingsForm(prev => ({ ...prev, location: e.target.value }))}
-                placeholder="City, State"
+                placeholder={t("ph_city_state")}
                 data-testid="input-settings-location"
               />
             </div>
@@ -771,7 +771,7 @@ export default function ProfilePage() {
                 id="settings-height"
                 value={settingsForm.height || ""}
                 onChange={e => setSettingsForm(prev => ({ ...prev, height: e.target.value }))}
-                placeholder="e.g. 5'8&quot;"
+                placeholder={t("ph_height")}
                 data-testid="input-settings-height"
               />
             </div>
@@ -785,12 +785,12 @@ export default function ProfilePage() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="women">Women</SelectItem>
-                  <SelectItem value="men">Men</SelectItem>
-                  <SelectItem value="non-binary people">Non-binary People</SelectItem>
-                  <SelectItem value="trans women">Trans Women</SelectItem>
-                  <SelectItem value="trans men">Trans Men</SelectItem>
-                  <SelectItem value="everyone">Everyone</SelectItem>
+                  <SelectItem value="women">{t("pref_women")}</SelectItem>
+                  <SelectItem value="men">{t("pref_men")}</SelectItem>
+                  <SelectItem value="non-binary people">{t("pref_nonbinary_ppl")}</SelectItem>
+                  <SelectItem value="trans women">{t("pref_trans_women")}</SelectItem>
+                  <SelectItem value="trans men">{t("pref_trans_men")}</SelectItem>
+                  <SelectItem value="everyone">{t("pref_everyone")}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -804,9 +804,9 @@ export default function ProfilePage() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="Meaningful Relationship">Meaningful Relationship</SelectItem>
-                  <SelectItem value="Intentional Dating">Intentional Dating</SelectItem>
-                  <SelectItem value="Open but Serious">Open but Serious</SelectItem>
+                  <SelectItem value="Meaningful Relationship">{t("intent_meaningful")}</SelectItem>
+                  <SelectItem value="Intentional Dating">{t("intent_intentional")}</SelectItem>
+                  <SelectItem value="Open but Serious">{t("intent_open_serious")}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -820,29 +820,29 @@ export default function ProfilePage() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="Slow & Intentional">Slow & Intentional</SelectItem>
-                  <SelectItem value="Steady with Momentum">Steady with Momentum</SelectItem>
-                  <SelectItem value="Ready to Meet Soon">Ready to Meet Soon</SelectItem>
+                  <SelectItem value="Slow & Intentional">{t("style_slow")}</SelectItem>
+                  <SelectItem value="Steady with Momentum">{t("style_steady")}</SelectItem>
+                  <SelectItem value="Ready to Meet Soon">{t("style_ready")}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
             <div className="space-y-1.5">
-              <Label className="text-xs">Pronouns <span className="text-muted-foreground">(optional)</span></Label>
+              <Label className="text-xs">{t("label_pronouns_opt")}</Label>
               <Select
                 value={settingsForm.pronouns || ""}
                 onValueChange={v => setSettingsForm(prev => ({ ...prev, pronouns: v }))}
               >
                 <SelectTrigger data-testid="select-settings-pronouns">
-                  <SelectValue placeholder="Select pronouns" />
+                  <SelectValue placeholder={t("sel_pronouns")} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="she/her">she/her</SelectItem>
-                  <SelectItem value="he/him">he/him</SelectItem>
-                  <SelectItem value="they/them">they/them</SelectItem>
-                  <SelectItem value="she/they">she/they</SelectItem>
-                  <SelectItem value="he/they">he/they</SelectItem>
-                  <SelectItem value="any pronouns">any pronouns</SelectItem>
-                  <SelectItem value="ask me">ask me</SelectItem>
+                  <SelectItem value="she/her">{t("pronoun_she_her")}</SelectItem>
+                  <SelectItem value="he/him">{t("pronoun_he_him")}</SelectItem>
+                  <SelectItem value="they/them">{t("pronoun_they_them")}</SelectItem>
+                  <SelectItem value="she/they">{t("pronoun_she_they")}</SelectItem>
+                  <SelectItem value="he/they">{t("pronoun_he_they")}</SelectItem>
+                  <SelectItem value="any pronouns">{t("pronoun_any")}</SelectItem>
+                  <SelectItem value="ask me">{t("pronoun_ask_me")}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
