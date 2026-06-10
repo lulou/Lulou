@@ -630,7 +630,7 @@ export default function SettingsPage() {
               <p className="text-sm font-medium">{t("email_address")}</p>
             </div>
             <p
-              className="text-xs text-muted-foreground pl-[30px]"
+              className="text-xs text-muted-foreground ps-[30px]"
               data-testid="text-settings-email"
             >
               {profile?.email || user?.email || "Not added"}
@@ -642,7 +642,7 @@ export default function SettingsPage() {
               <Lock className="w-[18px] h-[18px] text-muted-foreground shrink-0" />
               <p className="text-sm font-medium">{t("connected_accounts")}</p>
             </div>
-            <div className="space-y-2.5 pl-[30px]">
+            <div className="space-y-2.5 ps-[30px]">
               {identitiesLoading ? (
                 <p className="text-xs text-muted-foreground">{t("loading")}</p>
               ) : (
@@ -798,7 +798,7 @@ export default function SettingsPage() {
                       Take a quick selfie to earn a verified badge on your profile. We just check you're a real person — no data stored.
                     </p>
                     <Button onClick={startCamera} data-testid="button-start-camera">
-                      <Camera className="w-4 h-4 mr-2" />
+                      <Camera className="w-4 h-4 me-2" />
                       Open camera
                     </Button>
                   </>
@@ -1592,7 +1592,7 @@ function SettingRow({
         )}
       </span>
       {value && (
-        <span className="text-sm text-muted-foreground shrink-0 mr-0.5">{value}</span>
+        <span className="text-sm text-muted-foreground shrink-0 me-0.5">{value}</span>
       )}
       {trailing && (
         <span onClick={e => e.stopPropagation()}>{trailing}</span>

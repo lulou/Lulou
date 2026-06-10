@@ -136,7 +136,7 @@ export default function ExtrasSuccessPage() {
               </div>
 
               {isMembership && (
-                <ul className="space-y-1.5 pt-1 pl-1">
+                <ul className="space-y-1.5 pt-1 ps-1">
                   {MEMBERSHIP_PERKS.map(perk => (
                     <li key={perk} className="flex items-center gap-2 text-xs text-muted-foreground">
                       <span className="w-1 h-1 rounded-full bg-primary shrink-0" />

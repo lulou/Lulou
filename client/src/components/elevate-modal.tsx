@@ -435,7 +435,7 @@ function BrowseStep({
               </span>
             )}
             <div className="p-4">
-              <div className="flex items-center gap-3 pr-28">
+              <div className="flex items-center gap-3 pe-28">
                 <div className={[
                   "w-8 h-8 rounded-full flex items-center justify-center shrink-0",
                   pkg.highlight ? "bg-primary/15" : "bg-muted",
@@ -446,8 +446,8 @@ function BrowseStep({
                   {getPkgLabel(pkg.id, t)}
                 </p>
               </div>
-              <p className="text-xs text-muted-foreground mt-1.5 ml-11">{getPkgDesc(pkg.id, t)}</p>
-              <div className="flex items-baseline gap-2 mt-2 ml-11">
+              <p className="text-xs text-muted-foreground mt-1.5 ms-11">{getPkgDesc(pkg.id, t)}</p>
+              <div className="flex items-baseline gap-2 mt-2 ms-11">
                 <span className={["text-xl font-bold", pkg.highlight ? "text-primary" : "text-foreground"].join(" ")}>
                   {pkg.price}
                 </span>
@@ -534,7 +534,7 @@ function CheckoutStep({
       {/* Back nav */}
       <div className="px-6 pt-3 pb-1">
         <button
-          className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors -ml-1"
+          className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors -ms-1"
           onClick={onBack}
           disabled={purchasing}
           data-testid="button-checkout-back"

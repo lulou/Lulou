@@ -1137,14 +1137,14 @@ export default function IntentPage() {
             <div data-testid="streak-indicator">
               {streakComplete ? (
                 <Badge variant="secondary" className="text-xs" data-testid="badge-streak-complete">
-                  <Star className="w-3 h-3 mr-1" /> {t("spin_earned_label")}
+                  <Star className="w-3 h-3 me-1" /> {t("spin_earned_label")}
                 </Badge>
               ) : (
                 <div className="flex items-center gap-1.5">
                   {Array.from({ length: STREAK_GOAL }).map((_, i) => (
                     <div key={i} className={`w-2 h-2 rounded-full transition-colors ${i < consecutiveDays ? "bg-primary" : "bg-muted-foreground/30"}`} data-testid={`streak-dot-${i}`} />
                   ))}
-                  <span className="text-xs text-muted-foreground ml-1" data-testid="text-likes-today">{dailyLikes}/{DAILY_LIKE_GOAL}</span>
+                  <span className="text-xs text-muted-foreground ms-1" data-testid="text-likes-today">{dailyLikes}/{DAILY_LIKE_GOAL}</span>
                 </div>
               )}
             </div>

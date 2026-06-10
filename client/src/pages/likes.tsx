@@ -878,7 +878,7 @@ export default function LikesPage() {
               >
                 <Sparkles className="w-4 h-4" />
                 {t("elevate_profile_btn")}
-                <ChevronRight className="w-4 h-4 ml-auto opacity-70" />
+                <ChevronRight className="w-4 h-4 ms-auto opacity-70" />
               </button>
             )}
 

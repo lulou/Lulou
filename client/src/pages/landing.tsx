@@ -768,7 +768,7 @@ export default function Landing() {
               data-testid="button-resend-verification"
             >
               {resendLoading ? (
-                <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> {t("landing_resending")}</>
+                <><Loader2 className="w-4 h-4 me-2 animate-spin" /> {t("landing_resending")}</>
               ) : (
                 t("landing_resend_conf_email")
               )}
@@ -920,7 +920,7 @@ export default function Landing() {
                     required
                     autoComplete="current-password"
                     data-testid="input-password"
-                    className="h-12 pr-10"
+                    className="h-12 pe-10"
                   />
                   <button
                     type="button"
@@ -1091,12 +1091,12 @@ code:    ${rawAuthError.code}`}
               >
                 {loading ? (
                   <>
-                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    <Loader2 className="w-4 h-4 me-2 animate-spin" />
                     {mode === "signup" ? t("landing_creating") : t("landing_signing_in")}
                   </>
                 ) : (
                   <>
-                    <Lock className="w-4 h-4 mr-2" />
+                    <Lock className="w-4 h-4 me-2" />
                     {mode === "signup" ? t("landing_create_account") : t("landing_sign_in")}
                   </>
                 )}

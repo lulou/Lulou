@@ -213,7 +213,7 @@ export function ElevateStatusCard({
         <div className="flex items-center gap-2 flex-wrap">
           <StatChip icon={Eye} value={views} label={t("views_label")} isSuper={isSuper} />
           <StatChip icon={Heart} value={matches} label={t("matches_label")} isSuper={isSuper} />
-          <span className="text-xs text-muted-foreground ml-auto hidden sm:block">
+          <span className="text-xs text-muted-foreground ms-auto hidden sm:block">
             {isSuper ? t("eight_x_priority") : t("three_x_visibility")}
           </span>
         </div>

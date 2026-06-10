@@ -546,7 +546,7 @@ export default function Onboarding({ existingProfile = null, userEmail = "" }: O
                         onClick={() => toggleArrayItem("conversationStarters", starter, 3)}
                         data-testid={`badge-starter-${starter.slice(0, 20).toLowerCase().replace(/\s+/g, "-")}`}
                       >
-                        {selected && <Check className="w-3 h-3 mr-1" />}
+                        {selected && <Check className="w-3 h-3 me-1" />}
                         {starter}
                       </Badge>
                     );
@@ -727,7 +727,7 @@ export default function Onboarding({ existingProfile = null, userEmail = "" }: O
                       onClick={() => toggleArrayItem("signals", signal, 5)}
                       data-testid={`badge-signal-${signal.toLowerCase().replace(/\s+/g, "-")}`}
                     >
-                      {formData.signals.includes(signal) && <Check className="w-3 h-3 mr-1" />}
+                      {formData.signals.includes(signal) && <Check className="w-3 h-3 me-1" />}
                       {signal}
                     </Badge>
                   ))}
@@ -815,7 +815,7 @@ export default function Onboarding({ existingProfile = null, userEmail = "" }: O
                       onClick={() => toggleArrayItem("greenFlags", flag, 4)}
                       data-testid={`badge-flag-${flag.toLowerCase().replace(/\s+/g, "-")}`}
                     >
-                      {formData.greenFlags.includes(flag) && <Check className="w-3 h-3 mr-1" />}
+                      {formData.greenFlags.includes(flag) && <Check className="w-3 h-3 me-1" />}
                       {flag}
                     </Badge>
                   ))}
@@ -894,7 +894,7 @@ export default function Onboarding({ existingProfile = null, userEmail = "" }: O
           <div className="flex items-center justify-between gap-4 pt-4">
             {step > 0 ? (
               <Button variant="ghost" onClick={() => setStep(step - 1)} data-testid="button-back">
-                <ArrowLeft className="w-4 h-4 mr-2" /> Back
+                <ArrowLeft className="w-4 h-4 me-2" /> Back
               </Button>
             ) : <div />}
             <Button
@@ -905,7 +905,7 @@ export default function Onboarding({ existingProfile = null, userEmail = "" }: O
               {step === STEP_KEYS.length - 1 ? (
                 createProfile.isPending ? t("creating_profile_label") : t("complete_profile_label")
               ) : (
-                <>Continue <ArrowRight className="w-4 h-4 ml-2" /></>
+                <>Continue <ArrowRight className="w-4 h-4 ms-2" /></>
               )}
             </Button>
           </div>
