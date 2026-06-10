@@ -2,10 +2,11 @@
 /**
  * Translation smoke-test for Lulou Dating.
  *
- * Checks the 6 recently-added languages (zh-CN, zh-TW, ja, ko, hi, sw) and
- * all existing non-English languages against the English master dictionary.
+ * Dynamically discovers every language block inside the TRANSLATIONS object
+ * in i18n.ts and checks each non-English block against the English master.
+ * No hardcoded language list — new locales are picked up automatically.
  *
- * Run:  node scripts/check-translations.js
+ * Run:  node scripts/check-translations.cjs
  * Exit: 0 = all languages fully covered, 1 = issues found
  */
 
@@ -14,15 +15,55 @@ const path = require("path");
 
 // ─── Config ──────────────────────────────────────────────────────────────────
 const I18N_PATH = path.resolve(__dirname, "../client/src/lib/i18n.ts");
+
+// NEW_LANGUAGES is used only for display labelling (bold + [NEW] prefix).
+// It does NOT gate which languages are checked — all discovered blocks are
+// checked regardless of whether they appear here.
 const NEW_LANGUAGES = ["zh-CN", "zh-TW", "ja", "ko", "hi", "sw"];
-const ALL_NON_EN = [
-  "es", "fr", "de", "pt", "it", "nl", "pl", "ru", "ar",
-  "zh-CN", "zh-TW", "ja", "ko", "hi", "sw",
-];
 
 // ─── Parse i18n.ts ────────────────────────────────────────────────────────────
 const raw = fs.readFileSync(I18N_PATH, "utf8");
 const lines = raw.split("\n");
+
+/**
+ * Discover every top-level language key inside `export const TRANSLATIONS = {`.
+ * Matches lines of the form:
+ *   en: {
+ *   "zh-CN": {
+ * that appear after the TRANSLATIONS opening brace and at exactly 2-space indent.
+ */
+function discoverLocales() {
+  const translationsStart = lines.findIndex((l) =>
+    /^export const TRANSLATIONS\s*=\s*\{/.test(l.trim())
+  );
+  if (translationsStart < 0) {
+    console.error("ERROR: Could not find `export const TRANSLATIONS` in i18n.ts");
+    process.exit(1);
+  }
+
+  const locales = [];
+  // Only scan lines after the TRANSLATIONS opening; stop at the matching closing brace.
+  let depth = 0;
+  for (let i = translationsStart; i < lines.length; i++) {
+    const line = lines[i];
+    // Check BEFORE updating depth: depth === 1 means we're a direct child of TRANSLATIONS.
+    if (i > translationsStart && depth === 1) {
+      const m = line.match(/^\s{2}(?:"([\w-]+)"|([\w]+)):\s*\{/);
+      if (m) {
+        locales.push(m[1] || m[2]);
+      }
+    }
+    for (const ch of line) {
+      if (ch === "{") depth++;
+      else if (ch === "}") depth--;
+    }
+    if (i > translationsStart && depth === 0) break;
+  }
+  return locales;
+}
+
+const ALL_LOCALES = discoverLocales();
+const ALL_NON_EN = ALL_LOCALES.filter((l) => l !== "en");
 
 /**
  * Extract { key -> value } for a given language block.
@@ -145,8 +186,29 @@ function checkLang(lang, isNew) {
     overallPass = false;
   }
 
+  // 6. Match taglines and undo_label must not be copied verbatim from English.
+  //    These keys are easy to overlook when adding a new language block because
+  //    they sit far from the top of the block.  Any value that is present AND
+  //    still identical to the English source string is treated as a critical failure.
+  const TAGLINE_KEYS = [
+    "match_tagline_1", "match_tagline_2", "match_tagline_3",
+    "match_tagline_4", "match_tagline_5", "match_tagline_6",
+    "match_tagline_7", "match_tagline_8", "undo_label",
+  ];
+  const untrTaglines = TAGLINE_KEYS.filter(
+    (k) => block.vals[k] !== undefined && block.vals[k] === en.vals[k]
+  );
+  if (untrTaglines.length > 0) {
+    details.push({
+      type: "TAGLINE_UNTRANSLATED",
+      count: untrTaglines.length,
+      items: untrTaglines.map((k) => `${k}: "${block.vals[k]}"`),
+    });
+    overallPass = false;
+  }
+
   const hasCritical = details.some((d) =>
-    ["TEMPLATE_LITERAL_BUG", "EMPTY_VALUES", "SPOT_CHECK_UNTRANSLATED"].includes(d.type)
+    ["TEMPLATE_LITERAL_BUG", "EMPTY_VALUES", "SPOT_CHECK_UNTRANSLATED", "TAGLINE_UNTRANSLATED"].includes(d.type)
   );
   if (hasCritical) overallPass = false;
 
@@ -203,6 +265,7 @@ report.forEach(({ lang, label, status, keyCount, enKeyCount, coveragePct, detail
         if (d.type === "EMPTY_VALUES") return `${BOLD}${RED}${d.count} empty values${RESET}`;
         if (d.type === "ORPHAN_KEYS") return `${DIM}${d.count} orphan keys${RESET}`;
         if (d.type === "SPOT_CHECK_UNTRANSLATED") return `${RED}${d.count} untranslated spot-check keys${RESET}`;
+        if (d.type === "TAGLINE_UNTRANSLATED") return `${BOLD}${RED}${d.count} untranslated tagline/undo keys${RESET}`;
         return "";
       })
       .filter(Boolean)
@@ -237,7 +300,7 @@ if (withMissing.length > 0) {
 // Print any critical issues (bugs, not just missing keys)
 const withCritical = report.filter((r) =>
   r.details?.some((d) =>
-    ["TEMPLATE_LITERAL_BUG", "EMPTY_VALUES", "SPOT_CHECK_UNTRANSLATED"].includes(d.type)
+    ["TEMPLATE_LITERAL_BUG", "EMPTY_VALUES", "SPOT_CHECK_UNTRANSLATED", "TAGLINE_UNTRANSLATED"].includes(d.type)
   )
 );
 if (withCritical.length > 0) {
@@ -245,7 +308,7 @@ if (withCritical.length > 0) {
   withCritical.forEach((r) => {
     r.details
       .filter((d) =>
-        ["TEMPLATE_LITERAL_BUG", "EMPTY_VALUES", "SPOT_CHECK_UNTRANSLATED"].includes(
+        ["TEMPLATE_LITERAL_BUG", "EMPTY_VALUES", "SPOT_CHECK_UNTRANSLATED", "TAGLINE_UNTRANSLATED"].includes(
           d.type
         )
       )

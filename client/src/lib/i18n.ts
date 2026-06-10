@@ -1159,6 +1159,10 @@ export const TRANSLATIONS = {
     close_profile_aria:           "Close profile",
     prev_photo_aria:              "Previous photo",
     next_photo_aria:              "Next photo",
+    // TRANSLATORS: When adding a new language block, you MUST translate all
+    // match_tagline_* keys and undo_label below.  The check-translations script
+    // treats any non-English block that copies the English text verbatim as a
+    // build failure, so leaving these as-is will break the translation CI check.
     match_tagline_1:              "Two people. One spark.",
     match_tagline_2:              "Something rare just happened.",
     match_tagline_3:              "A new connection arrived.",
