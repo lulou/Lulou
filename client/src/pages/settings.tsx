@@ -463,7 +463,8 @@ export default function SettingsPage() {
   const startCheckout = async (itemId: string) => {
     setCheckoutLoading(itemId);
     try {
-      const data = await apiRequest("POST", "/api/stripe/extras-checkout", { itemId }) as any;
+      const res = await apiRequest("POST", "/api/stripe/extras-checkout", { itemId });
+      const data = await res.json();
       if (data?.url) window.location.href = data.url;
     } catch (err: any) {
       toast({ title: t("checkout_failed"), description: err?.message, variant: "destructive" });

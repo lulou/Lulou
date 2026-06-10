@@ -74,7 +74,8 @@ export function PurchasePrompt({ feature, onClose }: PurchasePromptProps) {
   const startCheckout = async (itemId: string) => {
     setLoading(itemId);
     try {
-      const data = await apiRequest("POST", "/api/stripe/extras-checkout", { itemId }) as any;
+      const res = await apiRequest("POST", "/api/stripe/extras-checkout", { itemId });
+      const data = await res.json();
       if (data?.url) window.location.href = data.url;
     } catch {
       // silently fall back — user stays on page

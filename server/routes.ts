@@ -1421,7 +1421,8 @@ export async function registerRoutes(
       const matchId = req.params.matchId;
 
       // Parse connection quality info sent by the client
-      const { connected, connectedDurationMs, callState } = req.body || {};
+      const { connected, connectedDurationMs, callState, callType } = req.body || {};
+      const resolvedCallType: "phone" | "video" = callType === "video" ? "video" : "phone";
       const options: CompleteCallOptions = {
         connected: connected !== undefined ? Boolean(connected) : undefined,
         connectedDurationMs: connectedDurationMs !== undefined ? Number(connectedDurationMs) : undefined,
@@ -1433,6 +1434,7 @@ export async function registerRoutes(
         connected: options.connected,
         connectedDurationMs: options.connectedDurationMs,
         callState: options.callState,
+        callType: resolvedCallType,
       });
 
       // Capture the initiator before completeCall clears the session — used to
@@ -1449,10 +1451,11 @@ export async function registerRoutes(
         return res.status(404).json({ message: "Match not found" });
       }
 
-      // Consume one phone credit when:
+      // Consume one call credit when:
       //   1. This user was the call initiator (caller pays, not callee)
       //   2. The call was counted (first complete wins — natural double-deduction guard)
       //   3. The peer-to-peer connection lasted at least 30 seconds
+      //   4. Deduct the correct credit type (phone or video) based on what the caller sent
       if (
         priorInitiatorId === userId &&
         result.counted &&
@@ -1460,10 +1463,10 @@ export async function registerRoutes(
         options.connectedDurationMs >= 30_000
       ) {
         try {
-          const consumed = await serverStorage.consumeCallCredit(userId, "phone");
-          console.log("[CALL_COMPLETE] CREDIT_CONSUMED", { userId, matchId, consumed });
+          const consumed = await serverStorage.consumeCallCredit(userId, resolvedCallType);
+          console.log("[CALL_COMPLETE] CREDIT_CONSUMED", { userId, matchId, consumed, callType: resolvedCallType });
         } catch (creditErr: any) {
-          console.error("[CALL_COMPLETE] CREDIT_CONSUME_ERROR", { userId, matchId, error: creditErr?.message });
+          console.error("[CALL_COMPLETE] CREDIT_CONSUME_ERROR", { userId, matchId, callType: resolvedCallType, error: creditErr?.message });
         }
       }
 

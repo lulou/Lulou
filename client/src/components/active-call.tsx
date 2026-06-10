@@ -911,7 +911,7 @@ export function ActiveCallOverlay({
     } as any);
 
     // Only /call/complete receives connection quality data; /call/cancel gets no body
-    const body = isCancelRinging ? undefined : { connected, connectedDurationMs, callState };
+    const body = isCancelRinging ? undefined : { connected, connectedDurationMs, callState, callType: isVideo ? "video" : "phone" };
 
     apiRequest("POST", endpoint, body)
       .then(async (res) => {

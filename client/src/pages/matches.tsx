@@ -1383,12 +1383,13 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
   });
 
   const completeCall = useMutation({
-    mutationFn: async (vars: { connectedDurationMs: number; callState?: string } = { connectedDurationMs: 0 }) => {
+    mutationFn: async (vars: { connectedDurationMs: number; callState?: string; callType?: string } = { connectedDurationMs: 0 }) => {
       const body = {
         // CallTimer only shows when the call is active in the DB — treat as connected
         connected: vars.connectedDurationMs > 0,
         connectedDurationMs: vars.connectedDurationMs,
         callState: vars.callState ?? "ended",
+        callType: vars.callType ?? "phone",
       };
       console.log("[CALL_UI] CALL_STATE:ended", { matchId: match.id, callSessionId: lastCallSessionIdRef.current, userId: user?.id, isCaller: iAmCaller, source: "inline_chat", ...body });
       const res = await apiRequest("POST", `/api/matches/${match.id}/call/complete`, body);
