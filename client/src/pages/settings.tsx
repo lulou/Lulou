@@ -64,6 +64,7 @@ import {
   CheckCircle2,
   Link,
   Link2Off,
+  Mic,
 } from "lucide-react";
 import type { Profile, BlockedContact } from "@shared/schema";
 import { useLanguageContext } from "@/contexts/language-context";
@@ -1097,6 +1098,14 @@ export default function SettingsPage() {
               itemId="undo-close"
               loading={checkoutLoading === "undo-close"}
               onBuy={() => startCheckout("undo-close")}
+            />
+            <ExtrasItem
+              title="Voice Notes Unlock"
+              description="Send & receive voice messages in any chat"
+              price="$4.99"
+              itemId="voice-notes-unlock"
+              loading={checkoutLoading === "voice-notes-unlock"}
+              onBuy={() => startCheckout("voice-notes-unlock")}
             />
 
             <div className="flex items-center gap-3 pt-1">

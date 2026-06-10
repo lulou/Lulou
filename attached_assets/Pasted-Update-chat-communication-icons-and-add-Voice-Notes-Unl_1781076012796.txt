@@ -1,0 +1,88 @@
+Update chat communication icons and add Voice Notes Unlock.
+
+Do not work on Discovery, Intention Wheel, language, profile fields, matching, ringtone, or unrelated features.
+
+Current state:
+
+Phone icon now appears.
+Video call icon is missing.
+Voice note icon is missing.
+Voice Notes Unlock is not in Extras.
+Important product rule:
+Video calls should NOT be part of the normal free chat progression.
+Video calls should remain a premium Extra / credit-based feature.
+
+Chat icon requirements:
+
+Phone icon
+Keep visible in chat.
+Grey when no phone credits.
+Green/glowing when phone credits are available.
+Tapping grey phone icon should send user to Extras / call credit packs.
+Video icon
+Add video icon back into chat, but ONLY as a premium/credit-gated action.
+Grey when no video credits.
+Green/glowing when video credits are available.
+Tapping grey video icon should send user to Extras / video call bundles.
+Do not reintroduce automatic face-call progression.
+Do not make video required.
+Do not make video part of the normal chat stages.
+Voice note icon
+Add microphone/voice note icon to chat.
+Grey when Voice Notes Unlock is not purchased.
+Active when user has Voice Notes Unlock.
+Tapping grey voice note icon should open Extras / Voice Notes Unlock.
+Tapping active voice note icon should open voice recording UI.
+Voice Notes Unlock requirements:
+
+Add to Extras page.
+One-time purchase.
+Permanent unlock.
+Account-level entitlement.
+Works across all current and future matches.
+Not subscription.
+Not pay-per-message.
+Not per-match.
+Conversation rule:
+If one user in a match owns Voice Notes Unlock, both users in that chat should be able to exchange voice notes.
+
+Reason:
+Voice notes are a conversation feature. One-way voice notes would feel awkward.
+
+Implementation plan:
+
+First audit current chat components and Extras implementation.
+Identify exact live chat component(s):
+
+matches.tsx
+messaging.tsx
+any other rendered chat surface
+Add icons to the actual live components, not unused components.
+Add Voice Notes Unlock item to Extras.
+Add backend entitlement check for voice notes.
+Add purchase/grant flow for Voice Notes Unlock.
+Add message type/storage support for voice note messages if not already present.
+Add safe audio upload limits.
+Add playback UI.
+Voice note recommendations:
+
+Max recording length: 60 seconds.
+Store audio securely.
+Use compressed web audio format where supported.
+Show play/pause UI in chat bubble.
+Do not autoplay voice notes.
+Allow delete/report like normal messages if those features exist.
+Report:
+
+exact files changed
+exact chat component(s) updated
+exact Extras component updated
+how video credits are checked
+how voice-note entitlement is stored
+whether database migration is required
+whether Stripe item was added
+whether recording/playback is fully implemented or only the unlock UI was added
+Run:
+npm run check
+
+Do not claim complete unless the icons are visible in the actual chatroom.

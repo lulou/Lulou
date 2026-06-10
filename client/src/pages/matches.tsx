@@ -16,7 +16,7 @@ import { useRealtimeMessages } from "@/hooks/use-realtime-messages";
 import { useUnreadCounts } from "@/hooks/use-unread-counts";
 import { useTypingIndicator } from "@/hooks/use-typing-indicator";
 import { Input } from "@/components/ui/input";
-import { MessageCircle, Send, Phone, Video, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, PhoneOff, Clock, Check, X, Sparkles, Calendar, Heart, PhoneForwarded, Moon, User, MapPin } from "lucide-react";
+import { MessageCircle, Send, Phone, Video, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, PhoneOff, Clock, Check, X, Sparkles, Calendar, Heart, PhoneForwarded, Moon, User, MapPin, Mic, Loader2, Pause, Play } from "lucide-react";
 import { LulouFlowerIcon, ProfileAvatar } from "@/components/app-layout";
 import { usePerfTrace, useRenderCount, isMobile, scheduleIdle } from "@/lib/perf";
 import { broadcastCallSignal } from "@/hooks/use-call-signaling";
@@ -498,12 +498,75 @@ function ReadyToMeetInline({ detail, matchId, profileName }: { detail: MatchDeta
 
 const SCHEDULE_PREFIX = "__SCHEDULE__:";
 const PHONE_PREFIX = "__PHONE__:";
+const VOICE_PREFIX = "__VOICE__:";
 
 function renderMessageContent(content: string, t: (k: any) => string): string {
   if (content.startsWith(PHONE_PREFIX)) {
     return `${t("my_number_is")} ${content.slice(PHONE_PREFIX.length)}`;
   }
   return content;
+}
+
+function VoiceNoteBubble({ url, isMe }: { url: string; isMe: boolean }) {
+  const audioRef = useRef<HTMLAudioElement>(null);
+  const [playing, setPlaying] = useState(false);
+  const [duration, setDuration] = useState(0);
+  const [currentTime, setCurrentTime] = useState(0);
+
+  const toggle = () => {
+    const a = audioRef.current;
+    if (!a) return;
+    if (playing) a.pause(); else a.play().catch(() => {});
+  };
+
+  const fmt = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
+  const progress = duration > 0 ? currentTime / duration : 0;
+
+  return (
+    <div
+      className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl min-w-[180px] max-w-[240px] ${
+        isMe ? "bg-primary text-primary-foreground" : "bg-muted text-foreground"
+      }`}
+      data-testid="voice-note-bubble"
+    >
+      <audio
+        ref={audioRef}
+        src={url}
+        preload="metadata"
+        onPlay={() => setPlaying(true)}
+        onPause={() => setPlaying(false)}
+        onEnded={() => { setPlaying(false); setCurrentTime(0); }}
+        onLoadedMetadata={e => setDuration((e.target as HTMLAudioElement).duration || 0)}
+        onTimeUpdate={e => setCurrentTime((e.target as HTMLAudioElement).currentTime)}
+      />
+      <button
+        onClick={e => { e.stopPropagation(); toggle(); }}
+        className="w-7 h-7 rounded-full flex items-center justify-center shrink-0"
+        style={{ background: isMe ? "rgba(255,255,255,0.18)" : "rgba(0,0,0,0.08)" }}
+        data-testid="button-voice-note-play"
+      >
+        {playing ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
+      </button>
+      <div className="flex-1 min-w-0 space-y-1">
+        <div
+          className="h-1 rounded-full overflow-hidden"
+          style={{ background: isMe ? "rgba(255,255,255,0.22)" : "rgba(0,0,0,0.10)" }}
+        >
+          <div
+            className="h-full rounded-full transition-all duration-200"
+            style={{
+              width: `${progress * 100}%`,
+              background: isMe ? "rgba(255,255,255,0.80)" : "hsl(var(--primary))",
+            }}
+          />
+        </div>
+        <p className="text-[10px] opacity-55 font-mono tabular-nums">
+          {fmt(playing ? currentTime : (duration || 0))}
+        </p>
+      </div>
+      <Mic className="w-3 h-3 shrink-0 opacity-40" />
+    </div>
+  );
 }
 
 function parseScheduleData(msg: Message): { type: string; proposedBy: string; proposedTime: string; stage: number } | null {
@@ -1535,6 +1598,99 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
     staleTime: 30_000,
   });
   const phoneCredits = callCreditsData?.phoneCredits;
+  const videoCredits = callCreditsData?.videoCredits;
+
+  // Voice notes entitlement (either user in this match having the unlock activates it for both)
+  const { data: voiceNoteData } = useQuery<{ unlocked: boolean; isMine: boolean }>({
+    queryKey: ["/api/voice-notes/entitlement", match.id],
+    enabled: expanded,
+    staleTime: 5 * 60 * 1000,
+  });
+  const voiceNotesUnlocked = voiceNoteData?.unlocked ?? false;
+
+  // Recording state
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingTime, setRecordingTime] = useState(0);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const stopRecordingTimer = () => {
+    if (recordingTimerRef.current) { clearInterval(recordingTimerRef.current); recordingTimerRef.current = null; }
+  };
+
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+        ? "audio/webm;codecs=opus"
+        : MediaRecorder.isTypeSupported("audio/ogg;codecs=opus")
+        ? "audio/ogg;codecs=opus"
+        : "audio/webm";
+      const recorder = new MediaRecorder(stream, { mimeType });
+      audioChunksRef.current = [];
+      recorder.ondataavailable = e => { if (e.data.size > 0) audioChunksRef.current.push(e.data); };
+      recorder.onstop = () => {
+        stream.getTracks().forEach(t => t.stop());
+        const blob = new Blob(audioChunksRef.current, { type: mimeType });
+        if (blob.size > 0) sendVoiceNote.mutate({ blob, mimeType });
+      };
+      recorder.start(100);
+      mediaRecorderRef.current = recorder;
+      setIsRecording(true);
+      setRecordingTime(0);
+      recordingTimerRef.current = setInterval(() => {
+        setRecordingTime(t => {
+          if (t >= 59) { stopRecording(); return 60; }
+          return t + 1;
+        });
+      }, 1000);
+    } catch {
+      toast({ title: "Microphone access denied", variant: "destructive" });
+    }
+  };
+
+  const stopRecording = () => {
+    stopRecordingTimer();
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+      mediaRecorderRef.current.stop();
+    }
+    setIsRecording(false);
+    setRecordingTime(0);
+  };
+
+  const cancelRecording = () => {
+    stopRecordingTimer();
+    const mr = mediaRecorderRef.current;
+    if (mr && mr.state !== "inactive") {
+      mr.ondataavailable = null;
+      mr.onstop = null;
+      try { mr.stream?.getTracks().forEach(t => t.stop()); mr.stop(); } catch { /* ignore */ }
+    }
+    audioChunksRef.current = [];
+    setIsRecording(false);
+    setRecordingTime(0);
+  };
+
+  const sendVoiceNote = useMutation({
+    mutationFn: async ({ blob, mimeType }: { blob: Blob; mimeType: string }) => {
+      const arrayBuffer = await blob.arrayBuffer();
+      const bytes = new Uint8Array(arrayBuffer);
+      let binary = "";
+      for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+      const audioBase64 = btoa(binary);
+      const res = await apiRequest("POST", `/api/voice-notes/send/${match.id}`, { audioBase64, mimeType });
+      if (!res.ok) { const b = await res.json().catch(() => ({})); throw new Error(b.message || "Failed to send"); }
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/matches", match.id] });
+      forceScrollRef.current = true;
+    },
+    onError: (err: any) => {
+      toast({ title: err?.message || "Failed to send voice note", variant: "destructive" });
+    },
+  });
 
   const activateExtension = useMutation({
     mutationFn: async () => {
@@ -1839,6 +1995,58 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
               </span>
             </button>
           )}
+          {/* Video credit pill */}
+          {!allCallsDone && (
+            <button
+              onClick={() => {
+                if ((videoCredits ?? 0) > 0) {
+                  toast({ title: "Video credits available", description: "Video call unlocks after all voice calls." });
+                } else {
+                  toast({ title: "Get video credits", description: "Purchase from Lulou Extras." });
+                  navigate("/settings");
+                }
+              }}
+              className="flex items-center gap-1 px-1.5 h-7 rounded-full border transition-all active:scale-95"
+              style={(videoCredits ?? 0) > 0
+                ? { borderColor: "rgba(99,102,241,0.5)", background: "rgba(99,102,241,0.08)" }
+                : { borderColor: "hsl(var(--border))", background: "transparent" }}
+              data-testid={`button-video-credit-indicator-${match.id}`}
+            >
+              <Video
+                className="w-3.5 h-3.5 transition-all duration-300"
+                style={!callCreditsData
+                  ? { color: "hsl(var(--muted-foreground))", opacity: 0.5 }
+                  : (videoCredits ?? 0) > 0
+                  ? { color: "rgb(99,102,241)", filter: "drop-shadow(0 0 4px rgba(99,102,241,0.8))" }
+                  : { color: "hsl(var(--muted-foreground))", opacity: 0.45 }}
+              />
+              <span style={{ fontSize: 8, fontWeight: 700, letterSpacing: "0.05em", color: (videoCredits ?? 0) > 0 ? "rgb(99,102,241)" : "hsl(var(--muted-foreground))", opacity: 0.7 }}>VIDEO</span>
+            </button>
+          )}
+          {/* Mic / Voice Notes pill */}
+          <button
+            onClick={() => {
+              if (!voiceNotesUnlocked) {
+                navigate("/settings");
+                toast({ title: "Voice Notes Unlock required", description: "Purchase from Lulou Extras to send voice messages." });
+              } else if (!isRecording) {
+                startRecording();
+              }
+            }}
+            className="flex items-center gap-1 px-1.5 h-7 rounded-full border transition-all active:scale-95"
+            style={voiceNotesUnlocked
+              ? { borderColor: isRecording ? "rgba(239,68,68,0.5)" : "rgba(34,197,94,0.5)", background: isRecording ? "rgba(239,68,68,0.08)" : "rgba(34,197,94,0.08)" }
+              : { borderColor: "hsl(var(--border))", background: "transparent" }}
+            data-testid={`button-voice-note-${match.id}`}
+          >
+            <Mic
+              className="w-3.5 h-3.5 transition-all duration-300"
+              style={voiceNotesUnlocked
+                ? { color: isRecording ? "rgb(239,68,68)" : "rgb(34,197,94)", filter: isRecording ? "drop-shadow(0 0 4px rgba(239,68,68,0.8))" : "drop-shadow(0 0 4px rgba(34,197,94,0.8))" }
+                : { color: "hsl(var(--muted-foreground))", opacity: 0.45 }}
+            />
+            <span style={{ fontSize: 8, fontWeight: 700, letterSpacing: "0.05em", color: voiceNotesUnlocked ? (isRecording ? "rgb(239,68,68)" : "rgb(34,197,94)") : "hsl(var(--muted-foreground))", opacity: 0.7 }}>MIC</span>
+          </button>
           <Badge variant="outline" className="text-[10px] px-1.5 py-0" data-testid={`badge-messages-remaining-${match.id}`}>
             {allCallsDone ? t("all_calls_done") : callStage === 2 && bothStage2LimitReached ? t("ready_to_meet_badge") : callStage === 2 ? t("n_left_msg").replace("{n}", String(myStage2Remaining)) : callStage === 1 && bothPostCallLimitReached ? t("second_call_ready_badge") : callStage === 1 ? t("n_postcall_left").replace("{n}", String(myPostCallRemaining)) : messagesRemaining > 0 ? t("n_msg_left").replace("{n}", String(messagesRemaining)) : t("call_time_badge")}
           </Badge>
@@ -1909,23 +2117,32 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
             {guidanceByIndex.visibleMsgs.map((msg, i) => {
               const isMe = msg.senderId === user?.id;
               const hasReaction = msg.reaction && typeof msg.reaction === 'string' && msg.reaction.length > 0;
+              const isVoiceNote = msg.content.startsWith(VOICE_PREFIX);
               return (
                 <Fragment key={msg.id}>
                   <div className={`flex ${isMe ? "justify-end" : "justify-start"} ${hasReaction ? "mb-2" : ""}`}>
                     <div className="relative">
                       <div
-                        className={`max-w-[75vw] rounded-md px-4 py-3 text-sm select-none ${
-                          isMe
-                            ? "bg-primary text-primary-foreground"
-                            : "bg-muted cursor-pointer"
-                        } ${!isMe ? "active:scale-[0.98] transition-transform" : ""}`}
-                        onClick={() => handleMessageTap(msg)}
+                        className={`max-w-[75vw] rounded-md text-sm select-none ${
+                          isVoiceNote
+                            ? ""
+                            : isMe
+                            ? "bg-primary text-primary-foreground px-4 py-3"
+                            : "bg-muted cursor-pointer px-4 py-3"
+                        } ${!isMe && !isVoiceNote ? "active:scale-[0.98] transition-transform" : ""}`}
+                        onClick={isVoiceNote ? undefined : () => handleMessageTap(msg)}
                         data-testid={`message-${msg.id}`}
                       >
-                        <p className="leading-relaxed">{renderMessageContent(msg.content, t)}</p>
-                        <p className={`text-[10px] mt-1.5 leading-none opacity-60 ${isMe ? "text-primary-foreground" : "text-muted-foreground"}`} data-testid={`timestamp-${msg.id}`}>
-                          {formatTimestamp(msg.createdAt as unknown as string | null)}
-                        </p>
+                        {isVoiceNote ? (
+                          <VoiceNoteBubble url={msg.content.slice(VOICE_PREFIX.length)} isMe={isMe} />
+                        ) : (
+                          <>
+                            <p className="leading-relaxed">{renderMessageContent(msg.content, t)}</p>
+                            <p className={`text-[10px] mt-1.5 leading-none opacity-60 ${isMe ? "text-primary-foreground" : "text-muted-foreground"}`} data-testid={`timestamp-${msg.id}`}>
+                              {formatTimestamp(msg.createdAt as unknown as string | null)}
+                            </p>
+                          </>
+                        )}
                       </div>
                       {hasReaction && (
                         <span
@@ -1949,7 +2166,29 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
             <div ref={messagesEndRef} />
           </div>
 
-          {isCallRinging && iAmCaller ? (
+          {isRecording ? (
+            <div className="p-3 border-t" style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom, 0.75rem))" }}>
+              <div className="flex items-center gap-2.5">
+                <div className="w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse shrink-0" />
+                <div className="flex-1 h-1.5 rounded-full overflow-hidden bg-muted-foreground/20">
+                  <div
+                    className="h-full rounded-full bg-primary/70 transition-all"
+                    style={{ width: `${(recordingTime / 60) * 100}%` }}
+                  />
+                </div>
+                <span className="text-xs text-muted-foreground font-mono tabular-nums shrink-0">
+                  {`${Math.floor(recordingTime / 60)}:${String(recordingTime % 60).padStart(2, "0")}`} / 1:00
+                </span>
+                <Button size="icon" variant="ghost" className="w-7 h-7 shrink-0" onClick={cancelRecording} data-testid={`button-cancel-recording-${match.id}`}>
+                  <X className="w-3.5 h-3.5" />
+                </Button>
+                <Button size="sm" className="shrink-0 gap-1" onClick={stopRecording} disabled={sendVoiceNote.isPending} data-testid={`button-send-voice-note-${match.id}`}>
+                  {sendVoiceNote.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+                  Send
+                </Button>
+              </div>
+            </div>
+          ) : isCallRinging && iAmCaller ? (
             <div
               className="border-t"
               style={{ background: "linear-gradient(160deg, hsl(350 45% 14%) 0%, hsl(350 40% 9%) 100%)" }}

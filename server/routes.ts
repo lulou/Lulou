@@ -957,7 +957,7 @@ export async function registerRoutes(
 
       const { content } = parsed.data;
 
-      if (containsContactInfo(content)) {
+      if (!content.startsWith("__VOICE__:") && containsContactInfo(content)) {
         return res.status(400).json({ message: "No exchange of information until a date has been agreed upon. Complete your calls and match your availability first!" });
       }
 
@@ -1580,6 +1580,93 @@ export async function registerRoutes(
     }
   });
 
+  // ── Voice Notes entitlement & upload ─────────────────────────────────────
+  app.get("/api/voice-notes/entitlement/:matchId", isAuthenticated, async (req: any, res) => {
+    try {
+      const storage = getStorage(req);
+      const userId = req.user.id;
+      const { matchId } = req.params;
+      const match = await storage.getMatchMeta(matchId, userId);
+      if (!match) return res.status(404).json({ message: "Match not found" });
+      const otherUserId = match.user1Id === userId ? match.user2Id : match.user1Id;
+      const [myUnlock, theirUnlock] = await Promise.all([
+        db.select().from(userBenefits).where(and(eq(userBenefits.userId, userId), eq(userBenefits.type, "voice_notes_unlock"))).limit(1),
+        db.select().from(userBenefits).where(and(eq(userBenefits.userId, otherUserId), eq(userBenefits.type, "voice_notes_unlock"))).limit(1),
+      ]);
+      res.json({ unlocked: myUnlock.length > 0 || theirUnlock.length > 0, isMine: myUnlock.length > 0 });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message || "Failed to check voice notes entitlement" });
+    }
+  });
+
+  app.post("/api/voice-notes/send/:matchId", isAuthenticated, async (req: any, res) => {
+    try {
+      const adminStorage = getAdminStorage();
+      const storage = getStorage(req);
+      const userId = req.user.id;
+      const { matchId } = req.params;
+      const { audioBase64, mimeType } = req.body;
+
+      if (!audioBase64 || typeof audioBase64 !== "string") {
+        return res.status(400).json({ message: "audioBase64 is required" });
+      }
+
+      const match = await storage.getMatchMeta(matchId, userId);
+      if (!match) return res.status(404).json({ message: "Match not found" });
+
+      const otherUserId = match.user1Id === userId ? match.user2Id : match.user1Id;
+
+      const [myUnlock, theirUnlock] = await Promise.all([
+        db.select().from(userBenefits).where(and(eq(userBenefits.userId, userId), eq(userBenefits.type, "voice_notes_unlock"))).limit(1),
+        db.select().from(userBenefits).where(and(eq(userBenefits.userId, otherUserId), eq(userBenefits.type, "voice_notes_unlock"))).limit(1),
+      ]);
+
+      if (myUnlock.length === 0 && theirUnlock.length === 0) {
+        return res.status(403).json({ message: "Voice Notes Unlock required. Purchase from Lulou Extras." });
+      }
+
+      let audioBuffer: Buffer;
+      try {
+        audioBuffer = Buffer.from(audioBase64, "base64");
+      } catch {
+        return res.status(400).json({ message: "Invalid audio data" });
+      }
+
+      if (audioBuffer.length > 3_000_000) {
+        return res.status(400).json({ message: "Audio file too large (max 3 MB / ~60 seconds)" });
+      }
+
+      const safeMime = (typeof mimeType === "string" && mimeType.length < 100) ? mimeType : "audio/webm";
+      const ext = safeMime.includes("ogg") ? "ogg" : "webm";
+      const filePath = `${matchId}/${Date.now()}_${userId}.${ext}`;
+
+      await supabaseAdmin.storage.createBucket("voice-notes", { public: true }).catch(() => {});
+
+      const { error: uploadError } = await supabaseAdmin.storage
+        .from("voice-notes")
+        .upload(filePath, audioBuffer, { contentType: safeMime, upsert: false });
+
+      if (uploadError) {
+        console.error("[VOICE_NOTE] Upload error:", uploadError.message);
+        return res.status(500).json({ message: "Failed to upload voice note. Please try again." });
+      }
+
+      const { data: urlData } = supabaseAdmin.storage.from("voice-notes").getPublicUrl(filePath);
+      const publicUrl = urlData.publicUrl;
+
+      const message = await adminStorage.createMessage({
+        matchId,
+        senderId: userId,
+        content: `__VOICE__:${publicUrl}`,
+      });
+
+      res.json({ success: true, message });
+    } catch (err: any) {
+      console.error("[VOICE_NOTE] Send error:", err.message);
+      res.status(500).json({ message: err.message || "Failed to send voice note" });
+    }
+  });
+
   // ── Discovery Undo Last Pass ──────────────────────────────────────────────────
   app.post("/api/discover/undo-pass", isAuthenticated, async (req: any, res) => {
     try {
@@ -2090,6 +2177,7 @@ export async function registerRoutes(
     "premium-pack":         { name: "Premium Pack",           unitAmount: 1999, mode: "payment"      as const, benefitType: null,                          credits: { phone: 5, video: 0 }, quantity: 1 },
     "chemistry-pack":       { name: "Chemistry Pack",         unitAmount: 1699, mode: "payment"      as const, benefitType: null,                          credits: { phone: 3, video: 1 }, quantity: 1 },
     "deep-connection-pack": { name: "Deep Connection Pack",   unitAmount: 2799, mode: "payment"      as const, benefitType: null,                          credits: { phone: 5, video: 3 }, quantity: 1 },
+    "voice-notes-unlock":   { name: "Voice Notes Unlock",     unitAmount: 499,  mode: "payment"      as const, benefitType: "voice_notes_unlock" as const, credits: null,                   quantity: 1 },
   } as const;
 
   type ExtrasItemId = keyof typeof EXTRAS_ITEMS;

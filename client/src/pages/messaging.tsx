@@ -11,7 +11,7 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
 import { useRealtimeMessages } from "@/hooks/use-realtime-messages";
-import { ArrowLeft, Send, Phone, Video, Check, Clock, Calendar, Heart, PhoneForwarded, X, Moon, MapPin, Ruler, MessageCircle, Loader2 } from "lucide-react";
+import { ArrowLeft, Send, Phone, Video, Check, Clock, Calendar, Heart, PhoneForwarded, X, Moon, MapPin, Ruler, MessageCircle, Loader2, Mic, Pause, Play } from "lucide-react";
 import { PhotoCarousel } from "@/components/photo-carousel";
 import { Input } from "@/components/ui/input";
 import type { Message, Match, Profile } from "@shared/schema";
@@ -314,6 +314,66 @@ function ReadyToMeetSection({ matchDetail, matchId }: { matchDetail: MatchDetail
   );
 }
 
+function VoiceNotePlayer({ url, isMe }: { url: string; isMe: boolean }) {
+  const audioRef = useRef<HTMLAudioElement>(null);
+  const [playing, setPlaying] = useState(false);
+  const [duration, setDuration] = useState(0);
+  const [currentTime, setCurrentTime] = useState(0);
+
+  const toggle = () => {
+    const a = audioRef.current;
+    if (!a) return;
+    if (playing) a.pause(); else a.play().catch(() => {});
+  };
+
+  const fmt = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
+  const progress = duration > 0 ? currentTime / duration : 0;
+
+  return (
+    <div
+      className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl min-w-[180px] max-w-[240px] ${
+        isMe ? "bg-primary text-primary-foreground" : "bg-muted text-foreground"
+      }`}
+    >
+      <audio
+        ref={audioRef}
+        src={url}
+        preload="metadata"
+        onPlay={() => setPlaying(true)}
+        onPause={() => setPlaying(false)}
+        onEnded={() => { setPlaying(false); setCurrentTime(0); }}
+        onLoadedMetadata={e => setDuration((e.target as HTMLAudioElement).duration || 0)}
+        onTimeUpdate={e => setCurrentTime((e.target as HTMLAudioElement).currentTime)}
+      />
+      <button
+        onClick={e => { e.stopPropagation(); toggle(); }}
+        className="w-7 h-7 rounded-full flex items-center justify-center shrink-0"
+        style={{ background: isMe ? "rgba(255,255,255,0.18)" : "rgba(0,0,0,0.08)" }}
+      >
+        {playing ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
+      </button>
+      <div className="flex-1 min-w-0 space-y-1">
+        <div
+          className="h-1 rounded-full overflow-hidden"
+          style={{ background: isMe ? "rgba(255,255,255,0.22)" : "rgba(0,0,0,0.10)" }}
+        >
+          <div
+            className="h-full rounded-full transition-all duration-200"
+            style={{
+              width: `${progress * 100}%`,
+              background: isMe ? "rgba(255,255,255,0.80)" : "hsl(var(--primary))",
+            }}
+          />
+        </div>
+        <p className="text-[10px] opacity-55 font-mono tabular-nums">
+          {fmt(playing ? currentTime : (duration || 0))}
+        </p>
+      </div>
+      <Mic className="w-3 h-3 shrink-0 opacity-40" />
+    </div>
+  );
+}
+
 export default function Messaging() {
   const [, params] = useRoute("/messages/:matchId");
   const [, navigate] = useLocation();
@@ -375,6 +435,99 @@ export default function Messaging() {
     staleTime: 30_000,
   });
   const phoneCredits = callCreditsData?.phoneCredits ?? 0;
+  const videoCredits = callCreditsData?.videoCredits ?? 0;
+
+  // Voice notes entitlement
+  const { data: voiceNoteData } = useQuery<{ unlocked: boolean; isMine: boolean }>({
+    queryKey: ["/api/voice-notes/entitlement", matchId],
+    enabled: !!matchId,
+    staleTime: 5 * 60 * 1000,
+  });
+  const voiceNotesUnlocked = voiceNoteData?.unlocked ?? false;
+
+  // Recording state
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingTime, setRecordingTime] = useState(0);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const stopRecordingTimer = () => {
+    if (recordingTimerRef.current) { clearInterval(recordingTimerRef.current); recordingTimerRef.current = null; }
+  };
+
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+        ? "audio/webm;codecs=opus"
+        : MediaRecorder.isTypeSupported("audio/ogg;codecs=opus")
+        ? "audio/ogg;codecs=opus"
+        : "audio/webm";
+      const recorder = new MediaRecorder(stream, { mimeType });
+      audioChunksRef.current = [];
+      recorder.ondataavailable = e => { if (e.data.size > 0) audioChunksRef.current.push(e.data); };
+      recorder.onstop = () => {
+        stream.getTracks().forEach(t => t.stop());
+        const blob = new Blob(audioChunksRef.current, { type: mimeType });
+        if (blob.size > 0) sendVoiceNote.mutate({ blob, mimeType });
+      };
+      recorder.start(100);
+      mediaRecorderRef.current = recorder;
+      setIsRecording(true);
+      setRecordingTime(0);
+      recordingTimerRef.current = setInterval(() => {
+        setRecordingTime(t => {
+          if (t >= 59) { stopRecording(); return 60; }
+          return t + 1;
+        });
+      }, 1000);
+    } catch {
+      toast({ title: "Microphone access denied", variant: "destructive" });
+    }
+  };
+
+  const stopRecording = () => {
+    stopRecordingTimer();
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+      mediaRecorderRef.current.stop();
+    }
+    setIsRecording(false);
+    setRecordingTime(0);
+  };
+
+  const cancelRecording = () => {
+    stopRecordingTimer();
+    const mr = mediaRecorderRef.current;
+    if (mr && mr.state !== "inactive") {
+      mr.ondataavailable = null;
+      mr.onstop = null;
+      try { mr.stream?.getTracks().forEach(t => t.stop()); mr.stop(); } catch { /* ignore */ }
+    }
+    audioChunksRef.current = [];
+    setIsRecording(false);
+    setRecordingTime(0);
+  };
+
+  const sendVoiceNote = useMutation({
+    mutationFn: async ({ blob, mimeType }: { blob: Blob; mimeType: string }) => {
+      const arrayBuffer = await blob.arrayBuffer();
+      const bytes = new Uint8Array(arrayBuffer);
+      let binary = "";
+      for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+      const audioBase64 = btoa(binary);
+      const res = await apiRequest("POST", `/api/voice-notes/send/${matchId}`, { audioBase64, mimeType });
+      if (!res.ok) { const b = await res.json().catch(() => ({})); throw new Error(b.message || "Failed to send"); }
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/matches", matchId, "messages"] });
+      forceScrollRef.current = true;
+    },
+    onError: (err: any) => {
+      toast({ title: err?.message || "Failed to send voice note", variant: "destructive" });
+    },
+  });
 
   // ── Fast messages query (no profile) ───────────────────────────────────────
   // Hits GET /api/matches/:matchId/messages — only fetches messages rows.
@@ -710,6 +863,58 @@ export default function Messaging() {
               </span>
             </button>
           )}
+          {/* Video credit pill */}
+          {!allCallsDone && (
+            <button
+              onClick={() => {
+                if (videoCredits > 0) {
+                  toast({ title: "Video credits available", description: "Video call unlocks after all voice calls." });
+                } else {
+                  toast({ title: "Get video credits", description: "Purchase from Lulou Extras." });
+                  navigate("/settings");
+                }
+              }}
+              className="flex items-center gap-1 px-1.5 h-7 rounded-full border transition-all active:scale-95 flex-shrink-0"
+              style={videoCredits > 0
+                ? { borderColor: "rgba(99,102,241,0.5)", background: "rgba(99,102,241,0.08)" }
+                : { borderColor: "hsl(var(--border))", background: "transparent" }}
+              data-testid="button-video-credit-indicator"
+            >
+              <Video
+                className="w-3.5 h-3.5 transition-all duration-300"
+                style={!callCreditsData
+                  ? { color: "hsl(var(--muted-foreground))", opacity: 0.5 }
+                  : videoCredits > 0
+                  ? { color: "rgb(99,102,241)", filter: "drop-shadow(0 0 4px rgba(99,102,241,0.8))" }
+                  : { color: "hsl(var(--muted-foreground))", opacity: 0.45 }}
+              />
+              <span style={{ fontSize: 8, fontWeight: 700, letterSpacing: "0.05em", color: videoCredits > 0 ? "rgb(99,102,241)" : "hsl(var(--muted-foreground))", opacity: 0.7 }}>VIDEO</span>
+            </button>
+          )}
+          {/* Mic / Voice Notes pill */}
+          <button
+            onClick={() => {
+              if (!voiceNotesUnlocked) {
+                navigate("/settings");
+                toast({ title: "Voice Notes Unlock required", description: "Purchase from Lulou Extras to send voice messages." });
+              } else if (!isRecording) {
+                startRecording();
+              }
+            }}
+            className="flex items-center gap-1 px-1.5 h-7 rounded-full border transition-all active:scale-95 flex-shrink-0"
+            style={voiceNotesUnlocked
+              ? { borderColor: isRecording ? "rgba(239,68,68,0.5)" : "rgba(34,197,94,0.5)", background: isRecording ? "rgba(239,68,68,0.08)" : "rgba(34,197,94,0.08)" }
+              : { borderColor: "hsl(var(--border))", background: "transparent" }}
+            data-testid="button-voice-note"
+          >
+            <Mic
+              className="w-3.5 h-3.5 transition-all duration-300"
+              style={voiceNotesUnlocked
+                ? { color: isRecording ? "rgb(239,68,68)" : "rgb(34,197,94)", filter: isRecording ? "drop-shadow(0 0 4px rgba(239,68,68,0.8))" : "drop-shadow(0 0 4px rgba(34,197,94,0.8))" }
+                : { color: "hsl(var(--muted-foreground))", opacity: 0.45 }}
+            />
+            <span style={{ fontSize: 8, fontWeight: 700, letterSpacing: "0.05em", color: voiceNotesUnlocked ? (isRecording ? "rgb(239,68,68)" : "rgb(34,197,94)") : "hsl(var(--muted-foreground))", opacity: 0.7 }}>MIC</span>
+          </button>
           {!showCloseConfirm ? (
             <Button variant="ghost" size="icon" onClick={() => setShowCloseConfirm(true)} data-testid="button-close-connection">
               <Moon className="w-4 h-4 text-muted-foreground" />
@@ -810,6 +1015,7 @@ export default function Messaging() {
             {allMessages.map(msg => {
               const isMe = msg.senderId === user?.id;
               const hasReaction = msg.reaction && typeof msg.reaction === 'string' && msg.reaction.length > 0;
+              const isVoiceNote = msg.content.startsWith("__VOICE__:");
               if (hasReaction) {
                 console.log("[CHAT] MESSAGE_REACTION_RENDERED", { messageId: msg.id, reaction: msg.reaction });
               }
@@ -817,18 +1023,26 @@ export default function Messaging() {
                 <div key={msg.id} className={`flex ${isMe ? "justify-end" : "justify-start"} ${hasReaction ? "mb-2" : ""}`}>
                   <div className="relative">
                     <div
-                      className={`max-w-[75vw] rounded-md px-4 py-3 text-sm select-none ${
-                        isMe
-                          ? "bg-primary text-primary-foreground"
-                          : "bg-card border cursor-pointer"
-                      } ${!isMe ? "active:scale-[0.98] transition-transform" : ""}`}
-                      onClick={() => handleMessageTap(msg)}
+                      className={`max-w-[75vw] rounded-md text-sm select-none ${
+                        isVoiceNote
+                          ? ""
+                          : isMe
+                          ? "bg-primary text-primary-foreground px-4 py-3"
+                          : "bg-card border cursor-pointer px-4 py-3"
+                      } ${!isMe && !isVoiceNote ? "active:scale-[0.98] transition-transform" : ""}`}
+                      onClick={isVoiceNote ? undefined : () => handleMessageTap(msg)}
                       data-testid={`message-${msg.id}`}
                     >
-                      <p className="leading-relaxed">{msg.content}</p>
-                      <p className={`text-[10px] mt-1.5 leading-none opacity-60 ${isMe ? "text-primary-foreground" : "text-muted-foreground"}`}>
-                        {msg.createdAt ? new Date(msg.createdAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : ""}
-                      </p>
+                      {isVoiceNote ? (
+                        <VoiceNotePlayer url={msg.content.slice("__VOICE__:".length)} isMe={isMe} />
+                      ) : (
+                        <>
+                          <p className="leading-relaxed">{msg.content.startsWith("__PHONE__:") ? msg.content.slice("__PHONE__:".length) : msg.content}</p>
+                          <p className={`text-[10px] mt-1.5 leading-none opacity-60 ${isMe ? "text-primary-foreground" : "text-muted-foreground"}`}>
+                            {msg.createdAt ? new Date(msg.createdAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : ""}
+                          </p>
+                        </>
+                      )}
                     </div>
                     {hasReaction && (
                       <span
@@ -860,6 +1074,25 @@ export default function Messaging() {
             </div>
           ) : allCallsDone && matchDetail ? (
             <ReadyToMeetSection matchDetail={matchDetail} matchId={matchId!} />
+          ) : isRecording ? (
+            <div className="p-3 border-t" style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom, 0.75rem))" }}>
+              <div className="flex items-center gap-2.5">
+                <div className="w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse shrink-0" />
+                <div className="flex-1 h-1.5 rounded-full overflow-hidden bg-muted-foreground/20">
+                  <div className="h-full rounded-full bg-primary/70 transition-all" style={{ width: `${(recordingTime / 60) * 100}%` }} />
+                </div>
+                <span className="text-xs text-muted-foreground font-mono tabular-nums shrink-0">
+                  {`${Math.floor(recordingTime / 60)}:${String(recordingTime % 60).padStart(2, "0")}`} / 1:00
+                </span>
+                <Button size="icon" variant="ghost" className="w-7 h-7 shrink-0" onClick={cancelRecording} data-testid="button-cancel-recording">
+                  <X className="w-3.5 h-3.5" />
+                </Button>
+                <Button size="sm" className="shrink-0 gap-1" onClick={stopRecording} disabled={sendVoiceNote.isPending} data-testid="button-send-voice-note">
+                  {sendVoiceNote.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+                  Send
+                </Button>
+              </div>
+            </div>
           ) : (
             <div className="p-4 border-t" style={{ paddingBottom: "max(1rem, env(safe-area-inset-bottom, 1rem))" }}>
               <div className="flex gap-2 items-end">

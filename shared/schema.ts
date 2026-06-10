@@ -136,7 +136,7 @@ export const insertMessageSchema = createInsertSchema(messages).omit({
   createdAt: true,
 });
 
-export const BENEFIT_TYPES = ["message_extension", "extra_call", "video_call"] as const;
+export const BENEFIT_TYPES = ["message_extension", "extra_call", "video_call", "voice_notes_unlock"] as const;
 export type BenefitType = typeof BENEFIT_TYPES[number];
 
 export const userBenefits = pgTable("user_benefits", {
