@@ -792,7 +792,7 @@ export default function Landing() {
 
   return (
     <div className="min-h-screen bg-background">
-      <nav className="fixed top-0 left-0 right-0 z-50 backdrop-blur-md bg-background/80 border-b">
+      <nav className="fixed top-0 inset-x-0 z-50 backdrop-blur-md bg-background/80 border-b">
         <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between gap-4 flex-wrap">
           <div className="flex items-center gap-2">
             <LulouFlowerIcon className="w-6 h-6 text-primary" />
@@ -925,7 +925,7 @@ export default function Landing() {
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                    className="absolute end-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
                     data-testid="button-toggle-password"
                     tabIndex={-1}
                   >
@@ -933,7 +933,7 @@ export default function Landing() {
                   </button>
                 </div>
                 {mode === "signin" && (
-                  <div className="text-right">
+                  <div className="text-end">
                     <button
                       type="button"
                       onClick={handlePasswordReset}

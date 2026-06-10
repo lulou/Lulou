@@ -894,7 +894,7 @@ export default function Onboarding({ existingProfile = null, userEmail = "" }: O
           <div className="flex items-center justify-between gap-4 pt-4">
             {step > 0 ? (
               <Button variant="ghost" onClick={() => setStep(step - 1)} data-testid="button-back">
-                <ArrowLeft className="w-4 h-4 me-2" /> Back
+                <ArrowLeft className="w-4 h-4 me-2 rtl:rotate-180" /> Back
               </Button>
             ) : <div />}
             <Button
@@ -905,7 +905,7 @@ export default function Onboarding({ existingProfile = null, userEmail = "" }: O
               {step === STEP_KEYS.length - 1 ? (
                 createProfile.isPending ? t("creating_profile_label") : t("complete_profile_label")
               ) : (
-                <>Continue <ArrowRight className="w-4 h-4 ms-2" /></>
+                <>Continue <ArrowRight className="w-4 h-4 ms-2 rtl:rotate-180" /></>
               )}
             </Button>
           </div>
@@ -955,7 +955,7 @@ function PhotoSlot({ index, photo, onSelect, onRemove }: {
           <img src={photo} alt={`Photo ${index + 1}`} className="w-full h-full object-cover" />
           <button
             onClick={onRemove}
-            className="absolute top-1 right-1 w-6 h-6 rounded-full bg-background/80 flex items-center justify-center text-xs text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity"
+            className="absolute top-1 end-1 w-6 h-6 rounded-full bg-background/80 flex items-center justify-center text-xs text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity"
             data-testid={`button-remove-photo-${index}`}
           >
             x

@@ -494,7 +494,7 @@ export default function SettingsPage() {
             data-testid="button-settings-back"
             aria-label="Back to profile"
           >
-            <ArrowLeft className="w-5 h-5" />
+            <ArrowLeft className="w-5 h-5 rtl:rotate-180" />
           </button>
           <h1 className="font-serif text-xl font-bold">{t("settings")}</h1>
         </div>
@@ -1169,7 +1169,7 @@ export default function SettingsPage() {
             {LANGUAGES.map(lang => (
               <button
                 key={lang}
-                className="w-full px-5 py-3.5 flex items-center justify-between text-left hover:bg-muted/50 transition-colors border-b border-border/40"
+                className="w-full px-5 py-3.5 flex items-center justify-between text-start hover:bg-muted/50 transition-colors border-b border-border/40"
                 onClick={() => { setLanguage(lang); setActiveSheet(null); }}
                 data-testid={`button-language-${lang.toLowerCase().replace(/\s/g, "-")}`}
               >
@@ -1193,7 +1193,7 @@ export default function SettingsPage() {
             {(["miles", "km"] as const).map(u => (
               <button
                 key={u}
-                className="w-full px-5 py-4 flex items-center justify-between text-left hover:bg-muted/50 transition-colors border-b border-border/40"
+                className="w-full px-5 py-4 flex items-center justify-between text-start hover:bg-muted/50 transition-colors border-b border-border/40"
                 onClick={() => { setUnits(u); setActiveSheet(null); }}
                 data-testid={`button-units-${u}`}
               >
@@ -1598,13 +1598,13 @@ function SettingRow({
         <span onClick={e => e.stopPropagation()}>{trailing}</span>
       )}
       {showChevron && !trailing && (
-        <ChevronRight className="w-4 h-4 text-muted-foreground/40 shrink-0" />
+        <ChevronRight className="w-4 h-4 text-muted-foreground/40 shrink-0 rtl:rotate-180" />
       )}
     </>
   );
 
   const baseClass =
-    "w-full px-4 py-3.5 flex items-center gap-3 border-b border-border/50 text-left";
+    "w-full px-4 py-3.5 flex items-center gap-3 border-b border-border/50 text-start";
 
   if (onPress) {
     return (
@@ -1728,7 +1728,7 @@ function CallPackItem({
         : "border-border/60 bg-card/50"
     }`}>
       {isBestValue && (
-        <span className="absolute -top-2.5 left-4 px-2.5 py-0.5 rounded-full bg-primary text-primary-foreground text-[9px] font-bold tracking-widest uppercase">
+        <span className="absolute -top-2.5 start-4 px-2.5 py-0.5 rounded-full bg-primary text-primary-foreground text-[9px] font-bold tracking-widest uppercase">
           Best Value
         </span>
       )}
