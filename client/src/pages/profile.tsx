@@ -416,6 +416,10 @@ export default function ProfilePage() {
   const [editCustomStarterList, setEditCustomStarterList] = useState<string[]>([]);
   const [newCustomStarterDraft, setNewCustomStarterDraft] = useState("");
   const [editViewerQList, setEditViewerQList] = useState<Array<{ question: string }>>([]);
+  const [showCustomStarters, setShowCustomStarters] = useState(false);
+  const [showViewerQuestions, setShowViewerQuestions] = useState(false);
+  const [showCustomGreenFlags, setShowCustomGreenFlags] = useState(false);
+  const [showCustomSignals, setShowCustomSignals] = useState(false);
   const [newViewerQDraft, setNewViewerQDraft] = useState("");
   const [editCustomGreenFlagList, setEditCustomGreenFlagList] = useState<string[]>([]);
   const [newCustomGreenFlagDraft, setNewCustomGreenFlagDraft] = useState("");
@@ -970,12 +974,27 @@ export default function ProfilePage() {
 
       {/* ── Your own conversation starters ─────────────────────────────── */}
       <div className="space-y-3" data-testid="section-custom-starters">
-        <div className="flex items-center gap-2">
-          <Sparkles className="w-4 h-4 text-primary" />
-          <p className="text-sm font-semibold text-foreground">Your own conversation starters</p>
-        </div>
-        <p className="text-xs text-muted-foreground">Write starters for people to reply to — these appear alongside Lulou's prompts on your profile.</p>
-        <div className="space-y-2">
+        <button
+          className="w-full flex items-center justify-between gap-2 py-0.5"
+          onClick={() => setShowCustomStarters(v => !v)}
+          data-testid="button-toggle-custom-starters"
+          aria-expanded={showCustomStarters}
+        >
+          <div className="flex items-center gap-2">
+            <Sparkles className="w-4 h-4 text-primary" />
+            <p className="text-sm font-semibold text-foreground">Your own conversation starters</p>
+          </div>
+          <div className="flex items-center gap-1.5 shrink-0">
+            {!showCustomStarters && editCustomStarterList.length > 0 && (
+              <span className="text-xs text-muted-foreground">{editCustomStarterList.length}</span>
+            )}
+            {showCustomStarters ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
+          </div>
+        </button>
+        {showCustomStarters && (
+          <>
+            <p className="text-xs text-muted-foreground">Write starters for people to reply to — these appear alongside Lulou's prompts on your profile.</p>
+            <div className="space-y-2">
           {editCustomStarterList.map((s, i) => (
             <div key={i} className="flex items-center gap-2">
               <Card className="flex-1 p-3 bg-primary/3 border-primary/20" data-testid={`card-custom-starter-${i}`}>
@@ -1031,16 +1050,33 @@ export default function ProfilePage() {
             </div>
           )}
         </div>
+          </>
+        )}
       </div>
 
       {/* ── Write a question for your viewers ──────────────────────────── */}
       <div className="space-y-3" data-testid="section-viewer-questions">
-        <div className="flex items-center gap-2">
-          <HelpCircle className="w-4 h-4 text-primary" />
-          <p className="text-sm font-semibold text-foreground">{t("write_q_for_viewers")}</p>
-        </div>
-        <p className="text-xs text-muted-foreground">{t("viewers_can_answer_desc")}</p>
-        <div className="space-y-2">
+        <button
+          className="w-full flex items-center justify-between gap-2 py-0.5"
+          onClick={() => setShowViewerQuestions(v => !v)}
+          data-testid="button-toggle-viewer-questions"
+          aria-expanded={showViewerQuestions}
+        >
+          <div className="flex items-center gap-2">
+            <HelpCircle className="w-4 h-4 text-primary" />
+            <p className="text-sm font-semibold text-foreground">{t("write_q_for_viewers")}</p>
+          </div>
+          <div className="flex items-center gap-1.5 shrink-0">
+            {!showViewerQuestions && editViewerQList.length > 0 && (
+              <span className="text-xs text-muted-foreground">{editViewerQList.length}</span>
+            )}
+            {showViewerQuestions ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
+          </div>
+        </button>
+        {showViewerQuestions && (
+          <>
+            <p className="text-xs text-muted-foreground">{t("viewers_can_answer_desc")}</p>
+            <div className="space-y-2">
           {editViewerQList.map((vq, i) => (
             <div key={i} className="flex items-center gap-2">
               <Card className="flex-1 p-3 bg-primary/3 border-primary/20" data-testid={`card-viewer-question-${i}`}>
@@ -1096,15 +1132,32 @@ export default function ProfilePage() {
             </div>
           )}
         </div>
+          </>
+        )}
       </div>
 
       <div className="space-y-3" data-testid="section-custom-green-flags">
-        <div className="flex items-center gap-2">
-          <span className="text-primary text-sm">🟩</span>
-          <p className="text-sm font-semibold text-foreground">{t("your_own_green_flags_title")}</p>
-        </div>
-        <p className="text-xs text-muted-foreground">{t("green_flags_not_preset")}</p>
-        <div className="space-y-2">
+        <button
+          className="w-full flex items-center justify-between gap-2 py-0.5"
+          onClick={() => setShowCustomGreenFlags(v => !v)}
+          data-testid="button-toggle-custom-green-flags"
+          aria-expanded={showCustomGreenFlags}
+        >
+          <div className="flex items-center gap-2">
+            <span className="text-primary text-sm">🟩</span>
+            <p className="text-sm font-semibold text-foreground">{t("your_own_green_flags_title")}</p>
+          </div>
+          <div className="flex items-center gap-1.5 shrink-0">
+            {!showCustomGreenFlags && editCustomGreenFlagList.length > 0 && (
+              <span className="text-xs text-muted-foreground">{editCustomGreenFlagList.length}</span>
+            )}
+            {showCustomGreenFlags ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
+          </div>
+        </button>
+        {showCustomGreenFlags && (
+          <>
+            <p className="text-xs text-muted-foreground">{t("green_flags_not_preset")}</p>
+            <div className="space-y-2">
           {editCustomGreenFlagList.map((flag, i) => (
             <div key={i} className="flex items-center gap-2">
               <Card className="flex-1 p-3 bg-primary/3 border-primary/20" data-testid={`card-custom-green-flag-${i}`}>
@@ -1160,15 +1213,32 @@ export default function ProfilePage() {
             </div>
           )}
         </div>
+          </>
+        )}
       </div>
 
       <div className="space-y-3" data-testid="section-custom-signals">
-        <div className="flex items-center gap-2">
-          <span className="text-primary text-sm">✨</span>
-          <p className="text-sm font-semibold text-foreground">{t("your_own_traits_title")}</p>
-        </div>
-        <p className="text-xs text-muted-foreground">{t("traits_not_preset")}</p>
-        <div className="space-y-2">
+        <button
+          className="w-full flex items-center justify-between gap-2 py-0.5"
+          onClick={() => setShowCustomSignals(v => !v)}
+          data-testid="button-toggle-custom-signals"
+          aria-expanded={showCustomSignals}
+        >
+          <div className="flex items-center gap-2">
+            <span className="text-primary text-sm">✨</span>
+            <p className="text-sm font-semibold text-foreground">{t("your_own_traits_title")}</p>
+          </div>
+          <div className="flex items-center gap-1.5 shrink-0">
+            {!showCustomSignals && editCustomSignalList.length > 0 && (
+              <span className="text-xs text-muted-foreground">{editCustomSignalList.length}</span>
+            )}
+            {showCustomSignals ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
+          </div>
+        </button>
+        {showCustomSignals && (
+          <>
+            <p className="text-xs text-muted-foreground">{t("traits_not_preset")}</p>
+            <div className="space-y-2">
           {editCustomSignalList.map((signal, i) => (
             <div key={i} className="flex items-center gap-2">
               <Card className="flex-1 p-3 bg-primary/3 border-primary/20" data-testid={`card-custom-signal-${i}`}>
@@ -1224,6 +1294,8 @@ export default function ProfilePage() {
             </div>
           )}
         </div>
+          </>
+        )}
       </div>
 
       {/* ── 3-line toggle for extended info ── */}

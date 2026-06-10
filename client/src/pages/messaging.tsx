@@ -12,6 +12,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
 import { useRealtimeMessages } from "@/hooks/use-realtime-messages";
 import { ArrowLeft, Send, Phone, Video, Check, Clock, Calendar, Heart, PhoneForwarded, X, Moon, MapPin, Ruler, MessageCircle, Loader2, Mic, Pause, Play } from "lucide-react";
+import { PurchasePrompt, type PurchaseFeature } from "@/components/purchase-prompt";
 import { PhotoCarousel } from "@/components/photo-carousel";
 import { Input } from "@/components/ui/input";
 import type { Message, Match, Profile } from "@shared/schema";
@@ -445,6 +446,9 @@ export default function Messaging() {
   });
   const voiceNotesUnlocked = voiceNoteData?.unlocked ?? false;
 
+  // Purchase prompt state
+  const [purchasePromptFeature, setPurchasePromptFeature] = useState<PurchaseFeature | null>(null);
+
   // Recording state
   const [isRecording, setIsRecording] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
@@ -862,8 +866,7 @@ export default function Messaging() {
                   if (phoneCredits > 0) {
                     toast({ title: t("credits_ready_header"), description: t("credits_ready_body") });
                   } else {
-                    toast({ title: t("need_credits_header"), description: t("need_phone_credits_msg") });
-                    navigate("/settings");
+                    setPurchasePromptFeature("phone");
                   }
                 }}
                 className="flex flex-col items-center gap-0.5 min-w-[44px] py-1.5 px-2 rounded-xl transition-all active:scale-90"
@@ -891,8 +894,7 @@ export default function Messaging() {
                   if (videoCredits > 0) {
                     toast({ title: "Video credits available", description: "Video call unlocks after all voice calls." });
                   } else {
-                    toast({ title: "Get video credits", description: "Purchase from Lulou Extras." });
-                    navigate("/settings");
+                    setPurchasePromptFeature("video");
                   }
                 }}
                 className="flex flex-col items-center gap-0.5 min-w-[44px] py-1.5 px-2 rounded-xl transition-all active:scale-90"
@@ -917,8 +919,7 @@ export default function Messaging() {
             <button
               onClick={() => {
                 if (!voiceNotesUnlocked) {
-                  navigate("/settings");
-                  toast({ title: "Voice Notes Unlock required", description: "Purchase from Lulou Extras to send voice messages." });
+                  setPurchasePromptFeature("mic");
                 } else if (!isRecording) {
                   startRecording();
                 }
@@ -936,7 +937,7 @@ export default function Messaging() {
                 className="text-[10px] font-semibold leading-none"
                 style={voiceNotesUnlocked ? { color: isRecording ? "rgb(239,68,68)" : "rgb(34,197,94)" } : { color: "hsl(var(--muted-foreground))", opacity: 0.6 }}
               >
-                {voiceNotesUnlocked ? (isRecording ? "Rec" : "On") : "Get"}
+                {voiceNotesUnlocked ? (isRecording ? "Rec" : "On") : "Mic"}
               </span>
             </button>
           </div>
@@ -1232,6 +1233,10 @@ export default function Messaging() {
           </div>
         </div>
       )}
+      <PurchasePrompt
+        feature={purchasePromptFeature}
+        onClose={() => setPurchasePromptFeature(null)}
+      />
     </div>
   );
 }

@@ -22,6 +22,7 @@ import { usePerfTrace, useRenderCount, isMobile, scheduleIdle } from "@/lib/perf
 import { broadcastCallSignal } from "@/hooks/use-call-signaling";
 import { stopAllNonVoiceCallAudio } from "@/lib/call-audio";
 import { ProfilePhotoViewer } from "@/components/profile-photo-viewer";
+import { PurchasePrompt, type PurchaseFeature } from "@/components/purchase-prompt";
 import { EMPTY_PHOTOS } from "@/lib/image-utils";
 import type { Profile, Match, Message, SpinRequest } from "@shared/schema";
 
@@ -1608,6 +1609,9 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
   });
   const voiceNotesUnlocked = voiceNoteData?.unlocked ?? false;
 
+  // Purchase prompt state
+  const [purchasePromptFeature, setPurchasePromptFeature] = useState<PurchaseFeature | null>(null);
+
   // Recording state
   const [isRecording, setIsRecording] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
@@ -2011,8 +2015,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                   if ((phoneCredits ?? 0) > 0) {
                     toast({ title: t("credits_ready_header"), description: t("credits_ready_body") });
                   } else {
-                    toast({ title: t("need_credits_header"), description: t("need_phone_credits_msg") });
-                    navigate("/settings");
+                    setPurchasePromptFeature("phone");
                   }
                 }}
                 className="flex flex-col items-center gap-0.5 min-w-[44px] py-1.5 px-2 rounded-xl transition-all active:scale-90"
@@ -2040,8 +2043,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                   if ((videoCredits ?? 0) > 0) {
                     toast({ title: "Video credits available", description: "Video call unlocks after all voice calls." });
                   } else {
-                    toast({ title: "Get video credits", description: "Purchase from Lulou Extras." });
-                    navigate("/settings");
+                    setPurchasePromptFeature("video");
                   }
                 }}
                 className="flex flex-col items-center gap-0.5 min-w-[44px] py-1.5 px-2 rounded-xl transition-all active:scale-90"
@@ -2066,8 +2068,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
             <button
               onClick={() => {
                 if (!voiceNotesUnlocked) {
-                  navigate("/settings");
-                  toast({ title: "Voice Notes Unlock required", description: "Purchase from Lulou Extras to send voice messages." });
+                  setPurchasePromptFeature("mic");
                 } else if (!isRecording) {
                   startRecording();
                 }
@@ -2085,7 +2086,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                 className="text-[10px] font-semibold leading-none"
                 style={voiceNotesUnlocked ? { color: isRecording ? "rgb(239,68,68)" : "rgb(34,197,94)" } : { color: "hsl(var(--muted-foreground))", opacity: 0.6 }}
               >
-                {voiceNotesUnlocked ? (isRecording ? "Rec" : "On") : "Get"}
+                {voiceNotesUnlocked ? (isRecording ? "Rec" : "On") : "Mic"}
               </span>
             </button>
           </div>
@@ -2826,6 +2827,10 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
           </div>
         </div>
       )}
+      <PurchasePrompt
+        feature={purchasePromptFeature}
+        onClose={() => setPurchasePromptFeature(null)}
+      />
     </div>
   );
 }
