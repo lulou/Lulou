@@ -44,14 +44,14 @@ const FEATURE_META: Record<PurchaseFeature, {
     Icon: Phone,
     color: "rgb(34,197,94)",
     title: "Phone Call Credits",
-    subtitle: "Start a 10-minute voice call once you've exchanged 15 messages.",
+    subtitle: "Call any match immediately — 15 minutes per credit. No message limit required.",
     packs: PHONE_PACKS,
   },
   video: {
     Icon: Video,
     color: "rgb(99,102,241)",
     title: "Video Call Credits",
-    subtitle: "Upgrade your second call to a face-to-face video call.",
+    subtitle: "Start a 10-minute video call with any match immediately.",
     packs: VIDEO_PACKS,
   },
   mic: {
@@ -66,15 +66,17 @@ const FEATURE_META: Record<PurchaseFeature, {
 interface PurchasePromptProps {
   feature: PurchaseFeature | null;
   onClose: () => void;
+  returnPath?: string;
 }
 
-export function PurchasePrompt({ feature, onClose }: PurchasePromptProps) {
+export function PurchasePrompt({ feature, onClose, returnPath }: PurchasePromptProps) {
   const [loading, setLoading] = useState<string | null>(null);
 
   const startCheckout = async (itemId: string) => {
     setLoading(itemId);
     try {
-      const res = await apiRequest("POST", "/api/stripe/extras-checkout", { itemId });
+      const cancelPath = returnPath || window.location.pathname;
+      const res = await apiRequest("POST", "/api/stripe/extras-checkout", { itemId, returnPath: cancelPath });
       const data = await res.json();
       if (data?.url) window.location.href = data.url;
     } catch {

@@ -1,0 +1,94 @@
+Fix paid call/video/voice note flow and Stripe return behaviour.
+
+Do not work on unrelated features.
+
+1. Separate guided/free calls from paid credits
+
+Current issue:
+Chat icon copy says things like:
+“Have a 10 minute phone call once you’ve sent 15 messages.”
+
+That is correct for Lulou’s guided progression, but incorrect when the user has paid call/video credits.
+
+Required logic:
+
+A) Guided/free progression call
+- Unlocks according to Lulou’s normal staged flow.
+- Free earned phone call remains tied to progression.
+- Free earned phone call duration: 10 minutes.
+
+B) Paid phone credit
+- If user has phone credits, they can start a phone call with any matched user immediately.
+- Do not block paid phone credits behind message count or call stage.
+- Paid phone call duration: 15 minutes.
+- Icon should say/use: “Use 1 phone credit”.
+- Credit only deducted after call connects and lasts 30+ seconds.
+- Failed, declined, unanswered, or ringing-only calls must not consume credits.
+
+C) Paid video credit
+- Video is still not part of automatic chat progression.
+- Video remains premium/credit-based only.
+- If user has video credits, they can start a video call with any matched user immediately.
+- Do not block paid video credits behind message count or call stage.
+- Paid video call duration: 10 minutes.
+- Icon should say/use: “Use 1 video credit”.
+- Credit only deducted after video call connects and lasts 30+ seconds.
+- Failed, declined, unanswered, or ringing-only video calls must not consume credits.
+
+2. Update chat icon copy
+
+If no credits and guided call not unlocked:
+- Show: “Unlock call credits to call sooner.”
+
+If guided/free call is available:
+- Allow the guided 10-minute phone call.
+
+If paid phone credits exist:
+- Show: “Use 1 phone credit”
+- Allow paid 15-minute phone call immediately.
+
+If paid video credits exist:
+- Show: “Use 1 video credit”
+- Allow paid 10-minute video call immediately.
+
+3. Stripe/payment return behaviour
+
+Current issue:
+When user clicks a locked Phone/Video/Mic icon and goes to Stripe/payment, if they click back/cancel/return, they are taken to the Profile page.
+
+Expected:
+They should return to the exact page they came from.
+
+Examples:
+- If user clicked locked phone icon from chatroom, cancel/back should return to that same chatroom.
+- If user clicked video icon from chatroom, cancel/back should return to that same chatroom.
+- If user clicked mic/Voice Notes Unlock from chatroom, cancel/back should return to that same chatroom.
+- If user bought from Extras page, return to Extras/settings.
+- Do not default users to Profile after payment cancel/back.
+
+Fix:
+- Store return path before opening checkout.
+- Use that return path in Stripe success_url and cancel_url.
+- Preserve matchId/chat route if purchase started from chat.
+- Add safe fallback only if no return path exists.
+
+4. Voice Notes Unlock flow
+
+Keep:
+- Mic icon grey if locked.
+- Mic icon active if Voice Notes Unlock is purchased.
+- Locked mic opens purchase popup first.
+- Payment return should go back to the same chatroom after cancel/back.
+- After purchase, mic should activate in that chat.
+
+5. Report
+
+After implementation report:
+1. exact files changed
+2. how guided/free calls are separated from paid calls
+3. how paid phone call duration is set to 15 minutes
+4. how paid video call duration is set to 10 minutes
+5. how credit deduction after 30 seconds is protected
+6. how Stripe return path is stored/restored
+7. npm run check result
+8. npm run build result

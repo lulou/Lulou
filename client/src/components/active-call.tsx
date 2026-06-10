@@ -21,12 +21,16 @@ import {
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { PhoneOff, Mic, MicOff, Volume2, Camera, CameraOff, Loader2, WifiOff, AlertTriangle } from "lucide-react";
 
-// Duration in seconds for each call stage.
+// Duration in seconds for each call stage (guided/free progression).
 // stage 0 = first voice call (10 min), stage 1 = second voice call (15 min),
 // stage 3 = face call (10 min). All others default to 10 min.
 const CALL_DURATIONS_SEC: Record<number, number> = { 0: 10 * 60, 1: 15 * 60, 3: 10 * 60 };
 function getStageDuration(callStage: number): number {
   return CALL_DURATIONS_SEC[callStage] ?? 10 * 60;
+}
+// Paid credit call durations: paid phone = 15 min (900s), paid video = 10 min (600s).
+function getPaidDuration(isVideo: boolean): number {
+  return isVideo ? 10 * 60 : 15 * 60;
 }
 
 type WarningLevel = "none" | "two_min" | "one_min" | "ten_sec";
@@ -67,6 +71,7 @@ interface ActiveCallProps {
   callerName: string;
   callerPhoto?: string;
   callStage: number;
+  isPaidCall?: boolean;
   onCallEnd: () => void;
 }
 
@@ -118,6 +123,7 @@ export function ActiveCallOverlay({
   callerName,
   callerPhoto,
   callStage,
+  isPaidCall = false,
   onCallEnd,
 }: ActiveCallProps) {
   const { t } = useLanguageContext();
@@ -186,7 +192,8 @@ export function ActiveCallOverlay({
   const isFailed = connectionState === "failed";
 
   // Countdown timer — starts when WebRTC connects, counts down to 0 then auto-ends.
-  const stageDuration = getStageDuration(callStage);
+  // Paid credit calls use fixed durations (phone = 15 min, video = 10 min).
+  const stageDuration = isPaidCall ? getPaidDuration(isVideo) : getStageDuration(callStage);
   const { display: countdownDisplay, remaining, warning } = useCountdownTimer(isConnected, stageDuration);
 
   const stageLabel = callStage === 0 ? t("first_call_stage_label") : callStage === 1 ? t("second_call_stage_label") : t("face_call_stage_label_audio");

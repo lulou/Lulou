@@ -9,6 +9,8 @@ import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { broadcastCallSignal } from "@/hooks/use-call-signaling";
+import { armCallSession, markSessionAsPaid } from "@/lib/live-call-sessions";
 import { useAuth } from "@/hooks/use-auth";
 import { useRealtimeMessages } from "@/hooks/use-realtime-messages";
 import { ArrowLeft, Send, Phone, Video, Check, Clock, Calendar, Heart, PhoneForwarded, X, Moon, MapPin, Ruler, MessageCircle, Loader2, Mic, Pause, Play } from "lucide-react";
@@ -446,6 +448,42 @@ export default function Messaging() {
   });
   const voiceNotesUnlocked = voiceNoteData?.unlocked ?? false;
 
+  // Paid call mutation — starts an immediate call using a credit, bypassing stage gates.
+  const startPaidCall = useMutation({
+    mutationFn: async ({ isVideo }: { isVideo: boolean }) => {
+      const res = await apiRequest("POST", `/api/matches/${matchId}/call/start`, { isPaidCredit: true, isVideo });
+      const data = await res.json();
+      return { data, isVideo };
+    },
+    onSuccess: ({ data, isVideo }) => {
+      const m = data?.match ?? data;
+      const callSessionId = m?.callSessionId;
+      if (callSessionId) {
+        armCallSession(callSessionId);
+        markSessionAsPaid(callSessionId, isVideo);
+      }
+      queryClient.invalidateQueries({ queryKey: ["/api/matches", matchId], exact: true });
+      if (callSessionId && user?.id && matchId) {
+        broadcastCallSignal(matchId, {
+          type: "call:ring",
+          matchId,
+          callerId: user.id,
+          callerName: "",
+          callSessionId,
+          isVideo,
+        });
+      }
+    },
+    onError: (error: Error) => {
+      console.error("[CALL_UI] PAID_CALL_FAILED", { matchId, error: error.message });
+      toast({
+        title: "Call failed",
+        description: error.message || "Could not start call. Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
   // Purchase prompt state
   const [purchasePromptFeature, setPurchasePromptFeature] = useState<PurchaseFeature | null>(null);
 
@@ -864,12 +902,13 @@ export default function Messaging() {
               <button
                 onClick={() => {
                   if (phoneCredits > 0) {
-                    toast({ title: t("credits_ready_header"), description: t("credits_ready_body") });
+                    startPaidCall.mutate({ isVideo: false });
                   } else {
                     setPurchasePromptFeature("phone");
                   }
                 }}
-                className="flex flex-col items-center gap-0.5 min-w-[44px] py-1.5 px-2 rounded-xl transition-all active:scale-90"
+                disabled={startPaidCall.isPending}
+                className="flex flex-col items-center gap-0.5 min-w-[44px] py-1.5 px-2 rounded-xl transition-all active:scale-90 disabled:opacity-50"
                 data-testid="button-phone-tray"
               >
                 <Phone
@@ -881,10 +920,10 @@ export default function Messaging() {
                     : { color: "hsl(var(--muted-foreground))", opacity: 0.35 }}
                 />
                 <span
-                  className="text-[10px] font-semibold tabular-nums leading-none"
+                  className="text-[10px] font-semibold leading-none"
                   style={phoneCredits > 0 ? { color: "rgb(34,197,94)" } : { color: "hsl(var(--muted-foreground))", opacity: 0.6 }}
                 >
-                  {!callCreditsData ? "·" : String(phoneCredits)}
+                  {!callCreditsData ? "·" : phoneCredits > 0 ? "Use 1" : "Unlock"}
                 </span>
               </button>
             )}
@@ -892,12 +931,13 @@ export default function Messaging() {
               <button
                 onClick={() => {
                   if (videoCredits > 0) {
-                    toast({ title: "Video credits available", description: "Video call unlocks after all voice calls." });
+                    startPaidCall.mutate({ isVideo: true });
                   } else {
                     setPurchasePromptFeature("video");
                   }
                 }}
-                className="flex flex-col items-center gap-0.5 min-w-[44px] py-1.5 px-2 rounded-xl transition-all active:scale-90"
+                disabled={startPaidCall.isPending}
+                className="flex flex-col items-center gap-0.5 min-w-[44px] py-1.5 px-2 rounded-xl transition-all active:scale-90 disabled:opacity-50"
                 data-testid="button-video-tray"
               >
                 <Video
@@ -909,10 +949,10 @@ export default function Messaging() {
                     : { color: "hsl(var(--muted-foreground))", opacity: 0.35 }}
                 />
                 <span
-                  className="text-[10px] font-semibold tabular-nums leading-none"
+                  className="text-[10px] font-semibold leading-none"
                   style={videoCredits > 0 ? { color: "rgb(99,102,241)" } : { color: "hsl(var(--muted-foreground))", opacity: 0.6 }}
                 >
-                  {!callCreditsData ? "·" : String(videoCredits)}
+                  {!callCreditsData ? "·" : videoCredits > 0 ? "Use 1" : "Unlock"}
                 </span>
               </button>
             )}
@@ -1236,6 +1276,7 @@ export default function Messaging() {
       <PurchasePrompt
         feature={purchasePromptFeature}
         onClose={() => setPurchasePromptFeature(null)}
+        returnPath={window.location.pathname}
       />
     </div>
   );

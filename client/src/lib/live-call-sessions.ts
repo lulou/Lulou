@@ -26,12 +26,40 @@ let _onArmChange: ArmChangeCallback | null = null;
 
 const _armedSessionIds = new Set<string>();
 
+// Paid call sessions — started via credits, bypass stage gates
+const _paidCallSessionIds = new Set<string>();
+// Video call sessions — paid video credit or face call
+const _videoCallSessionIds = new Set<string>();
+
 export function setOnArmChange(cb: ArmChangeCallback | null): void {
   _onArmChange = cb;
 }
 
 function notifyArmChange(): void {
   try { _onArmChange?.(); } catch { /* non-fatal */ }
+}
+
+export function markSessionAsPaid(sessionId: string | null | undefined, isVideo: boolean): void {
+  if (!sessionId) return;
+  _paidCallSessionIds.add(sessionId);
+  if (isVideo) _videoCallSessionIds.add(sessionId);
+  console.log("[LIVE_CALL] session marked paid", { sessionId: sessionId.slice(0, 8), isVideo });
+}
+
+export function markSessionAsVideo(sessionId: string | null | undefined): void {
+  if (!sessionId) return;
+  _videoCallSessionIds.add(sessionId);
+  console.log("[LIVE_CALL] session marked video", { sessionId: sessionId.slice(0, 8) });
+}
+
+export function isPaidCallSession(sessionId: string | null | undefined): boolean {
+  if (!sessionId) return false;
+  return _paidCallSessionIds.has(sessionId);
+}
+
+export function isVideoCallSession(sessionId: string | null | undefined): boolean {
+  if (!sessionId) return false;
+  return _videoCallSessionIds.has(sessionId);
 }
 
 export function armCallSession(sessionId: string | null | undefined): void {
@@ -64,8 +92,10 @@ export function isArmedSession(sessionId: string | null | undefined): boolean {
 }
 
 export function clearAllArmedSessions(): void {
-  if (_armedSessionIds.size === 0) return;
+  if (_armedSessionIds.size === 0 && _paidCallSessionIds.size === 0 && _videoCallSessionIds.size === 0) return;
   _armedSessionIds.clear();
+  _paidCallSessionIds.clear();
+  _videoCallSessionIds.clear();
   console.log("[LIVE_CALL] all sessions disarmed (logout/reset)");
   notifyArmChange();
 }

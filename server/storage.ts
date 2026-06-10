@@ -165,7 +165,7 @@ export interface IStorage {
   createMessage(data: InsertMessage): Promise<Message>;
   getUserMessageCount(matchId: string, userId: string): Promise<number>;
   incrementMessageCount(matchId: string, userId: string): Promise<void>;
-  startCall(matchId: string, userId: string): Promise<{ match: Match; status: "created" | "reused" | "blocked" | "self_call" } | undefined>;
+  startCall(matchId: string, userId: string, isPaidCredit?: boolean): Promise<{ match: Match; status: "created" | "reused" | "blocked" | "self_call" } | undefined>;
   answerCall(matchId: string, userId: string): Promise<Match | undefined>;
   cancelCall(matchId: string, userId: string): Promise<Match | undefined>;
   completeCall(matchId: string, userId: string, options?: CompleteCallOptions): Promise<CompleteCallResult | undefined>;
@@ -1292,7 +1292,7 @@ export class SupabaseStorage implements IStorage {
     }
   }
 
-  async startCall(matchId: string, userId: string): Promise<{ match: Match; status: "created" | "reused" | "blocked" | "self_call" } | undefined> {
+  async startCall(matchId: string, userId: string, isPaidCredit?: boolean): Promise<{ match: Match; status: "created" | "reused" | "blocked" | "self_call" } | undefined> {
     console.log("[startCall] CALL_SESSION_CHECKED", { matchId, userId });
     const { data: matchData, error: readError } = await this.sb
       .from("matches")
@@ -1321,17 +1321,22 @@ export class SupabaseStorage implements IStorage {
       return { match, status: "self_call" };
     }
     const stage = match.callStage || 0;
-    if (stage >= 4) {
-      console.log("[startCall] All call stages completed:", { matchId, callStage: stage });
-      return undefined;
-    }
-    if (stage === 2) {
-      console.log("[startCall] Stage 2 is post-second-call messaging — no calls allowed:", { matchId, stage });
-      return undefined;
-    }
-    if (stage === 3 && !(match.faceCallUser1Accepted && match.faceCallUser2Accepted)) {
-      console.log("[startCall] Face call not mutually accepted:", { matchId, stage, fc1: match.faceCallUser1Accepted, fc2: match.faceCallUser2Accepted });
-      return undefined;
+    if (!isPaidCredit) {
+      // Guided progression stage gates — only enforced for free/earned calls.
+      if (stage >= 4) {
+        console.log("[startCall] All call stages completed:", { matchId, callStage: stage });
+        return undefined;
+      }
+      if (stage === 2) {
+        console.log("[startCall] Stage 2 is post-second-call messaging — no calls allowed:", { matchId, stage });
+        return undefined;
+      }
+      if (stage === 3 && !(match.faceCallUser1Accepted && match.faceCallUser2Accepted)) {
+        console.log("[startCall] Face call not mutually accepted:", { matchId, stage, fc1: match.faceCallUser1Accepted, fc2: match.faceCallUser2Accepted });
+        return undefined;
+      }
+    } else {
+      console.log("[startCall] PAID_CREDIT_CALL — bypassing stage gates", { matchId, stage, userId });
     }
 
     if (match.callStartedAt && match.callInitiatorId) {

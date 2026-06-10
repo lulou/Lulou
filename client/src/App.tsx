@@ -50,7 +50,7 @@ if (typeof window !== "undefined") {
 }
 import { useCallSignaling, setCallEndedHandler, setCallRingHandler, clearDedupeForMatch } from "@/hooks/use-call-signaling";
 import { stopAllNonVoiceCallAudio, stopAllCallSounds, registerCallAudioUnlock, unregisterCallAudioUnlock } from "@/lib/call-audio";
-import { isArmedSession, armCallSession, disarmCallSession, clearAllArmedSessions, setOnArmChange } from "@/lib/live-call-sessions";
+import { isArmedSession, armCallSession, disarmCallSession, clearAllArmedSessions, setOnArmChange, isPaidCallSession, isVideoCallSession } from "@/lib/live-call-sessions";
 import { markStartupSweepComplete, resetStartupSweep } from "@/lib/startup-sweep";
 import { markCallSessionCancelled, markStartupCancelledSession, isCallSessionCancelled, clearCancelledSession, setOnCancelledSessionChange } from "@/lib/cancelled-calls";
 import type { Profile, Match } from "@shared/schema";
@@ -1015,15 +1015,18 @@ function CallDetectors({ userId }: { userId: string }) {
   // Stage 1 = second call = video (camera + audio, 15 min).
   // Stage 3 = face call = video (requires both-user opt-in).
   // Stage 2 is post-second-call messaging — no calls allowed there.
+  // isVideoCallSession() also catches paid video-credit calls.
   const isFaceCall = matchForIncoming
-    ? (matchForIncoming.callStage || 0) === 1 ||
+    ? isVideoCallSession(matchForIncoming.callSessionId) ||
+      (matchForIncoming.callStage || 0) === 1 ||
       ((matchForIncoming.callStage || 0) === 3 &&
         !!matchForIncoming.faceCallUser1Accepted &&
         !!matchForIncoming.faceCallUser2Accepted)
     : false;
 
   const isActiveVideo = activeCall
-    ? (activeCall.callStage || 0) === 1 ||   // second call is always video
+    ? isVideoCallSession(activeCall.callSessionId) ||  // paid video-credit call
+      (activeCall.callStage || 0) === 1 ||              // second call is always video
       ((activeCall.callStage || 0) === 3 &&
         !!activeCall.faceCallUser1Accepted &&
         !!activeCall.faceCallUser2Accepted)
@@ -1095,6 +1098,7 @@ function CallDetectors({ userId }: { userId: string }) {
         // ── Priority 1: receiver sees IncomingCallOverlay ───────────────────
         if (forcedIncomingMatch) {
           const forcedIsFaceCall =
+            isVideoCallSession(forcedIncomingMatch.callSessionId) ||
             (forcedIncomingMatch.callStage || 0) === 1 ||
             ((forcedIncomingMatch.callStage || 0) === 3 &&
               !!forcedIncomingMatch.faceCallUser1Accepted &&
@@ -1141,6 +1145,7 @@ function CallDetectors({ userId }: { userId: string }) {
                   callerName={overlayForActive.profile?.firstName || "Unknown"}
                   callerPhoto={overlayForActive.profile?.photos?.[0] || undefined}
                   callStage={overlayForActive.callStage || 0}
+                  isPaidCall={isPaidCallSession(overlayForActive.callSessionId)}
                   onCallEnd={handleActiveCallEnd}
                 />
               </CallOverlayErrorBoundary>

@@ -2,12 +2,12 @@ import { useEffect, useRef } from "react";
 import { supabase } from "@/lib/supabase";
 import { queryClient } from "@/lib/queryClient";
 import { markCallSessionCancelled, markStartupCancelledSession, isCallSessionCancelled, isStartupCancelledOnly, clearStartupCancelledSession } from "@/lib/cancelled-calls";
-import { armCallSession } from "@/lib/live-call-sessions";
+import { armCallSession, markSessionAsVideo } from "@/lib/live-call-sessions";
 import { APP_LOAD_TIME } from "@/lib/app-load-time";
 import { isStartupSweepComplete } from "@/lib/startup-sweep";
 
 type CallSignalEvent =
-  | { type: "call:ring"; matchId: string; callerId: string; callerName: string; callSessionId?: string }
+  | { type: "call:ring"; matchId: string; callerId: string; callerName: string; callSessionId?: string; isVideo?: boolean }
   | { type: "call:answered"; matchId: string; userId: string; callSessionId?: string }
   | { type: "call:declined"; matchId: string; userId: string }
   | { type: "call:cancelled"; matchId: string; userId: string }
@@ -192,6 +192,7 @@ export function useCallSignaling(matchIds: string[], userId: string) {
             // session is confirmed active. Only armed sessions may trigger overlays
             // or audio — DB-polled data alone cannot arm a session.
             armCallSession(ringSessionId);
+            if ((ring as any).isVideo && ringSessionId) markSessionAsVideo(ringSessionId);
             console.log("[RING_DEBUG] verified live call trigger — armed by Realtime call:ring", {
               matchId,
               sessionId: ringSessionId?.slice(0, 8) ?? "none",

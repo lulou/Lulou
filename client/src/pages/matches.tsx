@@ -20,6 +20,7 @@ import { MessageCircle, Send, Phone, Video, ChevronDown, ChevronUp, ChevronLeft,
 import { LulouFlowerIcon, ProfileAvatar } from "@/components/app-layout";
 import { usePerfTrace, useRenderCount, isMobile, scheduleIdle } from "@/lib/perf";
 import { broadcastCallSignal } from "@/hooks/use-call-signaling";
+import { armCallSession, markSessionAsPaid } from "@/lib/live-call-sessions";
 import { stopAllNonVoiceCallAudio } from "@/lib/call-audio";
 import { ProfilePhotoViewer } from "@/components/profile-photo-viewer";
 import { PurchasePrompt, type PurchaseFeature } from "@/components/purchase-prompt";
@@ -1283,8 +1284,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
       // if the user navigates to Connections/Matches after this call ends and the
       // server DB hasn't been cleared yet.
       if (callSessionId) {
-        // Dynamic import avoids a circular-dependency risk at module load time.
-        import("@/lib/live-call-sessions").then(({ armCallSession: arm }) => arm(callSessionId));
+        armCallSession(callSessionId);
         console.log("[LIVE_CALL] caller session armed via startCall", { callSessionId: callSessionId.slice(0, 8) });
       }
       if (callSessionId && user?.id) {
@@ -1309,6 +1309,45 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
           : isAuth
             ? t("please_refresh_desc")
             : (error.message || t("unknown_server_error")),
+        variant: "destructive",
+      });
+    },
+  });
+
+  const startPaidCall = useMutation({
+    mutationFn: async ({ isVideo }: { isVideo: boolean }) => {
+      console.log("[CALL_UI] PAID_CALL_REQUESTED", { matchId: match.id, callerId: user?.id, isVideo });
+      const res = await apiRequest("POST", `/api/matches/${match.id}/call/start`, { isPaidCredit: true, isVideo });
+      const data = await res.json();
+      return { data, isVideo };
+    },
+    onSuccess: ({ data, isVideo }) => {
+      const m = data?.match ?? data;
+      const callSessionId = m?.callSessionId;
+      if (callSessionId) {
+        armCallSession(callSessionId);
+        markSessionAsPaid(callSessionId, isVideo);
+        console.log("[LIVE_CALL] caller session armed via startPaidCall", { callSessionId: callSessionId.slice(0, 8), isVideo });
+      }
+      mergeCallFields(queryClient, match.id, m);
+      if (callSessionId && user?.id) {
+        broadcastCallSignal(match.id, {
+          type: "call:ring",
+          matchId: match.id,
+          callerId: user.id,
+          callerName: "",
+          callSessionId,
+          isVideo,
+        });
+        console.log("[CALL_UI] PAID_CALL_RING_BROADCAST", { matchId: match.id, callSessionId, isVideo });
+      }
+    },
+    onError: (error: Error) => {
+      const isAuth = error.message === "Unauthorized" || error.message.startsWith("401");
+      const isSelfCall = error.message?.includes("own account");
+      toast({
+        title: isSelfCall ? t("cant_call_yourself_title") : isAuth ? t("session_expired_title") : t("call_failed_title"),
+        description: isSelfCall ? t("cant_call_yourself_desc") : isAuth ? t("please_refresh_desc") : (error.message || t("unknown_server_error")),
         variant: "destructive",
       });
     },
@@ -2014,12 +2053,13 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
               <button
                 onClick={() => {
                   if ((phoneCredits ?? 0) > 0) {
-                    toast({ title: t("credits_ready_header"), description: t("credits_ready_body") });
+                    startPaidCall.mutate({ isVideo: false });
                   } else {
                     setPurchasePromptFeature("phone");
                   }
                 }}
-                className="flex flex-col items-center gap-0.5 min-w-[44px] py-1.5 px-2 rounded-xl transition-all active:scale-90"
+                disabled={startPaidCall.isPending}
+                className="flex flex-col items-center gap-0.5 min-w-[44px] py-1.5 px-2 rounded-xl transition-all active:scale-90 disabled:opacity-50"
                 data-testid={`button-phone-tray-${match.id}`}
               >
                 <Phone
@@ -2031,10 +2071,10 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                     : { color: "hsl(var(--muted-foreground))", opacity: 0.35 }}
                 />
                 <span
-                  className="text-[10px] font-semibold tabular-nums leading-none"
+                  className="text-[10px] font-semibold leading-none"
                   style={(phoneCredits ?? 0) > 0 ? { color: "rgb(34,197,94)" } : { color: "hsl(var(--muted-foreground))", opacity: 0.6 }}
                 >
-                  {!callCreditsData ? "·" : String(phoneCredits ?? 0)}
+                  {!callCreditsData ? "·" : (phoneCredits ?? 0) > 0 ? "Use 1" : "Unlock"}
                 </span>
               </button>
             )}
@@ -2042,12 +2082,13 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
               <button
                 onClick={() => {
                   if ((videoCredits ?? 0) > 0) {
-                    toast({ title: "Video credits available", description: "Video call unlocks after all voice calls." });
+                    startPaidCall.mutate({ isVideo: true });
                   } else {
                     setPurchasePromptFeature("video");
                   }
                 }}
-                className="flex flex-col items-center gap-0.5 min-w-[44px] py-1.5 px-2 rounded-xl transition-all active:scale-90"
+                disabled={startPaidCall.isPending}
+                className="flex flex-col items-center gap-0.5 min-w-[44px] py-1.5 px-2 rounded-xl transition-all active:scale-90 disabled:opacity-50"
                 data-testid={`button-video-tray-${match.id}`}
               >
                 <Video
@@ -2059,10 +2100,10 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                     : { color: "hsl(var(--muted-foreground))", opacity: 0.35 }}
                 />
                 <span
-                  className="text-[10px] font-semibold tabular-nums leading-none"
+                  className="text-[10px] font-semibold leading-none"
                   style={(videoCredits ?? 0) > 0 ? { color: "rgb(99,102,241)" } : { color: "hsl(var(--muted-foreground))", opacity: 0.6 }}
                 >
-                  {!callCreditsData ? "·" : String(videoCredits ?? 0)}
+                  {!callCreditsData ? "·" : (videoCredits ?? 0) > 0 ? "Use 1" : "Unlock"}
                 </span>
               </button>
             )}
@@ -2831,6 +2872,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
       <PurchasePrompt
         feature={purchasePromptFeature}
         onClose={() => setPurchasePromptFeature(null)}
+        returnPath={window.location.pathname}
       />
     </div>
   );

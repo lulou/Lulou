@@ -1141,7 +1141,8 @@ export async function registerRoutes(
       const matchId = req.params.matchId;
       console.log("[CALL_START] CALL_REQUEST_STARTED", { path: "/api/matches/:matchId/call/start", matchId, userId, timestamp: new Date().toISOString() });
       console.log("[CALL_START] CALL_SESSION_CHECKED", { path: "/api/matches/:matchId/call/start", matchId, userId, timestamp: new Date().toISOString() });
-      const result = await serverStorage.startCall(matchId, userId);
+      const { isPaidCredit } = req.body;
+      const result = await serverStorage.startCall(matchId, userId, !!isPaidCredit);
       if (!result) {
         console.log("[CALL_START] CALL_API_RESPONSE", { status: 404, matchId, userId });
         return res.status(404).json({ message: "Match not found or call not allowed" });
@@ -2189,7 +2190,7 @@ export async function registerRoutes(
   app.post("/api/stripe/extras-checkout", isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;
-      const { itemId } = req.body;
+      const { itemId, returnPath } = req.body;
       const item = EXTRAS_ITEMS[itemId as ExtrasItemId];
       if (!item) {
         return res.status(400).json({ message: `Invalid item. Must be one of: ${Object.keys(EXTRAS_ITEMS).join(", ")}` });
@@ -2197,6 +2198,12 @@ export async function registerRoutes(
       const stripe = await getUncachableStripeClient();
       const baseUrl = process.env.FRONTEND_URL ??
         `https://${process.env.REPLIT_DOMAINS?.split(",")[0] ?? "localhost:5000"}`;
+
+      // Build a safe cancel URL from the caller-supplied returnPath.
+      // Only allow relative paths starting with "/" to prevent open-redirect attacks.
+      const safeCancelPath = (typeof returnPath === "string" && /^\/[a-zA-Z0-9\-/_?=&]*$/.test(returnPath))
+        ? returnPath
+        : "/profile";
 
       const priceData: Record<string, unknown> = {
         currency: "aud",
@@ -2211,7 +2218,7 @@ export async function registerRoutes(
         line_items: [{ price_data: priceData, quantity: 1 }],
         mode: item.mode,
         success_url: `${baseUrl}/extras/success?session_id={CHECKOUT_SESSION_ID}&item=${itemId}`,
-        cancel_url: `${baseUrl}/profile?checkout=cancelled`,
+        cancel_url: `${baseUrl}${safeCancelPath}?checkout=cancelled`,
         metadata: { userId, itemId, benefitType: item.benefitType ?? "", mode: item.mode },
       });
 
