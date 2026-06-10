@@ -269,7 +269,7 @@ export const TRANSLATIONS = {
     show_last_active_desc: "Let matches see when you were last online",
     comment_filter_desc:   "Automatically block disrespectful words",
     ai_starters_desc:      "AI-suggested ice-breakers to help you begin",
-    audio_transcripts_desc:"Get text transcripts of your voice calls",
+    audio_transcripts_desc: "Get text transcripts of your voice calls",
     push_notif_desc:       "Match alerts, messages, and call reminders",
     subscribe_lulou_desc:  "Unlock extras and deeper connections",
     // Data export
