@@ -248,6 +248,13 @@ export default function Discover() {
   const exitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => () => { if (exitTimerRef.current) clearTimeout(exitTimerRef.current); }, []);
 
+  // Optimistic undo state — set immediately when user acts so the undo button
+  // is ready before the server round-trip completes.
+  const [lastActedProfile, setLastActedProfile] = useState<{ id: string; name: string } | null>(null);
+  // Ref mirror so the mutationFn closure can read the current value without stale capture.
+  const lastActedRef = useRef<{ id: string; name: string } | null>(null);
+  useEffect(() => { lastActedRef.current = lastActedProfile; }, [lastActedProfile]);
+
   // Track how long the loading skeleton has been visible so we can show a
   // "still loading" fallback after 8 seconds instead of a blank skeleton forever.
   const [loadingTooLong, setLoadingTooLong] = useState(false);
@@ -405,30 +412,44 @@ export default function Discover() {
 
   const undoPass = useMutation({
     mutationFn: async () => {
-      const res = await apiRequest("POST", "/api/discover/undo-pass", {});
-      if (!res.ok) {
+      // Race-condition guard: if the user taps undo immediately after acting,
+      // the interaction DB write may not have landed yet. Retry up to 3 times
+      // with 400 ms gaps when we know an action was just taken.
+      for (let attempt = 0; attempt < 4; attempt++) {
+        const res = await apiRequest("POST", "/api/discover/undo-pass", {});
+        if (res.ok) return res.json() as Promise<{ restoredProfileId: string }>;
         const d = await res.json().catch(() => ({})) as any;
-        throw new Error(d.message || "Failed to undo");
+        const msg: string = d.message || "Failed to undo";
+        if (msg.includes("No recent action") && lastActedRef.current && attempt < 3) {
+          await new Promise<void>(r => setTimeout(r, 400));
+          continue;
+        }
+        throw new Error(msg);
       }
-      return res.json() as Promise<{ restoredProfileId: string }>;
+      throw new Error("Failed to undo");
     },
     onSuccess: (data) => {
+      const name = lastActedRef.current?.name ?? "them";
+      setLastActedProfile(null);
       // Remove the restored profile from shownIds so it reappears immediately
       // in visibleProfiles without waiting for the refetch to settle.
       setShownIds(prev => { const s = new Set(prev); s.delete(data.restoredProfileId); return s; });
       queryClient.invalidateQueries({ queryKey: ["/api/discover"] });
-      toast({ title: "↩ Undo", description: t("undo_pass_success").replace("{name}", "them") });
+      toast({ title: "↩ Undo", description: t("undo_pass_success").replace("{name}", name) });
     },
     onError: (err: any) => {
       const msg = err?.message || "";
-      if (msg.includes("Free daily undo already used")) {
+      if (msg.includes("match") && msg.includes("cannot be undone")) {
+        // Match can't be undone — keep lastActedProfile cleared since action stands
+        setLastActedProfile(null);
+        toast({ title: t("undo_match_conflict"), variant: "destructive" });
+      } else if (msg.includes("Free daily undo already used")) {
         toast({ title: t("undo_daily_used"), variant: "destructive" });
       } else if (msg.includes("No undo credits")) {
         toast({ title: t("undo_pass_no_credits"), variant: "destructive" });
       } else if (msg.includes("No recent action") || msg.includes("No recent pass")) {
+        setLastActedProfile(null);
         toast({ title: t("undo_pass_none"), variant: "destructive" });
-      } else if (msg.includes("match") && msg.includes("cannot be undone")) {
-        toast({ title: t("undo_match_conflict"), variant: "destructive" });
       } else {
         toast({ title: msg || t("something_went_wrong"), variant: "destructive" });
       }
@@ -441,12 +462,17 @@ export default function Discover() {
   // Mirrors the Intention Wheel's card-disperse timing (280 ms matches discoverCardExit).
   const triggerInteract = useCallback((type: "open" | "close") => {
     if (exitTimerRef.current) clearTimeout(exitTimerRef.current);
+    // Set optimistic undo state immediately — before the 280 ms animation
+    // and before the server round-trip — so the undo button is ready instantly.
+    if (currentProfile) {
+      setLastActedProfile({ id: currentProfile.userId, name: currentProfile.firstName });
+    }
     setIsExiting(true);
     exitTimerRef.current = setTimeout(() => {
       setIsExiting(false);
       interact.mutate(type);
     }, 280);
-  }, [interact.mutate]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [interact.mutate, currentProfile]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Stable callbacks — prevent SlideCards / PhotoBubbles from re-rendering
   // when parent mutation state changes but these handlers haven't changed.
@@ -716,9 +742,12 @@ export default function Discover() {
       </button>
 
       <button
-        className="fixed bottom-20 start-4 z-40 w-12 h-12 rounded-full border border-muted-foreground/20 bg-background/90 backdrop-blur-sm flex items-center justify-center text-lg shadow-lg transition-all active:scale-90 hover:border-muted-foreground/40 hover:shadow-xl disabled:opacity-40"
+        className="fixed bottom-20 start-4 z-40 w-12 h-12 rounded-full border transition-all active:scale-90 hover:shadow-xl flex items-center justify-center text-lg shadow-lg backdrop-blur-sm disabled:opacity-40"
+        style={lastActedProfile && !undoPass.isPending
+          ? { borderColor: "hsl(var(--primary) / 0.5)", background: "hsl(var(--primary) / 0.08)" }
+          : { borderColor: "hsl(var(--muted-foreground) / 0.2)", background: "hsl(var(--background) / 0.9)" }}
         onClick={handleUndoPass}
-        disabled={undoPass.isPending || interact.isPending || isExiting}
+        disabled={undoPass.isPending || !lastActedProfile}
         title="Undo Last Action"
         data-testid="button-undo-pass"
       >

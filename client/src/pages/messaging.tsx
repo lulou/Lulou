@@ -811,7 +811,8 @@ export default function Messaging() {
     <div className="flex-1 flex flex-col overflow-hidden">
       {/* ── Header ── */}
       <div className="px-4 pt-3 pb-0 border-b bg-background">
-        <div className="flex items-center gap-3 pb-3">
+        {/* ── Main header row ── */}
+        <div className="flex items-center gap-3 pb-2">
           <Button variant="ghost" size="icon" onClick={() => navigate("/matches")} data-testid="button-back-to-matches">
             <ArrowLeft className="w-5 h-5" />
           </Button>
@@ -830,77 +831,6 @@ export default function Messaging() {
           <Badge variant="outline" className="text-xs flex-shrink-0" data-testid="badge-messages-remaining">
             {statusLabel}
           </Badge>
-          {/* Communication action cluster — icon-only, no labels */}
-          {!allCallsDone && (
-            <button
-              onClick={() => {
-                if (phoneCredits > 0) {
-                  toast({ title: t("credits_ready_header"), description: t("credits_ready_body") });
-                } else {
-                  toast({ title: t("need_credits_header"), description: t("need_phone_credits_msg") });
-                  navigate("/settings");
-                }
-              }}
-              className="w-8 h-8 flex items-center justify-center rounded-full transition-all active:scale-95 flex-shrink-0"
-              title={phoneCredits > 0 ? "Phone credits ready" : "Get phone credits"}
-              data-testid="button-phone-credit-indicator"
-            >
-              <Phone
-                className="w-4 h-4 transition-all duration-300"
-                style={
-                  !callCreditsData
-                    ? { color: "hsl(var(--muted-foreground))", opacity: 0.4 }
-                    : phoneCredits > 0
-                    ? { color: "rgb(34,197,94)", filter: "drop-shadow(0 0 4px rgba(34,197,94,0.7))" }
-                    : { color: "hsl(var(--muted-foreground))", opacity: 0.35 }
-                }
-              />
-            </button>
-          )}
-          {!allCallsDone && (
-            <button
-              onClick={() => {
-                if (videoCredits > 0) {
-                  toast({ title: "Video credits available", description: "Video call unlocks after all voice calls." });
-                } else {
-                  toast({ title: "Get video credits", description: "Purchase from Lulou Extras." });
-                  navigate("/settings");
-                }
-              }}
-              className="w-8 h-8 flex items-center justify-center rounded-full transition-all active:scale-95 flex-shrink-0"
-              title={videoCredits > 0 ? "Video credits ready" : "Get video credits"}
-              data-testid="button-video-credit-indicator"
-            >
-              <Video
-                className="w-4 h-4 transition-all duration-300"
-                style={!callCreditsData
-                  ? { color: "hsl(var(--muted-foreground))", opacity: 0.4 }
-                  : videoCredits > 0
-                  ? { color: "rgb(99,102,241)", filter: "drop-shadow(0 0 4px rgba(99,102,241,0.7))" }
-                  : { color: "hsl(var(--muted-foreground))", opacity: 0.35 }}
-              />
-            </button>
-          )}
-          <button
-            onClick={() => {
-              if (!voiceNotesUnlocked) {
-                navigate("/settings");
-                toast({ title: "Voice Notes Unlock required", description: "Purchase from Lulou Extras to send voice messages." });
-              } else if (!isRecording) {
-                startRecording();
-              }
-            }}
-            className="w-8 h-8 flex items-center justify-center rounded-full transition-all active:scale-95 flex-shrink-0"
-            title={voiceNotesUnlocked ? (isRecording ? "Recording…" : "Send voice note") : "Unlock voice notes"}
-            data-testid="button-voice-note"
-          >
-            <Mic
-              className="w-4 h-4 transition-all duration-300"
-              style={voiceNotesUnlocked
-                ? { color: isRecording ? "rgb(239,68,68)" : "rgb(34,197,94)", filter: isRecording ? "drop-shadow(0 0 4px rgba(239,68,68,0.7))" : "drop-shadow(0 0 4px rgba(34,197,94,0.7))" }
-                : { color: "hsl(var(--muted-foreground))", opacity: 0.35 }}
-            />
-          </button>
           {!showCloseConfirm ? (
             <Button variant="ghost" size="icon" onClick={() => setShowCloseConfirm(true)} data-testid="button-close-connection">
               <Moon className="w-4 h-4 text-muted-foreground" />
@@ -922,6 +852,95 @@ export default function Messaging() {
             </div>
           )}
         </div>
+
+        {/* ── Action tray: phone / video / mic with credit counts ── */}
+        {(!allCallsDone || voiceNotesUnlocked) && (
+          <div className="flex items-center justify-center gap-6 pb-2.5 border-t border-border/30">
+            {!allCallsDone && (
+              <button
+                onClick={() => {
+                  if (phoneCredits > 0) {
+                    toast({ title: t("credits_ready_header"), description: t("credits_ready_body") });
+                  } else {
+                    toast({ title: t("need_credits_header"), description: t("need_phone_credits_msg") });
+                    navigate("/settings");
+                  }
+                }}
+                className="flex flex-col items-center gap-0.5 min-w-[44px] py-1.5 px-2 rounded-xl transition-all active:scale-90"
+                data-testid="button-phone-tray"
+              >
+                <Phone
+                  className="w-[18px] h-[18px] transition-all duration-300"
+                  style={!callCreditsData
+                    ? { color: "hsl(var(--muted-foreground))", opacity: 0.4 }
+                    : phoneCredits > 0
+                    ? { color: "rgb(34,197,94)", filter: "drop-shadow(0 0 5px rgba(34,197,94,0.7))" }
+                    : { color: "hsl(var(--muted-foreground))", opacity: 0.35 }}
+                />
+                <span
+                  className="text-[10px] font-semibold tabular-nums leading-none"
+                  style={phoneCredits > 0 ? { color: "rgb(34,197,94)" } : { color: "hsl(var(--muted-foreground))", opacity: 0.6 }}
+                >
+                  {!callCreditsData ? "·" : String(phoneCredits)}
+                </span>
+              </button>
+            )}
+            {!allCallsDone && (
+              <button
+                onClick={() => {
+                  if (videoCredits > 0) {
+                    toast({ title: "Video credits available", description: "Video call unlocks after all voice calls." });
+                  } else {
+                    toast({ title: "Get video credits", description: "Purchase from Lulou Extras." });
+                    navigate("/settings");
+                  }
+                }}
+                className="flex flex-col items-center gap-0.5 min-w-[44px] py-1.5 px-2 rounded-xl transition-all active:scale-90"
+                data-testid="button-video-tray"
+              >
+                <Video
+                  className="w-[18px] h-[18px] transition-all duration-300"
+                  style={!callCreditsData
+                    ? { color: "hsl(var(--muted-foreground))", opacity: 0.4 }
+                    : videoCredits > 0
+                    ? { color: "rgb(99,102,241)", filter: "drop-shadow(0 0 5px rgba(99,102,241,0.7))" }
+                    : { color: "hsl(var(--muted-foreground))", opacity: 0.35 }}
+                />
+                <span
+                  className="text-[10px] font-semibold tabular-nums leading-none"
+                  style={videoCredits > 0 ? { color: "rgb(99,102,241)" } : { color: "hsl(var(--muted-foreground))", opacity: 0.6 }}
+                >
+                  {!callCreditsData ? "·" : String(videoCredits)}
+                </span>
+              </button>
+            )}
+            <button
+              onClick={() => {
+                if (!voiceNotesUnlocked) {
+                  navigate("/settings");
+                  toast({ title: "Voice Notes Unlock required", description: "Purchase from Lulou Extras to send voice messages." });
+                } else if (!isRecording) {
+                  startRecording();
+                }
+              }}
+              className="flex flex-col items-center gap-0.5 min-w-[44px] py-1.5 px-2 rounded-xl transition-all active:scale-90"
+              data-testid="button-mic-tray"
+            >
+              <Mic
+                className="w-[18px] h-[18px] transition-all duration-300"
+                style={voiceNotesUnlocked
+                  ? { color: isRecording ? "rgb(239,68,68)" : "rgb(34,197,94)", filter: isRecording ? "drop-shadow(0 0 5px rgba(239,68,68,0.7))" : "drop-shadow(0 0 5px rgba(34,197,94,0.7))" }
+                  : { color: "hsl(var(--muted-foreground))", opacity: 0.35 }}
+              />
+              <span
+                className="text-[10px] font-semibold leading-none"
+                style={voiceNotesUnlocked ? { color: isRecording ? "rgb(239,68,68)" : "rgb(34,197,94)" } : { color: "hsl(var(--muted-foreground))", opacity: 0.6 }}
+              >
+                {voiceNotesUnlocked ? (isRecording ? "Rec" : "On") : "Get"}
+              </span>
+            </button>
+          </div>
+        )}
 
         {/* ── Chat / Profile tab bar ── */}
         <div className="flex" role="tablist">

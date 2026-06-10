@@ -1915,7 +1915,9 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
   return (
     <div className="flex h-full min-h-0 overflow-hidden" data-testid={`card-match-${match.id}`}>
       <div className="flex flex-col flex-1 min-w-0 min-h-0">
-      <div className="flex items-center gap-3 px-4 py-3 border-b bg-background/95 backdrop-blur-sm sticky top-0 z-10">
+      <div className="border-b bg-background/95 backdrop-blur-sm sticky top-0 z-10">
+        {/* ── Main header row ── */}
+        <div className="flex items-center gap-3 px-4 pt-3 pb-2">
         <Button
           size="icon"
           variant="ghost"
@@ -1961,78 +1963,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
             </span>
           </div>
         </button>
-        <div className="flex items-center gap-0.5 shrink-0">
-          {/* Communication action cluster — icon-only, no labels */}
-          {!allCallsDone && (
-            <button
-              onClick={() => {
-                if ((phoneCredits ?? 0) > 0) {
-                  toast({ title: t("credits_ready_header"), description: t("credits_ready_body") });
-                } else {
-                  toast({ title: t("need_credits_header"), description: t("need_phone_credits_msg") });
-                  navigate("/settings");
-                }
-              }}
-              className="w-8 h-8 flex items-center justify-center rounded-full transition-all active:scale-95"
-              title={(phoneCredits ?? 0) > 0 ? "Phone credits ready" : "Get phone credits"}
-              data-testid={`button-phone-credit-indicator-${match.id}`}
-            >
-              <Phone
-                className="w-4 h-4 transition-all duration-300"
-                style={
-                  !callCreditsData
-                    ? { color: "hsl(var(--muted-foreground))", opacity: 0.4 }
-                    : (phoneCredits ?? 0) > 0
-                    ? { color: "rgb(34,197,94)", filter: "drop-shadow(0 0 4px rgba(34,197,94,0.7))" }
-                    : { color: "hsl(var(--muted-foreground))", opacity: 0.35 }
-                }
-              />
-            </button>
-          )}
-          {!allCallsDone && (
-            <button
-              onClick={() => {
-                if ((videoCredits ?? 0) > 0) {
-                  toast({ title: "Video credits available", description: "Video call unlocks after all voice calls." });
-                } else {
-                  toast({ title: "Get video credits", description: "Purchase from Lulou Extras." });
-                  navigate("/settings");
-                }
-              }}
-              className="w-8 h-8 flex items-center justify-center rounded-full transition-all active:scale-95"
-              title={(videoCredits ?? 0) > 0 ? "Video credits ready" : "Get video credits"}
-              data-testid={`button-video-credit-indicator-${match.id}`}
-            >
-              <Video
-                className="w-4 h-4 transition-all duration-300"
-                style={!callCreditsData
-                  ? { color: "hsl(var(--muted-foreground))", opacity: 0.4 }
-                  : (videoCredits ?? 0) > 0
-                  ? { color: "rgb(99,102,241)", filter: "drop-shadow(0 0 4px rgba(99,102,241,0.7))" }
-                  : { color: "hsl(var(--muted-foreground))", opacity: 0.35 }}
-              />
-            </button>
-          )}
-          <button
-            onClick={() => {
-              if (!voiceNotesUnlocked) {
-                navigate("/settings");
-                toast({ title: "Voice Notes Unlock required", description: "Purchase from Lulou Extras to send voice messages." });
-              } else if (!isRecording) {
-                startRecording();
-              }
-            }}
-            className="w-8 h-8 flex items-center justify-center rounded-full transition-all active:scale-95"
-            title={voiceNotesUnlocked ? (isRecording ? "Recording…" : "Send voice note") : "Unlock voice notes"}
-            data-testid={`button-voice-note-${match.id}`}
-          >
-            <Mic
-              className="w-4 h-4 transition-all duration-300"
-              style={voiceNotesUnlocked
-                ? { color: isRecording ? "rgb(239,68,68)" : "rgb(34,197,94)", filter: isRecording ? "drop-shadow(0 0 4px rgba(239,68,68,0.7))" : "drop-shadow(0 0 4px rgba(34,197,94,0.7))" }
-                : { color: "hsl(var(--muted-foreground))", opacity: 0.35 }}
-            />
-          </button>
+        <div className="flex items-center gap-1 shrink-0">
           <Badge variant="outline" className="text-[10px] px-1.5 py-0" data-testid={`badge-messages-remaining-${match.id}`}>
             {allCallsDone ? t("all_calls_done") : callStage === 2 && bothStage2LimitReached ? t("ready_to_meet_badge") : callStage === 2 ? t("n_left_msg").replace("{n}", String(myStage2Remaining)) : callStage === 1 && bothPostCallLimitReached ? t("second_call_ready_badge") : callStage === 1 ? t("n_postcall_left").replace("{n}", String(myPostCallRemaining)) : messagesRemaining > 0 ? t("n_msg_left").replace("{n}", String(messagesRemaining)) : t("call_time_badge")}
           </Badge>
@@ -2070,6 +2001,95 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
             </Button>
           )}
         </div>
+        </div>
+        {/* ── Action tray: phone / video / mic with credit counts ── */}
+        {(!allCallsDone || voiceNotesUnlocked) && (
+          <div className="flex items-center justify-center gap-6 px-4 pb-2.5 border-t border-border/30">
+            {!allCallsDone && (
+              <button
+                onClick={() => {
+                  if ((phoneCredits ?? 0) > 0) {
+                    toast({ title: t("credits_ready_header"), description: t("credits_ready_body") });
+                  } else {
+                    toast({ title: t("need_credits_header"), description: t("need_phone_credits_msg") });
+                    navigate("/settings");
+                  }
+                }}
+                className="flex flex-col items-center gap-0.5 min-w-[44px] py-1.5 px-2 rounded-xl transition-all active:scale-90"
+                data-testid={`button-phone-tray-${match.id}`}
+              >
+                <Phone
+                  className="w-[18px] h-[18px] transition-all duration-300"
+                  style={!callCreditsData
+                    ? { color: "hsl(var(--muted-foreground))", opacity: 0.4 }
+                    : (phoneCredits ?? 0) > 0
+                    ? { color: "rgb(34,197,94)", filter: "drop-shadow(0 0 5px rgba(34,197,94,0.7))" }
+                    : { color: "hsl(var(--muted-foreground))", opacity: 0.35 }}
+                />
+                <span
+                  className="text-[10px] font-semibold tabular-nums leading-none"
+                  style={(phoneCredits ?? 0) > 0 ? { color: "rgb(34,197,94)" } : { color: "hsl(var(--muted-foreground))", opacity: 0.6 }}
+                >
+                  {!callCreditsData ? "·" : String(phoneCredits ?? 0)}
+                </span>
+              </button>
+            )}
+            {!allCallsDone && (
+              <button
+                onClick={() => {
+                  if ((videoCredits ?? 0) > 0) {
+                    toast({ title: "Video credits available", description: "Video call unlocks after all voice calls." });
+                  } else {
+                    toast({ title: "Get video credits", description: "Purchase from Lulou Extras." });
+                    navigate("/settings");
+                  }
+                }}
+                className="flex flex-col items-center gap-0.5 min-w-[44px] py-1.5 px-2 rounded-xl transition-all active:scale-90"
+                data-testid={`button-video-tray-${match.id}`}
+              >
+                <Video
+                  className="w-[18px] h-[18px] transition-all duration-300"
+                  style={!callCreditsData
+                    ? { color: "hsl(var(--muted-foreground))", opacity: 0.4 }
+                    : (videoCredits ?? 0) > 0
+                    ? { color: "rgb(99,102,241)", filter: "drop-shadow(0 0 5px rgba(99,102,241,0.7))" }
+                    : { color: "hsl(var(--muted-foreground))", opacity: 0.35 }}
+                />
+                <span
+                  className="text-[10px] font-semibold tabular-nums leading-none"
+                  style={(videoCredits ?? 0) > 0 ? { color: "rgb(99,102,241)" } : { color: "hsl(var(--muted-foreground))", opacity: 0.6 }}
+                >
+                  {!callCreditsData ? "·" : String(videoCredits ?? 0)}
+                </span>
+              </button>
+            )}
+            <button
+              onClick={() => {
+                if (!voiceNotesUnlocked) {
+                  navigate("/settings");
+                  toast({ title: "Voice Notes Unlock required", description: "Purchase from Lulou Extras to send voice messages." });
+                } else if (!isRecording) {
+                  startRecording();
+                }
+              }}
+              className="flex flex-col items-center gap-0.5 min-w-[44px] py-1.5 px-2 rounded-xl transition-all active:scale-90"
+              data-testid={`button-mic-tray-${match.id}`}
+            >
+              <Mic
+                className="w-[18px] h-[18px] transition-all duration-300"
+                style={voiceNotesUnlocked
+                  ? { color: isRecording ? "rgb(239,68,68)" : "rgb(34,197,94)", filter: isRecording ? "drop-shadow(0 0 5px rgba(239,68,68,0.7))" : "drop-shadow(0 0 5px rgba(34,197,94,0.7))" }
+                  : { color: "hsl(var(--muted-foreground))", opacity: 0.35 }}
+              />
+              <span
+                className="text-[10px] font-semibold leading-none"
+                style={voiceNotesUnlocked ? { color: isRecording ? "rgb(239,68,68)" : "rgb(34,197,94)" } : { color: "hsl(var(--muted-foreground))", opacity: 0.6 }}
+              >
+                {voiceNotesUnlocked ? (isRecording ? "Rec" : "On") : "Get"}
+              </span>
+            </button>
+          </div>
+        )}
       </div>
 
       {expanded && <SparkProgressBar sparkStep={sparkStep} />}
