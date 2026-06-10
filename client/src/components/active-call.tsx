@@ -1141,7 +1141,7 @@ export function ActiveCallOverlay({
           autoPlay
           playsInline
           muted
-          className="absolute bottom-36 right-4 w-28 h-40 rounded-xl object-cover border-2 border-white/30 shadow-xl z-10"
+          className="absolute bottom-36 end-4 w-28 h-40 rounded-xl object-cover border-2 border-white/30 shadow-xl z-10"
           style={{ transform: "scaleX(-1)" }}
           data-testid="video-local"
         />

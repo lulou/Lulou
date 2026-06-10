@@ -605,7 +605,7 @@ function TimePickerInline({
       {quickTimes.map(qt => (
         <button
           key={qt.label}
-          className={`w-full text-sm px-3 py-2 rounded-md border transition-colors text-left ${selectedTime === qt.value ? "bg-primary text-primary-foreground border-primary" : "border-border hover:bg-muted/50"}`}
+          className={`w-full text-sm px-3 py-2 rounded-md border transition-colors text-start ${selectedTime === qt.value ? "bg-primary text-primary-foreground border-primary" : "border-border hover:bg-muted/50"}`}
           onClick={() => setSelectedTime(qt.value)}
         >
           {qt.label}
@@ -2353,7 +2353,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
               <div>
                 <div className="px-4 pt-3 pb-1">
                   <button onClick={() => setFinalChoice(null)} className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors" data-testid="button-back-to-final-options">
-                    <ChevronLeft className="w-3 h-3" /> {t("back_label")}
+                    {isRTL ? <ChevronRight className="w-3 h-3" /> : <ChevronLeft className="w-3 h-3" />} {t("back_label")}
                   </button>
                 </div>
                 {matchDetail ? (
@@ -2366,7 +2366,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
               <div className="p-4 border-t" data-testid={`final-end-confirm-${match.id}`}>
                 <div className="rounded-2xl border border-destructive/15 bg-destructive/5 p-4 space-y-3">
                   <button onClick={() => setFinalChoice(null)} className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors">
-                    <ChevronLeft className="w-3 h-3" /> {t("back_label")}
+                    {isRTL ? <ChevronRight className="w-3 h-3" /> : <ChevronLeft className="w-3 h-3" />} {t("back_label")}
                   </button>
                   <div className="text-center space-y-1">
                     <p className="font-semibold text-sm">{t("end_conversation_confirm")}</p>
@@ -2634,7 +2634,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
               <div>
                 <div className="px-4 pt-3 pb-1">
                   <button onClick={() => setNextStepChoice(null)} className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors" data-testid="button-back-to-next-step">
-                    <ChevronLeft className="w-3 h-3" /> {t("back_label")}
+                    {isRTL ? <ChevronRight className="w-3 h-3" /> : <ChevronLeft className="w-3 h-3" />} {t("back_label")}
                   </button>
                 </div>
                 <CallSchedulingCard
@@ -2654,7 +2654,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
               <div className="p-4 border-t" data-testid={`next-step-end-confirm-${match.id}`}>
                 <div className="rounded-2xl border border-destructive/15 bg-destructive/5 p-4 space-y-3">
                   <button onClick={() => setNextStepChoice(null)} className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors">
-                    <ChevronLeft className="w-3 h-3" /> {t("back_label")}
+                    {isRTL ? <ChevronRight className="w-3 h-3" /> : <ChevronLeft className="w-3 h-3" />} {t("back_label")}
                   </button>
                   <div className="text-center space-y-1">
                     <p className="font-semibold text-sm">{t("end_this_match_confirm")}</p>
@@ -2766,7 +2766,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                   <Send className="w-4 h-4" />
                 </Button>
               </div>
-              <p className="text-xs text-muted-foreground mt-1 text-right">
+              <p className="text-xs text-muted-foreground mt-1 text-end">
                 {message.length}/{MAX_CHARS}
               </p>
             </div>
