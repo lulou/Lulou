@@ -63,8 +63,6 @@ const SlideCards = memo(function SlideCards({ items, type, onReply }: { items: s
   const startY = useRef(0);
   const committed = useRef(false);
 
-  const rtlDir = isRTL ? -1 : 1;
-
   const glide = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;
@@ -73,9 +71,12 @@ const SlideCards = memo(function SlideCards({ items, type, onReply }: { items: s
       velocity.current = 0;
       return;
     }
-    el.scrollLeft -= velocity.current * rtlDir;
+    // dir="rtl" on the container means scrollLeft=0 is the visual start (right).
+    // Dragging left → positive dx → scrollLeft should increase, so subtract a
+    // negative velocity (i.e. when flicking left velocity < 0, subtract it to add).
+    el.scrollLeft -= velocity.current;
     animFrame.current = requestAnimationFrame(glide);
-  }, [rtlDir]);
+  }, []);
 
   const handlePointerDown = (e: React.PointerEvent) => {
     if (e.pointerType === "touch") return;
@@ -90,7 +91,7 @@ const SlideCards = memo(function SlideCards({ items, type, onReply }: { items: s
     startY.current = e.clientY;
     lastX.current = e.clientX;
     lastTime.current = Date.now();
-    scrollLeftStart.current = el.scrollLeft * rtlDir;
+    scrollLeftStart.current = el.scrollLeft;
     el.style.cursor = "grabbing";
   };
 
@@ -111,7 +112,10 @@ const SlideCards = memo(function SlideCards({ items, type, onReply }: { items: s
     lastX.current = e.clientX;
     lastTime.current = now;
     const totalDx = e.clientX - startX.current;
-    scrollRef.current.scrollLeft = (scrollLeftStart.current - totalDx) * rtlDir;
+    // With dir="rtl", dragging left (negative totalDx on screen) should increase
+    // scrollLeft to reveal more content on the left side — so we subtract totalDx
+    // (same direction regardless of RTL because the browser normalises it).
+    scrollRef.current.scrollLeft = scrollLeftStart.current - totalDx;
   };
 
   const handlePointerUp = () => {
@@ -146,6 +150,7 @@ const SlideCards = memo(function SlideCards({ items, type, onReply }: { items: s
     <div className="space-y-2">
       <div
         ref={scrollRef}
+        dir={isRTL ? "rtl" : "ltr"}
         className="scrollbar-hide select-none cursor-grab"
         style={{
           display: "flex",
