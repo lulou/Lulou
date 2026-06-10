@@ -125,7 +125,7 @@ function CallTimer({ match, onComplete, isFaceCall }: { match: MatchDetail; onCo
               onClick={() => onComplete((duration - remaining) * 1000)}
               data-testid={`button-end-call-${match.id}`}
             >
-              <PhoneOff className="w-4 h-4 mr-2" /> {t("end_call")}
+              <PhoneOff className="w-4 h-4 me-2" /> {t("end_call")}
             </Button>
           </div>
         ) : (
@@ -210,7 +210,7 @@ function SpinRequestCard({ request, type }: { request: SpinRequestWithProfile; t
                 {request.profile.firstName}, {request.profile.age}
               </h3>
               <Badge variant="outline" className="text-xs">
-                <Sparkles className="w-3 h-3 mr-1" /> {t("via_intention_wheel")}
+                <Sparkles className="w-3 h-3 me-1" /> {t("via_intention_wheel")}
               </Badge>
             </div>
             {request.profile.location && (
@@ -450,10 +450,10 @@ function ReadyToMeetInline({ detail, matchId, profileName }: { detail: MatchDeta
             </div>
             <div className="flex flex-col gap-2 items-center pt-1">
               <Button size="sm" onClick={handleExchangeNumber} data-testid={`button-exchange-number-${matchId}`}>
-                <PhoneForwarded className="w-4 h-4 mr-2" /> {t("exchange_number_btn")}
+                <PhoneForwarded className="w-4 h-4 me-2" /> {t("exchange_number_btn")}
               </Button>
               <Button size="sm" variant="outline" onClick={() => { setSelectedSlots([...mySlots]); setShowDatePicker(true); }} data-testid={`button-update-avail-${matchId}`}>
-                <Calendar className="w-4 h-4 mr-2" /> {t("update_availability_btn")}
+                <Calendar className="w-4 h-4 me-2" /> {t("update_availability_btn")}
               </Button>
             </div>
           </div>
@@ -481,11 +481,11 @@ function ReadyToMeetInline({ detail, matchId, profileName }: { detail: MatchDeta
             <div className="flex flex-col gap-2 items-center">
               {mySlots.length === 0 ? (
                 <Button size="sm" onClick={() => setShowDatePicker(true)} data-testid={`button-ready-to-meet-${matchId}`}>
-                  <Calendar className="w-4 h-4 mr-2" /> {t("ready_to_meet")}
+                  <Calendar className="w-4 h-4 me-2" /> {t("ready_to_meet")}
                 </Button>
               ) : (
                 <Button size="sm" variant="outline" onClick={() => { setSelectedSlots([...mySlots]); setShowDatePicker(true); }} data-testid={`button-update-avail-${matchId}`}>
-                  <Calendar className="w-4 h-4 mr-2" /> {t("update_availability_btn")}
+                  <Calendar className="w-4 h-4 me-2" /> {t("update_availability_btn")}
                 </Button>
               )}
             </div>
@@ -732,7 +732,7 @@ function CallSchedulingCard({
             className={hasPhoneCredits ? "bg-green-600 hover:bg-green-700 text-white" : "bg-muted text-muted-foreground"}
             data-testid={`button-start-scheduled-call-${matchId}`}
           >
-            <Phone className="w-4 h-4 mr-2" /> {callStage === 0 ? t("start_first_call") : t("start_second_call")}
+            <Phone className="w-4 h-4 me-2" /> {callStage === 0 ? t("start_first_call") : t("start_second_call")}
           </Button>
           {!hasPhoneCredits && (
             <p className="text-xs text-muted-foreground" data-testid={`text-no-credits-${matchId}`}>
@@ -781,7 +781,7 @@ function CallSchedulingCard({
           )}
           {!showPicker ? (
             <Button size="sm" variant="outline" className="w-full" onClick={() => setShowPicker(true)} data-testid={`button-change-proposal-${matchId}`}>
-              <Clock className="w-3.5 h-3.5 mr-1.5" /> {t("suggest_different_time")}
+              <Clock className="w-3.5 h-3.5 me-1.5" /> {t("suggest_different_time")}
             </Button>
           ) : (
             <TimePickerInline
@@ -814,10 +814,10 @@ function CallSchedulingCard({
           {!showPicker ? (
             <div className="flex gap-2">
               <Button size="sm" className="flex-1" onClick={() => scheduleMutation.mutate({ action: "accept" })} disabled={scheduleMutation.isPending} data-testid={`button-accept-schedule-${matchId}`}>
-                <Check className="w-3.5 h-3.5 mr-1" /> {t("accept")}
+                <Check className="w-3.5 h-3.5 me-1" /> {t("accept")}
               </Button>
               <Button size="sm" variant="outline" className="flex-1" onClick={() => setShowPicker(true)} data-testid={`button-suggest-time-${matchId}`}>
-                <Clock className="w-3.5 h-3.5 mr-1" /> {t("different_time")}
+                <Clock className="w-3.5 h-3.5 me-1" /> {t("different_time")}
               </Button>
               <Button size="sm" variant="ghost" className="shrink-0 px-2" onClick={() => scheduleMutation.mutate({ action: "decline" })} disabled={scheduleMutation.isPending} data-testid={`button-decline-schedule-${matchId}`}>
                 <X className="w-4 h-4" />
@@ -846,7 +846,7 @@ function CallSchedulingCard({
           <p className="text-xs text-muted-foreground text-center">{t("either_suggest_new_time")}</p>
           {!showPicker ? (
             <Button size="sm" className="w-full" onClick={() => setShowPicker(true)} data-testid={`button-propose-new-time-${matchId}`}>
-              <Calendar className="w-4 h-4 mr-2" /> {t("propose_new_time")}
+              <Calendar className="w-4 h-4 me-2" /> {t("propose_new_time")}
             </Button>
           ) : (
             <TimePickerInline
@@ -889,7 +889,7 @@ function CallSchedulingCard({
               </Button>
             ))}
             <Button size="sm" variant="ghost" className="w-full text-muted-foreground" onClick={() => setShowPicker(true)} data-testid={`button-pick-time-${matchId}`}>
-              <Calendar className="w-4 h-4 mr-2" /> {t("pick_specific_time")}
+              <Calendar className="w-4 h-4 me-2" /> {t("pick_specific_time")}
             </Button>
           </div>
         ) : (
@@ -1002,7 +1002,7 @@ function ProfilePanel({ profile, onClose }: { profile: Profile; onClose: () => v
         {/* Close button */}
         <button
           onClick={onClose}
-          className="absolute top-3 right-3 z-20 flex items-center justify-center rounded-full transition-all active:scale-90"
+          className="absolute top-3 end-3 z-20 flex items-center justify-center rounded-full transition-all active:scale-90"
           style={{ width: 34, height: 34, background: "rgba(0,0,0,0.38)", backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)", border: "1px solid rgba(255,255,255,0.18)" }}
           data-testid="button-close-profile-panel"
         >
@@ -1129,7 +1129,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
   unreadCount: number;
   onMarkRead: () => void;
 }) {
-  const { t } = useLanguageContext();
+  const { t, isRTL } = useLanguageContext();
   const { user } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -1919,11 +1919,11 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
         <Button
           size="icon"
           variant="ghost"
-          className="shrink-0 -ml-1"
+          className="shrink-0 -ms-1"
           onClick={onToggleExpand}
           data-testid={`button-back-${match.id}`}
         >
-          <ChevronLeft className="w-5 h-5" />
+          {isRTL ? <ChevronRight className="w-5 h-5" /> : <ChevronLeft className="w-5 h-5" />}
         </Button>
         <button
           className="flex items-center gap-3 flex-1 min-w-0 text-left rounded-xl transition-all active:scale-[0.98]"
@@ -1934,7 +1934,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
           <div className="relative shrink-0">
             <ProfileAvatar src={headerAvatarSrc} name={match.profile.firstName} className="w-10 h-10" />
             <span
-              className="absolute -bottom-0.5 -right-0.5 flex items-center justify-center rounded-full bg-background"
+              className="absolute -bottom-0.5 -end-0.5 flex items-center justify-center rounded-full bg-background"
               style={{ width: 15, height: 15 }}
             >
               <span className="w-2.5 h-2.5 rounded-full bg-green-400 border border-background" />
@@ -2146,7 +2146,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                       </div>
                       {hasReaction && (
                         <span
-                          className={`absolute -bottom-2.5 ${isMe ? "left-1" : "right-1"} text-sm drop-shadow-sm`}
+                          className={`absolute -bottom-2.5 ${isMe === isRTL ? "right-1" : "left-1"} text-sm drop-shadow-sm`}
                           data-testid={`reaction-${msg.id}`}
                         >
                           ❤️
@@ -2855,7 +2855,7 @@ const MatchCard = memo(function MatchCard({ match, unreadCount, userId, onOpen }
         <div className="relative">
           <ProfileAvatar src={cardAvatarSrc} name={match.profile.firstName} className="w-12 h-12" />
           {unreadCount > 0 && (
-            <span className="absolute -top-1 -right-1 bg-primary text-primary-foreground text-[10px] font-bold min-w-[18px] h-[18px] flex items-center justify-center rounded-full px-1" data-testid={`badge-unread-${match.id}`}>
+            <span className="absolute -top-1 -end-1 bg-primary text-primary-foreground text-[10px] font-bold min-w-[18px] h-[18px] flex items-center justify-center rounded-full px-1" data-testid={`badge-unread-${match.id}`}>
               {unreadCount}
             </span>
           )}

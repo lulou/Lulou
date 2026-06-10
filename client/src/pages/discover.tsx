@@ -31,7 +31,7 @@ const PhotoBubbles = memo(function PhotoBubbles({ photos, name: _name, onOpen, i
       isLoading={isPhotosLoading}
       action={
         <button
-          className="flex items-center gap-2 bg-primary text-white rounded-full pl-4 pr-5 py-2.5 text-sm font-semibold shadow-lg active:scale-95 disabled:opacity-60"
+          className="flex items-center gap-2 bg-primary text-white rounded-full ps-4 pe-5 py-2.5 text-sm font-semibold shadow-lg active:scale-95 disabled:opacity-60"
           onClick={onOpen}
           disabled={isDisabled}
           data-testid="button-open"
@@ -704,7 +704,7 @@ export default function Discover() {
       </div>
 
       <button
-        className="fixed bottom-20 right-4 z-40 w-12 h-12 rounded-full border border-muted-foreground/20 bg-background/90 backdrop-blur-sm flex items-center justify-center text-lg shadow-lg transition-all active:scale-90 hover:border-muted-foreground/40 hover:shadow-xl"
+        className="fixed bottom-20 end-4 z-40 w-12 h-12 rounded-full border border-muted-foreground/20 bg-background/90 backdrop-blur-sm flex items-center justify-center text-lg shadow-lg transition-all active:scale-90 hover:border-muted-foreground/40 hover:shadow-xl"
         onClick={() => triggerInteract("close")}
         disabled={interact.isPending || isExiting}
         data-testid="button-close"
@@ -713,7 +713,7 @@ export default function Discover() {
       </button>
 
       <button
-        className="fixed bottom-20 left-4 z-40 w-12 h-12 rounded-full border border-muted-foreground/20 bg-background/90 backdrop-blur-sm flex items-center justify-center text-lg shadow-lg transition-all active:scale-90 hover:border-muted-foreground/40 hover:shadow-xl disabled:opacity-40"
+        className="fixed bottom-20 start-4 z-40 w-12 h-12 rounded-full border border-muted-foreground/20 bg-background/90 backdrop-blur-sm flex items-center justify-center text-lg shadow-lg transition-all active:scale-90 hover:border-muted-foreground/40 hover:shadow-xl disabled:opacity-40"
         onClick={handleUndoPass}
         disabled={undoPass.isPending || interact.isPending || isExiting}
         title="Undo Last Action"

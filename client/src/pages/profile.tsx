@@ -704,7 +704,7 @@ export default function ProfilePage() {
             <Camera className="w-6 h-6 text-white" />
           </div>
           {profile.photoVerified && (
-            <div className="absolute -bottom-1 -right-1 w-6 h-6 bg-primary rounded-full flex items-center justify-center" data-testid="icon-verified-badge">
+            <div className="absolute -bottom-1 -end-1 w-6 h-6 bg-primary rounded-full flex items-center justify-center" data-testid="icon-verified-badge">
               <BadgeCheck className="w-4 h-4 text-primary-foreground" />
             </div>
           )}
@@ -876,7 +876,7 @@ export default function ProfilePage() {
           </Button>
           {showPhotos && !editingPhotos && (
             <Button size="sm" variant="ghost" onClick={startEditingPhotos} data-testid="button-edit-photos">
-              <Pencil className="w-3.5 h-3.5 mr-1.5" /> {t("edit_photos_btn")}
+              <Pencil className="w-3.5 h-3.5 me-1.5" /> {t("edit_photos_btn")}
             </Button>
           )}
           {showPhotos && editingPhotos && (
@@ -914,7 +914,7 @@ export default function ProfilePage() {
                 </div>
                 <button
                   onClick={() => removeEditPhoto(i)}
-                  className="absolute top-1.5 right-1.5 w-7 h-7 rounded-full bg-destructive text-destructive-foreground flex items-center justify-center shadow-md active:scale-95 transition-transform"
+                  className="absolute top-1.5 end-1.5 w-7 h-7 rounded-full bg-destructive text-destructive-foreground flex items-center justify-center shadow-md active:scale-95 transition-transform"
                   data-testid={`button-remove-photo-${i}`}
                   aria-label={`Remove photo ${i + 1}`}
                 >
@@ -1285,7 +1285,7 @@ export default function ProfilePage() {
           </div>
           {!editingStarters ? (
             <Button size="sm" variant="ghost" onClick={startEditingStarters} data-testid="button-edit-starters">
-              <Pencil className="w-3.5 h-3.5 mr-1.5" /> {t("edit")}
+              <Pencil className="w-3.5 h-3.5 me-1.5" /> {t("edit")}
             </Button>
           ) : (
             <div className="flex items-center gap-2">
@@ -1309,7 +1309,7 @@ export default function ProfilePage() {
                     onClick={() => toggleStarter(starter)}
                     data-testid={`badge-edit-starter-${starter.slice(0, 20).toLowerCase().replace(/\s+/g, "-")}`}
                   >
-                    {selected && <Check className="w-3 h-3 mr-1" />}
+                    {selected && <Check className="w-3 h-3 me-1" />}
                     {starter}
                   </Badge>
                 );
@@ -1356,7 +1356,7 @@ export default function ProfilePage() {
           </div>
           {!editingQuestions ? (
             <Button size="sm" variant="ghost" onClick={startEditingQuestions} data-testid="button-edit-questions">
-              <Pencil className="w-3.5 h-3.5 mr-1.5" /> {t("edit")}
+              <Pencil className="w-3.5 h-3.5 me-1.5" /> {t("edit")}
             </Button>
           ) : (
             <div className="flex items-center gap-2">
@@ -1508,9 +1508,9 @@ export default function ProfilePage() {
         }}
         data-testid="section-hero"
       >
-        <div className="absolute -top-16 -right-16 w-64 h-64 rounded-full bg-white/10 pointer-events-none" />
-        <div className="absolute top-8 left-4 w-28 h-28 rounded-full bg-white/8 pointer-events-none" />
-        <div className="absolute -bottom-10 -left-10 w-40 h-40 rounded-full bg-black/10 pointer-events-none" />
+        <div className="absolute -top-16 -end-16 w-64 h-64 rounded-full bg-white/10 pointer-events-none" />
+        <div className="absolute top-8 start-4 w-28 h-28 rounded-full bg-white/8 pointer-events-none" />
+        <div className="absolute -bottom-10 -start-10 w-40 h-40 rounded-full bg-black/10 pointer-events-none" />
         <img
           src="https://images.unsplash.com/photo-1516589178581-6cd7833ae3b2?w=900&auto=format&fit=crop&q=80"
           alt=""

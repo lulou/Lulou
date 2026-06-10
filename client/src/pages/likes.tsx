@@ -144,7 +144,7 @@ function MatchOverlay({ celebration, onClose }: { celebration: MatchCelebration;
             </AvatarFallback>
           </Avatar>
           <div
-            className="absolute -bottom-1 -right-1 w-10 h-10 rounded-full bg-white/18 backdrop-blur-sm flex items-center justify-center"
+            className="absolute -bottom-1 -end-1 w-10 h-10 rounded-full bg-white/18 backdrop-blur-sm flex items-center justify-center"
             style={{
               background: "rgba(255,255,255,0.18)",
               transform: isVisible ? "scale(1)" : "scale(0)",
@@ -227,7 +227,7 @@ function ProfileModal({
   onMatch: (c: MatchCelebration) => void;
   onConnectionFull: () => void;
 }) {
-  const { t } = useLanguageContext();
+  const { t, isRTL } = useLanguageContext();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [photoIndex, setPhotoIndex] = useState(0);
@@ -342,19 +342,19 @@ function ProfileModal({
 
         {/* Close / back button */}
         <button
-          className="absolute top-4 left-4 z-20 w-10 h-10 rounded-full flex items-center justify-center active:scale-90 transition-all"
+          className="absolute top-4 start-4 z-20 w-10 h-10 rounded-full flex items-center justify-center active:scale-90 transition-all"
           style={{ background: "hsl(0 0% 0% / 0.4)", backdropFilter: "blur(8px)" }}
           onClick={handleClose}
           data-testid="button-close-profile-modal"
           aria-label={t("close_profile_aria")}
         >
-          <ChevronLeft className="w-5 h-5 text-white" />
+          {isRTL ? <ChevronRight className="w-5 h-5 text-white" /> : <ChevronLeft className="w-5 h-5 text-white" />}
         </button>
 
         {/* Photo count badge */}
         {photos.length > 1 && (
           <div
-            className="absolute top-4 right-4 z-20 px-2.5 py-1 rounded-full text-white text-xs font-medium"
+            className="absolute top-4 end-4 z-20 px-2.5 py-1 rounded-full text-white text-xs font-medium"
             style={{ background: "hsl(0 0% 0% / 0.4)", backdropFilter: "blur(8px)" }}
           >
             {photoIndex + 1} / {photos.length}
@@ -364,26 +364,26 @@ function ProfileModal({
         {/* Prev arrow */}
         {photos.length > 1 && photoIndex > 0 && (
           <button
-            className="absolute left-3 top-1/2 -translate-y-1/2 z-20 w-9 h-9 rounded-full flex items-center justify-center active:scale-90 transition-all"
+            className="absolute start-3 top-1/2 -translate-y-1/2 z-20 w-9 h-9 rounded-full flex items-center justify-center active:scale-90 transition-all"
             style={{ background: "hsl(0 0% 0% / 0.35)", backdropFilter: "blur(6px)" }}
             onClick={() => setPhotoIndex(i => Math.max(0, i - 1))}
             data-testid="button-modal-prev-photo"
             aria-label={t("prev_photo_aria")}
           >
-            <ChevronLeft className="w-4 h-4 text-white" />
+            {isRTL ? <ChevronRight className="w-4 h-4 text-white" /> : <ChevronLeft className="w-4 h-4 text-white" />}
           </button>
         )}
 
         {/* Next arrow */}
         {photos.length > 1 && photoIndex < photos.length - 1 && (
           <button
-            className="absolute right-3 top-1/2 -translate-y-1/2 z-20 w-9 h-9 rounded-full flex items-center justify-center active:scale-90 transition-all"
+            className="absolute end-3 top-1/2 -translate-y-1/2 z-20 w-9 h-9 rounded-full flex items-center justify-center active:scale-90 transition-all"
             style={{ background: "hsl(0 0% 0% / 0.35)", backdropFilter: "blur(6px)" }}
             onClick={() => setPhotoIndex(i => Math.min(photos.length - 1, i + 1))}
             data-testid="button-modal-next-photo"
             aria-label={t("next_photo_aria")}
           >
-            <ChevronRight className="w-4 h-4 text-white" />
+            {isRTL ? <ChevronLeft className="w-4 h-4 text-white" /> : <ChevronRight className="w-4 h-4 text-white" />}
           </button>
         )}
 
@@ -407,7 +407,7 @@ function ProfileModal({
         )}
 
         {/* Name / age / location overlay */}
-        <div className="absolute bottom-4 left-5 right-5 z-20">
+        <div className="absolute bottom-4 inset-x-5 z-20">
           <div className="flex items-end justify-between gap-2">
             <div>
               <h2
@@ -654,14 +654,14 @@ function LikeCard({
         {/* Photo count hint */}
         {photoCount > 1 && (
           <div
-            className="absolute top-3 right-3 px-2 py-0.5 rounded-full text-white text-[11px] font-medium"
+            className="absolute top-3 end-3 px-2 py-0.5 rounded-full text-white text-[11px] font-medium"
             style={{ background: "rgba(0,0,0,0.4)", backdropFilter: "blur(4px)" }}
           >
             {t("n_photos").replace("{n}", String(photoCount))}
           </div>
         )}
         {/* Name + age overlay */}
-        <div className="absolute bottom-3 left-4 right-4">
+        <div className="absolute bottom-3 inset-x-4">
           <div className="flex items-end justify-between gap-2">
             <div>
               <h3

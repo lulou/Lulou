@@ -1,6 +1,7 @@
 import { useState, useEffect, type ReactNode } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { decodedPhotos, preloadPhoto } from "@/lib/image-utils";
+import { useLanguageContext } from "@/contexts/language-context";
 
 /**
  * Tap-zone photo viewer.
@@ -39,6 +40,7 @@ export function PhotoCarousel({
   style,
   children,
 }: PhotoCarouselProps) {
+  const { isRTL } = useLanguageContext();
   const [internalIdx, setInternalIdx] = useState(0);
 
   const n = photos.length;
@@ -124,12 +126,12 @@ export function PhotoCarousel({
           style={{
             position: "absolute",
             top: 0,
-            left: 0,
+            insetInlineStart: 0,
             width: "40%",
             height: "100%",
             background: "transparent",
             border: "none",
-            cursor: "w-resize",
+            cursor: isRTL ? "e-resize" : "w-resize",
             zIndex: 10,
           }}
         />
@@ -142,12 +144,12 @@ export function PhotoCarousel({
           style={{
             position: "absolute",
             top: 0,
-            right: 0,
+            insetInlineEnd: 0,
             width: "60%",
             height: "100%",
             background: "transparent",
             border: "none",
-            cursor: "e-resize",
+            cursor: isRTL ? "w-resize" : "e-resize",
             zIndex: 10,
           }}
         />
@@ -156,7 +158,7 @@ export function PhotoCarousel({
       {/* ── Arrow buttons ──────────────────────────────────────────────── */}
       {showArrows && n > 1 && safeIdx > 0 && (
         <button
-          className="absolute left-2.5 top-1/2 -translate-y-1/2 z-20 w-9 h-9 rounded-full flex items-center justify-center active:scale-90 transition-transform"
+          className="absolute start-2.5 top-1/2 -translate-y-1/2 z-20 w-9 h-9 rounded-full flex items-center justify-center active:scale-90 transition-transform"
           style={{
             background: "rgba(0,0,0,0.38)",
             backdropFilter: "blur(8px)",
@@ -167,12 +169,12 @@ export function PhotoCarousel({
           data-testid="button-carousel-prev"
           aria-label="Previous photo"
         >
-          <ChevronLeft className="w-4 h-4 text-white" />
+          {isRTL ? <ChevronRight className="w-4 h-4 text-white" /> : <ChevronLeft className="w-4 h-4 text-white" />}
         </button>
       )}
       {showArrows && n > 1 && safeIdx < n - 1 && (
         <button
-          className="absolute right-2.5 top-1/2 -translate-y-1/2 z-20 w-9 h-9 rounded-full flex items-center justify-center active:scale-90 transition-transform"
+          className="absolute end-2.5 top-1/2 -translate-y-1/2 z-20 w-9 h-9 rounded-full flex items-center justify-center active:scale-90 transition-transform"
           style={{
             background: "rgba(0,0,0,0.38)",
             backdropFilter: "blur(8px)",
@@ -183,7 +185,7 @@ export function PhotoCarousel({
           data-testid="button-carousel-next"
           aria-label="Next photo"
         >
-          <ChevronRight className="w-4 h-4 text-white" />
+          {isRTL ? <ChevronLeft className="w-4 h-4 text-white" /> : <ChevronRight className="w-4 h-4 text-white" />}
         </button>
       )}
 
