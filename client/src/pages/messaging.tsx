@@ -830,6 +830,7 @@ export default function Messaging() {
           <Badge variant="outline" className="text-xs flex-shrink-0" data-testid="badge-messages-remaining">
             {statusLabel}
           </Badge>
+          {/* Communication action cluster — icon-only, no labels */}
           {!allCallsDone && (
             <button
               onClick={() => {
@@ -840,26 +841,22 @@ export default function Messaging() {
                   navigate("/settings");
                 }
               }}
-              className="flex items-center gap-1 px-1.5 h-7 rounded-full border transition-all active:scale-95 flex-shrink-0"
-              style={phoneCredits > 0
-                ? { borderColor: "rgba(34,197,94,0.5)", background: "rgba(34,197,94,0.08)" }
-                : { borderColor: "hsl(var(--border))", background: "transparent" }}
-              title={phoneCredits > 0 ? "Phone credits available" : "Get phone credits"}
+              className="w-8 h-8 flex items-center justify-center rounded-full transition-all active:scale-95 flex-shrink-0"
+              title={phoneCredits > 0 ? "Phone credits ready" : "Get phone credits"}
               data-testid="button-phone-credit-indicator"
             >
               <Phone
-                className="w-3.5 h-3.5 transition-all duration-300"
+                className="w-4 h-4 transition-all duration-300"
                 style={
                   !callCreditsData
-                    ? { color: "hsl(var(--muted-foreground))", opacity: 0.5 }
+                    ? { color: "hsl(var(--muted-foreground))", opacity: 0.4 }
                     : phoneCredits > 0
-                    ? { color: "rgb(34 197 94)", filter: "drop-shadow(0 0 4px rgba(34,197,94,0.8))" }
-                    : { color: "hsl(var(--muted-foreground))", opacity: 0.45 }
+                    ? { color: "rgb(34,197,94)", filter: "drop-shadow(0 0 4px rgba(34,197,94,0.7))" }
+                    : { color: "hsl(var(--muted-foreground))", opacity: 0.35 }
                 }
               />
             </button>
           )}
-          {/* Video credit pill */}
           {!allCallsDone && (
             <button
               onClick={() => {
@@ -870,24 +867,20 @@ export default function Messaging() {
                   navigate("/settings");
                 }
               }}
-              className="flex items-center gap-1 px-1.5 h-7 rounded-full border transition-all active:scale-95 flex-shrink-0"
-              style={videoCredits > 0
-                ? { borderColor: "rgba(99,102,241,0.5)", background: "rgba(99,102,241,0.08)" }
-                : { borderColor: "hsl(var(--border))", background: "transparent" }}
+              className="w-8 h-8 flex items-center justify-center rounded-full transition-all active:scale-95 flex-shrink-0"
+              title={videoCredits > 0 ? "Video credits ready" : "Get video credits"}
               data-testid="button-video-credit-indicator"
             >
               <Video
-                className="w-3.5 h-3.5 transition-all duration-300"
+                className="w-4 h-4 transition-all duration-300"
                 style={!callCreditsData
-                  ? { color: "hsl(var(--muted-foreground))", opacity: 0.5 }
+                  ? { color: "hsl(var(--muted-foreground))", opacity: 0.4 }
                   : videoCredits > 0
-                  ? { color: "rgb(99,102,241)", filter: "drop-shadow(0 0 4px rgba(99,102,241,0.8))" }
-                  : { color: "hsl(var(--muted-foreground))", opacity: 0.45 }}
+                  ? { color: "rgb(99,102,241)", filter: "drop-shadow(0 0 4px rgba(99,102,241,0.7))" }
+                  : { color: "hsl(var(--muted-foreground))", opacity: 0.35 }}
               />
-              <span style={{ fontSize: 8, fontWeight: 700, letterSpacing: "0.05em", color: videoCredits > 0 ? "rgb(99,102,241)" : "hsl(var(--muted-foreground))", opacity: 0.7 }}>VIDEO</span>
             </button>
           )}
-          {/* Mic / Voice Notes pill */}
           <button
             onClick={() => {
               if (!voiceNotesUnlocked) {
@@ -897,19 +890,16 @@ export default function Messaging() {
                 startRecording();
               }
             }}
-            className="flex items-center gap-1 px-1.5 h-7 rounded-full border transition-all active:scale-95 flex-shrink-0"
-            style={voiceNotesUnlocked
-              ? { borderColor: isRecording ? "rgba(239,68,68,0.5)" : "rgba(34,197,94,0.5)", background: isRecording ? "rgba(239,68,68,0.08)" : "rgba(34,197,94,0.08)" }
-              : { borderColor: "hsl(var(--border))", background: "transparent" }}
+            className="w-8 h-8 flex items-center justify-center rounded-full transition-all active:scale-95 flex-shrink-0"
+            title={voiceNotesUnlocked ? (isRecording ? "Recording…" : "Send voice note") : "Unlock voice notes"}
             data-testid="button-voice-note"
           >
             <Mic
-              className="w-3.5 h-3.5 transition-all duration-300"
+              className="w-4 h-4 transition-all duration-300"
               style={voiceNotesUnlocked
-                ? { color: isRecording ? "rgb(239,68,68)" : "rgb(34,197,94)", filter: isRecording ? "drop-shadow(0 0 4px rgba(239,68,68,0.8))" : "drop-shadow(0 0 4px rgba(34,197,94,0.8))" }
-                : { color: "hsl(var(--muted-foreground))", opacity: 0.45 }}
+                ? { color: isRecording ? "rgb(239,68,68)" : "rgb(34,197,94)", filter: isRecording ? "drop-shadow(0 0 4px rgba(239,68,68,0.7))" : "drop-shadow(0 0 4px rgba(34,197,94,0.7))" }
+                : { color: "hsl(var(--muted-foreground))", opacity: 0.35 }}
             />
-            <span style={{ fontSize: 8, fontWeight: 700, letterSpacing: "0.05em", color: voiceNotesUnlocked ? (isRecording ? "rgb(239,68,68)" : "rgb(34,197,94)") : "hsl(var(--muted-foreground))", opacity: 0.7 }}>MIC</span>
           </button>
           {!showCloseConfirm ? (
             <Button variant="ghost" size="icon" onClick={() => setShowCloseConfirm(true)} data-testid="button-close-connection">

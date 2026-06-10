@@ -1,0 +1,65 @@
+Fix these two live issues only. Do not work on unrelated features.
+
+Issue 1 — Chatroom icons are cramped
+
+Current problem:
+Phone, video, and mic icons were added, but they are cramping the chatroom header/input space and look like they were just thrown in.
+
+Fix:
+
+Audit the actual live chatroom layout on mobile.
+Reposition the icons properly so they feel intentional and premium.
+Do not crowd the name/status area.
+Do not squeeze the message input.
+Group communication actions neatly.
+Consider placing them in:
+
+a compact action cluster,
+a slide-out action tray,
+an overflow “+” menu,
+or a clean row above the input.
+Phone, video, and mic should be easy to tap but not dominate the chat.
+Keep grey/green locked/unlocked states.
+Keep video credit gating.
+Keep voice note gating.
+Keep phone credit gating.
+Remove any temporary labels/proof text if still present.
+Issue 2 — Undo says it worked but does not visually restore the profile
+
+Current problem:
+Undo Last Action says it succeeded, but the previous person does not reappear in Discovery.
+
+Fix:
+
+Trace the full undo flow:
+
+backend deletes/reverses the interaction
+frontend invalidates/refetches discovery
+restored profile is inserted back into the current profile queue
+UI visibly shows the restored user immediately
+If undo restores the backend but Discovery cache still excludes the user, fix the frontend cache/refetch.
+If the restored profile is not returned because of filters/exclusions, fix the backend response.
+After a successful undo, the restored profile should appear on screen immediately or be the next visible card.
+Do not just show a success toast.
+Clarify final behaviour:
+
+Undo Last Action should undo latest safe like or pass.
+If latest like created a match, do not undo it; show clear message.
+If latest pass or non-match like is undone, restore that profile to Discovery visibly.
+Report:
+
+exact files changed
+exact chat component fixed
+final icon placement decision
+exact undo root cause
+whether backend or frontend cache caused the issue
+npm run check result
+Do not touch:
+
+ringtone
+language
+payments
+voice recording backend
+profile fields
+Intention Wheel
+matching filters except where required for undo restoration

@@ -412,7 +412,10 @@ export default function Discover() {
       }
       return res.json() as Promise<{ restoredProfileId: string }>;
     },
-    onSuccess: (_data) => {
+    onSuccess: (data) => {
+      // Remove the restored profile from shownIds so it reappears immediately
+      // in visibleProfiles without waiting for the refetch to settle.
+      setShownIds(prev => { const s = new Set(prev); s.delete(data.restoredProfileId); return s; });
       queryClient.invalidateQueries({ queryKey: ["/api/discover"] });
       toast({ title: "↩ Undo", description: t("undo_pass_success").replace("{name}", "them") });
     },
