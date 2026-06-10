@@ -1809,7 +1809,6 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
           {!allCallsDone && (
             <button
               onClick={() => {
-                if (!callCreditsData) return;
                 if ((phoneCredits ?? 0) > 0) {
                   toast({ title: t("credits_ready_header"), description: t("credits_ready_body") });
                 } else {

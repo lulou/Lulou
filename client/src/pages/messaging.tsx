@@ -368,6 +368,14 @@ export default function Messaging() {
     },
   });
 
+  // ── Call credits (phone icon state in header) ──────────────────────────────
+  const { data: callCreditsData } = useQuery<{ phoneCredits: number; videoCredits: number }>({
+    queryKey: ["/api/call-credits"],
+    enabled: !!matchId,
+    staleTime: 30_000,
+  });
+  const phoneCredits = callCreditsData?.phoneCredits ?? 0;
+
   // ── Fast messages query (no profile) ───────────────────────────────────────
   // Hits GET /api/matches/:matchId/messages — only fetches messages rows.
   // Renders the chat list immediately without waiting for profile/stage/calls.
@@ -669,6 +677,32 @@ export default function Messaging() {
           <Badge variant="outline" className="text-xs flex-shrink-0" data-testid="badge-messages-remaining">
             {statusLabel}
           </Badge>
+          {!allCallsDone && (
+            <button
+              onClick={() => {
+                if (phoneCredits > 0) {
+                  toast({ title: t("credits_ready_header"), description: t("credits_ready_body") });
+                } else {
+                  toast({ title: t("need_credits_header"), description: t("need_phone_credits_msg") });
+                  navigate("/settings");
+                }
+              }}
+              className="w-8 h-8 flex items-center justify-center rounded-full transition-all active:scale-95 flex-shrink-0"
+              title={phoneCredits > 0 ? "Phone credits available" : "Get phone credits"}
+              data-testid="button-phone-credit-indicator"
+            >
+              <Phone
+                className="w-4 h-4 transition-all duration-300"
+                style={
+                  !callCreditsData
+                    ? { color: "hsl(var(--muted-foreground))", opacity: 0.35 }
+                    : phoneCredits > 0
+                    ? { color: "rgb(34 197 94)", filter: "drop-shadow(0 0 5px rgba(34,197,94,0.65))" }
+                    : { color: "hsl(var(--muted-foreground))", opacity: 0.45 }
+                }
+              />
+            </button>
+          )}
           {!showCloseConfirm ? (
             <Button variant="ghost" size="icon" onClick={() => setShowCloseConfirm(true)} data-testid="button-close-connection">
               <Moon className="w-4 h-4 text-muted-foreground" />
