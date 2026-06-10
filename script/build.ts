@@ -1,6 +1,8 @@
 import { build as esbuild } from "esbuild";
 import { build as viteBuild } from "vite";
 import { rm, readFile } from "fs/promises";
+import { spawnSync } from "child_process";
+import { resolve } from "path";
 
 // server deps to bundle to reduce openat(2) syscalls
 // which helps cold start times
@@ -32,7 +34,22 @@ const allowlist = [
   "zod-validation-error",
 ];
 
+async function runTranslationCheck() {
+  console.log("running translation check...");
+  const scriptPath = resolve("scripts/check-translations.cjs");
+  const result = spawnSync("node", [scriptPath], { stdio: "inherit" });
+  if (result.status !== 0) {
+    console.error(
+      "\nBuild aborted: translation check found critical issues (see above).\n" +
+      "Fix template literal bugs, empty values, or missing language blocks before building."
+    );
+    process.exit(1);
+  }
+}
+
 async function buildAll() {
+  await runTranslationCheck();
+
   await rm("dist", { recursive: true, force: true });
 
   console.log("building client...");
