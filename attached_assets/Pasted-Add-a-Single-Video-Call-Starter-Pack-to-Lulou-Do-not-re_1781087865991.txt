@@ -1,0 +1,146 @@
+Add a Single Video Call Starter Pack to Lulou.
+
+Do not remove or alter any existing call bundles.
+
+Reason:
+Users can currently buy a single phone call, but cannot buy a single video call. This creates an inconsistency in the progression flow. Many users will only want one video call with one person before deciding whether to continue the connection.
+
+Implementation Requirements
+
+1. New Extras Product
+
+Add:
+
+Single Video Call Starter Pack
+
+Price: $6.99 AUD
+
+Contents:
+- 1 video call credit
+
+Type:
+- One-time purchase
+- Account-level credit
+- Uses the existing video credit system
+
+2. Extras UI
+
+Add the new card to the Extras section.
+
+Display:
+Title:
+"Video Call Starter"
+
+Description:
+"Unlock 1 video call credit to take your connection further."
+
+Price:
+$6.99
+
+Use a video camera icon.
+
+Placement:
+Show directly below the Phone Call Starter Pack so the progression feels natural.
+
+Order:
+
++5 Messages
+Undo Last Action
+Voice Notes Unlock
+Phone Call Starter
+Video Call Starter
+Connection Pack
+Premium Pack
+Chemistry Pack
+Deep Connection Pack
+
+3. Credit Logic
+
+Purchase grants:
+
+videoCredits += 1
+
+Use the existing call_credits table and existing video credit architecture.
+
+Do not create a new credit system.
+
+4. Video Icon Behaviour
+
+Keep current grey/green state behaviour.
+
+Grey:
+- No video credits available
+- Tap opens purchase popup
+
+Green:
+- User has video credits
+- Tap proceeds into video call flow
+
+5. Purchase Popup
+
+If user taps the locked video icon:
+
+Show popup:
+
+Title:
+"Unlock Video Calls"
+
+Body:
+"Take your connection beyond voice and meet face-to-face with a video call."
+
+Options:
+
+Primary:
+"Buy 1 Video Call – $6.99"
+
+Secondary:
+"View All Call Packs"
+
+Cancel:
+"Not Now"
+
+Do not send users directly to Settings.
+
+6. Relationship Progression
+
+Maintain Lulou's intentional progression:
+
+Match
+→ Chat
+→ Phone Call
+→ Video Call
+→ Meet
+
+The new starter pack simply allows users to buy a single video call credit without committing to a larger bundle.
+
+7. Analytics
+
+Track:
+
+video_starter_pack_viewed
+video_starter_pack_purchased
+video_call_credit_used
+
+8. Validation
+
+After implementation:
+
+- Run npm run check
+- Run npm run build
+
+Report:
+1. Exact files changed
+2. Extras item ID added
+3. Credit grant logic added
+4. Purchase popup implementation
+5. Final Extras ordering
+6. npm run check result
+7. npm run build result
+
+Do not modify:
+- Voice Notes Unlock
+- Existing phone call packs
+- Membership pricing
+- Undo system
+- Matching logic
+- Chat progression logic beyond exposing the new video starter purchase option

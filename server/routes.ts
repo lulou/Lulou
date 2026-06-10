@@ -2173,6 +2173,7 @@ export async function registerRoutes(
     "undo-close":           { name: "Undo Last Pass",         unitAmount: 299,  mode: "payment"      as const, benefitType: "undo_close"         as const, credits: null,                 quantity: 1 },
     "membership":           { name: "Lulou Membership",       unitAmount: 1999, mode: "subscription" as const, benefitType: null,                          credits: null,                 quantity: 1 },
     "starter-pack":         { name: "Starter Pack",           unitAmount: 499,  mode: "payment"      as const, benefitType: null,                          credits: { phone: 1, video: 0 }, quantity: 1 },
+    "video-starter":        { name: "Video Call Starter",     unitAmount: 699,  mode: "payment"      as const, benefitType: null,                          credits: { phone: 0, video: 1 }, quantity: 1 },
     "connection-pack":      { name: "Connection Pack",        unitAmount: 1299, mode: "payment"      as const, benefitType: null,                          credits: { phone: 3, video: 0 }, quantity: 1 },
     "premium-pack":         { name: "Premium Pack",           unitAmount: 1999, mode: "payment"      as const, benefitType: null,                          credits: { phone: 5, video: 0 }, quantity: 1 },
     "chemistry-pack":       { name: "Chemistry Pack",         unitAmount: 1699, mode: "payment"      as const, benefitType: null,                          credits: { phone: 3, video: 1 }, quantity: 1 },

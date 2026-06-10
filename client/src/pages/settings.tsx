@@ -1126,6 +1126,13 @@ export default function SettingsPage() {
                 onBuy={() => startCheckout("starter-pack")}
               />
               <CallPackItem
+                title="Video Call Starter"
+                phoneCredits={0} videoCredits={1}
+                price="$6.99" itemId="video-starter"
+                loading={checkoutLoading === "video-starter"}
+                onBuy={() => startCheckout("video-starter")}
+              />
+              <CallPackItem
                 title={t("extras_connection_pack_title")}
                 phoneCredits={3} videoCredits={0}
                 price="$12.99" itemId="connection-pack"

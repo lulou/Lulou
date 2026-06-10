@@ -21,8 +21,9 @@ const PHONE_PACKS: PackOption[] = [
 ];
 
 const VIDEO_PACKS: PackOption[] = [
-  { id: "chemistry-pack",      name: "Chemistry",        detail: "3 phone + 1 video call", price: "$16.99" },
-  { id: "deep-connection-pack", name: "Deep Connection", detail: "5 phone + 3 video calls", price: "$27.99", best: true },
+  { id: "video-starter",        name: "Video Starter",    detail: "1 video call credit",    price: "$6.99" },
+  { id: "chemistry-pack",       name: "Chemistry",        detail: "3 phone + 1 video call", price: "$16.99" },
+  { id: "deep-connection-pack", name: "Deep Connection",  detail: "5 phone + 3 video calls", price: "$27.99", best: true },
 ];
 
 const MIC_PACK: PackOption = {
