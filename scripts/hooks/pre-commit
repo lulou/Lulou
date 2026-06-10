@@ -1,0 +1,37 @@
+#!/bin/sh
+# Lulou Dating — pre-commit hook
+#
+# Runs the translation smoke-test before every commit.
+# WARN-only issues (missing keys that fall back to English) do NOT block the commit.
+# Critical issues (template-literal bugs, empty values, untranslated blocks) DO block it.
+#
+# Install once:  sh scripts/install-hooks.sh
+# Run manually:  node scripts/check-translations.cjs
+
+set -e
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+SCRIPT="$REPO_ROOT/scripts/check-translations.cjs"
+
+if [ ! -f "$SCRIPT" ]; then
+  echo "⚠  Translation check script not found at $SCRIPT — skipping."
+  exit 0
+fi
+
+if ! command -v node >/dev/null 2>&1; then
+  echo "⚠  node not found in PATH — skipping translation check."
+  exit 0
+fi
+
+echo "🌐 Running translation smoke-test…"
+node "$SCRIPT"
+EXIT_CODE=$?
+
+if [ $EXIT_CODE -ne 0 ]; then
+  echo ""
+  echo "✗ Commit blocked: critical translation issues found (see above)."
+  echo "  Fix the issues or run  git commit --no-verify  to bypass."
+  exit 1
+fi
+
+exit 0
