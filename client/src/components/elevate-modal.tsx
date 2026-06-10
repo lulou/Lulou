@@ -334,7 +334,7 @@ function BrowseStep({
   superElevateCredits: number;
   boostActive: boolean;
 }) {
-  const { t } = useLanguageContext();
+  const { t, isRTL } = useLanguageContext();
   const hasElevateCredits = elevateCredits > 0;
   const hasSuperCredits = superElevateCredits > 0;
 
@@ -484,7 +484,7 @@ function BrowseStep({
         >
           <div
             className="absolute top-0 end-0 w-40 h-40 rounded-full opacity-10 pointer-events-none"
-            style={{ background: "radial-gradient(circle, hsl(350 45% 70%), transparent)", transform: "translate(30%, -30%)" }}
+            style={{ background: "radial-gradient(circle, hsl(350 45% 70%), transparent)", transform: `translate(${isRTL ? "-30%" : "30%"}, -30%)` }}
           />
           <div className="p-5">
             <div className="flex items-start gap-3">

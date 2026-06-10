@@ -123,7 +123,7 @@ export function ElevateStatusCard({
   elevateType: string;
   expiresAt: string | null;
 }) {
-  const { t } = useLanguageContext();
+  const { t, isRTL } = useLanguageContext();
   const isSuper = elevateType === "super_elevate";
   const isActive = useTabActive();
   const expiresAt = expiresAtStr ? new Date(expiresAtStr) : null;
@@ -161,7 +161,7 @@ export function ElevateStatusCard({
           className="absolute top-0 end-0 w-48 h-48 pointer-events-none opacity-[0.07]"
           style={{
             background: "radial-gradient(circle, hsl(350 60% 70%), transparent)",
-            transform: "translate(30%, -30%)",
+            transform: `translate(${isRTL ? "-30%" : "30%"}, -30%)`,
           }}
         />
       )}

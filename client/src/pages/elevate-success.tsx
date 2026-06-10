@@ -28,7 +28,7 @@ type SessionStats = {
 // ── Live status card (standalone, no tab context needed) ──────────────────────
 
 function LiveStatusCard({ boostInfo }: { boostInfo: BoostInfo }) {
-  const { t } = useLanguageContext();
+  const { t, isRTL } = useLanguageContext();
   const isSuper = boostInfo.elevateType === "super_elevate";
   const expiresAt = boostInfo.expiresAt ? new Date(boostInfo.expiresAt) : null;
   const secs = useCountdownSecs(expiresAt);
@@ -60,7 +60,7 @@ function LiveStatusCard({ boostInfo }: { boostInfo: BoostInfo }) {
       {isSuper && (
         <div
           className="absolute top-0 end-0 w-48 h-48 pointer-events-none opacity-[0.07]"
-          style={{ background: "radial-gradient(circle, hsl(350 60% 70%), transparent)", transform: "translate(30%, -30%)" }}
+          style={{ background: "radial-gradient(circle, hsl(350 60% 70%), transparent)", transform: `translate(${isRTL ? "-30%" : "30%"}, -30%)` }}
         />
       )}
 
