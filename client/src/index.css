@@ -223,6 +223,18 @@
   }
 }
 
+/* ── RTL support ───────────────────────────────────────────────────────────── */
+/* dir="rtl" is applied to <html> by language-context.tsx when Arabic is       */
+/* selected. Most layout mirroring happens automatically via flex-direction and  */
+/* CSS logical properties. The rules below handle edge cases that rely on        */
+/* physical (left/right) properties that do not auto-flip with dir="rtl".       */
+
+/* Input placeholders: align to the reading direction start */
+[dir="rtl"] input::placeholder,
+[dir="rtl"] textarea::placeholder {
+  text-align: right;
+}
+
 @layer utilities {
 
   input[type="search"]::-webkit-search-cancel-button {

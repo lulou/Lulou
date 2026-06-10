@@ -259,10 +259,10 @@ function ReadyToMeetSection({ matchDetail, matchId }: { matchDetail: MatchDetail
             </div>
             <div className="flex flex-col gap-2 items-center pt-1">
               <Button size="sm" onClick={handleExchangeNumber} data-testid="button-exchange-number">
-                <PhoneForwarded className="w-4 h-4 mr-2" /> {t("exchange_number_btn")}
+                <PhoneForwarded className="w-4 h-4 me-2" /> {t("exchange_number_btn")}
               </Button>
               <Button size="sm" variant="outline" onClick={() => { setSelectedSlots([...mySlots]); setShowDatePicker(true); }} data-testid="button-update-availability">
-                <Calendar className="w-4 h-4 mr-2" /> {t("update_availability_btn")}
+                <Calendar className="w-4 h-4 me-2" /> {t("update_availability_btn")}
               </Button>
             </div>
           </div>
@@ -299,11 +299,11 @@ function ReadyToMeetSection({ matchDetail, matchId }: { matchDetail: MatchDetail
             <div className="flex flex-col gap-2 items-center">
               {mySlots.length === 0 ? (
                 <Button size="sm" onClick={() => setShowDatePicker(true)} data-testid="button-ready-to-meet">
-                  <Calendar className="w-4 h-4 mr-2" /> {t("ready_to_meet")}
+                  <Calendar className="w-4 h-4 me-2" /> {t("ready_to_meet")}
                 </Button>
               ) : (
                 <Button size="sm" variant="outline" onClick={() => { setSelectedSlots([...mySlots]); setShowDatePicker(true); }} data-testid="button-update-availability">
-                  <Calendar className="w-4 h-4 mr-2" /> {t("update_availability_btn")}
+                  <Calendar className="w-4 h-4 me-2" /> {t("update_availability_btn")}
                 </Button>
               )}
             </div>
@@ -320,7 +320,7 @@ export default function Messaging() {
   const { user } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const { t } = useLanguageContext();
+  const { t, isRTL } = useLanguageContext();
   const [message, setMessage] = useState("");
   const [showCloseConfirm, setShowCloseConfirm] = useState(false);
   const [activeTab, setActiveTab] = useState<"chat" | "profile">("chat");
@@ -832,7 +832,7 @@ export default function Messaging() {
                     </div>
                     {hasReaction && (
                       <span
-                        className={`absolute -bottom-2.5 ${isMe ? "left-1" : "right-1"} text-sm drop-shadow-sm`}
+                        className={`absolute -bottom-2.5 ${isMe === isRTL ? "right-1" : "left-1"} text-sm drop-shadow-sm`}
                         data-testid={`reaction-${msg.id}`}
                       >
                         ❤️
@@ -853,7 +853,7 @@ export default function Messaging() {
                 <p className="text-xs text-muted-foreground">{callPrompt.desc}</p>
                 {callPrompt.button ? (
                   <Button size="sm" onClick={() => navigate("/matches")} data-testid="button-call-prompt">
-                    <Phone className="w-4 h-4 mr-2" /> {callPrompt.button}
+                    <Phone className="w-4 h-4 me-2" /> {callPrompt.button}
                   </Button>
                 ) : null}
               </Card>
@@ -989,7 +989,7 @@ export default function Messaging() {
               onClick={() => setActiveTab("chat")}
               data-testid="button-return-to-chat"
             >
-              <MessageCircle className="w-4 h-4 mr-2" /> {t("back_to_chat_btn")}
+              <MessageCircle className="w-4 h-4 me-2" /> {t("back_to_chat_btn")}
             </Button>
           </div>
         </div>

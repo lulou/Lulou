@@ -210,7 +210,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                     <item.icon className="w-5 h-5" />
                     {isLikes && likesCount > 0 && (
                       <span
-                        className="absolute -top-1.5 -right-3.5 flex items-center gap-px bg-primary text-primary-foreground text-[9px] font-bold rounded-full px-1 min-w-[16px] h-4 justify-center leading-none"
+                        className="absolute -top-1.5 -right-3.5 rtl:right-auto rtl:-left-3.5 flex items-center gap-px bg-primary text-primary-foreground text-[9px] font-bold rounded-full px-1 min-w-[16px] h-4 justify-center leading-none"
                         data-testid="badge-likes-count"
                       >
                         +{likesCount}
@@ -218,7 +218,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                     )}
                     {isConnections && newConnectionsBadge > 0 && (
                       <span
-                        className="absolute -top-1.5 -right-3.5 flex items-center gap-px bg-primary text-primary-foreground text-[9px] font-bold rounded-full px-1 min-w-[16px] h-4 justify-center leading-none"
+                        className="absolute -top-1.5 -right-3.5 rtl:right-auto rtl:-left-3.5 flex items-center gap-px bg-primary text-primary-foreground text-[9px] font-bold rounded-full px-1 min-w-[16px] h-4 justify-center leading-none"
                         data-testid="badge-connections-count"
                       >
                         +{newConnectionsBadge}
