@@ -1517,7 +1517,7 @@ export default function IntentPage() {
           </div>
 
           {/* ⑥ CTA action bar */}
-          <div className="absolute bottom-0 left-0 right-0 border-t" style={{ background: "hsl(var(--background)/0.96)", backdropFilter: "blur(16px)" }}>
+          <div className="absolute bottom-0 start-0 end-0 border-t" style={{ background: "hsl(var(--background)/0.96)", backdropFilter: "blur(16px)" }}>
             <div className="px-5 pt-4 pb-6">
               <div className="flex items-center gap-3">
                 {/* Skip button */}

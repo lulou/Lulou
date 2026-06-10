@@ -413,7 +413,7 @@ function BrowseStep({
           <button
             key={pkg.id}
             className={[
-              "w-full rounded-2xl border text-left transition-all relative overflow-hidden",
+              "w-full rounded-2xl border text-start transition-all relative overflow-hidden",
               pkg.highlight
                 ? "border-primary/60 bg-primary/5 shadow-sm active:bg-primary/10"
                 : "border-border bg-card active:bg-muted/60",
@@ -424,7 +424,7 @@ function BrowseStep({
             {pkg.badge && (
               <span
                 className={[
-                  "absolute top-3.5 right-3.5 text-xs font-semibold px-2.5 py-0.5 rounded-full",
+                  "absolute top-3.5 end-3.5 text-xs font-semibold px-2.5 py-0.5 rounded-full",
                   pkg.badge === "Most Popular"
                     ? "bg-primary text-primary-foreground"
                     : "bg-foreground text-background",
@@ -473,7 +473,7 @@ function BrowseStep({
       {/* Super Elevate */}
       <div className="px-6 pb-8">
         <button
-          className="w-full rounded-2xl text-left transition-all overflow-hidden relative active:opacity-80"
+          className="w-full rounded-2xl text-start transition-all overflow-hidden relative active:opacity-80"
           style={{
             background: "linear-gradient(135deg, hsl(350 45% 20%), hsl(350 45% 14%))",
             border: "1px solid hsl(350 45% 35%)",
@@ -483,7 +483,7 @@ function BrowseStep({
           data-testid="button-super-elevate"
         >
           <div
-            className="absolute top-0 right-0 w-40 h-40 rounded-full opacity-10 pointer-events-none"
+            className="absolute top-0 end-0 w-40 h-40 rounded-full opacity-10 pointer-events-none"
             style={{ background: "radial-gradient(circle, hsl(350 45% 70%), transparent)", transform: "translate(30%, -30%)" }}
           />
           <div className="p-5">

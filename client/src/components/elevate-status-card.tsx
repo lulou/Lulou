@@ -158,7 +158,7 @@ export function ElevateStatusCard({
       {/* Decorative radial for Super */}
       {isSuper && (
         <div
-          className="absolute top-0 right-0 w-48 h-48 pointer-events-none opacity-[0.07]"
+          className="absolute top-0 end-0 w-48 h-48 pointer-events-none opacity-[0.07]"
           style={{
             background: "radial-gradient(circle, hsl(350 60% 70%), transparent)",
             transform: "translate(30%, -30%)",
