@@ -205,6 +205,8 @@ export interface IStorage {
   deleteSavedWheelProfile(userId: string): Promise<void>;
   getLastClose(userId: string): Promise<{ interactionId: string; toUserId: string } | null>;
   deleteLastClose(userId: string, interactionId: string): Promise<boolean>;
+  getLastInteraction(userId: string): Promise<{ interactionId: string; toUserId: string; type: string } | null>;
+  getMatchBetweenUsers(userId: string, otherUserId: string): Promise<boolean>;
 }
 
 /**
@@ -2527,6 +2529,28 @@ export class SupabaseStorage implements IStorage {
       .eq("id", interactionId)
       .eq("from_user_id", userId);
     return !error;
+  }
+
+  async getLastInteraction(userId: string): Promise<{ interactionId: string; toUserId: string; type: string } | null> {
+    const { data, error } = await this.sb
+      .from("interactions")
+      .select("id, to_user_id, type")
+      .eq("from_user_id", userId)
+      .in("type", ["open", "close"])
+      .order("created_at", { ascending: false })
+      .limit(1);
+    if (error || !data || data.length === 0) return null;
+    return { interactionId: data[0].id as string, toUserId: data[0].to_user_id as string, type: data[0].type as string };
+  }
+
+  async getMatchBetweenUsers(userId: string, otherUserId: string): Promise<boolean> {
+    const { data, error } = await this.sb
+      .from("matches")
+      .select("id")
+      .or(`and(user1_id.eq.${userId},user2_id.eq.${otherUserId}),and(user1_id.eq.${otherUserId},user2_id.eq.${userId})`)
+      .limit(1);
+    if (error || !data) return false;
+    return data.length > 0;
   }
 }
 

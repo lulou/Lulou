@@ -1611,14 +1611,23 @@ export async function registerRoutes(
         paidBenefitId = benefitRow.id;
       }
 
-      const lastClose = await storage.getLastClose(userId);
-      if (!lastClose) {
-        return res.status(404).json({ message: "No recent pass to undo." });
+      const lastInteraction = await storage.getLastInteraction(userId);
+      if (!lastInteraction) {
+        return res.status(404).json({ message: "No recent action to undo." });
       }
 
-      const deleted = await storage.deleteLastClose(userId, lastClose.interactionId);
+      // If the last action was a like, check whether it resulted in a match.
+      // Matches cannot be silently undone.
+      if (lastInteraction.type === "open") {
+        const matchExists = await storage.getMatchBetweenUsers(userId, lastInteraction.toUserId);
+        if (matchExists) {
+          return res.status(409).json({ message: "This like created a match — matches cannot be undone." });
+        }
+      }
+
+      const deleted = await storage.deleteLastClose(userId, lastInteraction.interactionId);
       if (!deleted) {
-        return res.status(500).json({ message: "Failed to undo pass." });
+        return res.status(500).json({ message: "Failed to undo action." });
       }
 
       // Consume the appropriate credit
@@ -1630,7 +1639,7 @@ export async function registerRoutes(
         await db.insert(userBenefits).values({ userId, type: "daily_undo_used" });
       }
 
-      res.json({ success: true, restoredProfileId: lastClose.toUserId });
+      res.json({ success: true, restoredProfileId: lastInteraction.toUserId, actionType: lastInteraction.type });
     } catch (err: any) {
       console.error("[UNDO_PASS]", err.message);
       res.status(500).json({ message: err.message || "Failed to undo pass" });

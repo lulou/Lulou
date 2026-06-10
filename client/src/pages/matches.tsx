@@ -1816,7 +1816,10 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                   navigate("/settings");
                 }
               }}
-              className="w-7 h-7 flex items-center justify-center rounded-full transition-all active:scale-95"
+              className="flex items-center gap-1 px-1.5 h-7 rounded-full border transition-all active:scale-95"
+              style={(phoneCredits ?? 0) > 0
+                ? { borderColor: "rgba(34,197,94,0.5)", background: "rgba(34,197,94,0.08)" }
+                : { borderColor: "hsl(var(--border))", background: "transparent" }}
               data-testid={`button-phone-credit-indicator-${match.id}`}
               title={(phoneCredits ?? 0) > 0 ? "Phone credits available" : "Get phone credits"}
             >
@@ -1824,12 +1827,16 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                 className="w-3.5 h-3.5 transition-all duration-300"
                 style={
                   !callCreditsData
-                    ? { color: "hsl(var(--muted-foreground))", opacity: 0.35 }
+                    ? { color: "hsl(var(--muted-foreground))", opacity: 0.5 }
                     : (phoneCredits ?? 0) > 0
-                    ? { color: "rgb(34 197 94)", filter: "drop-shadow(0 0 5px rgba(34,197,94,0.65))" }
+                    ? { color: "rgb(34 197 94)", filter: "drop-shadow(0 0 4px rgba(34,197,94,0.8))" }
                     : { color: "hsl(var(--muted-foreground))", opacity: 0.45 }
                 }
               />
+              {/* PROOF LABEL — remove after verification */}
+              <span style={{ fontSize: 8, fontWeight: 700, letterSpacing: "0.05em", color: (phoneCredits ?? 0) > 0 ? "rgb(34,197,94)" : "hsl(var(--muted-foreground))", opacity: 0.7 }}>
+                PHONE
+              </span>
             </button>
           )}
           <Badge variant="outline" className="text-[10px] px-1.5 py-0" data-testid={`badge-messages-remaining-${match.id}`}>

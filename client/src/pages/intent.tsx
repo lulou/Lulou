@@ -772,14 +772,16 @@ export default function IntentPage() {
 
   // Responsive wheel card dimensions — shrink on narrow phones to prevent clipping
   const [viewportW, setViewportW] = useState(() => typeof window !== "undefined" ? window.innerWidth : 390);
+  const [viewportH, setViewportH] = useState(() => typeof window !== "undefined" ? window.innerHeight : 800);
   useEffect(() => {
-    const h = () => setViewportW(window.innerWidth);
+    const h = () => { setViewportW(window.innerWidth); setViewportH(window.innerHeight); };
     window.addEventListener("resize", h);
     return () => window.removeEventListener("resize", h);
   }, []);
+  const isCompact = viewportH < 700;
   const itemWidth  = viewportW < 380 ? 118 : viewportW < 430 ? 136 : ITEM_WIDTH;
   const itemHeight = Math.round(itemWidth * (ITEM_HEIGHT / ITEM_WIDTH));
-  const wheelBufferY = viewportW < 380 ? 130 : 160;
+  const wheelBufferY = isCompact ? 80 : viewportW < 380 ? 130 : 160;
 
   const glide = useCallback(() => {
     velocity.current *= 0.94;
@@ -1151,7 +1153,7 @@ export default function IntentPage() {
       </div>
 
       {/* ── Wheel stage ── */}
-      <div className="flex-1 flex flex-col items-center justify-center gap-5 overflow-hidden">
+      <div className={`flex-1 flex flex-col items-center overflow-hidden ${isCompact ? "justify-start pt-4 gap-2" : "justify-center gap-5"}`}>
         <div
           className="relative select-none touch-manipulation"
           style={{
