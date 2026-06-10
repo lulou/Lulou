@@ -1989,10 +1989,6 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                     : { color: "hsl(var(--muted-foreground))", opacity: 0.45 }
                 }
               />
-              {/* PROOF LABEL — remove after verification */}
-              <span style={{ fontSize: 8, fontWeight: 700, letterSpacing: "0.05em", color: (phoneCredits ?? 0) > 0 ? "rgb(34,197,94)" : "hsl(var(--muted-foreground))", opacity: 0.7 }}>
-                PHONE
-              </span>
             </button>
           )}
           {/* Video credit pill */}
