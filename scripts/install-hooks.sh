@@ -17,8 +17,8 @@ HOOKS_SRC="$REPO_ROOT/scripts/hooks"
 HOOKS_DST="$REPO_ROOT/.git/hooks"
 
 if [ ! -d "$HOOKS_DST" ]; then
-  echo "✗ .git/hooks directory not found — are you inside a git repository?"
-  exit 1
+  echo "  ⚠  .git/hooks directory not found — skipping hook installation (not a git checkout or CI environment)."
+  exit 0
 fi
 
 install_hook() {
