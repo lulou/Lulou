@@ -5,7 +5,7 @@
 # WARN-only issues (missing keys that fall back to English) do NOT block the commit.
 # Critical issues (template-literal bugs, empty values, untranslated blocks) DO block it.
 #
-# Install once:  sh scripts/install-hooks.sh
+# Install once:  node scripts/install-hooks.cjs
 # Run manually:  node scripts/check-translations.cjs
 
 set -e

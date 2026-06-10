@@ -9,7 +9,7 @@
     "start": "NODE_ENV=production node dist/index.cjs",
     "check": "tsc",
     "db:push": "drizzle-kit push",
-    "prepare": "sh scripts/install-hooks.sh"
+    "prepare": "node scripts/install-hooks.cjs"
   },
   "dependencies": {
     "@capacitor/cli": "^7.6.5",
