@@ -47,7 +47,7 @@ const PhotoBubbles = memo(function PhotoBubbles({ photos, name: _name, onOpen, i
 // Memoised: only re-renders when items/type/onReply actually change.
 // Prevents re-render when parent mutation isPending state toggles (2× per tap).
 const SlideCards = memo(function SlideCards({ items, type, onReply }: { items: string[]; type: "starter" | "question"; onReply: (text: string, reply: string) => void }) {
-  const { t } = useLanguageContext();
+  const { t, isRTL } = useLanguageContext();
   const scrollRef = useRef<HTMLDivElement>(null);
   const isDragging = useRef(false);
   const didDrag = useRef(false);
@@ -63,6 +63,8 @@ const SlideCards = memo(function SlideCards({ items, type, onReply }: { items: s
   const startY = useRef(0);
   const committed = useRef(false);
 
+  const rtlDir = isRTL ? -1 : 1;
+
   const glide = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;
@@ -71,9 +73,9 @@ const SlideCards = memo(function SlideCards({ items, type, onReply }: { items: s
       velocity.current = 0;
       return;
     }
-    el.scrollLeft -= velocity.current;
+    el.scrollLeft -= velocity.current * rtlDir;
     animFrame.current = requestAnimationFrame(glide);
-  }, []);
+  }, [rtlDir]);
 
   const handlePointerDown = (e: React.PointerEvent) => {
     if (e.pointerType === "touch") return;
@@ -88,7 +90,7 @@ const SlideCards = memo(function SlideCards({ items, type, onReply }: { items: s
     startY.current = e.clientY;
     lastX.current = e.clientX;
     lastTime.current = Date.now();
-    scrollLeftStart.current = el.scrollLeft;
+    scrollLeftStart.current = el.scrollLeft * rtlDir;
     el.style.cursor = "grabbing";
   };
 
@@ -109,7 +111,7 @@ const SlideCards = memo(function SlideCards({ items, type, onReply }: { items: s
     lastX.current = e.clientX;
     lastTime.current = now;
     const totalDx = e.clientX - startX.current;
-    scrollRef.current.scrollLeft = scrollLeftStart.current - totalDx;
+    scrollRef.current.scrollLeft = (scrollLeftStart.current - totalDx) * rtlDir;
   };
 
   const handlePointerUp = () => {
@@ -158,7 +160,7 @@ const SlideCards = memo(function SlideCards({ items, type, onReply }: { items: s
         onPointerLeave={handlePointerUp}
         data-testid={isStarter ? "slide-starters" : "slide-questions"}
       >
-        <div className="flex gap-3 px-1" style={{ display: "flex", gap: 12, paddingLeft: 4, paddingRight: 4 }}>
+        <div className="flex gap-3 px-1" style={{ display: "flex", gap: 12, paddingInlineStart: 4, paddingInlineEnd: 4 }}>
           {items.map((item, i) => (
             <div
               key={i}

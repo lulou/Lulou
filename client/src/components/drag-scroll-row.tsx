@@ -1,6 +1,9 @@
 import { useRef, useEffect, useCallback } from "react";
+import { useLanguageContext } from "@/contexts/language-context";
 
 export function DragScrollRow({ children, className = "" }: { children: React.ReactNode; className?: string }) {
+  const { isRTL } = useLanguageContext();
+  const rtlDir = isRTL ? -1 : 1;
   const ref = useRef<HTMLDivElement>(null);
   const isPointerDown = useRef(false);
   const committed = useRef(false);
@@ -20,9 +23,9 @@ export function DragScrollRow({ children, className = "" }: { children: React.Re
       velocity.current = 0;
       return;
     }
-    el.scrollLeft -= velocity.current;
+    el.scrollLeft -= velocity.current * rtlDir;
     animFrame.current = requestAnimationFrame(glide);
-  }, []);
+  }, [rtlDir]);
 
   const handlePointerDown = (e: React.PointerEvent) => {
     if (e.pointerType === "touch") return;
@@ -36,7 +39,7 @@ export function DragScrollRow({ children, className = "" }: { children: React.Re
     startY.current = e.clientY;
     lastX.current = e.clientX;
     lastTime.current = Date.now();
-    scrollLeftStart.current = el.scrollLeft;
+    scrollLeftStart.current = el.scrollLeft * rtlDir;
     el.style.cursor = "grabbing";
   };
 
@@ -56,7 +59,7 @@ export function DragScrollRow({ children, className = "" }: { children: React.Re
     lastX.current = e.clientX;
     lastTime.current = now;
     const totalDx = e.clientX - startX.current;
-    ref.current.scrollLeft = scrollLeftStart.current - totalDx;
+    ref.current.scrollLeft = (scrollLeftStart.current - totalDx) * rtlDir;
   };
 
   const handlePointerUp = () => {
