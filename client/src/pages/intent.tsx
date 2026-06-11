@@ -681,7 +681,7 @@ function spinEase(t: number): number {
 
 // ── Main page ────────────────────────────────────────────────────────────────
 export default function IntentPage() {
-  const { t } = useLanguageContext();
+  const { t, isRTL } = useLanguageContext();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const isActive = useTabActive();
@@ -819,10 +819,11 @@ export default function IntentPage() {
     const now = Date.now();
     const dt = now - lastTime.current;
     const dx = e.clientX - lastX.current;
-    if (dt > 0) velocity.current = (dx / dt) * 0.8;
+    const dragDelta = isRTL ? -dx : dx;
+    if (dt > 0) velocity.current = (dragDelta / dt) * 0.8;
     lastX.current = e.clientX;
     lastTime.current = now;
-    angleRef.current += dx * 0.32;
+    angleRef.current += dragDelta * 0.32;
     setAngle(angleRef.current);
   };
 
