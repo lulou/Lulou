@@ -1,0 +1,186 @@
+Audit and improve the Intention Wheel purchase modal experience and wheel spin animation.
+
+Do not work on unrelated features.
+
+──────────────────────────────
+
+Purchase Modal Background Audit
+The purchase modal itself looks good.
+
+The problem is the background behind it.
+
+Current behaviour:
+
+Profile cards appear clipped
+Cards look misaligned
+Wheel connector lines remain visible
+Red path lines show through the modal
+The wheel still appears active underneath
+The overall effect looks broken rather than intentional
+Determine whether this is:
+
+A) A styling issue
+
+or
+
+B) A transform/layout bug caused when the modal opens
+
+Audit the exact root cause before changing anything.
+
+──────────────────────────────
+
+Purchase Modal Expected Behaviour
+When the “Want more spins?” modal opens:
+
+Freeze wheel movement
+Freeze wheel animation
+Freeze wheel physics
+Freeze card movement
+Background should become:
+
+Dimmed
+Softly blurred
+Visually inactive
+Users should immediately understand:
+
+“The wheel is paused while I decide.”
+
+──────────────────────────────
+
+Background Presentation
+Improve the visual presentation behind the modal.
+
+Requirements:
+
+Hide wheel connector paths while modal is open
+OR fade them to near-invisible
+Prevent red connection lines from cutting through the popup
+Reduce visual noise behind the popup
+Keep profile cards visible enough to provide context
+Scale background cards down slightly
+Reduce card opacity
+Apply stronger backdrop blur
+Target feeling:
+
+Premium
+Elegant
+Intentional
+
+Not:
+
+Broken
+Misaligned
+Glitched
+
+──────────────────────────────
+
+Card Positioning Audit
+The cards behind the modal appear uneven.
+
+Audit:
+
+Card transforms
+Card positioning
+Wheel offsets
+Modal-open state transforms
+Determine:
+
+Why one card appears heavily clipped while another appears partially visible.
+
+Fix any positioning bug causing asymmetry.
+
+Cards should feel balanced left and right.
+
+──────────────────────────────
+
+Intention Wheel Spin Physics Audit
+Current wheel speed feels close.
+
+However:
+
+Spin lasts slightly too long
+Spin stops too abruptly
+Spin does not feel like a real wheel slowing down
+Current feeling:
+
+Fast
+Mechanical
+
+Desired feeling:
+
+Natural
+Premium
+Physical
+
+──────────────────────────────
+
+Wheel Spin Behaviour Improvements
+Keep the existing overall speed.
+
+Do NOT dramatically slow the wheel.
+
+Adjust:
+
+Slightly shorter spin duration
+More realistic deceleration
+Better easing curve
+Stronger momentum at the start
+Smooth fade-out near the end
+Wheel should:
+
+Start confidently
+Gradually lose energy
+Slow naturally
+Ease into final selection
+Like a real wheel that has been spun.
+
+Avoid:
+
+Instant stop
+Mechanical stop
+Endless spinning
+──────────────────────────────
+
+Final Wheel Experience
+Target user reaction:
+
+“That feels satisfying.”
+
+The result should feel closer to:
+
+Prize wheel
+Roulette-style momentum
+Natural friction
+Not:
+
+Constant-speed animation
+Artificial timer countdown
+──────────────────────────────
+
+Validation
+Run:
+
+npm run check
+npm run build
+
+Provide:
+
+Root cause of modal background issue
+Files changed
+Root cause of card clipping/misalignment
+Wheel animation changes made
+Duration before vs after
+Easing/deceleration changes
+npm run check result
+npm run build result
+Do not change pricing.
+
+Do not change spin rewards.
+
+Focus only on:
+
+Modal background presentation
+Card alignment behind modal
+Wheel spin realism
+Wheel spin duration
+Wheel slowdown behaviour

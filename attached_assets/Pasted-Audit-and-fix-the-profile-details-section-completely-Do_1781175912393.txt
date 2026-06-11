@@ -1,0 +1,170 @@
+Audit and fix the profile details section completely.
+
+Do not work on unrelated features.
+
+Current issue:
+
+The profile clarity update partially worked.
+
+The header is now correct:
+
+Name
+Verification badge
+However, the Discovery profile details are still incomplete.
+
+Screenshot confirms the profile currently shows:
+
+Age
+Location
+Vibes
+Green Flags
+Connection Style
+but does NOT show:
+
+Star Sign
+Even when the user has provided a valid date of birth.
+
+──────────────────────────────
+
+Star Sign Rendering Audit
+Do not assume the problem is fixed.
+
+Audit:
+
+Discovery profile detail view
+Likes profile detail view
+Match profile detail view
+Connection profile detail view
+User profile page
+For each view report:
+
+File name
+Component name
+Whether star sign is rendered
+Whether star sign data is available
+Whether star sign is hidden by conditional rendering
+Determine exactly why the screenshot still has no Star Sign field.
+
+──────────────────────────────
+
+Expected Profile Layout
+Keep the cleaned-up header:
+
+Name + Verification Badge only
+
+Do not reintroduce:
+
+Age in header
+Location in header
+Height in header
+Star sign in header
+Profile details section should clearly show:
+
+Age: 18
+Location: Sydney
+Height: 180cm
+Star Sign: Leo
+
+Use labelled fields.
+
+Do not use compressed formats like:
+
+18 S
+18 • Sydney
+25 L
+
+Everything should be self-explanatory.
+
+──────────────────────────────
+
+Verify Star Sign Data Flow
+Audit the full path:
+
+date_of_birth
+→ zodiac calculation
+→ profile save
+→ database storage
+→ API response
+→ Discovery profile rendering
+
+Verify:
+
+date_of_birth exists
+star sign is calculated correctly
+star sign reaches API responses
+star sign reaches profile components
+star sign is displayed
+──────────────────────────────
+
+Existing Users
+Verify behaviour for:
+
+Users created before DOB was required
+Users created after DOB was required
+Confirm:
+
+Existing users can now add DOB in Settings
+Saving DOB updates age
+Saving DOB generates star sign
+Star sign appears immediately after save
+──────────────────────────────
+
+Profile Consistency Audit
+Ensure all profile surfaces display the same information consistently:
+
+Discovery
+Likes
+Matches
+Connections
+Own Profile
+
+Expected fields:
+
+Age
+Location
+Height
+Star Sign
+
+No missing fields between views.
+
+──────────────────────────────
+
+Post-Call Progression Verification
+While auditing, verify the recently deployed progression changes:
+
+15 messages each unlock first guided call
+Guided call remains free
+No phone credits required for earned guided call
+Receiver receives incoming call correctly
+After the call, users enter the new 25-message-each stage
+No return to old message-limit walls
+No “Start Second Call” logic remains
+Date-planning stage appears correctly afterwards
+Report any remaining regressions.
+
+──────────────────────────────
+
+Validation
+
+Run:
+
+npm run check
+npm run build
+
+Provide:
+
+Root cause of missing star sign
+Files changed
+Star sign calculation path
+Whether existing users need any further action
+Profile consistency audit results
+Post-call progression audit results
+npm run check result
+npm run build result
+Do not add new features.
+
+Focus only on:
+
+Missing star sign display
+Profile consistency
+Verification of the new progression flow
