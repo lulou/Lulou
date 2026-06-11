@@ -1216,6 +1216,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
           content: vars.content,
           reaction: null,
           createdAt: new Date(),
+          voiceTranscript: null,
         };
         queryClient.setQueryData<MatchDetail>(["/api/matches", match.id], {
           ...previous,

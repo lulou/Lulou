@@ -29,6 +29,7 @@ export function useRealtimeMessages(matchId: string | undefined, enabled: boolea
       content: row.content,
       reaction: row.reaction ?? null,
       createdAt: row.created_at ?? row.createdAt,
+      voiceTranscript: row.voice_transcript ?? row.voiceTranscript ?? null,
     };
 
     console.log("[CHAT_REALTIME] message received realtime", {

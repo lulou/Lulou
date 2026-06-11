@@ -19,9 +19,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
-  MapPin,
-  Ruler,
-  Calendar,
   Camera,
   HelpCircle,
   ChevronDown,
@@ -715,31 +712,17 @@ export default function ProfilePage() {
         </button>
         <div className="flex-1">
           <div className="flex items-center justify-between gap-2">
-            <h1 className="font-serif text-2xl font-bold" data-testid="text-profile-name">
-              {profile.firstName}
-            </h1>
+            <div className="flex items-center gap-2 min-w-0">
+              <h1 className="font-serif text-2xl font-bold truncate" data-testid="text-profile-name">
+                {profile.firstName}
+              </h1>
+              {profile.photoVerified && (
+                <BadgeCheck className="w-5 h-5 text-primary shrink-0" data-testid="icon-verified-badge-name" />
+              )}
+            </div>
             <Button size="icon" variant="ghost" onClick={() => navigate("/settings")} data-testid="button-settings-icon">
               <Settings className="w-5 h-5" />
             </Button>
-          </div>
-          {/* ② Age / location / details — immediately under name */}
-          <div className="flex items-center gap-3 text-muted-foreground text-sm mt-1 flex-wrap">
-            <span className="flex items-center gap-1" data-testid="text-profile-age">
-              <Calendar className="w-3.5 h-3.5" />
-              {profile.age}
-            </span>
-            {profile.height && (
-              <span className="flex items-center gap-1" data-testid="text-profile-height">
-                <Ruler className="w-3.5 h-3.5" />
-                {profile.height}
-              </span>
-            )}
-            {profile.location && (
-              <span className="flex items-center gap-1" data-testid="text-profile-location">
-                <MapPin className="w-3.5 h-3.5" />
-                {profile.location}
-              </span>
-            )}
           </div>
           <Button
             size="sm"

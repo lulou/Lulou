@@ -415,6 +415,7 @@ export default function Messaging() {
   const [showCloseConfirm, setShowCloseConfirm] = useState(false);
   const [activeTab, setActiveTab] = useState<"chat" | "profile">("chat");
   const [showAIStarters, setShowAIStarters] = useState(false);
+  const autoOpenedStartersRef = useRef(false);
   const [filterConfirm, setFilterConfirm] = useState<{ content: string; tempId: string; categories: string[] } | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
@@ -639,6 +640,7 @@ export default function Messaging() {
         content: vars.content,
         reaction: null,
         createdAt: new Date(),
+        voiceTranscript: null,
       };
 
       // Optimistic append to messages cache
@@ -700,6 +702,15 @@ export default function Messaging() {
     enabled: !!matchId && showAIStarters && aiStartersEnabled,
     staleTime: 5 * 60 * 1000,
   });
+
+  // Auto-open starters for fresh matches (no messages yet)
+  useEffect(() => {
+    if (!aiStartersEnabled || autoOpenedStartersRef.current || !matchDetail) return;
+    if (matchDetail.messages.length === 0) {
+      setShowAIStarters(true);
+      autoOpenedStartersRef.current = true;
+    }
+  }, [matchDetail, aiStartersEnabled]);
 
   // ── Comment Filter + send helper ──────────────────────────────────────────
   const doSend = (content: string) => {

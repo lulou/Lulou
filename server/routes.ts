@@ -247,8 +247,7 @@ const isAuthenticated: RequestHandler = (req: any, res, next) => {
       supabase.from("profiles")
         .update({ last_active: new Date().toISOString() })
         .eq("user_id", user.id)
-        .then(() => {})
-        .catch(() => {});
+        .then(() => {}, () => {});
     }
 
     next();

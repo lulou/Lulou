@@ -468,7 +468,7 @@ function CallDetectors({ userId }: { userId: string }) {
     // network response cannot overwrite the optimistic incoming-call patch
     // before the DB write is visible to PostgREST (Realtime broadcast arrives
     // before the DB row is readable). Polling resumes when the call ends.
-    refetchInterval: () => hasRingRef.current ? false : 10000,
+    refetchInterval: () => hasRingRef.current ? false : 5000,
   });
 
   // Reference-stable match IDs: only creates a new array when the set of IDs

@@ -471,6 +471,7 @@ function mapMessage(row: any): Message {
     content: row.content,
     reaction,
     createdAt: row.created_at ? new Date(row.created_at) : null,
+    voiceTranscript: row.voice_transcript ?? null,
   };
 }
 
