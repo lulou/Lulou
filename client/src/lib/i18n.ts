@@ -1036,6 +1036,7 @@ export const TRANSLATIONS = {
     no_profiles_yet:              "No profiles to show yet",
     intention_wheel_title:        "Intention Wheel",
     spin_earned_label:            "Spin earned",
+    buy_spins_or_earn_free:       "Tap to buy · or earn free with a streak",
     // matches: time picker + section headers + empty states + connection counts
     pick_a_time_label:            "Pick a time:",
     back_label:                   "Back",

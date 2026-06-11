@@ -958,7 +958,9 @@ export default function IntentPage() {
     setSelectedProfile(null);
     setShowConfetti(false);
     queryClient.invalidateQueries({ queryKey: ["/api/popular"] });
-    setTimeout(() => setShowPurchase(true), 300);
+    // Wheel returns to locked state — no auto-purchase prompt.
+    // Users can explore who is on the wheel and tap the locked
+    // button themselves if they want to buy more spins.
   };
 
   // Resets all wheel/profile/reveal state without triggering the purchase prompt.
@@ -992,6 +994,18 @@ export default function IntentPage() {
     clearAllArmedSessions();
     console.log("[INTENT] RING_GUARD: stopped audio + cleared armed sessions on mount — stale ring blocked");
   }, []);
+
+  // ── Periodic profile refresh while spin is locked ─────────────────────────
+  // Keeps the wheel feeling alive — profiles rotate every 90 s so the user
+  // sees a changing set of people even without an available spin.
+  // Cleans up automatically when the spin becomes available again.
+  useEffect(() => {
+    if (canSpin || isSpinning) return;
+    const id = setInterval(() => {
+      queryClient.invalidateQueries({ queryKey: ["/api/popular"] });
+    }, 90_000);
+    return () => clearInterval(id);
+  }, [canSpin, isSpinning, queryClient]);
 
   if (isLoading) {
     if (intentLoadingTooLong) {
@@ -1262,7 +1276,9 @@ export default function IntentPage() {
         </div>
 
         {/* ── Candidates preview strip ── */}
-        {!isSpinning && !dispersed && !showPurchase && !showProfile && canSpin && (
+        {/* Always shown (regardless of canSpin) so users can see who is on the
+            wheel and feel engaged even while waiting for their next free spin. */}
+        {!isSpinning && !dispersed && !showPurchase && !showProfile && (
           <CandidatesPreview items={items} />
         )}
 
@@ -1303,7 +1319,7 @@ export default function IntentPage() {
                   border: "1.5px solid hsl(var(--border))",
                   background: "linear-gradient(145deg, hsl(var(--muted)), hsl(var(--muted-foreground)/0.08))",
                   color: "hsl(var(--muted-foreground))", cursor: "pointer",
-                  display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 4,
+                  display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 5,
                   boxShadow: "0 4px 14px rgba(0,0,0,0.10)",
                   transition: "transform 0.15s ease", outline: "none", WebkitTapHighlightColor: "transparent",
                 }}
@@ -1311,9 +1327,24 @@ export default function IntentPage() {
                 onMouseLeave={e => { (e.currentTarget as HTMLElement).style.transform = "scale(1)"; }}
                 data-testid="button-spin-locked"
               >
-                <Lock style={{ width: 22, height: 22 }} />
-                <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", opacity: 0.7 }}>Used</span>
+                <Lock style={{ width: 20, height: 20 }} />
+                <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.13em", textTransform: "uppercase", opacity: 0.50 }}>
+                  {t("spin_label")}
+                </span>
               </button>
+            )}
+
+            {/* CTA hint below the locked button */}
+            {!canSpin && (
+              <p style={{
+                fontSize: 11, textAlign: "center",
+                color: "hsl(var(--muted-foreground))",
+                lineHeight: 1.4, marginTop: -6,
+              }}>
+                {streakComplete
+                  ? t("spin_earned_label")
+                  : t("buy_spins_or_earn_free")}
+              </p>
             )}
 
             {!streakComplete && (
