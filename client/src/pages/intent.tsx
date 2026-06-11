@@ -662,21 +662,25 @@ type SpinStatus = {
   canSpin: boolean;
 };
 
-// Custom "prize wheel" ease: slow wind-up → thrilling main spin → suspenseful crawl.
-// Phase 1 (0–8 %):  quadratic ease-in — wheel barely starts moving (anticipation).
-// Phase 2 (8–65 %): near-linear fast spin — the exciting rush.
-// Phase 3 (65–100%): cubic+ ease-out — dramatic deceleration, wheel creeps to a stop.
+// Custom "prize wheel" ease: confident wind-up → thrilling rush → natural friction stop.
+// Phase 1 (0–8 %):  quadratic ease-in — wheel builds momentum from rest.
+// Phase 2 (8–62 %): near-linear fast spin — the exciting rush.
+// Phase 3 (62–100%): physically accurate friction deceleration.
+//   Polynomial f(p) = Vr·p + (3−2Vr)·p² + (Vr−2)·p³ where Vr = v_start·T3/D3.
+//   Velocity matches phase 2 at entry and arrives exactly at 0 — no abrupt stop.
+//   This covers 18% of travel over 38% of time, giving a long visible slowdown.
 function spinEase(t: number): number {
   if (t < 0.08) {
     const p = t / 0.08;
-    return p * p * 0.02;
+    return p * p * 0.020;
   }
-  if (t < 0.65) {
-    const p = (t - 0.08) / 0.57;
-    return 0.02 + p * 0.82;
+  if (t < 0.62) {
+    const p = (t - 0.08) / 0.54;
+    return 0.020 + p * 0.800;
   }
-  const p = (t - 0.65) / 0.35;
-  return 0.84 + (1 - Math.pow(1 - p, 3.2)) * 0.16;
+  const p = (t - 0.62) / 0.38;
+  const Vr = 3.02;
+  return 0.820 + 0.180 * (Vr * p + (3 - 2 * Vr) * p * p + (Vr - 2) * p * p * p);
 }
 
 // ── Main page ────────────────────────────────────────────────────────────────
@@ -911,8 +915,8 @@ export default function IntentPage() {
     let diff = targetAngle - normalizedCurrent;
     if (diff < 0) diff += 360;
     const totalRotation = fullSpins + diff;
-    // 6.5–8s total: long enough for wind-up, fast spin, and suspenseful crawl.
-    const duration = 6500 + Math.random() * 1500;
+    // 5.2–6.0s total: shorter and snappier while still allowing a satisfying slowdown.
+    const duration = 5200 + Math.random() * 800;
     const startTime = performance.now();
     const startAngle = currentAngle;
 
@@ -1110,6 +1114,14 @@ export default function IntentPage() {
         @keyframes previewBubbleIn {
           from { opacity: 0; transform: scale(0.65); }
           to   { opacity: 1; transform: scale(1); }
+        }
+        @keyframes purchaseBgIn {
+          from { opacity: 0; }
+          to   { opacity: 1; }
+        }
+        @keyframes purchaseCardIn {
+          from { transform: translateY(32px); opacity: 0; }
+          to   { transform: translateY(0);    opacity: 1; }
         }
       `}</style>
 
@@ -1331,9 +1343,30 @@ export default function IntentPage() {
           </div>
         )}
 
-        {/* ── Purchase spins ── */}
-        {showPurchase && !showProfile && (
-          <div className="px-5 w-full max-w-sm mx-auto animate-in fade-in slide-in-from-bottom-4 duration-500" data-testid="purchase-spins-popup">
+      </div>
+
+      {/* ── Purchase overlay ──
+           Rendered at root level (z-40) so it sits above the 3D wheel stage.
+           A dark blurred backdrop covers the wheel entirely — freezing it visually,
+           hiding card glow paths, and balancing the left/right card geometry.
+           The Card slides up from the bottom on a separate animation layer.      */}
+      {showPurchase && !showProfile && (
+        <div
+          className="absolute inset-0 z-40 flex flex-col"
+          style={{
+            background: "rgba(8,2,14,0.56)",
+            backdropFilter: "blur(11px) saturate(0.75)",
+            WebkitBackdropFilter: "blur(11px) saturate(0.75)",
+            animation: "purchaseBgIn 0.28s ease both",
+          }}
+          onClick={(e) => { if (e.target === e.currentTarget) setShowPurchase(false); }}
+          data-testid="purchase-spins-backdrop"
+        >
+          <div
+            className="mt-auto px-5 pb-8 w-full max-w-sm mx-auto"
+            style={{ animation: "purchaseCardIn 0.38s 0.06s cubic-bezier(0.16, 1, 0.3, 1) both" }}
+            data-testid="purchase-spins-popup"
+          >
             <Card className="p-6 space-y-5">
               <div className="text-center space-y-2">
                 <div className="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center mx-auto">
@@ -1373,8 +1406,8 @@ export default function IntentPage() {
               </Button>
             </Card>
           </div>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* ── Profile detail sheet ── */}
       {showProfile && selectedProfile && (
