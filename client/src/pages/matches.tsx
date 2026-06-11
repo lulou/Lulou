@@ -84,12 +84,8 @@ function CallTimer({ match, onComplete, isFaceCall }: { match: MatchDetail; onCo
   const progress = remaining / duration;
   const isLow = remaining <= 60;
 
-  const stageLabel = isFaceCall ? t("face_call_label") : callStage === 0 ? t("first_call") : t("second_call");
-  const completeMessage = callStage === 0
-    ? t("complete_msg_stage_0")
-    : callStage === 1
-    ? t("complete_msg_stage_1")
-    : t("complete_msg_stage_2");
+  const stageLabel = isFaceCall ? t("face_call_label") : t("first_call");
+  const completeMessage = callStage >= 2 ? t("complete_msg_stage_2") : t("complete_msg_stage_0");
 
   return (
     <div className="p-5 border-t" data-testid={`call-timer-${match.id}`}>
@@ -703,7 +699,7 @@ function CallSchedulingCard({
   const iAmProposer = scheduleData?.proposedBy === user?.id;
   const scheduledTime = scheduleData?.proposedTime ? new Date(scheduleData.proposedTime) : null;
   const isReadyToStart = scheduleData?.type === "accept" && scheduledTime && scheduledTime.getTime() <= now + 5 * 60 * 1000;
-  const callDurationKey = callStage === 0 ? "duration_10_min" : "duration_15_min";
+  const callDurationKey = "duration_10_min";
   const hasPhoneCredits = phoneCredits === undefined || phoneCredits > 0; // undefined = loading, treat as available
 
   const quickTimes = [
@@ -736,7 +732,7 @@ function CallSchedulingCard({
             className={hasPhoneCredits ? "bg-green-600 hover:bg-green-700 text-white" : "bg-muted text-muted-foreground"}
             data-testid={`button-start-scheduled-call-${matchId}`}
           >
-            <Phone className="w-4 h-4 me-2" /> {callStage === 0 ? t("start_first_call") : t("start_second_call")}
+            <Phone className="w-4 h-4 me-2" /> {t("start_first_call")}
           </Button>
           {!hasPhoneCredits && (
             <p className="text-xs text-muted-foreground" data-testid={`text-no-credits-${matchId}`}>
@@ -872,10 +868,10 @@ function CallSchedulingCard({
       <Card className="p-4 space-y-3 bg-primary/5 border-primary/20">
         <Phone className="w-5 h-5 text-primary mx-auto" />
         <p className="font-medium text-sm text-center">
-          {callStage === 0 ? t("ready_first_call") : t("ready_second_call")}
+          {t("ready_first_call")}
         </p>
         <p className="text-xs text-muted-foreground text-center">
-          {t("schedule_voice_call_desc").replace("{duration}", t(callDurationKey)).replace("{label}", t(callStage === 0 ? "first_label" : "second_label"))}
+          {t("schedule_voice_call_desc").replace("{duration}", t(callDurationKey)).replace("{label}", t("first_label"))}
         </p>
         {!showPicker ? (
           <div className="space-y-2">
@@ -913,7 +909,7 @@ function CallSchedulingCard({
 
 function SparkProgressBar({ sparkStep }: { sparkStep: number }) {
   const { t } = useLanguageContext();
-  const steps = [t("spark_match"), t("spark_chat"), t("spark_1st_call"), t("spark_2nd_call"), t("spark_meet")];
+  const steps = [t("spark_match"), t("spark_chat"), t("spark_1st_call"), t("spark_meet")];
   return (
     <div className="px-4 py-2.5 bg-primary/[0.03] border-b flex items-center justify-center" data-testid="spark-progress-bar">
       {steps.map((label, i) => {
@@ -1486,7 +1482,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
         if (stage === 1) {
           toast({ title: t("first_call_completed_title"), description: t("first_call_completed_desc") });
         } else if (stage === 2) {
-          toast({ title: t("second_call_completed_title"), description: t("second_call_completed_desc") });
+          toast({ title: t("call_completed_title"), description: t("call_completed_desc") });
         } else if (stage === 3) {
           toast({ title: t("face_call_stage_title"), description: t("face_call_stage_desc") });
         } else {
@@ -1818,7 +1814,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
   const theirPostCallLimitReached = theirPostCallMessages >= MAX_POST_CALL_MESSAGES;
   const bothPostCallLimitReached = myPostCallLimitReached && theirPostCallLimitReached;
 
-  // Stage 2: post-second-call messaging (20 each)
+  // Stage 2: post-call messaging phase 2 (20 each)
   const myStage2Messages = callStage === 2
     ? (isUser1 ? (detail.messageCount1 || 0) : (detail.messageCount2 || 0))
     : 0;
@@ -1830,7 +1826,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
   const theirStage2LimitReached = theirStage2Messages >= MAX_POST_STAGE2_MESSAGES;
   const bothStage2LimitReached = myStage2LimitReached && theirStage2LimitReached;
 
-  const sparkStep = callStage >= 4 ? 4 : callStage >= 2 ? 3 : callStage === 1 ? 2 : 1;
+  const sparkStep = callStage >= 4 ? 3 : callStage >= 1 ? 2 : 1;
 
   const callCancelled = isCallSessionCancelled(match.id, detail.callSessionId);
 
@@ -1909,19 +1905,6 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
       }
       if (messagesRemaining <= 1 || isLimitReached) {
         msgs.push({ id: "stage0-limit", text: t("stage0_limit") });
-      }
-    }
-    if (callStage === 1) {
-      msgs.push({ id: "stage1-welcome", text: t("stage1_welcome") });
-      msgs.push({ id: "stage1-info", text: t("stage1_info") });
-      if (myPostCallMessages >= 6 && !myPostCallLimitReached) {
-        msgs.push({ id: "stage1-approaching", text: t("stage1_approaching") });
-      }
-      if (myPostCallRemaining <= 2 && !myPostCallLimitReached) {
-        msgs.push({ id: "stage1-near-limit", text: t("stage1_near_limit") });
-      }
-      if (bothPostCallLimitReached) {
-        msgs.push({ id: "stage1-unlocked", text: t("stage1_unlocked") });
       }
     }
     if (callStage === 2) {
@@ -2058,7 +2041,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
         </button>
         <div className="flex items-center gap-1 shrink-0">
           <Badge variant="outline" className="text-[10px] px-1.5 py-0" data-testid={`badge-messages-remaining-${match.id}`}>
-            {allCallsDone ? t("all_calls_done") : callStage === 2 && bothStage2LimitReached ? t("ready_to_meet_badge") : callStage === 2 ? t("n_left_msg").replace("{n}", String(myStage2Remaining)) : callStage === 1 && bothPostCallLimitReached ? t("second_call_ready_badge") : callStage === 1 ? t("n_postcall_left").replace("{n}", String(myPostCallRemaining)) : messagesRemaining > 0 ? t("n_msg_left").replace("{n}", String(messagesRemaining)) : t("call_time_badge")}
+            {allCallsDone ? t("all_calls_done") : callStage === 2 && bothStage2LimitReached ? t("ready_to_meet_badge") : callStage === 2 ? t("n_left_msg").replace("{n}", String(myStage2Remaining)) : messagesRemaining > 0 ? t("n_msg_left").replace("{n}", String(messagesRemaining)) : t("call_time_badge")}
           </Badge>
           {showRemoveConfirm ? (
             <div className="flex items-center gap-0.5">
@@ -2432,7 +2415,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                   </div>
                   <div className="space-y-1">
                     <p className="font-medium text-sm" data-testid={`text-call-active-label-${match.id}`}>
-                      {callStage === 1 ? t("second_call_in_progress") : t("first_call_in_progress")}
+                      {t("first_call_in_progress")}
                     </p>
                     <p className="text-xs text-muted-foreground">{t("use_overlay_to_manage")}</p>
                   </div>
@@ -2530,19 +2513,6 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                 </div>
               </div>
             )
-          ) : callStage === 1 && bothPostCallLimitReached ? (
-            <CallSchedulingCard
-              matchId={match.id}
-              matchName={match.profile.firstName}
-              allMessages={allMessages}
-              callStage={1}
-              startCallPending={startCall.isPending}
-              phoneCredits={phoneCredits}
-              onStartCall={() => {
-                console.log("[CALL_UI] CALL_REQUEST_STARTED", { matchId: match.id, callStage: 1, callType: "voice_2", role: "caller" });
-                startCall.mutate();
-              }}
-            />
           ) : callStage === 1 ? (
             <div className="border-t" data-testid={`post-call-messaging-${match.id}`}>
               {isOtherTyping && (
@@ -2559,7 +2529,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                 <div className="p-4 text-center space-y-1" data-testid={`waiting-their-postcall-${match.id}`}>
                   <p className="text-sm font-medium text-primary">{t("postcall_messages_sent")}</p>
                   <p className="text-xs text-muted-foreground">
-                    {t("waiting_second_call_unlock")}
+                    {t("waiting_calls_complete")}
                   </p>
                 </div>
               ) : (
@@ -2610,7 +2580,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
               )}
             </div>
           ) : callStage === 2 ? (
-            <div className="border-t" data-testid={`post-second-call-messaging-${match.id}`}>
+            <div className="border-t" data-testid={`post-call-messaging-stage2-${match.id}`}>
               {isOtherTyping && (
                 <div className="flex items-center gap-1.5 px-4 pt-2 text-xs text-muted-foreground" data-testid="text-typing-indicator-stage2">
                   <span className="flex gap-0.5 items-center">
@@ -2633,7 +2603,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
               ) : (
                 <div className="p-3 space-y-2" style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom, 0.75rem))" }}>
                   {myStage2Messages === 0 && (
-                    <StageHint>{t("great_second_call_hint")}</StageHint>
+                    <StageHint>{t("great_call_hint")}</StageHint>
                   )}
                   {myStage2Messages >= 16 && myStage2Messages < 20 && (
                     <StageHint>{t("almost_done_hint").replace("{n}", String(myStage2Remaining)).replace("{s}", myStage2Remaining !== 1 ? "s" : "")}</StageHint>

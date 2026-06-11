@@ -1,0 +1,205 @@
+Do not add new features.
+
+We need to fix four regressions introduced by the recent releases and clean up the profile header layout.
+
+Discovery Card Regression
+The new name/age/location styling looks worse than before.
+
+Audit:
+
+Name font
+Age font
+Location font
+Font weights
+Line heights
+Spacing
+Mobile rendering on iPhone
+Goal:
+Return to a clean, premium, readable layout.
+
+Do not make it fancy.
+Do not use decorative typography.
+Prioritise readability.
+
+Think:
+
+Hinge-style clarity
+Premium but simple
+Easy to scan at a glance
+Report:
+
+exact CSS/classes changed
+before vs after hierarchy
+AI Conversation Starters Not Working
+Issue:
+Matched a new user.
+Opened chat.
+No AI conversation starters appeared.
+
+Verify:
+
+API endpoint is being called
+Response contains starter suggestions
+UI is rendering suggestions
+Regenerate works
+New matches receive suggestions immediately
+If hidden behind a condition:
+
+identify the condition
+explain why it blocks rendering
+Expected:
+
+New matches should immediately see 3–5 AI-generated conversation starters
+Suggestions should be based on:
+
+profile
+interests
+green flags
+conversation starters
+personality traits
+Report:
+
+endpoint called
+response payload
+render condition
+root cause
+fix applied
+Match / Like Delay
+Issue:
+Likes and matches are appearing slowly.
+
+Audit:
+
+Supabase realtime subscriptions
+React Query invalidation
+Polling intervals
+Cache updates
+Expected:
+
+Like appears immediately
+Match appears immediately
+Chat appears immediately
+Badge counts update immediately
+Report:
+
+where delay occurs
+exact cause
+fix applied
+Profile Header Cleanup
+Current issue:
+The user’s age and location are being shown at the top of the profile page and again in the main profile content.
+
+This feels repetitive and wastes valuable space.
+
+Required layout:
+
+Top profile header should only contain:
+
+User name
+Verification badge if verified
+Remove from top header:
+
+Age
+Location
+Height
+Star sign
+Duplicate profile information
+Age and location should only appear once:
+
+In the main profile information section
+Alongside the rest of the user’s profile details
+Goal:
+Create a cleaner, more premium profile layout with less duplication.
+
+Verification badge should be visually prominent because it is a trust signal.
+
+Report:
+
+files changed
+old header layout
+new header layout
+where age/location now appear
+Remove Legacy “Second Call” Progression
+Current issue:
+
+The chat progression UI still shows:
+
+Match
+Chat
+1st Call
+2nd Call
+Meet
+The interface is still rendering:
+
+“Start Second Call”
+second-call progression messaging
+second-call requirements
+This is incorrect.
+
+We previously removed the old second-call progression system and replaced it with:
+
+paid phone call credits
+paid video call credits
+voice note unlock
+Expected behaviour:
+
+If a user has purchased phone call credits:
+
+they can start a phone call immediately
+no second-call requirement
+If a user has purchased video call credits:
+
+they can start a video call immediately
+no second-call requirement
+Audit:
+
+matches.tsx
+messaging.tsx
+progression UI
+call stage UI
+call action buttons
+call-stage labels
+Find and remove all remaining references to:
+
+Second Call
+Start Second Call
+Second call requirements
+Old guided-call gating
+Legacy progression labels
+Important:
+Do not break:
+
+phone credits
+video credits
+voice notes
+paid-call functionality
+existing chats
+Report:
+
+Files changed
+Legacy logic found
+New behaviour
+Remaining progression dependencies
+npm run check result
+npm run build result
+Validation
+
+Run:
+
+npm run check
+npm run build
+Provide:
+
+Files changed
+Root cause of Discovery regression
+Root cause of AI Conversation Starter failure
+Root cause of Like/Match delay
+Profile header cleanup implementation
+Legacy second-call removal implementation
+Fix applied for each issue
+npm run check result
+npm run build result
+Do not add new features.
+Do not redesign screens.
+Focus only on fixing the regressions, removing legacy second-call behaviour, and cleaning up the profile header.
+

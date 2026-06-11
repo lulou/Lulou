@@ -904,14 +904,11 @@ export default function Messaging() {
   const statusLabel = allCallsDone ? t("status_ready_to_meet")
     : callStage === 3 ? t("status_face_call_stage")
     : callStage === 2 ? t("status_20_msg_stage")
-    : callStage === 1 ? t("second_call_ready_badge")
     : messagesRemaining > 0 ? t("n_msg_left").replace("{n}", String(messagesRemaining))
     : t("call_time_badge");
 
   const callPrompt = callStage === 0
     ? { icon: Phone, title: t("call_prompt_stage0_title"), desc: t("call_prompt_stage0_desc"), button: t("start_first_call") }
-    : callStage === 1
-    ? { icon: Phone, title: t("call_prompt_stage1_title"), desc: t("call_prompt_stage1_desc"), button: t("start_second_call") }
     : callStage === 2
     ? { icon: Phone, title: t("call_prompt_stage2_title"), desc: t("call_prompt_stage2_desc"), button: t("view_on_connections_btn") }
     : callStage === 3
