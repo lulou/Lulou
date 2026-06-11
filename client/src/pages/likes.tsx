@@ -18,6 +18,7 @@ import {
 import { LulouFlowerIcon } from "@/components/app-layout";
 import { PhotoCarousel } from "@/components/photo-carousel";
 import { ElevateModal } from "@/components/elevate-modal";
+import { ProfileInfoRow } from "@/components/profile-info-row";
 import { ElevateStatusCard } from "@/components/elevate-status-card";
 import { decodedPhotos, EMPTY_PHOTOS } from "@/lib/image-utils";
 import type { Profile, Interaction } from "@shared/schema";
@@ -706,6 +707,14 @@ function LikeCard({
             )}
           </div>
         )}
+
+        <ProfileInfoRow
+          age={open.profile.age}
+          location={open.profile.location}
+          height={open.profile.height}
+          dateOfBirth={(open.profile as any).dateOfBirth}
+          pronouns={(open.profile as any).pronouns}
+        />
 
         {/* View full profile hint */}
         <p className="text-xs text-muted-foreground flex items-center gap-1">
