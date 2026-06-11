@@ -607,13 +607,10 @@ export default function Discover() {
       <div className="sticky top-0 z-30 bg-background/95 backdrop-blur-sm border-b px-5 py-3">
         <div className="max-w-md mx-auto flex items-center gap-2">
           <h1 className="font-serif text-lg font-bold truncate" data-testid="text-discover-sticky-name">
-            {displayProfile.firstName}, {displayProfile.age}
+            {displayProfile.firstName}
           </h1>
-          {displayProfile.location && (
-            <span className="text-xs text-muted-foreground flex items-center gap-1 shrink-0">
-              <MapPin className="w-3 h-3" />
-              {displayProfile.location}
-            </span>
+          {displayProfile.photoVerified && (
+            <BadgeCheck className="w-4 h-4 text-primary shrink-0" />
           )}
         </div>
       </div>
@@ -679,10 +676,13 @@ export default function Discover() {
 
                 <div className="flex items-baseline gap-2 flex-wrap" style={{ animation: "discoverNameEnter 0.45s 0.22s ease both" }}>
                   <h2 className="font-serif text-3xl font-bold tracking-tight" data-testid="text-profile-name">
-                    {displayProfile.firstName}, {displayProfile.age}
+                    {displayProfile.firstName}
                   </h2>
                   {displayProfile.photoVerified && (
                     <BadgeCheck className="w-5 h-5 text-primary shrink-0" data-testid="icon-verified-badge" />
+                  )}
+                  {displayProfile.age && (
+                    <span className="text-sm text-muted-foreground" data-testid="text-profile-age">{displayProfile.age}</span>
                   )}
                   {displayProfile.height && (
                     <div className="flex items-center gap-1 text-muted-foreground text-sm">
