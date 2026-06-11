@@ -739,9 +739,18 @@ export default function IntentPage() {
 
   const prevProfilesRef = useRef<Profile[] | null>(null);
   const shuffledItemsRef = useRef<Profile[]>([]);
+  // Cache the last non-empty set of profiles so the wheel stays visible
+  // when a refetch temporarily returns [] (test environment with few users,
+  // or after a spin invalidates the query and the API filters leave an empty pool).
+  const lastNonEmptyRef = useRef<Profile[]>([]);
   if (profiles !== prevProfilesRef.current) {
     prevProfilesRef.current = profiles ?? null;
-    shuffledItemsRef.current = profiles ? shuffleArray(profiles) : [];
+    if (profiles && profiles.length > 0) {
+      shuffledItemsRef.current = shuffleArray(profiles);
+      lastNonEmptyRef.current = shuffledItemsRef.current;
+    }
+    // When profiles is empty/null, keep shuffledItemsRef unchanged so the
+    // wheel continues to display the last known profile cards.
   }
 
   const [isSpinning, setIsSpinning] = useState(false);
@@ -768,7 +777,11 @@ export default function IntentPage() {
   const [matchRevealProfile, setMatchRevealProfile] = useState<Profile | null>(null);
   const [matchRevealIsExisting, setMatchRevealIsExisting] = useState(false);
 
-  const items = shuffledItemsRef.current.length > 0 ? shuffledItemsRef.current : (profiles || []);
+  // Use the last non-empty ref as fallback so the wheel stays visible when the
+  // current query result is empty (e.g. test environment, post-spin refetch).
+  const items = shuffledItemsRef.current.length > 0
+    ? shuffledItemsRef.current
+    : lastNonEmptyRef.current;
   const count = items.length;
   const angleStep = count > 0 ? 360 / count : 0;
   const radius = count > 4 ? Math.max(188, count * 26) : 172;

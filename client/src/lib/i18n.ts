@@ -1037,6 +1037,8 @@ export const TRANSLATIONS = {
     intention_wheel_title:        "Intention Wheel",
     spin_earned_label:            "Spin earned",
     buy_spins_or_earn_free:       "Tap to buy · or earn free with a streak",
+    add_dob_for_star_sign:        "Add date of birth to show your star sign",
+    dob_sets_age_star_sign:       "Sets your age and star sign automatically",
     // matches: time picker + section headers + empty states + connection counts
     pick_a_time_label:            "Pick a time:",
     back_label:                   "Back",

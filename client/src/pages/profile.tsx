@@ -761,10 +761,37 @@ export default function ProfilePage() {
         </div>
       )}
 
+      {/* Star sign prompt — visible when DOB is not yet set.
+          Tapping it opens the Edit Profile section straight to the DOB field. */}
+      {!(profile as any).dateOfBirth && (
+        <button
+          className="flex items-center gap-1.5 text-xs text-muted-foreground/70 hover:text-muted-foreground transition-colors px-1 py-0.5 -mt-1"
+          onClick={() => toggle("settings")}
+          data-testid="button-add-dob-prompt"
+        >
+          <span>✨</span>
+          <span>{t("add_dob_for_star_sign")}</span>
+        </button>
+      )}
+
       {expandedSection === "settings" && (
         <Card className="p-5 space-y-4" data-testid="section-settings">
           <p className="font-medium text-sm">{t("edit_profile")}</p>
           <div className="space-y-3">
+            {/* Date of Birth is first — immediately visible when Edit Profile opens.
+                Saving this field also auto-calculates and updates the user's age.   */}
+            <div className="space-y-1.5">
+              <Label htmlFor="settings-dob" className="text-xs">{t("label_dob")}</Label>
+              <Input
+                id="settings-dob"
+                type="date"
+                max={new Date(Date.now() - 18 * 365.25 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)}
+                value={settingsForm.dateOfBirth || ""}
+                onChange={e => setSettingsForm(prev => ({ ...prev, dateOfBirth: e.target.value }))}
+                data-testid="input-settings-dob"
+              />
+              <p className="text-[10px] text-muted-foreground">{t("dob_sets_age_star_sign")}</p>
+            </div>
             <div className="space-y-1.5">
               <Label htmlFor="settings-location" className="text-xs">{t("label_location")}</Label>
               <Input
@@ -783,17 +810,6 @@ export default function ProfilePage() {
                 onChange={e => setSettingsForm(prev => ({ ...prev, height: e.target.value }))}
                 placeholder={t("ph_height")}
                 data-testid="input-settings-height"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="settings-dob" className="text-xs">{t("label_dob")}</Label>
-              <Input
-                id="settings-dob"
-                type="date"
-                max={new Date(Date.now() - 18 * 365.25 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)}
-                value={settingsForm.dateOfBirth || ""}
-                onChange={e => setSettingsForm(prev => ({ ...prev, dateOfBirth: e.target.value }))}
-                data-testid="input-settings-dob"
               />
             </div>
             <div className="space-y-1.5">

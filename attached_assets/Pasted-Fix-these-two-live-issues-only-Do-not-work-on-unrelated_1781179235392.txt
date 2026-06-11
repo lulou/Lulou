@@ -1,0 +1,91 @@
+Fix these two live issues only.
+
+Do not work on unrelated features.
+
+The app still does not match the previous implementation reports.
+
+Issue 1 — Star sign / DOB input still missing
+
+Current problem:
+Star sign still does not appear, and I still cannot see the Date of Birth input/update field where users are supposed to set DOB.
+
+Previous report claimed:
+
+DOB field was added to profile settings
+DOB save updates age
+Star sign calculates from DOB
+But in the live app, there is still no visible DOB/star sign update input and star sign does not show.
+
+Audit and fix the actual live component.
+
+Check:
+
+Profile page
+Profile edit screen
+Settings/Profile Settings screen
+Onboarding
+Discovery profile detail
+Likes profile detail
+Matches profile detail
+Connections profile detail
+Required:
+
+Users must be able to update Date of Birth from their profile/settings.
+Date of Birth input must be visible and easy to find.
+Saving DOB must update age.
+Star sign must be automatically calculated from DOB.
+Star sign must display as a clear labelled field:
+Star Sign: Leo
+Do not use compressed display like “25 S”.
+Do not rely on manual star sign input.
+Report:
+
+exact file/component that should contain DOB input
+why it was not visible in the live app
+exact file/component rendering star sign
+test steps proving the field is visible
+npm run check result
+npm run build result
+Issue 2 — Intention Wheel no-spin state still not updated
+
+Current problem:
+The Intention Wheel did not update with the agreed behaviour.
+
+Expected:
+After the user uses their available spin:
+
+The Intention Wheel should remain visible.
+The wheel should not disappear.
+Profile cards around the wheel should remain visible.
+Profiles should rotate/change/refresh so the experience still feels alive.
+The spin button should be disabled/locked only.
+User should see:
+Buy more spins
+or
+Next free spin unlocks soon
+Tapping locked spin should open the spin purchase modal.
+The wheel should stay dimmed/blurred behind the modal.
+Do not change:
+
+spin randomness
+pricing
+reward logic
+match logic
+eligible user selection
+Audit and fix:
+
+current no-spin condition
+current render branch when spins are 0
+why the wheel disappears or does not behave as described
+whether the wrong component was changed previously
+Report:
+
+exact file/component controlling no-spin state
+old behaviour
+new behaviour
+how profiles remain visible while spin is locked
+npm run check result
+npm run build result
+Important:
+Do not claim complete unless both are visible in the actual running app.
+
