@@ -1,0 +1,95 @@
+Improve profile detail clarity and ensure star signs are calculated correctly.
+
+Do not redesign the profile.
+
+Current issue:
+Age, location, height and star sign are displayed too compactly and can be difficult to interpret at a glance.
+
+Example:
+“25 S”
+
+This is unclear.
+
+Keep the cleaned-up header:
+
+Name
+Verification badge only
+Do not place age/location back in the top header.
+
+Goal:
+Make profile details self-explanatory and consistent across the app.
+
+Preferred format:
+
+Age: 25
+Location: Sydney
+Height: 180cm
+Star Sign: Leo
+
+or an equivalent layout with clear labels.
+
+Apply consistently across:
+
+Discovery profile detail view
+Match profile view
+Connections profile view
+User profile page
+Do not duplicate information.
+
+──────────────────────────────
+
+Star Sign Accuracy Audit
+
+Current requirement:
+
+The app should not rely on a manually entered star sign.
+
+Star sign must be automatically calculated from the user’s date of birth.
+
+Required behaviour:
+
+Read date_of_birth from the user’s profile.
+Calculate zodiac sign automatically.
+Save/use the calculated sign everywhere in the app.
+Ignore any stale or manually entered sign if present.
+Recalculate automatically if date of birth changes.
+Verify all zodiac date ranges:
+
+Aries: Mar 21 – Apr 19
+Taurus: Apr 20 – May 20
+Gemini: May 21 – Jun 20
+Cancer: Jun 21 – Jul 22
+Leo: Jul 23 – Aug 22
+Virgo: Aug 23 – Sep 22
+Libra: Sep 23 – Oct 22
+Scorpio: Oct 23 – Nov 21
+Sagittarius: Nov 22 – Dec 21
+Capricorn: Dec 22 – Jan 19
+Aquarius: Jan 20 – Feb 18
+Pisces: Feb 19 – Mar 20
+
+Audit:
+
+onboarding flow
+profile editing
+profile rendering
+discovery cards
+profile detail view
+matches profile view
+likes profile view
+connections profile view
+Ensure the same calculated star sign appears everywhere.
+
+Report:
+
+Files changed
+Old profile detail layout
+New profile detail layout
+How star sign is calculated
+Where star sign is stored/read
+Any incorrect legacy logic found
+npm run check result
+npm run build result
+Do not work on unrelated features.
+Focus only on profile clarity and zodiac accuracy.
+

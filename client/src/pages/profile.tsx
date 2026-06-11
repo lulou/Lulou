@@ -37,6 +37,7 @@ import {
 } from "lucide-react";
 import { DragScrollRow } from "@/components/drag-scroll-row";
 import { ElevateModal } from "@/components/elevate-modal";
+import { ProfileInfoRow } from "@/components/profile-info-row";
 import { CONVERSATION_STARTERS, PROFILE_QUESTIONS } from "@shared/schema";
 import type { Profile } from "@shared/schema";
 
@@ -737,6 +738,18 @@ export default function ProfilePage() {
           </Button>
         </div>
       </div>
+
+      {(profile.age != null || profile.location || profile.height || (profile as any).dateOfBirth || (profile as any).pronouns) && (
+        <div className="px-1">
+          <ProfileInfoRow
+            age={profile.age}
+            location={profile.location}
+            height={profile.height}
+            dateOfBirth={(profile as any).dateOfBirth}
+            pronouns={(profile as any).pronouns}
+          />
+        </div>
+      )}
 
       {expandedSection === "settings" && (
         <Card className="p-5 space-y-4" data-testid="section-settings">

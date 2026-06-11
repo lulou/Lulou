@@ -1,0 +1,124 @@
+Refine post-call progression so users move toward a real date without feeling trapped by message walls.
+
+Do not work on unrelated features.
+
+Current issue:
+
+We removed the old post-call message walls because they were creating a broken experience.
+
+However, we still want Lulou to guide users toward an actual date rather than becoming an endless chat app.
+
+Goal:
+
+Keep conversations progressing toward meeting in real life while avoiding frustrating hard locks.
+
+──────────────────────────────
+
+New Progression Proposal
+
+Stage 1
+
+Match
+Initial chat
+15 messages each
+Unlock first guided phone call
+Stage 2
+
+First guided phone call
+Existing duration rules remain unchanged
+Stage 3
+
+Post-call chat
+Allow 25 messages per user after the call
+Both users must participate
+Progress only when:
+
+User A post-call messages >= 25
+AND
+User B post-call messages >= 25
+
+Do not progress based on one user spamming messages.
+
+──────────────────────────────
+
+Date Planning Stage
+
+After both users reach the post-call threshold:
+
+Show a prominent Date Planning card.
+
+Examples:
+
+“Ready to meet?”
+
+“Take the next step.”
+
+“Plan your first date.”
+
+Actions:
+
+Suggest a date
+Choose availability
+Confirm date plan
+Exchange contact details if applicable
+The date-planning experience should become the primary call-to-action.
+
+──────────────────────────────
+
+Important
+
+Do NOT completely lock messaging.
+
+Once the date-planning stage is reached:
+
+Chat remains open
+Users can continue messaging
+Users can continue using purchased features
+Users can continue using voice notes
+The app should encourage meeting, not force silence.
+
+──────────────────────────────
+
+Audit Existing Flow
+
+Review:
+
+matches.tsx
+messaging.tsx
+progression logic
+message counters
+call stage logic
+date-planning cards
+Determine:
+
+What currently happens after the first call?
+What progression logic remains?
+What was removed during the recent message-wall cleanup?
+What needs to be reintroduced to support this flow without reintroducing hard locks?
+──────────────────────────────
+
+Implementation Requirements
+
+If implemented:
+
+Do not reintroduce the old broken post-call wall
+Do not reintroduce “waiting for them to finish messages”
+Do not reintroduce “Start Second Call”
+Do not require paid phone credits for the earned guided call
+Do not break paid phone credits
+Do not break paid video credits
+Do not break voice notes
+──────────────────────────────
+
+Report
+
+Provide:
+
+Recommended implementation
+Files affected
+Whether 25 messages each is appropriate
+Any better alternative if supported by the current architecture
+npm run check result
+npm run build result
+Do not implement until the architecture review is complete.
+

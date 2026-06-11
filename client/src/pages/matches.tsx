@@ -16,7 +16,8 @@ import { useRealtimeMessages } from "@/hooks/use-realtime-messages";
 import { useUnreadCounts } from "@/hooks/use-unread-counts";
 import { useTypingIndicator } from "@/hooks/use-typing-indicator";
 import { Input } from "@/components/ui/input";
-import { MessageCircle, Send, Phone, Video, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, PhoneOff, Clock, Check, X, Sparkles, Calendar, Heart, PhoneForwarded, Moon, User, MapPin, Mic, Loader2, Pause, Play, BadgeCheck } from "lucide-react";
+import { MessageCircle, Send, Phone, Video, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, PhoneOff, Clock, Check, X, Sparkles, Calendar, Heart, PhoneForwarded, Moon, User, Mic, Loader2, Pause, Play, BadgeCheck } from "lucide-react";
+import { ProfileInfoRow } from "@/components/profile-info-row";
 import { scanContent } from "@/lib/content-filter";
 import { formatLastActive } from "@/lib/last-active";
 import { LulouFlowerIcon, ProfileAvatar } from "@/components/app-layout";
@@ -975,25 +976,17 @@ function ProfilePanel({ profile, onClose }: { profile: Profile; onClose: () => v
         height={320}
         className=""
         nameSlot={
-          <div>
+          <div className="flex items-center gap-2">
             <h2
               className="font-serif font-bold text-white leading-tight"
               style={{ fontSize: 22, textShadow: "0 1px 8px rgba(0,0,0,0.5)" }}
               data-testid="text-profile-panel-name"
             >
-              {profile.firstName}{profile.age ? `, ${profile.age}` : ""}
+              {profile.firstName}
             </h2>
-            <div className="flex items-center gap-3 mt-0.5 flex-wrap">
-              {profile.location && (
-                <span className="flex items-center gap-1 text-white/80 text-xs" data-testid="text-profile-panel-location">
-                  <MapPin className="w-3 h-3" />
-                  {profile.location}
-                </span>
-              )}
-              {profile.height && (
-                <span className="text-white/70 text-xs" data-testid="text-profile-panel-height">{profile.height}</span>
-              )}
-            </div>
+            {profile.photoVerified && (
+              <BadgeCheck className="w-5 h-5 text-white drop-shadow" data-testid="icon-profile-panel-verified" />
+            )}
           </div>
         }
       >
@@ -1024,6 +1017,18 @@ function ProfilePanel({ profile, onClose }: { profile: Profile; onClose: () => v
               <Heart className="w-3 h-3" />
               {profile.datingIntent}
             </span>
+          </div>
+        )}
+
+        {(profile.age != null || profile.location || profile.height || (profile as any).dateOfBirth || (profile as any).pronouns) && (
+          <div className="px-4 pt-4">
+            <ProfileInfoRow
+              age={profile.age}
+              location={profile.location}
+              height={profile.height}
+              dateOfBirth={(profile as any).dateOfBirth}
+              pronouns={(profile as any).pronouns}
+            />
           </div>
         )}
 

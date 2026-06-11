@@ -12,10 +12,10 @@ import { apiRequest, batchPrefetchPhotos } from "@/lib/queryClient";
 import { DragScrollRow } from "@/components/drag-scroll-row";
 import { ProfilePhotoViewer } from "@/components/profile-photo-viewer";
 import type { Profile } from "@shared/schema";
-import { MapPin, Ruler, MessageCircle, HelpCircle, Send, BadgeCheck } from "lucide-react";
+import { MessageCircle, HelpCircle, Send, BadgeCheck } from "lucide-react";
 import { LulouFlowerIcon } from "@/components/app-layout";
 import { EMPTY_PHOTOS } from "@/lib/image-utils";
-import { getStarSign, STAR_SIGN_EMOJI } from "@/lib/star-sign";
+import { ProfileInfoRow } from "@/components/profile-info-row";
 
 // Full-width draggable photo card.
 // Uses ProfilePhotoViewer (shared): photos follow finger, spring-settle on release, gap between slides.
@@ -600,7 +600,6 @@ export default function Discover() {
   const allSignals = [...signals, ...customSignals];
   const pronouns: string | null = (displayProfile as any).pronouns || null;
   const dateOfBirth: string | null = (displayProfile as any).dateOfBirth || null;
-  const starSign = getStarSign(dateOfBirth);
 
   return (
     <div className="flex-1 overflow-y-auto">
@@ -674,34 +673,22 @@ export default function Discover() {
                   </div>
                 )}
 
-                <div className="flex items-baseline gap-2 flex-wrap" style={{ animation: "discoverNameEnter 0.45s 0.22s ease both" }}>
-                  <h2 className="font-serif text-3xl font-bold tracking-tight" data-testid="text-profile-name">
-                    {displayProfile.firstName}
-                  </h2>
-                  {displayProfile.photoVerified && (
-                    <BadgeCheck className="w-5 h-5 text-primary shrink-0" data-testid="icon-verified-badge" />
-                  )}
-                  {displayProfile.age && (
-                    <span className="text-sm text-muted-foreground" data-testid="text-profile-age">{displayProfile.age}</span>
-                  )}
-                  {displayProfile.height && (
-                    <div className="flex items-center gap-1 text-muted-foreground text-sm">
-                      <Ruler className="w-3.5 h-3.5" />
-                      <span data-testid="text-profile-height">{displayProfile.height}</span>
-                    </div>
-                  )}
-                  <div className="flex items-center gap-1 text-muted-foreground text-sm">
-                    <MapPin className="w-3.5 h-3.5" />
-                    <span data-testid="text-profile-location">{displayProfile.location}</span>
+                <div className="space-y-3" style={{ animation: "discoverNameEnter 0.45s 0.22s ease both" }}>
+                  <div className="flex items-center gap-2">
+                    <h2 className="font-serif text-3xl font-bold tracking-tight" data-testid="text-profile-name">
+                      {displayProfile.firstName}
+                    </h2>
+                    {displayProfile.photoVerified && (
+                      <BadgeCheck className="w-5 h-5 text-primary shrink-0" data-testid="icon-verified-badge" />
+                    )}
                   </div>
-                  {starSign && (
-                    <span className="text-sm text-muted-foreground" data-testid="text-profile-star-sign">{STAR_SIGN_EMOJI[starSign]} {starSign}</span>
-                  )}
-                  {pronouns && (
-                    <span className="text-xs text-muted-foreground border border-muted-foreground/30 rounded-full px-2 py-0.5" data-testid="text-profile-pronouns">
-                      {pronouns}
-                    </span>
-                  )}
+                  <ProfileInfoRow
+                    age={displayProfile.age}
+                    location={displayProfile.location}
+                    height={displayProfile.height}
+                    dateOfBirth={dateOfBirth}
+                    pronouns={pronouns}
+                  />
                 </div>
 
                 <div className="space-y-2">
