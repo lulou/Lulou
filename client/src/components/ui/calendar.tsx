@@ -67,6 +67,7 @@ function Calendar({
           <ChevronRight className={cn("h-4 w-4 rtl:scale-x-[-1]", className)} {...props} />
         ),
       }}
+      weekStartsOn={isRTL ? 0 : props.weekStartsOn}
       {...props}
     />
   )
