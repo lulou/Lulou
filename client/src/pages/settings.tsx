@@ -104,6 +104,13 @@ export default function SettingsPage() {
 
   // ── Toggle preferences ────────────────────────────────────────────────────
   const [showLastActive,    setShowLastActive]    = useToggle("show_last_active", true);
+
+  // Sync showLastActive to server profile whenever it changes.
+  useEffect(() => {
+    if (!user) return;
+    apiRequest("POST", "/api/profile", { showLastActive }).catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showLastActive]);
   const [commentFilter,     setCommentFilter]     = useToggle("comment_filter", true);
   const [aiStarters,        setAiStarters]        = useToggle("conversation_starter_ai", true);
   const [audioTranscripts,  setAudioTranscripts]  = useToggle("audio_transcripts", false);

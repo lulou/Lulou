@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
-import { Loader2, RotateCw, X, MapPin, Lock, Star, Crown, MessageCircle, HelpCircle, Heart, Moon, Volume2, VolumeX, ChevronRight } from "lucide-react";
+import { Loader2, RotateCw, X, MapPin, Lock, Star, Crown, MessageCircle, HelpCircle, Heart, Moon, Volume2, VolumeX, ChevronRight, BadgeCheck } from "lucide-react";
 import { LulouFlowerIcon } from "@/components/app-layout";
 import { ElevateModal } from "@/components/elevate-modal";
 import { Button } from "@/components/ui/button";
@@ -1387,9 +1387,14 @@ export default function IntentPage() {
             {/* ① Name + age — absolute TOP of card */}
             <div className="px-5 pt-5 pb-3 flex items-start justify-between gap-3">
               <div style={{ animation: "profileNameAppear 0.45s 0.15s ease both" }}>
-                <h2 className="font-serif text-3xl font-bold" data-testid="text-detail-name">
-                  {selectedProfile.firstName}{selectedProfile.age ? `, ${selectedProfile.age}` : ""}
-                </h2>
+                <div className="flex items-center gap-2">
+                  <h2 className="font-serif text-3xl font-bold" data-testid="text-detail-name">
+                    {selectedProfile.firstName}{selectedProfile.age ? `, ${selectedProfile.age}` : ""}
+                  </h2>
+                  {selectedProfile.photoVerified && (
+                    <BadgeCheck className="w-5 h-5 text-primary shrink-0" data-testid="icon-intent-verified" />
+                  )}
+                </div>
 
                 {/* ② Age/location/details immediately under name */}
                 {selectedProfile.location && (

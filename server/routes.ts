@@ -11,6 +11,10 @@ import { eq, and, isNull } from "drizzle-orm";
 import { getUncachableStripeClient, getStripePublishableKey } from "./stripeClient";
 
 
+// Debounced last-active updater — fires at most once per 2 min per user.
+const _lastActiveDebounce = new Map<string, number>();
+const LAST_ACTIVE_TTL_MS = 2 * 60 * 1000;
+
 // Seed user IDs all start with this UUID prefix (see server/seed.ts)
 const SEED_UUID_PREFIX = "10000000-0000-4000-a000-";
 const isSeedUser = (id: string) => id.startsWith(SEED_UUID_PREFIX);
@@ -234,6 +238,19 @@ const isAuthenticated: RequestHandler = (req: any, res, next) => {
       return res.status(401).json({ message: "Unauthorized" });
     }
     req.user = user;
+
+    // Fire-and-forget last_active update (debounced per user, 2 min).
+    const now = Date.now();
+    const lastUpdate = _lastActiveDebounce.get(user.id) ?? 0;
+    if (now - lastUpdate > LAST_ACTIVE_TTL_MS) {
+      _lastActiveDebounce.set(user.id, now);
+      supabase.from("profiles")
+        .update({ last_active: new Date().toISOString() })
+        .eq("user_id", user.id)
+        .then(() => {})
+        .catch(() => {});
+    }
+
     next();
   } catch (err: any) {
     console.error("[AUTH] MIDDLEWARE_ERROR", { error: err?.message, path: req.path });
@@ -871,6 +888,47 @@ export async function registerRoutes(
     } catch (error) {
       console.error(`[MATCH_DETAIL] Error after ${Date.now() - t0} ms:`, error);
       res.status(500).json({ message: "Failed to fetch match" });
+    }
+  });
+
+  // Template-based AI conversation starters (no external LLM required).
+  app.get("/api/matches/:matchId/ai-starters", isAuthenticated, async (req: any, res) => {
+    try {
+      const storage = getStorage(req);
+      const userId = req.user.id;
+      const { matchId } = req.params;
+      const match = await storage.getMatch(matchId, userId);
+      if (!match) return res.status(404).json({ message: "Match not found" });
+      const otherUserId = match.user1Id === userId ? match.user2Id : match.user1Id;
+      const { data: other } = await supabase.from("profiles").select("*").eq("user_id", otherUserId).maybeSingle();
+      const starters: string[] = [];
+      const name = other?.first_name || "you";
+      if (other?.conversation_starters?.length) {
+        const s = other.conversation_starters[Math.floor(Math.random() * other.conversation_starters.length)];
+        starters.push(`You wrote "${s}" — what's the story behind that?`);
+      }
+      if (other?.custom_starters?.length) {
+        const s = other.custom_starters[Math.floor(Math.random() * other.custom_starters.length)];
+        starters.push(`I noticed you mentioned "${s}" — tell me more!`);
+      }
+      if (other?.green_flags?.length) {
+        const gf = other.green_flags[Math.floor(Math.random() * other.green_flags.length)];
+        starters.push(`"${gf}" stood out to me in your profile — what does that mean to you personally?`);
+      }
+      if (other?.signals?.length) {
+        const sig = other.signals[Math.floor(Math.random() * other.signals.length)];
+        starters.push(`Your signal "${sig}" caught my eye — how does it show up in your day-to-day?`);
+      }
+      if (other?.dating_intent) {
+        starters.push(`What does finding a really meaningful connection look like for you right now?`);
+      }
+      starters.push(`What made you want to try a more intentional approach to dating?`);
+      starters.push(`What's something you've genuinely been excited about lately?`);
+      starters.push(`If you could design your ideal first meeting, what would it look like?`);
+      const unique = [...new Set(starters)].slice(0, 5);
+      res.json({ starters: unique });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to generate starters" });
     }
   });
 

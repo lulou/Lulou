@@ -13,7 +13,9 @@ import { broadcastCallSignal } from "@/hooks/use-call-signaling";
 import { armCallSession, markSessionAsPaid } from "@/lib/live-call-sessions";
 import { useAuth } from "@/hooks/use-auth";
 import { useRealtimeMessages } from "@/hooks/use-realtime-messages";
-import { ArrowLeft, Send, Phone, Video, Check, Clock, Calendar, Heart, PhoneForwarded, X, Moon, MapPin, Ruler, MessageCircle, Loader2, Mic, Pause, Play } from "lucide-react";
+import { ArrowLeft, Send, Phone, Video, Check, Clock, Calendar, Heart, PhoneForwarded, X, Moon, MapPin, Ruler, MessageCircle, Loader2, Mic, Pause, Play, BadgeCheck, Sparkles, ChevronDown } from "lucide-react";
+import { scanContent } from "@/lib/content-filter";
+import { formatLastActive } from "@/lib/last-active";
 import { PurchasePrompt, type PurchaseFeature } from "@/components/purchase-prompt";
 import { PhotoCarousel } from "@/components/photo-carousel";
 import { Input } from "@/components/ui/input";
@@ -317,11 +319,12 @@ function ReadyToMeetSection({ matchDetail, matchId }: { matchDetail: MatchDetail
   );
 }
 
-function VoiceNotePlayer({ url, isMe }: { url: string; isMe: boolean }) {
+function VoiceNotePlayer({ url, isMe, transcript }: { url: string; isMe: boolean; transcript?: string | null }) {
   const audioRef = useRef<HTMLAudioElement>(null);
   const [playing, setPlaying] = useState(false);
   const [duration, setDuration] = useState(0);
   const [currentTime, setCurrentTime] = useState(0);
+  const [showTranscript, setShowTranscript] = useState(false);
 
   const toggle = () => {
     const a = audioRef.current;
@@ -331,48 +334,72 @@ function VoiceNotePlayer({ url, isMe }: { url: string; isMe: boolean }) {
 
   const fmt = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
   const progress = duration > 0 ? currentTime / duration : 0;
+  const audioTranscriptsEnabled = localStorage.getItem("audio_transcripts") === "true";
 
   return (
-    <div
-      className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl min-w-[180px] max-w-[240px] ${
-        isMe ? "bg-primary text-primary-foreground" : "bg-muted text-foreground"
-      }`}
-    >
-      <audio
-        ref={audioRef}
-        src={url}
-        preload="metadata"
-        onPlay={() => setPlaying(true)}
-        onPause={() => setPlaying(false)}
-        onEnded={() => { setPlaying(false); setCurrentTime(0); }}
-        onLoadedMetadata={e => setDuration((e.target as HTMLAudioElement).duration || 0)}
-        onTimeUpdate={e => setCurrentTime((e.target as HTMLAudioElement).currentTime)}
-      />
-      <button
-        onClick={e => { e.stopPropagation(); toggle(); }}
-        className="w-7 h-7 rounded-full flex items-center justify-center shrink-0"
-        style={{ background: isMe ? "rgba(255,255,255,0.18)" : "rgba(0,0,0,0.08)" }}
+    <div className="flex flex-col gap-1 max-w-[240px]">
+      <div
+        className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl min-w-[180px] ${
+          isMe ? "bg-primary text-primary-foreground" : "bg-muted text-foreground"
+        }`}
       >
-        {playing ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
-      </button>
-      <div className="flex-1 min-w-0 space-y-1">
-        <div
-          className="h-1 rounded-full overflow-hidden"
-          style={{ background: isMe ? "rgba(255,255,255,0.22)" : "rgba(0,0,0,0.10)" }}
+        <audio
+          ref={audioRef}
+          src={url}
+          preload="metadata"
+          onPlay={() => setPlaying(true)}
+          onPause={() => setPlaying(false)}
+          onEnded={() => { setPlaying(false); setCurrentTime(0); }}
+          onLoadedMetadata={e => setDuration((e.target as HTMLAudioElement).duration || 0)}
+          onTimeUpdate={e => setCurrentTime((e.target as HTMLAudioElement).currentTime)}
+        />
+        <button
+          onClick={e => { e.stopPropagation(); toggle(); }}
+          className="w-7 h-7 rounded-full flex items-center justify-center shrink-0"
+          style={{ background: isMe ? "rgba(255,255,255,0.18)" : "rgba(0,0,0,0.08)" }}
+          data-testid="button-voice-play"
         >
+          {playing ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
+        </button>
+        <div className="flex-1 min-w-0 space-y-1">
           <div
-            className="h-full rounded-full transition-all duration-200"
-            style={{
-              width: `${progress * 100}%`,
-              background: isMe ? "rgba(255,255,255,0.80)" : "hsl(var(--primary))",
-            }}
-          />
+            className="h-1 rounded-full overflow-hidden"
+            style={{ background: isMe ? "rgba(255,255,255,0.22)" : "rgba(0,0,0,0.10)" }}
+          >
+            <div
+              className="h-full rounded-full transition-all duration-200"
+              style={{
+                width: `${progress * 100}%`,
+                background: isMe ? "rgba(255,255,255,0.80)" : "hsl(var(--primary))",
+              }}
+            />
+          </div>
+          <p className="text-[10px] opacity-55 font-mono tabular-nums">
+            {fmt(playing ? currentTime : (duration || 0))}
+          </p>
         </div>
-        <p className="text-[10px] opacity-55 font-mono tabular-nums">
-          {fmt(playing ? currentTime : (duration || 0))}
-        </p>
+        <Mic className="w-3 h-3 shrink-0 opacity-40" />
       </div>
-      <Mic className="w-3 h-3 shrink-0 opacity-40" />
+      {audioTranscriptsEnabled && transcript && (
+        <button
+          className={`text-[10px] flex items-center gap-1 opacity-60 hover:opacity-100 transition-opacity ${isMe ? "self-end" : "self-start"}`}
+          onClick={e => { e.stopPropagation(); setShowTranscript(v => !v); }}
+          data-testid="button-voice-transcript-toggle"
+        >
+          <ChevronDown className={`w-3 h-3 transition-transform ${showTranscript ? "rotate-180" : ""}`} />
+          {showTranscript ? "Hide transcript" : "Show transcript"}
+        </button>
+      )}
+      {audioTranscriptsEnabled && transcript && showTranscript && (
+        <div
+          className={`text-xs px-3 py-2 rounded-lg max-w-[240px] italic ${
+            isMe ? "bg-primary/10 text-primary" : "bg-muted/60 text-muted-foreground"
+          }`}
+          data-testid="text-voice-transcript"
+        >
+          "{transcript}"
+        </div>
+      )}
     </div>
   );
 }
@@ -387,6 +414,8 @@ export default function Messaging() {
   const [message, setMessage] = useState("");
   const [showCloseConfirm, setShowCloseConfirm] = useState(false);
   const [activeTab, setActiveTab] = useState<"chat" | "profile">("chat");
+  const [showAIStarters, setShowAIStarters] = useState(false);
+  const [filterConfirm, setFilterConfirm] = useState<{ content: string; tempId: string; categories: string[] } | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const isAtBottomRef = useRef(true);
@@ -664,6 +693,38 @@ export default function Messaging() {
     },
   });
 
+  // ── AI Conversation Starters ──────────────────────────────────────────────
+  const aiStartersEnabled = localStorage.getItem("conversation_starter_ai") !== "false";
+  const { data: aiStartersData } = useQuery<{ starters: string[] }>({
+    queryKey: ["/api/matches", matchId, "ai-starters"],
+    enabled: !!matchId && showAIStarters && aiStartersEnabled,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  // ── Comment Filter + send helper ──────────────────────────────────────────
+  const doSend = (content: string) => {
+    const tempId = `temp-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const commentFilterEnabled = localStorage.getItem("comment_filter") !== "false";
+    if (commentFilterEnabled) {
+      const result = scanContent(content);
+      if (result.blocked) {
+        toast({
+          title: "Message blocked",
+          description: `Your message contains ${result.categories.join(", ")} which violates community guidelines.`,
+          variant: "destructive",
+        });
+        return;
+      }
+      if (result.categories.length > 0) {
+        setFilterConfirm({ content, tempId, categories: result.categories });
+        return;
+      }
+    }
+    setMessage("");
+    forceScrollRef.current = true;
+    sendMessage.mutate({ content, tempId });
+  };
+
   const toggleReaction = useMutation({
     mutationFn: async ({ messageId, currentReaction }: { messageId: string; currentReaction: string | null }) => {
       const newReaction = currentReaction ? null : "❤️";
@@ -867,7 +928,19 @@ export default function Messaging() {
           </Avatar>
 
           <div className="min-w-0 flex-1">
-            <h3 className="font-semibold text-sm leading-tight truncate" data-testid="text-chat-name">{profile.firstName}</h3>
+            <div className="flex items-center gap-1.5">
+              <h3 className="font-semibold text-sm leading-tight truncate" data-testid="text-chat-name">{profile.firstName}</h3>
+              {profile.photoVerified && (
+                <BadgeCheck className="w-4 h-4 text-primary shrink-0" data-testid="icon-chat-verified" />
+              )}
+            </div>
+            {(() => {
+              const myShowLastActive = localStorage.getItem("show_last_active") !== "false";
+              const lastActiveLbl = formatLastActive(profile.lastActive, (profile.showLastActive ?? true) && myShowLastActive);
+              return lastActiveLbl ? (
+                <p className="text-[10px] text-muted-foreground leading-none mt-0.5" data-testid="text-last-active">{lastActiveLbl}</p>
+              ) : null;
+            })()}
           </div>
 
           <Badge variant="outline" className="text-xs flex-shrink-0" data-testid="badge-messages-remaining">
@@ -1080,7 +1153,11 @@ export default function Messaging() {
                       data-testid={`message-${msg.id}`}
                     >
                       {isVoiceNote ? (
-                        <VoiceNotePlayer url={msg.content.slice("__VOICE__:".length)} isMe={isMe} />
+                        <VoiceNotePlayer
+                          url={msg.content.slice("__VOICE__:".length)}
+                          isMe={isMe}
+                          transcript={(msg as any).voiceTranscript ?? null}
+                        />
                       ) : (
                         <>
                           <p className="leading-relaxed">{msg.content.startsWith("__PHONE__:") ? msg.content.slice("__PHONE__:".length) : msg.content}</p>
@@ -1150,26 +1227,25 @@ export default function Messaging() {
                   onKeyDown={e => {
                     if (e.key === "Enter" && !e.shiftKey) {
                       e.preventDefault();
-                      if (message.trim()) {
-                        const content = message.trim();
-                        setMessage("");
-                        forceScrollRef.current = true;
-                        sendMessage.mutate({ content, tempId: `temp-${Date.now()}-${Math.random().toString(36).slice(2)}` });
-                      }
+                      if (message.trim()) doSend(message.trim());
                     }
                   }}
                   data-testid="input-message"
                 />
+                {aiStartersEnabled && (
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    onClick={() => setShowAIStarters(v => !v)}
+                    className={showAIStarters ? "text-primary" : "text-muted-foreground"}
+                    data-testid="button-ai-starters"
+                  >
+                    <Sparkles className="w-4 h-4" />
+                  </Button>
+                )}
                 <Button
                   size="icon"
-                  onClick={() => {
-                    if (message.trim()) {
-                      const content = message.trim();
-                      setMessage("");
-                      forceScrollRef.current = true;
-                      sendMessage.mutate({ content, tempId: `temp-${Date.now()}-${Math.random().toString(36).slice(2)}` });
-                    }
-                  }}
+                  onClick={() => { if (message.trim()) doSend(message.trim()); }}
                   disabled={!message.trim()}
                   data-testid="button-send"
                 >
@@ -1179,6 +1255,66 @@ export default function Messaging() {
               <p className="text-xs text-muted-foreground mt-1 text-right">
                 {message.length}/{MAX_CHARS}
               </p>
+
+              {/* ── AI Starters panel ── */}
+              {showAIStarters && aiStartersEnabled && (
+                <div className="mt-2 space-y-1.5" data-testid="ai-starters-panel">
+                  <p className="text-[10px] font-semibold tracking-widest uppercase text-muted-foreground flex items-center gap-1">
+                    <Sparkles className="w-3 h-3 text-primary" /> Conversation starters
+                  </p>
+                  {!aiStartersData ? (
+                    <div className="flex gap-1.5 flex-wrap">
+                      {[1,2,3].map(i => <div key={i} className="h-8 w-32 rounded-full bg-muted animate-pulse" />)}
+                    </div>
+                  ) : (
+                    <div className="flex gap-1.5 flex-wrap">
+                      {(aiStartersData.starters ?? []).map((s, i) => (
+                        <button
+                          key={i}
+                          className="text-xs px-3 py-1.5 rounded-full border border-primary/30 bg-primary/5 text-primary hover:bg-primary/10 active:scale-95 transition-all text-left leading-snug"
+                          onClick={() => { setMessage(s); setShowAIStarters(false); }}
+                          data-testid={`button-starter-${i}`}
+                        >
+                          {s}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* ── Comment filter confirmation ── */}
+              {filterConfirm && (
+                <div className="mt-2 rounded-xl border border-amber-200 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-800 p-3 space-y-2" data-testid="filter-confirm">
+                  <p className="text-xs text-amber-800 dark:text-amber-300 font-medium">
+                    Your message may contain <strong>{filterConfirm.categories.join(", ")}</strong>. Send anyway?
+                  </p>
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm" variant="outline"
+                      className="h-7 text-xs"
+                      onClick={() => setFilterConfirm(null)}
+                      data-testid="button-filter-cancel"
+                    >
+                      Edit message
+                    </Button>
+                    <Button
+                      size="sm"
+                      className="h-7 text-xs"
+                      onClick={() => {
+                        const { content, tempId } = filterConfirm;
+                        setFilterConfirm(null);
+                        setMessage("");
+                        forceScrollRef.current = true;
+                        sendMessage.mutate({ content, tempId });
+                      }}
+                      data-testid="button-filter-confirm"
+                    >
+                      Send anyway
+                    </Button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </>

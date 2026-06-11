@@ -40,6 +40,8 @@ export const profiles = pgTable("profiles", {
   isPaused: boolean("is_paused").default(false),
   elevateType: text("elevate_type"),
   elevateExpiresAt: timestamp("elevate_expires_at"),
+  lastActive: timestamp("last_active"),
+  showLastActive: boolean("show_last_active").default(true),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -85,6 +87,7 @@ export const messages = pgTable("messages", {
   senderId: varchar("sender_id").notNull(),
   content: text("content").notNull(),
   reaction: varchar("reaction"),
+  voiceTranscript: text("voice_transcript"),
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => [
   index("idx_messages_match").on(table.matchId),

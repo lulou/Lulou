@@ -1,0 +1,225 @@
+Fix and complete the remaining trust, profile, AI, moderation, and activity features.
+
+Do not work on unrelated features.
+
+Priority order:
+
+Discovery profile card polish
+AI Conversation Starters functionality
+Audio Transcripts functionality
+Comment Filter functionality
+Last Active Status functionality
+Selfie Verification badge integration
+──────────────────────────────
+
+Discovery Profile Card Polish
+Current issue:
+The name/location area on Discovery looks visually off.
+
+Audit and improve:
+
+Font family
+Font size
+Font weight
+Line height
+Spacing between:
+
+name
+age
+star sign
+location
+Mobile layout (especially iPhone)
+Goal:
+
+Premium intentional dating feel
+Cleaner hierarchy
+Better readability
+Better visual balance with profile image
+Do not redesign Discovery.
+Only improve typography, spacing, hierarchy, and alignment.
+
+Report:
+
+exact typography changes
+exact spacing changes
+──────────────────────────────
+
+AI Conversation Starters
+Current issue:
+The setting exists but must perform a real function.
+
+Required behaviour:
+
+When enabled:
+
+Generate conversation starters based on:
+
+profile bio
+interests
+green flags
+conversation starters
+personality traits
+Provide:
+
+3–5 AI-generated starters
+Regenerate option
+Copy option
+Send-to-chat option (where appropriate)
+If disabled:
+
+No AI suggestions shown.
+Report:
+
+where suggestions are generated
+where users access them
+──────────────────────────────
+
+Audio Transcripts
+Current issue:
+Setting exists but needs real functionality.
+
+When enabled:
+
+Voice notes automatically generate text transcripts.
+Transcript shown below voice note.
+User options:
+
+Show transcript
+Hide transcript
+Do not break voice note playback.
+
+Report:
+
+transcription flow
+storage location
+UI location
+──────────────────────────────
+
+Comment Filter
+Current issue:
+Setting exists but needs real functionality.
+
+When enabled:
+Filter:
+
+abuse
+harassment
+hate speech
+spam
+excessive profanity
+phone numbers
+social media handles
+attempts to bypass platform rules
+Behaviour:
+
+warning
+or
+block send
+Provide clear user feedback.
+
+When disabled:
+
+normal behaviour
+Report:
+
+filtering location
+categories filtered
+──────────────────────────────
+
+Last Active Status
+Current issue:
+Setting exists but needs real functionality.
+
+Implement:
+
+Statuses:
+
+Active Now
+Active 5 Minutes Ago
+Active 1 Hour Ago
+Active Today
+Active Yesterday
+Visibility:
+
+Discovery
+Matches
+Chat header
+Profile
+Privacy rule:
+
+If user disables:
+“Show Last Active Status”
+
+Then:
+
+other users cannot see theirs
+they cannot see other users’ status
+Use reciprocal privacy logic (same as WhatsApp).
+
+Report:
+
+update frequency
+storage method
+visibility logic
+──────────────────────────────
+
+Selfie Verification Badge
+Current issue:
+Selfie verification already exists in Settings.
+
+Required:
+When selfie verification is successfully completed:
+
+update account verification status
+display a visible verification badge
+Badge locations:
+
+Discovery cards
+Profile page
+Likes page
+Connections page
+Chat header
+Intention Wheel results
+Badge text:
+“Verified by Lulou”
+
+or approved badge design already used in the app.
+
+Rules:
+
+Badge only appears after successful verification.
+Badge removed if verification status becomes invalid.
+Do not expose verification selfies or biometric data.
+Only expose verified status.
+Report:
+
+how verification status is read
+where badge is rendered
+exact files changed
+──────────────────────────────
+
+Validation
+
+After implementation:
+
+Run npm run check
+Run npm run build
+Final report:
+
+Files changed
+Discovery typography changes
+AI Conversation Starters implementation
+Audio Transcript implementation
+Comment Filter implementation
+Last Active implementation
+Verification badge implementation
+npm run check result
+npm run build result
+Do not modify:
+
+Payments
+Voice Notes Unlock pricing
+Phone/video credit pricing
+Call progression logic
+Matching algorithm
+Intention Wheel matching logic

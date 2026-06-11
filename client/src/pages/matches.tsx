@@ -16,7 +16,9 @@ import { useRealtimeMessages } from "@/hooks/use-realtime-messages";
 import { useUnreadCounts } from "@/hooks/use-unread-counts";
 import { useTypingIndicator } from "@/hooks/use-typing-indicator";
 import { Input } from "@/components/ui/input";
-import { MessageCircle, Send, Phone, Video, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, PhoneOff, Clock, Check, X, Sparkles, Calendar, Heart, PhoneForwarded, Moon, User, MapPin, Mic, Loader2, Pause, Play } from "lucide-react";
+import { MessageCircle, Send, Phone, Video, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, PhoneOff, Clock, Check, X, Sparkles, Calendar, Heart, PhoneForwarded, Moon, User, MapPin, Mic, Loader2, Pause, Play, BadgeCheck } from "lucide-react";
+import { scanContent } from "@/lib/content-filter";
+import { formatLastActive } from "@/lib/last-active";
 import { LulouFlowerIcon, ProfileAvatar } from "@/components/app-layout";
 import { usePerfTrace, useRenderCount, isMobile, scheduleIdle } from "@/lib/perf";
 import { broadcastCallSignal } from "@/hooks/use-call-signaling";
@@ -1139,6 +1141,8 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
   const isActive = useTabActive();
   const [message, setMessage] = useState("");
   const [showProfilePanel, setShowProfilePanel] = useState(false);
+  const [showAIStarters, setShowAIStarters] = useState(false);
+  const [filterConfirm, setFilterConfirm] = useState<{ content: string; tempId: string; categories: string[] } | null>(null);
 
   // Lazy-load the chat header avatar — photos are stripped from /api/matches.
   // Shares the same cache key as ProfilePanel so the photo is loaded at most once.
@@ -1173,6 +1177,14 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
   });
 
   const { broadcastNewMessage } = useRealtimeMessages(match.id, expanded);
+
+  // ── AI Conversation Starters ──────────────────────────────────────────────
+  const aiStartersEnabled = localStorage.getItem("conversation_starter_ai") !== "false";
+  const { data: aiStartersData } = useQuery<{ starters: string[] }>({
+    queryKey: ["/api/matches", match.id, "ai-starters"],
+    enabled: expanded && showAIStarters && aiStartersEnabled,
+    staleTime: 5 * 60 * 1000,
+  });
 
   const { isOtherTyping, sendTyping, stopTyping } = useTypingIndicator(match.id, user?.id || null, expanded);
 
@@ -1265,6 +1277,30 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
       toast({ title: t("could_not_send_title"), description: error.message, variant: "destructive" });
     },
   });
+
+  // ── Comment filter + send helper ──────────────────────────────────────────
+  const doSend = (content: string) => {
+    const tempId = `temp-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const commentFilterEnabled = localStorage.getItem("comment_filter") !== "false";
+    if (commentFilterEnabled) {
+      const result = scanContent(content);
+      if (result.blocked) {
+        toast({
+          title: "Message blocked",
+          description: `Your message contains ${result.categories.join(", ")} which violates community guidelines.`,
+          variant: "destructive",
+        });
+        return;
+      }
+      if (result.categories.length > 0) {
+        setFilterConfirm({ content, tempId, categories: result.categories });
+        return;
+      }
+    }
+    stopTyping();
+    forceScrollRef.current = true;
+    sendMessage.mutate({ content, tempId });
+  };
 
   const startCall = useMutation({
     mutationFn: async () => {
@@ -1987,9 +2023,21 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
             </span>
           </div>
           <div className="flex-1 min-w-0">
-            <h3 className="font-semibold text-sm truncate leading-tight" data-testid={`text-match-name-${match.id}`}>
-              {match.profile.firstName}{match.profile.age ? `, ${match.profile.age}` : ""}
-            </h3>
+            <div className="flex items-center gap-1.5 min-w-0">
+              <h3 className="font-semibold text-sm truncate leading-tight" data-testid={`text-match-name-${match.id}`}>
+                {match.profile.firstName}{match.profile.age ? `, ${match.profile.age}` : ""}
+              </h3>
+              {match.profile.photoVerified && (
+                <BadgeCheck className="w-4 h-4 text-primary shrink-0" data-testid={`icon-verified-${match.id}`} />
+              )}
+            </div>
+            {(() => {
+              const myShowLastActive = localStorage.getItem("show_last_active") !== "false";
+              const lbl = formatLastActive(match.profile.lastActive, (match.profile.showLastActive ?? true) && myShowLastActive);
+              return lbl ? (
+                <p className="text-[10px] text-muted-foreground leading-none mt-0.5" data-testid={`text-last-active-${match.id}`}>{lbl}</p>
+              ) : null;
+            })()}
             <span
               className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 mt-0.5 text-[10px] font-semibold transition-all"
               style={showProfilePanel ? {
@@ -2533,12 +2581,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                       onKeyDown={e => {
                         if (e.key === "Enter" && !e.shiftKey) {
                           e.preventDefault();
-                          if (message.trim()) {
-                            const content = message.trim();
-                            stopTyping();
-                            forceScrollRef.current = true;
-                            sendMessage.mutate({ content, tempId: `temp-${Date.now()}-${Math.random().toString(36).slice(2)}` });
-                          }
+                          if (message.trim()) { const c = message.trim(); setMessage(""); doSend(c); }
                         }
                       }}
                       data-testid={`input-message-postcall-${match.id}`}
@@ -2552,10 +2595,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                         onMouseDown={e => e.preventDefault()}
                         onClick={() => {
                           if (message.trim()) {
-                            const content = message.trim();
-                            stopTyping();
-                            forceScrollRef.current = true;
-                            sendMessage.mutate({ content, tempId: `temp-${Date.now()}-${Math.random().toString(36).slice(2)}` });
+                            const c = message.trim(); setMessage(""); doSend(c);
                           }
                         }}
                         disabled={!message.trim()}
@@ -2609,12 +2649,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                       onKeyDown={e => {
                         if (e.key === "Enter" && !e.shiftKey) {
                           e.preventDefault();
-                          if (message.trim()) {
-                            const content = message.trim();
-                            stopTyping();
-                            forceScrollRef.current = true;
-                            sendMessage.mutate({ content, tempId: `temp-${Date.now()}-${Math.random().toString(36).slice(2)}` });
-                          }
+                          if (message.trim()) { const c = message.trim(); setMessage(""); doSend(c); }
                         }
                       }}
                       data-testid={`input-message-stage2-${match.id}`}
@@ -2781,27 +2816,27 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                   onKeyDown={e => {
                     if (e.key === "Enter" && !e.shiftKey) {
                       e.preventDefault();
-                      if (message.trim()) {
-                        const content = message.trim();
-                        stopTyping();
-                        forceScrollRef.current = true;
-                        sendMessage.mutate({ content, tempId: `temp-${Date.now()}-${Math.random().toString(36).slice(2)}` });
-                      }
+                      if (message.trim()) { const c = message.trim(); setMessage(""); doSend(c); }
                     }
                   }}
                   data-testid={`input-message-${match.id}`}
                 />
+                {aiStartersEnabled && (
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    onMouseDown={e => e.preventDefault()}
+                    onClick={() => setShowAIStarters(v => !v)}
+                    className={showAIStarters ? "text-primary" : "text-muted-foreground"}
+                    data-testid={`button-ai-starters-${match.id}`}
+                  >
+                    <Sparkles className="w-4 h-4" />
+                  </Button>
+                )}
                 <Button
                   size="icon"
                   onMouseDown={e => e.preventDefault()}
-                  onClick={() => {
-                    if (message.trim()) {
-                      const content = message.trim();
-                      stopTyping();
-                      forceScrollRef.current = true;
-                      sendMessage.mutate({ content, tempId: `temp-${Date.now()}-${Math.random().toString(36).slice(2)}` });
-                    }
-                  }}
+                  onClick={() => { if (message.trim()) { const c = message.trim(); setMessage(""); doSend(c); } }}
                   disabled={!message.trim()}
                   data-testid={`button-send-${match.id}`}
                 >
@@ -2811,6 +2846,60 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
               <p className="text-xs text-muted-foreground mt-1 text-end">
                 {message.length}/{MAX_CHARS}
               </p>
+
+              {/* ── AI Starters panel ── */}
+              {showAIStarters && aiStartersEnabled && (
+                <div className="mt-2 space-y-1.5" data-testid={`ai-starters-panel-${match.id}`}>
+                  <p className="text-[10px] font-semibold tracking-widest uppercase text-muted-foreground flex items-center gap-1">
+                    <Sparkles className="w-3 h-3 text-primary" /> Conversation starters
+                  </p>
+                  {!aiStartersData ? (
+                    <div className="flex gap-1.5 flex-wrap">
+                      {[1,2,3].map(i => <div key={i} className="h-7 w-28 rounded-full bg-muted animate-pulse" />)}
+                    </div>
+                  ) : (
+                    <div className="flex gap-1.5 flex-wrap">
+                      {(aiStartersData.starters ?? []).map((s, i) => (
+                        <button
+                          key={i}
+                          className="text-xs px-3 py-1.5 rounded-full border border-primary/30 bg-primary/5 text-primary hover:bg-primary/10 active:scale-95 transition-all text-left leading-snug"
+                          onClick={() => { setMessage(s); setShowAIStarters(false); }}
+                          data-testid={`button-starter-${match.id}-${i}`}
+                        >
+                          {s}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* ── Comment filter confirmation ── */}
+              {filterConfirm && (
+                <div className="mt-2 rounded-xl border border-amber-200 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-800 p-3 space-y-2" data-testid={`filter-confirm-${match.id}`}>
+                  <p className="text-xs text-amber-800 dark:text-amber-300 font-medium">
+                    Your message may contain <strong>{filterConfirm.categories.join(", ")}</strong>. Send anyway?
+                  </p>
+                  <div className="flex gap-2">
+                    <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setFilterConfirm(null)} data-testid={`button-filter-cancel-${match.id}`}>
+                      Edit message
+                    </Button>
+                    <Button
+                      size="sm" className="h-7 text-xs"
+                      onClick={() => {
+                        const { content, tempId } = filterConfirm;
+                        setFilterConfirm(null);
+                        stopTyping();
+                        forceScrollRef.current = true;
+                        sendMessage.mutate({ content, tempId });
+                      }}
+                      data-testid={`button-filter-confirm-${match.id}`}
+                    >
+                      Send anyway
+                    </Button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
       </div>

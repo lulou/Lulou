@@ -318,6 +318,24 @@ export function setHasCustomSignalsColumn(val: boolean) {
   if (val) console.log("[STORAGE] custom_signals column AVAILABLE");
 }
 
+let _hasLastActiveColumn = false;
+export function setHasLastActiveColumn(val: boolean) {
+  _hasLastActiveColumn = val;
+  if (val) console.log("[STORAGE] last_active column AVAILABLE");
+}
+
+let _hasShowLastActiveColumn = false;
+export function setHasShowLastActiveColumn(val: boolean) {
+  _hasShowLastActiveColumn = val;
+  if (val) console.log("[STORAGE] show_last_active column AVAILABLE");
+}
+
+let _hasVoiceTranscriptColumn = false;
+export function setHasVoiceTranscriptColumn(val: boolean) {
+  _hasVoiceTranscriptColumn = val;
+  if (val) console.log("[STORAGE] voice_transcript column AVAILABLE");
+}
+
 let _hasIsPausedColumn = false;
 export function setHasIsPausedColumn(val: boolean) {
   _hasIsPausedColumn = val;
@@ -340,6 +358,8 @@ function getMatchProfileCols(): string {
     ...(_hasCustomSignalsColumn ? ["custom_signals"] : []),
     "location_radius", "preferred_age_min", "preferred_age_max",
     "email", "phone_number", "photo_verified", "onboarding_complete", "created_at",
+    ...(_hasLastActiveColumn ? ["last_active"] : []),
+    ...(_hasShowLastActiveColumn ? ["show_last_active"] : []),
   ].join(", ");
 }
 
@@ -358,6 +378,8 @@ function getLikesProfileCols(): string {
     ...(_hasCustomSignalsColumn ? ["custom_signals"] : []),
     "location_radius", "preferred_age_min", "preferred_age_max",
     "email", "phone_number", "photo_verified", "onboarding_complete", "created_at",
+    ...(_hasLastActiveColumn ? ["last_active"] : []),
+    ...(_hasShowLastActiveColumn ? ["show_last_active"] : []),
   ].join(", ");
 }
 
@@ -397,6 +419,8 @@ function mapProfile(row: any): Profile {
     isPaused: row.is_paused ?? false,
     elevateType: row.elevate_type ?? null,
     elevateExpiresAt: row.elevate_expires_at ? new Date(row.elevate_expires_at) : null,
+    lastActive: _hasLastActiveColumn && row.last_active ? new Date(row.last_active) : null,
+    showLastActive: _hasShowLastActiveColumn ? (row.show_last_active ?? true) : true,
     createdAt: row.created_at ? new Date(row.created_at) : null,
   };
 }
@@ -494,6 +518,7 @@ function profileToDbRow(data: Partial<InsertProfile> & { latitude?: number | nul
   if (data.photoVerified !== undefined) row.photo_verified = data.photoVerified;
   if (data.onboardingComplete !== undefined) row.onboarding_complete = data.onboardingComplete;
   if ((data as any).isPaused !== undefined) row.is_paused = (data as any).isPaused;
+  if (_hasShowLastActiveColumn && (data as any).showLastActive !== undefined) row.show_last_active = (data as any).showLastActive;
   return row;
 }
 
@@ -780,6 +805,8 @@ export class SupabaseStorage implements IStorage {
       ...(_hasCustomSignalsColumn ? ["custom_signals"] : []),
       "location_radius", "preferred_age_min", "preferred_age_max",
       "email", "phone_number", "photo_verified", "onboarding_complete", "created_at",
+      ...(_hasLastActiveColumn ? ["last_active"] : []),
+      ...(_hasShowLastActiveColumn ? ["show_last_active"] : []),
     ].join(", ");
 
     const effectiveAgeMin = Math.max(18, ageMin);

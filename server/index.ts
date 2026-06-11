@@ -287,6 +287,9 @@ app.use((req, res, next) => {
         setHasPronounsColumn,
         setHasCustomGreenFlagsColumn,
         setHasCustomSignalsColumn,
+        setHasLastActiveColumn,
+        setHasShowLastActiveColumn,
+        setHasVoiceTranscriptColumn,
       } = await import("./storage");
 
       const _supabaseUrl = process.env.VITE_SUPABASE_URL!;
@@ -307,6 +310,8 @@ app.use((req, res, next) => {
         { col: "pronouns",           setter: setHasPronounsColumn,          sql: "ALTER TABLE profiles ADD COLUMN IF NOT EXISTS pronouns text;" },
         { col: "custom_green_flags", setter: setHasCustomGreenFlagsColumn,  sql: "ALTER TABLE profiles ADD COLUMN IF NOT EXISTS custom_green_flags jsonb DEFAULT '[]'::jsonb;" },
         { col: "custom_signals",     setter: setHasCustomSignalsColumn,     sql: "ALTER TABLE profiles ADD COLUMN IF NOT EXISTS custom_signals jsonb DEFAULT '[]'::jsonb;" },
+        { col: "last_active",        setter: setHasLastActiveColumn,        sql: "ALTER TABLE profiles ADD COLUMN IF NOT EXISTS last_active timestamptz;" },
+        { col: "show_last_active",   setter: setHasShowLastActiveColumn,    sql: "ALTER TABLE profiles ADD COLUMN IF NOT EXISTS show_last_active boolean DEFAULT true;" },
       ];
 
       const missingSql: string[] = [];
@@ -336,6 +341,19 @@ app.use((req, res, next) => {
         console.warn("  Affected features are gracefully disabled until the columns exist.");
       } else {
         console.log("[STARTUP] All optional Supabase profile columns present ✓");
+      }
+
+      // Probe messages.voice_transcript separately (different table).
+      try {
+        const { error: vtErr } = await _adminSb.from("messages").select("voice_transcript").limit(1);
+        if (!vtErr) {
+          setHasVoiceTranscriptColumn(true);
+          console.log("[STARTUP] messages.voice_transcript AVAILABLE");
+        } else if (vtErr.message?.includes("does not exist")) {
+          console.warn("[STARTUP] MIGRATION NEEDED: ALTER TABLE messages ADD COLUMN IF NOT EXISTS voice_transcript text;");
+        }
+      } catch (e: any) {
+        console.warn("[STARTUP] Could not probe messages.voice_transcript:", e?.message);
       }
     } catch (err: any) {
       console.warn("[STARTUP] Optional-column probe failed:", err?.message);

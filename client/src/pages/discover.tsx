@@ -12,7 +12,7 @@ import { apiRequest, batchPrefetchPhotos } from "@/lib/queryClient";
 import { DragScrollRow } from "@/components/drag-scroll-row";
 import { ProfilePhotoViewer } from "@/components/profile-photo-viewer";
 import type { Profile } from "@shared/schema";
-import { MapPin, Ruler, MessageCircle, HelpCircle, Send } from "lucide-react";
+import { MapPin, Ruler, MessageCircle, HelpCircle, Send, BadgeCheck } from "lucide-react";
 import { LulouFlowerIcon } from "@/components/app-layout";
 import { EMPTY_PHOTOS } from "@/lib/image-utils";
 import { getStarSign, STAR_SIGN_EMOJI } from "@/lib/star-sign";
@@ -677,30 +677,35 @@ export default function Discover() {
                   </div>
                 )}
 
-                <div className="flex items-baseline gap-2 flex-wrap">
-                  <h2 className="font-serif text-3xl font-bold tracking-tight" style={{ animation: "discoverNameEnter 0.45s 0.22s ease both" }} data-testid="text-profile-name">
-                    {displayProfile.firstName}, {displayProfile.age}
-                  </h2>
-                  {displayProfile.height && (
-                    <div className="flex items-center gap-1 text-muted-foreground text-sm">
-                      <Ruler className="w-3.5 h-3.5" />
-                      <span data-testid="text-profile-height">{displayProfile.height}</span>
-                    </div>
-                  )}
-                  <div className="flex items-center gap-1 text-muted-foreground text-sm">
-                    <MapPin className="w-3.5 h-3.5" />
-                    <span data-testid="text-profile-location">{displayProfile.location}</span>
+                <div className="space-y-1" style={{ animation: "discoverNameEnter 0.45s 0.22s ease both" }}>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h2 className="font-serif text-2xl font-bold leading-tight tracking-tight" data-testid="text-profile-name">
+                      {displayProfile.firstName}, {displayProfile.age}
+                    </h2>
+                    {displayProfile.photoVerified && (
+                      <BadgeCheck className="w-5 h-5 text-primary shrink-0" data-testid="icon-verified-badge" />
+                    )}
+                    {pronouns && (
+                      <span className="text-xs text-muted-foreground border border-muted-foreground/30 rounded-full px-2 py-0.5" data-testid="text-profile-pronouns">
+                        {pronouns}
+                      </span>
+                    )}
                   </div>
-                  {starSign && (
-                    <span className="text-sm text-muted-foreground" data-testid="text-profile-star-sign">
-                      {STAR_SIGN_EMOJI[starSign]} {starSign}
-                    </span>
-                  )}
-                  {pronouns && (
-                    <span className="text-xs text-muted-foreground border border-muted-foreground/30 rounded-full px-2 py-0.5" data-testid="text-profile-pronouns">
-                      {pronouns}
-                    </span>
-                  )}
+                  <div className="flex items-center gap-x-3 gap-y-1 flex-wrap text-sm text-muted-foreground">
+                    <div className="flex items-center gap-1">
+                      <MapPin className="w-3.5 h-3.5 shrink-0" />
+                      <span data-testid="text-profile-location">{displayProfile.location}</span>
+                    </div>
+                    {starSign && (
+                      <span data-testid="text-profile-star-sign">{STAR_SIGN_EMOJI[starSign]} {starSign}</span>
+                    )}
+                    {displayProfile.height && (
+                      <div className="flex items-center gap-1">
+                        <Ruler className="w-3.5 h-3.5 shrink-0" />
+                        <span data-testid="text-profile-height">{displayProfile.height}</span>
+                      </div>
+                    )}
+                  </div>
                 </div>
 
                 <div className="space-y-2">
