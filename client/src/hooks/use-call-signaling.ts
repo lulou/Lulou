@@ -115,14 +115,30 @@ export function useCallSignaling(matchIds: string[], userId: string) {
           const cachedMatchEntry = cachedMatches?.find((m: any) => m.id === matchId);
           const cachedCallStartAt = cachedMatchEntry?.callStartedAt;
 
-          // ── Already-ended call guard ────────────────────────────────────────
-          // If the cache has this match AND callStartedAt is null, the call is
-          // already over (the 10 s poll cleared it). A Realtime replay of
-          // call:ring on channel reconnect would otherwise re-arm the session
-          // and show the incoming call overlay for a completed call.
-          if (cachedMatchEntry !== undefined && !cachedCallStartAt) {
-            console.log("[CALL_SIGNAL] STALE_RING_BLOCKED cache confirms call already ended", {
-              matchId, callSessionId: ringSessionId?.slice(0, 8),
+          // ── Already-ended call guard ─────────────────────────────────────────
+          // The session ID encodes the call's start timestamp:
+          //   call-{matchId}-{startTimestampMs}
+          // Extract it so we can compare against APP_LOAD_TIME.
+          //
+          // DO NOT block solely on "cachedCallStartAt is null" — a fresh ring
+          // arrives before the receiver's cache has been updated by the 10 s poll,
+          // so callStartedAt is legitimately null in the cache for live just-started
+          // calls. That check blocked every real ring: the receiver's session was
+          // marked cancelled, all rererings were dropped, and the incoming call
+          // overlay never appeared.
+          //
+          // Safe rule: if the ring's encoded timestamp predates APP_LOAD_TIME AND
+          // the cache confirms no active call, the ring is for a call that ended
+          // before this page session — block it.
+          const ringTimestampMs = (() => {
+            if (!ringSessionId) return null;
+            const lastPart = ringSessionId.split('-').pop();
+            const ts = lastPart ? parseInt(lastPart, 10) : NaN;
+            return isNaN(ts) ? null : ts;
+          })();
+          if (cachedMatchEntry !== undefined && !cachedCallStartAt && ringTimestampMs !== null && ringTimestampMs < APP_LOAD_TIME) {
+            console.log("[CALL_SIGNAL] STALE_RING_BLOCKED pre-load session with null cache", {
+              matchId, callSessionId: ringSessionId?.slice(0, 8), ringTimestampMs, APP_LOAD_TIME,
             });
             markCallSessionCancelled(matchId, ringSessionId);
             return;
