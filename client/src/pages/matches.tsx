@@ -30,8 +30,6 @@ import { EMPTY_PHOTOS } from "@/lib/image-utils";
 import type { Profile, Match, Message, SpinRequest } from "@shared/schema";
 
 const MAX_MESSAGES_PER_USER = 15;
-const MAX_POST_CALL_MESSAGES = 12;
-const MAX_POST_STAGE2_MESSAGES = 20;
 const MAX_CHARS = 500;
 
 const CALL_DURATIONS = [10 * 60, 15 * 60, 10 * 60];
@@ -1255,17 +1253,6 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
       // handleNewMessage on the receiver's side deduplicates via message ID.
       broadcastNewMessage(realMsg);
 
-      // Immediately reflect the incremented post-call count so bothPostCallLimitReached / bothStage2LimitReached
-      // updates without waiting for the next 10s poll
-      if ((callStage === 1 || callStage === 2) && realMsg.senderId === user?.id) {
-        const current = queryClient.getQueryData<MatchDetail>(["/api/matches", match.id]);
-        if (current) {
-          const countPatch = current.user1Id === user.id
-            ? { messageCount1: (current.messageCount1 || 0) + 1 }
-            : { messageCount2: (current.messageCount2 || 0) + 1 };
-          mergeCallFields(queryClient, match.id, countPatch);
-        }
-      }
     },
     onError: (error: Error, _vars: any, context: any) => {
       if (context?.previous) {
@@ -1802,29 +1789,6 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
   const callStage = detail.callStage || 0;
   const isUser1 = detail.user1Id === user?.id;
 
-  // Stage 1: post-first-call messaging (12 each)
-  const myPostCallMessages = callStage === 1
-    ? (isUser1 ? (detail.messageCount1 || 0) : (detail.messageCount2 || 0))
-    : 0;
-  const theirPostCallMessages = callStage === 1
-    ? (isUser1 ? (detail.messageCount2 || 0) : (detail.messageCount1 || 0))
-    : 0;
-  const myPostCallRemaining = MAX_POST_CALL_MESSAGES - myPostCallMessages;
-  const myPostCallLimitReached = myPostCallMessages >= MAX_POST_CALL_MESSAGES;
-  const theirPostCallLimitReached = theirPostCallMessages >= MAX_POST_CALL_MESSAGES;
-  const bothPostCallLimitReached = myPostCallLimitReached && theirPostCallLimitReached;
-
-  // Stage 2: post-call messaging phase 2 (20 each)
-  const myStage2Messages = callStage === 2
-    ? (isUser1 ? (detail.messageCount1 || 0) : (detail.messageCount2 || 0))
-    : 0;
-  const theirStage2Messages = callStage === 2
-    ? (isUser1 ? (detail.messageCount2 || 0) : (detail.messageCount1 || 0))
-    : 0;
-  const myStage2Remaining = MAX_POST_STAGE2_MESSAGES - myStage2Messages;
-  const myStage2LimitReached = myStage2Messages >= MAX_POST_STAGE2_MESSAGES;
-  const theirStage2LimitReached = theirStage2Messages >= MAX_POST_STAGE2_MESSAGES;
-  const bothStage2LimitReached = myStage2LimitReached && theirStage2LimitReached;
 
   const sparkStep = callStage >= 4 ? 3 : callStage >= 1 ? 2 : 1;
 
@@ -1907,20 +1871,8 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
         msgs.push({ id: "stage0-limit", text: t("stage0_limit") });
       }
     }
-    if (callStage === 2) {
-      msgs.push({ id: "stage2-welcome", text: t("stage2_welcome") });
-      if (myStage2Messages >= 10 && !myStage2LimitReached) {
-        msgs.push({ id: "stage2-approaching", text: t("stage2_approaching") });
-      }
-      if (myStage2Remaining <= 3 && !myStage2LimitReached) {
-        msgs.push({ id: "stage2-near-limit", text: myStage2Remaining === 1 ? t("stage2_near_limit_one") : t("stage2_near_limit_many").replace("{n}", String(myStage2Remaining)) });
-      }
-      if (bothStage2LimitReached) {
-        msgs.push({ id: "stage2-unlocked", text: t("stage2_unlocked") });
-      }
-    }
     return msgs;
-  }, [t, callStage, messagesRemaining, isLimitReached, myPostCallMessages, myPostCallRemaining, myPostCallLimitReached, bothPostCallLimitReached, myStage2Messages, myStage2Remaining, myStage2LimitReached, bothStage2LimitReached]);
+  }, [t, callStage, messagesRemaining, isLimitReached]);
 
   // Track the message-list index at which each guidance message first appeared so it
   // stays at that position and gets pushed upward naturally as new messages arrive.
@@ -2041,7 +1993,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
         </button>
         <div className="flex items-center gap-1 shrink-0">
           <Badge variant="outline" className="text-[10px] px-1.5 py-0" data-testid={`badge-messages-remaining-${match.id}`}>
-            {allCallsDone ? t("all_calls_done") : callStage === 2 && bothStage2LimitReached ? t("ready_to_meet_badge") : callStage === 2 ? t("n_left_msg").replace("{n}", String(myStage2Remaining)) : messagesRemaining > 0 ? t("n_msg_left").replace("{n}", String(messagesRemaining)) : t("call_time_badge")}
+            {allCallsDone ? t("all_calls_done") : messagesRemaining > 0 ? t("n_msg_left").replace("{n}", String(messagesRemaining)) : t("call_time_badge")}
           </Badge>
           {showRemoveConfirm ? (
             <div className="flex items-center gap-0.5">
@@ -2513,143 +2465,6 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                 </div>
               </div>
             )
-          ) : callStage === 1 ? (
-            <div className="border-t" data-testid={`post-call-messaging-${match.id}`}>
-              {isOtherTyping && (
-                <div className="flex items-center gap-1.5 px-4 pt-2 text-xs text-muted-foreground" data-testid="text-typing-indicator-postcall">
-                  <span className="flex gap-0.5 items-center">
-                    <span className="w-1.5 h-1.5 bg-muted-foreground/50 rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
-                    <span className="w-1.5 h-1.5 bg-muted-foreground/50 rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
-                    <span className="w-1.5 h-1.5 bg-muted-foreground/50 rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
-                  </span>
-                  <span>{match.profile.firstName} {t("is_typing_label")}</span>
-                </div>
-              )}
-              {myPostCallLimitReached ? (
-                <div className="p-4 text-center space-y-1" data-testid={`waiting-their-postcall-${match.id}`}>
-                  <p className="text-sm font-medium text-primary">{t("postcall_messages_sent")}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {t("waiting_calls_complete")}
-                  </p>
-                </div>
-              ) : (
-                <div className="p-3 space-y-2" style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom, 0.75rem))" }}>
-                  {myPostCallMessages === 0 && (
-                    <StageHint>{t("great_call_hint")}</StageHint>
-                  )}
-                  {myPostCallMessages >= 8 && myPostCallMessages < 12 && (
-                    <StageHint>{t("almost_there_hint").replace("{n}", String(myPostCallRemaining)).replace("{s}", myPostCallRemaining !== 1 ? "s" : "")}</StageHint>
-                  )}
-                  <div className="flex gap-2 items-end">
-                    <Textarea
-                      value={message}
-                      onChange={e => {
-                        setMessage(e.target.value.slice(0, MAX_CHARS));
-                        if (e.target.value.trim()) sendTyping();
-                      }}
-                      placeholder={t("keep_momentum_placeholder")}
-                      className="resize-none min-h-[44px] max-h-[80px] text-sm"
-                      onKeyDown={e => {
-                        if (e.key === "Enter" && !e.shiftKey) {
-                          e.preventDefault();
-                          if (message.trim()) { const c = message.trim(); setMessage(""); doSend(c); }
-                        }
-                      }}
-                      data-testid={`input-message-postcall-${match.id}`}
-                    />
-                    <div className="flex flex-col items-end gap-1 shrink-0">
-                      <span className="text-[10px] text-muted-foreground tabular-nums" data-testid={`text-postcall-counter-${match.id}`}>
-                        {myPostCallMessages}/{MAX_POST_CALL_MESSAGES}
-                      </span>
-                      <Button
-                        size="sm"
-                        onMouseDown={e => e.preventDefault()}
-                        onClick={() => {
-                          if (message.trim()) {
-                            const c = message.trim(); setMessage(""); doSend(c);
-                          }
-                        }}
-                        disabled={!message.trim()}
-                        data-testid={`button-send-postcall-${match.id}`}
-                      >
-                        <Send className="w-4 h-4" />
-                      </Button>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-          ) : callStage === 2 ? (
-            <div className="border-t" data-testid={`post-call-messaging-stage2-${match.id}`}>
-              {isOtherTyping && (
-                <div className="flex items-center gap-1.5 px-4 pt-2 text-xs text-muted-foreground" data-testid="text-typing-indicator-stage2">
-                  <span className="flex gap-0.5 items-center">
-                    <span className="w-1.5 h-1.5 bg-muted-foreground/50 rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
-                    <span className="w-1.5 h-1.5 bg-muted-foreground/50 rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
-                    <span className="w-1.5 h-1.5 bg-muted-foreground/50 rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
-                  </span>
-                  <span>{match.profile.firstName} {t("is_typing_label")}</span>
-                </div>
-              )}
-              {myStage2LimitReached ? (
-                <div className="p-4 text-center space-y-1" data-testid={`waiting-their-stage2-${match.id}`}>
-                  <p className="text-sm font-medium text-primary">{t("your_messages_sent")}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {theirStage2LimitReached
-                      ? t("all_calls_complete_msg")
-                      : t("waiting_calls_complete")}
-                  </p>
-                </div>
-              ) : (
-                <div className="p-3 space-y-2" style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom, 0.75rem))" }}>
-                  {myStage2Messages === 0 && (
-                    <StageHint>{t("great_call_hint")}</StageHint>
-                  )}
-                  {myStage2Messages >= 16 && myStage2Messages < 20 && (
-                    <StageHint>{t("almost_done_hint").replace("{n}", String(myStage2Remaining)).replace("{s}", myStage2Remaining !== 1 ? "s" : "")}</StageHint>
-                  )}
-                  <div className="flex gap-2 items-end">
-                    <Textarea
-                      value={message}
-                      onChange={e => {
-                        setMessage(e.target.value.slice(0, MAX_CHARS));
-                        if (e.target.value.trim()) sendTyping();
-                      }}
-                      placeholder={t("getting_to_know_placeholder")}
-                      className="resize-none min-h-[44px] max-h-[80px] text-sm"
-                      onKeyDown={e => {
-                        if (e.key === "Enter" && !e.shiftKey) {
-                          e.preventDefault();
-                          if (message.trim()) { const c = message.trim(); setMessage(""); doSend(c); }
-                        }
-                      }}
-                      data-testid={`input-message-stage2-${match.id}`}
-                    />
-                    <div className="flex flex-col items-end gap-1 shrink-0">
-                      <span className="text-[10px] text-muted-foreground tabular-nums" data-testid={`text-stage2-counter-${match.id}`}>
-                        {myStage2Messages}/{MAX_POST_STAGE2_MESSAGES}
-                      </span>
-                      <Button
-                        size="sm"
-                        onMouseDown={e => e.preventDefault()}
-                        onClick={() => {
-                          if (message.trim()) {
-                            const content = message.trim();
-                            stopTyping();
-                            forceScrollRef.current = true;
-                            sendMessage.mutate({ content, tempId: `temp-${Date.now()}-${Math.random().toString(36).slice(2)}` });
-                          }
-                        }}
-                        disabled={!message.trim()}
-                        data-testid={`button-send-stage2-${match.id}`}
-                      >
-                        <Send className="w-4 h-4" />
-                      </Button>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
           ) : rawLimitReached && !hasMessageExtension && hasAvailableExtension && !dismissedExtension ? (
             <div className="p-4 border-t" data-testid={`extension-offer-${match.id}`}>
               <div className="rounded-lg border border-primary/30 bg-primary/5 p-4 space-y-3">
