@@ -1,0 +1,156 @@
+Audit and fix the new profile/star-sign implementation and verify the new post-call progression.
+
+Do not work on unrelated features.
+
+──────────────────────────────
+
+Star Sign Feature Not Working
+Current issue:
+
+Users have provided a date of birth, but no star sign is appearing on their profiles.
+
+The profile clarity update has landed, but star signs are still missing.
+
+Do not guess.
+
+Audit:
+
+Is date_of_birth populated for these users?
+Is star sign being calculated from date_of_birth?
+Where is the calculation performed?
+Is the value being saved?
+Is the value being rendered?
+Are existing users missing a backfill?
+Is the UI hiding star signs when the value is null?
+Check all locations:
+
+onboarding
+profile creation
+profile editing
+profile saving
+discovery profiles
+likes profiles
+matches profiles
+connections profiles
+──────────────────────────────
+
+Zodiac Accuracy Verification
+The app must not rely on a manually entered star sign.
+
+Required behaviour:
+
+Read date_of_birth and automatically calculate:
+
+Aries: Mar 21 – Apr 19
+Taurus: Apr 20 – May 20
+Gemini: May 21 – Jun 20
+Cancer: Jun 21 – Jul 22
+Leo: Jul 23 – Aug 22
+Virgo: Aug 23 – Sep 22
+Libra: Sep 23 – Oct 22
+Scorpio: Oct 23 – Nov 21
+Sagittarius: Nov 22 – Dec 21
+Capricorn: Dec 22 – Jan 19
+Aquarius: Jan 20 – Feb 18
+Pisces: Feb 19 – Mar 20
+Requirements:
+
+Calculate automatically from DOB
+Recalculate if DOB changes
+Display consistently everywhere
+Remove any stale/manual sign logic
+──────────────────────────────
+
+Existing User Backfill
+If existing users already have DOB values but no star sign:
+
+Audit whether a backfill is required.
+
+If required:
+
+calculate signs for existing users
+populate missing values
+do not overwrite valid existing calculated values
+Report:
+
+whether backfill is needed
+how many users would be affected
+implementation approach
+──────────────────────────────
+
+Profile Clarity Verification
+Verify the recent profile update is working correctly.
+
+Expected display:
+
+Name + Verified Badge (header only)
+
+Profile details section:
+
+Age: 25
+Location: Sydney
+Height: 180cm
+Star Sign: Leo
+
+or equivalent labelled format.
+
+Verify across:
+
+Discovery profile
+Likes profile
+Match profile
+Connection profile
+User profile
+Do not allow ambiguous formats like:
+
+25 S
+
+or
+
+25 • Sydney • L
+
+Everything should be clearly labelled.
+
+──────────────────────────────
+
+Verify New Post-Call Progression
+The new 25-message post-call stage is now live.
+
+Audit only:
+
+Verify:
+
+15 messages each unlock first guided call
+Guided call remains free
+No phone credits required for the earned guided call
+Receiver receives incoming call correctly
+After call completion, users enter the new 25-message-each stage
+Users are not thrown back into the old message-wall screens
+No “Start Second Call” logic remains
+Date-planning stage appears correctly afterwards
+Report:
+
+current progression flow
+any remaining legacy call-stage logic
+any remaining credit-gating bugs
+──────────────────────────────
+
+Validation
+
+Run:
+
+npm run check
+npm run build
+Provide:
+
+Root cause of missing star signs
+Files changed
+How star signs are calculated
+Whether existing users need backfilling
+Profile clarity verification results
+Post-call progression verification results
+npm run check result
+npm run build result
+Do not add new features.
+Focus only on star signs, profile clarity, and verifying the new progression flow.
+

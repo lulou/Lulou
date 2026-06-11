@@ -1,9 +1,9 @@
 export function getStarSign(dob: string | null | undefined): string | null {
   if (!dob) return null;
-  const d = new Date(dob);
-  if (isNaN(d.getTime())) return null;
-  const m = d.getMonth() + 1;
-  const day = d.getDate();
+  const parts = dob.split("-").map(Number);
+  if (parts.length < 3 || parts.some((n) => isNaN(n))) return null;
+  const m = parts[1];
+  const day = parts[2];
   if ((m === 3 && day >= 21) || (m === 4 && day <= 19)) return "Aries";
   if ((m === 4 && day >= 20) || (m === 5 && day <= 20)) return "Taurus";
   if ((m === 5 && day >= 21) || (m === 6 && day <= 20)) return "Gemini";

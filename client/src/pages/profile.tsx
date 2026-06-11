@@ -439,6 +439,7 @@ export default function ProfilePage() {
       setSettingsForm({
         location: profile.location,
         height: profile.height || "",
+        dateOfBirth: (profile as any).dateOfBirth || "",
         datingPreference: profile.datingPreference,
         datingIntent: profile.datingIntent,
         connectionStyle: profile.connectionStyle,
@@ -449,7 +450,16 @@ export default function ProfilePage() {
 
   const saveSettings = useMutation({
     mutationFn: async () => {
-      return upsertProfile(settingsForm);
+      const data: Record<string, unknown> = { ...settingsForm };
+      if (settingsForm.dateOfBirth) {
+        const birth = new Date(settingsForm.dateOfBirth);
+        const today = new Date();
+        let age = today.getFullYear() - birth.getFullYear();
+        const dm = today.getMonth() - birth.getMonth();
+        if (dm < 0 || (dm === 0 && today.getDate() < birth.getDate())) age--;
+        data.age = age;
+      }
+      return upsertProfile(data);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/profile"] });
@@ -773,6 +783,17 @@ export default function ProfilePage() {
                 onChange={e => setSettingsForm(prev => ({ ...prev, height: e.target.value }))}
                 placeholder={t("ph_height")}
                 data-testid="input-settings-height"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="settings-dob" className="text-xs">{t("label_dob")}</Label>
+              <Input
+                id="settings-dob"
+                type="date"
+                max={new Date(Date.now() - 18 * 365.25 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)}
+                value={settingsForm.dateOfBirth || ""}
+                onChange={e => setSettingsForm(prev => ({ ...prev, dateOfBirth: e.target.value }))}
+                data-testid="input-settings-dob"
               />
             </div>
             <div className="space-y-1.5">
