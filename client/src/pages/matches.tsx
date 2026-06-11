@@ -698,7 +698,7 @@ function CallSchedulingCard({
   const scheduledTime = scheduleData?.proposedTime ? new Date(scheduleData.proposedTime) : null;
   const isReadyToStart = scheduleData?.type === "accept" && scheduledTime && scheduledTime.getTime() <= now + 5 * 60 * 1000;
   const callDurationKey = "duration_10_min";
-  const hasPhoneCredits = phoneCredits === undefined || phoneCredits > 0; // undefined = loading, treat as available
+  const hasPhoneCredits = true; // guided first call is always free — no credits required
 
   const quickTimes = [
     { label: t("call_time_now"), value: new Date().toISOString() },
@@ -2465,7 +2465,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                 </div>
               </div>
             )
-          ) : rawLimitReached && !hasMessageExtension && hasAvailableExtension && !dismissedExtension ? (
+          ) : callStage === 0 && rawLimitReached && !hasMessageExtension && hasAvailableExtension && !dismissedExtension ? (
             <div className="p-4 border-t" data-testid={`extension-offer-${match.id}`}>
               <div className="rounded-lg border border-primary/30 bg-primary/5 p-4 space-y-3">
                 <div className="space-y-1">
@@ -2492,7 +2492,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                 </div>
               </div>
             </div>
-          ) : isLimitReached ? (
+          ) : callStage === 0 && isLimitReached ? (
             nextStepChoice === 'call' ? (
               <div>
                 <div className="px-4 pt-3 pb-1">
@@ -2584,10 +2584,10 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                   <span>{match.profile.firstName} {t("is_typing_label")}</span>
                 </div>
               )}
-              {messagesRemaining <= 5 && messagesRemaining > 1 && (
+              {callStage === 0 && messagesRemaining <= 5 && messagesRemaining > 1 && (
                 <StageHint>{t("really_connecting_hint")}</StageHint>
               )}
-              {messagesRemaining === 1 && (
+              {callStage === 0 && messagesRemaining === 1 && (
                 <StageHint>{t("last_message_hint")}</StageHint>
               )}
               <div className="flex gap-2 items-end">
