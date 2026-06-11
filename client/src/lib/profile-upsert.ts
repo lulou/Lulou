@@ -22,6 +22,9 @@ const FIELD_MAP: Record<string, string> = {
   phoneNumber: "phone_number",
   photoVerified: "photo_verified",
   onboardingComplete: "onboarding_complete",
+  // Fields added after initial schema — were missing from map, silently discarded on save.
+  dateOfBirth: "date_of_birth",
+  pronouns: "pronouns",
 };
 
 function toDbFields(fields: Record<string, unknown>): Record<string, unknown> {
