@@ -2196,7 +2196,7 @@ export class SupabaseStorage implements IStorage {
     if (!matchData) return undefined;
     const match = mapMatch(matchData);
     if (match.user1Id !== userId && match.user2Id !== userId) return undefined;
-    if ((match.callStage || 0) < 4) return undefined;
+    if ((match.callStage || 0) < 1) return undefined;
 
     const updates: Record<string, any> = {};
     if (match.user1Id === userId) {
@@ -2223,7 +2223,7 @@ export class SupabaseStorage implements IStorage {
     if (!matchData) return undefined;
     const match = mapMatch(matchData);
     if (match.user1Id !== userId && match.user2Id !== userId) return undefined;
-    if ((match.callStage || 0) < 4) return undefined;
+    if ((match.callStage || 0) < 1) return undefined;
     if (!match.meetAvailability1 || !match.meetAvailability2) return undefined;
 
     const mySlots: string[] = JSON.parse(match.user1Id === userId ? match.meetAvailability1 : match.meetAvailability2);

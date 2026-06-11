@@ -31,6 +31,7 @@ import { EMPTY_PHOTOS } from "@/lib/image-utils";
 import type { Profile, Match, Message, SpinRequest } from "@shared/schema";
 
 const MAX_MESSAGES_PER_USER = 15;
+const POST_CALL_THRESHOLD = 25;
 const MAX_CHARS = 500;
 
 const CALL_DURATIONS = [10 * 60, 15 * 60, 10 * 60];
@@ -1650,6 +1651,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
   const [dismissedExtension, setDismissedExtension] = useState(false);
   const [nextStepChoice, setNextStepChoice] = useState<null | 'call' | 'end'>(null);
   const [finalChoice, setFinalChoice] = useState<null | 'date' | 'chat' | 'end'>(null);
+  const [showInlineDatePlan, setShowInlineDatePlan] = useState(false);
 
   const { data: elevateStatus } = useQuery<{ active: boolean; elevateCredits: number; superElevateCredits: number }>({
     queryKey: ["/api/elevate/status"],
@@ -1794,6 +1796,14 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
   const callStage = detail.callStage || 0;
   const isUser1 = detail.user1Id === user?.id;
 
+  const myPostCallCount   = isUser1 ? (detail.messageCount1 || 0) : (detail.messageCount2 || 0);
+  const theirPostCallCount = isUser1 ? (detail.messageCount2 || 0) : (detail.messageCount1 || 0);
+  const postCallProgressReady = callStage >= 1
+    && myPostCallCount >= POST_CALL_THRESHOLD
+    && theirPostCallCount >= POST_CALL_THRESHOLD;
+  const postCallApproaching = callStage >= 1 && !postCallProgressReady
+    && myPostCallCount >= POST_CALL_THRESHOLD - 5
+    && theirPostCallCount >= POST_CALL_THRESHOLD - 5;
 
   const sparkStep = callStage >= 4 ? 3 : callStage >= 1 ? 2 : 1;
 
@@ -2470,6 +2480,19 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                 </div>
               </div>
             )
+          ) : postCallProgressReady && showInlineDatePlan ? (
+            <div>
+              <div className="px-4 pt-3 pb-1">
+                <button onClick={() => setShowInlineDatePlan(false)} className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors" data-testid={`button-back-date-plan-${match.id}`}>
+                  {isRTL ? <ChevronRight className="w-3 h-3" /> : <ChevronLeft className="w-3 h-3" />} {t("back_label")}
+                </button>
+              </div>
+              {matchDetail ? (
+                <ReadyToMeetInline detail={matchDetail} matchId={match.id} profileName={match.profile.firstName} />
+              ) : (
+                <div className="p-4 flex justify-center"><div className="w-5 h-5 rounded-full border-2 border-primary border-t-transparent animate-spin" /></div>
+              )}
+            </div>
           ) : callStage === 0 && rawLimitReached && !hasMessageExtension && hasAvailableExtension && !dismissedExtension ? (
             <div className="p-4 border-t" data-testid={`extension-offer-${match.id}`}>
               <div className="rounded-lg border border-primary/30 bg-primary/5 p-4 space-y-3">
@@ -2588,6 +2611,22 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                   </span>
                   <span>{match.profile.firstName} {t("is_typing_label")}</span>
                 </div>
+              )}
+              {postCallProgressReady && (
+                <div className="mb-3 pb-3 border-b border-border/50" data-testid={`date-plan-banner-${match.id}`}>
+                  <div className="rounded-xl border border-primary/25 bg-primary/5 p-3 flex items-center justify-between gap-3">
+                    <div className="space-y-0.5 min-w-0">
+                      <p className="text-sm font-semibold text-primary leading-tight">Ready to meet?</p>
+                      <p className="text-[11px] text-muted-foreground leading-tight">Take the next step with {match.profile.firstName}</p>
+                    </div>
+                    <Button size="sm" onClick={() => setShowInlineDatePlan(true)} className="shrink-0" data-testid={`button-plan-date-${match.id}`}>
+                      <Calendar className="w-3.5 h-3.5 me-1.5" /> Plan a Date
+                    </Button>
+                  </div>
+                </div>
+              )}
+              {postCallApproaching && (
+                <StageHint>You're almost ready to plan your first date with {match.profile.firstName}!</StageHint>
               )}
               {callStage === 0 && messagesRemaining <= 5 && messagesRemaining > 1 && (
                 <StageHint>{t("really_connecting_hint")}</StageHint>

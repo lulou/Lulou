@@ -1049,8 +1049,6 @@ export async function registerRoutes(
         if (messageCount === limit - 1) {
           console.log("[CONNECTION_STAGE] FIRST_CALL_UNLOCKED", { matchId, userId, messageCount });
         }
-      } else if (callStage >= 4) {
-        return res.status(400).json({ message: "Messaging is locked at this stage." });
       }
 
       // ── Step 3: Insert message ──
