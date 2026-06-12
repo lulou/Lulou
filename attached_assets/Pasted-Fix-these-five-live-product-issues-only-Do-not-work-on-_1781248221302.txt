@@ -1,0 +1,151 @@
+Fix these five live product issues only.
+
+Do not work on unrelated features.
+
+AI Conversation Starters still not visible in chat
+Bug:
+User has AI Conversation Starters turned on in Settings, but there is still no visible AI conversation generator in the chatroom.
+
+Expected:
+If AI Conversation Starters is enabled:
+
+Chatroom should show an AI starter generator for new matches.
+It should not be hidden.
+It should not require guessing where to click.
+It should appear clearly near the message box or empty chat area.
+Required UI:
+
+“AI Starters” button or panel visible in chat.
+On new match with 0 messages, auto-show 3–5 starters.
+Include Regenerate.
+Include tap-to-send / copy.
+If API fails, show fallback starters instead of nothing.
+If loading, show “Creating conversation starters…”
+Audit:
+
+Is the setting saved correctly?
+Is the setting read correctly in the actual chatroom?
+Is the endpoint called?
+Is the wrong chat component being updated?
+Is the UI hidden behind a condition?
+Likes/matches take too long to appear
+Bug:
+Likes are not being received fast enough.
+When someone likes you, the other user should see it almost immediately.
+
+Expected:
+
+Like count updates quickly.
+Likes page updates quickly.
+Match appears quickly.
+Chat appears quickly after mutual match.
+Audit:
+
+Supabase realtime subscriptions
+React Query invalidation
+polling intervals
+cache updates after like/open
+badge count refresh
+matches query refresh
+Fix:
+
+Optimistically update local state where safe.
+Invalidate relevant queries immediately after like/match.
+Reduce excessive delay without creating noisy refetch loops.
+Ensure mutual match appears straight away.
+Email verification still not working
+Bug:
+New users are still not being clearly asked to verify email.
+
+Expected signup flow:
+
+User creates account.
+If email verification is required, show a clear verification screen.
+User cannot enter main app until verified.
+User can resend verification email.
+Do not show “Invalid login credentials” during signup.
+Do not silently let unverified users continue.
+Audit:
+
+Supabase signUp flow
+email_confirmed_at handling
+VerifyEmailGate
+signup vs login error handling
+whether signInWithPassword is wrongly called during signup
+whether Supabase email confirmation is enabled/configured
+Required:
+
+Clear message after signup: “Check your email to verify your account.”
+Resend verification button.
+Block app access until verified.
+Date of Birth selection needs to be easier
+Bug:
+DOB field/input is not user-friendly.
+
+Expected:
+
+Easier DOB selection in onboarding and profile edit/settings.
+Clear day/month/year input or better mobile-friendly date picker.
+No confusing native picker if it causes bad UX.
+Age auto-calculates from DOB.
+18+ validation remains enforced.
+Star sign auto-calculates from DOB.
+Star sign displays after save.
+Audit:
+
+onboarding DOB input
+profile edit DOB input
+mobile UX
+18+ validation
+save path dateOfBirth → date_of_birth
+age update
+star sign update
+Match moment looks bad
+Bug:
+When a like becomes a match, the current match popup/animation looks bad and not premium.
+
+Expected:
+Make the match moment feel cooler, cleaner, and more premium.
+
+Do not make it cheesy.
+
+Target style:
+
+confident
+modern
+premium
+subtle but exciting
+not childish
+not overly romantic
+not cringe
+Required:
+
+Better match modal/overlay design
+Stronger profile photo presentation
+Cleaner typography
+Better CTA buttons:
+
+Send Message
+Keep Discovering
+Avoid over-the-top hearts/confetti unless very subtle.
+Audit:
+
+component that renders match popup
+current animation
+current copy
+current styling
+Validation:
+Run:
+npm run check
+npm run build
+
+Report:
+
+Files changed
+Root cause of AI starters missing
+Root cause of likes/matches delay
+Email verification fix
+DOB UX improvement
+Match popup redesign
+npm run check result
+npm run build result

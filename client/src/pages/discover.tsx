@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback, useMemo, memo } from "react";
+import { MatchOverlay, type MatchCelebration } from "@/components/match-overlay";
 import { useLanguageContext } from "@/contexts/language-context";
 import { usePerfTrace, useRenderCount, isMobile, scheduleIdle } from "@/lib/perf";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -258,6 +259,7 @@ export default function Discover() {
   // Optimistic undo state — set immediately when user acts so the undo button
   // is ready before the server round-trip completes.
   const [lastActedProfile, setLastActedProfile] = useState<{ id: string; name: string } | null>(null);
+  const [celebration, setCelebration] = useState<MatchCelebration | null>(null);
   // Ref mirror so the mutationFn closure can read the current value without stale capture.
   const lastActedRef = useRef<{ id: string; name: string } | null>(null);
   useEffect(() => { lastActedRef.current = lastActedProfile; }, [lastActedProfile]);
@@ -389,12 +391,14 @@ export default function Discover() {
       // Advance the feed immediately — do not wait for a server refetch.
       // Use Set copy + .add() instead of spread to avoid O(n) array allocation.
       setShownIds(prev => { const s = new Set(prev); s.add(currentProfile.userId); return s; });
+      const capturedFirstName = currentProfile.firstName;
+      const capturedPhoto = photoData?.photos?.[0];
       try {
         const res = await apiRequest("POST", "/api/interactions", {
           toUserId: currentProfile.userId,
           type,
         });
-        return { ...(await res.json()), profileId: currentProfile.userId, interactionType: type };
+        return { ...(await res.json()), profileId: currentProfile.userId, interactionType: type, capturedFirstName, capturedPhoto };
       } catch (err: any) {
         console.error("INTERACTION_ERROR", type, err?.message || err);
         toast({
@@ -408,10 +412,7 @@ export default function Discover() {
     onSuccess: (data) => {
       if (data?.skipped) return;
       if (data?.matched) {
-        toast({
-          title: t("its_mutual"),
-          description: t("now_matched_desc").replace("{name}", (data.profileId ? accumulatedProfiles.find(p => p.userId === data.profileId)?.firstName : currentProfile?.firstName) ?? ""),
-        });
+        setCelebration({ firstName: data.capturedFirstName ?? "", photo: data.capturedPhoto, matchId: data.matchId });
         queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
       }
     },
@@ -748,6 +749,10 @@ export default function Discover() {
       >
         <span role="img" aria-label={t("undo_label")}>↩️</span>
       </button>
+
+      {celebration && (
+        <MatchOverlay celebration={celebration} onClose={() => setCelebration(null)} />
+      )}
     </div>
   );
 }

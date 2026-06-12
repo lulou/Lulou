@@ -112,7 +112,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   // array reference changes but the count stays the same.
   const { data: likesCount = 0 } = useQuery<IncomingOpen[], Error, number>({
     queryKey: ["/api/who-liked-you"],
-    refetchInterval: isTabActive ? 30000 : false,
+    refetchInterval: isTabActive ? 10000 : false,
     select: (data) => data.length,
   });
 

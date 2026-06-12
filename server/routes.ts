@@ -796,19 +796,21 @@ export async function registerRoutes(
       const interaction = await storage.createInteraction({ fromUserId, toUserId, type });
 
       let matched = false;
+      let matchId: string | undefined;
       if (type === "open") {
         const reverseOpen = await storage.getInteraction(toUserId, fromUserId);
         if (reverseOpen && reverseOpen.type === "open") {
           const fromCount = await storage.getMatchCount(fromUserId);
           const toCount = await storage.getMatchCount(toUserId);
           if (fromCount < 8 && toCount < 8) {
-            await storage.createMatch(fromUserId, toUserId);
+            const newMatch = await storage.createMatch(fromUserId, toUserId);
             matched = true;
+            matchId = newMatch.id;
           }
         }
       }
 
-      res.json({ interaction, matched });
+      res.json({ interaction, matched, matchId });
     } catch (error: any) {
       const msg = error?.message || "Failed to create interaction";
       console.error("INTERACTION_ERROR", msg, error);

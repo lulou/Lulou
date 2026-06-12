@@ -16,6 +16,7 @@ import { cleanErrorMessage, withRetry } from "@/lib/profile-upsert";
 import { writeDebug } from "@/lib/debug-store";
 import { SIGNALS, GREEN_FLAGS, DATING_INTENTS, CONNECTION_STYLES, CONVERSATION_STARTERS, PROFILE_QUESTIONS } from "@shared/schema";
 import { Loader2, ArrowRight, ArrowLeft, Check, AlertCircle, Plus, X } from "lucide-react";
+import { DobPicker } from "@/components/dob-picker";
 import { LulouFlowerIcon } from "@/components/app-layout";
 import type { Profile } from "@shared/schema";
 import { convertPhotoToJpeg } from "@/lib/photo-utils";
@@ -328,18 +329,14 @@ export default function Onboarding({ existingProfile = null, userEmail = "" }: O
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="dob">{t("label_dob")}</Label>
-                  <Input
-                    id="dob"
-                    type="date"
-                    max={new Date(Date.now() - 18 * 365.25 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)}
+                  <Label>{t("label_dob")}</Label>
+                  <DobPicker
                     value={formData.dateOfBirth}
-                    onChange={e => {
-                      const dob = e.target.value;
+                    onChange={dob => {
                       update("dateOfBirth", dob);
                       if (dob) update("age", calculateAgeFromDob(dob));
                     }}
-                    data-testid="input-dob"
+                    testIdPrefix="dob"
                   />
                   {formData.dateOfBirth && calculateAgeFromDob(formData.dateOfBirth) < 18 && (
                     <p className="text-xs text-destructive flex items-center gap-1.5 mt-1" data-testid="text-under-18-error">

@@ -36,6 +36,7 @@ import {
   ChevronUp,
 } from "lucide-react";
 import { DragScrollRow } from "@/components/drag-scroll-row";
+import { DobPicker } from "@/components/dob-picker";
 import { ElevateModal } from "@/components/elevate-modal";
 import { ProfileInfoRow } from "@/components/profile-info-row";
 import { CONVERSATION_STARTERS, PROFILE_QUESTIONS } from "@shared/schema";
@@ -781,14 +782,11 @@ export default function ProfilePage() {
             {/* Date of Birth is first — immediately visible when Edit Profile opens.
                 Saving this field also auto-calculates and updates the user's age.   */}
             <div className="space-y-1.5">
-              <Label htmlFor="settings-dob" className="text-xs">{t("label_dob")}</Label>
-              <Input
-                id="settings-dob"
-                type="date"
-                max={new Date(Date.now() - 18 * 365.25 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)}
+              <Label className="text-xs">{t("label_dob")}</Label>
+              <DobPicker
                 value={settingsForm.dateOfBirth || ""}
-                onChange={e => setSettingsForm(prev => ({ ...prev, dateOfBirth: e.target.value }))}
-                data-testid="input-settings-dob"
+                onChange={dob => setSettingsForm(prev => ({ ...prev, dateOfBirth: dob }))}
+                testIdPrefix="settings-dob"
               />
               <p className="text-[10px] text-muted-foreground">{t("dob_sets_age_star_sign")}</p>
             </div>

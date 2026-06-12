@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useLanguageContext } from "@/contexts/language-context";
-import { type TranslationKey } from "@/lib/i18n";
 import { usePerfTrace, useRenderCount, isMobile, scheduleIdle } from "@/lib/perf";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card } from "@/components/ui/card";
@@ -15,205 +14,17 @@ import {
   Heart, X, Eye, MapPin, Lock, Sparkles, ChevronRight,
   ChevronLeft, Ruler,
 } from "lucide-react";
-import { LulouFlowerIcon } from "@/components/app-layout";
 import { PhotoCarousel } from "@/components/photo-carousel";
 import { ElevateModal } from "@/components/elevate-modal";
 import { ProfileInfoRow } from "@/components/profile-info-row";
 import { ElevateStatusCard } from "@/components/elevate-status-card";
 import { decodedPhotos, EMPTY_PHOTOS } from "@/lib/image-utils";
 import type { Profile, Interaction } from "@shared/schema";
+import { MatchOverlay, type MatchCelebration } from "@/components/match-overlay";
 
 type IncomingOpen = Interaction & { profile: Profile };
-type MatchCelebration = { firstName: string; photo?: string };
 type ElevateStatus = { type: string | null; expiresAt: string | null; active: boolean };
 
-// ─── Match Overlay ─────────────────────────────────────────────────────────────
-
-// Premium taglines — one is chosen at component mount, never changes mid-display.
-const MATCH_TAGLINE_KEYS: TranslationKey[] = [
-  "match_tagline_1",
-  "match_tagline_2",
-  "match_tagline_3",
-  "match_tagline_4",
-  "match_tagline_5",
-  "match_tagline_6",
-  "match_tagline_7",
-  "match_tagline_8",
-];
-
-// Inject matchFloat keyframe once at module load so it is always defined before
-// any MatchOverlay renders. This avoids the Safari/WebKit crash where an inline
-// animation style references a keyframe that hasn't been parsed yet.
-if (typeof document !== "undefined") {
-  const _kfId = "lulou-match-float-style";
-  if (!document.getElementById(_kfId)) {
-    const _s = document.createElement("style");
-    _s.id = _kfId;
-    _s.textContent = `@keyframes matchFloat {
-      0%, 100% { transform: translateY(0) scale(1);    opacity: 0.35; }
-      50%       { transform: translateY(-28px) scale(1.45); opacity: 0.65; }
-    }`;
-    document.head.appendChild(_s);
-  }
-}
-
-// Stable particle positions — generated once at module load, never mid-render.
-const MATCH_OVERLAY_PARTICLES = Array.from({ length: 20 }, (_, i) => ({
-  id: i,
-  w: 4 + (i * 7) % 8,
-  h: 4 + (i * 11) % 8,
-  left: (i * 17) % 100,
-  top: (i * 13) % 100,
-  dur: 3 + (i * 0.4) % 4,
-  delay: (i * 0.28) % 2,
-}));
-
-function MatchOverlay({ celebration, onClose }: { celebration: MatchCelebration; onClose: () => void }) {
-  const { t } = useLanguageContext();
-  const [phase, setPhase] = useState<"enter" | "visible" | "exit">("enter");
-  const taglineKey = useRef(MATCH_TAGLINE_KEYS[Math.floor(Math.random() * MATCH_TAGLINE_KEYS.length)]).current;
-
-  useEffect(() => {
-    const timerId = setTimeout(() => setPhase("visible"), 50);
-    return () => clearTimeout(timerId);
-  }, []);
-
-  const handleClose = useCallback(() => {
-    setPhase("exit");
-    setTimeout(onClose, 500);
-  }, [onClose]);
-
-  useEffect(() => {
-    const timerId = setTimeout(handleClose, 4500);
-    return () => clearTimeout(timerId);
-  }, [handleClose]);
-
-  const isVisible = phase === "visible";
-
-  return (
-    <div
-      className="fixed inset-0 z-[60] flex items-center justify-center cursor-pointer"
-      onClick={handleClose}
-      data-testid="overlay-match-celebration"
-      style={{
-        background: "radial-gradient(ellipse at center, hsl(350 48% 46% / 0.96), hsl(350 55% 28% / 0.99))",
-        opacity: phase === "exit" ? 0 : 1,
-        transition: "opacity 500ms ease",
-      }}
-    >
-      {/* Ambient floating particles — positions stable, never regenerated */}
-      <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        {MATCH_OVERLAY_PARTICLES.map(p => (
-          <div
-            key={p.id}
-            className="absolute rounded-full"
-            style={{
-              width: p.w,
-              height: p.h,
-              left: `${p.left}%`,
-              top: `${p.top}%`,
-              background: "hsl(350 60% 88% / 0.38)",
-              animation: `matchFloat ${p.dur}s ${p.delay}s ease-in-out infinite`,
-            }}
-          />
-        ))}
-      </div>
-
-      <div
-        className="flex flex-col items-center gap-5 px-8"
-        style={{
-          transform: isVisible ? "scale(1) translateY(0)" : "scale(0.62) translateY(28px)",
-          opacity: isVisible ? 1 : 0,
-          transition: "transform 700ms cubic-bezier(0.34, 1.56, 0.64, 1), opacity 500ms ease",
-        }}
-      >
-        <LulouFlowerIcon className="w-12 h-12 text-white/75" />
-
-        {/* Avatar with heart badge */}
-        <div className="relative">
-          <Avatar
-            className="w-28 h-28"
-            style={{
-              boxShadow: "0 0 0 3px rgba(255,255,255,0.22), 0 0 0 7px rgba(255,255,255,0.08), 0 14px 44px rgba(0,0,0,0.40)",
-              transform: isVisible ? "scale(1)" : "scale(0)",
-              transition: "transform 620ms cubic-bezier(0.34, 1.56, 0.64, 1) 180ms",
-            }}
-          >
-            <AvatarImage src={celebration.photo} alt={celebration.firstName} />
-            <AvatarFallback className="bg-white/20 text-white text-3xl font-semibold">
-              {celebration.firstName?.[0] ?? "♡"}
-            </AvatarFallback>
-          </Avatar>
-          <div
-            className="absolute -bottom-1 -end-1 w-10 h-10 rounded-full bg-white/18 backdrop-blur-sm flex items-center justify-center"
-            style={{
-              background: "rgba(255,255,255,0.18)",
-              transform: isVisible ? "scale(1)" : "scale(0)",
-              transition: "transform 500ms cubic-bezier(0.34, 1.56, 0.64, 1) 480ms",
-            }}
-          >
-            <Heart className="w-5 h-5 text-white fill-white" />
-          </div>
-        </div>
-
-        {/* Name */}
-        <h1
-          className="font-serif text-center"
-          style={{
-            fontSize: "clamp(28px, 8vw, 38px)",
-            fontWeight: 700,
-            letterSpacing: "-0.02em",
-            color: "rgba(255,245,248,0.97)",
-            textShadow: "0 2px 20px rgba(0,0,0,0.25)",
-            transform: isVisible ? "translateY(0)" : "translateY(18px)",
-            opacity: isVisible ? 1 : 0,
-            transition: "transform 580ms ease 280ms, opacity 480ms ease 280ms",
-          }}
-          data-testid="text-blooming-amazing"
-        >
-          {celebration.firstName}
-        </h1>
-
-        {/* Premium tagline */}
-        <p
-          style={{
-            fontSize: 15,
-            fontStyle: "italic",
-            color: "rgba(255,220,230,0.80)",
-            textAlign: "center",
-            lineHeight: 1.45,
-            transform: isVisible ? "translateY(0)" : "translateY(14px)",
-            opacity: isVisible ? 1 : 0,
-            transition: "transform 580ms ease 460ms, opacity 480ms ease 460ms",
-          }}
-          data-testid="text-match-made"
-        >
-          {t(taglineKey)}
-        </p>
-
-        {/* Rose divider */}
-        <div style={{
-          width: 40, height: 1,
-          background: "linear-gradient(90deg, transparent, rgba(255,255,255,0.50), transparent)",
-          opacity: isVisible ? 1 : 0,
-          transition: "opacity 500ms ease 600ms",
-        }} />
-
-        <p
-          className="text-sm"
-          style={{
-            color: "rgba(255,210,220,0.62)",
-            opacity: isVisible ? 1 : 0,
-            transition: "opacity 500ms ease 700ms",
-          }}
-        >
-          {t("tap_to_continue")}
-        </p>
-      </div>
-
-    </div>
-  );
-}
 
 // ─── Full-Screen Profile Modal ─────────────────────────────────────────────────
 
@@ -296,7 +107,7 @@ function ProfileModal({
       queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
       handleClose();
       if (data.matched) {
-        onMatch({ firstName: profile.firstName, photo: photos[0] });
+        onMatch({ firstName: profile.firstName, photo: photos[0], matchId: data.matchId });
       } else if (data.connectionLimitReached) {
         onConnectionFull();
       } else {
@@ -608,7 +419,7 @@ function LikeCard({
       queryClient.invalidateQueries({ queryKey: ["/api/who-liked-you"] });
       queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
       if (data.matched) {
-        onMatch({ firstName: open.profile.firstName, photo });
+        onMatch({ firstName: open.profile.firstName, photo, matchId: data.matchId });
       } else if (data.connectionLimitReached) {
         onConnectionFull();
       } else {
@@ -786,7 +597,8 @@ export default function LikesPage() {
 
   const { data: likes, isLoading, isError: isLikesError, refetch: refetchLikes } = useQuery<IncomingOpen[]>({
     queryKey: ["/api/who-liked-you"],
-    refetchInterval: isActive ? 60000 : false,
+    refetchInterval: isActive ? 15000 : false,
+    refetchOnWindowFocus: true,
   });
 
   // Batch-prefetch photos on list arrival.
@@ -822,7 +634,8 @@ export default function LikesPage() {
 
   const { data: elevateStatus } = useQuery<ElevateStatus>({
     queryKey: ["/api/elevate/status"],
-    refetchInterval: isActive ? 60000 : false,
+    refetchInterval: isActive ? 15000 : false,
+    refetchOnWindowFocus: true,
   });
   const elevateActive = elevateStatus?.active === true;
 

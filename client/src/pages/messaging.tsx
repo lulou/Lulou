@@ -13,7 +13,7 @@ import { broadcastCallSignal } from "@/hooks/use-call-signaling";
 import { armCallSession, markSessionAsPaid } from "@/lib/live-call-sessions";
 import { useAuth } from "@/hooks/use-auth";
 import { useRealtimeMessages } from "@/hooks/use-realtime-messages";
-import { ArrowLeft, Send, Phone, Video, Check, Clock, Calendar, Heart, PhoneForwarded, X, Moon, MapPin, Ruler, MessageCircle, Loader2, Mic, Pause, Play, BadgeCheck, Sparkles, ChevronDown } from "lucide-react";
+import { ArrowLeft, Send, Phone, Video, Check, Clock, Calendar, Heart, PhoneForwarded, X, Moon, MapPin, Ruler, MessageCircle, Loader2, Mic, Pause, Play, BadgeCheck, Sparkles, ChevronDown, RefreshCw } from "lucide-react";
 import { scanContent } from "@/lib/content-filter";
 import { formatLastActive } from "@/lib/last-active";
 import { PurchasePrompt, type PurchaseFeature } from "@/components/purchase-prompt";
@@ -25,6 +25,12 @@ import { type TranslationKey } from "@/lib/i18n";
 
 const MAX_MESSAGES_PER_USER = 15;
 const MAX_CHARS = 500;
+
+const FALLBACK_STARTERS = [
+  "What made you want to try a more intentional approach to dating?",
+  "What's something you've genuinely been excited about lately?",
+  "If you could design your ideal first meeting, what would it look like?",
+];
 
 type MatchDetail = Match & { profile: Profile; messages: Message[] };
 
@@ -696,12 +702,15 @@ export default function Messaging() {
   });
 
   // ── AI Conversation Starters ──────────────────────────────────────────────
-  const aiStartersEnabled = localStorage.getItem("conversation_starter_ai") !== "false";
-  const { data: aiStartersData } = useQuery<{ starters: string[] }>({
+  const aiStartersEnabled = localStorage.getItem("settings_conversation_starter_ai") !== "false";
+  const { data: aiStartersData, isFetching: isStartersFetching } = useQuery<{ starters: string[] }>({
     queryKey: ["/api/matches", matchId, "ai-starters"],
     enabled: !!matchId && showAIStarters && aiStartersEnabled,
     staleTime: 5 * 60 * 1000,
   });
+  const displayStarters = aiStartersData?.starters?.length
+    ? aiStartersData.starters
+    : FALLBACK_STARTERS;
 
   // Auto-open starters for fresh matches (no messages yet)
   useEffect(() => {
@@ -715,7 +724,7 @@ export default function Messaging() {
   // ── Comment Filter + send helper ──────────────────────────────────────────
   const doSend = (content: string) => {
     const tempId = `temp-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    const commentFilterEnabled = localStorage.getItem("comment_filter") !== "false";
+    const commentFilterEnabled = localStorage.getItem("settings_comment_filter") !== "false";
     if (commentFilterEnabled) {
       const result = scanContent(content);
       if (result.blocked) {
@@ -1226,6 +1235,58 @@ export default function Messaging() {
             </div>
           ) : (
             <div className="p-4 border-t" style={{ paddingBottom: "max(1rem, env(safe-area-inset-bottom, 1rem))" }}>
+              {/* ── AI Starters panel — visible above the input ── */}
+              {showAIStarters && aiStartersEnabled && (
+                <div className="mb-3 rounded-2xl border border-primary/15 bg-primary/[0.04] p-3 space-y-2.5" data-testid="ai-starters-panel">
+                  <div className="flex items-center justify-between">
+                    <p className="text-[10px] font-semibold tracking-widest uppercase text-muted-foreground flex items-center gap-1.5">
+                      <Sparkles className="w-3 h-3 text-primary" /> Conversation starters
+                    </p>
+                    <div className="flex items-center gap-2">
+                      {!isStartersFetching && (
+                        <button
+                          className="text-[10px] text-primary/70 hover:text-primary flex items-center gap-0.5 transition-colors"
+                          onClick={() => queryClient.invalidateQueries({ queryKey: ["/api/matches", matchId, "ai-starters"] })}
+                          data-testid="button-regenerate-starters"
+                        >
+                          <RefreshCw className="w-2.5 h-2.5" />&nbsp;Regenerate
+                        </button>
+                      )}
+                      <button
+                        className="text-muted-foreground/60 hover:text-muted-foreground p-0.5"
+                        onClick={() => setShowAIStarters(false)}
+                        data-testid="button-close-starters"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                  {isStartersFetching ? (
+                    <div className="space-y-1.5">
+                      <p className="text-[11px] text-muted-foreground">Generating starters…</p>
+                      <div className="flex gap-1.5 flex-wrap">
+                        {[1, 2, 3].map(i => (
+                          <div key={i} className="h-7 w-28 rounded-full bg-muted animate-pulse" />
+                        ))}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex gap-1.5 flex-wrap">
+                      {displayStarters.map((s, i) => (
+                        <button
+                          key={i}
+                          className="text-xs px-3 py-1.5 rounded-full border border-primary/30 bg-background text-primary hover:bg-primary/10 active:scale-95 transition-all text-left leading-snug"
+                          onClick={() => { setMessage(s); setShowAIStarters(false); }}
+                          data-testid={`button-starter-${i}`}
+                        >
+                          {s}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
               <div className="flex gap-2 items-end">
                 <Textarea
                   value={message}
@@ -1246,6 +1307,7 @@ export default function Messaging() {
                     variant="ghost"
                     onClick={() => setShowAIStarters(v => !v)}
                     className={showAIStarters ? "text-primary" : "text-muted-foreground"}
+                    title="Conversation starters"
                     data-testid="button-ai-starters"
                   >
                     <Sparkles className="w-4 h-4" />
@@ -1263,33 +1325,6 @@ export default function Messaging() {
               <p className="text-xs text-muted-foreground mt-1 text-right">
                 {message.length}/{MAX_CHARS}
               </p>
-
-              {/* ── AI Starters panel ── */}
-              {showAIStarters && aiStartersEnabled && (
-                <div className="mt-2 space-y-1.5" data-testid="ai-starters-panel">
-                  <p className="text-[10px] font-semibold tracking-widest uppercase text-muted-foreground flex items-center gap-1">
-                    <Sparkles className="w-3 h-3 text-primary" /> Conversation starters
-                  </p>
-                  {!aiStartersData ? (
-                    <div className="flex gap-1.5 flex-wrap">
-                      {[1,2,3].map(i => <div key={i} className="h-8 w-32 rounded-full bg-muted animate-pulse" />)}
-                    </div>
-                  ) : (
-                    <div className="flex gap-1.5 flex-wrap">
-                      {(aiStartersData.starters ?? []).map((s, i) => (
-                        <button
-                          key={i}
-                          className="text-xs px-3 py-1.5 rounded-full border border-primary/30 bg-primary/5 text-primary hover:bg-primary/10 active:scale-95 transition-all text-left leading-snug"
-                          onClick={() => { setMessage(s); setShowAIStarters(false); }}
-                          data-testid={`button-starter-${i}`}
-                        >
-                          {s}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
 
               {/* ── Comment filter confirmation ── */}
               {filterConfirm && (
