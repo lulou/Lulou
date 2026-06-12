@@ -24,7 +24,13 @@ function isAlreadyExists(err: any): boolean {
     msg.includes("already been registered") ||
     msg.includes("email address is already taken") ||
     msg.includes("already exists") ||
-    err?.status === 422
+    err?.status === 422 ||
+    // When Supabase email confirmation is ON, signUp() with an already-confirmed
+    // email returns invalid_credentials (400) instead of "user already registered"
+    // to prevent email enumeration. This only reaches isAlreadyExists() during
+    // signup mode — during sign-in, credentials errors are handled separately.
+    err?.code === "invalid_credentials" ||
+    (err?.status === 400 && msg.includes("invalid login credentials"))
   );
 }
 
@@ -111,7 +117,7 @@ function classifyAuthError(err: any, mode: AuthMode): AuthError {
   const lower = msg.toLowerCase();
 
   if (mode === "signup" && isAlreadyExists(err)) {
-    return { kind: "already-exists", message: "Account may already exist. Try signing in instead." };
+    return { kind: "already-exists", message: "An account with this email already exists. Please sign in instead." };
   }
 
   // ── Email not confirmed ───────────────────────────────────────────────────
