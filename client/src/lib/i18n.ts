@@ -1123,6 +1123,8 @@ export const TRANSLATIONS = {
     call_prompt_stage0_desc:      "Ready to hear each other's voice? Your first call is 10 minutes.",
     call_prompt_stage1_title:     "First call went great!",
     call_prompt_stage1_desc:      "Ready for a longer 15-minute call?",
+    date_plan_prompt_title:       "Time to Plan Your Date",
+    date_plan_prompt_desc:        "You've had great conversations — now take it further. Head to Connections to schedule your first meet-up.",
     call_prompt_stage2_title:     "Keep getting to know each other",
     call_prompt_stage2_desc:      "You have 20 messages each before the face call unlocks.",
     status_ready_to_meet:         "Ready to meet",

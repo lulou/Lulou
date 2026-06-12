@@ -1051,6 +1051,16 @@ export async function registerRoutes(
         if (messageCount === limit - 1) {
           console.log("[CONNECTION_STAGE] FIRST_CALL_UNLOCKED", { matchId, userId, messageCount });
         }
+      } else if (callStage === 1) {
+        // Post-first-call messaging phase: 25 messages each before date planning unlocks.
+        const tCount1 = Date.now();
+        const messageCount = await storage.getUserMessageCount(matchId, userId);
+        if (IS_DEV) console.log(`[MSG] post-call count: ${Date.now() - tCount1} ms | count=${messageCount}`);
+        const POST_CALL_LIMIT = 25;
+        if (messageCount >= POST_CALL_LIMIT) {
+          console.log("[CONNECTION_STAGE] POST_CALL_LIMIT_REACHED", { matchId, userId, callStage: 1, count: messageCount, limit: POST_CALL_LIMIT });
+          return res.status(400).json({ message: "Message limit reached. Time to plan your date!" });
+        }
       }
 
       // ── Step 3: Insert message ──

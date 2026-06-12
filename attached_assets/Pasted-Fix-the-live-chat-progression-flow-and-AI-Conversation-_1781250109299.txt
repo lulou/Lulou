@@ -1,0 +1,190 @@
+Fix the live chat progression flow and AI Conversation Starters.
+
+Do not work on unrelated features.
+
+These are confirmed regressions visible in the running app.
+
+──────────────────────────────
+
+AI Conversation Starters Missing
+Evidence:
+
+Brand-new match.
+0 messages.
+AI Conversation Starters enabled in Settings.
+
+Chat only shows:
+
+“Start of your conversation”
+“You each have 15 messages. Make them count.”
+
+No AI suggestions appear.
+
+No AI starter panel appears.
+
+No regenerate button appears.
+
+No suggested openers appear.
+
+Current behaviour does not match the intended design.
+
+──────────────────────────────
+
+Audit AI Starter System
+Determine:
+
+Is AI Conversation Starters setting saving correctly?
+Is AI Conversation Starters setting loading correctly?
+Is chat reading the setting?
+Is GET /api/matches/:matchId/ai-starters called?
+Does endpoint return data?
+Is endpoint failing?
+Is data returned but not rendered?
+Is showAIStarters false?
+Is auto-open effect not firing?
+Is wrong chat component being updated?
+Do not guess.
+
+Provide exact root cause.
+
+──────────────────────────────
+
+Expected AI Starter Behaviour
+For every new match with 0 messages:
+
+If AI Conversation Starters is enabled:
+
+Automatically show:
+
+3–5 conversation starters
+
+Example:
+
+“What’s something you’re looking forward to this month?”
+“What made you join Lulou?”
+“What’s your ideal Sunday?”
+Requirements:
+
+visible immediately
+no sparkle button required
+regenerate button
+tap-to-send
+loading state
+fallback suggestions if API fails
+Users should never see a blank empty chat if AI starters are enabled.
+
+──────────────────────────────
+
+Post-Call Progression Regression
+Current issue:
+
+Some matches that have already completed the call stage now have fully open unlimited chat.
+
+This is not the agreed flow.
+
+We previously agreed:
+
+15 messages each
+→ Guided Call
+
+Guided Call
+→ 25 messages each
+
+25 messages each
+→ Date Planning Stage
+
+Unlimited chat should NOT unlock immediately after the call.
+
+──────────────────────────────
+
+Audit Current Progression
+Determine exactly what is happening.
+
+For each stage document:
+
+Stage 0
+Stage 1
+Stage 2
+Stage 3
+Stage 4
+
+Show:
+
+message limits
+render branch
+server validation
+UI state
+progression trigger
+Determine:
+
+Why users are landing in unlimited chat after the call.
+
+──────────────────────────────
+
+Expected Progression
+Required flow:
+
+Stage 0
+15 messages each
+
+Unlock:
+Guided Call
+
+Stage 1
+Guided Call
+
+Unlock:
+25 messages each
+
+Stage 2
+25 messages each
+
+Unlock:
+Date Planning
+
+Stage 3
+Date Planning
+
+Unlock:
+Open relationship phase
+
+Only after completion of the intended progression should chat become fully unrestricted.
+
+──────────────────────────────
+
+Receiver Call Audit
+Also verify:
+
+When User A schedules/starts a guided call:
+
+User B receives the call correctly
+User B sees the call state correctly
+User B can join correctly
+Audit all call-state transitions.
+
+──────────────────────────────
+
+Validation
+Run:
+
+npm run check
+npm run build
+
+Provide:
+
+Root cause of missing AI starters
+Files changed
+AI endpoint response verification
+Root cause of unlimited post-call chat
+Current progression audit
+Corrected progression audit
+Call receiver audit results
+npm run check result
+npm run build result
+Do not add new features.
+
+Only fix:
+
+missing AI Conversation Starters
+incorrect post-call progression
+guided call progression integrity

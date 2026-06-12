@@ -712,14 +712,17 @@ export default function Messaging() {
     ? aiStartersData.starters
     : FALLBACK_STARTERS;
 
-  // Auto-open starters for fresh matches (no messages yet)
+  // Auto-open starters for fresh matches (no messages yet).
+  // Uses msgsData (the dedicated fast messages query) not matchDetail.messages —
+  // matchDetail.messages is intentionally ignored as source-of-truth per the query comment.
   useEffect(() => {
-    if (!aiStartersEnabled || autoOpenedStartersRef.current || !matchDetail) return;
-    if (matchDetail.messages.length === 0) {
+    if (!aiStartersEnabled || autoOpenedStartersRef.current) return;
+    if (!msgsData) return; // wait for messages to load
+    if (msgsData.messages.length === 0) {
       setShowAIStarters(true);
       autoOpenedStartersRef.current = true;
     }
-  }, [matchDetail, aiStartersEnabled]);
+  }, [msgsData, aiStartersEnabled]);
 
   // ── Comment Filter + send helper ──────────────────────────────────────────
   const doSend = (content: string) => {
@@ -905,10 +908,13 @@ export default function Messaging() {
   // Both are independent of profile/stage — chat renders without waiting for matchDetail.
   const allMessages = [...olderMessages, ...(msgsData?.messages ?? [])];
   const myMessages = allMessages.filter(m => m.senderId === user?.id);
-  const messagesRemaining = MAX_MESSAGES_PER_USER - myMessages.length;
-  const isLimitReached = messagesRemaining <= 0;
+  // callStage must be derived before messagesRemaining so the limit is stage-aware.
   const callStage = matchDetail?.callStage ?? 0;
   const allCallsDone = callStage >= 4;
+  // Stage 0: 15 messages → first guided call. Stage 1 (post-call): 25 messages → date planning.
+  const msgLimit = callStage >= 1 ? 25 : MAX_MESSAGES_PER_USER;
+  const messagesRemaining = msgLimit - myMessages.length;
+  const isLimitReached = messagesRemaining <= 0;
 
   const statusLabel = allCallsDone ? t("status_ready_to_meet")
     : callStage === 3 ? t("status_face_call_stage")
@@ -918,6 +924,8 @@ export default function Messaging() {
 
   const callPrompt = callStage === 0
     ? { icon: Phone, title: t("call_prompt_stage0_title"), desc: t("call_prompt_stage0_desc"), button: t("start_first_call") }
+    : callStage === 1
+    ? { icon: Calendar, title: t("date_plan_prompt_title"), desc: t("date_plan_prompt_desc"), button: "" }
     : callStage === 2
     ? { icon: Phone, title: t("call_prompt_stage2_title"), desc: t("call_prompt_stage2_desc"), button: t("view_on_connections_btn") }
     : callStage === 3
@@ -1199,7 +1207,7 @@ export default function Messaging() {
             <div ref={messagesEndRef} />
           </div>
 
-          {(isLimitReached || callStage > 0) && !allCallsDone ? (
+          {(isLimitReached || callStage >= 2) && !allCallsDone ? (
             <div className="p-4 border-t">
               <Card className="p-5 text-center space-y-3 bg-primary/5 border-primary/20">
                 <callPrompt.icon className="w-6 h-6 text-primary mx-auto" />
