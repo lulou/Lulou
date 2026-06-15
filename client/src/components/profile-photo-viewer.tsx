@@ -283,7 +283,10 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
       onPointerUp={onPointerUp}
       onPointerCancel={onPointerCancel}
     >
-      {/* Peek card — neighbour photo, stationary behind the current card */}
+      {/* Peek card — neighbour photo, stationary behind the current card.
+          scale(0.94) creates ≈8 px of visible white space on each side between
+          the two cards as the current card translates during drag. Without this
+          the cards are flush — same size, same position — and there is no gap. */}
       {n > 1 && peekIdx !== safeIdx && (
         <div
           aria-hidden="true"
@@ -294,6 +297,8 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
             overflow: "hidden",
             boxShadow: CARD_SHADOW,
             zIndex: 0,
+            transform: "scale(0.94)",
+            transformOrigin: "center",
           }}
         >
           <img

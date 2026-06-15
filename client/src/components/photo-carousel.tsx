@@ -239,7 +239,12 @@ export function PhotoCarousel({
       {n > 0 && (
         <>
           {/* Peek card — neighbour photo sitting stationary behind the current card.
-              Becomes visible as the current card translates during a drag gesture. */}
+              Becomes visible as the current card translates during a drag gesture.
+              scale(0.94) makes the peek card visibly smaller than the current card,
+              creating genuine white space (≈8 px gap) between them as the current
+              card slides away — satisfying the "independent floating cards" requirement.
+              Without scaling the two cards are identical in size and position, so the
+              peek card fills flush against the current card's edge (no gap visible). */}
           {n > 1 && peekIdx !== safeIdx && (
             <div
               aria-hidden="true"
@@ -250,6 +255,8 @@ export function PhotoCarousel({
                 overflow: "hidden",
                 boxShadow: CARD_SHADOW,
                 zIndex: 0,
+                transform: "scale(0.94)",
+                transformOrigin: "center",
               }}
             >
               <img
