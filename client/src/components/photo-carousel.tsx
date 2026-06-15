@@ -4,31 +4,49 @@ import { decodedPhotos, preloadPhoto } from "@/lib/image-utils";
 import { useLanguageContext } from "@/contexts/language-context";
 
 /**
- * Drag-enabled photo carousel — stacked cards architecture.
+ * Drag-enabled photo carousel — true stacked-card architecture.
  *
- * Each photo renders as an independent floating card (position:absolute; inset:SHADOW_PAD)
- * inside a container with overflow:hidden and matching padding. The SHADOW_PAD buffer zone
- * lets the card's box-shadow bleed into the padding area and remain visible — solving the
- * previous flex-strip approach where overflow:hidden clipped all shadows entirely.
+ * THREE LAYERS (back to front):
  *
- * Two cards are rendered at any time:
- *   - Peek card (z-index 0): the neighbour photo, stationary behind the current card.
- *   - Current card (z-index 1): the displayed photo, translates with dragX in real-time.
- *     Children (caller-supplied overlays) are rendered inside the current card so the
- *     entire "card object" (photo + gradient + buttons) moves together during drag.
+ * 1. Depth layer  (z-index 0)
+ *    A static white card at translate(+5px, +5px) — always behind the current card.
+ *    Its 5 px right/bottom slivers peek out from under the current card within the
+ *    SHADOW_PAD zone, giving the physical "deck of cards" appearance at rest.
+ *    Fades to opacity:0 the instant dragging starts (so it doesn't show between
+ *    the two moving photo cards), then fades back on release.
  *
- * Gesture handling (pointer events):
- *   - Direction is decided on the first significant movement (≥5 px).
- *   - Horizontal → carousel drag, vertical → let native scroll handle it.
- *   - Rubber-band resistance (0.25×) at first/last photo edges.
- *   - Release: displacement > threshold (28% of width, max 90 px) → navigate; else snap-back.
- *   - Short taps (<10 px total movement): right half → next, left half → prev.
- *   - Non-passive touchmove prevents iOS Safari from claiming the gesture.
+ * 2. Peek card   (z-index 1)
+ *    The neighbouring photo card. Fully offscreen at rest:
+ *      forward direction → translateX(calc(100% + CARD_GAP))   (right of container)
+ *      backward direction → translateX(calc(-100% - CARD_GAP))  (left of container)
+ *    During drag it follows dragX, entering from its LEADING EDGE so the rounded
+ *    corner is the very first thing visible — NOT the card interior.  This is the
+ *    key difference from the old scale(0.94) approach which revealed the interior
+ *    and looked like a broken strip.
+ *    A constant CARD_GAP (12 px) of app background is always visible between the
+ *    two cards, maintained by the formula:
+ *      dragX ≤ 0 → translateX(calc( 100% + (CARD_GAP + dragX)px))
+ *      dragX > 0 → translateX(calc(-100% + (-CARD_GAP + dragX)px))
+ *
+ * 3. Current card  (z-index 2)
+ *    The active photo. Translates 1:1 with dragX. Children ride inside so the
+ *    entire "card object" (photo + overlays) moves as one unit during drag.
+ *
+ * Container: padding = SHADOW_PAD, overflow:hidden.
+ * CSS overflow:hidden clips at the container's OWN border-box outer edge, so the
+ * SHADOW_PAD buffer is INSIDE the clip boundary — card box-shadows are visible.
+ *
+ * Gesture: pointer events with setPointerCapture; non-passive touchmove for iOS.
+ * Rubber-band (0.25×) at first/last photo edges.
+ * Release threshold: 28% of card width, max 90 px.
+ * Taps (< 10 px movement): right-half → next, left-half → prev.
  */
 
 const SHADOW_PAD = 6;
 const CARD_RADIUS = 24;
-const CARD_SHADOW = "0 3px 14px rgba(0,0,0,0.18)";
+const CARD_SHADOW = "0 4px 18px rgba(0,0,0,0.18)";
+const CARD_GAP = 12;
+const DEPTH_OFFSET = 5;
 
 interface PhotoCarouselProps {
   photos: string[];
@@ -192,10 +210,33 @@ export function PhotoCarousel({
     setDragX(0);
   };
 
+  // Which photo sits behind: next when dragging forward/at rest, prev when dragging back.
   const peekIdxRaw = dragX < 0 ? safeIdx + 1 : safeIdx > 0 ? safeIdx - 1 : safeIdx + 1;
   const peekIdx = Math.max(0, Math.min(n - 1, peekIdxRaw));
   const currentPhoto = photos[safeIdx];
   const peekPhoto = photos[peekIdx];
+
+  // ── Peek card transform ───────────────────────────────────────────────────────
+  // calc(100%) in translateX equals the element's own rendered width
+  // (= containerWidth − 2×SHADOW_PAD, because the element has inset:SHADOW_PAD).
+  // This lets us position the peek card exactly one card-width + gap from the
+  // current card, fully offscreen at rest, without needing a JS measurement.
+  //
+  // Forward (dragX ≤ 0): next card enters from the RIGHT, leading LEFT edge first.
+  //   translateX(calc( 100% + (CARD_GAP + dragX)px))
+  //   • dragX = 0   → 100% + 12px     fully offscreen right ✓
+  //   • dragX = -50 → 100% − 38px     left rounded corner visible ✓
+  //   • gap = (containerWidth−SHADOW_PAD) − peekLeft = CARD_GAP (constant) ✓
+  //
+  // Backward (dragX > 0): prev card enters from the LEFT, leading RIGHT edge first.
+  //   translateX(calc(-100% + (-CARD_GAP + dragX)px))
+  //   • dragX = 50  → −100% + 38px    right rounded corner visible ✓
+  const peekTransform = dragX > 0
+    ? `translateX(calc(-100% + ${dragX - CARD_GAP}px))`
+    : `translateX(calc(100% + ${dragX + CARD_GAP}px))`;
+
+  const springTransition = "transform 0.32s cubic-bezier(0.25, 1, 0.5, 1)";
+  const hasNext = safeIdx < n - 1;
 
   return (
     <div
@@ -238,13 +279,35 @@ export function PhotoCarousel({
 
       {n > 0 && (
         <>
-          {/* Peek card — neighbour photo sitting stationary behind the current card.
-              Becomes visible as the current card translates during a drag gesture.
-              scale(0.94) makes the peek card visibly smaller than the current card,
-              creating genuine white space (≈8 px gap) between them as the current
-              card slides away — satisfying the "independent floating cards" requirement.
-              Without scaling the two cards are identical in size and position, so the
-              peek card fills flush against the current card's edge (no gap visible). */}
+          {/* ── Layer 1: Depth element ─────────────────────────────────────────
+              Static white card offset +5 px right and +5 px down.  Provides the
+              physical "deck of cards" appearance at rest: its right and bottom
+              5 px slivers are visible outside the current card, within the
+              SHADOW_PAD buffer zone.  Fades out instantly when dragging starts
+              so it never appears between the two moving photo cards. */}
+          {n > 1 && hasNext && (
+            <div
+              aria-hidden="true"
+              style={{
+                position: "absolute",
+                inset: SHADOW_PAD,
+                borderRadius: CARD_RADIUS,
+                background: "rgba(255,255,255,0.85)",
+                boxShadow: "0 2px 10px rgba(0,0,0,0.10)",
+                zIndex: 0,
+                transform: `translate(${DEPTH_OFFSET}px, ${DEPTH_OFFSET}px)`,
+                opacity: isDragging ? 0 : 1,
+                transition: isDragging ? "none" : "opacity 0.18s ease",
+                pointerEvents: "none",
+              }}
+            />
+          )}
+
+          {/* ── Layer 2: Peek card ────────────────────────────────────────────
+              The actual neighbouring photo card, fully offscreen at rest.
+              Enters from its LEADING EDGE during drag — the rounded corner
+              is the first thing visible, never the card interior.
+              Maintains a constant CARD_GAP of background between the two cards. */}
           {n > 1 && peekIdx !== safeIdx && (
             <div
               aria-hidden="true"
@@ -254,9 +317,10 @@ export function PhotoCarousel({
                 borderRadius: CARD_RADIUS,
                 overflow: "hidden",
                 boxShadow: CARD_SHADOW,
-                zIndex: 0,
-                transform: "scale(0.94)",
-                transformOrigin: "center",
+                zIndex: 1,
+                transform: peekTransform,
+                transition: isDragging ? "none" : springTransition,
+                willChange: "transform",
               }}
             >
               <img
@@ -276,9 +340,9 @@ export function PhotoCarousel({
             </div>
           )}
 
-          {/* Current card — the visible photo; translates with dragX.
-              Children (caller-supplied overlays) ride inside so the entire
-              card object moves as one unit during drag. */}
+          {/* ── Layer 3: Current card ─────────────────────────────────────────
+              Active photo; translates 1:1 with dragX.  Children ride inside so
+              the entire card object (photo + overlays) moves as one unit. */}
           <div
             style={{
               position: "absolute",
@@ -286,11 +350,9 @@ export function PhotoCarousel({
               borderRadius: CARD_RADIUS,
               overflow: "hidden",
               boxShadow: CARD_SHADOW,
-              zIndex: 1,
+              zIndex: 2,
               transform: `translateX(${dragX}px)`,
-              transition: isDragging
-                ? "none"
-                : "transform 0.32s cubic-bezier(0.25, 1, 0.5, 1)",
+              transition: isDragging ? "none" : springTransition,
               willChange: "transform",
             }}
           >
@@ -324,7 +386,7 @@ export function PhotoCarousel({
         </>
       )}
 
-      {/* Arrow buttons — outside the card so they don't translate during drag */}
+      {/* Arrow buttons — outside all cards so they don't translate during drag */}
       {showArrows && n > 1 && safeIdx > 0 && (
         <button
           style={{
@@ -332,7 +394,7 @@ export function PhotoCarousel({
             left: SHADOW_PAD + 6,
             top: "50%",
             transform: "translateY(-50%)",
-            zIndex: 2,
+            zIndex: 3,
             width: 36,
             height: 36,
             borderRadius: "50%",
@@ -364,7 +426,7 @@ export function PhotoCarousel({
             right: SHADOW_PAD + 6,
             top: "50%",
             transform: "translateY(-50%)",
-            zIndex: 2,
+            zIndex: 3,
             width: 36,
             height: 36,
             borderRadius: "50%",
@@ -404,7 +466,7 @@ export function PhotoCarousel({
             alignItems: "center",
             gap: 6,
             pointerEvents: "none",
-            zIndex: 2,
+            zIndex: 3,
           }}
         >
           {photos.map((_, i) => (
