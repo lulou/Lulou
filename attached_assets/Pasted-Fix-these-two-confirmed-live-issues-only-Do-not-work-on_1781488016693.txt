@@ -1,0 +1,179 @@
+Fix these two confirmed live issues only.
+
+Do not work on unrelated features.
+
+──────────────────────────────
+
+AI Conversation Starters Still Not Working
+Evidence:
+
+Brand-new match.
+
+Both users have AI Conversation Starters enabled in Settings.
+
+Chatroom shows only:
+
+“Start of your conversation”
+“You each have 15 messages. Make them count.”
+
+No AI starter suggestions.
+
+No AI panel.
+
+No generated prompts.
+
+No regenerate button.
+
+No tap-to-send suggestions.
+
+This confirms the AI starter system is still not functioning.
+
+──────────────────────────────
+
+Audit the Entire AI Starter Flow
+
+Do not guess.
+
+Trace the complete flow:
+
+Settings
+→ database
+→ API
+→ query
+→ rendering
+
+Verify:
+
+AI Conversation Starters setting is saved correctly
+AI Conversation Starters setting is loaded correctly
+Chatroom is reading the setting
+GET /api/matches/:matchId/ai-starters is called
+Endpoint returns data
+Query succeeds
+UI component renders
+Auto-open effect fires
+Fallback starters render if AI fails
+Determine exact root cause.
+
+──────────────────────────────
+
+Required Behaviour
+
+For every brand-new match:
+
+Conditions:
+
+Match has 0 messages
+AI Conversation Starters enabled
+Automatically display:
+
+3–5 AI-generated conversation starters.
+
+Examples:
+
+What’s something you’re excited about this month?
+What made you join Lulou?
+What’s your ideal Sunday?
+What’s something most people get wrong about you?
+Requirements:
+
+visible automatically
+no button required
+regenerate button
+tap-to-send
+loading state
+fallback suggestions if AI fails
+Users should never see an empty chat screen when AI starters are enabled.
+
+──────────────────────────────
+
+Same Account Logged Into Multiple Devices
+Evidence:
+
+User was already logged into Account A on laptop.
+
+User then logged into the exact same Account A on iPhone.
+
+Login succeeded.
+
+Both devices remained active simultaneously.
+
+This should not be allowed.
+
+──────────────────────────────
+
+Required Behaviour
+
+Lulou should be single-session.
+
+One account.
+One active device.
+
+Example:
+
+User logs into iPhone.
+Then logs into laptop.
+
+Result:
+
+Laptop becomes active session.
+iPhone is immediately signed out.
+OR
+iPhone receives “Logged out because your account was accessed on another device.”
+Only one active session should exist at any time.
+
+──────────────────────────────
+
+Audit Current Auth System
+
+Determine:
+
+Supabase session handling
+refresh token behaviour
+access token behaviour
+login flow
+session storage
+auth listeners
+why multiple active sessions are currently allowed
+──────────────────────────────
+
+Implement Single Active Session
+
+Requirements:
+
+New login invalidates old session
+Old device is signed out automatically
+Session change propagates immediately
+Works on mobile and desktop
+Prevent race conditions
+Prevent stale sessions remaining active
+Add user-facing message:
+
+“Your account has been signed out because it was opened on another device.”
+
+──────────────────────────────
+
+Validation
+
+Run:
+
+npm run check
+npm run build
+
+Provide:
+
+Root cause of missing AI starters
+Files changed
+Proof endpoint is called
+Proof starters render
+Root cause of multiple-device login
+Auth/session architecture audit
+Single-session implementation details
+npm run check result
+npm run build result
+Do not add new features.
+
+Only fix:
+
+AI Conversation Starters
+Multiple-device login/session enforcement

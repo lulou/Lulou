@@ -215,6 +215,20 @@ export default function Landing() {
     });
   });
 
+  // Show a one-time toast when the user was signed out because their account
+  // was accessed on another device (flag set by AuthProvider's session watcher).
+  useEffect(() => {
+    const reason = sessionStorage.getItem("lulou_forced_logout");
+    if (reason) {
+      sessionStorage.removeItem("lulou_forced_logout");
+      toast({
+        title: "You've been signed out",
+        description: "Your account was signed into on another device.",
+        variant: "destructive",
+      });
+    }
+  }, []);
+
   // ── Supabase reachability test ────────────────────────────────────────────
   type ReachResult = {
     running:     boolean;
@@ -698,6 +712,33 @@ export default function Landing() {
           authReturnedSession: !!data.session,
         });
         console.log("[AUTH] AUTH_REQUEST_SUCCESS", { mode, userId: data.user?.id });
+
+        // ── Single-session enforcement ────────────────────────────────────────
+        // Revoke all OTHER active sessions so only this device stays logged in.
+        // scope:'others' keeps the current session active and invalidates all
+        // refresh tokens on other devices.  Supabase JS v2.x supports this natively.
+        if (data.user && data.session) {
+          try {
+            await supabase.auth.signOut({ scope: "others" });
+            // Generate a unique ID for this login session. AuthProvider on other
+            // devices compares incoming broadcast sessionIds against their own
+            // stored value and signs out immediately if they differ.
+            const sessionId = `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+            localStorage.setItem("lulou_session_id", sessionId);
+            // Broadcast to any other devices that are currently online so they
+            // sign out without waiting for the next token refresh (up to 1 hr).
+            const ch = supabase.channel(`user-session:${data.user.id}`);
+            ch.subscribe(status => {
+              if (status === "SUBSCRIBED") {
+                ch.send({ type: "broadcast", event: "session_replaced", payload: { sessionId } })
+                  .catch(() => {})
+                  .finally(() => setTimeout(() => supabase.removeChannel(ch), 3000));
+              }
+            });
+          } catch {
+            // Non-fatal — login succeeds regardless
+          }
+        }
       }
 
     } catch (err: any) {

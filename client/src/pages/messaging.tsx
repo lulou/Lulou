@@ -421,7 +421,8 @@ export default function Messaging() {
   const [showCloseConfirm, setShowCloseConfirm] = useState(false);
   const [activeTab, setActiveTab] = useState<"chat" | "profile">("chat");
   const [showAIStarters, setShowAIStarters] = useState(false);
-  const autoOpenedStartersRef = useRef(false);
+  // True when the user explicitly taps X on the starters panel for this match.
+  const [userClosedStarters, setUserClosedStarters] = useState(false);
   const [filterConfirm, setFilterConfirm] = useState<{ content: string; tempId: string; categories: string[] } | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
@@ -703,26 +704,21 @@ export default function Messaging() {
 
   // ── AI Conversation Starters ──────────────────────────────────────────────
   const aiStartersEnabled = localStorage.getItem("settings_conversation_starter_ai") !== "false";
+
+  // Prefetch starters immediately when the chat opens (not gated on panel visibility)
+  // so data is ready the moment the panel appears. Cached for 5 min per match.
   const { data: aiStartersData, isFetching: isStartersFetching } = useQuery<{ starters: string[] }>({
     queryKey: ["/api/matches", matchId, "ai-starters"],
-    enabled: !!matchId && showAIStarters && aiStartersEnabled,
+    enabled: !!matchId && aiStartersEnabled,
     staleTime: 5 * 60 * 1000,
   });
-  const displayStarters = aiStartersData?.starters?.length
-    ? aiStartersData.starters
-    : FALLBACK_STARTERS;
 
-  // Auto-open starters for fresh matches (no messages yet).
-  // Uses msgsData (the dedicated fast messages query) not matchDetail.messages —
-  // matchDetail.messages is intentionally ignored as source-of-truth per the query comment.
+  // Reset starters state when navigating to a different conversation so the
+  // next fresh chat auto-shows starters correctly.
   useEffect(() => {
-    if (!aiStartersEnabled || autoOpenedStartersRef.current) return;
-    if (!msgsData) return; // wait for messages to load
-    if (msgsData.messages.length === 0) {
-      setShowAIStarters(true);
-      autoOpenedStartersRef.current = true;
-    }
-  }, [msgsData, aiStartersEnabled]);
+    setUserClosedStarters(false);
+    setShowAIStarters(false);
+  }, [matchId]);
 
   // ── Comment Filter + send helper ──────────────────────────────────────────
   const doSend = (content: string) => {
@@ -915,6 +911,25 @@ export default function Messaging() {
   const msgLimit = callStage >= 1 ? 25 : MAX_MESSAGES_PER_USER;
   const messagesRemaining = msgLimit - myMessages.length;
   const isLimitReached = messagesRemaining <= 0;
+
+  // ── Starters visibility (pure derivation — no effect needed) ──────────────
+  // Auto-shows when:
+  //   • setting is enabled
+  //   • user hasn't explicitly dismissed for this match
+  //   • messages query has loaded AND returned 0 messages (truly empty chat)
+  //   • user hasn't sent any message yet
+  //   • still in the initial pre-call stage
+  // Also shows when the user manually taps the sparkles toggle.
+  const autoShowStarters =
+    aiStartersEnabled &&
+    !userClosedStarters &&
+    !!msgsData &&
+    msgsData.messages.length === 0 &&
+    myMessages.length === 0 &&
+    callStage === 0 &&
+    !isLimitReached;
+  const startersVisible = autoShowStarters || (showAIStarters && !userClosedStarters);
+  const displayStarters = aiStartersData?.starters?.length ? aiStartersData.starters : FALLBACK_STARTERS;
 
   const statusLabel = allCallsDone ? t("status_ready_to_meet")
     : callStage === 3 ? t("status_face_call_stage")
@@ -1244,7 +1259,7 @@ export default function Messaging() {
           ) : (
             <div className="p-4 border-t" style={{ paddingBottom: "max(1rem, env(safe-area-inset-bottom, 1rem))" }}>
               {/* ── AI Starters panel — visible above the input ── */}
-              {showAIStarters && aiStartersEnabled && (
+              {startersVisible && (
                 <div className="mb-3 rounded-2xl border border-primary/15 bg-primary/[0.04] p-3 space-y-2.5" data-testid="ai-starters-panel">
                   <div className="flex items-center justify-between">
                     <p className="text-[10px] font-semibold tracking-widest uppercase text-muted-foreground flex items-center gap-1.5">
@@ -1262,7 +1277,7 @@ export default function Messaging() {
                       )}
                       <button
                         className="text-muted-foreground/60 hover:text-muted-foreground p-0.5"
-                        onClick={() => setShowAIStarters(false)}
+                        onClick={() => { setUserClosedStarters(true); setShowAIStarters(false); }}
                         data-testid="button-close-starters"
                       >
                         <X className="w-3.5 h-3.5" />
@@ -1313,8 +1328,8 @@ export default function Messaging() {
                   <Button
                     size="icon"
                     variant="ghost"
-                    onClick={() => setShowAIStarters(v => !v)}
-                    className={showAIStarters ? "text-primary" : "text-muted-foreground"}
+                    onClick={() => { setUserClosedStarters(false); setShowAIStarters(v => !v); }}
+                    className={startersVisible ? "text-primary" : "text-muted-foreground"}
                     title="Conversation starters"
                     data-testid="button-ai-starters"
                   >

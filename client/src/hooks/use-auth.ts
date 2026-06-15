@@ -182,6 +182,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setIsLoggingOut(false);
   }, []);
 
+  // ── Single-session watcher ────────────────────────────────────────────────
+  // Subscribe to the user's private session channel (declared after `logout`
+  // so the dependency array is valid). When another device logs in it broadcasts
+  // a new sessionId; if ours differs we force-sign-out with a toast on landing.
+  useEffect(() => {
+    if (!user?.id) return;
+
+    const ch = supabase.channel(`user-session:${user.id}`);
+    ch.on("broadcast", { event: "session_replaced" }, ({ payload }) => {
+      const currentSessionId = localStorage.getItem("lulou_session_id");
+      // Ignore our own broadcast (fired immediately after we log in).
+      if (!payload?.sessionId || payload.sessionId === currentSessionId) return;
+      console.log("[AUTH] FORCED_LOGOUT — account signed in on another device");
+      sessionStorage.setItem("lulou_forced_logout", "1");
+      logout();
+    }).subscribe();
+
+    return () => { supabase.removeChannel(ch); };
+  }, [user?.id, logout]);
+
   const value: AuthContextType = {
     user,
     isLoading,
