@@ -1294,12 +1294,23 @@ export class SupabaseStorage implements IStorage {
   }
 
   async getUserMessageCount(matchId: string, userId: string): Promise<number> {
-    const { count, error } = await this.sb
-      .from("messages")
-      .select("*", { count: "exact", head: true })
-      .eq("match_id", matchId)
-      .eq("sender_id", userId);
-    return count || 0;
+    // Read the per-stage DB counter (message_count_1/2) — the same value the client displays.
+    // This counter is:
+    //   • incremented by incrementMessageCount() for every text message sent
+    //   • NOT incremented for system messages (__SCHEDULE__, __VOICE__, __PHONE__)
+    //   • reset to 0 by completeCall() after each voice/video call
+    //
+    // Previously this used a raw SELECT COUNT(*) from the messages table, which counted
+    // ALL message rows (including system messages and previous-stage messages that still
+    // exist after a call). That caused the server to block 10 messages into stage 1
+    // (15 old stage-0 rows + 10 new = 25 limit) while the client showed "25 left".
+    const { data, error } = await this.sb
+      .from("matches")
+      .select("id, user1_id, message_count_1, message_count_2")
+      .eq("id", matchId)
+      .maybeSingle();
+    if (error || !data) return 0;
+    return data.user1_id === userId ? (data.message_count_1 || 0) : (data.message_count_2 || 0);
   }
 
   async incrementMessageCount(matchId: string, userId: string): Promise<void> {

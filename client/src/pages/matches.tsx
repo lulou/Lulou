@@ -1805,15 +1805,17 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
   const myPostCallCount   = isUser1 ? (detail.messageCount1 || 0) : (detail.messageCount2 || 0);
   const theirPostCallCount = isUser1 ? (detail.messageCount2 || 0) : (detail.messageCount1 || 0);
 
-  // For stage 0: use the all-time myMessages.length (correct — no counter reset at start).
-  // For stage 1+: use the per-stage DB counter (resets to 0 after each call) + localSentCount.
-  // This fixes the bug where stage-0 messages were counted against the stage-1 25-message limit,
-  // causing the badge to show e.g. "10 left" instead of "25 left" right after a call completes.
-  const myCurrentStageCount = callStage >= 1 ? myPostCallCount + localSentCount : myMessages.length;
+  // Always use the per-stage DB counter (message_count_1/2) + local optimistic sent count.
+  // message_count_1/2 is:
+  //   • incremented only for text messages (not __SCHEDULE__, __VOICE__, __PHONE__)
+  //   • reset to 0 by completeCall() after each call
+  // This is the single source of truth — both server enforcement (getUserMessageCount)
+  // and client display now use the same value, preventing any UI/server mismatch.
+  const myCurrentStageCount = myPostCallCount + localSentCount;
   const stageLimit = callStage >= 1 ? POST_CALL_THRESHOLD : effectiveLimit;
   const messagesRemaining = stageLimit - myCurrentStageCount;
   const isLimitReached = messagesRemaining <= 0;
-  const rawLimitReached = myMessages.length >= MAX_MESSAGES_PER_USER;
+  const rawLimitReached = myCurrentStageCount >= MAX_MESSAGES_PER_USER;
   const allMessages = matchDetail?.messages || [];
 
   const postCallProgressReady = callStage >= 1

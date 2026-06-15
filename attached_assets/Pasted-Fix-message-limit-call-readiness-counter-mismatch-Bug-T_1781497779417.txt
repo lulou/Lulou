@@ -1,0 +1,74 @@
+Fix message limit/call readiness counter mismatch.
+
+Bug:
+The UI counter and server enforcement are out of sync.
+
+Evidence:
+1. Post-call stage:
+The UI shows there are still messages left, but when sending, server returns:
+"Message limit reached. Time to plan your date!"
+
+This happens before the full 25 messages each are completed.
+
+2. First call stage:
+The UI showed the green "ready for call" button, but after clicking it redirected back to messages because there were still 2 messages left.
+
+This means client-side readiness and server-side readiness are using different counts.
+
+Required:
+There must be one single source of truth for message counts.
+
+Audit:
+- matches.tsx
+- messaging.tsx
+- server/routes.ts message send route
+- call readiness logic
+- call scheduling/start logic
+- messageCount1/messageCount2
+- myMessages.length
+- system messages vs user messages
+- optimistic local counts
+- callStage transitions
+
+Find exactly why:
+- UI says ready but server says not ready
+- UI says messages remain but server says limit reached
+
+Expected:
+Stage 0:
+- exactly 15 user-sent messages each
+- call unlocks only when server and client agree
+- button does not turn green early
+
+Stage 1 after call:
+- exactly 25 user-sent messages each
+- counter starts at 25 after call
+- decreases by 1 per real user message
+- server blocks only after 25 sent by that user
+- date-planning appears only when both users have reached 25
+
+Important:
+Do not count:
+- system messages
+- call event messages
+- AI suggestions
+- deleted/failed optimistic messages
+- duplicate realtime messages
+
+Required fix:
+- Use the same server-provided per-stage counters everywhere.
+- Client UI should display counters from the same values the server enforces.
+- Remove any use of allMessages.length or myMessages.length for progression counters if it causes mismatch.
+- After sending a message, invalidate/refetch the match detail so counters stay correct.
+
+Report:
+1. Exact root cause
+2. Server count logic
+3. Client count logic before and after
+4. Files changed
+5. Proof stage 0 unlocks at exactly 15 each
+6. Proof stage 1 blocks only after exactly 25 each
+7. npm run check result
+8. npm run build result
+
+Do not work on unrelated features.
