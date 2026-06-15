@@ -16,43 +16,37 @@ interface ProfilePhotoViewerProps {
 }
 
 /**
- * Profile photo viewer — true stacked-card architecture.
+ * Profile photo viewer — floating-card architecture.
  *
- * THREE LAYERS (back to front):
+ * CONTAINER STRUCTURE (back to front):
  *
- * 1. Depth layer  (z-index 0)
- *    A static white/light card offset +5 px right and +5 px down from the current
- *    card position. Its right and bottom 5 px slivers peek out from under the
- *    current card within the SHADOW_PAD buffer zone, giving the physical "deck of
- *    cards" appearance at rest. Fades to opacity:0 the instant dragging starts so
- *    it never appears between the two moving photo cards.
+ * 1. Outer div  — pure positioning/gesture layer.
+ *    No overflow, no padding, no background.  Completely invisible.
+ *    Pointer events and ref live here.
  *
- * 2. Peek card   (z-index 1)
- *    The neighbouring photo card. Fully offscreen at rest:
- *      forward → translateX(calc( 100% + CARD_GAP))   (just right of container)
- *      backward → translateX(calc(-100% − CARD_GAP))   (just left of container)
- *    During drag it enters from its LEADING EDGE, so the rounded corner is visible
- *    first — NOT the card interior.  This is the critical difference from the old
- *    scale(0.94) approach which revealed an interior strip with no rounded corner.
- *    A constant CARD_GAP (12 px) of app background stays visible between the cards.
+ * 2. Shadow element  — position:absolute; inset:0; borderRadius:CARD_RADIUS
+ *    Box-shadow lives OUTSIDE the clip div → never clipped by overflow:hidden.
+ *    Bleeds freely into the surrounding page on all sides.
  *
- * 3. Current card  (z-index 2)
- *    The active photo + gradient + nameSlot + action inside, so they all clip to
- *    the card's rounded corners and move together during drag.
+ * 3. Depth element  — white card at translate(+5px, +5px).
+ *    Outside the clip div → its right/bottom 5 px slivers are visible at rest
+ *    (stacked-deck feel).  Fades out when dragging starts.
  *
- * 4. Photo bubble overlay (z-index 5)
- *    Plays the entrance animation on tap/arrow navigation only (not on drag).
+ * 4. Clip div  — position:absolute; inset:0; overflow:hidden; borderRadius:24.
+ *    Sole purpose: hide the offscreen peek card.  No padding, no background.
+ *    Cards at inset:0 → no cream/white gap at any edge.
  *
- * Container: padding = SHADOW_PAD, overflow:hidden.
- * The SHADOW_PAD buffer is INSIDE the clip boundary → card box-shadows are visible.
+ * 5. Peek card  (z:1, inside clip div) — enters from leading edge during drag.
+ * 6. Current card  (z:2, inside clip div) — photo + gradient + nameSlot + action.
+ * 7. Photo overlay  (z:5, inside clip div) — entrance animation on tap.
  *
- * Peek card formula:
+ * 8. Arrows / dots  — outside clip div, zIndex:10, always visible.
+ *
+ * Peek card formula (calc(100%) = clip-div width):
  *   dragX ≤ 0 → translateX(calc( 100% + (CARD_GAP + dragX)px))
  *   dragX > 0 → translateX(calc(-100% + (-CARD_GAP + dragX)px))
- * calc(100%) = element's own rendered width (= containerWidth − 2×SHADOW_PAD).
  */
 
-const SHADOW_PAD = 6;
 const CARD_RADIUS = 24;
 const CARD_SHADOW = "0 4px 18px rgba(0,0,0,0.18)";
 const CARD_GAP = 12;
@@ -119,21 +113,18 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
     };
   }, []);
 
-  // Reset to first photo when profile changes.
   useEffect(() => {
     setInternalIdx(0);
     setDragX(0);
     setPhotoOverlay(null);
   }, [photos]);
 
-  // Preload neighbours.
   useEffect(() => {
     [safeIdx - 1, safeIdx, safeIdx + 1].forEach(i => {
       if (photos[i]) preloadPhoto(photos[i]);
     });
   }, [photos, safeIdx]);
 
-  // Non-passive touchmove for iOS Safari horizontal gesture claim.
   useEffect(() => {
     const el = containerRef.current;
     if (!el || n <= 1) return;
@@ -192,7 +183,6 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
     g.pointerId = null;
 
     if (!isDraggingRef.current) {
-      // Tap — navigate with bubble animation.
       const el = containerRef.current;
       if (el && n > 1) {
         const rect = el.getBoundingClientRect();
@@ -204,7 +194,6 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
       return;
     }
 
-    // Drag — navigate without bubble (peek card already showed destination).
     const containerWidth = containerRef.current?.offsetWidth ?? 320;
     const threshold = Math.min(containerWidth * 0.28, 90);
     const dx = finalClientX - g.startX;
@@ -230,17 +219,12 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
     setDragX(0);
   };
 
-  // Which photo sits behind: next when dragging forward/at rest, prev when dragging back.
   const peekIdxRaw = dragX < 0 ? safeIdx + 1 : safeIdx > 0 ? safeIdx - 1 : safeIdx + 1;
   const peekIdx = Math.max(0, Math.min(n - 1, peekIdxRaw));
   const currentPhoto = photos[safeIdx] ?? "";
   const peekPhoto = photos[peekIdx] ?? "";
 
-  // ── Peek card transform ───────────────────────────────────────────────────────
-  // calc(100%) = element's own rendered width (containerWidth − 2×SHADOW_PAD).
-  // Forward (dragX ≤ 0): next card enters from RIGHT, leading left edge first.
-  // Backward (dragX > 0): prev card enters from LEFT, leading right edge first.
-  // Gap between cards is always CARD_GAP = 12 px (constant throughout drag).
+  // calc(100%) = element's own width = clip-div width = outer-div width.
   const peekTransform = dragX > 0
     ? `translateX(calc(-100% + ${dragX - CARD_GAP}px))`
     : `translateX(calc(100% + ${dragX + CARD_GAP}px))`;
@@ -248,7 +232,7 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
   const springTransition = "transform 0.32s cubic-bezier(0.25, 1, 0.5, 1)";
   const hasNext = safeIdx < n - 1;
 
-  // ── Loading shimmer ──────────────────────────────────────────────────────────
+  // ── Loading shimmer ────────────────────────────────────────────────────────
   if (isLoading) {
     return (
       <div
@@ -266,7 +250,7 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
     );
   }
 
-  // ── Empty state ──────────────────────────────────────────────────────────────
+  // ── Empty state ────────────────────────────────────────────────────────────
   if (n === 0) {
     return (
       <div
@@ -285,17 +269,14 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
     );
   }
 
-  // ── Photo carousel ───────────────────────────────────────────────────────────
+  // ── Photo carousel ─────────────────────────────────────────────────────────
   return (
     <div
       ref={containerRef}
       className={`relative w-full select-none ${className}`}
       style={{
         height,
-        background: "transparent",
         touchAction: "pan-y",
-        padding: SHADOW_PAD,
-        overflow: "hidden",
       }}
       data-testid="profile-photo-viewer"
       onPointerDown={onPointerDown}
@@ -303,16 +284,30 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
       onPointerUp={onPointerUp}
       onPointerCancel={onPointerCancel}
     >
-      {/* ── Layer 1: Depth element ──────────────────────────────────────────────
-          Static light card offset right+down, visible as thin slivers at the
-          card edges at rest → physical "stacked cards" feel without any drag.
-          Fades out when dragging so it doesn't intrude between the photo cards. */}
+      {/* ── Shadow element ───────────────────────────────────────────────────
+          Transparent div whose box-shadow bleeds freely around the card.
+          Outside the clip div so it is never clipped by overflow:hidden. */}
+      <div
+        aria-hidden="true"
+        style={{
+          position: "absolute",
+          inset: 0,
+          borderRadius: CARD_RADIUS,
+          boxShadow: CARD_SHADOW,
+          pointerEvents: "none",
+        }}
+      />
+
+      {/* ── Depth element ────────────────────────────────────────────────────
+          White card offset +5 px right/down.  Outside the clip div so the
+          5 px slivers ARE visible at rest → stacked-deck feel.
+          Fades out when dragging so it never appears between moving cards. */}
       {n > 1 && hasNext && (
         <div
           aria-hidden="true"
           style={{
             position: "absolute",
-            inset: SHADOW_PAD,
+            inset: 0,
             borderRadius: CARD_RADIUS,
             background: "rgba(255,255,255,0.85)",
             boxShadow: "0 2px 10px rgba(0,0,0,0.10)",
@@ -325,161 +320,167 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
         />
       )}
 
-      {/* ── Layer 2: Peek card ──────────────────────────────────────────────────
-          Neighbouring photo, fully offscreen at rest. Enters from its leading
-          edge during drag — the rounded corner arrives first, never a flat strip
-          of interior content. Constant CARD_GAP between the two cards. */}
-      {n > 1 && peekIdx !== safeIdx && (
+      {/* ── Clip div ─────────────────────────────────────────────────────────
+          overflow:hidden hides the offscreen peek card only.
+          No padding (no cream frame), no background (no visible box).
+          Cards at inset:0 → edge-to-edge, visually seamless. */}
+      <div
+        style={{
+          position: "absolute",
+          inset: 0,
+          overflow: "hidden",
+          borderRadius: CARD_RADIUS,
+          zIndex: 1,
+        }}
+      >
+        {/* Peek card */}
+        {n > 1 && peekIdx !== safeIdx && (
+          <div
+            aria-hidden="true"
+            style={{
+              position: "absolute",
+              inset: 0,
+              borderRadius: CARD_RADIUS,
+              overflow: "hidden",
+              zIndex: 1,
+              transform: peekTransform,
+              transition: isDragging ? "none" : springTransition,
+              willChange: "transform",
+            }}
+          >
+            <img
+              src={peekPhoto}
+              alt=""
+              draggable={false}
+              style={{
+                width: "100%",
+                height: "100%",
+                objectFit: "cover",
+                objectPosition: "center top",
+                display: "block",
+                userSelect: "none",
+                pointerEvents: "none",
+              }}
+            />
+          </div>
+        )}
+
+        {/* Current card */}
         <div
-          aria-hidden="true"
           style={{
             position: "absolute",
-            inset: SHADOW_PAD,
+            inset: 0,
             borderRadius: CARD_RADIUS,
             overflow: "hidden",
-            boxShadow: CARD_SHADOW,
-            zIndex: 1,
-            transform: peekTransform,
+            zIndex: 2,
+            transform: `translateX(${dragX}px)`,
             transition: isDragging ? "none" : springTransition,
             willChange: "transform",
           }}
         >
           <img
-            src={peekPhoto}
-            alt=""
+            src={currentPhoto}
+            alt={`Photo ${safeIdx + 1}`}
+            loading="eager"
+            decoding="async"
             draggable={false}
             style={{
+              position: "absolute",
+              inset: 0,
               width: "100%",
               height: "100%",
               objectFit: "cover",
               objectPosition: "center top",
+              opacity: decodedPhotos.has(currentPhoto) ? 1 : 0,
+              transition: "opacity 0.08s ease",
               display: "block",
               userSelect: "none",
               pointerEvents: "none",
             }}
+            onLoad={e => {
+              decodedPhotos.add(currentPhoto);
+              (e.currentTarget as HTMLImageElement).style.opacity = "1";
+            }}
+            data-testid={`img-carousel-photo-${safeIdx}`}
           />
+
+          {/* Bottom gradient */}
+          <div
+            aria-hidden="true"
+            style={{
+              position: "absolute",
+              inset: 0,
+              pointerEvents: "none",
+              background:
+                "linear-gradient(to top, rgba(0,0,0,0.62) 0%, rgba(0,0,0,0.1) 48%, transparent 68%)",
+              zIndex: 1,
+            }}
+          />
+
+          {/* nameSlot */}
+          {nameSlot && (
+            <div
+              style={{
+                position: "absolute",
+                bottom: 50,
+                left: 12,
+                right: 12,
+                zIndex: 2,
+                pointerEvents: "none",
+              }}
+            >
+              <div style={{ pointerEvents: "auto" }}>{nameSlot}</div>
+            </div>
+          )}
+
+          {/* action */}
+          {action && (
+            <div
+              style={{
+                position: "absolute",
+                bottom: 12,
+                right: 10,
+                zIndex: 3,
+                pointerEvents: "none",
+              }}
+            >
+              <div style={{ pointerEvents: "auto" }}>{action}</div>
+            </div>
+          )}
         </div>
-      )}
 
-      {/* ── Layer 3: Current card ───────────────────────────────────────────────
-          Active photo + gradient + nameSlot + action inside, all clipped to the
-          card's rounded corners and moving together as one unit during drag. */}
-      <div
-        style={{
-          position: "absolute",
-          inset: SHADOW_PAD,
-          borderRadius: CARD_RADIUS,
-          overflow: "hidden",
-          boxShadow: CARD_SHADOW,
-          zIndex: 2,
-          transform: `translateX(${dragX}px)`,
-          transition: isDragging ? "none" : springTransition,
-          willChange: "transform",
-        }}
-      >
-        <img
-          src={currentPhoto}
-          alt={`Photo ${safeIdx + 1}`}
-          loading="eager"
-          decoding="async"
-          draggable={false}
-          style={{
-            position: "absolute",
-            inset: 0,
-            width: "100%",
-            height: "100%",
-            objectFit: "cover",
-            objectPosition: "center top",
-            opacity: decodedPhotos.has(currentPhoto) ? 1 : 0,
-            transition: "opacity 0.08s ease",
-            display: "block",
-            userSelect: "none",
-            pointerEvents: "none",
-          }}
-          onLoad={e => {
-            decodedPhotos.add(currentPhoto);
-            (e.currentTarget as HTMLImageElement).style.opacity = "1";
-          }}
-          data-testid={`img-carousel-photo-${safeIdx}`}
-        />
-
-        {/* Bottom gradient — clips to card's rounded corners */}
-        <div
-          aria-hidden="true"
-          style={{
-            position: "absolute",
-            inset: 0,
-            pointerEvents: "none",
-            background:
-              "linear-gradient(to top, rgba(0,0,0,0.62) 0%, rgba(0,0,0,0.1) 48%, transparent 68%)",
-            zIndex: 1,
-          }}
-        />
-
-        {/* nameSlot — inside the card so it clips at rounded corners */}
-        {nameSlot && (
+        {/* Photo bubble overlay — entrance animation on tap/arrow nav */}
+        {photoOverlay && (
           <div
+            key={photoOverlay.id}
+            aria-hidden="true"
             style={{
               position: "absolute",
-              bottom: 50,
-              left: 12,
-              right: 12,
-              zIndex: 2,
-              pointerEvents: "none",
+              inset: 0,
+              zIndex: 5,
+              borderRadius: CARD_RADIUS,
+              overflow: "hidden",
+              animation: `${photoOverlay.direction === "fwd" ? "photoEnterRight" : "photoEnterLeft"} 0.42s cubic-bezier(0.16, 1, 0.3, 1) both`,
             }}
           >
-            <div style={{ pointerEvents: "auto" }}>{nameSlot}</div>
-          </div>
-        )}
-
-        {/* action — bottom-right of the card */}
-        {action && (
-          <div
-            style={{
-              position: "absolute",
-              bottom: 12,
-              right: 10,
-              zIndex: 3,
-              pointerEvents: "none",
-            }}
-          >
-            <div style={{ pointerEvents: "auto" }}>{action}</div>
+            <img
+              src={photoOverlay.src}
+              alt=""
+              draggable={false}
+              style={{
+                width: "100%",
+                height: "100%",
+                objectFit: "cover",
+                objectPosition: "center top",
+                display: "block",
+              }}
+            />
           </div>
         )}
       </div>
 
-      {/* ── Layer 4: Photo bubble overlay ───────────────────────────────────────
-          Plays the entrance animation on tap/arrow navigation.  Positioned at the
-          same inset as the current card so it clips at identical rounded corners. */}
-      {photoOverlay && (
-        <div
-          key={photoOverlay.id}
-          aria-hidden="true"
-          style={{
-            position: "absolute",
-            inset: SHADOW_PAD,
-            zIndex: 5,
-            borderRadius: CARD_RADIUS,
-            overflow: "hidden",
-            animation: `${photoOverlay.direction === "fwd" ? "photoEnterRight" : "photoEnterLeft"} 0.42s cubic-bezier(0.16, 1, 0.3, 1) both`,
-          }}
-        >
-          <img
-            src={photoOverlay.src}
-            alt=""
-            draggable={false}
-            style={{
-              width: "100%",
-              height: "100%",
-              objectFit: "cover",
-              objectPosition: "center top",
-              display: "block",
-            }}
-          />
-        </div>
-      )}
-
-      {/* Arrow buttons — outside all cards, stay fixed during drag */}
+      {/* ── Arrow buttons ────────────────────────────────────────────────────
+          Outside clip div → always visible over the photo, never clipped. */}
       {n > 1 && safeIdx > 0 && (
         <button
           onClick={e => {
@@ -491,7 +492,7 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
           data-testid="button-viewer-prev"
           style={{
             position: "absolute",
-            left: SHADOW_PAD + 4,
+            left: 10,
             top: "50%",
             transform: "translateY(-50%)",
             zIndex: 10,
@@ -522,7 +523,7 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
           data-testid="button-viewer-next"
           style={{
             position: "absolute",
-            right: SHADOW_PAD + 4,
+            right: 10,
             top: "50%",
             transform: "translateY(-50%)",
             zIndex: 10,
@@ -543,14 +544,15 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
         </button>
       )}
 
-      {/* Dot indicators — outside all cards, stationary during drag */}
+      {/* ── Dot indicators ───────────────────────────────────────────────────
+          Outside clip div → stationary during drag; always visible. */}
       {n > 1 && (
         <div
           aria-hidden="true"
           style={{
             position: "absolute",
-            bottom: SHADOW_PAD + 8,
-            left: SHADOW_PAD + 16,
+            bottom: 14,
+            left: 22,
             display: "flex",
             alignItems: "center",
             gap: 6,

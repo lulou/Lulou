@@ -4,45 +4,47 @@ import { decodedPhotos, preloadPhoto } from "@/lib/image-utils";
 import { useLanguageContext } from "@/contexts/language-context";
 
 /**
- * Drag-enabled photo carousel — true stacked-card architecture.
+ * Drag-enabled photo carousel — floating-card architecture.
  *
- * THREE LAYERS (back to front):
+ * CONTAINER STRUCTURE (back to front):
  *
- * 1. Depth layer  (z-index 0)
- *    A static white card at translate(+5px, +5px) — always behind the current card.
- *    Its 5 px right/bottom slivers peek out from under the current card within the
- *    SHADOW_PAD zone, giving the physical "deck of cards" appearance at rest.
- *    Fades to opacity:0 the instant dragging starts (so it doesn't show between
- *    the two moving photo cards), then fades back on release.
+ * 1. Outer div  — pure positioning/gesture layer.
+ *    No overflow, no padding, no background.  Completely invisible.
+ *    Pointer events and ref live here so getBoundingClientRect() returns
+ *    the true card bounds.
  *
- * 2. Peek card   (z-index 1)
- *    The neighbouring photo card. Fully offscreen at rest:
- *      forward direction → translateX(calc(100% + CARD_GAP))   (right of container)
- *      backward direction → translateX(calc(-100% - CARD_GAP))  (left of container)
- *    During drag it follows dragX, entering from its LEADING EDGE so the rounded
- *    corner is the very first thing visible — NOT the card interior.  This is the
- *    key difference from the old scale(0.94) approach which revealed the interior
- *    and looked like a broken strip.
- *    A constant CARD_GAP (12 px) of app background is always visible between the
- *    two cards, maintained by the formula:
+ * 2. Shadow element  — position:absolute; inset:0; borderRadius:CARD_RADIUS
+ *    Provides the floating box-shadow.  Lives OUTSIDE the clip div so the
+ *    shadow is never clipped by overflow:hidden and bleeds freely into the
+ *    surrounding page (top, bottom, sides).
+ *
+ * 3. Depth element  — white card at translate(+5px, +5px).
+ *    Lives outside the clip div so its right/bottom 5 px slivers peek out
+ *    at rest → physical "deck of cards" feel.  Fades out when dragging.
+ *
+ * 4. Clip div  — position:absolute; inset:0; overflow:hidden; borderRadius:24.
+ *    Sole purpose: hide the offscreen peek card.  No padding, no background.
+ *    Cards sit at inset:0 inside → no cream/white gap between card edges and
+ *    the clip boundary.
+ *
+ * 5. Peek card  (z-index 1, inside clip div)
+ *    Fully offscreen at rest.  Enters from its LEADING EDGE — rounded corner
+ *    first — during drag.  Constant CARD_GAP (12 px) between cards:
  *      dragX ≤ 0 → translateX(calc( 100% + (CARD_GAP + dragX)px))
  *      dragX > 0 → translateX(calc(-100% + (-CARD_GAP + dragX)px))
+ *    calc(100%) = element's own rendered width = clip-div width.
  *
- * 3. Current card  (z-index 2)
- *    The active photo. Translates 1:1 with dragX. Children ride inside so the
- *    entire "card object" (photo + overlays) moves as one unit during drag.
+ * 6. Current card  (z-index 2, inside clip div)
+ *    Active photo.  Translates 1:1 with dragX.  Children ride inside.
  *
- * Container: padding = SHADOW_PAD, overflow:hidden.
- * CSS overflow:hidden clips at the container's OWN border-box outer edge, so the
- * SHADOW_PAD buffer is INSIDE the clip boundary — card box-shadows are visible.
+ * 7. Arrows / dots  — outside clip div, zIndex:3+, always visible.
  *
- * Gesture: pointer events with setPointerCapture; non-passive touchmove for iOS.
+ * Gesture: pointer events + setPointerCapture; non-passive touchmove for iOS.
  * Rubber-band (0.25×) at first/last photo edges.
  * Release threshold: 28% of card width, max 90 px.
  * Taps (< 10 px movement): right-half → next, left-half → prev.
  */
 
-const SHADOW_PAD = 6;
 const CARD_RADIUS = 24;
 const CARD_SHADOW = "0 4px 18px rgba(0,0,0,0.18)";
 const CARD_GAP = 12;
@@ -210,27 +212,13 @@ export function PhotoCarousel({
     setDragX(0);
   };
 
-  // Which photo sits behind: next when dragging forward/at rest, prev when dragging back.
   const peekIdxRaw = dragX < 0 ? safeIdx + 1 : safeIdx > 0 ? safeIdx - 1 : safeIdx + 1;
   const peekIdx = Math.max(0, Math.min(n - 1, peekIdxRaw));
   const currentPhoto = photos[safeIdx];
   const peekPhoto = photos[peekIdx];
 
-  // ── Peek card transform ───────────────────────────────────────────────────────
-  // calc(100%) in translateX equals the element's own rendered width
-  // (= containerWidth − 2×SHADOW_PAD, because the element has inset:SHADOW_PAD).
-  // This lets us position the peek card exactly one card-width + gap from the
-  // current card, fully offscreen at rest, without needing a JS measurement.
-  //
-  // Forward (dragX ≤ 0): next card enters from the RIGHT, leading LEFT edge first.
-  //   translateX(calc( 100% + (CARD_GAP + dragX)px))
-  //   • dragX = 0   → 100% + 12px     fully offscreen right ✓
-  //   • dragX = -50 → 100% − 38px     left rounded corner visible ✓
-  //   • gap = (containerWidth−SHADOW_PAD) − peekLeft = CARD_GAP (constant) ✓
-  //
-  // Backward (dragX > 0): prev card enters from the LEFT, leading RIGHT edge first.
-  //   translateX(calc(-100% + (-CARD_GAP + dragX)px))
-  //   • dragX = 50  → −100% + 38px    right rounded corner visible ✓
+  // Peek card is fully offscreen at rest; enters from its leading edge during drag.
+  // calc(100%) = element's own width = clip-div width = outer-div width.
   const peekTransform = dragX > 0
     ? `translateX(calc(-100% + ${dragX - CARD_GAP}px))`
     : `translateX(calc(100% + ${dragX + CARD_GAP}px))`;
@@ -244,10 +232,7 @@ export function PhotoCarousel({
       className={`relative select-none ${className}`}
       style={{
         height,
-        background: "transparent",
         touchAction: "pan-y",
-        padding: SHADOW_PAD,
-        overflow: "hidden",
         ...style,
       }}
       data-testid="photo-carousel"
@@ -256,12 +241,12 @@ export function PhotoCarousel({
       onPointerUp={onPointerUp}
       onPointerCancel={onPointerCancel}
     >
-      {/* Empty state */}
+      {/* ── Empty state ────────────────────────────────────────────────────────── */}
       {n === 0 && (
         <div
           style={{
             position: "absolute",
-            inset: SHADOW_PAD,
+            inset: 0,
             borderRadius: CARD_RADIUS,
             overflow: "hidden",
             display: "flex",
@@ -279,18 +264,31 @@ export function PhotoCarousel({
 
       {n > 0 && (
         <>
-          {/* ── Layer 1: Depth element ─────────────────────────────────────────
-              Static white card offset +5 px right and +5 px down.  Provides the
-              physical "deck of cards" appearance at rest: its right and bottom
-              5 px slivers are visible outside the current card, within the
-              SHADOW_PAD buffer zone.  Fades out instantly when dragging starts
-              so it never appears between the two moving photo cards. */}
+          {/* ── Shadow element ─────────────────────────────────────────────────
+              Transparent div whose box-shadow bleeds freely into the surrounding
+              page.  Lives OUTSIDE the clip div so overflow:hidden never clips it.
+              The shadow follows the card's exact 24 px rounded shape. */}
+          <div
+            aria-hidden="true"
+            style={{
+              position: "absolute",
+              inset: 0,
+              borderRadius: CARD_RADIUS,
+              boxShadow: CARD_SHADOW,
+              pointerEvents: "none",
+            }}
+          />
+
+          {/* ── Depth element ──────────────────────────────────────────────────
+              White card offset +5 px right/down.  Lives OUTSIDE the clip div so
+              its right and bottom 5 px slivers ARE visible → stacked-deck feel.
+              Fades out when dragging so it doesn't appear between moving cards. */}
           {n > 1 && hasNext && (
             <div
               aria-hidden="true"
               style={{
                 position: "absolute",
-                inset: SHADOW_PAD,
+                inset: 0,
                 borderRadius: CARD_RADIUS,
                 background: "rgba(255,255,255,0.85)",
                 boxShadow: "0 2px 10px rgba(0,0,0,0.10)",
@@ -303,186 +301,194 @@ export function PhotoCarousel({
             />
           )}
 
-          {/* ── Layer 2: Peek card ────────────────────────────────────────────
-              The actual neighbouring photo card, fully offscreen at rest.
-              Enters from its LEADING EDGE during drag — the rounded corner
-              is the first thing visible, never the card interior.
-              Maintains a constant CARD_GAP of background between the two cards. */}
-          {n > 1 && peekIdx !== safeIdx && (
+          {/* ── Clip div ───────────────────────────────────────────────────────
+              overflow:hidden hides the offscreen peek card.
+              No padding (no cream/white gap), no background (no frame).
+              Cards sit at inset:0 → edge-to-edge, visually seamless. */}
+          <div
+            style={{
+              position: "absolute",
+              inset: 0,
+              overflow: "hidden",
+              borderRadius: CARD_RADIUS,
+              zIndex: 1,
+            }}
+          >
+            {/* Peek card */}
+            {n > 1 && peekIdx !== safeIdx && (
+              <div
+                aria-hidden="true"
+                style={{
+                  position: "absolute",
+                  inset: 0,
+                  borderRadius: CARD_RADIUS,
+                  overflow: "hidden",
+                  zIndex: 1,
+                  transform: peekTransform,
+                  transition: isDragging ? "none" : springTransition,
+                  willChange: "transform",
+                }}
+              >
+                <img
+                  src={peekPhoto}
+                  alt=""
+                  draggable={false}
+                  style={{
+                    width: "100%",
+                    height: "100%",
+                    objectFit: "cover",
+                    objectPosition: "center top",
+                    display: "block",
+                    userSelect: "none",
+                    pointerEvents: "none",
+                  }}
+                />
+              </div>
+            )}
+
+            {/* Current card */}
             <div
-              aria-hidden="true"
               style={{
                 position: "absolute",
-                inset: SHADOW_PAD,
+                inset: 0,
                 borderRadius: CARD_RADIUS,
                 overflow: "hidden",
-                boxShadow: CARD_SHADOW,
-                zIndex: 1,
-                transform: peekTransform,
+                zIndex: 2,
+                transform: `translateX(${dragX}px)`,
                 transition: isDragging ? "none" : springTransition,
                 willChange: "transform",
               }}
             >
               <img
-                src={peekPhoto}
-                alt=""
+                src={currentPhoto}
+                alt={`Photo ${safeIdx + 1}`}
+                loading="eager"
+                decoding="async"
                 draggable={false}
                 style={{
+                  position: "absolute",
+                  inset: 0,
                   width: "100%",
                   height: "100%",
                   objectFit: "cover",
                   objectPosition: "center top",
+                  opacity: decodedPhotos.has(currentPhoto) ? 1 : 0,
+                  transition: "opacity 0.08s ease",
                   display: "block",
                   userSelect: "none",
                   pointerEvents: "none",
                 }}
+                onLoad={e => {
+                  decodedPhotos.add(currentPhoto);
+                  (e.currentTarget as HTMLImageElement).style.opacity = "1";
+                }}
+                data-testid={`img-carousel-photo-${safeIdx}`}
               />
+              {children}
             </div>
-          )}
+          </div>
 
-          {/* ── Layer 3: Current card ─────────────────────────────────────────
-              Active photo; translates 1:1 with dragX.  Children ride inside so
-              the entire card object (photo + overlays) moves as one unit. */}
-          <div
-            style={{
-              position: "absolute",
-              inset: SHADOW_PAD,
-              borderRadius: CARD_RADIUS,
-              overflow: "hidden",
-              boxShadow: CARD_SHADOW,
-              zIndex: 2,
-              transform: `translateX(${dragX}px)`,
-              transition: isDragging ? "none" : springTransition,
-              willChange: "transform",
-            }}
-          >
-            <img
-              src={currentPhoto}
-              alt={`Photo ${safeIdx + 1}`}
-              loading="eager"
-              decoding="async"
-              draggable={false}
+          {/* ── Arrow buttons ─────────────────────────────────────────────────
+              Outside clip div → never clipped; always visible over the photo. */}
+          {showArrows && n > 1 && safeIdx > 0 && (
+            <button
               style={{
                 position: "absolute",
-                inset: 0,
-                width: "100%",
-                height: "100%",
-                objectFit: "cover",
-                objectPosition: "center top",
-                opacity: decodedPhotos.has(currentPhoto) ? 1 : 0,
-                transition: "opacity 0.08s ease",
-                display: "block",
-                userSelect: "none",
-                pointerEvents: "none",
+                left: 10,
+                top: "50%",
+                transform: "translateY(-50%)",
+                zIndex: 3,
+                width: 36,
+                height: 36,
+                borderRadius: "50%",
+                background: "rgba(0,0,0,0.38)",
+                backdropFilter: "blur(8px)",
+                WebkitBackdropFilter: "blur(8px)",
+                border: "1px solid rgba(255,255,255,0.18)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                cursor: "pointer",
               }}
-              onLoad={e => {
-                decodedPhotos.add(currentPhoto);
-                (e.currentTarget as HTMLImageElement).style.opacity = "1";
-              }}
-              data-testid={`img-carousel-photo-${safeIdx}`}
-            />
-            {children}
-          </div>
-        </>
-      )}
-
-      {/* Arrow buttons — outside all cards so they don't translate during drag */}
-      {showArrows && n > 1 && safeIdx > 0 && (
-        <button
-          style={{
-            position: "absolute",
-            left: SHADOW_PAD + 6,
-            top: "50%",
-            transform: "translateY(-50%)",
-            zIndex: 3,
-            width: 36,
-            height: 36,
-            borderRadius: "50%",
-            background: "rgba(0,0,0,0.38)",
-            backdropFilter: "blur(8px)",
-            WebkitBackdropFilter: "blur(8px)",
-            border: "1px solid rgba(255,255,255,0.18)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            cursor: "pointer",
-          }}
-          onPointerDown={e => e.stopPropagation()}
-          onClick={() => goTo(safeIdx - 1)}
-          data-testid="button-carousel-prev"
-          aria-label="Previous photo"
-        >
-          {isRTL ? (
-            <ChevronRight style={{ width: 16, height: 16, color: "white" }} />
-          ) : (
-            <ChevronLeft style={{ width: 16, height: 16, color: "white" }} />
+              onPointerDown={e => e.stopPropagation()}
+              onClick={() => goTo(safeIdx - 1)}
+              data-testid="button-carousel-prev"
+              aria-label="Previous photo"
+            >
+              {isRTL ? (
+                <ChevronRight style={{ width: 16, height: 16, color: "white" }} />
+              ) : (
+                <ChevronLeft style={{ width: 16, height: 16, color: "white" }} />
+              )}
+            </button>
           )}
-        </button>
-      )}
-      {showArrows && n > 1 && safeIdx < n - 1 && (
-        <button
-          style={{
-            position: "absolute",
-            right: SHADOW_PAD + 6,
-            top: "50%",
-            transform: "translateY(-50%)",
-            zIndex: 3,
-            width: 36,
-            height: 36,
-            borderRadius: "50%",
-            background: "rgba(0,0,0,0.38)",
-            backdropFilter: "blur(8px)",
-            WebkitBackdropFilter: "blur(8px)",
-            border: "1px solid rgba(255,255,255,0.18)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            cursor: "pointer",
-          }}
-          onPointerDown={e => e.stopPropagation()}
-          onClick={() => goTo(safeIdx + 1)}
-          data-testid="button-carousel-next"
-          aria-label="Next photo"
-        >
-          {isRTL ? (
-            <ChevronLeft style={{ width: 16, height: 16, color: "white" }} />
-          ) : (
-            <ChevronRight style={{ width: 16, height: 16, color: "white" }} />
-          )}
-        </button>
-      )}
-
-      {/* Dot indicators */}
-      {showDots && n > 1 && (
-        <div
-          aria-hidden="true"
-          style={{
-            position: "absolute",
-            bottom: SHADOW_PAD + 3,
-            left: 0,
-            right: 0,
-            display: "flex",
-            justifyContent: "center",
-            alignItems: "center",
-            gap: 6,
-            pointerEvents: "none",
-            zIndex: 3,
-          }}
-        >
-          {photos.map((_, i) => (
-            <div
-              key={i}
+          {showArrows && n > 1 && safeIdx < n - 1 && (
+            <button
               style={{
-                width: i === safeIdx ? 22 : 7,
-                height: 7,
-                borderRadius: 3.5,
-                background: i === safeIdx ? "white" : "rgba(255,255,255,0.42)",
-                transition: "width 0.25s ease, background 0.25s ease",
-                flexShrink: 0,
+                position: "absolute",
+                right: 10,
+                top: "50%",
+                transform: "translateY(-50%)",
+                zIndex: 3,
+                width: 36,
+                height: 36,
+                borderRadius: "50%",
+                background: "rgba(0,0,0,0.38)",
+                backdropFilter: "blur(8px)",
+                WebkitBackdropFilter: "blur(8px)",
+                border: "1px solid rgba(255,255,255,0.18)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                cursor: "pointer",
               }}
-            />
-          ))}
-        </div>
+              onPointerDown={e => e.stopPropagation()}
+              onClick={() => goTo(safeIdx + 1)}
+              data-testid="button-carousel-next"
+              aria-label="Next photo"
+            >
+              {isRTL ? (
+                <ChevronLeft style={{ width: 16, height: 16, color: "white" }} />
+              ) : (
+                <ChevronRight style={{ width: 16, height: 16, color: "white" }} />
+              )}
+            </button>
+          )}
+
+          {/* ── Dot indicators ────────────────────────────────────────────────
+              Outside clip div → stationary during drag; always visible. */}
+          {showDots && n > 1 && (
+            <div
+              aria-hidden="true"
+              style={{
+                position: "absolute",
+                bottom: 9,
+                left: 0,
+                right: 0,
+                display: "flex",
+                justifyContent: "center",
+                alignItems: "center",
+                gap: 6,
+                pointerEvents: "none",
+                zIndex: 3,
+              }}
+            >
+              {photos.map((_, i) => (
+                <div
+                  key={i}
+                  style={{
+                    width: i === safeIdx ? 22 : 7,
+                    height: 7,
+                    borderRadius: 3.5,
+                    background: i === safeIdx ? "white" : "rgba(255,255,255,0.42)",
+                    transition: "width 0.25s ease, background 0.25s ease",
+                    flexShrink: 0,
+                  }}
+                />
+              ))}
+            </div>
+          )}
+        </>
       )}
     </div>
   );

@@ -974,7 +974,7 @@ function ProfilePanel({ profile, onClose }: { profile: Profile; onClose: () => v
     <div className="flex flex-col h-full bg-background" data-testid="profile-panel">
 
       {/* Shared photo viewer — same component as Discovery and Intention Wheel */}
-      <div className="flex-shrink-0 rounded-xl overflow-hidden">
+      <div className="flex-shrink-0">
       <ProfilePhotoViewer
         photos={photos}
         isLoading={isPhotosLoading}
