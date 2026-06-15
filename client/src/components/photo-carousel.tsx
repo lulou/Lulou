@@ -48,7 +48,6 @@ import { useLanguageContext } from "@/contexts/language-context";
 const CARD_RADIUS = 24;
 const CARD_SHADOW = "0 4px 18px rgba(0,0,0,0.18)";
 const CARD_GAP = 12;
-const DEPTH_OFFSET = 5;
 
 interface PhotoCarouselProps {
   photos: string[];
@@ -224,7 +223,6 @@ export function PhotoCarousel({
     : `translateX(calc(100% + ${dragX + CARD_GAP}px))`;
 
   const springTransition = "transform 0.32s cubic-bezier(0.25, 1, 0.5, 1)";
-  const hasNext = safeIdx < n - 1;
 
   return (
     <div
@@ -278,28 +276,6 @@ export function PhotoCarousel({
               pointerEvents: "none",
             }}
           />
-
-          {/* ── Depth element ──────────────────────────────────────────────────
-              White card offset +5 px right/down.  Lives OUTSIDE the clip div so
-              its right and bottom 5 px slivers ARE visible → stacked-deck feel.
-              Fades out when dragging so it doesn't appear between moving cards. */}
-          {n > 1 && hasNext && (
-            <div
-              aria-hidden="true"
-              style={{
-                position: "absolute",
-                inset: 0,
-                borderRadius: CARD_RADIUS,
-                background: "rgba(255,255,255,0.85)",
-                boxShadow: "0 2px 10px rgba(0,0,0,0.10)",
-                zIndex: 0,
-                transform: `translate(${DEPTH_OFFSET}px, ${DEPTH_OFFSET}px)`,
-                opacity: isDragging ? 0 : 1,
-                transition: isDragging ? "none" : "opacity 0.18s ease",
-                pointerEvents: "none",
-              }}
-            />
-          )}
 
           {/* ── Clip div ───────────────────────────────────────────────────────
               overflow:hidden hides the offscreen peek card.

@@ -50,7 +50,6 @@ interface ProfilePhotoViewerProps {
 const CARD_RADIUS = 24;
 const CARD_SHADOW = "0 4px 18px rgba(0,0,0,0.18)";
 const CARD_GAP = 12;
-const DEPTH_OFFSET = 5;
 
 export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
   photos,
@@ -230,7 +229,6 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
     : `translateX(calc(100% + ${dragX + CARD_GAP}px))`;
 
   const springTransition = "transform 0.32s cubic-bezier(0.25, 1, 0.5, 1)";
-  const hasNext = safeIdx < n - 1;
 
   // ── Loading shimmer ────────────────────────────────────────────────────────
   if (isLoading) {
@@ -297,28 +295,6 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
           pointerEvents: "none",
         }}
       />
-
-      {/* ── Depth element ────────────────────────────────────────────────────
-          White card offset +5 px right/down.  Outside the clip div so the
-          5 px slivers ARE visible at rest → stacked-deck feel.
-          Fades out when dragging so it never appears between moving cards. */}
-      {n > 1 && hasNext && (
-        <div
-          aria-hidden="true"
-          style={{
-            position: "absolute",
-            inset: 0,
-            borderRadius: CARD_RADIUS,
-            background: "rgba(255,255,255,0.85)",
-            boxShadow: "0 2px 10px rgba(0,0,0,0.10)",
-            zIndex: 0,
-            transform: `translate(${DEPTH_OFFSET}px, ${DEPTH_OFFSET}px)`,
-            opacity: isDragging ? 0 : 1,
-            transition: isDragging ? "none" : "opacity 0.18s ease",
-            pointerEvents: "none",
-          }}
-        />
-      )}
 
       {/* ── Clip div ─────────────────────────────────────────────────────────
           overflow:hidden hides the offscreen peek card only.

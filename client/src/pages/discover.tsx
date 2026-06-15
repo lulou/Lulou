@@ -638,15 +638,14 @@ export default function Discover() {
           }}
           data-testid="profile-container"
         >
-            <Card className="overflow-hidden" data-testid="card-profile">
-              <PhotoBubbles
-                photos={photos}
-                name={displayProfile.firstName}
-                onOpen={handleOpen}
-                isDisabled={interact.isPending || isExiting}
-                isPhotosLoading={isPhotosLoading}
-              />
-
+            <PhotoBubbles
+              photos={photos}
+              name={displayProfile.firstName}
+              onOpen={handleOpen}
+              isDisabled={interact.isPending || isExiting}
+              isPhotosLoading={isPhotosLoading}
+            />
+            <Card className="mt-2" data-testid="card-profile">
               <div className="px-5 pb-5 pt-3 space-y-5" data-testid="profile-about-section">
                 {allStarters.length > 0 && (
                   <div className="space-y-3" data-testid="section-conversation-starters">
