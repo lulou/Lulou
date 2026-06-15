@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useLanguageContext } from "@/contexts/language-context";
+import { LANGUAGE_NAME_TO_CODE } from "@/lib/i18n";
+import { translateSignal, translateGreenFlag, translateIntent, translateStyle, translateStarterItem } from "@/lib/profile-i18n";
 import { usePerfTrace, useRenderCount, isMobile, scheduleIdle } from "@/lib/perf";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card } from "@/components/ui/card";
@@ -39,7 +41,8 @@ function ProfileModal({
   onMatch: (c: MatchCelebration) => void;
   onConnectionFull: () => void;
 }) {
-  const { t, isRTL } = useLanguageContext();
+  const { t, isRTL, language } = useLanguageContext();
+  const langCode = LANGUAGE_NAME_TO_CODE[language] ?? "en";
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [photoIndex, setPhotoIndex] = useState(0);
@@ -258,7 +261,7 @@ function ProfileModal({
               style={{ background: "hsl(350 45% 52% / 0.1)", color: "hsl(350 45% 42%)" }}
             >
               <Heart className="w-3.5 h-3.5" />
-              {profile.datingIntent}
+              {translateIntent(profile.datingIntent ?? "", t)}
             </div>
           )}
           {profile.height && (
@@ -276,7 +279,7 @@ function ProfileModal({
             <div className="flex flex-wrap gap-2">
               {signals.map((s: string) => (
                 <Badge key={s} variant="outline" className="text-sm px-3 py-1 rounded-full">
-                  {s}
+                  {translateSignal(s, langCode)}
                 </Badge>
               ))}
             </div>
@@ -287,7 +290,7 @@ function ProfileModal({
         {profile.connectionStyle && (
           <div className="space-y-1.5">
             <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-widest">{t("section_connection_style")}</p>
-            <p className="text-sm leading-relaxed">{profile.connectionStyle}</p>
+            <p className="text-sm leading-relaxed">{translateStyle(profile.connectionStyle ?? "", t)}</p>
           </div>
         )}
 
@@ -298,7 +301,7 @@ function ProfileModal({
             <div className="flex flex-wrap gap-2">
               {greenFlags.map((g: string) => (
                 <Badge key={g} variant="secondary" className="text-sm px-3 py-1 rounded-full">
-                  {g}
+                  {translateGreenFlag(g, langCode)}
                 </Badge>
               ))}
             </div>
@@ -316,7 +319,7 @@ function ProfileModal({
                   className="text-sm leading-relaxed rounded-xl px-4 py-3"
                   style={{ background: "hsl(var(--muted) / 0.5)" }}
                 >
-                  {s}
+                  {translateStarterItem(s, langCode)}
                 </div>
               ))}
             </div>
@@ -386,7 +389,8 @@ function LikeCard({
   onConnectionFull: () => void;
   onOpenProfile: () => void;
 }) {
-  const { t } = useLanguageContext();
+  const { t, language } = useLanguageContext();
+  const langCode = LANGUAGE_NAME_TO_CODE[language] ?? "en";
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -508,12 +512,12 @@ function LikeCard({
           <div className="flex items-center gap-1.5 flex-wrap">
             {open.profile.signals?.slice(0, 3).map((signal: string) => (
               <Badge key={signal} variant="outline" className="text-xs px-2.5 py-0.5 rounded-full">
-                {signal}
+                {translateSignal(signal, langCode)}
               </Badge>
             ))}
             {open.profile.datingIntent && (
               <Badge variant="secondary" className="text-xs px-2.5 py-0.5 rounded-full">
-                {open.profile.datingIntent}
+                {translateIntent(open.profile.datingIntent, t)}
               </Badge>
             )}
           </div>

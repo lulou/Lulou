@@ -1,6 +1,8 @@
 import { useState, useRef, useEffect, useCallback, useMemo, memo } from "react";
 import { MatchOverlay, type MatchCelebration } from "@/components/match-overlay";
 import { useLanguageContext } from "@/contexts/language-context";
+import { LANGUAGE_NAME_TO_CODE } from "@/lib/i18n";
+import { translateSignal, translateGreenFlag, translateIntent, translateStyle, translateStarterItem, translateQuestion } from "@/lib/profile-i18n";
 import { usePerfTrace, useRenderCount, isMobile, scheduleIdle } from "@/lib/perf";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -48,7 +50,8 @@ const PhotoBubbles = memo(function PhotoBubbles({ photos, name: _name, onOpen, i
 // Memoised: only re-renders when items/type/onReply actually change.
 // Prevents re-render when parent mutation isPending state toggles (2× per tap).
 const SlideCards = memo(function SlideCards({ items, type, onReply }: { items: string[]; type: "starter" | "question"; onReply: (text: string, reply: string) => void }) {
-  const { t, isRTL } = useLanguageContext();
+  const { t, isRTL, language } = useLanguageContext();
+  const langCode = LANGUAGE_NAME_TO_CODE[language] ?? "en";
   const scrollRef = useRef<HTMLDivElement>(null);
   const isDragging = useRef(false);
   const didDrag = useRef(false);
@@ -237,7 +240,8 @@ const SlideCards = memo(function SlideCards({ items, type, onReply }: { items: s
 const MAX_POOL_SIZE = 60;
 
 export default function Discover() {
-  const { t } = useLanguageContext();
+  const { t, language } = useLanguageContext();
+  const langCode = LANGUAGE_NAME_TO_CODE[language] ?? "en";
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -650,7 +654,7 @@ export default function Discover() {
                       <MessageCircle className="w-3.5 h-3.5 text-primary" />
                       <p className="text-xs font-semibold tracking-widest uppercase text-primary">{t("conversation_starters")}</p>
                     </div>
-                    <SlideCards items={allStarters} type="starter" onReply={handleReply} />
+                    <SlideCards items={allStarters.map(s => translateStarterItem(s, langCode))} type="starter" onReply={handleReply} />
                   </div>
                 )}
 
@@ -670,7 +674,7 @@ export default function Discover() {
                       <HelpCircle className="w-3.5 h-3.5 text-primary" />
                       <p className="text-xs font-semibold tracking-widest uppercase text-primary">{t("ask_me")}</p>
                     </div>
-                    <SlideCards items={[...questions, ...customQAsItems]} type="question" onReply={handleReply} />
+                    <SlideCards items={[...questions.map(q => translateQuestion(q, langCode)), ...customQAsItems]} type="question" onReply={handleReply} />
                   </div>
                 )}
 
@@ -697,7 +701,7 @@ export default function Discover() {
                   <DragScrollRow>
                     {allSignals.map(signal => (
                       <Badge key={signal} variant="secondary" className="text-sm py-1.5 px-3 shrink-0 no-default-active-elevate" data-testid={`badge-signal-${signal}`}>
-                        {signal}
+                        {translateSignal(signal, langCode)}
                       </Badge>
                     ))}
                   </DragScrollRow>
@@ -705,7 +709,7 @@ export default function Discover() {
 
                 <div className="space-y-2">
                   <p className="text-xs font-semibold tracking-widest uppercase text-primary">{t("looking_for")}</p>
-                  <p className="text-base font-semibold" data-testid="text-profile-intent">{displayProfile.datingIntent}</p>
+                  <p className="text-base font-semibold" data-testid="text-profile-intent">{translateIntent(displayProfile.datingIntent ?? "", t)}</p>
                 </div>
 
                 <div className="space-y-2">
@@ -713,7 +717,7 @@ export default function Discover() {
                   <DragScrollRow>
                     {allGreenFlags.map(flag => (
                       <Badge key={flag} variant="outline" className="text-sm py-1.5 px-3 shrink-0 no-default-active-elevate" data-testid={`badge-flag-${flag}`}>
-                        {flag}
+                        {translateGreenFlag(flag, langCode)}
                       </Badge>
                     ))}
                   </DragScrollRow>
@@ -721,7 +725,7 @@ export default function Discover() {
 
                 <div className="space-y-2">
                   <p className="text-xs font-semibold tracking-widest uppercase text-primary">{t("pace_label")}</p>
-                  <p className="text-base font-semibold" data-testid="text-profile-style">{displayProfile.connectionStyle}</p>
+                  <p className="text-base font-semibold" data-testid="text-profile-style">{translateStyle(displayProfile.connectionStyle ?? "", t)}</p>
                 </div>
               </div>
             </Card>

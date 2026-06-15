@@ -1,0 +1,201 @@
+Fix language switching so profile content also appears in the selected language.
+
+Do not work on unrelated features.
+
+Current issue:
+
+When a user changes app language, the app UI changes, but other users’ profile content still stays in English.
+
+Example:
+
+A French user selects French.
+
+The app labels/buttons may become French, but Discovery profiles still show English content such as:
+
+Conversation starters
+Ask me about questions
+Green flags
+Personality traits
+Vibes
+Dating intent
+Connection style
+Profile prompts
+AI starter suggestions
+This is not acceptable.
+
+The whole experience should adapt to the viewer’s selected language.
+
+──────────────────────────────
+
+Expected Behaviour
+
+If viewer language = French:
+
+Discovery profiles should show profile content in French.
+
+If viewer language = Spanish:
+
+Discovery profiles should show profile content in Spanish.
+
+If viewer language = Arabic:
+
+Discovery profiles should show profile content in Arabic with correct RTL layout.
+
+This should apply to:
+
+Discovery profile cards
+Discovery profile detail
+Likes profiles
+Match profiles
+Connection profiles
+Own profile where appropriate
+AI Conversation Starters
+Ask Me About section
+Green Flags
+Vibes
+Personality Traits
+Dating Intent
+Connection Style
+Conversation starter prompts
+──────────────────────────────
+
+Important Distinction
+
+Do NOT translate:
+
+User-written free text bio exactly as if it was a static UI label unless the user chooses auto-translate.
+Names
+Locations unless already handled by app locale formatting.
+DO translate / localize:
+
+App-generated profile labels
+Preset selectable options
+Profile prompt labels
+Green flag options
+Personality/vibe tags
+Dating intent values
+Connection style values
+AI-generated conversation starters
+Structured profile questions
+──────────────────────────────
+
+Audit
+
+Audit the full language system:
+
+Which values are stored as translated display text?
+Which values are stored as internal keys?
+Are profile selections stored as English strings?
+Are profile selections stored as enum/key values?
+Which profile fields are currently impossible to translate because they were saved as raw English text?
+Does changing language invalidate/refetch profile display?
+Does AI Conversation Starters receive the selected language?
+──────────────────────────────
+
+Required Fix
+
+Use stable internal keys wherever possible.
+
+Example:
+
+Store:
+green_flag_respects_boundaries
+
+Render:
+English: Respects Boundaries
+French: Respecte les limites
+Spanish: Respeta los límites
+Arabic: يحترم الحدود
+
+Do not store only:
+“Respects Boundaries”
+
+If old profiles already store English strings:
+
+Add a compatibility mapping layer:
+
+“Respects Boundaries”
+→ green_flag_respects_boundaries
+→ translate to selected language
+
+This must work for existing users and existing profiles.
+
+Do not require users to recreate their accounts.
+
+──────────────────────────────
+
+AI Conversation Starters
+
+AI starters must be generated in the viewer’s selected language.
+
+Example:
+
+If viewer language is French:
+
+Generated starters should be French.
+
+If viewer language is Arabic:
+
+Generated starters should be Arabic.
+
+Also ensure fallback starters are translated.
+
+Audit:
+
+Does /api/matches/:matchId/ai-starters receive viewer language?
+Does backend prompt include requested language?
+Are fallback starters localized?
+Are cached starters language-specific?
+──────────────────────────────
+
+Existing Profile Data
+
+For existing profiles:
+
+Do not lose data.
+Do not overwrite user choices.
+Add mapping/translation support so existing English-stored options display correctly in the selected language.
+If migration is needed:
+
+Explain clearly.
+Make it safe.
+Backfill only internal keys where confidence is high.
+──────────────────────────────
+
+Validation
+
+Test with:
+
+English
+French
+Spanish
+Arabic
+For each language verify:
+
+Discovery profile
+Likes profile
+Match profile
+Connection profile
+AI starters
+Green flags
+Vibes
+Ask Me About
+Dating intent
+Connection style
+Run:
+
+npm run check
+npm run build
+
+Report:
+
+Root cause
+Files changed
+Data model approach
+Compatibility mapping for existing profiles
+AI starter language fix
+Languages tested
+npm run check result
+npm run build result
+Do not work on unrelated features.
+

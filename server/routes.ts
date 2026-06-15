@@ -928,34 +928,48 @@ export async function registerRoutes(
       const storage = getStorage(req);
       const userId = req.user.id;
       const { matchId } = req.params;
+      const lang = (req.query.lang as string) || "en";
       const match = await storage.getMatch(matchId, userId);
       if (!match) return res.status(404).json({ message: "Match not found" });
       const otherUserId = match.user1Id === userId ? match.user2Id : match.user1Id;
       const { data: other } = await supabase.from("profiles").select("*").eq("user_id", otherUserId).maybeSingle();
       const starters: string[] = [];
-      const name = other?.first_name || "you";
+
+      type LangMap = Record<string, string>;
+      const T = {
+        starter_wrote: { en: (s: string) => `You wrote "${s}" — what's the story behind that?`, es: (s: string) => `Escribiste "${s}" — ¿cuál es la historia detrás de eso?`, fr: (s: string) => `Tu as écrit "${s}" — quelle est l'histoire derrière cela ?`, ar: (s: string) => `كتبت "${s}" — ما القصة وراء ذلك؟`, de: (s: string) => `Du hast "${s}" geschrieben — was steckt dahinter?`, pt: (s: string) => `Você escreveu "${s}" — qual é a história por trás disso?` } as Record<string, (s: string) => string>,
+        starter_mentioned: { en: (s: string) => `I noticed you mentioned "${s}" — tell me more!`, es: (s: string) => `Noté que mencionaste "${s}" — ¡cuéntame más!`, fr: (s: string) => `J'ai remarqué que tu as mentionné "${s}" — dis-m'en plus !`, ar: (s: string) => `لاحظت أنك ذكرت "${s}" — أخبرني المزيد!`, de: (s: string) => `Ich hab bemerkt, dass du "${s}" erwähnt hast — erzähl mir mehr!`, pt: (s: string) => `Notei que você mencionou "${s}" — me conta mais!` } as Record<string, (s: string) => string>,
+        starter_flag: { en: (s: string) => `"${s}" stood out to me in your profile — what does that mean to you personally?`, es: (s: string) => `"${s}" me llamó la atención en tu perfil — ¿qué significa eso para ti?`, fr: (s: string) => `"${s}" m'a marqué(e) dans ton profil — qu'est-ce que cela signifie pour toi personnellement ?`, ar: (s: string) => `"${s}" لفت انتباهي في ملفك الشخصي — ماذا يعني ذلك لك شخصيًا؟`, de: (s: string) => `"${s}" ist mir in deinem Profil aufgefallen — was bedeutet das für dich persönlich?`, pt: (s: string) => `"${s}" chamou minha atenção no seu perfil — o que isso significa para você pessoalmente?` } as Record<string, (s: string) => string>,
+        starter_signal: { en: (s: string) => `Your signal "${s}" caught my eye — how does it show up in your day-to-day?`, es: (s: string) => `Tu señal "${s}" me llamó la atención — ¿cómo se refleja en tu día a día?`, fr: (s: string) => `Ton signal "${s}" m'a attiré(e) — comment se manifeste-t-il au quotidien ?`, ar: (s: string) => `إشارتك "${s}" لفتت نظري — كيف تظهر في يومياتك؟`, de: (s: string) => `Dein Signal "${s}" hat mich angesprochen — wie zeigt es sich in deinem Alltag?`, pt: (s: string) => `Seu sinal "${s}" chamou minha atenção — como ele aparece no seu dia a dia?` } as Record<string, (s: string) => string>,
+        starter_intent: { en: `What does finding a really meaningful connection look like for you right now?`, es: `¿Cómo se ve para ti encontrar una conexión realmente significativa en este momento?`, fr: `À quoi ressemble une connexion vraiment significative pour toi en ce moment ?`, ar: `كيف تبدو لك إيجاد علاقة ذات معنى حقيقي في هذه المرحلة؟`, de: `Wie sieht eine wirklich bedeutungsvolle Verbindung für dich gerade aus?`, pt: `Como seria para você encontrar uma conexão realmente significativa agora?` } as LangMap,
+        starter_intentional: { en: `What made you want to try a more intentional approach to dating?`, es: `¿Qué te llevó a querer probar un enfoque más intencional en las citas?`, fr: `Qu'est-ce qui t'a donné envie d'essayer une approche plus intentionnelle des rencontres ?`, ar: `ما الذي دفعك لتجربة نهج أكثر قصدية في المواعدة؟`, de: `Was hat dich dazu gebracht, Dating bewusster anzugehen?`, pt: `O que te fez querer experimentar uma abordagem mais intencional nos relacionamentos?` } as LangMap,
+        starter_excited: { en: `What's something you've genuinely been excited about lately?`, es: `¿Qué es algo que realmente te ha emocionado últimamente?`, fr: `Qu'est-ce qui t'a vraiment enthousiasmé(e) récemment ?`, ar: `ما الشيء الذي أثار حماسك حقًا في الآونة الأخيرة؟`, de: `Was begeistert dich gerade wirklich?`, pt: `Qual é algo que te deixou genuinamente animado(a) ultimamente?` } as LangMap,
+        starter_meeting: { en: `If you could design your ideal first meeting, what would it look like?`, es: `Si pudieras diseñar tu primer encuentro ideal, ¿cómo sería?`, fr: `Si tu pouvais concevoir ta première rencontre idéale, à quoi ressemblerait-elle ?`, ar: `إذا كان بإمكانك تصميم لقائك الأول المثالي، كيف سيكون؟`, de: `Wenn du dein ideales erstes Treffen gestalten könntest, wie würde es aussehen?`, pt: `Se você pudesse criar seu primeiro encontro ideal, como seria?` } as LangMap,
+      };
+      const pick = <T,>(map: Record<string, T>, fallback: T): T => map[lang] ?? map["en"] ?? fallback;
+
       if (other?.conversation_starters?.length) {
         const s = other.conversation_starters[Math.floor(Math.random() * other.conversation_starters.length)];
-        starters.push(`You wrote "${s}" — what's the story behind that?`);
+        starters.push(pick(T.starter_wrote, (x: string) => `You wrote "${x}" — what's the story?`)(s));
       }
       if (other?.custom_starters?.length) {
         const s = other.custom_starters[Math.floor(Math.random() * other.custom_starters.length)];
-        starters.push(`I noticed you mentioned "${s}" — tell me more!`);
+        starters.push(pick(T.starter_mentioned, (x: string) => `I noticed you mentioned "${x}" — tell me more!`)(s));
       }
       if (other?.green_flags?.length) {
         const gf = other.green_flags[Math.floor(Math.random() * other.green_flags.length)];
-        starters.push(`"${gf}" stood out to me in your profile — what does that mean to you personally?`);
+        starters.push(pick(T.starter_flag, (x: string) => `"${x}" stood out to me — what does that mean to you?`)(gf));
       }
       if (other?.signals?.length) {
         const sig = other.signals[Math.floor(Math.random() * other.signals.length)];
-        starters.push(`Your signal "${sig}" caught my eye — how does it show up in your day-to-day?`);
+        starters.push(pick(T.starter_signal, (x: string) => `Your signal "${x}" caught my eye — how does it show up day-to-day?`)(sig));
       }
       if (other?.dating_intent) {
-        starters.push(`What does finding a really meaningful connection look like for you right now?`);
+        starters.push(pick(T.starter_intent as Record<string, string>, T.starter_intent.en));
       }
-      starters.push(`What made you want to try a more intentional approach to dating?`);
-      starters.push(`What's something you've genuinely been excited about lately?`);
-      starters.push(`If you could design your ideal first meeting, what would it look like?`);
+      starters.push(pick(T.starter_intentional as Record<string, string>, T.starter_intentional.en));
+      starters.push(pick(T.starter_excited as Record<string, string>, T.starter_excited.en));
+      starters.push(pick(T.starter_meeting as Record<string, string>, T.starter_meeting.en));
       const unique = [...new Set(starters)].slice(0, 5);
       res.json({ starters: unique });
     } catch (error) {

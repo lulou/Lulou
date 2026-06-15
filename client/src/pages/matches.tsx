@@ -18,6 +18,8 @@ import { useTypingIndicator } from "@/hooks/use-typing-indicator";
 import { Input } from "@/components/ui/input";
 import { MessageCircle, Send, Phone, Video, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, PhoneOff, Clock, Check, X, Sparkles, Calendar, Heart, PhoneForwarded, Moon, User, Mic, Loader2, Pause, Play, BadgeCheck } from "lucide-react";
 import { ProfileInfoRow } from "@/components/profile-info-row";
+import { LANGUAGE_NAME_TO_CODE } from "@/lib/i18n";
+import { translateSignal, translateGreenFlag, translateIntent, translateStyle, translateStarterItem } from "@/lib/profile-i18n";
 import { scanContent } from "@/lib/content-filter";
 import { formatLastActive } from "@/lib/last-active";
 import { LulouFlowerIcon, ProfileAvatar } from "@/components/app-layout";
@@ -959,6 +961,8 @@ function SystemGuidanceMessage({ children, testId }: { children: ReactNode; test
 }
 
 function ProfilePanel({ profile, onClose }: { profile: Profile; onClose: () => void }) {
+  const { t, language } = useLanguageContext();
+  const langCode = LANGUAGE_NAME_TO_CODE[language] ?? "en";
   const { data: photoData, isLoading: isPhotosLoading } = useQuery<{ photos: string[] }>({
     queryKey: ["/api/profiles", profile.userId, "photos"],
     enabled: !!profile.userId,
@@ -1016,7 +1020,7 @@ function ProfilePanel({ profile, onClose }: { profile: Profile; onClose: () => v
               data-testid="badge-profile-panel-intent"
             >
               <Heart className="w-3 h-3" />
-              {profile.datingIntent}
+              {translateIntent(profile.datingIntent ?? "", t)}
             </span>
           </div>
         )}
@@ -1036,7 +1040,7 @@ function ProfilePanel({ profile, onClose }: { profile: Profile; onClose: () => v
         <div className="px-4 pt-4 space-y-5 pb-6">
           {profile.signals && profile.signals.length > 0 && (
             <div>
-              <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-2">Vibes</p>
+              <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-2">{t("personality")}</p>
               <div className="flex flex-wrap gap-1.5">
                 {profile.signals.map((s, i) => (
                   <span
@@ -1045,7 +1049,7 @@ function ProfilePanel({ profile, onClose }: { profile: Profile; onClose: () => v
                     style={{ background: "hsl(var(--muted))", color: "hsl(var(--foreground))", border: "1px solid hsl(var(--border))" }}
                     data-testid={`badge-profile-panel-signal-${i}`}
                   >
-                    {s}
+                    {translateSignal(s, langCode)}
                   </span>
                 ))}
               </div>
@@ -1054,7 +1058,7 @@ function ProfilePanel({ profile, onClose }: { profile: Profile; onClose: () => v
 
           {profile.greenFlags && profile.greenFlags.length > 0 && (
             <div>
-              <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-2">Green Flags</p>
+              <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-2">{t("green_flags_label")}</p>
               <div className="flex flex-wrap gap-1.5">
                 {profile.greenFlags.map((f, i) => (
                   <span
@@ -1063,7 +1067,7 @@ function ProfilePanel({ profile, onClose }: { profile: Profile; onClose: () => v
                     style={{ background: "hsl(155 25% 88%)", color: "hsl(155 30% 26%)", border: "1px solid hsl(155 25% 78%)" }}
                     data-testid={`badge-profile-panel-flag-${i}`}
                   >
-                    {f}
+                    {translateGreenFlag(f, langCode)}
                   </span>
                 ))}
               </div>
@@ -1072,16 +1076,16 @@ function ProfilePanel({ profile, onClose }: { profile: Profile; onClose: () => v
 
           {profile.connectionStyle && (
             <div>
-              <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-2">Connection Style</p>
+              <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-2">{t("pace_label")}</p>
               <p className="text-sm leading-relaxed text-foreground/85 font-serif italic" data-testid="text-profile-panel-connection-style">
-                "{profile.connectionStyle}"
+                "{translateStyle(profile.connectionStyle ?? "", t)}"
               </p>
             </div>
           )}
 
           {profile.conversationStarters && profile.conversationStarters.length > 0 && (
             <div>
-              <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-2">Ask me about</p>
+              <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-2">{t("ask_me")}</p>
               <div className="space-y-2">
                 {profile.conversationStarters.map((s, i) => (
                   <div
@@ -1090,7 +1094,7 @@ function ProfilePanel({ profile, onClose }: { profile: Profile; onClose: () => v
                     style={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", boxShadow: "0 1px 4px rgba(0,0,0,0.04)" }}
                     data-testid={`text-profile-panel-starter-${i}`}
                   >
-                    <p className="text-sm leading-relaxed text-foreground/80">{s}</p>
+                    <p className="text-sm leading-relaxed text-foreground/80">{translateStarterItem(s, langCode)}</p>
                   </div>
                 ))}
               </div>
@@ -1133,7 +1137,8 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
   unreadCount: number;
   onMarkRead: () => void;
 }) {
-  const { t, isRTL } = useLanguageContext();
+  const { t, isRTL, language } = useLanguageContext();
+  const langCode = LANGUAGE_NAME_TO_CODE[language] ?? "en";
   const { user } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -1184,9 +1189,16 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
   // ── AI Conversation Starters ──────────────────────────────────────────────
   const aiStartersEnabled = localStorage.getItem("conversation_starter_ai") !== "false";
   const { data: aiStartersData } = useQuery<{ starters: string[] }>({
-    queryKey: ["/api/matches", match.id, "ai-starters"],
+    queryKey: ["/api/matches", match.id, "ai-starters", langCode],
     enabled: expanded && showAIStarters && aiStartersEnabled,
     staleTime: 5 * 60 * 1000,
+    queryFn: async () => {
+      const { getAuthHeaders } = await import("@/lib/queryClient");
+      const headers = await getAuthHeaders();
+      const res = await fetch(`/api/matches/${match.id}/ai-starters?lang=${encodeURIComponent(langCode)}`, { headers });
+      if (!res.ok) throw new Error("Failed to load starters");
+      return res.json();
+    },
   });
 
   const { isOtherTyping, sendTyping, stopTyping } = useTypingIndicator(match.id, user?.id || null, expanded);
@@ -2972,7 +2984,7 @@ const MatchCard = memo(function MatchCard({ match, unreadCount, userId, onOpen }
           <p className="text-xs text-muted-foreground truncate mt-0.5" data-testid={`text-last-message-${match.id}`}>
             {match.lastMessage
               ? (match.lastMessage.senderId === userId ? t("you_label") : "") + renderMessageContent(match.lastMessage.content, t)
-              : match.profile.datingIntent || t("start_conversation")}
+              : (match.profile.datingIntent ? translateIntent(match.profile.datingIntent, t) : t("start_conversation"))}
           </p>
         </div>
         <ChevronDown className="w-4 h-4 text-muted-foreground/40 shrink-0" />
