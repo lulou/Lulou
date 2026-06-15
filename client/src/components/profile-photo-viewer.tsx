@@ -227,7 +227,7 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
   return (
     <div
       className={`relative w-full ${className}`}
-      style={{ height, background: "hsl(var(--muted))" }}
+      style={{ height, background: "transparent" }}
       data-testid="profile-photo-viewer"
     >
       {/*
@@ -250,7 +250,7 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
               data-testid={`carousel-slide-${i}`}
             >
               {/* Inner wrapper clips image to rounded corners; one card per photo. */}
-              <div style={{ width: "100%", height: "100%", borderRadius: 18, overflow: "hidden" }}>
+              <div style={{ width: "100%", height: "100%", borderRadius: 18, overflow: "hidden", boxShadow: "0 6px 24px rgba(0,0,0,0.18)" }}>
                 <img
                   src={photo}
                   alt={`Photo ${i + 1}`}

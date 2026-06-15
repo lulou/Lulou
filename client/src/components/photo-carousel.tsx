@@ -209,7 +209,7 @@ export function PhotoCarousel({
     <div
       ref={containerRef}
       className={`relative overflow-hidden select-none ${className}`}
-      style={{ height, background: "hsl(var(--muted))", touchAction: "pan-y", ...style }}
+      style={{ height, background: "transparent", touchAction: "pan-y", ...style }}
       data-testid="photo-carousel"
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
@@ -248,7 +248,7 @@ export function PhotoCarousel({
               style={{ flex: "0 0 100%", minWidth: 0, height: "100%", padding: "0 6px" }}
             >
               {/* Inner wrapper gives each photo its own rounded corners and clips the image. */}
-              <div style={{ width: "100%", height: "100%", borderRadius: 18, overflow: "hidden" }}>
+              <div style={{ width: "100%", height: "100%", borderRadius: 18, overflow: "hidden", boxShadow: "0 6px 24px rgba(0,0,0,0.18)" }}>
                 <img
                   src={photo}
                   alt={`Photo ${i + 1}`}
