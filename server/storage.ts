@@ -599,14 +599,24 @@ export class SupabaseStorage implements IStorage {
     // Always include user_id so PostgREST can detect the ON CONFLICT target.
     row.user_id = userId;
 
-    // When the location text changes, geocode it and persist coordinates so
+    // When the location text is provided, geocode it and persist coordinates so
     // the distance filter in getDiscoverProfiles / getPopularProfiles can work.
+    //
+    // IMPORTANT: always null out the existing coordinates FIRST, before geocoding.
+    // If geocoding succeeds the new values overwrite them.
+    // If geocoding fails the nulls are written, which is correct: stale coordinates
+    // from a previous city must NEVER persist after the location text has changed.
+    // (The inline geocoder in /api/discover will retry on the next discover call.)
     if (data.location && _hasLatLngColumns) {
+      row.latitude  = null;
+      row.longitude = null;
       const coords = await geocodeLocation(data.location);
       if (coords) {
         row.latitude  = coords.lat;
         row.longitude = coords.lng;
         console.log(`[GEOCODE] "${data.location}" → lat=${coords.lat.toFixed(4)}, lng=${coords.lng.toFixed(4)}`);
+      } else {
+        console.warn(`[GEOCODE] geocoding failed for "${data.location}" — coordinates reset to null, inline retry will run on next discover`);
       }
     }
     // Use upsert instead of plain UPDATE so the first-ever save (no existing row)
