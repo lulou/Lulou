@@ -1,0 +1,173 @@
+AI Conversation Starters and Radius Filtering are still not considered fixed.
+
+Do not change conditions again without proving the entire flow.
+
+──────────────────────────────
+
+AI Conversation Starters Still Not Visible
+I created a brand-new match.
+
+AI Conversation Starters are enabled.
+
+The chat still opens showing only:
+
+“Start of your conversation”
+“You each have 15 messages. Make them count.”
+
+No AI starters appear.
+
+No suggestions.
+
+No regenerate button.
+
+No tap-to-send options.
+
+This has now been reported multiple times.
+
+Do not tell me it is fixed unless it is visible in the running app.
+
+──────────────────────────────
+
+Audit the entire chain:
+
+Settings
+→ Database
+→ API
+→ Query
+→ Rendering
+
+Show evidence of:
+
+Setting value loaded from database
+GET /api/matches/:matchId/ai-starters request firing
+Endpoint response payload
+Query cache contents
+Render condition evaluating true
+Component mounting
+Suggestions visible on screen
+Add temporary logging if required.
+
+I want the exact stage where the chain breaks.
+
+Provide:
+
+console logs
+network request result
+API response example
+render condition result
+screenshot proving starters visible
+Do not report fixed unless suggestions are visible in a fresh match.
+
+──────────────────────────────
+
+Radius Filtering Is Still Broken
+This has now been reproduced multiple times.
+
+Test case:
+
+User Location:
+Portsmouth
+
+Radius:
+25 miles
+
+Expected:
+Only nearby users within 25 miles.
+
+Actual:
+Sydney profiles still appear in Discovery.
+
+This should be impossible.
+
+──────────────────────────────
+
+Audit the entire location system
+
+Trace:
+
+Profile location
+→ Geocoding
+→ Stored coordinates
+→ Radius settings
+→ Discovery query
+→ Distance calculations
+→ Final profile results
+
+Determine:
+
+Are coordinates actually being stored?
+Are coordinates missing?
+Is the radius query being bypassed?
+Is a fallback profile pool ignoring distance?
+Are profiles without coordinates being included?
+Is Portsmouth geocoding correctly?
+Is Sydney being returned because of missing coordinates?
+Is the radius calculation itself wrong?
+Show actual examples from the database.
+
+I want to see:
+
+User A:
+Location = Portsmouth
+Lat/Lng = ?
+
+User B:
+Location = Sydney
+Lat/Lng = ?
+
+Distance calculated = ?
+
+Why was Sydney returned?
+
+──────────────────────────────
+
+Benchmark Against Tinder and Hinge
+Before changing the algorithm:
+
+Research how Tinder and Hinge handle:
+
+Radius filtering
+Missing coordinates
+Un-geocoded profiles
+Discovery fallback behaviour
+Determine best practice.
+
+Lulou should behave similarly:
+
+If location/radius cannot be determined:
+
+Do NOT show random global profiles.
+
+Instead:
+
+hide profile
+exclude profile
+request location update
+or use a sensible fallback
+Never show users from the other side of the world when a 25-mile radius is selected.
+
+──────────────────────────────
+
+Validation
+
+Run:
+
+npm run check
+npm run build
+
+Provide:
+
+Exact root cause of AI starters failure
+Proof AI starters are visible in a fresh match
+Exact root cause of radius filtering failure
+Discovery query audit
+Geocoding audit
+Distance calculation audit
+Tinder/Hinge best-practice comparison
+Files changed
+npm run check result
+npm run build result
+Do not mark complete until:
+
+AI starters visibly appear in a fresh match
+Portsmouth users no longer see Sydney profiles

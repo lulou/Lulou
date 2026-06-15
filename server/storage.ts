@@ -978,11 +978,19 @@ export class SupabaseStorage implements IStorage {
           // Null age passes through in fallback too
           if (p.age != null && (p.age < effectiveAgeMin || p.age > effectiveAgeMax)) return false;
           if (excludedIds.has(p.userId)) return false;
+          // ── RADIUS FILTER: apply to fallback pool too ───────────────────────
+          // Without this, a Portsmouth user with 25-mile radius who has no nearby
+          // mutually-compatible profiles would get Sydney profiles from this
+          // fallback — completely bypassing the distance setting.
+          if (_hasLatLngColumns && userLat !== null && userLng !== null && locationRadius > 0) {
+            if (p.latitude == null || p.longitude == null) return false;
+            if (haversineDistanceMiles(userLat, userLng, p.latitude, p.longitude) > locationRadius) return false;
+          }
           return true;
         });
         const fallbackWithElevates = mergeElevatesIntoProfiles(fallbackFiltered, elevates);
         const fallbackResult = weightedSample(fallbackWithElevates, 20, now);
-        console.log(`[POOL_DEBUG] final discovery count (gender-only fallback): ${fallbackResult.length}`);
+        console.log(`[POOL_DEBUG] final discovery count (gender-only fallback, distance-filtered): ${fallbackResult.length}`);
         return fallbackResult;
       }
     }
@@ -1966,11 +1974,19 @@ export class SupabaseStorage implements IStorage {
 
       const { data: fallback, error: fallbackErr } = await fallbackQuery;
       if (fallbackErr) console.error("[WHEEL] fallback query error:", fallbackErr.message);
-      const fallbackMapped = (fallback || []).map(mapProfile).filter(p =>
-        p.userId !== userId && !excludedIds.has(p.userId)
-      );
+      const fallbackMapped = (fallback || []).map(mapProfile).filter(p => {
+        if (p.userId === userId || excludedIds.has(p.userId)) return false;
+        // ── RADIUS FILTER: apply to wheel fallback pool too ─────────────────
+        // Same bug as Discovery: without this a Portsmouth user with 25-mile
+        // radius gets Sydney profiles from the fallback.
+        if (_hasLatLngColumns && userLat != null && userLng != null && locationRadius && locationRadius > 0) {
+          if (p.latitude == null || p.longitude == null) return false;
+          if (haversineDistanceMiles(userLat, userLng, p.latitude, p.longitude) > locationRadius) return false;
+        }
+        return true;
+      });
       distanceFiltered = fallbackMapped;
-      console.log(`[POOL_DEBUG] final wheel count (gender-only fallback): ${distanceFiltered.length}`);
+      console.log(`[POOL_DEBUG] final wheel count (gender-only fallback, distance-filtered): ${distanceFiltered.length}`);
     }
 
     // Merge live elevate status from local DB, then weighted sample

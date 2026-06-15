@@ -713,11 +713,16 @@ export default function Messaging() {
     staleTime: 5 * 60 * 1000,
   });
 
-  // Reset starters state when navigating to a different conversation so the
-  // next fresh chat auto-shows starters correctly.
+  // Reset ALL per-conversation state when navigating to a different conversation.
+  // Critical: olderMessages is component state and does NOT reset automatically
+  // when matchId changes (the component stays mounted). If Chat A had older messages
+  // loaded and the user navigates to new Chat B, olderMessages would still hold
+  // Chat A's messages, making allMessages.length > 0 and preventing starters.
   useEffect(() => {
     setUserClosedStarters(false);
     setShowAIStarters(false);
+    setOlderMessages([]);
+    setHasMoreMessages(false);
   }, [matchId]);
 
   // ── Comment Filter + send helper ──────────────────────────────────────────
@@ -913,11 +918,13 @@ export default function Messaging() {
   const isLimitReached = messagesRemaining <= 0;
 
   // ── Starters visibility (pure derivation — no effect needed) ──────────────
-  // Auto-shows when:
-  //   • setting is enabled
+  // Auto-shows when ALL conditions are true:
+  //   • setting is enabled (localStorage)
   //   • user hasn't explicitly dismissed for this match
   //   • messages query has finished loading (prevents flash on chats with messages)
-  //   • combined message list is empty (no messages from either participant)
+  //   • combined message list is empty — NOTE: allMessages includes olderMessages,
+  //     which is now reset to [] on matchId change so stale data from a previous
+  //     chat can't bleed into this check
   //   • still in the initial pre-call stage
   // Also shows when the user manually taps the sparkles toggle.
   const autoShowStarters =
@@ -928,6 +935,27 @@ export default function Messaging() {
     callStage === 0 &&
     !isLimitReached;
   const startersVisible = autoShowStarters || (showAIStarters && !userClosedStarters);
+
+  // ── DIAGNOSTICS: trace starters chain on every render ─────────────────────
+  // Logs every condition so the exact failure point is visible in the console.
+  // To inspect: open DevTools → Console, filter by [STARTERS].
+  if (import.meta.env.DEV || typeof window !== "undefined") {
+    // eslint-disable-next-line no-console
+    console.log("[STARTERS] chain", {
+      matchId: matchId?.slice(0, 8),
+      aiStartersEnabled,
+      userClosedStarters,
+      isMsgsLoading,
+      allMessagesLength: allMessages.length,
+      olderMessagesLength: olderMessages.length,
+      msgsDataLength: msgsData?.messages?.length ?? "undefined",
+      callStage,
+      isLimitReached,
+      autoShowStarters,
+      showAIStarters,
+      startersVisible,
+    });
+  }
   const displayStarters = aiStartersData?.starters?.length ? aiStartersData.starters : FALLBACK_STARTERS;
 
   const statusLabel = allCallsDone ? t("status_ready_to_meet")
