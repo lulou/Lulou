@@ -74,6 +74,8 @@ export const matches = pgTable("matches", {
   meetAvailability2: text("meet_availability_2"),
   numberExchanged1: boolean("number_exchanged_1").default(false),
   numberExchanged2: boolean("number_exchanged_2").default(false),
+  dateChoiceUser1: text("date_choice_user1"),
+  dateChoiceUser2: text("date_choice_user2"),
   status: text("status").default("active"),
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => [

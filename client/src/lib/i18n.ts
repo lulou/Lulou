@@ -615,6 +615,8 @@ export const TRANSLATIONS = {
     date_plan_ready_desc:         "You've both kept the conversation going after your call. Plan a date, or keep chatting if you're not ready yet.",
     keep_messaging_btn:           "Keep Messaging",
     plan_date_cta_hint:           "Whenever you're ready — plan your first date.",
+    date_choice_waiting_title:    "Waiting for their answer…",
+    date_choice_waiting_desc:     "{name} hasn't responded yet. Keep chatting or wait for them.",
     stage2_welcome:               "Great call! You each have 20 messages before the face call unlocks.",
     stage2_approaching:           "Getting close — keep the conversation going.",
     stage2_near_limit_one:        "Just 1 message left before the face call unlocks.",

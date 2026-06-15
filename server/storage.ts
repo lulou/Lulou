@@ -169,6 +169,7 @@ export interface IStorage {
   answerCall(matchId: string, userId: string): Promise<Match | undefined>;
   cancelCall(matchId: string, userId: string): Promise<Match | undefined>;
   completeCall(matchId: string, userId: string, options?: CompleteCallOptions): Promise<CompleteCallResult | undefined>;
+  setDateChoice(matchId: string, userId: string, choice: 'plan' | 'keep' | null): Promise<Match | undefined>;
   acceptFaceCall(matchId: string, userId: string): Promise<Match | undefined>;
   declineFaceCall(matchId: string, userId: string): Promise<Match | undefined>;
   getProfilePhotos(userId: string): Promise<string[]>;
@@ -457,6 +458,8 @@ export function mapMatch(row: any): Match {
     meetAvailability2: row.meet_availability_2,
     numberExchanged1: row.number_exchanged_1,
     numberExchanged2: row.number_exchanged_2,
+    dateChoiceUser1: row.date_choice_user1 ?? null,
+    dateChoiceUser2: row.date_choice_user2 ?? null,
     status: row.status,
     createdAt: row.created_at ? new Date(row.created_at) : null,
   };
@@ -1141,7 +1144,7 @@ export class SupabaseStorage implements IStorage {
 
   async getMatch(matchId: string, userId: string): Promise<(Match & { profile: Profile; messages: Message[] }) | undefined> {
     const t0 = Date.now();
-    const MATCH_COLS = "id,user1_id,user2_id,message_count_1,message_count_2,call_completed,call_started_at,call_answered,call_initiator_id,call_stage,face_call_user1_accepted,face_call_user2_accepted,meet_availability_1,meet_availability_2,number_exchanged_1,number_exchanged_2,status,created_at";
+    const MATCH_COLS = "id,user1_id,user2_id,message_count_1,message_count_2,call_completed,call_started_at,call_answered,call_initiator_id,call_stage,face_call_user1_accepted,face_call_user2_accepted,meet_availability_1,meet_availability_2,number_exchanged_1,number_exchanged_2,date_choice_user1,date_choice_user2,status,created_at";
     const { data: matchData, error } = await this.sb
       .from("matches")
       .select(MATCH_COLS)
@@ -1681,6 +1684,8 @@ export class SupabaseStorage implements IStorage {
       call_initiator_id: null,
       call_answered: false,
       call_stage: nextStage,
+      date_choice_user1: null,
+      date_choice_user2: null,
     };
 
     if (currentStage === 0) {
@@ -1711,6 +1716,28 @@ export class SupabaseStorage implements IStorage {
     }
     console.log("[completeCall] CALL_STATE:connected→ended STAGE_ADVANCED", { matchId, userId, newStage: nextStage, connectedDurationMs });
     return { match: updated ? mapMatch(updated) : match, counted: true };
+  }
+
+  async setDateChoice(matchId: string, userId: string, choice: 'plan' | 'keep' | null): Promise<Match | undefined> {
+    const { data: matchData } = await this.sb
+      .from("matches")
+      .select("id,user1_id,user2_id")
+      .eq("id", matchId)
+      .maybeSingle();
+    if (!matchData) return undefined;
+    const isUser1 = matchData.user1_id === userId;
+    const col = isUser1 ? "date_choice_user1" : "date_choice_user2";
+    const { data: updated, error } = await this.sb
+      .from("matches")
+      .update({ [col]: choice })
+      .eq("id", matchId)
+      .select()
+      .maybeSingle();
+    if (error) {
+      console.error("[setDateChoice] DB error:", error.message);
+      return undefined;
+    }
+    return updated ? mapMatch(updated) : undefined;
   }
 
   async acceptFaceCall(matchId: string, userId: string): Promise<Match | undefined> {

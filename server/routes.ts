@@ -2081,6 +2081,24 @@ export async function registerRoutes(
     }
   });
 
+  app.post("/api/matches/:matchId/date-choice", isAuthenticated, async (req: any, res) => {
+    try {
+      const storage = getStorage(req);
+      const userId = req.user.id;
+      const { matchId } = req.params;
+      const { choice } = req.body;
+      if (choice !== 'plan' && choice !== 'keep' && choice !== null) {
+        return res.status(400).json({ message: "choice must be 'plan', 'keep', or null" });
+      }
+      const updated = await storage.setDateChoice(matchId, userId, choice);
+      if (!updated) return res.status(404).json({ message: "Match not found" });
+      return res.json(updated);
+    } catch (err: any) {
+      console.error("[date-choice] error:", err?.message);
+      return res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
   app.post("/api/matches/:matchId/meet-availability", isAuthenticated, async (req: any, res) => {
     try {
       const storage = getStorage(req);

@@ -1179,7 +1179,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
     placeholderData: (prev) => prev,
   });
 
-  const { broadcastNewMessage } = useRealtimeMessages(match.id, expanded);
+  const { broadcastNewMessage, broadcastDateChoice } = useRealtimeMessages(match.id, expanded);
 
   // ── AI Conversation Starters ──────────────────────────────────────────────
   const aiStartersEnabled = localStorage.getItem("conversation_starter_ai") !== "false";
@@ -1658,8 +1658,6 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
   // stage changes so counters always start from the fresh DB value.
   useEffect(() => {
     setLocalSentCount(0);
-    setKeepMessaging(false);
-    setShowInlineDatePlan(false);
   }, [match.id, detail.callStage]);
 
   useEffect(() => {
@@ -1675,8 +1673,6 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
   const [dismissedExtension, setDismissedExtension] = useState(false);
   const [nextStepChoice, setNextStepChoice] = useState<null | 'call' | 'end'>(null);
   const [finalChoice, setFinalChoice] = useState<null | 'date' | 'chat' | 'end'>(null);
-  const [showInlineDatePlan, setShowInlineDatePlan] = useState(false);
-  const [keepMessaging, setKeepMessaging] = useState(false);
 
   const { data: elevateStatus } = useQuery<{ active: boolean; elevateCredits: number; superElevateCredits: number }>({
     queryKey: ["/api/elevate/status"],
@@ -1839,6 +1835,30 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
   const postCallApproaching = callStage >= 1 && !postCallProgressReady
     && myCurrentStageCount >= POST_CALL_THRESHOLD - 5
     && theirPostCallCount >= POST_CALL_THRESHOLD - 5;
+
+  const myChoice = ((isUser1 ? detail.dateChoiceUser1 : detail.dateChoiceUser2) ?? null) as 'plan' | 'keep' | null;
+  const theirChoice = ((isUser1 ? detail.dateChoiceUser2 : detail.dateChoiceUser1) ?? null) as 'plan' | 'keep' | null;
+  const eitherKeep = myChoice === 'keep' || theirChoice === 'keep';
+  const bothPlan = myChoice === 'plan' && theirChoice === 'plan';
+  const iWaitingForThem = myChoice === 'plan' && !theirChoice;
+
+  const setDateChoiceMut = useMutation({
+    mutationFn: async (choice: 'plan' | 'keep' | null) => {
+      await apiRequest("POST", `/api/matches/${match.id}/date-choice`, { choice });
+    },
+    onMutate: async (choice) => {
+      queryClient.setQueryData<any>(["/api/matches", match.id], (old: any) => {
+        if (!old) return old;
+        return isUser1 ? { ...old, dateChoiceUser1: choice } : { ...old, dateChoiceUser2: choice };
+      });
+    },
+    onSuccess: (_, choice) => {
+      broadcastDateChoice(user?.id ?? '', choice);
+    },
+    onError: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/matches", match.id] });
+    },
+  });
 
   const sparkStep = callStage >= 4 ? 3 : callStage >= 1 ? 2 : 1;
 
@@ -2053,7 +2073,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
         </button>
         <div className="flex items-center gap-1 shrink-0">
           <Badge variant="outline" className="text-[10px] px-1.5 py-0" data-testid={`badge-messages-remaining-${match.id}`}>
-            {allCallsDone ? t("all_calls_done") : (keepMessaging && postCallProgressReady) ? t("plan_date_cta_hint") : messagesRemaining > 0 ? t("n_msg_left").replace("{n}", String(messagesRemaining)) : t("call_time_badge")}
+            {allCallsDone ? t("all_calls_done") : (eitherKeep && postCallProgressReady) ? t("plan_date_cta_hint") : messagesRemaining > 0 ? t("n_msg_left").replace("{n}", String(messagesRemaining)) : t("call_time_badge")}
           </Badge>
           {showRemoveConfirm ? (
             <div className="flex items-center gap-0.5">
@@ -2525,10 +2545,10 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                 </div>
               </div>
             )
-          ) : postCallProgressReady && showInlineDatePlan ? (
+          ) : postCallProgressReady && bothPlan ? (
             <div>
               <div className="px-4 pt-3 pb-1">
-                <button onClick={() => setShowInlineDatePlan(false)} className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors" data-testid={`button-back-date-plan-${match.id}`}>
+                <button onClick={() => setDateChoiceMut.mutate(null)} className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors" data-testid={`button-back-date-plan-${match.id}`}>
                   {isRTL ? <ChevronRight className="w-3 h-3" /> : <ChevronLeft className="w-3 h-3" />} {t("back_label")}
                 </button>
               </div>
@@ -2538,7 +2558,31 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                 <div className="p-4 flex justify-center"><div className="w-5 h-5 rounded-full border-2 border-primary border-t-transparent animate-spin" /></div>
               )}
             </div>
-          ) : postCallProgressReady && !keepMessaging ? (
+          ) : postCallProgressReady && iWaitingForThem ? (
+            <div className="p-4 border-t" data-testid={`date-choice-waiting-${match.id}`}>
+              <style>{`
+                @keyframes datePlanIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+                .date-plan-anim { animation: datePlanIn 0.26s ease both; }
+              `}</style>
+              <div className="date-plan-anim space-y-3">
+                <div className="text-center space-y-1">
+                  <Clock className="w-4 h-4 text-muted-foreground mx-auto" />
+                  <p className="font-semibold text-sm">{t("date_choice_waiting_title")}</p>
+                  <p className="text-xs text-muted-foreground">{t("date_choice_waiting_desc").replace("{name}", match.profile.firstName)}</p>
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="w-full"
+                  onClick={() => setDateChoiceMut.mutate(null)}
+                  disabled={setDateChoiceMut.isPending}
+                  data-testid={`button-cancel-plan-${match.id}`}
+                >
+                  <MessageCircle className="w-3.5 h-3.5 me-1.5" /> {t("keep_messaging_btn")}
+                </Button>
+              </div>
+            </div>
+          ) : postCallProgressReady && !eitherKeep && myChoice === null ? (
             <div className="p-4 border-t" data-testid={`date-plan-choice-${match.id}`}>
               <style>{`
                 @keyframes datePlanIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
@@ -2553,7 +2597,8 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                 <div className="grid grid-cols-2 gap-2">
                   <Button
                     size="sm"
-                    onClick={() => setShowInlineDatePlan(true)}
+                    onClick={() => setDateChoiceMut.mutate('plan')}
+                    disabled={setDateChoiceMut.isPending}
                     className="w-full"
                     data-testid={`button-plan-date-now-${match.id}`}
                   >
@@ -2562,7 +2607,8 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                   <Button
                     size="sm"
                     variant="outline"
-                    onClick={() => setKeepMessaging(true)}
+                    onClick={() => setDateChoiceMut.mutate('keep')}
+                    disabled={setDateChoiceMut.isPending}
                     className="w-full"
                     data-testid={`button-keep-messaging-${match.id}`}
                   >
@@ -2690,10 +2736,10 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                   <span>{match.profile.firstName} {t("is_typing_label")}</span>
                 </div>
               )}
-              {postCallProgressReady && keepMessaging && (
+              {postCallProgressReady && eitherKeep && (
                 <div className="mb-3 pb-3 border-b border-border/50" data-testid={`date-plan-banner-${match.id}`}>
                   <button
-                    onClick={() => { setKeepMessaging(false); setShowInlineDatePlan(true); }}
+                    onClick={() => setDateChoiceMut.mutate('plan')}
                     className="w-full flex items-center justify-between rounded-xl border border-primary/20 bg-primary/5 px-3 py-2 text-left hover:bg-primary/10 transition-colors"
                     data-testid={`button-plan-date-cta-${match.id}`}
                   >

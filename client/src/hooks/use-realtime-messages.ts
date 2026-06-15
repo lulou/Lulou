@@ -142,6 +142,20 @@ export function useRealtimeMessages(matchId: string | undefined, enabled: boolea
     });
   }, [matchId]);
 
+  // ── Broadcast: notify the other participant of a date-choice change ──
+  const broadcastDateChoice = useCallback((userId: string, choice: 'plan' | 'keep' | null) => {
+    const ch = broadcastChannelRef.current;
+    if (!ch || !matchId) return;
+    ch.send({
+      type: "broadcast",
+      event: "date-choice",
+      payload: { userId, choice },
+    }).catch((err: any) =>
+      console.warn("[DATE_CHOICE] broadcast send error", err?.message)
+    );
+    console.log("[DATE_CHOICE] broadcast sent", { matchId: matchId.slice(0, 8), choice });
+  }, [matchId]);
+
   useEffect(() => {
     if (!matchId || !enabled) return;
 
@@ -152,6 +166,18 @@ export function useRealtimeMessages(matchId: string | undefined, enabled: boolea
       .on("broadcast", { event: "new-message" }, ({ payload }) => {
         console.log("[CHAT_REALTIME] broadcast event received", { matchId: matchId.slice(0, 8) });
         handleNewMessage(payload);
+      })
+      .on("broadcast", { event: "date-choice" }, ({ payload }) => {
+        // payload: { userId, choice }
+        const { userId, choice } = payload as { userId: string; choice: 'plan' | 'keep' | null };
+        console.log("[DATE_CHOICE] broadcast received", { matchId: matchId.slice(0, 8), choice });
+        queryClient.setQueryData<MatchDetailLike>(["/api/matches", matchId], (old) => {
+          if (!old) return old;
+          const isUser1 = old.user1Id === userId;
+          return isUser1
+            ? { ...old, dateChoiceUser1: choice }
+            : { ...old, dateChoiceUser2: choice };
+        });
       })
       .subscribe((status) => {
         console.log("[CHAT_REALTIME] broadcast channel status", { matchId: matchId.slice(0, 8), status });
@@ -195,5 +221,5 @@ export function useRealtimeMessages(matchId: string | undefined, enabled: boolea
     };
   }, [matchId, enabled, handleNewMessage]);
 
-  return { broadcastNewMessage };
+  return { broadcastNewMessage, broadcastDateChoice };
 }
