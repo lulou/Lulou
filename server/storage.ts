@@ -228,7 +228,7 @@ function haversineDistanceMiles(lat1: number, lng1: number, lat2: number, lng2: 
  * Called when a user saves a new location — result is stored in profiles.latitude/longitude.
  * Degrades gracefully: returns null on any failure so the profile save is never blocked.
  */
-async function geocodeLocation(locationText: string): Promise<{ lat: number; lng: number } | null> {
+export async function geocodeLocation(locationText: string): Promise<{ lat: number; lng: number } | null> {
   try {
     const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(locationText)}&limit=1`;
     const res = await fetch(url, {
@@ -272,6 +272,7 @@ export function setHasLatLngColumns(val: boolean) {
   _hasLatLngColumns = val;
   console.log(`[STORAGE] lat/lng columns ${val ? "AVAILABLE" : "NOT YET MIGRATED"}`);
 }
+export function getHasLatLngColumns(): boolean { return _hasLatLngColumns; }
 
 // Set to true by setHasCustomQColumn() called from server startup.
 // When false, custom_questions is omitted from SELECT lists so existing

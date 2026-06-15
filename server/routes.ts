@@ -1,6 +1,6 @@
 import type { Express, RequestHandler } from "express";
 import { createServer, type Server } from "http";
-import { SupabaseStorage, mapMatch, type CompleteCallOptions } from "./storage";
+import { SupabaseStorage, mapMatch, type CompleteCallOptions, geocodeLocation, getHasLatLngColumns } from "./storage";
 import { seedDatabase } from "./seed";
 import { z } from "zod";
 import type { Profile } from "@shared/schema";
@@ -707,7 +707,12 @@ export async function registerRoutes(
 
       // Fast path: use cached gender/preference to skip the sequential
       // getProfileMeta round-trip (~150–300 ms saved on warm server).
+      // If cached meta exists but has no coordinates and radius > 0, force a
+      // re-fetch so we can attempt inline geocoding for existing accounts.
       let discoverMeta = getCachedDiscoverMeta(userId);
+      if (discoverMeta && discoverMeta.latitude === null && (discoverMeta.locationRadius ?? 0) > 0) {
+        discoverMeta = null;
+      }
       if (!discoverMeta) {
         const myProfile = await storage.getProfileMeta(userId);
         const metaMs = Date.now() - t0;
@@ -715,14 +720,39 @@ export async function registerRoutes(
           devPerf("/api/discover", metaMs, { status: 204, reason: "no-profile" });
           return res.json([]);
         }
+
+        // Existing profiles created before geocoding was added may have location
+        // text but null lat/lng. Geocode inline so the distance filter can run.
+        let lat: number | null = myProfile.latitude ?? null;
+        let lng: number | null = myProfile.longitude ?? null;
+        if (lat === null && myProfile.location && getHasLatLngColumns() && (myProfile.locationRadius ?? 0) > 0) {
+          try {
+            const coords = await geocodeLocation(myProfile.location);
+            if (coords) {
+              lat = coords.lat;
+              lng = coords.lng;
+              console.log(`[DISCOVER] inline geocode "${myProfile.location}" → ${lat.toFixed(4)}, ${lng.toFixed(4)}`);
+              supabaseAdmin.from("profiles")
+                .update({ latitude: lat, longitude: lng })
+                .eq("user_id", userId)
+                .then(
+                  () => console.log(`[DISCOVER] inline geocode saved for ${userId}`),
+                  (e: any) => console.warn("[DISCOVER] inline geocode save failed:", e?.message),
+                );
+            }
+          } catch (e: any) {
+            console.warn("[DISCOVER] inline geocode failed:", e?.message);
+          }
+        }
+
         discoverMeta = {
           gender: myProfile.gender,
           preference: myProfile.datingPreference,
           ageMin: myProfile.preferredAgeMin || 18,
           ageMax: myProfile.preferredAgeMax || 99,
           locationRadius: myProfile.locationRadius ?? 0,
-          latitude: myProfile.latitude ?? null,
-          longitude: myProfile.longitude ?? null,
+          latitude: lat,
+          longitude: lng,
           expiresAt: 0,
         };
         setCachedDiscoverMeta(
@@ -1511,12 +1541,36 @@ export async function registerRoutes(
 
       console.log("[WHEEL] /api/popular called:", { userId, preference, gender });
 
+      // Inline geocode if the user's own profile is missing coordinates.
+      // Existing accounts created before geocoding may have location text but no lat/lng.
+      let wheelLat: number | null = myProfile?.latitude ?? null;
+      let wheelLng: number | null = myProfile?.longitude ?? null;
+      if (wheelLat === null && myProfile?.location && getHasLatLngColumns() && (myProfile?.locationRadius ?? 0) > 0) {
+        try {
+          const coords = await geocodeLocation(myProfile.location);
+          if (coords) {
+            wheelLat = coords.lat;
+            wheelLng = coords.lng;
+            console.log(`[WHEEL] inline geocode "${myProfile.location}" → ${wheelLat.toFixed(4)}, ${wheelLng.toFixed(4)}`);
+            supabaseAdmin.from("profiles")
+              .update({ latitude: wheelLat, longitude: wheelLng })
+              .eq("user_id", userId)
+              .then(
+                () => console.log(`[WHEEL] inline geocode saved for ${userId}`),
+                (e: any) => console.warn("[WHEEL] inline geocode save failed:", e?.message),
+              );
+          }
+        } catch (e: any) {
+          console.warn("[WHEEL] inline geocode failed:", e?.message);
+        }
+      }
+
       const t1 = Date.now();
       const popular = await storage.getPopularProfiles(
         30, preference, gender, userId,
         myProfile?.locationRadius ?? 0,
-        myProfile?.latitude ?? null,
-        myProfile?.longitude ?? null,
+        wheelLat,
+        wheelLng,
         myProfile?.preferredAgeMin ?? 18,
         myProfile?.preferredAgeMax ?? 99,
       );

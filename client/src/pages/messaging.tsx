@@ -918,27 +918,30 @@ export default function Messaging() {
   const isLimitReached = messagesRemaining <= 0;
 
   // ── Starters visibility (pure derivation — no effect needed) ──────────────
+  // System messages (those whose content begins with "__") are call-state signals
+  // inserted by the server (e.g. __SCHEDULE__, __PHONE__:, __VOICE__:).
+  // They must NOT count when deciding whether a chat is "empty" for AI starters —
+  // otherwise any match that went through call scheduling would never show starters
+  // even though neither user has sent a real message.
+  const nonSystemMessages = allMessages.filter(m => !m.content?.startsWith("__"));
+
   // Auto-shows when ALL conditions are true:
   //   • setting is enabled (localStorage)
   //   • user hasn't explicitly dismissed for this match
   //   • messages query has finished loading (prevents flash on chats with messages)
-  //   • combined message list is empty — NOTE: allMessages includes olderMessages,
-  //     which is now reset to [] on matchId change so stale data from a previous
-  //     chat can't bleed into this check
+  //   • NO real (non-system) messages exist — system-only chats are treated as empty
   //   • still in the initial pre-call stage
   // Also shows when the user manually taps the sparkles toggle.
   const autoShowStarters =
     aiStartersEnabled &&
     !userClosedStarters &&
     !isMsgsLoading &&
-    allMessages.length === 0 &&
+    nonSystemMessages.length === 0 &&
     callStage === 0 &&
     !isLimitReached;
   const startersVisible = autoShowStarters || (showAIStarters && !userClosedStarters);
 
   // ── DIAGNOSTICS: trace starters chain on every render ─────────────────────
-  // Logs every condition so the exact failure point is visible in the console.
-  // To inspect: open DevTools → Console, filter by [STARTERS].
   if (import.meta.env.DEV || typeof window !== "undefined") {
     // eslint-disable-next-line no-console
     console.log("[STARTERS] chain", {
@@ -947,6 +950,7 @@ export default function Messaging() {
       userClosedStarters,
       isMsgsLoading,
       allMessagesLength: allMessages.length,
+      nonSystemMessagesLength: nonSystemMessages.length,
       olderMessagesLength: olderMessages.length,
       msgsDataLength: msgsData?.messages?.length ?? "undefined",
       callStage,

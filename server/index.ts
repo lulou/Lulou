@@ -256,6 +256,57 @@ app.use((req, res, next) => {
       const { error } = await adminSb.from("profiles").select("latitude, longitude").limit(1);
       const columnsExist = !error || !error.message?.includes("does not exist");
       setHasLatLngColumns(columnsExist);
+
+      // Background backfill: geocode existing profiles that have location text
+      // but no lat/lng coordinates (created before geocoding was added).
+      // Rate-limited to 1 req/second to respect Nominatim's usage policy.
+      if (columnsExist) {
+        (async () => {
+          try {
+            await new Promise(r => setTimeout(r, 10_000)); // wait 10s for server to settle
+            const { geocodeLocation } = await import("./storage");
+            const { data: profiles, error: qErr } = await adminSb
+              .from("profiles")
+              .select("user_id, location")
+              .not("location", "is", null)
+              .is("latitude", null)
+              .limit(300);
+            if (qErr) { console.warn("[BACKFILL] query error:", qErr.message); return; }
+            if (!profiles || profiles.length === 0) {
+              console.log("[BACKFILL] All profiles already have coordinates ✓");
+              return;
+            }
+            console.log(`[BACKFILL] Geocoding ${profiles.length} profile(s) with missing coordinates…`);
+            let success = 0;
+            for (const p of profiles) {
+              if (!p.location) continue;
+              try {
+                const coords = await geocodeLocation(p.location);
+                if (coords) {
+                  const { error: upErr } = await adminSb.from("profiles")
+                    .update({ latitude: coords.lat, longitude: coords.lng })
+                    .eq("user_id", p.user_id);
+                  if (!upErr) {
+                    success++;
+                    console.log(`[BACKFILL] "${p.location}" → ${coords.lat.toFixed(4)}, ${coords.lng.toFixed(4)}`);
+                  } else {
+                    console.warn(`[BACKFILL] update error for ${p.user_id}:`, upErr.message);
+                  }
+                } else {
+                  console.warn(`[BACKFILL] no geocode result for "${p.location}"`);
+                }
+              } catch (e: any) {
+                console.warn(`[BACKFILL] error for "${p.location}":`, e?.message);
+              }
+              await new Promise(r => setTimeout(r, 1100)); // 1.1s between Nominatim calls
+            }
+            console.log(`[BACKFILL] Done. ${success}/${profiles.length} profiles geocoded.`);
+          } catch (e: any) {
+            console.warn("[BACKFILL] failed:", e?.message);
+          }
+        })();
+      }
+
       if (!columnsExist) {
         console.error("╔═══════════════════════════════════════════════════════════════╗");
         console.error("║  MIGRATION REQUIRED — run this SQL in the Supabase SQL editor ║");

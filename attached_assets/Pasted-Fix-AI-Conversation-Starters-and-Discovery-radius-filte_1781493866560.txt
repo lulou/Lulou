@@ -1,0 +1,160 @@
+Fix AI Conversation Starters and Discovery radius filtering for existing accounts.
+
+Do not work on unrelated features.
+
+These issues are still not fixed in the live app:
+
+AI Conversation Starters still do not appear.
+Discovery radius filtering still shows Sydney profiles to Portsmouth users.
+I should not have to keep creating brand-new accounts to test whether the fix works.
+The fix must apply to existing accounts and existing profiles too.
+
+──────────────────────────────
+
+AI Conversation Starters — Existing Matches
+Current issue:
+
+AI Conversation Starters are enabled in Settings, but they do not appear in chat.
+
+This affects:
+
+new matches
+existing matches
+test accounts already created
+Required:
+
+If AI Conversation Starters is enabled and the match has no user-sent messages yet:
+
+show starters automatically
+show 3–5 suggestions
+show regenerate
+allow tap-to-send
+show fallback suggestions if API fails
+Important:
+
+Do not rely only on brand-new account creation.
+
+Existing matches with no user-sent messages should also show AI starters after deployment.
+
+Audit:
+
+Is the setting stored for existing users?
+Are old users missing the setting value?
+Is the default value false/null?
+Should missing setting values default to enabled?
+Is the setting saved in localStorage only instead of database?
+Is the chat checking the wrong setting source?
+Is the endpoint returning empty?
+Is the UI hidden because system messages make the message count non-zero?
+Required fix:
+
+Make AI starters work for existing accounts.
+Treat missing setting values safely.
+Ignore system messages when deciding whether a chat is “empty”.
+Do not require users to create a new account again.
+Report:
+
+Root cause
+Existing account impact
+Files changed
+Proof existing match can show AI starters
+npm run check result
+npm run build result
+──────────────────────────────
+
+Radius Filtering — Existing Profiles
+Current issue:
+
+A user set to:
+
+Location: Portsmouth
+Radius: 25 miles
+
+still sees Sydney profiles.
+
+This affects existing users/profiles too.
+
+Required:
+
+Discovery must respect radius for existing accounts.
+
+If a user’s location is Portsmouth and radius is 25 miles:
+
+Sydney profiles must never appear.
+Profiles without valid coordinates must not bypass the filter.
+Profiles with missing/invalid location data should be excluded or prompted to update location.
+No fallback global pool unless explicitly enabled.
+Audit:
+
+Are existing profiles missing latitude/longitude?
+Are existing profiles never geocoded?
+Does the discovery query include profiles with null coordinates?
+Is the user’s own location geocoded?
+Is radius saved correctly for existing users?
+Is the app using miles vs kilometres incorrectly?
+Are Portsmouth coordinates being saved?
+Are Sydney profile coordinates being saved?
+Is any fallback query adding profiles after radius filtering?
+Required fix:
+
+Backfill/geocode existing profiles that have location text but missing coordinates.
+If geocoding fails, exclude from radius-based discovery.
+Enforce radius in both Discovery and Intention Wheel/profile pools if applicable.
+Do not require new account creation for the radius fix to work.
+Report actual database examples:
+
+User A:
+location = Portsmouth
+lat/lng = ?
+radius = 25 miles
+
+User B:
+location = Sydney
+lat/lng = ?
+
+calculated distance = ?
+
+why was User B returned?
+
+──────────────────────────────
+
+Backfill / Migration Requirement
+If existing accounts are missing required data:
+
+Implement or provide a safe backfill for:
+
+missing AI starter setting values
+missing latitude/longitude
+invalid radius values
+missing DOB/date_of_birth where relevant
+Do not silently leave old users broken.
+
+Report:
+
+backfill required?
+backfill implemented?
+how many accounts affected?
+whether manual Supabase SQL is needed
+──────────────────────────────
+
+Validation
+
+Run:
+
+npm run check
+npm run build
+
+Provide:
+
+Root cause of AI starters failure
+Root cause of radius failure
+Existing account fix
+Backfill strategy
+Files changed
+Database fields checked
+Proof AI starters visible on existing match
+Proof Portsmouth no longer sees Sydney
+npm run check result
+npm run build result
+Do not mark complete unless both issues work on already-created accounts.
+
