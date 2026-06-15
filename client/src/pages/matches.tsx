@@ -1143,6 +1143,9 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
   const [showProfilePanel, setShowProfilePanel] = useState(false);
   const [showAIStarters, setShowAIStarters] = useState(false);
   const [filterConfirm, setFilterConfirm] = useState<{ content: string; tempId: string; categories: string[] } | null>(null);
+  // Tracks messages sent in the current call-stage session for optimistic counter display.
+  // Resets when match.id or callStage changes so the badge always starts from the DB value.
+  const [localSentCount, setLocalSentCount] = useState(0);
 
   // Lazy-load the chat header avatar — photos are stripped from /api/matches.
   // Shares the same cache key as ProfilePanel so the photo is loaded at most once.
@@ -1239,6 +1242,8 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
     },
     onSuccess: (data: any) => {
       const realMsg = data as Message;
+      // Increment the optimistic per-stage counter so the badge decreases immediately.
+      setLocalSentCount(c => c + 1);
       queryClient.setQueryData<MatchDetail>(["/api/matches", match.id], (old) => {
         if (!old) return old;
         const tempIdx = old.messages.findIndex(
@@ -1638,6 +1643,12 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
     }
   }, [detail.callSessionId]);
 
+  // Reset the optimistic sent counter whenever the match or call stage changes so the
+  // counter always starts from the fresh DB value (messageCount1/2, reset to 0 after each call).
+  useEffect(() => {
+    setLocalSentCount(0);
+  }, [match.id, detail.callStage]);
+
   useEffect(() => {
     if (expanded) {
       onMarkRead();
@@ -1789,15 +1800,22 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
   const hasMessageExtension = (benefits?.activated?.[match.id]?.message_extension || 0) > 0;
   const hasAvailableExtension = (benefits?.available?.message_extension || 0) > 0;
   const effectiveLimit = hasMessageExtension ? MAX_MESSAGES_PER_USER + 5 : MAX_MESSAGES_PER_USER;
-  const messagesRemaining = effectiveLimit - myMessages.length;
+  const callStage = detail.callStage || 0;
+  const isUser1 = detail.user1Id === user?.id;
+  const myPostCallCount   = isUser1 ? (detail.messageCount1 || 0) : (detail.messageCount2 || 0);
+  const theirPostCallCount = isUser1 ? (detail.messageCount2 || 0) : (detail.messageCount1 || 0);
+
+  // For stage 0: use the all-time myMessages.length (correct — no counter reset at start).
+  // For stage 1+: use the per-stage DB counter (resets to 0 after each call) + localSentCount.
+  // This fixes the bug where stage-0 messages were counted against the stage-1 25-message limit,
+  // causing the badge to show e.g. "10 left" instead of "25 left" right after a call completes.
+  const myCurrentStageCount = callStage >= 1 ? myPostCallCount + localSentCount : myMessages.length;
+  const stageLimit = callStage >= 1 ? POST_CALL_THRESHOLD : effectiveLimit;
+  const messagesRemaining = stageLimit - myCurrentStageCount;
   const isLimitReached = messagesRemaining <= 0;
   const rawLimitReached = myMessages.length >= MAX_MESSAGES_PER_USER;
   const allMessages = matchDetail?.messages || [];
-  const callStage = detail.callStage || 0;
-  const isUser1 = detail.user1Id === user?.id;
 
-  const myPostCallCount   = isUser1 ? (detail.messageCount1 || 0) : (detail.messageCount2 || 0);
-  const theirPostCallCount = isUser1 ? (detail.messageCount2 || 0) : (detail.messageCount1 || 0);
   const postCallProgressReady = callStage >= 1
     && myPostCallCount >= POST_CALL_THRESHOLD
     && theirPostCallCount >= POST_CALL_THRESHOLD;
