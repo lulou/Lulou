@@ -424,6 +424,9 @@ export default function Messaging() {
   // True when the user explicitly taps X on the starters panel for this match.
   const [userClosedStarters, setUserClosedStarters] = useState(false);
   const [filterConfirm, setFilterConfirm] = useState<{ content: string; tempId: string; categories: string[] } | null>(null);
+  // Tracks messages sent in the current call-stage session for optimistic counter display.
+  // Resets when matchId or callStage changes so the counter always starts from the DB value.
+  const [localSentCount, setLocalSentCount] = useState(0);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const isAtBottomRef = useRef(true);
@@ -675,6 +678,8 @@ export default function Messaging() {
     onSuccess: (data: any) => {
       const realMsg = data as Message;
       const msgsKey = ["/api/matches", matchId, "messages"];
+      // Increment the optimistic per-stage counter so the badge decreases immediately.
+      setLocalSentCount(c => c + 1);
       queryClient.setQueryData<{ messages: Message[]; hasMore: boolean }>(msgsKey, (old) => {
         if (!old) return old;
         const tempIdx = old.messages.findIndex(
@@ -723,7 +728,15 @@ export default function Messaging() {
     setShowAIStarters(false);
     setOlderMessages([]);
     setHasMoreMessages(false);
+    setLocalSentCount(0);
   }, [matchId]);
+
+  // Reset the optimistic sent counter whenever the call stage advances so the
+  // counter always starts from the fresh DB value (which resets to 0 after each call).
+  const callStageForEffect = matchDetail?.callStage ?? 0;
+  useEffect(() => {
+    setLocalSentCount(0);
+  }, [callStageForEffect]);
 
   // ── Comment Filter + send helper ──────────────────────────────────────────
   const doSend = (content: string) => {
@@ -914,7 +927,17 @@ export default function Messaging() {
   const allCallsDone = callStage >= 4;
   // Stage 0: 15 messages → first guided call. Stage 1 (post-call): 25 messages → date planning.
   const msgLimit = callStage >= 1 ? 25 : MAX_MESSAGES_PER_USER;
-  const messagesRemaining = msgLimit - myMessages.length;
+
+  // Use the per-stage DB counter (messageCount1/2) which resets to 0 after each call,
+  // plus a local optimistic increment for immediate UI feedback when messages are sent.
+  // This fixes the bug where myMessages.length counted ALL messages (including previous
+  // call stages), making "25 left" display as e.g. "10 left" right after a call.
+  const isUser1 = matchDetail?.user1Id === user?.id;
+  const dbStageCount = matchDetail
+    ? (isUser1 ? (matchDetail.messageCount1 ?? 0) : (matchDetail.messageCount2 ?? 0))
+    : null;
+  const myStageMessageCount = dbStageCount !== null ? dbStageCount + localSentCount : myMessages.length;
+  const messagesRemaining = msgLimit - myStageMessageCount;
   const isLimitReached = messagesRemaining <= 0;
 
   // ── Starters visibility (pure derivation — no effect needed) ──────────────
