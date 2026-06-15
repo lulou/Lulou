@@ -1,0 +1,96 @@
+Fix location change, radius discovery, and profile save DOB bug.
+
+Do not work on unrelated features.
+
+──────────────────────────────
+
+Location Change Discovery Bug
+Current issue:
+
+I changed an existing user’s location from Portsmouth to Sydney so they can discover Sydney users.
+
+After changing location:
+
+Discovery shows no profiles
+Existing Sydney users are in the database
+Expected:
+When user changes location:
+
+location text updates
+latitude updates
+longitude updates
+discovery cache resets/refetches
+nearby Sydney profiles appear immediately
+Audit:
+
+When location changes, does geocoding run again?
+Are latitude/longitude updated in Supabase?
+Is the radius query using old Portsmouth coordinates?
+Is Discovery still using cached old location data?
+Are previous open/close/like interactions excluding all Sydney users?
+Are Sydney profiles missing coordinates?
+Are gender/preference filters excluding Sydney users?
+Does changing location trigger query invalidation?
+Required:
+
+Re-geocode whenever location changes.
+Save new lat/lng.
+Invalidate Discovery queries after save.
+If location changes significantly, discovery should not stay stuck on old cache.
+Sydney profiles with valid coordinates should appear.
+Report:
+
+old location + old lat/lng
+new location + new lat/lng
+candidate Sydney profile lat/lng
+calculated distance
+reason they were excluded
+files changed
+npm run check result
+npm run build result
+──────────────────────────────
+
+Profile Save DOB Bug
+Current issue:
+
+When saving profile settings, app shows:
+
+“Settings couldn’t be saved”
+“invalid input syntax for type date: “””
+
+This means the app is sending an empty string into a Postgres date column.
+
+Expected:
+If Date of Birth is empty:
+
+send null
+or omit date_of_birth from update payload
+Do NOT send:
+date_of_birth: “”
+
+Required:
+
+Fix profile/settings save payload.
+Empty DOB should not crash.
+Existing users should be able to save settings even if DOB is blank.
+If DOB is provided, save valid YYYY-MM-DD.
+If DOB is cleared, store null.
+Age should only recalculate when DOB is valid.
+Star sign should only calculate when DOB is valid.
+Audit:
+
+profile settings form
+DOB input
+profile-upsert mapping
+dateOfBirth → date_of_birth conversion
+Supabase update payload
+Report:
+
+root cause
+files changed
+how empty DOB is handled
+how valid DOB is handled
+npm run check result
+npm run build result
+Do not work on unrelated features.
+

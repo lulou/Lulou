@@ -452,18 +452,33 @@ export default function ProfilePage() {
   const saveSettings = useMutation({
     mutationFn: async () => {
       const data: Record<string, unknown> = { ...settingsForm };
-      if (settingsForm.dateOfBirth) {
-        const birth = new Date(settingsForm.dateOfBirth);
+
+      // Empty string is not a valid date — send null so Postgres DATE column
+      // doesn't receive "" and throw "invalid input syntax for type date: ''".
+      if (!data.dateOfBirth) data.dateOfBirth = null;
+
+      if (data.dateOfBirth) {
+        const birth = new Date(data.dateOfBirth as string);
         const today = new Date();
         let age = today.getFullYear() - birth.getFullYear();
         const dm = today.getMonth() - birth.getMonth();
         if (dm < 0 || (dm === 0 && today.getDate() < birth.getDate())) age--;
         data.age = age;
       }
-      return upsertProfile(data);
+
+      // MUST go through the Express route — NOT direct Supabase upsert.
+      // upsertProfile() bypasses the Express POST /api/profile handler, so:
+      //  • _userDiscoverMeta.delete(userId) never fires → server cache keeps stale coords
+      //  • geocodeLocation() never re-runs → new city coordinates not saved
+      // Going through Express ensures both happen before the client re-fetches.
+      return apiRequest("POST", "/api/profile", data);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/profile"] });
+      // Location is always in the settings form — bust discover + wheel caches
+      // so the very next /api/discover call uses fresh coordinates and radius.
+      queryClient.invalidateQueries({ queryKey: ["/api/discover"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/popular"] });
       toast({ title: t("settings_saved") });
       setExpandedSection(null);
     },
