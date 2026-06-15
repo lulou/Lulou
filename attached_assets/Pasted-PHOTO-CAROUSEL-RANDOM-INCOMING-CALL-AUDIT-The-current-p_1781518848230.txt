@@ -1,0 +1,105 @@
+PHOTO CAROUSEL + RANDOM INCOMING CALL AUDIT
+
+The current photo carousel still does not feel correct.
+
+Issue:
+Even after the previous changes, the photos still appear visually connected. There is still a visible strip/background between images which makes them feel like panels inside one container rather than separate floating photos.
+
+Required photo behaviour:
+
+• Each photo must feel like its own independent floating card.
+• Remove ALL carousel track/background visuals.
+• Remove any grey strip, divider, shared background, pseudo-element, overlay, transform layer, or parent container causing photos to appear connected.
+• During drag/swipe there must always be visible page background between photos.
+• Photos should never appear attached to one another.
+• Increase border radius to approximately 24–32px.
+• Add a soft premium shadow around each image.
+• Ensure overflow handling does not expose any underlying carousel strip.
+• The next image should appear detached and floating behind/in front of the current image.
+• Dragging should feel like physically pulling one photo card away to reveal another.
+• The experience should feel premium, elegant and soft, not like sliding panels inside a strip.
+
+Audit all:
+
+Parent containers
+Carousel wrappers
+Overflow layers
+Transform layers
+Background colours
+Pseudo-elements
+Z-index stacking
+Motion/drag implementation
+The goal is a completely floating card experience with clean white space visible between images at all times.
+
+
+RANDOM INCOMING CALL BUG
+
+The random incoming call issue has returned and must be fully investigated.
+
+Current behaviour:
+Users receive incoming call screens/ringing even when nobody has initiated a new call.
+
+This should never happen.
+
+Audit the entire call system:
+
+• Incoming call subscriptions
+• Realtime listeners
+• WebRTC signalling
+• Call invitations
+• Call cleanup logic
+• Accept flow
+• Decline flow
+• End call flow
+• Reconnect behaviour
+• Refresh behaviour
+• Channel resubscription behaviour
+• Cached call state
+• Local storage/session storage call state
+• Database call records
+• Active call flags
+• Pending call flags
+
+Verify:
+
+Calls only ring when a user actively presses the call button.
+Old calls cannot replay after refresh.
+Reconnecting to realtime channels cannot re-trigger previous calls.
+Declined calls are fully destroyed.
+Ended calls are fully destroyed.
+Navigating between pages cannot recreate a call.
+Browser refresh cannot recreate a call.
+Duplicate listeners cannot exist.
+Multiple subscriptions cannot stack.
+All call state is reset after completion.
+Implement logging around:
+
+Call creation
+Call received
+Call accepted
+Call declined
+Call ended
+Call cleanup
+Realtime subscription creation
+Realtime subscription removal
+Provide a complete root-cause report before making assumptions.
+
+Success criteria:
+
+PHOTO SYSTEM
+• Floating card effect
+• No visible connection strip
+• No shared carousel background
+• Premium rounded appearance
+• White space visible between photos during drag
+
+CALL SYSTEM
+• Zero random incoming calls
+• Calls only occur from real user actions
+• No stale call events
+• No replayed call invitations
+• No duplicate realtime listeners
+• Full cleanup after every call
+
+Run full audit, identify root causes, implement fixes, then provide a detailed report of exactly what was changed.
+

@@ -1,6 +1,5 @@
 import { memo, useState, useEffect, useCallback, useRef, type ReactNode } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import useEmblaCarousel from "embla-carousel-react";
 import { decodedPhotos, preloadPhoto } from "@/lib/image-utils";
 import { isMobile } from "@/lib/perf";
 
@@ -17,25 +16,41 @@ interface ProfilePhotoViewerProps {
 }
 
 /**
- * Profile photo viewer — Embla carousel with iOS Safari drag fix.
+ * Profile photo viewer — stacked cards architecture.
  *
- * Root cause of "drag doesn't work on iPhone":
- *   The viewer lives inside `overflow-y: auto` (the page scroll container).
- *   iOS Safari claims ANY touch gesture that starts inside a native scroll
- *   container and fires `touchcancel` / `pointercancel` the moment movement
- *   is detected, terminating Embla's drag mid-gesture.
+ * Why stacked cards instead of a flex strip:
+ *   The old Embla / flex-strip approach shared one overflow:hidden clipping boundary.
+ *   Every photo lived in a connected rectangular frame, so adjacent photos always entered
+ *   from the container's sharp rectangular edge (not their own rounded corner), and
+ *   box-shadows on inner divs were fully clipped — never visible. The result looked like
+ *   a connected strip of panels, not floating cards.
  *
- * Fix:
- *   Attach a non-passive `touchmove` listener to the Embla root node.
- *   When the gesture is primarily horizontal (|dx| > |dy|), call
- *   `event.preventDefault()`. This tells Safari "this gesture belongs to JS"
- *   before it can fire touchcancel. Vertical scroll still works because we
- *   only preventDefault on horizontal moves.
+ *   Stacked cards: two photos are rendered at absolute positions inside a container that
+ *   has padding:SHADOW_PAD + overflow:hidden.  The CSS overflow:hidden clips at the
+ *   PADDING BOX boundary, so the card's box-shadow that bleeds into the padding zone IS
+ *   visible — giving each photo a genuine floating-card appearance with a drop shadow.
  *
- * Why click still worked without this fix:
- *   A tap has no movement, so touchcancel never fires. Click → Embla snap
- *   was working through a completely different code path.
+ * Architecture:
+ *   - Peek card (z-index 0): the neighbour photo, stationary and visible as the current
+ *     card translates during a drag.
+ *   - Current card (z-index 1): the active photo, translates with dragX in real-time.
+ *     Gradient, nameSlot, and action are rendered INSIDE this card so they clip to its
+ *     rounded corners and move with it during drag.
+ *   - Photo bubble overlay (z-index 5): same position as the card; plays the entrance
+ *     animation on tap/arrow navigation.
+ *   - Dots and arrows are outside both cards so they remain stationary during drag.
+ *
+ * Gesture handling mirrors PhotoCarousel:
+ *   - Pointer events with setPointerCapture for reliable cross-device drag.
+ *   - Non-passive touchmove blocks iOS Safari scroll hijack on horizontal gestures.
+ *   - Tap navigation (< 5 px movement) triggers the bubble animation.
+ *   - Drag navigation skips the bubble — the peek card already shows the destination.
  */
+
+const SHADOW_PAD = 6;
+const CARD_RADIUS = 24;
+const CARD_SHADOW = "0 3px 14px rgba(0,0,0,0.18)";
+
 export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
   photos,
   isLoading = false,
@@ -46,147 +61,174 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
 }: ProfilePhotoViewerProps) {
   const n = photos.length;
 
-  const [emblaRef, emblaApi] = useEmblaCarousel({ loop: false });
-  const [selectedIndex, setSelectedIndex] = useState(0);
-  // Overlay state drives the bubble animation on tap/arrow photo changes.
-  const [photoOverlay, setPhotoOverlay] = useState<{ src: string; direction: "fwd" | "bwd"; id: number } | null>(null);
-  const overlayTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [internalIdx, setInternalIdx] = useState(0);
+  const [dragX, setDragX] = useState(0);
+  const [isDragging, setIsDragging] = useState(false);
+  const [photoOverlay, setPhotoOverlay] = useState<{
+    src: string;
+    direction: "fwd" | "bwd";
+    id: number;
+  } | null>(null);
 
-  // Track the Embla root DOM node so we can attach non-passive listeners.
-  // emblaRef is a callback ref; we wrap it to also capture the node ourselves.
-  const viewportNodeRef = useRef<HTMLDivElement | null>(null);
-  const setRefs = useCallback(
-    (node: HTMLDivElement | null) => {
-      viewportNodeRef.current = node;
-      // Forward to Embla's callback ref
-      if (typeof emblaRef === "function") emblaRef(node);
+  const overlayTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isDraggingRef = useRef(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const gestureRef = useRef<{
+    startX: number;
+    startY: number;
+    pointerId: number | null;
+    dirLocked: boolean | null;
+  }>({ startX: 0, startY: 0, pointerId: null, dirLocked: null });
+
+  const safeIdx = n === 0 ? 0 : Math.min(internalIdx, n - 1);
+
+  const goTo = useCallback(
+    (next: number) => {
+      const clamped = Math.max(0, Math.min(n - 1, next));
+      setInternalIdx(clamped);
+      setDragX(0);
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [emblaRef],
+    [n],
   );
 
-  // ── iOS Safari horizontal-drag fix ────────────────────────────────────────
-  // A non-passive touchmove listener that calls preventDefault() for
-  // horizontal gestures, preventing the native scroll container from claiming
-  // the touch before Embla can complete the drag.
+  const navigatePhoto = useCallback(
+    (newIdx: number, direction: "fwd" | "bwd") => {
+      if (newIdx < 0 || newIdx >= n) return;
+      setInternalIdx(newIdx);
+      if (overlayTimerRef.current) clearTimeout(overlayTimerRef.current);
+      const id = Date.now();
+      setPhotoOverlay({ src: photos[newIdx], direction, id });
+      overlayTimerRef.current = setTimeout(
+        () => setPhotoOverlay(o => (o?.id === id ? null : o)),
+        500,
+      );
+    },
+    [n, photos],
+  );
+
   useEffect(() => {
-    const el = viewportNodeRef.current;
-    if (!el) return;
-
-    let startX = 0;
-    let startY = 0;
-    let decided = false; // direction decided for this gesture?
-
-    const onTouchStart = (e: TouchEvent) => {
-      startX = e.touches[0].clientX;
-      startY = e.touches[0].clientY;
-      decided = false;
-    };
-
-    const onTouchMove = (e: TouchEvent) => {
-      if (decided) {
-        // Already determined this gesture is horizontal — keep blocking.
-        const dx = Math.abs(e.touches[0].clientX - startX);
-        const dy = Math.abs(e.touches[0].clientY - startY);
-        if (dx > dy) e.preventDefault();
-        return;
-      }
-      const dx = Math.abs(e.touches[0].clientX - startX);
-      const dy = Math.abs(e.touches[0].clientY - startY);
-      if (dx < 3 && dy < 3) return; // not enough movement yet
-      decided = true;
-      if (dx > dy) {
-        // Horizontal gesture — claim it for Embla before Safari does.
-        e.preventDefault();
-      }
-    };
-
-    el.addEventListener("touchstart", onTouchStart, { passive: true });
-    // passive:false is required so preventDefault() is honoured.
-    el.addEventListener("touchmove", onTouchMove, { passive: false });
-
     return () => {
-      el.removeEventListener("touchstart", onTouchStart);
-      el.removeEventListener("touchmove", onTouchMove);
+      if (overlayTimerRef.current) clearTimeout(overlayTimerRef.current);
     };
-  // Re-attach whenever the DOM node changes (profile switch / reInit).
-  // viewportNodeRef.current is stable but we depend on emblaApi so the
-  // effect re-runs after Embla initialises and we know the node is live.
-  }, [emblaApi]);
+  }, []);
 
-  // ── Sync dot indicator + bubble animation on photo change ─────────────────
+  // Reset to first photo when profile changes.
   useEffect(() => {
-    if (!emblaApi) return;
-    const onSelect = () => setSelectedIndex(emblaApi.selectedScrollSnap());
-    emblaApi.on("select", onSelect);
-    onSelect();
-    return () => { emblaApi.off("select", onSelect); };
-  }, [emblaApi]);
+    setInternalIdx(0);
+    setDragX(0);
+    setPhotoOverlay(null);
+  }, [photos]);
 
-  // ── Reset carousel when a new profile is shown ────────────────────────────
+  // Preload neighbours.
   useEffect(() => {
-    if (!emblaApi) return;
-    emblaApi.reInit({ loop: false });
-    emblaApi.scrollTo(0, true);
-    setSelectedIndex(0);
-  }, [photos, emblaApi]);
-
-  // ── Preload neighbours ─────────────────────────────────────────────────────
-  useEffect(() => {
-    [selectedIndex - 1, selectedIndex, selectedIndex + 1].forEach(i => {
+    [safeIdx - 1, safeIdx, safeIdx + 1].forEach(i => {
       if (photos[i]) preloadPhoto(photos[i]);
     });
-  }, [photos, selectedIndex]);
+  }, [photos, safeIdx]);
 
-  // ── Navigate with bubble animation ────────────────────────────────────────
-  // Arrow buttons and taps call this instead of emblaApi.scrollNext/Prev() so
-  // the transition uses a premium overlay pop rather than Embla's default slide.
-  // Drag gestures go through Embla naturally (no overlay, no select-event anim).
-  const navigatePhoto = useCallback((newIdx: number, direction: "fwd" | "bwd") => {
-    if (!emblaApi || newIdx < 0 || newIdx >= n) return;
-    emblaApi.scrollTo(newIdx, true); // instant jump — no Embla slide animation
-    if (overlayTimerRef.current) clearTimeout(overlayTimerRef.current);
-    const id = Date.now();
-    setPhotoOverlay({ src: photos[newIdx], direction, id });
-    overlayTimerRef.current = setTimeout(
-      () => setPhotoOverlay(o => (o?.id === id ? null : o)),
-      500,
-    );
-  }, [emblaApi, n, photos]);
-
-  // ── Tap-to-advance on touch devices ───────────────────────────────────────
-  // Distinguishes a tap (< 16 px movement) from a drag. Right half → next,
-  // left half → prev. Runs in a separate effect so deps update with selectedIndex.
+  // Non-passive touchmove for iOS Safari horizontal gesture claim.
   useEffect(() => {
-    const el = viewportNodeRef.current;
-    if (!el || !emblaApi || n <= 1) return;
-    let tapX = 0;
-    let tapY = 0;
-    const onStart = (e: TouchEvent) => {
-      tapX = e.touches[0].clientX;
-      tapY = e.touches[0].clientY;
-    };
-    const onEnd = (e: TouchEvent) => {
-      const dx = Math.abs(e.changedTouches[0].clientX - tapX);
-      const dy = Math.abs(e.changedTouches[0].clientY - tapY);
-      if (dx > 16 || dy > 16) return; // drag — let Embla handle it
-      const rect = el.getBoundingClientRect();
-      const x = e.changedTouches[0].clientX - rect.left;
-      const goFwd = x > rect.width / 2;
-      navigatePhoto(goFwd ? selectedIndex + 1 : selectedIndex - 1, goFwd ? "fwd" : "bwd");
-    };
-    el.addEventListener("touchstart", onStart, { passive: true });
-    el.addEventListener("touchend", onEnd, { passive: true });
-    return () => {
-      el.removeEventListener("touchstart", onStart);
-      el.removeEventListener("touchend", onEnd);
-    };
-  }, [emblaApi, n, selectedIndex, navigatePhoto]);
+    const el = containerRef.current;
+    if (!el || n <= 1) return;
 
-  // Cleanup overlay timer on unmount.
-  useEffect(() => () => { if (overlayTimerRef.current) clearTimeout(overlayTimerRef.current); }, []);
+    const onTouchMove = (e: TouchEvent) => {
+      const g = gestureRef.current;
+      if (g.dirLocked === true) {
+        e.preventDefault();
+      } else if (g.dirLocked === null) {
+        const dx = Math.abs(e.touches[0].clientX - g.startX);
+        const dy = Math.abs(e.touches[0].clientY - g.startY);
+        if (dx > 3 && dx > dy) e.preventDefault();
+      }
+    };
 
-  // ── Loading shimmer ────────────────────────────────────────────────────────
+    el.addEventListener("touchmove", onTouchMove, { passive: false });
+    return () => el.removeEventListener("touchmove", onTouchMove);
+  }, [n]);
+
+  const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (n <= 1) return;
+    gestureRef.current = {
+      startX: e.clientX,
+      startY: e.clientY,
+      pointerId: e.pointerId,
+      dirLocked: null,
+    };
+    isDraggingRef.current = false;
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+  };
+
+  const onPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    const g = gestureRef.current;
+    if (g.pointerId !== e.pointerId) return;
+
+    const rawDx = e.clientX - g.startX;
+    const rawDy = e.clientY - g.startY;
+
+    if (g.dirLocked === null) {
+      if (Math.abs(rawDx) < 5 && Math.abs(rawDy) < 5) return;
+      g.dirLocked = Math.abs(rawDx) >= Math.abs(rawDy);
+    }
+    if (!g.dirLocked) return;
+
+    const atStart = safeIdx === 0 && rawDx > 0;
+    const atEnd = safeIdx === n - 1 && rawDx < 0;
+    const clamped = atStart || atEnd ? rawDx * 0.25 : rawDx;
+
+    isDraggingRef.current = true;
+    setIsDragging(true);
+    setDragX(clamped);
+  };
+
+  const commitDrag = (finalClientX: number) => {
+    const g = gestureRef.current;
+    g.pointerId = null;
+
+    if (!isDraggingRef.current) {
+      // Tap — navigate with bubble animation.
+      const el = containerRef.current;
+      if (el && n > 1) {
+        const rect = el.getBoundingClientRect();
+        const x = finalClientX - rect.left;
+        const goFwd = x > rect.width / 2;
+        if (goFwd && safeIdx < n - 1) navigatePhoto(safeIdx + 1, "fwd");
+        else if (!goFwd && safeIdx > 0) navigatePhoto(safeIdx - 1, "bwd");
+      }
+      return;
+    }
+
+    // Drag — navigate without bubble (peek card already showed destination).
+    const containerWidth = containerRef.current?.offsetWidth ?? 320;
+    const threshold = Math.min(containerWidth * 0.28, 90);
+    const dx = finalClientX - g.startX;
+
+    isDraggingRef.current = false;
+    setIsDragging(false);
+    setDragX(0);
+
+    if (dx < -threshold && safeIdx < n - 1) goTo(safeIdx + 1);
+    else if (dx > threshold && safeIdx > 0) goTo(safeIdx - 1);
+  };
+
+  const onPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (gestureRef.current.pointerId !== e.pointerId) return;
+    commitDrag(e.clientX);
+  };
+
+  const onPointerCancel = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (gestureRef.current.pointerId !== e.pointerId) return;
+    gestureRef.current.pointerId = null;
+    isDraggingRef.current = false;
+    setIsDragging(false);
+    setDragX(0);
+  };
+
+  const peekIdxRaw = dragX < 0 ? safeIdx + 1 : safeIdx > 0 ? safeIdx - 1 : safeIdx + 1;
+  const peekIdx = Math.max(0, Math.min(n - 1, peekIdxRaw));
+  const currentPhoto = photos[safeIdx] ?? "";
+  const peekPhoto = photos[peekIdx] ?? "";
+
+  // ── Loading shimmer ──────────────────────────────────────────────────────────
   if (isLoading) {
     return (
       <div
@@ -204,7 +246,7 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
     );
   }
 
-  // ── Empty state ────────────────────────────────────────────────────────────
+  // ── Empty state ──────────────────────────────────────────────────────────────
   if (n === 0) {
     return (
       <div
@@ -223,77 +265,154 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
     );
   }
 
-  // ── Photo carousel ─────────────────────────────────────────────────────────
+  // ── Photo carousel ───────────────────────────────────────────────────────────
   return (
     <div
-      className={`relative w-full ${className}`}
-      style={{ height, background: "transparent" }}
+      ref={containerRef}
+      className={`relative w-full select-none ${className}`}
+      style={{
+        height,
+        background: "transparent",
+        touchAction: "pan-y",
+        padding: SHADOW_PAD,
+        overflow: "hidden",
+      }}
       data-testid="profile-photo-viewer"
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      onPointerCancel={onPointerCancel}
     >
-      {/*
-        Embla viewport — the interactive surface.
-        touch-action:pan-y pinch-zoom lets Embla own horizontal events at the
-        CSS level; the non-passive touchmove listener above enforces this on
-        iOS Safari which ignores CSS touch-action when inside a scroll container.
-      */}
-      <div
-        ref={setRefs}
-        className="h-full w-full overflow-hidden"
-        style={{ touchAction: "pan-y pinch-zoom" }}
-      >
-        {/* Embla container */}
-        <div style={{ display: "flex", height: "100%" }}>
-          {photos.map((photo, i) => (
-            <div
-              key={i}
-              style={{ flex: "0 0 100%", minWidth: 0, height: "100%", padding: "0 6px" }}
-              data-testid={`carousel-slide-${i}`}
-            >
-              {/* Inner wrapper clips image to rounded corners; one card per photo. */}
-              <div style={{ width: "100%", height: "100%", borderRadius: 18, overflow: "hidden", boxShadow: "0 6px 24px rgba(0,0,0,0.18)" }}>
-                <img
-                  src={photo}
-                  alt={`Photo ${i + 1}`}
-                  loading={Math.abs(i - selectedIndex) <= 1 ? "eager" : "lazy"}
-                  decoding="async"
-                  draggable={false}
-                  style={{
-                    width: "100%",
-                    height: "100%",
-                    objectFit: "cover",
-                    objectPosition: "center top",
-                    opacity: decodedPhotos.has(photo) ? 1 : 0,
-                    transition: "opacity 0.08s ease",
-                    display: "block",
-                    userSelect: "none",
-                  }}
-                  onLoad={e => {
-                    decodedPhotos.add(photo);
-                    (e.currentTarget as HTMLImageElement).style.opacity = "1";
-                  }}
-                  data-testid={`img-carousel-photo-${i}`}
-                />
-              </div>
-            </div>
-          ))}
+      {/* Peek card — neighbour photo, stationary behind the current card */}
+      {n > 1 && peekIdx !== safeIdx && (
+        <div
+          aria-hidden="true"
+          style={{
+            position: "absolute",
+            inset: SHADOW_PAD,
+            borderRadius: CARD_RADIUS,
+            overflow: "hidden",
+            boxShadow: CARD_SHADOW,
+            zIndex: 0,
+          }}
+        >
+          <img
+            src={peekPhoto}
+            alt=""
+            draggable={false}
+            style={{
+              width: "100%",
+              height: "100%",
+              objectFit: "cover",
+              objectPosition: "center top",
+              display: "block",
+              userSelect: "none",
+              pointerEvents: "none",
+            }}
+          />
         </div>
+      )}
+
+      {/* Current card — active photo + gradient + name/action inside so they
+          clip to the card's rounded corners and move together during drag */}
+      <div
+        style={{
+          position: "absolute",
+          inset: SHADOW_PAD,
+          borderRadius: CARD_RADIUS,
+          overflow: "hidden",
+          boxShadow: CARD_SHADOW,
+          zIndex: 1,
+          transform: `translateX(${dragX}px)`,
+          transition: isDragging
+            ? "none"
+            : "transform 0.32s cubic-bezier(0.25, 1, 0.5, 1)",
+          willChange: "transform",
+        }}
+      >
+        <img
+          src={currentPhoto}
+          alt={`Photo ${safeIdx + 1}`}
+          loading="eager"
+          decoding="async"
+          draggable={false}
+          style={{
+            position: "absolute",
+            inset: 0,
+            width: "100%",
+            height: "100%",
+            objectFit: "cover",
+            objectPosition: "center top",
+            opacity: decodedPhotos.has(currentPhoto) ? 1 : 0,
+            transition: "opacity 0.08s ease",
+            display: "block",
+            userSelect: "none",
+            pointerEvents: "none",
+          }}
+          onLoad={e => {
+            decodedPhotos.add(currentPhoto);
+            (e.currentTarget as HTMLImageElement).style.opacity = "1";
+          }}
+          data-testid={`img-carousel-photo-${safeIdx}`}
+        />
+
+        {/* Bottom gradient — clips to card's rounded corners */}
+        <div
+          aria-hidden="true"
+          style={{
+            position: "absolute",
+            inset: 0,
+            pointerEvents: "none",
+            background:
+              "linear-gradient(to top, rgba(0,0,0,0.62) 0%, rgba(0,0,0,0.1) 48%, transparent 68%)",
+            zIndex: 1,
+          }}
+        />
+
+        {/* nameSlot — inside the card so it clips at rounded corners */}
+        {nameSlot && (
+          <div
+            style={{
+              position: "absolute",
+              bottom: 50,
+              left: 12,
+              right: 12,
+              zIndex: 2,
+              pointerEvents: "none",
+            }}
+          >
+            <div style={{ pointerEvents: "auto" }}>{nameSlot}</div>
+          </div>
+        )}
+
+        {/* action — bottom-right of the card */}
+        {action && (
+          <div
+            style={{
+              position: "absolute",
+              bottom: 12,
+              right: 10,
+              zIndex: 3,
+              pointerEvents: "none",
+            }}
+          >
+            <div style={{ pointerEvents: "auto" }}>{action}</div>
+          </div>
+        )}
       </div>
 
-      {/* Photo transition overlay — bubble animation on tap/arrow navigation.
-          Plays over the settled carousel so the effect is always visible,
-          regardless of when Embla finishes its (instant) scroll. */}
+      {/* Photo bubble overlay — entrance animation on tap/arrow navigation.
+          Positioned identically to the card so it clips at the same rounded
+          corners, creating the "bubble slide" effect over the settled photo. */}
       {photoOverlay && (
         <div
           key={photoOverlay.id}
           aria-hidden="true"
           style={{
             position: "absolute",
-            top: 0,
-            left: 6,
-            right: 6,
-            bottom: 0,
+            inset: SHADOW_PAD,
             zIndex: 5,
-            borderRadius: 18,
+            borderRadius: CARD_RADIUS,
             overflow: "hidden",
             animation: `${photoOverlay.direction === "fwd" ? "photoEnterRight" : "photoEnterLeft"} 0.42s cubic-bezier(0.16, 1, 0.3, 1) both`,
           }}
@@ -313,35 +432,22 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
         </div>
       )}
 
-      {/* Gradient — pointer-events:none; inset 6 px to stay within the rounded photo card */}
-      <div
-        aria-hidden="true"
-        style={{
-          position: "absolute",
-          top: 0,
-          left: 6,
-          right: 6,
-          bottom: 0,
-          pointerEvents: "none",
-          borderRadius: 18,
-          background:
-            "linear-gradient(to top, rgba(0,0,0,0.62) 0%, rgba(0,0,0,0.1) 48%, transparent 68%)",
-          zIndex: 1,
-        }}
-      />
-
-      {/* Arrow buttons — small, sit at mid-height on each edge */}
-      {n > 1 && selectedIndex > 0 && (
+      {/* Arrow buttons — outside the card so they stay fixed during drag */}
+      {n > 1 && safeIdx > 0 && (
         <button
-          onClick={() => navigatePhoto(selectedIndex - 1, "bwd")}
+          onClick={e => {
+            e.stopPropagation();
+            navigatePhoto(safeIdx - 1, "bwd");
+          }}
+          onPointerDown={e => e.stopPropagation()}
           aria-label="Previous photo"
           data-testid="button-viewer-prev"
           style={{
             position: "absolute",
-            left: 10,
+            left: SHADOW_PAD + 4,
             top: "50%",
             transform: "translateY(-50%)",
-            zIndex: 3,
+            zIndex: 10,
             width: 36,
             height: 36,
             borderRadius: "50%",
@@ -358,17 +464,21 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
           <ChevronLeft style={{ width: 16, height: 16, color: "white" }} />
         </button>
       )}
-      {n > 1 && selectedIndex < n - 1 && (
+      {n > 1 && safeIdx < n - 1 && (
         <button
-          onClick={() => navigatePhoto(selectedIndex + 1, "fwd")}
+          onClick={e => {
+            e.stopPropagation();
+            navigatePhoto(safeIdx + 1, "fwd");
+          }}
+          onPointerDown={e => e.stopPropagation()}
           aria-label="Next photo"
           data-testid="button-viewer-next"
           style={{
             position: "absolute",
-            right: 10,
+            right: SHADOW_PAD + 4,
             top: "50%",
             transform: "translateY(-50%)",
-            zIndex: 3,
+            zIndex: 10,
             width: 36,
             height: 36,
             borderRadius: "50%",
@@ -386,65 +496,35 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
         </button>
       )}
 
-      {/* Dot indicators — pointer-events:none; left offset accounts for 6 px slide inset */}
+      {/* Dot indicators — outside the card, stationary during drag */}
       {n > 1 && (
         <div
           aria-hidden="true"
           style={{
             position: "absolute",
-            bottom: 14,
-            left: 22,
+            bottom: SHADOW_PAD + 8,
+            left: SHADOW_PAD + 16,
             display: "flex",
             alignItems: "center",
             gap: 6,
             pointerEvents: "none",
-            zIndex: 2,
+            zIndex: 10,
           }}
         >
           {photos.map((_, i) => (
             <div
               key={i}
               style={{
-                width: i === selectedIndex ? 24 : 7,
+                width: i === safeIdx ? 24 : 7,
                 height: 7,
                 borderRadius: 3.5,
                 backgroundColor:
-                  i === selectedIndex ? "white" : "rgba(255,255,255,0.42)",
+                  i === safeIdx ? "white" : "rgba(255,255,255,0.42)",
                 transition: "width 0.25s ease, background-color 0.25s ease",
                 flexShrink: 0,
               }}
             />
           ))}
-        </div>
-      )}
-
-      {/* Action button — right offset accounts for 6 px slide inset */}
-      {action && (
-        <div
-          style={{
-            position: "absolute",
-            bottom: 12,
-            right: 20,
-            zIndex: 3,
-            pointerEvents: "none",
-          }}
-        >
-          <div style={{ pointerEvents: "auto" }}>{action}</div>
-        </div>
-      )}
-
-      {nameSlot && (
-        <div
-          style={{
-            position: "absolute",
-            bottom: 50,
-            left: 22,
-            right: 22,
-            zIndex: 2,
-            pointerEvents: "none",
-          }}
-        >
-          <div style={{ pointerEvents: "auto" }}>{nameSlot}</div>
         </div>
       )}
     </div>

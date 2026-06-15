@@ -4,28 +4,31 @@ import { decodedPhotos, preloadPhoto } from "@/lib/image-utils";
 import { useLanguageContext } from "@/contexts/language-context";
 
 /**
- * Drag-enabled photo carousel.
+ * Drag-enabled photo carousel — stacked cards architecture.
  *
- * Behaviour:
- *   - Renders all photos in a flex strip; CSS translateX follows the drag in
- *     real-time so the next/prev photo is always visible while dragging.
- *   - Uses Pointer Events (works on touch + mouse) with setPointerCapture so
- *     the drag continues even if the pointer leaves the element.
- *   - Non-passive touchmove listener calls preventDefault() for horizontal
- *     gestures → prevents the iOS Safari scroll container from claiming the
- *     touch before JS can handle it.
- *   - Direction is decided on the first significant movement (≥5 px):
- *       horizontal → carousel drag, vertical → ignored (native scroll).
- *   - Rubber-band resistance (0.25×) at the first/last photo edge.
- *   - On release: if displacement > threshold (28 % of width, max 90 px)
- *     → navigate; otherwise → smooth snap-back.
- *   - Short movements (<10 px) that end without locking direction are treated
- *     as taps: right half → next, left half → prev.
- *   - Snap / snap-back animated with CSS transition; real-time drag has no
- *     transition so it follows the finger instantly.
- *   - Arrow buttons stop pointer-event propagation so they don't start a drag.
- *   - Neighbor photos loaded eagerly so they are ready before the drag ends.
+ * Each photo renders as an independent floating card (position:absolute; inset:SHADOW_PAD)
+ * inside a container with overflow:hidden and matching padding. The SHADOW_PAD buffer zone
+ * lets the card's box-shadow bleed into the padding area and remain visible — solving the
+ * previous flex-strip approach where overflow:hidden clipped all shadows entirely.
+ *
+ * Two cards are rendered at any time:
+ *   - Peek card (z-index 0): the neighbour photo, stationary behind the current card.
+ *   - Current card (z-index 1): the displayed photo, translates with dragX in real-time.
+ *     Children (caller-supplied overlays) are rendered inside the current card so the
+ *     entire "card object" (photo + gradient + buttons) moves together during drag.
+ *
+ * Gesture handling (pointer events):
+ *   - Direction is decided on the first significant movement (≥5 px).
+ *   - Horizontal → carousel drag, vertical → let native scroll handle it.
+ *   - Rubber-band resistance (0.25×) at first/last photo edges.
+ *   - Release: displacement > threshold (28% of width, max 90 px) → navigate; else snap-back.
+ *   - Short taps (<10 px total movement): right half → next, left half → prev.
+ *   - Non-passive touchmove prevents iOS Safari from claiming the gesture.
  */
+
+const SHADOW_PAD = 6;
+const CARD_RADIUS = 24;
+const CARD_SHADOW = "0 3px 14px rgba(0,0,0,0.18)";
 
 interface PhotoCarouselProps {
   photos: string[];
@@ -56,14 +59,13 @@ export function PhotoCarousel({
   const [dragX, setDragX] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
 
-  // Refs for synchronous reads inside event handlers (no stale-closure issues).
   const isDraggingRef = useRef(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const gestureRef = useRef<{
     startX: number;
     startY: number;
     pointerId: number | null;
-    dirLocked: boolean | null; // null=undecided, true=horiz, false=vert
+    dirLocked: boolean | null;
   }>({ startX: 0, startY: 0, pointerId: null, dirLocked: null });
 
   const n = photos.length;
@@ -79,23 +81,18 @@ export function PhotoCarousel({
     [n, controlledIdx, onIndexChange],
   );
 
-  // Preload current photo and immediate neighbours.
   useEffect(() => {
     [safeIdx - 1, safeIdx, safeIdx + 1].forEach(i => {
       if (photos[i]) preloadPhoto(photos[i]);
     });
   }, [photos, safeIdx]);
 
-  // Clamp when photos array shrinks.
   useEffect(() => {
     if (controlledIdx === undefined && internalIdx >= n && n > 0) {
       setInternalIdx(0);
     }
   }, [n, controlledIdx, internalIdx]);
 
-  // ── Non-passive touchmove for iOS Safari ────────────────────────────────────
-  // Must be attached imperatively (passive:false) — React synthetic events are
-  // passive by default and cannot call preventDefault().
   useEffect(() => {
     const el = containerRef.current;
     if (!el || n <= 1) return;
@@ -103,7 +100,6 @@ export function PhotoCarousel({
     const onTouchMove = (e: TouchEvent) => {
       const g = gestureRef.current;
       if (g.dirLocked === true) {
-        // Confirmed horizontal — block Safari from scrolling.
         e.preventDefault();
       } else if (g.dirLocked === null) {
         const dx = Math.abs(e.touches[0].clientX - g.startX);
@@ -116,7 +112,6 @@ export function PhotoCarousel({
     return () => el.removeEventListener("touchmove", onTouchMove);
   }, [n]);
 
-  // ── Pointer event handlers ───────────────────────────────────────────────────
   const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (n <= 1) return;
     gestureRef.current = {
@@ -126,7 +121,6 @@ export function PhotoCarousel({
       dirLocked: null,
     };
     isDraggingRef.current = false;
-    // Capture so we still receive events if pointer leaves the element.
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
   };
 
@@ -137,17 +131,13 @@ export function PhotoCarousel({
     const rawDx = e.clientX - g.startX;
     const rawDy = e.clientY - g.startY;
 
-    // Direction decision on first significant movement.
     if (g.dirLocked === null) {
       if (Math.abs(rawDx) < 5 && Math.abs(rawDy) < 5) return;
       g.dirLocked = Math.abs(rawDx) >= Math.abs(rawDy);
     }
-    if (!g.dirLocked) return; // vertical — let native scroll handle it
+    if (!g.dirLocked) return;
 
-    // Account for RTL (swipe direction is mirrored).
     const dx = isRTL ? -rawDx : rawDx;
-
-    // Rubber-band resistance at edges.
     const atStart = safeIdx === 0 && dx > 0;
     const atEnd = safeIdx === n - 1 && dx < 0;
     const clamped = atStart || atEnd ? dx * 0.25 : dx;
@@ -162,7 +152,6 @@ export function PhotoCarousel({
     g.pointerId = null;
 
     if (!isDraggingRef.current) {
-      // Short movement → treat as tap: navigate based on which half was tapped.
       const el = containerRef.current;
       if (el && n > 1) {
         const rect = el.getBoundingClientRect();
@@ -174,7 +163,6 @@ export function PhotoCarousel({
       return;
     }
 
-    // Full drag — threshold check.
     const containerWidth = containerRef.current?.offsetWidth ?? 320;
     const threshold = Math.min(containerWidth * 0.28, 90);
     const rawDx = finalClientX - g.startX;
@@ -182,14 +170,13 @@ export function PhotoCarousel({
 
     isDraggingRef.current = false;
     setIsDragging(false);
+    setDragX(0);
 
     if (dx < -threshold && safeIdx < n - 1) {
       goTo(safeIdx + 1);
     } else if (dx > threshold && safeIdx > 0) {
       goTo(safeIdx - 1);
     }
-    // Always reset dragX — snap-back transition plays if we didn't navigate.
-    setDragX(0);
   };
 
   const onPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -205,88 +192,151 @@ export function PhotoCarousel({
     setDragX(0);
   };
 
+  const peekIdxRaw = dragX < 0 ? safeIdx + 1 : safeIdx > 0 ? safeIdx - 1 : safeIdx + 1;
+  const peekIdx = Math.max(0, Math.min(n - 1, peekIdxRaw));
+  const currentPhoto = photos[safeIdx];
+  const peekPhoto = photos[peekIdx];
+
   return (
     <div
       ref={containerRef}
-      className={`relative overflow-hidden select-none ${className}`}
-      style={{ height, background: "transparent", touchAction: "pan-y", ...style }}
+      className={`relative select-none ${className}`}
+      style={{
+        height,
+        background: "transparent",
+        touchAction: "pan-y",
+        padding: SHADOW_PAD,
+        overflow: "hidden",
+        ...style,
+      }}
       data-testid="photo-carousel"
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
       onPointerCancel={onPointerCancel}
     >
-      {/* ── Empty state ─────────────────────────────────────────────────────── */}
+      {/* Empty state */}
       {n === 0 && (
-        <div className="absolute inset-0 flex items-center justify-center bg-muted">
-          <svg viewBox="0 0 80 80" fill="none" className="w-16 h-16 opacity-20">
+        <div
+          style={{
+            position: "absolute",
+            inset: SHADOW_PAD,
+            borderRadius: CARD_RADIUS,
+            overflow: "hidden",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            background: "hsl(var(--muted))",
+          }}
+        >
+          <svg viewBox="0 0 80 80" fill="none" style={{ width: 64, height: 64, opacity: 0.2 }}>
             <circle cx="40" cy="28" r="14" fill="currentColor" />
             <ellipse cx="40" cy="62" rx="24" ry="16" fill="currentColor" />
           </svg>
         </div>
       )}
 
-      {/* ── Photo strip ─────────────────────────────────────────────────────── */}
       {n > 0 && (
-        <div
-          style={{
-            display: "flex",
-            height: "100%",
-            // Position so the current photo is centred, then offset by drag.
-            transform: `translateX(calc(${safeIdx * -100}% + ${dragX}px))`,
-            // No transition while dragging (real-time tracking).
-            // Smooth spring when snapping or navigating.
-            transition: isDragging
-              ? "none"
-              : "transform 0.32s cubic-bezier(0.25, 1, 0.5, 1)",
-            willChange: "transform",
-          }}
-        >
-          {photos.map((photo, i) => (
+        <>
+          {/* Peek card — neighbour photo sitting stationary behind the current card.
+              Becomes visible as the current card translates during a drag gesture. */}
+          {n > 1 && peekIdx !== safeIdx && (
             <div
-              key={photo + i}
-              style={{ flex: "0 0 100%", minWidth: 0, height: "100%", padding: "0 6px" }}
+              aria-hidden="true"
+              style={{
+                position: "absolute",
+                inset: SHADOW_PAD,
+                borderRadius: CARD_RADIUS,
+                overflow: "hidden",
+                boxShadow: CARD_SHADOW,
+                zIndex: 0,
+              }}
             >
-              {/* Inner wrapper gives each photo its own rounded corners and clips the image. */}
-              <div style={{ width: "100%", height: "100%", borderRadius: 18, overflow: "hidden", boxShadow: "0 6px 24px rgba(0,0,0,0.18)" }}>
-                <img
-                  src={photo}
-                  alt={`Photo ${i + 1}`}
-                  loading={Math.abs(i - safeIdx) <= 1 ? "eager" : "lazy"}
-                  decoding="async"
-                  draggable={false}
-                  style={{
-                    width: "100%",
-                    height: "100%",
-                    objectFit: "cover",
-                    objectPosition: "center top",
-                    opacity: decodedPhotos.has(photo) ? 1 : 0,
-                    transition: "opacity 0.08s ease",
-                    display: "block",
-                    userSelect: "none",
-                    pointerEvents: "none",
-                  }}
-                  onLoad={e => {
-                    decodedPhotos.add(photo);
-                    (e.currentTarget as HTMLImageElement).style.opacity = "1";
-                  }}
-                  data-testid={`img-carousel-photo-${i}`}
-                />
-              </div>
+              <img
+                src={peekPhoto}
+                alt=""
+                draggable={false}
+                style={{
+                  width: "100%",
+                  height: "100%",
+                  objectFit: "cover",
+                  objectPosition: "center top",
+                  display: "block",
+                  userSelect: "none",
+                  pointerEvents: "none",
+                }}
+              />
             </div>
-          ))}
-        </div>
+          )}
+
+          {/* Current card — the visible photo; translates with dragX.
+              Children (caller-supplied overlays) ride inside so the entire
+              card object moves as one unit during drag. */}
+          <div
+            style={{
+              position: "absolute",
+              inset: SHADOW_PAD,
+              borderRadius: CARD_RADIUS,
+              overflow: "hidden",
+              boxShadow: CARD_SHADOW,
+              zIndex: 1,
+              transform: `translateX(${dragX}px)`,
+              transition: isDragging
+                ? "none"
+                : "transform 0.32s cubic-bezier(0.25, 1, 0.5, 1)",
+              willChange: "transform",
+            }}
+          >
+            <img
+              src={currentPhoto}
+              alt={`Photo ${safeIdx + 1}`}
+              loading="eager"
+              decoding="async"
+              draggable={false}
+              style={{
+                position: "absolute",
+                inset: 0,
+                width: "100%",
+                height: "100%",
+                objectFit: "cover",
+                objectPosition: "center top",
+                opacity: decodedPhotos.has(currentPhoto) ? 1 : 0,
+                transition: "opacity 0.08s ease",
+                display: "block",
+                userSelect: "none",
+                pointerEvents: "none",
+              }}
+              onLoad={e => {
+                decodedPhotos.add(currentPhoto);
+                (e.currentTarget as HTMLImageElement).style.opacity = "1";
+              }}
+              data-testid={`img-carousel-photo-${safeIdx}`}
+            />
+            {children}
+          </div>
+        </>
       )}
 
-      {/* ── Arrow buttons ────────────────────────────────────────────────────── */}
+      {/* Arrow buttons — outside the card so they don't translate during drag */}
       {showArrows && n > 1 && safeIdx > 0 && (
         <button
-          className="absolute start-2.5 top-1/2 -translate-y-1/2 z-20 w-9 h-9 rounded-full flex items-center justify-center active:scale-90 transition-transform"
           style={{
+            position: "absolute",
+            left: SHADOW_PAD + 6,
+            top: "50%",
+            transform: "translateY(-50%)",
+            zIndex: 2,
+            width: 36,
+            height: 36,
+            borderRadius: "50%",
             background: "rgba(0,0,0,0.38)",
             backdropFilter: "blur(8px)",
             WebkitBackdropFilter: "blur(8px)",
             border: "1px solid rgba(255,255,255,0.18)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            cursor: "pointer",
           }}
           onPointerDown={e => e.stopPropagation()}
           onClick={() => goTo(safeIdx - 1)}
@@ -294,20 +344,31 @@ export function PhotoCarousel({
           aria-label="Previous photo"
         >
           {isRTL ? (
-            <ChevronRight className="w-4 h-4 text-white" />
+            <ChevronRight style={{ width: 16, height: 16, color: "white" }} />
           ) : (
-            <ChevronLeft className="w-4 h-4 text-white" />
+            <ChevronLeft style={{ width: 16, height: 16, color: "white" }} />
           )}
         </button>
       )}
       {showArrows && n > 1 && safeIdx < n - 1 && (
         <button
-          className="absolute end-2.5 top-1/2 -translate-y-1/2 z-20 w-9 h-9 rounded-full flex items-center justify-center active:scale-90 transition-transform"
           style={{
+            position: "absolute",
+            right: SHADOW_PAD + 6,
+            top: "50%",
+            transform: "translateY(-50%)",
+            zIndex: 2,
+            width: 36,
+            height: 36,
+            borderRadius: "50%",
             background: "rgba(0,0,0,0.38)",
             backdropFilter: "blur(8px)",
             WebkitBackdropFilter: "blur(8px)",
             border: "1px solid rgba(255,255,255,0.18)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            cursor: "pointer",
           }}
           onPointerDown={e => e.stopPropagation()}
           onClick={() => goTo(safeIdx + 1)}
@@ -315,16 +376,30 @@ export function PhotoCarousel({
           aria-label="Next photo"
         >
           {isRTL ? (
-            <ChevronLeft className="w-4 h-4 text-white" />
+            <ChevronLeft style={{ width: 16, height: 16, color: "white" }} />
           ) : (
-            <ChevronRight className="w-4 h-4 text-white" />
+            <ChevronRight style={{ width: 16, height: 16, color: "white" }} />
           )}
         </button>
       )}
 
-      {/* ── Dot indicators ───────────────────────────────────────────────────── */}
+      {/* Dot indicators */}
       {showDots && n > 1 && (
-        <div className="absolute bottom-3 inset-x-0 flex justify-center gap-1.5 pointer-events-none z-20">
+        <div
+          aria-hidden="true"
+          style={{
+            position: "absolute",
+            bottom: SHADOW_PAD + 3,
+            left: 0,
+            right: 0,
+            display: "flex",
+            justifyContent: "center",
+            alignItems: "center",
+            gap: 6,
+            pointerEvents: "none",
+            zIndex: 2,
+          }}
+        >
           {photos.map((_, i) => (
             <div
               key={i}
@@ -332,8 +407,7 @@ export function PhotoCarousel({
                 width: i === safeIdx ? 22 : 7,
                 height: 7,
                 borderRadius: 3.5,
-                background:
-                  i === safeIdx ? "white" : "rgba(255,255,255,0.42)",
+                background: i === safeIdx ? "white" : "rgba(255,255,255,0.42)",
                 transition: "width 0.25s ease, background 0.25s ease",
                 flexShrink: 0,
               }}
@@ -341,9 +415,6 @@ export function PhotoCarousel({
           ))}
         </div>
       )}
-
-      {/* Caller-supplied overlay content (close buttons, gradients, name…) */}
-      {children}
     </div>
   );
 }

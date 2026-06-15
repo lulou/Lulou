@@ -1083,6 +1083,7 @@ function CallDetectors({ userId }: { userId: string }) {
         // the overlay and play the ringtone the moment a 5 s poll returned stale data.
         const forcedIncomingMatch = (matches ?? []).find(m =>
           !!m.callStartedAt &&
+          !!m.callInitiatorId &&            // require a valid initiator (mirrors incomingCall memo)
           m.callCompleted !== true &&
           m.callInitiatorId !== userId &&   // current user is receiver
           m.callAnswered !== true &&        // receiver has not answered yet
@@ -1090,7 +1091,11 @@ function CallDetectors({ userId }: { userId: string }) {
           isArmedSession(m.callSessionId) &&              // MUST be armed by live Realtime call:ring
           !isCallSessionCancelled(m.id, m.callSessionId) &&  // skip declined/cancelled
           !isEndedCall(m) &&                                  // skip locally-ended calls
-          !isStaleCall(m)                                     // skip >90 s unanswered calls
+          !isStaleCall(m) &&                                  // skip >90 s unanswered calls
+          // Respect the user's explicit dismiss action (same guard as incomingCall memo).
+          // Without this check, pressing Decline sets dismissedCallKey but forcedIncomingMatch
+          // ignores it → overlay re-mounts immediately → appears as a random incoming call.
+          `${m.id}:${m.callSessionId}` !== dismissedCallKey
         ) ?? null;
 
         const overlayForActive = activeCall ?? null;
