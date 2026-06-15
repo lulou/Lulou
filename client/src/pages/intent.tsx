@@ -575,7 +575,8 @@ function MatchRevealOverlay({
 // Shows up to 7 profile bubbles BEFORE spinning to build excitement.
 // The displayed order has NO effect on the winner — the winner is always chosen
 // with Math.random() at spin time from the full shuffled pool.
-function CandidatesPreview({ items }: { items: Profile[] }) {
+// Tap any bubble to open a photo-only preview of that profile.
+function CandidatesPreview({ items, onTap }: { items: Profile[]; onTap?: (profile: Profile) => void }) {
   const { t } = useLanguageContext();
   const [vw, setVw] = useState(() => typeof window !== "undefined" ? window.innerWidth : 390);
   useEffect(() => {
@@ -609,12 +610,18 @@ function CandidatesPreview({ items }: { items: Profile[] }) {
           <div
             key={profile.userId}
             style={{ flexShrink: 0, animation: `previewBubbleIn 0.45s ${0.08 + i * 0.06}s ease both` }}
+            onClick={() => onTap?.(profile)}
+            data-testid={`button-preview-bubble-${i}`}
           >
             <div style={{
               width: bubbleSize, height: bubbleSize, borderRadius: "50%", overflow: "hidden",
               position: "relative",
-              boxShadow: "0 2px 10px rgba(188,78,96,0.18), 0 1px 4px rgba(0,0,0,0.16)",
+              boxShadow: onTap
+                ? "0 2px 12px rgba(188,78,96,0.28), 0 1px 4px rgba(0,0,0,0.18)"
+                : "0 2px 10px rgba(188,78,96,0.18), 0 1px 4px rgba(0,0,0,0.16)",
               border: "1.5px solid rgba(212,92,116,0.28)",
+              cursor: onTap ? "pointer" : "default",
+              transition: "transform 0.12s ease",
             }}>
               <ProfilePhoto userId={profile.userId} className="w-full h-full" />
               <div style={{
@@ -768,6 +775,7 @@ export default function IntentPage() {
   const [dispersed, setDispersed] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
   const [showPurchase, setShowPurchase] = useState(false);
+  const [previewProfile, setPreviewProfile] = useState<Profile | null>(null);
   const [showConfetti, setShowConfetti] = useState(false);
   const [showElevateInReveal, setShowElevateInReveal] = useState(false);
   const [angle, setAngle] = useState(0);
@@ -1292,7 +1300,7 @@ export default function IntentPage() {
         {/* Always shown (regardless of canSpin) so users can see who is on the
             wheel and feel engaged even while waiting for their next free spin. */}
         {!isSpinning && !dispersed && !showPurchase && !showProfile && (
-          <CandidatesPreview items={items} />
+          <CandidatesPreview items={items} onTap={setPreviewProfile} />
         )}
 
         {/* ── Spin button & streak ── */}
@@ -1390,13 +1398,13 @@ export default function IntentPage() {
       </div>
 
       {/* ── Purchase overlay ──
-           Rendered at root level (z-40) so it sits above the 3D wheel stage.
-           A dark blurred backdrop covers the wheel entirely — freezing it visually,
-           hiding card glow paths, and balancing the left/right card geometry.
-           The Card slides up from the bottom on a separate animation layer.      */}
+           Rendered at z-[200] to sit above 3D wheel cards (which can reach z:100
+           via 3D stacking context). A dark blurred backdrop covers the wheel
+           entirely — freezing it visually, hiding card glow paths, and balancing
+           the left/right card geometry. The Card slides up from the bottom.      */}
       {showPurchase && !showProfile && (
         <div
-          className="absolute inset-0 z-40 flex flex-col"
+          className="absolute inset-0 z-[200] flex flex-col"
           style={{
             background: "rgba(8,2,14,0.56)",
             backdropFilter: "blur(11px) saturate(0.75)",
@@ -1449,6 +1457,51 @@ export default function IntentPage() {
                 {t("maybe_later")}
               </Button>
             </Card>
+          </div>
+        </div>
+      )}
+
+      {/* ── Bubble tap preview — photo-only modal ── */}
+      {/* Opens when a user taps a profile bubble in the CandidatesPreview strip.
+          Shows only the profile photo + name. Tap backdrop or X to dismiss. */}
+      {previewProfile && !showProfile && !showPurchase && (
+        <div
+          className="absolute inset-0 z-[250] flex items-center justify-center"
+          style={{ background: "rgba(0,0,0,0.88)" }}
+          onClick={() => setPreviewProfile(null)}
+          data-testid="preview-photo-backdrop"
+        >
+          <div
+            className="relative mx-5 w-full max-w-xs"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="relative rounded-2xl overflow-hidden shadow-2xl" style={{ aspectRatio: "3/4" }}>
+              <ProfilePhoto userId={previewProfile.userId} className="w-full h-full" />
+              <div style={{
+                position: "absolute", inset: 0,
+                background: "linear-gradient(175deg, rgba(0,0,0,0) 50%, rgba(0,0,0,0.75) 100%)",
+                pointerEvents: "none",
+              }} />
+              <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, padding: "16px 18px 20px" }}>
+                <p className="text-white font-bold text-xl" style={{ textShadow: "0 1px 8px rgba(0,0,0,0.7)" }}>
+                  {previewProfile.firstName}{previewProfile.age ? `, ${previewProfile.age}` : ""}
+                </p>
+                {previewProfile.location && (
+                  <p className="text-white/70 text-sm mt-0.5">{previewProfile.location}</p>
+                )}
+              </div>
+            </div>
+            <button
+              className="absolute top-3 right-3 w-8 h-8 rounded-full flex items-center justify-center"
+              style={{ background: "rgba(0,0,0,0.55)", backdropFilter: "blur(4px)" }}
+              onClick={() => setPreviewProfile(null)}
+              data-testid="button-close-preview"
+            >
+              <X className="w-4 h-4 text-white" />
+            </button>
+            <p className="text-center text-white/40 text-xs mt-3">
+              {t("spin_random_desc")}
+            </p>
           </div>
         </div>
       )}

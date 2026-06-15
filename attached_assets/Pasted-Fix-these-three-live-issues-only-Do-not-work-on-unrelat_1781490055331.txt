@@ -1,0 +1,258 @@
+Fix these three live issues only.
+
+Do not work on unrelated features.
+
+──────────────────────────────
+
+Discovery Location / Radius Filtering Is Wrong
+Bug:
+
+A brand-new user account was created with:
+
+Location: Portsmouth
+Radius: 25 miles
+Yet Discovery was showing profiles from Sydney, Australia.
+
+This should never happen.
+
+Expected:
+
+If a user sets:
+
+Location = Portsmouth
+Radius = 25 miles
+
+Then Discovery should only return profiles within that radius.
+
+Sydney profiles must never appear unless the user has explicitly enabled a global discovery mode.
+
+Audit:
+
+Discovery query
+Radius filtering
+Distance calculations
+Location coordinates
+Profile search SQL
+Matching filters
+Geolocation storage
+Fallback profile behaviour
+Determine:
+
+Why Sydney profiles are appearing
+Whether radius filtering is being ignored
+Whether coordinates are missing
+Whether fallback profiles bypass filtering
+Whether location is being saved correctly
+Required:
+
+Radius filtering must be enforced
+Discovery results must respect location settings
+No cross-country/cross-continent results unless intentionally enabled
+Report:
+
+Root cause
+Files changed
+Distance calculation audit
+Radius filtering audit
+npm run check result
+npm run build result
+──────────────────────────────
+
+AI Conversation Starters Still Not Working
+Evidence:
+
+Brand-new match.
+
+Both users have AI Conversation Starters enabled in Settings.
+
+Chatroom shows only:
+
+“Start of your conversation”
+“You each have 15 messages. Make them count.”
+
+No AI starter suggestions.
+
+No AI panel.
+
+No generated prompts.
+
+No regenerate button.
+
+No tap-to-send suggestions.
+
+This confirms the AI starter system is still not functioning.
+
+──────────────────────────────
+
+Audit the Entire AI Starter Flow
+
+Do not guess.
+
+Trace:
+
+Settings
+→ database
+→ API
+→ query
+→ rendering
+
+Verify:
+
+Setting saves correctly
+Setting loads correctly
+Chatroom reads the setting
+GET /api/matches/:matchId/ai-starters is called
+Endpoint returns data
+Query succeeds
+UI component renders
+Auto-open fires
+Fallback starters render if AI fails
+Determine exact root cause.
+
+──────────────────────────────
+
+Required Behaviour
+
+For every brand-new match:
+
+Conditions:
+
+Match has 0 messages
+AI Conversation Starters enabled
+Automatically display:
+
+3–5 AI-generated conversation starters.
+
+Requirements:
+
+visible automatically
+no button required
+regenerate button
+tap-to-send
+loading state
+fallback suggestions if AI fails
+Users should never see an empty chat screen when AI starters are enabled.
+
+Report:
+
+Root cause
+Files changed
+Proof endpoint is called
+Proof starters render
+npm run check result
+npm run build result
+──────────────────────────────
+
+Intention Wheel / Tonight’s Possible Connections Improvements
+Current issue:
+
+Users can see profiles in the Intention Wheel but cannot properly inspect them.
+
+The experience feels incomplete.
+
+Required behaviour:
+
+Users should be able to tap a profile shown in the Intention Wheel.
+
+When tapped:
+
+Open a lightweight preview modal/sheet
+Show ONLY the primary profile photo
+Allow tap-to-enlarge
+Allow pinch-to-zoom
+Allow swipe-down or X to close
+Do NOT show:
+
+Bio
+Full profile
+Green flags
+Conversation starters
+Vibes
+Detailed profile information
+This is intentionally a teaser preview only.
+
+Purpose:
+
+Allow users to get a better look at a profile before deciding whether to use a spin or purchase more spins.
+
+──────────────────────────────
+
+Purchase Modal / Background Audit
+
+Current issue:
+
+The cards behind the spin purchase modal often appear:
+
+clipped
+partially off-screen
+broken
+stacked incorrectly
+visually unbalanced
+Required:
+
+No clipping
+No broken transforms
+No half-visible cards
+Balanced layout
+Clean spacing
+Premium appearance
+When purchase modal opens:
+
+Freeze wheel
+Freeze animations
+Freeze card movement
+Blur background
+Dim background
+Hide or fade wheel connector lines
+The modal should feel intentional and premium.
+
+──────────────────────────────
+
+Wheel Availability Behaviour
+
+Current issue:
+
+After users consume their free spin, the wheel should not disappear.
+
+Required:
+
+Keep visible:
+
+Wheel
+Profile cards
+Tonight’s Possible Connections
+Disable only:
+
+Spin action
+Show:
+
+Buy More Spins
+or
+
+Next Free Spin Unlocks Soon
+Users should still be able to browse the wheel and tap preview photos.
+
+──────────────────────────────
+
+Report
+
+Files changed
+Profile preview implementation
+Zoom implementation
+Root cause of broken card layout
+Wheel availability behaviour changes
+npm run check result
+npm run build result
+Do not change:
+
+spin rewards
+spin pricing
+spin randomness
+match logic
+Only fix:
+
+Discovery radius filtering
+Missing AI Conversation Starters
+Intention Wheel preview experience
+Wheel no-spin state
+Purchase modal background quality

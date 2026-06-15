@@ -934,13 +934,14 @@ export class SupabaseStorage implements IStorage {
     }
 
     // ── Distance filter ──────────────────────────────────────────────────────
-    // Applied in-memory. Candidates without geocoded coordinates pass through
-    // (graceful degradation — null coords never block profiles).
+    // Applied in-memory. Candidates without geocoded coordinates are EXCLUDED
+    // when radius filtering is active — prevents ungeolocated seed/test profiles
+    // from bypassing the radius entirely and appearing in the wrong region.
     let distanceFiltered = baseFiltered;
     let excludedByDistance = 0;
     if (_hasLatLngColumns && userLat !== null && userLng !== null && locationRadius > 0) {
       distanceFiltered = baseFiltered.filter(p => {
-        if (p.latitude == null || p.longitude == null) return true; // no coords → pass
+        if (p.latitude == null || p.longitude == null) return false; // no coords → exclude when radius is set
         const within = haversineDistanceMiles(userLat!, userLng!, p.latitude, p.longitude) <= locationRadius;
         if (!within) excludedByDistance++;
         return within;
@@ -1931,12 +1932,12 @@ export class SupabaseStorage implements IStorage {
     }
 
     // ── Distance filter ──────────────────────────────────────────────────────
-    // Mirrors getDiscoverProfiles: null coords pass through.
+    // Mirrors getDiscoverProfiles: null coords excluded when radius is set.
     let wheelExcludedByDistance = 0;
     let distanceFiltered = interactionFiltered;
     if (_hasLatLngColumns && userLat != null && userLng != null && locationRadius && locationRadius > 0) {
       distanceFiltered = interactionFiltered.filter(p => {
-        if (p.latitude == null || p.longitude == null) return true;
+        if (p.latitude == null || p.longitude == null) return false; // no coords → exclude when radius is set
         const within = haversineDistanceMiles(userLat!, userLng!, p.latitude, p.longitude) <= locationRadius;
         if (!within) wheelExcludedByDistance++;
         return within;

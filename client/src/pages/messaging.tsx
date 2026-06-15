@@ -916,16 +916,15 @@ export default function Messaging() {
   // Auto-shows when:
   //   • setting is enabled
   //   • user hasn't explicitly dismissed for this match
-  //   • messages query has loaded AND returned 0 messages (truly empty chat)
-  //   • user hasn't sent any message yet
+  //   • messages query has finished loading (prevents flash on chats with messages)
+  //   • combined message list is empty (no messages from either participant)
   //   • still in the initial pre-call stage
   // Also shows when the user manually taps the sparkles toggle.
   const autoShowStarters =
     aiStartersEnabled &&
     !userClosedStarters &&
-    !!msgsData &&
-    msgsData.messages.length === 0 &&
-    myMessages.length === 0 &&
+    !isMsgsLoading &&
+    allMessages.length === 0 &&
     callStage === 0 &&
     !isLimitReached;
   const startersVisible = autoShowStarters || (showAIStarters && !userClosedStarters);
