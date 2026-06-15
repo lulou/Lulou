@@ -2073,7 +2073,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
         </button>
         <div className="flex items-center gap-1 shrink-0">
           <Badge variant="outline" className="text-[10px] px-1.5 py-0" data-testid={`badge-messages-remaining-${match.id}`}>
-            {allCallsDone ? t("all_calls_done") : (eitherKeep && postCallProgressReady) ? t("plan_date_cta_hint") : messagesRemaining > 0 ? t("n_msg_left").replace("{n}", String(messagesRemaining)) : t("call_time_badge")}
+            {(allCallsDone || (eitherKeep && postCallProgressReady)) ? t("all_calls_done") : messagesRemaining > 0 ? t("n_msg_left").replace("{n}", String(messagesRemaining)) : t("call_time_badge")}
           </Badge>
           {showRemoveConfirm ? (
             <div className="flex items-center gap-0.5">
@@ -2200,6 +2200,13 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
       </div>
 
       {expanded && <SparkProgressBar sparkStep={sparkStep} />}
+      {expanded && postCallProgressReady && eitherKeep && (
+        <div className="px-4 py-2 border-b border-border/40 bg-primary/3" data-testid={`date-plan-hint-bar-${match.id}`}>
+          <p className="text-[11px] text-center text-muted-foreground">
+            {t("plan_date_cta_hint")}
+          </p>
+        </div>
+      )}
 
       <div ref={messagesContainerRef} onScroll={handleMessagesScroll} className="flex-1 overflow-y-auto min-h-0 p-4 space-y-3" data-testid={`messages-container-${match.id}`}>
             {expanded && matchLoading && !matchDetail && (
