@@ -252,7 +252,7 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
               <img
                 src={photo}
                 alt={`Photo ${i + 1}`}
-                loading={i === selectedIndex ? "eager" : "lazy"}
+                loading={Math.abs(i - selectedIndex) <= 1 ? "eager" : "lazy"}
                 decoding="async"
                 draggable={false}
                 style={{
