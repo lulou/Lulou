@@ -1243,7 +1243,18 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
     onSuccess: (data: any) => {
       const realMsg = data as Message;
       // Increment the optimistic per-stage counter so the badge decreases immediately.
-      setLocalSentCount(c => c + 1);
+      setLocalSentCount(c => {
+        const newCount = c + 1;
+        // When this message pushes us to/past the post-call threshold in stage 1,
+        // schedule a refetch so theirPostCallCount is fresh and postCallProgressReady
+        // updates as soon as the server has incremented the DB counter.
+        if (callStage >= 1 && (myPostCallCount + newCount) >= POST_CALL_THRESHOLD) {
+          setTimeout(() => {
+            queryClient.invalidateQueries({ queryKey: ["/api/matches", match.id] });
+          }, 700);
+        }
+        return newCount;
+      });
       queryClient.setQueryData<MatchDetail>(["/api/matches", match.id], (old) => {
         if (!old) return old;
         const tempIdx = old.messages.findIndex(
@@ -1643,10 +1654,12 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
     }
   }, [detail.callSessionId]);
 
-  // Reset the optimistic sent counter whenever the match or call stage changes so the
-  // counter always starts from the fresh DB value (messageCount1/2, reset to 0 after each call).
+  // Reset the optimistic sent counter and per-stage UI state whenever the match or call
+  // stage changes so counters always start from the fresh DB value.
   useEffect(() => {
     setLocalSentCount(0);
+    setKeepMessaging(false);
+    setShowInlineDatePlan(false);
   }, [match.id, detail.callStage]);
 
   useEffect(() => {
@@ -1663,6 +1676,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
   const [nextStepChoice, setNextStepChoice] = useState<null | 'call' | 'end'>(null);
   const [finalChoice, setFinalChoice] = useState<null | 'date' | 'chat' | 'end'>(null);
   const [showInlineDatePlan, setShowInlineDatePlan] = useState(false);
+  const [keepMessaging, setKeepMessaging] = useState(false);
 
   const { data: elevateStatus } = useQuery<{ active: boolean; elevateCredits: number; superElevateCredits: number }>({
     queryKey: ["/api/elevate/status"],
@@ -1818,11 +1832,12 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
   const rawLimitReached = myCurrentStageCount >= MAX_MESSAGES_PER_USER;
   const allMessages = matchDetail?.messages || [];
 
+  // Include localSentCount so the card appears instantly when the user sends their 25th message.
   const postCallProgressReady = callStage >= 1
-    && myPostCallCount >= POST_CALL_THRESHOLD
+    && myCurrentStageCount >= POST_CALL_THRESHOLD
     && theirPostCallCount >= POST_CALL_THRESHOLD;
   const postCallApproaching = callStage >= 1 && !postCallProgressReady
-    && myPostCallCount >= POST_CALL_THRESHOLD - 5
+    && myCurrentStageCount >= POST_CALL_THRESHOLD - 5
     && theirPostCallCount >= POST_CALL_THRESHOLD - 5;
 
   const sparkStep = callStage >= 4 ? 3 : callStage >= 1 ? 2 : 1;
@@ -1905,9 +1920,19 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
       if (messagesRemaining <= 1 || isLimitReached) {
         msgs.push({ id: "stage0-limit", text: t("stage0_limit") });
       }
+    } else if (callStage === 1 && !postCallProgressReady) {
+      // Build-up guidance before date-planning stage. Each milestone shows once and
+      // stays pinned in the message list at the index where it first appeared.
+      if (messagesRemaining === 5) {
+        msgs.push({ id: "stage1-date-5", text: t("stage1_date_5left") });
+      } else if (messagesRemaining === 3) {
+        msgs.push({ id: "stage1-date-3", text: t("stage1_date_3left") });
+      } else if (messagesRemaining === 1) {
+        msgs.push({ id: "stage1-date-1", text: t("stage1_date_1left") });
+      }
     }
     return msgs;
-  }, [t, callStage, messagesRemaining, isLimitReached]);
+  }, [t, callStage, messagesRemaining, isLimitReached, postCallProgressReady]);
 
   // Track the message-list index at which each guidance message first appeared so it
   // stays at that position and gets pushed upward naturally as new messages arrive.
@@ -2028,7 +2053,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
         </button>
         <div className="flex items-center gap-1 shrink-0">
           <Badge variant="outline" className="text-[10px] px-1.5 py-0" data-testid={`badge-messages-remaining-${match.id}`}>
-            {allCallsDone ? t("all_calls_done") : messagesRemaining > 0 ? t("n_msg_left").replace("{n}", String(messagesRemaining)) : t("call_time_badge")}
+            {allCallsDone ? t("all_calls_done") : (keepMessaging && postCallProgressReady) ? t("plan_date_cta_hint") : messagesRemaining > 0 ? t("n_msg_left").replace("{n}", String(messagesRemaining)) : t("call_time_badge")}
           </Badge>
           {showRemoveConfirm ? (
             <div className="flex items-center gap-0.5">
@@ -2513,6 +2538,39 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                 <div className="p-4 flex justify-center"><div className="w-5 h-5 rounded-full border-2 border-primary border-t-transparent animate-spin" /></div>
               )}
             </div>
+          ) : postCallProgressReady && !keepMessaging ? (
+            <div className="p-4 border-t" data-testid={`date-plan-choice-${match.id}`}>
+              <style>{`
+                @keyframes datePlanIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+                .date-plan-anim { animation: datePlanIn 0.26s ease both; }
+              `}</style>
+              <div className="date-plan-anim space-y-3">
+                <div className="text-center space-y-1">
+                  <Calendar className="w-4 h-4 text-primary mx-auto" />
+                  <p className="font-semibold text-sm">{t("date_plan_ready_title")}</p>
+                  <p className="text-xs text-muted-foreground">{t("date_plan_ready_desc")}</p>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <Button
+                    size="sm"
+                    onClick={() => setShowInlineDatePlan(true)}
+                    className="w-full"
+                    data-testid={`button-plan-date-now-${match.id}`}
+                  >
+                    <Calendar className="w-3.5 h-3.5 me-1.5" /> Plan a Date
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setKeepMessaging(true)}
+                    className="w-full"
+                    data-testid={`button-keep-messaging-${match.id}`}
+                  >
+                    <MessageCircle className="w-3.5 h-3.5 me-1.5" /> {t("keep_messaging_btn")}
+                  </Button>
+                </div>
+              </div>
+            </div>
           ) : callStage === 0 && rawLimitReached && !hasMessageExtension && hasAvailableExtension && !dismissedExtension ? (
             <div className="p-4 border-t" data-testid={`extension-offer-${match.id}`}>
               <div className="rounded-lg border border-primary/30 bg-primary/5 p-4 space-y-3">
@@ -2632,17 +2690,18 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                   <span>{match.profile.firstName} {t("is_typing_label")}</span>
                 </div>
               )}
-              {postCallProgressReady && (
+              {postCallProgressReady && keepMessaging && (
                 <div className="mb-3 pb-3 border-b border-border/50" data-testid={`date-plan-banner-${match.id}`}>
-                  <div className="rounded-xl border border-primary/25 bg-primary/5 p-3 flex items-center justify-between gap-3">
-                    <div className="space-y-0.5 min-w-0">
-                      <p className="text-sm font-semibold text-primary leading-tight">Ready to meet?</p>
-                      <p className="text-[11px] text-muted-foreground leading-tight">Take the next step with {match.profile.firstName}</p>
-                    </div>
-                    <Button size="sm" onClick={() => setShowInlineDatePlan(true)} className="shrink-0" data-testid={`button-plan-date-${match.id}`}>
-                      <Calendar className="w-3.5 h-3.5 me-1.5" /> Plan a Date
-                    </Button>
-                  </div>
+                  <button
+                    onClick={() => { setKeepMessaging(false); setShowInlineDatePlan(true); }}
+                    className="w-full flex items-center justify-between rounded-xl border border-primary/20 bg-primary/5 px-3 py-2 text-left hover:bg-primary/10 transition-colors"
+                    data-testid={`button-plan-date-cta-${match.id}`}
+                  >
+                    <span className="text-xs text-muted-foreground">{t("plan_date_cta_hint")}</span>
+                    <span className="text-xs font-medium text-primary flex items-center gap-1 shrink-0">
+                      <Calendar className="w-3 h-3" /> Plan a Date
+                    </span>
+                  </button>
                 </div>
               )}
               {postCallApproaching && (

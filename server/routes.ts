@@ -1083,13 +1083,21 @@ export async function registerRoutes(
         }
       } else if (callStage === 1) {
         // Post-first-call messaging phase: 25 messages each before date planning unlocks.
+        // Once BOTH users have completed 25 messages the date-planning stage is reached and
+        // messaging becomes free — the user may have chosen "Keep Messaging".
         const tCount1 = Date.now();
         const messageCount = await storage.getUserMessageCount(matchId, userId);
         if (IS_DEV) console.log(`[MSG] post-call count: ${Date.now() - tCount1} ms | count=${messageCount}`);
         const POST_CALL_LIMIT = 25;
         if (messageCount >= POST_CALL_LIMIT) {
-          console.log("[CONNECTION_STAGE] POST_CALL_LIMIT_REACHED", { matchId, userId, callStage: 1, count: messageCount, limit: POST_CALL_LIMIT });
-          return res.status(400).json({ message: "Message limit reached. Time to plan your date!" });
+          const theirCount = match.user1Id === userId ? (match.messageCount2 || 0) : (match.messageCount1 || 0);
+          if (theirCount < POST_CALL_LIMIT) {
+            // Only the current user has finished — still blocked until both are done.
+            console.log("[CONNECTION_STAGE] POST_CALL_LIMIT_REACHED", { matchId, userId, callStage: 1, count: messageCount, limit: POST_CALL_LIMIT, theirCount });
+            return res.status(400).json({ message: "Message limit reached. Time to plan your date!" });
+          }
+          // Both users completed 25 → free messaging (Keep Messaging mode). Fall through.
+          console.log("[CONNECTION_STAGE] POST_CALL_FREE_MESSAGING", { matchId, userId, myCount: messageCount, theirCount });
         }
       }
 

@@ -1,0 +1,152 @@
+Refine the post-call date-planning flow.
+
+Do not work on unrelated features.
+
+Current issue:
+
+After the 25-message post-call stage, “Plan a Date” takes too long to appear.
+
+There is also no proper build-up before the date-planning stage.
+
+Users need guidance before the app asks them to plan a date.
+
+──────────────────────────────
+
+AI Guidance Before Date Planning
+A few messages before the 25-message post-call limit is reached, show subtle AI guidance.
+
+Example timing:
+
+When user has 5 messages left:
+
+Show:
+
+“Looks like the conversation is going well. Start thinking about when you’d both be free to meet.”
+
+When user has 3 messages left:
+
+Show:
+
+“You’re nearly at the date-planning stage. If it feels right, get ready to choose a time.”
+
+When user has 1 message left:
+
+Show:
+
+“Next step: plan your first date, or keep chatting if you’re not ready.”
+
+Requirements:
+
+Should feel helpful, not pushy.
+Should appear in the chat flow.
+Should not block messaging.
+Should be shown before the limit, not after.
+Should use the same counter source as the server.
+──────────────────────────────
+
+Plan a Date Must Appear Instantly
+When both users finish the required 25 post-call messages:
+
+Plan a Date card must appear immediately.
+No delay.
+No refresh required.
+No waiting for polling if possible.
+Audit:
+
+Query invalidation
+realtime updates
+server response after final message
+local optimistic state
+match detail refetch
+date-planning render condition
+Required:
+
+After the final required message is sent:
+
+invalidate/refetch match detail immediately
+update local UI immediately
+show Plan a Date card instantly
+──────────────────────────────
+
+Add “Keep Messaging” Option Beside Plan a Date
+When date-planning stage appears, show two options:
+
+Primary:
+Plan a Date
+
+Secondary:
+Keep Messaging
+
+User decision:
+
+If they tap Plan a Date:
+
+open date-planning flow
+If they tap Keep Messaging:
+
+return them to chat
+──────────────────────────────
+
+Keep Messaging Behaviour
+Choose and implement the best behaviour:
+
+Option A — Unlimited after choosing Keep Messaging:
+
+Users can keep chatting freely.
+Plan a Date button remains available in chat.
+They can plan whenever ready.
+Option B — Additional limited messaging block:
+
+Give another limited amount of messages each.
+After the extra limit, show Plan a Date again.
+Recommended:
+Use Option A unless there is a strong technical or product reason not to.
+
+Reason:
+If both users have completed 15 messages, a call, and 25 more messages each, they have earned enough trust. At that point, the app should strongly encourage a date but not trap them.
+
+──────────────────────────────
+
+Required UI
+Date planning card should show:
+
+Title:
+“Ready to meet?”
+
+Text:
+“You’ve both kept the conversation going after your call. Plan a date, or keep chatting if you’re not ready yet.”
+
+Buttons:
+
+Plan a Date
+Keep Messaging
+If Keep Messaging is chosen:
+Show a persistent but subtle CTA:
+“Plan a Date”
+somewhere in the chat header or message area.
+
+──────────────────────────────
+
+Validation
+Run:
+
+npm run check
+npm run build
+
+Report:
+
+Files changed
+How AI guidance appears before date planning
+How Plan a Date appears instantly
+How Keep Messaging works
+Whether messaging becomes unlimited or gets another limited block
+Query/realtime changes made
+npm run check result
+npm run build result
+Do not modify:
+
+call credit pricing
+video call pricing
+voice notes
+matching algorithm
+discovery algorithm
