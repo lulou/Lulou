@@ -245,33 +245,34 @@ export function PhotoCarousel({
           {photos.map((photo, i) => (
             <div
               key={photo + i}
-              style={{ flex: "0 0 100%", minWidth: 0, height: "100%" }}
+              style={{ flex: "0 0 100%", minWidth: 0, height: "100%", padding: "0 6px" }}
             >
-              <img
-                src={photo}
-                alt={`Photo ${i + 1}`}
-                // Eager for current + immediate neighbours so they are ready
-                // before the drag completes; lazy for the rest.
-                loading={Math.abs(i - safeIdx) <= 1 ? "eager" : "lazy"}
-                decoding="async"
-                draggable={false}
-                style={{
-                  width: "100%",
-                  height: "100%",
-                  objectFit: "cover",
-                  objectPosition: "center top",
-                  opacity: decodedPhotos.has(photo) ? 1 : 0,
-                  transition: "opacity 0.08s ease",
-                  display: "block",
-                  userSelect: "none",
-                  pointerEvents: "none", // let the container handle all events
-                }}
-                onLoad={e => {
-                  decodedPhotos.add(photo);
-                  (e.currentTarget as HTMLImageElement).style.opacity = "1";
-                }}
-                data-testid={`img-carousel-photo-${i}`}
-              />
+              {/* Inner wrapper gives each photo its own rounded corners and clips the image. */}
+              <div style={{ width: "100%", height: "100%", borderRadius: 18, overflow: "hidden" }}>
+                <img
+                  src={photo}
+                  alt={`Photo ${i + 1}`}
+                  loading={Math.abs(i - safeIdx) <= 1 ? "eager" : "lazy"}
+                  decoding="async"
+                  draggable={false}
+                  style={{
+                    width: "100%",
+                    height: "100%",
+                    objectFit: "cover",
+                    objectPosition: "center top",
+                    opacity: decodedPhotos.has(photo) ? 1 : 0,
+                    transition: "opacity 0.08s ease",
+                    display: "block",
+                    userSelect: "none",
+                    pointerEvents: "none",
+                  }}
+                  onLoad={e => {
+                    decodedPhotos.add(photo);
+                    (e.currentTarget as HTMLImageElement).style.opacity = "1";
+                  }}
+                  data-testid={`img-carousel-photo-${i}`}
+                />
+              </div>
             </div>
           ))}
         </div>

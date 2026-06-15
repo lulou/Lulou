@@ -246,31 +246,34 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
           {photos.map((photo, i) => (
             <div
               key={i}
-              style={{ flex: "0 0 100%", minWidth: 0, height: "100%" }}
+              style={{ flex: "0 0 100%", minWidth: 0, height: "100%", padding: "0 6px" }}
               data-testid={`carousel-slide-${i}`}
             >
-              <img
-                src={photo}
-                alt={`Photo ${i + 1}`}
-                loading={Math.abs(i - selectedIndex) <= 1 ? "eager" : "lazy"}
-                decoding="async"
-                draggable={false}
-                style={{
-                  width: "100%",
-                  height: "100%",
-                  objectFit: "cover",
-                  objectPosition: "center top",
-                  opacity: decodedPhotos.has(photo) ? 1 : 0,
-                  transition: "opacity 0.08s ease",
-                  display: "block",
-                  userSelect: "none",
-                }}
-                onLoad={e => {
-                  decodedPhotos.add(photo);
-                  (e.currentTarget as HTMLImageElement).style.opacity = "1";
-                }}
-                data-testid={`img-carousel-photo-${i}`}
-              />
+              {/* Inner wrapper clips image to rounded corners; one card per photo. */}
+              <div style={{ width: "100%", height: "100%", borderRadius: 18, overflow: "hidden" }}>
+                <img
+                  src={photo}
+                  alt={`Photo ${i + 1}`}
+                  loading={Math.abs(i - selectedIndex) <= 1 ? "eager" : "lazy"}
+                  decoding="async"
+                  draggable={false}
+                  style={{
+                    width: "100%",
+                    height: "100%",
+                    objectFit: "cover",
+                    objectPosition: "center top",
+                    opacity: decodedPhotos.has(photo) ? 1 : 0,
+                    transition: "opacity 0.08s ease",
+                    display: "block",
+                    userSelect: "none",
+                  }}
+                  onLoad={e => {
+                    decodedPhotos.add(photo);
+                    (e.currentTarget as HTMLImageElement).style.opacity = "1";
+                  }}
+                  data-testid={`img-carousel-photo-${i}`}
+                />
+              </div>
             </div>
           ))}
         </div>
@@ -285,8 +288,13 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
           aria-hidden="true"
           style={{
             position: "absolute",
-            inset: 0,
+            top: 0,
+            left: 6,
+            right: 6,
+            bottom: 0,
             zIndex: 5,
+            borderRadius: 18,
+            overflow: "hidden",
             animation: `${photoOverlay.direction === "fwd" ? "photoEnterRight" : "photoEnterLeft"} 0.42s cubic-bezier(0.16, 1, 0.3, 1) both`,
           }}
         >
@@ -305,13 +313,17 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
         </div>
       )}
 
-      {/* Gradient — pointer-events:none */}
+      {/* Gradient — pointer-events:none; inset 6 px to stay within the rounded photo card */}
       <div
         aria-hidden="true"
         style={{
           position: "absolute",
-          inset: 0,
+          top: 0,
+          left: 6,
+          right: 6,
+          bottom: 0,
           pointerEvents: "none",
+          borderRadius: 18,
           background:
             "linear-gradient(to top, rgba(0,0,0,0.62) 0%, rgba(0,0,0,0.1) 48%, transparent 68%)",
           zIndex: 1,
@@ -374,14 +386,14 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
         </button>
       )}
 
-      {/* Dot indicators — pointer-events:none */}
+      {/* Dot indicators — pointer-events:none; left offset accounts for 6 px slide inset */}
       {n > 1 && (
         <div
           aria-hidden="true"
           style={{
             position: "absolute",
             bottom: 14,
-            left: 16,
+            left: 22,
             display: "flex",
             alignItems: "center",
             gap: 6,
@@ -406,13 +418,13 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
         </div>
       )}
 
-      {/* Action button — wrapper is pointer-events:none, button itself is auto */}
+      {/* Action button — right offset accounts for 6 px slide inset */}
       {action && (
         <div
           style={{
             position: "absolute",
             bottom: 12,
-            right: 14,
+            right: 20,
             zIndex: 3,
             pointerEvents: "none",
           }}
@@ -426,8 +438,8 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
           style={{
             position: "absolute",
             bottom: 50,
-            left: 16,
-            right: 16,
+            left: 22,
+            right: 22,
             zIndex: 2,
             pointerEvents: "none",
           }}
