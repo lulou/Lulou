@@ -260,47 +260,72 @@ app.use((req, res, next) => {
       // Background backfill: geocode existing profiles that have location text
       // but no lat/lng coordinates (created before geocoding was added).
       // Rate-limited to 1 req/second to respect Nominatim's usage policy.
+      // Paginated — handles user bases of any size, not capped at 300.
       if (columnsExist) {
         (async () => {
           try {
-            await new Promise(r => setTimeout(r, 10_000)); // wait 10s for server to settle
+            // Reduced from 10 s to 2 s — backfill must complete before the first
+            // user discovers, to avoid the null-coord exclusion window.
+            await new Promise(r => setTimeout(r, 2_000));
             const { geocodeLocation } = await import("./storage");
-            const { data: profiles, error: qErr } = await adminSb
-              .from("profiles")
-              .select("user_id, location")
-              .not("location", "is", null)
-              .is("latitude", null)
-              .limit(300);
-            if (qErr) { console.warn("[BACKFILL] query error:", qErr.message); return; }
-            if (!profiles || profiles.length === 0) {
-              console.log("[BACKFILL] All profiles already have coordinates ✓");
-              return;
-            }
-            console.log(`[BACKFILL] Geocoding ${profiles.length} profile(s) with missing coordinates…`);
-            let success = 0;
-            for (const p of profiles) {
-              if (!p.location) continue;
-              try {
-                const coords = await geocodeLocation(p.location);
-                if (coords) {
-                  const { error: upErr } = await adminSb.from("profiles")
-                    .update({ latitude: coords.lat, longitude: coords.lng })
-                    .eq("user_id", p.user_id);
-                  if (!upErr) {
-                    success++;
-                    console.log(`[BACKFILL] "${p.location}" → ${coords.lat.toFixed(4)}, ${coords.lng.toFixed(4)}`);
-                  } else {
-                    console.warn(`[BACKFILL] update error for ${p.user_id}:`, upErr.message);
-                  }
+
+            const PAGE_SIZE = 50; // safe page size; well under PostgREST row limits
+            let page = 0;
+            let totalSuccess = 0;
+            let totalProcessed = 0;
+            let totalFailed = 0;
+
+            while (true) {
+              const { data: profiles, error: qErr } = await adminSb
+                .from("profiles")
+                .select("user_id, location")
+                .not("location", "is", null)
+                .is("latitude", null)
+                .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
+
+              if (qErr) { console.warn("[BACKFILL] query error:", qErr.message); break; }
+              if (!profiles || profiles.length === 0) {
+                if (page === 0) {
+                  console.log("[BACKFILL] All profiles already have coordinates ✓");
                 } else {
-                  console.warn(`[BACKFILL] no geocode result for "${p.location}"`);
+                  console.log(`[BACKFILL] Complete — ${totalSuccess} geocoded, ${totalFailed} failed, ${totalProcessed} processed across ${page} page(s).`);
                 }
-              } catch (e: any) {
-                console.warn(`[BACKFILL] error for "${p.location}":`, e?.message);
+                break;
               }
-              await new Promise(r => setTimeout(r, 1100)); // 1.1s between Nominatim calls
+
+              if (page === 0) {
+                console.log(`[BACKFILL] Geocoding profiles with missing coordinates (page size ${PAGE_SIZE})…`);
+              }
+
+              for (const p of profiles) {
+                if (!p.location) { totalProcessed++; continue; }
+                try {
+                  const coords = await geocodeLocation(p.location);
+                  if (coords) {
+                    const { error: upErr } = await adminSb.from("profiles")
+                      .update({ latitude: coords.lat, longitude: coords.lng })
+                      .eq("user_id", p.user_id);
+                    if (!upErr) {
+                      totalSuccess++;
+                      console.log(`[BACKFILL] "${p.location}" → ${coords.lat.toFixed(4)}, ${coords.lng.toFixed(4)}`);
+                    } else {
+                      totalFailed++;
+                      console.warn(`[BACKFILL] update error for ${p.user_id}:`, upErr.message);
+                    }
+                  } else {
+                    totalFailed++;
+                    console.warn(`[BACKFILL] no geocode result for "${p.location}"`);
+                  }
+                } catch (e: any) {
+                  totalFailed++;
+                  console.warn(`[BACKFILL] error for "${p.location}":`, e?.message);
+                }
+                totalProcessed++;
+                await new Promise(r => setTimeout(r, 1100)); // 1.1 s — Nominatim rate limit
+              }
+
+              page++;
             }
-            console.log(`[BACKFILL] Done. ${success}/${profiles.length} profiles geocoded.`);
           } catch (e: any) {
             console.warn("[BACKFILL] failed:", e?.message);
           }

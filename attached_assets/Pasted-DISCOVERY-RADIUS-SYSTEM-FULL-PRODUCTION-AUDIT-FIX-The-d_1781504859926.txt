@@ -1,0 +1,123 @@
+DISCOVERY RADIUS SYSTEM – FULL PRODUCTION AUDIT & FIX
+
+The discovery radius system is one of the most important parts of Lulou and must work exactly like Tinder, Hinge, Bumble, etc.
+
+Current behaviour:
+• Portsmouth user correctly sees Portsmouth users within the selected radius.
+• Sydney user sees “No new people to discover” despite Sydney users existing in the database.
+• This indicates the radius system is not consistently working worldwide.
+
+I want a complete audit and production-grade implementation.
+
+AUDIT THE ENTIRE DISCOVERY PIPELINE:
+
+1. USER LOCATION STORAGE
+• Verify every profile stores:
+ - location text
+ - latitude
+ - longitude
+• Confirm coordinates are being generated whenever a user sets or changes their location.
+• Confirm changing location re-geocodes and updates coordinates.
+
+2. EXISTING USER DATABASE
+• Count how many profiles have:
+ - valid coordinates
+ - missing coordinates
+• Identify all profiles that have a location name but no latitude/longitude.
+• Produce examples from:
+ - Sydney
+ - Melbourne
+ - Brisbane
+ - Portsmouth
+ - London
+ - Manchester
+
+3. BACKFILL EXISTING USERS
+• Create a safe backfill process.
+• Any profile with:
+ - location present
+ - latitude missing OR longitude missing
+must automatically be geocoded and updated.
+
+4. DISCOVERY QUERY
+Verify discovery uses true geographic distance calculations.
+
+I do NOT want:
+location === "Sydney"
+
+I DO want:
+distance between user coordinates and candidate coordinates.
+
+Use proper geographic calculations equivalent to:
+• Haversine formula
+or
+• PostGIS geographic distance queries
+
+5. RADIUS VALIDATION
+Prove the following works correctly:
+• 5 miles
+• 10 miles
+• 25 miles
+• 50 miles
+• 100 miles
+
+Examples:
+• Sydney CBD user
+• Bondi user
+• Parramatta user
+• Melbourne user
+
+Show which users should appear and which should not.
+
+6. FILTER INTERACTIONS
+Verify discovery still correctly applies:
+• Gender preference filters
+• Age filters
+• Hidden users
+• Already liked users
+• Already matched users
+• Blocked users
+• Paused accounts
+
+Radius filtering must work alongside all of these.
+
+7. LOCATION CHANGES
+Verify:
+• User changes Portsmouth → Sydney
+• Coordinates update immediately
+• Discovery refreshes immediately
+• Sydney profiles appear without requiring account recreation
+
+8. WORLDWIDE TESTING
+Audit and confirm support for:
+• Australia
+• UK
+• USA
+• Canada
+• Europe
+
+No location-name matching shortcuts.
+No city-only filtering.
+Everything must use coordinates and distance calculations.
+
+9. PERFORMANCE
+Radius queries must remain fast with:
+• 1,000 users
+• 10,000 users
+• 100,000 users+
+
+Recommend indexes if needed.
+
+10. REPORT REQUIRED
+Provide:
+• Root cause of Sydney failure
+• Number of profiles missing coordinates
+• Discovery query being used
+• Distance calculation method
+• Backfill results
+• Files changed
+• npm run check result
+• npm run build result
+
+Goal:
+Lulou's discovery radius system must be production-ready, accurate worldwide, and behave like Tinder/Hinge where every user sees only profiles genuinely within their selected radius.

@@ -225,6 +225,31 @@ function haversineDistanceMiles(lat1: number, lng1: number, lat2: number, lng2: 
 }
 
 /**
+ * Compute a lat/lng bounding box for a given centre point and radius in miles.
+ * Used to pre-filter profiles at DB level BEFORE the exact Haversine check so that
+ * the LIMIT clause only ever sees geographically relevant rows.
+ *
+ * The box is a square approximation — its corners slightly exceed the true radius
+ * circle, so the in-memory Haversine pass trims those edges precisely.
+ *
+ * Performance: with a (latitude, longitude) compound index this becomes a fast
+ * range scan even at 100 k+ rows, comparable to a PostGIS ST_DWithin query.
+ */
+function computeBoundingBox(lat: number, lng: number, radiusMiles: number): {
+  minLat: number; maxLat: number; minLng: number; maxLng: number;
+} {
+  const deltaLat = radiusMiles / 69.0;
+  // Longitude degrees per mile shrink near the poles — cos correction.
+  const deltaLng = radiusMiles / (69.0 * Math.cos(lat * Math.PI / 180));
+  return {
+    minLat: lat - deltaLat,
+    maxLat: lat + deltaLat,
+    minLng: lng - deltaLng,
+    maxLng: lng + deltaLng,
+  };
+}
+
+/**
  * Geocode a free-form location string to lat/lng using OpenStreetMap Nominatim.
  * Called when a user saves a new location — result is stored in profiles.latitude/longitude.
  * Degrades gracefully: returns null on any failure so the profile save is never blocked.
@@ -889,8 +914,28 @@ export class SupabaseStorage implements IStorage {
       profilesQuery = profilesQuery.not("user_id", "in", `(${[...excludedIds].join(",")})`);
     }
 
+    // Step 3: DB-level bounding box pre-filter.
+    // Narrows the initial pool to only profiles within the geographic square before
+    // LIMIT is applied.  Without this, with e.g. 10,000 users globally all 100/500
+    // slots can be filled by far-away profiles, leaving 0 after the Haversine pass.
+    // The box is slightly larger than the circle — Haversine trims the corners in memory.
+    // Profiles with null lat/lng are excluded by the range filter (correct: they must be
+    // geocoded first via backfill or inline geocoding).
+    const useBBox = _hasLatLngColumns && userLat !== null && userLng !== null && locationRadius > 0;
+    if (useBBox) {
+      const bbox = computeBoundingBox(userLat!, userLng!, locationRadius);
+      profilesQuery = (profilesQuery as any)
+        .gte("latitude", bbox.minLat)
+        .lte("latitude", bbox.maxLat)
+        .gte("longitude", bbox.minLng)
+        .lte("longitude", bbox.maxLng);
+    }
+
+    // When bounding box is active, all returned rows are already nearby so fetch
+    // up to 500.  Without bbox the global pool is too large — cap at 100 (DB exclusion)
+    // or 500 (in-memory exclusion) as before.
     const t2 = Date.now();
-    const profilesResult = await profilesQuery.limit(useDbExclusion ? 100 : 500);
+    const profilesResult = await profilesQuery.limit(useBBox ? 500 : (useDbExclusion ? 100 : 500));
     if (IS_DEV) console.log(`[DISCOVER] profiles query done in ${Date.now() - t2} ms`);
 
     if (profilesResult.error) {
@@ -938,20 +983,50 @@ export class SupabaseStorage implements IStorage {
     }
 
     // ── Distance filter ──────────────────────────────────────────────────────
-    // Applied in-memory. Candidates without geocoded coordinates are EXCLUDED
-    // when radius filtering is active — prevents ungeolocated seed/test profiles
-    // from bypassing the radius entirely and appearing in the wrong region.
+    // Exact Haversine check in memory (the DB bounding box above already narrowed
+    // the pool to a geographic square — this trims the circle corners precisely).
+    // Candidates without geocoded coordinates are EXCLUDED when radius filtering is
+    // active — prevents unlocated profiles appearing in the wrong city.
     let distanceFiltered = baseFiltered;
     let excludedByDistance = 0;
+    let nullCoordCount = 0;
     if (_hasLatLngColumns && userLat !== null && userLng !== null && locationRadius > 0) {
       distanceFiltered = baseFiltered.filter(p => {
-        if (p.latitude == null || p.longitude == null) return false; // no coords → exclude when radius is set
+        if (p.latitude == null || p.longitude == null) {
+          nullCoordCount++;
+          return false; // no coords → exclude when radius is set
+        }
         const within = haversineDistanceMiles(userLat!, userLng!, p.latitude, p.longitude) <= locationRadius;
         if (!within) excludedByDistance++;
         return within;
       });
     }
-    console.log(`[POOL_DEBUG] after distance (discover): ${distanceFiltered.length} (removed ${excludedByDistance})`);
+    console.log(`[POOL_DEBUG] after distance (discover): ${distanceFiltered.length} (removed ${excludedByDistance}, null-coord excluded: ${nullCoordCount})`);
+
+    // ── Background geocode for null-coord candidates ─────────────────────────
+    // If any candidates in the pool had location text but no coordinates they were
+    // excluded above.  Trigger async Nominatim geocoding for them (max 5 per request,
+    // 1.1 s apart to respect rate limits) so they appear on the next discover call.
+    if (nullCoordCount > 0 && _hasLatLngColumns) {
+      const needsGeocode = baseFiltered.filter(p => p.latitude == null && p.longitude == null && p.location);
+      if (needsGeocode.length > 0) {
+        console.log(`[DISCOVER] scheduling background geocode for ${needsGeocode.length} null-coord candidate(s)`);
+        const sb = this.sb;
+        (async () => {
+          for (const p of needsGeocode.slice(0, 5)) {
+            if (!p.location) continue;
+            try {
+              const coords = await geocodeLocation(p.location);
+              if (coords) {
+                await sb.from("profiles").update({ latitude: coords.lat, longitude: coords.lng }).eq("user_id", p.userId);
+                console.log(`[DISCOVER:BGEO] "${p.location}" → ${coords.lat.toFixed(4)}, ${coords.lng.toFixed(4)}`);
+              }
+            } catch { /* non-blocking */ }
+            await new Promise(r => setTimeout(r, 1100));
+          }
+        })();
+      }
+    }
 
     const filtered = mergeElevatesIntoProfiles(distanceFiltered, elevates);
 
@@ -968,17 +1043,26 @@ export class SupabaseStorage implements IStorage {
         .eq("onboarding_complete", true)
         // Null-safe age filter in fallback too
         .or(`age.is.null,age.gte.${effectiveAgeMin}`)
-        .or(`age.is.null,age.lte.${effectiveAgeMax}`)
-        .limit(100);
+        .or(`age.is.null,age.lte.${effectiveAgeMax}`);
 
       if (targetGenders && targetGenders.length > 0) {
         fallbackQuery = fallbackQuery.in("gender", targetGenders);
       }
 
-      const { data: fallbackData, error: fallbackErr } = await fallbackQuery;
+      // Apply bounding box at DB level in fallback too — same rationale as main pool.
+      if (useBBox) {
+        const bbox = computeBoundingBox(userLat!, userLng!, locationRadius);
+        fallbackQuery = (fallbackQuery as any)
+          .gte("latitude", bbox.minLat)
+          .lte("latitude", bbox.maxLat)
+          .gte("longitude", bbox.minLng)
+          .lte("longitude", bbox.maxLng);
+      }
+
+      const { data: fallbackData, error: fallbackErr } = await (fallbackQuery as any).limit(useBBox ? 500 : 100);
       if (!fallbackErr && fallbackData && fallbackData.length > 0) {
-        const fallbackAll = fallbackData.map(mapProfile);
-        const fallbackFiltered = fallbackAll.filter(p => {
+        const fallbackAll: Profile[] = (fallbackData as any[]).map(mapProfile);
+        const fallbackFiltered = fallbackAll.filter((p: Profile) => {
           // Null age passes through in fallback too
           if (p.age != null && (p.age < effectiveAgeMin || p.age > effectiveAgeMax)) return false;
           if (excludedIds.has(p.userId)) return false;
@@ -1909,8 +1993,7 @@ export class SupabaseStorage implements IStorage {
         .from("profiles")
         .select(WHEEL_COLS)
         .eq("onboarding_complete", true)
-        .order("created_at", { ascending: false })
-        .limit(limit * 3);
+        .order("created_at", { ascending: false });
 
       // Combine already-fetched profiles, own profile, and (when within the URL-safe cap)
       // the full interaction-exclusion set — mirrors Discovery's DB-level exclusion.
@@ -1933,7 +2016,20 @@ export class SupabaseStorage implements IStorage {
 
       query = applyFilters(query);
 
-      const { data: extra, error: fillError } = await query;
+      // Bounding box on fill query — same rationale as Discovery.
+      // Without this, all fill slots could be filled by far-away profiles and
+      // the in-memory distance filter would empty the wheel for small user bases.
+      const wheelUseBBox = _hasLatLngColumns && userLat != null && userLng != null && locationRadius && locationRadius > 0;
+      if (wheelUseBBox) {
+        const bbox = computeBoundingBox(userLat!, userLng!, locationRadius!);
+        query = (query as any)
+          .gte("latitude", bbox.minLat)
+          .lte("latitude", bbox.maxLat)
+          .gte("longitude", bbox.minLng)
+          .lte("longitude", bbox.maxLng);
+      }
+
+      const { data: extra, error: fillError } = await (query as any).limit(wheelUseBBox ? limit * 15 : limit * 3);
       if (fillError) console.error("[WHEEL] fill query error:", fillError.message);
       allProfiles.push(...(extra || []).map(mapProfile));
     }
