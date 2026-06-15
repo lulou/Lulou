@@ -2485,7 +2485,18 @@ export async function registerRoutes(
   // work on most home networks but WILL fail for users behind symmetric NAT,
   // corporate firewalls, and most mobile data connections.
   app.get("/api/webrtc/ice-servers", isAuthenticated, (_req: any, res: any) => {
-    const turnUrl        = process.env.TURN_URL;
+    // TURN_URLS  — comma-separated list of TURN/TURNS URLs, all sharing the same
+    //              username + credential.  Most providers (Metered, Twilio NTS) give
+    //              4-5 URLs covering UDP :80, TCP :80, UDP :443, TLS :443 — storing
+    //              them comma-separated in one secret is simpler than TURN_URL_1..N.
+    // TURN_URL   — single-URL fallback for backward compat (used if TURN_URLS is not set).
+    // TURN_USERNAME / TURN_CREDENTIAL — shared across all TURN entries.
+    //
+    // Set in Replit Secrets (not env vars):
+    //   TURN_URLS       "turn:standard.relay.metered.ca:80,turn:standard.relay.metered.ca:80?transport=tcp,turn:standard.relay.metered.ca:443,turns:standard.relay.metered.ca:443?transport=tcp"
+    //   TURN_USERNAME   (from your Metered / Twilio dashboard)
+    //   TURN_CREDENTIAL (from your Metered / Twilio dashboard)
+    const turnUrlsRaw    = process.env.TURN_URLS || process.env.TURN_URL;
     const turnUsername   = process.env.TURN_USERNAME;
     const turnCredential = process.env.TURN_CREDENTIAL;
 
@@ -2495,9 +2506,17 @@ export async function registerRoutes(
       { urls: "stun:stun2.l.google.com:19302" },
     ];
 
-    const hasTurn = !!(turnUrl && turnUsername && turnCredential);
+    const hasTurn = !!(turnUrlsRaw && turnUsername && turnCredential);
     if (hasTurn) {
-      iceServers.push({ urls: turnUrl!, username: turnUsername!, credential: turnCredential! });
+      // Split comma-separated URLs and push each as its own ICE server entry.
+      // All entries share the same username / credential (standard for Metered et al.).
+      const turnUrls = turnUrlsRaw!.split(",").map(u => u.trim()).filter(Boolean);
+      for (const url of turnUrls) {
+        iceServers.push({ urls: url, username: turnUsername!, credential: turnCredential! });
+      }
+      console.log(`[WebRTC] ICE servers: STUN×3 + TURN×${turnUrls.length} (relay ready)`);
+    } else {
+      console.warn("[WebRTC] /api/webrtc/ice-servers: TURN not configured — relay=0. Set TURN_URLS/TURN_USERNAME/TURN_CREDENTIAL in Replit Secrets.");
     }
 
     res.json({ iceServers, hasTurn });
