@@ -10,3 +10,4 @@
 - [forcedIncomingMatch missing guards](forced-incoming-call-bug.md) — forcedIncomingMatch in App.tsx must check dismissedCallKey and !!m.callInitiatorId; without these, pressing Decline sets dismissedCallKey but forcedIncomingMatch bypasses it → overlay re-mounts immediately as random incoming call.
 - [Stripe activate idempotency](stripe-activate-idempotency.md) — extras-activate and elevate-activate had no dedup; fixed with processed_stripe_sessions table (PK=sessionId); catch code 23505 to return early success without re-granting.
 - [Phantom call / missed ring bugs](phantom-call-bugs.md) — three root causes fixed in call signaling; see topic file.
+- [Voice notes cross-platform](voice-notes-cross-platform.md) — Safari/iOS cannot record WebM/OGG; MIME chain must include "audio/mp4" fallback. Server ext detection must handle mp4/m4a/aac. Chrome→Safari cross-play requires transcoding (not yet implemented; shows "Unable to play" error state instead).

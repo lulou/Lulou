@@ -1858,7 +1858,9 @@ export async function registerRoutes(
       }
 
       const safeMime = (typeof mimeType === "string" && mimeType.length < 100) ? mimeType : "audio/webm";
-      const ext = safeMime.includes("ogg") ? "ogg" : "webm";
+      const ext = safeMime.includes("ogg") ? "ogg"
+        : safeMime.includes("mp4") || safeMime.includes("m4a") || safeMime.includes("aac") ? "mp4"
+        : "webm";
       const filePath = `${matchId}/${Date.now()}_${userId}.${ext}`;
 
       await supabaseAdmin.storage.createBucket("voice-notes", { public: true }).catch(() => {});

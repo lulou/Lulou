@@ -331,11 +331,12 @@ function VoiceNotePlayer({ url, isMe, transcript }: { url: string; isMe: boolean
   const [duration, setDuration] = useState(0);
   const [currentTime, setCurrentTime] = useState(0);
   const [showTranscript, setShowTranscript] = useState(false);
+  const [audioError, setAudioError] = useState(false);
 
   const toggle = () => {
     const a = audioRef.current;
     if (!a) return;
-    if (playing) a.pause(); else a.play().catch(() => {});
+    if (playing) a.pause(); else a.play().catch(() => setAudioError(true));
   };
 
   const fmt = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
@@ -358,33 +359,40 @@ function VoiceNotePlayer({ url, isMe, transcript }: { url: string; isMe: boolean
           onEnded={() => { setPlaying(false); setCurrentTime(0); }}
           onLoadedMetadata={e => setDuration((e.target as HTMLAudioElement).duration || 0)}
           onTimeUpdate={e => setCurrentTime((e.target as HTMLAudioElement).currentTime)}
+          onError={() => setAudioError(true)}
         />
-        <button
-          onClick={e => { e.stopPropagation(); toggle(); }}
-          className="w-7 h-7 rounded-full flex items-center justify-center shrink-0"
-          style={{ background: isMe ? "rgba(255,255,255,0.18)" : "rgba(0,0,0,0.08)" }}
-          data-testid="button-voice-play"
-        >
-          {playing ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
-        </button>
-        <div className="flex-1 min-w-0 space-y-1">
-          <div
-            className="h-1 rounded-full overflow-hidden"
-            style={{ background: isMe ? "rgba(255,255,255,0.22)" : "rgba(0,0,0,0.10)" }}
-          >
-            <div
-              className="h-full rounded-full transition-all duration-200"
-              style={{
-                width: `${progress * 100}%`,
-                background: isMe ? "rgba(255,255,255,0.80)" : "hsl(var(--primary))",
-              }}
-            />
-          </div>
-          <p className="text-[10px] opacity-55 font-mono tabular-nums">
-            {fmt(playing ? currentTime : (duration || 0))}
-          </p>
-        </div>
-        <Mic className="w-3 h-3 shrink-0 opacity-40" />
+        {audioError ? (
+          <p className="text-[10px] opacity-60 italic flex-1">Unable to play on this device</p>
+        ) : (
+          <>
+            <button
+              onClick={e => { e.stopPropagation(); toggle(); }}
+              className="w-7 h-7 rounded-full flex items-center justify-center shrink-0"
+              style={{ background: isMe ? "rgba(255,255,255,0.18)" : "rgba(0,0,0,0.08)" }}
+              data-testid="button-voice-play"
+            >
+              {playing ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
+            </button>
+            <div className="flex-1 min-w-0 space-y-1">
+              <div
+                className="h-1 rounded-full overflow-hidden"
+                style={{ background: isMe ? "rgba(255,255,255,0.22)" : "rgba(0,0,0,0.10)" }}
+              >
+                <div
+                  className="h-full rounded-full transition-all duration-200"
+                  style={{
+                    width: `${progress * 100}%`,
+                    background: isMe ? "rgba(255,255,255,0.80)" : "hsl(var(--primary))",
+                  }}
+                />
+              </div>
+              <p className="text-[10px] opacity-55 font-mono tabular-nums">
+                {fmt(playing ? currentTime : (duration || 0))}
+              </p>
+            </div>
+            <Mic className="w-3 h-3 shrink-0 opacity-40" />
+          </>
+        )}
       </div>
       {audioTranscriptsEnabled && transcript && (
         <button
@@ -541,18 +549,21 @@ export default function Messaging() {
   const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
-        ? "audio/webm;codecs=opus"
-        : MediaRecorder.isTypeSupported("audio/ogg;codecs=opus")
-        ? "audio/ogg;codecs=opus"
-        : "audio/webm";
-      const recorder = new MediaRecorder(stream, { mimeType });
+        // Prefer opus-in-webm for Chrome/Firefox, fall back to ogg, then to mp4 for
+      // Safari/iOS (which does not support WebM at all), then let the browser decide.
+      const preferredTypes = ["audio/webm;codecs=opus", "audio/ogg;codecs=opus", "audio/webm", "audio/mp4"];
+      const mimeType = preferredTypes.find(t => {
+        try { return MediaRecorder.isTypeSupported(t); } catch { return false; }
+      }) ?? "";
+      const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+      // Use the actual mimeType the browser negotiated (may differ on Safari).
+      const actualMimeType = recorder.mimeType || mimeType;
       audioChunksRef.current = [];
       recorder.ondataavailable = e => { if (e.data.size > 0) audioChunksRef.current.push(e.data); };
       recorder.onstop = () => {
         stream.getTracks().forEach(t => t.stop());
-        const blob = new Blob(audioChunksRef.current, { type: mimeType });
-        if (blob.size > 0) sendVoiceNote.mutate({ blob, mimeType });
+        const blob = new Blob(audioChunksRef.current, { type: actualMimeType });
+        if (blob.size > 0) sendVoiceNote.mutate({ blob, mimeType: actualMimeType });
       };
       recorder.start(100);
       mediaRecorderRef.current = recorder;
@@ -564,8 +575,15 @@ export default function Messaging() {
           return t + 1;
         });
       }, 1000);
-    } catch {
-      toast({ title: "Microphone access denied", variant: "destructive" });
+    } catch (err: any) {
+      const isPermission = err?.name === "NotAllowedError" || err?.name === "PermissionDeniedError";
+      const isNotFound = err?.name === "NotFoundError" || err?.name === "DevicesNotFoundError";
+      toast({
+        title: isPermission ? "Microphone access denied"
+          : isNotFound ? "No microphone found on this device"
+          : "Could not start recording",
+        variant: "destructive",
+      });
     }
   };
 
@@ -591,13 +609,33 @@ export default function Messaging() {
     setRecordingTime(0);
   };
 
+  // Release the microphone if the page unmounts while recording is active.
+  // Without this the browser mic-in-use indicator stays on after navigation.
+  useEffect(() => {
+    return () => {
+      stopRecordingTimer();
+      const mr = mediaRecorderRef.current;
+      if (mr && mr.state !== "inactive") {
+        mr.ondataavailable = null;
+        mr.onstop = null;
+        try { mr.stream?.getTracks().forEach(t => t.stop()); } catch {}
+        try { mr.stop(); } catch {}
+      }
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   const sendVoiceNote = useMutation({
     mutationFn: async ({ blob, mimeType }: { blob: Blob; mimeType: string }) => {
-      const arrayBuffer = await blob.arrayBuffer();
-      const bytes = new Uint8Array(arrayBuffer);
-      let binary = "";
-      for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
-      const audioBase64 = btoa(binary);
+      // Client-side guard: reject before encoding to avoid unnecessary work.
+      if (blob.size > 3_000_000) throw new Error("Recording too large (max ~60 seconds). Please try again.");
+      // FileReader is the safest cross-browser way to convert a Blob to base64 —
+      // avoids the O(n) string-concatenation loop that freezes on low-end devices.
+      const audioBase64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve((reader.result as string).split(",")[1] ?? "");
+        reader.onerror = () => reject(new Error("Failed to encode audio"));
+        reader.readAsDataURL(blob);
+      });
       const res = await apiRequest("POST", `/api/voice-notes/send/${matchId}`, { audioBase64, mimeType });
       if (!res.ok) { const b = await res.json().catch(() => ({})); throw new Error(b.message || "Failed to send"); }
       return res.json();
