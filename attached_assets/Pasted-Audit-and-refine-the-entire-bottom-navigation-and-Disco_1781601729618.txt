@@ -1,0 +1,72 @@
+Audit and refine the entire bottom navigation and Discover page layout for premium mobile UX.
+
+Current observations:
+
+1. The bottom navigation feels visually unbalanced.
+- Likes appears naturally centred and draws the eye more than the other tabs.
+- Discover feels left-heavy.
+- Connections feels crowded because of the longer label.
+- Profile feels visually smaller than the other icons.
+- Overall spacing and visual weight are inconsistent.
+
+Required improvements:
+
+BOTTOM NAVIGATION
+
+- Give every navigation item identical width.
+- Centre icons independently from text length.
+- Ensure all icons are perfectly aligned on the same baseline.
+- Increase icon size by approximately 10%.
+- Reduce label size slightly for a cleaner premium appearance.
+- Increase spacing between icons and labels.
+- Ensure Discover, Intent, Likes, Connections and Profile all have equal visual weight.
+- Active tab should remain rose coloured.
+- Inactive tabs should use a softer neutral colour.
+- Verify perfect alignment on iPhone Safari, Chrome and desktop.
+
+DISCOVER PAGE
+
+The profile photo currently dominates too much vertical space.
+
+Required:
+
+- Reduce mobile photo height by approximately 10–15%.
+- Keep photo width unchanged.
+- Preserve carousel behaviour.
+- Preserve Open / Close actions.
+- Preserve rounded corners.
+- Preserve photo quality.
+
+Use the newly gained space to:
+
+- Show more conversation starters.
+- Show more profile personality information above the fold.
+- Reduce the amount of scrolling required.
+- Improve overall balance between photo and profile content.
+
+VALIDATION
+
+Test on:
+- iPhone Safari
+- iPhone Chrome
+- Desktop Chrome
+- Desktop Safari
+
+Confirm:
+- Bottom navigation is visually balanced.
+- No icons shift position.
+- Active tab remains clear.
+- Discover page feels less photo-heavy.
+- More profile information is visible without scrolling.
+
+Run:
+npm run check
+npm run build
+
+Report:
+1. Files changed
+2. Navigation improvements made
+3. Discover layout improvements made
+4. Mobile screenshots before vs after
+5. npm run check result
+6. npm run build result

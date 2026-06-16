@@ -189,22 +189,26 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           paddingBottom: isChatRoom ? 0 : "env(safe-area-inset-bottom, 0px)",
         }}
       >
-        <div className="flex items-center justify-around py-2">
+        {/* Equal-width slots: each Link gets flex-1 so all five tabs share
+            identical space regardless of label length.  The button fills its
+            slot and centres the icon independently of the label text.       */}
+        <div className="flex items-stretch py-1.5">
           {navItems.map(item => {
             const isActive = location.startsWith(item.path);
             const isLikes = item.path === "/likes";
             const isConnections = item.path === "/matches";
             return (
-              <Link key={item.path} href={item.path}>
+              <Link key={item.path} href={item.path} className="flex-1">
                 <button
-                  className={`relative flex flex-col items-center gap-0.5 px-4 py-1.5 rounded-md transition-colors ${
-                    isActive ? "text-primary" : "text-muted-foreground"
+                  className={`w-full flex flex-col items-center gap-1.5 py-1 rounded-md transition-colors ${
+                    isActive ? "text-primary" : "text-muted-foreground/70 hover:text-muted-foreground"
                   }`}
                   data-testid={`nav-${item.label.toLowerCase()}`}
                   onClick={() => stopAllNonVoiceCallAudio("nav_tab_click")}
                 >
-                  <div className="relative">
-                    <item.icon className="w-5 h-5" />
+                  {/* Icon wrapper: fixed size so badges never shift the baseline */}
+                  <div className="relative flex items-center justify-center w-[22px] h-[22px]">
+                    <item.icon className="w-[22px] h-[22px]" strokeWidth={isActive ? 2.2 : 1.8} />
                     {isLikes && likesCount > 0 && (
                       <span
                         className="absolute -top-1.5 -right-3.5 rtl:right-auto rtl:-left-3.5 flex items-center gap-px bg-primary text-primary-foreground text-[9px] font-bold rounded-full px-1 min-w-[16px] h-4 justify-center leading-none"
@@ -222,7 +226,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                       </span>
                     )}
                   </div>
-                  <span className="text-[11px] font-medium">{item.label}</span>
+                  <span className="text-[10px] font-medium leading-none">{item.label}</span>
                 </button>
               </Link>
             );

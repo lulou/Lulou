@@ -647,37 +647,9 @@ export default function Discover() {
             />
             <Card className="mt-2" data-testid="card-profile">
               <div className="px-5 pb-5 pt-3 space-y-5" data-testid="profile-about-section">
-                {allStarters.length > 0 && (
-                  <div className="space-y-3" data-testid="section-conversation-starters">
-                    <div className="flex items-center gap-1.5">
-                      <MessageCircle className="w-3.5 h-3.5 text-primary" />
-                      <p className="text-xs font-semibold tracking-widest uppercase text-primary">{t("conversation_starters")}</p>
-                    </div>
-                    <SlideCards items={allStarters.map(s => translateStarterItem(s, langCode))} type="starter" onReply={handleReply} />
-                  </div>
-                )}
 
-                {viewerQuestions.length > 0 && (
-                  <div className="space-y-3" data-testid="section-viewer-questions">
-                    <div className="flex items-center gap-1.5">
-                      <HelpCircle className="w-3.5 h-3.5 text-primary" />
-                      <p className="text-xs font-semibold tracking-widest uppercase text-primary">{t("they_love_to_know")}</p>
-                    </div>
-                    <SlideCards items={viewerQuestions.map(vq => vq.question)} type="starter" onReply={handleReply} />
-                  </div>
-                )}
-
-                {(questions.length > 0 || customQAsItems.length > 0) && (
-                  <div className="space-y-3" data-testid="section-questions">
-                    <div className="flex items-center gap-1.5">
-                      <HelpCircle className="w-3.5 h-3.5 text-primary" />
-                      <p className="text-xs font-semibold tracking-widest uppercase text-primary">{t("ask_me")}</p>
-                    </div>
-                    <SlideCards items={[...questions.map(q => translateQuestion(q, langCode)), ...customQAsItems]} type="question" onReply={handleReply} />
-                  </div>
-                )}
-
-                <div className="space-y-3" style={{ animation: "discoverNameEnter 0.45s 0.22s ease both" }}>
+                {/* ── 1. Identity — first thing above the fold after the photo ── */}
+                <div className="space-y-1.5" style={{ animation: "discoverNameEnter 0.45s 0.22s ease both" }}>
                   <div className="flex items-center gap-2">
                     <h2 className="font-serif text-3xl font-bold tracking-tight" data-testid="text-profile-name">
                       {displayProfile.firstName}
@@ -695,33 +667,74 @@ export default function Discover() {
                   />
                 </div>
 
-                <div className="space-y-2">
-                  <p className="text-xs font-semibold tracking-widest uppercase text-primary">{t("personality")}</p>
-                  <DragScrollRow>
-                    {allSignals.map(signal => (
-                      <Badge key={signal} variant="secondary" className="text-sm py-1.5 px-3 shrink-0 no-default-active-elevate" data-testid={`badge-signal-${signal}`}>
-                        {translateSignal(signal, langCode)}
-                      </Badge>
-                    ))}
-                  </DragScrollRow>
-                </div>
+                {/* ── 2. Personality signals — quick scan before engagement ── */}
+                {allSignals.length > 0 && (
+                  <div className="space-y-2">
+                    <p className="text-xs font-semibold tracking-widest uppercase text-primary">{t("personality")}</p>
+                    <DragScrollRow>
+                      {allSignals.map(signal => (
+                        <Badge key={signal} variant="secondary" className="text-sm py-1.5 px-3 shrink-0 no-default-active-elevate" data-testid={`badge-signal-${signal}`}>
+                          {translateSignal(signal, langCode)}
+                        </Badge>
+                      ))}
+                    </DragScrollRow>
+                  </div>
+                )}
 
+                {/* ── 3. Conversation starters ── */}
+                {allStarters.length > 0 && (
+                  <div className="space-y-3" data-testid="section-conversation-starters">
+                    <div className="flex items-center gap-1.5">
+                      <MessageCircle className="w-3.5 h-3.5 text-primary" />
+                      <p className="text-xs font-semibold tracking-widest uppercase text-primary">{t("conversation_starters")}</p>
+                    </div>
+                    <SlideCards items={allStarters.map(s => translateStarterItem(s, langCode))} type="starter" onReply={handleReply} />
+                  </div>
+                )}
+
+                {/* ── 4. Questions they'd love to know ── */}
+                {viewerQuestions.length > 0 && (
+                  <div className="space-y-3" data-testid="section-viewer-questions">
+                    <div className="flex items-center gap-1.5">
+                      <HelpCircle className="w-3.5 h-3.5 text-primary" />
+                      <p className="text-xs font-semibold tracking-widest uppercase text-primary">{t("they_love_to_know")}</p>
+                    </div>
+                    <SlideCards items={viewerQuestions.map(vq => vq.question)} type="starter" onReply={handleReply} />
+                  </div>
+                )}
+
+                {/* ── 5. What to ask them ── */}
+                {(questions.length > 0 || customQAsItems.length > 0) && (
+                  <div className="space-y-3" data-testid="section-questions">
+                    <div className="flex items-center gap-1.5">
+                      <HelpCircle className="w-3.5 h-3.5 text-primary" />
+                      <p className="text-xs font-semibold tracking-widest uppercase text-primary">{t("ask_me")}</p>
+                    </div>
+                    <SlideCards items={[...questions.map(q => translateQuestion(q, langCode)), ...customQAsItems]} type="question" onReply={handleReply} />
+                  </div>
+                )}
+
+                {/* ── 6. Intent ── */}
                 <div className="space-y-2">
                   <p className="text-xs font-semibold tracking-widest uppercase text-primary">{t("looking_for")}</p>
                   <p className="text-base font-semibold" data-testid="text-profile-intent">{translateIntent(displayProfile.datingIntent ?? "", t)}</p>
                 </div>
 
-                <div className="space-y-2">
-                  <p className="text-xs font-semibold tracking-widest uppercase text-primary">{t("green_flags_label")}</p>
-                  <DragScrollRow>
-                    {allGreenFlags.map(flag => (
-                      <Badge key={flag} variant="outline" className="text-sm py-1.5 px-3 shrink-0 no-default-active-elevate" data-testid={`badge-flag-${flag}`}>
-                        {translateGreenFlag(flag, langCode)}
-                      </Badge>
-                    ))}
-                  </DragScrollRow>
-                </div>
+                {/* ── 7. Green flags ── */}
+                {allGreenFlags.length > 0 && (
+                  <div className="space-y-2">
+                    <p className="text-xs font-semibold tracking-widest uppercase text-primary">{t("green_flags_label")}</p>
+                    <DragScrollRow>
+                      {allGreenFlags.map(flag => (
+                        <Badge key={flag} variant="outline" className="text-sm py-1.5 px-3 shrink-0 no-default-active-elevate" data-testid={`badge-flag-${flag}`}>
+                          {translateGreenFlag(flag, langCode)}
+                        </Badge>
+                      ))}
+                    </DragScrollRow>
+                  </div>
+                )}
 
+                {/* ── 8. Connection pace ── */}
                 <div className="space-y-2">
                   <p className="text-xs font-semibold tracking-widest uppercase text-primary">{t("pace_label")}</p>
                   <p className="text-base font-semibold" data-testid="text-profile-style">{translateStyle(displayProfile.connectionStyle ?? "", t)}</p>
