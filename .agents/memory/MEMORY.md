@@ -9,3 +9,4 @@
 - [Stacked cards carousel pattern](stacked-cards-carousel.md) — flex-strip + overflow:hidden clips all box-shadows; use stacked position:absolute cards with container padding:SHADOW_PAD so shadow bleeds into padding zone and IS visible. Both PhotoCarousel and ProfilePhotoViewer use this pattern.
 - [forcedIncomingMatch missing guards](forced-incoming-call-bug.md) — forcedIncomingMatch in App.tsx must check dismissedCallKey and !!m.callInitiatorId; without these, pressing Decline sets dismissedCallKey but forcedIncomingMatch bypasses it → overlay re-mounts immediately as random incoming call.
 - [Stripe activate idempotency](stripe-activate-idempotency.md) — extras-activate and elevate-activate had no dedup; fixed with processed_stripe_sessions table (PK=sessionId); catch code 23505 to return early success without re-granting.
+- [Phantom call / missed ring bugs](phantom-call-bugs.md) — three root causes fixed in call signaling; see topic file.

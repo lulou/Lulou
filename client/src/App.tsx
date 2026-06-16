@@ -350,7 +350,16 @@ function CallDetectors({ userId }: { userId: string }) {
     // real call is in progress, so navigating away always means the call has
     // ended or was never live.  Clearing here prevents stale armed sessions
     // from triggering audio when the user opens a cached Matches/Messages tab.
-    if (!hasActiveCallRef.current) {
+    //
+    // Guard also checks hasRingRef.current:
+    //   armCallSession() and callRingHandler(true) are called synchronously in
+    //   the Realtime signal handler before React re-renders.  If the user taps a
+    //   nav button in the ~50 ms gap between "ring signal arrived" and "React
+    //   re-rendered with the new incomingCall", hasActiveCallRef.current is still
+    //   false (from the last render) but hasRingRef.current is already true.
+    //   Without this extra guard, the location effect would fire and disarm the
+    //   live session — silently dropping a genuine incoming call.
+    if (!hasActiveCallRef.current && !hasRingRef.current) {
       clearAllArmedSessions();
     }
     console.log("[CALL_AUDIO_GUARD] stopped ringtone/ringback on navigation", { location });

@@ -40,7 +40,11 @@ export function clearDedupeForMatch(matchId: string) {
 }
 
 function processEndSignal(matchId: string, reason: string, callSessionId?: string | null) {
-  const key = `${matchId}:${reason}`;
+  // Include callSessionId in the dedup key so that two sequential calls on the
+  // same match can both produce an end signal within the 10 s window.  Without
+  // the session ID, the second call's ended/declined/cancelled signal would be
+  // silently dropped as a duplicate, leaving the overlay stuck.
+  const key = `${matchId}:${reason}:${callSessionId ?? ""}`;
   if (recentlyProcessed.has(key)) {
     console.log("[CALL_STATE] duplicate event ignored", { matchId, reason, key });
     return;
@@ -188,7 +192,17 @@ export function useCallSignaling(matchIds: string[], userId: string) {
           // Pre-load stale calls will have been startup-cancelled by the sweep
           // and will hit isStartupCancelledOnly → blocked permanently.
           if (!isStartupSweepComplete()) {
-            // Mark startup-cancelled NOW (not just on the next rering).
+            // Post-load calls (timestamp >= APP_LOAD_TIME): we can't yet know if
+            // this is a stale replay or a genuine fresh ring — just defer.  The
+            // rering interval is 2 s, so the next rering will arrive after the
+            // sweep has completed and will be evaluated normally.  Do NOT mark it
+            // startup-cancelled: that would permanently block a genuine new call
+            // that started in the ~0-3 s window between page load and sweep.
+            if (ringTimestampMs !== null && ringTimestampMs >= APP_LOAD_TIME) {
+              console.log("[CALL_SIGNAL] PRE_SWEEP_RING_DEFERRED — post-load call, deferring until sweep completes", { matchId, callSessionId: ringSessionId?.slice(0, 8), ringTimestampMs, APP_LOAD_TIME });
+              return;
+            }
+            // Pre-load calls: mark startup-cancelled NOW (not just on the next rering).
             // If the server clears callStartedAt before the first /api/matches
             // response, the startup sweep will see no stale call and skip the
             // match entirely — leaving the session un-cancelled.  Recording it
