@@ -21,50 +21,44 @@ interface MatchItem {
 /**
  * LulouFlowerIcon — the approved Lulou LL heart monogram.
  *
- * Design: two mirrored capital L's drawn as thin, elegant stroked lines
- * (serif-capped, meeting at the base) with a delicate filled heart that
- * emerges naturally in the space between the two vertical stems.
+ * Design matches the reference: two filled serif capital L's
+ * (left L slightly smaller, right L full-height), with a small
+ * outlined heart cradled in the space between them.
  *
- * Uses `currentColor` so Tailwind text-* classes (text-primary, etc.)
- * set the colour automatically. Works cleanly from 16 px upward.
+ * Uses `currentColor` so Tailwind text-* classes control the colour.
+ * ViewBox 0 0 100 100 — scales cleanly from 20 px upward.
  */
 export function LulouFlowerIcon({ className }: { className?: string }) {
   return (
     <svg
-      viewBox="0 0 40 40"
+      viewBox="0 0 100 100"
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
       className={className}
       aria-label="Lulou"
     >
-      {/* ── Left L — thin elegant serif letterform ─────────────────────
-           Horizontal serif at the top; vertical stroke flowing down to a
-           horizontal foot that reaches the centre.                       */}
+      {/* ── Left L — slightly smaller, elegant serif ───────────────────
+           Stem width 8, foot to x=40, top serif 16 wide.               */}
       <path
-        d="M9,8 L13,8  M11,8 L11,33 L20,33"
-        stroke="currentColor"
-        strokeWidth="2.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-
-      {/* ── Right L — mirror image ─────────────────────────────────────
-           Serif at top-right; vertical stroke mirrored; foot meets the
-           left L's foot at centre-bottom creating the LL monogram base. */}
-      <path
-        d="M31,8 L27,8  M29,8 L29,33 L20,33"
-        stroke="currentColor"
-        strokeWidth="2.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-
-      {/* ── Heart — the romantic symbol between the stems ──────────────
-           ~12 % larger than before: outer edges pushed to 11/29 and tip
-           dropped to y=22, keeping the elegant proportions.              */}
-      <path
-        d="M20,22 C15.5,18 11,14 11,10 C11,6 14,5.5 20,11 C26,5.5 29,6 29,10 C29,14 24.5,18 20,22Z"
+        d="M4,20 L20,20 L20,24 L16,24 L16,73 L40,73 L40,79 L8,79 L8,24 L4,24 Z"
         fill="currentColor"
+      />
+
+      {/* ── Right L — full height, prominent serif ─────────────────────
+           Stem width 10, foot to x=90, top serif 20 wide.              */}
+      <path
+        d="M46,12 L66,12 L66,17 L60,17 L60,80 L90,80 L90,88 L50,88 L50,17 L46,17 Z"
+        fill="currentColor"
+      />
+
+      {/* ── Heart — outlined, in the gap between the two L's ───────────
+           Sits between left-L foot (x≈40) and right-L stem (x≈50).    */}
+      <path
+        d="M47,65 C41,59 35,53 35,48 C35,43 39,41 47,51 C55,41 59,43 59,48 C59,53 53,59 47,65Z"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="4"
+        strokeLinejoin="round"
       />
     </svg>
   );
