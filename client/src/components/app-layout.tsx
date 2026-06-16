@@ -43,7 +43,7 @@ export function LulouFlowerIcon({ className }: { className?: string }) {
       <path
         d="M9,8 L13,8  M11,8 L11,33 L20,33"
         stroke="currentColor"
-        strokeWidth="2"
+        strokeWidth="2.5"
         strokeLinecap="round"
         strokeLinejoin="round"
       />
@@ -54,17 +54,16 @@ export function LulouFlowerIcon({ className }: { className?: string }) {
       <path
         d="M31,8 L27,8  M29,8 L29,33 L20,33"
         stroke="currentColor"
-        strokeWidth="2"
+        strokeWidth="2.5"
         strokeLinecap="round"
         strokeLinejoin="round"
       />
 
       {/* ── Heart — the romantic symbol between the stems ──────────────
-           Positioned in the upper portion of the monogram, its outer
-           edges align with the inner faces of the L strokes so it reads
-           as part of the letterforms, not as a separate element.         */}
+           ~12 % larger than before: outer edges pushed to 11/29 and tip
+           dropped to y=22, keeping the elegant proportions.              */}
       <path
-        d="M20,21 C16,17 12,13.5 12,10 C12,7 15,6 20,11.5 C25,6 28,7 28,10 C28,13.5 24,17 20,21Z"
+        d="M20,22 C15.5,18 11,14 11,10 C11,6 14,5.5 20,11 C26,5.5 29,6 29,10 C29,14 24.5,18 20,22Z"
         fill="currentColor"
       />
     </svg>
@@ -189,7 +188,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       >
         <Link href="/discover">
           <div className="flex items-center gap-2 cursor-pointer">
-            <LulouFlowerIcon className="w-6 h-6 text-primary" />
+            <LulouFlowerIcon className="w-8 h-8 text-primary" />
             <span className="font-serif text-lg font-semibold tracking-tight" data-testid="text-app-logo">Lulou</span>
           </div>
         </Link>

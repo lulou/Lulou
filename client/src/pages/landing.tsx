@@ -769,7 +769,7 @@ export default function Landing() {
     return (
       <div className="min-h-screen bg-background flex flex-col items-center justify-center px-6 gap-8" data-testid="screen-email-verification">
         <div className="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center">
-          <LulouFlowerIcon className="w-7 h-7 text-primary" />
+          <LulouFlowerIcon className="w-9 h-9 text-primary" />
         </div>
         <div className="w-full max-w-sm space-y-3 text-center">
           <h1 className="font-serif text-2xl font-bold">{t("landing_check_your_email")}</h1>
@@ -820,7 +820,7 @@ export default function Landing() {
       <nav className="fixed top-0 inset-x-0 z-50 backdrop-blur-md bg-background/80 border-b">
         <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between gap-4 flex-wrap">
           <div className="flex items-center gap-2">
-            <LulouFlowerIcon className="w-6 h-6 text-primary" />
+            <LulouFlowerIcon className="w-8 h-8 text-primary" />
             <span className="font-serif text-xl font-semibold tracking-tight" data-testid="text-logo">Lulou</span>
           </div>
           <button
