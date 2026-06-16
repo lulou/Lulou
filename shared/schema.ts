@@ -42,6 +42,8 @@ export const profiles = pgTable("profiles", {
   elevateExpiresAt: timestamp("elevate_expires_at"),
   lastActive: timestamp("last_active"),
   showLastActive: boolean("show_last_active").default(true),
+  commentFilter: boolean("comment_filter").default(true),
+  conversationStarterAi: boolean("conversation_starter_ai").default(true),
   createdAt: timestamp("created_at").defaultNow(),
 });
 

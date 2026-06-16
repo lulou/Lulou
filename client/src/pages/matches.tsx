@@ -1147,6 +1147,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
   const [message, setMessage] = useState("");
   const [showProfilePanel, setShowProfilePanel] = useState(false);
   const [showAIStarters, setShowAIStarters] = useState(false);
+  const hasAutoShownStartersRef = useRef(false);
   const [filterConfirm, setFilterConfirm] = useState<{ content: string; tempId: string; categories: string[] } | null>(null);
   // Tracks messages sent in the current call-stage session for optimistic counter display.
   // Resets when match.id or callStage changes so the badge always starts from the DB value.
@@ -1187,7 +1188,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
   const { broadcastNewMessage, broadcastDateChoice } = useRealtimeMessages(match.id, expanded);
 
   // ── AI Conversation Starters ──────────────────────────────────────────────
-  const aiStartersEnabled = localStorage.getItem("conversation_starter_ai") !== "false";
+  const aiStartersEnabled = localStorage.getItem("settings_conversation_starter_ai") !== "false";
   const { data: aiStartersData } = useQuery<{ starters: string[] }>({
     queryKey: ["/api/matches", match.id, "ai-starters", langCode],
     enabled: expanded && showAIStarters && aiStartersEnabled,
@@ -1299,7 +1300,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
   // ── Comment filter + send helper ──────────────────────────────────────────
   const doSend = (content: string) => {
     const tempId = `temp-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    const commentFilterEnabled = localStorage.getItem("comment_filter") !== "false";
+    const commentFilterEnabled = localStorage.getItem("settings_comment_filter") !== "false";
     if (commentFilterEnabled) {
       const result = scanContent(content);
       if (result.blocked) {
@@ -1840,6 +1841,18 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
   const rawLimitReached = myCurrentStageCount >= MAX_MESSAGES_PER_USER;
   const allMessages = matchDetail?.messages || [];
 
+  // Auto-show AI starters when chat first opens and has no real user messages yet.
+  useEffect(() => {
+    if (!expanded || !aiStartersEnabled || hasAutoShownStartersRef.current) return;
+    if (!matchDetail) return; // still loading
+    const realMessages = allMessages.filter(m => !m.content.startsWith("__"));
+    if (realMessages.length === 0) {
+      setShowAIStarters(true);
+    }
+    hasAutoShownStartersRef.current = true;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [expanded, !!matchDetail]);
+
   // Include localSentCount so the card appears instantly when the user sends their 25th message.
   const postCallProgressReady = callStage >= 1
     && myCurrentStageCount >= POST_CALL_THRESHOLD
@@ -2060,7 +2073,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
               )}
             </div>
             {(() => {
-              const myShowLastActive = localStorage.getItem("show_last_active") !== "false";
+              const myShowLastActive = localStorage.getItem("settings_show_last_active") !== "false";
               const lbl = formatLastActive(match.profile.lastActive, (match.profile.showLastActive ?? true) && myShowLastActive);
               return lbl ? (
                 <p className="text-[10px] text-muted-foreground leading-none mt-0.5" data-testid={`text-last-active-${match.id}`}>{lbl}</p>

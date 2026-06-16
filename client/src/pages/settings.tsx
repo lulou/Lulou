@@ -104,15 +104,40 @@ export default function SettingsPage() {
 
   // ── Toggle preferences ────────────────────────────────────────────────────
   const [showLastActive,    setShowLastActive]    = useToggle("show_last_active", true);
+  const [commentFilter,     setCommentFilter]     = useToggle("comment_filter", true);
+  const [aiStarters,        setAiStarters]        = useToggle("conversation_starter_ai", true);
 
-  // Sync showLastActive to server profile whenever it changes.
+  // Sync all three settings from server profile on initial load (overrides stale localStorage).
+  useEffect(() => {
+    if (!profile) return;
+    if (profile.showLastActive !== undefined && profile.showLastActive !== null) {
+      setShowLastActive(profile.showLastActive);
+    }
+    if ((profile as any).commentFilter !== undefined && (profile as any).commentFilter !== null) {
+      setCommentFilter((profile as any).commentFilter);
+    }
+    if ((profile as any).conversationStarterAi !== undefined && (profile as any).conversationStarterAi !== null) {
+      setAiStarters((profile as any).conversationStarterAi);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profile?.userId]);
+
+  // Save settings to server whenever they change.
   useEffect(() => {
     if (!user) return;
     apiRequest("POST", "/api/profile", { showLastActive }).catch(() => {});
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showLastActive]);
-  const [commentFilter,     setCommentFilter]     = useToggle("comment_filter", true);
-  const [aiStarters,        setAiStarters]        = useToggle("conversation_starter_ai", true);
+  useEffect(() => {
+    if (!user) return;
+    apiRequest("POST", "/api/profile", { commentFilter }).catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [commentFilter]);
+  useEffect(() => {
+    if (!user) return;
+    apiRequest("POST", "/api/profile", { conversationStarterAi: aiStarters }).catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [aiStarters]);
   const [audioTranscripts,  setAudioTranscripts]  = useToggle("audio_transcripts", false);
   const [pushNotifications, setPushNotifications] = useToggle("push_notifications", true);
 

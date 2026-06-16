@@ -365,6 +365,8 @@ app.use((req, res, next) => {
         setHasCustomSignalsColumn,
         setHasLastActiveColumn,
         setHasShowLastActiveColumn,
+        setHasCommentFilterColumn,
+        setHasConversationStarterAiColumn,
         setHasVoiceTranscriptColumn,
       } = await import("./storage");
 
@@ -386,8 +388,10 @@ app.use((req, res, next) => {
         { col: "pronouns",           setter: setHasPronounsColumn,          sql: "ALTER TABLE profiles ADD COLUMN IF NOT EXISTS pronouns text;" },
         { col: "custom_green_flags", setter: setHasCustomGreenFlagsColumn,  sql: "ALTER TABLE profiles ADD COLUMN IF NOT EXISTS custom_green_flags jsonb DEFAULT '[]'::jsonb;" },
         { col: "custom_signals",     setter: setHasCustomSignalsColumn,     sql: "ALTER TABLE profiles ADD COLUMN IF NOT EXISTS custom_signals jsonb DEFAULT '[]'::jsonb;" },
-        { col: "last_active",        setter: setHasLastActiveColumn,        sql: "ALTER TABLE profiles ADD COLUMN IF NOT EXISTS last_active timestamptz;" },
-        { col: "show_last_active",   setter: setHasShowLastActiveColumn,    sql: "ALTER TABLE profiles ADD COLUMN IF NOT EXISTS show_last_active boolean DEFAULT true;" },
+        { col: "last_active",              setter: setHasLastActiveColumn,              sql: "ALTER TABLE profiles ADD COLUMN IF NOT EXISTS last_active timestamptz;" },
+        { col: "show_last_active",         setter: setHasShowLastActiveColumn,          sql: "ALTER TABLE profiles ADD COLUMN IF NOT EXISTS show_last_active boolean DEFAULT true;" },
+        { col: "comment_filter",           setter: setHasCommentFilterColumn,           sql: "ALTER TABLE profiles ADD COLUMN IF NOT EXISTS comment_filter boolean DEFAULT true;" },
+        { col: "conversation_starter_ai",  setter: setHasConversationStarterAiColumn,   sql: "ALTER TABLE profiles ADD COLUMN IF NOT EXISTS conversation_starter_ai boolean DEFAULT true;" },
       ];
 
       const missingSql: string[] = [];

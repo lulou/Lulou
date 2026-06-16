@@ -1029,7 +1029,7 @@ export default function Messaging() {
               )}
             </div>
             {(() => {
-              const myShowLastActive = localStorage.getItem("show_last_active") !== "false";
+              const myShowLastActive = localStorage.getItem("settings_show_last_active") !== "false";
               const lastActiveLbl = formatLastActive(profile.lastActive, (profile.showLastActive ?? true) && myShowLastActive);
               return lastActiveLbl ? (
                 <p className="text-[10px] text-muted-foreground leading-none mt-0.5" data-testid="text-last-active">{lastActiveLbl}</p>

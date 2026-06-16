@@ -1,0 +1,126 @@
+Fully implement and verify these Settings toggles.
+
+Do not work on unrelated features.
+
+The Settings page shows toggles for:
+
+Show last active status
+Comment filter
+Conversation starter AI
+These must not be fake UI toggles. They need to fully work across the app.
+
+──────────────────────────────
+
+Show Last Active Status
+Expected behaviour:
+
+If enabled:
+
+Matches can see when the user was last active.
+Display examples:
+
+Active now
+Active 5m ago
+Active 2h ago
+Active yesterday
+If disabled:
+
+Other users should not see the user’s last active status.
+Hide it in:
+
+match header
+connection header
+profile preview
+any profile/chat surface
+Audit:
+
+Is last_active being written?
+Is show_last_active saved?
+Is setting loaded from Supabase?
+Is status hidden when toggle is off?
+Does it update when app is opened/refreshed?
+──────────────────────────────
+
+Comment Filter
+Expected behaviour:
+
+If enabled:
+
+Block or warn on disrespectful/prohibited words.
+Apply before sending chat messages.
+Apply before saving profile prompts/questions where appropriate.
+Show clear warning:
+“This message may be disrespectful. Please rewrite it.”
+If disabled:
+
+Do not block normal messages through comment filter.
+Audit:
+
+Is comment_filter setting saved?
+Is chat reading the setting?
+Is filter applied before message send?
+Is filter applied consistently in matches.tsx and messaging.tsx?
+Are voice notes/system messages excluded from text filtering?
+──────────────────────────────
+
+Conversation Starter AI
+Expected behaviour:
+
+If enabled:
+
+Brand-new matches with zero real user messages automatically show AI conversation starters.
+Existing empty matches should also show AI starters.
+Show 3–5 starters.
+Include Regenerate.
+Include tap-to-send.
+If AI endpoint fails, show fallback starters.
+If loading, show “Creating conversation starters…”
+If disabled:
+
+Do not auto-show starters.
+Optionally hide the starter generator.
+Audit:
+
+Is setting saved in Supabase?
+Is setting read in chat?
+Does /api/matches/:matchId/ai-starters fire?
+Does endpoint return suggestions?
+Is the UI rendering in the actual live chat component, especially matches.tsx inline chat?
+Are system messages ignored when determining whether a chat is empty?
+Important:
+Previous fixes changed messaging.tsx, but the live chat is often in matches.tsx.
+Make sure the feature works in the actual chatroom users see.
+
+──────────────────────────────
+
+Validation
+
+Test with two accounts.
+
+For each toggle:
+
+turn on
+refresh app
+verify still on
+verify behaviour works
+turn off
+refresh app
+verify still off
+verify behaviour stops
+Run:
+
+npm run check
+npm run build
+
+Report:
+
+Files changed
+Database fields used
+Show Last Active proof
+Comment Filter proof
+Conversation Starter AI proof
+Existing account behaviour
+npm run check result
+npm run build result
+Do not mark complete unless all three toggles work in the live app.
+

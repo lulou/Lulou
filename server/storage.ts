@@ -357,6 +357,18 @@ export function setHasShowLastActiveColumn(val: boolean) {
   if (val) console.log("[STORAGE] show_last_active column AVAILABLE");
 }
 
+let _hasCommentFilterColumn = false;
+export function setHasCommentFilterColumn(val: boolean) {
+  _hasCommentFilterColumn = val;
+  if (val) console.log("[STORAGE] comment_filter column AVAILABLE");
+}
+
+let _hasConversationStarterAiColumn = false;
+export function setHasConversationStarterAiColumn(val: boolean) {
+  _hasConversationStarterAiColumn = val;
+  if (val) console.log("[STORAGE] conversation_starter_ai column AVAILABLE");
+}
+
 let _hasVoiceTranscriptColumn = false;
 export function setHasVoiceTranscriptColumn(val: boolean) {
   _hasVoiceTranscriptColumn = val;
@@ -448,6 +460,8 @@ function mapProfile(row: any): Profile {
     elevateExpiresAt: row.elevate_expires_at ? new Date(row.elevate_expires_at) : null,
     lastActive: _hasLastActiveColumn && row.last_active ? new Date(row.last_active) : null,
     showLastActive: _hasShowLastActiveColumn ? (row.show_last_active ?? true) : true,
+    commentFilter: _hasCommentFilterColumn ? (row.comment_filter ?? true) : true,
+    conversationStarterAi: _hasConversationStarterAiColumn ? (row.conversation_starter_ai ?? true) : true,
     createdAt: row.created_at ? new Date(row.created_at) : null,
   };
 }
@@ -549,6 +563,8 @@ function profileToDbRow(data: Partial<InsertProfile> & { latitude?: number | nul
   if (data.onboardingComplete !== undefined) row.onboarding_complete = data.onboardingComplete;
   if ((data as any).isPaused !== undefined) row.is_paused = (data as any).isPaused;
   if (_hasShowLastActiveColumn && (data as any).showLastActive !== undefined) row.show_last_active = (data as any).showLastActive;
+  if (_hasCommentFilterColumn && (data as any).commentFilter !== undefined) row.comment_filter = (data as any).commentFilter;
+  if (_hasConversationStarterAiColumn && (data as any).conversationStarterAi !== undefined) row.conversation_starter_ai = (data as any).conversationStarterAi;
   return row;
 }
 
