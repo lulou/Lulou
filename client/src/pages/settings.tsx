@@ -1177,22 +1177,55 @@ export default function SettingsPage() {
           </SheetHeader>
           <div className="flex-1 overflow-y-auto px-5 pb-8 pt-4 space-y-4">
             {/* Membership */}
-            <div className="rounded-2xl bg-gradient-to-br from-primary/10 to-primary/5 border border-primary/20 p-5">
-              <div className="flex items-center gap-2 mb-1">
+            <div className="rounded-2xl bg-gradient-to-br from-primary/10 to-primary/5 border border-primary/20 p-5 space-y-4">
+              {/* Title */}
+              <div className="flex items-center gap-2">
                 <Crown className="w-4 h-4 text-primary" />
                 <p className="font-serif font-semibold text-base">{t("lulou_membership_title")}</p>
               </div>
-              <p className="text-xs text-muted-foreground mb-4">
-                {t("membership_unlock_desc")}
-              </p>
-              <Button
-                className="w-full"
-                disabled={checkoutLoading === "membership"}
-                onClick={() => startCheckout("membership")}
-                data-testid="button-subscribe-membership"
-              >
-                {checkoutLoading === "membership" ? t("opening_label") : t("join_membership")}
-              </Button>
+
+              {/* Monthly benefits list */}
+              <div className="space-y-2">
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/65">
+                  {t("membership_monthly_benefits")}
+                </p>
+                <ul className="space-y-2">
+                  {([
+                    t("perk_2_extensions"),
+                    t("perk_3_phone_credits"),
+                    t("perk_1_video_credit"),
+                    t("perk_1_undo_close"),
+                  ] as string[]).map(perk => (
+                    <li key={perk} className="flex items-center gap-2.5 text-sm">
+                      <span className="w-1.5 h-1.5 rounded-full bg-primary shrink-0" />
+                      {perk}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+
+              {/* Footnotes */}
+              <div className="space-y-0.5 border-t border-primary/10 pt-3">
+                <p className="text-xs text-muted-foreground">{t("membership_refreshes")}</p>
+                <p className="text-xs text-muted-foreground">{t("membership_credits_rollover")}</p>
+              </div>
+
+              {/* Price + CTA */}
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <span className="font-serif font-bold text-xl">$19.99</span>
+                  <span className="text-xs text-muted-foreground">/month</span>
+                </div>
+                <Button
+                  size="sm"
+                  className="shrink-0 px-5"
+                  disabled={checkoutLoading === "membership"}
+                  onClick={() => startCheckout("membership")}
+                  data-testid="button-subscribe-membership"
+                >
+                  {checkoutLoading === "membership" ? t("opening_label") : t("join_membership")}
+                </Button>
+              </div>
             </div>
 
             <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground/65 pt-2">
