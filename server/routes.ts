@@ -563,18 +563,53 @@ export async function registerRoutes(
     }
   });
 
-  // Heartbeat — called every 60 s while the app is open.
-  // Keeps the session alive so the 15-minute expiry window only counts
-  // actual inactivity (app closed / tab left idle without focus).
+  // Heartbeat — called every 60 s while the app is open AND on INITIAL_SESSION
+  // (existing logged-in device opening the app).
+  //
+  // WHY upsert instead of update:
+  //   Devices that were already logged in before this session-enforcement code was
+  //   deployed never have a row in active_sessions (they never triggered SIGNED_IN).
+  //   A plain UPDATE on a missing row is a no-op — the laptop's session is never
+  //   registered, so the phone's session-check finds no row and is allowed in.
+  //   With upsert, every heartbeat (including the first one fired on INITIAL_SESSION)
+  //   ensures the row exists and is fresh.
   app.post("/api/auth/heartbeat", isAuthenticated, async (req: any, res) => {
     const userId = req.user.id;
+    const { sessionId, deviceId = "", userAgent = "" } =
+      (req.body as { sessionId?: string; deviceId?: string; userAgent?: string }) || {};
     const now = new Date();
     const expiresAt = new Date(now.getTime() + SESSION_EXPIRY_MS);
     try {
-      await db
-        .update(activeSessions)
-        .set({ lastSeenAt: now, expiresAt })
-        .where(eq(activeSessions.userId, userId));
+      if (sessionId && typeof sessionId === "string" && sessionId.length > 4) {
+        // Upsert: registers the device if no row exists, refreshes expiry if it does.
+        await db
+          .insert(activeSessions)
+          .values({
+            userId,
+            sessionId,
+            deviceId: String(deviceId).slice(0, 200),
+            userAgent: String(userAgent || "").slice(0, 500),
+            createdAt: now,
+            lastSeenAt: now,
+            expiresAt,
+          })
+          .onConflictDoUpdate({
+            target: activeSessions.userId,
+            set: {
+              sessionId,
+              deviceId: String(deviceId).slice(0, 200),
+              userAgent: String(userAgent || "").slice(0, 500),
+              lastSeenAt: now,
+              expiresAt,
+            },
+          });
+      } else {
+        // Fallback for legacy calls without a sessionId: just extend expiry.
+        await db
+          .update(activeSessions)
+          .set({ lastSeenAt: now, expiresAt })
+          .where(eq(activeSessions.userId, userId));
+      }
       res.json({ ok: true });
     } catch {
       res.json({ ok: false });

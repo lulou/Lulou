@@ -115,17 +115,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       // ── Single-device gate ──────────────────────────────────────────────────
-      // WHY the check lives HERE and not in landing.tsx:
+      // Two separate paths depending on whether this is a NEW login or an
+      // EXISTING session being restored.
       //
-      //   supabase.auth.signInWithPassword() fires onAuthStateChange(SIGNED_IN)
-      //   BEFORE its own Promise resolves.  Any code placed after the `await`
-      //   in landing.tsx runs AFTER this callback has already run — far too late
-      //   to stop the user entering the app (setUser would have been called).
+      // SIGNED_IN (new login):
+      //   Check the server BEFORE entering the app.  setUser(u) is only called
+      //   after the server confirms no other device has an active session.
+      //   While the check is in-flight, user === null → Landing stays visible.
+      //   WHY here and not in landing.tsx: signInWithPassword fires this callback
+      //   BEFORE its own Promise resolves, so anything placed after the `await`
+      //   in landing.tsx is already too late to stop app entry.
       //
-      // Solution: for SIGNED_IN events we do NOT call setUser(u) synchronously.
-      // Instead, an async IIFE calls the server to check whether this device is
-      // allowed.  setUser(u) is only called if the server says "allowed".
-      // While the check is in-flight, user === null → Landing stays visible.
+      // INITIAL_SESSION / TOKEN_REFRESHED (existing session, page refresh/reopen):
+      //   Enter the app immediately (no blocking — the user is already authenticated).
+      //   BUT register this device in active_sessions as a background fire-and-forget.
+      //   This is the critical fix for the root cause: devices that were logged in
+      //   before session-enforcement was added never had a row in active_sessions.
+      //   Without registration here, active_sessions is always empty → every new
+      //   login attempt from a second device finds no row → returns "allowed" → both
+      //   devices end up logged in simultaneously.
       if (event === "SIGNED_IN" && u && session?.access_token) {
         const token = session.access_token;
 
@@ -194,6 +202,40 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // Return WITHOUT calling setUser or setIsLoading.
         // The async IIFE above will do both after the check completes.
         return;
+      }
+
+      if ((event === "INITIAL_SESSION" || event === "TOKEN_REFRESHED") && u && session?.access_token) {
+        // Register/refresh this device's session in the background so that it
+        // appears in active_sessions.  This is non-blocking — app entry is immediate.
+        const token = session.access_token;
+        (() => {
+          // Reuse or create a persistent session ID for this device.
+          let sessionId = localStorage.getItem("lulou_session_id") ?? "";
+          if (!sessionId) {
+            sessionId =
+              typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+                ? crypto.randomUUID()
+                : `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+            localStorage.setItem("lulou_session_id", sessionId);
+          }
+          let deviceId = localStorage.getItem("lulou_device_id") ?? "";
+          if (!deviceId) {
+            deviceId =
+              typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+                ? crypto.randomUUID()
+                : `${Date.now()}-d`;
+            localStorage.setItem("lulou_device_id", deviceId);
+          }
+          // Fire-and-forget — do not await, do not delay app entry.
+          fetch(`${API_BASE}/api/auth/heartbeat`, {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${token}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ sessionId, deviceId, userAgent: navigator.userAgent }),
+          }).catch(() => {});
+        })();
       }
 
       // All other events (INITIAL_SESSION, TOKEN_REFRESHED, SIGNED_OUT, etc.)
@@ -303,9 +345,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       try {
         const { data: { session } } = await supabase.auth.getSession();
         if (!session?.access_token) return;
+        const sessionId = localStorage.getItem("lulou_session_id") ?? "";
+        const deviceId  = localStorage.getItem("lulou_device_id")  ?? "";
         await fetch(`${API_BASE}/api/auth/heartbeat`, {
           method: "POST",
-          headers: { Authorization: `Bearer ${session.access_token}` },
+          headers: {
+            Authorization: `Bearer ${session.access_token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ sessionId, deviceId, userAgent: navigator.userAgent }),
         });
       } catch {}
     };
