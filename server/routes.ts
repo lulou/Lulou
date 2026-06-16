@@ -6,10 +6,10 @@ import { transcodeToM4a } from "./transcoder";
 import { seedDatabase } from "./seed";
 import { z } from "zod";
 import type { Profile } from "@shared/schema";
-import { userBenefits, callCredits, activeSessions, processedStripeSessions, membershipSubscriptions } from "@shared/schema";
+import { userBenefits, callCredits, activeSessions, processedStripeSessions, membershipSubscriptions, userElevates, blockedContacts, savedWheelProfiles } from "@shared/schema";
 import { supabase, supabaseAdmin, createUserClient, hasServiceRoleKey } from "./supabase";
 import { db } from "./db";
-import { eq, and, isNull, gt } from "drizzle-orm";
+import { eq, and, isNull, gt, or } from "drizzle-orm";
 import { getUncachableStripeClient, getStripePublishableKey } from "./stripeClient";
 import { writeLimiter, callLimiter, paymentLimiter } from "./limiters";
 
@@ -2452,6 +2452,7 @@ export async function registerRoutes(
     "chemistry-pack":       { name: "Chemistry Pack",         unitAmount: 1699, mode: "payment"      as const, benefitType: null,                          credits: { phone: 3, video: 1 }, quantity: 1 },
     "deep-connection-pack": { name: "Deep Connection Pack",   unitAmount: 2799, mode: "payment"      as const, benefitType: null,                          credits: { phone: 5, video: 3 }, quantity: 1 },
     "voice-notes-unlock":   { name: "Voice Notes Unlock",     unitAmount: 499,  mode: "payment"      as const, benefitType: "voice_notes_unlock" as const, credits: null,                   quantity: 1 },
+    "extra-call":           { name: "Extra Call",              unitAmount: 499,  mode: "payment"      as const, benefitType: null,                          credits: { phone: 1, video: 0 }, quantity: 1 },
   } as const;
 
   type ExtrasItemId = keyof typeof EXTRAS_ITEMS;
@@ -2631,6 +2632,41 @@ export async function registerRoutes(
     } catch (err: any) {
       console.error("[MEMBERSHIP] status error:", err?.message);
       res.status(500).json({ message: "Failed to fetch membership status" });
+    }
+  });
+
+  // ── Stripe Customer Portal session ────────────────────────────────────────
+  // Allows members to manage their subscription (cancel, update payment method,
+  // view invoices) without building a custom billing UI.
+
+  app.post("/api/stripe/create-portal-session", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const [sub] = await db
+        .select()
+        .from(membershipSubscriptions)
+        .where(eq(membershipSubscriptions.userId, userId))
+        .limit(1);
+
+      if (!sub?.stripeCustomerId) {
+        return res.status(400).json({ message: "No active subscription found." });
+      }
+
+      const stripe = await getUncachableStripeClient();
+      const baseUrl =
+        process.env.FRONTEND_URL ??
+        `https://${process.env.REPLIT_DOMAINS?.split(",")[0] ?? "localhost:5000"}`;
+
+      const session = await (stripe.billingPortal.sessions.create as Function)({
+        customer: sub.stripeCustomerId,
+        return_url: `${baseUrl}/settings`,
+      });
+
+      console.log(`[STRIPE] Portal session created for user ${userId}`);
+      return res.json({ url: session.url });
+    } catch (err: any) {
+      console.error("[STRIPE] Portal session failed:", err?.message);
+      return res.status(500).json({ message: err?.message ?? "Failed to create portal session" });
     }
   });
 
@@ -2856,6 +2892,140 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error fetching elevate session stats:", error);
       res.status(500).json({ message: "Failed to fetch session stats" });
+    }
+  });
+
+  // ── Account deletion ──────────────────────────────────────────────────────
+  // Permanently removes all user data across every store:
+  //   - Stripe subscription cancelled
+  //   - Supabase Storage files removed (profile-photos, voice-notes)
+  //   - Local DB tables wiped (user_benefits, call_credits, user_elevates,
+  //     membership_subscriptions, active_sessions, blocked_contacts,
+  //     saved_wheel_profiles)
+  //   - Supabase tables wiped (interactions, messages, matches, profiles)
+  //   - Supabase Auth user deleted
+  // Retained: processed_stripe_sessions (legal accounting records)
+
+  app.delete("/api/account", isAuthenticated, async (req: any, res) => {
+    const userId: string = req.user.id;
+    const log: string[] = [];
+
+    try {
+      // ── 1. Cancel Stripe subscription ─────────────────────────────────────
+      const [sub] = await db
+        .select()
+        .from(membershipSubscriptions)
+        .where(eq(membershipSubscriptions.userId, userId))
+        .limit(1);
+
+      if (sub?.stripeSubscriptionId && sub.status === "active") {
+        try {
+          const stripe = await getUncachableStripeClient();
+          await (stripe.subscriptions.cancel as Function)(sub.stripeSubscriptionId);
+          log.push(`stripe_subscription_cancelled:${sub.stripeSubscriptionId}`);
+        } catch (stripeErr: any) {
+          // Non-fatal — subscription may have already expired
+          log.push(`stripe_cancel_warn:${stripeErr.message}`);
+        }
+      } else {
+        log.push("stripe_no_active_subscription");
+      }
+
+      // ── 2. Delete Supabase Storage files ──────────────────────────────────
+      for (const bucket of ["profile-photos", "voice-notes"] as const) {
+        try {
+          const { data: files } = await supabaseAdmin.storage
+            .from(bucket)
+            .list(userId, { limit: 500 });
+          if (files && files.length > 0) {
+            const paths = files.map((f) => `${userId}/${f.name}`);
+            const { error } = await supabaseAdmin.storage.from(bucket).remove(paths);
+            if (error) {
+              log.push(`storage_${bucket}_partial_error:${error.message}`);
+            } else {
+              log.push(`storage_${bucket}_deleted:${files.length}_files`);
+            }
+          } else {
+            log.push(`storage_${bucket}_empty`);
+          }
+        } catch (storageErr: any) {
+          log.push(`storage_${bucket}_error:${storageErr.message}`);
+        }
+      }
+
+      // ── 3. Wipe local PostgreSQL tables ───────────────────────────────────
+      await db.delete(userBenefits).where(eq(userBenefits.userId, userId));
+      log.push("local_user_benefits_deleted");
+
+      await db.delete(callCredits).where(eq(callCredits.userId, userId));
+      log.push("local_call_credits_deleted");
+
+      await db.delete(userElevates).where(eq(userElevates.userId, userId));
+      log.push("local_user_elevates_deleted");
+
+      await db.delete(membershipSubscriptions).where(eq(membershipSubscriptions.userId, userId));
+      log.push("local_membership_subscriptions_deleted");
+
+      await db.delete(activeSessions).where(eq(activeSessions.userId, userId));
+      log.push("local_active_sessions_deleted");
+
+      await db.delete(blockedContacts).where(eq(blockedContacts.userId, userId));
+      log.push("local_blocked_contacts_deleted");
+
+      await db.delete(savedWheelProfiles).where(eq(savedWheelProfiles.userId, userId));
+      log.push("local_saved_wheel_profiles_deleted");
+
+      // processed_stripe_sessions RETAINED — legal accounting records
+
+      // ── 4. Wipe Supabase database tables ──────────────────────────────────
+      await supabaseAdmin
+        .from("interactions")
+        .delete()
+        .or(`user_id.eq.${userId},target_user_id.eq.${userId}`);
+      log.push("supabase_interactions_deleted");
+
+      const { data: matchRows } = await supabaseAdmin
+        .from("matches")
+        .select("id")
+        .or(`user1_id.eq.${userId},user2_id.eq.${userId}`);
+
+      if (matchRows && matchRows.length > 0) {
+        const matchIds = matchRows.map((m: { id: string }) => m.id);
+        await supabaseAdmin.from("messages").delete().in("match_id", matchIds);
+        log.push(`supabase_messages_deleted_for_${matchIds.length}_matches`);
+        await supabaseAdmin
+          .from("matches")
+          .delete()
+          .or(`user1_id.eq.${userId},user2_id.eq.${userId}`);
+        log.push(`supabase_matches_deleted:${matchIds.length}`);
+      } else {
+        log.push("supabase_no_matches_found");
+      }
+
+      await supabaseAdmin.from("profiles").delete().eq("user_id", userId);
+      log.push("supabase_profile_deleted");
+
+      // ── 5. Delete Supabase Auth user ──────────────────────────────────────
+      const { error: authError } = await supabaseAdmin.auth.admin.deleteUser(userId);
+      if (authError) {
+        log.push(`supabase_auth_delete_warn:${authError.message}`);
+      } else {
+        log.push("supabase_auth_user_deleted");
+      }
+
+      console.log(`[DELETE ACCOUNT] User ${userId} fully deleted. Steps: ${log.join(" | ")}`);
+      return res.json({ success: true, log });
+    } catch (err: any) {
+      console.error(
+        `[DELETE ACCOUNT] Fatal error for user ${userId}:`,
+        err?.message,
+        "Progress so far:",
+        log.join(" | ")
+      );
+      return res.status(500).json({
+        message: "Account deletion encountered an error. Contact support@lulou.dating.",
+        log,
+      });
     }
   });
 

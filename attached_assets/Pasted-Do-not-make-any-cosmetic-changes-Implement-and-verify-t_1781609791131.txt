@@ -1,0 +1,155 @@
+Do not make any cosmetic changes.
+
+Implement and verify the following four critical production issues.
+
+CRITICAL ISSUE 1 — REAL ACCOUNT DELETION
+
+Current state:
+
+Delete Account button only shows a toast.
+No backend deletion occurs.
+No API route exists.
+User remains visible in discovery.
+Legal documents claim deletion occurs.
+Implement a complete deletion system.
+
+Requirements:
+
+Create DELETE /api/account
+Immediately:
+Remove profile from discovery
+Disable login access
+Mark account as pending deletion
+Delete or anonymise all personal data:
+Profiles
+Matches
+Messages
+Interactions
+User benefits
+Call credits
+Elevate records
+Membership records
+Active sessions
+Blocked contacts
+Saved wheel profiles
+Delete Supabase Storage files:
+Profile photos
+Voice notes
+Cancel active Stripe subscription if one exists
+Delete Supabase Auth user
+Retain only records legally required for accounting:
+Stripe transaction history
+Processed payment records
+Add confirmation modal:
+“Delete account permanently”
+Produce a full report showing:
+Every table affected
+Every storage bucket affected
+Every retained record
+Every deleted record
+Do not continue until deletion has been tested.
+
+
+CRITICAL ISSUE 2 — SUBSCRIPTION CANCELLATION
+
+Current state:
+
+Legal page says users can cancel from Settings.
+No cancellation UI exists.
+Implement:
+
+Add “Manage Membership” section in Settings
+Add:
+Current membership status
+Renewal date
+Cancel membership button
+Create backend route:
+POST /api/stripe/create-portal-session
+Use Stripe Billing Portal
+Allow:
+Cancel subscription
+Update payment method
+View invoices
+Verify:
+customer.subscription.deleted webhook updates app state
+membership badge removed
+future renewals stop
+existing credits remain
+Provide proof of testing.
+
+
+CRITICAL ISSUE 3 — MESSAGE RETENTION CLAIM
+
+Current state:
+Policy says:
+“Messages are deleted 30 days after a connection is closed.”
+
+Audit found:
+No deletion job exists.
+
+Determine which approach is correct:
+
+OPTION A:
+Implement actual 30-day deletion.
+
+OR
+
+OPTION B:
+Remove the claim from all legal and privacy screens.
+
+If implementing:
+
+Create scheduled cleanup
+Remove messages after 30 days
+Verify with test data
+If removing:
+
+Update all wording
+Ensure no false claims remain
+Provide recommendation and evidence.
+
+
+CRITICAL ISSUE 4 — EXTRA CALL PRODUCT
+
+Current state:
+Legal pages reference:
+“Extra Call ($4.99)”
+
+Checkout rejects it.
+
+Choose one:
+
+OPTION A:
+Create real extra-call product
+
+$4.99
+Grants 1 phone call credit
+OR
+
+OPTION B:
+Remove all references everywhere
+
+Search entire codebase and remove all inconsistencies.
+
+
+FINAL REPORT
+
+After implementation provide:
+
+Files changed
+Routes added
+Tables affected
+Storage affected
+Stripe changes
+Test results
+Remaining legal risks
+Production readiness score
+Run:
+
+npm run check
+npm run build
+Must finish with:
+0 TypeScript errors
+Clean build
+Verified functionality
+

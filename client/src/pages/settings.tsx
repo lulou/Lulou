@@ -507,13 +507,45 @@ export default function SettingsPage() {
     }
   };
 
+  // ── Membership status ─────────────────────────────────────────────────────
+  const { data: membershipStatus } = useQuery<{
+    active: boolean;
+    status: string | null;
+    currentPeriodEnd: string | null;
+  }>({ queryKey: ["/api/membership/status"] });
+
+  const [portalLoading, setPortalLoading] = useState(false);
+  const openStripePortal = async () => {
+    setPortalLoading(true);
+    try {
+      const res = await apiRequest("POST", "/api/stripe/create-portal-session", {});
+      const data = await res.json();
+      if (data?.url) window.location.href = data.url;
+    } catch (err: any) {
+      toast({ title: "Failed to open billing portal", description: err?.message, variant: "destructive" });
+    } finally {
+      setPortalLoading(false);
+    }
+  };
+
   // ── Delete account ────────────────────────────────────────────────────────
-  const handleDeleteConfirm = () => {
-    setShowDeleteDialog(false);
-    toast({
-      title: t("account_deletion_title"),
-      description: t("account_deletion_desc"),
-    });
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  const handleDeleteConfirm = async () => {
+    setIsDeleting(true);
+    try {
+      await apiRequest("DELETE", "/api/account", undefined);
+      await supabase.auth.signOut();
+      navigate("/auth");
+    } catch (err: any) {
+      setIsDeleting(false);
+      setShowDeleteDialog(false);
+      toast({
+        title: "Deletion failed",
+        description: err?.message ?? "Please try again or contact support@lulou.dating",
+        variant: "destructive",
+      });
+    }
   };
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -568,7 +600,38 @@ export default function SettingsPage() {
             testId="button-settings-logout"
           />
 
-          {/* ── 2. Profile & Visibility ── */}
+          {/* ── 2. Membership ── */}
+          {membershipStatus?.active && (
+            <>
+              <SectionHeader title="Membership" />
+              <div className="mx-4 mb-1 p-4 rounded-xl bg-primary/5 border border-primary/20">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <Crown className="w-4 h-4 text-primary" />
+                    <span className="text-sm font-semibold text-primary">Lulou Member</span>
+                  </div>
+                  <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-primary/15 text-primary capitalize">
+                    {membershipStatus.status ?? "active"}
+                  </span>
+                </div>
+                {membershipStatus.currentPeriodEnd && (
+                  <p className="text-xs text-muted-foreground mb-3">
+                    Renews {new Date(membershipStatus.currentPeriodEnd).toLocaleDateString(undefined, { day: "numeric", month: "long", year: "numeric" })}
+                  </p>
+                )}
+                <button
+                  onClick={openStripePortal}
+                  disabled={portalLoading}
+                  className="w-full text-sm font-medium py-2 px-4 rounded-lg border border-primary/30 text-primary hover:bg-primary/10 transition-colors disabled:opacity-50"
+                  data-testid="button-manage-membership"
+                >
+                  {portalLoading ? "Opening…" : "Manage Subscription"}
+                </button>
+              </div>
+            </>
+          )}
+
+          {/* ── 3. Profile & Visibility ── */}
           <SectionHeader title={t("profile_visibility")} />
           <SettingRow
             icon={<Eye className="w-[18px] h-[18px] text-muted-foreground" />}
@@ -1630,13 +1693,14 @@ export default function SettingsPage() {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel data-testid="button-delete-cancel">{t("cancel")}</AlertDialogCancel>
+            <AlertDialogCancel disabled={isDeleting} data-testid="button-delete-cancel">{t("cancel")}</AlertDialogCancel>
             <AlertDialogAction
               onClick={handleDeleteConfirm}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={isDeleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90 disabled:opacity-60"
               data-testid="button-delete-confirm"
             >
-              {t("delete_account_confirm_btn")}
+              {isDeleting ? "Deleting…" : t("delete_account_confirm_btn")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
