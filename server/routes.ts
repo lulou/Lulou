@@ -1924,6 +1924,14 @@ export async function registerRoutes(
         return res.status(404).json({ message: "No recent action to undo." });
       }
 
+      // Guard: verify the target profile still exists BEFORE consuming any credit.
+      // Without this check, a deleted/deactivated profile causes the interaction
+      // to be removed (wasting the credit) and the profile never reappears in the feed.
+      const targetProfile = await storage.getProfileMeta(lastInteraction.toUserId);
+      if (!targetProfile) {
+        return res.status(404).json({ message: "Profile no longer exists — undo is not possible." });
+      }
+
       // If the last action was a like, check whether it resulted in a match.
       // Matches cannot be silently undone.
       if (lastInteraction.type === "open") {

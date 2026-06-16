@@ -262,7 +262,35 @@ export default function Discover() {
 
   // Optimistic undo state — set immediately when user acts so the undo button
   // is ready before the server round-trip completes.
-  const [lastActedProfile, setLastActedProfile] = useState<{ id: string; name: string } | null>(null);
+  // Initialised from sessionStorage so the undo button survives a page refresh
+  // within the same browser session (sessionStorage is cleared on tab close).
+  const UNDO_STORAGE_KEY = "lulou_last_acted";
+  const [lastActedProfile, setLastActedProfileRaw] = useState<{ id: string; name: string } | null>(() => {
+    try {
+      const stored = sessionStorage.getItem(UNDO_STORAGE_KEY);
+      if (stored) {
+        const parsed = JSON.parse(stored) as { id: string; name: string; ts: number };
+        // Only restore if within the last 24 hours — avoids stale state across days.
+        if (Date.now() - parsed.ts < 24 * 60 * 60 * 1000) {
+          return { id: parsed.id, name: parsed.name };
+        }
+      }
+    } catch {}
+    return null;
+  });
+
+  // Wrapper keeps sessionStorage in sync with React state.
+  const setLastActedProfile = useCallback((val: { id: string; name: string } | null) => {
+    setLastActedProfileRaw(val);
+    try {
+      if (val) {
+        sessionStorage.setItem(UNDO_STORAGE_KEY, JSON.stringify({ ...val, ts: Date.now() }));
+      } else {
+        sessionStorage.removeItem(UNDO_STORAGE_KEY);
+      }
+    } catch {}
+  }, []);
+
   const [celebration, setCelebration] = useState<MatchCelebration | null>(null);
   // Ref mirror so the mutationFn closure can read the current value without stale capture.
   const lastActedRef = useRef<{ id: string; name: string } | null>(null);

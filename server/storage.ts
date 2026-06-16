@@ -2733,12 +2733,20 @@ export class SupabaseStorage implements IStorage {
   }
 
   async deleteLastClose(userId: string, interactionId: string): Promise<boolean> {
-    const { error } = await this.sb
+    // .select("id") causes Supabase to return the deleted rows.
+    // Without it, data is null for both a successful delete AND a no-op delete
+    // (row already gone), making it impossible to distinguish the two.
+    const { data, error } = await this.sb
       .from("interactions")
       .delete()
       .eq("id", interactionId)
-      .eq("from_user_id", userId);
-    return !error;
+      .eq("from_user_id", userId)
+      .select("id");
+    if (error) return false;
+    // Returns true ONLY if a row was actually removed.
+    // Previously this returned !error, which is true even for a 0-row delete,
+    // causing the caller to consume an undo credit when nothing was undone.
+    return (data?.length ?? 0) > 0;
   }
 
   async getLastInteraction(userId: string): Promise<{ interactionId: string; toUserId: string; type: string } | null> {
