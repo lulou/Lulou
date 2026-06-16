@@ -984,6 +984,24 @@ function CallDetectors({ userId }: { userId: string }) {
     prevActiveRef.current = activeKey;
   }, [activeCall?.id, activeCall?.callSessionId, userId]);
 
+  // ── Ring-gate reset: clear hasRingRef when no calls are active ───────────
+  // Bug: when isStaleCall() fires (90 s unanswered) the memos return null and
+  // the overlays unmount, but hasRingRef.current stays `true` forever because
+  // the only place it was reset was inside callEndedCallback (which never fires
+  // for a stale timeout — there is no signal).  With hasRingRef=true the
+  // refetchInterval gate stays closed, so new data arrives only via Realtime
+  // and any subsequent match-list polls are permanently suppressed.
+  //
+  // Fix: watch the three derived memos; when all become null (normal end OR
+  // stale-timeout) reset the ring gate so polling resumes immediately.
+  useEffect(() => {
+    const hasAnyCall = !!(incomingCall || callerRingingCall || activeCall);
+    if (!hasAnyCall && hasRingRef.current) {
+      hasRingRef.current = false;
+      console.log("[CALL_FIX] ring polling gate reset — no active calls (stale or ended)");
+    }
+  }, [incomingCall, callerRingingCall, activeCall]);
+
   // ── incomingMatchForUI ────────────────────────────────────────────────────
   // The match the receiver needs to answer.  Two sources:
   //   1. incomingCall — the normal path (callInitiatorId !== userId, callAnswered=false)

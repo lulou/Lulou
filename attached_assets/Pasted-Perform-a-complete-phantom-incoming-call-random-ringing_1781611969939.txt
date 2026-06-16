@@ -1,0 +1,98 @@
+Perform a complete phantom incoming call / random ringing audit.
+
+Known historical issue:
+
+Users have previously experienced:
+
+Incoming call screen appears when nobody is calling.
+Phone rings on app launch.
+Ringing starts after refresh.
+Ringing starts after login.
+Call UI appears with no active caller.
+White screens after answering.
+Stale call sessions remain active.
+Audit every file involved in:
+
+WebRTC
+Realtime subscriptions
+Call signalling
+Incoming call state
+Outgoing call state
+Accept call
+Decline call
+Missed call
+Call cleanup
+Logout
+Login
+Refresh
+App startup
+Reconnect
+Network recovery
+Specifically inspect:
+
+Realtime listeners
+useEffect subscriptions
+cleanup functions
+event listeners
+call state persistence
+localStorage
+sessionStorage
+database call records
+active call tracking
+ring tone triggers
+stale call detection
+Required tests:
+
+Open app with no active calls.
+Login with no active calls.
+Refresh app with no active calls.
+Logout/login.
+Start call then cancel.
+Start call then refresh caller.
+Start call then refresh receiver.
+Accept call then hang up.
+Missed call.
+Network disconnect.
+Airplane mode.
+Browser tab close.
+Force app restart.
+Same account on another device.
+Expired call session.
+For every scenario answer:
+
+Does ringing occur?
+Should ringing occur?
+Why?
+Which code path triggered it?
+Required fixes:
+
+Any stale call state must be cleared.
+Any stale realtime subscription must be removed.
+Any orphaned call session must be ignored.
+App startup must never trigger ringing unless a real active incoming call exists.
+Ringing must stop immediately after call ends.
+Ringing must stop after logout.
+Ringing must stop after refresh if no valid active call exists.
+Validation:
+
+Run:
+npm run check
+npm run build
+
+Report:
+
+Root cause(s)
+Files changed
+Call lifecycle diagram
+Cleanup improvements
+Startup behaviour
+Refresh behaviour
+Login behaviour
+Logout behaviour
+Final phantom-ring status
+npm run check result
+npm run build result
+Do not stop after identifying the issue.
+
+Fix every phantom-ring source found and prove it with tests.
+

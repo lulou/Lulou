@@ -450,6 +450,64 @@ export async function registerRoutes(
 ): Promise<Server> {
   clearStaleCallsOnStartup().catch((err) => console.error("[STARTUP] clearStaleCallsOnStartup failed:", err?.message));
 
+  // ── Periodic stale-call cleanup ───────────────────────────────────────────
+  // The startup sweep only runs once at boot.  If both parties crash/kill the
+  // app mid-call (no cancel/end signal sent), callStartedAt stays set in the DB
+  // indefinitely — accumulating stale rows between server restarts.  This timer
+  // clears them every 5 minutes and broadcasts call:ended so any still-running
+  // clients update in real-time rather than waiting for the next 5 s poll.
+  setInterval(async () => {
+    try {
+      const STALE_RINGING_MS = 2 * 60 * 1000;   // 2 min unanswered
+      const STALE_ANSWERED_MS = 10 * 60 * 1000;  // 10 min answered but not completed
+      const now = new Date();
+
+      const { matches: matchesTableP } = await import("@shared/schema");
+      const { isNotNull: isNotNullP } = await import("drizzle-orm");
+
+      const activeMatches = await db
+        .select({
+          id: matchesTableP.id,
+          callStartedAt: matchesTableP.callStartedAt,
+          callAnswered: matchesTableP.callAnswered,
+          callSessionId: matchesTableP.callSessionId,
+        })
+        .from(matchesTableP)
+        .where(isNotNullP(matchesTableP.callStartedAt));
+
+      for (const m of activeMatches) {
+        if (!m.callStartedAt) continue;
+        const age = now.getTime() - new Date(m.callStartedAt).getTime();
+        const isStale =
+          (!m.callAnswered && age > STALE_RINGING_MS) ||
+          (m.callAnswered && age > STALE_ANSWERED_MS);
+        if (!isStale) continue;
+
+        await db
+          .update(matchesTableP)
+          .set({ callStartedAt: null, callInitiatorId: null, callAnswered: false, callCompleted: false })
+          .where(eq(matchesTableP.id, m.id));
+
+        if (m.callSessionId) {
+          await broadcastCallEvent(m.id, {
+            type: "call:ended",
+            matchId: m.id,
+            userId: "server-gc",
+            callSessionId: m.callSessionId,
+          });
+        }
+        console.log("[PERIODIC_CLEANUP] cleared stale call", {
+          matchId: m.id.slice(0, 8),
+          ageMs: age,
+          answered: m.callAnswered,
+          sessionId: m.callSessionId?.slice(0, 8) ?? "none",
+        });
+      }
+    } catch (err: any) {
+      console.error("[PERIODIC_CLEANUP] periodic stale-call sweep failed:", err?.message);
+    }
+  }, 5 * 60 * 1000);
+
   // ── Request timing middleware ─────────────────────────────────────────────
   // Logs routes that take longer than 500 ms so slow queries are easy to spot.
   app.use((req, res, next) => {
