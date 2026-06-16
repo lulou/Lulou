@@ -8,9 +8,10 @@ import { API_BASE } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { writeDebug, pushDebugError } from "@/lib/debug-store";
 import { useLanguageContext } from "@/contexts/language-context";
+import { useAuth } from "@/hooks/use-auth";
 
 type AuthMode = "signin" | "signup";
-type AuthErrorKind = "credentials" | "already-exists" | "network" | "rate-limit" | "auth" | "device-blocked";
+type AuthErrorKind = "credentials" | "already-exists" | "network" | "rate-limit" | "auth";
 
 interface AuthError {
   kind: AuthErrorKind;
@@ -174,6 +175,7 @@ interface RawAuthError {
 
 export default function Landing() {
   const { t } = useLanguageContext();
+  const { deviceBlocked, clearDeviceBlocked } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -288,6 +290,7 @@ export default function Landing() {
     if (authError) setAuthError(null);
     if (rawAuthError) setRawAuthError(null);
     setResetSent(false);
+    clearDeviceBlocked();
   }
 
   function switchToSignIn() {
@@ -714,65 +717,6 @@ export default function Landing() {
         });
         console.log("[AUTH] AUTH_REQUEST_SUCCESS", { mode, userId: data.user?.id });
 
-        // ── Single-device enforcement ─────────────────────────────────────────
-        // Check server-side whether this account is already active on another
-        // device.  If blocked, sign out immediately and show an error.
-        if (data.user && data.session) {
-          const sessionId =
-            typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
-              ? crypto.randomUUID()
-              : `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
-
-          // Persistent per-device ID so the same physical device can always
-          // replace its own session (e.g. user clears cookies and re-logs in).
-          let deviceId = localStorage.getItem("lulou_device_id") ?? "";
-          if (!deviceId) {
-            deviceId =
-              typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
-                ? crypto.randomUUID()
-                : `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
-            localStorage.setItem("lulou_device_id", deviceId);
-          }
-
-          try {
-            const checkRes = await fetch(`${API_BASE}/api/auth/session-check`, {
-              method: "POST",
-              headers: {
-                Authorization: `Bearer ${data.session.access_token}`,
-                "Content-Type": "application/json",
-              },
-              body: JSON.stringify({
-                sessionId,
-                deviceId,
-                userAgent: navigator.userAgent,
-              }),
-            });
-
-            if (checkRes.ok) {
-              const checkData = await checkRes.json();
-              if (checkData.blocked) {
-                // Sign out the freshly-created Supabase session so it doesn't
-                // linger — the user is not allowed into the app.
-                await supabase.auth.signOut();
-                setLoading(false);
-                setAuthError({
-                  kind: "device-blocked",
-                  message: "Account already active on another device. You can only use Lulou on one device at a time.",
-                });
-                authInProgressRef.current = false;
-                return;
-              }
-              // Allowed — store session ID so the heartbeat can use it.
-              localStorage.setItem("lulou_session_id", checkData.sessionId ?? sessionId);
-            } else {
-              // Non-fatal on server error — store locally and allow login.
-              localStorage.setItem("lulou_session_id", sessionId);
-            }
-          } catch {
-            // Network error — fail open so a transient outage never locks users out.
-            localStorage.setItem("lulou_session_id", sessionId);
-          }
-        }
       }
 
     } catch (err: any) {
@@ -913,7 +857,7 @@ export default function Landing() {
                   network). This sits ABOVE the inputs so it is the first thing
                   the user sees — it is clearly not a credentials problem.
                   The inputs remain enabled so the user can retry immediately. */}
-              {authError?.kind === "device-blocked" && (
+              {deviceBlocked && (
                 <div
                   role="alert"
                   data-testid="banner-device-blocked"

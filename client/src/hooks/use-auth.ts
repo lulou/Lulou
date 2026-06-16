@@ -34,6 +34,10 @@ type AuthContextType = {
   profileInitError: null;
   profileReady: boolean;
   clearingCache: boolean;
+  // Single-device enforcement — true when login was blocked because the account
+  // is already active on another device.  Cleared by clearDeviceBlocked().
+  deviceBlocked: boolean;
+  clearDeviceBlocked: () => void;
 };
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -47,6 +51,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // otherwise queryClient.clear() fires mid-flight and resets the in-progress
   // fetch back to isLoading:true — the root cause of the "endless spinner" bug.
   const [clearingCache, setClearingCache] = useState(false);
+  // Set to true when a login attempt was blocked because another device already
+  // has an active session.  Stays true until clearDeviceBlocked() is called.
+  const [deviceBlocked, setDeviceBlocked] = useState(false);
 
   // Track the previous auth user ID so we can detect actual account changes
   // (as opposed to token-refresh events which keep the same user).
@@ -96,8 +103,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
       prevUserIdRef.current = newUserId;
 
-      setUser(u);
-
       if (session?.access_token) {
         setCachedToken(session.access_token, (session as any).expires_at ?? 0);
         console.log("[AUTH] SESSION_RECEIVED", {
@@ -108,6 +113,92 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       } else {
         setCachedToken(null);
       }
+
+      // ── Single-device gate ──────────────────────────────────────────────────
+      // WHY the check lives HERE and not in landing.tsx:
+      //
+      //   supabase.auth.signInWithPassword() fires onAuthStateChange(SIGNED_IN)
+      //   BEFORE its own Promise resolves.  Any code placed after the `await`
+      //   in landing.tsx runs AFTER this callback has already run — far too late
+      //   to stop the user entering the app (setUser would have been called).
+      //
+      // Solution: for SIGNED_IN events we do NOT call setUser(u) synchronously.
+      // Instead, an async IIFE calls the server to check whether this device is
+      // allowed.  setUser(u) is only called if the server says "allowed".
+      // While the check is in-flight, user === null → Landing stays visible.
+      if (event === "SIGNED_IN" && u && session?.access_token) {
+        const token = session.access_token;
+
+        (async () => {
+          const sessionId =
+            typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+              ? crypto.randomUUID()
+              : `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+
+          let deviceId = localStorage.getItem("lulou_device_id") ?? "";
+          if (!deviceId) {
+            deviceId =
+              typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+                ? crypto.randomUUID()
+                : `${Date.now()}-d`;
+            localStorage.setItem("lulou_device_id", deviceId);
+          }
+
+          let isBlocked = false;
+          let grantedSessionId = sessionId;
+
+          try {
+            const r = await fetch(`${API_BASE}/api/auth/session-check`, {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${token}`,
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                sessionId,
+                deviceId,
+                userAgent: navigator.userAgent,
+              }),
+            });
+            if (r.ok) {
+              const d = await r.json();
+              if (d.blocked) {
+                isBlocked = true;
+              } else {
+                grantedSessionId = d.sessionId ?? sessionId;
+              }
+            }
+          } catch {
+            // Fail open — a transient network error never locks users out
+          }
+
+          if (!mounted) return;
+
+          if (isBlocked) {
+            console.log("[AUTH] DEVICE_BLOCKED — account already active on another device");
+            // Revoke the freshly-created Supabase session so it can't be used silently.
+            supabase.auth.signOut().catch(() => {});
+            setDeviceBlocked(true);
+            setProfileReady(true);
+            setIsLoading(false);
+            // user stays null — Landing remains visible with the blocked banner
+          } else {
+            localStorage.setItem("lulou_session_id", grantedSessionId);
+            setUser(u);
+            setProfileReady(true);
+            setIsLoading(false);
+            console.log("[AUTH] AUTH_READY", { event, userId: newUserId });
+          }
+        })();
+
+        // Return WITHOUT calling setUser or setIsLoading.
+        // The async IIFE above will do both after the check completes.
+        return;
+      }
+
+      // All other events (INITIAL_SESSION, TOKEN_REFRESHED, SIGNED_OUT, etc.)
+      // proceed with the normal synchronous path.
+      setUser(u);
 
       if (mounted) {
         setProfileReady(true);
@@ -120,6 +211,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       mounted = false;
       subscription.unsubscribe();
     };
+  }, []);
+
+  const clearDeviceBlocked = useCallback(() => {
+    setDeviceBlocked(false);
   }, []);
 
   const [isLoggingOut, setIsLoggingOut] = useState(false);
@@ -242,6 +337,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     profileInitError: null,
     profileReady,
     clearingCache,
+    deviceBlocked,
+    clearDeviceBlocked,
   };
 
   return createElement(AuthContext.Provider, { value }, children);

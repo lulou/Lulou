@@ -1,0 +1,156 @@
+Single-device login is still not working.
+
+Do not work on unrelated features.
+
+Confirmed live bug:
+
+I can still sign into the exact same account on two different devices at the same time.
+
+This means the previous implementation either:
+
+was only client-side
+was not deployed
+was not checking the database
+was not blocking login before app entry
+or the active-session table/columns are not being written/read correctly
+──────────────────────────────
+
+Required behaviour
+
+One account = one active device/session.
+
+If Account A is already logged in on laptop, and I try to log in with Account A on phone:
+
+phone login must be blocked
+laptop must remain logged in
+phone must show:
+“Account already active on another device. You can only use Lulou on one device at a time.”
+
+Do not allow both devices into the app.
+
+──────────────────────────────
+
+Do not rely on client-only logic
+
+This cannot be solved with only:
+
+localStorage
+sessionStorage
+Supabase onAuthStateChange
+Realtime broadcast
+signOut({ scope: “others” })
+There must be a server/database source of truth.
+
+──────────────────────────────
+
+Required implementation
+
+Create or fix a server-controlled active session system.
+
+Use either:
+
+Option A — active_sessions table
+
+Columns:
+
+user_id
+session_id
+device_id
+last_seen_at
+expires_at
+user_agent
+created_at
+or
+
+Option B — profiles active session columns
+
+Columns:
+
+active_session_id
+active_device_id
+active_session_seen_at
+active_session_expires_at
+──────────────────────────────
+
+Login flow must be:
+
+User submits email/password.
+Supabase validates credentials.
+Before allowing app entry, call server endpoint:
+POST /api/auth/register-session
+Server checks active session for that user.
+If another active unexpired session exists:
+
+reject with 409
+client signs out immediately
+show active-device error message
+If no active session exists:
+
+register this device/session
+allow app entry
+──────────────────────────────
+
+Heartbeat
+
+Authenticated app must update active session:
+
+every 30–60 seconds
+on app focus
+on visibility change
+If heartbeat stops:
+
+session expires after 10–15 minutes
+new login can proceed
+──────────────────────────────
+
+Logout
+
+On logout:
+
+call server endpoint to clear active session
+then sign out Supabase session
+──────────────────────────────
+
+Security requirement
+
+The server endpoint must:
+
+require valid JWT
+only register/check the authenticated user
+never trust user_id from the client body
+use auth.uid / token user id
+validate session ownership
+──────────────────────────────
+
+Critical proof required
+
+Do not mark complete unless you show proof from a real test:
+
+Test sequence:
+
+Login Account A on laptop.
+Show database active session row exists.
+Attempt login Account A on phone.
+Server returns 409.
+Phone is signed out / blocked.
+Laptop remains logged in.
+Logout laptop.
+Active session row clears.
+Login Account A on phone now succeeds.
+──────────────────────────────
+
+Report required
+
+Root cause of why previous fix failed
+Data model used
+SQL migration needed/applied
+Files changed
+Server endpoint implementation
+Client login blocking implementation
+Heartbeat implementation
+Logout cleanup implementation
+Real test proof
+npm run check result
+npm run build result
+Do not mark complete until the second device is actually blocked in the running app.
+
