@@ -1,0 +1,25 @@
+{
+  "name": "Lulou Dating",
+  "short_name": "Lulou",
+  "description": "Intentional dating for real connections. Move from matching to meaningful conversations to meeting in real life.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#180A06",
+  "theme_color": "#C9A07A",
+  "orientation": "portrait",
+  "categories": ["social", "lifestyle"],
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

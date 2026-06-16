@@ -1,0 +1,99 @@
+Replace all existing Lulou branding, logos, favicons, splash screens and app icons with a new primary brand identity.
+
+NEW PRIMARY LOGO CONCEPT
+
+The logo should consist of:
+
+• Two elegant capital "L" letters.
+• A subtle heart formed naturally between the two letters.
+• The heart must feel symbolic and romantic rather than obvious or playful.
+• The design should communicate genuine connection, trust, commitment and modern romance.
+• The logo should feel premium and timeless.
+
+DO NOT create a sexy, seductive, flirtatious or nightclub-style logo.
+
+DO NOT use:
+- lips
+- kiss marks
+- body silhouettes
+- provocative curves
+- excessive script typography
+- bright pinks
+- dating-app clichés
+
+The feeling should be:
+
+Apple
+Tiffany
+Luxury wedding stationery
+Premium jewellery brand
+Modern romance
+Long-term relationships
+
+COLOUR PALETTE
+
+Primary:
+- Soft ivory
+- Warm champagne
+- Rose gold
+
+Secondary:
+- Muted blush
+- Soft pearl white
+
+The logo must look beautiful on both light and dark backgrounds.
+
+APP ICON
+
+The app icon should:
+
+• Use a rounded-square iOS style container.
+• Have soft depth and subtle premium shadows.
+• Feature the LL monogram as the hero element.
+• Be instantly recognizable at App Store sizes.
+• Feel elegant and trustworthy.
+• Avoid unnecessary decoration.
+
+BRAND MESSAGE
+
+The logo should make users feel:
+
+"I could genuinely meet my person here."
+
+The visual emotion should be:
+
+• Romance
+• Safety
+• Trust
+• Warmth
+• Commitment
+• Hope
+• Real connection
+
+NOT:
+
+• Hookups
+• Casual dating
+• Sexual attraction
+• Luxury-for-the-sake-of-luxury
+
+IMPLEMENTATION REQUIREMENTS
+
+Update:
+
+1. App icon
+2. Splash screen
+3. Browser favicon
+4. PWA icon
+5. Apple touch icon
+6. Android adaptive icon
+7. Login screen logo
+8. Navbar logo
+9. Email templates
+10. Open Graph social sharing image
+
+Generate all required icon sizes automatically.
+
+Use the attached logo concept as the design direction and recreate it professionally as a production-ready brand asset.
+
+The new logo should become the single source of truth for all Lulou branding across the application.

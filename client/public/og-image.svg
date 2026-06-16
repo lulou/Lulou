@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#2D1510"/>
+      <stop offset="60%" stop-color="#1F0D09"/>
+      <stop offset="100%" stop-color="#140806"/>
+    </linearGradient>
+    <linearGradient id="mk" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#F2E2CC"/>
+      <stop offset="50%" stop-color="#E0C8A8"/>
+      <stop offset="100%" stop-color="#C9A07A"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%"   stop-color="#C9A07A" stop-opacity="0.15"/>
+      <stop offset="100%" stop-color="#C9A07A" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1200" height="630" fill="url(#bg)"/>
+
+  <!-- Soft ambient glow behind mark -->
+  <ellipse cx="600" cy="280" rx="360" ry="280" fill="url(#glow)"/>
+
+  <!-- LL Heart mark — centred, ~300×300 px -->
+  <!-- Source viewBox 40×40 → scale 7.5 → 300×300; centred: offset (450, 130) -->
+  <g fill="url(#mk)" transform="translate(450,130) scale(7.5)">
+    <rect x="4"    y="4" width="6.5" height="27" rx="1.5"/>
+    <rect x="4"    y="26" width="15"  height="7"  rx="1.5"/>
+    <rect x="29.5" y="4" width="6.5" height="27" rx="1.5"/>
+    <rect x="21"   y="26" width="15"  height="7"  rx="1.5"/>
+    <path d="M20,23 C14,19 9,15 9,10 C9,6 13,4 20,13 C27,4 31,6 31,10 C31,15 26,19 20,23Z"/>
+  </g>
+
+  <!-- Wordmark: "Lulou" -->
+  <text
+    x="600" y="490"
+    text-anchor="middle"
+    font-family="Georgia, 'Times New Roman', serif"
+    font-size="80"
+    font-weight="400"
+    letter-spacing="18"
+    fill="url(#mk)"
+  >LULOU</text>
+
+  <!-- Tagline -->
+  <text
+    x="600" y="548"
+    text-anchor="middle"
+    font-family="Georgia, 'Times New Roman', serif"
+    font-size="26"
+    letter-spacing="6"
+    fill="#C9A07A"
+    opacity="0.7"
+  >INTENTIONAL DATING</text>
+</svg>

@@ -18,26 +18,47 @@ interface MatchItem {
   lastMessage?: string | null;
 }
 
+/**
+ * LulouMark — the canonical Lulou brand monogram.
+ *
+ * Two capital L's mirroring each other with a subtle heart that emerges
+ * naturally between the vertical stems.  Uses `currentColor` so any
+ * Tailwind text-* class sets the colour (e.g. text-primary, text-foreground).
+ *
+ * ViewBox is 40 × 40 — a clean square, works at any size from 16 px up.
+ */
 export function LulouFlowerIcon({ className }: { className?: string }) {
   return (
-    <svg viewBox="0 0 40 44" fill="none" className={className} xmlns="http://www.w3.org/2000/svg">
-      <path d="M20 28 Q19.6 32, 19.2 38 Q19.6 40, 20 40 Q20.4 40, 20.8 38 Q20.4 32, 20 28Z" fill="hsl(155 30% 40%)" opacity="0.75" />
-      <path d="M20 30 Q17 28.5, 12 31 Q11.2 31.8, 12 32.5 Q15 31.5, 20 30Z" fill="hsl(155 35% 45%)" opacity="0.7" />
-      <path d="M20 30 Q23 28.5, 28 31 Q28.8 31.8, 28 32.5 Q25 31.5, 20 30Z" fill="hsl(155 28% 38%)" opacity="0.7" />
+    <svg
+      viewBox="0 0 40 40"
+      fill="currentColor"
+      xmlns="http://www.w3.org/2000/svg"
+      className={className}
+      aria-label="Lulou"
+    >
+      {/* ── Left  L ──────────────────────────────────────────────────── */}
+      {/* vertical stroke */}
+      <rect x="4"    y="4" width="6.5" height="27" rx="1.5" />
+      {/* horizontal foot */}
+      <rect x="4"    y="26" width="15"  height="7"  rx="1.5" />
 
-      <path d="M20 8 Q14 5, 10 8 Q8 11, 12 15 Q15 18, 20 20 Q18 14, 20 8Z" fill="hsl(350 45% 72%)" opacity="0.5" />
-      <path d="M20 8 Q26 5, 30 8 Q32 11, 28 15 Q25 18, 20 20 Q22 14, 20 8Z" fill="hsl(350 42% 70%)" opacity="0.45" />
-      <path d="M20 6 Q16 2, 12 4 Q9 7, 11 11 Q14 16, 20 19 Q17 12, 20 6Z" fill="hsl(350 48% 68%)" opacity="0.6" />
-      <path d="M20 6 Q24 2, 28 4 Q31 7, 29 11 Q26 16, 20 19 Q23 12, 20 6Z" fill="hsl(350 44% 66%)" opacity="0.55" />
+      {/* ── Right L (mirror) ─────────────────────────────────────────── */}
+      {/* vertical stroke */}
+      <rect x="29.5" y="4" width="6.5" height="27" rx="1.5" />
+      {/* horizontal foot */}
+      <rect x="21"   y="26" width="15"  height="7"  rx="1.5" />
 
-      <path d="M20 4 Q17 1, 14 3 Q12 6, 14 10 Q16 14, 20 18 Q18 10, 20 4Z" fill="hsl(350 50% 76%)" opacity="0.7" />
-      <path d="M20 4 Q23 1, 26 3 Q28 6, 26 10 Q24 14, 20 18 Q22 10, 20 4Z" fill="hsl(350 46% 74%)" opacity="0.65" />
-
-      <path d="M20 5 Q18.5 3, 17 5 Q16 8, 18 12 Q19 15, 20 17 Q19 10, 20 5Z" fill="hsl(350 52% 82%)" opacity="0.8" />
-      <path d="M20 5 Q21.5 3, 23 5 Q24 8, 22 12 Q21 15, 20 17 Q21 10, 20 5Z" fill="hsl(350 48% 80%)" opacity="0.75" />
-
-      <circle cx="20" cy="12" r="3" fill="hsl(40 55% 65%)" opacity="0.9" />
-      <circle cx="20" cy="12" r="1.5" fill="hsl(40 60% 72%)" opacity="0.7" />
+      {/* ── Heart — symbolic element between the two L stems ─────────── *
+       *  The heart's edges (x = 9 … 31) just graze the inner faces of   *
+       *  the L strokes, so it feels woven in rather than floating free.  */}
+      <path d="
+        M 20,23
+        C 14,19  9,15  9,10
+        C  9, 6 13, 4 20,13
+        C 27, 4 31, 6 31,10
+        C 31,15 26,19 20,23
+        Z
+      " />
     </svg>
   );
 }
