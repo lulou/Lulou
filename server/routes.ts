@@ -2389,7 +2389,13 @@ export async function registerRoutes(
     }
   });
 
+  // ── DEV-ONLY: manually grant a benefit (blocked in production) ──────────────
+  // SECURITY: without the NODE_ENV guard every authenticated user could POST
+  // here and self-grant unlimited benefits for free.  Do NOT remove this guard.
   app.post("/api/benefits/grant", isAuthenticated, async (req: any, res) => {
+    if (process.env.NODE_ENV === "production") {
+      return res.status(403).json({ message: "Not available in production" });
+    }
     try {
       const userId = req.user.id;
       const { type, quantity = 1 } = req.body;
