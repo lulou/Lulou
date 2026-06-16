@@ -4,12 +4,13 @@ import { Input } from "@/components/ui/input";
 import { Heart, MessageCircle, Phone, Shield, RefreshCw, Loader2, Lock, Eye, EyeOff, AlertCircle, WifiOff, CheckCircle, ChevronDown, ChevronUp } from "lucide-react";
 import { LulouFlowerIcon } from "@/components/app-layout";
 import { supabase, lastAuthFetchDebug, resetAuthFetchDebug, SUPABASE_URL, SUPABASE_KEY_LEN, AUTH_ENDPOINT } from "@/lib/supabase";
+import { API_BASE } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { writeDebug, pushDebugError } from "@/lib/debug-store";
 import { useLanguageContext } from "@/contexts/language-context";
 
 type AuthMode = "signin" | "signup";
-type AuthErrorKind = "credentials" | "already-exists" | "network" | "rate-limit" | "auth";
+type AuthErrorKind = "credentials" | "already-exists" | "network" | "rate-limit" | "auth" | "device-blocked";
 
 interface AuthError {
   kind: AuthErrorKind;
@@ -713,17 +714,63 @@ export default function Landing() {
         });
         console.log("[AUTH] AUTH_REQUEST_SUCCESS", { mode, userId: data.user?.id });
 
-        // ── Single-session enforcement ────────────────────────────────────────
-        // Revoke other devices' Supabase refresh tokens so they can't silently
-        // re-authenticate after their current JWT expires.
-        // The sessionId registration, DB write, and Realtime broadcast are now
-        // handled server-side by POST /api/auth/init, which AuthProvider calls
-        // automatically on the SIGNED_IN event — no manual broadcast needed here.
+        // ── Single-device enforcement ─────────────────────────────────────────
+        // Check server-side whether this account is already active on another
+        // device.  If blocked, sign out immediately and show an error.
         if (data.user && data.session) {
+          const sessionId =
+            typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+              ? crypto.randomUUID()
+              : `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+
+          // Persistent per-device ID so the same physical device can always
+          // replace its own session (e.g. user clears cookies and re-logs in).
+          let deviceId = localStorage.getItem("lulou_device_id") ?? "";
+          if (!deviceId) {
+            deviceId =
+              typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+                ? crypto.randomUUID()
+                : `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+            localStorage.setItem("lulou_device_id", deviceId);
+          }
+
           try {
-            await supabase.auth.signOut({ scope: "others" });
+            const checkRes = await fetch(`${API_BASE}/api/auth/session-check`, {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${data.session.access_token}`,
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                sessionId,
+                deviceId,
+                userAgent: navigator.userAgent,
+              }),
+            });
+
+            if (checkRes.ok) {
+              const checkData = await checkRes.json();
+              if (checkData.blocked) {
+                // Sign out the freshly-created Supabase session so it doesn't
+                // linger — the user is not allowed into the app.
+                await supabase.auth.signOut();
+                setLoading(false);
+                setAuthError({
+                  kind: "device-blocked",
+                  message: "Account already active on another device. You can only use Lulou on one device at a time.",
+                });
+                authInProgressRef.current = false;
+                return;
+              }
+              // Allowed — store session ID so the heartbeat can use it.
+              localStorage.setItem("lulou_session_id", checkData.sessionId ?? sessionId);
+            } else {
+              // Non-fatal on server error — store locally and allow login.
+              localStorage.setItem("lulou_session_id", sessionId);
+            }
           } catch {
-            // Non-fatal — server-side session enforcement handles the rest
+            // Network error — fail open so a transient outage never locks users out.
+            localStorage.setItem("lulou_session_id", sessionId);
           }
         }
       }
@@ -866,6 +913,26 @@ export default function Landing() {
                   network). This sits ABOVE the inputs so it is the first thing
                   the user sees — it is clearly not a credentials problem.
                   The inputs remain enabled so the user can retry immediately. */}
+              {authError?.kind === "device-blocked" && (
+                <div
+                  role="alert"
+                  data-testid="banner-device-blocked"
+                  className="rounded-lg border border-rose-300 bg-rose-50 px-4 py-3 flex flex-col gap-2 animate-in fade-in slide-in-from-top-1 duration-200"
+                >
+                  <div className="flex items-start gap-2">
+                    <Shield className="w-4 h-4 mt-0.5 shrink-0 text-rose-700" />
+                    <div className="space-y-1">
+                      <p className="font-semibold text-rose-900 text-sm leading-snug" data-testid="text-device-blocked-heading">
+                        Account already active on another device
+                      </p>
+                      <p className="text-sm text-rose-800 leading-snug" data-testid="text-device-blocked-message">
+                        You can only use Lulou on one device at a time. Sign out on your other device first, or wait 15 minutes for that session to expire.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {authError?.kind === "network" && (
                 <div
                   role="alert"

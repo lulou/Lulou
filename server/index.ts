@@ -66,7 +66,7 @@ app.use(
 //   Tiers 2/3/5 (writes, calls, payments) are applied inline per-route
 //   in routes.ts so they never catch polling/read traffic.
 app.use("/api", generalLimiter);
-app.use("/api/auth/init", authLimiter);
+app.use("/api/auth/session-check", authLimiter);
 
 app.use(
   express.json({
@@ -194,8 +194,20 @@ app.use((req, res, next) => {
         expires_at       TIMESTAMP
       );
       CREATE INDEX IF NOT EXISTS idx_saved_wheel_user ON saved_wheel_profiles(user_id);
+
+      CREATE TABLE IF NOT EXISTS active_sessions (
+        id           VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id      TEXT NOT NULL UNIQUE,
+        session_id   TEXT NOT NULL,
+        device_id    TEXT NOT NULL DEFAULT '',
+        user_agent   TEXT NOT NULL DEFAULT '',
+        created_at   TIMESTAMP DEFAULT NOW(),
+        last_seen_at TIMESTAMP DEFAULT NOW(),
+        expires_at   TIMESTAMP NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_active_sessions_user ON active_sessions(user_id);
     `);
-    console.log("[STARTUP] Local DB tables verified/created: user_benefits, user_elevates, call_credits, saved_wheel_profiles");
+    console.log("[STARTUP] Local DB tables verified/created: user_benefits, user_elevates, call_credits, saved_wheel_profiles, active_sessions");
   } catch (err: any) {
     console.error("[STARTUP] Local DB table migration failed:", err?.message);
   }

@@ -200,7 +200,21 @@ export const blockedContacts = pgTable("blocked_contacts", {
   index("idx_blocked_contacts_user").on(table.userId),
 ]);
 
+export const activeSessions = pgTable("active_sessions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: text("user_id").notNull().unique(),
+  sessionId: text("session_id").notNull(),
+  deviceId: text("device_id").notNull().default(""),
+  userAgent: text("user_agent").notNull().default(""),
+  createdAt: timestamp("created_at").defaultNow(),
+  lastSeenAt: timestamp("last_seen_at").defaultNow(),
+  expiresAt: timestamp("expires_at").notNull(),
+}, (table) => [
+  index("idx_active_sessions_user").on(table.userId),
+]);
+
 export type UserBenefit = typeof userBenefits.$inferSelect;
+export type ActiveSession = typeof activeSessions.$inferSelect;
 export type UserElevate = typeof userElevates.$inferSelect;
 export type BlockedContact = typeof blockedContacts.$inferSelect;
 export type CallCredit = typeof callCredits.$inferSelect;

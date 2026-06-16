@@ -5,10 +5,10 @@ import { SupabaseStorage, mapMatch, type CompleteCallOptions, geocodeLocation, g
 import { seedDatabase } from "./seed";
 import { z } from "zod";
 import type { Profile } from "@shared/schema";
-import { userBenefits, callCredits } from "@shared/schema";
+import { userBenefits, callCredits, activeSessions } from "@shared/schema";
 import { supabase, supabaseAdmin, createUserClient, hasServiceRoleKey } from "./supabase";
 import { db } from "./db";
-import { eq, and, isNull } from "drizzle-orm";
+import { eq, and, isNull, gt } from "drizzle-orm";
 import { getUncachableStripeClient, getStripePublishableKey } from "./stripeClient";
 import { writeLimiter, callLimiter, paymentLimiter } from "./limiters";
 
@@ -488,28 +488,6 @@ export async function registerRoutes(
   app.get("/api/auth/user", isAuthenticated, async (req: any, res) => {
     try {
       const user = req.user;
-      const clientSessionId = req.headers["x-session-id"] as string | undefined;
-
-      // If the client sent a session ID, verify it still matches the server record.
-      // This is the server-side source-of-truth check that catches stale devices
-      // after another device has logged in — including after a page refresh.
-      if (clientSessionId) {
-        try {
-          const { data: profile } = await supabaseAdmin
-            .from("profiles")
-            .select("active_session_id")
-            .eq("user_id", user.id)
-            .maybeSingle();
-
-          if (profile?.active_session_id && profile.active_session_id !== clientSessionId) {
-            console.log(`[SESSION] Stale session for user ${user.id.slice(0, 8)} — replaced by another device`);
-            return res.json({ id: user.id, email: user.email, sessionReplaced: true });
-          }
-        } catch {
-          // Non-fatal: let request through on DB error to avoid false-positive logouts
-        }
-      }
-
       res.json({ id: user.id, email: user.email });
     } catch (error) {
       console.error("Error fetching user:", error);
@@ -517,37 +495,102 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/auth/init", isAuthenticated, async (req: any, res) => {
-    const userId = req.user.id;
+  // ── Single-device enforcement ─────────────────────────────────────────────
+  // SESSION_EXPIRY: how long a session stays valid without a heartbeat.
+  const SESSION_EXPIRY_MS = 15 * 60 * 1000; // 15 minutes
 
-    // Accept a client-generated sessionId so the client can pre-store it in
-    // localStorage BEFORE the server broadcasts — prevents the self-kick race
-    // where the broadcast fires before our own store is written.
-    const { sessionId: clientSessionId } = (req.body as { sessionId?: string }) || {};
+  // Called immediately after a successful Supabase sign-in.
+  // Blocks the login if another device already has a fresh active session.
+  // On success, upserts a new session row so the heartbeat can extend it.
+  app.post("/api/auth/session-check", isAuthenticated, async (req: any, res) => {
+    const userId = req.user.id;
+    const { sessionId: clientSessionId, deviceId = "", userAgent = "" } =
+      (req.body as { sessionId?: string; deviceId?: string; userAgent?: string }) || {};
+
     const sessionId: string =
       typeof clientSessionId === "string" && clientSessionId.length > 8
         ? clientSessionId
-        : randomUUID(); // fallback if client didn't send one
+        : randomUUID();
 
-    // Persist to profiles.active_session_id so page-reload checks work without
-    // relying on Realtime.  UPDATE only — no stub profiles created here.
-    // Non-fatal if the column doesn't exist yet or user is still in onboarding.
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + SESSION_EXPIRY_MS);
+
     try {
-      await supabaseAdmin
-        .from("profiles")
-        .update({ active_session_id: sessionId })
-        .eq("user_id", userId);
+      const existing = await db
+        .select()
+        .from(activeSessions)
+        .where(eq(activeSessions.userId, userId))
+        .limit(1);
+
+      const row = existing[0];
+
+      // Block if there is an active session belonging to a DIFFERENT session ID.
+      // Same session ID means a legitimate re-use (e.g. same device, same login).
+      if (row && row.expiresAt > now && row.sessionId !== sessionId) {
+        if (IS_DEV) console.log(`[SESSION] Blocked login for ${userId.slice(0, 8)} — active session on another device (expires ${row.expiresAt.toISOString()})`);
+        return res.json({ blocked: true });
+      }
+
+      // No active session, expired, or same session → register / refresh
+      await db
+        .insert(activeSessions)
+        .values({
+          userId,
+          sessionId,
+          deviceId: String(deviceId).slice(0, 200),
+          userAgent: String(userAgent || "").slice(0, 500),
+          createdAt: now,
+          lastSeenAt: now,
+          expiresAt,
+        })
+        .onConflictDoUpdate({
+          target: activeSessions.userId,
+          set: {
+            sessionId,
+            deviceId: String(deviceId).slice(0, 200),
+            userAgent: String(userAgent || "").slice(0, 500),
+            lastSeenAt: now,
+            expiresAt,
+          },
+        });
+
+      if (IS_DEV) console.log(`[SESSION] Registered session for ${userId.slice(0, 8)} expires ${expiresAt.toISOString()}`);
+      res.json({ allowed: true, sessionId });
     } catch (e: any) {
-      console.warn("[SESSION] Could not write active_session_id (non-fatal):", e?.message);
+      console.error("[SESSION] session-check DB error (fail-open):", e?.message);
+      // Fail open — never lock a user out due to a DB error
+      res.json({ allowed: true, sessionId });
     }
+  });
 
-    // Server-side broadcast kicks any currently-connected device instantly.
-    // Uses the Supabase HTTP API so it does not require a Realtime subscription
-    // to already be established on the other device.
-    broadcastViaHttpApi(`user-session:${userId}`, "session_replaced", { sessionId }).catch(() => {});
+  // Heartbeat — called every 60 s while the app is open.
+  // Keeps the session alive so the 15-minute expiry window only counts
+  // actual inactivity (app closed / tab left idle without focus).
+  app.post("/api/auth/heartbeat", isAuthenticated, async (req: any, res) => {
+    const userId = req.user.id;
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + SESSION_EXPIRY_MS);
+    try {
+      await db
+        .update(activeSessions)
+        .set({ lastSeenAt: now, expiresAt })
+        .where(eq(activeSessions.userId, userId));
+      res.json({ ok: true });
+    } catch {
+      res.json({ ok: false });
+    }
+  });
 
-    if (IS_DEV) console.log("[AUTH_INIT] Session registered:", userId.slice(0, 8), "→", sessionId.slice(0, 8));
-    res.json({ ok: true, sessionId });
+  // Logout — clears the active session so another device can log in immediately.
+  app.delete("/api/auth/session", isAuthenticated, async (req: any, res) => {
+    const userId = req.user.id;
+    try {
+      await db.delete(activeSessions).where(eq(activeSessions.userId, userId));
+      if (IS_DEV) console.log(`[SESSION] Cleared session for ${userId.slice(0, 8)}`);
+      res.json({ ok: true });
+    } catch {
+      res.json({ ok: false });
+    }
   });
 
   // Fast startup check — returns profile WITHOUT photos (base64 photos skipped).

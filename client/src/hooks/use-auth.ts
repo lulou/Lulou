@@ -51,10 +51,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Track the previous auth user ID so we can detect actual account changes
   // (as opposed to token-refresh events which keep the same user).
   const prevUserIdRef = useRef<string | null>(null);
-  // Track the most recent auth event type and access token so session-management
-  // effects can distinguish SIGNED_IN (new login) from INITIAL_SESSION (reload).
-  const authEventRef  = useRef<string | null>(null);
-  const authTokenRef  = useRef<string | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -113,11 +109,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setCachedToken(null);
       }
 
-      // Track event + token for session-management effects that run after this
-      // callback completes (they need to distinguish SIGNED_IN from INITIAL_SESSION).
-      authEventRef.current = event;
-      authTokenRef.current = session?.access_token ?? null;
-
       if (mounted) {
         setProfileReady(true);
         setIsLoading(false);
@@ -155,6 +146,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Kill the token cache so no in-flight request sneaks through with old creds.
     setCachedToken(null);
 
+    // Clear the active_sessions row so another device can log in immediately
+    // rather than having to wait for the 15-minute heartbeat expiry.
+    try {
+      const { data: { session: _s } } = await supabase.auth.getSession();
+      if (_s?.access_token) {
+        fetch(`${API_BASE}/api/auth/session`, {
+          method: "DELETE",
+          headers: { Authorization: `Bearer ${_s.access_token}` },
+        }).catch(() => {});
+      }
+    } catch {}
+    localStorage.removeItem("lulou_session_id");
+
     // ── KEY FIX: setUser(null) in the SHARED AuthContext ─────────────────────
     // With the old per-component-hook approach, setUser(null) only updated the
     // hook instance that called logout().  AppContent's own instance remained
@@ -191,107 +195,43 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setIsLoggingOut(false);
   }, []);
 
-  // ── Session registration (SIGNED_IN) + initial server verification (INITIAL_SESSION)
-  // Runs once per login or page reload (whenever user?.id becomes non-null).
-  // SIGNED_IN  → client generates a UUID, pre-stores it, then tells the server.
-  //              Server writes it to profiles.active_session_id and broadcasts
-  //              session_replaced so other devices are kicked instantly.
-  // INITIAL_SESSION → page was reloaded with an existing JWT.  We ask the server
-  //              if our stored sessionId is still the active one.  If not, force
-  //              logout — this is the source-of-truth check that defeats refresh bypass.
-  useEffect(() => {
-    if (!user?.id) return;
-    const event = authEventRef.current;
-    const token = authTokenRef.current;
-    if (!token) return;
-
-    if (event === "SIGNED_IN") {
-      // Pre-store the sessionId BEFORE calling init so our own broadcast doesn't
-      // trigger self-logout (broadcast arrives while fetch is still in-flight).
-      const sessionId =
-        typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
-          ? crypto.randomUUID()
-          : `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
-      localStorage.setItem("lulou_session_id", sessionId);
-
-      fetch(`${API_BASE}/api/auth/init`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ sessionId }),
-      }).catch(() => {});
-
-    } else if (event === "INITIAL_SESSION") {
-      // Page reload: verify our stored session ID still matches the server record.
-      // Realtime may have been offline while another device logged in — this check
-      // is the reliable fallback.
-      const storedId = localStorage.getItem("lulou_session_id");
-      if (storedId) {
-        fetch(`${API_BASE}/api/auth/user`, {
-          headers: { Authorization: `Bearer ${token}`, "X-Session-ID": storedId },
-        })
-          .then((r) => (r.ok ? r.json() : null))
-          .then((data) => {
-            if (data?.sessionReplaced) {
-              console.log("[AUTH] SESSION_REPLACED on page load — another device is now active");
-              sessionStorage.setItem("lulou_forced_logout", "1");
-              logout();
-            }
-          })
-          .catch(() => {});
-      }
-    }
-  }, [user?.id, logout]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // ── Single-session watcher ────────────────────────────────────────────────
-  // Path 1 — Instant:      Realtime broadcast when another device logs in right now.
-  // Path 2 — Tab-focus:    Server check when the user switches back to a stale tab.
-  // Together these cover all cases without relying on any single mechanism.
+  // ── Session heartbeat ─────────────────────────────────────────────────────
+  // Keeps the active_sessions row alive while the app is open.
+  // The server expires sessions after 15 minutes of no heartbeat, which
+  // unblocks logins from a new device once the old one is inactive.
+  // Fires every 60 seconds + on every tab-focus so closing/backgrounding the
+  // browser lets the session expire naturally without manual logout.
   useEffect(() => {
     if (!user?.id) return;
 
-    // Path 1: Realtime broadcast — catches the "device is online when replaced" case
-    const ch = supabase.channel(`user-session:${user.id}`);
-    ch.on("broadcast", { event: "session_replaced" }, ({ payload }) => {
-      const currentSessionId = localStorage.getItem("lulou_session_id");
-      // Ignore our own broadcast: client pre-stores sessionId before calling init,
-      // so by the time the broadcast arrives this comparison is always equal on
-      // the logging-in device.
-      if (!payload?.sessionId || payload.sessionId === currentSessionId) return;
-      console.log("[AUTH] FORCED_LOGOUT — account signed in on another device (broadcast)");
-      sessionStorage.setItem("lulou_forced_logout", "1");
-      logout();
-    }).subscribe();
-
-    // Path 2: Visibility change — catches the "tab was left open" case where
-    // Realtime was not connected or the broadcast was missed.
-    const checkSessionActive = async () => {
-      const sid = localStorage.getItem("lulou_session_id");
-      if (!sid) return;
+    const sendHeartbeat = async () => {
       try {
         const { data: { session } } = await supabase.auth.getSession();
         if (!session?.access_token) return;
-        const r = await fetch(`${API_BASE}/api/auth/user`, {
-          headers: { Authorization: `Bearer ${session.access_token}`, "X-Session-ID": sid },
+        await fetch(`${API_BASE}/api/auth/heartbeat`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${session.access_token}` },
         });
-        if (!r.ok) return;
-        const data = await r.json();
-        if (data?.sessionReplaced) {
-          console.log("[AUTH] SESSION_REPLACED on tab focus — another device is now active");
-          sessionStorage.setItem("lulou_forced_logout", "1");
-          logout();
-        }
       } catch {}
     };
+
+    // Fire immediately on mount so the session is refreshed right away.
+    sendHeartbeat();
+
+    // Continue every 60 seconds while the tab is alive.
+    const interval = setInterval(sendHeartbeat, 60_000);
+
+    // Also fire whenever the user returns to the tab.
     const onVisible = () => {
-      if (document.visibilityState === "visible") checkSessionActive();
+      if (document.visibilityState === "visible") sendHeartbeat();
     };
     document.addEventListener("visibilitychange", onVisible);
 
     return () => {
-      supabase.removeChannel(ch);
+      clearInterval(interval);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [user?.id, logout]);
+  }, [user?.id]);
 
   const value: AuthContextType = {
     user,

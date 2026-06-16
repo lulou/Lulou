@@ -1,0 +1,125 @@
+Fix single-device login properly.
+
+Do not work on unrelated features.
+
+Current issue:
+
+I am still logged into the exact same account on two devices at the same time.
+
+This must not be allowed.
+
+Expected behaviour:
+
+If a user is already logged in on one device, and they try to log in on another device:
+
+Block the new login.
+Do not sign out the existing device.
+Show message:
+“Account already active on another device. You can only use Lulou on one device at a time.”
+
+Do not allow both sessions to remain active.
+
+──────────────────────────────
+
+Required Logic
+
+One account = one active device.
+
+On successful credential check, before entering the app:
+
+Check server-side whether this user already has an active session/device.
+If active session exists and is not expired:
+immediately sign out the new session
+block entry into the app
+show clear message:
+“Account already active on another device.”
+If no active session exists:
+
+create/register active device session
+allow login
+
+
+──────────────────────────────
+
+Important
+
+Do not rely only on:
+
+localStorage
+browser tabs
+client-only checks
+Supabase default sessions
+Realtime broadcast only
+There must be a server/database source of truth.
+
+──────────────────────────────
+
+Session Rules
+
+Add or use a table/columns to track:
+
+user_id
+active_session_id
+device_id
+last_seen_at
+expires_at
+user_agent if useful
+created_at
+Session should stay active while app is open.
+
+If the user logs out:
+
+clear active session
+If the user closes the browser/app:
+
+session can expire after a safe timeout, e.g. 10–15 minutes of no heartbeat
+If the user tries another login while active session is fresh:
+
+block new login
+If old session is stale/expired:
+
+allow new login and replace old session
+──────────────────────────────
+
+Heartbeat
+
+Authenticated app should periodically update last_seen_at.
+
+Example:
+
+every 30–60 seconds while app is open
+on app focus
+on app visibility change
+This prevents stale sessions from blocking real users forever.
+
+──────────────────────────────
+
+Validation
+
+Test:
+
+Login on laptop.
+Login same account on phone.
+Phone should be blocked with:
+“Account already active on another device.”
+Laptop remains logged in.
+Logout laptop.
+Login on phone should now work.
+Close laptop/app and wait for expiry.
+Login on phone should work after expiry.
+Run:
+
+npm run check
+npm run build
+
+Report:
+
+Root cause
+Data model used
+Files changed
+How active session is registered
+How new login is blocked
+How logout clears active session
+How stale sessions expire
+npm run check result
+npm run build result
