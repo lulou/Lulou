@@ -524,9 +524,26 @@ export async function registerRoutes(
 
       const row = existing[0];
 
-      // Block if there is an active session belonging to a DIFFERENT session ID.
-      // Same session ID means a legitimate re-use (e.g. same device, same login).
-      if (row && row.expiresAt > now && row.sessionId !== sessionId) {
+      // Block only when ALL of the following are true:
+      //   1. A row exists (some device is registered)
+      //   2. That row is still fresh (expiresAt > now — not a stale/expired session)
+      //   3. The session ID is different (not the same ongoing login)
+      //   4. The device ID is different (not the same physical browser/device)
+      //
+      // Condition 4 is the critical addition.  lulou_device_id is a persistent UUID
+      // stored in localStorage that survives page reloads and browser restarts but
+      // is NOT cleared on logout.  If the same browser re-logs in (e.g. after a
+      // Supabase token expiry or a logout→re-login), its deviceId matches the
+      // registered row, so it is always allowed to reclaim its own session.
+      //
+      // This prevents a race-condition stale-session lockout: if a fire-and-forget
+      // heartbeat upserts a row just after the logout DELETE completed, the row
+      // will have the same deviceId as the user's browser.  The next login from
+      // that browser sees isSameDevice=true and is NOT blocked.
+      const isSameDevice =
+        !!deviceId && !!row?.deviceId && row.deviceId === deviceId;
+
+      if (row && row.expiresAt > now && row.sessionId !== sessionId && !isSameDevice) {
         if (IS_DEV) console.log(`[SESSION] Blocked login for ${userId.slice(0, 8)} — active session on another device (expires ${row.expiresAt.toISOString()})`);
         return res.json({ blocked: true });
       }

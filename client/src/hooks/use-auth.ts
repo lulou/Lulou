@@ -204,42 +204,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      if ((event === "INITIAL_SESSION" || event === "TOKEN_REFRESHED") && u && session?.access_token) {
-        // Register/refresh this device's session in the background so that it
-        // appears in active_sessions.  This is non-blocking — app entry is immediate.
-        const token = session.access_token;
-        (() => {
-          // Reuse or create a persistent session ID for this device.
-          let sessionId = localStorage.getItem("lulou_session_id") ?? "";
-          if (!sessionId) {
-            sessionId =
-              typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
-                ? crypto.randomUUID()
-                : `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
-            localStorage.setItem("lulou_session_id", sessionId);
-          }
-          let deviceId = localStorage.getItem("lulou_device_id") ?? "";
-          if (!deviceId) {
-            deviceId =
-              typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
-                ? crypto.randomUUID()
-                : `${Date.now()}-d`;
-            localStorage.setItem("lulou_device_id", deviceId);
-          }
-          // Fire-and-forget — do not await, do not delay app entry.
-          fetch(`${API_BASE}/api/auth/heartbeat`, {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${token}`,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({ sessionId, deviceId, userAgent: navigator.userAgent }),
-          }).catch(() => {});
-        })();
-      }
-
       // All other events (INITIAL_SESSION, TOKEN_REFRESHED, SIGNED_OUT, etc.)
       // proceed with the normal synchronous path.
+      //
+      // NOTE: We deliberately do NOT fire a heartbeat here for INITIAL_SESSION /
+      // TOKEN_REFRESHED.  A fire-and-forget fetch can outlive the logout flow
+      // (which is also async) and re-upsert a row into active_sessions AFTER the
+      // logout DELETE has removed it.  That stale row then blocks the next login.
+      //
+      // Session registration for already-logged-in devices is handled by the
+      // periodic heartbeat useEffect below, which fires immediately on first mount
+      // (< 1 s after setUser(u)), and every 60 s thereafter while the user is
+      // signed in.  Its lifecycle is tied to the user state, so it automatically
+      // stops when the user logs out — no race condition is possible.
       setUser(u);
 
       if (mounted) {
@@ -285,13 +262,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     // Clear the active_sessions row so another device can log in immediately
     // rather than having to wait for the 15-minute heartbeat expiry.
+    // MUST be awaited — a fire-and-forget DELETE can lose a race against any
+    // in-flight heartbeat POST, which would re-create the row after the DELETE
+    // and leave a stale session that blocks the next login attempt.
     try {
       const { data: { session: _s } } = await supabase.auth.getSession();
       if (_s?.access_token) {
-        fetch(`${API_BASE}/api/auth/session`, {
+        await fetch(`${API_BASE}/api/auth/session`, {
           method: "DELETE",
           headers: { Authorization: `Bearer ${_s.access_token}` },
-        }).catch(() => {});
+        });
       }
     } catch {}
     localStorage.removeItem("lulou_session_id");
