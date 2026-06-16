@@ -19,46 +19,54 @@ interface MatchItem {
 }
 
 /**
- * LulouMark — the canonical Lulou brand monogram.
+ * LulouFlowerIcon — the approved Lulou LL heart monogram.
  *
- * Two capital L's mirroring each other with a subtle heart that emerges
- * naturally between the vertical stems.  Uses `currentColor` so any
- * Tailwind text-* class sets the colour (e.g. text-primary, text-foreground).
+ * Design: two mirrored capital L's drawn as thin, elegant stroked lines
+ * (serif-capped, meeting at the base) with a delicate filled heart that
+ * emerges naturally in the space between the two vertical stems.
  *
- * ViewBox is 40 × 40 — a clean square, works at any size from 16 px up.
+ * Uses `currentColor` so Tailwind text-* classes (text-primary, etc.)
+ * set the colour automatically. Works cleanly from 16 px upward.
  */
 export function LulouFlowerIcon({ className }: { className?: string }) {
   return (
     <svg
       viewBox="0 0 40 40"
-      fill="currentColor"
+      fill="none"
       xmlns="http://www.w3.org/2000/svg"
       className={className}
       aria-label="Lulou"
     >
-      {/* ── Left  L ──────────────────────────────────────────────────── */}
-      {/* vertical stroke */}
-      <rect x="4"    y="4" width="6.5" height="27" rx="1.5" />
-      {/* horizontal foot */}
-      <rect x="4"    y="26" width="15"  height="7"  rx="1.5" />
+      {/* ── Left L — thin elegant serif letterform ─────────────────────
+           Horizontal serif at the top; vertical stroke flowing down to a
+           horizontal foot that reaches the centre.                       */}
+      <path
+        d="M9,8 L13,8  M11,8 L11,33 L20,33"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
 
-      {/* ── Right L (mirror) ─────────────────────────────────────────── */}
-      {/* vertical stroke */}
-      <rect x="29.5" y="4" width="6.5" height="27" rx="1.5" />
-      {/* horizontal foot */}
-      <rect x="21"   y="26" width="15"  height="7"  rx="1.5" />
+      {/* ── Right L — mirror image ─────────────────────────────────────
+           Serif at top-right; vertical stroke mirrored; foot meets the
+           left L's foot at centre-bottom creating the LL monogram base. */}
+      <path
+        d="M31,8 L27,8  M29,8 L29,33 L20,33"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
 
-      {/* ── Heart — symbolic element between the two L stems ─────────── *
-       *  The heart's edges (x = 9 … 31) just graze the inner faces of   *
-       *  the L strokes, so it feels woven in rather than floating free.  */}
-      <path d="
-        M 20,23
-        C 14,19  9,15  9,10
-        C  9, 6 13, 4 20,13
-        C 27, 4 31, 6 31,10
-        C 31,15 26,19 20,23
-        Z
-      " />
+      {/* ── Heart — the romantic symbol between the stems ──────────────
+           Positioned in the upper portion of the monogram, its outer
+           edges align with the inner faces of the L strokes so it reads
+           as part of the letterforms, not as a separate element.         */}
+      <path
+        d="M20,21 C16,17 12,13.5 12,10 C12,7 15,6 20,11.5 C25,6 28,7 28,10 C28,13.5 24,17 20,21Z"
+        fill="currentColor"
+      />
     </svg>
   );
 }
