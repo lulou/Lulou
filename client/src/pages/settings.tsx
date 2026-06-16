@@ -65,6 +65,8 @@ import {
   Link,
   Link2Off,
   Mic,
+  CreditCard,
+  Cookie,
 } from "lucide-react";
 import type { Profile, BlockedContact } from "@shared/schema";
 import { useLanguageContext } from "@/contexts/language-context";
@@ -91,7 +93,7 @@ function useToggle(key: string, defaultVal = false): [boolean, (v: boolean) => v
 }
 
 
-type ActiveSheet = "selfie" | "blocklist" | "extras" | "language" | "units" | "privacy" | "terms" | "download_data" | "safety" | "principles" | "licences" | "privacy_prefs" | null;
+type ActiveSheet = "selfie" | "blocklist" | "extras" | "language" | "units" | "privacy" | "terms" | "download_data" | "safety" | "principles" | "licences" | "privacy_prefs" | "data_deletion" | "cookie_policy" | "billing_terms" | null;
 
 export default function SettingsPage() {
   const [, navigate] = useLocation();
@@ -788,6 +790,24 @@ export default function SettingsPage() {
             label={t("privacy_preferences")}
             onPress={() => setActiveSheet("privacy_prefs")}
             testId="button-privacy-preferences"
+          />
+          <SettingRow
+            icon={<Trash2 className="w-[18px] h-[18px] text-muted-foreground" />}
+            label={t("data_deletion_policy")}
+            onPress={() => setActiveSheet("data_deletion")}
+            testId="button-data-deletion"
+          />
+          <SettingRow
+            icon={<Cookie className="w-[18px] h-[18px] text-muted-foreground" />}
+            label={t("cookie_tracking_policy")}
+            onPress={() => setActiveSheet("cookie_policy")}
+            testId="button-cookie-policy"
+          />
+          <SettingRow
+            icon={<CreditCard className="w-[18px] h-[18px] text-muted-foreground" />}
+            label={t("billing_terms")}
+            onPress={() => setActiveSheet("billing_terms")}
+            testId="button-billing-terms"
           />
 
           <p className="text-center text-xs text-muted-foreground/40 pt-8 pb-2 select-none">
@@ -1493,6 +1513,72 @@ export default function SettingsPage() {
               </div>
             ))}
             <p className="text-xs text-muted-foreground/60 pt-2">{t("pprefs_footer")}</p>
+          </div>
+        </SheetContent>
+      </Sheet>
+
+      {/* ── Data Deletion Policy sheet ── */}
+      <Sheet open={activeSheet === "data_deletion"} onOpenChange={open => !open && setActiveSheet(null)}>
+        <SheetContent side="bottom" className="h-[90vh] flex flex-col p-0">
+          <SheetHeader className="px-5 pt-5 pb-3 border-b shrink-0">
+            <SheetTitle className="font-serif">{t("data_deletion_policy")}</SheetTitle>
+          </SheetHeader>
+          <div className="flex-1 overflow-y-auto px-5 pb-10 pt-5 space-y-5 text-sm text-muted-foreground leading-relaxed">
+            {([
+              { titleKey: "dd_s1_title", bodyKey: "dd_s1_body" },
+              { titleKey: "dd_s2_title", bodyKey: "dd_s2_body" },
+              { titleKey: "dd_s3_title", bodyKey: "dd_s3_body" },
+              { titleKey: "dd_s4_title", bodyKey: "dd_s4_body" },
+            ] as const).map(s => (
+              <section key={s.titleKey}>
+                <h3 className="font-semibold text-foreground mb-2">{t(s.titleKey as any)}</h3>
+                <p>{t(s.bodyKey as any)}</p>
+              </section>
+            ))}
+          </div>
+        </SheetContent>
+      </Sheet>
+
+      {/* ── Cookie & Tracking Policy sheet ── */}
+      <Sheet open={activeSheet === "cookie_policy"} onOpenChange={open => !open && setActiveSheet(null)}>
+        <SheetContent side="bottom" className="h-[90vh] flex flex-col p-0">
+          <SheetHeader className="px-5 pt-5 pb-3 border-b shrink-0">
+            <SheetTitle className="font-serif">{t("cookie_tracking_policy")}</SheetTitle>
+          </SheetHeader>
+          <div className="flex-1 overflow-y-auto px-5 pb-10 pt-5 space-y-5 text-sm text-muted-foreground leading-relaxed">
+            {([
+              { titleKey: "cp_s1_title", bodyKey: "cp_s1_body" },
+              { titleKey: "cp_s2_title", bodyKey: "cp_s2_body" },
+              { titleKey: "cp_s3_title", bodyKey: "cp_s3_body" },
+              { titleKey: "cp_s4_title", bodyKey: "cp_s4_body" },
+            ] as const).map(s => (
+              <section key={s.titleKey}>
+                <h3 className="font-semibold text-foreground mb-2">{t(s.titleKey as any)}</h3>
+                <p>{t(s.bodyKey as any)}</p>
+              </section>
+            ))}
+          </div>
+        </SheetContent>
+      </Sheet>
+
+      {/* ── Subscription & Billing Terms sheet ── */}
+      <Sheet open={activeSheet === "billing_terms"} onOpenChange={open => !open && setActiveSheet(null)}>
+        <SheetContent side="bottom" className="h-[90vh] flex flex-col p-0">
+          <SheetHeader className="px-5 pt-5 pb-3 border-b shrink-0">
+            <SheetTitle className="font-serif">{t("billing_terms")}</SheetTitle>
+          </SheetHeader>
+          <div className="flex-1 overflow-y-auto px-5 pb-10 pt-5 space-y-5 text-sm text-muted-foreground leading-relaxed">
+            {([
+              { titleKey: "bt_s1_title", bodyKey: "bt_s1_body" },
+              { titleKey: "bt_s2_title", bodyKey: "bt_s2_body" },
+              { titleKey: "bt_s3_title", bodyKey: "bt_s3_body" },
+              { titleKey: "bt_s4_title", bodyKey: "bt_s4_body" },
+            ] as const).map(s => (
+              <section key={s.titleKey}>
+                <h3 className="font-semibold text-foreground mb-2">{t(s.titleKey as any)}</h3>
+                <p>{t(s.bodyKey as any)}</p>
+              </section>
+            ))}
           </div>
         </SheetContent>
       </Sheet>

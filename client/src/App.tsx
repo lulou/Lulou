@@ -22,6 +22,15 @@ import LikesPage from "@/pages/likes";
 import ElevateSuccessPage from "@/pages/elevate-success";
 import ExtrasSuccessPage from "@/pages/extras-success";
 import DragTestPage from "@/pages/drag-test";
+import {
+  PrivacyPolicyPage,
+  TermsOfServicePage,
+  CommunityGuidelinesPage,
+  SafeDatingPage,
+  DataDeletionPage,
+  CookiePolicyPage,
+  BillingTermsPage,
+} from "@/pages/legal";
 // Dev-only perf overlay stays lazy — never adds to production bundle.
 const PerfOverlayLazy = import.meta.env.DEV
   ? lazy(() => import("@/components/perf-overlay").then(m => ({ default: m.PerfOverlay })))
@@ -1338,6 +1347,21 @@ function AppContent() {
 
   // ── Unauthenticated test route ────────────────────────────────────────────
   if (location === "/drag-test") return <DragTestPage />;
+
+  // ── Public legal pages — no auth required ─────────────────────────────────
+  const LEGAL_MAP: Record<string, () => JSX.Element> = {
+    "/privacy":              PrivacyPolicyPage,
+    "/terms":                TermsOfServicePage,
+    "/community-guidelines": CommunityGuidelinesPage,
+    "/safe-dating":          SafeDatingPage,
+    "/data-deletion":        DataDeletionPage,
+    "/cookie-policy":        CookiePolicyPage,
+    "/billing-terms":        BillingTermsPage,
+  };
+  if (location in LEGAL_MAP) {
+    const LegalComponent = LEGAL_MAP[location];
+    return <LegalComponent />;
+  }
 
   const { user, isLoading: authLoading, profileReady, clearingCache, logout } = useAuth();
 
