@@ -9,6 +9,7 @@ import { supabase, supabaseAdmin, createUserClient, hasServiceRoleKey } from "./
 import { db } from "./db";
 import { eq, and, isNull } from "drizzle-orm";
 import { getUncachableStripeClient, getStripePublishableKey } from "./stripeClient";
+import { writeLimiter, callLimiter, paymentLimiter } from "./limiters";
 
 
 // Debounced last-active updater — fires at most once per 2 min per user.
@@ -807,7 +808,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/interactions", isAuthenticated, async (req: any, res) => {
+  app.post("/api/interactions", isAuthenticated, writeLimiter, async (req: any, res) => {
     try {
       const storage = getStorage(req);
       const fromUserId = req.user?.id;
@@ -1054,7 +1055,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/matches/:matchId/messages", isAuthenticated, async (req: any, res) => {
+  app.post("/api/matches/:matchId/messages", isAuthenticated, writeLimiter, async (req: any, res) => {
     const t0 = Date.now();
     try {
       const storage = getStorage(req);
@@ -1187,7 +1188,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/matches/:matchId/call/start", isAuthenticated, async (req: any, res) => {
+  app.post("/api/matches/:matchId/call/start", isAuthenticated, callLimiter, async (req: any, res) => {
     try {
       const serverStorage = getCallStorage(req);
       const userId = req.user.id;
@@ -2282,7 +2283,7 @@ export async function registerRoutes(
 
   type ExtrasItemId = keyof typeof EXTRAS_ITEMS;
 
-  app.post("/api/stripe/extras-checkout", isAuthenticated, async (req: any, res) => {
+  app.post("/api/stripe/extras-checkout", isAuthenticated, paymentLimiter, async (req: any, res) => {
     try {
       const userId = req.user.id;
       const { itemId, returnPath } = req.body;
@@ -2408,7 +2409,7 @@ export async function registerRoutes(
     "super-elevate": { type: "super_elevate" as const, quantity: 1, unitAmount: 3499, label: "Super Elevate (60 min)" },
   };
 
-  app.post("/api/stripe/elevate-checkout", isAuthenticated, async (req: any, res) => {
+  app.post("/api/stripe/elevate-checkout", isAuthenticated, paymentLimiter, async (req: any, res) => {
     const userId: string = req.user.id;
     const { packId, cancelPath } = req.body as { packId?: string; cancelPath?: string };
     try {

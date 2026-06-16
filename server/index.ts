@@ -4,7 +4,7 @@ import { serveStatic } from "./static";
 import { createServer } from "http";
 import { WebhookHandlers } from "./webhookHandlers";
 import helmet from "helmet";
-import { rateLimit } from "express-rate-limit";
+import { generalLimiter, authLimiter } from "./limiters";
 
 const app = express();
 const httpServer = createServer(app);
@@ -58,26 +58,15 @@ app.use(
 );
 
 // ── Rate limiting ─────────────────────────────────────────────────────────────
-// General API limiter — 500 requests per 15 minutes per IP.
-const _apiLimiter = rateLimit({
-  windowMs: 15 * 60_000,
-  max: 500,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { message: "Too many requests, please try again later." },
-  skip: (req) => req.method === "OPTIONS",
-});
-// Strict limiter for write-heavy endpoints — 60 requests per 15 minutes.
-const _strictLimiter = rateLimit({
-  windowMs: 15 * 60_000,
-  max: 60,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { message: "Too many requests, please slow down." },
-});
-app.use("/api", _apiLimiter);
-app.use("/api/matches", _strictLimiter);
-app.use("/api/interactions", _strictLimiter);
+// Tier 1 — general reads on all /api routes (2000 req/15 min/IP).
+//   Covers page load bursts (~20 req), polling (3 chats × 10 s = 270/15 min),
+//   and dev refreshes without triggering false-positive 429s.
+// Tier 4 — auth endpoints only (20 req/15 min/IP) — brute-force guard.
+//   Applied here for /api/auth/init (signup/login bootstrap).
+//   Tiers 2/3/5 (writes, calls, payments) are applied inline per-route
+//   in routes.ts so they never catch polling/read traffic.
+app.use("/api", generalLimiter);
+app.use("/api/auth/init", authLimiter);
 
 app.use(
   express.json({
