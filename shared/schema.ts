@@ -207,6 +207,20 @@ export const processedStripeSessions = pgTable("processed_stripe_sessions", {
   grantedAt: timestamp("granted_at").defaultNow(),
 });
 
+// Tracks active/cancelled membership subscriptions.
+// userId is the PK — one subscription record per user.
+// stripeCustomerId enables the webhook → user lookup on monthly renewal.
+export const membershipSubscriptions = pgTable("membership_subscriptions", {
+  userId: varchar("user_id").primaryKey(),
+  stripeCustomerId: varchar("stripe_customer_id").notNull(),
+  stripeSubscriptionId: varchar("stripe_subscription_id").notNull(),
+  status: text("status").notNull().default("active"), // 'active' | 'cancelled'
+  currentPeriodEnd: timestamp("current_period_end"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+export type MembershipSubscription = typeof membershipSubscriptions.$inferSelect;
+
 export const activeSessions = pgTable("active_sessions", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   userId: text("user_id").notNull().unique(),

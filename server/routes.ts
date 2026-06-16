@@ -5,7 +5,7 @@ import { SupabaseStorage, mapMatch, type CompleteCallOptions, geocodeLocation, g
 import { seedDatabase } from "./seed";
 import { z } from "zod";
 import type { Profile } from "@shared/schema";
-import { userBenefits, callCredits, activeSessions, processedStripeSessions } from "@shared/schema";
+import { userBenefits, callCredits, activeSessions, processedStripeSessions, membershipSubscriptions } from "@shared/schema";
 import { supabase, supabaseAdmin, createUserClient, hasServiceRoleKey } from "./supabase";
 import { db } from "./db";
 import { eq, and, isNull, gt } from "drizzle-orm";
@@ -2531,6 +2531,33 @@ export async function registerRoutes(
         await db.insert(userBenefits).values(membershipRows);
         await storage.grantCallCredits(userId, 3, 1);
         grantedTypes = [...membershipRows.map(r => r.type), "phone_credits:3", "video_credits:1"];
+
+        // ── Store customer→user mapping for monthly renewal webhooks ────────
+        // The webhook handler uses stripeCustomerId to find the userId when
+        // invoice.payment_succeeded fires for subscription_cycle renewals.
+        const stripeCustomerId = typeof session.customer === "string"
+          ? session.customer
+          : (session.customer as any)?.id ?? null;
+        const stripeSubscriptionId = typeof session.subscription === "string"
+          ? session.subscription
+          : (session.subscription as any)?.id ?? null;
+        if (stripeCustomerId && stripeSubscriptionId) {
+          await db
+            .insert(membershipSubscriptions)
+            .values({ userId, stripeCustomerId, stripeSubscriptionId, status: "active" })
+            .onConflictDoUpdate({
+              target: membershipSubscriptions.userId,
+              set: {
+                stripeCustomerId,
+                stripeSubscriptionId,
+                status: "active",
+                updatedAt: new Date(),
+              },
+            });
+          console.log(`[STRIPE] Membership subscription recorded: user=${userId} customer=${stripeCustomerId} sub=${stripeSubscriptionId}`);
+        } else {
+          console.warn(`[STRIPE] Membership activated but no customer/subscription ID on session ${sessionId} — renewal webhooks won't fire`);
+        }
       } else if (item.credits) {
         await storage.grantCallCredits(userId, item.credits.phone, item.credits.video);
         grantedTypes = [
@@ -2549,6 +2576,32 @@ export async function registerRoutes(
       const detail = err.raw?.message ?? err.message ?? "Unknown error";
       console.error("[STRIPE] extras-activate error:", { message: err.message, type: err.type, code: err.code });
       res.status(500).json({ message: detail });
+    }
+  });
+
+  // ── Membership status — active/cancelled + current period end ────────────
+  // Returns whether the authenticated user has an active membership subscription.
+  // The client uses this to show/hide a "Member" badge and to surface renewal info.
+
+  app.get("/api/membership/status", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const [sub] = await db
+        .select()
+        .from(membershipSubscriptions)
+        .where(eq(membershipSubscriptions.userId, userId))
+        .limit(1);
+      if (!sub) {
+        return res.json({ active: false, status: null, currentPeriodEnd: null });
+      }
+      return res.json({
+        active: sub.status === "active",
+        status: sub.status,
+        currentPeriodEnd: sub.currentPeriodEnd?.toISOString() ?? null,
+      });
+    } catch (err: any) {
+      console.error("[MEMBERSHIP] status error:", err?.message);
+      res.status(500).json({ message: "Failed to fetch membership status" });
     }
   });
 

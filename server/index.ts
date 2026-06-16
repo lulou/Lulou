@@ -206,8 +206,19 @@ app.use((req, res, next) => {
         expires_at   TIMESTAMP NOT NULL
       );
       CREATE INDEX IF NOT EXISTS idx_active_sessions_user ON active_sessions(user_id);
+
+      CREATE TABLE IF NOT EXISTS membership_subscriptions (
+        user_id                VARCHAR PRIMARY KEY,
+        stripe_customer_id     VARCHAR NOT NULL,
+        stripe_subscription_id VARCHAR NOT NULL,
+        status                 TEXT NOT NULL DEFAULT 'active',
+        current_period_end     TIMESTAMP,
+        created_at             TIMESTAMP DEFAULT NOW(),
+        updated_at             TIMESTAMP DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_membership_subs_customer ON membership_subscriptions(stripe_customer_id);
     `);
-    console.log("[STARTUP] Local DB tables verified/created: user_benefits, user_elevates, call_credits, saved_wheel_profiles, active_sessions");
+    console.log("[STARTUP] Local DB tables verified/created: user_benefits, user_elevates, call_credits, saved_wheel_profiles, active_sessions, membership_subscriptions");
   } catch (err: any) {
     console.error("[STARTUP] Local DB table migration failed:", err?.message);
   }
