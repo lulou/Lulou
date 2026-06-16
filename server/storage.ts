@@ -282,6 +282,368 @@ async function getActiveMemberUserIds(): Promise<Set<string>> {
   return new Set(rows.map(r => r.userId));
 }
 
+// ─── Taste profile — preference learning ─────────────────────────────────────
+//
+// Lulou learns what each user is genuinely attracted to by analysing their
+// recent positive interactions (opens).  The taste profile is a lightweight
+// feature vector derived from the last 50 opens; it adjusts the Discover
+// ranking bonus without overriding the core quality/compatibility signals.
+//
+// Anti-filter-bubble: 25 % of every Discover batch is reserved for exploratory
+// profiles that would NOT appear if the algorithm ran purely on learned taste.
+// This keeps variety high and prevents preference narrowing over time.
+//
+// Anti-abuse: minimum 5 positive interactions before personalisation activates
+// (cold-start protection); 30-minute cache so rapid fake-liking can't
+// continuously retrain the profile mid-session.
+
+interface TasteProfile {
+  sampleSize: number;
+  ageCenter: number | null;        // weighted avg age of opened profiles
+  intentWeights: Map<string, number>;   // dating_intent  → 0–1 affinity weight
+  styleWeights: Map<string, number>;    // connection_style → 0–1 affinity weight
+  prefersVerified: number;         // 0–1 fraction of opens that were verified
+  prefersActive: number;           // 0–1 fraction of opens with recent activity
+  topSignals: Map<string, number>; // personality signal → normalised frequency
+  computedAt: Date;
+}
+
+// In-process taste cache: keyed by userId, TTL 30 minutes.
+const _tasteCache = new Map<string, TasteProfile>();
+const TASTE_TTL_MS = 30 * 60_000;
+
+/**
+ * Derive a preference profile from the user's recent "open" interactions.
+ * Returns null when the user has fewer than 5 opens (cold start).
+ * Results are cached for 30 minutes.
+ */
+async function computeTasteProfile(
+  userId: string,
+  sb: SupabaseClient,
+  now: Date,
+): Promise<TasteProfile | null> {
+  const cached = _tasteCache.get(userId);
+  if (cached && now.getTime() - cached.computedAt.getTime() < TASTE_TTL_MS) return cached;
+
+  // Fetch positive signals (opens) — limited to last 50 to bound query cost.
+  const { data: openRows } = await sb
+    .from("interactions")
+    .select("to_user_id, created_at")
+    .eq("from_user_id", userId)
+    .eq("type", "open")
+    .order("created_at", { ascending: false })
+    .limit(50);
+
+  if (!openRows || openRows.length < 5) return null; // cold start — no personalisation
+
+  // Fetch a lightweight profile snapshot for each opened user.
+  const openIds = (openRows as any[]).map((r) => r.to_user_id as string);
+  const { data: profileRows } = await sb
+    .from("profiles")
+    .select("user_id, age, dating_intent, connection_style, photo_verified, last_active, signals")
+    .in("user_id", openIds);
+
+  if (!profileRows || profileRows.length === 0) return null;
+
+  const profileMap = new Map((profileRows as any[]).map((p) => [p.user_id as string, p]));
+
+  let weightedAgeSum = 0, weightedAgeCount = 0;
+  let verifiedWeight = 0, activeWeight = 0, totalWeight = 0;
+  const intentWeights  = new Map<string, number>();
+  const styleWeights   = new Map<string, number>();
+  const signalCounts   = new Map<string, number>();
+
+  (openRows as any[]).forEach((row, idx) => {
+    const p = profileMap.get(row.to_user_id as string);
+    if (!p) return;
+    // Recency decay: most-recent open = weight 1.0; 50th open ≈ weight 0.1.
+    const w = 1.0 - (idx / openRows.length) * 0.9;
+    totalWeight += w;
+
+    if (p.age != null) { weightedAgeSum += p.age * w; weightedAgeCount += w; }
+    if (p.dating_intent)    intentWeights.set(p.dating_intent,    (intentWeights.get(p.dating_intent)    ?? 0) + w);
+    if (p.connection_style) styleWeights.set(p.connection_style,  (styleWeights.get(p.connection_style)  ?? 0) + w);
+    if (p.photo_verified)   verifiedWeight += w;
+
+    const lastActive = p.last_active ? new Date(p.last_active) : null;
+    if (lastActive && now.getTime() - lastActive.getTime() < 7 * 86_400_000) activeWeight += w;
+
+    if (Array.isArray(p.signals)) {
+      (p.signals as string[]).forEach(s => signalCounts.set(s, (signalCounts.get(s) ?? 0) + w));
+    }
+  });
+
+  // Normalise all weight maps to 0–1 so no single dimension dominates.
+  const normalise = (m: Map<string, number>): Map<string, number> => {
+    const max = Math.max(...m.values(), 1);
+    return new Map([...m.entries()].map(([k, v]) => [k, v / max]));
+  };
+
+  const taste: TasteProfile = {
+    sampleSize: openRows.length,
+    ageCenter: weightedAgeCount > 0 ? weightedAgeSum / weightedAgeCount : null,
+    intentWeights:  normalise(intentWeights),
+    styleWeights:   normalise(styleWeights),
+    prefersVerified: totalWeight > 0 ? verifiedWeight / totalWeight : 0.5,
+    prefersActive:   totalWeight > 0 ? activeWeight   / totalWeight : 0.5,
+    topSignals:      normalise(signalCounts),
+    computedAt: now,
+  };
+
+  _tasteCache.set(userId, taste);
+
+  if (IS_DEV) {
+    const topIntents = [...taste.intentWeights.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3)
+      .map(([k, v]) => `${k}:${v.toFixed(2)}`).join(", ");
+    console.log(`[TASTE] computed for ${userId.slice(0, 8)} | n=${taste.sampleSize} | ageCenter=${taste.ageCenter?.toFixed(1) ?? "?"} | intents=[${topIntents}]`);
+  }
+
+  return taste;
+}
+
+/**
+ * Personalisation bonus added on top of the base Discover score (0–15 pts).
+ * Rewards candidates whose age, dating intent and connection style match what
+ * this user has shown genuine interest in through their open history.
+ */
+function tasteAffinityScore(candidate: Profile, taste: TasteProfile): number {
+  let score = 0;
+
+  // Age affinity (0–5 pts): score decays as candidate's age drifts from learned centre.
+  if (taste.ageCenter !== null && candidate.age !== null) {
+    const diff = Math.abs(candidate.age - taste.ageCenter);
+    score += Math.max(0, 5 * (1 - diff / 10)); // full decay at ±10 years
+  } else {
+    score += 2.5; // neutral when either side is unknown
+  }
+
+  // Dating intent affinity (0–5 pts)
+  if (candidate.datingIntent) {
+    score += (taste.intentWeights.get(candidate.datingIntent) ?? 0) * 5;
+  }
+
+  // Connection style affinity (0–5 pts)
+  if (candidate.connectionStyle) {
+    score += (taste.styleWeights.get(candidate.connectionStyle) ?? 0) * 5;
+  }
+
+  return Math.min(15, score);
+}
+
+/**
+ * Personalised Discover ranking.
+ *
+ * Layers a learned taste-affinity bonus on top of the base quality+compatibility
+ * score, then applies a 75/25 core/exploratory split to prevent filter bubbles.
+ * The exploratory 25% are randomly sampled from lower-scoring candidates so the
+ * user occasionally encounters profiles outside their established pattern.
+ */
+async function rankWithPersonalization(
+  pool: Profile[],
+  userId: string,
+  sb: SupabaseClient,
+  userLat: number | null,
+  userLng: number | null,
+  locationRadius: number,
+  userDatingIntent: string | null,
+  userConnectionStyle: string | null,
+  memberUserIds: Set<string>,
+  now: Date,
+  limit: number,
+): Promise<Profile[]> {
+  if (pool.length === 0) return [];
+
+  // Attempt to get personalisation; null = cold start → zero affinity bonus.
+  const taste = await computeTasteProfile(userId, sb, now);
+
+  // Score every candidate.
+  const scored = pool.map(p => {
+    const b = scoreProfile(p, userLat, userLng, locationRadius, userDatingIntent, userConnectionStyle, memberUserIds, now);
+    const affinity = taste ? tasteAffinityScore(p, taste) : 0;
+    const jitter   = Math.random() * 4 - 2;
+    return { profile: p, base: b, affinity, final: b.base * b.elevateMultiplier + affinity + jitter };
+  });
+
+  scored.sort((a, b) => b.final - a.final);
+
+  if (IS_DEV) {
+    scored.slice(0, Math.min(8, scored.length)).forEach(({ profile: p, base: b, affinity: aff, final: f }) => {
+      const name = (p as any).firstName ?? p.userId.slice(0, 8);
+      const elev = b.elevateMultiplier > 1 ? ` ×${b.elevateMultiplier}` : "";
+      console.log(
+        `[SCORE] ${name} | final=${f.toFixed(1)}${elev} | base=${b.base} affinity=${aff.toFixed(1)} ` +
+        `[dist=${b.distance} rec=${b.recency} verified=${b.photoVerified} complete=${b.completeness} ` +
+        `intent=${b.sharedIntent} style=${b.sharedStyle} member=${b.membership} newUser=${b.newUser}]`,
+      );
+    });
+    if (taste) console.log(`[TASTE] personalisation active for ${userId.slice(0, 8)} (n=${taste.sampleSize})`);
+  }
+
+  // Anti-filter-bubble split: 75 % top-scored (core), 25 % exploratory.
+  // Exploratory slots are randomly sampled from the lower half of the pool —
+  // profiles that wouldn't appear in a pure top-N result.
+  const coreCap    = Math.ceil(limit * 0.75);
+  const exploreCap = limit - coreCap;
+  const core       = scored.slice(0, coreCap).map(s => s.profile);
+
+  let exploratory: Profile[] = [];
+  if (exploreCap > 0 && scored.length > coreCap) {
+    const remaining  = scored.slice(coreCap);
+    const halfStart  = Math.floor(remaining.length / 2);
+    const candidates = remaining.slice(halfStart);
+    // Fisher-Yates shuffle for uniform random sampling
+    for (let i = candidates.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [candidates[i], candidates[j]] = [candidates[j], candidates[i]];
+    }
+    exploratory = candidates.slice(0, exploreCap).map(s => s.profile);
+  }
+
+  return diversifyProfiles([...core, ...exploratory]);
+}
+
+// ─── Intent Wheel — Standout scoring ─────────────────────────────────────────
+//
+// The wheel uses a separate algorithm from Discover.  Its goal: surface the
+// strongest, most exciting profiles on Lulou — not just the most popular or
+// most boosted ones.
+//
+// Standout Score = Quality (50 %) + Compatibility (30 %) + Elevate boost
+// Diversity is enforced by selectWheelStandouts (not a score component).
+
+/**
+ * Compute a Standout Score for the Intent Wheel.
+ * Quality (max 50) + Compatibility (max 30) + Elevate boost (0/20/40)
+ * Scores are internal — never sent to clients.
+ */
+function scoreForWheel(
+  candidate: Profile,
+  userDatingIntent: string | null,
+  userConnectionStyle: string | null,
+  userSignals: string[],
+  memberUserIds: Set<string>,
+  now: Date,
+): number {
+  // ── Quality 50 pts ────────────────────────────────────────────────────────
+  const qualVerified = candidate.photoVerified ? 15 : 0;
+
+  // Profile completeness (0–15, 2.5 pts each for 6 sections)
+  let qualComplete = 0;
+  if ((candidate.signals?.length ?? 0) > 0)                 qualComplete += 2.5;
+  if ((candidate.greenFlags?.length ?? 0) > 0)              qualComplete += 2.5;
+  if (candidate.datingIntent)                                qualComplete += 2.5;
+  if (candidate.connectionStyle)                             qualComplete += 2.5;
+  if ((candidate.conversationStarters?.length ?? 0) > 0)    qualComplete += 2.5;
+  if (((candidate as any).customStarters?.length ?? 0) > 0) qualComplete += 2.5;
+
+  // Recent activity (0–15)
+  let qualRecency = 0;
+  if ((candidate as any).lastActive) {
+    const ageHours = (now.getTime() - (candidate as any).lastActive.getTime()) / 3_600_000;
+    if (ageHours < 24)       qualRecency = 15;
+    else if (ageHours < 168) qualRecency = 10;
+    else if (ageHours < 720) qualRecency = 5;
+  }
+
+  // Content depth (0–5): extra credit for richer prompts
+  const qualDepth =
+    ((candidate.conversationStarters?.length ?? 0) > 2 ? 2.5 : 0) +
+    (((candidate as any).customStarters?.length ?? 0) > 0 ? 2.5 : 0);
+
+  const quality = qualVerified + qualComplete + qualRecency + qualDepth;
+
+  // ── Compatibility 30 pts ──────────────────────────────────────────────────
+  const compatIntent =
+    userDatingIntent && candidate.datingIntent &&
+    userDatingIntent.trim().toLowerCase() === candidate.datingIntent.trim().toLowerCase()
+      ? 12 : 0;
+
+  const compatStyle =
+    userConnectionStyle && candidate.connectionStyle &&
+    userConnectionStyle.trim().toLowerCase() === candidate.connectionStyle.trim().toLowerCase()
+      ? 10 : 0;
+
+  // Shared personality signals (0–8 pts, 2 pts each, capped at 4 overlapping signals)
+  let compatSignals = 0;
+  if (userSignals.length > 0 && (candidate.signals?.length ?? 0) > 0) {
+    const userSigSet = new Set(userSignals.map(s => s.toLowerCase()));
+    const overlap = (candidate.signals as string[])
+      .filter(s => userSigSet.has(s.toLowerCase())).length;
+    compatSignals = Math.min(8, overlap * 2);
+  }
+
+  const compatibility = compatIntent + compatStyle + compatSignals;
+
+  // ── Boosts ────────────────────────────────────────────────────────────────
+  // Elevate is meaningful on the wheel but cannot override a well-matched profile.
+  let elevateBoost = 0;
+  if (candidate.elevateType && candidate.elevateExpiresAt && candidate.elevateExpiresAt > now) {
+    elevateBoost = candidate.elevateType === "super_elevate" ? 40 : 20;
+  }
+
+  // Membership: modest wheel visibility boost.
+  const memberBoost = memberUserIds.has(candidate.userId) ? 5 : 0;
+
+  return quality + compatibility + elevateBoost + memberBoost;
+}
+
+/**
+ * Select `limit` diverse standout profiles from a scored pool.
+ *
+ * Applies a quality floor (≥ 2 completed content sections) then greedily
+ * picks for variety: max 2 per (datingIntent × connectionStyle) pair,
+ * max 3 per single datingIntent.  Backfills from remaining qualified profiles
+ * when diversity constraints leave gaps.
+ *
+ * Anti-abuse: the quality floor silently excludes bot/spam profiles that have
+ * minimal content, regardless of how many opens they farmed.
+ */
+function selectWheelStandouts(
+  candidates: Array<{ profile: Profile; score: number }>,
+  limit: number,
+): Profile[] {
+  // Quality floor: at least 2 completed content sections
+  const qualified = candidates.filter(c => {
+    const p = c.profile;
+    let n = 0;
+    if ((p.signals?.length ?? 0) > 0)             n++;
+    if ((p.greenFlags?.length ?? 0) > 0)           n++;
+    if (p.datingIntent)                             n++;
+    if (p.connectionStyle)                          n++;
+    if ((p.conversationStarters?.length ?? 0) > 0) n++;
+    return n >= 2;
+  });
+
+  qualified.sort((a, b) => b.score - a.score);
+
+  const result: Profile[] = [];
+  const pairCounts   = new Map<string, number>(); // intent|style → count
+  const intentCounts = new Map<string, number>(); // intent       → count
+
+  for (const { profile: p } of qualified) {
+    if (result.length >= limit) break;
+    const intent = p.datingIntent      ?? "__none__";
+    const style  = p.connectionStyle   ?? "__none__";
+    const pair   = `${intent}|${style}`;
+    if ((pairCounts.get(pair)   ?? 0) >= 2) continue; // max 2 per pair
+    if ((intentCounts.get(intent) ?? 0) >= 3) continue; // max 3 per intent
+    result.push(p);
+    pairCounts.set(pair,   (pairCounts.get(pair)     ?? 0) + 1);
+    intentCounts.set(intent, (intentCounts.get(intent) ?? 0) + 1);
+  }
+
+  // Backfill from remaining qualified profiles when diversity rules leave gaps
+  if (result.length < limit) {
+    const seen = new Set(result.map(p => p.userId));
+    for (const { profile: p } of qualified) {
+      if (result.length >= limit) break;
+      if (!seen.has(p.userId)) { result.push(p); seen.add(p.userId); }
+    }
+  }
+
+  return result;
+}
+
 // ── Gender / preference normalisation ────────────────────────────────────────
 // Converts free-text variants (male/man/men, female/woman/women) to the
 // canonical Zod-enum values used in the `profiles` table so filter lookups
@@ -383,7 +745,7 @@ export interface IStorage {
   acceptFaceCall(matchId: string, userId: string): Promise<Match | undefined>;
   declineFaceCall(matchId: string, userId: string): Promise<Match | undefined>;
   getProfilePhotos(userId: string): Promise<string[]>;
-  getPopularProfiles(limit?: number, preference?: string, gender?: string, userId?: string, locationRadius?: number, userLat?: number | null, userLng?: number | null, ageMin?: number, ageMax?: number): Promise<Profile[]>;
+  getPopularProfiles(limit?: number, preference?: string, gender?: string, userId?: string, locationRadius?: number, userLat?: number | null, userLng?: number | null, ageMin?: number, ageMax?: number, userDatingIntent?: string | null, userConnectionStyle?: string | null, userSignals?: string[]): Promise<Profile[]>;
   getSpinStandouts(userId: string): Promise<string[]>;
   addSpinStandout(userId: string, standoutUserId: string): Promise<void>;
   getSpinsToday(userId: string): Promise<number>;
@@ -1314,8 +1676,8 @@ export class SupabaseStorage implements IStorage {
           return true;
         });
         const fallbackWithElevates = mergeElevatesIntoProfiles(fallbackFiltered, elevates);
-        const fallbackResult = rankAndDiversify(
-          fallbackWithElevates, userLat, userLng, locationRadius,
+        const fallbackResult = await rankWithPersonalization(
+          fallbackWithElevates, userId, this.sb, userLat, userLng, locationRadius,
           userDatingIntent, userConnectionStyle, memberUserIds, now, 20,
         );
         console.log(`[POOL_DEBUG] final discovery count (gender-only fallback, distance-filtered): ${fallbackResult.length}`);
@@ -1323,8 +1685,8 @@ export class SupabaseStorage implements IStorage {
       }
     }
 
-    const result = rankAndDiversify(
-      filtered, userLat, userLng, locationRadius,
+    const result = await rankWithPersonalization(
+      filtered, userId, this.sb, userLat, userLng, locationRadius,
       userDatingIntent, userConnectionStyle, memberUserIds, now, 20,
     );
     console.log(`[POOL_DEBUG] final discovery count: ${result.length}`);
@@ -2117,7 +2479,7 @@ export class SupabaseStorage implements IStorage {
     return updated ? mapMatch(updated) : undefined;
   }
 
-  async getPopularProfiles(limit: number = 10, preference?: string, gender?: string, userId?: string, locationRadius?: number, userLat?: number | null, userLng?: number | null, ageMin: number = 18, ageMax: number = 99): Promise<Profile[]> {
+  async getPopularProfiles(limit: number = 10, preference?: string, gender?: string, userId?: string, locationRadius?: number, userLat?: number | null, userLng?: number | null, ageMin: number = 18, ageMax: number = 99, userDatingIntent: string | null = null, userConnectionStyle: string | null = null, userSignals: string[] = []): Promise<Profile[]> {
     // Photos excluded from this query — same reasoning as getDiscoverProfiles.
     // Intent page lazy-loads photos per wheel item via GET /api/profiles/:userId/photos.
     // lat/lng only included when DB migration is confirmed (same guard as POOL_COLS).
@@ -2135,6 +2497,7 @@ export class SupabaseStorage implements IStorage {
       ...(_hasCustomSignalsColumn ? ["custom_signals"] : []),
       "location_radius", "preferred_age_min", "preferred_age_max",
       "email", "phone_number", "photo_verified", "onboarding_complete", "created_at",
+      ...(_hasLastActiveColumn ? ["last_active"] : []),
     ].join(", ");
 
     // Clamp age range to valid bounds — identical to getDiscoverProfiles.
@@ -2366,11 +2729,24 @@ export class SupabaseStorage implements IStorage {
       console.log(`[POOL_DEBUG] final wheel count (gender-only fallback, distance-filtered): ${distanceFiltered.length}`);
     }
 
-    // Merge live elevate status from local DB, then weighted sample
+    // Score each candidate with the Standout algorithm (quality 50 % + compatibility 30 %),
+    // then select a diverse top set.  Elevate/Super Elevate provide meaningful boosts
+    // but cannot override a well-matched, high-quality profile.
     const elevates = await getActiveElevatesMap();
     const now = new Date();
+    const memberUserIds = await getActiveMemberUserIds();
     const elevatedProfiles = mergeElevatesIntoProfiles(distanceFiltered, elevates);
-    const wheelResult = weightedSample(elevatedProfiles, elevatedProfiles.length, now);
+    const scored = elevatedProfiles.map(p => ({
+      profile: p,
+      score: scoreForWheel(p, userDatingIntent, userConnectionStyle, userSignals, memberUserIds, now),
+    }));
+    if (IS_DEV) {
+      const sorted = [...scored].sort((a, b) => b.score - a.score);
+      sorted.slice(0, 5).forEach(({ profile: p, score: s }) => {
+        console.log(`[WHEEL_SCORE] ${(p as any).firstName ?? p.userId.slice(0, 8)} | standout=${s.toFixed(1)}`);
+      });
+    }
+    const wheelResult = selectWheelStandouts(scored, elevatedProfiles.length);
     console.log(`[POOL_DEBUG] final wheel count (before route slice): ${wheelResult.length}`);
     return wheelResult;
   }

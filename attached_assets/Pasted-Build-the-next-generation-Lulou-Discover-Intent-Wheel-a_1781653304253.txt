@@ -1,0 +1,204 @@
+Build the next-generation Lulou Discover + Intent Wheel algorithms.
+
+Current state:
+
+Discover already has:
+
+Gender/preference filtering
+Age filtering
+Radius filtering
+Activity scoring
+Verification scoring
+Profile completeness scoring
+Shared intent scoring
+Shared connection-style scoring
+Membership boost
+Elevate and Super Elevate boosts
+Now build the next layer.
+
+GOAL
+
+Lulou should learn what each user is genuinely attracted to and interested in over time.
+
+It should not simply show the most conventionally attractive people.
+
+It should learn from behaviour.
+
+DISCOVER ALGORITHM (Personalised)
+
+Discover should become increasingly personalised based on user actions.
+
+Positive signals:
+
+Open
+Like
+Match
+Message sent
+Message replied to
+Audio call accepted
+Audio call completed
+Video call completed
+Plan Date selected
+Negative signals:
+
+Close
+Skip
+Decline call
+End conversation
+Block
+Report
+The algorithm should learn patterns from:
+
+Age ranges
+Distance
+Dating intent
+Connection style
+Verification status
+Activity level
+Number of photos
+Profile completeness
+Green flags
+Personality signals
+Conversation starters
+Question responses
+The system should create a preference profile for each user.
+
+Example:
+
+If a user repeatedly:
+
+Opens verified profiles
+Matches with active users
+Likes ambitious personality types
+Completes calls with people seeking long-term relationships
+Then those profiles should rank higher in Discover.
+
+If a user repeatedly:
+
+Closes profiles with incomplete bios
+Skips casual daters
+Ignores inactive users
+Then those profiles should rank lower.
+
+Requirements:
+
+Discover becomes more accurate over time.
+Discover should never become a filter bubble.
+At least 20–30% of profiles should remain exploratory.
+Do not repeatedly show identical profile types.
+Maintain variety.
+INTENT WHEEL ALGORITHM (Standouts)
+
+Intent Wheel should NOT use the same logic as Discover.
+
+Intent Wheel should feel premium.
+
+Users should feel excited when they use a wheel spin.
+
+The wheel should function similarly to Hinge Standouts, but better.
+
+The wheel should not simply show:
+
+Most attractive people
+Most boosted people
+Most popular people
+Instead calculate a Standout Score.
+
+Standout Score Components:
+
+50% Profile Quality
+
+Signals:
+
+Photo quality
+Profile completeness
+Verification
+Active recently
+Positive engagement rates
+Strong prompts and answers
+High-quality profile content
+30% Compatibility
+
+Signals:
+
+Shared dating intent
+Shared connection style
+Mutual preference compatibility
+Similar age expectations
+Shared interests and signals
+20% Diversity
+
+Purpose:
+Prevent every wheel spin from showing the same type of person.
+
+Requirements:
+
+Different appearance styles
+Different interests
+Different personality types
+Different backgrounds
+Different occupations
+Different lifestyle signals
+Wheel Rules
+
+Do not fill the wheel with only the most conventionally attractive users.
+Do not fill the wheel with only highly boosted users.
+Do not fill the wheel with only highly active users.
+Avoid showing the same user repeatedly.
+Avoid showing profiles already skipped or closed.
+Avoid showing users currently hidden by preference filters.
+Wheel Outcome Goal
+
+Every wheel spin should feel like:
+
+“These are some of the strongest profiles on Lulou.”
+
+Not:
+
+“These are simply the most attractive people.”
+
+MEMBERSHIP
+
+Membership should continue receiving a modest Discover ranking boost.
+
+The boost should help visibility but should never overpower:
+
+Compatibility
+Quality
+User preference learning
+Elevate and Super Elevate should remain stronger temporary visibility boosts than Membership.
+
+ANTI-ABUSE REQUIREMENTS
+
+Prevent:
+
+Farming popularity through fake activity
+Bot engagement
+Self-like manipulation
+Artificial boost inflation
+QUALITY REQUIREMENTS
+
+Keep Discover fast on iPhone.
+
+Keep database queries efficient.
+
+Use caching where appropriate.
+
+Do not expose scores to users.
+
+Do not expose ranking logic publicly.
+
+DELIVERABLES
+
+Audit current Discover logic.
+Design preference-learning architecture.
+Design Intent Wheel standout architecture.
+Explain all scoring signals.
+Explain weighting system.
+Explain diversity controls.
+Explain anti-abuse controls.
+Explain performance impact.
+List all files changed.
+Run npm run check.
+Run npm run build.
+Provide a complete implementation report.

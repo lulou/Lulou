@@ -2026,6 +2026,9 @@ export async function registerRoutes(
         wheelLng,
         myProfile?.preferredAgeMin ?? 18,
         myProfile?.preferredAgeMax ?? 99,
+        myProfile?.datingIntent ?? null,
+        myProfile?.connectionStyle ?? null,
+        (myProfile?.signals as string[] | undefined) ?? [],
       );
       console.log(`[WHEEL] getPopularProfiles: ${Date.now() - t1} ms | total route: ${Date.now() - t0} ms`);
 
