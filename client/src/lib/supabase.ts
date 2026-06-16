@@ -3,16 +3,15 @@ import { createClient } from "@supabase/supabase-js";
 const isValidJwt = (key: string | undefined): boolean =>
   !!key && key.startsWith("eyJ") && key.length > 100;
 
-// Temporarily hardcoded so Vercel loads while env var permissions are resolved.
-// TODO: revert to import.meta.env once VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY
-// are confirmed working in Vercel's Environment Variables panel.
-const envUrl = import.meta.env.VITE_SUPABASE_URL || "https://bpphntgdpcsecbvoygzt.supabase.co";
-const envKey = import.meta.env.VITE_SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJwcGhudGdkcGNzZWNidm95Z3p0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY3NTIzMTksImV4cCI6MjA5MjMyODMxOX0.QKDhOKnVw4GKvnuxn_yRwYDXFVU7gi6yafPNs87mpmg";
+const envUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
+const envKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
 
-// ── Diagnostics — always log so Vercel build/runtime issues are visible ──────
-console.log("ALL VITE ENV KEYS", Object.keys(import.meta.env).filter(k => k.startsWith("VITE")));
-console.log("RAW VITE_SUPABASE_URL", import.meta.env.VITE_SUPABASE_URL);
-console.log("RAW VITE_SUPABASE_ANON_KEY length", import.meta.env.VITE_SUPABASE_ANON_KEY?.length ?? "undefined");
+// ── Diagnostics — dev only ────────────────────────────────────────────────────
+if (import.meta.env.DEV) {
+  console.log("ALL VITE ENV KEYS", Object.keys(import.meta.env).filter(k => k.startsWith("VITE")));
+  console.log("RAW VITE_SUPABASE_URL", import.meta.env.VITE_SUPABASE_URL);
+  console.log("RAW VITE_SUPABASE_ANON_KEY length", import.meta.env.VITE_SUPABASE_ANON_KEY?.length ?? "undefined");
+}
 
 if (!envUrl) {
   console.warn(
@@ -41,8 +40,10 @@ if (!envUrl || !envKey) {
 const supabaseUrl = envUrl as string;
 const supabaseAnonKey = envKey as string;
 
-console.log("[AUTH] SUPABASE_URL_PRESENT:", !!envUrl, envUrl ? `(${envUrl.substring(0, 30)}...)` : "(MISSING)");
-console.log("[AUTH] SUPABASE_KEY_PRESENT:", !!envKey, envKey ? `(length: ${envKey.length})` : "(MISSING)");
+if (import.meta.env.DEV) {
+  console.log("[AUTH] SUPABASE_URL_PRESENT:", !!envUrl, envUrl ? `(${envUrl.substring(0, 30)}...)` : "(MISSING)");
+  console.log("[AUTH] SUPABASE_KEY_PRESENT:", !!envKey, envKey ? `(length: ${envKey.length})` : "(MISSING)");
+}
 
 // ── Auth fetch debug ─────────────────────────────────────────────────────────
 // Written by safeFetch on every /auth/v1/ call. Reset at the start of each

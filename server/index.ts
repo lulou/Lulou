@@ -3,6 +3,8 @@ import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
 import { WebhookHandlers } from "./webhookHandlers";
+import helmet from "helmet";
+import { rateLimit } from "express-rate-limit";
 
 const app = express();
 const httpServer = createServer(app);
@@ -33,16 +35,60 @@ app.post(
   }
 );
 
+// ── Security headers via Helmet ───────────────────────────────────────────────
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'"],
+        styleSrc: ["'self'", "'unsafe-inline'"],
+        imgSrc: ["'self'", "data:", "blob:", "https:", "http:"],
+        connectSrc: ["'self'", "https:", "wss:"],
+        fontSrc: ["'self'", "data:", "https:"],
+        objectSrc: ["'none'"],
+        frameSrc: ["'none'"],
+        baseUri: ["'self'"],
+        formAction: ["'self'"],
+        upgradeInsecureRequests: process.env.NODE_ENV === "production" ? [] : null,
+      },
+    },
+    crossOriginEmbedderPolicy: false,
+  }),
+);
+
+// ── Rate limiting ─────────────────────────────────────────────────────────────
+// General API limiter — 500 requests per 15 minutes per IP.
+const _apiLimiter = rateLimit({
+  windowMs: 15 * 60_000,
+  max: 500,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message: "Too many requests, please try again later." },
+  skip: (req) => req.method === "OPTIONS",
+});
+// Strict limiter for write-heavy endpoints — 60 requests per 15 minutes.
+const _strictLimiter = rateLimit({
+  windowMs: 15 * 60_000,
+  max: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message: "Too many requests, please slow down." },
+});
+app.use("/api", _apiLimiter);
+app.use("/api/matches", _strictLimiter);
+app.use("/api/interactions", _strictLimiter);
+
 app.use(
   express.json({
-    limit: "50mb",
+    limit: "10mb",
     verify: (req, _res, buf) => {
       req.rawBody = buf;
     },
   }),
 );
 
-app.use(express.urlencoded({ extended: false, limit: "50mb" }));
+app.use(express.urlencoded({ extended: false, limit: "2mb" }));
 
 // ── CORS ─────────────────────────────────────────────────────────────────────
 // Allows cross-origin requests from the Vercel frontend (and local dev).

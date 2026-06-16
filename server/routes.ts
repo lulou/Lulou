@@ -257,6 +257,16 @@ const isAuthenticated: RequestHandler = (req: any, res, next) => {
   }
 };
 
+// ── Location & PII privacy ────────────────────────────────────────────────────
+// Strip raw coordinates and PII from any profile object before it is sent to
+// a client that is NOT the profile owner.  Coordinates are used server-side
+// for distance filtering only — they must never reach the browser.
+function sanitizeOtherProfile<T extends Record<string, any>>(profile: T): Omit<T, "latitude" | "longitude" | "email" | "phoneNumber"> {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { latitude, longitude, email, phoneNumber, ...safe } = profile;
+  return safe as any;
+}
+
 function containsContactInfo(text: string): boolean {
   const phonePattern = /(\+?\d[\d\s\-()]{7,})/;
   if (phonePattern.test(text)) return true;
@@ -790,7 +800,7 @@ export async function registerRoutes(
         payloadKb: Math.round(discoverJson.length / 1024),
         hasPhotos: false,
       });
-      res.json(discovered);
+      res.json(discovered.map(sanitizeOtherProfile));
     } catch (error: any) {
       console.error("[DISCOVER] Error:", error?.message, `(${Date.now() - t0} ms)`);
       res.status(500).json({ message: "Failed to discover profiles" });
@@ -894,13 +904,14 @@ export async function registerRoutes(
       const storage = getStorage(req);
       const userId = req.user.id;
       const userMatches = await storage.getMatchesForUser(userId);
-      const matchesJson = IS_DEV ? JSON.stringify(userMatches) : "";
+      const sanitized = userMatches.map(m => ({ ...m, profile: sanitizeOtherProfile(m.profile) }));
+      const matchesJson = IS_DEV ? JSON.stringify(sanitized) : "";
       devPerf("/api/matches", Date.now() - t0, {
-        count: userMatches.length,
+        count: sanitized.length,
         payloadKb: Math.round(matchesJson.length / 1024),
         hasPhotos: false,
       });
-      res.json(userMatches);
+      res.json(sanitized);
     } catch (error) {
       console.error(`[MATCHES_LIST] Error after ${Date.now() - t0} ms:`, error);
       res.status(500).json({ message: "Failed to fetch matches" });
@@ -918,7 +929,7 @@ export async function registerRoutes(
         return res.status(404).json({ message: "Match not found" });
       }
       if (IS_DEV) console.log(`[MATCH_DETAIL] ${req.params.matchId} — ${match.messages?.length ?? 0} msgs in ${Date.now() - t0} ms`);
-      res.json(match);
+      res.json({ ...match, profile: sanitizeOtherProfile(match.profile) });
     } catch (error) {
       console.error(`[MATCH_DETAIL] Error after ${Date.now() - t0} ms:`, error);
       res.status(500).json({ message: "Failed to fetch match" });
@@ -1606,7 +1617,7 @@ export async function registerRoutes(
 
       const result = selfFiltered.slice(0, 10);
       console.log("[WHEEL] /api/popular returning:", result.length, "profiles to userId:", userId);
-      res.json(result);
+      res.json(result.map(sanitizeOtherProfile));
     } catch (error) {
       console.error(`[WHEEL] Error fetching popular profiles after ${Date.now() - t0} ms:`, error);
       res.status(500).json({ message: "Failed to fetch popular profiles" });
