@@ -21,35 +21,24 @@ interface ProfilePhotoViewerProps {
  * CONTAINER STRUCTURE (back to front):
  *
  * 1. Outer div  — pure positioning/gesture layer.
- *    No overflow, no padding, no background.  Completely invisible.
- *    Pointer events and ref live here.
- *
- * 2. Shadow element  — position:absolute; inset:0; borderRadius:CARD_RADIUS
- *    Box-shadow lives OUTSIDE the clip div → never clipped by overflow:hidden.
- *    Bleeds freely into the surrounding page on all sides.
- *
- * 3. Depth element  — white card at translate(+5px, +5px).
- *    Outside the clip div → its right/bottom 5 px slivers are visible at rest
- *    (stacked-deck feel).  Fades out when dragging starts.
- *
- * 4. Clip div  — position:absolute; inset:0; overflow:hidden; borderRadius:24.
- *    Sole purpose: hide the offscreen peek card.  No padding, no background.
- *    Cards at inset:0 → no cream/white gap at any edge.
- *
- * 5. Peek card  (z:1, inside clip div) — enters from leading edge during drag.
- * 6. Current card  (z:2, inside clip div) — photo + gradient + nameSlot + action.
- * 7. Photo overlay  (z:5, inside clip div) — entrance animation on tap.
- *
+ * 2. Shadow element  — box-shadow outside clip div, never clipped.
+ * 3. Clip div  — overflow:hidden; hides offscreen peek card only.
+ * 5. Peek card  (z:1) — enters from leading edge during drag.
+ * 6. Current card  (z:2) — photo + gradient + nameSlot + action.
+ * 7. Photo overlay  (z:5) — entrance animation on tap/arrow nav.
  * 8. Arrows / dots  — outside clip div, zIndex:10, always visible.
  *
- * Peek card formula (calc(100%) = clip-div width):
- *   dragX ≤ 0 → translateX(calc( 100% + (CARD_GAP + dragX)px))
- *   dragX > 0 → translateX(calc(-100% + (-CARD_GAP + dragX)px))
+ * COMMIT ANIMATION (no jump-cut):
+ *   On release past threshold, dragX animates to ±(W+GAP).
+ *   This slides current card fully off-screen and peek card to centre.
+ *   After 340 ms the active index updates and dragX resets to 0.
  */
 
 const CARD_RADIUS = 24;
 const CARD_SHADOW = "0 4px 18px rgba(0,0,0,0.18)";
 const CARD_GAP = 12;
+const SPRING = "transform 0.32s cubic-bezier(0.25, 1, 0.5, 1)";
+const COMMIT_MS = 340;
 
 export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
   photos,
@@ -64,6 +53,7 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
   const [internalIdx, setInternalIdx] = useState(0);
   const [dragX, setDragX] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
+  const [committing, setCommitting] = useState(false);
   const [photoOverlay, setPhotoOverlay] = useState<{
     src: string;
     direction: "fwd" | "bwd";
@@ -77,6 +67,7 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
   const pendingDragX = useRef(0);
   const rafRef = useRef<number | null>(null);
   const cardWidthRef = useRef(320);
+  const commitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const gestureRef = useRef<{
     startX: number;
     startY: number;
@@ -90,7 +81,6 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
     (next: number) => {
       const clamped = Math.max(0, Math.min(n - 1, next));
       setInternalIdx(clamped);
-      setDragX(0);
     },
     [n],
   );
@@ -110,9 +100,12 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
     [n, photos],
   );
 
+  // Cleanup timers on unmount
   useEffect(() => {
     return () => {
       if (overlayTimerRef.current) clearTimeout(overlayTimerRef.current);
+      if (commitTimerRef.current !== null) clearTimeout(commitTimerRef.current);
+      if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
     };
   }, []);
 
@@ -155,7 +148,8 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
   }, []);
 
   const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (n <= 1) return;
+    // Block new gesture during commit animation or single-photo
+    if (n <= 1 || committing) return;
     // Re-measure width at drag start (catches resize since mount)
     if (containerRef.current) cardWidthRef.current = containerRef.current.offsetWidth;
     // Restore peek card visibility if a previous snap-back hid it
@@ -214,6 +208,7 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
     }
 
     if (!isDraggingRef.current) {
+      // Tap: navigate by tap zone
       const el = containerRef.current;
       if (el && n > 1) {
         const rect = el.getBoundingClientRect();
@@ -232,21 +227,40 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
     const willGoNext = dx < -threshold && safeIdx < n - 1;
     const willGoPrev = dx > threshold && safeIdx > 0;
 
-    // Snap-back: hide peek card so it doesn't visibly shoot across the screen
-    // while the spring resets it from one offscreen side to the other.
-    if (!willGoNext && !willGoPrev && peekCardRef.current) {
-      peekCardRef.current.style.visibility = "hidden";
-      setTimeout(() => {
-        if (peekCardRef.current) peekCardRef.current.style.visibility = "";
-      }, 380);
-    }
-
     isDraggingRef.current = false;
-    setIsDragging(false);
-    setDragX(0);
+    setIsDragging(false); // enables spring transition
 
-    if (willGoNext) goTo(safeIdx + 1);
-    else if (willGoPrev) goTo(safeIdx - 1);
+    if (willGoNext || willGoPrev) {
+      // ── Commit animation ──────────────────────────────────────────────────
+      // Drive dragX to ±(W+GAP): current card exits fully, peek lands at 0.
+      // After the spring settles, update the active index and reset dragX.
+      const W = cardWidthRef.current;
+      const targetDragX = willGoNext ? -(W + CARD_GAP) : (W + CARD_GAP);
+      const targetIdx   = willGoNext ? safeIdx + 1 : safeIdx - 1;
+
+      setCommitting(true);
+      setDragX(targetDragX); // spring now active (isDragging just set false)
+
+      if (commitTimerRef.current !== null) clearTimeout(commitTimerRef.current);
+      commitTimerRef.current = setTimeout(() => {
+        commitTimerRef.current = null;
+        // Swap index and reset drag atomically in one render.
+        // The incoming card (peek) is already visually at centre — no jump.
+        setCommitting(false);
+        goTo(targetIdx);
+        setDragX(0);
+      }, COMMIT_MS);
+    } else {
+      // ── Snap-back ─────────────────────────────────────────────────────────
+      // Hide peek card while spring carries it back across the screen.
+      if (peekCardRef.current) {
+        peekCardRef.current.style.visibility = "hidden";
+        setTimeout(() => {
+          if (peekCardRef.current) peekCardRef.current.style.visibility = "";
+        }, COMMIT_MS + 40);
+      }
+      setDragX(0);
+    }
   };
 
   const onPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -266,6 +280,7 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
     setDragX(0);
   };
 
+  // ── Derive photo sources ─────────────────────────────────────────────────
   const peekIdxRaw = dragX < 0 ? safeIdx + 1 : safeIdx > 0 ? safeIdx - 1 : safeIdx + 1;
   const peekIdx = Math.max(0, Math.min(n - 1, peekIdxRaw));
   const currentPhoto = photos[safeIdx] ?? "";
@@ -282,13 +297,15 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
   const currentCardTransform =
     `translate3d(${dragX}px,${curTy}px,0) scale(${curScale}) rotate(${curRot}deg)`;
 
-  // Peek card: grows (0.92→1.0) as it enters from its leading edge
+  // Peek card: grows (0.92→1.0) as it enters from its leading edge.
+  // peekTx = peekBaseX + dragX.  When dragX = ±(W+GAP), peekTx = 0 (centre).
   const peekScale   = (0.92 + progress * 0.08).toFixed(4);
   const peekBaseX   = dragX > 0 ? -(W + CARD_GAP) : (W + CARD_GAP);
   const peekTx      = peekBaseX + dragX;
   const peekTransform = `translate3d(${peekTx}px,0,0) scale(${peekScale})`;
 
-  const springTransition = "transform 0.32s cubic-bezier(0.25, 1, 0.5, 1)";
+  // Transitions: off while finger is down, on for spring-back / commit
+  const cardTransition = isDragging ? "none" : SPRING;
 
   // ── Loading shimmer ────────────────────────────────────────────────────────
   if (isLoading) {
@@ -381,7 +398,7 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
               overflow: "hidden",
               zIndex: 1,
               transform: peekTransform,
-              transition: isDragging ? "none" : springTransition,
+              transition: cardTransition,
               willChange: "transform",
             }}
           >
@@ -411,7 +428,7 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
             overflow: "hidden",
             zIndex: 2,
             transform: currentCardTransform,
-            transition: isDragging ? "none" : springTransition,
+            transition: cardTransition,
             willChange: "transform",
           }}
         >
