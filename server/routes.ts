@@ -2537,6 +2537,7 @@ export async function registerRoutes(
       } catch (insertErr: any) {
         const isUniqueViolation =
           insertErr.code === "23505" ||
+          (insertErr.cause as any)?.code === "23505" ||
           String(insertErr?.message ?? "").toLowerCase().includes("unique") ||
           String(insertErr?.message ?? "").toLowerCase().includes("duplicate");
         if (isUniqueViolation) {
@@ -2757,6 +2758,7 @@ export async function registerRoutes(
       } catch (insertErr: any) {
         const isUniqueViolation =
           insertErr.code === "23505" ||
+          (insertErr.cause as any)?.code === "23505" ||
           String(insertErr?.message ?? "").toLowerCase().includes("unique") ||
           String(insertErr?.message ?? "").toLowerCase().includes("duplicate");
         if (isUniqueViolation) {

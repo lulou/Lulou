@@ -1,0 +1,226 @@
+Perform a complete production-readiness audit of Lulou's legal, privacy, account deletion, data export, purchases, membership, and billing systems.
+
+Do NOT assume anything works because text exists on screen.
+
+I want proof.
+
+Audit every screen, API route, database table, webhook, storage bucket, and backend process connected to:
+
+1. Privacy Policy
+2. Terms of Service
+3. Privacy Preferences
+4. Cookie & Tracking Policy
+5. Data Deletion Policy
+6. Download My Data
+7. Subscription & Billing
+8. Safe Dating Tips
+9. Member Principles
+10. Licences
+
+For each section:
+
+- Read the frontend implementation
+- Read the backend implementation
+- Read all database tables involved
+- Read all Stripe integrations
+- Read all Supabase storage buckets
+- Read all delete-account flows
+- Read all export-data flows
+- Read all membership flows
+- Read all webhook handlers
+
+Then compare:
+
+WHAT THE SCREEN CLAIMS
+
+vs
+
+WHAT THE CODE ACTUALLY DOES
+
+I want every mismatch.
+
+For every mismatch provide:
+
+- Severity (Critical / High / Medium / Low)
+- Exact file location
+- Exact code responsible
+- User impact
+- Legal/compliance impact
+- Recommended fix
+
+Specifically verify:
+
+DATA EXPORT
+-------------
+When user taps "Download My Data":
+
+- Does a file actually generate?
+- What format?
+- What fields are included?
+- Are profile photos included?
+- Are matches included?
+- Are messages included?
+- Are voice notes included?
+- Are purchases included?
+- Are subscription records included?
+- Are account settings included?
+- Are blocked users included?
+- Does export fail on large accounts?
+- Is export protected against downloading another user's data?
+
+Provide a complete exported-data matrix.
+
+ACCOUNT DELETION
+----------------
+When user deletes their account:
+
+- What database rows are deleted?
+- What database rows remain?
+- What Supabase storage files remain?
+- What Stripe records remain?
+- What webhook records remain?
+- What voice notes remain?
+- What messages remain?
+- What matches remain?
+- What photos remain?
+
+Trace the exact deletion flow.
+
+Then compare against the wording shown in Data Deletion Policy.
+
+Identify every false statement if any exist.
+
+MESSAGE RETENTION
+-----------------
+The app states:
+
+"Messages are deleted 30 days after a connection is closed."
+
+Verify:
+
+- Is there code doing this?
+- Is there a scheduled job?
+- Is there a cron task?
+- Is there a background worker?
+- Is there a manual process?
+- Or does nothing happen?
+
+Provide proof.
+
+MEMBERSHIP AUDIT
+----------------
+Verify the final membership system.
+
+Confirm:
+
+Monthly membership grants:
+
+- 2 Message Extensions
+- 3 Phone Credits
+- 1 Video Credit
+- 1 Undo Credit
+
+Verify:
+
+- Initial purchase
+- Monthly renewal
+- Cancellation
+- Expiry
+- Device change
+- Logout/login
+- Stripe retry webhooks
+- Duplicate protection
+
+Confirm whether any wording on the Subscription & Billing screen is inaccurate.
+
+PURCHASES AUDIT
+---------------
+Audit every purchasable product:
+
+- Elevate
+- Super Elevate
+- Undo Close
+- Message Extensions
+- Voice Notes
+- Phone Calls
+- Video Calls
+- Membership
+
+For every product answer:
+
+- How granted?
+- Stored where?
+- Consumed where?
+- Restored after login?
+- Restored after device change?
+- Expires?
+- Refund behaviour?
+- Failure scenarios?
+
+VOICE NOTES
+-----------
+Verify:
+
+- iPhone -> Android
+- Android -> iPhone
+- Desktop -> Mobile
+- Mobile -> Desktop
+
+Confirm the FFmpeg transcoding pipeline is active.
+
+Provide proof:
+
+- Input format
+- Output format
+- Storage format
+- Playback compatibility
+
+LEGAL AUDIT
+-----------
+For every statement visible on:
+
+- Privacy Policy
+- Terms
+- Privacy Preferences
+- Cookie Policy
+- Data Deletion Policy
+- Subscription & Billing
+
+Determine:
+
+TRUE
+FALSE
+PARTIALLY TRUE
+UNVERIFIED
+
+I want a table containing:
+
+Statement
+Reality
+Evidence
+Risk Level
+
+FINAL REPORT
+------------
+Provide:
+
+1. Executive Summary
+2. Critical Issues
+3. High Priority Issues
+4. Medium Issues
+5. Low Issues
+6. Legal Mismatches
+7. Data Export Audit
+8. Data Deletion Audit
+9. Membership Audit
+10. Purchase Audit
+11. Voice Note Audit
+12. Production Readiness Score (/100)
+
+Do not modify code.
+
+Audit only.
+
+Read everything first.
+
+Then provide a complete report with evidence.

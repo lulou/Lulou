@@ -30,6 +30,7 @@ async function grantMembershipBundle(userId: string, invoiceId: string): Promise
   } catch (err: any) {
     const isUnique =
       err.code === "23505" ||
+      (err.cause as any)?.code === "23505" ||
       String(err?.message ?? "").toLowerCase().includes("unique") ||
       String(err?.message ?? "").toLowerCase().includes("duplicate");
     if (isUnique) {
