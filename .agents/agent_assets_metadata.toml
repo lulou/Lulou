@@ -1,0 +1,8 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "w7KmT8m3RhVtnsYwZ85U2"
+uri = "file://client/public/icon-512.png"
+type = "image"
+title = "App Icon — 512×512 (PWA / Android / Apple Touch)"
