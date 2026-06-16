@@ -132,6 +132,8 @@ const _userDiscoverMeta = new Map<string, {
   locationRadius: number;
   latitude: number | null;
   longitude: number | null;
+  datingIntent: string | null;
+  connectionStyle: string | null;
   expiresAt: number;
 }>();
 const DISCOVER_META_TTL_MS = 10 * 60_000;
@@ -152,12 +154,14 @@ function setCachedDiscoverMeta(
   locationRadius: number,
   latitude: number | null,
   longitude: number | null,
+  datingIntent: string | null,
+  connectionStyle: string | null,
 ) {
   if (_userDiscoverMeta.size >= 500) {
     const now = Date.now();
     _userDiscoverMeta.forEach((v, k) => { if (v.expiresAt < now) _userDiscoverMeta.delete(k); });
   }
-  _userDiscoverMeta.set(userId, { gender, preference, ageMin, ageMax, locationRadius, latitude, longitude, expiresAt: Date.now() + DISCOVER_META_TTL_MS });
+  _userDiscoverMeta.set(userId, { gender, preference, ageMin, ageMax, locationRadius, latitude, longitude, datingIntent, connectionStyle, expiresAt: Date.now() + DISCOVER_META_TTL_MS });
 }
 
 async function broadcastViaHttpApi(topic: string, event: string, payload: Record<string, any>): Promise<void> {
@@ -1173,6 +1177,8 @@ export async function registerRoutes(
           locationRadius: myProfile.locationRadius ?? 0,
           latitude: lat,
           longitude: lng,
+          datingIntent: myProfile.datingIntent ?? null,
+          connectionStyle: myProfile.connectionStyle ?? null,
           expiresAt: 0,
         };
         setCachedDiscoverMeta(
@@ -1184,6 +1190,8 @@ export async function registerRoutes(
           discoverMeta.locationRadius,
           discoverMeta.latitude,
           discoverMeta.longitude,
+          discoverMeta.datingIntent,
+          discoverMeta.connectionStyle,
         );
       }
 
@@ -1197,6 +1205,8 @@ export async function registerRoutes(
         discoverMeta.locationRadius,
         discoverMeta.latitude,
         discoverMeta.longitude,
+        discoverMeta.datingIntent,
+        discoverMeta.connectionStyle,
       );
       const discoverJson = IS_DEV ? JSON.stringify(discovered) : "";
       devPerf("/api/discover", Date.now() - t0, {

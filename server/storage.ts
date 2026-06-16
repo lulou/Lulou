@@ -5,6 +5,7 @@ import {
   type SpinRequest, type BlockedContact,
   type SavedWheelProfile,
   userElevates, blockedContacts, callCredits, savedWheelProfiles,
+  membershipSubscriptions,
 } from "@shared/schema";
 import { supabase as defaultSupabase } from "./supabase";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -70,6 +71,215 @@ function mergeElevatesIntoProfiles(
     if (elev) return { ...p, elevateType: elev.type, elevateExpiresAt: elev.expiresAt };
     return { ...p, elevateType: null, elevateExpiresAt: null };
   });
+}
+
+// ─── Discover ranking ─────────────────────────────────────────────────────────
+
+interface ScoreBreakdown {
+  distance: number;        // 0–20
+  recency: number;         // 0–20
+  photoVerified: number;   // 0 or 10
+  completeness: number;    // 0–12
+  sharedIntent: number;    // 0 or 8
+  sharedStyle: number;     // 0 or 7
+  membership: number;      // 0 or 5
+  newUser: number;         // 0–5
+  jitter: number;          // ±2
+  base: number;
+  elevateMultiplier: number;
+  final: number;
+}
+
+/**
+ * Score a single candidate profile for the current user.
+ * Returns a breakdown + `final` score used for ranking.
+ * Higher = appears earlier in Discover.
+ * Scores are internal — never sent to the client.
+ */
+function scoreProfile(
+  candidate: Profile,
+  userLat: number | null,
+  userLng: number | null,
+  locationRadius: number,
+  userDatingIntent: string | null,
+  userConnectionStyle: string | null,
+  memberUserIds: Set<string>,
+  now: Date,
+): ScoreBreakdown {
+  // 1. Distance closeness (0–20)
+  // No radius or no coords → neutral score (doesn't penalise global users).
+  // When radius is active the hard filter already excluded out-of-range profiles,
+  // so the score just rewards closer candidates within the circle.
+  let distance = 10;
+  if (
+    _hasLatLngColumns &&
+    userLat !== null && userLng !== null &&
+    locationRadius > 0 &&
+    candidate.latitude != null && candidate.longitude != null
+  ) {
+    const miles = haversineDistanceMiles(userLat, userLng, candidate.latitude, candidate.longitude);
+    distance = Math.max(0, Math.round(20 * (1 - miles / locationRadius)));
+  }
+
+  // 2. Recently active (0–20) — exponential-like tiers
+  let recency = 0;
+  if ((candidate as any).lastActive) {
+    const ageHours = (now.getTime() - (candidate as any).lastActive.getTime()) / 3_600_000;
+    if (ageHours < 24)         recency = 20;
+    else if (ageHours < 168)   recency = 14; // 7 days
+    else if (ageHours < 720)   recency = 8;  // 30 days
+    else if (ageHours < 2160)  recency = 3;  // 90 days
+  }
+
+  // 3. Selfie / photo verified (0 or 10)
+  const photoVerified = candidate.photoVerified ? 10 : 0;
+
+  // 4. Profile completeness (0–12, 2 pts per completed section)
+  let completeness = 0;
+  if ((candidate.signals?.length ?? 0) > 0)                  completeness += 2;
+  if ((candidate.greenFlags?.length ?? 0) > 0)               completeness += 2;
+  if (candidate.datingIntent)                                 completeness += 2;
+  if (candidate.connectionStyle)                              completeness += 2;
+  if ((candidate.conversationStarters?.length ?? 0) > 0)     completeness += 2;
+  if (((candidate as any).customStarters?.length ?? 0) > 0)  completeness += 2;
+
+  // 5. Shared dating intent (0 or 8)
+  const sharedIntent =
+    userDatingIntent &&
+    candidate.datingIntent &&
+    userDatingIntent.trim().toLowerCase() === candidate.datingIntent.trim().toLowerCase()
+      ? 8 : 0;
+
+  // 6. Shared connection style (0 or 7)
+  const sharedStyle =
+    userConnectionStyle &&
+    candidate.connectionStyle &&
+    userConnectionStyle.trim().toLowerCase() === candidate.connectionStyle.trim().toLowerCase()
+      ? 7 : 0;
+
+  // 7. Membership priority discovery boost (0 or 5)
+  // Members' profiles appear higher in others' Discover queues.
+  const membership = memberUserIds.has(candidate.userId) ? 5 : 0;
+
+  // 8. New-user boost (0–5) — helps recently-joined profiles get early visibility
+  let newUser = 0;
+  if (candidate.createdAt) {
+    const ageDays = (now.getTime() - candidate.createdAt.getTime()) / 86_400_000;
+    if (ageDays < 7)       newUser = 5;
+    else if (ageDays < 14) newUser = 3;
+    else if (ageDays < 30) newUser = 1;
+  }
+
+  // 9. Jitter (±2) — prevents identical top-20 on every Discover load
+  const jitter = Math.random() * 4 - 2;
+
+  const base = distance + recency + photoVerified + completeness +
+               sharedIntent + sharedStyle + membership + newUser;
+
+  // 10. Elevate multiplier (applied to base score, not jitter)
+  let elevateMultiplier = 1.0;
+  if (
+    candidate.elevateType &&
+    candidate.elevateExpiresAt &&
+    candidate.elevateExpiresAt > now
+  ) {
+    elevateMultiplier = candidate.elevateType === "super_elevate" ? 2.5 : 1.8;
+  }
+
+  const final = base * elevateMultiplier + jitter;
+
+  return {
+    distance, recency, photoVerified, completeness,
+    sharedIntent, sharedStyle, membership, newUser,
+    jitter, base, elevateMultiplier, final,
+  };
+}
+
+/**
+ * Score, sort, log (DEV), and diversity-interleave a pool of profiles.
+ * Returns at most `limit` profiles.
+ */
+function rankAndDiversify(
+  pool: Profile[],
+  userLat: number | null,
+  userLng: number | null,
+  locationRadius: number,
+  userDatingIntent: string | null,
+  userConnectionStyle: string | null,
+  memberUserIds: Set<string>,
+  now: Date,
+  limit: number,
+): Profile[] {
+  if (pool.length === 0) return [];
+
+  // Score every candidate
+  const scored = pool.map(p => ({
+    profile: p,
+    s: scoreProfile(p, userLat, userLng, locationRadius, userDatingIntent, userConnectionStyle, memberUserIds, now),
+  }));
+
+  // Sort descending by final score
+  scored.sort((a, b) => b.s.final - a.s.final);
+
+  // DEV: readable breakdown for the top candidates
+  if (IS_DEV) {
+    scored.slice(0, Math.min(8, scored.length)).forEach(({ profile: p, s }) => {
+      const name = (p as any).firstName ?? p.userId.slice(0, 8);
+      const elev = s.elevateMultiplier > 1 ? ` ×${s.elevateMultiplier}` : "";
+      console.log(
+        `[SCORE] ${name} | final=${s.final.toFixed(1)}${elev} | ` +
+        `base=${s.base} [dist=${s.distance} rec=${s.recency} verified=${s.photoVerified} ` +
+        `complete=${s.completeness} intent=${s.sharedIntent} style=${s.sharedStyle} ` +
+        `member=${s.membership} newUser=${s.newUser} jitter=${s.jitter.toFixed(1)}]`,
+      );
+    });
+  }
+
+  // Take top results then diversity-interleave by dating intent so users don't
+  // see the same intent type repeated consecutively across all cards.
+  const top = scored.slice(0, limit).map(s => s.profile);
+  return diversifyProfiles(top);
+}
+
+/**
+ * Round-robin interleave by datingIntent so consecutive Discover cards vary.
+ * Preserves score order within each intent bucket.
+ */
+function diversifyProfiles(profiles: Profile[]): Profile[] {
+  if (profiles.length <= 3) return profiles;
+  const buckets = new Map<string, Profile[]>();
+  for (const p of profiles) {
+    const key = p.datingIntent ?? "__none__";
+    if (!buckets.has(key)) buckets.set(key, []);
+    buckets.get(key)!.push(p);
+  }
+  if (buckets.size === 1) return profiles; // already homogeneous — nothing to interleave
+  const groups = [...buckets.values()];
+  const result: Profile[] = [];
+  let i = 0;
+  while (result.length < profiles.length) {
+    let picked = false;
+    for (let attempt = 0; attempt < groups.length; attempt++) {
+      const g = groups[(i + attempt) % groups.length];
+      if (g.length > 0) {
+        result.push(g.shift()!);
+        i = (i + attempt + 1) % groups.length;
+        picked = true;
+        break;
+      }
+    }
+    if (!picked) break;
+  }
+  return result;
+}
+
+/** Fetch user IDs with an active membership subscription from the local DB. */
+async function getActiveMemberUserIds(): Promise<Set<string>> {
+  const rows = await db
+    .select({ userId: membershipSubscriptions.userId })
+    .from(membershipSubscriptions)
+    .where(eq(membershipSubscriptions.status, "active"));
+  return new Set(rows.map(r => r.userId));
 }
 
 // ── Gender / preference normalisation ────────────────────────────────────────
@@ -154,7 +364,7 @@ export interface IStorage {
   getProfileMeta(userId: string): Promise<Profile | undefined>;
   createProfile(data: InsertProfile): Promise<Profile>;
   updateProfile(userId: string, data: Partial<InsertProfile>): Promise<Profile | undefined>;
-  getDiscoverProfiles(userId: string, gender: string, preference: string, ageMin?: number, ageMax?: number, locationRadius?: number, userLat?: number | null, userLng?: number | null): Promise<Profile[]>;
+  getDiscoverProfiles(userId: string, gender: string, preference: string, ageMin?: number, ageMax?: number, locationRadius?: number, userLat?: number | null, userLng?: number | null, userDatingIntent?: string | null, userConnectionStyle?: string | null): Promise<Profile[]>;
   createInteraction(data: InsertInteraction): Promise<Interaction>;
   getInteraction(fromUserId: string, toUserId: string): Promise<Interaction | undefined>;
   getMutualOpen(user1Id: string, user2Id: string): Promise<boolean>;
@@ -841,7 +1051,7 @@ export class SupabaseStorage implements IStorage {
     return { excludedIds, interactedIds, activeMatchUserIds, inboundOpenerIds };
   }
 
-  async getDiscoverProfiles(userId: string, gender: string, preference: string, ageMin: number = 18, ageMax: number = 99, locationRadius: number = 0, userLat: number | null = null, userLng: number | null = null): Promise<Profile[]> {
+  async getDiscoverProfiles(userId: string, gender: string, preference: string, ageMin: number = 18, ageMax: number = 99, locationRadius: number = 0, userLat: number | null = null, userLng: number | null = null, userDatingIntent: string | null = null, userConnectionStyle: string | null = null): Promise<Profile[]> {
     // Select all columns EXCEPT photos — base64 images in photos make rows huge (100s KB each).
     // Fetching photos for 100 profiles at once transfers 50–100 MB and causes a statement timeout.
     // Photos are fetched individually per-card by the client via GET /api/profiles/:userId.
@@ -923,9 +1133,10 @@ export class SupabaseStorage implements IStorage {
     // Step 1: build unified exclusion set + fetch elevates in parallel.
     // buildExcludedUserIds covers both interaction-based and match-based exclusions so that
     // Discovery uses the same filtering logic as the Intention Wheel.
-    const [{ excludedIds, interactedIds, activeMatchUserIds, inboundOpenerIds }, elevates] = await Promise.all([
+    const [{ excludedIds, interactedIds, activeMatchUserIds, inboundOpenerIds }, elevates, memberUserIds] = await Promise.all([
       this.buildExcludedUserIds(userId),
       getActiveElevatesMap(),
+      getActiveMemberUserIds(),
     ]);
     if (IS_DEV) console.log(`[DISCOVER] exclusions+elevates done in ${Date.now() - t1} ms`);
     if (activeMatchUserIds.size > 0) {
@@ -1103,13 +1314,19 @@ export class SupabaseStorage implements IStorage {
           return true;
         });
         const fallbackWithElevates = mergeElevatesIntoProfiles(fallbackFiltered, elevates);
-        const fallbackResult = weightedSample(fallbackWithElevates, 20, now);
+        const fallbackResult = rankAndDiversify(
+          fallbackWithElevates, userLat, userLng, locationRadius,
+          userDatingIntent, userConnectionStyle, memberUserIds, now, 20,
+        );
         console.log(`[POOL_DEBUG] final discovery count (gender-only fallback, distance-filtered): ${fallbackResult.length}`);
         return fallbackResult;
       }
     }
 
-    const result = weightedSample(filtered, 20, now);
+    const result = rankAndDiversify(
+      filtered, userLat, userLng, locationRadius,
+      userDatingIntent, userConnectionStyle, memberUserIds, now, 20,
+    );
     console.log(`[POOL_DEBUG] final discovery count: ${result.length}`);
     return result;
   }
