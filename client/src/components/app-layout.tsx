@@ -19,48 +19,23 @@ interface MatchItem {
 }
 
 /**
- * LulouFlowerIcon — the approved Lulou LL heart monogram.
+ * LulouFlowerIcon — renders the approved Lulou LL heart monogram.
  *
- * Design matches the reference: two filled serif capital L's
- * (left L slightly smaller, right L full-height), with a small
- * outlined heart cradled in the space between them.
+ * Uses the master transparent PNG produced directly from the approved
+ * brand reference image. No hand-drawn SVG paths — this IS the logo.
  *
- * Uses `currentColor` so Tailwind text-* classes control the colour.
- * ViewBox 0 0 100 100 — scales cleanly from 20 px upward.
+ * className controls size (w-*, h-*) and opacity only.
+ * Colour is baked into the asset (rose/blush on transparent).
  */
 export function LulouFlowerIcon({ className }: { className?: string }) {
   return (
-    <svg
-      viewBox="0 0 100 100"
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
+    <img
+      src="/lulou-logo-transparent.png"
+      alt="Lulou"
+      draggable={false}
       className={className}
-      aria-label="Lulou"
-    >
-      {/* ── Left L — slightly smaller, elegant serif ───────────────────
-           Stem width 8, foot to x=40, top serif 16 wide.               */}
-      <path
-        d="M4,20 L20,20 L20,24 L16,24 L16,73 L40,73 L40,79 L8,79 L8,24 L4,24 Z"
-        fill="currentColor"
-      />
-
-      {/* ── Right L — full height, prominent serif ─────────────────────
-           Stem width 10, foot to x=90, top serif 20 wide.              */}
-      <path
-        d="M46,12 L66,12 L66,17 L60,17 L60,80 L90,80 L90,88 L50,88 L50,17 L46,17 Z"
-        fill="currentColor"
-      />
-
-      {/* ── Heart — outlined, in the gap between the two L's ───────────
-           Sits between left-L foot (x≈40) and right-L stem (x≈50).    */}
-      <path
-        d="M47,65 C41,59 35,53 35,48 C35,43 39,41 47,51 C55,41 59,43 59,48 C59,53 53,59 47,65Z"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="4"
-        strokeLinejoin="round"
-      />
-    </svg>
+      style={{ objectFit: "contain" }}
+    />
   );
 }
 

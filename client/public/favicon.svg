@@ -1,11 +1,1 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
-  <!-- Soft blush background (matches reference) -->
-  <rect width="100" height="100" rx="20" fill="#FBE8E8"/>
-  <!-- Left L — smaller serif -->
-  <path d="M4,20 L20,20 L20,24 L16,24 L16,73 L40,73 L40,79 L8,79 L8,24 L4,24 Z" fill="#C17A85"/>
-  <!-- Right L — full serif -->
-  <path d="M46,12 L66,12 L66,17 L60,17 L60,80 L90,80 L90,88 L50,88 L50,17 L46,17 Z" fill="#C17A85"/>
-  <!-- Heart outline between the L's -->
-  <path d="M47,65 C41,59 35,53 35,48 C35,43 39,41 47,51 C55,41 59,43 59,48 C59,53 53,59 47,65Z"
-    fill="none" stroke="#C17A85" stroke-width="4" stroke-linejoin="round"/>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 32 32"><image href="/favicon-32.png" width="32" height="32"/></svg>

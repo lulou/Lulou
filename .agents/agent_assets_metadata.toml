@@ -5,7 +5,7 @@ generated = []
 id = "w7KmT8m3RhVtnsYwZ85U2"
 uri = "file://client/public/icon-512.png"
 type = "image"
-title = "App Icon — 512×512"
+title = "Google Play Icon — 512×512"
 
 [[outputs]]
 id = "bWCHPbE2vxxXNS8OWgWXp"
@@ -24,3 +24,45 @@ id = "MfAyO_KIPOtrojv1eyt92"
 uri = "file://client/public/concept-c.png"
 type = "image"
 title = "Concept C — Interlaced Loops (both L's have large ornate top loops that cross, heart at the interlock point — most fashion-brand feel)"
+
+[[outputs]]
+id = "1qH0ZVGUdEG83691HOvs_"
+uri = "file://client/public/icon-appstore.png"
+type = "image"
+title = "App Store Icon — 1024×1024"
+
+[[outputs]]
+id = "cpeblPkp6YU_x3Yvi0ueE"
+uri = "file://client/public/apple-touch-icon.png"
+type = "image"
+title = "Apple Touch Icon — 180×180"
+
+[[outputs]]
+id = "EKcScnC6yNba5_SZWCVk-"
+uri = "file://client/public/icon-192.png"
+type = "image"
+title = "PWA / Android Icon — 192×192"
+
+[[outputs]]
+id = "4VyGT1kVraGdnlA8U0d37"
+uri = "file://client/public/favicon-32.png"
+type = "image"
+title = "Favicon — 32×32"
+
+[[outputs]]
+id = "WFPTD4gOmd2QV8gZTsA0U"
+uri = "file://client/public/lulou-logo-transparent.png"
+type = "image"
+title = "Transparent Logo — navbar, login, splash, loading (all screens)"
+
+[[outputs]]
+id = "_P-66-OEtYItDQv6-iPHQ"
+uri = "file://client/public/icon-dark.png"
+type = "image"
+title = "Dark Mode Icon — 512×512 (ivory mark on deep warm background)"
+
+[[outputs]]
+id = "EFfsU4-Ha-_wATrnAuETt"
+uri = "file://client/public/og-image.png"
+type = "image"
+title = "Open Graph / Social Share — 1200×630"
