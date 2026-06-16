@@ -54,6 +54,9 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
   const [dragX, setDragX] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
   const [committing, setCommitting] = useState(false);
+  // suppressTransition = true for exactly one render during the index swap so
+  // the current-card div snaps to centre without springing from off-screen.
+  const [suppressTransition, setSuppressTransition] = useState(false);
   const [photoOverlay, setPhotoOverlay] = useState<{
     src: string;
     direction: "fwd" | "bwd";
@@ -244,11 +247,16 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
       if (commitTimerRef.current !== null) clearTimeout(commitTimerRef.current);
       commitTimerRef.current = setTimeout(() => {
         commitTimerRef.current = null;
-        // Swap index and reset drag atomically in one render.
-        // The incoming card (peek) is already visually at centre — no jump.
+        // Suppress CSS transitions for this one render so the current-card div
+        // snaps to centre (from its off-screen commit position) without springing,
+        // and the peek-card div snaps off-screen without springing.
+        // Both show the correct image at the correct place — no visible jump.
+        setSuppressTransition(true);
         setCommitting(false);
         goTo(targetIdx);
         setDragX(0);
+        // Re-enable transitions on the next frame after layout has settled.
+        requestAnimationFrame(() => setSuppressTransition(false));
       }, COMMIT_MS);
     } else {
       // ── Snap-back ─────────────────────────────────────────────────────────
@@ -304,8 +312,9 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
   const peekTx      = peekBaseX + dragX;
   const peekTransform = `translate3d(${peekTx}px,0,0) scale(${peekScale})`;
 
-  // Transitions: off while finger is down, on for spring-back / commit
-  const cardTransition = isDragging ? "none" : SPRING;
+  // Transitions: off while finger is down OR during the one-frame index-swap
+  // render so cards snap to their new positions without re-springing.
+  const cardTransition = isDragging || suppressTransition ? "none" : SPRING;
 
   // ── Loading shimmer ────────────────────────────────────────────────────────
   if (isLoading) {
@@ -406,6 +415,7 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
               src={peekPhoto}
               alt=""
               draggable={false}
+              onLoad={() => decodedPhotos.add(peekPhoto)}
               style={{
                 width: "100%",
                 height: "100%",
