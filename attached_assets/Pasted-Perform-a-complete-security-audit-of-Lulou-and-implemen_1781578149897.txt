@@ -1,0 +1,192 @@
+Perform a complete security audit of Lulou and implement enterprise-grade protection.
+
+Tech stack:
+
+React + Vite
+Express.js
+Supabase Auth
+Supabase Postgres
+Supabase Storage
+Stripe
+WebRTC audio/video calls
+Vercel deployment
+Audit every layer.
+
+──────────────────────────────
+AUTHENTICATION & ACCOUNTS
+──────────────────────────────
+
+Verify:
+
+Email verification required before full account access
+Under-18 users blocked from registration
+Secure password requirements
+Rate limiting on login attempts
+Protection against brute force attacks
+Session hijacking protection
+Secure logout everywhere
+Refresh token security
+Account recovery security
+Google login security
+Apple login security
+──────────────────────────────
+DATABASE SECURITY
+──────────────────────────────
+
+Audit all Supabase tables.
+
+Verify:
+
+RLS enabled on every table
+No public read access
+No public write access
+Users can only access their own records
+Messages restricted to conversation participants
+Calls restricted to conversation participants
+Matches restricted to involved users
+Photos restricted appropriately
+Review every table:
+
+profiles
+messages
+matches
+interactions
+opens
+intentions
+calls
+notifications
+reports
+blocks
+subscriptions
+payments
+
+Return all missing policies.
+
+──────────────────────────────
+API SECURITY
+──────────────────────────────
+
+Audit every endpoint.
+
+Verify:
+
+Authentication checks
+Ownership checks
+Input validation
+SQL injection protection
+XSS protection
+CSRF protection
+Request size limits
+Abuse protection
+Rate limiting
+Flag any vulnerable routes.
+
+──────────────────────────────
+FILE & PHOTO SECURITY
+──────────────────────────────
+
+Verify:
+
+Only owners can upload
+Only authorised users can access
+File type validation
+Image size validation
+Malware protection strategy
+Secure storage URLs
+No exposed private buckets
+No path traversal risks
+──────────────────────────────
+MESSAGING SECURITY
+──────────────────────────────
+
+Verify:
+
+Messages only visible to participants
+Deleted users cannot access chats
+Blocked users cannot send messages
+Comment filter cannot be bypassed
+API cannot send messages without a valid match
+──────────────────────────────
+CALL SECURITY
+──────────────────────────────
+
+Verify:
+
+Call signalling restricted to participants
+WebRTC credentials protected
+TURN credentials secured
+No anonymous call access
+No call spoofing
+No random incoming call exploits
+Proper call session validation
+──────────────────────────────
+LOCATION SECURITY
+──────────────────────────────
+
+Verify:
+
+Exact user coordinates never exposed
+Discovery uses distance calculations only
+Other users cannot retrieve raw latitude/longitude
+Location privacy preserved
+──────────────────────────────
+PAYMENT SECURITY
+──────────────────────────────
+
+Verify:
+
+Stripe webhooks validated
+No client-side payment trust
+Subscription validation server-side
+Payment status cannot be spoofed
+──────────────────────────────
+PRODUCTION SECURITY
+──────────────────────────────
+
+Verify:
+
+Environment variables secure
+No secrets exposed to frontend
+No service role key exposed
+HTTPS enforced
+Secure headers enabled
+CSP configured
+CORS configured correctly
+Add:
+
+Helmet
+Rate limiting
+Security headers
+Abuse detection
+──────────────────────────────
+MONITORING & INCIDENT RESPONSE
+──────────────────────────────
+
+Add:
+
+Security event logging
+Suspicious login detection
+Failed login monitoring
+Admin security dashboard
+Audit trail for critical actions
+──────────────────────────────
+REPORT
+──────────────────────────────
+
+Return:
+
+Critical vulnerabilities
+High-risk vulnerabilities
+Medium-risk vulnerabilities
+Security fixes implemented
+RLS policy report
+API security report
+Authentication report
+Call security report
+Payment security report
+Production readiness score
+Remaining risks
+npm run check result
+npm run build result
+Do not stop at identifying problems. Implement fixes where possible and provide exact code changes.
+
