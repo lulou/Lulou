@@ -1,0 +1,99 @@
+Perform a complete cross-platform voice notes compatibility upgrade.
+
+Current issue:
+
+Voice notes can now be recorded on iPhone Safari, Android Chrome, and desktop browsers.
+
+However:
+
+Chrome/Android typically records WebM/Opus.
+Safari/iPhone typically records MP4/AAC.
+Safari cannot reliably play WebM recordings.
+This means an Android user can send a voice note that an iPhone user cannot play.
+Current behaviour:
+
+The UI now correctly shows “Unable to play on this device.”
+This is only a temporary workaround.
+Goal:
+
+Every voice note must play on every supported device.
+
+Examples:
+
+Android → Android ✅
+Android → iPhone ✅
+iPhone → Android ✅
+iPhone → iPhone ✅
+Desktop → Mobile ✅
+Mobile → Desktop ✅
+
+Required implementation:
+
+Audit the entire voice note upload pipeline.
+Audit storage format handling.
+Audit playback handling.
+Audit MIME type detection.
+Audit Supabase Storage uploads.
+Implement a permanent compatibility solution.
+
+Preferred solution:
+
+Accept any browser recording format.
+Convert uploaded audio into a single universal playback format.
+Store one canonical format for all voice notes.
+Recommended target:
+
+AAC / MP4 (m4a)
+
+OR
+
+Provide a technically superior alternative if justified.
+
+Requirements:
+
+Works on Safari.
+Works on Chrome.
+Works on Android.
+Works on iPhone.
+Works on desktop browsers.
+Preserves audio quality.
+Keeps upload times reasonable.
+Supports current 60-second recording limit.
+Audit whether FFmpeg is available.
+
+If FFmpeg is available:
+
+Design a server-side transcoding pipeline.
+Convert uploads to the canonical format before storage.
+Ensure playback always uses the transcoded file.
+If FFmpeg is not available:
+
+Design the safest alternative approach.
+Explain tradeoffs.
+Validation tests:
+
+Android records → iPhone plays.
+iPhone records → Android plays.
+Android records → Desktop plays.
+Desktop records → iPhone plays.
+Long recording (60 sec).
+Poor network conditions.
+Multiple voice notes in same chat.
+Provide:
+
+Root cause.
+Recommended architecture.
+Files changed.
+Storage impact.
+Performance impact.
+Browser compatibility matrix.
+Before vs after behaviour.
+Run:
+
+npm run check
+npm run build
+
+Do not stop at reporting the problem.
+
+Implement the best production-ready cross-platform solution and verify it end-to-end.
+

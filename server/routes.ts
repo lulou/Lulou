@@ -2,6 +2,7 @@ import type { Express, RequestHandler } from "express";
 import { createServer, type Server } from "http";
 import { randomUUID } from "crypto";
 import { SupabaseStorage, mapMatch, type CompleteCallOptions, geocodeLocation, getHasLatLngColumns } from "./storage";
+import { transcodeToM4a } from "./transcoder";
 import { seedDatabase } from "./seed";
 import { z } from "zod";
 import type { Profile } from "@shared/schema";
@@ -1853,21 +1854,38 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Invalid audio data" });
       }
 
-      if (audioBuffer.length > 3_000_000) {
-        return res.status(400).json({ message: "Audio file too large (max 3 MB / ~60 seconds)" });
+      if (audioBuffer.length < 1_000) {
+        return res.status(400).json({ message: "Recording too short. Please try again." });
+      }
+
+      if (audioBuffer.length > 10_000_000) {
+        return res.status(400).json({ message: "Audio file too large (max 10 MB)" });
       }
 
       const safeMime = (typeof mimeType === "string" && mimeType.length < 100) ? mimeType : "audio/webm";
-      const ext = safeMime.includes("ogg") ? "ogg"
-        : safeMime.includes("mp4") || safeMime.includes("m4a") || safeMime.includes("aac") ? "mp4"
-        : "webm";
-      const filePath = `${matchId}/${Date.now()}_${userId}.${ext}`;
+
+      // ── Transcode to AAC/M4A — the universal playback format ─────────────────
+      // Every browser and platform supports AAC in an MP4 container:
+      //   Chrome/Android ✅  Firefox ✅  Safari/iOS ✅  Edge ✅
+      // This eliminates the Chrome→Safari cross-play failure where a WebM
+      // recording could not be played on iPhone at all.
+      let outputBuffer: Buffer;
+      try {
+        const t0 = Date.now();
+        outputBuffer = await transcodeToM4a(audioBuffer, safeMime);
+        console.log(`[VOICE_NOTE] Transcoded ${audioBuffer.length}B → ${outputBuffer.length}B M4A in ${Date.now() - t0}ms`);
+      } catch (transcodeErr: any) {
+        console.error("[VOICE_NOTE] Transcode failed:", transcodeErr.message);
+        return res.status(500).json({ message: "Failed to process audio. Please try again." });
+      }
+
+      const filePath = `${matchId}/${Date.now()}_${userId}.m4a`;
 
       await supabaseAdmin.storage.createBucket("voice-notes", { public: true }).catch(() => {});
 
       const { error: uploadError } = await supabaseAdmin.storage
         .from("voice-notes")
-        .upload(filePath, audioBuffer, { contentType: safeMime, upsert: false });
+        .upload(filePath, outputBuffer, { contentType: "audio/mp4", upsert: false });
 
       if (uploadError) {
         console.error("[VOICE_NOTE] Upload error:", uploadError.message);
