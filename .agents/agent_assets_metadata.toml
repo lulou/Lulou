@@ -6,3 +6,21 @@ id = "w7KmT8m3RhVtnsYwZ85U2"
 uri = "file://client/public/icon-512.png"
 type = "image"
 title = "App Icon — 512×512"
+
+[[outputs]]
+id = "bWCHPbE2vxxXNS8OWgWXp"
+uri = "file://client/public/concept-a.png"
+type = "image"
+title = "Concept A — Facing Mirror Script (symmetric luxury, two L's face each other, heart at centre where feet converge)"
+
+[[outputs]]
+id = "4lUhkdfQZCvmH-eDBQJM4"
+uri = "file://client/public/concept-b.png"
+type = "image"
+title = "Concept B — Flowing Tandem Script (cursive feel, both L's same direction, heart woven between as a bridge, trailing flourish)"
+
+[[outputs]]
+id = "MfAyO_KIPOtrojv1eyt92"
+uri = "file://client/public/concept-c.png"
+type = "image"
+title = "Concept C — Interlaced Loops (both L's have large ornate top loops that cross, heart at the interlock point — most fashion-brand feel)"

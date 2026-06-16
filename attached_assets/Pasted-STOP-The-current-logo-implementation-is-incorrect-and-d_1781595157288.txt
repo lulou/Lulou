@@ -1,0 +1,104 @@
+STOP.
+
+The current logo implementation is incorrect and does not match the approved Lulou brand direction.
+
+Do NOT continue refining the current serif "L ♥ L" monogram.
+
+Remove and replace all current logo assets with the approved luxury calligraphy concept.
+
+BRAND DIRECTION
+
+Lulou is a premium intentional dating app for people looking for genuine relationships.
+
+The logo must feel:
+
+- Romantic
+- Elegant
+- Feminine
+- Luxury
+- Premium
+- Soft
+- Timeless
+- High-end dating brand
+
+It must NOT feel:
+
+- Corporate
+- Banking
+- Law firm
+- Generic monogram
+- Blocky
+- Geometric
+- Masculine
+- Tech startup
+
+LOGO DESIGN
+
+Create a logo formed from TWO flowing script capital L's.
+
+The two L's should intertwine naturally and elegantly.
+
+A small heart should be integrated into the centre where the strokes meet.
+
+The heart must feel naturally woven into the lettering, not placed between two letters.
+
+Think luxury calligraphy rather than typography.
+
+The logo should immediately communicate:
+
+"romance"
+"love"
+"intentional connection"
+"premium dating"
+
+COLOUR PALETTE
+
+Use the existing Lulou app colours.
+
+Match the current app blush pink, rose, cream and soft neutral palette.
+
+Avoid gold, black or dark luxury colours.
+
+The logo must feel like it belongs inside the current Lulou interface.
+
+APP ICON
+
+Create a premium iOS-style app icon:
+
+- Soft rounded square
+- Cream background matching the app
+- Blush pink / rose logo
+- Subtle depth
+- Soft shadows
+- Elegant premium finish
+
+The icon should feel like something users would proudly keep on their home screen.
+
+IMPLEMENT EVERYWHERE
+
+Replace ALL branding assets:
+
+- Navbar logo
+- Login page logo
+- Loading screen logo
+- Verification screens
+- Empty state logos
+- Favicon
+- Apple Touch Icon
+- Android Icon
+- PWA Icons
+- Splash Screen Logo
+- Open Graph Image
+- Social Share Image
+
+IMPORTANT
+
+Before making changes, generate and show multiple visual concepts based on the approved intertwined script LL heart logo style.
+
+Do NOT generate another serif monogram.
+
+Do NOT generate another geometric monogram.
+
+Do NOT generate another block-letter logo.
+
+The final result should look like a luxury romantic fashion or beauty brand, not a corporate identity.
