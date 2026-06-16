@@ -1,0 +1,84 @@
+Improve iPhone photo carousel smoothness and card-stack motion.
+
+Do not work on unrelated features.
+
+Current issue:
+On iPhone, the photo drag carousel is jittery and not smooth.
+
+Also, the movement currently feels too flat:
+
+Photos move in a straight line.
+Current photo does not shrink as it leaves centre.
+New photo does not grow as it comes into centre.
+The motion does not feel premium or natural.
+Expected behaviour:
+The carousel should feel like a smooth mobile dating-app card stack.
+
+Motion requirements:
+
+Current photo should slightly shrink as it moves away from centre.
+Incoming photo should start slightly smaller and grow as it moves toward centre.
+Motion should feel like a gentle arc, not a flat straight line.
+Add subtle vertical movement if needed to create the arc.
+Add very slight rotation if it improves the feel.
+Keep the cards rounded and floating.
+Maintain visible gap between cards.
+No connected strip.
+No shared perimeter.
+No grey seam.
+No hard square edges.
+iPhone performance requirements:
+
+Drag must be smooth on iPhone Safari.
+Avoid layout thrashing.
+Use transform-only animations.
+Use translate3d / scale / rotate only.
+Add will-change: transform where appropriate.
+Avoid setting React state on every pointermove if it causes jitter.
+Prefer requestAnimationFrame for drag updates if needed.
+Use passive touch handling carefully so vertical page scroll still works.
+Horizontal drag changes photos.
+Vertical drag scrolls the profile page.
+Architecture:
+
+Parent should be invisible positioning layer only.
+Each photo card should be an independent floating card.
+Each card keeps its own border-radius, overflow hidden, and shadow.
+Incoming card should be a full card, not a thin strip.
+Apply to:
+
+PhotoCarousel
+ProfilePhotoViewer
+Discovery profile
+Likes profile
+Match profile
+Connection profile
+Own profile if same components are used
+Audit:
+
+Why iPhone drag is jittery
+Whether React state updates on every drag are causing re-render lag
+Whether pointer/touch events are fighting vertical scroll
+Whether images are being repainted instead of transformed
+Whether transforms are GPU accelerated
+Which files/components control the photo movement
+Validation:
+Test on:
+
+iPhone Safari
+Desktop Chrome/Safari
+Run:
+npm run check
+npm run build
+
+Report:
+
+Root cause of iPhone jitter
+Files changed
+New motion formula
+How current card shrinks/moves away
+How incoming card grows/moves in
+How arc movement is created
+How vertical scrolling is preserved
+npm run check result
+npm run build result

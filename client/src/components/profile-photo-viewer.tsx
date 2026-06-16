@@ -1,4 +1,4 @@
-import { memo, useState, useEffect, useCallback, useRef, type ReactNode } from "react";
+import { memo, useState, useEffect, useLayoutEffect, useCallback, useRef, type ReactNode } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { decodedPhotos, preloadPhoto } from "@/lib/image-utils";
 import { isMobile } from "@/lib/perf";
@@ -73,6 +73,10 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
   const overlayTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isDraggingRef = useRef(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const peekCardRef = useRef<HTMLDivElement>(null);
+  const pendingDragX = useRef(0);
+  const rafRef = useRef<number | null>(null);
+  const cardWidthRef = useRef(320);
   const gestureRef = useRef<{
     startX: number;
     startY: number;
@@ -143,8 +147,19 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
     return () => el.removeEventListener("touchmove", onTouchMove);
   }, [n]);
 
+  // Measure card width once on mount so transform calculations start accurate.
+  useLayoutEffect(() => {
+    if (containerRef.current) {
+      cardWidthRef.current = containerRef.current.offsetWidth;
+    }
+  }, []);
+
   const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (n <= 1) return;
+    // Re-measure width at drag start (catches resize since mount)
+    if (containerRef.current) cardWidthRef.current = containerRef.current.offsetWidth;
+    // Restore peek card visibility if a previous snap-back hid it
+    if (peekCardRef.current) peekCardRef.current.style.visibility = "";
     gestureRef.current = {
       startX: e.clientX,
       startY: e.clientY,
@@ -172,14 +187,31 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
     const atEnd = safeIdx === n - 1 && rawDx < 0;
     const clamped = atStart || atEnd ? rawDx * 0.25 : rawDx;
 
-    isDraggingRef.current = true;
-    setIsDragging(true);
-    setDragX(clamped);
+    // Fire setIsDragging immediately (once per gesture) — no re-render cost
+    if (!isDraggingRef.current) {
+      isDraggingRef.current = true;
+      setIsDragging(true);
+    }
+
+    // RAF-throttle setDragX to ≤60 Hz — eliminates per-event React re-renders
+    pendingDragX.current = clamped;
+    if (rafRef.current === null) {
+      rafRef.current = requestAnimationFrame(() => {
+        setDragX(pendingDragX.current);
+        rafRef.current = null;
+      });
+    }
   };
 
   const commitDrag = (finalClientX: number) => {
     const g = gestureRef.current;
     g.pointerId = null;
+
+    // Cancel any RAF pending from the last pointermove
+    if (rafRef.current !== null) {
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
+    }
 
     if (!isDraggingRef.current) {
       const el = containerRef.current;
@@ -197,12 +229,24 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
     const threshold = Math.min(containerWidth * 0.28, 90);
     const dx = finalClientX - g.startX;
 
+    const willGoNext = dx < -threshold && safeIdx < n - 1;
+    const willGoPrev = dx > threshold && safeIdx > 0;
+
+    // Snap-back: hide peek card so it doesn't visibly shoot across the screen
+    // while the spring resets it from one offscreen side to the other.
+    if (!willGoNext && !willGoPrev && peekCardRef.current) {
+      peekCardRef.current.style.visibility = "hidden";
+      setTimeout(() => {
+        if (peekCardRef.current) peekCardRef.current.style.visibility = "";
+      }, 380);
+    }
+
     isDraggingRef.current = false;
     setIsDragging(false);
     setDragX(0);
 
-    if (dx < -threshold && safeIdx < n - 1) goTo(safeIdx + 1);
-    else if (dx > threshold && safeIdx > 0) goTo(safeIdx - 1);
+    if (willGoNext) goTo(safeIdx + 1);
+    else if (willGoPrev) goTo(safeIdx - 1);
   };
 
   const onPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -212,6 +256,10 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
 
   const onPointerCancel = (e: React.PointerEvent<HTMLDivElement>) => {
     if (gestureRef.current.pointerId !== e.pointerId) return;
+    if (rafRef.current !== null) {
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
+    }
     gestureRef.current.pointerId = null;
     isDraggingRef.current = false;
     setIsDragging(false);
@@ -223,10 +271,22 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
   const currentPhoto = photos[safeIdx] ?? "";
   const peekPhoto = photos[peekIdx] ?? "";
 
-  // calc(100%) = element's own width = clip-div width = outer-div width.
-  const peekTransform = dragX > 0
-    ? `translateX(calc(-100% + ${dragX - CARD_GAP}px))`
-    : `translateX(calc(100% + ${dragX + CARD_GAP}px))`;
+  // ── Premium motion transforms ─────────────────────────────────────────────
+  const W = cardWidthRef.current;
+  const progress = W > 0 ? Math.min(Math.abs(dragX) / W, 1) : 0;
+
+  // Current card: shrinks (1→0.93), tilts (±3°), dips (0→8px) as it moves away
+  const curScale = (1 - progress * 0.07).toFixed(4);
+  const curRot   = W > 0 ? ((dragX / W) * 3).toFixed(2) : "0";
+  const curTy    = (progress * 8).toFixed(1);
+  const currentCardTransform =
+    `translate3d(${dragX}px,${curTy}px,0) scale(${curScale}) rotate(${curRot}deg)`;
+
+  // Peek card: grows (0.92→1.0) as it enters from its leading edge
+  const peekScale   = (0.92 + progress * 0.08).toFixed(4);
+  const peekBaseX   = dragX > 0 ? -(W + CARD_GAP) : (W + CARD_GAP);
+  const peekTx      = peekBaseX + dragX;
+  const peekTransform = `translate3d(${peekTx}px,0,0) scale(${peekScale})`;
 
   const springTransition = "transform 0.32s cubic-bezier(0.25, 1, 0.5, 1)";
 
@@ -312,6 +372,7 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
         {/* Peek card */}
         {n > 1 && peekIdx !== safeIdx && (
           <div
+            ref={peekCardRef}
             aria-hidden="true"
             style={{
               position: "absolute",
@@ -349,7 +410,7 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
             borderRadius: CARD_RADIUS,
             overflow: "hidden",
             zIndex: 2,
-            transform: `translateX(${dragX}px)`,
+            transform: currentCardTransform,
             transition: isDragging ? "none" : springTransition,
             willChange: "transform",
           }}
