@@ -143,7 +143,7 @@ export const insertMessageSchema = createInsertSchema(messages).omit({
   createdAt: true,
 });
 
-export const BENEFIT_TYPES = ["message_extension", "extra_call", "video_call", "voice_notes_unlock"] as const;
+export const BENEFIT_TYPES = ["message_extension", "extra_call", "video_call", "voice_notes_unlock", "undo_close"] as const;
 export type BenefitType = typeof BENEFIT_TYPES[number];
 
 export const userBenefits = pgTable("user_benefits", {
@@ -199,6 +199,13 @@ export const blockedContacts = pgTable("blocked_contacts", {
 }, (table) => [
   index("idx_blocked_contacts_user").on(table.userId),
 ]);
+
+export const processedStripeSessions = pgTable("processed_stripe_sessions", {
+  sessionId: varchar("session_id").primaryKey(),
+  userId: varchar("user_id").notNull(),
+  itemRef: text("item_ref").notNull().default(""),
+  grantedAt: timestamp("granted_at").defaultNow(),
+});
 
 export const activeSessions = pgTable("active_sessions", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),

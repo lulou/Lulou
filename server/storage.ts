@@ -2575,8 +2575,8 @@ export class SupabaseStorage implements IStorage {
       await db
         .update(userElevates)
         .set(isSuper
-          ? { elevateType: type, expiresAt, activatedAt, superElevateCredits: sql`super_elevate_credits - 1` }
-          : { elevateType: type, expiresAt, activatedAt, elevateCredits: sql`elevate_credits - 1` }
+          ? { elevateType: type, expiresAt, activatedAt, superElevateCredits: sql`GREATEST(super_elevate_credits - 1, 0)` }
+          : { elevateType: type, expiresAt, activatedAt, elevateCredits: sql`GREATEST(elevate_credits - 1, 0)` }
         )
         .where(eq(userElevates.userId, userId));
     } catch (err) {

@@ -5,7 +5,7 @@ import { SupabaseStorage, mapMatch, type CompleteCallOptions, geocodeLocation, g
 import { seedDatabase } from "./seed";
 import { z } from "zod";
 import type { Profile } from "@shared/schema";
-import { userBenefits, callCredits, activeSessions } from "@shared/schema";
+import { userBenefits, callCredits, activeSessions, processedStripeSessions } from "@shared/schema";
 import { supabase, supabaseAdmin, createUserClient, hasServiceRoleKey } from "./supabase";
 import { db } from "./db";
 import { eq, and, isNull, gt } from "drizzle-orm";
@@ -2490,6 +2490,29 @@ export async function registerRoutes(
       const item = itemId ? EXTRAS_ITEMS[itemId] : undefined;
       if (!item) return res.status(400).json({ message: "Unknown item in session metadata" });
 
+      // ── Idempotency guard ─────────────────────────────────────────────────
+      // Try to claim this session ID. The primary key on processed_stripe_sessions
+      // guarantees exactly-once granting even if the user refreshes the success
+      // page, retries over a network blip, or a webhook races the polling loop.
+      try {
+        await db.insert(processedStripeSessions).values({
+          sessionId,
+          userId,
+          itemRef: itemId ?? "",
+        });
+      } catch (insertErr: any) {
+        const isUniqueViolation =
+          insertErr.code === "23505" ||
+          String(insertErr?.message ?? "").toLowerCase().includes("unique") ||
+          String(insertErr?.message ?? "").toLowerCase().includes("duplicate");
+        if (isUniqueViolation) {
+          console.log(`[STRIPE] extras-activate: session ${sessionId} already processed for ${userId} — returning idempotent success`);
+          return res.json({ success: true, itemId, name: item.name, granted: [], mode: item.mode, alreadyProcessed: true });
+        }
+        throw insertErr;
+      }
+      // ─────────────────────────────────────────────────────────────────────
+
       const storage = getStorage(req);
       let grantedTypes: string[] = [];
 
@@ -2633,6 +2656,40 @@ export async function registerRoutes(
       const packId = session.metadata?.packId ?? "elevate-1";
       const pack = ELEVATE_PACKS[packId as keyof typeof ELEVATE_PACKS];
       if (!pack) return res.status(400).json({ message: "Unknown pack" });
+
+      // ── Idempotency guard ─────────────────────────────────────────────────
+      // Claim this session ID before touching credits. Duplicate calls (page
+      // refresh, double-tap, network retry) hit the unique PK and return the
+      // already-activated payload without re-granting any credits.
+      try {
+        await db.insert(processedStripeSessions).values({
+          sessionId,
+          userId,
+          itemRef: packId,
+        });
+      } catch (insertErr: any) {
+        const isUniqueViolation =
+          insertErr.code === "23505" ||
+          String(insertErr?.message ?? "").toLowerCase().includes("unique") ||
+          String(insertErr?.message ?? "").toLowerCase().includes("duplicate");
+        if (isUniqueViolation) {
+          console.log(`[STRIPE] elevate-activate: session ${sessionId} already processed for ${userId} — returning idempotent success`);
+          const statusResult = await getStorage(req).getElevateStatus(userId);
+          return res.json({
+            success: true,
+            packId,
+            elevateType: pack.type,
+            quantity: pack.quantity,
+            creditsAdded: 0,
+            boostActive: statusResult.active,
+            expiresAt: statusResult.expiresAt?.toISOString() ?? null,
+            durationMinutes: pack.type === "super_elevate" ? 60 : 30,
+            alreadyProcessed: true,
+          });
+        }
+        throw insertErr;
+      }
+      // ─────────────────────────────────────────────────────────────────────
 
       // Award all credits from the pack
       await getStorage(req).addElevateCredits(userId, pack.type, pack.quantity);
