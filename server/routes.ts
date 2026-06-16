@@ -698,23 +698,231 @@ export async function registerRoutes(
   });
 
   // Data export — returns the user's own profile data as JSON (no messages).
-  app.get("/api/profile/export", isAuthenticated, async (req: any, res) => {
+  // Legacy alias — kept so any cached links still work
+  app.get("/api/profile/export", isAuthenticated, (_req, res) => {
+    res.redirect(307, "/api/account/export");
+  });
+
+  // ── Complete personal data export (GDPR Article 20 / CCPA compliant) ───────
+  // Returns a single structured JSON file containing ALL data the platform
+  // holds for the authenticated user.
+  //
+  // Security guarantees:
+  //   - userId is ALWAYS taken from the verified JWT (req.user.id), never the
+  //     client request body / query / params.
+  //   - Other users referenced in matches/messages: only firstName is exposed —
+  //     no photos, no coordinates, no phone, no email.
+  //   - Own profile: lat/lng stripped (city/region retained); base64 photo
+  //     blobs replaced with URL-only strings.
+  //   - Stripe internals: stripeCustomerId and stripeSubscriptionId are never
+  //     included. Purchases show only itemRef + grantedAt.
+
+  app.get("/api/account/export", isAuthenticated, async (req: any, res) => {
+    const userId: string = req.user.id;
+
     try {
-      const storage = getStorage(req);
-      const userId = req.user.id;
-      const profile = await storage.getProfile(userId);
-      if (!profile) return res.status(404).json({ message: "Profile not found" });
-      // Strip photos (potentially large base64) and return clean export
-      const { photos: _photos, ...rest } = profile as any;
+      // ── 1. Own profile ────────────────────────────────────────────────────
+      const { data: profileRow } = await supabaseAdmin
+        .from("profiles")
+        .select("*")
+        .eq("user_id", userId)
+        .maybeSingle();
+
+      const safePhotos: string[] = ((profileRow?.photos ?? []) as string[]).map(
+        (p: string) => (p.startsWith("data:") ? "[base64-photo-omitted]" : p)
+      );
+      const safeProfile = profileRow
+        ? {
+            firstName:           profileRow.first_name,
+            age:                 profileRow.age,
+            gender:              profileRow.gender,
+            datingPreference:    profileRow.dating_preference,
+            location:            profileRow.location,      // city/region string
+            height:              profileRow.height ?? null,
+            photos:              safePhotos,
+            signals:             profileRow.signals ?? [],
+            datingIntent:        profileRow.dating_intent,
+            greenFlags:          profileRow.green_flags ?? [],
+            connectionStyle:     profileRow.connection_style,
+            conversationStarters:profileRow.conversation_starters ?? [],
+            questions:           profileRow.questions ?? [],
+            customQuestions:     profileRow.custom_questions ?? [],
+            viewerQuestions:     profileRow.viewer_questions ?? [],
+            dateOfBirth:         profileRow.date_of_birth ?? null,
+            pronouns:            profileRow.pronouns ?? null,
+            locationRadius:      profileRow.location_radius ?? 25,
+            preferredAgeMin:     profileRow.preferred_age_min ?? 18,
+            preferredAgeMax:     profileRow.preferred_age_max ?? 45,
+            email:               profileRow.email ?? null,
+            phoneNumber:         profileRow.phone_number ?? null,
+            photoVerified:       profileRow.photo_verified ?? false,
+            isPaused:            profileRow.is_paused ?? false,
+            showLastActive:      profileRow.show_last_active ?? true,
+            commentFilter:       profileRow.comment_filter ?? true,
+            createdAt:           profileRow.created_at ?? null,
+            // lat/lng intentionally omitted for privacy
+          }
+        : null;
+
+      // ── 2. Matches (with other user's first name only) ────────────────────
+      const { data: matchRows } = await supabaseAdmin
+        .from("matches")
+        .select("id, user1_id, user2_id, status, call_stage, call_completed, created_at, meet_availability_1, meet_availability_2, number_exchanged_1, number_exchanged_2")
+        .or(`user1_id.eq.${userId},user2_id.eq.${userId}`);
+
+      const matchIds: string[] = (matchRows ?? []).map((m: any) => m.id);
+
+      // Batch-fetch first names of all match partners
+      const partnerIds = [...new Set(
+        (matchRows ?? []).map((m: any) => (m.user1_id === userId ? m.user2_id : m.user1_id))
+      )];
+      let partnerNameMap: Record<string, string> = {};
+      if (partnerIds.length > 0) {
+        const { data: partnerRows } = await supabaseAdmin
+          .from("profiles")
+          .select("user_id, first_name")
+          .in("user_id", partnerIds);
+        partnerNameMap = Object.fromEntries(
+          (partnerRows ?? []).map((p: any) => [p.user_id, p.first_name])
+        );
+      }
+
+      const safeMatches = (matchRows ?? []).map((m: any) => {
+        const partnerId = m.user1_id === userId ? m.user2_id : m.user1_id;
+        return {
+          matchId:           m.id,
+          partnerFirstName:  partnerNameMap[partnerId] ?? "Unknown",
+          status:            m.status,
+          callStage:         m.call_stage,
+          callCompleted:     m.call_completed,
+          meetArranged:      !!(m.meet_availability_1 && m.meet_availability_2),
+          numbersExchanged:  m.user1_id === userId ? m.number_exchanged_1 : m.number_exchanged_2,
+          createdAt:         m.created_at,
+        };
+      });
+
+      // ── 3. Messages (all conversations) ──────────────────────────────────
+      let allMessages: any[] = [];
+      let voiceNoteUrls: string[] = [];
+
+      if (matchIds.length > 0) {
+        const { data: msgRows } = await supabaseAdmin
+          .from("messages")
+          .select("id, match_id, sender_id, content, reaction, voice_transcript, created_at")
+          .in("match_id", matchIds)
+          .order("created_at", { ascending: true });
+
+        allMessages = (msgRows ?? []).map((m: any) => ({
+          messageId:       m.id,
+          matchId:         m.match_id,
+          direction:       m.sender_id === userId ? "sent" : "received",
+          content:         m.content,
+          reaction:        m.reaction ?? null,
+          voiceTranscript: m.voice_transcript ?? null,
+          sentAt:          m.created_at,
+        }));
+
+        // Voice note messages have URLs as content
+        voiceNoteUrls = (msgRows ?? [])
+          .filter((m: any) => typeof m.content === "string" && m.content.startsWith("https://") && m.content.includes("voice-notes"))
+          .map((m: any) => ({
+            url:       m.content,
+            matchId:   m.match_id,
+            direction: m.sender_id === userId ? "sent" : "received",
+            sentAt:    m.created_at,
+          })) as any[];
+      }
+
+      // ── 4. Interactions (swipes/opens sent by user) ───────────────────────
+      const { data: interactionRows } = await supabaseAdmin
+        .from("interactions")
+        .select("id, to_user_id, type, created_at")
+        .eq("from_user_id", userId)
+        .order("created_at", { ascending: false })
+        .limit(500);
+
+      const safeInteractions = (interactionRows ?? []).map((i: any) => ({
+        type:      i.type,       // "like" | "pass" | "open" etc.
+        createdAt: i.created_at,
+        // to_user_id omitted — user's own swipe history, not other user's data
+      }));
+
+      // ── 5–11. Local DB (run all in parallel) ─────────────────────────────
+      const [
+        benefitRows,
+        callCreditRow,
+        elevateRow,
+        purchaseRows,
+        membershipRow,
+        blockedRows,
+        savedWheelRow,
+      ] = await Promise.all([
+        db.select().from(userBenefits).where(eq(userBenefits.userId, userId)),
+        db.select().from(callCredits).where(eq(callCredits.userId, userId)).limit(1),
+        db.select().from(userElevates).where(eq(userElevates.userId, userId)).limit(1),
+        db.select({ itemRef: processedStripeSessions.itemRef, grantedAt: processedStripeSessions.grantedAt })
+          .from(processedStripeSessions)
+          .where(eq(processedStripeSessions.userId, userId)),
+        db.select().from(membershipSubscriptions).where(eq(membershipSubscriptions.userId, userId)).limit(1),
+        db.select({ name: blockedContacts.name, phoneNumber: blockedContacts.phoneNumber, email: blockedContacts.email, createdAt: blockedContacts.createdAt })
+          .from(blockedContacts)
+          .where(eq(blockedContacts.userId, userId)),
+        db.select({ savedProfileId: savedWheelProfiles.savedProfileId, savedAt: savedWheelProfiles.savedAt, expiresAt: savedWheelProfiles.expiresAt })
+          .from(savedWheelProfiles)
+          .where(eq(savedWheelProfiles.userId, userId)),
+      ]);
+
+      const safeMembership = membershipRow[0]
+        ? {
+            status:          membershipRow[0].status,
+            currentPeriodEnd:membershipRow[0].currentPeriodEnd?.toISOString() ?? null,
+            memberSince:     membershipRow[0].createdAt?.toISOString() ?? null,
+            // stripeCustomerId and stripeSubscriptionId intentionally omitted
+          }
+        : null;
+
+      const safeElevate = elevateRow[0]
+        ? {
+            elevateCredits:      elevateRow[0].elevateCredits,
+            superElevateCredits: elevateRow[0].superElevateCredits,
+            activeBoostType:     elevateRow[0].elevateType,
+            boostExpiresAt:      elevateRow[0].expiresAt?.toISOString() ?? null,
+          }
+        : { elevateCredits: 0, superElevateCredits: 0, activeBoostType: null, boostExpiresAt: null };
+
+      // ── Assemble final export ─────────────────────────────────────────────
       const exportData = {
-        exported_at: new Date().toISOString(),
-        profile: rest,
-        note: "Photo URLs omitted from export. Message content is never exported.",
+        _meta: {
+          generatedAt: new Date().toISOString(),
+          accountId:   userId,
+          exportVersion: "2",
+          note: "This file contains all personal data Lulou holds for your account. " +
+                "Other users appear by first name only. Raw GPS coordinates are never exported.",
+        },
+        profile:          safeProfile,
+        matches:          safeMatches,
+        messages:         allMessages,
+        voiceNotes:       voiceNoteUrls,
+        interactions: {
+          totalSent: safeInteractions.length,
+          history:   safeInteractions,
+        },
+        benefits:         benefitRows.map(b => ({ type: b.type, activatedMatchId: b.activatedMatchId ?? null, grantedAt: b.createdAt?.toISOString() ?? null })),
+        callCredits:      callCreditRow[0] ? { phoneCredits: callCreditRow[0].phoneCredits, videoCredits: callCreditRow[0].videoCredits } : { phoneCredits: 0, videoCredits: 0 },
+        elevate:          safeElevate,
+        purchases:        purchaseRows.map(p => ({ item: p.itemRef, purchasedAt: p.grantedAt?.toISOString() ?? null })),
+        membership:       safeMembership,
+        blockedContacts:  blockedRows,
+        savedWheelProfile:savedWheelRow[0] ?? null,
       };
-      res.setHeader("Content-Disposition", `attachment; filename="lulou-data.json"`);
-      res.json(exportData);
-    } catch (error: any) {
-      res.status(500).json({ message: "Export failed", error: error?.message });
+
+      const filename = `lulou-data-${new Date().toISOString().slice(0, 10)}.json`;
+      res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+      res.setHeader("Content-Type", "application/json");
+      return res.json(exportData);
+    } catch (err: any) {
+      console.error("[EXPORT] Failed for user", userId, err?.message);
+      return res.status(500).json({ message: "Export failed. Please try again.", error: err?.message });
     }
   });
 

@@ -889,7 +889,7 @@ export const TRANSLATIONS = {
     bt_s4_body:                   "All payments are processed by Stripe (PCI-DSS Level 1). We do not store your card number or CVV. For billing queries email support@lulou.dating.",
     // settings.tsx — Download My Data
     export_data_title:            "Export your personal data",
-    export_data_desc:             "Download a JSON file containing your profile information, preferences, and account details. Message content is not included for privacy reasons.",
+    export_data_desc:             "Download a complete JSON file containing your profile, photos, matches, messages, voice notes, interactions, purchases, credits, and account settings.",
     // settings.tsx — Safe Dating Tips
     tip_voice_call_title:         "Start with a voice call",
     tip_voice_call_body:          "Lulou's structured call system lets you hear someone's voice before meeting. Pay attention to how they make you feel.",

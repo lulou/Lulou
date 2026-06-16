@@ -1430,7 +1430,7 @@ export default function SettingsPage() {
                 setIsExporting(true);
                 try {
                   const token = (await supabase.auth.getSession()).data.session?.access_token;
-                  const res = await fetch("/api/profile/export", {
+                  const res = await fetch("/api/account/export", {
                     headers: { Authorization: `Bearer ${token}` },
                   });
                   if (!res.ok) throw new Error("Export failed");
