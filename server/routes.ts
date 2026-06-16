@@ -1,5 +1,6 @@
 import type { Express, RequestHandler } from "express";
 import { createServer, type Server } from "http";
+import { randomUUID } from "crypto";
 import { SupabaseStorage, mapMatch, type CompleteCallOptions, geocodeLocation, getHasLatLngColumns } from "./storage";
 import { seedDatabase } from "./seed";
 import { z } from "zod";
@@ -487,10 +488,29 @@ export async function registerRoutes(
   app.get("/api/auth/user", isAuthenticated, async (req: any, res) => {
     try {
       const user = req.user;
-      res.json({
-        id: user.id,
-        email: user.email,
-      });
+      const clientSessionId = req.headers["x-session-id"] as string | undefined;
+
+      // If the client sent a session ID, verify it still matches the server record.
+      // This is the server-side source-of-truth check that catches stale devices
+      // after another device has logged in — including after a page refresh.
+      if (clientSessionId) {
+        try {
+          const { data: profile } = await supabaseAdmin
+            .from("profiles")
+            .select("active_session_id")
+            .eq("user_id", user.id)
+            .maybeSingle();
+
+          if (profile?.active_session_id && profile.active_session_id !== clientSessionId) {
+            console.log(`[SESSION] Stale session for user ${user.id.slice(0, 8)} — replaced by another device`);
+            return res.json({ id: user.id, email: user.email, sessionReplaced: true });
+          }
+        } catch {
+          // Non-fatal: let request through on DB error to avoid false-positive logouts
+        }
+      }
+
+      res.json({ id: user.id, email: user.email });
     } catch (error) {
       console.error("Error fetching user:", error);
       res.status(500).json({ message: "Failed to fetch user" });
@@ -498,12 +518,36 @@ export async function registerRoutes(
   });
 
   app.post("/api/auth/init", isAuthenticated, async (req: any, res) => {
-    // Auth is already verified by isAuthenticated middleware.
-    // Profile creation is handled by the onboarding flow — we do NOT create stub
-    // profiles here because a stub row with onboarding_complete=false would be
-    // indistinguishable from a real profile, breaking the "profile exists → app" routing.
-    if (IS_DEV) console.log("AUTH_INIT: Verified session for", req.user.id);
-    res.json({ ok: true });
+    const userId = req.user.id;
+
+    // Accept a client-generated sessionId so the client can pre-store it in
+    // localStorage BEFORE the server broadcasts — prevents the self-kick race
+    // where the broadcast fires before our own store is written.
+    const { sessionId: clientSessionId } = (req.body as { sessionId?: string }) || {};
+    const sessionId: string =
+      typeof clientSessionId === "string" && clientSessionId.length > 8
+        ? clientSessionId
+        : randomUUID(); // fallback if client didn't send one
+
+    // Persist to profiles.active_session_id so page-reload checks work without
+    // relying on Realtime.  UPDATE only — no stub profiles created here.
+    // Non-fatal if the column doesn't exist yet or user is still in onboarding.
+    try {
+      await supabaseAdmin
+        .from("profiles")
+        .update({ active_session_id: sessionId })
+        .eq("user_id", userId);
+    } catch (e: any) {
+      console.warn("[SESSION] Could not write active_session_id (non-fatal):", e?.message);
+    }
+
+    // Server-side broadcast kicks any currently-connected device instantly.
+    // Uses the Supabase HTTP API so it does not require a Realtime subscription
+    // to already be established on the other device.
+    broadcastViaHttpApi(`user-session:${userId}`, "session_replaced", { sessionId }).catch(() => {});
+
+    if (IS_DEV) console.log("[AUTH_INIT] Session registered:", userId.slice(0, 8), "→", sessionId.slice(0, 8));
+    res.json({ ok: true, sessionId });
   });
 
   // Fast startup check — returns profile WITHOUT photos (base64 photos skipped).
