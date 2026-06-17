@@ -3,14 +3,22 @@ import { createClient } from "@supabase/supabase-js";
 const isValidJwt = (key: string | undefined): boolean =>
   !!key && key.startsWith("eyJ") && key.length > 100;
 
-const envUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
-const envKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
+// Try uppercase (standard Vite convention) first, then lowercase fallback.
+// Vercel sometimes stores env var names in lowercase; both are now exposed
+// via envPrefix in vite.config.ts so we just need to try both here.
+const envUrl =
+  (import.meta.env.VITE_SUPABASE_URL as string | undefined) ||
+  (import.meta.env.vite_supabase_url as string | undefined);
+const envKey =
+  (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined) ||
+  (import.meta.env.vite_supabase_anon_key as string | undefined);
 
 // ── Diagnostics — dev only ────────────────────────────────────────────────────
 if (import.meta.env.DEV) {
-  console.log("ALL VITE ENV KEYS", Object.keys(import.meta.env).filter(k => k.startsWith("VITE")));
-  console.log("RAW VITE_SUPABASE_URL", import.meta.env.VITE_SUPABASE_URL);
-  console.log("RAW VITE_SUPABASE_ANON_KEY length", import.meta.env.VITE_SUPABASE_ANON_KEY?.length ?? "undefined");
+  const allKeys = Object.keys(import.meta.env);
+  console.log("ALL VITE ENV KEYS", allKeys.filter(k => k.toLowerCase().startsWith("vite")));
+  console.log("RAW VITE_SUPABASE_URL", import.meta.env.VITE_SUPABASE_URL ?? import.meta.env.vite_supabase_url ?? "(missing)");
+  console.log("RAW VITE_SUPABASE_ANON_KEY length", (import.meta.env.VITE_SUPABASE_ANON_KEY ?? import.meta.env.vite_supabase_anon_key)?.length ?? "undefined");
 }
 
 if (!envUrl) {

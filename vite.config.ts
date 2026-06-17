@@ -80,6 +80,10 @@ export default defineConfig({
       },
     },
   },
+  // Expose both VITE_ (standard) and vite_ (lowercase) prefixed variables.
+  // Vercel sometimes stores env var names in lowercase; this ensures both
+  // VITE_SUPABASE_URL and vite_supabase_url are visible in import.meta.env.
+  envPrefix: ["VITE_", "vite_"],
   server: {
     fs: {
       strict: true,

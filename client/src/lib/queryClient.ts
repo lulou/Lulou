@@ -7,11 +7,13 @@ import { trackRequest, perfStart, perfMark, isMobile, scheduleIdle } from "./per
 // frontend is deployed to Vercel/CDN.  Set VITE_API_BASE_URL in Vercel env
 // vars to the Replit backend origin, e.g. https://lulou-dating.replit.app
 // Leave unset (or set to "") for local / Replit fullstack mode.
-// Temporarily hardcoded while Vercel env var permissions are resolved.
-// TODO: revert to import.meta.env.VITE_API_BASE_URL once VITE_API_BASE_URL
-// is confirmed working in Vercel's Environment Variables panel.
+// Tries uppercase (VITE_API_BASE_URL) first, then lowercase (vite_api_base_url)
+// since Vercel may store the variable name in either case.
 export const API_BASE: string =
-  (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, "")
+  (
+    (import.meta.env.VITE_API_BASE_URL as string | undefined) ||
+    (import.meta.env.vite_api_base_url as string | undefined)
+  )?.replace(/\/$/, "")
   ?? "https://lulou-dating.replit.app";
 
 // ── Cross-origin deploy detection ─────────────────────────────────────────────
