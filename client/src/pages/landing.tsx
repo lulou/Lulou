@@ -189,6 +189,7 @@ export default function Landing() {
   const [verificationEmail, setVerificationEmail] = useState<string | null>(null);
   const [resendLoading, setResendLoading] = useState(false);
   const [resendSent, setResendSent] = useState(false);
+  const [resendError, setResendError] = useState<string | null>(null);
   const { toast } = useToast();
 
   // Refs to the actual DOM inputs — read directly in handleSubmit to cover
@@ -518,7 +519,17 @@ export default function Landing() {
           authCallsThisAttempt: authCallCountRef.current,
         });
         const signUpResult = await Promise.race([
-          supabase.auth.signUp({ email: trimmedEmail, password: effectivePassword }),
+          supabase.auth.signUp({
+            email: trimmedEmail,
+            password: effectivePassword,
+            options: {
+              // Ensures the confirmation link in the email redirects back to this
+              // exact app URL, not the Supabase "Site URL" configured in the dashboard.
+              // Without this, confirmation links point to the wrong host in development
+              // and break for deployed apps whose URL differs from the dashboard setting.
+              emailRedirectTo: window.location.origin,
+            },
+          }),
           timeoutPromise,
         ]);
         const { data, error } = signUpResult;
@@ -754,12 +765,29 @@ export default function Landing() {
   async function handleResendVerification() {
     if (!verificationEmail) return;
     setResendLoading(true);
+    setResendError(null);
+    setResendSent(false);
     try {
-      const { error } = await supabase.auth.resend({ type: "signup", email: verificationEmail });
-      if (error) throw error;
+      console.log("[AUTH] RESEND_VERIFICATION_START", { email: verificationEmail.slice(0, 4) + "***", redirectTo: window.location.origin });
+      const { error } = await supabase.auth.resend({
+        type: "signup",
+        email: verificationEmail,
+        options: {
+          // Must match the emailRedirectTo used in signUp so the confirmation link
+          // points to the correct app URL — not the Supabase dashboard "Site URL".
+          emailRedirectTo: window.location.origin,
+        },
+      });
+      if (error) {
+        console.error("[AUTH] RESEND_VERIFICATION_ERROR", { message: error.message, status: (error as any).status, code: (error as any).code });
+        throw error;
+      }
+      console.log("[AUTH] RESEND_VERIFICATION_SUCCESS — Supabase queued the email");
       setResendSent(true);
     } catch (err: any) {
-      toast({ title: "Resend failed", description: err?.message ?? "Try again.", variant: "destructive" });
+      const msg = err?.message ?? "Could not resend — please try again.";
+      console.error("[AUTH] RESEND_VERIFICATION_THROW", { message: msg });
+      setResendError(msg);
     } finally {
       setResendLoading(false);
     }
@@ -781,9 +809,19 @@ export default function Landing() {
         </div>
         <div className="w-full max-w-sm space-y-3">
           {resendSent ? (
-            <div className="flex items-center gap-2 justify-center text-sm text-primary py-2">
-              <CheckCircle className="w-4 h-4" />
-              {t("landing_conf_resent")}
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center gap-2 justify-center text-sm text-primary py-2" data-testid="text-resend-success">
+                <CheckCircle className="w-4 h-4 flex-shrink-0" />
+                {t("landing_conf_resent")}
+              </div>
+              <button
+                onClick={handleResendVerification}
+                disabled={resendLoading}
+                className="w-full text-xs text-muted-foreground hover:text-primary transition-colors py-1 disabled:opacity-50"
+                data-testid="button-resend-again"
+              >
+                {resendLoading ? t("landing_resending") : t("landing_resend_conf_email")}
+              </button>
             </div>
           ) : (
             <Button
@@ -799,11 +837,18 @@ export default function Landing() {
               )}
             </Button>
           )}
+          {resendError && (
+            <div className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2" data-testid="text-resend-error">
+              <AlertCircle className="w-4 h-4 text-destructive flex-shrink-0 mt-0.5" />
+              <p className="text-xs text-destructive leading-snug">{resendError}</p>
+            </div>
+          )}
           <button
             onClick={() => {
               setVerificationEmail(null);
               setMode("signin");
               setResendSent(false);
+              setResendError(null);
             }}
             className="w-full text-sm text-muted-foreground hover:text-primary transition-colors py-2"
             data-testid="button-back-to-signin"

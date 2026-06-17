@@ -1329,8 +1329,22 @@ function VerifyEmailGate({
     setResendLoading(true);
     setResendError(null);
     try {
-      const { error } = await supabase.auth.resend({ type: "signup", email });
-      if (error) throw error;
+      console.log("[AUTH] VERIFY_GATE_RESEND_START", { email: email.slice(0, 4) + "***", redirectTo: window.location.origin });
+      const { error } = await supabase.auth.resend({
+        type: "signup",
+        email,
+        options: {
+          // Must point to the running app URL so the confirmation link works.
+          // Without this it falls back to Supabase's "Site URL" dashboard setting
+          // which may be wrong in development or on a custom domain.
+          emailRedirectTo: window.location.origin,
+        },
+      });
+      if (error) {
+        console.error("[AUTH] VERIFY_GATE_RESEND_ERROR", { message: error.message, status: (error as any).status, code: (error as any).code });
+        throw error;
+      }
+      console.log("[AUTH] VERIFY_GATE_RESEND_SUCCESS — Supabase queued the email");
       setResendSent(true);
     } catch (err: any) {
       setResendError(err?.message ?? t("verify_email_resend_err"));
