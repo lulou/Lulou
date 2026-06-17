@@ -22,6 +22,7 @@ import LikesPage from "@/pages/likes";
 import ElevateSuccessPage from "@/pages/elevate-success";
 import ExtrasSuccessPage from "@/pages/extras-success";
 import DragTestPage from "@/pages/drag-test";
+import AdminDiagnosticsPage from "@/pages/admin-diagnostics";
 import {
   PrivacyPolicyPage,
   TermsOfServicePage,
@@ -1569,6 +1570,112 @@ function VerifyEmailGate({
   );
 }
 
+// ── Password Recovery Gate ────────────────────────────────────────────────────
+// Shown when the user arrives via a Supabase password-reset email link.
+// The PASSWORD_RECOVERY auth event (fired by detectSessionInUrl:true) sets
+// passwordRecovery=true in AuthProvider, which causes AppContent to render
+// this gate instead of the normal app.  On success the user is signed out so
+// they land on the sign-in screen with a fresh session.
+function PasswordRecoveryGate({ onDone }: { onDone: () => void }) {
+  const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [done, setDone] = useState(false);
+  const [showPw, setShowPw] = useState(false);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (password.length < 8) { setError("Password must be at least 8 characters."); return; }
+    if (password !== confirm)  { setError("Passwords don't match."); return; }
+    setLoading(true);
+    setError(null);
+    try {
+      const { error: updateError } = await supabase.auth.updateUser({ password });
+      if (updateError) throw updateError;
+      setDone(true);
+      console.log("[AUTH] PASSWORD_RECOVERY_SUCCESS — signing out recovery session");
+      // Sign out the temporary recovery session so the user lands on the
+      // sign-in screen and logs in fresh with their new password.
+      setTimeout(async () => {
+        await supabase.auth.signOut();
+        onDone();
+      }, 2000);
+    } catch (err: any) {
+      setError(err?.message ?? "Could not update password — please try again.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-background px-5">
+      <div className="w-full max-w-sm space-y-5">
+        <div className="text-center space-y-1">
+          <h1 className="font-display text-2xl font-semibold tracking-tight">Set a new password</h1>
+          <p className="text-sm text-muted-foreground">Enter and confirm your new password below.</p>
+        </div>
+
+        {done ? (
+          <div className="flex items-center gap-2 rounded-md border border-green-200 bg-green-50 px-3 py-3 text-sm text-green-800">
+            <CheckCircle className="w-4 h-4 shrink-0" />
+            <span>Password updated! Signing you out…</span>
+          </div>
+        ) : (
+          <form onSubmit={handleSubmit} className="space-y-3">
+            <div className="relative">
+              <input
+                type={showPw ? "text" : "password"}
+                value={password}
+                onChange={e => setPassword(e.target.value)}
+                placeholder="New password"
+                autoComplete="new-password"
+                className="w-full rounded-md border border-input bg-background px-3 py-2.5 pr-10 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                data-testid="input-new-password"
+                disabled={loading}
+              />
+              <button
+                type="button"
+                onClick={() => setShowPw(v => !v)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                tabIndex={-1}
+              >
+                {showPw ? "Hide" : "Show"}
+              </button>
+            </div>
+            <input
+              type={showPw ? "text" : "password"}
+              value={confirm}
+              onChange={e => setConfirm(e.target.value)}
+              placeholder="Confirm password"
+              autoComplete="new-password"
+              className="w-full rounded-md border border-input bg-background px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+              data-testid="input-confirm-password"
+              disabled={loading}
+            />
+
+            {error && (
+              <div className="flex items-center gap-2 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2.5 text-sm text-destructive">
+                <Mail className="w-4 h-4 shrink-0" />
+                <span>{error}</span>
+              </div>
+            )}
+
+            <button
+              type="submit"
+              disabled={loading || !password || !confirm}
+              className="w-full py-2.5 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-50"
+              data-testid="button-set-password"
+            >
+              {loading ? "Setting password…" : "Set password"}
+            </button>
+          </form>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function AppContent() {
   const [location] = useLocation();
 
@@ -1590,7 +1697,7 @@ function AppContent() {
     return <LegalComponent />;
   }
 
-  const { user, isLoading: authLoading, profileReady, clearingCache, logout } = useAuth();
+  const { user, isLoading: authLoading, profileReady, clearingCache, logout, passwordRecovery, clearPasswordRecovery } = useAuth();
 
   // ── Server-side email verification gate ──────────────────────────────────
   // Catches auto-confirmed accounts when Supabase "Confirm email" is OFF.
@@ -1851,6 +1958,18 @@ function AppContent() {
     return <Landing />;
   }
 
+  // ── Password recovery gate ────────────────────────────────────────────────
+  // Fires when the user arrives via a password-reset email link.
+  // detectSessionInUrl:true reads the #access_token=...&type=recovery hash and
+  // fires onAuthStateChange(PASSWORD_RECOVERY), which sets passwordRecovery=true.
+  // Show the reset form immediately — before any other gate — so the user can
+  // set their new password without being sent to the verification or onboarding
+  // flow first.
+  if (passwordRecovery) {
+    console.log("[SETUP] FINAL_APP_GATE: password_recovery — showing PasswordRecoveryGate", { userId: user.id });
+    return <PasswordRecoveryGate onDone={clearPasswordRecovery} />;
+  }
+
   // ── Email verification gate ───────────────────────────────────────────────
   // If the user has a session but hasn't confirmed their email, block access
   // to the app and prompt them to verify. email_confirmed_at is null until
@@ -2079,6 +2198,7 @@ function AppContent() {
     <Switch>
       <Route path="/elevate/success" component={ElevateSuccessPage} />
       <Route path="/extras/success" component={ExtrasSuccessPage} />
+      <Route path="/admin/diagnostics" component={AdminDiagnosticsPage} />
       <Route>
         <AppLayout>
           <PersistentTabs />

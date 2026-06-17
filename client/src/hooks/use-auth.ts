@@ -38,6 +38,12 @@ type AuthContextType = {
   // is already active on another device.  Cleared by clearDeviceBlocked().
   deviceBlocked: boolean;
   clearDeviceBlocked: () => void;
+  // Password recovery — true when the user arrives via a password-reset link.
+  // The PASSWORD_RECOVERY auth event fires after detectSessionInUrl:true reads
+  // the #access_token=...&type=recovery hash.  A PasswordRecoveryGate is shown
+  // until the user sets a new password and we call clearPasswordRecovery().
+  passwordRecovery: boolean;
+  clearPasswordRecovery: () => void;
 };
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -46,6 +52,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [profileReady, setProfileReady] = useState(false);
+  const [passwordRecovery, setPasswordRecovery] = useState(false);
   // When true, the query cache is being cleared after an account change.
   // AppContent must not start the profile-exists-check query until this is false,
   // otherwise queryClient.clear() fires mid-flight and resets the in-progress
@@ -204,6 +211,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return;
       }
 
+      // PASSWORD_RECOVERY fires when the user clicks a password-reset link and
+      // detectSessionInUrl:true reads the #access_token=...&type=recovery hash.
+      // Set the passwordRecovery flag so the app renders a PasswordRecoveryGate
+      // instead of the normal UI while the user sets their new password.
+      if (event === "PASSWORD_RECOVERY") {
+        setPasswordRecovery(true);
+        console.log("[AUTH] PASSWORD_RECOVERY_SESSION — showing password recovery gate");
+      }
+
       // All other events (INITIAL_SESSION, TOKEN_REFRESHED, SIGNED_OUT, etc.)
       // proceed with the normal synchronous path.
       //
@@ -356,6 +372,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, [user?.id]);
 
+  const clearPasswordRecovery = useCallback(() => {
+    setPasswordRecovery(false);
+  }, []);
+
   const value: AuthContextType = {
     user,
     isLoading,
@@ -367,6 +387,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     clearingCache,
     deviceBlocked,
     clearDeviceBlocked,
+    passwordRecovery,
+    clearPasswordRecovery,
   };
 
   return createElement(AuthContext.Provider, { value }, children);

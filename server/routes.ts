@@ -236,6 +236,33 @@ function getCallStorage(req: any): SupabaseStorage {
 // ── Email verification enforcement ────────────────────────────────────────────
 // All protected API routes require a confirmed email address.
 // We cache the result per-user for 5 minutes so the Supabase admin API is
+// ── Email event diagnostics ring buffer ───────────────────────────────────────
+// Captures all email-related auth events for the admin diagnostics page.
+// In-memory only — resets on server restart.  Capped at 500 events.
+type EmailEventType =
+  | "signup_otp_sent" | "signup_otp_rate_limited" | "signup_otp_send_failed"
+  | "otp_verified" | "otp_verify_failed"
+  | "resend_queued" | "resend_rate_limited" | "resend_failed"
+  | "verified" | "blocked_unconfirmed" | "blocked_auto_confirmed"
+  | "pwd_reset_sent" | "pwd_reset_failed";
+
+interface EmailEvent {
+  ts: string;
+  type: EmailEventType;
+  userId?: string;   // truncated to 8 chars
+  email?: string;    // truncated to 4 chars + ***
+  note?: string;
+  success: boolean;
+}
+
+const _emailEventLog: EmailEvent[] = [];
+const EMAIL_LOG_MAX = 500;
+
+function logEmailEvent(ev: Omit<EmailEvent, "ts">) {
+  _emailEventLog.push({ ts: new Date().toISOString(), ...ev });
+  if (_emailEventLog.length > EMAIL_LOG_MAX) _emailEventLog.shift();
+}
+
 // called at most once per user per cache window rather than on every request.
 // On admin API error we fail open (allow the request) to avoid blocking
 // legitimate users during transient Supabase outages.
@@ -265,6 +292,7 @@ async function checkEmailVerified(userId: string): Promise<boolean> {
     if (!user.email_confirmed_at) {
       _emailVerifiedCache.set(userId, { verified: false, expiresAt: now + EMAIL_VERIFIED_UNVERIFIED_TTL_MS });
       console.warn(`[AUTH] EMAIL_NOT_VERIFIED (null confirmed_at): userId=${userId.slice(0, 8)}`);
+      logEmailEvent({ type: "blocked_unconfirmed", userId: userId.slice(0, 8), success: false, note: "email_confirmed_at is null" });
       return false;
     }
 
@@ -283,10 +311,12 @@ async function checkEmailVerified(userId: string): Promise<boolean> {
     ) {
       _emailVerifiedCache.set(userId, { verified: false, expiresAt: now + EMAIL_VERIFIED_UNVERIFIED_TTL_MS });
       console.warn(`[AUTH] AUTO_CONFIRMED_UNVERIFIED: userId=${userId.slice(0, 8)} (confirmed_at≈created_at — Supabase "Confirm email" may be OFF, OTP required)`);
+      logEmailEvent({ type: "blocked_auto_confirmed", userId: userId.slice(0, 8), success: false, note: "confirmed_at ≈ created_at (auto-confirmed)" });
       return false;
     }
 
     _emailVerifiedCache.set(userId, { verified: true, expiresAt: now + EMAIL_VERIFIED_CACHE_TTL_MS });
+    logEmailEvent({ type: "verified", userId: userId.slice(0, 8), success: true });
     return true;
   } catch (e: any) {
     console.error("[AUTH] checkEmailVerified error (fail-open):", e?.message);
@@ -656,8 +686,11 @@ export async function registerRoutes(
       const { error } = await supabase.auth.signInWithOtp({ email, options: { shouldCreateUser: false } });
       if (error) {
         console.error("[AUTH] send-otp error:", error.message);
-        return res.status(400).json({ message: error.message });
+        const isRateLimit = error.message?.toLowerCase().includes("rate") || (error as any).status === 429;
+        logEmailEvent({ type: isRateLimit ? "signup_otp_rate_limited" : "signup_otp_send_failed", email: email.slice(0, 4) + "***", success: false, note: error.message });
+        return res.status(isRateLimit ? 429 : 400).json({ message: error.message });
       }
+      logEmailEvent({ type: "signup_otp_sent", email: email.slice(0, 4) + "***", success: true });
       console.log(`[AUTH] OTP_SENT to ${email.slice(0, 4)}***`);
       return res.json({ message: "Verification code sent" });
     } catch (e: any) {
@@ -681,6 +714,7 @@ export async function registerRoutes(
       const { error } = await supabase.auth.verifyOtp({ email, token: code, type: "email" });
       if (error) {
         console.error("[AUTH] confirm-otp error:", error.message);
+        logEmailEvent({ type: "otp_verify_failed", email: email.slice(0, 4) + "***", userId: userId?.slice(0, 8), success: false, note: error.message });
         return res.status(400).json({ message: error.message });
       }
 
@@ -693,6 +727,7 @@ export async function registerRoutes(
             .then(() => {}, () => {});
         }
       }
+      logEmailEvent({ type: "otp_verified", email: email.slice(0, 4) + "***", userId: userId?.slice(0, 8), success: true });
       console.log(`[AUTH] OTP_VERIFIED userId=${userId?.slice(0, 8) ?? "??"}`);
       return res.json({ message: "Email verified successfully" });
     } catch (e: any) {
@@ -706,6 +741,35 @@ export async function registerRoutes(
   // Supabase "Confirm email" setting is OFF.
   app.get("/api/auth/verify/status", isAuthenticated, (req: any, res) => {
     res.json({ emailVerified: true, userId: req.user.id });
+  });
+
+  // ── Admin email diagnostics ───────────────────────────────────────────────
+  // Returns the in-memory email event log.  Gated by isAuthenticated and the
+  // ADMIN_EMAIL env var (comma-separated list of admin email addresses).
+  // If ADMIN_EMAIL is not set, only allows access in development mode.
+  app.get("/api/admin/email-diagnostics", isAuthenticated, (req: any, res) => {
+    const adminEmails = (process.env.ADMIN_EMAIL ?? "")
+      .split(",").map((e) => e.trim().toLowerCase()).filter(Boolean);
+    const requestEmail = (req.user.email ?? "").toLowerCase();
+    const isDev = process.env.NODE_ENV !== "production";
+    const isAdmin = adminEmails.includes(requestEmail) || (isDev && adminEmails.length === 0);
+    if (!isAdmin) {
+      return res.status(403).json({ message: "Admin access required. Set ADMIN_EMAIL env var." });
+    }
+    const summary = {
+      total: _emailEventLog.length,
+      sent: _emailEventLog.filter(e => e.type === "signup_otp_sent" || e.type === "resend_queued").length,
+      failed: _emailEventLog.filter(e => !e.success).length,
+      rateLimited: _emailEventLog.filter(e => e.type === "signup_otp_rate_limited" || e.type === "resend_rate_limited").length,
+      verified: _emailEventLog.filter(e => e.type === "verified" || e.type === "otp_verified").length,
+      blocked: _emailEventLog.filter(e => e.type === "blocked_unconfirmed" || e.type === "blocked_auto_confirmed").length,
+    };
+    return res.json({
+      summary,
+      events: [..._emailEventLog].reverse(), // newest first
+      serverUptime: process.uptime(),
+      enforcementDate: new Date(VERIFICATION_ENFORCEMENT_TS).toISOString(),
+    });
   });
 
   app.get("/api/auth/user", isAuthenticated, async (req: any, res) => {

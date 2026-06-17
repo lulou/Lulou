@@ -12,3 +12,4 @@
 - [Phantom call / missed ring bugs](phantom-call-bugs.md) — three root causes fixed in call signaling; see topic file.
 - [Call polling gate stale reset](call-polling-gate-reset.md) — hasRingRef.current must be reset when all call memos return null; stale-call timeout (90 s) bypasses the normal callEndedCallback path and leaves it permanently true, freezing refetchInterval.
 - [Voice notes cross-platform](voice-notes-cross-platform.md) — Safari/iOS cannot record WebM/OGG; MIME chain must include "audio/mp4" fallback. Server ext detection must handle mp4/m4a/aac. Chrome→Safari cross-play requires transcoding (not yet implemented; shows "Unable to play" error state instead).
+- [Email verification system](email-verification-system.md) — Full 3-layer email verification system; detectSessionInUrl MUST be true; PASSWORD_RECOVERY event handled via passwordRecovery state in AuthContext; admin diagnostics at /admin/diagnostics gated by ADMIN_EMAIL env var.

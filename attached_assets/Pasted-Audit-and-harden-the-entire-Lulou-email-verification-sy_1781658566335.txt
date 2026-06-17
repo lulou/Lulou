@@ -1,0 +1,87 @@
+Audit and harden the entire Lulou email verification system for production.
+
+Current status:
+
+Supabase “Confirm email” is enabled.
+Site URL is set to https://lulouapp.vercel.app
+Redirect URL is set to https://lulouapp.vercel.app/**
+emailRedirectTo has been added to signup and resend flows.
+Users now receive proper Supabase rate-limit errors instead of silent failures.
+Tasks:
+
+Verify the entire signup → verification → onboarding flow end-to-end.
+
+New signup
+Verification email sent
+Email link opens correctly on production
+Session created after verification
+User reaches onboarding
+User cannot access app features until verified
+Search the entire codebase for:
+
+signUp(
+resend(
+emailRedirectTo
+localhost
+auth/callback
+verify-email
+email confirmation logic
+Confirm there are no remaining localhost URLs, stale redirect URLs, or hardcoded development domains anywhere in the codebase.
+Audit all Supabase authentication behaviour:
+
+Signup
+Login
+Password reset
+Email verification
+Session refresh
+Resend verification
+Verify unverified users cannot:
+
+Access Discover
+Access Likes
+Access Connections
+Send messages
+Start calls
+Purchase extras
+Access premium features
+Verify verified users can:
+
+Sign in normally
+Access all features
+Complete onboarding
+Purchase memberships and extras
+Investigate current email sending limits.
+
+Confirm whether failures are caused by Supabase default email limits.
+Report exact rate limits being hit.
+Identify whether custom SMTP is required before launch.
+Design a production-ready email infrastructure plan.
+Include:
+
+Recommended SMTP provider
+Estimated monthly cost
+Expected sending limits
+Deliverability recommendations
+SPF
+DKIM
+DMARC
+Custom sender domain setup
+Add a diagnostics page or admin diagnostics logs showing:
+
+Email sent
+Email failed
+Email rate limited
+Verification completed
+Verification pending
+Resend attempts
+Run:
+npm run check
+npm run build
+Provide a final report containing:
+
+Issues found
+Security risks
+Production blockers
+Recommended fixes
+Email infrastructure recommendation
+Production readiness score out of 100

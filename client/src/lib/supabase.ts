@@ -184,7 +184,12 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
     persistSession:      true,
     autoRefreshToken:    true,
-    detectSessionInUrl:  false,
+    // MUST be true so the SDK reads the #access_token=...&type=signup (or
+    // type=recovery) hash fragment that Supabase appends to the emailRedirectTo
+    // URL after the user clicks a confirmation / password-reset email link.
+    // With false, the hash is silently ignored and no session is created —
+    // the user lands on the app but isn't logged in even after confirming.
+    detectSessionInUrl:  true,
     flowType:            "implicit",
     storageKey:          _storageKey,   // derived from VITE_SUPABASE_URL, not hardcoded
   },

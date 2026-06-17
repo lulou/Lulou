@@ -186,6 +186,7 @@ export default function Landing() {
   const [showRawError, setShowRawError] = useState(false);
   const [resetLoading, setResetLoading] = useState(false);
   const [resetSent, setResetSent] = useState(false);
+  const [resetError, setResetError] = useState<string | null>(null);
   const [verificationEmail, setVerificationEmail] = useState<string | null>(null);
   const [resendLoading, setResendLoading] = useState(false);
   const [resendSent, setResendSent] = useState(false);
@@ -285,6 +286,7 @@ export default function Landing() {
     setRawAuthError(null);
     setShowRawError(false);
     setResetSent(false);
+    setResetError(null);
   }
 
   function clearError() {
@@ -304,18 +306,28 @@ export default function Landing() {
   async function handlePasswordReset() {
     if (!email.trim()) return;
     setResetLoading(true);
+    setResetError(null);
     try {
-      const { error } = await supabase.auth.resetPasswordForEmail(email.trim());
+      console.log("[AUTH] RESET_PASSWORD_START", { email: email.trim().slice(0, 4) + "***", redirectTo: window.location.origin });
+      const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+        // Ensures the reset link redirects back to this exact app URL.
+        // Without this, the link goes to Supabase's "Site URL" dashboard setting
+        // which may be wrong in dev or after a deployment URL change.
+        redirectTo: window.location.origin,
+      });
       if (error) {
-        console.error("[AUTH] RESET_PASSWORD_FAILED", error.message);
-        toast({ title: "Reset failed", description: error.message, variant: "destructive" });
+        console.error("[AUTH] RESET_PASSWORD_FAILED", { message: error.message, status: (error as any).status, code: (error as any).code });
+        setResetError(error.message);
       } else {
+        console.log("[AUTH] RESET_PASSWORD_SUCCESS — Supabase queued the reset email");
         setResetSent(true);
+        setResetError(null);
         setAuthError(null);
       }
     } catch (err: any) {
-      console.error("[AUTH] RESET_PASSWORD_ERROR", err?.message);
-      toast({ title: "Reset failed", description: err?.message || "Try again.", variant: "destructive" });
+      const msg = err?.message ?? "Could not send reset email — please try again.";
+      console.error("[AUTH] RESET_PASSWORD_ERROR", msg);
+      setResetError(msg);
     } finally {
       setResetLoading(false);
     }
@@ -1047,6 +1059,20 @@ export default function Landing() {
                   <div className="space-y-0.5">
                     <p className="font-medium leading-tight">{t("landing_reset_sent_title")}</p>
                     <p className="text-xs opacity-80">{t("landing_reset_sent_desc")}</p>
+                  </div>
+                </div>
+              )}
+
+              {resetError && !resetSent && (
+                <div
+                  className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2.5 text-sm text-destructive"
+                  data-testid="text-reset-error"
+                  role="alert"
+                >
+                  <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
+                  <div className="space-y-0.5">
+                    <p className="font-medium leading-tight">Reset email failed</p>
+                    <p className="text-xs opacity-80">{resetError}</p>
                   </div>
                 </div>
               )}
