@@ -1316,7 +1316,14 @@ function VerifyEmailGate({
   const [resendLoading, setResendLoading] = useState(false);
   const [resendSent, setResendSent] = useState(false);
   const [resendError, setResendError] = useState<string | null>(null);
+  const [resendCooldown, setResendCooldown] = useState(0); // seconds remaining
   const [refreshLoading, setRefreshLoading] = useState(false);
+
+  useEffect(() => {
+    if (resendCooldown <= 0) return;
+    const id = setInterval(() => setResendCooldown(s => Math.max(0, s - 1)), 1000);
+    return () => clearInterval(id);
+  }, [resendCooldown]);
 
   // OTP verification state (used when otpMode=true)
   const [otpSent, setOtpSent] = useState(false);
@@ -1327,7 +1334,7 @@ function VerifyEmailGate({
   const [otpVerified, setOtpVerified] = useState(false);
 
   const handleResend = useCallback(async () => {
-    if (!email) return;
+    if (!email || resendCooldown > 0) return;
     setResendLoading(true);
     setResendError(null);
     try {
@@ -1347,12 +1354,20 @@ function VerifyEmailGate({
       }
       console.log("[AUTH] VERIFY_GATE_RESEND_SUCCESS — Supabase queued the email");
       setResendSent(true);
+      setResendCooldown(60);
     } catch (err: any) {
-      setResendError(err?.message ?? t("verify_email_resend_err"));
+      const raw: string = err?.message ?? "";
+      const isRateLimit = /rate.?limit|too.?many|over_email/i.test(raw);
+      setResendError(
+        isRateLimit
+          ? "Email just sent — please wait a minute before requesting another."
+          : (raw || t("verify_email_resend_err")),
+      );
+      if (isRateLimit) setResendCooldown(60);
     } finally {
       setResendLoading(false);
     }
-  }, [email, t]);
+  }, [email, resendCooldown, t]);
 
   // After clicking the verification link in another tab, the user can tap here
   // to refresh their session.  onAuthStateChange in AuthProvider will pick up
@@ -1533,11 +1548,13 @@ function VerifyEmailGate({
           <button
             className="w-full py-2.5 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-60 flex items-center justify-center gap-2"
             onClick={handleResend}
-            disabled={resendLoading || !email}
+            disabled={resendLoading || !email || resendCooldown > 0}
             data-testid="button-resend-verify-gate"
           >
             {resendLoading ? (
               <><Loader2 className="w-4 h-4 animate-spin" /> {t("verify_email_resending")}</>
+            ) : resendCooldown > 0 ? (
+              `Resend in ${resendCooldown}s`
             ) : (
               t("verify_email_resend_btn")
             )}

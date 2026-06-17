@@ -191,6 +191,13 @@ export default function Landing() {
   const [resendLoading, setResendLoading] = useState(false);
   const [resendSent, setResendSent] = useState(false);
   const [resendError, setResendError] = useState<string | null>(null);
+  const [resendCooldown, setResendCooldown] = useState(0); // seconds remaining
+
+  useEffect(() => {
+    if (resendCooldown <= 0) return;
+    const id = setInterval(() => setResendCooldown(s => Math.max(0, s - 1)), 1000);
+    return () => clearInterval(id);
+  }, [resendCooldown]);
   const { toast } = useToast();
 
   // Refs to the actual DOM inputs — read directly in handleSubmit to cover
@@ -778,7 +785,7 @@ export default function Landing() {
   }
 
   async function handleResendVerification() {
-    if (!verificationEmail) return;
+    if (!verificationEmail || resendCooldown > 0) return;
     setResendLoading(true);
     setResendError(null);
     setResendSent(false);
@@ -799,10 +806,17 @@ export default function Landing() {
       }
       console.log("[AUTH] RESEND_VERIFICATION_SUCCESS — Supabase queued the email");
       setResendSent(true);
+      setResendCooldown(60); // prevent spam; Supabase / custom SMTP both throttle fast repeats
     } catch (err: any) {
-      const msg = err?.message ?? "Could not resend — please try again.";
-      console.error("[AUTH] RESEND_VERIFICATION_THROW", { message: msg });
+      const raw: string = err?.message ?? "";
+      // Translate technical Supabase rate-limit messages into user-friendly text
+      const isRateLimit = /rate.?limit|too.?many|over_email/i.test(raw);
+      const msg = isRateLimit
+        ? "Email just sent — please wait a minute before requesting another."
+        : (raw || "Could not resend — please try again.");
+      console.error("[AUTH] RESEND_VERIFICATION_THROW", { message: raw });
       setResendError(msg);
+      if (isRateLimit) setResendCooldown(60);
     } finally {
       setResendLoading(false);
     }
@@ -831,22 +845,28 @@ export default function Landing() {
               </div>
               <button
                 onClick={handleResendVerification}
-                disabled={resendLoading}
+                disabled={resendLoading || resendCooldown > 0}
                 className="w-full text-xs text-muted-foreground hover:text-primary transition-colors py-1 disabled:opacity-50"
                 data-testid="button-resend-again"
               >
-                {resendLoading ? t("landing_resending") : t("landing_resend_conf_email")}
+                {resendLoading
+                  ? t("landing_resending")
+                  : resendCooldown > 0
+                  ? `Resend in ${resendCooldown}s`
+                  : t("landing_resend_conf_email")}
               </button>
             </div>
           ) : (
             <Button
               className="w-full"
-              disabled={resendLoading}
+              disabled={resendLoading || resendCooldown > 0}
               onClick={handleResendVerification}
               data-testid="button-resend-verification"
             >
               {resendLoading ? (
                 <><Loader2 className="w-4 h-4 me-2 animate-spin" /> {t("landing_resending")}</>
+              ) : resendCooldown > 0 ? (
+                `Resend in ${resendCooldown}s`
               ) : (
                 t("landing_resend_conf_email")
               )}
