@@ -1,11 +1,12 @@
 import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import { supabase } from "@/lib/supabase";
-import { Loader2, CheckCircle, AlertCircle } from "lucide-react";
+import { Loader2, CheckCircle, AlertCircle, Mail } from "lucide-react";
+import type { Session } from "@supabase/supabase-js";
 
 // ── Auth Callback Page ─────────────────────────────────────────────────────
 //
-// Supabase email links (sign-up confirmation, password reset, email change)
+// Supabase email links (sign-up confirmation, password reset, magic-link)
 // redirect to this page after the server verifies the token.
 //
 // Implicit / hash flow (flowType:"implicit") — link lands on:
@@ -19,6 +20,12 @@ import { Loader2, CheckCircle, AlertCircle } from "lucide-react";
 // on this page.  We listen for the event, show a loading state, then
 // redirect to / once the session is live.
 //
+// Link types in the hash `type` param:
+//   "signup"    — email verification link (new account confirmation)
+//   "recovery"  — password reset link
+//   "magiclink" — passwordless sign-in link
+//   "email"     — email change confirmation
+//
 // use-auth.ts sets isLoading:true when SIGNED_IN fires (before the async
 // session-check IIFE), so navigating to / shows the auth spinner — not the
 // Landing page — while the session-check runs.
@@ -26,61 +33,109 @@ import { Loader2, CheckCircle, AlertCircle } from "lucide-react";
 
 type Status = "loading" | "success" | "error";
 
+// Link type from the hash `type` param.
+type LinkType = "signup" | "recovery" | "magiclink" | "email" | "unknown";
+
 const CB_TAG = "[AUTH_CALLBACK]";
+const VERIFY_TAG = "[VERIFY]";
 const t0 = Date.now();
 function ms() { return `+${Date.now() - t0}ms`; }
 
 export default function AuthCallbackPage() {
   const [, setLocation] = useLocation();
-  const [status, setStatus] = useState<Status>("loading");
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [status, setStatus]       = useState<Status>("loading");
+  const [errorMsg, setErrorMsg]   = useState<string | null>(null);
+  const [linkType, setLinkType]   = useState<LinkType>("unknown");
+  const [confirmedAt, setConfirmedAt] = useState<string | null>(null);
 
   useEffect(() => {
     let done = false;
-
-    // ── Helpers ─────────────────────────────────────────────────────────────
-
-    function succeed(reason: string) {
-      if (done) return;
-      done = true;
-      console.log(`${CB_TAG} ✓ SUCCEED`, { reason, elapsed: ms() });
-      setStatus("success");
-      // Clean the hash / code param from the URL bar for security.
-      window.history.replaceState(null, "", window.location.pathname);
-      // Brief pause so the user sees the success tick, then hand off to
-      // AppContent.  use-auth.ts has already set isLoading:true (SIGNED_IN
-      // handler), so AppContent shows its own spinner — not Landing — while
-      // the async session-check IIFE finishes.
-      setTimeout(() => {
-        console.log(`${CB_TAG} → navigating to /`, { elapsed: ms() });
-        setLocation("/");
-      }, 800);
-    }
-
-    function fail(msg: string, reason?: string) {
-      if (done) return;
-      done = true;
-      console.error(`${CB_TAG} ✗ FAIL`, { reason: reason ?? msg, elapsed: ms() });
-      setStatus("error");
-      setErrorMsg(msg);
-    }
 
     // ── 0. Entry diagnostics ─────────────────────────────────────────────────
     const fullUrl   = window.location.href;
     const hash      = window.location.hash;
     const search    = window.location.search;
     const urlParams = new URLSearchParams(search);
+    const hashParams = hash ? new URLSearchParams(hash.slice(1)) : new URLSearchParams();
+
+    // Parse the link type from the hash (implicit flow) or query (PKCE flow).
+    const rawType = (hashParams.get("type") ?? urlParams.get("type") ?? "unknown") as LinkType;
+    setLinkType(rawType);
+
+    const isSignupVerification = rawType === "signup" || rawType === "email";
 
     console.log(`${CB_TAG} ENTRY`, {
       elapsed:   ms(),
       pathname:  window.location.pathname,
+      linkType:  rawType,
       hasHash:   !!hash,
-      hashKeys:  hash ? [...new URLSearchParams(hash.slice(1)).keys()] : [],
+      hashKeys:  hash ? [...hashParams.keys()] : [],
       hasSearch: !!search,
       searchKeys: search ? [...urlParams.keys()] : [],
-      // Truncated for safety — never log full tokens
       urlPreview: fullUrl.slice(0, 80) + (fullUrl.length > 80 ? "…" : ""),
     });
+
+    if (isSignupVerification) {
+      console.log(`${VERIFY_TAG} LINK_CLICKED — verification link opened in browser`, {
+        elapsed: ms(),
+        linkType: rawType,
+      });
+    }
+
+    // ── Helpers ──────────────────────────────────────────────────────────────
+
+    function succeed(reason: string, session?: Session | null) {
+      if (done) return;
+      done = true;
+
+      // Explicitly log whether email_confirmed_at is set in the session.
+      // This is the definitive proof that Supabase has confirmed the email.
+      const emailConfirmedAt = session?.user?.email_confirmed_at ?? null;
+      setConfirmedAt(emailConfirmedAt);
+
+      if (isSignupVerification) {
+        if (emailConfirmedAt) {
+          console.log(
+            `${VERIFY_TAG} USER_CONFIRMED ✓ — email_confirmed_at is set in session`,
+            { elapsed: ms(), email_confirmed_at: emailConfirmedAt, userId: session?.user?.id?.slice(0, 8) }
+          );
+        } else {
+          // email_confirmed_at may be absent if the SDK hasn't yet refreshed the user
+          // object — this is benign; the server's admin API will see the updated value.
+          console.warn(
+            `${VERIFY_TAG} USER_CONFIRMED (email_confirmed_at not yet in session JWT — server will re-check via admin API)`,
+            { elapsed: ms(), reason }
+          );
+        }
+      }
+
+      console.log(`${CB_TAG} ✓ SUCCEED`, { reason, elapsed: ms(), linkType: rawType, emailConfirmedAt });
+      setStatus("success");
+
+      // Clean the hash / code param from the URL bar for security.
+      window.history.replaceState(null, "", window.location.pathname);
+
+      // Pause long enough for the user to read the success message, then
+      // hand off to AppContent.  use-auth.ts has already set isLoading:true
+      // (SIGNED_IN handler), so AppContent shows its own spinner — not Landing
+      // — while the async session-check IIFE finishes.
+      const redirectDelay = isSignupVerification ? 1800 : 1000;
+      setTimeout(() => {
+        console.log(`${CB_TAG} → navigating to /`, { elapsed: ms() });
+        setLocation("/");
+      }, redirectDelay);
+    }
+
+    function fail(msg: string, reason?: string) {
+      if (done) return;
+      done = true;
+      console.error(`${CB_TAG} ✗ FAIL`, { reason: reason ?? msg, elapsed: ms(), linkType: rawType });
+      if (isSignupVerification) {
+        console.error(`${VERIFY_TAG} VERIFICATION_FAILED`, { reason: reason ?? msg, elapsed: ms() });
+      }
+      setStatus("error");
+      setErrorMsg(msg);
+    }
 
     // ── 1. Supabase error params (?error=... appended for invalid links) ──────
     const errorCode = urlParams.get("error");
@@ -102,15 +157,18 @@ export default function AuthCallbackPage() {
         .exchangeCodeForSession(code)
         .then(({ data: { session }, error }) => {
           console.log(`${CB_TAG} exchangeCodeForSession result`, {
-            elapsed:    ms(),
-            hasSession: !!session,
-            userId:     session?.user?.id?.slice(0, 8) ?? null,
-            error:      error?.message ?? null,
+            elapsed:        ms(),
+            hasSession:     !!session,
+            userId:         session?.user?.id?.slice(0, 8) ?? null,
+            emailConfirmedAt: session?.user?.email_confirmed_at ?? null,
+            error:          error?.message ?? null,
           });
           if (error) {
             fail(error.message, "pkce_exchange_error");
+          } else if (session && !done) {
+            succeed("pkce_exchange_success", session);
           }
-          // On success onAuthStateChange fires SIGNED_IN → succeed() below
+          // Otherwise onAuthStateChange fires SIGNED_IN → succeed() below
         })
         .catch((err: unknown) => {
           const msg = (err instanceof Error ? err.message : null) ?? "Code exchange failed";
@@ -125,14 +183,14 @@ export default function AuthCallbackPage() {
     console.log(`${CB_TAG} calling getSession() to check for hash-processed session`, { elapsed: ms() });
     supabase.auth.getSession().then(({ data: { session }, error }) => {
       console.log(`${CB_TAG} getSession() result`, {
-        elapsed:    ms(),
-        hasSession: !!session,
-        userId:     session?.user?.id?.slice(0, 8) ?? null,
-        emailConfirmed: session?.user?.email_confirmed_at ?? null,
-        error:      error?.message ?? null,
+        elapsed:         ms(),
+        hasSession:      !!session,
+        userId:          session?.user?.id?.slice(0, 8) ?? null,
+        emailConfirmedAt: session?.user?.email_confirmed_at ?? null,
+        error:           error?.message ?? null,
       });
       if (session && !done) {
-        succeed("getSession_found_session");
+        succeed("getSession_found_session", session);
       }
     });
 
@@ -143,11 +201,11 @@ export default function AuthCallbackPage() {
     // SIGNED_IN fires when the SDK processes the hash after mount (slow path).
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       console.log(`${CB_TAG} onAuthStateChange`, {
-        elapsed:        ms(),
+        elapsed:         ms(),
         event,
-        hasSession:     !!session,
-        userId:         session?.user?.id?.slice(0, 8) ?? null,
-        emailConfirmed: session?.user?.email_confirmed_at ?? null,
+        hasSession:      !!session,
+        userId:          session?.user?.id?.slice(0, 8) ?? null,
+        emailConfirmedAt: session?.user?.email_confirmed_at ?? null,
         done,
       });
 
@@ -159,7 +217,7 @@ export default function AuthCallbackPage() {
       switch (event) {
         case "SIGNED_IN":
         case "USER_UPDATED":
-          succeed(event.toLowerCase());
+          succeed(event.toLowerCase(), session);
           break;
 
         case "PASSWORD_RECOVERY":
@@ -167,7 +225,7 @@ export default function AuthCallbackPage() {
           // the UI.  Just redirect to / — use-auth.ts already set
           // passwordRecovery:true so AppContent will show the gate.
           console.log(`${CB_TAG} PASSWORD_RECOVERY — redirecting to gate`, { elapsed: ms() });
-          succeed("password_recovery");
+          succeed("password_recovery", session);
           break;
 
         case "INITIAL_SESSION":
@@ -176,7 +234,7 @@ export default function AuthCallbackPage() {
           // has already been parsed — treat it the same as SIGNED_IN.
           if (session) {
             console.log(`${CB_TAG} INITIAL_SESSION with live session — treating as sign-in`, { elapsed: ms() });
-            succeed("initial_session_with_session");
+            succeed("initial_session_with_session", session);
           } else {
             console.log(`${CB_TAG} INITIAL_SESSION with null session — waiting for SIGNED_IN`, { elapsed: ms() });
           }
@@ -206,6 +264,20 @@ export default function AuthCallbackPage() {
     };
   }, [setLocation]);
 
+  // ── Messaging by link type ─────────────────────────────────────────────────
+  const isSignup   = linkType === "signup" || linkType === "email";
+  const isRecovery = linkType === "recovery";
+
+  const loadingTitle = isSignup ? "Verifying your email…" : isRecovery ? "Confirming reset link…" : "Signing you in…";
+  const loadingBody  = isSignup ? "Just a moment while we confirm your account." : "Just a moment…";
+
+  const successTitle = isSignup ? "Email verified!" : isRecovery ? "Reset link confirmed" : "Signed in";
+  const successBody  = isSignup
+    ? (confirmedAt
+        ? "Your email is confirmed. Taking you into Lulou…"
+        : "Account confirmed. Taking you into Lulou…")
+    : "Taking you into Lulou…";
+
   // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
@@ -221,10 +293,10 @@ export default function AuthCallbackPage() {
             </div>
             <div className="space-y-1.5">
               <h1 className="font-display text-2xl font-semibold tracking-tight">
-                Verifying your email…
+                {loadingTitle}
               </h1>
               <p className="text-sm text-muted-foreground">
-                Just a moment while we confirm your account.
+                {loadingBody}
               </p>
             </div>
           </>
@@ -234,16 +306,23 @@ export default function AuthCallbackPage() {
           <>
             <div className="flex justify-center">
               <div className="w-16 h-16 rounded-full bg-green-50 border border-green-100 flex items-center justify-center">
-                <CheckCircle className="w-8 h-8 text-green-500" />
+                {isSignup
+                  ? <CheckCircle className="w-8 h-8 text-green-500" />
+                  : <Mail className="w-8 h-8 text-green-500" />}
               </div>
             </div>
             <div className="space-y-1.5">
               <h1 className="font-display text-2xl font-semibold tracking-tight">
-                Email verified!
+                {successTitle}
               </h1>
               <p className="text-sm text-muted-foreground">
-                Taking you into Lulou…
+                {successBody}
               </p>
+              {isSignup && confirmedAt && (
+                <p className="text-xs text-muted-foreground/60 font-mono">
+                  confirmed_at: {new Date(confirmedAt).toUTCString()}
+                </p>
+              )}
             </div>
             <div className="flex justify-center">
               <Loader2 className="w-4 h-4 text-muted-foreground animate-spin" />
@@ -260,23 +339,30 @@ export default function AuthCallbackPage() {
             </div>
             <div className="space-y-1.5">
               <h1 className="font-display text-2xl font-semibold tracking-tight">
-                Verification failed
+                {isSignup ? "Verification failed" : "Link invalid"}
               </h1>
               <p className="text-sm text-muted-foreground leading-relaxed">
                 {errorMsg ??
                   "This link has expired or is invalid. Please return to the app and request a new one."}
               </p>
             </div>
-            <button
-              onClick={() => {
-                console.log(`${CB_TAG} user clicked Return to sign in`);
-                setLocation("/");
-              }}
-              className="w-full py-2.5 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors"
-              data-testid="button-return-to-signin"
-            >
-              Return to sign in
-            </button>
+            <div className="flex flex-col gap-2">
+              <button
+                onClick={() => {
+                  console.log(`${CB_TAG} user clicked Return to sign in`);
+                  setLocation("/");
+                }}
+                className="w-full py-2.5 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors"
+                data-testid="button-return-to-signin"
+              >
+                Return to sign in
+              </button>
+              {isSignup && (
+                <p className="text-xs text-muted-foreground">
+                  Once signed in you can request a new verification email.
+                </p>
+              )}
+            </div>
           </>
         )}
 

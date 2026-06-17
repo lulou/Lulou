@@ -529,6 +529,10 @@ export default function Landing() {
         authCallCountRef.current += 1;
         const _signUpTs = new Date().toISOString().slice(11, 23);
         console.log(`[AUTH] CALL#${authCallCountRef.current} supabase.auth.signUp at ${_signUpTs}`);
+        console.log(`[VERIFY] SIGNUP_INITIATED`, {
+          email: trimmedEmail.slice(0, 4) + "***",
+          emailRedirectTo: window.location.origin + "/auth/callback",
+        });
         writeDebug({
           signInCallEntered: true,
           signUpStarted: true,
@@ -625,6 +629,13 @@ export default function Landing() {
             authReturnedSession: false,
           });
           console.warn("[AUTH] SIGNUP_NO_SESSION: email confirmation required", { userId: data.user.id });
+          console.log("[VERIFY] VERIFICATION_EMAIL_SENT", {
+            userId: data.user.id.slice(0, 8) + "…",
+            email:  trimmedEmail.slice(0, 4) + "***",
+            emailConfirmedAt: data.user.email_confirmed_at ?? null,
+            redirectTo: window.location.origin + "/auth/callback",
+            note: "User must click the link in the email to confirm. email_confirmed_at will be null until then.",
+          });
           setVerificationEmail(trimmedEmail);
           setLoading(false);
           return;
