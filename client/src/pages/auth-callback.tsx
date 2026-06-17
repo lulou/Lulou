@@ -8,18 +8,27 @@ import { Loader2, CheckCircle, AlertCircle } from "lucide-react";
 // Supabase email links (sign-up confirmation, password reset, email change)
 // redirect to this page after the server verifies the token.
 //
-// Implicit / hash flow (flowType: "implicit") — the link lands on:
+// Implicit / hash flow (flowType:"implicit") — link lands on:
 //   https://lulouapp.vercel.app/auth/callback#access_token=...&type=signup
 //
-// PKCE / code flow — the link lands on:
+// PKCE / code flow — link lands on:
 //   https://lulouapp.vercel.app/auth/callback?code=...
 //
-// With detectSessionInUrl:true the Supabase SDK automatically parses the hash
-// and fires SIGNED_IN / PASSWORD_RECOVERY on this page.  We listen for the
-// event, show a loading state, and redirect to / once the session is live.
+// With detectSessionInUrl:true the Supabase SDK automatically parses the
+// hash and fires SIGNED_IN / PASSWORD_RECOVERY / INITIAL_SESSION(session)
+// on this page.  We listen for the event, show a loading state, then
+// redirect to / once the session is live.
+//
+// use-auth.ts sets isLoading:true when SIGNED_IN fires (before the async
+// session-check IIFE), so navigating to / shows the auth spinner — not the
+// Landing page — while the session-check runs.
 // ──────────────────────────────────────────────────────────────────────────
 
 type Status = "loading" | "success" | "error";
+
+const CB_TAG = "[AUTH_CALLBACK]";
+const t0 = Date.now();
+function ms() { return `+${Date.now() - t0}ms`; }
 
 export default function AuthCallbackPage() {
   const [, setLocation] = useLocation();
@@ -29,91 +38,185 @@ export default function AuthCallbackPage() {
   useEffect(() => {
     let done = false;
 
-    function succeed() {
+    // ── Helpers ─────────────────────────────────────────────────────────────
+
+    function succeed(reason: string) {
       if (done) return;
       done = true;
+      console.log(`${CB_TAG} ✓ SUCCEED`, { reason, elapsed: ms() });
       setStatus("success");
-      // Clean the hash/code params from the URL bar for security
+      // Clean the hash / code param from the URL bar for security.
       window.history.replaceState(null, "", window.location.pathname);
-      // Short pause so the user sees the success tick, then redirect to root.
-      // use-auth.ts will have set user state by the time / renders.
-      setTimeout(() => setLocation("/"), 1200);
+      // Brief pause so the user sees the success tick, then hand off to
+      // AppContent.  use-auth.ts has already set isLoading:true (SIGNED_IN
+      // handler), so AppContent shows its own spinner — not Landing — while
+      // the async session-check IIFE finishes.
+      setTimeout(() => {
+        console.log(`${CB_TAG} → navigating to /`, { elapsed: ms() });
+        setLocation("/");
+      }, 800);
     }
 
-    function fail(msg: string) {
+    function fail(msg: string, reason?: string) {
       if (done) return;
       done = true;
+      console.error(`${CB_TAG} ✗ FAIL`, { reason: reason ?? msg, elapsed: ms() });
       setStatus("error");
       setErrorMsg(msg);
-      console.error("[AUTH_CALLBACK] verification failed:", msg);
     }
 
-    // ── 1. Check for error params Supabase appends for invalid/expired links ─
-    const urlParams = new URLSearchParams(window.location.search);
+    // ── 0. Entry diagnostics ─────────────────────────────────────────────────
+    const fullUrl   = window.location.href;
+    const hash      = window.location.hash;
+    const search    = window.location.search;
+    const urlParams = new URLSearchParams(search);
+
+    console.log(`${CB_TAG} ENTRY`, {
+      elapsed:   ms(),
+      pathname:  window.location.pathname,
+      hasHash:   !!hash,
+      hashKeys:  hash ? [...new URLSearchParams(hash.slice(1)).keys()] : [],
+      hasSearch: !!search,
+      searchKeys: search ? [...urlParams.keys()] : [],
+      // Truncated for safety — never log full tokens
+      urlPreview: fullUrl.slice(0, 80) + (fullUrl.length > 80 ? "…" : ""),
+    });
+
+    // ── 1. Supabase error params (?error=... appended for invalid links) ──────
     const errorCode = urlParams.get("error");
     const errorDesc = urlParams.get("error_description");
     if (errorCode) {
-      fail((errorDesc ?? errorCode).replace(/\+/g, " "));
+      const msg = (errorDesc ?? errorCode).replace(/\+/g, " ");
+      console.error(`${CB_TAG} URL error param detected`, { errorCode, errorDesc: msg });
+      fail(msg, "url_error_param");
       return;
     }
 
     // ── 2. PKCE code flow: ?code=... ─────────────────────────────────────────
+    // flowType:"implicit" should produce hash tokens, but handle ?code= too in
+    // case the Supabase project is configured for PKCE at the server level.
     const code = urlParams.get("code");
     if (code) {
+      console.log(`${CB_TAG} PKCE code detected — calling exchangeCodeForSession`, { elapsed: ms() });
       supabase.auth
         .exchangeCodeForSession(code)
-        .then(({ error }) => {
-          if (error) fail(error.message);
-          // On success onAuthStateChange fires SIGNED_IN below → succeed()
+        .then(({ data: { session }, error }) => {
+          console.log(`${CB_TAG} exchangeCodeForSession result`, {
+            elapsed:    ms(),
+            hasSession: !!session,
+            userId:     session?.user?.id?.slice(0, 8) ?? null,
+            error:      error?.message ?? null,
+          });
+          if (error) {
+            fail(error.message, "pkce_exchange_error");
+          }
+          // On success onAuthStateChange fires SIGNED_IN → succeed() below
         })
-        .catch((err: unknown) =>
-          fail((err instanceof Error ? err.message : null) ?? "Verification failed"),
-        );
+        .catch((err: unknown) => {
+          const msg = (err instanceof Error ? err.message : null) ?? "Code exchange failed";
+          fail(msg, "pkce_exchange_throw");
+        });
     }
 
-    // ── 3. Implicit / hash flow: #access_token=... ───────────────────────────
-    // detectSessionInUrl:true means the SDK may have already parsed the hash
-    // and stored the session before this useEffect runs.  Check immediately.
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session) succeed();
+    // ── 3. Implicit hash flow — getSession() ─────────────────────────────────
+    // detectSessionInUrl:true means the SDK may have already parsed the
+    // #access_token hash and stored the session before this useEffect runs.
+    // Check immediately — this covers the fast-init case.
+    console.log(`${CB_TAG} calling getSession() to check for hash-processed session`, { elapsed: ms() });
+    supabase.auth.getSession().then(({ data: { session }, error }) => {
+      console.log(`${CB_TAG} getSession() result`, {
+        elapsed:    ms(),
+        hasSession: !!session,
+        userId:     session?.user?.id?.slice(0, 8) ?? null,
+        emailConfirmed: session?.user?.email_confirmed_at ?? null,
+        error:      error?.message ?? null,
+      });
+      if (session && !done) {
+        succeed("getSession_found_session");
+      }
     });
 
-    // ── 4. Listen for auth events (covers hash processed after mount) ─────────
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
-      console.log("[AUTH_CALLBACK] auth event:", event);
-      if (
-        event === "SIGNED_IN" ||
-        event === "USER_UPDATED" ||
-        event === "PASSWORD_RECOVERY"
-      ) {
-        succeed();
+    // ── 4. onAuthStateChange — covers events fired after mount ────────────────
+    // The SDK immediately fires INITIAL_SESSION to a new subscriber with the
+    // current auth state.  If the hash was already processed (fast-init path),
+    // INITIAL_SESSION fires with the session → we must handle it here.
+    // SIGNED_IN fires when the SDK processes the hash after mount (slow path).
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      console.log(`${CB_TAG} onAuthStateChange`, {
+        elapsed:        ms(),
+        event,
+        hasSession:     !!session,
+        userId:         session?.user?.id?.slice(0, 8) ?? null,
+        emailConfirmed: session?.user?.email_confirmed_at ?? null,
+        done,
+      });
+
+      if (done) {
+        console.log(`${CB_TAG} already done — ignoring event`, { event });
+        return;
+      }
+
+      switch (event) {
+        case "SIGNED_IN":
+        case "USER_UPDATED":
+          succeed(event.toLowerCase());
+          break;
+
+        case "PASSWORD_RECOVERY":
+          // For password reset, the main app's PasswordRecoveryGate handles
+          // the UI.  Just redirect to / — use-auth.ts already set
+          // passwordRecovery:true so AppContent will show the gate.
+          console.log(`${CB_TAG} PASSWORD_RECOVERY — redirecting to gate`, { elapsed: ms() });
+          succeed("password_recovery");
+          break;
+
+        case "INITIAL_SESSION":
+          // The SDK fires INITIAL_SESSION immediately to every new subscriber
+          // with the current session state.  If session is non-null, the hash
+          // has already been parsed — treat it the same as SIGNED_IN.
+          if (session) {
+            console.log(`${CB_TAG} INITIAL_SESSION with live session — treating as sign-in`, { elapsed: ms() });
+            succeed("initial_session_with_session");
+          } else {
+            console.log(`${CB_TAG} INITIAL_SESSION with null session — waiting for SIGNED_IN`, { elapsed: ms() });
+          }
+          break;
+
+        default:
+          console.log(`${CB_TAG} unhandled event (no action)`, { event });
       }
     });
 
     // ── 5. Hard timeout ───────────────────────────────────────────────────────
     const timeout = setTimeout(() => {
+      console.error(`${CB_TAG} TIMEOUT — 15s elapsed without session`, {
+        elapsed: ms(),
+        url:     window.location.href.slice(0, 80),
+      });
       fail(
-        "This verification link has expired or is invalid. " +
-        "Please return to the app and request a new one.",
+        "Verification timed out — the link may have expired. Please return to the app and request a new one.",
+        "timeout",
       );
     }, 15_000);
 
     return () => {
+      console.log(`${CB_TAG} cleanup`, { elapsed: ms(), done });
       subscription.unsubscribe();
       clearTimeout(timeout);
     };
   }, [setLocation]);
 
+  // ── Render ─────────────────────────────────────────────────────────────────
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-background px-5">
       <div className="w-full max-w-sm space-y-5 text-center">
+
         {status === "loading" && (
           <>
             <div className="flex justify-center">
-              <div className="relative">
-                <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center">
-                  <Loader2 className="w-8 h-8 text-primary animate-spin" />
-                </div>
+              <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center">
+                <Loader2 className="w-8 h-8 text-primary animate-spin" />
               </div>
             </div>
             <div className="space-y-1.5">
@@ -161,11 +264,14 @@ export default function AuthCallbackPage() {
               </h1>
               <p className="text-sm text-muted-foreground leading-relaxed">
                 {errorMsg ??
-                  "This link has expired or is invalid. Please request a new verification email."}
+                  "This link has expired or is invalid. Please return to the app and request a new one."}
               </p>
             </div>
             <button
-              onClick={() => setLocation("/")}
+              onClick={() => {
+                console.log(`${CB_TAG} user clicked Return to sign in`);
+                setLocation("/");
+              }}
               className="w-full py-2.5 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors"
               data-testid="button-return-to-signin"
             >
@@ -173,6 +279,7 @@ export default function AuthCallbackPage() {
             </button>
           </>
         )}
+
       </div>
     </div>
   );

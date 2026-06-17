@@ -144,6 +144,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (event === "SIGNED_IN" && u && session?.access_token) {
         const token = session.access_token;
 
+        // ── Re-enter loading state BEFORE the async IIFE ─────────────────────
+        // INITIAL_SESSION(null) already set isLoading:false and user:null.
+        // Without this, navigating from /auth/callback to / while the session-
+        // check is in-flight shows Landing (user:null + isLoading:false).
+        // Setting isLoading:true here ensures AppContent shows the auth spinner
+        // during the check instead of the Landing page.
+        setIsLoading(true);
+        console.log("[AUTH] SIGNED_IN_RECEIVED — session check starting, isLoading→true", {
+          userId: newUserId,
+          hasToken: !!token,
+          route: window.location.pathname,
+        });
+
         (async () => {
           const sessionId =
             typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
@@ -163,6 +176,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           let grantedSessionId = sessionId;
 
           try {
+            console.log("[AUTH] SESSION_CHECK_START", { sessionId: sessionId.slice(0, 8) + "…", deviceId: deviceId.slice(0, 8) + "…" });
             const r = await fetch(`${API_BASE}/api/auth/session-check`, {
               method: "POST",
               headers: {
@@ -177,14 +191,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             });
             if (r.ok) {
               const d = await r.json();
+              console.log("[AUTH] SESSION_CHECK_OK", { blocked: d.blocked, grantedSessionId: d.sessionId });
               if (d.blocked) {
                 isBlocked = true;
               } else {
                 grantedSessionId = d.sessionId ?? sessionId;
               }
+            } else {
+              console.warn("[AUTH] SESSION_CHECK_NON_OK", { status: r.status });
             }
-          } catch {
+          } catch (e) {
             // Fail open — a transient network error never locks users out
+            console.warn("[AUTH] SESSION_CHECK_FAILED (fail-open)", { error: String(e) });
           }
 
           if (!mounted) return;
@@ -202,7 +220,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             setUser(u);
             setProfileReady(true);
             setIsLoading(false);
-            console.log("[AUTH] AUTH_READY", { event, userId: newUserId });
+            console.log("[AUTH] AUTH_READY — user set, isLoading→false", { event, userId: newUserId });
           }
         })();
 
