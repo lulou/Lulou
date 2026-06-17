@@ -66,7 +66,7 @@ import { markStartupSweepComplete, resetStartupSweep } from "@/lib/startup-sweep
 import { markCallSessionCancelled, markStartupCancelledSession, isCallSessionCancelled, clearCancelledSession, setOnCancelledSessionChange } from "@/lib/cancelled-calls";
 import type { Profile, Match } from "@shared/schema";
 import { Loader2, Mail, CheckCircle } from "lucide-react";
-import { supabase } from "@/lib/supabase";
+import { supabase, supabaseConfigError } from "@/lib/supabase";
 
 // ── Global debug store ───────────────────────────────────────────────────────
 // Imported from a shared module so landing.tsx and use-auth.ts can also write
@@ -123,6 +123,78 @@ class PageErrorBoundary extends Component<{ name: string; children: ReactNode },
     }
     return this.props.children;
   }
+}
+
+// ── Root error boundary ───────────────────────────────────────────────────────
+// Catches any React render error that makes it past the per-tab PageErrorBoundary.
+// Without this, React 18 in production silently unmounts the entire root → blank.
+type RootEBState = { hasError: boolean; error: Error | null };
+class AppRootErrorBoundary extends Component<{ children: ReactNode }, RootEBState> {
+  constructor(props: { children: ReactNode }) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+  static getDerivedStateFromError(error: Error): RootEBState {
+    return { hasError: true, error };
+  }
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    console.error("[ROOT_ERROR_BOUNDARY] Unhandled render error:", error.message, info.componentStack?.slice(0, 500));
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#faf8f5", padding: "24px", fontFamily: "system-ui, sans-serif" }}>
+          <div style={{ maxWidth: 480, textAlign: "center" }}>
+            <div style={{ width: 56, height: 56, borderRadius: "50%", background: "#fee2e2", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 20px" }}>
+              <svg width="24" height="24" fill="none" stroke="#dc2626" strokeWidth="2" viewBox="0 0 24 24">
+                <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
+              </svg>
+            </div>
+            <h1 style={{ fontSize: 18, fontWeight: 600, color: "#1a1a1a", margin: "0 0 12px" }}>Something went wrong</h1>
+            <p style={{ fontSize: 14, color: "#555", lineHeight: 1.6, margin: "0 0 8px" }}>
+              {this.state.error?.message ?? "An unexpected error occurred."}
+            </p>
+            <p style={{ fontSize: 12, color: "#888", margin: "0 0 20px" }}>
+              Open DevTools (F12) → Console for details.
+            </p>
+            <button
+              onClick={() => window.location.reload()}
+              style={{ padding: "10px 24px", borderRadius: 8, background: "#be4b61", color: "white", border: "none", cursor: "pointer", fontSize: 14, fontWeight: 500 }}
+            >
+              Try again
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+// ── Supabase config error screen ──────────────────────────────────────────────
+// Shown when VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY is missing.
+// Uses inline styles (not Tailwind) so it renders even when CSS vars are absent.
+function SupabaseConfigErrorScreen({ message }: { message: string }) {
+  return (
+    <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#faf8f5", padding: "24px", fontFamily: "system-ui, sans-serif" }}>
+      <div style={{ maxWidth: 520, width: "100%", textAlign: "center" }}>
+        <div style={{ width: 56, height: 56, borderRadius: "50%", background: "#fee2e2", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 20px" }}>
+          <svg width="24" height="24" fill="none" stroke="#dc2626" strokeWidth="2" viewBox="0 0 24 24">
+            <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
+          </svg>
+        </div>
+        <h1 style={{ fontSize: 20, fontWeight: 700, color: "#1a1a1a", margin: "0 0 12px" }}>Lulou — Configuration Error</h1>
+        <p style={{ fontSize: 14, color: "#555", lineHeight: 1.7, margin: "0 0 20px" }}>{message}</p>
+        <div style={{ background: "#f3f4f6", borderRadius: 8, padding: "12px 16px", textAlign: "left", fontSize: 13, color: "#374151", lineHeight: 1.7 }}>
+          <strong>Fix:</strong> Go to your Vercel project → Settings → Environment Variables and add:<br />
+          <code style={{ background: "#e5e7eb", borderRadius: 4, padding: "1px 6px" }}>VITE_SUPABASE_URL</code><br />
+          <code style={{ background: "#e5e7eb", borderRadius: 4, padding: "1px 6px" }}>VITE_SUPABASE_ANON_KEY</code><br />
+          <code style={{ background: "#e5e7eb", borderRadius: 4, padding: "1px 6px" }}>VITE_API_BASE_URL</code> (Replit backend URL)<br />
+          Then redeploy.
+        </div>
+      </div>
+    </div>
+  );
 }
 
 // Shared fallback for all lazy-loaded pages
@@ -2240,8 +2312,12 @@ const _appStartMs = performance.now();
 console.log("[PERF] APP_BUNDLE_EXECUTED", { ms: Math.round(_appStartMs) });
 
 function App() {
+  // useEffect must be called unconditionally (Rules of Hooks).
+  // The supabaseConfigError guard comes AFTER the hook.
   useEffect(() => {
-    // First-paint timing — this fires after React mounts the root for the first time.
+    if (supabaseConfigError) return; // no perf tracking needed on config error
+
+    // First-paint timing — fires after React mounts the root for the first time.
     const mountMs = Math.round(performance.now());
     console.log("[PERF] APP_FIRST_MOUNT", { mountMs, sinceStartMs: Math.round(performance.now() - _appStartMs) });
 
@@ -2260,24 +2336,33 @@ function App() {
     };
   }, []);
 
+  // ── Supabase config guard — after all hooks ────────────────────────────────
+  // If VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY are missing (Vercel env
+  // vars not set), show a clear actionable error instead of a blank page.
+  if (supabaseConfigError) {
+    return <SupabaseConfigErrorScreen message={supabaseConfigError} />;
+  }
+
   return (
-    <QueryClientProvider client={queryClient}>
-      <LanguageProvider>
-        <UnitsProvider>
-        <AuthProvider>
-          <TooltipProvider>
-            <Toaster />
-            <AppContent />
-            {import.meta.env.DEV && PerfOverlayLazy && (
-              <Suspense fallback={null}>
-                <PerfOverlayLazy />
-              </Suspense>
-            )}
-          </TooltipProvider>
-        </AuthProvider>
-        </UnitsProvider>
-      </LanguageProvider>
-    </QueryClientProvider>
+    <AppRootErrorBoundary>
+      <QueryClientProvider client={queryClient}>
+        <LanguageProvider>
+          <UnitsProvider>
+            <AuthProvider>
+              <TooltipProvider>
+                <Toaster />
+                <AppContent />
+                {import.meta.env.DEV && PerfOverlayLazy && (
+                  <Suspense fallback={null}>
+                    <PerfOverlayLazy />
+                  </Suspense>
+                )}
+              </TooltipProvider>
+            </AuthProvider>
+          </UnitsProvider>
+        </LanguageProvider>
+      </QueryClientProvider>
+    </AppRootErrorBoundary>
   );
 }
 

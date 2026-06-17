@@ -48,6 +48,55 @@
   </head>
   <body>
     <div id="root"></div>
+
+    <!--
+      Pre-module error handler.
+      Runs BEFORE the JS bundle so it catches synchronous module-init crashes
+      (e.g. missing VITE_SUPABASE_URL causes createClient() to throw before
+      React can mount).  Without this the page stays blank; with it the user
+      sees a readable error instead.
+    -->
+    <script>
+      (function () {
+        function showCrash(msg) {
+          var root = document.getElementById("root");
+          if (!root || root.childElementCount > 0) return;
+          root.innerHTML =
+            '<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;' +
+            'background:#faf8f5;padding:24px;font-family:system-ui,sans-serif;">' +
+            '<div style="max-width:480px;text-align:center;">' +
+            '<div style="width:56px;height:56px;border-radius:50%;background:#fee2e2;' +
+            'display:flex;align-items:center;justify-content:center;margin:0 auto 20px;">' +
+            '<svg width="24" height="24" fill="none" stroke="#dc2626" stroke-width="2" ' +
+            'viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/>' +
+            '<line x1="12" y1="8" x2="12" y2="12"/>' +
+            '<line x1="12" y1="16" x2="12.01" y2="16"/></svg></div>' +
+            '<h1 style="font-size:18px;font-weight:600;color:#1a1a1a;margin:0 0 12px">Lulou failed to start</h1>' +
+            '<p style="font-size:14px;color:#555;line-height:1.6;margin:0 0 8px;word-break:break-word;">' +
+            (msg || "An unexpected error occurred.") +
+            '</p>' +
+            '<p style="font-size:12px;color:#888;margin:0 0 20px">' +
+            'Open DevTools (F12) \u2192 Console for the full error.' +
+            '</p>' +
+            '<button onclick="location.reload()" ' +
+            'style="padding:10px 24px;border-radius:8px;background:#be4b61;color:white;' +
+            'border:none;cursor:pointer;font-size:14px;font-weight:500">Try again</button>' +
+            '</div></div>';
+        }
+
+        // Catches sync throws from module scripts (e.g. createClient with bad env vars)
+        window.addEventListener("error", function (e) {
+          showCrash(e.message || "Startup error");
+        });
+
+        // Catches unhandled promise rejections from async module init code
+        window.addEventListener("unhandledrejection", function (e) {
+          var msg = e.reason instanceof Error ? e.reason.message : String(e.reason || "Startup error");
+          showCrash(msg);
+        });
+      })();
+    </script>
+
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

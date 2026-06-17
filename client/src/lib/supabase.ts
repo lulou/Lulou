@@ -33,17 +33,41 @@ if (envKey && !isValidJwt(envKey)) {
   console.warn("[AUTH] WARNING: VITE_SUPABASE_ANON_KEY does not appear to be a valid JWT (length=" + envKey.length + "). Auth may not work correctly.");
 }
 
-if (!envUrl || !envKey) {
-  console.error("[AUTH] FATAL: Supabase env vars missing — VITE_SUPABASE_URL present:", !!envUrl, "| VITE_SUPABASE_ANON_KEY present:", !!envKey);
-}
+// ── Config error flag ─────────────────────────────────────────────────────────
+// Exported so App.tsx can show a clear error screen instead of a blank page.
+// Must be derived BEFORE any createClient() call so the module never throws.
+export const supabaseConfigError: string | null =
+  !envUrl || !envKey
+    ? (
+        "Supabase is not configured. " +
+        "Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to your Vercel project " +
+        "(Settings → Environment Variables), then redeploy. " +
+        `Missing: ${!envUrl ? "VITE_SUPABASE_URL" : ""}${!envUrl && !envKey ? ", " : ""}${!envKey ? "VITE_SUPABASE_ANON_KEY" : ""}`
+      )
+    : null;
 
-const supabaseUrl = envUrl as string;
-const supabaseAnonKey = envKey as string;
-
-if (import.meta.env.DEV) {
+if (supabaseConfigError) {
+  console.error("[AUTH] FATAL CONFIG ERROR:", supabaseConfigError);
+} else if (import.meta.env.DEV) {
   console.log("[AUTH] SUPABASE_URL_PRESENT:", !!envUrl, envUrl ? `(${envUrl.substring(0, 30)}...)` : "(MISSING)");
   console.log("[AUTH] SUPABASE_KEY_PRESENT:", !!envKey, envKey ? `(length: ${envKey.length})` : "(MISSING)");
 }
+
+// ── Safe runtime values ───────────────────────────────────────────────────────
+// If env vars are missing we use well-formed placeholder values so that
+// createClient() never throws at module-init time.  The app won't function
+// (Supabase will reject every call) but React mounts and shows the config
+// error screen above rather than a blank white page.
+const _PLACEHOLDER_URL =
+  "https://config-error-placeholder.supabase.co";
+const _PLACEHOLDER_KEY = [
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9",
+  "eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNvbmZpZy1lcnJvci1wbGFjZWhvbGRlciIsInJvbGUiOiJhbm9uIiwiaWF0IjoxNjAwMDAwMDAwLCJleHAiOjIwMDAwMDAwMDB9",
+  "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+].join(".");
+
+const supabaseUrl      = envUrl || _PLACEHOLDER_URL;
+const supabaseAnonKey  = envKey || _PLACEHOLDER_KEY;
 
 // ── Auth fetch debug ─────────────────────────────────────────────────────────
 // Written by safeFetch on every /auth/v1/ call. Reset at the start of each
@@ -81,8 +105,9 @@ export function resetAuthFetchDebug(): void {
 }
 
 // Exported so landing.tsx can read the config used by the client.
+// SUPABASE_KEY_LEN uses optional-chain so it can never throw on undefined.
 export const SUPABASE_URL      = supabaseUrl;
-export const SUPABASE_KEY_LEN  = supabaseAnonKey.length;
+export const SUPABASE_KEY_LEN  = supabaseAnonKey?.length ?? 0;
 export const AUTH_ENDPOINT     = `${supabaseUrl}/auth/v1/token?grant_type=password`;
 
 // ── safeFetch ─────────────────────────────────────────────────────────────────
