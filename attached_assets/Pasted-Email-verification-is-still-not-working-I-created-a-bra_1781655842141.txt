@@ -1,0 +1,64 @@
+Email verification is still not working.
+
+I created a brand-new account with a fake email and the account was created successfully with app access.
+
+This is a critical security bug.
+
+Do not mark complete until a fake/unverified email cannot use the app.
+
+Audit immediately:
+
+Supabase Auth settings
+Is “Confirm email” enabled in Supabase?
+Does signUp return a session immediately?
+Is email_confirmed_at null for the new fake account?
+Are confirmation emails actually being sent?
+Is the redirect URL correct?
+Frontend signup flow
+After signUp, does the app route straight into onboarding/app?
+Is VerifyEmailGate actually mounted before onboarding?
+Is email_confirmed_at being checked from Supabase session/user?
+Is the app incorrectly treating user.email as verified?
+Backend enforcement
+Are unverified users blocked from all protected API routes?
+Is the verification middleware actually registered before app routes?
+Does it check Supabase Auth email_confirmed_at, not profile.email_verified alone?
+Can unverified users create/update profiles?
+Can unverified users appear in Discovery?
+Database
+Confirm profiles.email_verified exists in Supabase.
+Confirm new fake account has email_verified = false.
+Confirm verified accounts become email_verified = true.
+Required fix:
+
+Enable Supabase email confirmation if not enabled.
+New signups must land on a Verify Email screen.
+Unverified users must not access onboarding, Discover, Likes, Matches, Chat, Calls, Payments, Intention Wheel, or profile browsing.
+Server must return 403 EMAIL_NOT_VERIFIED for unverified users.
+Unverified profiles must be hidden from Discovery.
+Do not rely only on frontend UI.
+Test proof required:
+
+Create fake email account.
+Show email_confirmed_at = null.
+Try Discover API.
+Show it returns 403 EMAIL_NOT_VERIFIED.
+Try onboarding/profile creation.
+Show it is blocked.
+Verify real email.
+Show app unlocks.
+Show profile appears only after verification.
+Run:
+npm run check
+npm run build
+
+Report:
+
+root cause
+Supabase setting status
+files changed
+middleware route coverage
+fake email test result
+verified email test result
+npm run check result
+npm run build result

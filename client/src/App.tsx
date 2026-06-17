@@ -1299,12 +1299,30 @@ const SPINNER_TIMEOUT_MS = 12_000;
 // ── Email verification gate ──────────────────────────────────────────────────
 // Standalone component so it can use useState without violating the rules
 // of hooks (hooks can't be called conditionally inside AppContent).
-function VerifyEmailGate({ email, onSignOut }: { email: string | undefined; onSignOut: () => void }) {
+function VerifyEmailGate({
+  email,
+  onSignOut,
+  otpMode = false,
+  onOtpVerified,
+}: {
+  email: string | undefined;
+  onSignOut: () => void;
+  otpMode?: boolean;
+  onOtpVerified?: () => void;
+}) {
   const { t } = useLanguageContext();
   const [resendLoading, setResendLoading] = useState(false);
   const [resendSent, setResendSent] = useState(false);
   const [resendError, setResendError] = useState<string | null>(null);
   const [refreshLoading, setRefreshLoading] = useState(false);
+
+  // OTP verification state (used when otpMode=true)
+  const [otpSent, setOtpSent] = useState(false);
+  const [otpCode, setOtpCode] = useState("");
+  const [otpSendLoading, setOtpSendLoading] = useState(false);
+  const [otpVerifyLoading, setOtpVerifyLoading] = useState(false);
+  const [otpError, setOtpError] = useState<string | null>(null);
+  const [otpVerified, setOtpVerified] = useState(false);
 
   const handleResend = useCallback(async () => {
     if (!email) return;
@@ -1335,6 +1353,147 @@ function VerifyEmailGate({ email, onSignOut }: { email: string | undefined; onSi
     }
   }, []);
 
+  const handleSendOtp = useCallback(async () => {
+    if (!email) return;
+    setOtpSendLoading(true);
+    setOtpError(null);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch("/api/auth/verify/send-otp", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+        },
+        body: JSON.stringify({ email }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({})) as { message?: string };
+        throw new Error(body.message ?? t("verify_email_otp_send_err"));
+      }
+      setOtpSent(true);
+    } catch (err: any) {
+      setOtpError(err?.message ?? t("verify_email_otp_send_err"));
+    } finally {
+      setOtpSendLoading(false);
+    }
+  }, [email, t]);
+
+  const handleVerifyOtp = useCallback(async () => {
+    if (!email || !otpCode.trim()) return;
+    setOtpVerifyLoading(true);
+    setOtpError(null);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch("/api/auth/verify/confirm-otp", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+        },
+        body: JSON.stringify({ email, code: otpCode.trim() }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({})) as { message?: string };
+        throw new Error(body.message ?? t("verify_email_otp_err"));
+      }
+      setOtpVerified(true);
+      onOtpVerified?.();
+      setTimeout(() => supabase.auth.refreshSession(), 300);
+    } catch (err: any) {
+      setOtpError(err?.message ?? t("verify_email_otp_err"));
+    } finally {
+      setOtpVerifyLoading(false);
+    }
+  }, [email, otpCode, t, onOtpVerified]);
+
+  // ── OTP mode UI ───────────────────────────────────────────────────────────
+  if (otpMode) {
+    return (
+      <div className="min-h-screen bg-background flex flex-col items-center justify-center px-6 gap-8" data-testid="screen-verify-email-otp">
+        <div className="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center">
+          <Mail className="w-6 h-6 text-primary" />
+        </div>
+        <div className="w-full max-w-sm space-y-3 text-center">
+          <h1 className="font-serif text-2xl font-bold">{t("verify_email_otp_title")}</h1>
+          <p className="text-sm text-muted-foreground leading-relaxed">
+            {t("verify_email_otp_body")}{" "}
+            <strong className="text-foreground">{email}</strong>.
+          </p>
+        </div>
+        {otpVerified ? (
+          <div className="w-full max-w-sm flex flex-col items-center gap-3">
+            <div className="flex items-center gap-2 text-sm text-primary">
+              <CheckCircle className="w-5 h-5" />
+              {t("verify_email_otp_success")}
+            </div>
+            <Loader2 className="w-5 h-5 text-muted-foreground animate-spin" />
+          </div>
+        ) : (
+          <div className="w-full max-w-sm space-y-3">
+            {!otpSent ? (
+              <button
+                className="w-full py-2.5 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-60 flex items-center justify-center gap-2"
+                onClick={handleSendOtp}
+                disabled={otpSendLoading || !email}
+                data-testid="button-send-otp"
+              >
+                {otpSendLoading
+                  ? <><Loader2 className="w-4 h-4 animate-spin" />{t("verify_email_otp_sending")}</>
+                  : t("verify_email_otp_send_btn")}
+              </button>
+            ) : (
+              <>
+                <div className="flex items-center gap-2 justify-center text-sm text-primary py-1">
+                  <CheckCircle className="w-4 h-4" />
+                  {t("verify_email_otp_sent")}
+                </div>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  maxLength={6}
+                  placeholder={t("verify_email_otp_placeholder")}
+                  value={otpCode}
+                  onChange={e => setOtpCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                  className="w-full text-center text-2xl tracking-widest py-3 px-4 rounded-md border border-input bg-background focus:outline-none focus:ring-2 focus:ring-ring"
+                  data-testid="input-otp-code"
+                  autoComplete="one-time-code"
+                />
+                <button
+                  className="w-full py-2.5 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-60 flex items-center justify-center gap-2"
+                  onClick={handleVerifyOtp}
+                  disabled={otpVerifyLoading || otpCode.length < 6}
+                  data-testid="button-verify-otp"
+                >
+                  {otpVerifyLoading
+                    ? <><Loader2 className="w-4 h-4 animate-spin" />{t("verify_email_otp_verifying")}</>
+                    : t("verify_email_otp_verify_btn")}
+                </button>
+                <button
+                  className="w-full text-xs text-muted-foreground py-2 hover:text-foreground transition-colors"
+                  onClick={() => { setOtpSent(false); setOtpCode(""); setOtpError(null); }}
+                  data-testid="button-resend-otp"
+                >
+                  {t("verify_email_otp_resend")}
+                </button>
+              </>
+            )}
+            {otpError && <p className="text-xs text-destructive text-center">{otpError}</p>}
+            <button
+              className="w-full py-2.5 rounded-md border text-sm font-medium hover:bg-muted transition-colors"
+              onClick={onSignOut}
+              data-testid="button-signout-otp-gate"
+            >
+              {t("verify_email_signout")}
+            </button>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // ── Email-link mode UI (Supabase "Confirm email" ON) ─────────────────────
   return (
     <div className="min-h-screen bg-background flex flex-col items-center justify-center px-6 gap-8" data-testid="screen-verify-email-gate">
       <div className="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center">
@@ -1418,6 +1577,36 @@ function AppContent() {
   }
 
   const { user, isLoading: authLoading, profileReady, clearingCache, logout } = useAuth();
+
+  // ── Server-side email verification gate ──────────────────────────────────
+  // Catches auto-confirmed accounts when Supabase "Confirm email" is OFF.
+  // In that mode signUp() immediately sets email_confirmed_at≈created_at, so
+  // the !email_confirmed_at frontend check never fires for new fake accounts.
+  // The server detects the auto-confirmation via the timestamp heuristic and
+  // returns 403 EMAIL_NOT_VERIFIED.  We show the OTP gate in that case.
+  const [serverEmailGate, setServerEmailGate] = useState<"checking" | "ok" | "required">("checking");
+  useEffect(() => {
+    if (authLoading || !user) { setServerEmailGate("checking"); return; }
+    if (!user.email_confirmed_at) { setServerEmailGate("ok"); return; } // frontend handles
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const token = session?.access_token;
+        if (!token) { if (!cancelled) setServerEmailGate("ok"); return; }
+        const res = await fetch("/api/auth/verify/status", {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (cancelled) return;
+        if (res.status === 403) {
+          const body = await res.json().catch(() => ({})) as { code?: string };
+          if (body.code === "EMAIL_NOT_VERIFIED") { setServerEmailGate("required"); return; }
+        }
+        setServerEmailGate("ok");
+      } catch { if (!cancelled) setServerEmailGate("ok"); }
+    })();
+    return () => { cancelled = true; };
+  }, [authLoading, user?.id]);
 
   // IMPORTANT: This query uses a dedicated key "profile-exists-check" that is intentionally
   // separate from the "/api/profile" key used by ProfilePage for data.
@@ -1655,6 +1844,32 @@ function AppContent() {
   if (!user.email_confirmed_at) {
     console.log("[SETUP] FINAL_APP_GATE: email_not_confirmed — showing verification screen", { userId: user.id });
     return <VerifyEmailGate email={user.email ?? undefined} onSignOut={logout} />;
+  }
+
+  // ── Server-side email gate (auto-confirmed accounts) ─────────────────────
+  // Handles the case where Supabase "Confirm email" is OFF: signUp() auto-sets
+  // email_confirmed_at=created_at, so the check above never fires.  Our server
+  // detects this via the timestamp heuristic and returns 403 EMAIL_NOT_VERIFIED.
+  if (serverEmailGate === "required") {
+    console.log("[SETUP] FINAL_APP_GATE: server_email_gate_required — OTP needed", { userId: user.id });
+    return (
+      <VerifyEmailGate
+        email={user.email ?? undefined}
+        onSignOut={logout}
+        otpMode
+        onOtpVerified={() => setServerEmailGate("ok")}
+      />
+    );
+  }
+  if (serverEmailGate === "checking") {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="flex flex-col items-center gap-3">
+          <Loader2 className="w-8 h-8 text-primary animate-spin" />
+          <p className="text-sm text-muted-foreground">Loading…</p>
+        </div>
+      </div>
+    );
   }
 
   // ── EARLY BYPASS EXIT ─────────────────────────────────────────────────────

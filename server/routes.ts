@@ -241,6 +241,13 @@ function getCallStorage(req: any): SupabaseStorage {
 // legitimate users during transient Supabase outages.
 const _emailVerifiedCache = new Map<string, { verified: boolean; expiresAt: number }>();
 const EMAIL_VERIFIED_CACHE_TTL_MS = 5 * 60_000;
+// Short TTL for unverified/auto-confirmed users so OTP completion takes effect
+// within ~60 seconds without waiting for the full 5-min cache window.
+const EMAIL_VERIFIED_UNVERIFIED_TTL_MS = 60_000;
+// Accounts created before this date may have been auto-confirmed under previous
+// Supabase settings where "Confirm email" was OFF — they are grandfathered in.
+// New accounts created on/after this date must pass explicit email verification.
+const VERIFICATION_ENFORCEMENT_TS = new Date("2026-06-17T00:00:00.000Z").getTime();
 
 async function checkEmailVerified(userId: string): Promise<boolean> {
   const now = Date.now();
@@ -248,13 +255,41 @@ async function checkEmailVerified(userId: string): Promise<boolean> {
   if (cached && cached.expiresAt > now) return cached.verified;
   try {
     const { data: { user }, error } = await supabaseAdmin.auth.admin.getUserById(userId);
-    const verified = !error && user?.email_confirmed_at != null;
-    _emailVerifiedCache.set(userId, { verified, expiresAt: now + EMAIL_VERIFIED_CACHE_TTL_MS });
-    if (!verified) console.warn(`[AUTH] EMAIL_NOT_VERIFIED: userId=${userId.slice(0, 8)}`);
-    return verified;
+
+    if (error || !user) {
+      console.error("[AUTH] checkEmailVerified admin API error (fail-open):", error?.message);
+      return true; // fail open so outages don't block legitimate users
+    }
+
+    // Definitely unverified: email_confirmed_at is null (Supabase "Confirm email" ON).
+    if (!user.email_confirmed_at) {
+      _emailVerifiedCache.set(userId, { verified: false, expiresAt: now + EMAIL_VERIFIED_UNVERIFIED_TTL_MS });
+      console.warn(`[AUTH] EMAIL_NOT_VERIFIED (null confirmed_at): userId=${userId.slice(0, 8)}`);
+      return false;
+    }
+
+    // ── Auto-confirmation detection ────────────────────────────────────────
+    // When Supabase "Confirm email" is OFF, signUp() immediately sets
+    // email_confirmed_at ≈ created_at (within milliseconds of each other).
+    // A real email-link click or OTP verification always happens later,
+    // so the two timestamps will differ by at least 10 seconds.
+    // We only apply this check to accounts created on/after the enforcement
+    // date so existing users are NOT retroactively blocked.
+    const createdTs   = new Date(user.created_at).getTime();
+    const confirmedTs = new Date(user.email_confirmed_at).getTime();
+    if (
+      createdTs >= VERIFICATION_ENFORCEMENT_TS &&
+      Math.abs(confirmedTs - createdTs) < 10_000 // auto-confirmed at signup
+    ) {
+      _emailVerifiedCache.set(userId, { verified: false, expiresAt: now + EMAIL_VERIFIED_UNVERIFIED_TTL_MS });
+      console.warn(`[AUTH] AUTO_CONFIRMED_UNVERIFIED: userId=${userId.slice(0, 8)} (confirmed_at≈created_at — Supabase "Confirm email" may be OFF, OTP required)`);
+      return false;
+    }
+
+    _emailVerifiedCache.set(userId, { verified: true, expiresAt: now + EMAIL_VERIFIED_CACHE_TTL_MS });
+    return true;
   } catch (e: any) {
-    // Fail open on admin API error to avoid blocking users during outages.
-    console.error("[AUTH] checkEmailVerified admin API error (fail-open):", e?.message);
+    console.error("[AUTH] checkEmailVerified error (fail-open):", e?.message);
     return true;
   }
 }
@@ -594,6 +629,84 @@ export async function registerRoutes(
     next();
   });
 
+
+  // ── Email verification OTP endpoints ────────────────────────────────────
+  // These endpoints intentionally bypass isAuthenticated because unverified
+  // users are blocked by it — they still need a way to verify their email.
+  // Rate limiting and JWT inspection protect against abuse.
+  const _otpCooldown = new Map<string, number>();
+
+  app.post("/api/auth/verify/send-otp", async (req: any, res) => {
+    try {
+      let email: string | undefined;
+      const authHeader = req.headers.authorization as string | undefined;
+      if (authHeader?.startsWith("Bearer ")) {
+        try { const u = verifyJwt(authHeader.split(" ")[1]); if (u?.email) email = u.email; } catch {}
+      }
+      if (!email) email = ((req.body?.email) ?? "").trim().toLowerCase();
+      if (!email) return res.status(400).json({ message: "Email required" });
+
+      const now = Date.now();
+      const lastSent = _otpCooldown.get(email) ?? 0;
+      if (now - lastSent < 60_000) {
+        return res.status(429).json({ message: "Please wait 60 seconds before requesting another code.", waitMs: 60_000 - (now - lastSent) });
+      }
+      _otpCooldown.set(email, now);
+
+      const { error } = await supabase.auth.signInWithOtp({ email, options: { shouldCreateUser: false } });
+      if (error) {
+        console.error("[AUTH] send-otp error:", error.message);
+        return res.status(400).json({ message: error.message });
+      }
+      console.log(`[AUTH] OTP_SENT to ${email.slice(0, 4)}***`);
+      return res.json({ message: "Verification code sent" });
+    } catch (e: any) {
+      console.error("[AUTH] send-otp unexpected error:", e?.message);
+      return res.status(500).json({ message: "Failed to send verification code" });
+    }
+  });
+
+  app.post("/api/auth/verify/confirm-otp", async (req: any, res) => {
+    try {
+      let userId: string | undefined;
+      let email: string | undefined;
+      const authHeader = req.headers.authorization as string | undefined;
+      if (authHeader?.startsWith("Bearer ")) {
+        try { const u = verifyJwt(authHeader.split(" ")[1]); if (u) { userId = u.id; email = u.email; } } catch {}
+      }
+      if (!email) email = ((req.body?.email) ?? "").trim().toLowerCase();
+      const code = ((req.body?.code) ?? "").trim();
+      if (!email || !code) return res.status(400).json({ message: "Email and code required" });
+
+      const { error } = await supabase.auth.verifyOtp({ email, token: code, type: "email" });
+      if (error) {
+        console.error("[AUTH] confirm-otp error:", error.message);
+        return res.status(400).json({ message: error.message });
+      }
+
+      // Clear cache so the next isAuthenticated call re-checks the admin API
+      // and finds email_confirmed_at updated (now far from created_at).
+      if (userId) {
+        _emailVerifiedCache.delete(userId);
+        if (getHasEmailVerifiedColumn()) {
+          supabaseAdmin.from("profiles").update({ email_verified: true }).eq("user_id", userId)
+            .then(() => {}, () => {});
+        }
+      }
+      console.log(`[AUTH] OTP_VERIFIED userId=${userId?.slice(0, 8) ?? "??"}`);
+      return res.json({ message: "Email verified successfully" });
+    } catch (e: any) {
+      console.error("[AUTH] confirm-otp unexpected error:", e?.message);
+      return res.status(500).json({ message: "Verification failed" });
+    }
+  });
+
+  // Lightweight status check — returns 200 if verified, 403 if not.
+  // The frontend uses this to detect auto-confirmed accounts when the
+  // Supabase "Confirm email" setting is OFF.
+  app.get("/api/auth/verify/status", isAuthenticated, (req: any, res) => {
+    res.json({ emailVerified: true, userId: req.user.id });
+  });
 
   app.get("/api/auth/user", isAuthenticated, async (req: any, res) => {
     try {
