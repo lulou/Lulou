@@ -308,12 +308,12 @@ export default function Landing() {
     setResetLoading(true);
     setResetError(null);
     try {
-      console.log("[AUTH] RESET_PASSWORD_START", { email: email.trim().slice(0, 4) + "***", redirectTo: window.location.origin });
+      console.log("[AUTH] RESET_PASSWORD_START", { email: email.trim().slice(0, 4) + "***", redirectTo: window.location.origin + "/auth/callback" });
       const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
-        // Ensures the reset link redirects back to this exact app URL.
-        // Without this, the link goes to Supabase's "Site URL" dashboard setting
-        // which may be wrong in dev or after a deployment URL change.
-        redirectTo: window.location.origin,
+        // Point to /auth/callback so password recovery links land on the
+        // dedicated callback page which shows a loading state and then
+        // triggers the PasswordRecoveryGate in the main app.
+        redirectTo: window.location.origin + "/auth/callback",
       });
       if (error) {
         console.error("[AUTH] RESET_PASSWORD_FAILED", { message: error.message, status: (error as any).status, code: (error as any).code });
@@ -539,7 +539,10 @@ export default function Landing() {
               // exact app URL, not the Supabase "Site URL" configured in the dashboard.
               // Without this, confirmation links point to the wrong host in development
               // and break for deployed apps whose URL differs from the dashboard setting.
-              emailRedirectTo: window.location.origin,
+              // Point to /auth/callback so the dedicated callback page handles
+              // session establishment instead of the root (/) which has no
+              // explicit loading UI for auth tokens in the URL hash.
+              emailRedirectTo: window.location.origin + "/auth/callback",
             },
           }),
           timeoutPromise,
@@ -780,14 +783,14 @@ export default function Landing() {
     setResendError(null);
     setResendSent(false);
     try {
-      console.log("[AUTH] RESEND_VERIFICATION_START", { email: verificationEmail.slice(0, 4) + "***", redirectTo: window.location.origin });
+      console.log("[AUTH] RESEND_VERIFICATION_START", { email: verificationEmail.slice(0, 4) + "***", redirectTo: window.location.origin + "/auth/callback" });
       const { error } = await supabase.auth.resend({
         type: "signup",
         email: verificationEmail,
         options: {
           // Must match the emailRedirectTo used in signUp so the confirmation link
           // points to the correct app URL — not the Supabase dashboard "Site URL".
-          emailRedirectTo: window.location.origin,
+          emailRedirectTo: window.location.origin + "/auth/callback",
         },
       });
       if (error) {

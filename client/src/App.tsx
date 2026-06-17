@@ -23,6 +23,7 @@ import ElevateSuccessPage from "@/pages/elevate-success";
 import ExtrasSuccessPage from "@/pages/extras-success";
 import DragTestPage from "@/pages/drag-test";
 import AdminDiagnosticsPage from "@/pages/admin-diagnostics";
+import AuthCallbackPage from "@/pages/auth-callback";
 import {
   PrivacyPolicyPage,
   TermsOfServicePage,
@@ -1330,15 +1331,14 @@ function VerifyEmailGate({
     setResendLoading(true);
     setResendError(null);
     try {
-      console.log("[AUTH] VERIFY_GATE_RESEND_START", { email: email.slice(0, 4) + "***", redirectTo: window.location.origin });
+      console.log("[AUTH] VERIFY_GATE_RESEND_START", { email: email.slice(0, 4) + "***", redirectTo: window.location.origin + "/auth/callback" });
       const { error } = await supabase.auth.resend({
         type: "signup",
         email,
         options: {
-          // Must point to the running app URL so the confirmation link works.
-          // Without this it falls back to Supabase's "Site URL" dashboard setting
-          // which may be wrong in development or on a custom domain.
-          emailRedirectTo: window.location.origin,
+          // Point to /auth/callback so the link lands on the dedicated
+          // callback page with a visible loading state instead of the root.
+          emailRedirectTo: window.location.origin + "/auth/callback",
         },
       });
       if (error) {
@@ -1940,6 +1940,15 @@ function AppContent() {
     finalGateDecision,
     phase: phaseLabel,
   });
+
+  // ── Auth callback route ────────────────────────────────────────────────────
+  // Must sit BEFORE every auth gate (authLoading, !user, email gates) because
+  // the user is in the process of becoming authenticated when they land here.
+  // All hooks above are still called unconditionally — this is a safe early
+  // return that doesn't violate React rules.
+  if (location === "/auth/callback") {
+    return <AuthCallbackPage />;
+  }
 
   if (authLoading) {
     return (
