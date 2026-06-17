@@ -1,0 +1,122 @@
+Implement proper email verification and anti-fake-account controls.
+
+Do not work on unrelated features.
+
+Current issue:
+
+Users can create accounts with fake/unverified emails and immediately use the app.
+
+This means users can create unlimited fake profiles, abuse discovery, manipulate likes, bypass bans, and spam matches.
+
+Expected behaviour:
+
+A user should not get full app access until their email is verified.
+
+Required flow:
+
+User signs up with email/password.
+Supabase sends verification email.
+User sees a “Verify your email” screen.
+User cannot access Discover, Likes, Matches, Chat, Calls, Payments, Profile browsing, or Intention Wheel until verified.
+User clicks verification link in email.
+App detects verified email.
+User can continue onboarding / app access.
+Important:
+
+Do not allow unverified users into the real app.
+Do not allow unverified users to create multiple usable profiles.
+Do not allow unverified users to like, message, call, or appear in Discovery.
+Do not allow unverified users to be shown to other users.
+Do not rely only on frontend hiding.
+Server/API routes must enforce email verification.
+Audit:
+
+Supabase Auth signUp flow.
+Supabase email confirmation settings.
+Landing/signup logic.
+AuthProvider / useAuth.
+Protected routes.
+Onboarding route.
+All app API routes.
+Profile creation.
+Discovery query.
+Likes/interactions.
+Matches/messages/calls.
+Required implementation:
+
+Frontend:
+
+After signup, show “Check your email” verification screen.
+Include “Resend verification email” button.
+Include “I verified my email” button that refreshes the session.
+Include clear copy:
+“Please verify your email before using Lulou.”
+Backend/API:
+
+Add middleware or checks so unverified users cannot:
+
+create/update profile beyond minimal pending account
+appear in Discovery
+like/open/close profiles
+match
+message
+call
+buy extras
+use Intention Wheel
+Verified status must come from Supabase Auth user email_confirmed_at or equivalent.
+Never trust client-side flags.
+Existing fake accounts:
+
+Audit all existing auth users/profiles.
+Identify profiles whose email is not verified.
+Hide unverified profiles from Discovery immediately.
+Optionally mark them as pending_verification.
+Do not delete them automatically without confirmation.
+Supabase setup:
+
+Confirm “Confirm email” is enabled in Supabase Auth settings.
+Confirm redirect URL points back to the app correctly.
+Confirm verification link works on mobile.
+Confirm rate limits prevent spam resend attempts.
+Anti-abuse:
+
+Add resend verification cooldown.
+Limit signups per IP if possible.
+Prevent duplicate profile creation before verification.
+Log suspicious repeated signup attempts.
+Consider blocking disposable email domains later.
+Validation tests:
+
+Sign up with new email.
+Do not verify email.
+Confirm user is blocked from Discover.
+Confirm user is blocked from Likes.
+Confirm user is blocked from Matches.
+Confirm user cannot message.
+Confirm user cannot call.
+Confirm user does not appear to other users.
+Click verification email.
+Confirm app unlocks correctly.
+Test resend verification email.
+Test mobile verification link.
+Test login with unverified existing account.
+Test verified existing account still works.
+Run:
+
+npm run check
+npm run build
+
+Report:
+
+Root cause
+Supabase Auth settings required
+Files changed
+Verification flow
+Server-side enforcement
+Existing fake account handling
+Resend cooldown
+Test results
+npm run check result
+npm run build result
+Do not mark complete until unverified accounts are blocked server-side and hidden from Discovery.
+

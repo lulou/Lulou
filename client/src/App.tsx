@@ -1304,6 +1304,7 @@ function VerifyEmailGate({ email, onSignOut }: { email: string | undefined; onSi
   const [resendLoading, setResendLoading] = useState(false);
   const [resendSent, setResendSent] = useState(false);
   const [resendError, setResendError] = useState<string | null>(null);
+  const [refreshLoading, setRefreshLoading] = useState(false);
 
   const handleResend = useCallback(async () => {
     if (!email) return;
@@ -1319,6 +1320,20 @@ function VerifyEmailGate({ email, onSignOut }: { email: string | undefined; onSi
       setResendLoading(false);
     }
   }, [email, t]);
+
+  // After clicking the verification link in another tab, the user can tap here
+  // to refresh their session.  onAuthStateChange in AuthProvider will pick up
+  // the new token and, if email_confirmed_at is set, dismiss this gate.
+  const handleRefresh = useCallback(async () => {
+    setRefreshLoading(true);
+    try {
+      await supabase.auth.refreshSession();
+    } catch {
+      // ignore — sign out + back in remains the fallback
+    } finally {
+      setRefreshLoading(false);
+    }
+  }, []);
 
   return (
     <div className="min-h-screen bg-background flex flex-col items-center justify-center px-6 gap-8" data-testid="screen-verify-email-gate">
@@ -1357,6 +1372,18 @@ function VerifyEmailGate({ email, onSignOut }: { email: string | undefined; onSi
         {resendError && (
           <p className="text-xs text-destructive text-center">{resendError}</p>
         )}
+        <button
+          className="w-full py-2.5 rounded-md border text-sm font-medium hover:bg-muted transition-colors disabled:opacity-60 flex items-center justify-center gap-2"
+          onClick={handleRefresh}
+          disabled={refreshLoading}
+          data-testid="button-refresh-verify-gate"
+        >
+          {refreshLoading ? (
+            <><Loader2 className="w-4 h-4 animate-spin" /> {t("verify_email_checking")}</>
+          ) : (
+            t("verify_email_refresh_btn")
+          )}
+        </button>
         <button
           className="w-full py-2.5 rounded-md border text-sm font-medium hover:bg-muted transition-colors"
           onClick={onSignOut}

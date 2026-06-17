@@ -953,6 +953,17 @@ export function setHasIsPausedColumn(val: boolean) {
   console.log(`[STORAGE] is_paused column ${val ? "AVAILABLE" : "NOT YET MIGRATED"}`);
 }
 
+// email_verified — true once the user has confirmed their email address.
+// Set lazily (fire-and-forget) in the isAuthenticated middleware the first time
+// a verified user makes an API call.  Discovery and the Wheel filter this column
+// so unverified profiles are never shown to other users.
+let _hasEmailVerifiedColumn = false;
+export function setHasEmailVerifiedColumn(val: boolean) {
+  _hasEmailVerifiedColumn = val;
+  if (val) console.log("[STORAGE] email_verified column AVAILABLE");
+}
+export function getHasEmailVerifiedColumn(): boolean { return _hasEmailVerifiedColumn; }
+
 // Matches & Likes pages don't need coordinates (no distance filter applies there).
 // Function (not const) so guard flags are evaluated at call-time, not module-init.
 function getMatchProfileCols(): string {
@@ -1454,6 +1465,12 @@ export class SupabaseStorage implements IStorage {
     // Exclude paused profiles from discovery when column exists.
     if (_hasIsPausedColumn) {
       profilesQuery = (profilesQuery as any).or("is_paused.is.null,is_paused.eq.false");
+    }
+    // Exclude profiles whose owner has not yet confirmed their email address.
+    // The column is set lazily (fire-and-forget) by isAuthenticated the first
+    // time a verified user makes an API request, so it self-heals over time.
+    if (_hasEmailVerifiedColumn) {
+      profilesQuery = (profilesQuery as any).eq("email_verified", true);
     }
 
     // ── Mutual-compatibility filters ────────────────────────────────────────
@@ -2583,6 +2600,9 @@ export class SupabaseStorage implements IStorage {
       }
 
       query = applyFilters(query);
+      if (_hasEmailVerifiedColumn) {
+        query = (query as any).eq("email_verified", true);
+      }
 
       const { data, error } = await query;
       if (error) console.error("[WHEEL] popular query error:", error.message);
@@ -2600,6 +2620,10 @@ export class SupabaseStorage implements IStorage {
         .select(WHEEL_COLS)
         .eq("onboarding_complete", true)
         .order("created_at", { ascending: false });
+
+      if (_hasEmailVerifiedColumn) {
+        query = (query as any).eq("email_verified", true);
+      }
 
       // Combine already-fetched profiles, own profile, and (when within the URL-safe cap)
       // the full interaction-exclusion set — mirrors Discovery's DB-level exclusion.

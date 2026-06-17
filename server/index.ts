@@ -426,6 +426,7 @@ app.use((req, res, next) => {
         setHasCommentFilterColumn,
         setHasConversationStarterAiColumn,
         setHasVoiceTranscriptColumn,
+        setHasEmailVerifiedColumn,
       } = await import("./storage");
 
       const _supabaseUrl = process.env.VITE_SUPABASE_URL!;
@@ -450,6 +451,7 @@ app.use((req, res, next) => {
         { col: "show_last_active",         setter: setHasShowLastActiveColumn,          sql: "ALTER TABLE profiles ADD COLUMN IF NOT EXISTS show_last_active boolean DEFAULT true;" },
         { col: "comment_filter",           setter: setHasCommentFilterColumn,           sql: "ALTER TABLE profiles ADD COLUMN IF NOT EXISTS comment_filter boolean DEFAULT true;" },
         { col: "conversation_starter_ai",  setter: setHasConversationStarterAiColumn,   sql: "ALTER TABLE profiles ADD COLUMN IF NOT EXISTS conversation_starter_ai boolean DEFAULT true;" },
+        { col: "email_verified",           setter: setHasEmailVerifiedColumn,           sql: "ALTER TABLE profiles ADD COLUMN IF NOT EXISTS email_verified boolean DEFAULT false;" },
       ];
 
       const missingSql: string[] = [];

@@ -1,7 +1,7 @@
 import type { Express, RequestHandler } from "express";
 import { createServer, type Server } from "http";
 import { randomUUID } from "crypto";
-import { SupabaseStorage, mapMatch, type CompleteCallOptions, geocodeLocation, getHasLatLngColumns } from "./storage";
+import { SupabaseStorage, mapMatch, type CompleteCallOptions, geocodeLocation, getHasLatLngColumns, getHasEmailVerifiedColumn } from "./storage";
 import { transcodeToM4a } from "./transcoder";
 import { seedDatabase } from "./seed";
 import { z } from "zod";
@@ -233,7 +233,33 @@ function getCallStorage(req: any): SupabaseStorage {
   return new SupabaseStorage(supabaseAdmin);
 }
 
-const isAuthenticated: RequestHandler = (req: any, res, next) => {
+// ── Email verification enforcement ────────────────────────────────────────────
+// All protected API routes require a confirmed email address.
+// We cache the result per-user for 5 minutes so the Supabase admin API is
+// called at most once per user per cache window rather than on every request.
+// On admin API error we fail open (allow the request) to avoid blocking
+// legitimate users during transient Supabase outages.
+const _emailVerifiedCache = new Map<string, { verified: boolean; expiresAt: number }>();
+const EMAIL_VERIFIED_CACHE_TTL_MS = 5 * 60_000;
+
+async function checkEmailVerified(userId: string): Promise<boolean> {
+  const now = Date.now();
+  const cached = _emailVerifiedCache.get(userId);
+  if (cached && cached.expiresAt > now) return cached.verified;
+  try {
+    const { data: { user }, error } = await supabaseAdmin.auth.admin.getUserById(userId);
+    const verified = !error && user?.email_confirmed_at != null;
+    _emailVerifiedCache.set(userId, { verified, expiresAt: now + EMAIL_VERIFIED_CACHE_TTL_MS });
+    if (!verified) console.warn(`[AUTH] EMAIL_NOT_VERIFIED: userId=${userId.slice(0, 8)}`);
+    return verified;
+  } catch (e: any) {
+    // Fail open on admin API error to avoid blocking users during outages.
+    console.error("[AUTH] checkEmailVerified admin API error (fail-open):", e?.message);
+    return true;
+  }
+}
+
+const isAuthenticated: RequestHandler = async (req: any, res, next) => {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
     return res.status(401).json({ message: "Unauthorized" });
@@ -245,6 +271,27 @@ const isAuthenticated: RequestHandler = (req: any, res, next) => {
       return res.status(401).json({ message: "Unauthorized" });
     }
     req.user = user;
+
+    // Server-side email verification gate.
+    // Returns 403 EMAIL_NOT_VERIFIED for unverified users regardless of JWT validity.
+    // The frontend VerifyEmailGate intercepts this code and shows the verify screen.
+    const verified = await checkEmailVerified(user.id);
+    if (!verified) {
+      return res.status(403).json({
+        message: "Email not verified. Check your inbox for the confirmation link.",
+        code: "EMAIL_NOT_VERIFIED",
+      });
+    }
+
+    // Lazy: mark profile email_verified = true the first time a verified user
+    // makes an API call.  Fire-and-forget — never blocks the request.
+    if (getHasEmailVerifiedColumn()) {
+      supabaseAdmin.from("profiles")
+        .update({ email_verified: true })
+        .eq("user_id", user.id)
+        .eq("email_verified", false)
+        .then(() => {}, () => {});
+    }
 
     // Fire-and-forget last_active update (debounced per user, 2 min).
     const now = Date.now();

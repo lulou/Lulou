@@ -819,6 +819,8 @@ export const TRANSLATIONS = {
     verify_email_resending:       "Resending…",
     verify_email_signout:         "Sign out",
     verify_email_resend_err:      "Could not resend — try again.",
+    verify_email_refresh_btn:     "I've verified my email",
+    verify_email_checking:        "Checking…",
     // Scheduling / call coordination
     their_availability_lbl:       "{name}'s availability:",
     sched_now:                    "now",
