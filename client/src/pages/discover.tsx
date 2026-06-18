@@ -19,6 +19,9 @@ import { MessageCircle, HelpCircle, Send, BadgeCheck } from "lucide-react";
 import { LulouFlowerIcon } from "@/components/app-layout";
 import { EMPTY_PHOTOS } from "@/lib/image-utils";
 import { ProfileInfoRow } from "@/components/profile-info-row";
+import { useAuth } from "@/hooks/use-auth";
+import { LulouGuide } from "@/components/lulou-guide";
+import { GUIDE_KEYS } from "@/lib/guide-store";
 
 // Full-width draggable photo card.
 // Uses ProfilePhotoViewer (shared): photos follow finger, spring-settle on release, gap between slides.
@@ -244,6 +247,7 @@ export default function Discover() {
   const langCode = LANGUAGE_NAME_TO_CODE[language] ?? "en";
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const { user } = useAuth();
 
   // Dev-only page lifecycle instrumentation — no-op in production
   useRenderCount("Discover");
@@ -259,6 +263,10 @@ export default function Discover() {
   const [isExiting, setIsExiting] = useState(false);
   const exitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => () => { if (exitTimerRef.current) clearTimeout(exitTimerRef.current); }, []);
+
+  const [guideOpenTriggered,  setGuideOpenTriggered]  = useState(false);
+  const [guideCloseTriggered, setGuideCloseTriggered] = useState(false);
+  const [guideUndoTriggered,  setGuideUndoTriggered]  = useState(false);
 
   // Optimistic undo state — set immediately when user acts so the undo button
   // is ready before the server round-trip completes.
@@ -465,6 +473,9 @@ export default function Discover() {
         setCelebration({ firstName: data.capturedFirstName ?? "", photo: data.capturedPhoto, matchId: data.matchId });
         queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
       }
+
+      if ((data as any).interactionType === "open")  setGuideOpenTriggered(true);
+      if ((data as any).interactionType === "close") setGuideCloseTriggered(true);
     },
   });
 
@@ -493,6 +504,7 @@ export default function Discover() {
       // in visibleProfiles without waiting for the refetch to settle.
       setShownIds(prev => { const s = new Set(prev); s.delete(data.restoredProfileId); return s; });
       queryClient.invalidateQueries({ queryKey: ["/api/discover"] });
+      setGuideUndoTriggered(true);
       toast({ title: "↩ Undo", description: t("undo_pass_success").replace("{name}", name) });
     },
     onError: (err: any) => {
@@ -814,6 +826,45 @@ export default function Discover() {
 
       {celebration && (
         <MatchOverlay celebration={celebration} onClose={() => setCelebration(null)} />
+      )}
+
+      <LulouGuide
+        guideKey={GUIDE_KEYS.WELCOME}
+        userId={user?.id}
+        icon="✨"
+        title="Welcome to Lulou"
+        body="Take your time. Great connections aren't rushed."
+        delay={1200}
+        autoDismissMs={5000}
+      />
+      {guideOpenTriggered && (
+        <LulouGuide
+          guideKey={GUIDE_KEYS.DISCOVER_OPEN}
+          userId={user?.id}
+          icon="❤️"
+          title="Nice choice"
+          body="Open means you're interested. If they open you too, you'll connect."
+          delay={600}
+        />
+      )}
+      {guideCloseTriggered && (
+        <LulouGuide
+          guideKey={GUIDE_KEYS.DISCOVER_CLOSE}
+          userId={user?.id}
+          icon="🌙"
+          title="Changed your mind?"
+          body="Undo Close can bring someone back."
+          delay={600}
+        />
+      )}
+      {guideUndoTriggered && (
+        <LulouGuide
+          guideKey={GUIDE_KEYS.DISCOVER_UNDO}
+          userId={user?.id}
+          title="Nothing is final."
+          body="People can be rediscovered."
+          delay={400}
+        />
       )}
     </div>
   );

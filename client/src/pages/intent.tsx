@@ -4,6 +4,9 @@ import { useLocation } from "wouter";
 import { Loader2, RotateCw, X, MapPin, Lock, Star, Crown, MessageCircle, HelpCircle, Heart, Moon, Volume2, VolumeX, ChevronRight, BadgeCheck } from "lucide-react";
 import { LulouFlowerIcon } from "@/components/app-layout";
 import { ElevateModal } from "@/components/elevate-modal";
+import { useAuth } from "@/hooks/use-auth";
+import { LulouGuide } from "@/components/lulou-guide";
+import { GUIDE_KEYS } from "@/lib/guide-store";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
@@ -693,6 +696,7 @@ function spinEase(t: number): number {
 // ── Main page ────────────────────────────────────────────────────────────────
 export default function IntentPage() {
   const { t, isRTL } = useLanguageContext();
+  const { user } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const isActive = useTabActive();
@@ -1741,6 +1745,16 @@ export default function IntentPage() {
       {showElevateInReveal && (
         <ElevateModal onClose={() => setShowElevateInReveal(false)} cancelPath="/intent" />
       )}
+
+      <LulouGuide
+        guideKey={GUIDE_KEYS.WHEEL_ENTRY}
+        userId={user?.id}
+        icon="✨"
+        title="Standouts"
+        body="Exceptional profiles chosen for quality and compatibility."
+        delay={1400}
+        autoDismissMs={5000}
+      />
     </div>
   );
 }

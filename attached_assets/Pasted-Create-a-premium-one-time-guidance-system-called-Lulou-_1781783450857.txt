@@ -1,0 +1,271 @@
+Create a premium, one-time guidance system called Lulou Guide.
+
+Goal:
+Users must naturally understand how Lulou works without feeling like they’re being taught or interrupted. The experience should feel prestigious, elegant, and almost like a private matchmaker quietly guiding them.
+
+Design inspiration:
+Apple × Raya × Aman Resort × Luxury Concierge.
+
+Absolutely avoid:
+
+Cheap tutorials
+Coach marks everywhere
+Cartoon speech bubbles
+Confetti
+“Great job!”
+“Congratulations!”
+Duolingo-style onboarding
+Popups that block actions
+General rules:
+
+Each guide appears only once.
+Persist completion per user.
+Guides can be replayed from Settings → “Lulou Guide”.
+Elegant glass cards with subtle blur.
+Serif titles.
+Soft fade animations.
+Respect reduced motion settings.
+Auto dismiss after 3–5 seconds.
+Optional “Got it” button.
+Never interrupt typing, calls, or swiping.
+Safe area support for iPhone.
+Premium haptics only.
+Create a table:
+
+guide_key
+seen
+seen_at
+
+or equivalent persistence.
+
+==================================
+
+
+
+WELCOME
+After signup and profile completion:
+
+✨ Welcome to Lulou
+
+Take your time.
+
+Great connections aren’t rushed.
+
+Show once.
+
+==================================
+
+
+
+DISCOVER
+First Open ❤️:
+
+❤️ Nice choice
+
+Open means you’re interested.
+
+If they open you too, you’ll connect.
+
+Show once.
+
+
+First Close 🌙:
+
+Changed your mind?
+
+Undo Close can bring someone back.
+
+Show once.
+
+
+First Undo:
+
+Nothing is final.
+
+People can be rediscovered.
+
+Show once.
+
+==================================
+
+
+
+CONNECTIONS
+First Match:
+
+✨ You’re connected
+
+Take your time.
+
+Conversations unlock calls together.
+
+Show once.
+
+==================================
+
+
+
+CHAT ROOM
+First message:
+
+15 messages each
+
+Enough to spark chemistry before hearing their voice.
+
+Show once.
+
+
+First time message counter appears:
+
+Messages are shared equally.
+
+Progress unlocks the first call.
+
+Show once.
+
+
+Explain icons with elegant tooltips:
+Voice notes
+Message count
+Stage progress
+
+Show once each.
+
+==================================
+
+
+
+CALLS
+First phone call:
+
+Hear their voice.
+
+Your first call lasts 10 minutes.
+
+No pressure.
+
+Show once.
+
+
+First video call:
+
+✨ Now you can be seen.
+
+Chemistry deserves more than text.
+
+Show once.
+
+==================================
+
+
+
+FINAL DECISION
+Before Plan Date:
+
+Ready for real life?
+
+Take your time.
+
+Show once.
+
+==================================
+
+
+
+INTENTION WHEEL
+First wheel room entry:
+
+✨ Standouts
+
+Exceptional profiles chosen for quality and compatibility.
+
+Show once.
+
+
+After first spin:
+
+Open ❤️ if you’re curious.
+
+Close 🌙 if not.
+
+Show once.
+
+==================================
+
+
+
+ELEVATE
+First Elevate screen:
+
+More visibility.
+
+Elevate places your profile in front of more compatible people.
+
+Show once.
+
+==================================
+
+
+
+MEMBERSHIP
+First membership view:
+
+Thoughtful dating deserves thoughtful tools.
+
+Membership refreshes benefits every month.
+
+Show once.
+
+==================================
+
+
+
+SETTINGS
+Create:
+
+Settings → Lulou Guide
+
+Allow replay of:
+
+Welcome
+Discover
+Connections
+Chat
+Calls
+Intention Wheel
+Membership
+Elevate
+==================================
+
+
+
+STYLE REQUIREMENTS
+Everything must feel:
+
+Elegant
+Prestigious
+Minimal
+Calm
+Romantic
+Expensive
+Think:
+
+Apple × Raya × Aman Resort × Private Matchmaker.
+
+Never feel like a tutorial.
+
+Run:
+
+npm run check
+npm run build
+
+Report:
+
+Files changed.
+Guide architecture.
+Persistence mechanism.
+Animation system.
+Replay system.
+Accessibility support.
+iPhone performance safeguards.
+Verification that guides only appear once.

@@ -1,4 +1,6 @@
 import { useState, useRef, useEffect, useCallback, useMemo, memo, Fragment, type ReactNode } from "react";
+import { LulouGuide } from "@/components/lulou-guide";
+import { GUIDE_KEYS } from "@/lib/guide-store";
 import { useLocation } from "wouter";
 import { useLanguageContext } from "@/contexts/language-context";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -1157,6 +1159,9 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
   const [showAIStarters, setShowAIStarters] = useState(false);
   const hasAutoShownStartersRef = useRef(false);
   const [filterConfirm, setFilterConfirm] = useState<{ content: string; tempId: string; categories: string[] } | null>(null);
+  const [chatGuideTriggered,  setChatGuideTriggered]  = useState(false);
+  const [callGuideTriggered,  setCallGuideTriggered]  = useState(false);
+  const [videoGuideTriggered, setVideoGuideTriggered] = useState(false);
   // Tracks messages sent in the current call-stage session for optimistic counter display.
   // Resets when match.id or callStage changes so the badge always starts from the DB value.
   const [localSentCount, setLocalSentCount] = useState(0);
@@ -1292,6 +1297,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
         return { ...old, messages: [...old.messages, realMsg] };
       });
 
+      setChatGuideTriggered(true);
       // Broadcast to receiver instantly (~50ms) via the realtime broadcast channel.
       // handleNewMessage on the receiver's side deduplicates via message ID.
       broadcastNewMessage(realMsg);
@@ -1360,6 +1366,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
         });
         console.log("[CALL_UI] CALL_RING_CLIENT_BROADCAST", { matchId: match.id, callSessionId, callerId: user.id });
       }
+      setCallGuideTriggered(true);
     },
     onError: (error: Error) => {
       const isAuth = error.message === "Unauthorized" || error.message.startsWith("401");
@@ -1404,6 +1411,8 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
         });
         console.log("[CALL_UI] PAID_CALL_RING_BROADCAST", { matchId: match.id, callSessionId, isVideo });
       }
+      if (isVideo) setVideoGuideTriggered(true);
+      else setCallGuideTriggered(true);
     },
     onError: (error: Error) => {
       const isAuth = error.message === "Unauthorized" || error.message.startsWith("401");
@@ -2988,6 +2997,36 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
         onClose={() => setPurchasePromptFeature(null)}
         returnPath={window.location.pathname}
       />
+
+      {chatGuideTriggered && (
+        <LulouGuide
+          guideKey={GUIDE_KEYS.CHAT_FIRST_MESSAGE}
+          userId={user?.id}
+          title="15 messages each"
+          body="Enough to spark chemistry before hearing their voice."
+          delay={700}
+        />
+      )}
+      {callGuideTriggered && (
+        <LulouGuide
+          guideKey={GUIDE_KEYS.CALLS_FIRST_PHONE}
+          userId={user?.id}
+          icon="📞"
+          title="Hear their voice."
+          body="Your first call lasts 10 minutes. No pressure."
+          delay={700}
+        />
+      )}
+      {videoGuideTriggered && (
+        <LulouGuide
+          guideKey={GUIDE_KEYS.CALLS_FIRST_VIDEO}
+          userId={user?.id}
+          icon="✨"
+          title="Now you can be seen."
+          body="Chemistry deserves more than text."
+          delay={700}
+        />
+      )}
     </div>
   );
 }
