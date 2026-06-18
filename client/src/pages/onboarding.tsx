@@ -15,14 +15,21 @@ import { apiRequest } from "@/lib/queryClient";
 import { cleanErrorMessage, withRetry } from "@/lib/profile-upsert";
 import { writeDebug } from "@/lib/debug-store";
 import { SIGNALS, GREEN_FLAGS, DATING_INTENTS, CONNECTION_STYLES, CONVERSATION_STARTERS, PROFILE_QUESTIONS } from "@shared/schema";
-import { Loader2, ArrowRight, ArrowLeft, Check, AlertCircle, Plus, X } from "lucide-react";
+import { Loader2, ArrowRight, ArrowLeft, Check, AlertCircle, Plus, X, ImagePlus } from "lucide-react";
 import { DobPicker } from "@/components/dob-picker";
 import { LulouFlowerIcon } from "@/components/app-layout";
+import { HeightPicker } from "@/components/height-picker";
 import type { Profile } from "@shared/schema";
 import { convertPhotoToJpeg } from "@/lib/photo-utils";
 import { useUnits, formatDistance } from "@/lib/units";
 
 const STEP_KEYS = ["ob_step_basics","ob_step_photos","ob_step_starters","ob_step_questions","ob_step_signals","ob_step_intent","ob_step_green_flags","ob_step_pace"] as const;
+
+const INTENT_DESCRIPTIONS: Record<string, string> = {
+  "Committed Relationship": "Looking for a lasting partnership",
+  "Dating with Purpose":    "Serious approach, open timeline",
+  "Open but Serious":       "Genuine connections — not casual",
+};
 
 function RadiusLabel({ locationRadius }: { locationRadius: number }) {
   const [units] = useUnits();
@@ -403,13 +410,11 @@ export default function Onboarding({ existingProfile = null, userEmail = "" }: O
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="height">{t("label_height_opt")}</Label>
-                  <Input
-                    id="height"
+                  <Label>{t("label_height_opt")}</Label>
+                  <HeightPicker
                     value={formData.height}
-                    onChange={e => update("height", e.target.value)}
-                    placeholder={t("ph_height")}
-                    data-testid="input-height"
+                    onChange={v => update("height", v)}
+                    testId="input-height"
                   />
                 </div>
                 <div className="space-y-2">
@@ -437,15 +442,31 @@ export default function Onboarding({ existingProfile = null, userEmail = "" }: O
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="phoneNumber">{t("ob_phone_label")}</Label>
-                  <Input
-                    id="phoneNumber"
-                    type="tel"
-                    value={formData.phoneNumber}
-                    onChange={e => update("phoneNumber", e.target.value)}
-                    placeholder={t("ob_phone_ph")}
-                    data-testid="input-phone-number"
-                  />
+                  <Label>{t("ob_phone_label")}</Label>
+                  <div
+                    className="flex overflow-hidden rounded-xl border border-input focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-0"
+                    style={{ background: "hsl(var(--background))" }}
+                  >
+                    <div className="flex items-center px-3 border-r border-input bg-muted/40 shrink-0 select-none">
+                      <span className="text-sm font-semibold text-muted-foreground">+61</span>
+                    </div>
+                    <input
+                      type="tel"
+                      inputMode="numeric"
+                      placeholder="412 345 678"
+                      value={
+                        formData.phoneNumber.startsWith("+61")
+                          ? formData.phoneNumber.slice(3)
+                          : formData.phoneNumber
+                      }
+                      onChange={e => {
+                        const digits = e.target.value.replace(/\D/g, "").slice(0, 9);
+                        update("phoneNumber", digits ? "+61" + digits : "");
+                      }}
+                      className="flex-1 px-3 py-3 text-sm bg-transparent outline-none"
+                      data-testid="input-phone-number"
+                    />
+                  </div>
                 </div>
               </div>
             )}
@@ -786,10 +807,15 @@ export default function Onboarding({ existingProfile = null, userEmail = "" }: O
                     onClick={() => update("datingIntent", intent)}
                     data-testid={`card-intent-${intent.toLowerCase().replace(/\s+/g, "-")}`}
                   >
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="font-medium">{intent}</span>
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <span className="font-semibold text-sm block">{intent}</span>
+                        <span className="text-xs text-muted-foreground mt-0.5 block leading-snug">
+                          {INTENT_DESCRIPTIONS[intent] ?? ""}
+                        </span>
+                      </div>
                       {formData.datingIntent === intent && (
-                        <div className="w-5 h-5 rounded-full bg-primary flex items-center justify-center">
+                        <div className="w-5 h-5 rounded-full bg-primary flex items-center justify-center shrink-0 mt-0.5">
                           <Check className="w-3 h-3 text-primary-foreground" />
                         </div>
                       )}
@@ -942,26 +968,50 @@ function PhotoSlot({ index, photo, onSelect, onRemove }: {
   };
 
   return (
-    <div className="relative aspect-[3/4] rounded-md bg-muted border-2 border-dashed border-muted-foreground/20 overflow-hidden group" data-testid={`photo-slot-${index}`}>
+    <div
+      className="relative aspect-[3/4] rounded-xl overflow-hidden"
+      style={{ border: "1px solid hsl(var(--border) / 0.45)" }}
+      data-testid={`photo-slot-${index}`}
+    >
       {converting ? (
-        <div className="flex items-center justify-center w-full h-full">
-          <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+        <div className="flex items-center justify-center w-full h-full bg-muted/30">
+          <Loader2 className="w-5 h-5 animate-spin text-muted-foreground/50" />
         </div>
       ) : photo ? (
         <>
           <img src={photo} alt={`Photo ${index + 1}`} className="w-full h-full object-cover" />
+          {index === 0 && (
+            <div className="absolute bottom-2 left-2 pointer-events-none">
+              <span className="text-[9px] font-bold tracking-widest uppercase text-white/90 bg-black/35 backdrop-blur-sm px-2 py-0.5 rounded-full">
+                Main
+              </span>
+            </div>
+          )}
           <button
             onClick={onRemove}
-            className="absolute top-1 end-1 w-6 h-6 rounded-full bg-background/80 flex items-center justify-center text-xs text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity"
+            className="absolute top-2 end-2 w-6 h-6 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center active:scale-90 transition-transform"
             data-testid={`button-remove-photo-${index}`}
           >
-            x
+            <X className="w-3 h-3 text-white" />
           </button>
         </>
       ) : (
-        <label className="flex items-center justify-center w-full h-full cursor-pointer text-muted-foreground/40 text-2xl font-light">
-          +
-          <input type="file" accept="image/*" onChange={handleFileChange} className="hidden" data-testid={`input-photo-${index}`} />
+        <label
+          className="flex flex-col items-center justify-center w-full h-full cursor-pointer gap-1.5 active:scale-95 transition-transform"
+          style={{ background: "linear-gradient(135deg, hsl(var(--muted) / 0.55), hsl(var(--muted) / 0.30))" }}
+        >
+          <ImagePlus className="w-5 h-5 text-muted-foreground/35" />
+          <span className="text-[11px] font-medium text-muted-foreground/45 tracking-wide">
+            {index === 0 ? "Main photo" : "Add photo"}
+          </span>
+          <input
+            type="file"
+            accept="image/*"
+            capture={undefined}
+            onChange={handleFileChange}
+            className="hidden"
+            data-testid={`input-photo-${index}`}
+          />
         </label>
       )}
     </div>

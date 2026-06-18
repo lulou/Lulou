@@ -1,0 +1,66 @@
+Audit and redesign the Lulou onboarding/profile creation flow.
+
+Current issues:
+
+1. Gender select
+- Current options say "Man" and "Woman".
+- Change wording to "Male" and "Female".
+- Check all places this wording appears: onboarding, edit profile, filters, discover logic, display labels, database mappings.
+- Do not break matching/preference logic.
+
+2. Height selection
+- Current height input allows users to mess around or enter invalid values.
+- Replace with a proper controlled picker/dropdown.
+- Support realistic height ranges only.
+- Use the app's selected units if applicable.
+- Prevent invalid/free-text height.
+- Store the value consistently in the database.
+- Display it cleanly on profiles.
+
+3. Phone number
+- Change phone number field to Australian format.
+- Use +61 as default country code.
+- Validate Australian mobile numbers properly.
+- Prevent random invalid input.
+- Display example placeholder clearly.
+- Do not allow phone number to break signup/profile save.
+
+4. Photo upload UI
+- Current "select photo" / "take photo" boxes feel dead and basic.
+- Redesign them to feel premium and on-brand.
+- Use elegant cards, icons, soft borders, subtle hover/tap states.
+- Make the upload area feel more like a polished app, not a form.
+- Preserve existing upload/camera logic.
+- Must work on iPhone Safari.
+
+5. Dating intent options
+- Audit all intent options.
+- Remove duplicate or near-duplicate choices.
+- Make each option meaningfully different.
+- Avoid options that feel thrown in just to fill space.
+- Improve wording so users instantly understand each choice.
+- Ensure intent options still map cleanly to the matching/discovery algorithm and Intention Wheel.
+
+General requirements:
+
+- Keep Lulou premium, romantic, minimal, and polished.
+- No cheap form UI.
+- No clunky dropdowns if a better mobile picker exists.
+- Mobile-first.
+- iPhone Safari tested.
+- Do not break existing stored profiles.
+- Add migration/backwards compatibility if old values exist.
+- Run:
+ npm run check
+ npm run build
+
+Report:
+1. Files changed
+2. Gender wording changes
+3. Height picker design
+4. Australian phone validation
+5. Photo upload UI redesign
+6. Dating intent option cleanup
+7. Backwards compatibility for old profile data
+8. npm run check result
+9. npm run build result

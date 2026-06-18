@@ -1738,15 +1738,28 @@ export default function SettingsPage() {
           <DialogHeader>
             <DialogTitle className="font-serif">{t("edit_phone_title")}</DialogTitle>
           </DialogHeader>
-          <div className="py-2">
-            <Input
-              type="tel"
-              placeholder="+1 (555) 000-0000"
-              value={phoneInput}
-              onChange={e => setPhoneInput(e.target.value)}
-              data-testid="input-phone-number"
-            />
-            <p className="text-xs text-muted-foreground mt-2">
+          <div className="py-2 space-y-2">
+            <div
+              className="flex overflow-hidden rounded-xl border border-input focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-0"
+              style={{ background: "hsl(var(--background))" }}
+            >
+              <div className="flex items-center px-3 border-r border-input bg-muted/40 shrink-0 select-none">
+                <span className="text-sm font-semibold text-muted-foreground">+61</span>
+              </div>
+              <input
+                type="tel"
+                inputMode="numeric"
+                placeholder="412 345 678"
+                value={phoneInput.startsWith("+61") ? phoneInput.slice(3) : phoneInput}
+                onChange={e => {
+                  const digits = e.target.value.replace(/\D/g, "").slice(0, 9);
+                  setPhoneInput(digits ? "+61" + digits : "");
+                }}
+                className="flex-1 px-3 py-2.5 text-sm bg-transparent outline-none"
+                data-testid="input-phone-number"
+              />
+            </div>
+            <p className="text-xs text-muted-foreground">
               {t("phone_privacy_note")}
             </p>
           </div>

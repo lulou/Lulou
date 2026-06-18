@@ -37,6 +37,7 @@ import {
 } from "lucide-react";
 import { DragScrollRow } from "@/components/drag-scroll-row";
 import { DobPicker } from "@/components/dob-picker";
+import { HeightPicker } from "@/components/height-picker";
 import { ElevateModal } from "@/components/elevate-modal";
 import { ProfileInfoRow } from "@/components/profile-info-row";
 import { CONVERSATION_STARTERS, PROFILE_QUESTIONS } from "@shared/schema";
@@ -816,13 +817,11 @@ export default function ProfilePage() {
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="settings-height" className="text-xs">{t("label_height")}</Label>
-              <Input
-                id="settings-height"
+              <Label className="text-xs">{t("label_height")}</Label>
+              <HeightPicker
                 value={settingsForm.height || ""}
-                onChange={e => setSettingsForm(prev => ({ ...prev, height: e.target.value }))}
-                placeholder={t("ph_height")}
-                data-testid="input-settings-height"
+                onChange={v => setSettingsForm(prev => ({ ...prev, height: v }))}
+                testId="input-settings-height"
               />
             </div>
             <div className="space-y-1.5">
@@ -854,8 +853,8 @@ export default function ProfilePage() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="Meaningful Relationship">{t("intent_meaningful")}</SelectItem>
-                  <SelectItem value="Intentional Dating">{t("intent_intentional")}</SelectItem>
+                  <SelectItem value="Committed Relationship">{t("intent_committed")}</SelectItem>
+                  <SelectItem value="Dating with Purpose">{t("intent_purpose")}</SelectItem>
                   <SelectItem value="Open but Serious">{t("intent_open_serious")}</SelectItem>
                 </SelectContent>
               </Select>
