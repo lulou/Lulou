@@ -493,7 +493,14 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
                 pointerEvents: "none",
               }}
             >
-              <div style={{ pointerEvents: "auto" }}>{nameSlot}</div>
+              <div
+                style={{ pointerEvents: "auto" }}
+                onPointerDown={e => e.stopPropagation()}
+                onPointerUp={e => e.stopPropagation()}
+                onClick={e => e.stopPropagation()}
+              >
+                {nameSlot}
+              </div>
             </div>
           )}
 
@@ -508,7 +515,26 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
                 pointerEvents: "none",
               }}
             >
-              <div style={{ pointerEvents: "auto" }}>{action}</div>
+              {/*
+                stopPropagation on all three events prevents the outer
+                container's pointer-gesture recognizer from seeing taps
+                that originated inside the action slot.
+
+                Without this, pointerdown bubbles up → onPointerDown calls
+                setPointerCapture → pointerup is routed to the container →
+                commitDrag runs with isDraggingRef=false → navigatePhoto
+                fires, advancing the photo as a side-effect of the button tap.
+
+                The arrow buttons already do this; the action slot must too.
+              */}
+              <div
+                style={{ pointerEvents: "auto" }}
+                onPointerDown={e => e.stopPropagation()}
+                onPointerUp={e => e.stopPropagation()}
+                onClick={e => e.stopPropagation()}
+              >
+                {action}
+              </div>
             </div>
           )}
         </div>
