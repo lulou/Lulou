@@ -1550,6 +1550,27 @@ export class SupabaseStorage implements IStorage {
     // When bounding box is active, all returned rows are already nearby so fetch
     // up to 500.  Without bbox the global pool is too large — cap at 100 (DB exclusion)
     // or 500 (in-memory exclusion) as before.
+    // ── Pre-query summary log ────────────────────────────────────────────────
+    // Emitted on every discover call (not just IS_DEV) so production issues are
+    // visible in deployment logs.  Shows every active filter so you can trace
+    // exactly why the pool is small without needing to attach a debugger.
+    console.log("[POOL_DEBUG] discover filters applied:", {
+      userId: userId.slice(0, 8),
+      onboarding_complete: true,
+      email_verified: _hasEmailVerifiedColumn ? "= true (column present)" : "SKIPPED (column absent)",
+      is_paused: _hasIsPausedColumn ? "IS NULL OR false" : "SKIPPED (column absent)",
+      gender_target: targetGenders ?? "all (no pref set)",
+      candidate_must_prefer: candidateMustPrefer.length > 0 ? candidateMustPrefer : "any (user gender unset)",
+      age_range: `${effectiveAgeMin}–${effectiveAgeMax}`,
+      exclusions: useDbExclusion
+        ? `${excludedIds.size} IDs excluded at DB level`
+        : `${excludedIds.size} IDs to be excluded in memory (>300)`,
+      bbox: useBBox
+        ? `±${locationRadius}mi around (${userLat?.toFixed(3)},${userLng?.toFixed(3)})`
+        : "DISABLED (no coords or radius = 0)",
+      db_limit: useBBox ? 500 : (useDbExclusion ? 100 : 500),
+    });
+
     const t2 = Date.now();
     const profilesResult = await profilesQuery.limit(useBBox ? 500 : (useDbExclusion ? 100 : 500));
     if (IS_DEV) console.log(`[DISCOVER] profiles query done in ${Date.now() - t2} ms`);
@@ -1562,7 +1583,7 @@ export class SupabaseStorage implements IStorage {
     const now = new Date();
     const all = (profilesResult.data || []).map(mapProfile);
 
-    console.log(`[POOL_DEBUG] total profiles (discover): ${all.length}`);
+    console.log(`[POOL_DEBUG] after DB query (onboarding+email_verified+gender+pref+age+bbox+exclusions): ${all.length}`);
 
     // ── In-memory age verification pass ─────────────────────────────────────
     // Null age passes through — profiles without an age are not excluded.

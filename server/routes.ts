@@ -772,6 +772,187 @@ export async function registerRoutes(
     });
   });
 
+  // ── Admin Discover Debug ─────────────────────────────────────────────────
+  // Returns a complete filter-stage count report for any userId so you can
+  // see exactly why profiles are being eliminated from Discovery.
+  // Requires ADMIN_EMAIL env var (or dev mode with no ADMIN_EMAIL set).
+  app.get("/api/admin/discover-debug", isAuthenticated, async (req: any, res) => {
+    const adminEmails = (process.env.ADMIN_EMAIL ?? "")
+      .split(",").map((e) => e.trim().toLowerCase()).filter(Boolean);
+    const requestEmail = (req.user.email ?? "").toLowerCase();
+    const isDev = process.env.NODE_ENV !== "production";
+    const isAdmin = adminEmails.includes(requestEmail) || (isDev && adminEmails.length === 0);
+    if (!isAdmin) {
+      return res.status(403).json({ message: "Admin access required. Set ADMIN_EMAIL env var." });
+    }
+
+    try {
+      const targetUserId = (req.query.userId as string) || req.user.id;
+
+      // Get target user's discover meta
+      const storage = getStorage(req);
+      const myProfile = await storage.getProfileMeta(targetUserId);
+      if (!myProfile) {
+        return res.status(404).json({ message: "Profile not found for userId: " + targetUserId });
+      }
+
+      const effectiveAgeMin = Math.max(18, myProfile.preferredAgeMin || 18);
+      const effectiveAgeMax = Math.min(99, myProfile.preferredAgeMax || 99);
+
+      // ── Stage 0: total profiles in DB ─────────────────────────────────────
+      const { count: totalCount } = await supabaseAdmin
+        .from("profiles")
+        .select("*", { count: "exact", head: true })
+        .neq("user_id", targetUserId);
+
+      // ── Stage 1: onboarding complete ──────────────────────────────────────
+      const { count: onboardingCount } = await supabaseAdmin
+        .from("profiles")
+        .select("*", { count: "exact", head: true })
+        .neq("user_id", targetUserId)
+        .eq("onboarding_complete", true);
+
+      // ── Stage 2: email verified ───────────────────────────────────────────
+      const { getHasEmailVerifiedColumn } = await import("./storage");
+      let emailVerifiedCount: number | null = null;
+      let emailVerifiedColPresent = false;
+      if (getHasEmailVerifiedColumn()) {
+        emailVerifiedColPresent = true;
+        const { count } = await supabaseAdmin
+          .from("profiles")
+          .select("*", { count: "exact", head: true })
+          .neq("user_id", targetUserId)
+          .eq("onboarding_complete", true)
+          .eq("email_verified", true);
+        emailVerifiedCount = count ?? 0;
+
+        // Also count profiles with email_verified = false (invisible ones)
+      }
+      const { count: emailFalseCount } = emailVerifiedColPresent
+        ? await supabaseAdmin
+            .from("profiles")
+            .select("*", { count: "exact", head: true })
+            .neq("user_id", targetUserId)
+            .eq("onboarding_complete", true)
+            .eq("email_verified", false)
+        : { count: null };
+
+      // ── Stage 3: gender/preference filters ───────────────────────────────
+      const { getHasLatLngColumns } = await import("./storage");
+      const normGender = myProfile.gender?.toLowerCase().trim() ?? "";
+      const normPref   = myProfile.datingPreference?.toLowerCase().trim() ?? "";
+
+      function getTargetGendersLocal(pref: string): string[] | null {
+        if (pref === "women") return ["woman", "trans woman"];
+        if (pref === "men") return ["man", "trans man"];
+        if (pref === "everyone") return null;
+        return null;
+      }
+      function getCandidateMustPreferLocal(gender: string): string[] {
+        const prefs = ["everyone"];
+        if (gender === "woman" || gender === "female") prefs.push("women");
+        if (gender === "man" || gender === "male") prefs.push("men");
+        return prefs;
+      }
+      const targetGenders = getTargetGendersLocal(normPref);
+      const candidateMustPrefer = normGender ? getCandidateMustPreferLocal(normGender) : [];
+
+      let genderFilterQuery = supabaseAdmin
+        .from("profiles")
+        .select("*", { count: "exact", head: true })
+        .neq("user_id", targetUserId)
+        .eq("onboarding_complete", true)
+        .or(`age.is.null,age.gte.${effectiveAgeMin}`)
+        .or(`age.is.null,age.lte.${effectiveAgeMax}`);
+      if (emailVerifiedColPresent) genderFilterQuery = (genderFilterQuery as any).eq("email_verified", true);
+      if (targetGenders && targetGenders.length > 0) genderFilterQuery = genderFilterQuery.in("gender", targetGenders);
+      if (candidateMustPrefer.length > 0) genderFilterQuery = genderFilterQuery.in("dating_preference", candidateMustPrefer);
+      const { count: genderCompatCount } = await genderFilterQuery;
+
+      // ── Stage 4: exclusions (interactions, matches, inbound likes) ────────
+      const [interactedResult, activeMatchesResult, inboundOpensResult] = await Promise.all([
+        supabaseAdmin.from("interactions").select("to_user_id").eq("from_user_id", targetUserId),
+        supabaseAdmin.from("matches").select("user1_id, user2_id").eq("status", "active").or(`user1_id.eq.${targetUserId},user2_id.eq.${targetUserId}`),
+        supabaseAdmin.from("interactions").select("from_user_id").eq("to_user_id", targetUserId).eq("type", "open"),
+      ]);
+      const interactedIds = new Set((interactedResult.data || []).map((r: any) => r.to_user_id));
+      const activeMatchIds = new Set<string>();
+      for (const row of (activeMatchesResult.data || [])) {
+        const otherId = row.user1_id === targetUserId ? row.user2_id : row.user1_id;
+        if (otherId) activeMatchIds.add(otherId as string);
+      }
+      const inboundOpenerIds = new Set((inboundOpensResult.data || []).map((r: any) => r.from_user_id));
+      const excludedIds = new Set([...interactedIds, ...activeMatchIds, ...inboundOpenerIds]);
+
+      // Apply exclusion to the gender-compat count
+      let postExclusionQuery = supabaseAdmin
+        .from("profiles")
+        .select("*", { count: "exact", head: true })
+        .neq("user_id", targetUserId)
+        .eq("onboarding_complete", true)
+        .or(`age.is.null,age.gte.${effectiveAgeMin}`)
+        .or(`age.is.null,age.lte.${effectiveAgeMax}`);
+      if (emailVerifiedColPresent) postExclusionQuery = (postExclusionQuery as any).eq("email_verified", true);
+      if (targetGenders && targetGenders.length > 0) postExclusionQuery = postExclusionQuery.in("gender", targetGenders);
+      if (candidateMustPrefer.length > 0) postExclusionQuery = postExclusionQuery.in("dating_preference", candidateMustPrefer);
+      if (excludedIds.size > 0 && excludedIds.size <= 300) {
+        postExclusionQuery = postExclusionQuery.not("user_id", "in", `(${[...excludedIds].join(",")})`);
+      }
+      const { count: postExclusionCount } = await postExclusionQuery;
+
+      // ── Distance note ─────────────────────────────────────────────────────
+      const hasLatLng = getHasLatLngColumns();
+      const userLat = myProfile.latitude ?? null;
+      const userLng = myProfile.longitude ?? null;
+      const radius  = myProfile.locationRadius ?? 0;
+      const distanceFilterActive = hasLatLng && userLat !== null && userLng !== null && radius > 0;
+
+      return res.json({
+        targetUserId: targetUserId.slice(0, 8) + "...",
+        myProfile: {
+          gender: myProfile.gender,
+          preference: myProfile.datingPreference,
+          ageRange: `${effectiveAgeMin}–${effectiveAgeMax}`,
+          locationRadius: radius,
+          hasCoords: userLat !== null && userLng !== null,
+          onboardingComplete: myProfile.onboardingComplete,
+        },
+        filterStages: {
+          "0_total_profiles_excl_self":       totalCount ?? "?",
+          "1_onboarding_complete":             onboardingCount ?? "?",
+          "2_email_verified":                  emailVerifiedColPresent
+            ? emailVerifiedCount ?? "?"
+            : "N/A (column absent — no filter)",
+          "2b_email_verified_false_invisible": emailVerifiedColPresent
+            ? emailFalseCount ?? "?"
+            : "N/A",
+          "3_gender_pref_compat":             genderCompatCount ?? "?",
+          "4_post_exclusions":               postExclusionCount ?? "?",
+          "5_distance_filter":               distanceFilterActive
+            ? `applied (${radius}mi radius) — run discover to see final count`
+            : "DISABLED (no radius or no coords)",
+          "6_final_output_cap":              20,
+        },
+        columnFlags: {
+          email_verified_col: emailVerifiedColPresent,
+          lat_lng_cols: hasLatLng,
+        },
+        exclusionBreakdown: {
+          outbound_interactions: interactedIds.size,
+          active_matches: activeMatchIds.size,
+          inbound_likers: inboundOpenerIds.size,
+          total: excludedIds.size,
+        },
+        note: emailVerifiedColPresent && (emailFalseCount ?? 0) > 0
+          ? `⚠️ ${emailFalseCount} profiles have email_verified=false and are INVISIBLE in Discover. Run the startup backfill or wait for each owner to log in.`
+          : "email_verified looks healthy",
+      });
+    } catch (err: any) {
+      console.error("[ADMIN] discover-debug error:", err?.message);
+      res.status(500).json({ message: err?.message || "Failed to run discover debug" });
+    }
+  });
+
   app.get("/api/auth/user", isAuthenticated, async (req: any, res) => {
     try {
       const user = req.user;

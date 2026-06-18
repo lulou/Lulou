@@ -483,6 +483,40 @@ app.use((req, res, next) => {
         console.log("[STARTUP] All optional Supabase profile columns present ✓");
       }
 
+      // ── email_verified backfill ───────────────────────────────────────────────
+      // The email_verified column is added with DEFAULT false, which means ALL
+      // existing rows — including profiles whose owners have long since verified
+      // their email — start with false.  The lazy update in isAuthenticated only
+      // fixes each user's OWN row the first time they make an API call.  On a
+      // fresh deploy or after adding the column, this leaves the entire profile
+      // pool invisible in Discovery until every single user individually logs in.
+      //
+      // Fix: at startup, grandfather all profiles created before the enforcement
+      // date (2026-06-17) by setting email_verified = true immediately.  These
+      // accounts pre-date the verification requirement and are trusted by default.
+      // New accounts created after that date rely on the lazy-update path (they
+      // become visible as soon as they make their first authenticated API call
+      // after email verification).
+      try {
+        const GRANDFATHER_TS = "2026-06-17T00:00:00.000Z";
+        const { error: bfErr } = await _adminSb
+          .from("profiles")
+          .update({ email_verified: true })
+          .eq("email_verified", false)
+          .lt("created_at", GRANDFATHER_TS);
+        if (bfErr) {
+          // Column doesn't exist yet → ignore; will be fixed next deploy
+          if (!bfErr.message?.includes("does not exist")) {
+            console.warn("[STARTUP] email_verified backfill error:", bfErr.message);
+          }
+        } else {
+          console.log(`[STARTUP] email_verified backfill done — pre-${GRANDFATHER_TS} profiles marked verified ✓`);
+        }
+      } catch (bfEx: any) {
+        console.warn("[STARTUP] email_verified backfill exception:", bfEx?.message);
+      }
+      // ─────────────────────────────────────────────────────────────────────────
+
       // Probe messages.voice_transcript separately (different table).
       try {
         const { error: vtErr } = await _adminSb.from("messages").select("voice_transcript").limit(1);
