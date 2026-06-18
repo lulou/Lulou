@@ -443,6 +443,24 @@ export default function Discover() {
     },
     onSuccess: (data) => {
       if (data?.skipped) return;
+
+      // ── Permanent cache surgery (ROOT FIX for liked-user reappearing) ────────
+      // shownIds hides the card locally but is component state — it resets to an
+      // empty Set on every unmount (navigate away → navigate back).  Without this,
+      // the stale /api/discover cache (staleTime:Infinity) still holds the liked/
+      // passed profile, so on re-mount the merge effect puts it back into
+      // accumulatedProfiles and it reappears at the top of the feed.
+      //
+      // Fix: surgically remove the interacted profile from BOTH the TanStack Query
+      // cache AND the local accumulatedProfiles array.  The cache write is O(n)
+      // but n ≤ 60 (MAX_POOL_SIZE) and runs once per swipe — negligible cost.
+      if (data?.profileId) {
+        queryClient.setQueryData<Profile[]>(["/api/discover"], (old) =>
+          old ? old.filter(p => p.userId !== (data as any).profileId) : old
+        );
+        setAccumulatedProfiles(prev => prev.filter(p => p.userId !== (data as any).profileId));
+      }
+
       if (data?.matched) {
         setCelebration({ firstName: data.capturedFirstName ?? "", photo: data.capturedPhoto, matchId: data.matchId });
         queryClient.invalidateQueries({ queryKey: ["/api/matches"] });

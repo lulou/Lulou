@@ -1646,19 +1646,24 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Target user id is required" });
       }
 
+      console.log(`[INTERACT] userId=${fromUserId.slice(0, 8)}… toUserId=${toUserId.slice(0, 8)}… type=${type}`);
+
       const existing = await storage.getInteraction(fromUserId, toUserId);
       if (existing) {
+        console.log(`[INTERACT] DUPLICATE — already interacted (existingId=${existing.id})`);
         return res.status(400).json({ message: "Already interacted" });
       }
 
       if (type === "open") {
         const matchCount = await storage.getMatchCount(fromUserId);
         if (matchCount >= 8) {
+          console.log(`[INTERACT] CONNECTION_LIMIT reached for ${fromUserId.slice(0, 8)}… (count=${matchCount})`);
           return res.json({ matched: false, connectionLimitReached: true });
         }
       }
 
       const interaction = await storage.createInteraction({ fromUserId, toUserId, type });
+      console.log(`[INTERACT] interaction inserted id=${interaction.id} type=${type}`);
 
       let matched = false;
       let matchId: string | undefined;
@@ -1671,10 +1676,16 @@ export async function registerRoutes(
             const newMatch = await storage.createMatch(fromUserId, toUserId);
             matched = true;
             matchId = newMatch.id;
+            console.log(`[INTERACT] MATCHED — matchId=${matchId} between ${fromUserId.slice(0, 8)}… and ${toUserId.slice(0, 8)}…`);
+          } else {
+            console.log(`[INTERACT] mutual open but connection limit blocked match (fromCount=${fromCount} toCount=${toCount})`);
           }
+        } else {
+          console.log(`[INTERACT] no reverse open found — like stored, waiting for reciprocal`);
         }
       }
 
+      console.log(`[INTERACT] response: matched=${matched} interactionId=${interaction.id}`);
       res.json({ interaction, matched, matchId });
     } catch (error: any) {
       const msg = error?.message || "Failed to create interaction";

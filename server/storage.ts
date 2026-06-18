@@ -1728,6 +1728,19 @@ export class SupabaseStorage implements IStorage {
       userDatingIntent, userConnectionStyle, memberUserIds, now, 20,
     );
     console.log(`[POOL_DEBUG] final discovery count: ${result.length}`);
+
+    // ── Exclusion leak audit ─────────────────────────────────────────────────
+    // Sanity check: confirm no excluded user (liked/passed/matched/inbound)
+    // leaked into the final result.  Fires a WARNING if one did — that would
+    // indicate a bug in the DB exclusion or in-memory fallback path.
+    const leaks = result.filter(p => excludedIds.has(p.userId));
+    if (leaks.length > 0) {
+      console.warn(`[POOL_DEBUG] ⚠️  EXCLUSION LEAK: ${leaks.length} excluded user(s) in final result:`,
+        leaks.map(p => `${p.userId.slice(0, 8)}…`).join(", "));
+    } else {
+      console.log(`[POOL_DEBUG] exclusion leak check: ✓ no excluded users in result`);
+    }
+
     return result;
   }
 
