@@ -703,8 +703,8 @@ export default function Discover() {
               isDisabled={interact.isPending || isExiting}
               isPhotosLoading={isPhotosLoading}
             />
-            <Card className="mt-2" data-testid="card-profile">
-              <div className="px-6 pb-7 pt-5 space-y-7" data-testid="profile-about-section">
+            <Card className="mt-2" style={{ boxShadow: "0 2px 20px rgba(0,0,0,0.06), 0 1px 4px rgba(0,0,0,0.04)" }} data-testid="card-profile">
+              <div className="px-6 pb-8 pt-6 space-y-8" data-testid="profile-about-section">
 
                 {/* ── 1. Identity — first thing above the fold after the photo ── */}
                 <div className="space-y-1.5" style={{ animation: "discoverNameEnter 0.45s 0.22s ease both" }}>
@@ -775,7 +775,12 @@ export default function Discover() {
                 {/* ── 6. Intent ── */}
                 <div className="space-y-2">
                   <p className="text-xs font-semibold tracking-widest uppercase text-primary">{t("looking_for")}</p>
-                  <p className="text-base font-semibold" data-testid="text-profile-intent">{translateIntent(displayProfile.datingIntent ?? "", t)}</p>
+                  <div className="flex items-center gap-2">
+                    <span className="text-lg leading-none" aria-hidden="true">
+                      {({"Committed Relationship": "💍", "Serious Dating": "❤️", "Open To Connection": "✨"} as Record<string,string>)[displayProfile.datingIntent ?? ""] ?? "💫"}
+                    </span>
+                    <p className="text-base font-semibold" data-testid="text-profile-intent">{translateIntent(displayProfile.datingIntent ?? "", t)}</p>
+                  </div>
                 </div>
 
                 {/* ── 7. Green flags ── */}

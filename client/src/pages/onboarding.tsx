@@ -27,8 +27,8 @@ const STEP_KEYS = ["ob_step_basics","ob_step_photos","ob_step_starters","ob_step
 
 const INTENT_DESCRIPTIONS: Record<string, string> = {
   "Committed Relationship": "Looking for a life partner.",
-  "Serious Dating":         "Looking for something real and seeing where it leads.",
-  "Open To Connection":     "Open minded, but not interested in casual dating.",
+  "Serious Dating":         "Looking for something meaningful and lasting.",
+  "Open To Connection":     "Open-minded and curious, but not interested in casual dating.",
 };
 
 const AU_STATE_ABBR: Record<string, string> = {
@@ -928,7 +928,7 @@ export default function Onboarding({ existingProfile = null, userEmail = "" }: O
             )}
 
             {step === 5 && (
-              <div className="space-y-2.5">
+              <div className="space-y-3">
                 {DATING_INTENTS.map(intent => {
                   const selected = formData.datingIntent === intent;
                   return (
@@ -940,36 +940,39 @@ export default function Onboarding({ existingProfile = null, userEmail = "" }: O
                       data-testid={`card-intent-${intent.toLowerCase().replace(/\s+/g, "-")}`}
                     >
                       <div
-                        className="rounded-2xl border transition-all duration-200 active:scale-[0.99]"
+                        className="rounded-2xl border transition-all duration-200 active:scale-[0.985]"
                         style={{
-                          padding: "16px 18px",
+                          padding: "20px 20px",
                           borderColor: selected ? "hsl(350 45% 52%)" : "hsl(var(--border))",
                           background: selected
-                            ? "linear-gradient(135deg, hsl(350 45% 52% / 0.06) 0%, hsl(350 45% 52% / 0.02) 100%)"
+                            ? "linear-gradient(135deg, hsl(350 45% 52% / 0.09) 0%, hsl(350 45% 52% / 0.03) 100%)"
                             : "hsl(var(--background))",
-                          boxShadow: selected ? "0 0 0 1px hsl(350 45% 52% / 0.25)" : "none",
+                          boxShadow: selected
+                            ? "0 0 0 1px hsl(350 45% 52% / 0.30), 0 4px 20px hsl(350 45% 52% / 0.12)"
+                            : "0 1px 4px rgba(0,0,0,0.04)",
                         }}
                       >
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="flex items-start gap-3 min-w-0">
-                            <span className="text-xl leading-none mt-0.5 shrink-0">{INTENT_ICONS[intent] ?? "💫"}</span>
-                            <div className="min-w-0">
-                              <p className={`font-semibold text-sm leading-snug ${selected ? "text-primary" : "text-foreground"}`}>
+                        <div className="flex items-start justify-between gap-4">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-3 mb-2">
+                              <span className="text-2xl leading-none">{INTENT_ICONS[intent] ?? "💫"}</span>
+                              <p className={`font-serif text-lg font-bold leading-snug ${selected ? "text-primary" : "text-foreground"}`}>
                                 {intent}
                               </p>
-                              <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
-                                {INTENT_DESCRIPTIONS[intent] ?? ""}
-                              </p>
                             </div>
+                            <p className="text-sm text-muted-foreground leading-relaxed">
+                              {INTENT_DESCRIPTIONS[intent] ?? ""}
+                            </p>
                           </div>
                           <div
-                            className="w-5 h-5 rounded-full flex items-center justify-center shrink-0 mt-0.5 transition-all duration-200"
+                            className="w-6 h-6 rounded-full flex items-center justify-center shrink-0 transition-all duration-200"
                             style={{
                               background: selected ? "hsl(350 45% 52%)" : "transparent",
                               border: selected ? "none" : "1.5px solid hsl(var(--border))",
+                              transform: selected ? "scale(1)" : "scale(0.85)",
                             }}
                           >
-                            {selected && <Check className="w-3 h-3 text-white" />}
+                            {selected && <Check className="w-3.5 h-3.5 text-white" />}
                           </div>
                         </div>
                       </div>
@@ -1123,41 +1126,72 @@ function PhotoSlot({ index, photo, onSelect, onRemove }: {
 
   return (
     <div
-      className="relative aspect-[3/4] rounded-xl overflow-hidden"
-      style={{ border: "1px solid hsl(var(--border) / 0.45)" }}
+      className="relative aspect-[3/4] rounded-2xl overflow-hidden"
+      style={{
+        boxShadow: photo
+          ? "0 8px 28px rgba(0,0,0,0.14), 0 2px 8px rgba(0,0,0,0.08)"
+          : "0 2px 10px rgba(0,0,0,0.05), 0 1px 3px rgba(0,0,0,0.04)",
+        transition: "box-shadow 0.25s ease",
+      }}
       data-testid={`photo-slot-${index}`}
     >
       {converting ? (
-        <div className="flex items-center justify-center w-full h-full bg-muted/30">
-          <Loader2 className="w-5 h-5 animate-spin text-muted-foreground/50" />
+        <div
+          className="flex items-center justify-center w-full h-full"
+          style={{ background: "linear-gradient(135deg, hsl(350 45% 52% / 0.08), hsl(350 45% 52% / 0.03))" }}
+        >
+          <Loader2 className="w-6 h-6 animate-spin text-primary/40" />
         </div>
       ) : photo ? (
         <>
           <img src={photo} alt={`Photo ${index + 1}`} className="w-full h-full object-cover" />
+          {/* Gradient overlay for badge legibility */}
+          <div style={{ position: "absolute", inset: 0, background: "linear-gradient(180deg, transparent 52%, rgba(0,0,0,0.52) 100%)", pointerEvents: "none" }} />
           {index === 0 && (
-            <div className="absolute bottom-2 left-2 pointer-events-none">
-              <span className="text-[9px] font-bold tracking-widest uppercase text-white/90 bg-black/35 backdrop-blur-sm px-2 py-0.5 rounded-full">
+            <div className="absolute bottom-3 left-3 pointer-events-none">
+              <span
+                className="text-[9px] font-bold tracking-[0.16em] uppercase text-white"
+                style={{ background: "hsl(350 45% 52% / 0.82)", backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)", padding: "3px 9px", borderRadius: 99 }}
+              >
                 Main
               </span>
             </div>
           )}
           <button
             onClick={onRemove}
-            className="absolute top-2 end-2 w-6 h-6 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center active:scale-90 transition-transform"
+            className="absolute top-2.5 end-2.5 w-7 h-7 rounded-full flex items-center justify-center active:scale-90 transition-transform"
+            style={{ background: "rgba(0,0,0,0.38)", backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", border: "1px solid rgba(255,255,255,0.18)" }}
             data-testid={`button-remove-photo-${index}`}
           >
-            <X className="w-3 h-3 text-white" />
+            <X className="w-3.5 h-3.5 text-white" />
           </button>
         </>
       ) : (
         <label
-          className="flex flex-col items-center justify-center w-full h-full cursor-pointer gap-1.5 active:scale-95 transition-transform"
-          style={{ background: "linear-gradient(135deg, hsl(var(--muted) / 0.55), hsl(var(--muted) / 0.30))" }}
+          className="flex flex-col items-center justify-center w-full h-full cursor-pointer active:scale-95 transition-transform"
+          style={{
+            background: index === 0
+              ? "linear-gradient(145deg, hsl(350 45% 52% / 0.10) 0%, hsl(350 45% 52% / 0.04) 100%)"
+              : "linear-gradient(145deg, hsl(var(--muted) / 0.52) 0%, hsl(var(--muted) / 0.26) 100%)",
+            border: index === 0
+              ? "1.5px dashed hsl(350 45% 52% / 0.38)"
+              : "1.5px dashed hsl(var(--border) / 0.65)",
+          }}
         >
-          <ImagePlus className="w-5 h-5 text-muted-foreground/35" />
-          <span className="text-[11px] font-medium text-muted-foreground/45 tracking-wide">
-            {index === 0 ? "Main photo" : "Add photo"}
-          </span>
+          <div className="flex flex-col items-center gap-2.5">
+            <div
+              className="w-11 h-11 rounded-full flex items-center justify-center"
+              style={{
+                background: index === 0 ? "hsl(350 45% 52% / 0.13)" : "hsl(var(--muted))",
+                boxShadow: index === 0 ? "0 2px 10px hsl(350 45% 52% / 0.15)" : "none",
+              }}
+            >
+              <ImagePlus className={`w-5 h-5 ${index === 0 ? "text-primary" : "text-muted-foreground/45"}`} />
+            </div>
+            <span className={`text-[11px] font-semibold tracking-wide ${index === 0 ? "text-primary/70" : "text-muted-foreground/45"}`}>
+              {index === 0 ? "Main Photo" : "Add Photo"}
+            </span>
+          </div>
           <input
             type="file"
             accept="image/*"

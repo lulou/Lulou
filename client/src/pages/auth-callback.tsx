@@ -305,22 +305,67 @@ export default function AuthCallbackPage() {
 
         {status === "success" && isSignup && (
           <>
-            <div className="flex justify-center">
-              <div className="w-20 h-20 rounded-full bg-primary/10 flex items-center justify-center animate-pulse">
-                <LulouFlowerIcon className="w-10 h-10 text-primary" />
+            <style>{`
+              @keyframes lulouGlowPulse {
+                0%, 100% { opacity: 0.55; transform: translate(-50%, -50%) scale(1); }
+                50%       { opacity: 1;    transform: translate(-50%, -50%) scale(1.10); }
+              }
+              @keyframes lulouLogoIn {
+                from { opacity: 0; transform: scale(0.72); }
+                to   { opacity: 1; transform: scale(1); }
+              }
+              @keyframes lulouTextIn {
+                from { opacity: 0; transform: translateY(12px); }
+                to   { opacity: 1; transform: translateY(0); }
+              }
+            `}</style>
+
+            {/* ── Logo with layered rose glow ── */}
+            <div className="relative flex justify-center" style={{ height: 100 }}>
+              <div style={{
+                position: "absolute", width: 180, height: 180,
+                borderRadius: "50%",
+                background: "radial-gradient(circle, hsl(350 45% 52% / 0.16) 0%, transparent 68%)",
+                top: "50%", left: "50%",
+                animation: "lulouGlowPulse 2.6s ease-in-out infinite",
+                pointerEvents: "none",
+              }} />
+              <div style={{
+                position: "absolute", width: 110, height: 110,
+                borderRadius: "50%",
+                background: "radial-gradient(circle, hsl(350 45% 52% / 0.22) 0%, transparent 70%)",
+                top: "50%", left: "50%",
+                animation: "lulouGlowPulse 2.6s ease-in-out infinite 1.0s",
+                pointerEvents: "none",
+              }} />
+              <div
+                className="absolute top-1/2 left-1/2 w-[84px] h-[84px] rounded-full flex items-center justify-center"
+                style={{
+                  transform: "translate(-50%, -50%)",
+                  background: "linear-gradient(135deg, hsl(350 45% 52% / 0.14) 0%, hsl(350 45% 52% / 0.06) 100%)",
+                  boxShadow: "0 0 0 1.5px hsl(350 45% 52% / 0.22), 0 8px 32px hsl(350 45% 52% / 0.18)",
+                  animation: "lulouLogoIn 0.65s cubic-bezier(0.16, 1, 0.3, 1) both",
+                }}
+              >
+                <LulouFlowerIcon className="w-11 h-11" />
               </div>
             </div>
-            <div className="space-y-3">
-              <p className="text-xs font-bold tracking-[0.2em] uppercase text-primary">Welcome to Lulou</p>
-              <h1 className="font-serif text-3xl font-bold tracking-tight">
+
+            {/* ── Text ── */}
+            <div className="space-y-3" style={{ animation: "lulouTextIn 0.55s 0.35s ease both" }}>
+              <p className="text-[10px] font-bold tracking-[0.26em] uppercase text-primary">
+                Welcome to Lulou
+              </p>
+              <h1 className="font-serif text-3xl font-bold tracking-tight leading-snug">
                 Your email has<br />been verified.
               </h1>
               <p className="text-sm text-muted-foreground">
                 Preparing your profile…
               </p>
             </div>
-            <div className="flex justify-center mt-2">
-              <Loader2 className="w-4 h-4 text-muted-foreground/40 animate-spin" />
+
+            <div className="flex justify-center mt-2" style={{ animation: "lulouTextIn 0.5s 0.7s ease both" }}>
+              <Loader2 className="w-4 h-4 text-primary/30 animate-spin" />
             </div>
           </>
         )}
