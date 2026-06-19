@@ -929,8 +929,9 @@ export default function IntentPage() {
     const targetIndex = Math.floor(Math.random() * count);
     const landedProfile = items[targetIndex];
 
-    console.log("[INTENT] SPIN_START", { totalUsers: count });
-    console.log("[INTENT] SPIN_SELECTED", { selectedIndex: targetIndex, selectedName: landedProfile?.firstName, randomSource: "Math.random()" });
+    console.log("[WHEEL] SPIN_START", { totalUsers: count });
+    console.log("[WHEEL] ORBIT_ACTIVE", { orbitCount: Math.min(count, 10), ringRadius: 140 });
+    console.log("[WHEEL] SPIN_SELECTED", { selectedIndex: targetIndex, selectedName: landedProfile?.firstName, randomSource: "Math.random()" });
 
     const targetAngle = targetIndex * angleStep;
     const currentAngle = angleRef.current;
@@ -963,7 +964,7 @@ export default function IntentPage() {
         setSelectedIndex(targetIndex);
         setSelectedProfile(landedProfile ?? null);
         setIsSpinning(false);
-        console.log("[INTENT] SPIN_COMPLETE", { selectedName: landedProfile?.firstName });
+        console.log("[WHEEL] WINNER_SELECTED", { winner: landedProfile?.firstName, index: targetIndex });
         if (landedProfile) recordSpin.mutate(landedProfile.userId);
         setTimeout(() => setDispersed(true), 260);
         setTimeout(() => setShowConfetti(true), 420);
@@ -1166,6 +1167,23 @@ export default function IntentPage() {
           0%, 100% { transform: translate(-50%, -50%) scale(0.88); opacity: 0.44; }
           50%       { transform: translate(-50%, -50%) scale(1.06); opacity: 0.90; }
         }
+        @keyframes rotateOrbit {
+          from { transform: rotate(0deg); }
+          to   { transform: rotate(360deg); }
+        }
+        @keyframes counterRotate {
+          from { transform: translate(-50%, -50%) rotate(0deg); }
+          to   { transform: translate(-50%, -50%) rotate(-360deg); }
+        }
+        @keyframes wheelDimIn {
+          from { opacity: 0; }
+          to   { opacity: 1; }
+        }
+        @keyframes winnerGlow {
+          0%   { box-shadow: 0 0 0 3px rgba(255,255,255,0.9), 0 0 0 7px rgba(212,92,116,0.9), 0 0 48px 20px rgba(212,92,116,0.55); }
+          50%  { box-shadow: 0 0 0 4px rgba(255,255,255,1.0), 0 0 0 10px rgba(212,92,116,1.0), 0 0 72px 32px rgba(212,92,116,0.75); }
+          100% { box-shadow: 0 0 0 3px rgba(255,255,255,0.9), 0 0 0 7px rgba(212,92,116,0.9), 0 0 48px 20px rgba(212,92,116,0.55); }
+        }
       `}</style>
 
       {/* ── Header ── */}
@@ -1211,7 +1229,10 @@ export default function IntentPage() {
       {/* ── Wheel stage ── */}
       <div
         className={`flex-1 flex flex-col items-center overflow-hidden ${isCompact ? "justify-start pt-4 gap-2" : "justify-center gap-5"} transition-all duration-700`}
-        style={isSpinning ? { background: "radial-gradient(ellipse 80% 55% at 50% 42%, hsl(350 45% 52% / 0.11) 0%, transparent 68%)" } : undefined}
+        style={isSpinning ? {
+          background: "radial-gradient(ellipse 90% 65% at 50% 40%, hsl(350 45% 52% / 0.28) 0%, hsl(350 45% 52% / 0.08) 45%, transparent 72%)",
+          transition: "background 0.5s ease",
+        } : { transition: "background 0.5s ease" }}
       >
         <div
           className="relative select-none touch-manipulation"
@@ -1230,13 +1251,28 @@ export default function IntentPage() {
         >
           <ConfettiBurst active={showConfetti} />
 
-          {/* ── Profile orbit ring — pulsing circles during active spin ── */}
+          {/* ── Spin dim overlay — darkens wheel cards during active spin ── */}
+          {isSpinning && (
+            <div style={{
+              position: "absolute", inset: 0, zIndex: 120, pointerEvents: "none",
+              background: "radial-gradient(ellipse 65% 55% at 50% 50%, rgba(188,78,96,0.22) 0%, rgba(0,0,0,0.62) 100%)",
+              animation: "wheelDimIn 0.45s ease forwards",
+              borderRadius: 20,
+            }} />
+          )}
+
+          {/* ── Profile orbit ring — rotating photo ring during active spin ── */}
           {isSpinning && items.length > 0 && (
-            <div style={{ position: "absolute", left: "50%", top: "50%", width: 0, height: 0, zIndex: 25, pointerEvents: "none" }}>
+            <div style={{
+              position: "absolute", left: "50%", top: "50%",
+              width: 0, height: 0, zIndex: 160, pointerEvents: "none",
+              animation: "rotateOrbit 5s linear infinite",
+              transformOrigin: "0 0",
+            }}>
               {items.slice(0, Math.min(items.length, 10)).map((profile, i) => {
                 const n = Math.min(items.length, 10);
                 const angleDeg = (i / n) * 360 - 90;
-                const RING_R = 128;
+                const RING_R = 140;
                 const x = Math.cos(angleDeg * Math.PI / 180) * RING_R;
                 const y = Math.sin(angleDeg * Math.PI / 180) * RING_R;
                 return (
@@ -1244,9 +1280,10 @@ export default function IntentPage() {
                     key={profile.userId}
                     style={{
                       position: "absolute", left: x, top: y,
-                      width: 38, height: 38, borderRadius: "50%", overflow: "hidden",
-                      boxShadow: "0 0 0 2px rgba(255,255,255,0.18), 0 0 14px rgba(188,78,96,0.28), 0 3px 10px rgba(0,0,0,0.28)",
-                      animation: `orbitPulse ${2.0 + (i % 4) * 0.38}s ease-in-out ${((i * 0.22) % 1.5).toFixed(2)}s infinite`,
+                      width: 44, height: 44, borderRadius: "50%", overflow: "hidden",
+                      boxShadow: "0 0 0 2.5px rgba(255,255,255,0.55), 0 0 20px rgba(188,78,96,0.70), 0 4px 14px rgba(0,0,0,0.50)",
+                      animation: "counterRotate 5s linear infinite",
+                      transformOrigin: "22px 22px",
                     }}
                   >
                     <ProfilePhoto userId={profile.userId} className="w-full h-full" />
@@ -1291,11 +1328,13 @@ export default function IntentPage() {
                     position: "absolute", left: 0, top: 0,
                     transform: dispersed && !isSelected
                       ? `rotateY(${itemAngle}deg) translateZ(${radius}px) translate(${disperseX}px, ${disperseY}px) scale(0)`
+                      : isSelected && !dispersed
+                      ? `rotateY(${itemAngle}deg) translateZ(${radius}px) scale(${(cardScale * 1.10).toFixed(3)})`
                       : `rotateY(${itemAngle}deg) translateZ(${radius}px) scale(${cardScale})`,
                     opacity: dispersed && !isSelected ? 0 : (0.16 + depthFactor * 0.84),
                     zIndex: Math.round(depthFactor * 100),
                     boxShadow,
-                    animation: isSelected && !dispersed ? "selectedRing 0.6s ease forwards" : undefined,
+                    animation: isSelected && !dispersed ? "winnerGlow 1.6s ease-in-out infinite" : undefined,
                     transition: dispersed ? "all 0.7s cubic-bezier(0.4, 0, 0.2, 1)" : "box-shadow 0.3s ease",
                   }}
                   data-testid={`intent-profile-${i}`}
@@ -1745,7 +1784,7 @@ export default function IntentPage() {
                   aria-label={t("skip_label")}
                 >
                   <Moon className="w-5 h-5 text-muted-foreground" />
-                  <span className="text-xs text-muted-foreground font-semibold tracking-[0.12em] uppercase">Close</span>
+                  <span className="text-xs text-muted-foreground font-semibold tracking-[0.12em] uppercase">CLOSE 🌙</span>
                 </button>
 
                 {/* Save For Later button */}
@@ -1784,7 +1823,7 @@ export default function IntentPage() {
                     : <Heart className="w-5 h-5 text-white fill-current" />
                   }
                   <span className="text-xs text-white font-semibold tracking-[0.12em] uppercase">
-                    {wheelOpen.isPending ? "Opening…" : "Open"}
+                    {wheelOpen.isPending ? "Opening…" : "OPEN ❤️"}
                   </span>
                 </button>
               </div>
