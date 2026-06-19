@@ -219,9 +219,11 @@ const GREEN_FLAG_MAP: Record<string, Record<string, string>> = {
 const INTENT_KEY: Record<string, string> = {
   // Current values
   "Committed Relationship": "intent_committed",
+  "Serious Dating":         "intent_serious",
+  "Open To Connection":     "intent_open_connection",
+  // Legacy values — backwards compat for profiles created before the rename
   "Dating with Purpose":    "intent_purpose",
   "Open but Serious":       "intent_open_serious",
-  // Legacy values — backwards compat for profiles created before the rename
   "Meaningful Relationship": "intent_meaningful",
   "Intentional Dating":      "intent_intentional",
 };

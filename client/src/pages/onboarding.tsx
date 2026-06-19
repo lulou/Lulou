@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useLanguageContext } from "@/contexts/language-context";
 import { useLocation } from "wouter";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -26,9 +26,9 @@ import { useUnits, formatDistance } from "@/lib/units";
 const STEP_KEYS = ["ob_step_basics","ob_step_photos","ob_step_starters","ob_step_questions","ob_step_signals","ob_step_intent","ob_step_green_flags","ob_step_pace"] as const;
 
 const INTENT_DESCRIPTIONS: Record<string, string> = {
-  "Committed Relationship": "Looking for a lasting partnership",
-  "Dating with Purpose":    "Serious approach, open timeline",
-  "Open but Serious":       "Genuine connections — not casual",
+  "Committed Relationship": "Looking for a life partner.",
+  "Serious Dating":         "Looking for something real and seeing where it leads.",
+  "Open To Connection":     "Open minded but not interested in casual dating.",
 };
 
 function RadiusLabel({ locationRadius }: { locationRadius: number }) {
@@ -175,6 +175,20 @@ export default function Onboarding({ existingProfile = null, userEmail = "" }: O
   const queryClient = useQueryClient();
 
   const [formData, setFormData] = useState(() => buildInitialFormData(existingProfile, userEmail));
+
+  const [locationQuery, setLocationQuery] = useState(() => {
+    const loc = existingProfile?.location;
+    return (loc && loc !== "Not set") ? loc : "";
+  });
+  const [locationSuggestions, setLocationSuggestions] = useState<Array<{
+    display_name: string; lat: string; lon: string; address: Record<string, string>;
+  }>>([]);
+  const [locationLoading, setLocationLoading] = useState(false);
+  const [locationSelected, setLocationSelected] = useState(
+    () => !!(existingProfile?.location && existingProfile.location !== "Not set")
+  );
+  const locationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const [customQDraft, setCustomQDraft] = useState({ question: "", answer: "" });
   const [viewerQDraft, setViewerQDraft] = useState("");
   const [customStarterDraft, setCustomStarterDraft] = useState("");
@@ -290,14 +304,23 @@ export default function Onboarding({ existingProfile = null, userEmail = "" }: O
       <div className="flex-1 flex items-center justify-center px-6 pb-12">
         <div className="w-full max-w-lg space-y-8">
           <div className="space-y-2">
-            <div className="flex items-center gap-2 mb-6">
-              {STEP_KEYS.map((s, i) => (
-                <div
-                  key={s}
-                  className={`h-1 flex-1 rounded-md transition-colors duration-300 ${i <= step ? "bg-primary" : "bg-muted"}`}
-                  data-testid={`progress-step-${i}`}
-                />
-              ))}
+            <div className="flex items-center justify-between mb-8">
+              <span className="text-xs text-muted-foreground/60 font-medium tabular-nums">
+                Step {step + 1} of {STEP_KEYS.length}
+              </span>
+              <div className="flex items-center gap-1.5">
+                {STEP_KEYS.map((s, i) => (
+                  <div
+                    key={s}
+                    className={`rounded-full transition-all duration-500 ease-out ${
+                      i < step    ? "w-1.5 h-1.5 bg-primary/45" :
+                      i === step  ? "w-5 h-1.5 bg-primary" :
+                      "w-1.5 h-1.5 bg-border"
+                    }`}
+                    data-testid={`progress-step-${i}`}
+                  />
+                ))}
+              </div>
             </div>
             <p className="text-xs font-medium tracking-wider uppercase text-primary">{stepLabels[step]}</p>
             <h2 className="font-serif text-2xl font-bold" data-testid="text-step-title">
@@ -400,14 +423,71 @@ export default function Onboarding({ existingProfile = null, userEmail = "" }: O
                   </Select>
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="location">{t("label_location")}</Label>
-                  <Input
-                    id="location"
-                    value={formData.location}
-                    onChange={e => update("location", e.target.value)}
-                    placeholder={t("ph_location")}
-                    data-testid="input-location"
-                  />
+                  <Label>{t("label_location")}</Label>
+                  <div className="relative">
+                    <div className="relative flex items-center">
+                      <Input
+                        value={locationQuery}
+                        onChange={e => {
+                          const q = e.target.value;
+                          setLocationQuery(q);
+                          setLocationSelected(false);
+                          update("location", "");
+                          if (locationTimerRef.current) clearTimeout(locationTimerRef.current);
+                          if (q.trim().length < 2) { setLocationSuggestions([]); return; }
+                          locationTimerRef.current = setTimeout(async () => {
+                            setLocationLoading(true);
+                            try {
+                              const res = await fetch(
+                                `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q)}&countrycodes=au&limit=6&addressdetails=1`,
+                                { headers: { "User-Agent": "LulouDating/1.0 contact@lulou.app" } }
+                              );
+                              setLocationSuggestions(res.ok ? await res.json() : []);
+                            } catch { setLocationSuggestions([]); }
+                            finally { setLocationLoading(false); }
+                          }, 380);
+                        }}
+                        placeholder="Search suburb, city or postcode"
+                        className="pe-9"
+                        data-testid="input-location"
+                      />
+                      <span className="absolute end-3 pointer-events-none">
+                        {locationLoading
+                          ? <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+                          : locationSelected
+                          ? <Check className="w-4 h-4 text-green-500" />
+                          : null}
+                      </span>
+                    </div>
+                    {locationSuggestions.length > 0 && !locationSelected && (
+                      <div className="absolute top-full mt-1.5 left-0 right-0 bg-background border border-border rounded-xl shadow-xl z-50 overflow-hidden">
+                        {locationSuggestions.map((item, idx) => {
+                          const a = item.address;
+                          const area = a.suburb || a.quarter || a.city_district || a.town || a.village || a.city || a.county;
+                          const label = [area, a.state].filter(Boolean).join(", ") || item.display_name.split(",")[0].trim();
+                          return (
+                            <button
+                              key={idx}
+                              type="button"
+                              className="w-full text-start px-4 py-3 flex items-center gap-3 text-sm hover:bg-muted/60 active:bg-muted transition-colors border-b border-border/40 last:border-0"
+                              onClick={() => {
+                                update("location", label);
+                                update("latitude", parseFloat(item.lat));
+                                update("longitude", parseFloat(item.lon));
+                                setLocationQuery(label);
+                                setLocationSuggestions([]);
+                                setLocationSelected(true);
+                              }}
+                              data-testid={`button-location-suggestion-${idx}`}
+                            >
+                              <span className="shrink-0 text-base">📍</span>
+                              <span className="truncate">{label}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
                 </div>
                 <div className="space-y-2">
                   <Label>{t("label_height_opt")}</Label>
@@ -417,18 +497,31 @@ export default function Onboarding({ existingProfile = null, userEmail = "" }: O
                     testId="input-height"
                   />
                 </div>
-                <div className="space-y-2">
-                  <RadiusLabel locationRadius={formData.locationRadius} />
-                  <Slider
-                    value={[formData.locationRadius]}
-                    onValueChange={([v]) => update("locationRadius", v)}
-                    min={5}
-                    max={100}
-                    step={5}
-                    className="py-2"
-                    data-testid="slider-radius"
-                  />
-                  <RadiusDescription locationRadius={formData.locationRadius} />
+                <div className="space-y-2.5">
+                  <Label>{t("search_radius")}</Label>
+                  <div className="flex flex-wrap gap-2">
+                    {([
+                      { label: "10 km", value: 10 },
+                      { label: "25 km", value: 25 },
+                      { label: "50 km", value: 50 },
+                      { label: "100 km", value: 100 },
+                      { label: "Anywhere", value: 0 },
+                    ] as const).map(opt => (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        onClick={() => update("locationRadius", opt.value)}
+                        className={`px-4 py-2 rounded-full text-sm font-medium border transition-all active:scale-95 ${
+                          formData.locationRadius === opt.value
+                            ? "bg-primary text-primary-foreground border-transparent shadow-sm"
+                            : "border-border text-foreground hover:border-primary/50 bg-background"
+                        }`}
+                        data-testid={`button-distance-${opt.value}`}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="email">{t("ob_email_label")}</Label>

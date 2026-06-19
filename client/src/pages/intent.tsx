@@ -1205,7 +1205,10 @@ export default function IntentPage() {
       </div>
 
       {/* ── Wheel stage ── */}
-      <div className={`flex-1 flex flex-col items-center overflow-hidden ${isCompact ? "justify-start pt-4 gap-2" : "justify-center gap-5"}`}>
+      <div
+        className={`flex-1 flex flex-col items-center overflow-hidden ${isCompact ? "justify-start pt-4 gap-2" : "justify-center gap-5"} transition-all duration-700`}
+        style={isSpinning ? { background: "radial-gradient(ellipse 80% 55% at 50% 42%, hsl(350 45% 52% / 0.11) 0%, transparent 68%)" } : undefined}
+      >
         <div
           className="relative select-none touch-manipulation"
           style={{

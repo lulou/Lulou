@@ -3,7 +3,7 @@ import { ChevronLeft, ChevronRight } from "lucide-react";
 import { decodedPhotos, preloadPhoto } from "@/lib/image-utils";
 import { isMobile } from "@/lib/perf";
 
-export const PROFILE_PHOTO_HEIGHT = 380;
+export const PROFILE_PHOTO_HEIGHT = 420;
 
 interface ProfilePhotoViewerProps {
   photos: string[];

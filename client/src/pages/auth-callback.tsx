@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import { supabase } from "@/lib/supabase";
+import { LulouFlowerIcon } from "@/components/app-layout";
 import { Loader2, CheckCircle, AlertCircle, Mail } from "lucide-react";
 import type { Session } from "@supabase/supabase-js";
 
@@ -119,7 +120,7 @@ export default function AuthCallbackPage() {
       // hand off to AppContent.  use-auth.ts has already set isLoading:true
       // (SIGNED_IN handler), so AppContent shows its own spinner — not Landing
       // — while the async session-check IIFE finishes.
-      const redirectDelay = isSignupVerification ? 1800 : 1000;
+      const redirectDelay = isSignupVerification ? 1500 : 1000;
       setTimeout(() => {
         console.log(`${CB_TAG} → navigating to /`, { elapsed: ms() });
         setLocation("/");
@@ -302,30 +303,45 @@ export default function AuthCallbackPage() {
           </>
         )}
 
-        {status === "success" && (
+        {status === "success" && isSignup && (
+          <>
+            <div className="flex justify-center">
+              <div className="w-20 h-20 rounded-full bg-primary/10 flex items-center justify-center animate-pulse">
+                <LulouFlowerIcon className="w-10 h-10 text-primary" />
+              </div>
+            </div>
+            <div className="space-y-3">
+              <p className="text-xs font-bold tracking-[0.2em] uppercase text-primary">Welcome to Lulou</p>
+              <h1 className="font-serif text-3xl font-bold tracking-tight">
+                Your email has<br />been verified.
+              </h1>
+              <p className="text-sm text-muted-foreground">
+                Preparing your profile…
+              </p>
+            </div>
+            <div className="flex justify-center mt-2">
+              <Loader2 className="w-4 h-4 text-muted-foreground/40 animate-spin" />
+            </div>
+          </>
+        )}
+
+        {status === "success" && !isSignup && (
           <>
             <div className="flex justify-center">
               <div className="w-16 h-16 rounded-full bg-green-50 border border-green-100 flex items-center justify-center">
-                {isSignup
-                  ? <CheckCircle className="w-8 h-8 text-green-500" />
-                  : <Mail className="w-8 h-8 text-green-500" />}
+                <Mail className="w-8 h-8 text-green-500" />
               </div>
             </div>
             <div className="space-y-1.5">
-              <h1 className="font-display text-2xl font-semibold tracking-tight">
+              <h1 className="font-serif text-2xl font-bold tracking-tight">
                 {successTitle}
               </h1>
               <p className="text-sm text-muted-foreground">
                 {successBody}
               </p>
-              {isSignup && confirmedAt && (
-                <p className="text-xs text-muted-foreground/60 font-mono">
-                  confirmed_at: {new Date(confirmedAt).toUTCString()}
-                </p>
-              )}
             </div>
             <div className="flex justify-center">
-              <Loader2 className="w-4 h-4 text-muted-foreground animate-spin" />
+              <Loader2 className="w-4 h-4 text-muted-foreground/50 animate-spin" />
             </div>
           </>
         )}

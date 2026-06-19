@@ -278,8 +278,8 @@ export const GREEN_FLAGS = [
 
 export const DATING_INTENTS = [
   "Committed Relationship",
-  "Dating with Purpose",
-  "Open but Serious",
+  "Serious Dating",
+  "Open To Connection",
 ] as const;
 
 export const CONNECTION_STYLES = [

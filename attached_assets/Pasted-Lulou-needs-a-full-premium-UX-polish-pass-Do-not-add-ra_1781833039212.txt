@@ -1,0 +1,359 @@
+Lulou needs a full premium UX polish pass. Do not add random features. Everything must feel elegant, luxurious and intentional. Think Apple, Hermès and Raya. Avoid anything that feels cheap, cluttered or game-like.
+
+━━━━━━━━━━━━
+1. LOCATION EXPERIENCE
+━━━━━━━━━━━━
+
+The current location setup feels wrong because users can type anything.
+
+Replace it with an Apple Maps / Google Places style experience.
+
+Screen title:
+
+"Where are you based?"
+
+Search field:
+"Search suburb, city or postcode"
+
+Live suggestions:
+📍 Manly, NSW
+📍 Bondi, NSW
+📍 Dee Why, NSW
+📍 Sydney CBD, NSW
+
+Selecting a result should:
+
+• save suburb
+• geocode coordinates
+• feel instant
+• show a green checkmark
+
+After location selection show:
+
+Distance preference
+
+10km
+25km
+50km
+100km
+Anywhere
+
+Users should never manually type their location.
+
+━━━━━━━━━━━━
+2. BRANDED EMAILS
+━━━━━━━━━━━━
+
+Supabase emails must no longer look generic.
+
+Completely redesign email verification emails.
+
+Header:
+
+Lulou logo
+
+WELCOME TO LULOU
+
+"Be heard. Be seen."
+
+Body:
+
+Hi {first_name},
+
+Thank you for joining Lulou.
+
+Please verify your email to begin building meaningful connections.
+
+Large pink button:
+
+VERIFY EMAIL
+
+Underneath:
+
+✓ Verified profiles
+
+✓ No games
+
+✓ Genuine intentions
+
+Footer:
+
+Questions?
+
+support@lulou.app
+
+© Lulou Dating
+
+Remove all traces of "Supabase Auth".
+
+Everything should use Lulou typography and colours.
+
+━━━━━━━━━━━━
+3. INTENT OPTIONS
+━━━━━━━━━━━━
+
+Current options overlap.
+
+Replace with:
+
+Committed Relationship
+
+"Looking for a life partner."
+
+Serious Dating
+
+"Looking for something real and seeing where it leads."
+
+Open To Connection
+
+"Open minded but not interested in casual dating."
+
+Keep cards beautiful and simple.
+
+━━━━━━━━━━━━
+4. EMAIL VERIFIED SCREEN
+━━━━━━━━━━━━
+
+Current screen is too technical.
+
+Remove:
+
+confirmed_at timestamp
+GMT text
+monospace text
+
+Replace with:
+
+Large green check
+
+WELCOME TO LULOU
+
+Your email has been verified.
+
+Preparing your profile...
+
+Animate the logo subtly while loading.
+
+After 1.5 seconds continue automatically.
+
+No technical information visible.
+
+━━━━━━━━━━━━
+5. INTENTION WHEEL REDESIGN
+━━━━━━━━━━━━
+
+Create a dedicated Spin Room.
+
+When pressing SPIN:
+
+Transition to a full page.
+
+The wheel becomes smaller.
+
+Around it display all available profile circles.
+
+Profiles slowly pulse.
+
+Everything feels alive.
+
+During spin:
+
+Background blur
+Soft pink glow
+Elegant animation
+
+When someone is selected:
+
+Their card enlarges.
+
+Display:
+
+Tonight's Connection
+
+Sarah, 26
+
+One-word standout:
+"Ambitious"
+
+Then show:
+
+OPEN ❤️
+
+or
+
+CLOSE 🌙
+
+This should feel cinematic, not like gambling.
+
+Think Netflix introducing a character.
+
+━━━━━━━━━━━━
+6. ONBOARDING PROGRESS
+━━━━━━━━━━━━
+
+Current progress bars feel technical.
+
+Replace with something more elegant.
+
+Examples:
+
+Step 4 of 8
+
+or
+
+About You
+Photos
+Preferences
+Lifestyle
+Almost There
+
+More spacing.
+More breathing room.
+More premium.
+
+━━━━━━━━━━━━
+7. PHOTO UPLOAD EXPERIENCE
+━━━━━━━━━━━━
+
+Redesign photo upload cards.
+
+Main photo gets:
+
+⭐ Main Photo badge
+
+Empty cards should feel premium:
+
+＋ Add Photo
+
+Rounded corners
+Soft shadows
+Subtle animations
+
+No ugly square placeholders.
+
+━━━━━━━━━━━━
+8. LULOU GUIDE SYSTEM
+━━━━━━━━━━━━
+
+No annoying tutorials.
+
+No giant popups.
+
+Instead create elegant one-time guidance cards.
+
+Examples:
+
+First Open ❤️
+
+"Connections form when both people choose Open."
+
+First Match
+
+"You're now connected. Calls unlock later."
+
+First Call
+
+"Calls help bring chemistry into real life."
+
+First Undo
+
+"Changed your mind? Use Undo to revisit your previous decision."
+
+Each guide appears only once.
+
+Replayable from Settings.
+
+Tone should feel quiet and sophisticated.
+
+━━━━━━━━━━━━
+9. DISCOVER PAGE POLISH
+━━━━━━━━━━━━
+
+Increase white space.
+
+Make photos larger.
+
+Make names larger.
+
+Reduce clutter.
+
+Everything should feel slower and more deliberate.
+
+Think:
+
+Apple
+Hermès
+Raya
+
+Not Tinder.
+
+━━━━━━━━━━━━
+10. OVERALL DESIGN PRINCIPLE
+━━━━━━━━━━━━
+
+The app should stop feeling like features stitched together.
+
+Every screen should reinforce:
+
+Welcome
+
+↓
+
+Discover
+
+↓
+
+Mutual Interest
+
+↓
+
+Conversation
+
+↓
+
+Voice Call
+
+↓
+
+Video Call
+
+↓
+
+Date
+
+↓
+
+Relationship
+
+Lulou should constantly communicate:
+
+"Lulou isn't built to keep you scrolling.
+
+It's built to bring you together."
+
+━━━━━━━━━━━━
+IMPORTANT
+━━━━━━━━━━━━
+
+Do not implement placeholders.
+
+Do not create ugly or cheap UI.
+
+Preserve the luxury aesthetic.
+
+Improve spacing, typography, transitions and animations everywhere.
+
+Run:
+
+npm run check
+
+npm run build
+
+Provide:
+
+• Root cause of any issues found
+• Files changed
+• Screenshots after changes
+• UX improvements made
+• Mobile Safari verification
+• Ensure everything remains fast and smooth

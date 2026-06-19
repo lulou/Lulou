@@ -704,12 +704,12 @@ export default function Discover() {
               isPhotosLoading={isPhotosLoading}
             />
             <Card className="mt-2" data-testid="card-profile">
-              <div className="px-5 pb-5 pt-3 space-y-5" data-testid="profile-about-section">
+              <div className="px-6 pb-7 pt-5 space-y-7" data-testid="profile-about-section">
 
                 {/* ── 1. Identity — first thing above the fold after the photo ── */}
                 <div className="space-y-1.5" style={{ animation: "discoverNameEnter 0.45s 0.22s ease both" }}>
                   <div className="flex items-center gap-2">
-                    <h2 className="font-serif text-3xl font-bold tracking-tight" data-testid="text-profile-name">
+                    <h2 className="font-serif text-4xl font-bold tracking-tight" data-testid="text-profile-name">
                       {displayProfile.firstName}
                     </h2>
                     {displayProfile.photoVerified && (

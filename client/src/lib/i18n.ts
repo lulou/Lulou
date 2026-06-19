@@ -845,6 +845,8 @@ export const TRANSLATIONS = {
     intent_open_serious:          "Open but Serious",
     intent_committed:             "Committed Relationship",
     intent_purpose:               "Dating with Purpose",
+    intent_serious:               "Serious Dating",
+    intent_open_connection:       "Open To Connection",
     style_slow:                   "Slow & Intentional",
     style_steady:                 "Steady with Momentum",
     style_ready:                  "Ready to Meet Soon",

@@ -854,8 +854,8 @@ export default function ProfilePage() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="Committed Relationship">{t("intent_committed")}</SelectItem>
-                  <SelectItem value="Dating with Purpose">{t("intent_purpose")}</SelectItem>
-                  <SelectItem value="Open but Serious">{t("intent_open_serious")}</SelectItem>
+                  <SelectItem value="Serious Dating">{t("intent_serious")}</SelectItem>
+                  <SelectItem value="Open To Connection">{t("intent_open_connection")}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
