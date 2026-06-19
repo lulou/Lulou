@@ -28,7 +28,19 @@ const STEP_KEYS = ["ob_step_basics","ob_step_photos","ob_step_starters","ob_step
 const INTENT_DESCRIPTIONS: Record<string, string> = {
   "Committed Relationship": "Looking for a life partner.",
   "Serious Dating":         "Looking for something real and seeing where it leads.",
-  "Open To Connection":     "Open minded but not interested in casual dating.",
+  "Open To Connection":     "Open minded, but not interested in casual dating.",
+};
+
+const AU_STATE_ABBR: Record<string, string> = {
+  "New South Wales": "NSW", "Victoria": "VIC", "Queensland": "QLD",
+  "South Australia": "SA", "Western Australia": "WA", "Tasmania": "TAS",
+  "Australian Capital Territory": "ACT", "Northern Territory": "NT",
+};
+
+const INTENT_ICONS: Record<string, string> = {
+  "Committed Relationship": "💍",
+  "Serious Dating": "❤️",
+  "Open To Connection": "✨",
 };
 
 function RadiusLabel({ locationRadius }: { locationRadius: number }) {
@@ -460,16 +472,21 @@ export default function Onboarding({ existingProfile = null, userEmail = "" }: O
                       </span>
                     </div>
                     {locationSuggestions.length > 0 && !locationSelected && (
-                      <div className="absolute top-full mt-1.5 left-0 right-0 bg-background border border-border rounded-xl shadow-xl z-50 overflow-hidden">
+                      <div
+                        className="absolute top-full left-0 right-0 bg-background border border-border/40 rounded-2xl overflow-hidden z-50"
+                        style={{ marginTop: 6, boxShadow: "0 8px 40px rgba(0,0,0,0.10), 0 2px 8px rgba(0,0,0,0.05)" }}
+                      >
                         {locationSuggestions.map((item, idx) => {
                           const a = item.address;
                           const area = a.suburb || a.quarter || a.city_district || a.town || a.village || a.city || a.county;
-                          const label = [area, a.state].filter(Boolean).join(", ") || item.display_name.split(",")[0].trim();
+                          const stateAbbr = a.state ? (AU_STATE_ABBR[a.state] ?? a.state) : null;
+                          const label = [area, stateAbbr].filter(Boolean).join(", ") || item.display_name.split(",")[0].trim();
+                          const [suburb, ...rest] = label.split(", ");
                           return (
                             <button
                               key={idx}
                               type="button"
-                              className="w-full text-start px-4 py-3 flex items-center gap-3 text-sm hover:bg-muted/60 active:bg-muted transition-colors border-b border-border/40 last:border-0"
+                              className="w-full text-start px-4 py-3.5 flex items-center gap-3.5 hover:bg-muted/40 active:bg-muted/60 transition-colors border-b border-border/15 last:border-0 group"
                               onClick={() => {
                                 update("location", label);
                                 update("latitude", parseFloat(item.lat));
@@ -480,8 +497,18 @@ export default function Onboarding({ existingProfile = null, userEmail = "" }: O
                               }}
                               data-testid={`button-location-suggestion-${idx}`}
                             >
-                              <span className="shrink-0 text-base">📍</span>
-                              <span className="truncate">{label}</span>
+                              <div
+                                className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0 transition-colors"
+                                style={{ background: "hsl(350 45% 52% / 0.08)" }}
+                              >
+                                <span className="text-sm leading-none">📍</span>
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm font-semibold text-foreground truncate">{suburb}</p>
+                                {rest.length > 0 && (
+                                  <p className="text-xs text-muted-foreground truncate mt-0.5">{rest.join(", ")}</p>
+                                )}
+                              </div>
                             </button>
                           );
                         })}
@@ -499,22 +526,21 @@ export default function Onboarding({ existingProfile = null, userEmail = "" }: O
                 </div>
                 <div className="space-y-2.5">
                   <Label>{t("search_radius")}</Label>
-                  <div className="flex flex-wrap gap-2">
+                  <div className="grid grid-cols-4 gap-1.5">
                     {([
                       { label: "10 km", value: 10 },
                       { label: "25 km", value: 25 },
                       { label: "50 km", value: 50 },
                       { label: "100 km", value: 100 },
-                      { label: "Anywhere", value: 0 },
                     ] as const).map(opt => (
                       <button
                         key={opt.value}
                         type="button"
                         onClick={() => update("locationRadius", opt.value)}
-                        className={`px-4 py-2 rounded-full text-sm font-medium border transition-all active:scale-95 ${
+                        className={`py-2.5 rounded-xl text-xs font-semibold border transition-all duration-200 active:scale-95 ${
                           formData.locationRadius === opt.value
                             ? "bg-primary text-primary-foreground border-transparent shadow-sm"
-                            : "border-border text-foreground hover:border-primary/50 bg-background"
+                            : "border-border/60 text-muted-foreground hover:text-foreground hover:border-primary/40 bg-background"
                         }`}
                         data-testid={`button-distance-${opt.value}`}
                       >
@@ -522,6 +548,18 @@ export default function Onboarding({ existingProfile = null, userEmail = "" }: O
                       </button>
                     ))}
                   </div>
+                  <button
+                    type="button"
+                    onClick={() => update("locationRadius", 0)}
+                    className={`w-full py-2.5 rounded-xl text-xs font-semibold border transition-all duration-200 active:scale-95 ${
+                      formData.locationRadius === 0
+                        ? "bg-primary text-primary-foreground border-transparent shadow-sm"
+                        : "border-border/60 text-muted-foreground hover:text-foreground hover:border-primary/40 bg-background"
+                    }`}
+                    data-testid="button-distance-0"
+                  >
+                    Anywhere
+                  </button>
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="email">{t("ob_email_label")}</Label>
@@ -890,31 +928,54 @@ export default function Onboarding({ existingProfile = null, userEmail = "" }: O
             )}
 
             {step === 5 && (
-              <div className="space-y-3">
-                {DATING_INTENTS.map(intent => (
-                  <Card
-                    key={intent}
-                    className={`p-5 cursor-pointer transition-all hover-elevate ${
-                      formData.datingIntent === intent ? "border-primary bg-primary/5" : ""
-                    }`}
-                    onClick={() => update("datingIntent", intent)}
-                    data-testid={`card-intent-${intent.toLowerCase().replace(/\s+/g, "-")}`}
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <span className="font-semibold text-sm block">{intent}</span>
-                        <span className="text-xs text-muted-foreground mt-0.5 block leading-snug">
-                          {INTENT_DESCRIPTIONS[intent] ?? ""}
-                        </span>
-                      </div>
-                      {formData.datingIntent === intent && (
-                        <div className="w-5 h-5 rounded-full bg-primary flex items-center justify-center shrink-0 mt-0.5">
-                          <Check className="w-3 h-3 text-primary-foreground" />
+              <div className="space-y-2.5">
+                {DATING_INTENTS.map(intent => {
+                  const selected = formData.datingIntent === intent;
+                  return (
+                    <button
+                      key={intent}
+                      type="button"
+                      className="w-full text-start"
+                      onClick={() => update("datingIntent", intent)}
+                      data-testid={`card-intent-${intent.toLowerCase().replace(/\s+/g, "-")}`}
+                    >
+                      <div
+                        className="rounded-2xl border transition-all duration-200 active:scale-[0.99]"
+                        style={{
+                          padding: "16px 18px",
+                          borderColor: selected ? "hsl(350 45% 52%)" : "hsl(var(--border))",
+                          background: selected
+                            ? "linear-gradient(135deg, hsl(350 45% 52% / 0.06) 0%, hsl(350 45% 52% / 0.02) 100%)"
+                            : "hsl(var(--background))",
+                          boxShadow: selected ? "0 0 0 1px hsl(350 45% 52% / 0.25)" : "none",
+                        }}
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex items-start gap-3 min-w-0">
+                            <span className="text-xl leading-none mt-0.5 shrink-0">{INTENT_ICONS[intent] ?? "💫"}</span>
+                            <div className="min-w-0">
+                              <p className={`font-semibold text-sm leading-snug ${selected ? "text-primary" : "text-foreground"}`}>
+                                {intent}
+                              </p>
+                              <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+                                {INTENT_DESCRIPTIONS[intent] ?? ""}
+                              </p>
+                            </div>
+                          </div>
+                          <div
+                            className="w-5 h-5 rounded-full flex items-center justify-center shrink-0 mt-0.5 transition-all duration-200"
+                            style={{
+                              background: selected ? "hsl(350 45% 52%)" : "transparent",
+                              border: selected ? "none" : "1.5px solid hsl(var(--border))",
+                            }}
+                          >
+                            {selected && <Check className="w-3 h-3 text-white" />}
+                          </div>
                         </div>
-                      )}
-                    </div>
-                  </Card>
-                ))}
+                      </div>
+                    </button>
+                  );
+                })}
               </div>
             )}
 

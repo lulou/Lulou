@@ -1,0 +1,282 @@
+Do a corrective luxury UX pass on Lulou.
+
+The previous implementation only partially completed the requirements. Some changes feel like developer solutions instead of premium product design. Fix them properly.
+
+━━━━━━━━━━━━━━━━━━
+
+LOCATION EXPERIENCE
+━━━━━━━━━━━━━━━━━━
+Current OpenStreetMap autocomplete still feels wrong.
+
+Make location selection feel like Apple Maps / Hinge.
+
+Requirements:
+
+• Search field:
+“Search suburb, city or postcode”
+
+• Suggestions should appear beautifully in cards:
+📍 Manly, NSW
+📍 Bondi, NSW
+📍 Dee Why, NSW
+
+• Selecting a location should:
+
+instantly show a green check
+save suburb and coordinates
+feel smooth and premium
+• User should never manually enter arbitrary text.
+
+• Improve spacing and animations.
+
+• Radius selection should feel elegant:
+10 km
+25 km
+50 km
+100 km
+Anywhere
+
+Current pills are functional but not premium enough.
+
+━━━━━━━━━━━━━━━━━━
+2. EMAILS
+━━━━━━━━━━━━━━━━━━
+
+Email verification itself works, but the emails still look generic.
+
+Completely redesign Supabase email templates.
+
+Requirements:
+
+Header:
+Lulou logo
+
+WELCOME TO LULOU
+
+Be heard. Be seen.
+
+Body:
+
+Hi {{first_name}}
+
+Thank you for joining Lulou.
+
+Please verify your email to begin building meaningful connections.
+
+Large pink button:
+
+VERIFY EMAIL
+
+Benefits section:
+
+✓ Verified profiles
+
+✓ No games
+
+✓ Genuine intentions
+
+Footer:
+
+Questions?
+
+support@lulou.app
+
+© Lulou Dating
+
+Remove all references to Supabase.
+
+Make emails look like premium brands.
+
+━━━━━━━━━━━━━━━━━━
+3. INTENT OPTIONS
+━━━━━━━━━━━━━━━━━━
+
+Audit current dating intent cards.
+
+Current wording still overlaps.
+
+Final options:
+
+Committed Relationship
+“Looking for a life partner.”
+
+Serious Dating
+“Looking for something real and seeing where it leads.”
+
+Open To Connection
+“Open minded, but not interested in casual dating.”
+
+Ensure cards are visually distinct.
+
+Keep backwards compatibility for old stored values.
+
+━━━━━━━━━━━━━━━━━━
+4. EMAIL VERIFIED SCREEN
+━━━━━━━━━━━━━━━━━━
+
+Current success screen is improved but still not luxurious enough.
+
+Requirements:
+
+Large animated logo
+
+WELCOME TO LULOU
+
+Your email has been verified.
+
+Preparing your profile…
+
+Soft pulse animation.
+
+No timestamps.
+
+No technical information.
+
+Transition smoothly into onboarding.
+
+━━━━━━━━━━━━━━━━━━
+5. INTENTION WHEEL
+━━━━━━━━━━━━━━━━━━
+
+Current implementation only added a glow.
+
+This is NOT enough.
+
+Create a proper Spin Room.
+
+When pressing SPIN:
+
+Navigate into a dedicated room.
+
+Wheel becomes smaller.
+
+Show all profile circles around the wheel.
+
+Profiles pulse gently.
+
+Background glow and blur.
+
+When selected:
+
+Selected profile enlarges.
+
+Display:
+
+Tonight’s Connection
+
+Sarah, 26
+
+One-word standout
+
+Then show:
+
+OPEN ❤️
+
+CLOSE 🌙
+
+This should feel cinematic, not like gambling.
+
+━━━━━━━━━━━━━━━━━━
+6. DISCOVER PAGE
+━━━━━━━━━━━━━━━━━━
+
+Current spacing changes are not enough.
+
+Audit entire discover card.
+
+Improve:
+
+• typography
+• spacing
+• hierarchy
+• information density
+• card proportions
+
+Photos should feel luxurious.
+
+Name should command attention.
+
+Everything should breathe.
+
+Think:
+
+Apple
+Hermès
+Raya
+
+NOT Tinder.
+
+━━━━━━━━━━━━━━━━━━
+7. ONBOARDING
+━━━━━━━━━━━━━━━━━━
+
+Audit every onboarding screen.
+
+Remove anything that feels like forms.
+
+Improve:
+
+• spacing
+• typography
+• buttons
+• transitions
+• pickers
+• cards
+
+Photo upload section should feel beautiful.
+
+Height picker should feel native.
+
+Phone number field should feel premium.
+
+━━━━━━━━━━━━━━━━━━
+8. OVERALL POLISH
+━━━━━━━━━━━━━━━━━━
+
+Look through all screenshots and UI.
+
+Anything that feels:
+
+rushed
+developer-looking
+placeholder
+inconsistent
+cheap
+overly busy
+must be redesigned.
+
+Maintain:
+
+Luxury.
+Romance.
+Elegance.
+Prestige.
+
+Think:
+
+Apple × Hermès × Raya × Aman Resort.
+
+━━━━━━━━━━━━━━━━━━
+IMPORTANT
+━━━━━━━━━━━━━━━━━━
+
+Do not just add features.
+
+Improve visual quality.
+
+Do not break existing logic.
+
+Run:
+
+npm run check
+
+npm run build
+
+Report:
+
+Root causes found.
+Files changed.
+Screenshots after improvements.
+Remaining weak areas.
+Mobile Safari verification.
+Performance impact.

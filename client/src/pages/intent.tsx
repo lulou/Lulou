@@ -1162,6 +1162,10 @@ export default function IntentPage() {
           from { transform: translateY(32px); opacity: 0; }
           to   { transform: translateY(0);    opacity: 1; }
         }
+        @keyframes orbitPulse {
+          0%, 100% { transform: translate(-50%, -50%) scale(0.88); opacity: 0.44; }
+          50%       { transform: translate(-50%, -50%) scale(1.06); opacity: 0.90; }
+        }
       `}</style>
 
       {/* ── Header ── */}
@@ -1225,6 +1229,32 @@ export default function IntentPage() {
           data-testid="intent-wheel"
         >
           <ConfettiBurst active={showConfetti} />
+
+          {/* ── Profile orbit ring — pulsing circles during active spin ── */}
+          {isSpinning && items.length > 0 && (
+            <div style={{ position: "absolute", left: "50%", top: "50%", width: 0, height: 0, zIndex: 25, pointerEvents: "none" }}>
+              {items.slice(0, Math.min(items.length, 10)).map((profile, i) => {
+                const n = Math.min(items.length, 10);
+                const angleDeg = (i / n) * 360 - 90;
+                const RING_R = 128;
+                const x = Math.cos(angleDeg * Math.PI / 180) * RING_R;
+                const y = Math.sin(angleDeg * Math.PI / 180) * RING_R;
+                return (
+                  <div
+                    key={profile.userId}
+                    style={{
+                      position: "absolute", left: x, top: y,
+                      width: 38, height: 38, borderRadius: "50%", overflow: "hidden",
+                      boxShadow: "0 0 0 2px rgba(255,255,255,0.18), 0 0 14px rgba(188,78,96,0.28), 0 3px 10px rgba(0,0,0,0.28)",
+                      animation: `orbitPulse ${2.0 + (i % 4) * 0.38}s ease-in-out ${((i * 0.22) % 1.5).toFixed(2)}s infinite`,
+                    }}
+                  >
+                    <ProfilePhoto userId={profile.userId} className="w-full h-full" />
+                  </div>
+                );
+              })}
+            </div>
+          )}
 
           <div
             className="absolute left-1/2 top-1/2"
@@ -1522,38 +1552,78 @@ export default function IntentPage() {
         >
           <div className="flex-1 overflow-y-auto">
 
-            {/* ① Name + age — absolute TOP of card */}
-            <div className="px-5 pt-5 pb-3 flex items-start justify-between gap-3">
-              <div style={{ animation: "profileNameAppear 0.45s 0.15s ease both" }}>
-                <div className="flex items-center gap-2">
-                  <h2 className="font-serif text-3xl font-bold" data-testid="text-detail-name">
-                    {selectedProfile.firstName}{selectedProfile.age ? `, ${selectedProfile.age}` : ""}
-                  </h2>
-                  {selectedProfile.photoVerified && (
-                    <BadgeCheck className="w-5 h-5 text-primary shrink-0" data-testid="icon-intent-verified" />
+            {/* ── Tonight's Connection hero ── */}
+            <div style={{
+              padding: "22px 20px 16px",
+              background: "linear-gradient(180deg, hsl(350 45% 52% / 0.07) 0%, transparent 100%)",
+              textAlign: "center",
+              position: "relative",
+            }}>
+              <p style={{
+                fontSize: 9, fontWeight: 800, letterSpacing: "0.28em",
+                textTransform: "uppercase", color: "hsl(350 45% 52%)",
+                marginBottom: 8,
+                animation: "profileNameAppear 0.38s 0.10s ease both",
+              }}>
+                Tonight's Connection
+              </p>
+              <h2
+                className="font-serif"
+                style={{
+                  fontSize: "clamp(26px, 7vw, 32px)", fontWeight: 700,
+                  letterSpacing: "-0.02em", lineHeight: 1.1,
+                  color: "hsl(var(--foreground))", margin: 0,
+                  animation: "profileNameAppear 0.44s 0.16s ease both",
+                }}
+                data-testid="text-detail-name"
+              >
+                {selectedProfile.firstName}{selectedProfile.age ? `, ${selectedProfile.age}` : ""}
+                {selectedProfile.photoVerified && (
+                  <BadgeCheck className="inline w-5 h-5 text-primary ms-2 align-middle" data-testid="icon-intent-verified" />
+                )}
+              </h2>
+              {selectedProfile.signals && selectedProfile.signals.length > 0 && (
+                <p style={{
+                  fontSize: 13, fontStyle: "italic",
+                  color: "hsl(var(--muted-foreground))",
+                  marginTop: 6,
+                  animation: "profileNameAppear 0.48s 0.22s ease both",
+                }}>
+                  {selectedProfile.signals[0]}
+                </p>
+              )}
+              {(selectedProfile.location || selectedProfile.height) && (
+                <div style={{
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  flexWrap: "wrap", gap: "4px 10px", marginTop: 8,
+                  animation: "profileNameAppear 0.42s 0.28s ease both",
+                }}>
+                  {selectedProfile.location && (
+                    <span style={{ display: "flex", alignItems: "center", gap: 3, fontSize: 12, color: "hsl(var(--muted-foreground))" }}>
+                      <MapPin style={{ width: 11, height: 11 }} />
+                      <span data-testid="text-detail-location">{selectedProfile.location}</span>
+                    </span>
+                  )}
+                  {selectedProfile.height && (
+                    <span style={{ fontSize: 12, color: "hsl(var(--muted-foreground))" }} data-testid="text-detail-height">
+                      {selectedProfile.height}
+                    </span>
                   )}
                 </div>
-
-                {/* ② Age/location/details immediately under name */}
-                {selectedProfile.location && (
-                  <div className="flex items-center gap-1.5 mt-1 text-muted-foreground text-sm">
-                    <MapPin className="w-3.5 h-3.5" />
-                    <span data-testid="text-detail-location">{selectedProfile.location}</span>
-                  </div>
-                )}
-                {selectedProfile.height && (
-                  <p className="text-sm text-muted-foreground mt-0.5" data-testid="text-detail-height">{selectedProfile.height}</p>
-                )}
-              </div>
-
-              <Button
-                size="icon" variant="ghost"
-                className="rounded-full flex-shrink-0 mt-0.5"
+              )}
+              <button
                 onClick={closeProfile}
                 data-testid="button-close-profile"
+                style={{
+                  position: "absolute", top: 12, right: 12,
+                  width: 30, height: 30, borderRadius: "50%",
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  background: "hsl(var(--muted)/0.7)", border: "1px solid hsl(var(--border))",
+                  cursor: "pointer", outline: "none",
+                }}
               >
-                <X className="w-5 h-5" />
-              </Button>
+                <X style={{ width: 14, height: 14, color: "hsl(var(--muted-foreground))" }} />
+              </button>
             </div>
 
             {/* ③ Profile picture — single-image, aspect-ratio constrained (not a carousel) */}
@@ -1675,7 +1745,7 @@ export default function IntentPage() {
                   aria-label={t("skip_label")}
                 >
                   <Moon className="w-5 h-5 text-muted-foreground" />
-                  <span className="text-xs text-muted-foreground font-medium tracking-wide">{t("skip_label")}</span>
+                  <span className="text-xs text-muted-foreground font-semibold tracking-[0.12em] uppercase">Close</span>
                 </button>
 
                 {/* Save For Later button */}
@@ -1713,8 +1783,8 @@ export default function IntentPage() {
                     ? <Loader2 className="w-5 h-5 text-white animate-spin" />
                     : <Heart className="w-5 h-5 text-white fill-current" />
                   }
-                  <span className="text-xs text-white font-semibold tracking-wide">
-                    {wheelOpen.isPending ? t("connecting_label") : t("connect_label")}
+                  <span className="text-xs text-white font-semibold tracking-[0.12em] uppercase">
+                    {wheelOpen.isPending ? "Opening…" : "Open"}
                   </span>
                 </button>
               </div>
