@@ -1,1 +1,22 @@
-<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 32 32"><image href="/favicon-32.png" width="32" height="32"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1000">
+  <defs>
+    <radialGradient id="bg" cx="40%" cy="35%" r="65%">
+      <stop offset="0%"   stop-color="#FDEEF0"/>
+      <stop offset="100%" stop-color="#F5D8DC"/>
+    </radialGradient>
+    <linearGradient id="ltr" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%"   stop-color="#CB8A94"/>
+      <stop offset="45%"  stop-color="#B86E7A"/>
+      <stop offset="100%" stop-color="#C98894"/>
+    </linearGradient>
+  </defs>
+  <rect width="1000" height="1000" rx="220" fill="url(#bg)"/>
+  <g transform="translate(110,120) scale(8.5)">
+    <path d="M4,20 L20,20 L20,24 L16,24 L16,73 L40,73 L40,79 L8,79 L8,24 L4,24 Z"
+          fill="url(#ltr)"/>
+    <path d="M46,12 L66,12 L66,17 L60,17 L60,80 L90,80 L90,88 L50,88 L50,17 L46,17 Z"
+          fill="url(#ltr)"/>
+    <path d="M47,65 C41,59 35,53 35,48 C35,43 39,41 47,51 C55,41 59,43 59,48 C59,53 53,59 47,65Z"
+          fill="none" stroke="url(#ltr)" stroke-width="4" stroke-linejoin="round"/>
+  </g>
+</svg>
