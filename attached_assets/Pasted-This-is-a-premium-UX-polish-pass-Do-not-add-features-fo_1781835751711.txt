@@ -1,0 +1,159 @@
+This is a premium UX polish pass. Do not add features for the sake of adding features. Everything should feel elegant, expensive and intentionally designed.
+
+1. Email verification screen
+
+The current screen still feels technical.
+
+Replace it with:
+
+Large Lulou logo centred.
+Small eyebrow text:
+WELCOME TO LULOU
+Heading:
+Your email has been verified.
+Subheading:
+Preparing your profile…
+Remove all timestamps, debug information and technical text.
+Use a soft rose glow behind the logo.
+Gentle fade and pulse animation.
+Redirect automatically after ~1.5 seconds.
+It should feel like joining a members club.
+
+
+2. Intent cards are still too similar
+
+Replace:
+
+Dating with Purpose
+Open but Serious
+
+With:
+
+❤️ Serious Dating
+Looking for something meaningful and lasting.
+
+✨ Open to Connection
+Open-minded and curious, but not interested in casual dating.
+
+💍 Committed Relationship
+Looking for a life partner.
+
+Make the cards feel luxurious:
+
+Large icon
+Elegant spacing
+Soft gradient selection state
+Animated check circle
+Better typography
+Users should understand the differences immediately.
+
+
+3. Location search
+
+Current experience still feels like typing text.
+
+Make it feel like Apple Maps:
+
+Floating search field.
+Premium suggestion cards.
+Larger suburb name.
+State abbreviation underneath.
+Pin icon inside a soft rose circle.
+Smooth animations.
+Selected location gets a green checkmark.
+User confidence that the app knows exactly where they are.
+
+4. Photo upload step
+
+Current upload boxes feel cheap.
+
+Redesign:
+
+Empty state:
+
+Large ImagePlus icon.
+Soft gradient background.
+Rounded corners.
+Elegant shadow.
+“Main Photo” on first slot.
+“Add Photo” on others.
+
+Filled state:
+
+Image fills card beautifully.
+Rose “Main” badge on first image.
+Blurred glass remove button.
+Tap animation.
+
+Should resemble a luxury editorial app.
+
+
+5. Intention Wheel
+
+Create a cinematic experience.
+
+When SPIN is pressed:
+
+Background darkens slightly.
+Wheel becomes centre focus.
+Profile photos orbit around the wheel.
+Soft pink glow behind wheel.
+Profiles pulse subtly.
+Winning profile enlarges smoothly.
+Heading:
+TONIGHT’S CONNECTION
+
+Large serif name and age.
+Signal word beneath in italic.
+Location and height inside premium pills.
+OPEN ❤️ and CLOSE 🌙 buttons should feel premium and deliberate.
+
+
+6. Discover card
+
+Increase luxury feel:
+
+Larger profile photos.
+Bigger name typography.
+More breathing room.
+Better spacing.
+Softer shadows.
+Premium badge styling.
+More editorial layout.
+Think Raya meets Hermès.
+
+
+7. Verification email
+
+No Supabase branding.
+
+Create a full luxury HTML email:
+
+Logo.
+WELCOME TO LULOU.
+“Be heard. Be seen.”
+Beautiful pink button:
+
+VERIFY EMAIL
+
+Three premium benefits:
+
+✓ Verified members
+✓ Meaningful conversations
+✓ Real connections
+
+Support footer.
+
+Elegant typography and spacing.
+
+
+Run:
+
+npm run check
+npm run build
+
+Report:
+
+Files changed.
+UX improvements completed.
+Remaining areas that still feel unfinished.
