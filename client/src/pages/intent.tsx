@@ -873,8 +873,8 @@ export default function IntentPage() {
     }
     const now = Date.now();
     const dt = now - lastTime.current;
-    const dx = e.clientX - lastX.current;
-    const dragDelta = isRTL ? -dx : dx;
+    const rawDx = e.clientX - lastX.current;
+    const dragDelta = isRTL ? -rawDx : rawDx;
     if (dt > 0) velocity.current = (dragDelta / dt) * 0.8;
     lastX.current = e.clientX;
     lastTime.current = now;
@@ -1504,6 +1504,7 @@ export default function IntentPage() {
 
       {/* ── Wheel stage ── */}
       <div
+        dir={isRTL ? "rtl" : "ltr"}
         className={`flex-1 flex flex-col items-center overflow-hidden ${isCompact ? "justify-start pt-4 gap-2" : "justify-center gap-5"} transition-all duration-700`}
         style={isSpinning ? {
           background: "radial-gradient(ellipse 90% 65% at 50% 40%, hsl(350 45% 52% / 0.28) 0%, hsl(350 45% 52% / 0.08) 45%, transparent 72%)",
