@@ -1,0 +1,196 @@
+The Spark backend logic is correct. Do not change the backend unless absolutely required.
+
+The problem is the Intention Wheel experience still feels wrong.
+
+Current issue:
+When the wheel lands on the selected user, it transitions straight to their profile photo. It looks like a screen switch, not a reveal.
+
+Required behaviour:
+The selected user’s circular photo from the orbit must be visibly pulled forward into the centre while enlarging.
+
+It must feel like the wheel has chosen them.
+
+━━━━━━━━━━━━━━━━━━
+
+WINNER PULL-FORWARD ANIMATION
+━━━━━━━━━━━━━━━━━━
+When the winner is selected:
+
+Do not instantly show the profile photo.
+
+Do not switch to a new card.
+
+Do not hide the orbit and replace it.
+
+Use the selected orbit circle itself.
+
+Animation:
+
+• freeze the orbit
+• selected user circle glows
+• selected circle pulls forward from its orbit position
+• selected circle moves into the centre
+• selected circle enlarges smoothly
+• other orbit circles blur and fade away
+• background darkens
+• rose glow expands behind the selected circle
+• subtle haptic feedback
+
+The user must visibly see the chosen circle move into the centre.
+
+No pop-in.
+
+No instant switch.
+
+No cheap modal.
+
+━━━━━━━━━━━━━━━━━━
+2. BUILD-UP AFTER SELECTION
+━━━━━━━━━━━━━━━━━━
+
+After the selected circle reaches the centre:
+
+Pause briefly.
+
+Then show a Lulou-style quote:
+
+“Lulou has found tonight’s connection.”
+
+or
+
+“One spark. One possibility.”
+
+Then reveal slowly:
+
+TONIGHT’S CONNECTION
+
+Name
+
+Age
+
+Signal word
+
+Location
+
+Then show:
+
+🌙 Close
+
+✦ Send Spark
+
+Buttons should appear last.
+
+━━━━━━━━━━━━━━━━━━
+3. SPARK SENT / CLOSE FLOW
+━━━━━━━━━━━━━━━━━━
+
+After user taps:
+
+✦ Send Spark
+
+Show:
+
+✨ Spark Sent
+
+“We’ll let you know if they feel the same.”
+
+Then show the payment/options sheet:
+
+“That’s today’s Spark used.”
+
+“Want to discover more tonight?”
+
+Buttons/options:
+
+✦ 1 Spark
+
+✦ 3 Sparks
+
+✦ 5 Sparks
+
+or
+
+Back to Lulou
+
+After user taps:
+
+🌙 Close
+
+Show:
+
+“Tonight’s connection is complete.”
+
+“Want another introduction?”
+
+Then show the same payment/options sheet.
+
+IMPORTANT:
+This payment/options sheet must appear automatically after Send Spark and after Close.
+
+It should NOT only appear when the locked spin button is pressed.
+
+━━━━━━━━━━━━━━━━━━
+4. EXTRAS SHEET STYLE
+━━━━━━━━━━━━━━━━━━
+
+Make the sheet feel premium, not desperate.
+
+No aggressive sales language.
+
+No cheap popups.
+
+Use:
+
+soft rose background
+dark luxury overlay
+serif heading
+gentle Spark icon
+elegant pricing cards
+
+Copy:
+
+“That’s today’s Spark used.”
+
+“Discover more connections tonight.”
+
+Buttons:
+
+✦ 1 Spark
+✦ 3 Sparks
+✦ 5 Sparks
+
+Secondary action:
+
+Back to Lulou
+
+━━━━━━━━━━━━━━━━━━
+5. VALIDATION
+━━━━━━━━━━━━━━━━━━
+
+Verify:
+
+• selected orbit circle visibly pulls forward
+• selected orbit circle enlarges into centre
+• profile does not instantly switch in
+• quote appears before profile details
+• details reveal slowly
+• buttons appear last
+• after Send Spark, payment/options sheet appears
+• after Close, payment/options sheet appears
+• locked spin button still opens payment/options sheet
+• no backend Spark logic is broken
+
+Run:
+
+npm run check
+
+npm run build
+
+Report:
+
+Root cause of why the old animation did not visibly pull forward.
+Files changed.
+Exact animation timeline.
+Proof payment/options sheet appears after Send Spark and Close.
+npm run check result.
+npm run build result.
