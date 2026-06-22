@@ -1,0 +1,269 @@
+The Spark logic is correct.
+
+DO NOT touch the Spark backend.
+
+The problem is the experience.
+
+Current behaviour feels cheap.
+
+The winner does NOT feel chosen.
+
+The profile just switches and appears.
+
+There is no excitement.
+
+And after the user finishes, the wheel simply closes instead of offering more spins.
+
+Fix all three issues.
+
+━━━━━━━━━━━━━━━━━━
+
+PHYSICALLY PULL THE WINNER OUT OF THE ORBIT
+━━━━━━━━━━━━━━━━━━
+Current behaviour:
+
+Orbit ends.
+
+Screen switches.
+
+Profile card appears.
+
+Looks bad.
+
+Required behaviour:
+
+At WINNER_SELECTED:
+
+Freeze the orbit.
+
+Find the exact winning orbit bubble.
+
+DO NOT hide it.
+
+DO NOT switch screens.
+
+Use that exact circle.
+
+Animate it.
+
+Timeline:
+
+7.0s
+
+Winner selected.
+
+7.0–8.5s
+
+Winning circle is physically pulled out of the orbit.
+
+Move it from its current orbit position to centre.
+
+Scale:
+
+1x
+
+1.4x
+
+1.8x
+
+2.5x
+
+3.5x
+
+4.5x
+
+Add spring motion.
+
+Rose halo appears behind it.
+
+Other orbit profiles:
+
+blur
+
+fade
+
+darken
+
+become background only.
+
+The user should literally watch the winning circle travel into the centre.
+
+NOT switch to another card.
+
+Think:
+
+Apple Dynamic Island animation.
+
+Not:
+
+Modal popup.
+
+━━━━━━━━━━━━━━━━━━
+2. CREATE EXCITEMENT
+━━━━━━━━━━━━━━━━━━
+
+After the winner reaches centre:
+
+WAIT.
+
+Do not instantly reveal information.
+
+Sequence:
+
+Winner reaches centre.
+
+Small haptic.
+
+Glow expands.
+
+Soft sound.
+
+Pause 800ms.
+
+Show:
+
+TONIGHT’S CONNECTION
+
+Pause 400ms.
+
+Large Playfair name fades in.
+
+Pause 300ms.
+
+Age fades in.
+
+Pause 300ms.
+
+Signal word appears.
+
+Pause 300ms.
+
+Location appears.
+
+Pause 500ms.
+
+Only then reveal buttons.
+
+User should feel anticipation.
+
+Think:
+
+Netflix character reveal.
+
+Luxury watch advert.
+
+Apple keynote.
+
+━━━━━━━━━━━━━━━━━━
+3. AFTER CLOSE OR SEND SPARK
+━━━━━━━━━━━━━━━━━━
+
+Currently nothing happens.
+
+This is wrong.
+
+After:
+
+🌙 Close
+
+or
+
+✦ Send Spark
+
+Show the Wheel Extras sheet.
+
+Never interrupt the reveal.
+
+Only after the wheel experience is completely finished.
+
+Display:
+
+“Tonight’s connection is complete.”
+
+Then:
+
+“You’ve used today’s Spark.”
+
+Button:
+
+✦ Get More Sparks
+
+Subtitle:
+
+Discover more connections tonight.
+
+Show:
+
+1 Spark
+
+3 Sparks
+
+5 Sparks
+
+Luxury design.
+
+Not aggressive.
+
+This popup MUST appear automatically after:
+
+Close
+
+Spark Sent
+
+Not only when pressing the locked spin.
+
+━━━━━━━━━━━━━━━━━━
+4. SPARK SENT
+━━━━━━━━━━━━━━━━━━
+
+Current message feels flat.
+
+Improve:
+
+✨ Spark Sent
+
+“We’ll let you know if they feel the same.”
+
+Wait 2.2 seconds.
+
+Then automatically transition into the Get More Sparks sheet.
+
+━━━━━━━━━━━━━━━━━━
+5. VALIDATION
+
+Verify:
+
+Winner bubble visibly travels from orbit into centre.
+
+No screen switch.
+
+No card pop.
+
+Excitement sequence exists.
+
+Buttons appear last.
+
+Close opens Extras.
+
+Spark Sent opens Extras.
+
+Locked button still opens Extras.
+
+No payment prompts interrupt reveal.
+
+Run:
+
+npm run check
+
+npm run build
+
+Report:
+
+Files changed.
+
+Winner animation proof.
+
+Excitement timeline.
+
+Proof extras appear after Close and after Spark Sent.
+

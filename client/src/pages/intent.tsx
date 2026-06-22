@@ -793,6 +793,7 @@ export default function IntentPage() {
   const [previewProfile, setPreviewProfile] = useState<Profile | null>(null);
   const [showConfetti, setShowConfetti] = useState(false);
   const [showElevateInReveal, setShowElevateInReveal] = useState(false);
+  const [showSpinExtras, setShowSpinExtras] = useState(false);
   const [angle, setAngle] = useState(0);
 
   // Spin room + Spark state
@@ -813,6 +814,7 @@ export default function IntentPage() {
   const orbitGlowRef    = useRef<HTMLDivElement>(null);
   const orbitRingRef2   = useRef<HTMLDivElement>(null);
   const winnerCircleRef = useRef<HTMLDivElement | null>(null);
+  const spinPhaseRef    = useRef<SpinPhase>('idle');  // readable inside RAF without closure issues
 
   // Use the last non-empty ref as fallback so the wheel stays visible when the
   // current query result is empty (e.g. test environment, post-spin refetch).
@@ -909,7 +911,7 @@ export default function IntentPage() {
         setShowSpinRoom(false);
         setSparkSent(false);
         closeProfile();
-        setTimeout(() => setShowElevateInReveal(true), 400);
+        setTimeout(() => setShowSpinExtras(true), 400);
       }, 2200);
     },
     onError: (error: any) => {
@@ -1082,6 +1084,14 @@ export default function IntentPage() {
 
       // Update each bubble — position + depth effect (front/back opacity & glow)
       const speedFrac = Math.min(orbitSpeedRef2.current / 360, 1);
+
+      // During winner animation phases, stop overwriting bubble DOM so CSS transitions
+      // on the champion circle are not overridden each frame by the RAF.
+      if (spinPhaseRef.current === 'pullforward' || spinPhaseRef.current === 'arrive') {
+        orbitRafRef2.current = requestAnimationFrame(tick);
+        return;
+      }
+
       for (let i = 0; i < N; i++) {
         const el = orbitBubbles.current[i];
         if (!el) continue;
@@ -1203,6 +1213,9 @@ export default function IntentPage() {
       '0 0 80px 28px rgba(212,92,116,0.42), 0 0 140px 50px rgba(212,92,116,0.18)';
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [spinRoomPhase]);
+
+  // Sync phase ref so the orbit RAF can read it without stale closure values
+  useEffect(() => { spinPhaseRef.current = spinRoomPhase; }, [spinRoomPhase]);
 
   useEffect(() => { return () => cancelAnimationFrame(animFrame.current); }, []);
   useEffect(() => {
@@ -1775,10 +1788,10 @@ export default function IntentPage() {
                 </p>
               </div>
               <div className="space-y-2">
-                <Button className="w-full gap-2" onClick={() => toast({ title: t("coming_soon_title"), description: t("spin_packs_soon_desc") })} data-testid="button-buy-1-spin">
+                <Button className="w-full gap-2" onClick={() => setShowSpinExtras(true)} data-testid="button-buy-1-spin">
                   <RotateCw className="w-4 h-4" /> {t("one_spin_price")}
                 </Button>
-                <Button className="w-full gap-2" variant="outline" onClick={() => toast({ title: t("coming_soon_title"), description: t("spin_packs_soon_desc") })} data-testid="button-buy-2-spins">
+                <Button className="w-full gap-2" variant="outline" onClick={() => setShowSpinExtras(true)} data-testid="button-buy-2-spins">
                   <RotateCw className="w-4 h-4" /> {t("two_spins_price")}
                 </Button>
               </div>
@@ -2384,7 +2397,7 @@ export default function IntentPage() {
                     fontSize: 9, fontWeight: 900, letterSpacing: "0.38em",
                     textTransform: "uppercase", color: "rgba(212,92,116,0.88)",
                     marginBottom: 10,
-                    animation: "srTextIn 0.50s 0.18s ease both",
+                    animation: "srTextIn 0.50s 0.25s ease both",
                   }}>
                     {t("spin_room_title")}
                   </p>
@@ -2395,7 +2408,7 @@ export default function IntentPage() {
                     fontSize: "clamp(30px,8.5vw,42px)", fontWeight: 700,
                     color: "#fff", margin: 0, lineHeight: 1.05,
                     textShadow: "0 2px 28px rgba(0,0,0,0.60), 0 0 60px rgba(212,92,116,0.18)",
-                    animation: "srTextIn 0.65s 0.32s ease both",
+                    animation: "srTextIn 0.65s 0.75s ease both",
                   }}>
                     {selectedProfile.firstName}
                     {selectedProfile.photoVerified && (
@@ -2411,7 +2424,7 @@ export default function IntentPage() {
                     <p style={{
                       fontSize: 15, fontWeight: 400,
                       color: "rgba(255,255,255,0.52)", marginTop: 5,
-                      animation: "srTextIn 0.50s 0.46s ease both",
+                      animation: "srTextIn 0.50s 1.15s ease both",
                     }}>
                       {selectedProfile.age}
                     </p>
@@ -2423,7 +2436,7 @@ export default function IntentPage() {
                       fontFamily: "'Playfair Display', Georgia, serif",
                       fontSize: 15, fontStyle: "italic",
                       color: "rgba(255,255,255,0.65)", marginTop: 8,
-                      animation: "srTextIn 0.55s 0.58s ease both",
+                      animation: "srTextIn 0.55s 1.45s ease both",
                     }}>
                       "{selectedProfile.signals[0]}"
                     </p>
@@ -2435,7 +2448,7 @@ export default function IntentPage() {
                       fontSize: 12, color: "rgba(255,255,255,0.34)", marginTop: 7,
                       display: "flex", alignItems: "center",
                       justifyContent: "center", gap: 4,
-                      animation: "srTextIn 0.50s 0.70s ease both",
+                      animation: "srTextIn 0.50s 1.70s ease both",
                     }}>
                       <MapPin style={{ width: 11, height: 11 }} />
                       {selectedProfile.location}
@@ -2445,7 +2458,7 @@ export default function IntentPage() {
 
                 {/* Close button — always reachable during reveal */}
                 <button
-                  onClick={() => { closeProfile(); setTimeout(() => setShowElevateInReveal(true), 350); }}
+                  onClick={() => { closeProfile(); setTimeout(() => setShowSpinExtras(true), 350); }}
                   data-testid="button-spin-room-close"
                   style={{
                     position: "absolute",
@@ -2487,7 +2500,7 @@ export default function IntentPage() {
                 ) : (
                   <div style={{ display: "flex", gap: 12 }}>
                     <button
-                      onClick={() => { closeProfile(); setTimeout(() => setShowElevateInReveal(true), 350); }}
+                      onClick={() => { closeProfile(); setTimeout(() => setShowSpinExtras(true), 350); }}
                       data-testid="button-spin-room-pass"
                       style={{
                         flex: 1, padding: "16px 10px", borderRadius: 18,
@@ -2531,6 +2544,154 @@ export default function IntentPage() {
             </div>
           )}
 
+        </div>
+      )}
+
+      {/* ── Spin Extras Sheet — slides up after Close or Spark Sent ── */}
+      {showSpinExtras && (
+        <div
+          style={{
+            position: "fixed", inset: 0, zIndex: 9500,
+            background: "rgba(0,0,0,0.70)",
+            backdropFilter: "blur(14px)",
+            WebkitBackdropFilter: "blur(14px)",
+            display: "flex", alignItems: "flex-end",
+          }}
+          onClick={() => setShowSpinExtras(false)}
+        >
+          <div
+            style={{
+              width: "100%",
+              background: "linear-gradient(180deg, #130e1c 0%, #0d0812 100%)",
+              borderRadius: "28px 28px 0 0",
+              border: "1px solid rgba(212,92,116,0.22)",
+              borderBottom: "none",
+              paddingBottom: "max(env(safe-area-inset-bottom,0px), 28px)",
+              boxShadow: "0 -8px 60px rgba(212,92,116,0.12)",
+              animation: "srButtonsIn 0.52s cubic-bezier(0.34,1.56,0.64,1) both",
+            }}
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Drag handle */}
+            <div style={{ textAlign: "center", paddingTop: 14, paddingBottom: 6 }}>
+              <div style={{
+                width: 36, height: 3, borderRadius: 2,
+                background: "rgba(255,255,255,0.18)", margin: "0 auto",
+              }} />
+            </div>
+
+            {/* Header */}
+            <div style={{ textAlign: "center", padding: "18px 28px 14px" }}>
+              <p style={{
+                fontSize: 9, fontWeight: 900, letterSpacing: "0.36em",
+                textTransform: "uppercase", color: "rgba(212,92,116,0.80)",
+                marginBottom: 12,
+              }}>
+                Tonight's connection is complete
+              </p>
+              <h2 style={{
+                fontFamily: "'Playfair Display', Georgia, serif",
+                fontSize: 24, fontWeight: 700, color: "#fff",
+                margin: 0, lineHeight: 1.2,
+              }}>
+                You've used today's Spark.
+              </h2>
+              <p style={{
+                fontSize: 13, color: "rgba(255,255,255,0.38)",
+                marginTop: 8, marginBottom: 0,
+              }}>
+                Discover more connections tonight.
+              </p>
+            </div>
+
+            {/* Divider */}
+            <div style={{
+              height: 1, background: "rgba(212,92,116,0.14)",
+              margin: "4px 24px 18px",
+            }} />
+
+            {/* Section label */}
+            <p style={{
+              fontSize: 10, fontWeight: 800, letterSpacing: "0.24em",
+              textTransform: "uppercase", color: "rgba(212,92,116,0.72)",
+              textAlign: "center", marginBottom: 14,
+            }}>✦ Get More Sparks</p>
+
+            {/* Spark packs */}
+            <div style={{ padding: "0 20px", display: "flex", flexDirection: "column", gap: 10 }}>
+              {/* 1 Spark */}
+              <button
+                data-testid="button-spin-extra-1"
+                onClick={() => toast({ title: t("coming_soon_title"), description: t("spin_packs_soon_desc") })}
+                style={{
+                  display: "flex", alignItems: "center", justifyContent: "space-between",
+                  padding: "14px 18px", borderRadius: 18,
+                  background: "rgba(255,255,255,0.05)",
+                  border: "1px solid rgba(255,255,255,0.09)",
+                  cursor: "pointer",
+                }}
+              >
+                <div style={{ textAlign: "left" }}>
+                  <p style={{ fontSize: 15, fontWeight: 700, color: "#fff", margin: 0 }}>1 Spark</p>
+                  <p style={{ fontSize: 12, color: "rgba(255,255,255,0.38)", margin: 0, marginTop: 2 }}>One more connection tonight</p>
+                </div>
+                <span style={{ fontSize: 14, fontWeight: 700, color: "rgba(255,255,255,0.50)" }}>$2.99</span>
+              </button>
+
+              {/* 3 Sparks — highlighted */}
+              <button
+                data-testid="button-spin-extra-3"
+                onClick={() => toast({ title: t("coming_soon_title"), description: t("spin_packs_soon_desc") })}
+                style={{
+                  display: "flex", alignItems: "center", justifyContent: "space-between",
+                  padding: "14px 18px", borderRadius: 18,
+                  background: "linear-gradient(135deg, rgba(212,92,116,0.22) 0%, rgba(157,53,80,0.16) 100%)",
+                  border: "1px solid rgba(212,92,116,0.42)",
+                  cursor: "pointer",
+                }}
+              >
+                <div style={{ textAlign: "left" }}>
+                  <p style={{ fontSize: 15, fontWeight: 700, color: "#fff", margin: 0 }}>3 Sparks</p>
+                  <p style={{ fontSize: 12, color: "rgba(255,255,255,0.38)", margin: 0, marginTop: 2 }}>Three more chances</p>
+                </div>
+                <span style={{ fontSize: 14, fontWeight: 700, color: "rgba(212,92,116,1.0)" }}>$6.99</span>
+              </button>
+
+              {/* 5 Sparks */}
+              <button
+                data-testid="button-spin-extra-5"
+                onClick={() => toast({ title: t("coming_soon_title"), description: t("spin_packs_soon_desc") })}
+                style={{
+                  display: "flex", alignItems: "center", justifyContent: "space-between",
+                  padding: "14px 18px", borderRadius: 18,
+                  background: "rgba(255,255,255,0.05)",
+                  border: "1px solid rgba(255,255,255,0.09)",
+                  cursor: "pointer",
+                }}
+              >
+                <div style={{ textAlign: "left" }}>
+                  <p style={{ fontSize: 15, fontWeight: 700, color: "#fff", margin: 0 }}>5 Sparks</p>
+                  <p style={{ fontSize: 12, color: "rgba(255,255,255,0.38)", margin: 0, marginTop: 2 }}>Explore freely tonight</p>
+                </div>
+                <span style={{ fontSize: 14, fontWeight: 700, color: "rgba(255,255,255,0.50)" }}>$9.99</span>
+              </button>
+            </div>
+
+            {/* Maybe later */}
+            <div style={{ textAlign: "center", paddingTop: 16 }}>
+              <button
+                onClick={() => setShowSpinExtras(false)}
+                data-testid="button-spin-extras-dismiss"
+                style={{
+                  fontSize: 13, color: "rgba(255,255,255,0.30)",
+                  background: "none", border: "none", cursor: "pointer",
+                  padding: "8px 24px",
+                }}
+              >
+                Maybe later
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
