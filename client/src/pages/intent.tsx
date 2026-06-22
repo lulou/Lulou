@@ -800,7 +800,7 @@ export default function IntentPage() {
   const [sparkSent, setSparkSent] = useState(false);
 
   // SpinRoom cinematic phase — drives what's visible at each moment
-  type SpinPhase = 'idle' | 'accelerate' | 'fast' | 'slow' | 'approach' | 'reveal' | 'pause' | 'buttons';
+  type SpinPhase = 'idle' | 'accelerate' | 'fast' | 'slow' | 'approach' | 'pullforward' | 'arrive' | 'reveal' | 'pause' | 'buttons';
   const [spinRoomPhase, setSpinRoomPhase] = useState<SpinPhase>('idle');
 
   // Orbit animation — all RAF-driven via refs (no React re-renders per frame)
@@ -812,6 +812,7 @@ export default function IntentPage() {
   const orbitLastTimeRef = useRef(0);
   const orbitGlowRef    = useRef<HTMLDivElement>(null);
   const orbitRingRef2   = useRef<HTMLDivElement>(null);
+  const winnerCircleRef = useRef<HTMLDivElement | null>(null);
 
   // Use the last non-empty ref as fallback so the wheel stays visible when the
   // current query result is empty (e.g. test environment, post-spin refetch).
@@ -908,6 +909,7 @@ export default function IntentPage() {
         setShowSpinRoom(false);
         setSparkSent(false);
         closeProfile();
+        setTimeout(() => setShowElevateInReveal(true), 400);
       }, 2200);
     },
     onError: (error: any) => {
@@ -1031,17 +1033,19 @@ export default function IntentPage() {
     go('accelerate', 180);
     console.log('[WHEEL] SPIN_START');
     const ts = [
-      setTimeout(() => { go('fast', 360);  console.log('[WHEEL] FAST_PHASE');       },  2000),
-      setTimeout(() => { go('slow',  40);  console.log('[WHEEL] SLOW_PHASE');       },  5000),
-      setTimeout(() => { go('approach', 8); console.log('[WHEEL] WINNER_APPROACH'); },  7000),
+      setTimeout(() => { go('fast', 360);      console.log('[WHEEL] FAST_PHASE');      },  2000),
+      setTimeout(() => { go('slow',  40);      console.log('[WHEEL] SLOW_PHASE');      },  5000),
+      setTimeout(() => { go('approach', 8);    console.log('[WHEEL] WINNER_APPROACH'); },  7000),
+      setTimeout(() => { go('pullforward', 0); console.log('[WHEEL] PULL_FORWARD');    },  7800),
+      setTimeout(() => { go('arrive', 0);      console.log('[WHEEL] WINNER_ARRIVE');   },  9000),
       setTimeout(() => {
         go('reveal', 0);
         console.log('[WHEEL] WINNER_REVEAL');
         if (!muted) playChime();
         try { (navigator as any).vibrate?.([60, 40, 120]); } catch {}
-      }, 7800),
-      setTimeout(() => go('pause',   0), 9000),
-      setTimeout(() => { go('buttons', 0); console.log('[WHEEL] BUTTONS_VISIBLE'); }, 11000),
+      }, 9800),
+      setTimeout(() => go('pause',   0), 11200),
+      setTimeout(() => { go('buttons', 0); console.log('[WHEEL] BUTTONS_VISIBLE'); }, 12000),
     ];
     return () => ts.forEach(clearTimeout);
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1135,6 +1139,70 @@ export default function IntentPage() {
     return () => cancelAnimationFrame(orbitRafRef2.current);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showSpinRoom]);
+
+  // ── Pull-forward: selected circle leaves orbit ring → travels to centre ───────
+  useEffect(() => {
+    if (spinRoomPhase !== 'pullforward') return;
+    if (selectedIndex === null) return;
+    const el = winnerCircleRef.current;
+    if (!el) return;
+
+    const N = Math.min(items.length, 10);
+    const R = 108;
+    const aRad = (orbitAngleRef2.current * Math.PI) / 180;
+    const base = (selectedIndex / N) * Math.PI * 2 - Math.PI / 2;
+    const total = base + aRad;
+    const startX = Math.cos(total) * R;
+    const startY = Math.sin(total) * R;
+
+    // Place at orbit position with no transition (invisible)
+    el.style.transition = 'none';
+    el.style.opacity = '0';
+    el.style.transform = `translate(calc(-50% + ${startX}px), calc(-50% + ${startY}px)) scale(1)`;
+
+    // Freeze orbit; hide winner slot; fade out all other bubbles
+    orbitTargetRef.current = 0;
+    for (let i = 0; i < Math.min(items.length, 10); i++) {
+      const b = orbitBubbles.current[i];
+      if (!b) continue;
+      if (i === selectedIndex) {
+        b.style.opacity = '0';
+      } else {
+        b.style.transition = 'opacity 0.55s ease';
+        b.style.opacity = '0';
+      }
+    }
+
+    // Haptic pulse when champion starts moving
+    try { (navigator as any).vibrate?.([20, 10, 40]); } catch {}
+
+    // Frame 1: appear at orbit position · Frame 2: spring to centre
+    requestAnimationFrame(() => {
+      el.style.opacity = '1';
+      requestAnimationFrame(() => {
+        el.style.transition =
+          'transform 1.25s cubic-bezier(0.15, 0.0, 0.10, 1), ' +
+          'box-shadow 0.8s ease 0.45s, border-color 0.4s ease';
+        el.style.transform = 'translate(-50%, -50%) scale(4.2)';
+        el.style.boxShadow = '0 0 48px 12px rgba(212,92,116,0.26)';
+        el.style.borderColor = 'rgba(212,92,116,0.88)';
+      });
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [spinRoomPhase]);
+
+  // ── Arrive: circle settles at centre — halo blooms ────────────────────────────
+  useEffect(() => {
+    if (spinRoomPhase !== 'arrive') return;
+    const el = winnerCircleRef.current;
+    if (!el) return;
+    el.style.transition =
+      'transform 0.95s cubic-bezier(0.2, 0.0, 0.1, 1), box-shadow 0.95s ease';
+    el.style.transform = 'translate(-50%, -50%) scale(5.0)';
+    el.style.boxShadow =
+      '0 0 80px 28px rgba(212,92,116,0.42), 0 0 140px 50px rgba(212,92,116,0.18)';
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [spinRoomPhase]);
 
   useEffect(() => { return () => cancelAnimationFrame(animFrame.current); }, []);
   useEffect(() => {
@@ -2177,14 +2245,34 @@ export default function IntentPage() {
                   pointerEvents: "none",
                 }} />
 
-                {/* Layer 4: ✦ centre symbol */}
+                {/* Layer 4: ✦ centre symbol — hides when champion takes over */}
                 <div style={{
                   position: "absolute", top: "50%", left: "50%",
                   transform: "translate(-50%,-50%)",
                   fontSize: 15, color: "rgba(212,92,116,0.92)",
                   lineHeight: 1, zIndex: 3, pointerEvents: "none",
                   textShadow: "0 0 10px rgba(212,92,116,0.55), 0 0 22px rgba(212,92,116,0.28)",
+                  opacity: (spinRoomPhase === 'pullforward' || spinRoomPhase === 'arrive') ? 0 : 1,
+                  transition: "opacity 0.3s ease",
                 }}>✦</div>
+
+                {/* ── Champion circle — travels from orbit to centre ── */}
+                {(spinRoomPhase === 'pullforward' || spinRoomPhase === 'arrive') && selectedProfile && (
+                  <div
+                    ref={winnerCircleRef}
+                    style={{
+                      position: "absolute", top: "50%", left: "50%",
+                      width: 40, height: 40, borderRadius: "50%",
+                      overflow: "hidden",
+                      border: "2px solid rgba(212,92,116,0.60)",
+                      zIndex: 25,
+                      willChange: "transform",
+                      opacity: 0,
+                    }}
+                  >
+                    <ProfilePhoto userId={selectedProfile.userId} className="w-full h-full" />
+                  </div>
+                )}
               </div>
 
               {/* Phase status text */}
@@ -2357,7 +2445,7 @@ export default function IntentPage() {
 
                 {/* Close button — always reachable during reveal */}
                 <button
-                  onClick={closeProfile}
+                  onClick={() => { closeProfile(); setTimeout(() => setShowElevateInReveal(true), 350); }}
                   data-testid="button-spin-room-close"
                   style={{
                     position: "absolute",
@@ -2399,7 +2487,7 @@ export default function IntentPage() {
                 ) : (
                   <div style={{ display: "flex", gap: 12 }}>
                     <button
-                      onClick={closeProfile}
+                      onClick={() => { closeProfile(); setTimeout(() => setShowElevateInReveal(true), 350); }}
                       data-testid="button-spin-room-pass"
                       style={{
                         flex: 1, padding: "16px 10px", borderRadius: 18,

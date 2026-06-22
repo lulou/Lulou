@@ -1,0 +1,131 @@
+Correction: Extras should still appear after the Intention Wheel flow.
+
+Do NOT remove wheel monetisation completely.
+
+Correct behaviour:
+
+1. User spins.
+2. Wheel reveal happens.
+3. User chooses:
+  - Close
+  - ✦ Send Spark
+4. After that action is complete, then show the Extras / Buy More Spins option.
+
+Important:
+
+Do not interrupt the reveal.
+
+Do not show payment during the winner moment.
+
+Do not block Send Spark.
+
+Only show extras after the user has finished the wheel decision.
+
+The wheel should feel premium first, then offer extras naturally.
+
+━━━━━━━━━━━━━━━━━━━━━━
+
+WINNER TRANSITION
+
+Currently when the wheel lands, the reveal feels too sudden.
+
+After the wheel determines the winner:
+
+DO NOT instantly replace everything with the profile card.
+
+Instead:
+
+• The winner's circular orbit photo should become the focus.
+• Pull that exact circle forward out of the orbit ring.
+• Enlarge it continuously while it moves towards the centre.
+• Blur and dim the other orbiting profiles behind it.
+• Slow the orbit ring until it almost freezes.
+• Add a soft glow behind the selected circle.
+• Add haptic feedback when it starts moving forward.
+• Scale smoothly with spring physics.
+
+Think of the selected profile being "chosen" from the orbit rather than appearing from nowhere.
+
+Timeline:
+
+7.0s
+Winner selected.
+
+7.0–8.2s
+Selected orbit circle leaves the ring and travels towards the centre while enlarging.
+
+Other orbit profiles fade and blur.
+
+8.2–9.0s
+Circle reaches centre.
+
+Background blur increases.
+
+Halo appears.
+
+9.0–10.5s
+Profile reveal begins:
+
+TONIGHT'S CONNECTION
+
+Large profile photo
+
+Playfair name
+
+Age
+
+Signal word
+
+Location
+
+10.5–11.5s
+
+Pause.
+
+Let user absorb the moment.
+
+11.5–12.0s
+
+Buttons animate in:
+
+🌙 Close
+
+✦ Send Spark
+
+━━━━━━━━━━━━━━━━━━━━━━
+
+This transition should feel like:
+
+Apple keynote
+
+Luxury watch commercial
+
+Netflix character reveal
+
+Not:
+
+Card suddenly appearing
+
+Pop-in animation
+
+Cheap modal
+
+━━━━━━━━━━━━━━━━━━━━━━
+
+Run:
+
+npm run check
+
+npm run build
+
+Report:
+
+Files changed
+
+Animation improvements
+
+Winner transition improvements
+
+Proof that the selected orbit circle is physically pulled forward and enlarged before the profile reveal
+
+Proof that monetisation only appears AFTER the user finishes the Spark decision.
