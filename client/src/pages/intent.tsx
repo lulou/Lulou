@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect, useMemo } from "react";
+import { useState, useRef, useCallback, useEffect, useLayoutEffect, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { Loader2, RotateCw, X, MapPin, Lock, Star, Crown, MessageCircle, HelpCircle, Moon, Volume2, VolumeX, ChevronRight, BadgeCheck } from "lucide-react";
@@ -813,8 +813,7 @@ export default function IntentPage() {
   const orbitLastTimeRef = useRef(0);
   const orbitGlowRef    = useRef<HTMLDivElement>(null);
   const orbitRingRef2   = useRef<HTMLDivElement>(null);
-  const winnerCircleRef = useRef<HTMLDivElement | null>(null);
-  const spinPhaseRef    = useRef<SpinPhase>('idle');  // readable inside RAF without closure issues
+  const spinPhaseRef = useRef<SpinPhase>('idle');  // readable inside RAF without stale-closure issues
 
   // Use the last non-empty ref as fallback so the wheel stays visible when the
   // current query result is empty (e.g. test environment, post-spin refetch).
@@ -1058,8 +1057,9 @@ export default function IntentPage() {
   useEffect(() => {
     if (!showSpinRoom) {
       cancelAnimationFrame(orbitRafRef2.current);
-      orbitAngleRef2.current  = 0;
-      orbitSpeedRef2.current  = 0;
+      spinPhaseRef.current     = 'idle'; // reset so the next open starts fresh
+      orbitAngleRef2.current   = 0;
+      orbitSpeedRef2.current   = 0;
       orbitLastTimeRef.current = 0;
       return;
     }
@@ -1078,19 +1078,19 @@ export default function IntentPage() {
       const diff = tgt - cur;
       orbitSpeedRef2.current += diff * Math.min(dt * (diff > 0 ? 1.6 : 2.4), 1);
 
-      // Advance orbit angle
-      orbitAngleRef2.current = (orbitAngleRef2.current + orbitSpeedRef2.current * dt) % 360;
-      const aRad = (orbitAngleRef2.current * Math.PI) / 180;
-
       // Update each bubble — position + depth effect (front/back opacity & glow)
       const speedFrac = Math.min(orbitSpeedRef2.current / 360, 1);
 
-      // During winner animation phases, stop overwriting bubble DOM so CSS transitions
-      // on the champion circle are not overridden each frame by the RAF.
+      // During winner animation, freeze orbit angle AND skip all bubble DOM mutations
+      // so the CSS transitions on the selected bubble run completely uncontested.
       if (spinPhaseRef.current === 'pullforward' || spinPhaseRef.current === 'arrive') {
         orbitRafRef2.current = requestAnimationFrame(tick);
         return;
       }
+
+      // Advance orbit angle (only when not in winner phases)
+      orbitAngleRef2.current = (orbitAngleRef2.current + orbitSpeedRef2.current * dt) % 360;
+      const aRad = (orbitAngleRef2.current * Math.PI) / 180;
 
       for (let i = 0; i < N; i++) {
         const el = orbitBubbles.current[i];
@@ -1150,72 +1150,68 @@ export default function IntentPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showSpinRoom]);
 
-  // ── Pull-forward: selected circle leaves orbit ring → travels to centre ───────
-  useEffect(() => {
+  // ── Pull-forward: winner orbit bubble springs from the ring → centre ────────────
+  // useLayoutEffect fires synchronously before paint, so spinPhaseRef.current is
+  // set to 'pullforward' before the RAF's very next tick — zero race window.
+  useLayoutEffect(() => {
     if (spinRoomPhase !== 'pullforward') return;
     if (selectedIndex === null) return;
-    const el = winnerCircleRef.current;
-    if (!el) return;
 
-    const N = Math.min(items.length, 10);
-    const R = 108;
-    const aRad = (orbitAngleRef2.current * Math.PI) / 180;
-    const base = (selectedIndex / N) * Math.PI * 2 - Math.PI / 2;
-    const total = base + aRad;
-    const startX = Math.cos(total) * R;
-    const startY = Math.sin(total) * R;
+    // Gate the RAF immediately (must be first, before any DOM write)
+    spinPhaseRef.current = 'pullforward';
 
-    // Place at orbit position with no transition (invisible)
-    el.style.transition = 'none';
-    el.style.opacity = '0';
-    el.style.transform = `translate(calc(-50% + ${startX}px), calc(-50% + ${startY}px)) scale(1)`;
+    const winner = orbitBubbles.current[selectedIndex];
+    if (!winner) return;
 
-    // Freeze orbit; hide winner slot; fade out all other bubbles
-    orbitTargetRef.current = 0;
-    for (let i = 0; i < Math.min(items.length, 10); i++) {
-      const b = orbitBubbles.current[i];
-      if (!b) continue;
-      if (i === selectedIndex) {
-        b.style.opacity = '0';
-      } else {
-        b.style.transition = 'opacity 0.55s ease';
-        b.style.opacity = '0';
-      }
+    // Stop breathing on the inner clip div so the bubble looks solid
+    const inner = winner.firstElementChild as HTMLElement | null;
+    if (inner) {
+      inner.style.animation = 'none';
+      inner.style.border = '2px solid rgba(212,92,116,0.60)';
     }
 
-    // Haptic pulse when champion starts moving
+    // Freeze at current DOM position (orbit angle stopped by RAF gate above)
+    winner.style.transition = 'none';
+    winner.style.zIndex = '25';
+
+    // Fade + blur all other orbit bubbles
+    for (let i = 0; i < Math.min(items.length, 10); i++) {
+      const b = orbitBubbles.current[i];
+      if (!b || i === selectedIndex) continue;
+      b.style.transition = 'opacity 0.55s ease, filter 0.55s ease';
+      b.style.opacity = '0';
+      b.style.filter = 'blur(3px)';
+    }
+
+    // Haptic pulse as the winner starts moving
     try { (navigator as any).vibrate?.([20, 10, 40]); } catch {}
 
-    // Frame 1: appear at orbit position · Frame 2: spring to centre
+    // One RAF tick so the browser commits the frozen position, then spring to centre
     requestAnimationFrame(() => {
-      el.style.opacity = '1';
-      requestAnimationFrame(() => {
-        el.style.transition =
-          'transform 1.25s cubic-bezier(0.15, 0.0, 0.10, 1), ' +
-          'box-shadow 0.8s ease 0.45s, border-color 0.4s ease';
-        el.style.transform = 'translate(-50%, -50%) scale(4.2)';
-        el.style.boxShadow = '0 0 48px 12px rgba(212,92,116,0.26)';
-        el.style.borderColor = 'rgba(212,92,116,0.88)';
-      });
+      winner.style.transition =
+        'transform 1.25s cubic-bezier(0.15, 0.0, 0.10, 1), box-shadow 0.8s ease 0.30s';
+      winner.style.transform = 'translate(-50%, -50%) scale(4.2)';
+      winner.style.boxShadow = '0 0 48px 14px rgba(212,92,116,0.32)';
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [spinRoomPhase]);
 
-  // ── Arrive: circle settles at centre — halo blooms ────────────────────────────
-  useEffect(() => {
+  // ── Arrive: winner settles at centre — halo blooms ────────────────────────────
+  useLayoutEffect(() => {
     if (spinRoomPhase !== 'arrive') return;
-    const el = winnerCircleRef.current;
-    if (!el) return;
-    el.style.transition =
+
+    spinPhaseRef.current = 'arrive';
+
+    if (selectedIndex === null) return;
+    const winner = orbitBubbles.current[selectedIndex];
+    if (!winner) return;
+    winner.style.transition =
       'transform 0.95s cubic-bezier(0.2, 0.0, 0.1, 1), box-shadow 0.95s ease';
-    el.style.transform = 'translate(-50%, -50%) scale(5.0)';
-    el.style.boxShadow =
-      '0 0 80px 28px rgba(212,92,116,0.42), 0 0 140px 50px rgba(212,92,116,0.18)';
+    winner.style.transform = 'translate(-50%, -50%) scale(5.0)';
+    winner.style.boxShadow =
+      '0 0 80px 28px rgba(212,92,116,0.44), 0 0 140px 52px rgba(212,92,116,0.20)';
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [spinRoomPhase]);
-
-  // Sync phase ref so the orbit RAF can read it without stale closure values
-  useEffect(() => { spinPhaseRef.current = spinRoomPhase; }, [spinRoomPhase]);
 
   useEffect(() => { return () => cancelAnimationFrame(animFrame.current); }, []);
   useEffect(() => {
@@ -2258,7 +2254,7 @@ export default function IntentPage() {
                   pointerEvents: "none",
                 }} />
 
-                {/* Layer 4: ✦ centre symbol — hides when champion takes over */}
+                {/* Layer 4: ✦ centre symbol — fades once winner starts moving */}
                 <div style={{
                   position: "absolute", top: "50%", left: "50%",
                   transform: "translate(-50%,-50%)",
@@ -2268,24 +2264,6 @@ export default function IntentPage() {
                   opacity: (spinRoomPhase === 'pullforward' || spinRoomPhase === 'arrive') ? 0 : 1,
                   transition: "opacity 0.3s ease",
                 }}>✦</div>
-
-                {/* ── Champion circle — travels from orbit to centre ── */}
-                {(spinRoomPhase === 'pullforward' || spinRoomPhase === 'arrive') && selectedProfile && (
-                  <div
-                    ref={winnerCircleRef}
-                    style={{
-                      position: "absolute", top: "50%", left: "50%",
-                      width: 40, height: 40, borderRadius: "50%",
-                      overflow: "hidden",
-                      border: "2px solid rgba(212,92,116,0.60)",
-                      zIndex: 25,
-                      willChange: "transform",
-                      opacity: 0,
-                    }}
-                  >
-                    <ProfilePhoto userId={selectedProfile.userId} className="w-full h-full" />
-                  </div>
-                )}
               </div>
 
               {/* Phase status text */}
@@ -2317,6 +2295,20 @@ export default function IntentPage() {
                     color: "rgba(255,255,255,0.50)",
                     animation: "srTextIn 0.5s ease forwards",
                   }}>Almost there…</p>
+                )}
+
+                {/* Lulou quote — appears as winner settles at centre */}
+                {(spinRoomPhase === 'arrive' || spinRoomPhase === 'pause') && (
+                  <p key="quote" style={{
+                    fontFamily: "'Playfair Display', Georgia, serif",
+                    fontSize: 13, fontStyle: "italic",
+                    color: "rgba(255,255,255,0.55)",
+                    letterSpacing: "0.02em", lineHeight: 1.55,
+                    animation: "srTextIn 0.9s 0.35s ease both",
+                    maxWidth: 240, margin: "0 auto",
+                  }}>
+                    "Lulou has found tonight's connection."
+                  </p>
                 )}
               </div>
             </div>
@@ -2587,20 +2579,20 @@ export default function IntentPage() {
                 textTransform: "uppercase", color: "rgba(212,92,116,0.80)",
                 marginBottom: 12,
               }}>
-                Tonight's connection is complete
+                That's today's Spark used.
               </p>
               <h2 style={{
                 fontFamily: "'Playfair Display', Georgia, serif",
                 fontSize: 24, fontWeight: 700, color: "#fff",
                 margin: 0, lineHeight: 1.2,
               }}>
-                You've used today's Spark.
+                Want to discover more tonight?
               </h2>
               <p style={{
                 fontSize: 13, color: "rgba(255,255,255,0.38)",
                 marginTop: 8, marginBottom: 0,
               }}>
-                Discover more connections tonight.
+                Each Spark opens a new connection.
               </p>
             </div>
 
@@ -2677,7 +2669,7 @@ export default function IntentPage() {
               </button>
             </div>
 
-            {/* Maybe later */}
+            {/* Back to Lulou */}
             <div style={{ textAlign: "center", paddingTop: 16 }}>
               <button
                 onClick={() => setShowSpinExtras(false)}
@@ -2688,7 +2680,7 @@ export default function IntentPage() {
                   padding: "8px 24px",
                 }}
               >
-                Maybe later
+                Back to Lulou
               </button>
             </div>
           </div>
