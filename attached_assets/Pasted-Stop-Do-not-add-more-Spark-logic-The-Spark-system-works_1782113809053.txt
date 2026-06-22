@@ -1,0 +1,206 @@
+Stop. Do not add more Spark logic.
+
+The Spark system works, but the experience is wrong.
+
+Current problems:
+
+The wheel barely spins.
+The result appears in ~3 seconds.
+It feels instant and fake.
+There is no suspense.
+There is no cinematic reveal.
+Redesign the Spin Room experience.
+
+━━━━━━━━━━━━━━━━━━
+
+SPIN TIMELINE
+
+0.0s
+
+User presses SPIN
+
+Transition into a dedicated full-screen Spin Room.
+
+Background darkens.
+
+Bottom navigation disappears.
+
+Soft music/sound support.
+
+Profiles orbit around wheel.
+
+━━━━━━━━━━━━━━━━━━
+
+0-2 seconds
+
+Wheel accelerates.
+
+Orbit profiles rotate.
+
+Soft particle effects.
+
+Glow increases.
+
+Show:
+
+TONIGHT’S CONNECTION
+
+“One introduction. One possibility.”
+
+━━━━━━━━━━━━━━━━━━
+
+2-5 seconds
+
+Wheel spins quickly.
+
+Profile orbit continues.
+
+No winner yet.
+
+Keep building suspense.
+
+━━━━━━━━━━━━━━━━━━
+
+5-7 seconds
+
+Wheel slows naturally.
+
+Sound softens.
+
+Winner begins approaching.
+
+Orbit slows.
+
+━━━━━━━━━━━━━━━━━━
+
+7-9 seconds
+
+Winner enlarges.
+
+Background blurs.
+
+Everything else fades.
+
+Spring animation.
+
+Show:
+
+Name
+
+Age
+
+Signal word
+
+Location
+
+Photo
+
+━━━━━━━━━━━━━━━━━━
+
+9-11 seconds
+
+Pause.
+
+Let user absorb the profile.
+
+No buttons yet.
+
+━━━━━━━━━━━━━━━━━━
+
+11-12 seconds
+
+Buttons animate in:
+
+🌙 Close
+
+✦ Send Spark
+
+━━━━━━━━━━━━━━━━━━
+
+Requirements
+
+Minimum total experience:
+
+10 seconds
+
+Maximum:
+
+12 seconds
+
+Never reveal a profile in 2-3 seconds.
+
+Make the user feel like something important just happened.
+
+Think:
+
+Apple keynote
+
+Netflix character reveal
+
+Luxury watch commercial
+
+NOT:
+
+Casino wheel
+
+Slot machine
+
+Fast spinner
+
+━━━━━━━━━━━━━━━━━━
+
+Animation improvements
+
+Real acceleration.
+
+Real deceleration.
+
+Orbit rotation.
+
+Glow progression.
+
+Depth.
+
+Blur.
+
+Particles.
+
+Winner scale.
+
+Haptics.
+
+Sound toggle.
+
+━━━━━━━━━━━━━━━━━━
+
+Logs
+
+[WHEEL] SPIN_START
+
+[WHEEL] FAST_PHASE
+
+[WHEEL] SLOW_PHASE
+
+[WHEEL] WINNER_APPROACH
+
+[WHEEL] WINNER_REVEAL
+
+[WHEEL] BUTTONS_VISIBLE
+
+━━━━━━━━━━━━━━━━━━
+
+Run:
+
+npm run check
+
+npm run build
+
+Report:
+
+Spin duration.
+
+Animation timeline.
+
+Files changed.
+
+Proof that no profile is revealed before 7 seconds.

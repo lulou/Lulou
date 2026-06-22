@@ -659,6 +659,17 @@ function CandidatesPreview({ items, onTap }: { items: Profile[]; onTap?: (profil
 
 // ── Constants ────────────────────────────────────────────────────────────────
 const ITEM_WIDTH = 156;
+
+// Static particle descriptors for the SpinRoom orbit effect — defined once at
+// module level so the array reference is stable across renders.
+const SPIN_PARTICLES = Array.from({ length: 10 }, (_, i) => ({
+  x:     18 + (i % 5) * 14 + Math.sin(i * 1.4) * 6,
+  y:     22 + Math.cos(i * 1.9) * 22,
+  size:  3  + (i % 3) * 1.5,
+  alpha: 0.5 + (i % 3) * 0.17,
+  dur:   2.2 + (i % 4) * 0.45,
+  delay: i * 0.24,
+}));
 const ITEM_HEIGHT = 208;
 const DAILY_LIKE_GOAL = 10;
 const STREAK_GOAL = 3;
@@ -787,6 +798,20 @@ export default function IntentPage() {
   // Spin room + Spark state
   const [showSpinRoom, setShowSpinRoom] = useState(false);
   const [sparkSent, setSparkSent] = useState(false);
+
+  // SpinRoom cinematic phase — drives what's visible at each moment
+  type SpinPhase = 'idle' | 'accelerate' | 'fast' | 'slow' | 'approach' | 'reveal' | 'pause' | 'buttons';
+  const [spinRoomPhase, setSpinRoomPhase] = useState<SpinPhase>('idle');
+
+  // Orbit animation — all RAF-driven via refs (no React re-renders per frame)
+  const orbitBubbles    = useRef<(HTMLDivElement | null)[]>([]);
+  const orbitAngleRef2  = useRef(0);   // current angle °
+  const orbitSpeedRef2  = useRef(0);   // current speed °/s
+  const orbitTargetRef  = useRef(0);   // target speed °/s
+  const orbitRafRef2    = useRef(0);
+  const orbitLastTimeRef = useRef(0);
+  const orbitGlowRef    = useRef<HTMLDivElement>(null);
+  const orbitRingRef2   = useRef<HTMLDivElement>(null);
 
   // Use the last non-empty ref as fallback so the wheel stays visible when the
   // current query result is empty (e.g. test environment, post-spin refetch).
@@ -987,6 +1012,107 @@ export default function IntentPage() {
     setShowConfetti(false);
     queryClient.invalidateQueries({ queryKey: ["/api/popular"] });
   };
+
+  // ── SpinRoom phase timeline ─────────────────────────────────────────────────
+  // Runs entirely independently of the underlying wheel animation so the
+  // cinematic 10-12 s experience never collapses to 2-3 s.
+  useEffect(() => {
+    if (!showSpinRoom) {
+      setSpinRoomPhase('idle');
+      orbitTargetRef.current = 0;
+      return;
+    }
+    const go = (p: SpinPhase, speed: number) => {
+      setSpinRoomPhase(p);
+      orbitTargetRef.current = speed;
+    };
+    go('accelerate', 180);
+    console.log('[WHEEL] SPIN_START');
+    const ts = [
+      setTimeout(() => { go('fast', 360);  console.log('[WHEEL] FAST_PHASE');       },  2000),
+      setTimeout(() => { go('slow',  40);  console.log('[WHEEL] SLOW_PHASE');       },  5000),
+      setTimeout(() => { go('approach', 8); console.log('[WHEEL] WINNER_APPROACH'); },  7000),
+      setTimeout(() => {
+        go('reveal', 0);
+        console.log('[WHEEL] WINNER_REVEAL');
+        if (!muted) playChime();
+        try { (navigator as any).vibrate?.([60, 40, 120]); } catch {}
+      }, 7800),
+      setTimeout(() => go('pause',   0), 9000),
+      setTimeout(() => { go('buttons', 0); console.log('[WHEEL] BUTTONS_VISIBLE'); }, 11000),
+    ];
+    return () => ts.forEach(clearTimeout);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showSpinRoom]);
+
+  // ── Orbit RAF loop ───────────────────────────────────────────────────────────
+  // Drives 60 fps bubble positions + glow intensity via direct DOM mutation.
+  useEffect(() => {
+    if (!showSpinRoom) {
+      cancelAnimationFrame(orbitRafRef2.current);
+      orbitAngleRef2.current  = 0;
+      orbitSpeedRef2.current  = 0;
+      orbitLastTimeRef.current = 0;
+      return;
+    }
+    const N = Math.min(items.length, 10);
+    const R = 108; // orbit radius px
+
+    const tick = (now: number) => {
+      const dt = orbitLastTimeRef.current === 0
+        ? 0.016
+        : Math.min((now - orbitLastTimeRef.current) / 1000, 0.05);
+      orbitLastTimeRef.current = now;
+
+      // Smooth speed lerp — decelerates slightly faster than it accelerates
+      const tgt  = orbitTargetRef.current;
+      const cur  = orbitSpeedRef2.current;
+      const diff = tgt - cur;
+      orbitSpeedRef2.current += diff * Math.min(dt * (diff > 0 ? 1.6 : 2.4), 1);
+
+      // Advance orbit angle
+      orbitAngleRef2.current = (orbitAngleRef2.current + orbitSpeedRef2.current * dt) % 360;
+      const aRad = (orbitAngleRef2.current * Math.PI) / 180;
+
+      // Update each bubble position (no React re-render)
+      for (let i = 0; i < N; i++) {
+        const el = orbitBubbles.current[i];
+        if (!el) continue;
+        const base  = (i / N) * Math.PI * 2 - Math.PI / 2;
+        const total = base + aRad;
+        const x = Math.cos(total) * R;
+        const y = Math.sin(total) * R;
+        el.style.transform = `translate(calc(-50% + ${x}px), calc(-50% + ${y}px))`;
+      }
+
+      // Glow orb — intensity tracks orbit speed
+      if (orbitGlowRef.current) {
+        const frac   = Math.min(orbitSpeedRef2.current / 360, 1);
+        const spread = Math.round(24 + frac * 64);
+        const blur   = Math.round(14 + frac * 44);
+        const alpha  = (0.12 + frac * 0.44).toFixed(2);
+        orbitGlowRef.current.style.boxShadow =
+          `0 0 ${blur}px ${Math.round(spread * 0.35)}px rgba(212,92,116,${alpha}),` +
+          `0 0 ${blur * 2}px ${Math.round(spread * 0.7)}px rgba(212,92,116,${(+alpha * 0.5).toFixed(2)})`;
+      }
+
+      // Orbit ring border — brightens with speed
+      if (orbitRingRef2.current) {
+        const frac = Math.min(orbitSpeedRef2.current / 360, 1);
+        orbitRingRef2.current.style.borderColor =
+          `rgba(212,92,116,${(0.18 + frac * 0.52).toFixed(2)})`;
+        orbitRingRef2.current.style.boxShadow = frac > 0.25
+          ? `0 0 ${Math.round(10 + frac * 26)}px rgba(212,92,116,${(0.08 + frac * 0.22).toFixed(2)})`
+          : 'none';
+      }
+
+      orbitRafRef2.current = requestAnimationFrame(tick);
+    };
+
+    orbitRafRef2.current = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(orbitRafRef2.current);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showSpinRoom]);
 
   useEffect(() => { return () => cancelAnimationFrame(animFrame.current); }, []);
   useEffect(() => {
@@ -1194,6 +1320,34 @@ export default function IntentPage() {
           0%   { transform: scale(0.85); opacity: 0; }
           60%  { transform: scale(1.06); opacity: 1; }
           100% { transform: scale(1);    opacity: 1; }
+        }
+        @keyframes srRevealBg {
+          from { opacity: 0; }
+          to   { opacity: 1; }
+        }
+        @keyframes srWinnerIn {
+          0%   { transform: scale(0.58) translateY(32px); filter: blur(14px); opacity: 0; }
+          55%  { transform: scale(1.04) translateY(-4px);  filter: blur(0px);  opacity: 1; }
+          75%  { transform: scale(0.98) translateY(2px);   filter: blur(0px);  opacity: 1; }
+          100% { transform: scale(1.00) translateY(0);     filter: blur(0px);  opacity: 1; }
+        }
+        @keyframes srTextIn {
+          from { opacity: 0; transform: translateY(14px); }
+          to   { opacity: 1; transform: translateY(0);    }
+        }
+        @keyframes srButtonsIn {
+          from { opacity: 0; transform: translateY(24px) scale(0.97); }
+          to   { opacity: 1; transform: translateY(0)    scale(1);    }
+        }
+        @keyframes srParticle {
+          0%   { opacity: 0; transform: translateY(0px)    scale(1);    }
+          12%  { opacity: 0.85; }
+          80%  { opacity: 0.22; }
+          100% { opacity: 0;   transform: translateY(-130px) scale(0.25); }
+        }
+        @keyframes srGlowPulse {
+          0%, 100% { transform: translate(-50%,-50%) scale(1.00); opacity: 0.65; }
+          50%       { transform: translate(-50%,-50%) scale(1.18); opacity: 1.00; }
         }
       `}</style>
 
@@ -1843,234 +1997,295 @@ export default function IntentPage() {
         </div>
       )}
 
-      {/* ── SpinRoom overlay — position:fixed covers bottom nav + full viewport ── */}
+      {/* ── SpinRoom overlay — cinematic 10-12 s reveal, position:fixed ── */}
       {showSpinRoom && (
         <div
           style={{
             position: "fixed", inset: 0, zIndex: 9999,
-            background: "linear-gradient(180deg, #0d0812 0%, #160c1e 100%)",
-            display: "flex", flexDirection: "column", alignItems: "center",
+            background: "#0d0812",
             overflow: "hidden",
-            animation: "spinRoomIn 0.30s ease forwards",
+            animation: "spinRoomIn 0.28s ease forwards",
           }}
           data-testid="spin-room-overlay"
         >
-          {/* Ambient radial glow */}
+          {/* ── ORBIT STAGE — visible during accelerate / fast / slow / approach ── */}
           <div style={{
-            position: "absolute", top: "44%", left: "50%",
-            transform: "translate(-50%,-50%)",
-            width: 520, height: 520, borderRadius: "50%",
-            background: "radial-gradient(ellipse at center, rgba(212,92,116,0.18) 0%, transparent 68%)",
-            pointerEvents: "none",
-          }} />
-
-          {/* Header */}
-          <div style={{
-            position: "relative", zIndex: 2, textAlign: "center",
-            paddingTop: "max(env(safe-area-inset-top,0px), 18px)",
-            paddingBottom: 14, paddingLeft: 56, paddingRight: 56, width: "100%",
+            position: "absolute", inset: 0,
+            display: "flex", flexDirection: "column",
+            alignItems: "center",
+            opacity: (spinRoomPhase === 'reveal' || spinRoomPhase === 'pause' || spinRoomPhase === 'buttons') ? 0 : 1,
+            transition: "opacity 1.4s cubic-bezier(0.4,0,0.2,1)",
+            pointerEvents: (spinRoomPhase === 'reveal' || spinRoomPhase === 'pause' || spinRoomPhase === 'buttons') ? "none" : "auto",
           }}>
-            <p style={{
-              fontSize: 9, fontWeight: 800, letterSpacing: "0.32em",
-              textTransform: "uppercase", color: "rgba(212,92,116,0.82)", marginBottom: 5,
+            {/* Deep ambient radial glow behind orbit */}
+            <div style={{
+              position: "absolute", top: "44%", left: "50%",
+              transform: "translate(-50%,-50%)",
+              width: 500, height: 500, borderRadius: "50%",
+              background: "radial-gradient(ellipse at center, rgba(212,92,116,0.13) 0%, transparent 65%)",
+              pointerEvents: "none",
+              opacity: spinRoomPhase === 'fast' ? 1 : 0.55,
+              transition: "opacity 1.2s ease",
+            }} />
+
+            {/* Header — "TONIGHT'S CONNECTION" */}
+            <div style={{
+              position: "relative", zIndex: 2, textAlign: "center",
+              paddingTop: "max(env(safe-area-inset-top,0px), 28px)",
+              paddingBottom: 6, paddingLeft: 56, paddingRight: 56, width: "100%",
             }}>
-              {t("spin_room_title")}
-            </p>
-            {!dispersed && (
-              <p style={{ fontSize: 12, color: "rgba(255,255,255,0.30)", margin: 0 }}>
+              <p style={{
+                fontSize: 9, fontWeight: 900, letterSpacing: "0.36em",
+                textTransform: "uppercase", color: "rgba(212,92,116,0.88)",
+                marginBottom: 7,
+              }}>
+                {t("spin_room_title")}
+              </p>
+              <p style={{
+                fontSize: 12, color: "rgba(255,255,255,0.28)",
+                fontStyle: "italic", margin: 0,
+                opacity: spinRoomPhase === 'accelerate' ? 1 : 0,
+                transition: "opacity 0.7s ease",
+              }}>
                 {t("spin_room_subtitle")}
               </p>
-            )}
-          </div>
+            </div>
 
-          {/* Close / 🌙 button — top left */}
-          <button
-            onClick={closeProfile}
-            data-testid="button-spin-room-close"
-            style={{
-              position: "absolute",
-              top: "max(env(safe-area-inset-top,0px), 14px)", left: 14,
-              zIndex: 30, width: 40, height: 40, borderRadius: "50%",
-              display: "flex", alignItems: "center", justifyContent: "center",
-              background: "rgba(255,255,255,0.07)", border: "1px solid rgba(255,255,255,0.09)",
-              cursor: "pointer", fontSize: 17, lineHeight: 1,
-            }}
-          >
-            🌙
-          </button>
-
-          {/* ── Phase 1: Orbit ring + spinning state ── */}
-          {!dispersed && (
+            {/* Orbit ring + bubbles (RAF-driven) */}
             <div style={{
               flex: 1, display: "flex", flexDirection: "column",
               alignItems: "center", justifyContent: "center",
               position: "relative", zIndex: 2, width: "100%",
             }}>
-              <div style={{ position: "relative", width: 296, height: 296, flexShrink: 0 }}>
-                {/* Orbit ring */}
-                <div style={{
+              <div style={{ position: "relative", width: 256, height: 256, flexShrink: 0 }}>
+                {/* Orbit track */}
+                <div ref={orbitRingRef2} style={{
                   position: "absolute", inset: 0, borderRadius: "50%",
-                  border: isSpinning
-                    ? "1.5px solid rgba(212,92,116,0.52)"
-                    : "1.5px solid rgba(212,92,116,0.20)",
-                  animation: isSpinning
-                    ? "spinRoomOrbitFast 0.85s linear infinite"
-                    : "spinRoomOrbit 14s linear infinite",
-                  boxShadow: isSpinning
-                    ? "0 0 28px 6px rgba(212,92,116,0.20)"
-                    : "none",
-                  transition: "border-color 0.3s ease",
+                  border: "1px solid rgba(212,92,116,0.20)",
                 }} />
 
-                {/* Profile photo bubbles on orbit */}
+                {/* Profile bubbles — positions mutated by orbit RAF */}
                 {items.slice(0, Math.min(items.length, 10)).map((item, i) => {
-                  const total = Math.min(items.length, 10);
-                  const a = (i / total) * Math.PI * 2 - Math.PI / 2;
-                  const r = 118;
-                  const px = Math.cos(a) * r;
-                  const py = Math.sin(a) * r;
+                  const N   = Math.min(items.length, 10);
+                  const base = (i / N) * Math.PI * 2 - Math.PI / 2;
+                  const R   = 108;
+                  const x   = Math.cos(base) * R;
+                  const y   = Math.sin(base) * R;
                   return (
-                    <div key={item.userId} style={{
-                      position: "absolute", top: "50%", left: "50%",
-                      transform: `translate(calc(-50% + ${px}px), calc(-50% + ${py}px))`,
-                      width: 40, height: 40, borderRadius: "50%",
-                      overflow: "hidden",
-                      border: isSpinning
-                        ? "1.5px solid rgba(212,92,116,0.55)"
-                        : "1.5px solid rgba(212,92,116,0.22)",
-                      boxShadow: isSpinning ? "0 0 10px rgba(212,92,116,0.32)" : "none",
-                      transition: "border-color 0.3s ease, box-shadow 0.3s ease",
-                      flexShrink: 0,
-                    }}>
+                    <div
+                      key={item.userId}
+                      ref={el => { orbitBubbles.current[i] = el; }}
+                      style={{
+                        position: "absolute", top: "50%", left: "50%",
+                        transform: `translate(calc(-50% + ${x}px), calc(-50% + ${y}px))`,
+                        width: 40, height: 40, borderRadius: "50%",
+                        overflow: "hidden",
+                        border: "1.5px solid rgba(212,92,116,0.35)",
+                        flexShrink: 0,
+                      }}
+                    >
                       <ProfilePhoto userId={item.userId} className="w-full h-full" />
                     </div>
                   );
                 })}
 
-                {/* Centre reticle */}
-                <div style={{
+                {/* Centre glow orb — box-shadow mutated by orbit RAF */}
+                <div ref={orbitGlowRef} style={{
                   position: "absolute", top: "50%", left: "50%",
                   width: 52, height: 52, borderRadius: "50%",
-                  background: isSpinning ? "rgba(212,92,116,0.16)" : "rgba(212,92,116,0.07)",
-                  border: isSpinning
-                    ? "2px solid rgba(212,92,116,0.72)"
-                    : "1.5px solid rgba(212,92,116,0.28)",
-                  boxShadow: isSpinning
-                    ? "0 0 40px 12px rgba(212,92,116,0.38)"
-                    : "0 0 14px 4px rgba(212,92,116,0.10)",
-                  animation: "spinRoomGlow 1.6s ease-in-out infinite",
+                  transform: "translate(-50%,-50%)",
+                  background: "rgba(212,92,116,0.11)",
+                  border: "1.5px solid rgba(212,92,116,0.32)",
+                  animation: "srGlowPulse 2.2s ease-in-out infinite",
+                  pointerEvents: "none",
                 }} />
+
+                {/* ✦ centre symbol */}
+                <div style={{
+                  position: "absolute", top: "50%", left: "50%",
+                  transform: "translate(-50%,-50%)",
+                  fontSize: 18, color: "rgba(212,92,116,0.88)",
+                  lineHeight: 1, zIndex: 2, pointerEvents: "none",
+                }}>✦</div>
               </div>
 
-              {!isSpinning && (
-                <p style={{
-                  fontSize: 12, color: "rgba(255,255,255,0.26)",
-                  fontStyle: "italic", marginTop: 22, textAlign: "center",
-                }}>
-                  {t("spin_room_possibility")}
-                </p>
-              )}
-              {isSpinning && (
-                <p style={{
-                  fontSize: 11, color: "rgba(212,92,116,0.72)",
-                  letterSpacing: "0.22em", textTransform: "uppercase",
-                  fontWeight: 600, marginTop: 26,
-                }}>
-                  Spinning…
-                </p>
-              )}
+              {/* Phase status text */}
+              <div style={{ marginTop: 26, textAlign: "center", minHeight: 30 }}>
+                {spinRoomPhase === 'accelerate' && (
+                  <p key="acc" style={{
+                    fontSize: 11, color: "rgba(255,255,255,0.36)",
+                    letterSpacing: "0.16em", textTransform: "uppercase",
+                    animation: "srTextIn 0.5s ease forwards",
+                  }}>Finding tonight's connection…</p>
+                )}
+                {spinRoomPhase === 'fast' && (
+                  <p key="fast" style={{
+                    fontSize: 17, color: "rgba(212,92,116,0.72)",
+                    letterSpacing: "0.44em",
+                    animation: "srTextIn 0.4s ease forwards",
+                  }}>✦ ✦ ✦</p>
+                )}
+                {spinRoomPhase === 'slow' && (
+                  <p key="slow" style={{
+                    fontSize: 11, fontStyle: "italic",
+                    color: "rgba(255,255,255,0.40)",
+                    animation: "srTextIn 0.5s ease forwards",
+                  }}>Narrowing down…</p>
+                )}
+                {spinRoomPhase === 'approach' && (
+                  <p key="approach" style={{
+                    fontSize: 11, fontStyle: "italic",
+                    color: "rgba(255,255,255,0.50)",
+                    animation: "srTextIn 0.5s ease forwards",
+                  }}>Almost there…</p>
+                )}
+              </div>
             </div>
-          )}
 
-          {/* ── Phase 2: Winner reveal ── */}
-          {dispersed && selectedProfile && (
+            {/* Floating particles — visible during fast + slow phases */}
+            {SPIN_PARTICLES.map((p, i) => (
+              <div key={i} style={{
+                position: "absolute",
+                left: `${p.x}%`, top: `${p.y}%`,
+                width: p.size, height: p.size, borderRadius: "50%",
+                background: `rgba(212,92,116,${p.alpha})`,
+                pointerEvents: "none",
+                opacity: (spinRoomPhase === 'fast' || spinRoomPhase === 'slow') ? 1 : 0,
+                transition: "opacity 0.5s ease",
+                animation: `srParticle ${p.dur}s ${p.delay}s ease-in-out infinite`,
+              }} />
+            ))}
+
+            {/* Close button during orbit stage */}
+            <button
+              onClick={closeProfile}
+              data-testid="button-spin-room-close"
+              style={{
+                position: "absolute",
+                top: "max(env(safe-area-inset-top,0px), 14px)", left: 14,
+                zIndex: 30, width: 40, height: 40, borderRadius: "50%",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                background: "rgba(255,255,255,0.07)", border: "1px solid rgba(255,255,255,0.09)",
+                cursor: "pointer", fontSize: 17, lineHeight: 1,
+              }}
+            >🌙</button>
+          </div>
+
+          {/* ── REVEAL STAGE — visible during reveal / pause / buttons ── */}
+          {(spinRoomPhase === 'reveal' || spinRoomPhase === 'pause' || spinRoomPhase === 'buttons') && selectedProfile && (
             <div style={{
-              flex: 1, width: "100%", display: "flex", flexDirection: "column",
-              alignItems: "center", overflow: "hidden", position: "relative", zIndex: 2,
-              animation: "spinRoomReveal 0.52s cubic-bezier(0.16,1,0.3,1) forwards",
+              position: "absolute", inset: 0,
+              display: "flex", flexDirection: "column",
+              animation: "srRevealBg 1.0s ease forwards",
             }}>
-              {/* Winner photo section */}
-              <div style={{ position: "relative", width: "100%", maxHeight: "52vh", overflow: "hidden", flexShrink: 0 }}>
-                {/* Rose glow layer */}
+              {/* Full-screen winner photo */}
+              <div style={{ flex: 1, position: "relative", overflow: "hidden", minHeight: 0 }}>
                 <div style={{
-                  position: "absolute", inset: 0, zIndex: 1, pointerEvents: "none",
-                  background: "radial-gradient(ellipse 80% 55% at 50% 25%, rgba(212,92,116,0.28) 0%, transparent 70%)",
-                }} />
-                <div className="w-full" style={{ height: "52vh" }}>
+                  position: "absolute", inset: 0,
+                  animation: "srWinnerIn 1.0s cubic-bezier(0.34,1.56,0.64,1) forwards",
+                  transformOrigin: "center center",
+                }}>
                   <ProfilePhoto userId={selectedProfile.userId} className="w-full h-full" />
                 </div>
-                {/* Bottom fade into dark bg */}
+
+                {/* Top gradient — safe area + close btn backdrop */}
                 <div style={{
-                  position: "absolute", bottom: 0, left: 0, right: 0, height: 140,
-                  background: "linear-gradient(transparent, #0d0812)",
+                  position: "absolute", top: 0, left: 0, right: 0, height: 160,
+                  background: "linear-gradient(#0d0812 0%, rgba(13,8,18,0.55) 45%, transparent 100%)",
                   zIndex: 2, pointerEvents: "none",
                 }} />
-                {/* Name / age / signal overlay */}
+
+                {/* Bottom gradient — text zone */}
                 <div style={{
-                  position: "absolute", bottom: 16, left: 0, right: 0,
-                  textAlign: "center", zIndex: 3, padding: "0 20px",
+                  position: "absolute", bottom: 0, left: 0, right: 0, height: 220,
+                  background: "linear-gradient(transparent, rgba(13,8,18,0.92) 55%, #0d0812 100%)",
+                  zIndex: 2, pointerEvents: "none",
+                }} />
+
+                {/* Rose bloom */}
+                <div style={{
+                  position: "absolute", inset: 0, zIndex: 1, pointerEvents: "none",
+                  background: "radial-gradient(ellipse 85% 60% at 50% 28%, rgba(212,92,116,0.20) 0%, transparent 68%)",
+                }} />
+
+                {/* Name / age / signal / location */}
+                <div style={{
+                  position: "absolute", bottom: 22, left: 0, right: 0,
+                  textAlign: "center", zIndex: 4, padding: "0 24px",
                 }}>
                   <p style={{
-                    fontSize: 9, fontWeight: 800, letterSpacing: "0.30em",
-                    textTransform: "uppercase", color: "rgba(212,92,116,0.90)",
-                    marginBottom: 4,
-                    animation: "profileNameAppear 0.36s 0.10s ease both",
+                    fontSize: 9, fontWeight: 900, letterSpacing: "0.34em",
+                    textTransform: "uppercase", color: "rgba(212,92,116,0.92)",
+                    marginBottom: 6,
+                    animation: "srTextIn 0.55s 0.22s ease both",
                   }}>
                     ✦ {t("spark_badge_label")}
                   </p>
                   <h2 style={{
-                    fontSize: "clamp(22px,6.5vw,28px)", fontWeight: 700,
-                    color: "#fff", margin: 0, lineHeight: 1.15,
-                    animation: "profileNameAppear 0.42s 0.18s ease both",
+                    fontSize: "clamp(26px,7.5vw,34px)", fontWeight: 700,
+                    color: "#fff", margin: 0, lineHeight: 1.1,
+                    textShadow: "0 2px 24px rgba(0,0,0,0.55)",
+                    animation: "srTextIn 0.60s 0.38s ease both",
                   }}>
                     {selectedProfile.firstName}{selectedProfile.age ? `, ${selectedProfile.age}` : ""}
                     {selectedProfile.photoVerified && (
-                      <BadgeCheck style={{ display: "inline", width: 17, height: 17, color: "#d45c74", marginLeft: 5, verticalAlign: "middle" }} />
+                      <BadgeCheck style={{
+                        display: "inline", width: 19, height: 19,
+                        color: "#d45c74", marginLeft: 6, verticalAlign: "middle",
+                      }} />
                     )}
                   </h2>
                   {selectedProfile.signals && selectedProfile.signals.length > 0 && (
                     <p style={{
-                      fontSize: 13, fontStyle: "italic",
-                      color: "rgba(255,255,255,0.55)", marginTop: 3,
-                      animation: "profileNameAppear 0.46s 0.24s ease both",
+                      fontSize: 14, fontStyle: "italic",
+                      color: "rgba(255,255,255,0.60)", marginTop: 6,
+                      animation: "srTextIn 0.55s 0.52s ease both",
                     }}>
                       {selectedProfile.signals[0]}
                     </p>
                   )}
                   {selectedProfile.location && (
                     <p style={{
-                      fontSize: 11, color: "rgba(255,255,255,0.36)", marginTop: 4,
-                      display: "flex", alignItems: "center", justifyContent: "center", gap: 3,
-                      animation: "profileNameAppear 0.44s 0.28s ease both",
+                      fontSize: 12, color: "rgba(255,255,255,0.36)", marginTop: 5,
+                      display: "flex", alignItems: "center",
+                      justifyContent: "center", gap: 4,
+                      animation: "srTextIn 0.55s 0.66s ease both",
                     }}>
-                      <MapPin style={{ width: 10, height: 10 }} />
+                      <MapPin style={{ width: 11, height: 11 }} />
                       {selectedProfile.location}
                     </p>
                   )}
                 </div>
+
+                {/* Close button — always reachable during reveal */}
+                <button
+                  onClick={closeProfile}
+                  data-testid="button-spin-room-close"
+                  style={{
+                    position: "absolute",
+                    top: "max(env(safe-area-inset-top,0px), 14px)", left: 14,
+                    zIndex: 30, width: 40, height: 40, borderRadius: "50%",
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    background: "rgba(255,255,255,0.10)", border: "1px solid rgba(255,255,255,0.14)",
+                    cursor: "pointer", fontSize: 17, lineHeight: 1,
+                  }}
+                >🌙</button>
               </div>
 
-              {/* Discovered caption */}
-              <p style={{
-                fontSize: 13, fontStyle: "italic",
-                color: "rgba(255,255,255,0.35)",
-                textAlign: "center", padding: "14px 24px 0",
-                animation: "spinRoomReveal 0.50s 0.32s ease both",
-              }}>
-                {t("spin_room_discovered")}
-              </p>
-
-              <div style={{ flex: 1 }} />
-
-              {/* CTA buttons */}
+              {/* CTA row — animates in only when phase === 'buttons' */}
               <div style={{
                 width: "100%",
-                padding: "14px 20px",
+                padding: "16px 20px",
                 paddingBottom: "max(env(safe-area-inset-bottom,0px), 28px)",
+                background: "#0d0812",
+                opacity: spinRoomPhase === 'buttons' ? 1 : 0,
+                animation: spinRoomPhase === 'buttons'
+                  ? "srButtonsIn 0.65s cubic-bezier(0.34,1.56,0.64,1) forwards"
+                  : "none",
               }}>
                 {sparkSent ? (
                   <div style={{
-                    textAlign: "center", padding: "18px 0",
+                    textAlign: "center", padding: "14px 0",
                     animation: "sparkSentPulse 0.50s cubic-bezier(0.34,1.56,0.64,1) forwards",
                   }}>
                     <p style={{
@@ -2090,12 +2305,11 @@ export default function IntentPage() {
                       data-testid="button-spin-room-pass"
                       style={{
                         flex: 1, padding: "16px 10px", borderRadius: 18,
-                        background: "rgba(255,255,255,0.06)",
-                        border: "1px solid rgba(255,255,255,0.10)",
+                        background: "rgba(255,255,255,0.07)",
+                        border: "1px solid rgba(255,255,255,0.11)",
                         color: "rgba(255,255,255,0.62)", fontSize: 13,
                         fontWeight: 600, cursor: "pointer",
-                        display: "flex", alignItems: "center",
-                        justifyContent: "center", gap: 6,
+                        display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
                       }}
                     >
                       <span>🌙</span><span>Close</span>
@@ -2116,8 +2330,7 @@ export default function IntentPage() {
                         fontSize: 13, fontWeight: 700,
                         letterSpacing: "0.14em", textTransform: "uppercase",
                         cursor: sendSpark.isPending ? "default" : "pointer",
-                        display: "flex", alignItems: "center",
-                        justifyContent: "center", gap: 8,
+                        display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
                       }}
                     >
                       {sendSpark.isPending
