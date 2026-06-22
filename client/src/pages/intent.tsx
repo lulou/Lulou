@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
-import { Loader2, RotateCw, X, MapPin, Lock, Star, Crown, MessageCircle, HelpCircle, Heart, Moon, Volume2, VolumeX, ChevronRight, BadgeCheck } from "lucide-react";
+import { Loader2, RotateCw, X, MapPin, Lock, Star, Crown, MessageCircle, HelpCircle, Moon, Volume2, VolumeX, ChevronRight, BadgeCheck } from "lucide-react";
 import { LulouFlowerIcon } from "@/components/app-layout";
 import { ElevateModal } from "@/components/elevate-modal";
 import { useAuth } from "@/hooks/use-auth";
@@ -784,10 +784,9 @@ export default function IntentPage() {
   const [showElevateInReveal, setShowElevateInReveal] = useState(false);
   const [angle, setAngle] = useState(0);
 
-  // Match reveal state — set after wheelOpen.onSuccess
-  const [showMatchReveal, setShowMatchReveal] = useState(false);
-  const [matchRevealProfile, setMatchRevealProfile] = useState<Profile | null>(null);
-  const [matchRevealIsExisting, setMatchRevealIsExisting] = useState(false);
+  // Spin room + Spark state
+  const [showSpinRoom, setShowSpinRoom] = useState(false);
+  const [sparkSent, setSparkSent] = useState(false);
 
   // Use the last non-empty ref as fallback so the wheel stays visible when the
   // current query result is empty (e.g. test environment, post-spin refetch).
@@ -871,22 +870,23 @@ export default function IntentPage() {
     },
   });
 
-  const wheelOpen = useMutation({
+  const sendSpark = useMutation({
     mutationFn: async (toUserId: string) => {
-      const res = await apiRequest("POST", "/api/wheel/open", { toUserId });
-      return res.json() as Promise<{ matchId: string; isExisting: boolean }>;
+      const res = await apiRequest("POST", "/api/wheel/spark", { toUserId });
+      return res.json();
     },
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
-      // Capture profile before any state reset — closure reference is stable
-      setMatchRevealProfile(selectedProfile);
-      setMatchRevealIsExisting(data.isExisting);
-      setShowProfile(false);
-      setShowMatchReveal(true);
+    onSuccess: () => {
+      console.log("[WHEEL] SPARK_SENT", { to: selectedProfile?.firstName });
+      setSparkSent(true);
+      setTimeout(() => {
+        setShowSpinRoom(false);
+        setSparkSent(false);
+        closeProfile();
+      }, 2200);
     },
     onError: (error: any) => {
       const raw = error?.message || "";
-      let msg = t("something_went_wrong_retry").replace("{msg}", t("something_went_wrong"));
+      let msg = t("something_went_wrong");
       try { const p = JSON.parse(raw); if (p?.message) msg = p.message; } catch {}
       toast({ title: t("could_not_connect_title"), description: msg, variant: "destructive" });
     },
@@ -915,6 +915,7 @@ export default function IntentPage() {
   const spinWheel = () => {
     if (isSpinning || count === 0 || !canSpin) return;
     ensureCtx();
+    setShowSpinRoom(true);
     setIsSpinning(true);
     setSelectedIndex(null);
     setSelectedProfile(null);
@@ -922,8 +923,7 @@ export default function IntentPage() {
     setShowProfile(false);
     setShowPurchase(false);
     setShowConfetti(false);
-    setShowMatchReveal(false);
-    setMatchRevealProfile(null);
+    setSparkSent(false);
 
     // Winner is chosen fresh at spin time — preview order has NO influence.
     const targetIndex = Math.floor(Math.random() * count);
@@ -978,22 +978,8 @@ export default function IntentPage() {
   };
 
   const closeProfile = () => {
-    setShowProfile(false);
-    setDispersed(false);
-    setSelectedIndex(null);
-    setSelectedProfile(null);
-    setShowConfetti(false);
-    queryClient.invalidateQueries({ queryKey: ["/api/popular"] });
-    // Wheel returns to locked state — no auto-purchase prompt.
-    // Users can explore who is on the wheel and tap the locked
-    // button themselves if they want to buy more spins.
-  };
-
-  // Resets all wheel/profile/reveal state without triggering the purchase prompt.
-  // Used when leaving the reveal overlay — user has already connected, no upsell needed.
-  const resetAfterReveal = () => {
-    setShowMatchReveal(false);
-    setMatchRevealProfile(null);
+    setShowSpinRoom(false);
+    setSparkSent(false);
     setShowProfile(false);
     setDispersed(false);
     setSelectedIndex(null);
@@ -1183,6 +1169,31 @@ export default function IntentPage() {
           0%   { box-shadow: 0 0 0 3px rgba(255,255,255,0.9), 0 0 0 7px rgba(212,92,116,0.9), 0 0 48px 20px rgba(212,92,116,0.55); }
           50%  { box-shadow: 0 0 0 4px rgba(255,255,255,1.0), 0 0 0 10px rgba(212,92,116,1.0), 0 0 72px 32px rgba(212,92,116,0.75); }
           100% { box-shadow: 0 0 0 3px rgba(255,255,255,0.9), 0 0 0 7px rgba(212,92,116,0.9), 0 0 48px 20px rgba(212,92,116,0.55); }
+        }
+        @keyframes spinRoomIn {
+          from { opacity: 0; }
+          to   { opacity: 1; }
+        }
+        @keyframes spinRoomOrbit {
+          from { transform: rotate(0deg); }
+          to   { transform: rotate(360deg); }
+        }
+        @keyframes spinRoomOrbitFast {
+          from { transform: rotate(0deg); }
+          to   { transform: rotate(360deg); }
+        }
+        @keyframes spinRoomGlow {
+          0%, 100% { opacity: 0.55; transform: translate(-50%,-50%) scale(1); }
+          50%       { opacity: 1;    transform: translate(-50%,-50%) scale(1.18); }
+        }
+        @keyframes spinRoomReveal {
+          from { transform: translateY(40px); opacity: 0; }
+          to   { transform: translateY(0);   opacity: 1; }
+        }
+        @keyframes sparkSentPulse {
+          0%   { transform: scale(0.85); opacity: 0; }
+          60%  { transform: scale(1.06); opacity: 1; }
+          100% { transform: scale(1);    opacity: 1; }
         }
       `}</style>
 
@@ -1806,24 +1817,24 @@ export default function IntentPage() {
                   <span className="text-xs text-muted-foreground font-medium tracking-wide">{t("save_for_later_label")}</span>
                 </button>
 
-                {/* Connect button */}
+                {/* ✦ Send Spark button */}
                 <button
                   className="flex-[2] flex flex-col items-center gap-1.5 py-3 rounded-2xl transition-all active:scale-95 disabled:opacity-60"
                   style={{
                     background: "linear-gradient(135deg, #d45c74 0%, #9d3550 100%)",
                     boxShadow: "0 4px 20px rgba(188,78,96,0.45), 0 2px 8px rgba(0,0,0,0.18), inset 0 1px 0 rgba(255,255,255,0.15)",
                   }}
-                  onClick={() => selectedProfile && wheelOpen.mutate(selectedProfile.userId)}
-                  disabled={wheelOpen.isPending}
-                  data-testid="button-intent-open"
-                  aria-label={t("connect_label")}
+                  onClick={() => selectedProfile && sendSpark.mutate(selectedProfile.userId)}
+                  disabled={sendSpark.isPending}
+                  data-testid="button-intent-send-spark"
+                  aria-label={t("spark_send_btn")}
                 >
-                  {wheelOpen.isPending
+                  {sendSpark.isPending
                     ? <Loader2 className="w-5 h-5 text-white animate-spin" />
-                    : <Heart className="w-5 h-5 text-white fill-current" />
+                    : <span className="text-lg leading-none">✦</span>
                   }
                   <span className="text-xs text-white font-semibold tracking-[0.12em] uppercase">
-                    {wheelOpen.isPending ? "Opening…" : "OPEN ❤️"}
+                    {sendSpark.isPending ? t("spark_sending_label") : t("spark_send_btn")}
                   </span>
                 </button>
               </div>
@@ -1832,40 +1843,312 @@ export default function IntentPage() {
         </div>
       )}
 
-      {/* ── Match reveal overlay ── */}
-      {showMatchReveal && matchRevealProfile && (
-        <MatchRevealOverlay
-          profile={matchRevealProfile}
-          isExisting={matchRevealIsExisting}
-          playChime={playChime}
-          onGoToMatches={() => {
-            resetAfterReveal();
-            navigate("/matches");
+      {/* ── SpinRoom overlay — position:fixed covers bottom nav + full viewport ── */}
+      {showSpinRoom && (
+        <div
+          style={{
+            position: "fixed", inset: 0, zIndex: 9999,
+            background: "linear-gradient(180deg, #0d0812 0%, #160c1e 100%)",
+            display: "flex", flexDirection: "column", alignItems: "center",
+            overflow: "hidden",
+            animation: "spinRoomIn 0.30s ease forwards",
           }}
-          onDiscover={() => {
-            resetAfterReveal();
-            setTimeout(() => setShowPurchase(true), 300);
-          }}
-          onElevate={() => {
-            resetAfterReveal();
-            setTimeout(() => setShowElevateInReveal(true), 180);
-          }}
-        />
+          data-testid="spin-room-overlay"
+        >
+          {/* Ambient radial glow */}
+          <div style={{
+            position: "absolute", top: "44%", left: "50%",
+            transform: "translate(-50%,-50%)",
+            width: 520, height: 520, borderRadius: "50%",
+            background: "radial-gradient(ellipse at center, rgba(212,92,116,0.18) 0%, transparent 68%)",
+            pointerEvents: "none",
+          }} />
+
+          {/* Header */}
+          <div style={{
+            position: "relative", zIndex: 2, textAlign: "center",
+            paddingTop: "max(env(safe-area-inset-top,0px), 18px)",
+            paddingBottom: 14, paddingLeft: 56, paddingRight: 56, width: "100%",
+          }}>
+            <p style={{
+              fontSize: 9, fontWeight: 800, letterSpacing: "0.32em",
+              textTransform: "uppercase", color: "rgba(212,92,116,0.82)", marginBottom: 5,
+            }}>
+              {t("spin_room_title")}
+            </p>
+            {!dispersed && (
+              <p style={{ fontSize: 12, color: "rgba(255,255,255,0.30)", margin: 0 }}>
+                {t("spin_room_subtitle")}
+              </p>
+            )}
+          </div>
+
+          {/* Close / 🌙 button — top left */}
+          <button
+            onClick={closeProfile}
+            data-testid="button-spin-room-close"
+            style={{
+              position: "absolute",
+              top: "max(env(safe-area-inset-top,0px), 14px)", left: 14,
+              zIndex: 30, width: 40, height: 40, borderRadius: "50%",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              background: "rgba(255,255,255,0.07)", border: "1px solid rgba(255,255,255,0.09)",
+              cursor: "pointer", fontSize: 17, lineHeight: 1,
+            }}
+          >
+            🌙
+          </button>
+
+          {/* ── Phase 1: Orbit ring + spinning state ── */}
+          {!dispersed && (
+            <div style={{
+              flex: 1, display: "flex", flexDirection: "column",
+              alignItems: "center", justifyContent: "center",
+              position: "relative", zIndex: 2, width: "100%",
+            }}>
+              <div style={{ position: "relative", width: 296, height: 296, flexShrink: 0 }}>
+                {/* Orbit ring */}
+                <div style={{
+                  position: "absolute", inset: 0, borderRadius: "50%",
+                  border: isSpinning
+                    ? "1.5px solid rgba(212,92,116,0.52)"
+                    : "1.5px solid rgba(212,92,116,0.20)",
+                  animation: isSpinning
+                    ? "spinRoomOrbitFast 0.85s linear infinite"
+                    : "spinRoomOrbit 14s linear infinite",
+                  boxShadow: isSpinning
+                    ? "0 0 28px 6px rgba(212,92,116,0.20)"
+                    : "none",
+                  transition: "border-color 0.3s ease",
+                }} />
+
+                {/* Profile photo bubbles on orbit */}
+                {items.slice(0, Math.min(items.length, 10)).map((item, i) => {
+                  const total = Math.min(items.length, 10);
+                  const a = (i / total) * Math.PI * 2 - Math.PI / 2;
+                  const r = 118;
+                  const px = Math.cos(a) * r;
+                  const py = Math.sin(a) * r;
+                  return (
+                    <div key={item.userId} style={{
+                      position: "absolute", top: "50%", left: "50%",
+                      transform: `translate(calc(-50% + ${px}px), calc(-50% + ${py}px))`,
+                      width: 40, height: 40, borderRadius: "50%",
+                      overflow: "hidden",
+                      border: isSpinning
+                        ? "1.5px solid rgba(212,92,116,0.55)"
+                        : "1.5px solid rgba(212,92,116,0.22)",
+                      boxShadow: isSpinning ? "0 0 10px rgba(212,92,116,0.32)" : "none",
+                      transition: "border-color 0.3s ease, box-shadow 0.3s ease",
+                      flexShrink: 0,
+                    }}>
+                      <ProfilePhoto userId={item.userId} className="w-full h-full" />
+                    </div>
+                  );
+                })}
+
+                {/* Centre reticle */}
+                <div style={{
+                  position: "absolute", top: "50%", left: "50%",
+                  width: 52, height: 52, borderRadius: "50%",
+                  background: isSpinning ? "rgba(212,92,116,0.16)" : "rgba(212,92,116,0.07)",
+                  border: isSpinning
+                    ? "2px solid rgba(212,92,116,0.72)"
+                    : "1.5px solid rgba(212,92,116,0.28)",
+                  boxShadow: isSpinning
+                    ? "0 0 40px 12px rgba(212,92,116,0.38)"
+                    : "0 0 14px 4px rgba(212,92,116,0.10)",
+                  animation: "spinRoomGlow 1.6s ease-in-out infinite",
+                }} />
+              </div>
+
+              {!isSpinning && (
+                <p style={{
+                  fontSize: 12, color: "rgba(255,255,255,0.26)",
+                  fontStyle: "italic", marginTop: 22, textAlign: "center",
+                }}>
+                  {t("spin_room_possibility")}
+                </p>
+              )}
+              {isSpinning && (
+                <p style={{
+                  fontSize: 11, color: "rgba(212,92,116,0.72)",
+                  letterSpacing: "0.22em", textTransform: "uppercase",
+                  fontWeight: 600, marginTop: 26,
+                }}>
+                  Spinning…
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* ── Phase 2: Winner reveal ── */}
+          {dispersed && selectedProfile && (
+            <div style={{
+              flex: 1, width: "100%", display: "flex", flexDirection: "column",
+              alignItems: "center", overflow: "hidden", position: "relative", zIndex: 2,
+              animation: "spinRoomReveal 0.52s cubic-bezier(0.16,1,0.3,1) forwards",
+            }}>
+              {/* Winner photo section */}
+              <div style={{ position: "relative", width: "100%", maxHeight: "52vh", overflow: "hidden", flexShrink: 0 }}>
+                {/* Rose glow layer */}
+                <div style={{
+                  position: "absolute", inset: 0, zIndex: 1, pointerEvents: "none",
+                  background: "radial-gradient(ellipse 80% 55% at 50% 25%, rgba(212,92,116,0.28) 0%, transparent 70%)",
+                }} />
+                <div className="w-full" style={{ height: "52vh" }}>
+                  <ProfilePhoto userId={selectedProfile.userId} className="w-full h-full" />
+                </div>
+                {/* Bottom fade into dark bg */}
+                <div style={{
+                  position: "absolute", bottom: 0, left: 0, right: 0, height: 140,
+                  background: "linear-gradient(transparent, #0d0812)",
+                  zIndex: 2, pointerEvents: "none",
+                }} />
+                {/* Name / age / signal overlay */}
+                <div style={{
+                  position: "absolute", bottom: 16, left: 0, right: 0,
+                  textAlign: "center", zIndex: 3, padding: "0 20px",
+                }}>
+                  <p style={{
+                    fontSize: 9, fontWeight: 800, letterSpacing: "0.30em",
+                    textTransform: "uppercase", color: "rgba(212,92,116,0.90)",
+                    marginBottom: 4,
+                    animation: "profileNameAppear 0.36s 0.10s ease both",
+                  }}>
+                    ✦ {t("spark_badge_label")}
+                  </p>
+                  <h2 style={{
+                    fontSize: "clamp(22px,6.5vw,28px)", fontWeight: 700,
+                    color: "#fff", margin: 0, lineHeight: 1.15,
+                    animation: "profileNameAppear 0.42s 0.18s ease both",
+                  }}>
+                    {selectedProfile.firstName}{selectedProfile.age ? `, ${selectedProfile.age}` : ""}
+                    {selectedProfile.photoVerified && (
+                      <BadgeCheck style={{ display: "inline", width: 17, height: 17, color: "#d45c74", marginLeft: 5, verticalAlign: "middle" }} />
+                    )}
+                  </h2>
+                  {selectedProfile.signals && selectedProfile.signals.length > 0 && (
+                    <p style={{
+                      fontSize: 13, fontStyle: "italic",
+                      color: "rgba(255,255,255,0.55)", marginTop: 3,
+                      animation: "profileNameAppear 0.46s 0.24s ease both",
+                    }}>
+                      {selectedProfile.signals[0]}
+                    </p>
+                  )}
+                  {selectedProfile.location && (
+                    <p style={{
+                      fontSize: 11, color: "rgba(255,255,255,0.36)", marginTop: 4,
+                      display: "flex", alignItems: "center", justifyContent: "center", gap: 3,
+                      animation: "profileNameAppear 0.44s 0.28s ease both",
+                    }}>
+                      <MapPin style={{ width: 10, height: 10 }} />
+                      {selectedProfile.location}
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              {/* Discovered caption */}
+              <p style={{
+                fontSize: 13, fontStyle: "italic",
+                color: "rgba(255,255,255,0.35)",
+                textAlign: "center", padding: "14px 24px 0",
+                animation: "spinRoomReveal 0.50s 0.32s ease both",
+              }}>
+                {t("spin_room_discovered")}
+              </p>
+
+              <div style={{ flex: 1 }} />
+
+              {/* CTA buttons */}
+              <div style={{
+                width: "100%",
+                padding: "14px 20px",
+                paddingBottom: "max(env(safe-area-inset-bottom,0px), 28px)",
+              }}>
+                {sparkSent ? (
+                  <div style={{
+                    textAlign: "center", padding: "18px 0",
+                    animation: "sparkSentPulse 0.50s cubic-bezier(0.34,1.56,0.64,1) forwards",
+                  }}>
+                    <p style={{
+                      fontSize: 19, fontWeight: 700,
+                      color: "rgba(212,92,116,1.0)", letterSpacing: "0.08em",
+                    }}>
+                      {t("spark_sent_label")}
+                    </p>
+                    <p style={{ fontSize: 13, color: "rgba(255,255,255,0.38)", marginTop: 5 }}>
+                      {selectedProfile.firstName} will see your Spark.
+                    </p>
+                  </div>
+                ) : (
+                  <div style={{ display: "flex", gap: 12 }}>
+                    <button
+                      onClick={closeProfile}
+                      data-testid="button-spin-room-pass"
+                      style={{
+                        flex: 1, padding: "16px 10px", borderRadius: 18,
+                        background: "rgba(255,255,255,0.06)",
+                        border: "1px solid rgba(255,255,255,0.10)",
+                        color: "rgba(255,255,255,0.62)", fontSize: 13,
+                        fontWeight: 600, cursor: "pointer",
+                        display: "flex", alignItems: "center",
+                        justifyContent: "center", gap: 6,
+                      }}
+                    >
+                      <span>🌙</span><span>Close</span>
+                    </button>
+                    <button
+                      onClick={() => selectedProfile && sendSpark.mutate(selectedProfile.userId)}
+                      disabled={sendSpark.isPending}
+                      data-testid="button-spin-room-send-spark"
+                      style={{
+                        flex: 2, padding: "16px 10px", borderRadius: 18,
+                        background: sendSpark.isPending
+                          ? "rgba(212,92,116,0.38)"
+                          : "linear-gradient(135deg,#d45c74 0%,#9d3550 100%)",
+                        boxShadow: sendSpark.isPending
+                          ? "none"
+                          : "0 4px 22px rgba(188,78,96,0.50)",
+                        border: "none", color: "#fff",
+                        fontSize: 13, fontWeight: 700,
+                        letterSpacing: "0.14em", textTransform: "uppercase",
+                        cursor: sendSpark.isPending ? "default" : "pointer",
+                        display: "flex", alignItems: "center",
+                        justifyContent: "center", gap: 8,
+                      }}
+                    >
+                      {sendSpark.isPending
+                        ? <Loader2 style={{ width: 15, height: 15, animation: "spinBtn 0.65s linear infinite" }} />
+                        : <span style={{ fontSize: 16, lineHeight: 1 }}>✦</span>
+                      }
+                      <span>{sendSpark.isPending ? t("spark_sending_label") : t("spark_send_btn")}</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+        </div>
       )}
 
-      {/* ── Elevate modal (opened from the 3× section in the reveal overlay) ── */}
+      {/* ── Elevate modal ── */}
       {showElevateInReveal && (
         <ElevateModal onClose={() => setShowElevateInReveal(false)} cancelPath="/intent" />
       )}
 
+      {/* First-time Spin Room guide */}
       <LulouGuide
-        guideKey={GUIDE_KEYS.WHEEL_ENTRY}
+        guideKey={GUIDE_KEYS.SPIN_ROOM_ENTRY}
         userId={user?.id}
-        icon="✨"
-        title="Standouts"
-        body="Exceptional profiles chosen for quality and compatibility."
-        delay={1400}
-        autoDismissMs={5000}
+        icon="✦"
+        title={t("spin_room_guide_title")}
+        body={t("spin_room_guide_body")}
+        delay={800}
+        autoDismissMs={6000}
       />
     </div>
   );

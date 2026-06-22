@@ -17,7 +17,7 @@ import { apiRequest, batchPrefetchPhotos } from "@/lib/queryClient";
 import { useTabActive } from "@/hooks/use-tab-active";
 import {
   Heart, X, Eye, MapPin, Lock, Sparkles, ChevronRight,
-  ChevronLeft, Ruler,
+  ChevronLeft, Ruler, Loader2,
 } from "lucide-react";
 import { PhotoCarousel } from "@/components/photo-carousel";
 import { ElevateModal } from "@/components/elevate-modal";
@@ -29,6 +29,7 @@ import { MatchOverlay, type MatchCelebration } from "@/components/match-overlay"
 
 type IncomingOpen = Interaction & { profile: Profile };
 type ElevateStatus = { type: string | null; expiresAt: string | null; active: boolean };
+type IncomingWheelSpark = Interaction & { profile: Profile };
 
 
 // ─── Full-Screen Profile Modal ─────────────────────────────────────────────────
@@ -567,6 +568,170 @@ function LikeCard({
   );
 }
 
+// ─── Spark Card ────────────────────────────────────────────────────────────────
+
+function SparkCard({
+  spark,
+  onMatch,
+  onDecline,
+}: {
+  spark: IncomingWheelSpark;
+  onMatch: (c: MatchCelebration) => void;
+  onDecline: () => void;
+}) {
+  const { t } = useLanguageContext();
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+
+  const firstPhoto = spark.profile.photos?.[0] ?? null;
+
+  const acceptSpark = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/wheel/spark/accept", { sparkId: spark.id });
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/wheel/sparks"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
+      if (data?.match) {
+        onMatch({
+          matchId: data.match.id,
+          firstName: spark.profile.firstName ?? "",
+          photo: spark.profile.photos?.[0],
+        });
+      }
+    },
+    onError: (err: any) => {
+      toast({ title: err?.message || t("something_went_wrong"), variant: "destructive" });
+    },
+  });
+
+  const declineSpark = useMutation({
+    mutationFn: async () => {
+      await apiRequest("POST", "/api/wheel/spark/decline", { sparkId: spark.id });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/wheel/sparks"] });
+      onDecline();
+    },
+    onError: (err: any) => {
+      toast({ title: err?.message || t("something_went_wrong"), variant: "destructive" });
+    },
+  });
+
+  const isPending = acceptSpark.isPending || declineSpark.isPending;
+
+  return (
+    <div
+      data-testid={`card-spark-${spark.fromUserId}`}
+      style={{
+        borderRadius: 18,
+        border: "1.5px solid rgba(212,92,116,0.45)",
+        boxShadow: "0 0 22px 4px rgba(212,92,116,0.12), 0 2px 12px rgba(0,0,0,0.08)",
+        background: "linear-gradient(145deg, rgba(255,248,250,1) 0%, rgba(255,240,244,1) 100%)",
+        overflow: "hidden",
+        position: "relative",
+      }}
+    >
+      {/* ✦ badge */}
+      <div style={{
+        position: "absolute", top: 10, left: 10, zIndex: 10,
+        display: "flex", alignItems: "center", gap: 5,
+        background: "linear-gradient(135deg,#d45c74,#9d3550)",
+        borderRadius: 20, padding: "3px 9px",
+        boxShadow: "0 2px 8px rgba(188,78,96,0.38)",
+      }}>
+        <span style={{ fontSize: 10, color: "#fff", fontWeight: 800, letterSpacing: "0.22em", textTransform: "uppercase" }}>
+          ✦ {t("spark_badge_label")}
+        </span>
+      </div>
+
+      <div className="flex gap-3 p-3 pt-11 items-center">
+        {/* Photo */}
+        <div style={{ width: 68, height: 68, borderRadius: 14, overflow: "hidden", flexShrink: 0, position: "relative" }}>
+          {firstPhoto ? (
+            <img
+              src={firstPhoto}
+              alt=""
+              className="w-full h-full object-cover"
+              draggable={false}
+              style={{ opacity: decodedPhotos.has(firstPhoto) ? 1 : 0, transition: "opacity 80ms ease" }}
+              onLoad={e => {
+                decodedPhotos.add(firstPhoto);
+                (e.currentTarget as HTMLImageElement).style.opacity = "1";
+              }}
+            />
+          ) : (
+            <div className="w-full h-full flex items-center justify-center" style={{ background: "linear-gradient(135deg, hsl(350 45% 92%), hsl(350 45% 82%))" }}>
+              <span className="font-serif font-bold text-2xl" style={{ color: "hsl(350 45% 52%)" }}>
+                {spark.profile.firstName?.[0]}
+              </span>
+            </div>
+          )}
+        </div>
+
+        {/* Info */}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className="font-serif font-bold text-base leading-tight" style={{ color: "#1a1018" }}>
+              {spark.profile.firstName}{spark.profile.age ? `, ${spark.profile.age}` : ""}
+            </span>
+            {spark.profile.photoVerified && (
+              <Badge variant="secondary" className="text-[9px] px-1.5 py-0 h-4" style={{ background: "rgba(212,92,116,0.12)", color: "#9d3550", border: "1px solid rgba(212,92,116,0.22)" }}>
+                {t("verified_label")}
+              </Badge>
+            )}
+          </div>
+          {spark.profile.location && (
+            <div className="flex items-center gap-1 mt-0.5">
+              <MapPin className="w-3 h-3" style={{ color: "rgba(212,92,116,0.7)" }} />
+              <span className="text-xs truncate" style={{ color: "rgba(100,60,80,0.6)" }}>{spark.profile.location}</span>
+            </div>
+          )}
+          {spark.profile.signals && spark.profile.signals.length > 0 && (
+            <p className="text-xs mt-0.5 truncate" style={{ color: "rgba(100,60,80,0.55)", fontStyle: "italic" }}>
+              {spark.profile.signals[0]}
+            </p>
+          )}
+        </div>
+      </div>
+
+      {/* Action buttons */}
+      <div className="flex gap-2 px-3 pb-3">
+        <button
+          onClick={() => declineSpark.mutate()}
+          disabled={isPending}
+          data-testid={`button-spark-pass-${spark.fromUserId}`}
+          className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-semibold transition-all active:scale-95 disabled:opacity-50"
+          style={{ background: "rgba(0,0,0,0.04)", border: "1px solid rgba(0,0,0,0.07)", color: "rgba(60,30,50,0.55)" }}
+        >
+          <span>🌙</span>
+          <span>{t("spark_pass_btn")}</span>
+        </button>
+        <button
+          onClick={() => acceptSpark.mutate()}
+          disabled={isPending}
+          data-testid={`button-spark-accept-${spark.fromUserId}`}
+          className="flex-[2] flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-semibold transition-all active:scale-95 disabled:opacity-60"
+          style={{
+            background: "linear-gradient(135deg,#d45c74 0%,#9d3550 100%)",
+            boxShadow: "0 3px 14px rgba(188,78,96,0.40)",
+            color: "#fff",
+          }}
+        >
+          {acceptSpark.isPending ? (
+            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+          ) : (
+            <span style={{ fontSize: 13 }}>✦</span>
+          )}
+          <span>{t("spark_accept_btn")}</span>
+        </button>
+      </div>
+    </div>
+  );
+}
+
+
 // ─── Main Page ─────────────────────────────────────────────────────────────────
 
 export default function LikesPage() {
@@ -609,6 +774,13 @@ export default function LikesPage() {
     refetchInterval: isActive ? 15000 : false,
     refetchOnWindowFocus: true,
   });
+
+  const { data: sparks } = useQuery<IncomingWheelSpark[]>({
+    queryKey: ["/api/wheel/sparks"],
+    refetchInterval: isActive ? 20000 : false,
+    refetchOnWindowFocus: true,
+  });
+  const sparkList = sparks ?? [];
 
   // Batch-prefetch photos on list arrival.
   // Mobile limit: 3 — just enough for the first visible items; decode pressure
@@ -759,6 +931,29 @@ export default function LikesPage() {
             elevateType={elevateStatus.type}
             expiresAt={elevateStatus.expiresAt}
           />
+        )}
+
+        {/* ── Lulou Sparks section — above normal likes ── */}
+        {sparkList.length > 0 && (
+          <div className="space-y-2" data-testid="section-sparks">
+            <div className="flex items-center gap-2 pb-1">
+              <span style={{ fontSize: 13 }}>✦</span>
+              <h2 className="font-serif text-base font-bold" style={{ color: "hsl(350 45% 38%)" }} data-testid="text-sparks-title">
+                {t("sparks_section_title")}
+              </h2>
+              <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4 ms-auto" style={{ background: "rgba(212,92,116,0.10)", color: "#9d3550", border: "1px solid rgba(212,92,116,0.20)" }}>
+                {sparkList.length}
+              </Badge>
+            </div>
+            {sparkList.map(spark => (
+              <SparkCard
+                key={spark.id}
+                spark={spark}
+                onMatch={setCelebration}
+                onDecline={() => {}}
+              />
+            ))}
+          </div>
         )}
 
         {(connectionsFull || showFullMessage) && (

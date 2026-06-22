@@ -780,6 +780,11 @@ export interface IStorage {
   deleteLastClose(userId: string, interactionId: string): Promise<boolean>;
   getLastInteraction(userId: string): Promise<{ interactionId: string; toUserId: string; type: string } | null>;
   getMatchBetweenUsers(userId: string, otherUserId: string): Promise<boolean>;
+  createWheelSpark(fromUserId: string, toUserId: string): Promise<void>;
+  hasWheelSpark(fromUserId: string, toUserId: string): Promise<boolean>;
+  getIncomingWheelSparks(userId: string): Promise<(Interaction & { profile: Profile })[]>;
+  acceptWheelSpark(fromUserId: string, toUserId: string): Promise<{ matchId: string }>;
+  declineWheelSpark(fromUserId: string, toUserId: string): Promise<void>;
 }
 
 /**
@@ -3162,6 +3167,123 @@ export class SupabaseStorage implements IStorage {
         return profileData ? { ...mapInteraction(open), profile: mapProfile(profileData) } : null;
       })
       .filter(Boolean) as (Interaction & { profile: Profile })[];
+  }
+
+  async createWheelSpark(fromUserId: string, toUserId: string): Promise<void> {
+    const { data: existing } = await this.sb
+      .from("interactions")
+      .select("id")
+      .eq("from_user_id", fromUserId)
+      .eq("to_user_id", toUserId)
+      .eq("type", "wheel_connection")
+      .maybeSingle();
+    if (existing) return;
+    await this.sb.from("interactions").insert({
+      from_user_id: fromUserId,
+      to_user_id: toUserId,
+      type: "wheel_connection",
+    });
+  }
+
+  async hasWheelSpark(fromUserId: string, toUserId: string): Promise<boolean> {
+    const { data } = await this.sb
+      .from("interactions")
+      .select("id")
+      .eq("from_user_id", fromUserId)
+      .eq("to_user_id", toUserId)
+      .eq("type", "wheel_connection")
+      .maybeSingle();
+    return !!data;
+  }
+
+  async getIncomingWheelSparks(userId: string): Promise<(Interaction & { profile: Profile })[]> {
+    const [myInteractionsResult, matchResult1, matchResult2, sparksResult] = await Promise.all([
+      this.sb.from("interactions").select("to_user_id").eq("from_user_id", userId),
+      this.sb.from("matches").select("user1_id").eq("user2_id", userId).eq("status", "active"),
+      this.sb.from("matches").select("user2_id").eq("user1_id", userId).eq("status", "active"),
+      this.sb
+        .from("interactions")
+        .select("id, type, from_user_id, to_user_id, created_at")
+        .eq("to_user_id", userId)
+        .eq("type", "wheel_connection")
+        .order("created_at", { ascending: false })
+        .limit(50),
+    ]);
+
+    const excludeIds = new Set<string>([
+      ...(myInteractionsResult.data || []).map((r: any) => r.to_user_id as string),
+      ...(matchResult1.data || []).map((r: any) => r.user1_id as string),
+      ...(matchResult2.data || []).map((r: any) => r.user2_id as string),
+    ]);
+
+    const incomingSparks = (sparksResult.data || []).filter(
+      (o: any) => !excludeIds.has(o.from_user_id),
+    );
+
+    if (incomingSparks.length === 0) return [];
+
+    const fromUserIds = incomingSparks.map((o: any) => o.from_user_id);
+    const { data: profileRows } = await this.sb
+      .from("profiles")
+      .select(getMatchProfileCols())
+      .in("user_id", fromUserIds);
+
+    const profileMap = new Map<string, any>();
+    for (const row of profileRows ?? []) {
+      profileMap.set((row as any).user_id, row);
+    }
+
+    return incomingSparks
+      .map((spark: any) => {
+        const profileData = profileMap.get(spark.from_user_id);
+        return profileData
+          ? { ...mapInteraction(spark), profile: mapProfile(profileData) }
+          : null;
+      })
+      .filter(Boolean) as (Interaction & { profile: Profile })[];
+  }
+
+  async acceptWheelSpark(fromUserId: string, toUserId: string): Promise<{ matchId: string }> {
+    const { data: spark } = await this.sb
+      .from("interactions")
+      .select("id")
+      .eq("from_user_id", fromUserId)
+      .eq("to_user_id", toUserId)
+      .eq("type", "wheel_connection")
+      .maybeSingle();
+
+    if (!spark) throw new Error("Spark not found");
+
+    const existing = await this.findMatchBetweenUsers(fromUserId, toUserId);
+    if (existing) {
+      await this.sb
+        .from("interactions")
+        .delete()
+        .eq("from_user_id", fromUserId)
+        .eq("to_user_id", toUserId)
+        .eq("type", "wheel_connection");
+      return { matchId: existing.id };
+    }
+
+    const match = await this.createMatch(fromUserId, toUserId);
+
+    await this.sb
+      .from("interactions")
+      .delete()
+      .eq("from_user_id", fromUserId)
+      .eq("to_user_id", toUserId)
+      .eq("type", "wheel_connection");
+
+    return { matchId: match.id };
+  }
+
+  async declineWheelSpark(fromUserId: string, toUserId: string): Promise<void> {
+    await this.sb
+      .from("interactions")
+      .delete()
+      .eq("from_user_id", fromUserId)
+      .eq("to_user_id", toUserId)
+      .eq("type", "wheel_connection");
   }
 
   async resetUserTestData(userId: string): Promise<void> {

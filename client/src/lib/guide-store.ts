@@ -8,6 +8,7 @@ export const GUIDE_KEYS = {
   CALLS_FIRST_PHONE:        "calls_first_phone",
   CALLS_FIRST_VIDEO:        "calls_first_video",
   WHEEL_ENTRY:              "wheel_entry",
+  SPIN_ROOM_ENTRY:          "spin_room_entry",
   ELEVATE_SCREEN:           "elevate_screen",
   MEMBERSHIP_VIEW:          "membership_view",
 } as const;

@@ -1696,6 +1696,85 @@ export async function registerRoutes(
 
   // Intention Wheel: directly create (or reopen) a match when user taps ❤️.
   // Unlike discovery (which requires mutual opens), this creates the match immediately.
+  // POST /api/wheel/spark — sends a Lulou Spark (wheel_connection interaction).
+  // Does NOT create a match. The recipient must explicitly Accept Spark to connect.
+  app.post("/api/wheel/spark", isAuthenticated, async (req: any, res) => {
+    try {
+      const fromUserId = req.user.id;
+      const { toUserId } = req.body;
+      if (!toUserId || typeof toUserId !== "string") {
+        return res.status(400).json({ message: "toUserId is required" });
+      }
+      if (fromUserId === toUserId) {
+        return res.status(400).json({ message: "Cannot send a Spark to yourself" });
+      }
+      const storage = getStorage(req);
+      await storage.createWheelSpark(fromUserId, toUserId);
+      console.log("[WHEEL] SPARK_SENT", { from: fromUserId, to: toUserId });
+      res.json({ success: true });
+    } catch (error: any) {
+      const msg = error?.message || "Failed to send Spark";
+      console.error("[WHEEL] SPARK_SEND_ERROR", msg, error);
+      res.status(500).json({ message: msg });
+    }
+  });
+
+  // GET /api/wheel/sparks — returns incoming Lulou Sparks for the current user.
+  app.get("/api/wheel/sparks", isAuthenticated, async (req: any, res) => {
+    try {
+      const storage = getStorage(req);
+      const sparks = await storage.getIncomingWheelSparks(req.user.id);
+      res.json(sparks);
+    } catch (error: any) {
+      console.error("[WHEEL] SPARKS_FETCH_ERROR", error?.message, error);
+      res.status(500).json({ message: "Failed to fetch Sparks" });
+    }
+  });
+
+  // POST /api/wheel/spark/accept — creates a match from an accepted Spark.
+  // This is the ONLY place a wheel_connection becomes a match.
+  app.post("/api/wheel/spark/accept", isAuthenticated, async (req: any, res) => {
+    try {
+      const toUserId = req.user.id;
+      const { fromUserId } = req.body;
+      if (!fromUserId || typeof fromUserId !== "string") {
+        return res.status(400).json({ message: "fromUserId is required" });
+      }
+      const storage = getStorage(req);
+      const matchCount = await storage.getMatchCount(toUserId);
+      if (matchCount >= 8) {
+        return res.status(400).json({ message: "You've reached your connection limit (max 8). Remove a connection to add a new one.", connectionLimitReached: true });
+      }
+      const result = await storage.acceptWheelSpark(fromUserId, toUserId);
+      console.log("[WHEEL] SPARK_ACCEPTED", { from: fromUserId, to: toUserId, matchId: result.matchId });
+      res.json({ matchId: result.matchId });
+    } catch (error: any) {
+      const msg = error?.message || "Failed to accept Spark";
+      console.error("[WHEEL] SPARK_ACCEPT_ERROR", msg, error);
+      res.status(500).json({ message: msg });
+    }
+  });
+
+  // POST /api/wheel/spark/decline — removes the Spark interaction, no match created.
+  app.post("/api/wheel/spark/decline", isAuthenticated, async (req: any, res) => {
+    try {
+      const toUserId = req.user.id;
+      const { fromUserId } = req.body;
+      if (!fromUserId || typeof fromUserId !== "string") {
+        return res.status(400).json({ message: "fromUserId is required" });
+      }
+      const storage = getStorage(req);
+      await storage.declineWheelSpark(fromUserId, toUserId);
+      console.log("[WHEEL] SPARK_DECLINED", { from: fromUserId, to: toUserId });
+      res.json({ success: true });
+    } catch (error: any) {
+      const msg = error?.message || "Failed to decline Spark";
+      console.error("[WHEEL] SPARK_DECLINE_ERROR", msg, error);
+      res.status(500).json({ message: msg });
+    }
+  });
+
+  // POST /api/wheel/open — DEPRECATED: kept for backward compat, now routes to spark flow.
   app.post("/api/wheel/open", isAuthenticated, async (req: any, res) => {
     try {
       const fromUserId = req.user.id;
@@ -1704,29 +1783,15 @@ export async function registerRoutes(
         return res.status(400).json({ message: "toUserId is required" });
       }
       if (fromUserId === toUserId) {
-        return res.status(400).json({ message: "Cannot match with yourself" });
+        return res.status(400).json({ message: "Cannot send a Spark to yourself" });
       }
       const storage = getStorage(req);
-
-      // Reopen existing match if one already exists
-      const existing = await storage.findMatchBetweenUsers(fromUserId, toUserId);
-      if (existing) {
-        console.log("[WHEEL] Reopened existing match", existing.id, "for", fromUserId, "→", toUserId);
-        return res.json({ matchId: existing.id, isExisting: true });
-      }
-
-      // Enforce 8-connection limit
-      const matchCount = await storage.getMatchCount(fromUserId);
-      if (matchCount >= 8) {
-        return res.status(400).json({ message: "You've reached your connection limit (max 8). Remove a connection to add a new one." });
-      }
-
-      const match = await storage.createMatch(fromUserId, toUserId);
-      console.log("[WHEEL] Created new match", match.id, "for", fromUserId, "→", toUserId);
-      res.json({ matchId: match.id, isExisting: false });
+      await storage.createWheelSpark(fromUserId, toUserId);
+      console.log("[WHEEL] SPARK_SENT (via legacy /open route)", { from: fromUserId, to: toUserId });
+      res.json({ success: true });
     } catch (error: any) {
-      const msg = error?.message || "Failed to open match";
-      console.error("[WHEEL] WHEEL_OPEN_ERROR", msg, error);
+      const msg = error?.message || "Failed to send Spark";
+      console.error("[WHEEL] SPARK_SEND_ERROR (legacy)", msg, error);
       res.status(500).json({ message: msg });
     }
   });

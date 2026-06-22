@@ -1,0 +1,379 @@
+Before implementing anything, perform a full audit of the current Intention Wheel system and redesign it into a premium feature. Reuse existing logic where possible and avoid duplicate systems.
+
+IMPORTANT:
+
+Landing on somebody from the Intention Wheel MUST NOT create a match automatically.
+
+Landing on somebody also MUST NOT send a normal ❤️ like.
+
+This feature must have its own identity, similar to how Hinge has Roses.
+
+Do not use hearts.
+
+Do not reuse "Open".
+
+Do not reuse existing like cards.
+
+This should feel exclusive and unique to Lulou.
+
+──────────────────────────────
+
+Create a new interaction type:
+
+wheel_connection
+
+(or another suitable name)
+
+with its own:
+
+icon
+
+badge
+
+notification
+
+card style
+
+flow
+
+analytics
+
+and UI
+
+This interaction should feel rarer and more intentional than a normal like.
+
+──────────────────────────────
+
+THE SYMBOL
+
+Do not use ❤️.
+
+Create a Lulou-exclusive symbol.
+
+Examples:
+
+✦
+
+❋
+
+✧
+
+◈
+
+◇
+
+Or use a custom Lulou Spark icon.
+
+Throughout the app call them:
+
+"Lulou Sparks"
+
+not likes.
+
+Examples:
+
+"You've received a Spark"
+
+"Tonight's Connection sent you a Spark"
+
+"Accept Spark"
+
+"Pass"
+
+Never call them likes.
+
+──────────────────────────────
+
+SPIN ROOM
+
+Pressing SPIN should transition into a dedicated full-screen experience.
+
+Hide bottom navigation.
+
+Darken the background.
+
+Add blur.
+
+Add premium sound support.
+
+Shrink the wheel into the centre.
+
+Display all candidate profiles orbiting around it.
+
+Orbit should actually rotate.
+
+Profiles stay upright while rotating.
+
+Use elegant animations.
+
+No casino effects.
+
+No cheap effects.
+
+Luxury only.
+
+Show:
+
+TONIGHT'S CONNECTION
+
+Every spin is random.
+
+One introduction each day.
+
+No promises. Just possibility.
+
+──────────────────────────────
+
+REVEAL
+
+After spinning:
+
+Slow down naturally.
+
+Winner enlarges.
+
+Add spring animation.
+
+Soft glow behind profile.
+
+Animate:
+
+photo
+
+name
+
+age
+
+signal word
+
+location
+
+Display:
+
+"You discovered tonight's connection."
+
+Buttons:
+
+🌙 Close
+
+✦ Send Spark
+
+NOT ❤️ Send Like
+
+──────────────────────────────
+
+SENDING A SPARK
+
+Pressing Send Spark creates:
+
+interaction_type = wheel_connection
+
+NOT open
+
+NOT normal like
+
+NOT match
+
+Recipient still decides.
+
+No connection is created yet.
+
+Log:
+
+[WHEEL] SPARK_SENT
+
+──────────────────────────────
+
+LIKES PAGE
+
+Wheel Sparks appear above all normal likes.
+
+Completely different card style.
+
+Rose glow.
+
+Premium border.
+
+Special badge:
+
+✦ TONIGHT'S CONNECTION
+
+Subtitle:
+
+"Discovered you through the Intention Wheel."
+
+Display:
+
+photo
+
+name
+
+age
+
+signal word
+
+location
+
+Buttons:
+
+✦ Accept Spark
+
+🌙 Pass
+
+Never show a heart.
+
+Never say "liked you".
+
+Never reuse normal like cards.
+
+──────────────────────────────
+
+ACCEPTING A SPARK
+
+Only when Accept Spark is pressed:
+
+Create a normal match.
+
+Move both users into Connections.
+
+Start chat normally.
+
+Log:
+
+[WHEEL] SPARK_ACCEPTED
+
+If declined:
+
+Delete wheel_connection interaction.
+
+Log:
+
+[WHEEL] SPARK_DECLINED
+
+No match created.
+
+──────────────────────────────
+
+NOTIFICATIONS
+
+Use different notifications.
+
+Instead of:
+
+"Someone liked you"
+
+show:
+
+"Someone discovered you through Tonight's Connection."
+
+or
+
+"You've received a Spark."
+
+Give Sparks their own icon and badge.
+
+──────────────────────────────
+
+FIRST-TIME GUIDE
+
+First time entering Spin Room show:
+
+"The Intention Wheel introduces one person each day. If they feel the same, your journey begins."
+
+Only once.
+
+Never again.
+
+──────────────────────────────
+
+ANIMATION UPGRADES
+
+Dark overlay during spin.
+
+Particle effects.
+
+Rotating orbit ring.
+
+Winner card enlarges.
+
+Glow behind winner.
+
+Card depth.
+
+Spring motion.
+
+Sound toggle.
+
+Haptics.
+
+Smooth transitions.
+
+Premium luxury feel.
+
+No gambling style.
+
+No flashy casino style.
+
+──────────────────────────────
+
+ANALYTICS
+
+Add:
+
+[WHEEL] SPIN_START
+
+[WHEEL] ORBIT_ACTIVE
+
+[WHEEL] WINNER_SELECTED
+
+[WHEEL] SPARK_SENT
+
+[WHEEL] SPARK_ACCEPTED
+
+[WHEEL] SPARK_DECLINED
+
+──────────────────────────────
+
+VALIDATION
+
+Verify:
+
+Landing on somebody does NOT match.
+
+Landing does NOT send ❤️ likes.
+
+Sending a Spark creates wheel_connection.
+
+Spark cards are visually different.
+
+Spark notifications are different.
+
+Accept creates match.
+
+Pass removes Spark.
+
+No duplicate matches.
+
+No interference with normal likes.
+
+Run:
+
+npm run check
+
+npm run build
+
+Report:
+
+Files changed
+
+Tables used
+
+Interaction flow
+
+Spark flow
+
+Animation upgrades
+
+UI upgrades
+
+Proof that wheel discovery does not automatically create a match.
