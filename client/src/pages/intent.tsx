@@ -1222,6 +1222,42 @@ export default function IntentPage() {
     return () => console.log("[INTENT] UNMOUNTED after", Math.round(performance.now() - t0), "ms");
   }, []);
 
+  // ── Sparks purchase success: activate on landing and show toast ───────────
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const sessionId = params.get("sparks_session");
+    if (!sessionId) return;
+
+    // Clean the URL immediately so reload/back doesn't re-trigger
+    const cleanUrl = window.location.pathname;
+    window.history.replaceState({}, "", cleanUrl);
+
+    let tries = 0;
+    const activate = async () => {
+      tries++;
+      try {
+        const res = await apiRequest("POST", "/api/stripe/extras-activate", { sessionId });
+        const data = await res.json();
+        if (res.ok && data.success) {
+          queryClient.invalidateQueries({ queryKey: ["/api/spin-status"] });
+          const qty = (data.granted as string[])?.length ?? 1;
+          toast({
+            title: `✦ ${qty === 1 ? "1 Spark" : `${qty} Sparks`} added`,
+            description: "Spin the wheel to discover tonight's connection.",
+          });
+        } else if (res.status === 402 && tries < 6) {
+          setTimeout(activate, 2000);
+        } else {
+          toast({ title: "Activation failed", description: data.message ?? "Please contact support.", variant: "destructive" });
+        }
+      } catch {
+        if (tries < 6) setTimeout(activate, 3000);
+      }
+    };
+    activate();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // ── Stale-ring guard ──────────────────────────────────────────────────────
   // Belt-and-suspenders: stop any audio and clear all armed call sessions the
   // moment this page mounts. App.tsx location-change effect already does this

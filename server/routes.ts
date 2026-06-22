@@ -2796,28 +2796,24 @@ export async function registerRoutes(
       const hasUnusedStreak = await storage.hasUnusedStreakSpin(userId);
 
       let canSpin = false;
-      let usingPurchasedCredit = false;
       if (streakComplete && hasUnusedStreak) {
         canSpin = true;
       } else if (!streakComplete && spinsThisWeek === 0) {
         canSpin = true;
       } else {
-        // Fall back to purchased spin credits
-        const purchased = await storage.getSpinCredits(userId);
-        if (purchased > 0) {
-          canSpin = true;
-          usingPurchasedCredit = true;
+        // Fall back to purchased spin credits — consume atomically via
+        // DELETE…RETURNING so concurrent requests cannot double-spend.
+        const consumed = await storage.consumeSpinCredit(userId);
+        if (consumed) {
+          // Credit already consumed; skip the second consume below.
+          await storage.recordSpin(userId);
+          if (standoutUserId) await storage.addSpinStandout(userId, standoutUserId);
+          return res.json({ success: true });
         }
       }
 
       if (!canSpin) {
         return res.status(403).json({ message: "No spins available" });
-      }
-
-      // Consume a purchased credit first (before recording the spin) so the
-      // count is accurate if recordSpin fails
-      if (usingPurchasedCredit) {
-        await storage.consumeSpinCredit(userId);
       }
 
       await storage.recordSpin(userId);
@@ -3262,10 +3258,16 @@ export async function registerRoutes(
         priceData.recurring = { interval: "month" };
       }
 
+      // Sparks purchases return directly to /intent so the user can spin
+      // immediately. A session_id query param triggers auto-activation + toast.
+      const successUrl = (itemId as string).startsWith("sparks-")
+        ? `${baseUrl}/intent?sparks_session={CHECKOUT_SESSION_ID}&item=${itemId}`
+        : `${baseUrl}/extras/success?session_id={CHECKOUT_SESSION_ID}&item=${itemId}`;
+
       const session = await (stripe.checkout.sessions.create as Function)({
         line_items: [{ price_data: priceData, quantity: 1 }],
         mode: item.mode,
-        success_url: `${baseUrl}/extras/success?session_id={CHECKOUT_SESSION_ID}&item=${itemId}`,
+        success_url: successUrl,
         cancel_url: `${baseUrl}${safeCancelPath}?checkout=cancelled`,
         metadata: { userId, itemId, benefitType: item.benefitType ?? "", mode: item.mode },
       });

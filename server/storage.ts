@@ -2871,15 +2871,19 @@ export class SupabaseStorage implements IStorage {
   }
 
   async consumeSpinCredit(userId: string): Promise<boolean> {
-    const rows = await db
-      .select()
-      .from(userBenefits)
-      .where(and(eq(userBenefits.userId, userId), eq(userBenefits.type, "spin_credit")))
-      .orderBy(asc(userBenefits.createdAt))
-      .limit(1);
-    if (rows.length === 0) return false;
-    await db.delete(userBenefits).where(eq(userBenefits.id, rows[0].id));
-    return true;
+    // Atomic single-statement DELETE…RETURNING so concurrent requests cannot
+    // both pass the credit check and both consume a spin.
+    const result = await db.execute(sql`
+      DELETE FROM user_benefits
+      WHERE id = (
+        SELECT id FROM user_benefits
+        WHERE user_id = ${userId} AND type = 'spin_credit'
+        ORDER BY created_at ASC
+        LIMIT 1
+      )
+      RETURNING id
+    `);
+    return (result.rowCount ?? 0) > 0;
   }
 
   async getDailyLikeCount(userId: string): Promise<number> {
