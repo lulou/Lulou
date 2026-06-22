@@ -6,7 +6,7 @@ import { transcodeToM4a } from "./transcoder";
 import { seedDatabase } from "./seed";
 import { z } from "zod";
 import type { Profile } from "@shared/schema";
-import { userBenefits, callCredits, activeSessions, processedStripeSessions, membershipSubscriptions, userElevates, blockedContacts, savedWheelProfiles } from "@shared/schema";
+import { userBenefits, callCredits, activeSessions, processedStripeSessions, membershipSubscriptions, userElevates, blockedContacts, savedWheelProfiles, sparkBalances, sparkPurchases } from "@shared/schema";
 import { supabase, supabaseAdmin, createUserClient, hasServiceRoleKey } from "./supabase";
 import { db } from "./db";
 import { eq, and, isNull, gt, or } from "drizzle-orm";
@@ -3224,9 +3224,9 @@ export async function registerRoutes(
     "deep-connection-pack": { name: "Deep Connection Pack",   unitAmount: 2799, mode: "payment"      as const, benefitType: null,                          credits: { phone: 5, video: 3 }, quantity: 1 },
     "voice-notes-unlock":   { name: "Voice Notes Unlock",     unitAmount: 499,  mode: "payment"      as const, benefitType: "voice_notes_unlock" as const, credits: null,                   quantity: 1 },
     "extra-call":           { name: "Extra Call",              unitAmount: 499,  mode: "payment"      as const, benefitType: null,                          credits: { phone: 1, video: 0 }, quantity: 1 },
-    "sparks-1":             { name: "1 Spark",                 unitAmount: 299,  mode: "payment"      as const, benefitType: "spin_credit"         as const, credits: null,                 quantity: 1 },
-    "sparks-3":             { name: "3 Sparks",                unitAmount: 699,  mode: "payment"      as const, benefitType: "spin_credit"         as const, credits: null,                 quantity: 3 },
-    "sparks-5":             { name: "5 Sparks",                unitAmount: 999,  mode: "payment"      as const, benefitType: "spin_credit"         as const, credits: null,                 quantity: 5 },
+    "sparks-1":             { name: "1 Spark",                 unitAmount: 299,  mode: "payment"      as const, benefitType: null, credits: null, sparkCredits: 1,                quantity: 1 },
+    "sparks-3":             { name: "3 Sparks",                unitAmount: 699,  mode: "payment"      as const, benefitType: null, credits: null, sparkCredits: 3,                quantity: 3 },
+    "sparks-5":             { name: "5 Sparks",                unitAmount: 999,  mode: "payment"      as const, benefitType: null, credits: null, sparkCredits: 5,                quantity: 5 },
   } as const;
 
   type ExtrasItemId = keyof typeof EXTRAS_ITEMS;
@@ -3368,6 +3368,10 @@ export async function registerRoutes(
         } else {
           console.warn(`[STRIPE] Membership activated but no customer/subscription ID on session ${sessionId} — renewal webhooks won't fire`);
         }
+      } else if (typeof itemId === "string" && itemId.startsWith("sparks-")) {
+        // Spark packs — stored in spark_balances (dedicated table, atomic balance)
+        await storage.grantSpinCredits(userId, item.quantity, itemId, sessionId);
+        grantedTypes = Array.from({ length: item.quantity }, () => "spin_credit");
       } else if (item.credits) {
         await storage.grantCallCredits(userId, item.credits.phone, item.credits.video);
         grantedTypes = [

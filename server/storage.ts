@@ -5,7 +5,7 @@ import {
   type SpinRequest, type BlockedContact,
   type SavedWheelProfile,
   userElevates, blockedContacts, callCredits, savedWheelProfiles,
-  membershipSubscriptions, userBenefits,
+  membershipSubscriptions, userBenefits, sparkBalances, sparkPurchases,
 } from "@shared/schema";
 import { supabase as defaultSupabase } from "./supabase";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -756,6 +756,7 @@ export interface IStorage {
   hasUnusedStreakSpin(userId: string): Promise<boolean>;
   getSpinCredits(userId: string): Promise<number>;
   consumeSpinCredit(userId: string): Promise<boolean>;
+  grantSpinCredits(userId: string, qty: number, packType: string, stripeSessionId: string): Promise<void>;
   createSpinRequest(fromUserId: string, toUserId: string, message: string): Promise<SpinRequest>;
   getIncomingSpinRequests(userId: string): Promise<(SpinRequest & { profile: Profile })[]>;
   getOutgoingSpinRequests(userId: string): Promise<(SpinRequest & { profile: Profile })[]>;
@@ -2863,27 +2864,44 @@ export class SupabaseStorage implements IStorage {
   }
 
   async getSpinCredits(userId: string): Promise<number> {
-    const rows = await db
-      .select()
-      .from(userBenefits)
-      .where(and(eq(userBenefits.userId, userId), eq(userBenefits.type, "spin_credit")));
-    return rows.length;
+    const [row] = await db
+      .select({ balance: sparkBalances.balance })
+      .from(sparkBalances)
+      .where(eq(sparkBalances.userId, userId));
+    return row?.balance ?? 0;
   }
 
   async consumeSpinCredit(userId: string): Promise<boolean> {
-    // Atomic single-statement DELETE…RETURNING so concurrent requests cannot
-    // both pass the credit check and both consume a spin.
+    // Atomic UPDATE so two concurrent requests cannot both decrement the
+    // same balance. The WHERE balance > 0 guard is evaluated and the update
+    // applied in a single statement; rowCount tells us if a row was changed.
     const result = await db.execute(sql`
-      DELETE FROM user_benefits
-      WHERE id = (
-        SELECT id FROM user_benefits
-        WHERE user_id = ${userId} AND type = 'spin_credit'
-        ORDER BY created_at ASC
-        LIMIT 1
-      )
-      RETURNING id
+      UPDATE spark_balances
+      SET balance = balance - 1, updated_at = NOW()
+      WHERE user_id = ${userId} AND balance > 0
+      RETURNING balance
     `);
     return (result.rowCount ?? 0) > 0;
+  }
+
+  async grantSpinCredits(userId: string, qty: number, packType: string, stripeSessionId: string): Promise<void> {
+    await db.transaction(async (tx) => {
+      // Upsert: create row with qty, or increment existing balance.
+      await tx
+        .insert(sparkBalances)
+        .values({ userId, balance: qty })
+        .onConflictDoUpdate({
+          target: sparkBalances.userId,
+          set: {
+            balance: sql`spark_balances.balance + ${qty}`,
+            updatedAt: new Date(),
+          },
+        });
+      // Audit record — stripeSessionId is UNIQUE so duplicate webhooks are
+      // no-ops (the processedStripeSessions idempotency table is still the
+      // primary guard, but this gives a purchase history too).
+      await tx.insert(sparkPurchases).values({ userId, packType, quantity: qty, stripeSessionId }).onConflictDoNothing();
+    });
   }
 
   async getDailyLikeCount(userId: string): Promise<number> {

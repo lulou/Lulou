@@ -1,0 +1,145 @@
+Fully implement real Spark pack purchases.
+
+Do not create fake UI.
+
+The "Tonight's Connection is complete" sheet must allow users to actually buy more Sparks using Stripe.
+
+──────────────────────────────
+
+Purchase options:
+
+✦ 1 Spark — $2.99
+✦ 3 Sparks — $6.99
+✦ 5 Sparks — $9.99
+
+──────────────────────────────
+
+When should this sheet appear?
+
+1. After the user sends a Spark.
+2. After the user closes the Intention Wheel.
+3. After today's free Spark has been used.
+4. Never interrupt the reveal moment itself.
+
+The reveal must remain emotional and uninterrupted.
+
+──────────────────────────────
+
+Stripe
+
+Connect all Spark packs to real Stripe Checkout purchases.
+
+If purchase succeeds:
+
+Add purchased Sparks to the user's account immediately.
+
+Persist them in Supabase so they survive:
+
+refreshes
+logout/login
+different devices
+
+Users should never lose purchased Sparks.
+
+──────────────────────────────
+
+Database
+
+Create or use a table for Spark balances and purchase history.
+
+Track:
+
+user_id
+spark_balance
+pack_type
+quantity
+stripe_session_id
+purchase_date
+
+Prevent duplicate Stripe webhooks from giving duplicate Sparks.
+
+Purchased Sparks stack on top of the daily free Spark.
+
+Example:
+
+Daily Spark = 1
+User buys 3 Sparks
+
+Total available Sparks = 4
+
+──────────────────────────────
+
+Intention Wheel usage
+
+If user still has purchased Sparks remaining:
+
+Allow spinning again immediately.
+
+If user has zero Sparks:
+
+Show:
+
+TONIGHT'S CONNECTION IS COMPLETE
+
+You've used today's Sparks.
+
+Discover more connections tonight.
+
+Buttons:
+
+✦ 1 Spark — $2.99
+✦ 3 Sparks — $6.99
+✦ 5 Sparks — $9.99
+
+Maybe later
+
+──────────────────────────────
+
+UI
+
+Keep the luxury dark bottom sheet.
+
+Do not use ugly alerts.
+
+The purchase cards should feel premium with rose highlights.
+
+Show remaining Spark count.
+
+Examples:
+
+1 Spark remaining
+3 Sparks remaining
+
+Update instantly after purchase.
+
+──────────────────────────────
+
+Validation
+
+Test:
+
+Buy 1 Spark
+Buy 3 Sparks
+Buy 5 Sparks
+
+Refresh app
+
+Confirm balances persist.
+
+Ensure users cannot exploit refreshes to duplicate Sparks.
+
+Run:
+
+npm run check
+npm run build
+
+Report:
+
+Files changed
+Tables used
+Stripe endpoints used
+Webhook proof
+Balance persistence proof
+Purchase success proof
+
+Do not mark complete until users can actually buy and use additional Sparks.

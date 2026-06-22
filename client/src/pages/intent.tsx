@@ -1746,6 +1746,21 @@ export default function IntentPage() {
               </button>
             )}
 
+            {/* Purchased Sparks remaining badge */}
+            {(spinStatus?.purchasedSpins ?? 0) > 0 && (
+              <div style={{
+                display: "flex", alignItems: "center", gap: 5,
+                background: "rgba(212,92,116,0.12)",
+                border: "1px solid rgba(212,92,116,0.30)",
+                borderRadius: 20, padding: "5px 12px",
+                marginTop: -4,
+              }}>
+                <span style={{ fontSize: 12, color: "rgba(212,92,116,0.95)", fontWeight: 700 }}>
+                  ✦ {spinStatus!.purchasedSpins} Spark{spinStatus!.purchasedSpins === 1 ? "" : "s"} remaining
+                </span>
+              </div>
+            )}
+
             {/* CTA hint below the locked button */}
             {!canSpin && (
               <p style={{
@@ -2618,7 +2633,7 @@ export default function IntentPage() {
                 textTransform: "uppercase", color: "rgba(212,92,116,0.80)",
                 marginBottom: 12,
               }}>
-                That's today's Spark used.
+                Tonight's Connection is Complete
               </p>
               <h2 style={{
                 fontFamily: "'Playfair Display', Georgia, serif",
@@ -2633,6 +2648,19 @@ export default function IntentPage() {
               }}>
                 Each Spark opens a new connection.
               </p>
+              {(spinStatus?.purchasedSpins ?? 0) > 0 && (
+                <div style={{
+                  display: "inline-flex", alignItems: "center", gap: 5,
+                  marginTop: 12,
+                  background: "rgba(212,92,116,0.14)",
+                  border: "1px solid rgba(212,92,116,0.32)",
+                  borderRadius: 20, padding: "5px 14px",
+                }}>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: "rgba(212,92,116,1)" }}>
+                    ✦ {spinStatus!.purchasedSpins} Spark{spinStatus!.purchasedSpins === 1 ? "" : "s"} remaining
+                  </span>
+                </div>
+              )}
             </div>
 
             {/* Divider */}

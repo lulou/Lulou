@@ -207,6 +207,27 @@ export const processedStripeSessions = pgTable("processed_stripe_sessions", {
   grantedAt: timestamp("granted_at").defaultNow(),
 });
 
+// Persists purchased Spark credits (spin credits bought via Stripe).
+// One row per user — balance is incremented on purchase and decremented on use.
+export const sparkBalances = pgTable("spark_balances", {
+  userId: varchar("user_id").primaryKey(),
+  balance: integer("balance").notNull().default(0),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+export type SparkBalance = typeof sparkBalances.$inferSelect;
+
+// Audit trail for Spark pack purchases.
+export const sparkPurchases = pgTable("spark_purchases", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull(),
+  packType: text("pack_type").notNull(),
+  quantity: integer("quantity").notNull(),
+  stripeSessionId: varchar("stripe_session_id").notNull().unique(),
+  purchasedAt: timestamp("purchased_at").defaultNow(),
+}, (table) => [
+  index("idx_spark_purchases_user").on(table.userId),
+]);
+
 // Tracks active/cancelled membership subscriptions.
 // userId is the PK — one subscription record per user.
 // stripeCustomerId enables the webhook → user lookup on monthly renewal.
