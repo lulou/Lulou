@@ -681,6 +681,7 @@ type SpinStatus = {
   consecutiveDays: number;
   streakComplete: boolean;
   canSpin: boolean;
+  purchasedSpins?: number;
 };
 
 // Custom "prize wheel" ease: confident wind-up → thrilling rush → natural friction stop.
@@ -794,6 +795,7 @@ export default function IntentPage() {
   const [showConfetti, setShowConfetti] = useState(false);
   const [showElevateInReveal, setShowElevateInReveal] = useState(false);
   const [showSpinExtras, setShowSpinExtras] = useState(false);
+  const [sparksCheckoutLoading, setSparksCheckoutLoading] = useState<string | null>(null);
   const [angle, setAngle] = useState(0);
 
   // Spin room + Spark state
@@ -2612,62 +2614,59 @@ export default function IntentPage() {
 
             {/* Spark packs */}
             <div style={{ padding: "0 20px", display: "flex", flexDirection: "column", gap: 10 }}>
-              {/* 1 Spark */}
-              <button
-                data-testid="button-spin-extra-1"
-                onClick={() => toast({ title: t("coming_soon_title"), description: t("spin_packs_soon_desc") })}
-                style={{
-                  display: "flex", alignItems: "center", justifyContent: "space-between",
-                  padding: "14px 18px", borderRadius: 18,
-                  background: "rgba(255,255,255,0.05)",
-                  border: "1px solid rgba(255,255,255,0.09)",
-                  cursor: "pointer",
-                }}
-              >
-                <div style={{ textAlign: "left" }}>
-                  <p style={{ fontSize: 15, fontWeight: 700, color: "#fff", margin: 0 }}>1 Spark</p>
-                  <p style={{ fontSize: 12, color: "rgba(255,255,255,0.38)", margin: 0, marginTop: 2 }}>One more connection tonight</p>
-                </div>
-                <span style={{ fontSize: 14, fontWeight: 700, color: "rgba(255,255,255,0.50)" }}>$2.99</span>
-              </button>
-
-              {/* 3 Sparks — highlighted */}
-              <button
-                data-testid="button-spin-extra-3"
-                onClick={() => toast({ title: t("coming_soon_title"), description: t("spin_packs_soon_desc") })}
-                style={{
-                  display: "flex", alignItems: "center", justifyContent: "space-between",
-                  padding: "14px 18px", borderRadius: 18,
-                  background: "linear-gradient(135deg, rgba(212,92,116,0.22) 0%, rgba(157,53,80,0.16) 100%)",
-                  border: "1px solid rgba(212,92,116,0.42)",
-                  cursor: "pointer",
-                }}
-              >
-                <div style={{ textAlign: "left" }}>
-                  <p style={{ fontSize: 15, fontWeight: 700, color: "#fff", margin: 0 }}>3 Sparks</p>
-                  <p style={{ fontSize: 12, color: "rgba(255,255,255,0.38)", margin: 0, marginTop: 2 }}>Three more chances</p>
-                </div>
-                <span style={{ fontSize: 14, fontWeight: 700, color: "rgba(212,92,116,1.0)" }}>$6.99</span>
-              </button>
-
-              {/* 5 Sparks */}
-              <button
-                data-testid="button-spin-extra-5"
-                onClick={() => toast({ title: t("coming_soon_title"), description: t("spin_packs_soon_desc") })}
-                style={{
-                  display: "flex", alignItems: "center", justifyContent: "space-between",
-                  padding: "14px 18px", borderRadius: 18,
-                  background: "rgba(255,255,255,0.05)",
-                  border: "1px solid rgba(255,255,255,0.09)",
-                  cursor: "pointer",
-                }}
-              >
-                <div style={{ textAlign: "left" }}>
-                  <p style={{ fontSize: 15, fontWeight: 700, color: "#fff", margin: 0 }}>5 Sparks</p>
-                  <p style={{ fontSize: 12, color: "rgba(255,255,255,0.38)", margin: 0, marginTop: 2 }}>Explore freely tonight</p>
-                </div>
-                <span style={{ fontSize: 14, fontWeight: 700, color: "rgba(255,255,255,0.50)" }}>$9.99</span>
-              </button>
+              {(
+                [
+                  { itemId: "sparks-1", label: "1 Spark",  sub: "One more connection tonight",  price: "$2.99",  highlight: false },
+                  { itemId: "sparks-3", label: "3 Sparks", sub: "Three more chances tonight",   price: "$6.99",  highlight: true  },
+                  { itemId: "sparks-5", label: "5 Sparks", sub: "Explore freely tonight",       price: "$9.99",  highlight: false },
+                ] as const
+              ).map(({ itemId, label, sub, price, highlight }) => (
+                <button
+                  key={itemId}
+                  data-testid={`button-spin-extra-${itemId.split("-")[1]}`}
+                  disabled={sparksCheckoutLoading === itemId}
+                  onClick={async () => {
+                    if (sparksCheckoutLoading) return;
+                    setSparksCheckoutLoading(itemId);
+                    try {
+                      const res = await apiRequest("POST", "/api/stripe/extras-checkout", {
+                        itemId,
+                        returnPath: "/intent",
+                      });
+                      const data = await res.json();
+                      if (res.ok && data.url) {
+                        window.location.href = data.url;
+                      } else {
+                        toast({ title: "Checkout failed", description: data.message ?? "Please try again.", variant: "destructive" });
+                        setSparksCheckoutLoading(null);
+                      }
+                    } catch {
+                      toast({ title: "Checkout failed", description: "Please try again.", variant: "destructive" });
+                      setSparksCheckoutLoading(null);
+                    }
+                  }}
+                  style={{
+                    display: "flex", alignItems: "center", justifyContent: "space-between",
+                    padding: "14px 18px", borderRadius: 18,
+                    background: highlight
+                      ? "linear-gradient(135deg, rgba(212,92,116,0.22) 0%, rgba(157,53,80,0.16) 100%)"
+                      : "rgba(255,255,255,0.05)",
+                    border: `1px solid ${highlight ? "rgba(212,92,116,0.42)" : "rgba(255,255,255,0.09)"}`,
+                    cursor: sparksCheckoutLoading ? "not-allowed" : "pointer",
+                    opacity: sparksCheckoutLoading && sparksCheckoutLoading !== itemId ? 0.5 : 1,
+                  }}
+                >
+                  <div style={{ textAlign: "left" }}>
+                    <p style={{ fontSize: 15, fontWeight: 700, color: "#fff", margin: 0 }}>{label}</p>
+                    <p style={{ fontSize: 12, color: "rgba(255,255,255,0.38)", margin: 0, marginTop: 2 }}>{sub}</p>
+                  </div>
+                  {sparksCheckoutLoading === itemId ? (
+                    <span style={{ fontSize: 12, color: "rgba(255,255,255,0.40)" }}>…</span>
+                  ) : (
+                    <span style={{ fontSize: 14, fontWeight: 700, color: highlight ? "rgba(212,92,116,1.0)" : "rgba(255,255,255,0.50)" }}>{price}</span>
+                  )}
+                </button>
+              ))}
             </div>
 
             {/* Back to Lulou */}

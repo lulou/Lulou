@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { CheckCircle2, XCircle, Loader2, Crown, ArrowRight, Gift, MessageSquare, Phone, Video } from "lucide-react";
+import { CheckCircle2, XCircle, Loader2, Crown, ArrowRight, Gift, MessageSquare, Phone, Video, Sparkles } from "lucide-react";
 import { useLanguageContext } from "@/contexts/language-context";
 
 type Phase = "verifying" | "active" | "error";
@@ -22,6 +22,9 @@ export default function ExtrasSuccessPage() {
     "chemistry-pack":       { label: t("item_chemistry_pack_label"),    description: t("item_chemistry_pack_desc"),    icon: <Video className="w-6 h-6 text-primary" /> },
     "deep-connection-pack": { label: t("item_deep_connection_label"),   description: t("item_deep_connection_desc"),   icon: <Video className="w-6 h-6 text-primary" /> },
     "voice-notes-unlock":   { label: "Voice Notes Unlock",              description: "Send & receive voice messages in all chats", icon: <MessageSquare className="w-6 h-6 text-primary" /> },
+    "sparks-1":             { label: "1 Spark",                         description: "1 extra Intention Wheel spin added",         icon: <Sparkles className="w-6 h-6 text-primary" /> },
+    "sparks-3":             { label: "3 Sparks",                        description: "3 extra Intention Wheel spins added",        icon: <Sparkles className="w-6 h-6 text-primary" /> },
+    "sparks-5":             { label: "5 Sparks",                        description: "5 extra Intention Wheel spins added",        icon: <Sparkles className="w-6 h-6 text-primary" /> },
   };
 
   const MEMBERSHIP_PERKS = [
@@ -61,6 +64,7 @@ export default function ExtrasSuccessPage() {
         if (res.ok && data.success) {
           setItemName(data.name ?? item);
           queryClient.invalidateQueries({ queryKey: ["/api/benefits"] });
+          queryClient.invalidateQueries({ queryKey: ["/api/spin-status"] });
           setPhase("active");
           return;
         }
@@ -86,6 +90,7 @@ export default function ExtrasSuccessPage() {
 
   const info = ITEM_LABELS[itemId];
   const isMembership = itemId === "membership";
+  const isSparks = itemId.startsWith("sparks-");
 
   return (
     <div className="min-h-screen bg-background">
@@ -162,10 +167,10 @@ export default function ExtrasSuccessPage() {
             <button
               className="w-full py-4 rounded-2xl font-bold text-base flex items-center justify-center gap-2 transition-all active:scale-[0.98]"
               style={{ background: "hsl(350 45% 52%)", color: "white", boxShadow: "0 4px 16px hsl(350 45% 40% / 0.35)" }}
-              onClick={() => navigate("/matches")}
+              onClick={() => navigate(isSparks ? "/intent" : "/matches")}
               data-testid="button-extras-continue"
             >
-              {t("go_to_matches")}
+              {isSparks ? "Spin the Wheel" : t("go_to_matches")}
               <ArrowRight className="w-5 h-5" />
             </button>
 

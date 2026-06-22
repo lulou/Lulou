@@ -2532,19 +2532,20 @@ export async function registerRoutes(
       const userId = req.user.id;
 
       // Run all spin-status checks in parallel
-      const [spinsThisWeek, dailyLikes, consecutiveDays, hasUnusedStreak] = await Promise.all([
+      const [spinsThisWeek, dailyLikes, consecutiveDays, hasUnusedStreak, purchasedSpins, savedWheel] = await Promise.all([
         storage.getSpinsThisWeek(userId),
         storage.getDailyLikeCount(userId),
         storage.getConsecutiveLikeDays(userId, 10),
         storage.hasUnusedStreakSpin(userId),
+        storage.getSpinCredits(userId),
+        storage.getSavedWheelProfile(userId),
       ]);
 
       const streakComplete = consecutiveDays >= 3;
-      const canSpin = (streakComplete && hasUnusedStreak) || (!streakComplete && spinsThisWeek === 0);
+      const canSpin = (streakComplete && hasUnusedStreak) || (!streakComplete && spinsThisWeek === 0) || purchasedSpins > 0;
 
-      const savedWheel = await storage.getSavedWheelProfile(userId);
       if (IS_DEV) console.log(`[SPIN_STATUS] userId=${userId} in ${Date.now() - t0} ms`);
-      res.json({ spinsThisWeek, dailyLikes, consecutiveDays, streakComplete, canSpin, hasSavedWheelProfile: !!savedWheel });
+      res.json({ spinsThisWeek, dailyLikes, consecutiveDays, streakComplete, canSpin, purchasedSpins, hasSavedWheelProfile: !!savedWheel });
     } catch (error) {
       console.error(`[SPIN_STATUS] Error after ${Date.now() - t0} ms:`, error);
       res.status(500).json({ message: "Failed to fetch spin status" });
@@ -2795,14 +2796,28 @@ export async function registerRoutes(
       const hasUnusedStreak = await storage.hasUnusedStreakSpin(userId);
 
       let canSpin = false;
+      let usingPurchasedCredit = false;
       if (streakComplete && hasUnusedStreak) {
         canSpin = true;
       } else if (!streakComplete && spinsThisWeek === 0) {
         canSpin = true;
+      } else {
+        // Fall back to purchased spin credits
+        const purchased = await storage.getSpinCredits(userId);
+        if (purchased > 0) {
+          canSpin = true;
+          usingPurchasedCredit = true;
+        }
       }
 
       if (!canSpin) {
         return res.status(403).json({ message: "No spins available" });
+      }
+
+      // Consume a purchased credit first (before recording the spin) so the
+      // count is accurate if recordSpin fails
+      if (usingPurchasedCredit) {
+        await storage.consumeSpinCredit(userId);
       }
 
       await storage.recordSpin(userId);
@@ -3213,6 +3228,9 @@ export async function registerRoutes(
     "deep-connection-pack": { name: "Deep Connection Pack",   unitAmount: 2799, mode: "payment"      as const, benefitType: null,                          credits: { phone: 5, video: 3 }, quantity: 1 },
     "voice-notes-unlock":   { name: "Voice Notes Unlock",     unitAmount: 499,  mode: "payment"      as const, benefitType: "voice_notes_unlock" as const, credits: null,                   quantity: 1 },
     "extra-call":           { name: "Extra Call",              unitAmount: 499,  mode: "payment"      as const, benefitType: null,                          credits: { phone: 1, video: 0 }, quantity: 1 },
+    "sparks-1":             { name: "1 Spark",                 unitAmount: 299,  mode: "payment"      as const, benefitType: "spin_credit"         as const, credits: null,                 quantity: 1 },
+    "sparks-3":             { name: "3 Sparks",                unitAmount: 699,  mode: "payment"      as const, benefitType: "spin_credit"         as const, credits: null,                 quantity: 3 },
+    "sparks-5":             { name: "5 Sparks",                unitAmount: 999,  mode: "payment"      as const, benefitType: "spin_credit"         as const, credits: null,                 quantity: 5 },
   } as const;
 
   type ExtrasItemId = keyof typeof EXTRAS_ITEMS;

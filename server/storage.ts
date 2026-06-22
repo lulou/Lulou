@@ -5,12 +5,12 @@ import {
   type SpinRequest, type BlockedContact,
   type SavedWheelProfile,
   userElevates, blockedContacts, callCredits, savedWheelProfiles,
-  membershipSubscriptions,
+  membershipSubscriptions, userBenefits,
 } from "@shared/schema";
 import { supabase as defaultSupabase } from "./supabase";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { db } from "./db";
-import { eq, gt, sql, and, or } from "drizzle-orm";
+import { eq, gt, sql, and, or, asc } from "drizzle-orm";
 
 const IS_DEV = process.env.NODE_ENV !== "production";
 
@@ -754,6 +754,8 @@ export interface IStorage {
   getDailyLikeCount(userId: string): Promise<number>;
   getConsecutiveLikeDays(userId: string, goal: number): Promise<number>;
   hasUnusedStreakSpin(userId: string): Promise<boolean>;
+  getSpinCredits(userId: string): Promise<number>;
+  consumeSpinCredit(userId: string): Promise<boolean>;
   createSpinRequest(fromUserId: string, toUserId: string, message: string): Promise<SpinRequest>;
   getIncomingSpinRequests(userId: string): Promise<(SpinRequest & { profile: Profile })[]>;
   getOutgoingSpinRequests(userId: string): Promise<(SpinRequest & { profile: Profile })[]>;
@@ -2858,6 +2860,26 @@ export class SupabaseStorage implements IStorage {
     await this.sb
       .from("spin_usage")
       .insert({ user_id: userId, spin_date: today });
+  }
+
+  async getSpinCredits(userId: string): Promise<number> {
+    const rows = await db
+      .select()
+      .from(userBenefits)
+      .where(and(eq(userBenefits.userId, userId), eq(userBenefits.type, "spin_credit")));
+    return rows.length;
+  }
+
+  async consumeSpinCredit(userId: string): Promise<boolean> {
+    const rows = await db
+      .select()
+      .from(userBenefits)
+      .where(and(eq(userBenefits.userId, userId), eq(userBenefits.type, "spin_credit")))
+      .orderBy(asc(userBenefits.createdAt))
+      .limit(1);
+    if (rows.length === 0) return false;
+    await db.delete(userBenefits).where(eq(userBenefits.id, rows[0].id));
+    return true;
   }
 
   async getDailyLikeCount(userId: string): Promise<number> {
