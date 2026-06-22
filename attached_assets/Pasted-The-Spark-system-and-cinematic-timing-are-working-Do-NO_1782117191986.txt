@@ -1,0 +1,189 @@
+The Spark system and cinematic timing are working.
+
+Do NOT change the Spark logic.
+
+This pass is purely visual polish.
+
+━━━━━━━━━━━━━━━━━━
+
+THE WHEEL ITSELF
+━━━━━━━━━━━━━━━━━━
+The wheel still feels too basic.
+
+Make it feel premium.
+
+Add:
+
+• glass effect
+• depth
+• shadows
+• inner glow
+• subtle rotating highlights
+• richer rose gradients
+• reflections
+
+Think luxury watch face.
+
+The wheel should feel like an object, not a flat circle.
+
+━━━━━━━━━━━━━━━━━━
+2. ORBITING PROFILES
+━━━━━━━━━━━━━━━━━━
+
+Orbiting profiles need more life.
+
+Add:
+
+• subtle breathing animation
+• glow on nearby profiles
+• different depths
+• slight blur on distant profiles
+• soft shadows
+
+Profiles should feel suspended in space.
+
+━━━━━━━━━━━━━━━━━━
+3. WINNER REVEAL
+━━━━━━━━━━━━━━━━━━
+
+Current reveal still feels like a card appearing.
+
+Make it cinematic.
+
+Winner photo:
+
+Large.
+
+Elegant.
+
+Spring scale.
+
+Background blur.
+
+Glow behind image.
+
+Show:
+
+TONIGHT’S CONNECTION
+
+Large Playfair name
+
+Age
+
+Location
+
+Signal word
+
+Beautiful typography.
+
+No clutter.
+
+━━━━━━━━━━━━━━━━━━
+4. BUTTONS
+━━━━━━━━━━━━━━━━━━
+
+Do NOT show anything else after the wheel.
+
+No:
+
+Upgrade
+
+Buy more spins
+
+Pay more
+
+Elevate
+
+Bundles
+
+Extra offers
+
+Nothing.
+
+After reveal only show:
+
+🌙 Close
+
+✦ Send Spark
+
+And if Spark is sent:
+
+✨ Spark Sent
+
+“We’ll let you know if they feel the same.”
+
+Then return naturally.
+
+━━━━━━━━━━━━━━━━━━
+5. BACKGROUND
+━━━━━━━━━━━━━━━━━━
+
+Dark luxury atmosphere.
+
+Soft particles.
+
+Depth.
+
+Blur.
+
+Rose ambient lighting.
+
+Think:
+
+Apple keynote.
+
+Aman resort.
+
+Netflix character reveal.
+
+━━━━━━━━━━━━━━━━━━
+6. SOUND + HAPTICS
+━━━━━━━━━━━━━━━━━━
+
+Soft click at start.
+
+Gentle ticking while slowing.
+
+Soft reveal sound.
+
+Haptic at:
+
+Spin start.
+
+Winner reveal.
+
+Spark sent.
+
+Nothing loud.
+
+━━━━━━━━━━━━━━━━━━
+7. REMOVE ANY MONETISATION
+━━━━━━━━━━━━━━━━━━
+
+No upsells.
+
+No “buy more spins”.
+
+No payment prompts.
+
+No extra popups.
+
+The Intention Wheel should feel like a gift.
+
+━━━━━━━━━━━━━━━━━━
+Run:
+
+npm run check
+
+npm run build
+
+Report:
+
+Files changed.
+
+Animation improvements.
+
+Visual improvements.
+
+Confirm zero monetisation popups appear after completion.
+

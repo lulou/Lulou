@@ -902,6 +902,7 @@ export default function IntentPage() {
     },
     onSuccess: () => {
       console.log("[WHEEL] SPARK_SENT", { to: selectedProfile?.firstName });
+      try { (navigator as any).vibrate?.([40, 20, 80]); } catch {}
       setSparkSent(true);
       setTimeout(() => {
         setShowSpinRoom(false);
@@ -940,6 +941,7 @@ export default function IntentPage() {
   const spinWheel = () => {
     if (isSpinning || count === 0 || !canSpin) return;
     ensureCtx();
+    try { (navigator as any).vibrate?.([30]); } catch {}
     setShowSpinRoom(true);
     setIsSpinning(true);
     setSelectedIndex(null);
@@ -1074,7 +1076,8 @@ export default function IntentPage() {
       orbitAngleRef2.current = (orbitAngleRef2.current + orbitSpeedRef2.current * dt) % 360;
       const aRad = (orbitAngleRef2.current * Math.PI) / 180;
 
-      // Update each bubble position (no React re-render)
+      // Update each bubble — position + depth effect (front/back opacity & glow)
+      const speedFrac = Math.min(orbitSpeedRef2.current / 360, 1);
       for (let i = 0; i < N; i++) {
         const el = orbitBubbles.current[i];
         if (!el) continue;
@@ -1083,6 +1086,25 @@ export default function IntentPage() {
         const x = Math.cos(total) * R;
         const y = Math.sin(total) * R;
         el.style.transform = `translate(calc(-50% + ${x}px), calc(-50% + ${y}px))`;
+
+        // Depth: sin(total)≈-1 → top/front (opacity 1, no blur)
+        //        sin(total)≈+1 → bottom/back (opacity 0.55, slight blur)
+        const sinT     = Math.sin(total);
+        const depthFar = (sinT + 1) / 2;           // 0=front … 1=back
+        const opacity  = (1 - depthFar * 0.45).toFixed(2);
+        const blurPx   = depthFar * 1.5;
+        el.style.opacity = opacity;
+        el.style.filter  = blurPx > 0.3 ? `blur(${blurPx.toFixed(1)}px)` : '';
+
+        // Front-profile glow when spinning
+        const frontness = Math.max(0, -sinT); // 0=back … 1=top-front
+        if (speedFrac > 0.2 && frontness > 0.4) {
+          const gAlpha = (frontness * speedFrac * 0.55).toFixed(2);
+          const gSize  = Math.round(6 + frontness * 14);
+          el.style.boxShadow = `0 0 ${gSize}px rgba(212,92,116,${gAlpha})`;
+        } else {
+          el.style.boxShadow = 'none';
+        }
       }
 
       // Glow orb — intensity tracks orbit speed
@@ -1348,6 +1370,18 @@ export default function IntentPage() {
         @keyframes srGlowPulse {
           0%, 100% { transform: translate(-50%,-50%) scale(1.00); opacity: 0.65; }
           50%       { transform: translate(-50%,-50%) scale(1.18); opacity: 1.00; }
+        }
+        @keyframes srBreathe {
+          0%, 100% { transform: scale(1.00); }
+          50%       { transform: scale(1.09); }
+        }
+        @keyframes srWatchRotate {
+          from { transform: translate(-50%,-50%) rotate(0deg); }
+          to   { transform: translate(-50%,-50%) rotate(360deg); }
+        }
+        @keyframes srAmbientPulse {
+          0%, 100% { opacity: 0.45; transform: translate(-50%,-50%) scale(1.00); }
+          50%       { opacity: 0.80; transform: translate(-50%,-50%) scale(1.08); }
         }
       `}</style>
 
@@ -2064,13 +2098,16 @@ export default function IntentPage() {
                   border: "1px solid rgba(212,92,116,0.20)",
                 }} />
 
-                {/* Profile bubbles — positions mutated by orbit RAF */}
+                {/* Profile bubbles — outer div RAF-positioned, inner div breathes */}
                 {items.slice(0, Math.min(items.length, 10)).map((item, i) => {
-                  const N   = Math.min(items.length, 10);
+                  const N    = Math.min(items.length, 10);
                   const base = (i / N) * Math.PI * 2 - Math.PI / 2;
-                  const R   = 108;
-                  const x   = Math.cos(base) * R;
-                  const y   = Math.sin(base) * R;
+                  const R    = 108;
+                  const x    = Math.cos(base) * R;
+                  const y    = Math.sin(base) * R;
+                  // Stagger breathing so bubbles feel alive independently
+                  const breatheDur   = 2.6 + (i % 4) * 0.35;
+                  const breatheDelay = (i % 5) * 0.40;
                   return (
                     <div
                       key={item.userId}
@@ -2079,33 +2116,74 @@ export default function IntentPage() {
                         position: "absolute", top: "50%", left: "50%",
                         transform: `translate(calc(-50% + ${x}px), calc(-50% + ${y}px))`,
                         width: 40, height: 40, borderRadius: "50%",
-                        overflow: "hidden",
-                        border: "1.5px solid rgba(212,92,116,0.35)",
                         flexShrink: 0,
+                        // box-shadow mutated by RAF (depth glow)
                       }}
                     >
-                      <ProfilePhoto userId={item.userId} className="w-full h-full" />
+                      {/* Inner wrapper drives breathing scale + soft shadow */}
+                      <div style={{
+                        width: "100%", height: "100%", borderRadius: "50%",
+                        overflow: "hidden",
+                        border: "1.5px solid rgba(212,92,116,0.38)",
+                        boxShadow: "0 2px 10px rgba(0,0,0,0.55)",
+                        animation: `srBreathe ${breatheDur}s ${breatheDelay}s ease-in-out infinite`,
+                      }}>
+                        <ProfilePhoto userId={item.userId} className="w-full h-full" />
+                      </div>
                     </div>
                   );
                 })}
 
-                {/* Centre glow orb — box-shadow mutated by orbit RAF */}
+                {/* ── Luxury watch-face centre ── */}
+
+                {/* Layer 0: Outer ambient glow — box-shadow set by RAF */}
                 <div ref={orbitGlowRef} style={{
                   position: "absolute", top: "50%", left: "50%",
-                  width: 52, height: 52, borderRadius: "50%",
+                  width: 82, height: 82, borderRadius: "50%",
                   transform: "translate(-50%,-50%)",
-                  background: "rgba(212,92,116,0.11)",
-                  border: "1.5px solid rgba(212,92,116,0.32)",
+                  pointerEvents: "none",
+                  animation: "srAmbientPulse 2.8s ease-in-out infinite",
+                }} />
+
+                {/* Layer 1: Glass bezel ring */}
+                <div style={{
+                  position: "absolute", top: "50%", left: "50%",
+                  width: 74, height: 74, borderRadius: "50%",
+                  transform: "translate(-50%,-50%)",
+                  background: "radial-gradient(ellipse at 38% 28%, rgba(255,255,255,0.07) 0%, rgba(12,5,20,0.94) 52%, rgba(8,3,14,0.98) 100%)",
+                  border: "1.5px solid rgba(212,92,116,0.50)",
+                  boxShadow: "inset 0 1px 3px rgba(255,255,255,0.09), inset 0 -2px 8px rgba(212,92,116,0.14), 0 0 18px rgba(212,92,116,0.18)",
+                  pointerEvents: "none",
                   animation: "srGlowPulse 2.2s ease-in-out infinite",
+                }} />
+
+                {/* Layer 2: Inner face with rose depth */}
+                <div style={{
+                  position: "absolute", top: "50%", left: "50%",
+                  width: 56, height: 56, borderRadius: "50%",
+                  transform: "translate(-50%,-50%)",
+                  background: "radial-gradient(ellipse at 40% 32%, rgba(212,92,116,0.20) 0%, rgba(9,4,16,0.97) 62%)",
+                  border: "1px solid rgba(212,92,116,0.24)",
+                  boxShadow: "inset 0 1px 4px rgba(212,92,116,0.12)",
                   pointerEvents: "none",
                 }} />
 
-                {/* ✦ centre symbol */}
+                {/* Layer 3: Rotating conic highlight (watch-face sheen) */}
+                <div style={{
+                  position: "absolute", top: "50%", left: "50%",
+                  width: 74, height: 74, borderRadius: "50%",
+                  background: "conic-gradient(from 0deg, transparent 0%, rgba(255,255,255,0.048) 9%, rgba(255,255,255,0.012) 18%, transparent 28%, transparent 100%)",
+                  animation: "srWatchRotate 9s linear infinite",
+                  pointerEvents: "none",
+                }} />
+
+                {/* Layer 4: ✦ centre symbol */}
                 <div style={{
                   position: "absolute", top: "50%", left: "50%",
                   transform: "translate(-50%,-50%)",
-                  fontSize: 18, color: "rgba(212,92,116,0.88)",
-                  lineHeight: 1, zIndex: 2, pointerEvents: "none",
+                  fontSize: 15, color: "rgba(212,92,116,0.92)",
+                  lineHeight: 1, zIndex: 3, pointerEvents: "none",
+                  textShadow: "0 0 10px rgba(212,92,116,0.55), 0 0 22px rgba(212,92,116,0.28)",
                 }}>✦</div>
               </div>
 
@@ -2208,48 +2286,68 @@ export default function IntentPage() {
                   background: "radial-gradient(ellipse 85% 60% at 50% 28%, rgba(212,92,116,0.20) 0%, transparent 68%)",
                 }} />
 
-                {/* Name / age / signal / location */}
+                {/* Name / age / signal / location — Playfair reveal */}
                 <div style={{
-                  position: "absolute", bottom: 22, left: 0, right: 0,
-                  textAlign: "center", zIndex: 4, padding: "0 24px",
+                  position: "absolute", bottom: 26, left: 0, right: 0,
+                  textAlign: "center", zIndex: 4, padding: "0 28px",
                 }}>
+                  {/* Eyebrow — "TONIGHT'S CONNECTION" */}
                   <p style={{
-                    fontSize: 9, fontWeight: 900, letterSpacing: "0.34em",
-                    textTransform: "uppercase", color: "rgba(212,92,116,0.92)",
-                    marginBottom: 6,
-                    animation: "srTextIn 0.55s 0.22s ease both",
+                    fontSize: 9, fontWeight: 900, letterSpacing: "0.38em",
+                    textTransform: "uppercase", color: "rgba(212,92,116,0.88)",
+                    marginBottom: 10,
+                    animation: "srTextIn 0.50s 0.18s ease both",
                   }}>
-                    ✦ {t("spark_badge_label")}
+                    {t("spin_room_title")}
                   </p>
+
+                  {/* Name — Playfair Display, large */}
                   <h2 style={{
-                    fontSize: "clamp(26px,7.5vw,34px)", fontWeight: 700,
-                    color: "#fff", margin: 0, lineHeight: 1.1,
-                    textShadow: "0 2px 24px rgba(0,0,0,0.55)",
-                    animation: "srTextIn 0.60s 0.38s ease both",
+                    fontFamily: "'Playfair Display', Georgia, serif",
+                    fontSize: "clamp(30px,8.5vw,42px)", fontWeight: 700,
+                    color: "#fff", margin: 0, lineHeight: 1.05,
+                    textShadow: "0 2px 28px rgba(0,0,0,0.60), 0 0 60px rgba(212,92,116,0.18)",
+                    animation: "srTextIn 0.65s 0.32s ease both",
                   }}>
-                    {selectedProfile.firstName}{selectedProfile.age ? `, ${selectedProfile.age}` : ""}
+                    {selectedProfile.firstName}
                     {selectedProfile.photoVerified && (
                       <BadgeCheck style={{
-                        display: "inline", width: 19, height: 19,
-                        color: "#d45c74", marginLeft: 6, verticalAlign: "middle",
+                        display: "inline", width: 20, height: 20,
+                        color: "#d45c74", marginLeft: 7, verticalAlign: "middle",
                       }} />
                     )}
                   </h2>
-                  {selectedProfile.signals && selectedProfile.signals.length > 0 && (
+
+                  {/* Age */}
+                  {selectedProfile.age && (
                     <p style={{
-                      fontSize: 14, fontStyle: "italic",
-                      color: "rgba(255,255,255,0.60)", marginTop: 6,
-                      animation: "srTextIn 0.55s 0.52s ease both",
+                      fontSize: 15, fontWeight: 400,
+                      color: "rgba(255,255,255,0.52)", marginTop: 5,
+                      animation: "srTextIn 0.50s 0.46s ease both",
                     }}>
-                      {selectedProfile.signals[0]}
+                      {selectedProfile.age}
                     </p>
                   )}
+
+                  {/* Signal word */}
+                  {selectedProfile.signals && selectedProfile.signals.length > 0 && (
+                    <p style={{
+                      fontFamily: "'Playfair Display', Georgia, serif",
+                      fontSize: 15, fontStyle: "italic",
+                      color: "rgba(255,255,255,0.65)", marginTop: 8,
+                      animation: "srTextIn 0.55s 0.58s ease both",
+                    }}>
+                      "{selectedProfile.signals[0]}"
+                    </p>
+                  )}
+
+                  {/* Location */}
                   {selectedProfile.location && (
                     <p style={{
-                      fontSize: 12, color: "rgba(255,255,255,0.36)", marginTop: 5,
+                      fontSize: 12, color: "rgba(255,255,255,0.34)", marginTop: 7,
                       display: "flex", alignItems: "center",
                       justifyContent: "center", gap: 4,
-                      animation: "srTextIn 0.55s 0.66s ease both",
+                      animation: "srTextIn 0.50s 0.70s ease both",
                     }}>
                       <MapPin style={{ width: 11, height: 11 }} />
                       {selectedProfile.location}
@@ -2295,7 +2393,7 @@ export default function IntentPage() {
                       {t("spark_sent_label")}
                     </p>
                     <p style={{ fontSize: 13, color: "rgba(255,255,255,0.38)", marginTop: 5 }}>
-                      {selectedProfile.firstName} will see your Spark.
+                      We'll let you know if they feel the same.
                     </p>
                   </div>
                 ) : (
