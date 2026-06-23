@@ -1086,7 +1086,8 @@ export default function IntentPage() {
         try { (navigator as any).vibrate?.([60, 40, 120]); } catch {}
       }, 11200),
       setTimeout(() => go('pause',   0), 13500),
-      setTimeout(() => { go('buttons', 0); console.log('[WHEEL] BUTTONS_VISIBLE'); }, 19500),
+      // buttons phase = profile text appears (3 s of clean photo, then sequential reveal)
+      setTimeout(() => { go('buttons', 0); console.log('[WHEEL] BUTTONS_VISIBLE'); }, 16500),
     ];
     return () => ts.forEach(clearTimeout);
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -2503,224 +2504,232 @@ export default function IntentPage() {
             >🌙</button>
           </div>
 
-          {/* ── REVEAL STAGE — visible during reveal / pause / buttons ── */}
+          {/* ── REVEAL STAGE — 3 phases: quote → photo → introduction ── */}
           {(spinRoomPhase === 'reveal' || spinRoomPhase === 'pause' || spinRoomPhase === 'buttons') && selectedProfile && (
-            <div style={{
-              position: "absolute", inset: 0,
-              display: "flex", flexDirection: "column",
-              animation: "srRevealBg 1.0s ease forwards",
-            }}>
-              {/* Full-screen winner photo */}
-              <div style={{ flex: 1, position: "relative", overflow: "hidden", minHeight: 0 }}>
+            <div style={{ position: "absolute", inset: 0, zIndex: 10 }}>
+
+              {/* ── Dark base — always fills screen ── */}
+              <div style={{
+                position: "absolute", inset: 0,
+                background: "#0d0812",
+                animation: "srRevealBg 0.8s ease forwards",
+              }} />
+
+              {/* ── Photo — cinematic entrance at pause phase ── */}
+              {/* Mounts only at pause/buttons so srWinnerIn animation plays on entry */}
+              {(spinRoomPhase === 'pause' || spinRoomPhase === 'buttons') && (
                 <div style={{
                   position: "absolute", inset: 0,
-                  animation: "srWinnerIn 1.0s cubic-bezier(0.34,1.56,0.64,1) forwards",
-                  transformOrigin: "center center",
+                  animation: "srWinnerIn 1.8s cubic-bezier(0.16, 1, 0.3, 1) forwards",
+                  transformOrigin: "center 40%",
                 }}>
                   <ProfilePhoto userId={selectedProfile.userId} className="w-full h-full" />
                 </div>
+              )}
 
-                {/* Top gradient — safe area + close btn backdrop */}
+              {/* ── Top vignette — safe area + close button backdrop ── */}
+              <div style={{
+                position: "absolute", top: 0, left: 0, right: 0, height: 130,
+                background: "linear-gradient(#0d0812 0%, rgba(13,8,18,0.52) 52%, transparent 100%)",
+                pointerEvents: "none", zIndex: 4,
+              }} />
+
+              {/* ── Bottom gradient — protects the lower 42% where all text lives ── */}
+              {(spinRoomPhase === 'pause' || spinRoomPhase === 'buttons') && (
                 <div style={{
-                  position: "absolute", top: 0, left: 0, right: 0, height: 160,
-                  background: "linear-gradient(#0d0812 0%, rgba(13,8,18,0.55) 45%, transparent 100%)",
-                  zIndex: 2, pointerEvents: "none",
+                  position: "absolute", bottom: 0, left: 0, right: 0, height: "44%",
+                  background: "linear-gradient(transparent 0%, rgba(13,8,18,0.78) 32%, rgba(13,8,18,0.97) 65%, #0d0812 100%)",
+                  pointerEvents: "none", zIndex: 4,
                 }} />
+              )}
 
-                {/* Bottom gradient — text zone */}
+              {/* ── Subtle rose bloom over upper photo ── */}
+              {(spinRoomPhase === 'pause' || spinRoomPhase === 'buttons') && (
                 <div style={{
-                  position: "absolute", bottom: 0, left: 0, right: 0, height: 220,
-                  background: "linear-gradient(transparent, rgba(13,8,18,0.92) 55%, #0d0812 100%)",
-                  zIndex: 2, pointerEvents: "none",
+                  position: "absolute", inset: 0, zIndex: 3, pointerEvents: "none",
+                  background: "radial-gradient(ellipse 80% 50% at 50% 22%, rgba(212,92,116,0.14) 0%, transparent 62%)",
                 }} />
+              )}
 
-                {/* Rose bloom */}
+              {/* ── PHASE 1: QUOTE — centered on dark screen, only during reveal ── */}
+              {spinRoomPhase === 'reveal' && (
                 <div style={{
-                  position: "absolute", inset: 0, zIndex: 1, pointerEvents: "none",
-                  background: "radial-gradient(ellipse 85% 60% at 50% 28%, rgba(212,92,116,0.20) 0%, transparent 68%)",
-                }} />
-
-                {/* ── Lulou quote — first thing to appear ── */}
-                <div style={{
-                  position: "absolute", bottom: "50%", left: 0, right: 0,
-                  textAlign: "center", zIndex: 4, padding: "0 36px",
+                  position: "absolute", inset: 0, zIndex: 5,
+                  display: "flex", flexDirection: "column",
+                  alignItems: "center", justifyContent: "center",
+                  padding: "0 44px",
                   pointerEvents: "none",
                 }}>
                   <p style={{
                     fontFamily: "'Playfair Display', Georgia, serif",
-                    fontSize: 16, fontStyle: "italic",
-                    color: "rgba(255,255,255,0.70)",
-                    letterSpacing: "0.01em", lineHeight: 1.6,
-                    textShadow: "0 2px 28px rgba(0,0,0,0.80)",
-                    animation: "srTextIn 1.1s 0.4s ease both",
-                    margin: 0,
+                    fontSize: 19, fontStyle: "italic",
+                    color: "rgba(255,255,255,0.80)",
+                    letterSpacing: "0.01em", lineHeight: 1.65,
+                    textShadow: "0 2px 32px rgba(0,0,0,0.55)",
+                    animation: "srTextIn 1.2s 0.3s ease both",
+                    textAlign: "center", margin: 0,
                   }}>
                     "{revealQuote}"
                   </p>
-                  {/* "— Lulou" appears 1.2 s after the quote */}
                   <p style={{
-                    fontSize: 10, fontWeight: 700, letterSpacing: "0.24em",
-                    textTransform: "uppercase", color: "rgba(212,92,116,0.75)",
-                    marginTop: 10,
-                    animation: "srTextIn 0.70s 1.6s ease both",
-                    textShadow: "0 0 18px rgba(212,92,116,0.45)",
+                    fontSize: 10, fontWeight: 700, letterSpacing: "0.26em",
+                    textTransform: "uppercase", color: "rgba(212,92,116,0.85)",
+                    marginTop: 14,
+                    animation: "srTextIn 0.65s 1.55s ease both",
+                    textShadow: "0 0 18px rgba(212,92,116,0.50)",
                   }}>— Lulou</p>
                 </div>
+              )}
 
-                {/* ── Profile details — each element fades in one at a time ── */}
+              {/* ── PHASE 3: PROFILE TEXT + CTA — bottom 33%, appears at buttons phase ── */}
+              {/* Mounts fresh at buttons phase so all animation-delays start from zero */}
+              {spinRoomPhase === 'buttons' && (
                 <div style={{
-                  position: "absolute", bottom: 26, left: 0, right: 0,
-                  textAlign: "center", zIndex: 4, padding: "0 28px",
+                  position: "absolute", bottom: 0, left: 0, right: 0, zIndex: 6,
+                  display: "flex", flexDirection: "column", alignItems: "center",
+                  padding: "0 22px",
+                  paddingBottom: "max(env(safe-area-inset-bottom,0px), 32px)",
+                  textAlign: "center",
                 }}>
-                  {/* Eyebrow — appears ~3 s after reveal fires */}
+                  {/* Eyebrow — 0.2 s */}
                   <p style={{
-                    fontSize: 9, fontWeight: 900, letterSpacing: "0.40em",
-                    textTransform: "uppercase", color: "rgba(212,92,116,0.92)",
-                    marginBottom: 12,
-                    animation: "srTextIn 0.60s 3.0s ease both",
+                    fontSize: 9, fontWeight: 900, letterSpacing: "0.42em",
+                    textTransform: "uppercase", color: "rgba(212,92,116,0.94)",
+                    margin: "0 0 10px",
+                    animation: "srTextIn 0.50s 0.2s ease both",
                   }}>
                     {t("spin_room_title")}
                   </p>
 
-                  {/* Name — Playfair Display, large — appears ~4.5 s */}
+                  {/* Name — 0.9 s */}
                   <h2 style={{
                     fontFamily: "'Playfair Display', Georgia, serif",
-                    fontSize: "clamp(30px,8.5vw,44px)", fontWeight: 700,
-                    color: "#fff", margin: 0, lineHeight: 1.05,
-                    textShadow: "0 2px 32px rgba(0,0,0,0.65), 0 0 60px rgba(212,92,116,0.20)",
-                    animation: "srTextIn 0.80s 4.5s ease both",
+                    fontSize: "clamp(28px,7.5vw,40px)", fontWeight: 700,
+                    color: "#fff", margin: "0 0 4px", lineHeight: 1.05,
+                    textShadow: "0 2px 28px rgba(0,0,0,0.75)",
+                    animation: "srTextIn 0.75s 0.9s ease both",
                   }}>
                     {selectedProfile.firstName}
                     {selectedProfile.photoVerified && (
                       <BadgeCheck style={{
-                        display: "inline", width: 20, height: 20,
-                        color: "#d45c74", marginLeft: 7, verticalAlign: "middle",
+                        display: "inline", width: 18, height: 18,
+                        color: "#d45c74", marginLeft: 6, verticalAlign: "middle",
                       }} />
                     )}
                   </h2>
 
-                  {/* Age — appears ~5.7 s */}
+                  {/* Age — 1.65 s */}
                   {selectedProfile.age && (
                     <p style={{
-                      fontSize: 16, fontWeight: 300,
-                      color: "rgba(255,255,255,0.50)", marginTop: 6,
-                      animation: "srTextIn 0.60s 5.7s ease both",
+                      fontSize: 15, fontWeight: 300,
+                      color: "rgba(255,255,255,0.48)", margin: "4px 0 0",
+                      animation: "srTextIn 0.50s 1.65s ease both",
                     }}>
                       {selectedProfile.age}
                     </p>
                   )}
 
-                  {/* Signal word — appears ~6.8 s */}
+                  {/* Signal word — 2.35 s */}
                   {selectedProfile.signals && selectedProfile.signals.length > 0 && (
                     <p style={{
                       fontFamily: "'Playfair Display', Georgia, serif",
-                      fontSize: 15, fontStyle: "italic",
-                      color: "rgba(255,255,255,0.62)", marginTop: 9,
-                      animation: "srTextIn 0.65s 6.8s ease both",
+                      fontSize: 14, fontStyle: "italic",
+                      color: "rgba(255,255,255,0.58)", margin: "7px 0 0",
+                      animation: "srTextIn 0.55s 2.35s ease both",
                     }}>
                       "{selectedProfile.signals[0]}"
                     </p>
                   )}
 
-                  {/* Location — appears ~7.8 s */}
+                  {/* Location — 2.95 s */}
                   {selectedProfile.location && (
                     <p style={{
-                      fontSize: 12, color: "rgba(255,255,255,0.32)", marginTop: 8,
+                      fontSize: 12, color: "rgba(255,255,255,0.28)", margin: "6px 0 0",
                       display: "flex", alignItems: "center",
                       justifyContent: "center", gap: 4,
-                      animation: "srTextIn 0.55s 7.8s ease both",
+                      animation: "srTextIn 0.45s 2.95s ease both",
                     }}>
                       <MapPin style={{ width: 11, height: 11 }} />
                       {selectedProfile.location}
                     </p>
                   )}
-                </div>
 
-                {/* Close button — always reachable during reveal */}
-                <button
-                  onClick={() => { closeProfile(); setTimeout(() => setShowSpinExtras(true), 350); }}
-                  data-testid="button-spin-room-close"
-                  style={{
-                    position: "absolute",
-                    top: "max(env(safe-area-inset-top,0px), 14px)", left: 14,
-                    zIndex: 30, width: 40, height: 40, borderRadius: "50%",
-                    display: "flex", alignItems: "center", justifyContent: "center",
-                    background: "rgba(255,255,255,0.10)", border: "1px solid rgba(255,255,255,0.14)",
-                    cursor: "pointer", fontSize: 17, lineHeight: 1,
-                  }}
-                >🌙</button>
-              </div>
-
-              {/* CTA row — animates in only when phase === 'buttons' */}
-              <div style={{
-                width: "100%",
-                padding: "16px 20px",
-                paddingBottom: "max(env(safe-area-inset-bottom,0px), 28px)",
-                background: "#0d0812",
-                opacity: spinRoomPhase === 'buttons' ? 1 : 0,
-                animation: spinRoomPhase === 'buttons'
-                  ? "srButtonsIn 0.65s cubic-bezier(0.34,1.56,0.64,1) forwards"
-                  : "none",
-              }}>
-                {sparkSent ? (
-                  <div style={{
-                    textAlign: "center", padding: "14px 0",
-                    animation: "haloSentPulse 0.50s cubic-bezier(0.34,1.56,0.64,1) forwards",
-                  }}>
-                    <p style={{
-                      fontSize: 19, fontWeight: 700,
-                      color: "rgba(212,92,116,1.0)", letterSpacing: "0.08em",
+                  {/* CTA — 3.65 s (or halo-sent state) */}
+                  {sparkSent ? (
+                    <div style={{
+                      marginTop: 22, width: "100%",
+                      animation: "haloSentPulse 0.50s cubic-bezier(0.34,1.56,0.64,1) forwards",
                     }}>
-                      ✨ Halo Sent
-                    </p>
-                    <p style={{ fontSize: 13, color: "rgba(255,255,255,0.38)", marginTop: 5 }}>
-                      We'll let you know if they feel the same.
-                    </p>
-                  </div>
-                ) : (
-                  <div style={{ display: "flex", gap: 12 }}>
-                    <button
-                      onClick={() => { closeProfile(); setTimeout(() => setShowSpinExtras(true), 350); }}
-                      data-testid="button-spin-room-pass"
-                      style={{
-                        flex: 1, padding: "16px 10px", borderRadius: 18,
-                        background: "rgba(255,255,255,0.07)",
-                        border: "1px solid rgba(255,255,255,0.11)",
-                        color: "rgba(255,255,255,0.62)", fontSize: 13,
-                        fontWeight: 600, cursor: "pointer",
-                        display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
-                      }}
-                    >
-                      <span>🌙</span><span>Close</span>
-                    </button>
-                    <button
-                      onClick={() => selectedProfile && sendSpark.mutate(selectedProfile.userId)}
-                      disabled={sendSpark.isPending}
-                      data-testid="button-spin-room-send-halo"
-                      style={{
-                        flex: 2, padding: "16px 10px", borderRadius: 18,
-                        background: sendSpark.isPending
-                          ? "rgba(212,92,116,0.38)"
-                          : "linear-gradient(135deg,#d45c74 0%,#9d3550 100%)",
-                        boxShadow: sendSpark.isPending
-                          ? "none"
-                          : "0 4px 22px rgba(188,78,96,0.50)",
-                        border: "none", color: "#fff",
-                        fontSize: 13, fontWeight: 700,
-                        letterSpacing: "0.14em", textTransform: "uppercase",
-                        cursor: sendSpark.isPending ? "default" : "pointer",
-                        display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
-                      }}
-                    >
-                      {sendSpark.isPending
-                        ? <Loader2 style={{ width: 15, height: 15, animation: "spinBtn 0.65s linear infinite" }} />
-                        : <span style={{ fontSize: 16, lineHeight: 1 }}>✦</span>
-                      }
-                      <span>{sendSpark.isPending ? "Sending…" : "Send Halo"}</span>
-                    </button>
-                  </div>
-                )}
-              </div>
+                      <p style={{
+                        fontSize: 19, fontWeight: 700,
+                        color: "rgba(212,92,116,1.0)", letterSpacing: "0.08em",
+                      }}>✨ Halo Sent</p>
+                      <p style={{ fontSize: 13, color: "rgba(255,255,255,0.38)", marginTop: 5 }}>
+                        We'll let you know if they feel the same.
+                      </p>
+                    </div>
+                  ) : (
+                    <div style={{
+                      display: "flex", gap: 12, marginTop: 20, width: "100%",
+                      animation: "srTextIn 0.60s 3.65s ease both",
+                    }}>
+                      <button
+                        onClick={() => { closeProfile(); setTimeout(() => setShowSpinExtras(true), 350); }}
+                        data-testid="button-spin-room-pass"
+                        style={{
+                          flex: 1, padding: "16px 10px", borderRadius: 18,
+                          background: "rgba(255,255,255,0.08)",
+                          border: "1px solid rgba(255,255,255,0.13)",
+                          color: "rgba(255,255,255,0.65)", fontSize: 13,
+                          fontWeight: 600, cursor: "pointer",
+                          display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+                        }}
+                      >
+                        <span>🌙</span><span>Close</span>
+                      </button>
+                      <button
+                        onClick={() => selectedProfile && sendSpark.mutate(selectedProfile.userId)}
+                        disabled={sendSpark.isPending}
+                        data-testid="button-spin-room-send-halo"
+                        style={{
+                          flex: 2, padding: "16px 10px", borderRadius: 18,
+                          background: sendSpark.isPending
+                            ? "rgba(212,92,116,0.38)"
+                            : "linear-gradient(135deg,#d45c74 0%,#9d3550 100%)",
+                          boxShadow: sendSpark.isPending
+                            ? "none"
+                            : "0 4px 22px rgba(188,78,96,0.50)",
+                          border: "none", color: "#fff",
+                          fontSize: 13, fontWeight: 700,
+                          letterSpacing: "0.14em", textTransform: "uppercase",
+                          cursor: sendSpark.isPending ? "default" : "pointer",
+                          display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+                        }}
+                      >
+                        {sendSpark.isPending
+                          ? <Loader2 style={{ width: 15, height: 15, animation: "spinBtn 0.65s linear infinite" }} />
+                          : <span style={{ fontSize: 16, lineHeight: 1 }}>✦</span>
+                        }
+                        <span>{sendSpark.isPending ? "Sending…" : "Send Halo"}</span>
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* ── Close button — always reachable in top-left ── */}
+              <button
+                onClick={() => { closeProfile(); setTimeout(() => setShowSpinExtras(true), 350); }}
+                data-testid="button-spin-room-close"
+                style={{
+                  position: "absolute",
+                  top: "max(env(safe-area-inset-top,0px), 14px)", left: 14,
+                  zIndex: 30, width: 40, height: 40, borderRadius: "50%",
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  background: "rgba(255,255,255,0.10)", border: "1px solid rgba(255,255,255,0.14)",
+                  cursor: "pointer", fontSize: 17, lineHeight: 1,
+                }}
+              >🌙</button>
             </div>
           )}
 
