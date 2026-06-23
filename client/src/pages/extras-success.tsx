@@ -22,9 +22,9 @@ export default function ExtrasSuccessPage() {
     "chemistry-pack":       { label: t("item_chemistry_pack_label"),    description: t("item_chemistry_pack_desc"),    icon: <Video className="w-6 h-6 text-primary" /> },
     "deep-connection-pack": { label: t("item_deep_connection_label"),   description: t("item_deep_connection_desc"),   icon: <Video className="w-6 h-6 text-primary" /> },
     "voice-notes-unlock":   { label: "Voice Notes Unlock",              description: "Send & receive voice messages in all chats", icon: <MessageSquare className="w-6 h-6 text-primary" /> },
-    "sparks-1":             { label: "1 Spark",                         description: "1 extra Intention Wheel spin added",         icon: <Sparkles className="w-6 h-6 text-primary" /> },
-    "sparks-3":             { label: "3 Sparks",                        description: "3 extra Intention Wheel spins added",        icon: <Sparkles className="w-6 h-6 text-primary" /> },
-    "sparks-5":             { label: "5 Sparks",                        description: "5 extra Intention Wheel spins added",        icon: <Sparkles className="w-6 h-6 text-primary" /> },
+    "sparks-1":             { label: "1 Halo",                          description: "1 Halo added — spin the wheel to send it",   icon: <Sparkles className="w-6 h-6 text-primary" /> },
+    "sparks-3":             { label: "3 Halos",                         description: "3 Halos added — spin the wheel to send them", icon: <Sparkles className="w-6 h-6 text-primary" /> },
+    "sparks-5":             { label: "5 Halos",                         description: "5 Halos added — spin the wheel to send them", icon: <Sparkles className="w-6 h-6 text-primary" /> },
   };
 
   const MEMBERSHIP_PERKS = [

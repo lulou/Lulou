@@ -642,7 +642,7 @@ function SparkCard({
         boxShadow: "0 2px 8px rgba(188,78,96,0.38)",
       }}>
         <span style={{ fontSize: 10, color: "#fff", fontWeight: 800, letterSpacing: "0.22em", textTransform: "uppercase" }}>
-          ✦ {t("spark_badge_label")}
+          {t("spark_badge_label")}
         </span>
       </div>
 
@@ -722,7 +722,7 @@ function SparkCard({
           {acceptSpark.isPending ? (
             <Loader2 className="w-3.5 h-3.5 animate-spin" />
           ) : (
-            <span style={{ fontSize: 13 }}>✦</span>
+            <span style={{ fontSize: 13 }}>✨</span>
           )}
           <span>{t("spark_accept_btn")}</span>
         </button>
@@ -933,11 +933,10 @@ export default function LikesPage() {
           />
         )}
 
-        {/* ── Lulou Sparks section — above normal likes ── */}
+        {/* ── Lulou Halos section — above normal likes ── */}
         {sparkList.length > 0 && (
           <div className="space-y-2" data-testid="section-sparks">
             <div className="flex items-center gap-2 pb-1">
-              <span style={{ fontSize: 13 }}>✦</span>
               <h2 className="font-serif text-base font-bold" style={{ color: "hsl(350 45% 38%)" }} data-testid="text-sparks-title">
                 {t("sparks_section_title")}
               </h2>

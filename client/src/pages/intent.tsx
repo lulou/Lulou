@@ -684,6 +684,16 @@ type SpinStatus = {
   purchasedSpins?: number;
 };
 
+// Lulou quotes — shown in the reveal stage before profile details appear.
+const LULOU_QUOTES = [
+  "One possibility. One story.",
+  "Sometimes the right person arrives unexpectedly.",
+  "Tonight begins with a hello.",
+  "Some introductions feel different.",
+  "Every connection starts with a moment.",
+  "Lulou chose someone for you tonight.",
+] as const;
+
 // Custom "prize wheel" ease: confident wind-up → thrilling rush → natural friction stop.
 // Phase 1 (0–8 %):  quadratic ease-in — wheel builds momentum from rest.
 // Phase 2 (8–62 %): near-linear fast spin — the exciting rush.
@@ -798,9 +808,11 @@ export default function IntentPage() {
   const [sparksCheckoutLoading, setSparksCheckoutLoading] = useState<string | null>(null);
   const [angle, setAngle] = useState(0);
 
-  // Spin room + Spark state
+  // Spin room + Halo state
   const [showSpinRoom, setShowSpinRoom] = useState(false);
   const [sparkSent, setSparkSent] = useState(false);
+  // Quote shown in reveal stage — picked once when winner lands
+  const [revealQuote, setRevealQuote] = useState<string>("");
 
   // SpinRoom cinematic phase — drives what's visible at each moment
   type SpinPhase = 'idle' | 'accelerate' | 'fast' | 'slow' | 'approach' | 'pullforward' | 'arrive' | 'reveal' | 'pause' | 'buttons';
@@ -995,6 +1007,7 @@ export default function IntentPage() {
         setAngle(angleRef.current);
         setSelectedIndex(targetIndex);
         setSelectedProfile(landedProfile ?? null);
+        setRevealQuote(LULOU_QUOTES[Math.floor(Math.random() * LULOU_QUOTES.length)]);
         setIsSpinning(false);
         console.log("[WHEEL] WINNER_SELECTED", { winner: landedProfile?.firstName, index: targetIndex });
         if (landedProfile) recordSpin.mutate(landedProfile.userId);
@@ -1112,14 +1125,15 @@ export default function IntentPage() {
         el.style.opacity = opacity;
         el.style.filter  = blurPx > 0.3 ? `blur(${blurPx.toFixed(1)}px)` : '';
 
-        // Front-profile glow when spinning
+        // Front-profile glow when spinning — enhanced for luxury feel
         const frontness = Math.max(0, -sinT); // 0=back … 1=top-front
-        if (speedFrac > 0.2 && frontness > 0.4) {
-          const gAlpha = (frontness * speedFrac * 0.55).toFixed(2);
-          const gSize  = Math.round(6 + frontness * 14);
-          el.style.boxShadow = `0 0 ${gSize}px rgba(212,92,116,${gAlpha})`;
+        if (speedFrac > 0.15 && frontness > 0.3) {
+          const gAlpha = (frontness * speedFrac * 0.80).toFixed(2);
+          const gSize  = Math.round(8 + frontness * 22);
+          const gAlpha2 = (frontness * speedFrac * 0.35).toFixed(2);
+          el.style.boxShadow = `0 0 ${gSize}px rgba(212,92,116,${gAlpha}), 0 0 ${gSize * 2}px rgba(212,92,116,${gAlpha2})`;
         } else {
-          el.style.boxShadow = 'none';
+          el.style.boxShadow = '';
         }
       }
 
@@ -1191,9 +1205,9 @@ export default function IntentPage() {
     // One RAF tick so the browser commits the frozen position, then spring to centre
     requestAnimationFrame(() => {
       winner.style.transition =
-        'transform 1.25s cubic-bezier(0.15, 0.0, 0.10, 1), box-shadow 0.8s ease 0.30s';
-      winner.style.transform = 'translate(-50%, -50%) scale(4.2)';
-      winner.style.boxShadow = '0 0 48px 14px rgba(212,92,116,0.32)';
+        'transform 1.35s cubic-bezier(0.12, 0.0, 0.08, 1), box-shadow 1.0s ease 0.20s';
+      winner.style.transform = 'translate(-50%, -50%) scale(4.6)';
+      winner.style.boxShadow = '0 0 60px 18px rgba(212,92,116,0.38), 0 0 120px 40px rgba(212,92,116,0.16)';
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [spinRoomPhase]);
@@ -1208,10 +1222,10 @@ export default function IntentPage() {
     const winner = orbitBubbles.current[selectedIndex];
     if (!winner) return;
     winner.style.transition =
-      'transform 0.95s cubic-bezier(0.2, 0.0, 0.1, 1), box-shadow 0.95s ease';
-    winner.style.transform = 'translate(-50%, -50%) scale(5.0)';
+      'transform 1.1s cubic-bezier(0.18, 0.0, 0.08, 1), box-shadow 1.1s ease';
+    winner.style.transform = 'translate(-50%, -50%) scale(5.6)';
     winner.style.boxShadow =
-      '0 0 80px 28px rgba(212,92,116,0.44), 0 0 140px 52px rgba(212,92,116,0.20)';
+      '0 0 90px 32px rgba(212,92,116,0.55), 0 0 180px 70px rgba(212,92,116,0.22), 0 0 260px 100px rgba(212,92,116,0.10)';
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [spinRoomPhase]);
 
@@ -1242,8 +1256,8 @@ export default function IntentPage() {
           queryClient.invalidateQueries({ queryKey: ["/api/spin-status"] });
           const qty = (data.granted as string[])?.length ?? 1;
           toast({
-            title: `✦ ${qty === 1 ? "1 Spark" : `${qty} Sparks`} added`,
-            description: "Spin the wheel to discover tonight's connection.",
+            title: `✨ ${qty === 1 ? "1 Halo" : `${qty} Halos`} added`,
+            description: "Spin the wheel to send a Halo tonight.",
           });
         } else if (res.status === 402 && tries < 6) {
           setTimeout(activate, 2000);
@@ -1453,10 +1467,19 @@ export default function IntentPage() {
           from { transform: translateY(40px); opacity: 0; }
           to   { transform: translateY(0);   opacity: 1; }
         }
-        @keyframes sparkSentPulse {
+        @keyframes haloSentPulse {
           0%   { transform: scale(0.85); opacity: 0; }
           60%  { transform: scale(1.06); opacity: 1; }
           100% { transform: scale(1);    opacity: 1; }
+        }
+        @keyframes haloRingExpand {
+          0%   { transform: translate(-50%,-50%) scale(1);    opacity: 0.85; }
+          50%  { transform: translate(-50%,-50%) scale(2.8);  opacity: 0.40; }
+          100% { transform: translate(-50%,-50%) scale(4.6);  opacity: 0; }
+        }
+        @keyframes haloRingExpand2 {
+          0%   { transform: translate(-50%,-50%) scale(1);    opacity: 0.55; }
+          100% { transform: translate(-50%,-50%) scale(3.4);  opacity: 0; }
         }
         @keyframes srRevealBg {
           from { opacity: 0; }
@@ -1756,7 +1779,7 @@ export default function IntentPage() {
                 marginTop: -4,
               }}>
                 <span style={{ fontSize: 12, color: "rgba(212,92,116,0.95)", fontWeight: 700 }}>
-                  ✦ {spinStatus!.purchasedSpins} Spark{spinStatus!.purchasedSpins === 1 ? "" : "s"} remaining
+                  ✨ {spinStatus!.purchasedSpins} Halo{spinStatus!.purchasedSpins === 1 ? "" : "s"} remaining
                 </span>
               </div>
             )}
@@ -2136,7 +2159,7 @@ export default function IntentPage() {
                   <span className="text-xs text-muted-foreground font-medium tracking-wide">{t("save_for_later_label")}</span>
                 </button>
 
-                {/* ✦ Send Spark button */}
+                {/* ✨ Send Halo button */}
                 <button
                   className="flex-[2] flex flex-col items-center gap-1.5 py-3 rounded-2xl transition-all active:scale-95 disabled:opacity-60"
                   style={{
@@ -2145,15 +2168,15 @@ export default function IntentPage() {
                   }}
                   onClick={() => selectedProfile && sendSpark.mutate(selectedProfile.userId)}
                   disabled={sendSpark.isPending}
-                  data-testid="button-intent-send-spark"
-                  aria-label={t("spark_send_btn")}
+                  data-testid="button-intent-send-halo"
+                  aria-label="Send Halo"
                 >
                   {sendSpark.isPending
                     ? <Loader2 className="w-5 h-5 text-white animate-spin" />
-                    : <span className="text-lg leading-none">✦</span>
+                    : <span className="text-lg leading-none">✨</span>
                   }
                   <span className="text-xs text-white font-semibold tracking-[0.12em] uppercase">
-                    {sendSpark.isPending ? t("spark_sending_label") : t("spark_send_btn")}
+                    {sendSpark.isPending ? "Sending…" : "Send Halo"}
                   </span>
                 </button>
               </div>
@@ -2246,20 +2269,27 @@ export default function IntentPage() {
                       style={{
                         position: "absolute", top: "50%", left: "50%",
                         transform: `translate(calc(-50% + ${x}px), calc(-50% + ${y}px))`,
-                        width: 40, height: 40, borderRadius: "50%",
+                        width: 46, height: 46, borderRadius: "50%",
                         flexShrink: 0,
                         // box-shadow mutated by RAF (depth glow)
                       }}
                     >
-                      {/* Inner wrapper drives breathing scale + soft shadow */}
+                      {/* Inner wrapper — glass bubble with breathing scale */}
                       <div style={{
                         width: "100%", height: "100%", borderRadius: "50%",
                         overflow: "hidden",
-                        border: "1.5px solid rgba(212,92,116,0.38)",
-                        boxShadow: "0 2px 10px rgba(0,0,0,0.55)",
+                        border: "1.5px solid rgba(212,92,116,0.45)",
+                        boxShadow: "0 2px 12px rgba(0,0,0,0.65), inset 0 1px 2px rgba(255,255,255,0.08)",
                         animation: `srBreathe ${breatheDur}s ${breatheDelay}s ease-in-out infinite`,
+                        position: "relative",
                       }}>
                         <ProfilePhoto userId={item.userId} className="w-full h-full" />
+                        {/* Glass sheen overlay */}
+                        <div style={{
+                          position: "absolute", inset: 0, borderRadius: "50%",
+                          background: "linear-gradient(145deg, rgba(255,255,255,0.10) 0%, transparent 55%)",
+                          pointerEvents: "none",
+                        }} />
                       </div>
                     </div>
                   );
@@ -2353,16 +2383,23 @@ export default function IntentPage() {
 
                 {/* Lulou quote — appears as winner settles at centre */}
                 {(spinRoomPhase === 'arrive' || spinRoomPhase === 'pause') && (
-                  <p key="quote" style={{
-                    fontFamily: "'Playfair Display', Georgia, serif",
-                    fontSize: 13, fontStyle: "italic",
-                    color: "rgba(255,255,255,0.55)",
-                    letterSpacing: "0.02em", lineHeight: 1.55,
-                    animation: "srTextIn 0.9s 0.35s ease both",
-                    maxWidth: 240, margin: "0 auto",
-                  }}>
-                    "Lulou has found tonight's connection."
-                  </p>
+                  <div key="quote" style={{ maxWidth: 252, margin: "0 auto", textAlign: "center" }}>
+                    <p style={{
+                      fontFamily: "'Playfair Display', Georgia, serif",
+                      fontSize: 14, fontStyle: "italic",
+                      color: "rgba(255,255,255,0.60)",
+                      letterSpacing: "0.01em", lineHeight: 1.6,
+                      animation: "srTextIn 0.9s 0.25s ease both",
+                      margin: 0,
+                    }}>
+                      "{revealQuote}"
+                    </p>
+                    <p style={{
+                      fontSize: 10, fontWeight: 700, letterSpacing: "0.22em",
+                      textTransform: "uppercase", color: "rgba(212,92,116,0.65)",
+                      marginTop: 8, animation: "srTextIn 0.7s 0.90s ease both",
+                    }}>— Lulou</p>
+                  </div>
                 )}
               </div>
             </div>
@@ -2433,6 +2470,31 @@ export default function IntentPage() {
                   background: "radial-gradient(ellipse 85% 60% at 50% 28%, rgba(212,92,116,0.20) 0%, transparent 68%)",
                 }} />
 
+                {/* Lulou quote — appears first before profile details */}
+                <div style={{
+                  position: "absolute", bottom: "52%", left: 0, right: 0,
+                  textAlign: "center", zIndex: 4, padding: "0 32px",
+                  pointerEvents: "none",
+                }}>
+                  <p style={{
+                    fontFamily: "'Playfair Display', Georgia, serif",
+                    fontSize: 15, fontStyle: "italic",
+                    color: "rgba(255,255,255,0.68)",
+                    letterSpacing: "0.01em", lineHeight: 1.55,
+                    textShadow: "0 2px 24px rgba(0,0,0,0.70)",
+                    animation: "srTextIn 0.85s 0.15s ease both",
+                    margin: 0,
+                  }}>
+                    "{revealQuote}"
+                  </p>
+                  <p style={{
+                    fontSize: 10, fontWeight: 700, letterSpacing: "0.22em",
+                    textTransform: "uppercase", color: "rgba(212,92,116,0.70)",
+                    marginTop: 9, animation: "srTextIn 0.65s 0.80s ease both",
+                    textShadow: "0 0 16px rgba(212,92,116,0.40)",
+                  }}>— Lulou</p>
+                </div>
+
                 {/* Name / age / signal / location — Playfair reveal */}
                 <div style={{
                   position: "absolute", bottom: 26, left: 0, right: 0,
@@ -2443,7 +2505,7 @@ export default function IntentPage() {
                     fontSize: 9, fontWeight: 900, letterSpacing: "0.38em",
                     textTransform: "uppercase", color: "rgba(212,92,116,0.88)",
                     marginBottom: 10,
-                    animation: "srTextIn 0.50s 0.25s ease both",
+                    animation: "srTextIn 0.50s 0.95s ease both",
                   }}>
                     {t("spin_room_title")}
                   </p>
@@ -2454,7 +2516,7 @@ export default function IntentPage() {
                     fontSize: "clamp(30px,8.5vw,42px)", fontWeight: 700,
                     color: "#fff", margin: 0, lineHeight: 1.05,
                     textShadow: "0 2px 28px rgba(0,0,0,0.60), 0 0 60px rgba(212,92,116,0.18)",
-                    animation: "srTextIn 0.65s 0.75s ease both",
+                    animation: "srTextIn 0.65s 1.45s ease both",
                   }}>
                     {selectedProfile.firstName}
                     {selectedProfile.photoVerified && (
@@ -2531,13 +2593,13 @@ export default function IntentPage() {
                 {sparkSent ? (
                   <div style={{
                     textAlign: "center", padding: "14px 0",
-                    animation: "sparkSentPulse 0.50s cubic-bezier(0.34,1.56,0.64,1) forwards",
+                    animation: "haloSentPulse 0.50s cubic-bezier(0.34,1.56,0.64,1) forwards",
                   }}>
                     <p style={{
                       fontSize: 19, fontWeight: 700,
                       color: "rgba(212,92,116,1.0)", letterSpacing: "0.08em",
                     }}>
-                      {t("spark_sent_label")}
+                      ✨ Halo Sent
                     </p>
                     <p style={{ fontSize: 13, color: "rgba(255,255,255,0.38)", marginTop: 5 }}>
                       We'll let you know if they feel the same.
@@ -2562,7 +2624,7 @@ export default function IntentPage() {
                     <button
                       onClick={() => selectedProfile && sendSpark.mutate(selectedProfile.userId)}
                       disabled={sendSpark.isPending}
-                      data-testid="button-spin-room-send-spark"
+                      data-testid="button-spin-room-send-halo"
                       style={{
                         flex: 2, padding: "16px 10px", borderRadius: 18,
                         background: sendSpark.isPending
@@ -2582,7 +2644,7 @@ export default function IntentPage() {
                         ? <Loader2 style={{ width: 15, height: 15, animation: "spinBtn 0.65s linear infinite" }} />
                         : <span style={{ fontSize: 16, lineHeight: 1 }}>✦</span>
                       }
-                      <span>{sendSpark.isPending ? t("spark_sending_label") : t("spark_send_btn")}</span>
+                      <span>{sendSpark.isPending ? "Sending…" : "Send Halo"}</span>
                     </button>
                   </div>
                 )}
@@ -2633,7 +2695,7 @@ export default function IntentPage() {
                 textTransform: "uppercase", color: "rgba(212,92,116,0.80)",
                 marginBottom: 12,
               }}>
-                Tonight's Connection is Complete
+                Tonight's Halo Is Complete
               </p>
               <h2 style={{
                 fontFamily: "'Playfair Display', Georgia, serif",
@@ -2646,7 +2708,7 @@ export default function IntentPage() {
                 fontSize: 13, color: "rgba(255,255,255,0.38)",
                 marginTop: 8, marginBottom: 0,
               }}>
-                Each Spark opens a new connection.
+                Each Halo opens a new connection.
               </p>
               {(spinStatus?.purchasedSpins ?? 0) > 0 && (
                 <div style={{
@@ -2657,7 +2719,7 @@ export default function IntentPage() {
                   borderRadius: 20, padding: "5px 14px",
                 }}>
                   <span style={{ fontSize: 12, fontWeight: 700, color: "rgba(212,92,116,1)" }}>
-                    ✦ {spinStatus!.purchasedSpins} Spark{spinStatus!.purchasedSpins === 1 ? "" : "s"} remaining
+                    ✨ {spinStatus!.purchasedSpins} Halo{spinStatus!.purchasedSpins === 1 ? "" : "s"} remaining
                   </span>
                 </div>
               )}
@@ -2674,15 +2736,15 @@ export default function IntentPage() {
               fontSize: 10, fontWeight: 800, letterSpacing: "0.24em",
               textTransform: "uppercase", color: "rgba(212,92,116,0.72)",
               textAlign: "center", marginBottom: 14,
-            }}>✦ Get More Sparks</p>
+            }}>✨ Get More Halos</p>
 
-            {/* Spark packs */}
+            {/* Halo packs */}
             <div style={{ padding: "0 20px", display: "flex", flexDirection: "column", gap: 10 }}>
               {(
                 [
-                  { itemId: "sparks-1", label: "1 Spark",  sub: "One more connection tonight",  price: "$2.99",  highlight: false },
-                  { itemId: "sparks-3", label: "3 Sparks", sub: "Three more chances tonight",   price: "$6.99",  highlight: true  },
-                  { itemId: "sparks-5", label: "5 Sparks", sub: "Explore freely tonight",       price: "$9.99",  highlight: false },
+                  { itemId: "sparks-1", label: "1 Halo",  sub: "One more connection tonight",  price: "$2.99",  highlight: false },
+                  { itemId: "sparks-3", label: "3 Halos", sub: "Three more chances tonight",   price: "$6.99",  highlight: true  },
+                  { itemId: "sparks-5", label: "5 Halos", sub: "Explore freely tonight",       price: "$9.99",  highlight: false },
                 ] as const
               ).map(({ itemId, label, sub, price, highlight }) => (
                 <button

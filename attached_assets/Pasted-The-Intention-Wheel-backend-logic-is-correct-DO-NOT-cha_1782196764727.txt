@@ -1,0 +1,269 @@
+The Intention Wheel backend logic is correct.
+
+DO NOT change the matching flow unless required.
+
+This pass is about emotion, branding, animation and experience.
+
+━━━━━━━━━━━━━━━━━━
+HALO BRANDING
+━━━━━━━━━━━━━━━━━━
+
+Remove all references to:
+
+Spark
+Send Spark
+Spark Sent
+Spark Pack
+
+Replace with:
+
+✦ Send Halo
+
+✨ Halo Sent
+
+✨ Halo Received
+
+Daily Halo
+
+1 Halo
+3 Halos
+5 Halos
+
+Recipient experience should clearly show:
+
+✨ Halo Received
+
+Introduced through the Intention Wheel.
+
+This should feel completely different from a normal ❤️ like.
+
+━━━━━━━━━━━━━━━━━━
+WINNER REVEAL
+━━━━━━━━━━━━━━━━━━
+
+Current behaviour feels cheap.
+
+The profile should NOT instantly appear.
+
+When the wheel lands:
+
+Freeze orbit.
+
+Winner bubble glows.
+
+Other bubbles blur and fade.
+
+Background darkens.
+
+Winner circle physically leaves the orbit.
+
+Winner circle travels to the centre.
+
+Winner circle enlarges continuously.
+
+Rose halo expands behind it.
+
+Think:
+
+Apple Dynamic Island animation.
+
+Luxury watch commercial.
+
+Not a modal popup.
+
+━━━━━━━━━━━━━━━━━━
+BUILD EXCITEMENT
+━━━━━━━━━━━━━━━━━━
+
+After the winner reaches centre:
+
+Pause.
+
+Soft haptic.
+
+Subtle sound.
+
+Show quote first.
+
+Random examples:
+
+“One possibility. One story.”
+
+“Sometimes the right person arrives unexpectedly.”
+
+“Tonight begins with a hello.”
+
+“Some introductions feel different.”
+
+— Lulou
+
+Pause.
+
+Then reveal:
+
+TONIGHT’S CONNECTION
+
+Large Playfair name
+
+Age
+
+Signal word
+
+Location
+
+Pause.
+
+Only then reveal buttons.
+
+Buttons:
+
+🌙 Close
+
+✦ Send Halo
+
+Buttons appear LAST.
+
+━━━━━━━━━━━━━━━━━━
+MAKE THE WHEEL BEAUTIFUL
+━━━━━━━━━━━━━━━━━━
+
+Current wheel still feels flat.
+
+Transform it into a luxury object.
+
+Add:
+
+Glass effect
+
+Depth
+
+Moving highlights
+
+Conic reflections
+
+Inner glow
+
+Watch-face styling
+
+Rose ambient lighting
+
+Particles
+
+The wheel should feel like a premium object.
+
+Orbit bubbles should:
+
+Breathe
+
+Pulse
+
+Blur with depth
+
+Glow at the front
+
+Feel alive
+
+━━━━━━━━━━━━━━━━━━
+AFTER SEND HALO
+━━━━━━━━━━━━━━━━━━
+
+Show:
+
+✨ Halo Sent
+
+“We’ll let you know if they feel the same.”
+
+Pause 2.2 seconds.
+
+Then automatically show:
+
+TONIGHT’S HALO IS COMPLETE
+
+Discover more connections tonight.
+
+Options:
+
+✦ 1 Halo
+
+✦ 3 Halos
+
+✦ 5 Halos
+
+Secondary:
+
+Back to Lulou
+
+━━━━━━━━━━━━━━━━━━
+AFTER CLOSE
+━━━━━━━━━━━━━━━━━━
+
+Show:
+
+Tonight’s connection is complete.
+
+Another introduction awaits.
+
+Then show the same Halo sheet.
+
+The Halo sheet must appear automatically after:
+
+Close
+
+Halo Sent
+
+Locked wheel button
+
+Never interrupt the reveal.
+
+━━━━━━━━━━━━━━━━━━
+REMOVE THE FEELING OF “WINNING A PERSON”
+
+The experience should feel like:
+
+Lulou introduced someone.
+
+Not:
+
+The wheel rewarded someone.
+
+Everything should feel elegant and emotional.
+
+━━━━━━━━━━━━━━━━━━
+VALIDATION
+
+Verify:
+
+Winner bubble visibly travels to centre.
+
+Winner enlarges continuously.
+
+No instant profile switch.
+
+Quote appears before profile details.
+
+Buttons appear last.
+
+Recipient sees Halo Received instead of ❤️.
+
+Halo sheet appears after Close.
+
+Halo sheet appears after Halo Sent.
+
+Locked wheel button still opens Halo sheet.
+
+Run:
+
+npm run check
+
+npm run build
+
+Report:
+
+Files changed.
+
+Animation improvements.
+
+Branding changes.
+
+Proof Halo flow works end-to-end.
+
