@@ -827,6 +827,7 @@ export default function IntentPage() {
   const orbitLastTimeRef = useRef(0);
   const orbitGlowRef    = useRef<HTMLDivElement>(null);
   const orbitRingRef2   = useRef<HTMLDivElement>(null);
+  const landingMarkerRef = useRef<HTMLDivElement>(null); // 12 o'clock jewel marker
   const spinPhaseRef = useRef<SpinPhase>('idle');  // readable inside RAF without stale-closure issues
 
   // Use the last non-empty ref as fallback so the wheel stays visible when the
@@ -1005,15 +1006,11 @@ export default function IntentPage() {
       } else {
         angleRef.current = startAngle + totalRotation;
         setAngle(angleRef.current);
-        setSelectedIndex(targetIndex);
-        setSelectedProfile(landedProfile ?? null);
-        setRevealQuote(LULOU_QUOTES[Math.floor(Math.random() * LULOU_QUOTES.length)]);
         setIsSpinning(false);
-        console.log("[WHEEL] WINNER_SELECTED", { winner: landedProfile?.firstName, index: targetIndex });
-        if (landedProfile) recordSpin.mutate(landedProfile.userId);
+        // Winner is resolved at pullforward time by reading which orbit bubble
+        // naturally lands under the 12 o'clock marker — set background display only.
         setTimeout(() => setDispersed(true), 260);
         setTimeout(() => setShowConfetti(true), 420);
-        setTimeout(() => setShowProfile(true), 720);
         setTimeout(() => setShowConfetti(false), 2300);
       }
     };
@@ -1049,19 +1046,47 @@ export default function IntentPage() {
     go('accelerate', 180);
     console.log('[WHEEL] SPIN_START');
     const ts = [
-      setTimeout(() => { go('fast', 360);      console.log('[WHEEL] FAST_PHASE');      },  2000),
-      setTimeout(() => { go('slow',  40);      console.log('[WHEEL] SLOW_PHASE');      },  5000),
-      setTimeout(() => { go('approach', 8);    console.log('[WHEEL] WINNER_APPROACH'); },  7000),
-      setTimeout(() => { go('pullforward', 0); console.log('[WHEEL] PULL_FORWARD');    },  7800),
-      setTimeout(() => { go('arrive', 0);      console.log('[WHEEL] WINNER_ARRIVE');   },  9000),
+      setTimeout(() => { go('fast', 360);   console.log('[WHEEL] FAST_PHASE');      },  2000),
+      setTimeout(() => { go('slow',  40);   console.log('[WHEEL] SLOW_PHASE');      },  5000),
+      // Approach: decelerate orbit to near-zero so one bubble settles under the marker
+      setTimeout(() => { go('approach', 0); console.log('[WHEEL] WINNER_APPROACH'); },  7000),
+      // Pullforward: read which bubble is at 12 o'clock — that IS the winner
+      setTimeout(() => {
+        const N_orb = Math.min(items.length, 10);
+        const aRad_now = (orbitAngleRef2.current * Math.PI) / 180;
+        let closestI = 0;
+        let minSin = Infinity;
+        for (let ii = 0; ii < N_orb; ii++) {
+          const base = (ii / N_orb) * Math.PI * 2 - Math.PI / 2;
+          const sinVal = Math.sin(base + aRad_now);
+          if (sinVal < minSin) { minSin = sinVal; closestI = ii; }
+        }
+        const winner = items[closestI];
+        console.log('[WHEEL] PULL_FORWARD', { winner: winner?.firstName, index: closestI });
+        if (winner) {
+          setSelectedIndex(closestI);
+          setSelectedProfile(winner);
+          setRevealQuote(LULOU_QUOTES[Math.floor(Math.random() * LULOU_QUOTES.length)]);
+          recordSpin.mutate(winner.userId);
+          setShowProfile(true);
+        }
+        // Brighten the landing marker at the moment of selection
+        if (landingMarkerRef.current) {
+          landingMarkerRef.current.style.opacity = '1';
+          landingMarkerRef.current.style.filter = 'drop-shadow(0 0 10px rgba(212,92,116,1)) drop-shadow(0 2px 18px rgba(212,92,116,0.70))';
+        }
+        try { (navigator as any).vibrate?.([15, 10, 30]); } catch {}
+        go('pullforward', 0);
+      },  8400),
+      setTimeout(() => { go('arrive', 0);   console.log('[WHEEL] WINNER_ARRIVE');   },  9800),
       setTimeout(() => {
         go('reveal', 0);
         console.log('[WHEEL] WINNER_REVEAL');
         if (!muted) playChime();
         try { (navigator as any).vibrate?.([60, 40, 120]); } catch {}
-      }, 9800),
-      setTimeout(() => go('pause',   0), 11200),
-      setTimeout(() => { go('buttons', 0); console.log('[WHEEL] BUTTONS_VISIBLE'); }, 12000),
+      }, 11200),
+      setTimeout(() => go('pause',   0), 13500),
+      setTimeout(() => { go('buttons', 0); console.log('[WHEEL] BUTTONS_VISIBLE'); }, 19500),
     ];
     return () => ts.forEach(clearTimeout);
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1156,6 +1181,31 @@ export default function IntentPage() {
         orbitRingRef2.current.style.boxShadow = frac > 0.25
           ? `0 0 ${Math.round(10 + frac * 26)}px rgba(212,92,116,${(0.08 + frac * 0.22).toFixed(2)})`
           : 'none';
+      }
+
+      // Landing marker glow — pulses gently during slow, brightens as orbit nears 0
+      if (landingMarkerRef.current) {
+        const phase = spinPhaseRef.current;
+        if (phase === 'slow' || phase === 'approach') {
+          // Proximity: how close the nearest bubble is to 12 o'clock (sin = -1)
+          let minSin = 0;
+          for (let ii = 0; ii < N; ii++) {
+            const base = (ii / N) * Math.PI * 2 - Math.PI / 2;
+            const s = Math.sin(base + aRad);
+            if (s < minSin) minSin = s;
+          }
+          const proximity = (-minSin); // 0..1 where 1 = exactly at top
+          const speedFrac = Math.min(orbitSpeedRef2.current / 40, 1);
+          const opacity = (0.55 + proximity * 0.45 * (1 - speedFrac * 0.4)).toFixed(2);
+          const glowSize = Math.round(4 + proximity * 12);
+          const glowAlpha = (0.40 + proximity * 0.55).toFixed(2);
+          landingMarkerRef.current.style.opacity = opacity;
+          landingMarkerRef.current.style.filter =
+            `drop-shadow(0 0 ${glowSize}px rgba(212,92,116,${glowAlpha}))`;
+        } else if (phase === 'idle' || phase === 'accelerate' || phase === 'fast') {
+          landingMarkerRef.current.style.opacity = '0.45';
+          landingMarkerRef.current.style.filter = 'none';
+        }
       }
 
       orbitRafRef2.current = requestAnimationFrame(tick);
@@ -2252,6 +2302,45 @@ export default function IntentPage() {
                   border: "1px solid rgba(212,92,116,0.20)",
                 }} />
 
+                {/* ── 12 o'clock landing marker — rose-gold jewel setting ── */}
+                {/* Sits at the top of the orbit ring. Winner must arrive here. */}
+                <div
+                  ref={landingMarkerRef}
+                  style={{
+                    position: "absolute",
+                    top: -6,
+                    left: "50%",
+                    transform: "translateX(-50%)",
+                    display: "flex", flexDirection: "column", alignItems: "center",
+                    pointerEvents: "none", zIndex: 20,
+                    opacity: 0.45,
+                    transition: "opacity 0.5s ease, filter 0.5s ease",
+                  }}
+                >
+                  {/* Crown jewel — rose-gold rotated square (diamond) */}
+                  <div style={{
+                    width: 9, height: 9,
+                    background: "linear-gradient(135deg, #fce4e9 0%, #d45c74 38%, #9d3550 100%)",
+                    transform: "rotate(45deg)",
+                    boxShadow: "0 0 6px rgba(212,92,116,0.65), 0 0 14px rgba(212,92,116,0.30)",
+                    borderRadius: "1px",
+                    flexShrink: 0,
+                  }} />
+                  {/* Stem — tapers down toward orbit ring */}
+                  <div style={{
+                    width: 1.5, height: 8,
+                    background: "linear-gradient(to bottom, rgba(212,92,116,0.85), rgba(212,92,116,0.20))",
+                    marginTop: -1, flexShrink: 0,
+                  }} />
+                  {/* Touch-point dot — sits ON the orbit ring */}
+                  <div style={{
+                    width: 5, height: 5, borderRadius: "50%",
+                    background: "rgba(212,92,116,0.90)",
+                    boxShadow: "0 0 5px 2px rgba(212,92,116,0.55)",
+                    flexShrink: 0,
+                  }} />
+                </div>
+
                 {/* Profile bubbles — outer div RAF-positioned, inner div breathes */}
                 {items.slice(0, Math.min(items.length, 10)).map((item, i) => {
                   const N    = Math.min(items.length, 10);
@@ -2381,26 +2470,7 @@ export default function IntentPage() {
                   }}>Almost there…</p>
                 )}
 
-                {/* Lulou quote — appears as winner settles at centre */}
-                {(spinRoomPhase === 'arrive' || spinRoomPhase === 'pause') && (
-                  <div key="quote" style={{ maxWidth: 252, margin: "0 auto", textAlign: "center" }}>
-                    <p style={{
-                      fontFamily: "'Playfair Display', Georgia, serif",
-                      fontSize: 14, fontStyle: "italic",
-                      color: "rgba(255,255,255,0.60)",
-                      letterSpacing: "0.01em", lineHeight: 1.6,
-                      animation: "srTextIn 0.9s 0.25s ease both",
-                      margin: 0,
-                    }}>
-                      "{revealQuote}"
-                    </p>
-                    <p style={{
-                      fontSize: 10, fontWeight: 700, letterSpacing: "0.22em",
-                      textTransform: "uppercase", color: "rgba(212,92,116,0.65)",
-                      marginTop: 8, animation: "srTextIn 0.7s 0.90s ease both",
-                    }}>— Lulou</p>
-                  </div>
-                )}
+                {/* Quote removed from orbit stage — shown exclusively in the reveal stage */}
               </div>
             </div>
 
@@ -2470,53 +2540,55 @@ export default function IntentPage() {
                   background: "radial-gradient(ellipse 85% 60% at 50% 28%, rgba(212,92,116,0.20) 0%, transparent 68%)",
                 }} />
 
-                {/* Lulou quote — appears first before profile details */}
+                {/* ── Lulou quote — first thing to appear ── */}
                 <div style={{
-                  position: "absolute", bottom: "52%", left: 0, right: 0,
-                  textAlign: "center", zIndex: 4, padding: "0 32px",
+                  position: "absolute", bottom: "50%", left: 0, right: 0,
+                  textAlign: "center", zIndex: 4, padding: "0 36px",
                   pointerEvents: "none",
                 }}>
                   <p style={{
                     fontFamily: "'Playfair Display', Georgia, serif",
-                    fontSize: 15, fontStyle: "italic",
-                    color: "rgba(255,255,255,0.68)",
-                    letterSpacing: "0.01em", lineHeight: 1.55,
-                    textShadow: "0 2px 24px rgba(0,0,0,0.70)",
-                    animation: "srTextIn 0.85s 0.15s ease both",
+                    fontSize: 16, fontStyle: "italic",
+                    color: "rgba(255,255,255,0.70)",
+                    letterSpacing: "0.01em", lineHeight: 1.6,
+                    textShadow: "0 2px 28px rgba(0,0,0,0.80)",
+                    animation: "srTextIn 1.1s 0.4s ease both",
                     margin: 0,
                   }}>
                     "{revealQuote}"
                   </p>
+                  {/* "— Lulou" appears 1.2 s after the quote */}
                   <p style={{
-                    fontSize: 10, fontWeight: 700, letterSpacing: "0.22em",
-                    textTransform: "uppercase", color: "rgba(212,92,116,0.70)",
-                    marginTop: 9, animation: "srTextIn 0.65s 0.80s ease both",
-                    textShadow: "0 0 16px rgba(212,92,116,0.40)",
+                    fontSize: 10, fontWeight: 700, letterSpacing: "0.24em",
+                    textTransform: "uppercase", color: "rgba(212,92,116,0.75)",
+                    marginTop: 10,
+                    animation: "srTextIn 0.70s 1.6s ease both",
+                    textShadow: "0 0 18px rgba(212,92,116,0.45)",
                   }}>— Lulou</p>
                 </div>
 
-                {/* Name / age / signal / location — Playfair reveal */}
+                {/* ── Profile details — each element fades in one at a time ── */}
                 <div style={{
                   position: "absolute", bottom: 26, left: 0, right: 0,
                   textAlign: "center", zIndex: 4, padding: "0 28px",
                 }}>
-                  {/* Eyebrow — "TONIGHT'S CONNECTION" */}
+                  {/* Eyebrow — appears ~3 s after reveal fires */}
                   <p style={{
-                    fontSize: 9, fontWeight: 900, letterSpacing: "0.38em",
-                    textTransform: "uppercase", color: "rgba(212,92,116,0.88)",
-                    marginBottom: 10,
-                    animation: "srTextIn 0.50s 0.95s ease both",
+                    fontSize: 9, fontWeight: 900, letterSpacing: "0.40em",
+                    textTransform: "uppercase", color: "rgba(212,92,116,0.92)",
+                    marginBottom: 12,
+                    animation: "srTextIn 0.60s 3.0s ease both",
                   }}>
                     {t("spin_room_title")}
                   </p>
 
-                  {/* Name — Playfair Display, large */}
+                  {/* Name — Playfair Display, large — appears ~4.5 s */}
                   <h2 style={{
                     fontFamily: "'Playfair Display', Georgia, serif",
-                    fontSize: "clamp(30px,8.5vw,42px)", fontWeight: 700,
+                    fontSize: "clamp(30px,8.5vw,44px)", fontWeight: 700,
                     color: "#fff", margin: 0, lineHeight: 1.05,
-                    textShadow: "0 2px 28px rgba(0,0,0,0.60), 0 0 60px rgba(212,92,116,0.18)",
-                    animation: "srTextIn 0.65s 1.45s ease both",
+                    textShadow: "0 2px 32px rgba(0,0,0,0.65), 0 0 60px rgba(212,92,116,0.20)",
+                    animation: "srTextIn 0.80s 4.5s ease both",
                   }}>
                     {selectedProfile.firstName}
                     {selectedProfile.photoVerified && (
@@ -2527,36 +2599,36 @@ export default function IntentPage() {
                     )}
                   </h2>
 
-                  {/* Age */}
+                  {/* Age — appears ~5.7 s */}
                   {selectedProfile.age && (
                     <p style={{
-                      fontSize: 15, fontWeight: 400,
-                      color: "rgba(255,255,255,0.52)", marginTop: 5,
-                      animation: "srTextIn 0.50s 1.15s ease both",
+                      fontSize: 16, fontWeight: 300,
+                      color: "rgba(255,255,255,0.50)", marginTop: 6,
+                      animation: "srTextIn 0.60s 5.7s ease both",
                     }}>
                       {selectedProfile.age}
                     </p>
                   )}
 
-                  {/* Signal word */}
+                  {/* Signal word — appears ~6.8 s */}
                   {selectedProfile.signals && selectedProfile.signals.length > 0 && (
                     <p style={{
                       fontFamily: "'Playfair Display', Georgia, serif",
                       fontSize: 15, fontStyle: "italic",
-                      color: "rgba(255,255,255,0.65)", marginTop: 8,
-                      animation: "srTextIn 0.55s 1.45s ease both",
+                      color: "rgba(255,255,255,0.62)", marginTop: 9,
+                      animation: "srTextIn 0.65s 6.8s ease both",
                     }}>
                       "{selectedProfile.signals[0]}"
                     </p>
                   )}
 
-                  {/* Location */}
+                  {/* Location — appears ~7.8 s */}
                   {selectedProfile.location && (
                     <p style={{
-                      fontSize: 12, color: "rgba(255,255,255,0.34)", marginTop: 7,
+                      fontSize: 12, color: "rgba(255,255,255,0.32)", marginTop: 8,
                       display: "flex", alignItems: "center",
                       justifyContent: "center", gap: 4,
-                      animation: "srTextIn 0.50s 1.70s ease both",
+                      animation: "srTextIn 0.55s 7.8s ease both",
                     }}>
                       <MapPin style={{ width: 11, height: 11 }} />
                       {selectedProfile.location}

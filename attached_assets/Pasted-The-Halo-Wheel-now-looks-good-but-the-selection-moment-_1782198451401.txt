@@ -1,0 +1,203 @@
+The Halo Wheel now looks good, but the selection moment is unclear.
+
+Problem:
+When the wheel stops, users cannot tell which profile is going to be chosen. A profile on the side can be selected, which feels random because there is no visible landing zone.
+
+━━━━━━━━━━━━━━━━━━
+LANDING ZONE
+━━━━━━━━━━━━━━━━━━
+
+Add a fixed landing marker at the 12 o’clock position.
+
+Style:
+
+Rose-gold.
+
+Luxury.
+
+Minimal.
+
+Soft glow.
+
+Think:
+
+Apple Watch crown detail.
+
+Jewellery setting.
+
+No arcade arrow.
+
+The wheel spins underneath this marker.
+
+The winner must be the profile that visually arrives under this marker.
+
+━━━━━━━━━━━━━━━━━━
+SELECTION BEHAVIOUR
+━━━━━━━━━━━━━━━━━━
+
+Flow:
+
+Wheel spins.
+Orbit slows.
+One profile approaches the landing marker.
+That profile aligns perfectly under the marker.
+Marker glows.
+Haptic feedback.
+The orbit freezes.
+That exact profile is chosen.
+No side profile should randomly win.
+
+Users should be able to think:
+
+“That’s the one.”
+
+━━━━━━━━━━━━━━━━━━
+PULL FORWARD
+━━━━━━━━━━━━━━━━━━
+
+After landing under the marker:
+
+Do NOT instantly reveal the profile.
+
+Use that exact orbit circle.
+
+The circle leaves the orbit.
+
+Moves towards the centre.
+
+Enlarges continuously.
+
+Rose halo expands behind it.
+
+Other profiles:
+
+blur
+
+darken
+
+fade
+
+The user must physically watch the winner being chosen.
+
+━━━━━━━━━━━━━━━━━━
+DO NOT RUSH THE REVEAL
+━━━━━━━━━━━━━━━━━━
+
+Current reveal still happens too quickly.
+
+Slow everything down.
+
+After the winner reaches the centre:
+
+Pause.
+
+Glow expands.
+
+Small haptic.
+
+Soft sound.
+
+Wait.
+
+Show a Lulou quote.
+
+Examples:
+
+“Some introductions feel different.”
+
+“Tonight begins with a hello.”
+
+“One possibility. One story.”
+
+“Sometimes the right person arrives unexpectedly.”
+
+— Lulou
+
+Wait again.
+
+Show:
+
+TONIGHT’S CONNECTION
+
+Wait.
+
+Large Playfair name fades in.
+
+Wait.
+
+Age fades in.
+
+Wait.
+
+Signal word fades in.
+
+Wait.
+
+Location fades in.
+
+Wait.
+
+Nothing else.
+
+Allow the user to absorb the moment.
+
+Only after all details have appeared should the buttons animate in.
+
+Buttons:
+
+🌙 Close
+
+✦ Send Halo
+
+━━━━━━━━━━━━━━━━━━
+GOAL
+━━━━━━━━━━━━━━━━━━
+
+The experience should feel like:
+
+A luxury watch reveal.
+
+A Netflix character introduction.
+
+An Apple keynote.
+
+Not:
+
+A card appearing.
+
+A modal.
+
+A random profile.
+
+Make the moment emotional and memorable.
+
+━━━━━━━━━━━━━━━━━━
+VALIDATION
+
+Verify:
+
+• Fixed landing marker exists.
+• Winner aligns under the marker.
+• Winner is pulled from that exact position.
+• Winner enlarges into centre.
+• Reveal is slow and cinematic.
+• Quote appears before profile details.
+• Buttons appear last.
+• Nothing feels rushed.
+
+Run:
+
+npm run check
+
+npm run build
+
+Report:
+
+Files changed.
+
+Landing marker design.
+
+Reveal timeline.
+
+Proof the selected profile lands under the marker before pull-forward.
+
