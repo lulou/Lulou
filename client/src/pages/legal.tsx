@@ -185,7 +185,7 @@ export function PrivacyPolicyPage() {
         <BulletList items={[
           "To match you with compatible people based on your preferences and location.",
           "To operate and personalise your experience on the platform.",
-          "To deliver messages, facilitate calls, and power the Spark progression system.",
+          "To deliver messages, facilitate calls, and power the connection progression system.",
           "To process payments and manage subscription benefits.",
           "To enforce our Community Guidelines and keep the platform safe.",
           "To send transactional emails (e.g. email verification, match notifications) — never marketing without your consent.",
@@ -313,7 +313,7 @@ export function TermsOfServicePage() {
           "Send unsolicited explicit, sexual, or offensive content.",
           "Impersonate any person or entity, or misrepresent your identity.",
           "Use the platform for commercial solicitation, advertising, or multi-level marketing.",
-          "Share or solicit contact details (phone numbers, social media handles, emails) before the platform unlocks them through the Spark progression.",
+          "Share or solicit contact details (phone numbers, social media handles, emails) before the platform unlocks them through the connection progression.",
           "Distribute spam, malware, or phishing links.",
           "Scrape, crawl, or systematically collect data from the platform.",
           "Attempt to reverse-engineer, decompile, or hack any part of the Service.",
