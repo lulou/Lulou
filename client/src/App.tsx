@@ -1368,7 +1368,7 @@ async function checkProfileExists(
 // checkProfileExists (4 s) so the fetch has time to fail cleanly before the
 // spinner declares a timeout.  Acts only as a last-resort backstop for cases
 // where the request stalls without triggering a TCP reset.
-const SPINNER_TIMEOUT_MS = 12_000;
+const SPINNER_TIMEOUT_MS = 22_000;
 
 // ── Email verification gate ──────────────────────────────────────────────────
 // Standalone component so it can use useState without violating the rules
@@ -1846,11 +1846,12 @@ function AppContent() {
       });
     },
     enabled: !!user && profileReady && !clearingCache,
-    // No auto-retry — the fetch has a 4 s AbortController abort so failures
-    // surface quickly.  The "Try Again" button on the error screen handles
-    // manual retry.  Auto-retry caused a second 5 s spinner cycle that produced
-    // the duplicate "Taking longer than expected" message.
-    retry: 0,
+    // Auto-retry twice (3 attempts total) before surfacing the error screen.
+    // Each attempt has a 4 s AbortController abort in checkProfileExists().
+    // SPINNER_TIMEOUT_MS is set to 22 s to give all 3 attempts room to breathe
+    // before the spinner-timeout circuit fires.
+    retry: 2,
+    retryDelay: 800,
     staleTime: Infinity,
   });
 
@@ -2111,89 +2112,41 @@ function AppContent() {
   // Auth is already confirmed above (user is non-null, authLoading=false).
   if (forceProceed) {
     console.warn("[SETUP] FINAL_APP_GATE: render_main_app (force_proceed_early_exit)", {
-      userId: user.id,
-      profileExists,
-      fetchFailed,
-      isSpinning,
-      spinnerTimedOut,
-      profilePending,
-      clearingCache,
-      profileReady,
-      sessionStorage: sessionStorage.getItem("lulou-bypass"),
+      userId: user.id, profileExists, fetchFailed, isSpinning,
+      spinnerTimedOut, profilePending, clearingCache, profileReady,
     });
     return (
-      <>
-        <div
-          data-testid="bypass-banner"
-          style={{
-            position: "fixed", top: 0, left: 0, right: 0, zIndex: 9999,
-            background: "#fef3c7", borderBottom: "1px solid #f59e0b",
-            padding: "4px 12px", fontSize: 11, fontFamily: "monospace",
-            display: "flex", gap: 8, alignItems: "center",
-          }}
-        >
-          <span style={{ fontWeight: 700 }}>BYPASS ACTIVE</span>
-          <span>user:{user.id.slice(0,8)}</span>
-          <span>profile:{String(profileExists)}</span>
-          <span>fetchFailed:{String(fetchFailed)}</span>
-          <span>storage:{sessionStorage.getItem("lulou-bypass") ?? "null"}</span>
-          <button
-            style={{ marginLeft: "auto", fontSize: 11, cursor: "pointer" }}
-            onClick={() => setForceProceed(false)}
-          >
-            clear bypass
-          </button>
-        </div>
-        <div style={{ paddingTop: 24 }}>
-          <Switch>
-            <Route path="/elevate/success" component={ElevateSuccessPage} />
-            <Route path="/extras/success" component={ExtrasSuccessPage} />
-            <Route>
-              <AppLayout>
-                <PersistentTabs />
-                <CallDetectors userId={user.id} />
-              </AppLayout>
-            </Route>
-          </Switch>
-        </div>
-      </>
+      <Switch>
+        <Route path="/elevate/success" component={ElevateSuccessPage} />
+        <Route path="/extras/success" component={ExtrasSuccessPage} />
+        <Route>
+          <AppLayout>
+            <PersistentTabs />
+            <CallDetectors userId={user.id} />
+          </AppLayout>
+        </Route>
+      </Switch>
     );
   }
 
-  const statusPanel = (
-    <div className="w-full max-w-xs text-left bg-muted/40 border border-muted rounded-md p-3 space-y-1 text-xs text-muted-foreground font-mono mt-2">
-      <p data-testid="debug-user">user: {user.id.slice(0, 8)}…</p>
-      <p data-testid="debug-auth">authReady: {authLoading ? "no" : "yes"}</p>
-      <p data-testid="debug-session">sessionExists: {user ? "yes" : "no"}</p>
-      <p data-testid="debug-profile-exists">profileExists: {String(profileExists)}</p>
-      <p data-testid="debug-effective">effectiveProfileExists: {String(effectiveProfileExists)}</p>
-      <p data-testid="debug-fetch-failed">fetchFailed: {String(fetchFailed)}</p>
-      <p data-testid="debug-spinner-timed-out">spinnerTimedOut: {String(spinnerTimedOut)}</p>
-      <p data-testid="debug-force-proceed">forceProceed: {String(forceProceed)}</p>
-      <p data-testid="debug-onboarding-complete">onboardingComplete: {String(profileExists)}</p>
-      <p data-testid="debug-route">route: {location}</p>
-      <p data-testid="debug-final-gate">finalGateDecision: {finalGateDecision}</p>
-      <p data-testid="debug-phase">phase: {phaseLabel}</p>
-      <p data-testid="debug-storage">storage[lulou-bypass]: {sessionStorage.getItem("lulou-bypass") ?? "null"}</p>
-    </div>
-  );
-
   if (isSpinning) {
     if (spinnerTimedOut) {
-      // The spinner ran past SPINNER_TIMEOUT_MS — abort and show retry screen.
+      // The spinner ran past SPINNER_TIMEOUT_MS — all retries exhausted; show recovery screen.
       console.warn("[SETUP] FINAL_APP_GATE: blocked_by_loading_state (spinner_timeout)", {
         userId: user.id, clearingCache, profilePending, profileReady, spinnerTimedOut,
       });
       return (
         <div className="min-h-screen flex items-center justify-center bg-background">
           <div className="flex flex-col items-center gap-4 text-center px-6 max-w-sm w-full">
-            <p className="text-lg font-serif font-semibold">Taking longer than expected</p>
-            <p className="text-sm text-muted-foreground">We couldn't finish loading your profile. You're still signed in — this is usually a temporary server issue.</p>
-            {statusPanel}
-            <div className="flex flex-wrap justify-center gap-3 pt-1">
+            <p className="text-2xl font-serif font-semibold" data-testid="text-timeout-title">Taking a little longer than usual.</p>
+            <p className="text-sm text-muted-foreground leading-relaxed" data-testid="text-timeout-body">
+              Your account is safe. We're reconnecting you to Lulou.
+            </p>
+            <div className="flex flex-wrap justify-center gap-3 pt-2">
               <button
-                className="px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:brightness-110 transition-all"
+                className="px-5 py-2.5 rounded-full bg-primary text-primary-foreground text-sm font-medium hover:brightness-110 transition-all"
                 onClick={() => {
+                  console.warn("[SETUP] RETRY: user tapped Try Again on timeout screen", { userId: user?.id });
                   setSpinnerTimedOut(false);
                   spinnerStartRef.current = null;
                   queryClient.resetQueries({ queryKey: ["profile-exists-check"] });
@@ -2203,23 +2156,16 @@ function AppContent() {
                 Try Again
               </button>
               <button
-                className="px-4 py-2 rounded-md bg-primary/80 text-primary-foreground text-sm font-medium hover:brightness-110 transition-all"
-                onClick={() => {
-                  console.warn("[SETUP] FORCE_PROCEED: user bypassed timeout screen", { userId: user?.id });
-                  setForceProceed(true);
-                }}
-                data-testid="button-continue-app-timeout"
-              >
-                Continue to App
-              </button>
-              <button
-                className="px-4 py-2 rounded-md border text-sm font-medium hover:bg-muted transition-all"
+                className="px-5 py-2.5 rounded-full border text-sm font-medium hover:bg-muted transition-all"
                 onClick={logout}
                 data-testid="button-signout-setup"
               >
                 Sign Out
               </button>
             </div>
+            <p className="text-xs text-muted-foreground/60 mt-1">
+              If this keeps happening, close and reopen the app.
+            </p>
           </div>
         </div>
       );
@@ -2249,35 +2195,32 @@ function AppContent() {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-4 text-center px-6 max-w-sm w-full">
-          <p className="text-lg font-serif font-semibold">Couldn't load your profile</p>
-          <p className="text-sm text-muted-foreground">Your account is fine — the server returned an error when fetching your profile. This is temporary.</p>
-          {statusPanel}
-          <div className="flex flex-wrap justify-center gap-3 pt-1">
+          <p className="text-2xl font-serif font-semibold" data-testid="text-fetch-failed-title">Taking a little longer than usual.</p>
+          <p className="text-sm text-muted-foreground leading-relaxed" data-testid="text-fetch-failed-body">
+            Your account is safe. We're reconnecting you to Lulou.
+          </p>
+          <div className="flex flex-wrap justify-center gap-3 pt-2">
             <button
-              className="px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:brightness-110 transition-all"
-              onClick={() => queryClient.invalidateQueries({ queryKey: ["profile-exists-check"] })}
+              className="px-5 py-2.5 rounded-full bg-primary text-primary-foreground text-sm font-medium hover:brightness-110 transition-all"
+              onClick={() => {
+                console.warn("[SETUP] RETRY: user tapped Try Again on fetch-failed screen", { userId: user?.id });
+                queryClient.resetQueries({ queryKey: ["profile-exists-check"] });
+              }}
               data-testid="button-retry-profile"
             >
               Try Again
             </button>
             <button
-              className="px-4 py-2 rounded-md bg-primary/80 text-primary-foreground text-sm font-medium hover:brightness-110 transition-all"
-              onClick={() => {
-                console.warn("[SETUP] FORCE_PROCEED: user bypassed profile-fetch-failed screen", { userId: user?.id });
-                setForceProceed(true);
-              }}
-              data-testid="button-continue-app-error"
-            >
-              Continue to App
-            </button>
-            <button
-              className="px-4 py-2 rounded-md border text-sm font-medium hover:bg-muted transition-all"
+              className="px-5 py-2.5 rounded-full border text-sm font-medium hover:bg-muted transition-all"
               onClick={logout}
               data-testid="button-signout-profile"
             >
               Sign Out
             </button>
           </div>
+          <p className="text-xs text-muted-foreground/60 mt-1">
+            If this keeps happening, close and reopen the app.
+          </p>
         </div>
       </div>
     );
