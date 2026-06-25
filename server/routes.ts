@@ -2591,6 +2591,8 @@ export async function registerRoutes(
       const { matchId } = req.params;
       const { audioBase64, mimeType } = req.body;
 
+      console.log(`[VOICE] RECEIVE matchId=${matchId} userId=${userId} mimeType=${mimeType}`);
+
       if (!audioBase64 || typeof audioBase64 !== "string") {
         return res.status(400).json({ message: "audioBase64 is required" });
       }
@@ -2616,6 +2618,8 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Invalid audio data" });
       }
 
+      console.log(`[VOICE] BUFFER_SIZE ${audioBuffer.length}B mimeType=${mimeType}`);
+
       if (audioBuffer.length < 1_000) {
         return res.status(400).json({ message: "Recording too short. Please try again." });
       }
@@ -2634,10 +2638,11 @@ export async function registerRoutes(
       let outputBuffer: Buffer;
       try {
         const t0 = Date.now();
+        console.log(`[VOICE] TRANSCODE_START safeMime=${safeMime}`);
         outputBuffer = await transcodeToM4a(audioBuffer, safeMime);
-        console.log(`[VOICE_NOTE] Transcoded ${audioBuffer.length}B → ${outputBuffer.length}B M4A in ${Date.now() - t0}ms`);
+        console.log(`[VOICE] TRANSCODE_OK ${audioBuffer.length}B → ${outputBuffer.length}B in ${Date.now() - t0}ms`);
       } catch (transcodeErr: any) {
-        console.error("[VOICE_NOTE] Transcode failed:", transcodeErr.message);
+        console.error(`[VOICE] TRANSCODE_FAIL safeMime=${safeMime} error="${transcodeErr.message}"`);
         return res.status(500).json({ message: "Failed to process audio. Please try again." });
       }
 
@@ -2650,9 +2655,10 @@ export async function registerRoutes(
         .upload(filePath, outputBuffer, { contentType: "audio/mp4", upsert: false });
 
       if (uploadError) {
-        console.error("[VOICE_NOTE] Upload error:", uploadError.message);
+        console.error(`[VOICE] UPLOAD_FAIL ${uploadError.message}`);
         return res.status(500).json({ message: "Failed to upload voice note. Please try again." });
       }
+      console.log(`[VOICE] UPLOAD_OK path=${filePath}`);
 
       const { data: urlData } = supabaseAdmin.storage.from("voice-notes").getPublicUrl(filePath);
       const publicUrl = urlData.publicUrl;
@@ -2663,9 +2669,10 @@ export async function registerRoutes(
         content: `__VOICE__:${publicUrl}`,
       });
 
+      console.log(`[VOICE] MESSAGE_CREATED messageId=${message?.id} url=${publicUrl}`);
       res.json({ success: true, message });
     } catch (err: any) {
-      console.error("[VOICE_NOTE] Send error:", err.message);
+      console.error("[VOICE] ERROR:", err.message);
       res.status(500).json({ message: err.message || "Failed to send voice note" });
     }
   });

@@ -541,6 +541,7 @@ export default function Messaging() {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const recordingStartMsRef = useRef<number>(0);
 
   const stopRecordingTimer = () => {
     if (recordingTimerRef.current) { clearInterval(recordingTimerRef.current); recordingTimerRef.current = null; }
@@ -548,25 +549,33 @@ export default function Messaging() {
 
   const startRecording = async () => {
     try {
+      console.log("[VOICE] RECORD_START");
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        // Prefer opus-in-webm for Chrome/Firefox, fall back to ogg, then to mp4 for
+      // Prefer opus-in-webm for Chrome/Firefox, fall back to ogg, then to mp4 for
       // Safari/iOS (which does not support WebM at all), then let the browser decide.
       const preferredTypes = ["audio/webm;codecs=opus", "audio/ogg;codecs=opus", "audio/webm", "audio/mp4"];
       const mimeType = preferredTypes.find(t => {
         try { return MediaRecorder.isTypeSupported(t); } catch { return false; }
       }) ?? "";
+      console.log(`[VOICE] MIME_SELECTED mimeType="${mimeType || "(browser default)"}"`);
       const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
       // Use the actual mimeType the browser negotiated (may differ on Safari).
       const actualMimeType = recorder.mimeType || mimeType;
+      console.log(`[VOICE] RECORDER_MIME actualMimeType="${actualMimeType}"`);
       audioChunksRef.current = [];
       recorder.ondataavailable = e => { if (e.data.size > 0) audioChunksRef.current.push(e.data); };
       recorder.onstop = () => {
         stream.getTracks().forEach(t => t.stop());
         const blob = new Blob(audioChunksRef.current, { type: actualMimeType });
-        if (blob.size > 0) sendVoiceNote.mutate({ blob, mimeType: actualMimeType });
+        console.log(`[VOICE] BLOB_CREATED size=${blob.size} type="${blob.type}"`);
+        if (blob.size > 0) {
+          console.log("[VOICE] UPLOAD_START");
+          sendVoiceNote.mutate({ blob, mimeType: actualMimeType });
+        }
       };
       recorder.start(100);
       mediaRecorderRef.current = recorder;
+      recordingStartMsRef.current = Date.now();
       setIsRecording(true);
       setRecordingTime(0);
       recordingTimerRef.current = setInterval(() => {
@@ -578,9 +587,12 @@ export default function Messaging() {
     } catch (err: any) {
       const isPermission = err?.name === "NotAllowedError" || err?.name === "PermissionDeniedError";
       const isNotFound = err?.name === "NotFoundError" || err?.name === "DevicesNotFoundError";
+      console.log(`[VOICE] ERROR name="${err?.name}" msg="${err?.message}"`);
       toast({
-        title: isPermission ? "Microphone access denied"
-          : isNotFound ? "No microphone found on this device"
+        title: isPermission
+          ? "Microphone access is needed to send voice notes"
+          : isNotFound
+          ? "No microphone found on this device"
           : "Could not start recording",
         variant: "destructive",
       });
@@ -588,6 +600,14 @@ export default function Messaging() {
   };
 
   const stopRecording = () => {
+    const elapsed = Date.now() - recordingStartMsRef.current;
+    if (elapsed < 600) {
+      // Too short to be a useful voice note — cancel silently
+      cancelRecording();
+      toast({ title: "Hold mic to record", description: "Press and hold the 🎙️ icon to record a voice note" });
+      return;
+    }
+    console.log(`[VOICE] RECORD_STOP elapsed=${elapsed}ms`);
     stopRecordingTimer();
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
       mediaRecorderRef.current.stop();
@@ -641,11 +661,17 @@ export default function Messaging() {
       return res.json();
     },
     onSuccess: () => {
+      console.log("[VOICE] MESSAGE_CREATED client-side");
       queryClient.invalidateQueries({ queryKey: ["/api/matches", matchId, "messages"] });
       forceScrollRef.current = true;
     },
     onError: (err: any) => {
-      toast({ title: err?.message || "Failed to send voice note", variant: "destructive" });
+      console.log(`[VOICE] ERROR client="${err?.message}"`);
+      toast({
+        title: "Voice note couldn't be sent",
+        description: err?.message || "Please try again.",
+        variant: "destructive",
+      });
     },
   });
 
@@ -1165,9 +1191,9 @@ export default function Messaging() {
               onClick={() => {
                 if (!voiceNotesUnlocked) {
                   setPurchasePromptFeature("mic");
-                } else if (!isRecording) {
-                  startRecording();
                 }
+                // When unlocked this is a status indicator only — recording uses
+                // the press-and-hold mic button inside the message input.
               }}
               className="flex flex-col items-center gap-0.5 min-w-[44px] py-1.5 px-2 rounded-xl transition-all active:scale-90"
               data-testid="button-mic-tray"
@@ -1329,29 +1355,10 @@ export default function Messaging() {
             </div>
           ) : allCallsDone && matchDetail ? (
             <ReadyToMeetSection matchDetail={matchDetail} matchId={matchId!} />
-          ) : isRecording ? (
-            <div className="p-3 border-t" style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom, 0.75rem))" }}>
-              <div className="flex items-center gap-2.5">
-                <div className="w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse shrink-0" />
-                <div className="flex-1 h-1.5 rounded-full overflow-hidden bg-muted-foreground/20">
-                  <div className="h-full rounded-full bg-primary/70 transition-all" style={{ width: `${(recordingTime / 60) * 100}%` }} />
-                </div>
-                <span className="text-xs text-muted-foreground font-mono tabular-nums shrink-0">
-                  {`${Math.floor(recordingTime / 60)}:${String(recordingTime % 60).padStart(2, "0")}`} / 1:00
-                </span>
-                <Button size="icon" variant="ghost" className="w-7 h-7 shrink-0" onClick={cancelRecording} data-testid="button-cancel-recording">
-                  <X className="w-3.5 h-3.5" />
-                </Button>
-                <Button size="sm" className="shrink-0 gap-1" onClick={stopRecording} disabled={sendVoiceNote.isPending} data-testid="button-send-voice-note">
-                  {sendVoiceNote.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
-                  Send
-                </Button>
-              </div>
-            </div>
           ) : (
             <div className="p-4 border-t" style={{ paddingBottom: "max(1rem, env(safe-area-inset-bottom, 1rem))" }}>
-              {/* ── AI Starters panel — visible above the input ── */}
-              {startersVisible && (
+              {/* ── AI Starters panel — hidden while recording ── */}
+              {!isRecording && startersVisible && (
                 <div className="mb-3 rounded-2xl border border-primary/15 bg-primary/[0.04] p-3 space-y-2.5" data-testid="ai-starters-panel">
                   <div className="flex items-center justify-between">
                     <p className="text-[10px] font-semibold tracking-widest uppercase text-muted-foreground flex items-center gap-1.5">
@@ -1403,20 +1410,59 @@ export default function Messaging() {
               )}
 
               <div className="flex gap-2 items-end">
-                <Textarea
-                  value={message}
-                  onChange={e => setMessage(e.target.value.slice(0, MAX_CHARS))}
-                  placeholder={t("write_meaningful_placeholder")}
-                  className="resize-none min-h-[44px] max-h-[120px] text-sm"
-                  onKeyDown={e => {
-                    if (e.key === "Enter" && !e.shiftKey) {
-                      e.preventDefault();
-                      if (message.trim()) doSend(message.trim());
-                    }
-                  }}
-                  data-testid="input-message"
-                />
-                {aiStartersEnabled && (
+                {/* ── Recording state: inline indicator in place of textarea ── */}
+                {isRecording ? (
+                  <div className="flex-1 flex items-center gap-3 min-h-[44px] px-3 rounded-md border border-red-300/50 bg-red-50/40 dark:bg-red-950/20 select-none">
+                    <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse shrink-0" />
+                    <span className="text-sm text-muted-foreground flex-1">
+                      Recording…&nbsp;
+                      <span className="font-mono tabular-nums">
+                        {`${Math.floor(recordingTime / 60)}:${String(recordingTime % 60).padStart(2, "0")}`}
+                      </span>
+                    </span>
+                    <span className="text-xs text-muted-foreground/60 shrink-0">release to send</span>
+                  </div>
+                ) : (
+                  /* ── Normal state: textarea with press-and-hold mic on the right ── */
+                  <div className="relative flex-1">
+                    <Textarea
+                      value={message}
+                      onChange={e => setMessage(e.target.value.slice(0, MAX_CHARS))}
+                      placeholder={t("write_meaningful_placeholder")}
+                      className={`resize-none min-h-[44px] max-h-[120px] text-sm${voiceNotesUnlocked ? " pr-10" : ""}`}
+                      onKeyDown={e => {
+                        if (e.key === "Enter" && !e.shiftKey) {
+                          e.preventDefault();
+                          if (message.trim()) doSend(message.trim());
+                        }
+                      }}
+                      data-testid="input-message"
+                    />
+                    {voiceNotesUnlocked && (
+                      <button
+                        className="absolute right-2 bottom-[9px] p-1.5 rounded-full text-green-500 hover:bg-green-50 dark:hover:bg-green-950/30 active:scale-90 transition-all touch-none select-none"
+                        onPointerDown={e => {
+                          e.preventDefault();
+                          (e.target as Element).setPointerCapture(e.pointerId);
+                          startRecording();
+                        }}
+                        onPointerUp={e => {
+                          e.preventDefault();
+                          (e.target as Element).releasePointerCapture(e.pointerId);
+                          stopRecording();
+                        }}
+                        onPointerCancel={() => cancelRecording()}
+                        onContextMenu={e => e.preventDefault()}
+                        data-testid="button-mic-input"
+                        title="Hold to record voice note"
+                      >
+                        <Mic className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                {aiStartersEnabled && !isRecording && (
                   <Button
                     size="icon"
                     variant="ghost"
@@ -1428,18 +1474,33 @@ export default function Messaging() {
                     <Sparkles className="w-4 h-4" />
                   </Button>
                 )}
-                <Button
-                  size="icon"
-                  onClick={() => { if (message.trim()) doSend(message.trim()); }}
-                  disabled={!message.trim()}
-                  data-testid="button-send"
-                >
-                  <Send className="w-4 h-4" />
-                </Button>
+
+                {isRecording ? (
+                  sendVoiceNote.isPending ? (
+                    <Button size="icon" disabled data-testid="button-send-voice-note">
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    </Button>
+                  ) : (
+                    <Button size="icon" variant="ghost" onClick={cancelRecording} data-testid="button-cancel-recording">
+                      <X className="w-4 h-4" />
+                    </Button>
+                  )
+                ) : (
+                  <Button
+                    size="icon"
+                    onClick={() => { if (message.trim()) doSend(message.trim()); }}
+                    disabled={!message.trim()}
+                    data-testid="button-send"
+                  >
+                    <Send className="w-4 h-4" />
+                  </Button>
+                )}
               </div>
-              <p className="text-xs text-muted-foreground mt-1 text-right">
-                {message.length}/{MAX_CHARS}
-              </p>
+              {!isRecording && (
+                <p className="text-xs text-muted-foreground mt-1 text-right">
+                  {message.length}/{MAX_CHARS}
+                </p>
+              )}
 
               {/* ── Comment filter confirmation ── */}
               {filterConfirm && (

@@ -1,0 +1,130 @@
+Audit and fix the Voice Note system.
+
+Current bug:
+When trying to send a voice note, the app shows:
+
+"Failed to process audio. Please try again."
+
+Also the current voice note UI feels clunky.
+
+Do not work on unrelated features.
+
+━━━━━━━━━━━━━━━━━━
+1. FIX AUDIO PROCESSING
+━━━━━━━━━━━━━━━━━━
+
+Audit the full voice note flow:
+
+- microphone permission
+- MediaRecorder setup
+- audio MIME type
+- blob creation
+- upload/storage
+- backend processing
+- message creation
+- playback URL
+- transcript handling if present
+
+Find why audio processing fails.
+
+Important iPhone/Safari checks:
+
+- Safari may not support the same audio MIME type as Chrome.
+- Use a supported fallback MIME type.
+- Do not assume audio/webm works on iPhone.
+- If audio/webm fails, use audio/mp4 or audio/aac where supported.
+- Log the selected MIME type.
+
+Add logs:
+
+[VOICE] RECORD_START
+[VOICE] MIME_SELECTED
+[VOICE] RECORD_STOP
+[VOICE] BLOB_CREATED
+[VOICE] UPLOAD_START
+[VOICE] UPLOAD_SUCCESS
+[VOICE] MESSAGE_CREATED
+[VOICE] ERROR
+
+━━━━━━━━━━━━━━━━━━
+2. IMPROVE VOICE NOTE UI
+━━━━━━━━━━━━━━━━━━
+
+Move voice recording into the message input area.
+
+Add a mic icon inside the message box on the far right side, similar to Snapchat.
+
+Behaviour:
+
+- Press and hold mic to record.
+- Release to send.
+- Slide/cancel if possible.
+- Show recording duration while holding.
+- Show animated recording indicator.
+- Keep existing green mic indicator at the top as "voice enabled / unlocked" status.
+- Do not make the user tap a separate awkward button outside the message box.
+
+UI:
+
+Message input row should look like:
+
+[ Write something meaningful...              🎙️ ] [send]
+
+If user is holding mic:
+
+[ Recording... 0:05                         release to send ]
+
+━━━━━━━━━━━━━━━━━━
+3. ERROR HANDLING
+━━━━━━━━━━━━━━━━━━
+
+If recording fails:
+
+Show friendly message:
+
+"Voice note couldn't be sent. Please try again."
+
+Do not show scary red technical errors where possible.
+
+If microphone permission is blocked:
+
+Show:
+
+"Microphone access is needed to send voice notes."
+
+If audio format unsupported:
+
+Use fallback automatically.
+
+━━━━━━━━━━━━━━━━━━
+4. VALIDATION
+
+Test on:
+
+- iPhone Safari
+- desktop Chrome
+
+Verify:
+
+- hold mic records
+- release sends
+- audio message appears in chat
+- audio plays back
+- no "Failed to process audio" error
+- text messages still work
+- send button still works
+- top green mic status remains
+
+Run:
+
+npm run check
+npm run build
+
+Report:
+
+- Root cause of audio failure
+- Files changed
+- MIME types supported
+- iPhone Safari handling
+- UI changes
+- Validation results

@@ -42,9 +42,16 @@ export async function transcodeToM4a(
 
   await writeFile(inputPath, inputBuffer);
 
+  // Safari/iOS MediaRecorder produces fragmented MP4 (ISOBMFF). Without these
+  // flags FFmpeg may fail to decode the initialization segment correctly.
+  const inputFlags: string[] = inputExt === ".mp4"
+    ? ["-fflags", "+genpts+igndts"]
+    : [];
+
   try {
     await runFfmpeg(
       [
+        ...inputFlags,
         "-i", inputPath,
         "-c:a", "aac",
         "-b:a", "64k",
