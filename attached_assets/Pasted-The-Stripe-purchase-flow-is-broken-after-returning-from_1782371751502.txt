@@ -1,0 +1,71 @@
+The Stripe purchase flow is broken after returning from Checkout.
+
+Reproduce:
+
+Purchase a Voice Note.
+Complete payment in Stripe.
+Return to Lulou.
+The app signs the user out.
+After signing back in it shows “Confirming purchase…”
+Then shows a connection error.
+The purchased Voice Note is not reliably granted.
+This should never happen.
+
+Audit and fix the complete purchase return flow.
+
+Requirements:
+
+Do NOT sign the user out after a successful Stripe Checkout.
+Preserve the authenticated Supabase session across the Stripe redirect.
+If the session expires, silently restore it instead of forcing login where possible.
+After returning from Stripe:
+
+verify the Checkout Session with the backend
+process the purchase exactly once (idempotent)
+grant the purchased entitlement
+refresh the user’s benefits
+remove the loading state
+show a success confirmation
+If verification temporarily fails because of a network issue:
+
+retry automatically several times with exponential backoff
+never lose the purchase
+If Stripe confirms payment but granting fails:
+
+allow the user to retry safely without duplicate purchases
+Never create duplicate credits or duplicate purchases.
+Ensure processed Stripe session IDs are stored and checked before granting.
+Specifically audit:
+
+Stripe success redirect URL
+success page / callback page
+session restoration
+Supabase auth persistence
+purchase confirmation endpoint
+processed_stripe_sessions table
+membership/user benefits refresh
+voice note entitlement granting
+Test with a real purchase:
+
+Buy one Voice Note.
+Complete payment.
+Return to Lulou.
+User remains signed in.
+Purchase confirms successfully.
+Voice Note credit is immediately available.
+Refresh the app.
+Credit is still there.
+Repeat refresh to confirm idempotency.
+Attempt to process the same Stripe session twice and verify no duplicate credit is granted.
+Run:
+
+npm run check
+npm run build
+Report:
+
+Root cause
+Files changed
+Why the user was signed out
+Why the connection error occurred
+Proof the entitlement is granted correctly
+Proof duplicate processing is impossible
