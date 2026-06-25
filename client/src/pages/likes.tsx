@@ -587,19 +587,23 @@ function SparkCard({
 
   const acceptSpark = useMutation({
     mutationFn: async () => {
-      const res = await apiRequest("POST", "/api/wheel/spark/accept", { sparkId: spark.id });
+      console.log("[HALO] ACCEPT_CLICK", { sparkId: spark.id, fromUserId: spark.fromUserId });
+      const payload = { fromUserId: spark.fromUserId };
+      console.log("[HALO] ACCEPT_PAYLOAD", payload);
+      const res = await apiRequest("POST", "/api/wheel/spark/accept", payload);
       return res.json();
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["/api/wheel/sparks"] });
       queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
-      if (data?.match) {
+      if (data?.matchId) {
         onMatch({
-          matchId: data.match.id,
+          matchId: data.matchId,
           firstName: spark.profile.firstName ?? "",
           photo: spark.profile.photos?.[0],
         });
       }
+      onDecline();
     },
     onError: (err: any) => {
       toast({ title: err?.message || t("something_went_wrong"), variant: "destructive" });
@@ -608,7 +612,10 @@ function SparkCard({
 
   const declineSpark = useMutation({
     mutationFn: async () => {
-      await apiRequest("POST", "/api/wheel/spark/decline", { sparkId: spark.id });
+      console.log("[HALO] DECLINE_CLICK", { sparkId: spark.id, fromUserId: spark.fromUserId });
+      const payload = { fromUserId: spark.fromUserId };
+      console.log("[HALO] DECLINE_PAYLOAD", payload);
+      await apiRequest("POST", "/api/wheel/spark/decline", payload);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/wheel/sparks"] });

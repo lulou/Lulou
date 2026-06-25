@@ -1745,8 +1745,9 @@ export async function registerRoutes(
       if (matchCount >= 8) {
         return res.status(400).json({ message: "You've reached your connection limit (max 8). Remove a connection to add a new one.", connectionLimitReached: true });
       }
+      console.log("[HALO] ACCEPT_RECEIVED", { from: fromUserId, to: toUserId });
       const result = await storage.acceptWheelSpark(fromUserId, toUserId);
-      console.log("[WHEEL] SPARK_ACCEPTED", { from: fromUserId, to: toUserId, matchId: result.matchId });
+      console.log("[HALO] MATCH_CREATED", { from: fromUserId, to: toUserId, matchId: result.matchId });
       res.json({ matchId: result.matchId });
     } catch (error: any) {
       const msg = error?.message || "Failed to accept Spark";
@@ -1765,7 +1766,7 @@ export async function registerRoutes(
       }
       const storage = getStorage(req);
       await storage.declineWheelSpark(fromUserId, toUserId);
-      console.log("[WHEEL] SPARK_DECLINED", { from: fromUserId, to: toUserId });
+      console.log("[HALO] DECLINED", { from: fromUserId, to: toUserId });
       res.json({ success: true });
     } catch (error: any) {
       const msg = error?.message || "Failed to decline Spark";
