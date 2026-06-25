@@ -3,6 +3,11 @@ import { writeFile, readFile, unlink } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
 import { randomBytes } from "crypto";
+// ffmpeg-static ships a pre-compiled static binary that works in any Node.js
+// deployment environment (including Replit deployments that don't have system
+// FFmpeg in PATH). Fall back to "ffmpeg" if the package isn't available.
+import ffmpegStatic from "ffmpeg-static";
+const FFMPEG_BIN: string = (ffmpegStatic as string | null) ?? "ffmpeg";
 
 /**
  * Transcodes any browser-recorded audio (WebM/Opus, OGG/Opus, MP4/AAC, etc.)
@@ -72,7 +77,7 @@ export async function transcodeToM4a(
 
 function runFfmpeg(args: string[], timeoutMs: number): Promise<void> {
   return new Promise((resolve, reject) => {
-    const proc = spawn("ffmpeg", args, { stdio: ["ignore", "pipe", "pipe"] });
+    const proc = spawn(FFMPEG_BIN, args, { stdio: ["ignore", "pipe", "pipe"] });
 
     let stderr = "";
     proc.stderr?.on("data", (chunk: Buffer) => {
