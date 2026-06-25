@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { getAuthHeaders, queryClient, API_BASE } from "@/lib/queryClient";
 import { CheckCircle2, XCircle, Loader2, Crown, ArrowRight, Gift, MessageSquare, Phone, Video, Sparkles } from "lucide-react";
 import { useLanguageContext } from "@/contexts/language-context";
 
@@ -58,8 +58,31 @@ export default function ExtrasSuccessPage() {
     const verify = async () => {
       tries++;
       try {
-        const res = await apiRequest("POST", "/api/stripe/extras-activate", { sessionId });
-        const data = await res.json();
+        // Use raw fetch + getAuthHeaders so we can inspect res.status before
+        // deciding to retry.  apiRequest calls throwIfResNotOk which throws for
+        // ALL non-2xx responses (including 402), making status checks after it
+        // unreachable dead code.
+        const authHeaders = await getAuthHeaders();
+        const res = await fetch(`${API_BASE}/api/stripe/extras-activate`, {
+          method: "POST",
+          headers: { ...authHeaders, "Content-Type": "application/json" },
+          body: JSON.stringify({ sessionId }),
+          credentials: "include",
+        });
+
+        if (res.status === 402) {
+          // Payment still processing on Stripe's side — keep polling
+          if (tries < maxTries) {
+            setTimeout(verify, interval);
+          } else {
+            setErrorMsg(t("payment_verify_failed"));
+            setPhase("error");
+          }
+          return;
+        }
+
+        let data: any = {};
+        try { data = await res.json(); } catch {}
 
         if (res.ok && data.success) {
           setItemName(data.name ?? item);
@@ -69,8 +92,9 @@ export default function ExtrasSuccessPage() {
           return;
         }
 
-        if (res.status === 402 && tries < maxTries) {
-          setTimeout(verify, interval);
+        // Any other non-ok (401, 403, 500, etc.) — retry transiently, then fail
+        if (tries < maxTries) {
+          setTimeout(verify, interval * 1.5);
         } else {
           setErrorMsg(data.message ?? t("payment_verify_failed"));
           setPhase("error");

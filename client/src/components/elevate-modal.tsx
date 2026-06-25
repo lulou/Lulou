@@ -209,6 +209,7 @@ export function ElevateModal({ onClose, cancelPath = "/likes" }: { onClose: () =
         throw new Error(data.message ?? "No checkout URL returned");
       }
       // Navigate to Stripe-hosted checkout
+      sessionStorage.setItem("lulou_stripe_checkout", "1");
       window.location.assign(data.url);
     } catch (err: any) {
       const msg = err?.message ?? "Something went wrong. Please try again.";

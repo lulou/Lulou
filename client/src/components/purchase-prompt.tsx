@@ -78,7 +78,7 @@ export function PurchasePrompt({ feature, onClose, returnPath }: PurchasePromptP
       const cancelPath = returnPath || window.location.pathname;
       const res = await apiRequest("POST", "/api/stripe/extras-checkout", { itemId, returnPath: cancelPath });
       const data = await res.json();
-      if (data?.url) window.location.href = data.url;
+      if (data?.url) { sessionStorage.setItem("lulou_stripe_checkout", "1"); window.location.href = data.url; }
     } catch {
       // silently fall back — user stays on page
     } finally {

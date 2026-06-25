@@ -2104,6 +2104,26 @@ function AppContent() {
     );
   }
 
+  // ── Stripe success page bypass ────────────────────────────────────────────
+  // /extras/success and /elevate/success must render immediately after auth is
+  // confirmed — they must NOT be gated behind the profile-exists check.
+  // If the profile check fails transiently on the Stripe return (race condition
+  // or network blip), the app would show a "Taking a little longer" error screen
+  // and the session_id URL param — which is required to activate the purchase —
+  // would be silently lost when the user taps "Try Again" or navigates away.
+  // Auth (user non-null, email confirmed) is already verified above this point.
+  if (
+    window.location.pathname === "/extras/success" ||
+    window.location.pathname === "/elevate/success"
+  ) {
+    return (
+      <Switch>
+        <Route path="/elevate/success" component={ElevateSuccessPage} />
+        <Route path="/extras/success" component={ExtrasSuccessPage} />
+      </Switch>
+    );
+  }
+
   // ── EARLY BYPASS EXIT ─────────────────────────────────────────────────────
   // forceProceed=true means the user explicitly tapped "Continue to App" on a
   // blocked screen.  This guard is placed BEFORE every other intermediate gate

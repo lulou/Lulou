@@ -2842,6 +2842,7 @@ export default function IntentPage() {
                       });
                       const data = await res.json();
                       if (res.ok && data.url) {
+                        sessionStorage.setItem("lulou_stripe_checkout", "1");
                         window.location.href = data.url;
                       } else {
                         toast({ title: "Checkout failed", description: data.message ?? "Please try again.", variant: "destructive" });

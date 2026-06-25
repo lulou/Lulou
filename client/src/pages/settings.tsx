@@ -501,7 +501,7 @@ export default function SettingsPage() {
     try {
       const res = await apiRequest("POST", "/api/stripe/extras-checkout", { itemId });
       const data = await res.json();
-      if (data?.url) window.location.href = data.url;
+      if (data?.url) { sessionStorage.setItem("lulou_stripe_checkout", "1"); window.location.href = data.url; }
     } catch (err: any) {
       toast({ title: t("checkout_failed"), description: err?.message, variant: "destructive" });
     } finally {

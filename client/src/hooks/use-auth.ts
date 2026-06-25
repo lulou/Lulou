@@ -144,6 +144,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (event === "SIGNED_IN" && u && session?.access_token) {
         const token = session.access_token;
 
+        // ── Skip single-device gate on Stripe return ──────────────────────────
+        // When the user is redirected back from Stripe Checkout, the browser
+        // fires a full page navigation to /extras/success or /elevate/success.
+        // Some browsers (especially mobile) fire SIGNED_IN instead of
+        // INITIAL_SESSION on that reload.  The single-device gate would then
+        // race the purchase activation and could sign the user out if it found
+        // a stale session row from just before they left for Stripe.
+        // All checkout initiators set this flag before redirecting to Stripe.
+        const isStripeReturn = sessionStorage.getItem("lulou_stripe_checkout") === "1";
+        if (isStripeReturn) {
+          sessionStorage.removeItem("lulou_stripe_checkout");
+          console.log("[AUTH] STRIPE_RETURN_BYPASS — skipping single-device gate, treating as session restore", {
+            userId: newUserId,
+            route: window.location.pathname,
+          });
+          setCachedToken(token, (session as any).expires_at ?? 0);
+          setUser(u);
+          setProfileReady(true);
+          setIsLoading(false);
+          return;
+        }
+
         // ── Re-enter loading state BEFORE the async IIFE ─────────────────────
         // INITIAL_SESSION(null) already set isLoading:false and user:null.
         // Without this, navigating from /auth/callback to / while the session-
