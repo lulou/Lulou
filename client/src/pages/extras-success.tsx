@@ -92,7 +92,14 @@ export default function ExtrasSuccessPage() {
           return;
         }
 
-        // Any other non-ok (401, 403, 500, etc.) — retry transiently, then fail
+        // 403 = user mismatch — no point retrying, show the exact server message
+        if (res.status === 403) {
+          setErrorMsg(data.message ?? "Please return to Lulou and sign in with the same account used to start the purchase.");
+          setPhase("error");
+          return;
+        }
+
+        // Any other non-ok (401, 500, etc.) — retry transiently, then fail
         if (tries < maxTries) {
           setTimeout(verify, interval * 1.5);
         } else {

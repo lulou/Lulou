@@ -82,6 +82,7 @@ integrations = ["javascript_log_in_with_replit:2.0.0", "javascript_database:1.0.
 vite_turn_credential = "/JwJa8PLMYCjoruo"
 vite_turn_username = "c9bf5219fdc48366185d5be5"
 vite_turn_url = "turns:lulou.metered.live:443?transport=tcp"
+FRONTEND_URL = "https://lulouapp.vercel.app"
 
 [postMerge]
 path = "scripts/post-merge.sh"

@@ -3273,7 +3273,7 @@ export async function registerRoutes(
         metadata: { userId, itemId, benefitType: item.benefitType ?? "", mode: item.mode },
       });
 
-      console.log(`[STRIPE] Extras checkout session created: ${session.id} for user ${userId} item ${itemId}`);
+      console.log(`[STRIPE] CHECKOUT_CREATED extras session=${session.id} user=${userId} item=${itemId} success_url=${successUrl} baseUrl=${baseUrl}`);
       res.json({ url: session.url, sessionId: session.id });
     } catch (err: any) {
       const detail = err.raw?.message ?? err.message ?? "Unknown error";
@@ -3291,6 +3291,8 @@ export async function registerRoutes(
       const stripe = await getUncachableStripeClient();
       const session = await stripe.checkout.sessions.retrieve(sessionId);
 
+      console.log(`[STRIPE] CONFIRM_SESSION extras sessionId=${sessionId} session_user=${session.metadata?.userId} stripe_user=${userId} paid=${session.payment_status}`);
+
       const isPaid = session.mode === "subscription"
         ? session.status === "complete"
         : session.payment_status === "paid";
@@ -3299,7 +3301,8 @@ export async function registerRoutes(
         return res.status(402).json({ message: "Payment not completed", status: session.status, paymentStatus: session.payment_status });
       }
       if (session.metadata?.userId !== userId) {
-        return res.status(403).json({ message: "Session user mismatch" });
+        console.warn(`[STRIPE] USER_MISMATCH extras sessionId=${sessionId} session_user=${session.metadata?.userId} req_user=${userId}`);
+        return res.status(403).json({ message: "Please return to Lulou and sign in with the same account used to start the purchase." });
       }
 
       const itemId = session.metadata?.itemId as ExtrasItemId | undefined;
@@ -3385,7 +3388,7 @@ export async function registerRoutes(
         grantedTypes = rows.map(r => r.type);
       }
 
-      console.log(`[STRIPE] Extras activated for user ${userId}: ${grantedTypes.join(", ")}`);
+      console.log(`[STRIPE] PURCHASE_GRANTED extras user=${userId} item=${itemId} granted=${grantedTypes.join(", ")}`);
       res.json({ success: true, itemId, name: item.name, granted: grantedTypes, mode: item.mode });
     } catch (err: any) {
       const detail = err.raw?.message ?? err.message ?? "Unknown error";
@@ -3519,7 +3522,8 @@ export async function registerRoutes(
         metadata: { userId, packId, elevateType: pack.type, quantity: String(pack.quantity) },
       });
 
-      console.log(`[STRIPE] Checkout session created: ${session.id} for user ${userId} pack ${packId}`);
+      const elevateSuccessUrl = `${baseUrl}/elevate/success?session_id={CHECKOUT_SESSION_ID}&pack=${packId}`;
+      console.log(`[STRIPE] CHECKOUT_CREATED elevate session=${session.id} user=${userId} pack=${packId} success_url=${elevateSuccessUrl} baseUrl=${baseUrl}`);
       res.json({ url: session.url, sessionId: session.id });
     } catch (err: any) {
       const stripeDetail = err.raw?.message ?? err.message ?? "Unknown error";
@@ -3555,11 +3559,14 @@ export async function registerRoutes(
       const stripe = await getUncachableStripeClient();
       const session = await stripe.checkout.sessions.retrieve(sessionId);
 
+      console.log(`[STRIPE] CONFIRM_SESSION elevate sessionId=${sessionId} session_user=${session.metadata?.userId} stripe_user=${userId} paid=${session.payment_status}`);
+
       if (session.payment_status !== "paid") {
         return res.status(402).json({ message: "Payment not completed", paymentStatus: session.payment_status });
       }
       if (session.metadata?.userId !== userId) {
-        return res.status(403).json({ message: "Session user mismatch" });
+        console.warn(`[STRIPE] USER_MISMATCH elevate sessionId=${sessionId} session_user=${session.metadata?.userId} req_user=${userId}`);
+        return res.status(403).json({ message: "Please return to Lulou and sign in with the same account used to start the purchase." });
       }
 
       const packId = session.metadata?.packId ?? "elevate-1";
@@ -3603,6 +3610,8 @@ export async function registerRoutes(
 
       // Award all credits from the pack
       await getStorage(req).addElevateCredits(userId, pack.type, pack.quantity);
+
+      console.log(`[STRIPE] PURCHASE_GRANTED elevate user=${userId} pack=${packId} type=${pack.type} credits=${pack.quantity}`);
 
       // Auto-activate one boost immediately so user sees it live right away
       const activateResult = await getStorage(req).activateElevate(userId, pack.type);

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { getAuthHeaders, queryClient, API_BASE } from "@/lib/queryClient";
 import { useQuery } from "@tanstack/react-query";
 import { Sparkles, Zap, CheckCircle2, XCircle, Loader2, Gift, ArrowRight, Eye, Heart } from "lucide-react";
 import { useCountdownSecs, useAnimatedCount, formatCountdown } from "@/lib/elevate-utils";
@@ -159,8 +159,30 @@ export default function ElevateSuccessPage() {
     const verify = async () => {
       tries++;
       try {
-        const res = await apiRequest("POST", "/api/stripe/elevate-activate", { sessionId });
-        const data = await res.json();
+        const authHeaders = await getAuthHeaders();
+        const res = await fetch(`${API_BASE}/api/stripe/elevate-activate`, {
+          method: "POST",
+          headers: { ...authHeaders, "Content-Type": "application/json" },
+          body: JSON.stringify({ sessionId }),
+          credentials: "include",
+        });
+
+        if (res.status === 402) {
+          if (tries < maxTries) setTimeout(verify, interval);
+          else { setErrorMsg(t("payment_verify_failed")); setPhase("error"); }
+          return;
+        }
+
+        if (res.status === 403) {
+          let msg = "Please return to Lulou and sign in with the same account used to start the purchase.";
+          try { const d = await res.json(); if (d.message) msg = d.message; } catch {}
+          setErrorMsg(msg);
+          setPhase("error");
+          return;
+        }
+
+        let data: any = {};
+        try { data = await res.json(); } catch {}
 
         if (res.ok && data.success) {
           setBoostInfo({
@@ -176,8 +198,8 @@ export default function ElevateSuccessPage() {
           return;
         }
 
-        if (res.status === 402 && tries < maxTries) {
-          setTimeout(verify, interval);
+        if (tries < maxTries) {
+          setTimeout(verify, interval * 1.5);
         } else {
           setErrorMsg(data.message ?? t("payment_verify_failed"));
           setPhase("error");
