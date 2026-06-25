@@ -1,4 +1,5 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import ws from "ws";
 
 const isValidJwt = (key: string | undefined): boolean =>
   !!key && key.startsWith("eyJ") && key.length > 100;
@@ -43,11 +44,17 @@ console.log(`[SERVER_AUTH] SUPABASE_URL resolved from ${_urlSource}:`, supabaseU
 console.log(`[SERVER_AUTH] SUPABASE_KEY resolved from ${_keySource}: length=${supabaseAnonKey.length}`);
 console.log("[SERVER_AUTH] SERVICE_ROLE_KEY:", serviceRoleKey ? `length=${serviceRoleKey.length}` : "NOT SET");
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const realtimeOpts = { transport: ws as any };
+
+export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+  realtime: realtimeOpts,
+});
 
 export const supabaseAdmin: SupabaseClient = isValidJwt(serviceRoleKey)
   ? createClient(supabaseUrl, serviceRoleKey!, {
       auth: { autoRefreshToken: false, persistSession: false },
+      realtime: realtimeOpts,
     })
   : supabase;
 
@@ -58,5 +65,6 @@ export function createUserClient(authorizationHeader: string): SupabaseClient {
     global: {
       headers: { Authorization: authorizationHeader },
     },
+    realtime: realtimeOpts,
   });
 }

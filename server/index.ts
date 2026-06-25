@@ -307,10 +307,11 @@ app.use((req, res, next) => {
   (async () => {
     try {
       const { createClient } = await import("@supabase/supabase-js");
+      const ws = (await import("ws")).default;
       const { setHasLatLngColumns } = await import("./storage");
       const supabaseUrl = process.env.VITE_SUPABASE_URL!;
       const serviceKey  = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-      const adminSb = createClient(supabaseUrl, serviceKey);
+      const adminSb = createClient(supabaseUrl, serviceKey, { realtime: { transport: ws as any } });
       const { error } = await adminSb.from("profiles").select("latitude, longitude").limit(1);
       const columnsExist = !error || !error.message?.includes("does not exist");
       setHasLatLngColumns(columnsExist);
@@ -412,6 +413,7 @@ app.use((req, res, next) => {
   (async () => {
     try {
       const { createClient: _createClientProbe } = await import("@supabase/supabase-js");
+      const _ws = (await import("ws")).default;
       const {
         setHasIsPausedColumn,
         setHasCustomQColumn,
@@ -431,7 +433,7 @@ app.use((req, res, next) => {
 
       const _supabaseUrl = process.env.VITE_SUPABASE_URL!;
       const _serviceKey  = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-      const _adminSb = _createClientProbe(_supabaseUrl, _serviceKey);
+      const _adminSb = _createClientProbe(_supabaseUrl, _serviceKey, { realtime: { transport: _ws as any } });
 
       type ColDef = {
         col: string;
