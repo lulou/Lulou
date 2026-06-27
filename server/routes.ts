@@ -3446,6 +3446,7 @@ export async function registerRoutes(
       }
 
       console.log(`[STRIPE] PURCHASE_GRANTED extras user=${userId} item=${itemId} granted=${grantedTypes.join(", ")}`);
+      console.log(`[PURCHASE] ENTITLEMENT_GRANTED user=${userId} product=${itemId} granted=${grantedTypes.join(", ")}`);
       res.json({ success: true, itemId, name: item.name, granted: grantedTypes, mode: item.mode });
     } catch (err: any) {
       const detail = err.raw?.message ?? err.message ?? "Unknown error";
@@ -3663,11 +3664,14 @@ export async function registerRoutes(
   app.post("/api/stripe/elevate-checkout", isAuthenticated, paymentLimiter, async (req: any, res) => {
     const userId: string = req.user.id;
     const { packId, cancelPath } = req.body as { packId?: string; cancelPath?: string };
+    console.log(`[CHECKOUT] REQUEST_RECEIVED product=${packId} user=${userId}`);
     try {
       const pack = ELEVATE_PACKS[packId as keyof typeof ELEVATE_PACKS];
       if (!pack) {
         return res.status(400).json({ message: "Invalid pack ID. Must be one of: elevate-1, elevate-3, elevate-5, super-elevate" });
       }
+      console.log(`[CHECKOUT] USER ${userId}`);
+      console.log(`[CHECKOUT] PRODUCT ${packId} — ${pack.label}`);
 
       // Only allow known safe cancel paths — default to /likes
       const allowedCancelPaths = ["/likes", "/profile"];
@@ -3716,6 +3720,7 @@ export async function registerRoutes(
       if (_elevateMode === 'TEST') {
         console.log('[STRIPE] ℹ TEST session — visible in Stripe dashboard ONLY with "Test mode" toggled ON (top-left of dashboard.stripe.com)');
       }
+      console.log(`[CHECKOUT] SESSION_CREATED session=${session.id} product=${packId} amount=${pack.unitAmount} aud user=${userId}`);
       res.json({ url: session.url, sessionId: session.id });
     } catch (err: any) {
       const stripeDetail = err.raw?.message ?? err.message ?? "Unknown error";
@@ -3804,6 +3809,7 @@ export async function registerRoutes(
       await getStorage(req).addElevateCredits(userId, pack.type, pack.quantity);
 
       console.log(`[STRIPE] PURCHASE_GRANTED elevate user=${userId} pack=${packId} type=${pack.type} credits=${pack.quantity}`);
+      console.log(`[PURCHASE] ENTITLEMENT_GRANTED user=${userId} product=${packId} type=${pack.type} credits=${pack.quantity}`);
 
       // Auto-activate one boost immediately so user sees it live right away
       const activateResult = await getStorage(req).activateElevate(userId, pack.type);

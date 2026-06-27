@@ -2,7 +2,8 @@ import { useState } from "react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Phone, Video, Mic, Check, Sparkles } from "lucide-react";
-import { apiRequest } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
+import { startPurchase } from "@/lib/purchase-service";
 
 export type PurchaseFeature = "phone" | "video" | "mic";
 
@@ -71,32 +72,19 @@ interface PurchasePromptProps {
 
 export function PurchasePrompt({ feature, onClose, returnPath }: PurchasePromptProps) {
   const [loading, setLoading] = useState<string | null>(null);
+  const { toast } = useToast();
 
-  const startCheckout = async (itemId: string) => {
+  const startCheckout = (itemId: string) => {
     setLoading(itemId);
-    try {
-      const cancelPath = returnPath || window.location.pathname;
-      console.log(`[CHECKOUT] FRONTEND_REQUEST item=${itemId} cancelPath=${cancelPath}`);
-      const res = await apiRequest("POST", "/api/stripe/extras-checkout", { itemId, returnPath: cancelPath });
-      const data = await res.json();
-      console.log(`[CHECKOUT] FRONTEND_RESPONSE item=${itemId} ok=${res.ok} hasUrl=${!!data?.url}`);
-      if (data?.url) {
-        sessionStorage.setItem("lulou_stripe_checkout", "1");
-        window.location.href = data.url;
-      } else {
-        console.error(`[CHECKOUT] FRONTEND_NO_URL item=${itemId}`, data);
-        import("@/hooks/use-toast").then(({ toast }) => {
-          toast({ title: "Checkout failed", description: data?.message ?? "Please try again.", variant: "destructive" });
-        });
-      }
-    } catch (err: any) {
-      console.error(`[CHECKOUT] FRONTEND_ERROR item=${itemId}`, { message: err?.message, stack: err?.stack });
-      import("@/hooks/use-toast").then(({ toast }) => {
-        toast({ title: "Checkout failed", description: err?.message ?? "Please try again.", variant: "destructive" });
-      });
-    } finally {
-      setLoading(null);
-    }
+    const cancelPath = returnPath || window.location.pathname;
+    void startPurchase({
+      productId: itemId,
+      body: { itemId, returnPath: cancelPath },
+      onError: (msg) => {
+        toast({ title: "Checkout failed", description: msg, variant: "destructive" });
+        setLoading(null);
+      },
+    });
   };
 
   const meta = feature ? FEATURE_META[feature] : null;

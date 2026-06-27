@@ -1,0 +1,142 @@
+Lulou Universal Purchase & Checkout Debug System
+
+We should no longer debug Halo only.
+
+Every paid feature in Lulou must use one shared purchase system and one shared debug pipeline.
+
+This includes ALL current and future purchases, for example:
+
+Halo packs
+Voice Notes
+Elevate
+Extra Calls
+Extra Video Calls
+Extra Messages
+Future subscriptions
+Future one-time purchases
+Any future premium feature
+
+Single Purchase Service
+
+Create one shared purchase service that every purchase uses.
+
+No feature should have its own custom checkout implementation.
+
+Every purchase should flow like this:
+
+User taps purchase
+
+↓
+
+Universal purchase service
+
+↓
+
+Backend checkout endpoint
+
+↓
+
+Stripe Checkout Session
+
+↓
+
+Stripe payment
+
+↓
+
+Webhook confirmation
+
+↓
+
+Grant entitlement
+
+↓
+
+Success screen
+
+
+Universal Debug Logging
+
+Every purchase must produce the same logs.
+
+Frontend:
+
+[PURCHASE] CLICK
+[PURCHASE] PRODUCT
+[PURCHASE] API_BASE
+[PURCHASE] REQUEST_URL
+[PURCHASE] RESPONSE_STATUS
+[PURCHASE] REDIRECT_URL
+[PURCHASE] ERROR
+Backend:
+
+[CHECKOUT] REQUEST_RECEIVED
+[CHECKOUT] USER
+[CHECKOUT] PRODUCT
+[CHECKOUT] PRICE
+[CHECKOUT] SESSION_CREATED
+Webhook:
+
+[WEBHOOK] RECEIVED
+[WEBHOOK] PAYMENT_CONFIRMED
+Entitlements:
+
+[PURCHASE] ENTITLEMENT_GRANTED
+Restore:
+
+[PURCHASE] RESTORE_STARTED
+[PURCHASE] RESTORE_COMPLETE
+
+Universal Debug Panel
+
+While development mode is enabled, every purchase sheet should display a debug section showing:
+
+Product selected
+Quantity
+API Base
+Checkout endpoint
+Auth token present (Yes/No)
+HTTP status
+Response body
+Checkout Session ID
+Redirect URL
+Payment confirmed
+Entitlement granted
+This panel must disappear automatically in production builds.
+
+
+Universal Purchase Validation
+
+No premium feature may be granted unless:
+
+Stripe Checkout Session is successfully created.
+Payment completes successfully.
+Webhook confirms payment.
+Backend grants entitlement.
+Never grant purchases based on frontend state alone.
+
+Never grant purchases if checkout fails or is cancelled.
+
+
+Universal Restore Purchases
+
+All purchases should use one Restore Purchases flow.
+
+It should:
+
+Check real Stripe Checkout Sessions.
+Restore only paid purchases.
+Be idempotent.
+Never duplicate credits.
+Support every purchase type automatically.
+
+Final Validation
+
+Run:
+
+npm run check
+npm run build
+Then verify every purchasable feature uses the shared purchase service and shared debug system.
+
+There should be one consistent purchase architecture across the entire Lulou app instead of separate implementations for Halo, Voice Notes, Elevate, and future purchases.
+

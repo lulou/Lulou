@@ -11,8 +11,8 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
-import { apiRequest, API_BASE } from "@/lib/queryClient";
-import { supabase } from "@/lib/supabase";
+import { apiRequest } from "@/lib/queryClient";
+import { startPurchase, restorePurchases } from "@/lib/purchase-service";
 import { useTabActive } from "@/hooks/use-tab-active";
 import type { Profile } from "@shared/schema";
 import { ProfilePhotoViewer } from "@/components/profile-photo-viewer";
@@ -35,30 +35,19 @@ function shuffleArray<T>(arr: T[]): T[] {
 function RestorePurchasesButton() {
   const [loading, setLoading] = useState(false);
   const { toast } = useToast();
-  const handleRestore = async () => {
-    setLoading(true);
-    try {
-      const res = await apiRequest("POST", "/api/stripe/restore-purchases", {});
-      const data = await res.json();
-      if (!res.ok) throw new Error(data?.message ?? "Restore failed");
-      const count = data.restored?.length ?? 0;
-      if (count > 0) {
-        toast({
-          title: `${count} purchase${count === 1 ? "" : "s"} restored`,
-          description: data.restored.map((r: { name: string }) => r.name).join(", "),
-        });
-      } else {
-        toast({ title: "All purchases already applied", description: "Nothing new to restore." });
-      }
-    } catch (err: any) {
-      toast({ title: "Restore failed", description: err?.message ?? "Please try again.", variant: "destructive" });
-    } finally {
-      setLoading(false);
-    }
-  };
   return (
     <button
-      onClick={handleRestore}
+      onClick={() => void restorePurchases({
+        onLoading: setLoading,
+        onComplete: (count, names) => {
+          if (count > 0) {
+            toast({ title: `${count} purchase${count === 1 ? "" : "s"} restored`, description: names.join(", ") });
+          } else {
+            toast({ title: "All purchases already applied", description: "Nothing new to restore." });
+          }
+        },
+        onError: (msg) => toast({ title: "Restore failed", description: msg, variant: "destructive" }),
+      })}
       disabled={loading}
       data-testid="button-restore-purchases-intent"
       style={{
@@ -848,10 +837,6 @@ export default function IntentPage() {
   const [showElevateInReveal, setShowElevateInReveal] = useState(false);
   const [showSpinExtras, setShowSpinExtras] = useState(false);
   const [sparksCheckoutLoading, setSparksCheckoutLoading] = useState<string | null>(null);
-  const [haloDebug, setHaloDebug] = useState<{
-    apiBase: string; url: string; hasToken: boolean;
-    status: number | null; body: string; redirectUrl: string; error: string;
-  } | null>(null);
   // Drag-to-dismiss state for the Halo buy sheet
   const [haloDragY, setHaloDragY] = useState(0);
   const [haloDragSnapping, setHaloDragSnapping] = useState(false);
@@ -2894,36 +2879,6 @@ export default function IntentPage() {
               margin: "4px 24px 18px",
             }} />
 
-            {/* ── Debug banner (temporary) ─────────────────────────────── */}
-            {haloDebug && (
-              <div style={{
-                margin: "0 16px 12px", padding: "10px 12px",
-                background: "rgba(0,0,0,0.70)", border: "1px solid rgba(255,200,0,0.50)",
-                borderRadius: 10, fontFamily: "monospace", fontSize: 10.5,
-                color: "#ffd700", lineHeight: 1.6, wordBreak: "break-all",
-              }}>
-                <div><strong style={{ color: "#fff" }}>API_BASE:</strong> {haloDebug.apiBase}</div>
-                <div><strong style={{ color: "#fff" }}>request URL:</strong> {haloDebug.url}</div>
-                <div><strong style={{ color: "#fff" }}>auth token present:</strong> {haloDebug.hasToken ? "✅ yes" : "❌ no"}</div>
-                <div><strong style={{ color: "#fff" }}>response status:</strong> {haloDebug.status ?? "pending…"}</div>
-                <div style={{ maxHeight: 72, overflow: "auto" }}>
-                  <strong style={{ color: "#fff" }}>response body:</strong> {haloDebug.body || "(waiting)"}
-                </div>
-                {haloDebug.redirectUrl && (
-                  <div><strong style={{ color: "#4ade80" }}>redirect URL:</strong> {haloDebug.redirectUrl.slice(0, 80)}…</div>
-                )}
-                {haloDebug.error && (
-                  <div><strong style={{ color: "#f87171" }}>error:</strong> {haloDebug.error}</div>
-                )}
-                <button
-                  onClick={e => { e.stopPropagation(); setHaloDebug(null); }}
-                  style={{ marginTop: 6, fontSize: 10, color: "rgba(255,255,255,0.40)", background: "none", border: "none", cursor: "pointer", padding: 0 }}
-                >
-                  dismiss
-                </button>
-              </div>
-            )}
-
             {/* Section label */}
             <p style={{
               fontSize: 10, fontWeight: 800, letterSpacing: "0.24em",
@@ -2944,75 +2899,18 @@ export default function IntentPage() {
                   key={itemId}
                   data-testid={`button-spin-extra-${itemId.split("-")[1]}`}
                   disabled={sparksCheckoutLoading === itemId}
-                  onClick={async () => {
-                    console.log(`[HALO_BUY] CLICK item=${itemId}`);
+                  onClick={() => {
                     if (sparksCheckoutLoading) return;
-
-                    const apiBase = API_BASE || "(empty=same-origin)";
-                    const fullUrl = `${API_BASE}/api/stripe/extras-checkout`;
-                    console.log(`[HALO_BUY] PACK item=${itemId}`);
-                    console.log(`[HALO_BUY] API_BASE="${apiBase}"`);
-                    console.log(`[HALO_BUY] REQUEST_URL="${fullUrl}"`);
-
-                    // Get token before setting loading state
-                    let token: string | null = null;
-                    try {
-                      const { data: { session } } = await supabase.auth.getSession();
-                      token = session?.access_token ?? null;
-                    } catch {}
-                    console.log(`[HALO_BUY] TOKEN_PRESENT=${!!token}`);
-
-                    setHaloDebug({
-                      apiBase,
-                      url: fullUrl,
-                      hasToken: !!token,
-                      status: null,
-                      body: "",
-                      redirectUrl: "",
-                      error: "",
-                    });
-
                     setSparksCheckoutLoading(itemId);
                     toast({ title: "Starting checkout…", description: "Connecting to payment provider." });
-
-                    try {
-                      console.log(`[HALO_BUY] REQUEST_SENT item=${itemId}`);
-                      const res = await fetch(fullUrl, {
-                        method: "POST",
-                        headers: {
-                          "Content-Type": "application/json",
-                          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-                        },
-                        body: JSON.stringify({ itemId, returnPath: "/intent" }),
-                        credentials: "include",
-                      });
-                      const bodyText = await res.text();
-                      let bodyParsed: any = null;
-                      try { bodyParsed = JSON.parse(bodyText); } catch {}
-                      const bodyPreview = bodyText.slice(0, 400);
-
-                      console.log(`[HALO_BUY] RESPONSE status=${res.status} body=${bodyPreview}`);
-                      setHaloDebug(prev => prev ? { ...prev, status: res.status, body: bodyPreview } : prev);
-
-                      if (res.ok && bodyParsed?.url) {
-                        console.log(`[CHECKOUT] REDIRECT_URL url=${bodyParsed.url} item=${itemId}`);
-                        setHaloDebug(prev => prev ? { ...prev, redirectUrl: bodyParsed.url } : prev);
-                        sessionStorage.setItem("lulou_stripe_checkout", "1");
-                        window.location.href = bodyParsed.url;
-                      } else {
-                        const errMsg = bodyParsed?.message ?? `HTTP ${res.status}: ${bodyPreview}`;
-                        console.error(`[CHECKOUT] HALO_FAILED item=${itemId} status=${res.status}`, bodyParsed);
-                        setHaloDebug(prev => prev ? { ...prev, error: errMsg } : prev);
-                        toast({ title: "Checkout failed", description: errMsg, variant: "destructive" });
+                    void startPurchase({
+                      productId: itemId,
+                      body: { itemId, returnPath: "/intent" },
+                      onError: (msg) => {
+                        toast({ title: "Checkout failed", description: msg, variant: "destructive" });
                         setSparksCheckoutLoading(null);
-                      }
-                    } catch (err: any) {
-                      const errMsg = err?.message ?? "Network error";
-                      console.error(`[CHECKOUT] HALO_EXCEPTION item=${itemId}`, { message: errMsg, stack: err?.stack });
-                      setHaloDebug(prev => prev ? { ...prev, error: errMsg } : prev);
-                      toast({ title: "Checkout failed", description: errMsg, variant: "destructive" });
-                      setSparksCheckoutLoading(null);
-                    }
+                      },
+                    });
                   }}
                   style={{
                     display: "flex", alignItems: "center", justifyContent: "space-between",

@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
+import { startPurchase } from "@/lib/purchase-service";
 import { Sparkles, Zap, X, ChevronLeft, ShieldCheck, Lock, Gift } from "lucide-react";
 import { useLanguageContext } from "@/contexts/language-context";
 import { type TranslationKey } from "@/lib/i18n";
@@ -199,28 +200,19 @@ export function ElevateModal({ onClose, cancelPath = "/likes" }: { onClose: () =
   };
 
   // Redirect to Stripe checkout (no immediate activation)
-  const confirmPurchase = async () => {
+  const confirmPurchase = () => {
     if (!pending) return;
     setPurchasing(true);
-    try {
-      const res = await apiRequest("POST", "/api/stripe/elevate-checkout", { packId: pending.id, cancelPath });
-      const data = await res.json();
-      if (!data.url) {
-        throw new Error(data.message ?? "No checkout URL returned");
-      }
-      // Navigate to Stripe-hosted checkout
-      sessionStorage.setItem("lulou_stripe_checkout", "1");
-      window.location.assign(data.url);
-    } catch (err: any) {
-      const msg = err?.message ?? "Something went wrong. Please try again.";
-      console.error("[ELEVATE] Checkout failed:", msg);
-      toast({
-        title: t("payment_start_failed"),
-        description: msg,
-        variant: "destructive",
-      });
-      setPurchasing(false);
-    }
+    void startPurchase({
+      productId: pending.id,
+      endpoint: "/api/stripe/elevate-checkout",
+      body: { packId: pending.id, cancelPath },
+      onError: (msg) => {
+        console.error("[ELEVATE] Checkout failed:", msg);
+        toast({ title: t("payment_start_failed"), description: msg, variant: "destructive" });
+        setPurchasing(false);
+      },
+    });
   };
 
   // Use an existing credit to activate immediately

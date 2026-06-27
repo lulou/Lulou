@@ -3,6 +3,7 @@ import { createContext, useContext, useState, useCallback, useEffect, useRef, us
 import { queryClient, getAuthHeaders, apiRequest, logLatency, parseServerTiming, PERF_ENABLED, API_BASE, requireApiBase } from "./lib/queryClient";
 import { QueryClientProvider, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
+import { PurchaseDebugPanel } from "@/components/purchase-debug-panel";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useAuth, AuthProvider } from "@/hooks/use-auth";
 import NotFound from "@/pages/not-found";
@@ -2315,6 +2316,7 @@ function App() {
               <TooltipProvider>
                 <Toaster />
                 <AppContent />
+                <PurchaseDebugPanel />
                 {import.meta.env.DEV && PerfOverlayLazy && (
                   <Suspense fallback={null}>
                     <PerfOverlayLazy />

@@ -5,6 +5,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
+import { startPurchase, restorePurchases as doRestorePurchases } from "@/lib/purchase-service";
 import { supabase } from "@/lib/supabase";
 import { useUnits } from "@/lib/units";
 import { Switch } from "@/components/ui/switch";
@@ -497,39 +498,30 @@ export default function SettingsPage() {
   const [checkoutLoading, setCheckoutLoading] = useState<string | null>(null);
   const [restoreLoading, setRestoreLoading] = useState(false);
 
-  const restorePurchases = async () => {
-    setRestoreLoading(true);
-    try {
-      const res = await apiRequest("POST", "/api/stripe/restore-purchases", {});
-      const data = await res.json();
-      if (!res.ok) throw new Error(data?.message ?? "Restore failed");
-      const count = data.restored?.length ?? 0;
-      if (count > 0) {
-        toast({
-          title: `${count} purchase${count === 1 ? "" : "s"} restored`,
-          description: data.restored.map((r: { name: string }) => r.name).join(", "),
-        });
-      } else {
-        toast({ title: "All purchases already applied", description: "Nothing new to restore." });
-      }
-    } catch (err: any) {
-      toast({ title: "Restore failed", description: err?.message ?? "Please try again.", variant: "destructive" });
-    } finally {
-      setRestoreLoading(false);
-    }
+  const restorePurchases = () => {
+    void doRestorePurchases({
+      onLoading: setRestoreLoading,
+      onComplete: (count, names) => {
+        if (count > 0) {
+          toast({ title: `${count} purchase${count === 1 ? "" : "s"} restored`, description: names.join(", ") });
+        } else {
+          toast({ title: "All purchases already applied", description: "Nothing new to restore." });
+        }
+      },
+      onError: (msg) => toast({ title: "Restore failed", description: msg, variant: "destructive" }),
+    });
   };
 
-  const startCheckout = async (itemId: string) => {
+  const startCheckout = (itemId: string) => {
     setCheckoutLoading(itemId);
-    try {
-      const res = await apiRequest("POST", "/api/stripe/extras-checkout", { itemId });
-      const data = await res.json();
-      if (data?.url) { sessionStorage.setItem("lulou_stripe_checkout", "1"); window.location.href = data.url; }
-    } catch (err: any) {
-      toast({ title: t("checkout_failed"), description: err?.message, variant: "destructive" });
-    } finally {
-      setCheckoutLoading(null);
-    }
+    void startPurchase({
+      productId: itemId,
+      body: { itemId },
+      onError: (msg) => {
+        toast({ title: t("checkout_failed"), description: msg, variant: "destructive" });
+        setCheckoutLoading(null);
+      },
+    });
   };
 
   // ── Membership status ─────────────────────────────────────────────────────
