@@ -3,24 +3,12 @@ import { supabase } from "./supabase";
 import { preloadPhoto } from "./image-utils";
 import { trackRequest, perfStart, perfMark, isMobile, scheduleIdle } from "./perf";
 
-// API base URL — empty string in same-origin (Replit) mode, backend URL when
-// frontend is deployed to Vercel/CDN.  Set VITE_API_BASE_URL in Vercel env
-// vars to the Replit backend origin, e.g. https://lulou-dating.replit.app
-// Leave unset (or set to "") for local / Replit fullstack mode.
-// Tries uppercase (VITE_API_BASE_URL) first, then lowercase (vite_api_base_url)
-// since Vercel may store the variable name in either case.
-export const API_BASE: string =
-  (
-    (import.meta.env.VITE_API_BASE_URL as string | undefined) ||
-    (import.meta.env.vite_api_base_url as string | undefined)
-  )?.replace(/\/$/, "")
-  ?? "https://lulou-dating.replit.app";
-
 // ── Cross-origin deploy detection ─────────────────────────────────────────────
-// Same-origin hosts (Replit, localhost) serve the Express API at the same URL,
-// so API_BASE="" is correct.  Any other host (Vercel, custom domain) MUST have
-// VITE_API_BASE_URL set — without it every /api/... call hits the static host
-// and gets a 404 or the SPA index.html.
+// Must be computed BEFORE API_BASE so the fallback can vary by host.
+// Same-origin hosts (Replit dev preview, .replit.app, localhost) serve the
+// Express API at the same origin, so API_BASE="" (relative URLs) is correct.
+// Any other host (Vercel, custom domain) needs an explicit VITE_API_BASE_URL
+// or falls back to the known production backend URL.
 const _host = typeof window !== "undefined" ? window.location.hostname : "";
 const _isSameOriginHost =
   _host === "" ||
@@ -30,6 +18,23 @@ const _isSameOriginHost =
   _host.endsWith(".repl.co");
 
 export const IS_CROSS_ORIGIN_DEPLOY: boolean = !_isSameOriginHost;
+
+// API base URL:
+//   • explicit VITE_API_BASE_URL env var → use that (strips trailing slash)
+//   • same-origin host (Replit, localhost) → "" (relative URLs hit same server)
+//   • cross-origin without env var        → production backend as fallback
+// The OLD code put the hardcoded fallback before the same-origin check, which
+// caused Replit dev previews to send requests to the production server instead
+// of the local dev server — breaking dev-mode checkout logging.
+export const API_BASE: string = (() => {
+  const explicit = (
+    (import.meta.env.VITE_API_BASE_URL as string | undefined) ||
+    (import.meta.env.vite_api_base_url as string | undefined)
+  )?.replace(/\/$/, "");
+  if (explicit) return explicit;
+  if (_isSameOriginHost) return "";
+  return "https://lulou-dating.replit.app";
+})();
 
 /**
  * Throws a clear, actionable error when VITE_API_BASE_URL is missing in a

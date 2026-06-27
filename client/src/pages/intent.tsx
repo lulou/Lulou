@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, API_BASE } from "@/lib/queryClient";
 import { useTabActive } from "@/hooks/use-tab-active";
 import type { Profile } from "@shared/schema";
 import { ProfilePhotoViewer } from "@/components/profile-photo-viewer";
@@ -2912,9 +2912,13 @@ export default function IntentPage() {
                   onClick={async () => {
                     console.log(`[HALO_BUY] CLICK item=${itemId}`);
                     if (sparksCheckoutLoading) return;
+                    console.log(`[HALO_BUY] PACK item=${itemId}`);
+                    console.log(`[HALO_BUY] API_BASE="${API_BASE || "(empty=same-origin)"}"`);
+                    console.log(`[HALO_BUY] REQUEST_URL="${API_BASE}/api/stripe/extras-checkout"`);
+                    toast({ title: "Starting checkout…", description: "Connecting to payment provider." });
                     setSparksCheckoutLoading(itemId);
                     try {
-                      console.log(`[HALO_BUY] REQUEST_SENT item=${itemId} endpoint=/api/stripe/extras-checkout`);
+                      console.log(`[HALO_BUY] REQUEST_SENT item=${itemId}`);
                       const res = await apiRequest("POST", "/api/stripe/extras-checkout", {
                         itemId,
                         returnPath: "/intent",
