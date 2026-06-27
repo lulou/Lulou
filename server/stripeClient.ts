@@ -77,7 +77,28 @@ async function getCredentials(): Promise<Credentials> {
     );
   }
 
-  console.log(`[STRIPE_CLIENT] Credentials loaded (env=${primaryEnv}, key=...${creds.secretKey.slice(-4)})`);
+  // ── Audit log: key mode + account fragment ───────────────────────────────
+  // Publishable keys encode the account ID: pk_test_<ACCT_FRAGMENT>_<RANDOM>
+  // Extract it so the log tells us exactly which Stripe account is active.
+  const pubParts = creds.publishableKey.split('_');
+  const keyMode = creds.secretKey.startsWith('sk_live') ? 'LIVE' : creds.secretKey.startsWith('sk_test') ? 'TEST' : 'UNKNOWN';
+  const acctFragment = pubParts.length >= 3 ? pubParts[2]?.slice(0, 8) + '…' : '(unknown)';
+  const pubMode = creds.publishableKey.startsWith('pk_live') ? 'LIVE' : creds.publishableKey.startsWith('pk_test') ? 'TEST' : 'UNKNOWN';
+
+  if (keyMode !== pubMode) {
+    console.error(`[STRIPE_CLIENT] ⚠ KEY MODE MISMATCH — secret key is ${keyMode} but publishable key is ${pubMode}. They must belong to the same account and mode.`);
+  }
+
+  console.log(
+    `[STRIPE_CLIENT] ✓ Credentials loaded — mode=${keyMode} env=${primaryEnv} ` +
+    `acct=…${acctFragment} secret=sk_${keyMode.toLowerCase()}_…${creds.secretKey.slice(-4)} ` +
+    `pub=pk_${pubMode.toLowerCase()}_…${creds.publishableKey.slice(-4)}`,
+  );
+
+  if (keyMode === 'TEST') {
+    console.log('[STRIPE_CLIENT] ℹ Running in TEST mode. To see sessions in the Stripe dashboard: open dashboard.stripe.com → toggle "Test mode" (top-left). Live mode shows 0 test sessions.');
+  }
+
   _cachedCreds = creds;
   _cachedCredsAt = now;
   return creds;

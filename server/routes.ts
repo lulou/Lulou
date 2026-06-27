@@ -3280,7 +3280,22 @@ export async function registerRoutes(
         metadata: { userId, itemId, benefitType: item.benefitType ?? "", mode: item.mode },
       });
 
-      console.log(`[STRIPE] CHECKOUT_CREATED extras session=${session.id} user=${userId} item=${itemId} success_url=${successUrl} baseUrl=${baseUrl}`);
+      const _extrasMode = session.id.startsWith('cs_live_') ? 'LIVE' : session.id.startsWith('cs_test_') ? 'TEST' : 'UNKNOWN';
+      const _frontendUrlSource = process.env.FRONTEND_URL ? 'FRONTEND_URL env' : 'REPLIT_DOMAINS fallback';
+      console.log(
+        `[STRIPE] CHECKOUT_CREATED extras` +
+        ` | session=${session.id}` +
+        ` | mode=${_extrasMode}` +
+        ` | item=${itemId}` +
+        ` | amount=${item.unitAmount} ${priceData.currency}` +
+        ` | user=${userId}` +
+        ` | baseUrl=${baseUrl} (${_frontendUrlSource})` +
+        ` | success_url=${successUrl}` +
+        ` | cancel_url=${baseUrl}${safeCancelPath}?checkout=cancelled`,
+      );
+      if (_extrasMode === 'TEST') {
+        console.log('[STRIPE] ℹ TEST session — visible in Stripe dashboard ONLY with "Test mode" toggled ON (top-left of dashboard.stripe.com)');
+      }
       res.json({ url: session.url, sessionId: session.id });
     } catch (err: any) {
       const detail = err.raw?.message ?? err.message ?? "Unknown error";
@@ -3530,7 +3545,22 @@ export async function registerRoutes(
       });
 
       const elevateSuccessUrl = `${baseUrl}/elevate/success?session_id={CHECKOUT_SESSION_ID}&pack=${packId}`;
-      console.log(`[STRIPE] CHECKOUT_CREATED elevate session=${session.id} user=${userId} pack=${packId} success_url=${elevateSuccessUrl} baseUrl=${baseUrl}`);
+      const _elevateMode = session.id.startsWith('cs_live_') ? 'LIVE' : session.id.startsWith('cs_test_') ? 'TEST' : 'UNKNOWN';
+      const _elevateFrontendSrc = process.env.FRONTEND_URL ? 'FRONTEND_URL env' : 'REPLIT_DOMAINS fallback';
+      console.log(
+        `[STRIPE] CHECKOUT_CREATED elevate` +
+        ` | session=${session.id}` +
+        ` | mode=${_elevateMode}` +
+        ` | pack=${packId}` +
+        ` | amount=${pack.unitAmount} aud` +
+        ` | user=${userId}` +
+        ` | baseUrl=${baseUrl} (${_elevateFrontendSrc})` +
+        ` | success_url=${elevateSuccessUrl}` +
+        ` | cancel_url=${baseUrl}${safeCancelPath}?checkout=cancelled`,
+      );
+      if (_elevateMode === 'TEST') {
+        console.log('[STRIPE] ℹ TEST session — visible in Stripe dashboard ONLY with "Test mode" toggled ON (top-left of dashboard.stripe.com)');
+      }
       res.json({ url: session.url, sessionId: session.id });
     } catch (err: any) {
       const stripeDetail = err.raw?.message ?? err.message ?? "Unknown error";
