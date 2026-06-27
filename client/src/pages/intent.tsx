@@ -2311,11 +2311,11 @@ export default function IntentPage() {
                 ref={landingMarkerRef}
                 style={{
                   position: "absolute",
-                  top: "calc(50% - 110px)",
+                  top: "calc(50% - 118px)",
                   left: "50%",
                   transform: "translateX(-50%)",
                   display: "flex", flexDirection: "column", alignItems: "center",
-                  pointerEvents: "none", zIndex: 20,
+                  pointerEvents: "none", zIndex: 100,
                   opacity: 0.45,
                   transition: "opacity 0.5s ease, filter 0.5s ease",
                 }}
@@ -2344,44 +2344,69 @@ export default function IntentPage() {
                 }} />
               </div>
 
-              {/* Carousel strip — no overflow:hidden so pullforward card can scale freely */}
+              {/* 3D oval stage — no overflow:hidden so pullforward card can scale freely */}
               <div style={{
-                position: "relative", width: "100%", height: 210,
+                position: "relative", width: "100%", height: 260,
                 flexShrink: 0,
               }}>
-                {/* Ambient glow orb at carousel centre — box-shadow driven by RAF */}
+                {/* Ambient glow orb at oval centre — box-shadow driven by RAF */}
                 <div ref={orbitGlowRef} style={{
                   position: "absolute", top: "50%", left: "50%",
-                  width: 140, height: 140, borderRadius: "50%",
+                  width: 160, height: 160, borderRadius: "50%",
                   transform: "translate(-50%,-50%)",
                   pointerEvents: "none",
                   animation: "srAmbientPulse 2.8s ease-in-out infinite",
                 }} />
 
-                {/* Profile cards — outer div RAF-positioned for Cover Flow */}
+                {/* Outer neon Halo ring — circle tilted via rotateX to look like a horizontal oval hoop */}
+                <div ref={orbitRingRef2} style={{
+                  position: "absolute", top: "50%", left: "50%",
+                  width: 380, height: 380,
+                  marginLeft: -190, marginTop: -190,
+                  borderRadius: "50%",
+                  border: "1px solid rgba(212,92,116,0.28)",
+                  transform: "perspective(800px) rotateX(76deg)",
+                  pointerEvents: "none", zIndex: 1,
+                }} />
+
+                {/* Inner guide ring — slightly smaller, more transparent */}
+                <div style={{
+                  position: "absolute", top: "50%", left: "50%",
+                  width: 300, height: 300,
+                  marginLeft: -150, marginTop: -150,
+                  borderRadius: "50%",
+                  border: "1px solid rgba(212,92,116,0.12)",
+                  transform: "perspective(800px) rotateX(76deg)",
+                  pointerEvents: "none", zIndex: 1,
+                }} />
+
+                {/* Profile cards — RAF-positioned on the 3D oval */}
                 {items.slice(0, Math.min(items.length, 10)).map((item, i) => {
-                  const N2   = Math.min(items.length, 10);
-                  // Static initial positions (RAF takes over on first frame)
-                  const rawDist0 = i;
-                  const wrapped0 = ((rawDist0 % N2) + N2) % N2;
-                  const centerDist0 = wrapped0 > N2 / 2 ? wrapped0 - N2 : wrapped0;
-                  const absD0  = Math.abs(centerDist0);
-                  const xPx0   = centerDist0 * 90;
-                  const rotY0  = Math.max(-55, Math.min(55, centerDist0 * 28));
-                  const sc0    = Math.max(0.40, 1 - absD0 * 0.18);
-                  const op0    = Math.max(0.16, 1 - absD0 * 0.28);
+                  const N2 = Math.min(items.length, 10);
+                  // Static initial oval positions (RAF overwrites on first frame)
+                  const t0s   = ((i % N2) + N2) % N2;
+                  const ts    = t0s > N2 / 2 ? t0s - N2 : t0s;
+                  const θ0    = (ts / N2) * Math.PI * 2;
+                  const sinT0 = Math.sin(θ0);
+                  const cosT0 = Math.cos(θ0);
+                  const zN0   = (cosT0 + 1) / 2;
+                  const xPx0  = (170 * sinT0).toFixed(1);
+                  const yPx0  = (-30 * (1 - zN0)).toFixed(1);
+                  const sc0   = (0.34 + 0.66 * zN0).toFixed(3);
+                  const op0   = Math.max(0.10, 0.10 + 0.90 * zN0).toFixed(3);
+                  const rotY0 = (-sinT0 * 36).toFixed(1);
                   return (
                     <div
                       key={item.userId}
                       ref={el => { orbitBubbles.current[i] = el; }}
                       style={{
                         position: "absolute", top: "50%", left: "50%",
-                        transform: `translate(calc(-50% + ${xPx0}px), -50%) perspective(600px) rotateY(${rotY0}deg) scale(${sc0.toFixed(3)})`,
+                        transform: `translate(calc(-50% + ${xPx0}px), calc(-50% + ${yPx0}px)) perspective(800px) rotateY(${rotY0}deg) scale(${sc0})`,
                         width: 110, height: 165,
                         borderRadius: 16,
                         overflow: "hidden",
-                        opacity: op0,
-                        boxShadow: "0 4px 18px rgba(0,0,0,0.35)",
+                        opacity: Number(op0),
+                        boxShadow: "0 4px 14px rgba(0,0,0,0.32)",
                         flexShrink: 0,
                         willChange: "transform, opacity, box-shadow",
                       }}
@@ -2390,13 +2415,13 @@ export default function IntentPage() {
                       {/* Bottom gradient */}
                       <div style={{
                         position: "absolute", inset: 0,
-                        background: "linear-gradient(to bottom, transparent 50%, rgba(0,0,0,0.60) 100%)",
+                        background: "linear-gradient(to bottom, transparent 50%, rgba(0,0,0,0.65) 100%)",
                         pointerEvents: "none",
                       }} />
                       {/* Rose glass border */}
                       <div style={{
                         position: "absolute", inset: 0, borderRadius: 16,
-                        border: "1.5px solid rgba(212,92,116,0.32)",
+                        border: "1.5px solid rgba(212,92,116,0.28)",
                         pointerEvents: "none",
                       }} />
                     </div>
@@ -2405,12 +2430,12 @@ export default function IntentPage() {
 
                 {/* Left / right vignette fades */}
                 <div style={{
-                  position: "absolute", top: 0, left: 0, bottom: 0, width: 60,
+                  position: "absolute", top: 0, left: 0, bottom: 0, width: 70,
                   background: "linear-gradient(to right, #0d0812 0%, transparent 100%)",
                   pointerEvents: "none", zIndex: 15,
                 }} />
                 <div style={{
-                  position: "absolute", top: 0, right: 0, bottom: 0, width: 60,
+                  position: "absolute", top: 0, right: 0, bottom: 0, width: 70,
                   background: "linear-gradient(to left, #0d0812 0%, transparent 100%)",
                   pointerEvents: "none", zIndex: 15,
                 }} />
