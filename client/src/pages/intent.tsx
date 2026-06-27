@@ -12,7 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
-import { startPurchase, restorePurchases } from "@/lib/purchase-service";
+import { startPurchase, restorePurchases, subscribeDebug, type PurchaseDebugInfo } from "@/lib/purchase-service";
 import { useTabActive } from "@/hooks/use-tab-active";
 import type { Profile } from "@shared/schema";
 import { ProfilePhotoViewer } from "@/components/profile-photo-viewer";
@@ -746,6 +746,89 @@ function spinEase(t: number): number {
   return 0.820 + 0.180 * (Vr * p + (3 - 2 * Vr) * p * p + (Vr - 2) * p * p * p);
 }
 
+// ── CheckoutDiagPanel ─────────────────────────────────────────────────────────
+// Subscribes to purchase-service debug state and renders a visible on-screen
+// banner showing exactly what the server returned:  URL (success) or error msg.
+// Clears itself whenever the sheet is closed.
+
+interface CheckoutDiagPanelProps {
+  diag: PurchaseDebugInfo | null;
+  onSubscribe: (info: PurchaseDebugInfo | null) => void;
+  open: boolean;
+}
+
+function CheckoutDiagPanel({ diag, onSubscribe, open }: CheckoutDiagPanelProps) {
+  // Subscribe once and pipe updates to parent state
+  useEffect(() => {
+    const unsub = subscribeDebug(onSubscribe);
+    return unsub;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Clear panel whenever the sheet closes
+  useEffect(() => {
+    if (!open) onSubscribe(null);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  if (!diag) return null;
+
+  const hasUrl   = !!diag.redirectUrl;
+  const hasError = !!diag.error;
+  const pending  = !hasUrl && !hasError;
+
+  const bg    = hasError ? "rgba(220,38,60,0.18)"  : hasUrl ? "rgba(34,197,94,0.15)"  : "rgba(255,255,255,0.07)";
+  const border= hasError ? "rgba(220,38,60,0.45)"  : hasUrl ? "rgba(34,197,94,0.40)"  : "rgba(255,255,255,0.12)";
+  const label = hasError ? "❌ Checkout error"      : hasUrl ? "✅ Stripe session ready" : "⏳ Contacting Stripe…";
+  const color = hasError ? "#f87171"               : hasUrl ? "#4ade80"                : "rgba(255,255,255,0.55)";
+
+  return (
+    <div
+      data-testid="checkout-diag-panel"
+      style={{
+        margin: "4px 20px 0",
+        padding: "12px 14px",
+        borderRadius: 14,
+        background: bg,
+        border: `1px solid ${border}`,
+        fontSize: 12,
+        fontFamily: "monospace",
+        wordBreak: "break-all",
+      }}
+    >
+      <p style={{ color, fontWeight: 700, margin: 0, marginBottom: 4 }}>{label}</p>
+
+      {pending && (
+        <p style={{ color: "rgba(255,255,255,0.35)", margin: 0 }}>
+          product={diag.product} · token={diag.hasToken ? "yes" : "NO"} · status={diag.status ?? "…"}
+        </p>
+      )}
+
+      {hasUrl && (
+        <>
+          <p style={{ color: "rgba(255,255,255,0.40)", margin: 0 }}>session: {diag.sessionId}</p>
+          <a
+            href={diag.redirectUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ color: "#4ade80", textDecoration: "underline", display: "block", marginTop: 4 }}
+            data-testid="checkout-diag-url"
+          >
+            {diag.redirectUrl.slice(0, 72)}…
+          </a>
+          <p style={{ color: "rgba(255,255,255,0.28)", margin: "4px 0 0" }}>
+            (page navigates automatically — tap link if redirect blocked)
+          </p>
+        </>
+      )}
+
+      {hasError && (
+        <p style={{ color: "#fca5a5", margin: 0 }}>{diag.error}</p>
+      )}
+    </div>
+  );
+}
+
 // ── Main page ────────────────────────────────────────────────────────────────
 export default function IntentPage() {
   const { t, isRTL } = useLanguageContext();
@@ -837,6 +920,7 @@ export default function IntentPage() {
   const [showElevateInReveal, setShowElevateInReveal] = useState(false);
   const [showSpinExtras, setShowSpinExtras] = useState(false);
   const [sparksCheckoutLoading, setSparksCheckoutLoading] = useState<string | null>(null);
+  const [checkoutDiag, setCheckoutDiag] = useState<PurchaseDebugInfo | null>(null);
   // Drag-to-dismiss state for the Halo buy sheet
   const [haloDragY, setHaloDragY] = useState(0);
   const [haloDragSnapping, setHaloDragSnapping] = useState(false);
@@ -2970,6 +3054,16 @@ export default function IntentPage() {
                 </button>
               ))}
             </div>
+
+            {/* ── Checkout diagnostic panel ─────────────────────────────────
+                 Subscribed to purchase-service debug state.
+                 Shows exactly what the server returned (URL on success, error on failure).
+                 Hidden until the first Buy tap on this sheet open. ─────────── */}
+            <CheckoutDiagPanel
+              diag={checkoutDiag}
+              onSubscribe={setCheckoutDiag}
+              open={showSpinExtras}
+            />
 
             {/* Restore Purchases + Back to Lulou */}
             <div style={{ textAlign: "center", paddingTop: 12, display: "flex", flexDirection: "column", alignItems: "center", gap: 0 }}>

@@ -3274,13 +3274,36 @@ export async function registerRoutes(
 
       console.log(`[CHECKOUT] CREATING_SESSION item=${itemId} amount=${item.unitAmount} currency=aud mode=${item.mode} priceId=${cachedPriceId ?? "inline"} success_url=${successUrl} cancel_url=${cancelUrl}`);
 
-      const session = await (stripe.checkout.sessions.create as Function)({
-        line_items: [lineItem],
-        mode: item.mode,
-        success_url: successUrl,
-        cancel_url: cancelUrl,
-        metadata: { userId, itemId, benefitType: item.benefitType ?? "", mode: item.mode },
-      });
+      // ── [CHECKOUT_TEST] diagnostic logs ─────────────────────────────────────
+      console.log(`[CHECKOUT_TEST] ROUTE_HIT`);
+      console.log(`[CHECKOUT_TEST] USER_ID=${userId}`);
+      console.log(`[CHECKOUT_TEST] PRODUCT_ID=${itemId}`);
+      console.log(`[CHECKOUT_TEST] BEFORE_STRIPE_CREATE`);
+      // ────────────────────────────────────────────────────────────────────────
+
+      let session: any;
+      try {
+        session = await (stripe.checkout.sessions.create as Function)({
+          line_items: [lineItem],
+          mode: item.mode,
+          success_url: successUrl,
+          cancel_url: cancelUrl,
+          metadata: { userId, itemId, benefitType: item.benefitType ?? "", mode: item.mode },
+        });
+      } catch (stripeErr: any) {
+        const detail = stripeErr.raw?.message ?? stripeErr.message ?? "Stripe error";
+        console.error(`[CHECKOUT_TEST] ERROR=${detail}`, {
+          type: stripeErr.type, code: stripeErr.code,
+          statusCode: stripeErr.statusCode ?? stripeErr.raw?.statusCode,
+          raw: stripeErr.raw?.message,
+        });
+        throw stripeErr; // re-throw so outer catch handles HTTP response
+      }
+
+      // ── [CHECKOUT_TEST] diagnostic logs ─────────────────────────────────────
+      console.log(`[CHECKOUT_TEST] AFTER_STRIPE_CREATE session=${session.id}`);
+      console.log(`[CHECKOUT_TEST] SESSION_URL=${session.url}`);
+      // ────────────────────────────────────────────────────────────────────────
 
       console.log(`[CHECKOUT] SESSION_CREATED session=${session.id} url=${session.url}`);
 
