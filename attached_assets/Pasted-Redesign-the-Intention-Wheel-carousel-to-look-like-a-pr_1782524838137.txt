@@ -1,0 +1,105 @@
+Redesign the Intention Wheel carousel to look like a premium 3D horizontal oval, while keeping ALL existing functionality, winner selection logic, Halo logic, and backend code exactly the same.
+
+This is a VISUAL/ANIMATION update only.
+
+DO NOT change:
+- winner selection
+- Halo logic
+- payments
+- profile reveal logic
+- APIs
+- backend
+- database
+- state management
+
+The carousel should no longer move in a perfectly straight horizontal line.
+
+Instead, create the illusion of a large horizontal oval floating in space.
+
+Picture a luxury rotating display in an Apple keynote or a Rolex showroom.
+
+The camera should be tilted downward around 30–40 degrees so users can clearly see:
+
+• the front row of profile cards
+• the cards travelling around the back
+• the rear row disappearing into the distance
+• the complete oval shape
+
+The carousel should feel like a real object rotating in 3D space.
+
+Requirements:
+
+• Keep the centre landing position exactly where it is.
+• Keep the landing marker fixed above the centre.
+• Only the carousel moves underneath it.
+• Users should always know exactly which profile is about to land.
+
+The profile cards should follow an elliptical path, not a flat line.
+
+As cards move:
+
+Front:
+- largest
+- brightest
+- sharpest
+- highest opacity
+- strongest glow
+
+Moving towards the sides:
+- rotate slightly away
+- become slightly smaller
+
+Back row:
+- significantly smaller
+- darker
+- blurred
+- reduced opacity
+- partially hidden behind the front row
+
+The motion should feel continuous and premium.
+
+No snapping.
+
+No harsh perspective changes.
+
+Use easing and momentum.
+
+The carousel should appear to rotate around an invisible horizontal oval ring.
+
+Add a subtle neon Halo ring that follows the oval path.
+
+The back half of the ring should fade slightly behind the cards to enhance depth.
+
+When spinning:
+
+• particles should trail slightly behind
+• lighting should pulse gently
+• reflections should move across cards
+• centre card should subtly glow as it approaches the landing marker
+
+When the wheel slows:
+
+• movement eases naturally
+• slight overshoot
+• gentle rebound
+• realistic inertia
+
+The selected profile must still physically leave the carousel.
+
+Once selected:
+
+1. The winning card glows.
+2. Surrounding cards dim.
+3. The winning card detaches from the oval.
+4. It slowly moves forward toward the viewer.
+5. It enlarges while travelling.
+6. The carousel softly fades into the background.
+7. A Halo blooms behind the profile.
+8. Pause for anticipation.
+9. Only then begin the profile reveal.
+
+Do NOT rush this sequence.
+
+The entire transition should feel luxurious, emotional and cinematic.
+
+The goal is for users to immediately understand the carousel is a complete 3D oval, with profile cards visibly travelling around the back before returning to the front, making the Intention Wheel feel like Lulou's signature premium experience.

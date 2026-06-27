@@ -1133,11 +1133,12 @@ export default function IntentPage() {
       orbitAngleRef2.current = (orbitAngleRef2.current + orbitSpeedRef2.current * dt) % 360;
       const aRad = (orbitAngleRef2.current * Math.PI) / 180;
 
-      // ── Cover Flow carousel positioning ────────────────────────────────
-      // carouselCenter maps orbit angle → which card index is at centre.
-      // This is the exact inverse of the winner-selection sinVal formula,
-      // so the winner card always naturally lands at the centre slot.
-      const CARD_STEP = 90; // px between card centres
+      // ── 3D Oval carousel positioning ──────────────────────────────────
+      // Cards sit on a horizontal ellipse.  carouselCenter is unchanged so
+      // the existing winner-selection formula (sinVal min) still picks the
+      // card at θ=0 (front of oval, closest to viewer).
+      const RX_OVAL = 170; // horizontal radius px
+      const Y_TILT  = 30;  // back cards appear this many px above front (camera-looking-down)
       const carouselCenter = -(aRad / (Math.PI * 2)) * N;
 
       for (let i = 0; i < N; i++) {
@@ -1145,26 +1146,35 @@ export default function IntentPage() {
         if (!el) continue;
         const rawDist = i - carouselCenter;
         const wrapped = ((rawDist % N) + N) % N;
-        const centerDist = wrapped > N / 2 ? wrapped - N : wrapped;
-        const absD = Math.abs(centerDist);
-        const xPx = centerDist * CARD_STEP;
-        const rotY = Math.max(-55, Math.min(55, centerDist * 28));
-        const sc = Math.max(0.40, 1 - absD * 0.18);
-        const op = Math.max(0.16, 1 - absD * 0.28);
-        const blurPx = Math.max(0, absD - 0.85) * 1.3;
-        const zi = Math.round(Math.max(1, 60 - absD * 10));
+        const t = wrapped > N / 2 ? wrapped - N : wrapped; // signed offset from front card
 
-        el.style.transform = `translate(calc(-50% + ${xPx.toFixed(1)}px), -50%) perspective(600px) rotateY(${rotY.toFixed(1)}deg) scale(${sc.toFixed(3)})`;
-        el.style.opacity = op.toFixed(2);
-        el.style.filter  = blurPx > 0.2 ? `blur(${blurPx.toFixed(1)}px)` : '';
-        el.style.zIndex  = String(zi);
+        // Oval angle: t=0 → front (θ=0), t=±N/2 → back (θ=π)
+        const θ    = (t / N) * Math.PI * 2;
+        const sinT = Math.sin(θ);
+        const cosT = Math.cos(θ);       // +1 = front, -1 = back
+        const zNorm = (cosT + 1) / 2;  // 0 = back, 1 = front
 
-        // Centre card glow when spinning fast
-        if (absD < 0.5 && speedFrac > 0.15) {
-          const gA = (Math.max(0, 1 - absD * 2) * speedFrac * 0.85).toFixed(2);
-          el.style.boxShadow = `0 0 ${Math.round(18 + speedFrac * 28)}px rgba(212,92,116,${gA}), 0 8px 28px rgba(0,0,0,0.50)`;
+        const xPx    = RX_OVAL * sinT;
+        const yPx    = -Y_TILT * (1 - zNorm); // back cards rise on screen
+        const sc     = 0.34 + 0.66 * zNorm;
+        const op     = Math.max(0.10, 0.10 + 0.90 * zNorm);
+        const blurPx = Math.max(0, (1 - zNorm) * 4.5 - 0.3);
+        const rotY   = -sinT * 36;     // cards face centre tangentially
+        const zi     = Math.round(1 + zNorm * 80);
+
+        el.style.transform = `translate(calc(-50% + ${xPx.toFixed(1)}px), calc(-50% + ${yPx.toFixed(1)}px)) perspective(800px) rotateY(${rotY.toFixed(1)}deg) scale(${sc.toFixed(3)})`;
+        el.style.opacity   = op.toFixed(3);
+        el.style.filter    = blurPx > 0.2 ? `blur(${blurPx.toFixed(1)}px)` : '';
+        el.style.zIndex    = String(zi);
+
+        // Front card glow — pulses with spin speed
+        if (zNorm > 0.85 && speedFrac > 0.12) {
+          const gA = (zNorm * speedFrac * 0.80).toFixed(2);
+          el.style.boxShadow = `0 0 ${Math.round(20 + speedFrac * 32)}px rgba(212,92,116,${gA}), 0 8px 28px rgba(0,0,0,0.55)`;
+        } else if (zNorm > 0.85) {
+          el.style.boxShadow = '0 6px 22px rgba(0,0,0,0.40), 0 0 14px rgba(212,92,116,0.20)';
         } else {
-          el.style.boxShadow = '0 4px 18px rgba(0,0,0,0.35)';
+          el.style.boxShadow = '0 4px 14px rgba(0,0,0,0.32)';
         }
       }
 
@@ -1259,7 +1269,7 @@ export default function IntentPage() {
     requestAnimationFrame(() => {
       winner.style.transition =
         'transform 1.35s cubic-bezier(0.12, 0.0, 0.08, 1), box-shadow 1.0s ease 0.20s';
-      winner.style.transform = 'translate(-50%, -50%) perspective(600px) rotateY(0deg) scale(2.2)';
+      winner.style.transform = 'translate(-50%, -50%) perspective(800px) rotateY(0deg) scale(2.2)';
       winner.style.boxShadow = '0 0 60px 18px rgba(212,92,116,0.38), 0 0 120px 40px rgba(212,92,116,0.16)';
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1276,7 +1286,7 @@ export default function IntentPage() {
     if (!winner) return;
     winner.style.transition =
       'transform 1.1s cubic-bezier(0.18, 0.0, 0.08, 1), box-shadow 1.1s ease';
-    winner.style.transform = 'translate(-50%, -50%) perspective(600px) rotateY(0deg) scale(2.8)';
+    winner.style.transform = 'translate(-50%, -50%) perspective(800px) rotateY(0deg) scale(2.8)';
     winner.style.boxShadow =
       '0 0 90px 32px rgba(212,92,116,0.55), 0 0 180px 70px rgba(212,92,116,0.22), 0 0 260px 100px rgba(212,92,116,0.10)';
   // eslint-disable-next-line react-hooks/exhaustive-deps

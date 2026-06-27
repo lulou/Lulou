@@ -1,0 +1,37 @@
+Create a premium cinematic mobile app UI concept for a dating app called Lulou featuring an “Intention Wheel”.
+
+The experience takes place in a dedicated dark Spin Room with an almost black background, soft pink ambient lighting, floating particles and luxury Apple-style UI.
+
+The centrepiece is a horizontal oval 3D carousel made entirely of real user profile photos. The carousel should not be a flat straight line—it follows a horizontal ellipse that wraps around into the distance. Tilt the carousel downward so the viewer can clearly see profiles travelling around the back of the oval, giving a true 3D illusion.
+
+The front centre profile is the largest, brightest and closest to the viewer. Cards gradually become smaller, darker, blurrier and rotate in perspective as they travel toward the back of the oval before returning to the front.
+
+Place a glowing gold landing marker above the centre profile to indicate where the selected user will stop. Add two thin neon pink glowing elliptical guide rings surrounding the carousel to emphasise the motion.
+
+The centre profile has a soft pink neon glow around it while surrounding profiles have subtle reflections and depth.
+
+Typography should read:
+
+INTENTION WHEEL
+
+One word. One choice.
+
+Beneath:
+
+Spin to reveal your intention
+
+Below the carousel:
+
+Today’s intention is a little unexpected. You choose what happens next.
+
+At the bottom are two premium glass buttons:
+
+• OPEN (bright pink gradient)
+
+• CLOSE (dark glass with subtle purple glow)
+
+Overall style should feel like Apple + Porsche + Rolex + Arc Browser, with luxury glassmorphism, premium lighting, realistic reflections, cinematic depth of field, smooth gradients, subtle bloom, and elegant neon pink accents.
+
+The composition should be symmetrical, minimal and highly polished, designed as a flagship feature that feels exciting and luxurious.
+
+This is essentially the prompt that matches the image you posted, including the tilted horizontal oval carousel with the profiles wrapping visibly around the back.
