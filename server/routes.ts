@@ -11,6 +11,7 @@ import { supabase, supabaseAdmin, createUserClient, hasServiceRoleKey } from "./
 import { db } from "./db";
 import { eq, and, isNull, gt, or, inArray } from "drizzle-orm";
 import { getUncachableStripeClient, getStripePublishableKey } from "./stripeClient";
+import { tryGetPriceId } from "./stripePrices";
 import { writeLimiter, callLimiter, paymentLimiter } from "./limiters";
 
 
@@ -3259,15 +3260,6 @@ export async function registerRoutes(
         ? returnPath
         : "/profile";
 
-      const priceData: Record<string, unknown> = {
-        currency: "aud",
-        product_data: { name: item.name },
-        unit_amount: item.unitAmount,
-      };
-      if (item.mode === "subscription") {
-        priceData.recurring = { interval: "month" };
-      }
-
       // Sparks purchases return directly to /intent so the user can spin
       // immediately. A session_id query param triggers auto-activation + toast.
       const successUrl = (itemId as string).startsWith("sparks-")
@@ -3276,10 +3268,30 @@ export async function registerRoutes(
 
       const cancelUrl = `${baseUrl}${safeCancelPath}?checkout=cancelled`;
 
-      console.log(`[CHECKOUT] CREATING_SESSION item=${itemId} amount=${item.unitAmount} currency=aud mode=${item.mode} success_url=${successUrl} cancel_url=${cancelUrl}`);
+      // Use a pre-created Stripe price ID when available (set up at warmup).
+      // Fall back to inline price_data for items without a registered price
+      // (e.g. membership subscription, call packs) or if warmup hasn't run.
+      const cachedPriceId = item.mode === "payment" ? tryGetPriceId(itemId as string) : null;
+
+      let lineItem: Record<string, unknown>;
+      if (cachedPriceId) {
+        lineItem = { price: cachedPriceId, quantity: 1 };
+      } else {
+        const priceData: Record<string, unknown> = {
+          currency: "aud",
+          product_data: { name: item.name },
+          unit_amount: item.unitAmount,
+        };
+        if (item.mode === "subscription") {
+          priceData.recurring = { interval: "month" };
+        }
+        lineItem = { price_data: priceData, quantity: 1 };
+      }
+
+      console.log(`[CHECKOUT] CREATING_SESSION item=${itemId} amount=${item.unitAmount} currency=aud mode=${item.mode} priceId=${cachedPriceId ?? "inline"} success_url=${successUrl} cancel_url=${cancelUrl}`);
 
       const session = await (stripe.checkout.sessions.create as Function)({
-        line_items: [{ price_data: priceData, quantity: 1 }],
+        line_items: [lineItem],
         mode: item.mode,
         success_url: successUrl,
         cancel_url: cancelUrl,
@@ -3668,17 +3680,17 @@ export async function registerRoutes(
         ? "8× visibility boost in Discovery and the Intention Wheel for 60 minutes"
         : `3× visibility boost per use • ${pack.quantity} boost${pack.quantity > 1 ? "s" : ""} • 30 minutes each`;
 
-      const elevatePriceData = {
-        currency: "aud",
-        product_data: { name: pack.label, description },
-        unit_amount: pack.unitAmount,
-      };
+      // Use a pre-created Stripe price ID when available; fall back to inline price_data.
+      const elevateCachedPriceId = tryGetPriceId(packId!);
+      const elevateLineItem = elevateCachedPriceId
+        ? { price: elevateCachedPriceId, quantity: 1 }
+        : { price_data: { currency: "aud", product_data: { name: pack.label, description }, unit_amount: pack.unitAmount }, quantity: 1 };
 
       // NOTE: The 2025-08-27.basil API handles payment methods automatically.
       // Do NOT pass payment_method_types or automatic_payment_methods — both are
       // rejected as unknown parameters in this API version.
       const session = await (stripe.checkout.sessions.create as Function)({
-        line_items: [{ price_data: elevatePriceData, quantity: 1 }],
+        line_items: [elevateLineItem],
         mode: "payment",
         success_url: `${baseUrl}/elevate/success?session_id={CHECKOUT_SESSION_ID}&pack=${packId}`,
         cancel_url: `${baseUrl}${safeCancelPath}?checkout=cancelled`,

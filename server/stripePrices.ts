@@ -1,118 +1,140 @@
 /**
- * Resolves Stripe price IDs for Elevate packs from the user's existing
- * Stripe account (AUD prices only). Never creates products or prices — only
- * looks them up.
+ * Stripe product/price registry for Lulou (AUD, one-time payments).
  *
- * Matching strategy (in order of preference):
- *  1. lookup_key  — if the user set one matching our key
- *  2. unit_amount — picks the first active, one-time AUD price at the exact cent amount
+ * ensureAllPrices():
+ *   Called at server startup. For each registered item:
+ *     1. Lists active prices by lookup_key — reuses if found.
+ *     2. Creates a Product + Price with the lookup_key if not found.
+ *   Idempotent — safe to call on every restart; never creates duplicates.
+ *   lookup_key uniqueness is enforced by Stripe (one active price per key).
  *
- * Price IDs are cached in memory for the server's lifetime.
+ * getPriceId(packId):
+ *   Returns the cached Stripe price ID. Throws if not resolved — callers
+ *   should catch and fall back to inline price_data.
  *
- * NOTE: Checkout sessions use inline price_data with currency: "aud" and do
- * not depend on these resolved IDs. This module is used for monitoring only.
+ * tryGetPriceId(packId):
+ *   Same but returns null instead of throwing. Use this in checkout routes
+ *   so a transient Stripe error never blocks a purchase.
  */
 
 import { getUncachableStripeClient } from "./stripeClient";
+import type Stripe from "stripe";
 
-type PackPriceIds = Record<string, string>; // packId → Stripe price ID
+type PriceCache = Record<string, string>; // packId → Stripe price ID
 
-let cachedPriceIds: PackPriceIds | null = null;
+let cachedPriceIds: PriceCache | null = null;
 
-const PACK_DEFINITIONS = [
-  { packId: "elevate-1",     unitAmount: 999,  lookupKey: "lulou_elevate_1",    label: "Elevate (A$9.99)" },
-  { packId: "elevate-3",     unitAmount: 2699, lookupKey: "lulou_elevate_3",    label: "Elevate Pack 3 (A$26.99)" },
-  { packId: "elevate-5",     unitAmount: 3999, lookupKey: "lulou_elevate_5",    label: "Elevate Pack 5 (A$39.99)" },
-  { packId: "super-elevate", unitAmount: 3499, lookupKey: "lulou_super_elevate", label: "Super Elevate (A$34.99)" },
-] as const;
+interface PackDefinition {
+  packId: string;
+  productName: string;
+  unitAmount: number;
+  lookupKey: string;
+  label: string;
+}
 
-async function resolveAllPriceIds(): Promise<PackPriceIds> {
+const PACK_DEFINITIONS: PackDefinition[] = [
+  { packId: "sparks-1",          productName: "1 Halo",               unitAmount: 299,  lookupKey: "lulou_sparks_1",          label: "1 Halo (A$2.99)" },
+  { packId: "sparks-3",          productName: "3 Halos",              unitAmount: 699,  lookupKey: "lulou_sparks_3",          label: "3 Halos (A$6.99)" },
+  { packId: "sparks-5",          productName: "5 Halos",              unitAmount: 999,  lookupKey: "lulou_sparks_5",          label: "5 Halos (A$9.99)" },
+  { packId: "voice-notes-unlock",productName: "Voice Notes Unlock",   unitAmount: 499,  lookupKey: "lulou_voice_notes_unlock",label: "Voice Notes Unlock (A$4.99)" },
+  { packId: "elevate-1",         productName: "Elevate",              unitAmount: 999,  lookupKey: "lulou_elevate_1",         label: "Elevate (A$9.99)" },
+  { packId: "elevate-3",         productName: "Elevate Pack 3",       unitAmount: 2699, lookupKey: "lulou_elevate_3",         label: "Elevate Pack 3 (A$26.99)" },
+  { packId: "elevate-5",         productName: "Elevate Pack 5",       unitAmount: 3999, lookupKey: "lulou_elevate_5",         label: "Elevate Pack 5 (A$39.99)" },
+  { packId: "super-elevate",     productName: "Super Elevate",        unitAmount: 3499, lookupKey: "lulou_super_elevate",     label: "Super Elevate (A$34.99)" },
+];
+
+/**
+ * Finds or creates a Stripe price for one pack definition.
+ * Uses lookup_key for idempotency — Stripe allows only one active price per key.
+ */
+async function ensurePrice(stripe: Stripe, def: PackDefinition): Promise<string> {
+  const existing = await stripe.prices.list({
+    lookup_keys: [def.lookupKey],
+    active: true,
+    limit: 1,
+  });
+
+  if (existing.data.length > 0) {
+    const price = existing.data[0];
+    console.log(`[STRIPE_PRICES] REUSE  ${def.label} → ${price.id}`);
+    return price.id;
+  }
+
+  console.log(`[STRIPE_PRICES] CREATE ${def.label} (lookup_key=${def.lookupKey} not found)`);
+
+  const product = await stripe.products.create({
+    name: def.productName,
+    metadata: { lulou_pack_id: def.packId },
+  });
+
+  const price = await stripe.prices.create({
+    product: product.id,
+    currency: "aud",
+    unit_amount: def.unitAmount,
+    lookup_key: def.lookupKey,
+    metadata: { lulou_pack_id: def.packId },
+  });
+
+  console.log(`[STRIPE_PRICES] CREATED ${def.label} → price=${price.id} product=${product.id}`);
+  return price.id;
+}
+
+/**
+ * Resolves (find or create) all registered pack prices.
+ * Returns packId → priceId map.
+ */
+async function resolveAllPriceIds(): Promise<PriceCache> {
   const stripe = await getUncachableStripeClient();
+  const result: PriceCache = {};
+  const errors: string[] = [];
 
-  // ── Step 1: bulk-fetch all active AUD one-time prices ──
-  const allPrices: import("stripe").Stripe.Price[] = [];
-  let hasMore = true;
-  let startingAfter: string | undefined;
+  await Promise.all(
+    PACK_DEFINITIONS.map(async (def) => {
+      try {
+        result[def.packId] = await ensurePrice(stripe, def);
+      } catch (err: any) {
+        errors.push(`${def.label}: ${err.message}`);
+        console.error(`[STRIPE_PRICES] ERROR resolving ${def.label}:`, err.message);
+      }
+    })
+  );
 
-  while (hasMore) {
-    const page = await stripe.prices.list({
-      active: true,
-      type: "one_time",
-      currency: "aud",
-      limit: 100,
-      ...(startingAfter ? { starting_after: startingAfter } : {}),
-    });
-    allPrices.push(...page.data);
-    hasMore = page.has_more;
-    startingAfter = page.data[page.data.length - 1]?.id;
-  }
-
-  console.log(`[STRIPE] Found ${allPrices.length} active AUD one-time price(s) in account`);
-
-  // ── Step 2: also try fetching by lookup_key ──
-  const lookupKeys = PACK_DEFINITIONS.map(d => d.lookupKey);
-  let lookupKeyPrices: import("stripe").Stripe.Price[] = [];
-  try {
-    const result = await stripe.prices.list({ lookup_keys: lookupKeys, active: true, limit: 100 });
-    lookupKeyPrices = result.data.filter(p => p.currency === "aud");
-  } catch {
-    // Non-fatal
-  }
-
-  // Build a map: lookupKey → priceId
-  const byLookupKey: Record<string, string> = {};
-  for (const p of lookupKeyPrices) {
-    if (p.lookup_key) byLookupKey[p.lookup_key] = p.id;
-  }
-
-  // Build a map: unitAmount → first matching AUD priceId
-  const byAmount: Record<number, string> = {};
-  for (const p of allPrices) {
-    if (p.unit_amount !== null && !(p.unit_amount in byAmount)) {
-      byAmount[p.unit_amount] = p.id;
-    }
-  }
-
-  const result: PackPriceIds = {};
-
-  for (const def of PACK_DEFINITIONS) {
-    const priceId = byLookupKey[def.lookupKey] ?? byAmount[def.unitAmount];
-
-    if (priceId) {
-      result[def.packId] = priceId;
-      console.log(`[STRIPE] ${def.label} → ${priceId}`);
-    } else {
-      console.warn(
-        `[STRIPE] No AUD price found for ${def.label}. ` +
-        `Expected unit_amount=${def.unitAmount} (cents) with currency=aud or lookup_key="${def.lookupKey}". ` +
-        `Checkout uses inline price_data so this does not affect payments.`
-      );
-    }
-  }
-
+  const resolved = Object.keys(result).length;
+  const total = PACK_DEFINITIONS.length;
+  console.log(`[STRIPE_PRICES] Ready: ${resolved}/${total} prices resolved${errors.length ? ` (${errors.length} failed)` : ""}`);
   return result;
 }
 
-export async function getPriceId(packId: string): Promise<string> {
-  if (!cachedPriceIds) {
-    cachedPriceIds = await resolveAllPriceIds();
-  }
-  const id = cachedPriceIds[packId];
-  if (!id) throw new Error(`No AUD Stripe price mapped for packId: ${packId}`);
-  return id;
-}
-
-/** Call at server startup to pre-resolve and cache AUD price IDs (monitoring only). */
+/**
+ * Call at server startup. Finds or creates all AUD prices in Stripe.
+ * Results are cached for the server's lifetime — no duplicate creates on retry.
+ */
 export async function warmupStripePrices(): Promise<void> {
   try {
     cachedPriceIds = await resolveAllPriceIds();
-    const found = Object.values(cachedPriceIds);
-    if (found.length > 0) {
-      console.log("[STRIPE] AUD price IDs ready:", found.join(", "));
-    } else {
-      console.log("[STRIPE] No pre-existing AUD prices found — checkout uses inline price_data (AUD).");
+    const ids = Object.values(cachedPriceIds);
+    if (ids.length > 0) {
+      console.log(`[STRIPE_PRICES] ${ids.length} price IDs cached and ready.`);
     }
   } catch (err: any) {
-    console.warn("[STRIPE] AUD price warmup failed (checkout uses inline price_data so this is non-fatal):", err.message ?? err);
+    console.warn("[STRIPE_PRICES] Warmup failed (checkout falls back to inline price_data):", err.message ?? err);
   }
+}
+
+/**
+ * Returns the cached Stripe price ID for a packId.
+ * Throws if not resolved (e.g. warmup hasn't run or failed for this item).
+ */
+export function getPriceId(packId: string): string {
+  const id = cachedPriceIds?.[packId];
+  if (!id) throw new Error(`No Stripe price ID cached for packId: ${packId}`);
+  return id;
+}
+
+/**
+ * Returns the cached Stripe price ID or null if not available.
+ * Use in checkout routes: fall back to inline price_data on null.
+ */
+export function tryGetPriceId(packId: string): string | null {
+  return cachedPriceIds?.[packId] ?? null;
 }
