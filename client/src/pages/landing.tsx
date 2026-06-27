@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Heart, MessageCircle, Phone, Shield, RefreshCw, Loader2, Lock, Eye, EyeOff, AlertCircle, WifiOff, CheckCircle, ChevronDown, ChevronUp } from "lucide-react";
+import { Heart, MessageCircle, Phone, Shield, RefreshCw, Loader2, Lock, Eye, EyeOff, AlertCircle, WifiOff, CheckCircle, ChevronDown, ChevronUp, Clock } from "lucide-react";
 import { LulouFlowerIcon } from "@/components/app-layout";
 import { supabase, lastAuthFetchDebug, resetAuthFetchDebug, SUPABASE_URL, SUPABASE_KEY_LEN, AUTH_ENDPOINT } from "@/lib/supabase";
 import { API_BASE } from "@/lib/queryClient";
@@ -93,12 +93,15 @@ function classifyAuthError(err: any, mode: AuthMode): AuthError {
   if (
     err?.status === 429 ||
     err?.code === "over_email_send_rate_limit" ||
+    err?.code === "too_many_requests" ||
     (err?.message ?? "").toLowerCase().includes("email rate limit") ||
-    (err?.message ?? "").toLowerCase().includes("over_email_send_rate_limit")
+    (err?.message ?? "").toLowerCase().includes("over_email_send_rate_limit") ||
+    (err?.message ?? "").toLowerCase().includes("too many requests") ||
+    (err?.message ?? "").toLowerCase().includes("too many emails")
   ) {
     return {
       kind: "rate-limit",
-      message: "Too many email attempts were made. Please wait a little and try again.",
+      message: "Too many verification emails were requested. Please wait before trying again.",
     };
   }
 
@@ -192,12 +195,20 @@ export default function Landing() {
   const [resendSent, setResendSent] = useState(false);
   const [resendError, setResendError] = useState<string | null>(null);
   const [resendCooldown, setResendCooldown] = useState(0); // seconds remaining
+  const [rateLimitCooldown, setRateLimitCooldown] = useState(0); // signup rate-limit countdown
+  const [rateLimitEmail, setRateLimitEmail] = useState<string | null>(null); // email that hit rate-limit
 
   useEffect(() => {
     if (resendCooldown <= 0) return;
     const id = setInterval(() => setResendCooldown(s => Math.max(0, s - 1)), 1000);
     return () => clearInterval(id);
   }, [resendCooldown]);
+
+  useEffect(() => {
+    if (rateLimitCooldown <= 0) return;
+    const id = setInterval(() => setRateLimitCooldown(s => Math.max(0, s - 1)), 1000);
+    return () => clearInterval(id);
+  }, [rateLimitCooldown]);
   const { toast } = useToast();
 
   // Refs to the actual DOM inputs — read directly in handleSubmit to cover
@@ -284,6 +295,16 @@ export default function Landing() {
     }
   }
 
+  function cancelRateLimit(reason: "use-different-email" | "sign-in-instead") {
+    console.log("[VERIFY] PENDING_SIGNUP_CANCELLED", { reason });
+    sessionStorage.removeItem("lulou_pending_verification_email");
+    sessionStorage.removeItem("lulou_rate_limit_pending");
+    setRateLimitEmail(null);
+    setRateLimitCooldown(0);
+    setAuthError(null);
+    setRawAuthError(null);
+  }
+
   function resetForm() {
     setEmail("");
     setPassword("");
@@ -294,6 +315,9 @@ export default function Landing() {
     setShowRawError(false);
     setResetSent(false);
     setResetError(null);
+    setRateLimitEmail(null);
+    setRateLimitCooldown(0);
+    sessionStorage.removeItem("lulou_rate_limit_pending");
   }
 
   function clearError() {
@@ -308,6 +332,9 @@ export default function Landing() {
     setAuthError(null);
     setPassword("");
     setResetSent(false);
+    setRateLimitEmail(null);
+    setRateLimitCooldown(0);
+    sessionStorage.removeItem("lulou_rate_limit_pending");
   }
 
   async function handlePasswordReset() {
@@ -600,6 +627,18 @@ export default function Landing() {
           if (classified.kind === "already-exists") {
             setMode("signin");
             setPassword("");
+          }
+          if (classified.kind === "rate-limit") {
+            console.log("[VERIFY] RATE_LIMITED", { email: trimmedEmail.slice(0, 4) + "***", code: (error as any)?.code, status: (error as any)?.status });
+            // Block any old session from restoring while the user is stuck on this screen.
+            // We set the same key used by the normal verification pending guard so use-auth.ts
+            // knows to drop any non-matching INITIAL_SESSION / SIGNED_IN event.
+            sessionStorage.setItem("lulou_pending_verification_email", trimmedEmail);
+            sessionStorage.setItem("lulou_rate_limit_pending", "1");
+            console.log("[VERIFY] OLD_SESSION_BLOCKED_DURING_RATE_LIMIT", { email: trimmedEmail.slice(0, 4) + "***" });
+            setRateLimitEmail(trimmedEmail);
+            setRateLimitCooldown(60);
+            console.log("[VERIFY] COOLDOWN_STARTED", { seconds: 60, email: trimmedEmail.slice(0, 4) + "***" });
           }
           setAuthError(classified);
           writeDebug({ submitHandlerReturnedEarly: true });
@@ -935,8 +974,12 @@ export default function Landing() {
             </p>
             <button
               onClick={() => {
+                console.log("[VERIFY] PENDING_SIGNUP_CANCELLED", { reason: "use-different-email" });
                 sessionStorage.removeItem("lulou_pending_verification_email");
+                sessionStorage.removeItem("lulou_rate_limit_pending");
                 setVerificationEmail(null);
+                setRateLimitEmail(null);
+                setRateLimitCooldown(0);
                 setMode("signup");
                 setEmail("");
                 setPassword("");
@@ -950,8 +993,12 @@ export default function Landing() {
             </button>
             <button
               onClick={() => {
+                console.log("[VERIFY] PENDING_SIGNUP_CANCELLED", { reason: "sign-in-instead" });
                 sessionStorage.removeItem("lulou_pending_verification_email");
+                sessionStorage.removeItem("lulou_rate_limit_pending");
                 setVerificationEmail(null);
+                setRateLimitEmail(null);
+                setRateLimitCooldown(0);
                 setMode("signin");
                 setResendSent(false);
                 setResendError(null);
@@ -1266,6 +1313,33 @@ code:    ${rawAuthError.code}`}
                         </div>
                       )}
                       {/* Credentials action: offer password reset */}
+                      {authError.kind === "rate-limit" && mode === "signup" && (
+                        <div className="flex flex-col gap-1 mt-1.5">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              cancelRateLimit("sign-in-instead");
+                              setMode("signin");
+                            }}
+                            className="text-xs font-medium underline underline-offset-2"
+                            data-testid="button-rate-limit-signin"
+                          >
+                            {t("landing_sign_in_instead")}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              cancelRateLimit("use-different-email");
+                              setEmail("");
+                              setPassword("");
+                            }}
+                            className="text-xs font-medium underline underline-offset-2"
+                            data-testid="button-rate-limit-different-email"
+                          >
+                            Use a different email
+                          </button>
+                        </div>
+                      )}
                       {authError.kind === "already-exists" && (
                         <button
                           type="button"
@@ -1296,7 +1370,7 @@ code:    ${rawAuthError.code}`}
                 type="submit"
                 size="lg"
                 className="w-full text-base"
-                disabled={loading || !email.trim() || !password}
+                disabled={loading || !email.trim() || !password || (mode === "signup" && rateLimitCooldown > 0)}
                 data-testid="button-submit-auth"
                 onClick={() => writeDebug({ submitButtonClicked: true })}
               >
@@ -1304,6 +1378,11 @@ code:    ${rawAuthError.code}`}
                   <>
                     <Loader2 className="w-4 h-4 me-2 animate-spin" />
                     {mode === "signup" ? t("landing_creating") : t("landing_signing_in")}
+                  </>
+                ) : mode === "signup" && rateLimitCooldown > 0 ? (
+                  <>
+                    <Clock className="w-4 h-4 me-2" />
+                    Try again in {rateLimitCooldown}s
                   </>
                 ) : (
                   <>

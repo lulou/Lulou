@@ -155,19 +155,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           const pendingEmail = sessionStorage.getItem("lulou_pending_verification_email");
           if (pendingEmail) {
             if (u.email === pendingEmail) {
-              // This is the verified email we've been waiting for — clear the guard.
+              // This is the verified email we've been waiting for — clear both guards.
               console.log("[VERIFY] VERIFIED_EMAIL_MATCHED — clearing pending verification flag", {
                 email: pendingEmail.slice(0, 4) + "***",
                 userId: u.id.slice(0, 8) + "…",
               });
               sessionStorage.removeItem("lulou_pending_verification_email");
+              sessionStorage.removeItem("lulou_rate_limit_pending");
               // Fall through to normal SIGNED_IN path below.
             } else {
-              // Different account trying to slip in while verification is pending.
-              console.warn("[VERIFY] SESSION_EMAIL_MISMATCH_BLOCKED — SIGNED_IN with non-pending email, blocking session restore", {
-                sessionEmail: (u.email ?? "").slice(0, 4) + "***",
-                pendingEmail: pendingEmail.slice(0, 4) + "***",
-              });
+              // Different account trying to slip in while verification/rate-limit is pending.
+              const isRateLimit = !!sessionStorage.getItem("lulou_rate_limit_pending");
+              if (isRateLimit) {
+                console.warn("[VERIFY] OLD_SESSION_BLOCKED_DURING_RATE_LIMIT — SIGNED_IN with non-pending email while rate-limit cooldown is active", {
+                  sessionEmail: (u.email ?? "").slice(0, 4) + "***",
+                  pendingEmail: pendingEmail.slice(0, 4) + "***",
+                });
+              } else {
+                console.warn("[VERIFY] SESSION_EMAIL_MISMATCH_BLOCKED — SIGNED_IN with non-pending email, blocking session restore", {
+                  sessionEmail: (u.email ?? "").slice(0, 4) + "***",
+                  pendingEmail: pendingEmail.slice(0, 4) + "***",
+                });
+              }
               supabase.auth.signOut({ scope: "local" }).catch(() => {});
               if (mounted) {
                 setUser(null);
@@ -319,11 +328,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (event === "INITIAL_SESSION" && u) {
         const pendingEmail = sessionStorage.getItem("lulou_pending_verification_email");
         if (pendingEmail && u.email !== pendingEmail) {
-          console.warn("[VERIFY] OLD_SESSION_BLOCKED — INITIAL_SESSION with non-pending email while verification is pending", {
-            sessionEmail: (u.email ?? "").slice(0, 4) + "***",
-            pendingEmail: pendingEmail.slice(0, 4) + "***",
-            userId: u.id.slice(0, 8) + "…",
-          });
+          const isRateLimit = !!sessionStorage.getItem("lulou_rate_limit_pending");
+          if (isRateLimit) {
+            console.warn("[VERIFY] OLD_SESSION_BLOCKED_DURING_RATE_LIMIT — INITIAL_SESSION with non-pending email while rate-limit cooldown is active", {
+              sessionEmail: (u.email ?? "").slice(0, 4) + "***",
+              pendingEmail: pendingEmail.slice(0, 4) + "***",
+              userId: u.id.slice(0, 8) + "…",
+            });
+          } else {
+            console.warn("[VERIFY] OLD_SESSION_BLOCKED — INITIAL_SESSION with non-pending email while verification is pending", {
+              sessionEmail: (u.email ?? "").slice(0, 4) + "***",
+              pendingEmail: pendingEmail.slice(0, 4) + "***",
+              userId: u.id.slice(0, 8) + "…",
+            });
+          }
           supabase.auth.signOut({ scope: "local" }).catch(() => {});
           if (mounted) {
             setUser(null);
