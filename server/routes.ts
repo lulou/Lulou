@@ -3307,7 +3307,7 @@ export async function registerRoutes(
         ` | session=${session.id}` +
         ` | mode=${_extrasMode}` +
         ` | item=${itemId}` +
-        ` | amount=${item.unitAmount} ${priceData.currency}` +
+        ` | amount=${item.unitAmount} aud` +
         ` | user=${userId}` +
         ` | baseUrl=${baseUrl} (${_frontendUrlSource})` +
         ` | success_url=${successUrl}` +
