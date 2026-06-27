@@ -2835,20 +2835,24 @@ export default function IntentPage() {
                     if (sparksCheckoutLoading) return;
                     setSparksCheckoutLoading(itemId);
                     try {
+                      console.log(`[CHECKOUT] HALO_REQUEST item=${itemId}`);
                       const res = await apiRequest("POST", "/api/stripe/extras-checkout", {
                         itemId,
                         returnPath: "/intent",
                       });
                       const data = await res.json();
+                      console.log(`[CHECKOUT] HALO_RESPONSE item=${itemId} ok=${res.ok} hasUrl=${!!data?.url}`);
                       if (res.ok && data.url) {
                         sessionStorage.setItem("lulou_stripe_checkout", "1");
                         window.location.href = data.url;
                       } else {
+                        console.error(`[CHECKOUT] HALO_NO_URL item=${itemId}`, data);
                         toast({ title: "Checkout failed", description: data.message ?? "Please try again.", variant: "destructive" });
                         setSparksCheckoutLoading(null);
                       }
-                    } catch {
-                      toast({ title: "Checkout failed", description: "Please try again.", variant: "destructive" });
+                    } catch (err: any) {
+                      console.error(`[CHECKOUT] HALO_ERROR item=${itemId}`, { message: err?.message, stack: err?.stack });
+                      toast({ title: "Checkout failed", description: err?.message ?? "Please try again.", variant: "destructive" });
                       setSparksCheckoutLoading(null);
                     }
                   }}

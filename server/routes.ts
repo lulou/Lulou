@@ -3240,11 +3240,13 @@ export async function registerRoutes(
   type ExtrasItemId = keyof typeof EXTRAS_ITEMS;
 
   app.post("/api/stripe/extras-checkout", isAuthenticated, paymentLimiter, async (req: any, res) => {
+    const userId = req.user.id;
+    const { itemId, returnPath } = req.body;
+    console.log(`[CHECKOUT] REQUEST_RECEIVED item=${itemId} user=${userId} returnPath=${returnPath}`);
     try {
-      const userId = req.user.id;
-      const { itemId, returnPath } = req.body;
       const item = EXTRAS_ITEMS[itemId as ExtrasItemId];
       if (!item) {
+        console.warn(`[CHECKOUT] INVALID_ITEM item=${itemId} validItems=${Object.keys(EXTRAS_ITEMS).join(", ")}`);
         return res.status(400).json({ message: `Invalid item. Must be one of: ${Object.keys(EXTRAS_ITEMS).join(", ")}` });
       }
       const stripe = await getUncachableStripeClient();
@@ -3272,13 +3274,19 @@ export async function registerRoutes(
         ? `${baseUrl}/intent?sparks_session={CHECKOUT_SESSION_ID}&item=${itemId}`
         : `${baseUrl}/extras/success?session_id={CHECKOUT_SESSION_ID}&item=${itemId}`;
 
+      const cancelUrl = `${baseUrl}${safeCancelPath}?checkout=cancelled`;
+
+      console.log(`[CHECKOUT] CREATING_SESSION item=${itemId} amount=${item.unitAmount} currency=aud mode=${item.mode} success_url=${successUrl} cancel_url=${cancelUrl}`);
+
       const session = await (stripe.checkout.sessions.create as Function)({
         line_items: [{ price_data: priceData, quantity: 1 }],
         mode: item.mode,
         success_url: successUrl,
-        cancel_url: `${baseUrl}${safeCancelPath}?checkout=cancelled`,
+        cancel_url: cancelUrl,
         metadata: { userId, itemId, benefitType: item.benefitType ?? "", mode: item.mode },
       });
+
+      console.log(`[CHECKOUT] SESSION_CREATED session=${session.id} url=${session.url}`);
 
       const _extrasMode = session.id.startsWith('cs_live_') ? 'LIVE' : session.id.startsWith('cs_test_') ? 'TEST' : 'UNKNOWN';
       const _frontendUrlSource = process.env.FRONTEND_URL ? 'FRONTEND_URL env' : 'REPLIT_DOMAINS fallback';
@@ -3291,15 +3299,28 @@ export async function registerRoutes(
         ` | user=${userId}` +
         ` | baseUrl=${baseUrl} (${_frontendUrlSource})` +
         ` | success_url=${successUrl}` +
-        ` | cancel_url=${baseUrl}${safeCancelPath}?checkout=cancelled`,
+        ` | cancel_url=${cancelUrl}`,
       );
       if (_extrasMode === 'TEST') {
         console.log('[STRIPE] ℹ TEST session — visible in Stripe dashboard ONLY with "Test mode" toggled ON (top-left of dashboard.stripe.com)');
       }
+
+      console.log(`[CHECKOUT] REDIRECTING_TO_STRIPE session=${session.id} url=${session.url}`);
       res.json({ url: session.url, sessionId: session.id });
     } catch (err: any) {
       const detail = err.raw?.message ?? err.message ?? "Unknown error";
-      console.error("[STRIPE] Extras checkout failed:", { message: err.message, type: err.type, code: err.code, itemId: req.body?.itemId });
+      console.error("[CHECKOUT] STRIPE_ERROR", {
+        item: itemId,
+        user: userId,
+        message: err.message,
+        type: err.type,
+        code: err.code,
+        rawMessage: err.raw?.message,
+        rawType: err.raw?.type,
+        rawCode: err.raw?.code,
+        statusCode: err.statusCode ?? err.raw?.statusCode,
+        stack: err.stack?.split("\n").slice(0, 4).join(" | "),
+      });
       res.status(500).json({ message: detail, code: err.code ?? err.raw?.code, type: err.type });
     }
   });

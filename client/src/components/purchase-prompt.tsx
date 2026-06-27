@@ -76,11 +76,24 @@ export function PurchasePrompt({ feature, onClose, returnPath }: PurchasePromptP
     setLoading(itemId);
     try {
       const cancelPath = returnPath || window.location.pathname;
+      console.log(`[CHECKOUT] FRONTEND_REQUEST item=${itemId} cancelPath=${cancelPath}`);
       const res = await apiRequest("POST", "/api/stripe/extras-checkout", { itemId, returnPath: cancelPath });
       const data = await res.json();
-      if (data?.url) { sessionStorage.setItem("lulou_stripe_checkout", "1"); window.location.href = data.url; }
-    } catch {
-      // silently fall back — user stays on page
+      console.log(`[CHECKOUT] FRONTEND_RESPONSE item=${itemId} ok=${res.ok} hasUrl=${!!data?.url}`);
+      if (data?.url) {
+        sessionStorage.setItem("lulou_stripe_checkout", "1");
+        window.location.href = data.url;
+      } else {
+        console.error(`[CHECKOUT] FRONTEND_NO_URL item=${itemId}`, data);
+        import("@/hooks/use-toast").then(({ toast }) => {
+          toast({ title: "Checkout failed", description: data?.message ?? "Please try again.", variant: "destructive" });
+        });
+      }
+    } catch (err: any) {
+      console.error(`[CHECKOUT] FRONTEND_ERROR item=${itemId}`, { message: err?.message, stack: err?.stack });
+      import("@/hooks/use-toast").then(({ toast }) => {
+        toast({ title: "Checkout failed", description: err?.message ?? "Please try again.", variant: "destructive" });
+      });
     } finally {
       setLoading(null);
     }
