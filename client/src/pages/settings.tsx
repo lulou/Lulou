@@ -495,6 +495,29 @@ export default function SettingsPage() {
 
   // ── Stripe checkout (extras) ──────────────────────────────────────────────
   const [checkoutLoading, setCheckoutLoading] = useState<string | null>(null);
+  const [restoreLoading, setRestoreLoading] = useState(false);
+
+  const restorePurchases = async () => {
+    setRestoreLoading(true);
+    try {
+      const res = await apiRequest("POST", "/api/stripe/restore-purchases", {});
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.message ?? "Restore failed");
+      const count = data.restored?.length ?? 0;
+      if (count > 0) {
+        toast({
+          title: `${count} purchase${count === 1 ? "" : "s"} restored`,
+          description: data.restored.map((r: { name: string }) => r.name).join(", "),
+        });
+      } else {
+        toast({ title: "All purchases already applied", description: "Nothing new to restore." });
+      }
+    } catch (err: any) {
+      toast({ title: "Restore failed", description: err?.message ?? "Please try again.", variant: "destructive" });
+    } finally {
+      setRestoreLoading(false);
+    }
+  };
 
   const startCheckout = async (itemId: string) => {
     setCheckoutLoading(itemId);
@@ -1359,6 +1382,28 @@ export default function SettingsPage() {
                 loading={checkoutLoading === "deep-connection-pack"}
                 onBuy={() => startCheckout("deep-connection-pack")}
               />
+            </div>
+
+            {/* ── Restore Purchases ── */}
+            <div className="pt-2 border-t border-border/30 mt-2">
+              <button
+                onClick={restorePurchases}
+                disabled={restoreLoading}
+                data-testid="button-restore-purchases"
+                className="w-full py-3 text-sm text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {restoreLoading ? (
+                  <>
+                    <span className="w-3.5 h-3.5 rounded-full border-2 border-current border-t-transparent animate-spin shrink-0" />
+                    Checking your purchases…
+                  </>
+                ) : (
+                  "Restore Purchases"
+                )}
+              </button>
+              <p className="text-center text-[11px] text-muted-foreground/50 pb-1">
+                Re-applies any paid Halos or Voice Notes not yet credited to your account.
+              </p>
             </div>
           </div>
         </SheetContent>

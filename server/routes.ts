@@ -9,7 +9,7 @@ import type { Profile } from "@shared/schema";
 import { userBenefits, callCredits, activeSessions, processedStripeSessions, membershipSubscriptions, userElevates, blockedContacts, savedWheelProfiles, sparkBalances, sparkPurchases } from "@shared/schema";
 import { supabase, supabaseAdmin, createUserClient, hasServiceRoleKey } from "./supabase";
 import { db } from "./db";
-import { eq, and, isNull, gt, or } from "drizzle-orm";
+import { eq, and, isNull, gt, or, inArray } from "drizzle-orm";
 import { getUncachableStripeClient, getStripePublishableKey } from "./stripeClient";
 import { writeLimiter, callLimiter, paymentLimiter } from "./limiters";
 
@@ -3436,6 +3436,126 @@ export async function registerRoutes(
     } catch (err: any) {
       const detail = err.raw?.message ?? err.message ?? "Unknown error";
       console.error("[STRIPE] extras-activate error:", { message: err.message, type: err.type, code: err.code });
+      res.status(500).json({ message: detail });
+    }
+  });
+
+  // ── Restore Purchases ─────────────────────────────────────────────────────
+  // Re-grants any paid-but-not-applied Halo (sparks) or Voice Notes Unlock
+  // sessions by paginating Stripe checkout history for this user, checking the
+  // processed_stripe_sessions idempotency table, and re-running the same grant
+  // logic as extras-activate. Safe to call multiple times — the PK on
+  // processed_stripe_sessions prevents double-granting even under concurrency.
+
+  const RESTORABLE_ITEM_IDS = new Set(["sparks-1", "sparks-3", "sparks-5", "voice-notes-unlock"]);
+
+  app.post("/api/stripe/restore-purchases", isAuthenticated, paymentLimiter, async (req: any, res) => {
+    const userId = req.user.id;
+    console.log(`[RESTORE] START user=${userId}`);
+    try {
+      const stripe = await getUncachableStripeClient();
+      const storage = getStorage(req);
+
+      // Paginate Stripe sessions (newest-first). Stripe doesn't allow filtering
+      // by metadata server-side, so we filter client-side and cap at 200 total.
+      const MAX_SESSIONS = 200;
+      let checked = 0;
+      let hasMore = true;
+      let startingAfter: string | undefined;
+      const candidates: Array<{ sessionId: string; itemId: string }> = [];
+
+      while (hasMore && checked < MAX_SESSIONS) {
+        const batch = await stripe.checkout.sessions.list({
+          limit: 100,
+          ...(startingAfter ? { starting_after: startingAfter } : {}),
+        });
+
+        for (const session of batch.data) {
+          checked++;
+          const sessionUserId = session.metadata?.userId;
+          const itemId = session.metadata?.itemId;
+          if (
+            sessionUserId === userId &&
+            RESTORABLE_ITEM_IDS.has(itemId ?? "") &&
+            session.payment_status === "paid"
+          ) {
+            candidates.push({ sessionId: session.id, itemId: itemId! });
+          }
+          if (checked >= MAX_SESSIONS) break;
+        }
+
+        hasMore = batch.has_more && checked < MAX_SESSIONS;
+        if (batch.data.length > 0) startingAfter = batch.data[batch.data.length - 1].id;
+        else break;
+      }
+
+      console.log(`[RESTORE] SCANNED checked=${checked} candidates=${candidates.length} user=${userId}`);
+
+      if (candidates.length === 0) {
+        return res.json({ restored: [], alreadyApplied: 0, checked, message: "No restorable purchases found." });
+      }
+
+      // Find which candidate sessions are already in the idempotency table.
+      const alreadyRows = await db
+        .select({ sessionId: processedStripeSessions.sessionId })
+        .from(processedStripeSessions)
+        .where(
+          and(
+            eq(processedStripeSessions.userId, userId),
+            inArray(processedStripeSessions.sessionId, candidates.map(c => c.sessionId))
+          )
+        );
+      const alreadySet = new Set(alreadyRows.map(r => r.sessionId));
+      const toRestore = candidates.filter(c => !alreadySet.has(c.sessionId));
+
+      console.log(`[RESTORE] UNPROCESSED count=${toRestore.length} alreadyApplied=${alreadySet.size} user=${userId}`);
+
+      const restored: Array<{ sessionId: string; itemId: string; name: string }> = [];
+
+      for (const { sessionId, itemId } of toRestore) {
+        const item = EXTRAS_ITEMS[itemId as ExtrasItemId];
+        if (!item) continue;
+
+        // Claim idempotency slot — PK violation means a concurrent restore already
+        // processed this session; skip silently.
+        try {
+          await db.insert(processedStripeSessions).values({ sessionId, userId, itemRef: itemId });
+        } catch (insertErr: any) {
+          const isDup =
+            insertErr.code === "23505" ||
+            (insertErr.cause as any)?.code === "23505" ||
+            String(insertErr?.message ?? "").toLowerCase().includes("unique") ||
+            String(insertErr?.message ?? "").toLowerCase().includes("duplicate");
+          if (isDup) {
+            console.log(`[RESTORE] CONCURRENT_SKIP sessionId=${sessionId} user=${userId}`);
+            continue;
+          }
+          throw insertErr;
+        }
+
+        if (itemId.startsWith("sparks-")) {
+          await storage.grantSpinCredits(userId, item.quantity, itemId, sessionId);
+        } else if (item.benefitType) {
+          await db.insert(userBenefits).values({ userId, type: item.benefitType });
+        }
+
+        console.log(`[RESTORE] GRANTED sessionId=${sessionId} item=${itemId} user=${userId}`);
+        restored.push({ sessionId, itemId, name: item.name });
+      }
+
+      console.log(`[RESTORE] COMPLETE restored=${restored.length} alreadyApplied=${alreadySet.size} user=${userId}`);
+      return res.json({
+        restored,
+        alreadyApplied: alreadySet.size,
+        checked,
+        message: restored.length > 0
+          ? `Restored ${restored.length} purchase${restored.length === 1 ? "" : "s"}.`
+          : "All purchases are already applied to your account.",
+      });
+
+    } catch (err: any) {
+      const detail = err.raw?.message ?? err.message ?? "Unknown error";
+      console.error("[RESTORE] ERROR", { user: userId, message: err.message, code: err.code });
       res.status(500).json({ message: detail });
     }
   });

@@ -30,6 +30,47 @@ function shuffleArray<T>(arr: T[]): T[] {
   return a;
 }
 
+/** Small "Restore Purchases" text link shown below Halo packs. */
+function RestorePurchasesButton() {
+  const [loading, setLoading] = useState(false);
+  const { toast } = useToast();
+  const handleRestore = async () => {
+    setLoading(true);
+    try {
+      const res = await apiRequest("POST", "/api/stripe/restore-purchases", {});
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.message ?? "Restore failed");
+      const count = data.restored?.length ?? 0;
+      if (count > 0) {
+        toast({
+          title: `${count} purchase${count === 1 ? "" : "s"} restored`,
+          description: data.restored.map((r: { name: string }) => r.name).join(", "),
+        });
+      } else {
+        toast({ title: "All purchases already applied", description: "Nothing new to restore." });
+      }
+    } catch (err: any) {
+      toast({ title: "Restore failed", description: err?.message ?? "Please try again.", variant: "destructive" });
+    } finally {
+      setLoading(false);
+    }
+  };
+  return (
+    <button
+      onClick={handleRestore}
+      disabled={loading}
+      data-testid="button-restore-purchases-intent"
+      style={{
+        fontSize: 12, color: "rgba(255,255,255,0.28)",
+        background: "none", border: "none", cursor: loading ? "not-allowed" : "pointer",
+        padding: "6px 24px", opacity: loading ? 0.6 : 1,
+      }}
+    >
+      {loading ? "Checking…" : "Restore Purchases"}
+    </button>
+  );
+}
+
 // Lazy-loads a single photo for a wheel item or profile card.
 function ProfilePhoto({ userId, className }: { userId: string; className?: string }) {
   const { data, isLoading } = useQuery<{ photos: string[] }>({
@@ -2880,8 +2921,9 @@ export default function IntentPage() {
               ))}
             </div>
 
-            {/* Back to Lulou */}
-            <div style={{ textAlign: "center", paddingTop: 16 }}>
+            {/* Restore Purchases + Back to Lulou */}
+            <div style={{ textAlign: "center", paddingTop: 12, display: "flex", flexDirection: "column", alignItems: "center", gap: 0 }}>
+              <RestorePurchasesButton />
               <button
                 onClick={() => setShowSpinExtras(false)}
                 data-testid="button-spin-extras-dismiss"
