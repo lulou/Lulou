@@ -100,6 +100,8 @@ async function handleInvoicePaymentSucceeded(invoice: any): Promise<void> {
     return;
   }
 
+  console.log(`[WEBHOOK] PAYMENT_CONFIRMED product=membership_renewal user=${sub.userId} invoice=${invoice.id} customer=${customerId}`);
+
   const granted = await grantMembershipBundle(sub.userId, invoice.id);
 
   if (granted) {
