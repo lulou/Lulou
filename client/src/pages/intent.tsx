@@ -782,6 +782,13 @@ function CheckoutDiagPanel({ diag, onSubscribe, open }: CheckoutDiagPanelProps) 
   const label = hasError ? "❌ Checkout error"      : hasUrl ? "✅ Stripe session ready" : "⏳ Contacting Stripe…";
   const color = hasError ? "#f87171"               : hasUrl ? "#4ade80"                : "rgba(255,255,255,0.55)";
 
+  const row = (k: string, v: string | null | undefined, hi?: string) => (
+    <div style={{ display: "flex", gap: 6, marginTop: 3 }}>
+      <span style={{ color: "rgba(255,255,255,0.35)", minWidth: 130 }}>{k}</span>
+      <span style={{ color: hi ?? "rgba(255,255,255,0.75)", wordBreak: "break-all" }}>{v ?? "—"}</span>
+    </div>
+  );
+
   return (
     <div
       data-testid="checkout-diag-panel"
@@ -791,39 +798,51 @@ function CheckoutDiagPanel({ diag, onSubscribe, open }: CheckoutDiagPanelProps) 
         borderRadius: 14,
         background: bg,
         border: `1px solid ${border}`,
-        fontSize: 12,
+        fontSize: 11,
         fontFamily: "monospace",
         wordBreak: "break-all",
       }}
     >
-      <p style={{ color, fontWeight: 700, margin: 0, marginBottom: 4 }}>{label}</p>
+      <p style={{ color, fontWeight: 700, margin: 0, marginBottom: 6 }}>{label}</p>
+
+      {/* Always-visible account identity rows */}
+      {row("Stripe Account ID:", diag.accountId || "fetching…", diag.accountId ? "#facc15" : undefined)}
+      {row("Livemode:", diag.livemode === null ? "fetching…" : String(diag.livemode), diag.livemode === true ? "#f87171" : diag.livemode === false ? "#4ade80" : undefined)}
+      {row("Secret key prefix:", diag.secretKeyPrefix || "…")}
+      {row("Pub key prefix:", diag.pubKeyPrefix || "…")}
 
       {pending && (
-        <p style={{ color: "rgba(255,255,255,0.35)", margin: 0 }}>
+        <div style={{ marginTop: 6, color: "rgba(255,255,255,0.35)" }}>
           product={diag.product} · token={diag.hasToken ? "yes" : "NO"} · status={diag.status ?? "…"}
-        </p>
+        </div>
       )}
 
       {hasUrl && (
         <>
-          <p style={{ color: "rgba(255,255,255,0.40)", margin: 0 }}>session: {diag.sessionId}</p>
-          <a
-            href={diag.redirectUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            style={{ color: "#4ade80", textDecoration: "underline", display: "block", marginTop: 4 }}
-            data-testid="checkout-diag-url"
-          >
-            {diag.redirectUrl.slice(0, 72)}…
-          </a>
-          <p style={{ color: "rgba(255,255,255,0.28)", margin: "4px 0 0" }}>
-            (page navigates automatically — tap link if redirect blocked)
-          </p>
+          {row("Session ID:", diag.sessionId)}
+          <div style={{ marginTop: 6 }}>
+            <a
+              href={diag.redirectUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ color: "#4ade80", textDecoration: "underline" }}
+              data-testid="checkout-diag-url"
+            >
+              Open Stripe Checkout ↗
+            </a>
+            <span style={{ color: "rgba(255,255,255,0.25)", marginLeft: 8 }}>
+              (auto-redirected — tap if stuck)
+            </span>
+          </div>
+          <div style={{ marginTop: 4, color: "rgba(255,255,255,0.28)", fontSize: 10 }}>
+            ⚠ Compare Account ID above against your Stripe dashboard URL
+            (dashboard.stripe.com/acct_XXXXXXXX) to confirm they match.
+          </div>
         </>
       )}
 
       {hasError && (
-        <p style={{ color: "#fca5a5", margin: 0 }}>{diag.error}</p>
+        <p style={{ color: "#fca5a5", margin: "6px 0 0" }}>{diag.error}</p>
       )}
     </div>
   );

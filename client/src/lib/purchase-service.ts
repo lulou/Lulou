@@ -15,6 +15,11 @@ export interface PurchaseDebugInfo {
   redirectUrl: string;
   error: string;
   ts: number;
+  // Account identity returned by the server (from stripe.accounts.retrieve())
+  accountId: string;
+  livemode: boolean | null;
+  secretKeyPrefix: string;
+  pubKeyPrefix: string;
 }
 
 type DebugListener = (info: PurchaseDebugInfo | null) => void;
@@ -34,6 +39,7 @@ function _emit(patch: Partial<PurchaseDebugInfo> | null): void {
     const base: PurchaseDebugInfo = _current ?? {
       product: "", apiBase: "", endpoint: "", hasToken: false,
       status: null, body: "", sessionId: "", redirectUrl: "", error: "", ts: 0,
+      accountId: "", livemode: null, secretKeyPrefix: "", pubKeyPrefix: "",
     };
     _current = { ...base, ...patch };
   }
@@ -104,7 +110,13 @@ export async function startPurchase(opts: StartPurchaseOpts): Promise<void> {
 
     if (res.ok && parsed?.url) {
       console.log(`[PURCHASE] REDIRECT_URL "${parsed.url}"`);
-      _emit({ redirectUrl: parsed.url });
+      _emit({
+        redirectUrl:     parsed.url,
+        accountId:       parsed.accountId       ?? "",
+        livemode:        parsed.livemode        ?? null,
+        secretKeyPrefix: parsed.secretKeyPrefix ?? "",
+        pubKeyPrefix:    parsed.pubKeyPrefix    ?? "",
+      });
       sessionStorage.setItem("lulou_stripe_checkout", "1");
       window.location.assign(parsed.url);
     } else {

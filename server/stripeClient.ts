@@ -119,6 +119,55 @@ export async function getStripeSecretKey(): Promise<string> {
   return secretKey;
 }
 
+// ── Stripe account info (cached) ─────────────────────────────────────────────
+// Calls stripe.accounts.retrieve() once and caches with the same TTL as creds.
+// Returns the definitive Stripe account ID, livemode, and key prefixes.
+
+export type StripeAccountInfo = {
+  accountId: string;
+  displayName: string | null;
+  country: string | null;
+  livemode: boolean;
+  secretKeyPrefix: string;   // first 12 chars of the secret key
+  pubKeyPrefix: string;      // first 12 chars of the publishable key
+};
+
+let _cachedAccountInfo: StripeAccountInfo | null = null;
+let _cachedAccountAt = 0;
+
+export async function getStripeAccountInfo(): Promise<StripeAccountInfo> {
+  const now = Date.now();
+  if (_cachedAccountInfo && now - _cachedAccountAt < CREDS_TTL_MS) {
+    return _cachedAccountInfo;
+  }
+
+  const { secretKey, publishableKey } = await getCredentials();
+  const stripe = new Stripe(secretKey, { apiVersion: '2025-08-27.basil' as any });
+  const account = await stripe.accounts.retrieve();
+
+  const info: StripeAccountInfo = {
+    accountId:      account.id,
+    displayName:    (account as any).display_name ?? (account as any).settings?.dashboard?.display_name ?? null,
+    country:        account.country ?? null,
+    livemode:       (account as any).livemode ?? !secretKey.startsWith('sk_test'),
+    secretKeyPrefix: secretKey.slice(0, 12),
+    pubKeyPrefix:   publishableKey.slice(0, 12),
+  };
+
+  console.log("[STRIPE_ACCOUNT]", {
+    accountId:      info.accountId,
+    displayName:    info.displayName,
+    country:        info.country,
+    livemode:       info.livemode,
+    secretKeyPrefix: info.secretKeyPrefix,
+    pubKeyPrefix:   info.pubKeyPrefix,
+  });
+
+  _cachedAccountInfo = info;
+  _cachedAccountAt   = now;
+  return info;
+}
+
 let stripeSync: any = null;
 
 export async function getStripeSync() {

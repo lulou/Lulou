@@ -11,7 +11,7 @@ import { EXTRAS_ITEMS, ELEVATE_PACKS, type ExtrasItemId, type ElevatePackId, gra
 import { supabase, supabaseAdmin, createUserClient, hasServiceRoleKey } from "./supabase";
 import { db } from "./db";
 import { eq, and, isNull, gt, or, inArray } from "drizzle-orm";
-import { getUncachableStripeClient, getStripePublishableKey } from "./stripeClient";
+import { getUncachableStripeClient, getStripePublishableKey, getStripeAccountInfo } from "./stripeClient";
 import { tryGetPriceId } from "./stripePrices";
 import { writeLimiter, callLimiter, paymentLimiter } from "./limiters";
 
@@ -3274,10 +3274,21 @@ export async function registerRoutes(
 
       console.log(`[CHECKOUT] CREATING_SESSION item=${itemId} amount=${item.unitAmount} currency=aud mode=${item.mode} priceId=${cachedPriceId ?? "inline"} success_url=${successUrl} cancel_url=${cancelUrl}`);
 
-      // ── [CHECKOUT_TEST] diagnostic logs ─────────────────────────────────────
+      // ── [CHECKOUT_TEST] / [CHECKOUT_ACCOUNT] diagnostic logs ─────────────────
       console.log(`[CHECKOUT_TEST] ROUTE_HIT`);
       console.log(`[CHECKOUT_TEST] USER_ID=${userId}`);
       console.log(`[CHECKOUT_TEST] PRODUCT_ID=${itemId}`);
+
+      // Fetch the real Stripe account identity before creating the session.
+      // This is the ground truth — compare accountId against dashboard URL.
+      const acctInfo = await getStripeAccountInfo();
+      console.log(`[CHECKOUT_ACCOUNT]`, {
+        accountId:      acctInfo.accountId,
+        livemode:       acctInfo.livemode,
+        secretKeyPrefix: acctInfo.secretKeyPrefix,
+        pubKeyPrefix:   acctInfo.pubKeyPrefix,
+      });
+
       console.log(`[CHECKOUT_TEST] BEFORE_STRIPE_CREATE`);
       // ────────────────────────────────────────────────────────────────────────
 
@@ -3300,9 +3311,14 @@ export async function registerRoutes(
         throw stripeErr; // re-throw so outer catch handles HTTP response
       }
 
-      // ── [CHECKOUT_TEST] diagnostic logs ─────────────────────────────────────
+      // ── [CHECKOUT_TEST] / [CHECKOUT_CREATED] ─────────────────────────────────
       console.log(`[CHECKOUT_TEST] AFTER_STRIPE_CREATE session=${session.id}`);
       console.log(`[CHECKOUT_TEST] SESSION_URL=${session.url}`);
+      console.log(`[CHECKOUT_CREATED]`, {
+        sessionId:  session.id,
+        sessionUrl: session.url,
+        livemode:   session.livemode,
+      });
       // ────────────────────────────────────────────────────────────────────────
 
       console.log(`[CHECKOUT] SESSION_CREATED session=${session.id} url=${session.url}`);
@@ -3325,7 +3341,14 @@ export async function registerRoutes(
       }
 
       console.log(`[CHECKOUT] REDIRECTING_TO_STRIPE session=${session.id} url=${session.url}`);
-      res.json({ url: session.url, sessionId: session.id });
+      res.json({
+        url:            session.url,
+        sessionId:      session.id,
+        accountId:      acctInfo.accountId,
+        livemode:       acctInfo.livemode,
+        secretKeyPrefix: acctInfo.secretKeyPrefix,
+        pubKeyPrefix:   acctInfo.pubKeyPrefix,
+      });
     } catch (err: any) {
       const detail = err.raw?.message ?? err.message ?? "Unknown error";
       console.error("[CHECKOUT] STRIPE_ERROR", {
@@ -3664,6 +3687,16 @@ export async function registerRoutes(
       // NOTE: The 2025-08-27.basil API handles payment methods automatically.
       // Do NOT pass payment_method_types or automatic_payment_methods — both are
       // rejected as unknown parameters in this API version.
+
+      // Fetch real account identity before creating the session.
+      const elevateAcctInfo = await getStripeAccountInfo();
+      console.log(`[CHECKOUT_ACCOUNT]`, {
+        accountId:      elevateAcctInfo.accountId,
+        livemode:       elevateAcctInfo.livemode,
+        secretKeyPrefix: elevateAcctInfo.secretKeyPrefix,
+        pubKeyPrefix:   elevateAcctInfo.pubKeyPrefix,
+      });
+
       const session = await (stripe.checkout.sessions.create as Function)({
         line_items: [elevateLineItem],
         mode: "payment",
@@ -3689,8 +3722,20 @@ export async function registerRoutes(
       if (_elevateMode === 'TEST') {
         console.log('[STRIPE] ℹ TEST session — visible in Stripe dashboard ONLY with "Test mode" toggled ON (top-left of dashboard.stripe.com)');
       }
+      console.log(`[CHECKOUT_CREATED]`, {
+        sessionId:  session.id,
+        sessionUrl: session.url,
+        livemode:   session.livemode,
+      });
       console.log(`[CHECKOUT] SESSION_CREATED session=${session.id} product=${packId} amount=${pack.unitAmount} aud user=${userId}`);
-      res.json({ url: session.url, sessionId: session.id });
+      res.json({
+        url:            session.url,
+        sessionId:      session.id,
+        accountId:      elevateAcctInfo.accountId,
+        livemode:       elevateAcctInfo.livemode,
+        secretKeyPrefix: elevateAcctInfo.secretKeyPrefix,
+        pubKeyPrefix:   elevateAcctInfo.pubKeyPrefix,
+      });
     } catch (err: any) {
       const stripeDetail = err.raw?.message ?? err.message ?? "Unknown error";
       console.error("[STRIPE] Checkout session creation failed:", {

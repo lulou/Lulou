@@ -281,36 +281,35 @@ app.use((req, res, next) => {
   // ── Phase 2: background tasks (do NOT await — server is already listening) ──
 
   // ── Stripe startup audit ─────────────────────────────────────────────────
-  // Prints which Stripe account and mode are active so mismatches are
-  // immediately visible in the server log on every restart.
+  // Calls stripe.accounts.retrieve() to get the REAL account ID — not just a
+  // key fragment — so mismatches against the Stripe dashboard are undeniable.
   (async () => {
     try {
-      const { getStripePublishableKey, getStripeSecretKey } = await import("./stripeClient");
-      const [pub, sec] = await Promise.all([getStripePublishableKey(), getStripeSecretKey()]);
-      const secretMode  = sec.startsWith('sk_live') ? 'LIVE' : sec.startsWith('sk_test') ? 'TEST' : 'UNKNOWN';
-      const pubMode     = pub.startsWith('pk_live') ? 'LIVE' : pub.startsWith('pk_test') ? 'TEST' : 'UNKNOWN';
-      const pubParts    = pub.split('_');
-      const acctFrag    = pubParts.length >= 3 ? pubParts[2]?.slice(0, 16) : '(unknown)';
+      const { getStripeAccountInfo } = await import("./stripeClient");
+      const info = await getStripeAccountInfo();   // also emits [STRIPE_ACCOUNT] log
+      const secretMode  = info.secretKeyPrefix.startsWith('sk_live') ? 'LIVE' : 'TEST';
       const frontendUrl = process.env.FRONTEND_URL ?? `https://${process.env.REPLIT_DOMAINS?.split(",")[0] ?? "localhost:5000"}`;
       const isDeployment = process.env.REPLIT_DEPLOYMENT === '1';
       console.log("╔══════════════════════════════════════════════════════════╗");
       console.log("║             STRIPE ACCOUNT AUDIT (startup)              ║");
       console.log("╠══════════════════════════════════════════════════════════╣");
-      console.log(`║  Secret key  : sk_${secretMode.toLowerCase()}_…${sec.slice(-4)}  (${secretMode})`);
-      console.log(`║  Publishable : pk_${pubMode.toLowerCase()}_…${pub.slice(-4)}  (${pubMode})`);
-      console.log(`║  Account ID  : …${acctFrag}`);
-      console.log(`║  Keys match  : ${secretMode === pubMode ? '✓ YES — same mode' : '✗ NO — MISMATCH!'}`);
+      console.log(`║  Account ID  : ${info.accountId}  ← compare with dashboard URL`);
+      console.log(`║  Display name: ${info.displayName ?? '(not set)'}`);
+      console.log(`║  Country     : ${info.country ?? '(unknown)'}`);
+      console.log(`║  Livemode    : ${info.livemode}`);
+      console.log(`║  Secret key  : ${info.secretKeyPrefix}… (${secretMode})`);
+      console.log(`║  Pub key     : ${info.pubKeyPrefix}…`);
       console.log(`║  Environment : ${isDeployment ? 'PRODUCTION (REPLIT_DEPLOYMENT=1)' : 'DEVELOPMENT'}`);
       console.log(`║  FRONTEND_URL: ${frontendUrl}${process.env.FRONTEND_URL ? ' (from env)' : ' (REPLIT_DOMAINS fallback)'}`);
-      console.log(`║  Checkout success/cancel URLs will use: ${frontendUrl}`);
-      if (secretMode === 'TEST') {
-        console.log("║  ⚠  TEST mode — find sessions in Stripe dashboard → Test mode toggle");
+      console.log(`║  Sessions URL: stripe.com/dashboard → ${info.livemode ? 'Live mode' : 'Test mode'} → Payments → Checkout`);
+      if (!info.livemode) {
+        console.log("║  ⚠  TEST mode — toggle Test mode ON in Stripe dashboard to see sessions");
       } else {
         console.log("║  ✓  LIVE mode — real charges will be made");
       }
       console.log("╚══════════════════════════════════════════════════════════╝");
     } catch (err: any) {
-      console.warn("[STRIPE_AUDIT] Could not fetch Stripe credentials at startup:", err.message);
+      console.warn("[STRIPE_AUDIT] Could not fetch Stripe account at startup:", err.message);
     }
   })();
 
