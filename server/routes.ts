@@ -3232,9 +3232,9 @@ export async function registerRoutes(
     "deep-connection-pack": { name: "Deep Connection Pack",   unitAmount: 2799, mode: "payment"      as const, benefitType: null,                          credits: { phone: 5, video: 3 }, quantity: 1 },
     "voice-notes-unlock":   { name: "Voice Notes Unlock",     unitAmount: 499,  mode: "payment"      as const, benefitType: "voice_notes_unlock" as const, credits: null,                   quantity: 1 },
     "extra-call":           { name: "Extra Call",              unitAmount: 499,  mode: "payment"      as const, benefitType: null,                          credits: { phone: 1, video: 0 }, quantity: 1 },
-    "sparks-1":             { name: "1 Spark",                 unitAmount: 299,  mode: "payment"      as const, benefitType: null, credits: null, sparkCredits: 1,                quantity: 1 },
-    "sparks-3":             { name: "3 Sparks",                unitAmount: 699,  mode: "payment"      as const, benefitType: null, credits: null, sparkCredits: 3,                quantity: 3 },
-    "sparks-5":             { name: "5 Sparks",                unitAmount: 999,  mode: "payment"      as const, benefitType: null, credits: null, sparkCredits: 5,                quantity: 5 },
+    "sparks-1":             { name: "1 Halo",                  unitAmount: 299,  mode: "payment"      as const, benefitType: null, credits: null, sparkCredits: 1,                quantity: 1 },
+    "sparks-3":             { name: "3 Halos",                 unitAmount: 699,  mode: "payment"      as const, benefitType: null, credits: null, sparkCredits: 3,                quantity: 3 },
+    "sparks-5":             { name: "5 Halos",                 unitAmount: 999,  mode: "payment"      as const, benefitType: null, credits: null, sparkCredits: 5,                quantity: 5 },
   } as const;
 
   type ExtrasItemId = keyof typeof EXTRAS_ITEMS;

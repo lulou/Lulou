@@ -666,8 +666,8 @@ export const TRANSLATIONS = {
     is_typing_label:              "is typing…",
     // intent: streak + purchase spins
     like_daily_earn_spin_desc:    "Like {n}× daily for {days} days to earn a free spin",
-    one_spin_price:               "1 Spin - $1.49",
-    two_spins_price:              "2 Spins - $2.49",
+    one_spin_price:               "1 Halo — $2.99",
+    two_spins_price:              "3 Halos — $6.99",
     send_likes_streak_desc:       "Send {n} likes daily for {days} days in a row",
     day_label:                    "Day",
     // active-call: connection-failed screen + misc
@@ -1050,8 +1050,8 @@ export const TRANSLATIONS = {
     could_not_activate_title:     "Could not activate",
     name_declined_title:          "{name} declined",
     name_declined_desc:           "They weren't available right now. Try again later.",
-    want_more_spins:              "Want more spins?",
-    build_streak_desc:            "Build a {n}-day like streak to earn a free spin, or purchase extra spins.",
+    want_more_spins:              "Want more Halos?",
+    build_streak_desc:            "Build a {n}-day like streak to earn a free Halo, or purchase extra Halos.",
     or_earn_free_spin:            "Or earn a free spin",
     maybe_later:                  "Maybe later",
     first_call_completed_title:   "First call completed",
@@ -1076,8 +1076,8 @@ export const TRANSLATIONS = {
     connecting_label:             "Connecting…",
     connect_label:                "Connect",
     coming_soon_title:            "Coming soon",
-    spin_packs_soon_desc:         "Spin packs will be available shortly.",
-    earned_spin_desc:             "Your 3-day streak earned you a spin! Purchase extra spins to keep discovering.",
+    spin_packs_soon_desc:         "Halo packs will be available shortly.",
+    earned_spin_desc:             "Your 3-day streak earned you a Halo! Purchase extra Halos to keep discovering.",
     // Intent page
     keep_exploring:               "Keep Exploring",
     reconnected_label:            "✦  Reconnected  ✦",

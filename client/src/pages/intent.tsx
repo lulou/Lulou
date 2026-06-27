@@ -1906,7 +1906,7 @@ export default function IntentPage() {
                 <div className="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center mx-auto">
                   <Crown className="w-7 h-7 text-primary" />
                 </div>
-                <h3 className="font-serif text-xl font-bold">{t("want_more_spins")}</h3>
+                <h3 className="font-serif text-xl font-bold">Want more Halos?</h3>
                 <p className="text-sm text-muted-foreground leading-relaxed">
                   {streakComplete
                     ? t("earned_spin_desc")
@@ -1914,11 +1914,8 @@ export default function IntentPage() {
                 </p>
               </div>
               <div className="space-y-2">
-                <Button className="w-full gap-2" onClick={() => setShowSpinExtras(true)} data-testid="button-buy-1-spin">
-                  <RotateCw className="w-4 h-4" /> {t("one_spin_price")}
-                </Button>
-                <Button className="w-full gap-2" variant="outline" onClick={() => setShowSpinExtras(true)} data-testid="button-buy-2-spins">
-                  <RotateCw className="w-4 h-4" /> {t("two_spins_price")}
+                <Button className="w-full gap-2" onClick={() => { setShowPurchase(false); setShowSpinExtras(true); }} data-testid="button-get-halos">
+                  ✨ Get Halos
                 </Button>
               </div>
               {!streakComplete && (
