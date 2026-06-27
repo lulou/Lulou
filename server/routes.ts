@@ -11,7 +11,7 @@ import { EXTRAS_ITEMS, ELEVATE_PACKS, type ExtrasItemId, type ElevatePackId, gra
 import { supabase, supabaseAdmin, createUserClient, hasServiceRoleKey } from "./supabase";
 import { db } from "./db";
 import { eq, and, isNull, gt, or, inArray } from "drizzle-orm";
-import { getUncachableStripeClient, getStripePublishableKey, getStripeAccountInfo } from "./stripeClient";
+import { getUncachableStripeClient, getStripePublishableKey, getStripeAccountInfo, checkStripeReady } from "./stripeClient";
 import { tryGetPriceId } from "./stripePrices";
 import { writeLimiter, callLimiter, paymentLimiter } from "./limiters";
 
@@ -3229,6 +3229,7 @@ export async function registerRoutes(
     const { itemId, returnPath } = req.body;
     console.log(`[CHECKOUT] REQUEST_RECEIVED item=${itemId} user=${userId} returnPath=${returnPath}`);
     try {
+      await checkStripeReady();
       const item = EXTRAS_ITEMS[itemId as ExtrasItemId];
       if (!item) {
         console.warn(`[CHECKOUT] INVALID_ITEM item=${itemId} validItems=${Object.keys(EXTRAS_ITEMS).join(", ")}`);
@@ -3350,6 +3351,9 @@ export async function registerRoutes(
         pubKeyPrefix:   acctInfo.pubKeyPrefix,
       });
     } catch (err: any) {
+      if (err.code === 'stripe_test_mode_blocked') {
+        return res.status(402).json({ message: err.message, code: err.code });
+      }
       const detail = err.raw?.message ?? err.message ?? "Unknown error";
       console.error("[CHECKOUT] STRIPE_ERROR", {
         item: itemId,
@@ -3658,6 +3662,7 @@ export async function registerRoutes(
     const { packId, cancelPath } = req.body as { packId?: string; cancelPath?: string };
     console.log(`[CHECKOUT] REQUEST_RECEIVED product=${packId} user=${userId}`);
     try {
+      await checkStripeReady();
       const pack = ELEVATE_PACKS[packId as keyof typeof ELEVATE_PACKS];
       if (!pack) {
         return res.status(400).json({ message: "Invalid pack ID. Must be one of: elevate-1, elevate-3, elevate-5, super-elevate" });
@@ -3749,6 +3754,9 @@ export async function registerRoutes(
         packId,
         userId,
       });
+      if (err.code === 'stripe_test_mode_blocked') {
+        return res.status(402).json({ message: err.message, code: err.code });
+      }
       // Put the real Stripe error in `message` so the client toast shows it
       res.status(500).json({
         message: stripeDetail,

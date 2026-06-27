@@ -297,12 +297,15 @@ app.use((req, res, next) => {
       console.log(`║  Display name: ${info.displayName ?? '(not set)'}`);
       console.log(`║  Country     : ${info.country ?? '(unknown)'}`);
       console.log(`║  Livemode    : ${info.livemode}`);
+      console.log(`║  Source      : ${info.source}`);
       console.log(`║  Secret key  : ${info.secretKeyPrefix}… (${secretMode})`);
       console.log(`║  Pub key     : ${info.pubKeyPrefix}…`);
       console.log(`║  Environment : ${isDeployment ? 'PRODUCTION (REPLIT_DEPLOYMENT=1)' : 'DEVELOPMENT'}`);
       console.log(`║  FRONTEND_URL: ${frontendUrl}${process.env.FRONTEND_URL ? ' (from env)' : ' (REPLIT_DOMAINS fallback)'}`);
       console.log(`║  Sessions URL: stripe.com/dashboard → ${info.livemode ? 'Live mode' : 'Test mode'} → Payments → Checkout`);
-      if (!info.livemode) {
+      if (!info.livemode && isDeployment) {
+        console.log("║  ⛔ TEST KEYS IN PRODUCTION — set STRIPE_SECRET_KEY + STRIPE_PUBLISHABLE_KEY (live) and redeploy");
+      } else if (!info.livemode) {
         console.log("║  ⚠  TEST mode — toggle Test mode ON in Stripe dashboard to see sessions");
       } else {
         console.log("║  ✓  LIVE mode — real charges will be made");

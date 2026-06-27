@@ -1,11 +1,19 @@
 import Stripe from 'stripe';
 
 type Credentials = { publishableKey: string; secretKey: string };
+type CredentialSource = 'env' | 'replit_connector';
 
 let _cachedCreds: Credentials | null = null;
 let _cachedCredsAt = 0;
+let _cachedSource: CredentialSource | null = null;
 const CREDS_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
+// ── Helper: derive livemode from a key string ─────────────────────────────────
+function keyLivemode(key: string): boolean {
+  return key.startsWith('sk_live_') || key.startsWith('pk_live_');
+}
+
+// ── Replit connector fetch ────────────────────────────────────────────────────
 async function fetchConnectionForEnv(
   hostname: string,
   xReplitToken: string,
@@ -38,15 +46,52 @@ async function fetchConnectionForEnv(
   return { publishableKey: settings.publishable, secretKey: settings.secret };
 }
 
-async function getCredentials(): Promise<Credentials> {
+// ── Core credential resolver ──────────────────────────────────────────────────
+// Priority order:
+//   1. Explicit env vars  (STRIPE_SECRET_KEY + STRIPE_PUBLISHABLE_KEY / VITE_STRIPE_PUBLISHABLE_KEY)
+//   2. Replit connector   (development → production fallback)
+async function getCredentials(): Promise<{ creds: Credentials; source: CredentialSource }> {
   const now = Date.now();
-  if (_cachedCreds && now - _cachedCredsAt < CREDS_TTL_MS) {
-    return _cachedCreds;
+  if (_cachedCreds && _cachedSource && now - _cachedCredsAt < CREDS_TTL_MS) {
+    return { creds: _cachedCreds, source: _cachedSource };
   }
 
+  // ── 1. Explicit environment variables ────────────────────────────────────────
+  const envSecret = process.env.STRIPE_SECRET_KEY ?? '';
+  const envPub =
+    process.env.STRIPE_PUBLISHABLE_KEY ??
+    process.env.VITE_STRIPE_PUBLISHABLE_KEY ??
+    '';
+
+  if (envSecret && envPub) {
+    const creds: Credentials = { secretKey: envSecret, publishableKey: envPub };
+    _cachedCreds = creds;
+    _cachedCredsAt = now;
+    _cachedSource = 'env';
+    _logCredentials(creds, 'env');
+    return { creds, source: 'env' };
+  }
+
+  if (envSecret && !envPub) {
+    console.warn(
+      '[STRIPE_CLIENT] ⚠ STRIPE_SECRET_KEY is set but STRIPE_PUBLISHABLE_KEY / VITE_STRIPE_PUBLISHABLE_KEY is missing. ' +
+      'Falling back to Replit connector for publishable key.',
+    );
+  }
+  if (!envSecret && envPub) {
+    console.warn(
+      '[STRIPE_CLIENT] ⚠ STRIPE_PUBLISHABLE_KEY is set but STRIPE_SECRET_KEY is missing. ' +
+      'Ignoring partial env override — using Replit connector.',
+    );
+  }
+
+  // ── 2. Replit connector ───────────────────────────────────────────────────────
   const hostname = process.env.REPLIT_CONNECTORS_HOSTNAME;
   if (!hostname) {
-    throw new Error('[STRIPE_CLIENT] REPLIT_CONNECTORS_HOSTNAME is not set');
+    throw new Error(
+      '[STRIPE_CLIENT] No Stripe credentials found. Set STRIPE_SECRET_KEY + STRIPE_PUBLISHABLE_KEY, ' +
+      'or ensure REPLIT_CONNECTORS_HOSTNAME is set for the Replit Stripe connector.',
+    );
   }
 
   const xReplitToken = process.env.REPL_IDENTITY
@@ -77,59 +122,126 @@ async function getCredentials(): Promise<Credentials> {
     );
   }
 
-  // ── Audit log: key mode + account fragment ───────────────────────────────
-  // Publishable keys encode the account ID: pk_test_<ACCT_FRAGMENT>_<RANDOM>
-  // Extract it so the log tells us exactly which Stripe account is active.
-  const pubParts = creds.publishableKey.split('_');
-  const keyMode = creds.secretKey.startsWith('sk_live') ? 'LIVE' : creds.secretKey.startsWith('sk_test') ? 'TEST' : 'UNKNOWN';
-  const acctFragment = pubParts.length >= 3 ? pubParts[2]?.slice(0, 8) + '…' : '(unknown)';
-  const pubMode = creds.publishableKey.startsWith('pk_live') ? 'LIVE' : creds.publishableKey.startsWith('pk_test') ? 'TEST' : 'UNKNOWN';
+  _cachedCreds = creds;
+  _cachedCredsAt = now;
+  _cachedSource = 'replit_connector';
+  _logCredentials(creds, 'replit_connector');
+  return { creds, source: 'replit_connector' };
+}
+
+function _logCredentials(creds: Credentials, source: CredentialSource) {
+  const keyMode   = creds.secretKey.startsWith('sk_live') ? 'LIVE' : creds.secretKey.startsWith('sk_test') ? 'TEST' : 'UNKNOWN';
+  const pubMode   = creds.publishableKey.startsWith('pk_live') ? 'LIVE' : creds.publishableKey.startsWith('pk_test') ? 'TEST' : 'UNKNOWN';
+  const pubParts  = creds.publishableKey.split('_');
+  const acctFrag  = pubParts.length >= 3 ? pubParts[2]?.slice(0, 8) + '…' : '(unknown)';
+  const livemode  = keyMode === 'LIVE';
 
   if (keyMode !== pubMode) {
-    console.error(`[STRIPE_CLIENT] ⚠ KEY MODE MISMATCH — secret key is ${keyMode} but publishable key is ${pubMode}. They must belong to the same account and mode.`);
+    console.error(
+      `[STRIPE_CLIENT] ⚠ KEY MODE MISMATCH — secret key is ${keyMode} but publishable key is ${pubMode}. ` +
+      'They must belong to the same account and mode.',
+    );
   }
 
+  const isProduction = process.env.REPLIT_DEPLOYMENT === '1';
+
   console.log(
-    `[STRIPE_CLIENT] ✓ Credentials loaded — mode=${keyMode} env=${primaryEnv} ` +
-    `acct=…${acctFragment} secret=sk_${keyMode.toLowerCase()}_…${creds.secretKey.slice(-4)} ` +
+    `[STRIPE_CLIENT] ✓ Credentials loaded — source=${source} mode=${keyMode} ` +
+    `acct=…${acctFrag} secret=sk_${keyMode.toLowerCase()}_…${creds.secretKey.slice(-4)} ` +
     `pub=pk_${pubMode.toLowerCase()}_…${creds.publishableKey.slice(-4)}`,
   );
 
-  if (keyMode === 'TEST') {
-    console.log('[STRIPE_CLIENT] ℹ Running in TEST mode. To see sessions in the Stripe dashboard: open dashboard.stripe.com → toggle "Test mode" (top-left). Live mode shows 0 test sessions.');
-  }
+  // ── [STRIPE_MODE] block ───────────────────────────────────────────────────
+  console.log(`[STRIPE_MODE] source=${source}`);
+  console.log(`[STRIPE_MODE] livemode=${livemode}`);
+  // accountId is only known after accounts.retrieve(); log a placeholder here.
+  console.log(`[STRIPE_MODE] keyMode=${keyMode} secretSuffix=…${creds.secretKey.slice(-4)} pubSuffix=…${creds.publishableKey.slice(-4)}`);
 
-  _cachedCreds = creds;
-  _cachedCredsAt = now;
-  return creds;
+  if (!livemode) {
+    if (isProduction) {
+      console.error(
+        '\n╔══════════════════════════════════════════════════════════════════╗\n' +
+        '║  ⛔  STRIPE TEST KEYS IN PRODUCTION                             ║\n' +
+        '║  Real money will NOT be charged.                                ║\n' +
+        '║  Set STRIPE_SECRET_KEY + STRIPE_PUBLISHABLE_KEY (live keys)     ║\n' +
+        '║  in Replit Secrets → redeploy to enable live payments.          ║\n' +
+        '╚══════════════════════════════════════════════════════════════════╝\n',
+      );
+    } else {
+      console.log(
+        '[STRIPE_CLIENT] ℹ Running in TEST mode. ' +
+        'To see sessions: dashboard.stripe.com → toggle "Test mode" (top-left) → Payments → Checkout.',
+      );
+    }
+  }
 }
 
+// ── Public helpers ────────────────────────────────────────────────────────────
+
 export async function getUncachableStripeClient(): Promise<Stripe> {
-  const { secretKey } = await getCredentials();
-  return new Stripe(secretKey, { apiVersion: '2025-08-27.basil' as any });
+  const { creds } = await getCredentials();
+  return new Stripe(creds.secretKey, { apiVersion: '2025-08-27.basil' as any });
 }
 
 export async function getStripePublishableKey(): Promise<string> {
-  const { publishableKey } = await getCredentials();
-  return publishableKey;
+  const { creds } = await getCredentials();
+  return creds.publishableKey;
 }
 
 export async function getStripeSecretKey(): Promise<string> {
-  const { secretKey } = await getCredentials();
-  return secretKey;
+  const { creds } = await getCredentials();
+  return creds.secretKey;
 }
 
-// ── Stripe account info (cached) ─────────────────────────────────────────────
-// Calls stripe.accounts.retrieve() once and caches with the same TTL as creds.
-// Returns the definitive Stripe account ID, livemode, and key prefixes.
+// ── Mode descriptor ───────────────────────────────────────────────────────────
+export type StripeModeInfo = {
+  source: CredentialSource;
+  livemode: boolean;
+  /** true when running in production with test keys — checkout should be blocked */
+  isBlocked: boolean;
+  secretSuffix: string;
+  pubSuffix: string;
+};
+
+export async function getStripeMode(): Promise<StripeModeInfo> {
+  const { creds, source } = await getCredentials();
+  const livemode   = creds.secretKey.startsWith('sk_live_');
+  const isProduction = process.env.REPLIT_DEPLOYMENT === '1';
+  const isBlocked  = isProduction && !livemode;
+  return {
+    source,
+    livemode,
+    isBlocked,
+    secretSuffix: creds.secretKey.slice(-4),
+    pubSuffix: creds.publishableKey.slice(-4),
+  };
+}
+
+/**
+ * Call at the top of any checkout endpoint.
+ * Throws a 402 payload if the app is in production but only has test keys,
+ * so real users never see a test-mode checkout session.
+ */
+export async function checkStripeReady(): Promise<void> {
+  const mode = await getStripeMode();
+  if (mode.isBlocked) {
+    throw Object.assign(
+      new Error('Payments are still in test mode. Live keys have not been configured.'),
+      { statusCode: 402, code: 'stripe_test_mode_blocked' },
+    );
+  }
+}
+
+// ── Stripe account info (cached) ──────────────────────────────────────────────
 
 export type StripeAccountInfo = {
   accountId: string;
   displayName: string | null;
   country: string | null;
   livemode: boolean;
-  secretKeyPrefix: string;   // first 12 chars of the secret key
-  pubKeyPrefix: string;      // first 12 chars of the publishable key
+  secretKeyPrefix: string;
+  pubKeyPrefix: string;
+  source: CredentialSource;
 };
 
 let _cachedAccountInfo: StripeAccountInfo | null = null;
@@ -141,33 +253,37 @@ export async function getStripeAccountInfo(): Promise<StripeAccountInfo> {
     return _cachedAccountInfo;
   }
 
-  const { secretKey, publishableKey } = await getCredentials();
-  const stripe = new Stripe(secretKey, { apiVersion: '2025-08-27.basil' as any });
+  const { creds, source } = await getCredentials();
+  const stripe  = new Stripe(creds.secretKey, { apiVersion: '2025-08-27.basil' as any });
   const account = await stripe.accounts.retrieve();
 
   const info: StripeAccountInfo = {
-    accountId:      account.id,
-    displayName:    (account as any).display_name ?? (account as any).settings?.dashboard?.display_name ?? null,
-    country:        account.country ?? null,
-    livemode:       (account as any).livemode ?? !secretKey.startsWith('sk_test'),
-    secretKeyPrefix: secretKey.slice(0, 12),
-    pubKeyPrefix:   publishableKey.slice(0, 12),
+    accountId:       account.id,
+    displayName:     (account as any).display_name ?? (account as any).settings?.dashboard?.display_name ?? null,
+    country:         account.country ?? null,
+    livemode:        (account as any).livemode ?? !creds.secretKey.startsWith('sk_test'),
+    secretKeyPrefix: creds.secretKey.slice(0, 12),
+    pubKeyPrefix:    creds.publishableKey.slice(0, 12),
+    source,
   };
 
-  console.log("[STRIPE_ACCOUNT]", {
-    accountId:      info.accountId,
-    displayName:    info.displayName,
-    country:        info.country,
-    livemode:       info.livemode,
+  console.log('[STRIPE_ACCOUNT]', {
+    accountId:       info.accountId,
+    displayName:     info.displayName,
+    country:         info.country,
+    livemode:        info.livemode,
+    source:          info.source,
     secretKeyPrefix: info.secretKeyPrefix,
-    pubKeyPrefix:   info.pubKeyPrefix,
+    pubKeyPrefix:    info.pubKeyPrefix,
   });
+  console.log(`[STRIPE_MODE] accountId=${info.accountId}`);
 
   _cachedAccountInfo = info;
   _cachedAccountAt   = now;
   return info;
 }
 
+// ── StripeSync (webhook wiring) ───────────────────────────────────────────────
 let stripeSync: any = null;
 
 export async function getStripeSync() {
