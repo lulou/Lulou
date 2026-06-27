@@ -2873,10 +2873,11 @@ export default function IntentPage() {
                   data-testid={`button-spin-extra-${itemId.split("-")[1]}`}
                   disabled={sparksCheckoutLoading === itemId}
                   onClick={async () => {
+                    console.log(`[HALO_BUY] CLICK item=${itemId}`);
                     if (sparksCheckoutLoading) return;
                     setSparksCheckoutLoading(itemId);
                     try {
-                      console.log(`[CHECKOUT] HALO_REQUEST item=${itemId}`);
+                      console.log(`[CHECKOUT] REQUEST_RECEIVED item=${itemId}`);
                       const res = await apiRequest("POST", "/api/stripe/extras-checkout", {
                         itemId,
                         returnPath: "/intent",
