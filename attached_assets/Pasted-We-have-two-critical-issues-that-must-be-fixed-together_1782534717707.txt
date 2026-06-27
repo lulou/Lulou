@@ -1,0 +1,98 @@
+We have two critical issues that must be fixed together.
+
+========================================
+1. HALO PURCHASE / STRIPE FLOW
+========================================
+
+Current behaviour:
+
+- I purchase a Halo.
+- The app sometimes shows "1 Halo remaining".
+- Stripe Developer Logs show NO POST /v1/checkout/sessions.
+- No Checkout Session appears.
+- No payment appears in Stripe.
+- This must never happen.
+
+Audit the complete Halo purchase flow from button press to Stripe payment confirmation.
+
+Requirements:
+
+1. A paid Halo must ONLY be granted after a successful Stripe payment.
+2. Do NOT grant Halo credits when the user simply taps a Halo pack.
+3. Do NOT grant Halo credits if Stripe Checkout never opens.
+4. Do NOT grant Halo credits if checkout session creation fails.
+5. Do NOT grant Halo credits from frontend state.
+6. Verify the exact endpoint called by every Halo pack.
+7. Verify the frontend is calling the correct production backend.
+8. Verify the backend is creating a real Stripe Checkout Session.
+9. Verify the Checkout Session appears in Stripe Developer Logs.
+10. Verify the webhook completes before granting credits.
+11. Ensure Restore Purchases only restores real paid Stripe Checkout Sessions.
+12. Remove every possible local/fake credit path.
+
+Add detailed logs:
+
+[HALO_BUY] CLICK
+[HALO_BUY] REQUEST_SENT
+[CHECKOUT] REQUEST_RECEIVED
+[CHECKOUT] SESSION_CREATED
+[CHECKOUT] REDIRECT_URL
+[WEBHOOK] RECEIVED
+[PAYMENT] CONFIRMED
+[HALO] CREDIT_GRANTED
+
+Validation:
+
+- Tap 1 Halo.
+- Stripe Checkout must open.
+- Stripe Developer Logs must show POST /v1/checkout/sessions.
+- After successful payment, grant exactly 1 Halo.
+- Refresh the app and confirm the Halo remains.
+- Cancel Checkout and confirm NO Halo is granted.
+
+========================================
+2. HALO PURCHASE SHEET UX
+========================================
+
+The Halo purchase sheet currently looks draggable because it has the drag handle at the top, but it only closes when tapping "Back to Lulou."
+
+This is misleading.
+
+Make the sheet behave like a native iOS bottom sheet.
+
+Requirements:
+
+- User can drag the sheet downward.
+- If dragged far enough, dismiss the sheet.
+- If released early, smoothly spring back into place.
+- Allow fast swipe-down velocity to dismiss.
+- Keep tapping outside to dismiss.
+- Keep "Back to Lulou."
+- Maintain smooth 60fps animations.
+- Must feel native on iPhone Safari.
+- Do not affect payment logic.
+- Do not affect layout.
+- Do not affect Checkout flow.
+
+========================================
+FINAL VALIDATION
+========================================
+
+Run:
+
+npm run check
+npm run build
+
+Both must pass with zero errors.
+
+Then verify:
+
+✓ Stripe Checkout opens correctly.
+✓ Checkout Session appears in Stripe Developer Logs.
+✓ Payment succeeds.
+✓ Webhook processes successfully.
+✓ Halo is granted exactly once.
+✓ Restore Purchases still works.
+✓ Drag-down dismissal works smoothly.
+✓ Tap outside still dismisses.
+✓ No regressions anywhere else.

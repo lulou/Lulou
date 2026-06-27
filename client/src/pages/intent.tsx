@@ -847,6 +847,10 @@ export default function IntentPage() {
   const [showElevateInReveal, setShowElevateInReveal] = useState(false);
   const [showSpinExtras, setShowSpinExtras] = useState(false);
   const [sparksCheckoutLoading, setSparksCheckoutLoading] = useState<string | null>(null);
+  // Drag-to-dismiss state for the Halo buy sheet
+  const [haloDragY, setHaloDragY] = useState(0);
+  const [haloDragSnapping, setHaloDragSnapping] = useState(false);
+  const haloDragRef = useRef({ startY: 0, startTime: 0, active: false });
   const [angle, setAngle] = useState(0);
 
   // Spin room + Halo state
@@ -2786,8 +2790,42 @@ export default function IntentPage() {
             WebkitBackdropFilter: "blur(14px)",
             display: "flex", alignItems: "flex-end",
           }}
-          onClick={() => setShowSpinExtras(false)}
+          onClick={() => { setShowSpinExtras(false); setHaloDragY(0); setHaloDragSnapping(false); }}
         >
+          {/* Drag-transform wrapper — handles touch drag; does NOT carry the entry animation */}
+          <div
+            style={{
+              width: "100%",
+              transform: `translateY(${haloDragY}px)`,
+              transition: haloDragSnapping ? "transform 0.38s cubic-bezier(0.34,1.56,0.64,1)" : "none",
+              willChange: "transform",
+            }}
+            onClick={e => e.stopPropagation()}
+            onTouchStart={e => {
+              haloDragRef.current = { startY: e.touches[0].clientY, startTime: Date.now(), active: true };
+              setHaloDragSnapping(false);
+            }}
+            onTouchMove={e => {
+              if (!haloDragRef.current.active) return;
+              const delta = Math.max(0, e.touches[0].clientY - haloDragRef.current.startY);
+              setHaloDragY(delta);
+            }}
+            onTouchEnd={() => {
+              if (!haloDragRef.current.active) return;
+              haloDragRef.current.active = false;
+              const elapsed = Math.max(Date.now() - haloDragRef.current.startTime, 1);
+              const velocity = (haloDragY / elapsed) * 1000; // px/s
+              if (haloDragY > 140 || velocity > 550) {
+                setHaloDragY(0);
+                setHaloDragSnapping(false);
+                setShowSpinExtras(false);
+              } else {
+                setHaloDragSnapping(true);
+                setHaloDragY(0);
+                setTimeout(() => setHaloDragSnapping(false), 400);
+              }
+            }}
+          >
           <div
             style={{
               width: "100%",
@@ -2799,7 +2837,6 @@ export default function IntentPage() {
               boxShadow: "0 -8px 60px rgba(212,92,116,0.12)",
               animation: "srButtonsIn 0.52s cubic-bezier(0.34,1.56,0.64,1) both",
             }}
-            onClick={e => e.stopPropagation()}
           >
             {/* Drag handle */}
             <div style={{ textAlign: "center", paddingTop: 14, paddingBottom: 6 }}>
@@ -2877,18 +2914,18 @@ export default function IntentPage() {
                     if (sparksCheckoutLoading) return;
                     setSparksCheckoutLoading(itemId);
                     try {
-                      console.log(`[CHECKOUT] REQUEST_RECEIVED item=${itemId}`);
+                      console.log(`[HALO_BUY] REQUEST_SENT item=${itemId} endpoint=/api/stripe/extras-checkout`);
                       const res = await apiRequest("POST", "/api/stripe/extras-checkout", {
                         itemId,
                         returnPath: "/intent",
                       });
                       const data = await res.json();
-                      console.log(`[CHECKOUT] HALO_RESPONSE item=${itemId} ok=${res.ok} hasUrl=${!!data?.url}`);
                       if (res.ok && data.url) {
+                        console.log(`[CHECKOUT] REDIRECT_URL url=${data.url} item=${itemId} session=${data.sessionId ?? "(unknown)"}`);
                         sessionStorage.setItem("lulou_stripe_checkout", "1");
                         window.location.href = data.url;
                       } else {
-                        console.error(`[CHECKOUT] HALO_NO_URL item=${itemId}`, data);
+                        console.error(`[CHECKOUT] HALO_NO_URL item=${itemId} status=${res.status}`, data);
                         toast({ title: "Checkout failed", description: data.message ?? "Please try again.", variant: "destructive" });
                         setSparksCheckoutLoading(null);
                       }
@@ -2938,6 +2975,7 @@ export default function IntentPage() {
               </button>
             </div>
           </div>
+          </div>{/* end drag-transform wrapper */}
         </div>
       )}
 

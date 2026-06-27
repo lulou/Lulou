@@ -3355,6 +3355,7 @@ export async function registerRoutes(
       if (!isPaid) {
         return res.status(402).json({ message: "Payment not completed", status: session.status, paymentStatus: session.payment_status });
       }
+      console.log(`[PAYMENT] CONFIRMED sessionId=${sessionId} user=${userId} item=${session.metadata?.itemId} mode=${session.mode} status=${session.payment_status}`);
       if (session.metadata?.userId !== userId) {
         console.warn(`[STRIPE] USER_MISMATCH extras sessionId=${sessionId} session_user=${session.metadata?.userId} req_user=${userId}`);
         return res.status(403).json({ message: "Please return to Lulou and sign in with the same account used to start the purchase." });
@@ -3430,6 +3431,7 @@ export async function registerRoutes(
       } else if (typeof itemId === "string" && itemId.startsWith("sparks-")) {
         // Spark packs — stored in spark_balances (dedicated table, atomic balance)
         await storage.grantSpinCredits(userId, item.quantity, itemId, sessionId);
+        console.log(`[HALO] CREDIT_GRANTED qty=${item.quantity} user=${userId} item=${itemId} sessionId=${sessionId}`);
         grantedTypes = Array.from({ length: item.quantity }, () => "spin_credit");
       } else if (item.credits) {
         await storage.grantCallCredits(userId, item.credits.phone, item.credits.video);
