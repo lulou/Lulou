@@ -1,0 +1,363 @@
+CRITICAL
+
+This is a UI/animation redesign only.
+
+Do NOT change:
+
+backend
+APIs
+profile selection logic
+Halo logic
+matching logic
+payment logic
+database
+routes
+state management
+The winner must still be selected exactly the same way it is today.
+
+Only redesign how the experience looks and feels.
+
+
+Spin Room
+
+Keep the current dedicated full-screen Spin Room.
+
+The rest of the app should fade into the background with:
+
+heavy blur
+dark overlay
+reduced saturation
+subtle floating particles
+soft ambient glow
+The user should feel like they’ve entered an entirely different experience.
+
+
+Replace the Orbit
+
+Remove the circular orbit of profile bubbles.
+
+Instead, use a premium horizontal spinning carousel exactly like the feeling shown in the attached reference image.
+
+Imagine Apple’s old Cover Flow mixed with a luxury slot machine.
+
+The carousel contains REAL USER PROFILE PHOTOS.
+
+Every panel is a real user.
+
+
+Carousel Behaviour
+
+Profiles spin horizontally.
+
+The centre profile is always the largest.
+
+Profiles to the sides rotate backwards slightly in perspective.
+
+Outer profiles become:
+
+blurred
+darker
+smaller
+The centre card always feels physically closer.
+
+
+Wheel Physics
+
+The carousel should:
+
+slowly accelerate
+
+↓
+
+reach high speed
+
+↓
+
+glow brighter
+
+↓
+
+slightly wobble
+
+↓
+
+naturally decelerate
+
+↓
+
+tiny overshoot
+
+↓
+
+bounce back
+
+↓
+
+settle perfectly
+
+Never stop instantly.
+
+Never snap.
+
+Everything should use momentum and inertia.
+
+
+Landing Marker
+
+Currently users don’t know which profile is about to be selected.
+
+Add a permanent landing indicator.
+
+Place it above the centre profile.
+
+Examples:
+
+• glowing diamond
+
+• premium gold pointer
+
+• floating Halo ring
+
+The marker never moves.
+
+Only the carousel moves underneath it.
+
+This creates anticipation because users can watch profiles approach the landing point.
+
+
+Carousel Design
+
+Every profile card should have:
+
+rounded corners
+premium shadows
+glass reflections
+subtle 3D perspective
+luxury lighting
+edge glow while spinning
+The centre profile should always feel like the focal point.
+
+
+Winner Selection
+
+Do NOT instantly transition to the profile reveal.
+
+That removes all excitement.
+
+Instead:
+
+wheel stops
+
+↓
+
+winning profile glows
+
+↓
+
+neighbouring profiles dim
+
+↓
+
+winning card detaches from the carousel
+
+↓
+
+winning card moves towards the viewer
+
+↓
+
+winning card enlarges naturally
+
+↓
+
+winning card slowly travels into the exact centre of the screen
+
+↓
+
+the carousel fades away behind it
+
+↓
+
+a soft Halo expands behind the profile
+
+↓
+
+small particle burst
+
+↓
+
+pause
+
+Only after all of that should the profile reveal begin.
+
+This animation should take approximately 2–3 seconds.
+
+Do not rush it.
+
+It should feel elegant, emotional and premium.
+
+
+Lulou Quote
+
+While the winning profile is moving into the centre, display one elegant Lulou quote.
+
+Examples:
+
+“Sometimes the right person arrives unexpectedly.”
+
+“Every meaningful connection begins somewhere.”
+
+“The best connections are never forced.”
+
+Use elegant typography.
+
+Fade it in gently.
+
+Fade it out gently.
+
+Do not place the quote over the user’s face.
+
+Instead:
+
+dynamically position it above the profile
+or below the profile
+or detect the image composition
+The quote must never cover important parts of a user’s photo.
+
+
+Profile Reveal
+
+Once the winning profile reaches the centre:
+
+Reveal everything progressively.
+
+TONIGHT’S CONNECTION
+
+↓
+
+large profile image
+
+↓
+
+name
+
+↓
+
+age
+
+↓
+
+personality signal
+
+↓
+
+location
+
+↓
+
+buttons
+
+Each element should fade in naturally.
+
+No hard cuts.
+
+
+Buttons
+
+Primary
+
+✦ SEND HALO
+
+Secondary
+
+🌙 Close
+
+Keep Halo branding everywhere.
+
+No Spark wording anywhere.
+
+
+After SEND HALO
+
+Do not instantly return to the app.
+
+Show a premium confirmation.
+
+Title:
+
+Your Halo has been sent.
+
+Subtitle:
+
+“If they send one back, you’ll both unlock the next chapter.”
+
+Pause briefly.
+
+Then slide up the premium purchase sheet.
+
+
+Halo Purchase Sheet
+
+Title:
+
+Continue Tonight
+
+Subtitle:
+
+You’ve used today’s free Halo.
+
+Choose another chance to discover someone.
+
+Options:
+
+• 1 Halo
+
+• 3 Halos (Most Popular)
+
+• 5 Halos (Best Value)
+
+Luxury dark theme.
+
+Elegant animations.
+
+No aggressive upselling.
+
+It should feel like a premium invitation.
+
+
+Animation Style
+
+Everything should feel like:
+
+Apple
+Porsche
+Rolex
+Arc Browser
+Luxury casino roulette
+Use:
+
+spring easing
+inertia
+momentum
+depth
+cinematic blur
+glow pulses
+subtle haptics
+soft particles
+premium lighting
+Avoid:
+
+snapping
+hard opacity changes
+abrupt transitions
+instant swaps
+game-like effects
+
+Final Goal
+
+The Intention Wheel should become the signature experience of Lulou.
+
+When users spin it, they should feel genuine anticipation and excitement, watching real profiles pass beneath the landing marker before one beautifully emerges from the carousel and becomes Tonight’s Connection.
+
+Attach the reference image with this prompt and use it as the visual benchmark for the horizontal carousel layout, premium lighting, and overall atmosphere while preserving all existing Lulou functionality.
+

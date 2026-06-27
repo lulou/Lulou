@@ -1133,33 +1133,38 @@ export default function IntentPage() {
       orbitAngleRef2.current = (orbitAngleRef2.current + orbitSpeedRef2.current * dt) % 360;
       const aRad = (orbitAngleRef2.current * Math.PI) / 180;
 
+      // ── Cover Flow carousel positioning ────────────────────────────────
+      // carouselCenter maps orbit angle → which card index is at centre.
+      // This is the exact inverse of the winner-selection sinVal formula,
+      // so the winner card always naturally lands at the centre slot.
+      const CARD_STEP = 90; // px between card centres
+      const carouselCenter = -(aRad / (Math.PI * 2)) * N;
+
       for (let i = 0; i < N; i++) {
         const el = orbitBubbles.current[i];
         if (!el) continue;
-        const base  = (i / N) * Math.PI * 2 - Math.PI / 2;
-        const total = base + aRad;
-        const x = Math.cos(total) * R;
-        const y = Math.sin(total) * R;
-        el.style.transform = `translate(calc(-50% + ${x}px), calc(-50% + ${y}px))`;
+        const rawDist = i - carouselCenter;
+        const wrapped = ((rawDist % N) + N) % N;
+        const centerDist = wrapped > N / 2 ? wrapped - N : wrapped;
+        const absD = Math.abs(centerDist);
+        const xPx = centerDist * CARD_STEP;
+        const rotY = Math.max(-55, Math.min(55, centerDist * 28));
+        const sc = Math.max(0.40, 1 - absD * 0.18);
+        const op = Math.max(0.16, 1 - absD * 0.28);
+        const blurPx = Math.max(0, absD - 0.85) * 1.3;
+        const zi = Math.round(Math.max(1, 60 - absD * 10));
 
-        // Depth: sin(total)≈-1 → top/front (opacity 1, no blur)
-        //        sin(total)≈+1 → bottom/back (opacity 0.55, slight blur)
-        const sinT     = Math.sin(total);
-        const depthFar = (sinT + 1) / 2;           // 0=front … 1=back
-        const opacity  = (1 - depthFar * 0.45).toFixed(2);
-        const blurPx   = depthFar * 1.5;
-        el.style.opacity = opacity;
-        el.style.filter  = blurPx > 0.3 ? `blur(${blurPx.toFixed(1)}px)` : '';
+        el.style.transform = `translate(calc(-50% + ${xPx.toFixed(1)}px), -50%) perspective(600px) rotateY(${rotY.toFixed(1)}deg) scale(${sc.toFixed(3)})`;
+        el.style.opacity = op.toFixed(2);
+        el.style.filter  = blurPx > 0.2 ? `blur(${blurPx.toFixed(1)}px)` : '';
+        el.style.zIndex  = String(zi);
 
-        // Front-profile glow when spinning — enhanced for luxury feel
-        const frontness = Math.max(0, -sinT); // 0=back … 1=top-front
-        if (speedFrac > 0.15 && frontness > 0.3) {
-          const gAlpha = (frontness * speedFrac * 0.80).toFixed(2);
-          const gSize  = Math.round(8 + frontness * 22);
-          const gAlpha2 = (frontness * speedFrac * 0.35).toFixed(2);
-          el.style.boxShadow = `0 0 ${gSize}px rgba(212,92,116,${gAlpha}), 0 0 ${gSize * 2}px rgba(212,92,116,${gAlpha2})`;
+        // Centre card glow when spinning fast
+        if (absD < 0.5 && speedFrac > 0.15) {
+          const gA = (Math.max(0, 1 - absD * 2) * speedFrac * 0.85).toFixed(2);
+          el.style.boxShadow = `0 0 ${Math.round(18 + speedFrac * 28)}px rgba(212,92,116,${gA}), 0 8px 28px rgba(0,0,0,0.50)`;
         } else {
-          el.style.boxShadow = '';
+          el.style.boxShadow = '0 4px 18px rgba(0,0,0,0.35)';
         }
       }
 
@@ -1230,12 +1235,9 @@ export default function IntentPage() {
     const winner = orbitBubbles.current[selectedIndex];
     if (!winner) return;
 
-    // Stop breathing on the inner clip div so the bubble looks solid
-    const inner = winner.firstElementChild as HTMLElement | null;
-    if (inner) {
-      inner.style.animation = 'none';
-      inner.style.border = '2px solid rgba(212,92,116,0.60)';
-    }
+    // Highlight the winning carousel card with a rose border
+    winner.style.border = '2px solid rgba(212,92,116,0.60)';
+    winner.style.borderRadius = '16px';
 
     // Freeze at current DOM position (orbit angle stopped by RAF gate above)
     winner.style.transition = 'none';
@@ -1257,7 +1259,7 @@ export default function IntentPage() {
     requestAnimationFrame(() => {
       winner.style.transition =
         'transform 1.35s cubic-bezier(0.12, 0.0, 0.08, 1), box-shadow 1.0s ease 0.20s';
-      winner.style.transform = 'translate(-50%, -50%) scale(4.6)';
+      winner.style.transform = 'translate(-50%, -50%) perspective(600px) rotateY(0deg) scale(2.2)';
       winner.style.boxShadow = '0 0 60px 18px rgba(212,92,116,0.38), 0 0 120px 40px rgba(212,92,116,0.16)';
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1274,7 +1276,7 @@ export default function IntentPage() {
     if (!winner) return;
     winner.style.transition =
       'transform 1.1s cubic-bezier(0.18, 0.0, 0.08, 1), box-shadow 1.1s ease';
-    winner.style.transform = 'translate(-50%, -50%) scale(5.6)';
+    winner.style.transform = 'translate(-50%, -50%) perspective(600px) rotateY(0deg) scale(2.8)';
     winner.style.boxShadow =
       '0 0 90px 32px rgba(212,92,116,0.55), 0 0 180px 70px rgba(212,92,116,0.22), 0 0 260px 100px rgba(212,92,116,0.10)';
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -2247,7 +2249,7 @@ export default function IntentPage() {
           }}
           data-testid="spin-room-overlay"
         >
-          {/* ── ORBIT STAGE — visible during accelerate / fast / slow / approach ── */}
+          {/* ── CAROUSEL STAGE — Cover Flow horizontal carousel ── */}
           <div style={{
             position: "absolute", inset: 0,
             display: "flex", flexDirection: "column",
@@ -2256,12 +2258,12 @@ export default function IntentPage() {
             transition: "opacity 1.4s cubic-bezier(0.4,0,0.2,1)",
             pointerEvents: (spinRoomPhase === 'reveal' || spinRoomPhase === 'pause' || spinRoomPhase === 'buttons') ? "none" : "auto",
           }}>
-            {/* Deep ambient radial glow behind orbit */}
+            {/* Deep ambient radial glow behind carousel */}
             <div style={{
-              position: "absolute", top: "44%", left: "50%",
+              position: "absolute", top: "48%", left: "50%",
               transform: "translate(-50%,-50%)",
-              width: 500, height: 500, borderRadius: "50%",
-              background: "radial-gradient(ellipse at center, rgba(212,92,116,0.13) 0%, transparent 65%)",
+              width: 460, height: 340, borderRadius: "50%",
+              background: "radial-gradient(ellipse at center, rgba(212,92,116,0.14) 0%, transparent 68%)",
               pointerEvents: "none",
               opacity: spinRoomPhase === 'fast' ? 1 : 0.55,
               transition: "opacity 1.2s ease",
@@ -2290,158 +2292,125 @@ export default function IntentPage() {
               </p>
             </div>
 
-            {/* Orbit ring + bubbles (RAF-driven) */}
+            {/* ── Carousel area ── */}
             <div style={{
               flex: 1, display: "flex", flexDirection: "column",
               alignItems: "center", justifyContent: "center",
               position: "relative", zIndex: 2, width: "100%",
             }}>
-              <div style={{ position: "relative", width: 256, height: 256, flexShrink: 0 }}>
-                {/* Orbit track */}
-                <div ref={orbitRingRef2} style={{
-                  position: "absolute", inset: 0, borderRadius: "50%",
-                  border: "1px solid rgba(212,92,116,0.20)",
+
+              {/* Landing indicator — glowing rose-gold diamond pointer above centre slot */}
+              <div
+                ref={landingMarkerRef}
+                style={{
+                  position: "absolute",
+                  top: "calc(50% - 110px)",
+                  left: "50%",
+                  transform: "translateX(-50%)",
+                  display: "flex", flexDirection: "column", alignItems: "center",
+                  pointerEvents: "none", zIndex: 20,
+                  opacity: 0.45,
+                  transition: "opacity 0.5s ease, filter 0.5s ease",
+                }}
+              >
+                {/* Crown jewel — rose-gold rotated square (diamond) */}
+                <div style={{
+                  width: 11, height: 11,
+                  background: "linear-gradient(135deg, #fce4e9 0%, #d45c74 38%, #9d3550 100%)",
+                  transform: "rotate(45deg)",
+                  boxShadow: "0 0 7px rgba(212,92,116,0.70), 0 0 18px rgba(212,92,116,0.34)",
+                  borderRadius: "2px",
+                  flexShrink: 0,
+                }} />
+                {/* Stem */}
+                <div style={{
+                  width: 1.5, height: 14,
+                  background: "linear-gradient(to bottom, rgba(212,92,116,0.85), rgba(212,92,116,0.12))",
+                  marginTop: -1, flexShrink: 0,
+                }} />
+                {/* Touch-point dot */}
+                <div style={{
+                  width: 6, height: 6, borderRadius: "50%",
+                  background: "rgba(212,92,116,0.90)",
+                  boxShadow: "0 0 6px 2px rgba(212,92,116,0.55)",
+                  flexShrink: 0,
+                }} />
+              </div>
+
+              {/* Carousel strip — no overflow:hidden so pullforward card can scale freely */}
+              <div style={{
+                position: "relative", width: "100%", height: 210,
+                flexShrink: 0,
+              }}>
+                {/* Ambient glow orb at carousel centre — box-shadow driven by RAF */}
+                <div ref={orbitGlowRef} style={{
+                  position: "absolute", top: "50%", left: "50%",
+                  width: 140, height: 140, borderRadius: "50%",
+                  transform: "translate(-50%,-50%)",
+                  pointerEvents: "none",
+                  animation: "srAmbientPulse 2.8s ease-in-out infinite",
                 }} />
 
-                {/* ── 12 o'clock landing marker — rose-gold jewel setting ── */}
-                {/* Sits at the top of the orbit ring. Winner must arrive here. */}
-                <div
-                  ref={landingMarkerRef}
-                  style={{
-                    position: "absolute",
-                    top: -6,
-                    left: "50%",
-                    transform: "translateX(-50%)",
-                    display: "flex", flexDirection: "column", alignItems: "center",
-                    pointerEvents: "none", zIndex: 20,
-                    opacity: 0.45,
-                    transition: "opacity 0.5s ease, filter 0.5s ease",
-                  }}
-                >
-                  {/* Crown jewel — rose-gold rotated square (diamond) */}
-                  <div style={{
-                    width: 9, height: 9,
-                    background: "linear-gradient(135deg, #fce4e9 0%, #d45c74 38%, #9d3550 100%)",
-                    transform: "rotate(45deg)",
-                    boxShadow: "0 0 6px rgba(212,92,116,0.65), 0 0 14px rgba(212,92,116,0.30)",
-                    borderRadius: "1px",
-                    flexShrink: 0,
-                  }} />
-                  {/* Stem — tapers down toward orbit ring */}
-                  <div style={{
-                    width: 1.5, height: 8,
-                    background: "linear-gradient(to bottom, rgba(212,92,116,0.85), rgba(212,92,116,0.20))",
-                    marginTop: -1, flexShrink: 0,
-                  }} />
-                  {/* Touch-point dot — sits ON the orbit ring */}
-                  <div style={{
-                    width: 5, height: 5, borderRadius: "50%",
-                    background: "rgba(212,92,116,0.90)",
-                    boxShadow: "0 0 5px 2px rgba(212,92,116,0.55)",
-                    flexShrink: 0,
-                  }} />
-                </div>
-
-                {/* Profile bubbles — outer div RAF-positioned, inner div breathes */}
+                {/* Profile cards — outer div RAF-positioned for Cover Flow */}
                 {items.slice(0, Math.min(items.length, 10)).map((item, i) => {
-                  const N    = Math.min(items.length, 10);
-                  const base = (i / N) * Math.PI * 2 - Math.PI / 2;
-                  const R    = 108;
-                  const x    = Math.cos(base) * R;
-                  const y    = Math.sin(base) * R;
-                  // Stagger breathing so bubbles feel alive independently
-                  const breatheDur   = 2.6 + (i % 4) * 0.35;
-                  const breatheDelay = (i % 5) * 0.40;
+                  const N2   = Math.min(items.length, 10);
+                  // Static initial positions (RAF takes over on first frame)
+                  const rawDist0 = i;
+                  const wrapped0 = ((rawDist0 % N2) + N2) % N2;
+                  const centerDist0 = wrapped0 > N2 / 2 ? wrapped0 - N2 : wrapped0;
+                  const absD0  = Math.abs(centerDist0);
+                  const xPx0   = centerDist0 * 90;
+                  const rotY0  = Math.max(-55, Math.min(55, centerDist0 * 28));
+                  const sc0    = Math.max(0.40, 1 - absD0 * 0.18);
+                  const op0    = Math.max(0.16, 1 - absD0 * 0.28);
                   return (
                     <div
                       key={item.userId}
                       ref={el => { orbitBubbles.current[i] = el; }}
                       style={{
                         position: "absolute", top: "50%", left: "50%",
-                        transform: `translate(calc(-50% + ${x}px), calc(-50% + ${y}px))`,
-                        width: 46, height: 46, borderRadius: "50%",
+                        transform: `translate(calc(-50% + ${xPx0}px), -50%) perspective(600px) rotateY(${rotY0}deg) scale(${sc0.toFixed(3)})`,
+                        width: 110, height: 165,
+                        borderRadius: 16,
+                        overflow: "hidden",
+                        opacity: op0,
+                        boxShadow: "0 4px 18px rgba(0,0,0,0.35)",
                         flexShrink: 0,
-                        // box-shadow mutated by RAF (depth glow)
+                        willChange: "transform, opacity, box-shadow",
                       }}
                     >
-                      {/* Inner wrapper — glass bubble with breathing scale */}
+                      <ProfilePhoto userId={item.userId} className="w-full h-full" />
+                      {/* Bottom gradient */}
                       <div style={{
-                        width: "100%", height: "100%", borderRadius: "50%",
-                        overflow: "hidden",
-                        border: "1.5px solid rgba(212,92,116,0.45)",
-                        boxShadow: "0 2px 12px rgba(0,0,0,0.65), inset 0 1px 2px rgba(255,255,255,0.08)",
-                        animation: `srBreathe ${breatheDur}s ${breatheDelay}s ease-in-out infinite`,
-                        position: "relative",
-                      }}>
-                        <ProfilePhoto userId={item.userId} className="w-full h-full" />
-                        {/* Glass sheen overlay */}
-                        <div style={{
-                          position: "absolute", inset: 0, borderRadius: "50%",
-                          background: "linear-gradient(145deg, rgba(255,255,255,0.10) 0%, transparent 55%)",
-                          pointerEvents: "none",
-                        }} />
-                      </div>
+                        position: "absolute", inset: 0,
+                        background: "linear-gradient(to bottom, transparent 50%, rgba(0,0,0,0.60) 100%)",
+                        pointerEvents: "none",
+                      }} />
+                      {/* Rose glass border */}
+                      <div style={{
+                        position: "absolute", inset: 0, borderRadius: 16,
+                        border: "1.5px solid rgba(212,92,116,0.32)",
+                        pointerEvents: "none",
+                      }} />
                     </div>
                   );
                 })}
 
-                {/* ── Luxury watch-face centre ── */}
-
-                {/* Layer 0: Outer ambient glow — box-shadow set by RAF */}
-                <div ref={orbitGlowRef} style={{
-                  position: "absolute", top: "50%", left: "50%",
-                  width: 82, height: 82, borderRadius: "50%",
-                  transform: "translate(-50%,-50%)",
-                  pointerEvents: "none",
-                  animation: "srAmbientPulse 2.8s ease-in-out infinite",
-                }} />
-
-                {/* Layer 1: Glass bezel ring */}
+                {/* Left / right vignette fades */}
                 <div style={{
-                  position: "absolute", top: "50%", left: "50%",
-                  width: 74, height: 74, borderRadius: "50%",
-                  transform: "translate(-50%,-50%)",
-                  background: "radial-gradient(ellipse at 38% 28%, rgba(255,255,255,0.07) 0%, rgba(12,5,20,0.94) 52%, rgba(8,3,14,0.98) 100%)",
-                  border: "1.5px solid rgba(212,92,116,0.50)",
-                  boxShadow: "inset 0 1px 3px rgba(255,255,255,0.09), inset 0 -2px 8px rgba(212,92,116,0.14), 0 0 18px rgba(212,92,116,0.18)",
-                  pointerEvents: "none",
-                  animation: "srGlowPulse 2.2s ease-in-out infinite",
+                  position: "absolute", top: 0, left: 0, bottom: 0, width: 60,
+                  background: "linear-gradient(to right, #0d0812 0%, transparent 100%)",
+                  pointerEvents: "none", zIndex: 15,
                 }} />
-
-                {/* Layer 2: Inner face with rose depth */}
                 <div style={{
-                  position: "absolute", top: "50%", left: "50%",
-                  width: 56, height: 56, borderRadius: "50%",
-                  transform: "translate(-50%,-50%)",
-                  background: "radial-gradient(ellipse at 40% 32%, rgba(212,92,116,0.20) 0%, rgba(9,4,16,0.97) 62%)",
-                  border: "1px solid rgba(212,92,116,0.24)",
-                  boxShadow: "inset 0 1px 4px rgba(212,92,116,0.12)",
-                  pointerEvents: "none",
+                  position: "absolute", top: 0, right: 0, bottom: 0, width: 60,
+                  background: "linear-gradient(to left, #0d0812 0%, transparent 100%)",
+                  pointerEvents: "none", zIndex: 15,
                 }} />
-
-                {/* Layer 3: Rotating conic highlight (watch-face sheen) */}
-                <div style={{
-                  position: "absolute", top: "50%", left: "50%",
-                  width: 74, height: 74, borderRadius: "50%",
-                  background: "conic-gradient(from 0deg, transparent 0%, rgba(255,255,255,0.048) 9%, rgba(255,255,255,0.012) 18%, transparent 28%, transparent 100%)",
-                  animation: "srWatchRotate 9s linear infinite",
-                  pointerEvents: "none",
-                }} />
-
-                {/* Layer 4: ✦ centre symbol — fades once winner starts moving */}
-                <div style={{
-                  position: "absolute", top: "50%", left: "50%",
-                  transform: "translate(-50%,-50%)",
-                  fontSize: 15, color: "rgba(212,92,116,0.92)",
-                  lineHeight: 1, zIndex: 3, pointerEvents: "none",
-                  textShadow: "0 0 10px rgba(212,92,116,0.55), 0 0 22px rgba(212,92,116,0.28)",
-                  opacity: (spinRoomPhase === 'pullforward' || spinRoomPhase === 'arrive') ? 0 : 1,
-                  transition: "opacity 0.3s ease",
-                }}>✦</div>
               </div>
 
               {/* Phase status text */}
-              <div style={{ marginTop: 26, textAlign: "center", minHeight: 30 }}>
+              <div style={{ marginTop: 32, textAlign: "center", minHeight: 30 }}>
                 {spinRoomPhase === 'accelerate' && (
                   <p key="acc" style={{
                     fontSize: 11, color: "rgba(255,255,255,0.36)",
@@ -2470,8 +2439,6 @@ export default function IntentPage() {
                     animation: "srTextIn 0.5s ease forwards",
                   }}>Almost there…</p>
                 )}
-
-                {/* Quote removed from orbit stage — shown exclusively in the reveal stage */}
               </div>
             </div>
 
@@ -2489,7 +2456,7 @@ export default function IntentPage() {
               }} />
             ))}
 
-            {/* Close button during orbit stage */}
+            {/* Close button during carousel stage */}
             <button
               onClick={closeProfile}
               data-testid="button-spin-room-close"
