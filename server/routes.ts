@@ -7,6 +7,7 @@ import { seedDatabase } from "./seed";
 import { z } from "zod";
 import type { Profile } from "@shared/schema";
 import { userBenefits, callCredits, activeSessions, processedStripeSessions, membershipSubscriptions, userElevates, blockedContacts, savedWheelProfiles, sparkBalances, sparkPurchases } from "@shared/schema";
+import { EXTRAS_ITEMS, ELEVATE_PACKS, type ExtrasItemId, type ElevatePackId, grantExtras, grantElevate, isUniqueViolation } from './purchaseItems';
 import { supabase, supabaseAdmin, createUserClient, hasServiceRoleKey } from "./supabase";
 import { db } from "./db";
 import { eq, and, isNull, gt, or, inArray } from "drizzle-orm";
@@ -3221,24 +3222,7 @@ export async function registerRoutes(
 
   // ── Extras / Membership Stripe checkout ───────────────────────────────────
 
-  const EXTRAS_ITEMS = {
-    "messages-5":           { name: "+5 Messages",           unitAmount: 499,  mode: "payment"      as const, benefitType: "message_extension" as const, credits: null,                 quantity: 1 },
-    "undo-close":           { name: "Undo Last Pass",         unitAmount: 299,  mode: "payment"      as const, benefitType: "undo_close"         as const, credits: null,                 quantity: 1 },
-    "membership":           { name: "Lulou Membership",       unitAmount: 1999, mode: "subscription" as const, benefitType: null,                          credits: null,                 quantity: 1 },
-    "starter-pack":         { name: "Starter Pack",           unitAmount: 499,  mode: "payment"      as const, benefitType: null,                          credits: { phone: 1, video: 0 }, quantity: 1 },
-    "video-starter":        { name: "Video Call Starter",     unitAmount: 699,  mode: "payment"      as const, benefitType: null,                          credits: { phone: 0, video: 1 }, quantity: 1 },
-    "connection-pack":      { name: "Connection Pack",        unitAmount: 1299, mode: "payment"      as const, benefitType: null,                          credits: { phone: 3, video: 0 }, quantity: 1 },
-    "premium-pack":         { name: "Premium Pack",           unitAmount: 1999, mode: "payment"      as const, benefitType: null,                          credits: { phone: 5, video: 0 }, quantity: 1 },
-    "chemistry-pack":       { name: "Chemistry Pack",         unitAmount: 1699, mode: "payment"      as const, benefitType: null,                          credits: { phone: 3, video: 1 }, quantity: 1 },
-    "deep-connection-pack": { name: "Deep Connection Pack",   unitAmount: 2799, mode: "payment"      as const, benefitType: null,                          credits: { phone: 5, video: 3 }, quantity: 1 },
-    "voice-notes-unlock":   { name: "Voice Notes Unlock",     unitAmount: 499,  mode: "payment"      as const, benefitType: "voice_notes_unlock" as const, credits: null,                   quantity: 1 },
-    "extra-call":           { name: "Extra Call",              unitAmount: 499,  mode: "payment"      as const, benefitType: null,                          credits: { phone: 1, video: 0 }, quantity: 1 },
-    "sparks-1":             { name: "1 Halo",                  unitAmount: 299,  mode: "payment"      as const, benefitType: null, credits: null, sparkCredits: 1,                quantity: 1 },
-    "sparks-3":             { name: "3 Halos",                 unitAmount: 699,  mode: "payment"      as const, benefitType: null, credits: null, sparkCredits: 3,                quantity: 3 },
-    "sparks-5":             { name: "5 Halos",                 unitAmount: 999,  mode: "payment"      as const, benefitType: null, credits: null, sparkCredits: 5,                quantity: 5 },
-  } as const;
-
-  type ExtrasItemId = keyof typeof EXTRAS_ITEMS;
+  // EXTRAS_ITEMS, ELEVATE_PACKS, ExtrasItemId, ElevatePackId imported from ./purchaseItems
 
   app.post("/api/stripe/extras-checkout", isAuthenticated, paymentLimiter, async (req: any, res) => {
     const userId = req.user.id;
@@ -3389,69 +3373,44 @@ export async function registerRoutes(
       }
       // ─────────────────────────────────────────────────────────────────────
 
-      const storage = getStorage(req);
-      let grantedTypes: string[] = [];
-
-      if (itemId === "membership") {
-        const membershipRows = [
-          { userId, type: "message_extension" },
-          { userId, type: "message_extension" },
-          { userId, type: "undo_close" },
-        ];
-        await db.insert(userBenefits).values(membershipRows);
-        await storage.grantCallCredits(userId, 3, 1);
-        grantedTypes = [...membershipRows.map(r => r.type), "phone_credits:3", "video_credits:1"];
-
-        // ── Store customer→user mapping for monthly renewal webhooks ────────
-        // The webhook handler uses stripeCustomerId to find the userId when
-        // invoice.payment_succeeded fires for subscription_cycle renewals.
-        const stripeCustomerId = typeof session.customer === "string"
-          ? session.customer
-          : (session.customer as any)?.id ?? null;
-        const stripeSubscriptionId = typeof session.subscription === "string"
-          ? session.subscription
-          : (session.subscription as any)?.id ?? null;
-        if (stripeCustomerId && stripeSubscriptionId) {
-          await db
-            .insert(membershipSubscriptions)
-            .values({ userId, stripeCustomerId, stripeSubscriptionId, status: "active" })
-            .onConflictDoUpdate({
-              target: membershipSubscriptions.userId,
-              set: {
-                stripeCustomerId,
-                stripeSubscriptionId,
-                status: "active",
-                updatedAt: new Date(),
-              },
-            });
-          console.log(`[STRIPE] Membership subscription recorded: user=${userId} customer=${stripeCustomerId} sub=${stripeSubscriptionId}`);
-        } else {
-          console.warn(`[STRIPE] Membership activated but no customer/subscription ID on session ${sessionId} — renewal webhooks won't fire`);
-        }
-      } else if (typeof itemId === "string" && itemId.startsWith("sparks-")) {
-        // Spark packs — stored in spark_balances (dedicated table, atomic balance)
-        await storage.grantSpinCredits(userId, item.quantity, itemId, sessionId);
-        console.log(`[HALO] CREDIT_GRANTED qty=${item.quantity} user=${userId} item=${itemId} sessionId=${sessionId}`);
-        grantedTypes = Array.from({ length: item.quantity }, () => "spin_credit");
-      } else if (item.credits) {
-        await storage.grantCallCredits(userId, item.credits.phone, item.credits.video);
-        grantedTypes = [
-          ...(item.credits.phone > 0 ? [`phone_credits:${item.credits.phone}`] : []),
-          ...(item.credits.video > 0 ? [`video_credits:${item.credits.video}`] : []),
-        ];
-      } else if (item.benefitType) {
-        const rows = Array.from({ length: item.quantity }, () => ({ userId, type: item.benefitType! }));
-        await db.insert(userBenefits).values(rows);
-        grantedTypes = rows.map(r => r.type);
-      }
-
-      console.log(`[STRIPE] PURCHASE_GRANTED extras user=${userId} item=${itemId} granted=${grantedTypes.join(", ")}`);
-      console.log(`[PURCHASE] ENTITLEMENT_GRANTED user=${userId} product=${itemId} granted=${grantedTypes.join(", ")}`);
+      // Webhook didn't fire in time — grant as verified Stripe API fallback
+      console.log(`[PURCHASE] WEBHOOK_FALLBACK_GRANT user=${userId} product=${itemId} session=${sessionId}`);
+      const grantedTypes = await grantExtras(userId, sessionId, itemId as ExtrasItemId, session);
+      console.log(`[PURCHASE] ENTITLEMENT_GRANTED source=activate_fallback user=${userId} product=${itemId} granted=${grantedTypes.join(", ")}`);
       res.json({ success: true, itemId, name: item.name, granted: grantedTypes, mode: item.mode });
     } catch (err: any) {
       const detail = err.raw?.message ?? err.message ?? "Unknown error";
       console.error("[STRIPE] extras-activate error:", { message: err.message, type: err.type, code: err.code });
       res.status(500).json({ message: detail });
+    }
+  });
+
+  // ── Purchase status (read-only) ───────────────────────────────────────────
+  // Called by success pages to detect when the checkout.session.completed
+  // webhook has fired and granted the entitlement. Pure DB read — never grants.
+  // Frontend polls this every 2 s for up to ~16 s, then falls back to the
+  // activate endpoint (which verifies with Stripe and grants as a fallback).
+  app.get("/api/stripe/purchase-status", isAuthenticated, async (req: any, res) => {
+    const userId = req.user.id;
+    const sessionId = req.query.session_id as string | undefined;
+    if (!sessionId) return res.status(400).json({ message: "session_id query param required" });
+
+    try {
+      const [row] = await db
+        .select({ itemRef: processedStripeSessions.itemRef })
+        .from(processedStripeSessions)
+        .where(eq(processedStripeSessions.sessionId, sessionId))
+        .limit(1);
+
+      if (row) {
+        console.log(`[PURCHASE] STATUS_CHECK granted=true session=${sessionId} user=${userId} itemRef=${row.itemRef}`);
+        return res.json({ granted: true, itemRef: row.itemRef });
+      }
+
+      return res.json({ granted: false });
+    } catch (err: any) {
+      console.error("[PURCHASE] STATUS_CHECK error:", err?.message);
+      res.status(500).json({ message: "Status check failed" });
     }
   });
 
@@ -3548,12 +3507,7 @@ export async function registerRoutes(
           throw insertErr;
         }
 
-        if (itemId.startsWith("sparks-")) {
-          await storage.grantSpinCredits(userId, item.quantity, itemId, sessionId);
-        } else if (item.benefitType) {
-          await db.insert(userBenefits).values({ userId, type: item.benefitType });
-        }
-
+        await grantExtras(userId, sessionId, itemId as ExtrasItemId, {});
         console.log(`[RESTORE] GRANTED sessionId=${sessionId} item=${itemId} user=${userId}`);
         restored.push({ sessionId, itemId, name: item.name });
       }
@@ -3652,14 +3606,6 @@ export async function registerRoutes(
   // Called when user taps "Pay $X" in the checkout step.
   // Returns a Stripe-hosted checkout URL; on success Stripe redirects to
   // /elevate/success?session_id=XXX which the client polls to activate.
-
-  // ── Pricing table (shared between checkout and metadata) ─────────────────
-  const ELEVATE_PACKS = {
-    "elevate-1":     { type: "elevate" as const, quantity: 1, unitAmount: 999,  label: "1 Elevate (30 min)" },
-    "elevate-3":     { type: "elevate" as const, quantity: 3, unitAmount: 2699, label: "3 Elevates (30 min each)" },
-    "elevate-5":     { type: "elevate" as const, quantity: 5, unitAmount: 3999, label: "5 Elevates (30 min each)" },
-    "super-elevate": { type: "super_elevate" as const, quantity: 1, unitAmount: 3499, label: "Super Elevate (60 min)" },
-  };
 
   app.post("/api/stripe/elevate-checkout", isAuthenticated, paymentLimiter, async (req: any, res) => {
     const userId: string = req.user.id;
@@ -3805,18 +3751,10 @@ export async function registerRoutes(
       }
       // ─────────────────────────────────────────────────────────────────────
 
-      // Award all credits from the pack
-      await getStorage(req).addElevateCredits(userId, pack.type, pack.quantity);
-
-      console.log(`[STRIPE] PURCHASE_GRANTED elevate user=${userId} pack=${packId} type=${pack.type} credits=${pack.quantity}`);
-      console.log(`[PURCHASE] ENTITLEMENT_GRANTED user=${userId} product=${packId} type=${pack.type} credits=${pack.quantity}`);
-
-      // Auto-activate one boost immediately so user sees it live right away
-      const activateResult = await getStorage(req).activateElevate(userId, pack.type);
-      const durationMinutes = pack.type === "super_elevate" ? 60 : 30;
-      const expiresAt = activateResult.success
-        ? new Date(Date.now() + durationMinutes * 60 * 1000).toISOString()
-        : null;
+      // Webhook didn't fire in time — grant as verified Stripe API fallback
+      console.log(`[PURCHASE] WEBHOOK_FALLBACK_GRANT user=${userId} product=${packId} session=${sessionId}`);
+      const result = await grantElevate(userId, packId as ElevatePackId);
+      console.log(`[PURCHASE] ENTITLEMENT_GRANTED source=activate_fallback user=${userId} product=${packId} granted=${result.grantedTypes.join(", ")} autoActivated=${result.autoActivated}`);
 
       res.json({
         success: true,
@@ -3824,10 +3762,9 @@ export async function registerRoutes(
         elevateType: pack.type,
         quantity: pack.quantity,
         creditsAdded: pack.quantity,
-        // boost immediately live
-        boostActive: activateResult.success,
-        expiresAt,
-        durationMinutes,
+        boostActive: result.autoActivated,
+        expiresAt: result.expiresAt,
+        durationMinutes: result.durationMinutes,
       });
     } catch (err: any) {
       const detail = err.raw?.message ?? err.message ?? "Unknown error";

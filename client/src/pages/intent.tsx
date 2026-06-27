@@ -1334,39 +1334,74 @@ export default function IntentPage() {
     return () => console.log("[INTENT] UNMOUNTED after", Math.round(performance.now() - t0), "ms");
   }, []);
 
-  // ── Sparks purchase success: activate on landing and show toast ───────────
+  // ── Sparks purchase success: confirm payment then show toast ──────────────
+  // Phase 1: poll purchase-status (webhook path, DB-only read, no granting)
+  // Phase 2: fall back to extras-activate (verified Stripe API fallback)
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const sessionId = params.get("sparks_session");
     if (!sessionId) return;
 
     // Clean the URL immediately so reload/back doesn't re-trigger
-    const cleanUrl = window.location.pathname;
-    window.history.replaceState({}, "", cleanUrl);
+    window.history.replaceState({}, "", window.location.pathname);
 
-    let tries = 0;
-    const activate = async () => {
-      tries++;
+    const POLL_TRIES   = 8;
+    const POLL_MS      = 2000;
+    const MAX_FALLBACK = 5;
+    let pollTries      = 0;
+    let fallbackTries  = 0;
+
+    const showSuccess = (qty: number) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/spin-status"] });
+      toast({
+        title: `✨ ${qty === 1 ? "1 Halo" : `${qty} Halos`} added`,
+        description: "Spin the wheel to send a Halo tonight.",
+      });
+    };
+
+    const activateFallback = async () => {
+      fallbackTries++;
       try {
         const res = await apiRequest("POST", "/api/stripe/extras-activate", { sessionId });
         const data = await res.json();
         if (res.ok && data.success) {
-          queryClient.invalidateQueries({ queryKey: ["/api/spin-status"] });
-          const qty = (data.granted as string[])?.length ?? 1;
-          toast({
-            title: `✨ ${qty === 1 ? "1 Halo" : `${qty} Halos`} added`,
-            description: "Spin the wheel to send a Halo tonight.",
-          });
-        } else if (res.status === 402 && tries < 6) {
-          setTimeout(activate, 2000);
+          const qty = (data.granted as string[])?.filter((g: string) => g === "spin_credit").length ?? 1;
+          showSuccess(qty);
+        } else if (res.status === 402 && fallbackTries < MAX_FALLBACK) {
+          setTimeout(activateFallback, POLL_MS);
         } else {
           toast({ title: "Activation failed", description: data.message ?? "Please contact support.", variant: "destructive" });
         }
       } catch {
-        if (tries < 6) setTimeout(activate, 3000);
+        if (fallbackTries < MAX_FALLBACK) setTimeout(activateFallback, POLL_MS * 1.5);
       }
     };
-    activate();
+
+    const pollStatus = async () => {
+      pollTries++;
+      try {
+        const authHeaders = await import("@/lib/queryClient").then(m => m.getAuthHeaders());
+        const { API_BASE: base } = await import("@/lib/queryClient");
+        const res = await fetch(
+          `${base}/api/stripe/purchase-status?session_id=${encodeURIComponent(sessionId)}`,
+          { headers: authHeaders, credentials: "include" },
+        );
+        if (res.ok) {
+          const data = await res.json();
+          if (data.granted) {
+            // Count spark credits from itemRef (e.g. "sparks-3" → 3)
+            const match = String(data.itemRef ?? "").match(/sparks-(\d+)/);
+            showSuccess(match ? parseInt(match[1], 10) : 1);
+            return;
+          }
+        }
+      } catch { /* keep polling */ }
+
+      if (pollTries < POLL_TRIES) setTimeout(pollStatus, POLL_MS);
+      else activateFallback();
+    };
+
+    pollStatus();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

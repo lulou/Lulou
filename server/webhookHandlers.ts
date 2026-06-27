@@ -3,6 +3,7 @@ import { db } from './db';
 import { sql } from 'drizzle-orm';
 import { eq } from 'drizzle-orm';
 import { processedStripeSessions, userBenefits, callCredits, membershipSubscriptions } from '@shared/schema';
+import { EXTRAS_ITEMS, ELEVATE_PACKS, type ExtrasItemId, type ElevatePackId, grantExtras, grantElevate, isUniqueViolation } from './purchaseItems';
 
 // ── Membership bundle granted on every successful subscription renewal ────────
 // This must stay in sync with the initial grant in extras-activate (routes.ts).
@@ -142,6 +143,80 @@ async function handleSubscriptionDeleted(subscription: any): Promise<void> {
   }
 }
 
+// ── checkout.session.completed ────────────────────────────────────────────────
+// PRIMARY entitlement grant path for all one-time purchases and initial
+// subscription activations. This is the ONLY trusted grant path — it fires
+// after Stripe cryptographically confirms the payment.
+// The activate endpoints in routes.ts are fallbacks only, logged separately.
+async function handleCheckoutSessionCompleted(session: any): Promise<void> {
+  const userId: string | undefined = session.metadata?.userId;
+  const itemId: string | undefined = session.metadata?.itemId;
+  const packId: string | undefined = session.metadata?.packId;
+
+  if (!userId) {
+    console.warn(`[WEBHOOK] checkout.session.completed: no userId in metadata session=${session.id} — skipping`);
+    return;
+  }
+
+  // Verify Stripe actually confirmed payment
+  const isPaid =
+    session.mode === "subscription"
+      ? session.status === "complete"
+      : session.payment_status === "paid";
+
+  if (!isPaid) {
+    console.log(
+      `[WEBHOOK] checkout.session.completed: payment not confirmed` +
+      ` session=${session.id} status=${session.status} payment_status=${session.payment_status} — skipping`,
+    );
+    return;
+  }
+
+  console.log(`[WEBHOOK] PAYMENT_CONFIRMED session=${session.id} user=${userId} product=${itemId ?? packId ?? "unknown"} mode=${session.mode}`);
+
+  // ── Idempotency guard ─────────────────────────────────────────────────────
+  // Claim session ID before any grant. If the activate fallback already ran,
+  // this insert fails → we log and skip. Duplicate webhook deliveries are safe.
+  try {
+    await db.insert(processedStripeSessions).values({
+      sessionId: session.id,
+      userId,
+      itemRef: itemId ?? packId ?? "",
+    });
+  } catch (insertErr: any) {
+    if (isUniqueViolation(insertErr)) {
+      console.log(`[WEBHOOK] checkout.session.completed: session ${session.id} already processed — idempotent skip`);
+      return;
+    }
+    throw insertErr;
+  }
+
+  // ── Grant the entitlement ─────────────────────────────────────────────────
+  try {
+    if (itemId && EXTRAS_ITEMS[itemId as ExtrasItemId]) {
+      const grantedTypes = await grantExtras(userId, session.id, itemId as ExtrasItemId, session);
+      console.log(`[PURCHASE] ENTITLEMENT_GRANTED source=webhook user=${userId} product=${itemId} granted=${grantedTypes.join(", ")}`);
+
+    } else if (packId && ELEVATE_PACKS[packId as ElevatePackId]) {
+      const result = await grantElevate(userId, packId as ElevatePackId);
+      console.log(`[PURCHASE] ENTITLEMENT_GRANTED source=webhook user=${userId} product=${packId} granted=${result.grantedTypes.join(", ")} autoActivated=${result.autoActivated}`);
+
+    } else {
+      // Session created by stripe-replit-sync or another flow — not an app purchase
+      console.log(`[WEBHOOK] checkout.session.completed: no recognised itemId/packId in metadata session=${session.id} itemId=${itemId} packId=${packId} — no app grant needed`);
+    }
+  } catch (grantErr: any) {
+    // Remove the processed_stripe_sessions claim so the activate fallback
+    // (or a webhook retry) can still grant — the user paid and must receive benefits.
+    try {
+      await db.delete(processedStripeSessions)
+        .where(eq(processedStripeSessions.sessionId, session.id));
+    } catch {}
+    console.error(`[WEBHOOK] checkout.session.completed: grant failed for session=${session.id} user=${userId}`, grantErr?.message);
+    throw grantErr; // rethrow so the outer handler logs it but does NOT rethrow to Stripe
+  }
+}
+
 // ── Main entry point ──────────────────────────────────────────────────────────
 export class WebhookHandlers {
   static async processWebhook(payload: Buffer, signature: string): Promise<void> {
@@ -168,7 +243,9 @@ export class WebhookHandlers {
     }
 
     try {
-      if (event.type === "invoice.payment_succeeded") {
+      if (event.type === "checkout.session.completed") {
+        await handleCheckoutSessionCompleted(event.data.object);
+      } else if (event.type === "invoice.payment_succeeded") {
         await handleInvoicePaymentSucceeded(event.data.object);
       } else if (event.type === "customer.subscription.deleted") {
         await handleSubscriptionDeleted(event.data.object);

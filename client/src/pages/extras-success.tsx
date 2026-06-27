@@ -6,6 +6,10 @@ import { useLanguageContext } from "@/contexts/language-context";
 
 type Phase = "verifying" | "active" | "error";
 
+// How long to poll purchase-status (webhook path) before falling back to activate
+const WEBHOOK_POLL_TRIES = 8;
+const POLL_INTERVAL_MS   = 2000;
+
 export default function ExtrasSuccessPage() {
   const { t } = useLanguageContext();
 
@@ -51,17 +55,14 @@ export default function ExtrasSuccessPage() {
       return;
     }
 
-    let tries = 0;
-    const maxTries = 8;
-    const interval = 2000;
+    let pollTries  = 0;
+    let fallbackTries = 0;
+    const MAX_FALLBACK = 5;
 
-    const verify = async () => {
-      tries++;
+    // ── Phase 2: activate endpoint (verified Stripe fallback) ──────────────
+    const activateFallback = async () => {
+      fallbackTries++;
       try {
-        // Use raw fetch + getAuthHeaders so we can inspect res.status before
-        // deciding to retry.  apiRequest calls throwIfResNotOk which throws for
-        // ALL non-2xx responses (including 402), making status checks after it
-        // unreachable dead code.
         const authHeaders = await getAuthHeaders();
         const res = await fetch(`${API_BASE}/api/stripe/extras-activate`, {
           method: "POST",
@@ -71,9 +72,8 @@ export default function ExtrasSuccessPage() {
         });
 
         if (res.status === 402) {
-          // Payment still processing on Stripe's side — keep polling
-          if (tries < maxTries) {
-            setTimeout(verify, interval);
+          if (fallbackTries < MAX_FALLBACK) {
+            setTimeout(activateFallback, POLL_INTERVAL_MS);
           } else {
             setErrorMsg(t("payment_verify_failed"));
             setPhase("error");
@@ -92,23 +92,21 @@ export default function ExtrasSuccessPage() {
           return;
         }
 
-        // 403 = user mismatch — no point retrying, show the exact server message
         if (res.status === 403) {
           setErrorMsg(data.message ?? "Please return to Lulou and sign in with the same account used to start the purchase.");
           setPhase("error");
           return;
         }
 
-        // Any other non-ok (401, 500, etc.) — retry transiently, then fail
-        if (tries < maxTries) {
-          setTimeout(verify, interval * 1.5);
+        if (fallbackTries < MAX_FALLBACK) {
+          setTimeout(activateFallback, POLL_INTERVAL_MS * 1.5);
         } else {
           setErrorMsg(data.message ?? t("payment_verify_failed"));
           setPhase("error");
         }
       } catch {
-        if (tries < maxTries) {
-          setTimeout(verify, interval * 1.5);
+        if (fallbackTries < MAX_FALLBACK) {
+          setTimeout(activateFallback, POLL_INTERVAL_MS * 1.5);
         } else {
           setErrorMsg(t("network_error_retry"));
           setPhase("error");
@@ -116,7 +114,42 @@ export default function ExtrasSuccessPage() {
       }
     };
 
-    verify();
+    // ── Phase 1: poll purchase-status (webhook confirmation) ───────────────
+    const pollStatus = async () => {
+      pollTries++;
+      try {
+        const authHeaders = await getAuthHeaders();
+        const res = await fetch(
+          `${API_BASE}/api/stripe/purchase-status?session_id=${encodeURIComponent(sessionId)}`,
+          { headers: authHeaders, credentials: "include" },
+        );
+
+        if (res.ok) {
+          const data = await res.json();
+          if (data.granted) {
+            // Webhook fired — entitlement confirmed without calling activate
+            const label = ITEM_LABELS[item]?.label ?? item;
+            setItemName(label);
+            queryClient.invalidateQueries({ queryKey: ["/api/benefits"] });
+            queryClient.invalidateQueries({ queryKey: ["/api/spin-status"] });
+            setPhase("active");
+            return;
+          }
+        }
+      } catch {
+        // network error — keep polling
+      }
+
+      if (pollTries < WEBHOOK_POLL_TRIES) {
+        setTimeout(pollStatus, POLL_INTERVAL_MS);
+      } else {
+        // Webhook didn't fire within polling window — call activate as fallback
+        activateFallback();
+      }
+    };
+
+    pollStatus();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const info = ITEM_LABELS[itemId];

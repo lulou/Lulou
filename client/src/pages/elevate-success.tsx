@@ -145,6 +145,7 @@ export default function ElevateSuccessPage() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const sessionId = params.get("session_id");
+    const packParam = params.get("pack") ?? "elevate-1";
 
     if (!sessionId) {
       setErrorMsg(t("missing_session"));
@@ -152,12 +153,28 @@ export default function ElevateSuccessPage() {
       return;
     }
 
-    let tries = 0;
-    const maxTries = 8;
-    const interval = 2000;
+    const POLL_TRIES    = 8;
+    const POLL_MS       = 2000;
+    const MAX_FALLBACK  = 5;
+    let pollTries       = 0;
+    let fallbackTries   = 0;
 
-    const verify = async () => {
-      tries++;
+    const showActive = (data: any) => {
+      setBoostInfo({
+        elevateType:    data.elevateType    ?? "elevate",
+        quantity:       data.quantity       ?? 1,
+        creditsAdded:   data.creditsAdded   ?? 1,
+        expiresAt:      data.expiresAt      ?? null,
+        durationMinutes: data.durationMinutes ?? 30,
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/elevate/status"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/elevate/session-stats"] });
+      setPhase("active");
+    };
+
+    // ── Phase 2: elevate-activate fallback (Stripe API verification) ─────────
+    const activateFallback = async () => {
+      fallbackTries++;
       try {
         const authHeaders = await getAuthHeaders();
         const res = await fetch(`${API_BASE}/api/stripe/elevate-activate`, {
@@ -168,7 +185,7 @@ export default function ElevateSuccessPage() {
         });
 
         if (res.status === 402) {
-          if (tries < maxTries) setTimeout(verify, interval);
+          if (fallbackTries < MAX_FALLBACK) setTimeout(activateFallback, POLL_MS);
           else { setErrorMsg(t("payment_verify_failed")); setPhase("error"); }
           return;
         }
@@ -184,37 +201,57 @@ export default function ElevateSuccessPage() {
         let data: any = {};
         try { data = await res.json(); } catch {}
 
-        if (res.ok && data.success) {
-          setBoostInfo({
-            elevateType: data.elevateType ?? "elevate",
-            quantity: data.quantity ?? 1,
-            creditsAdded: data.creditsAdded ?? 1,
-            expiresAt: data.expiresAt ?? null,
-            durationMinutes: data.durationMinutes ?? 30,
-          });
-          queryClient.invalidateQueries({ queryKey: ["/api/elevate/status"] });
-          queryClient.invalidateQueries({ queryKey: ["/api/elevate/session-stats"] });
-          setPhase("active");
-          return;
-        }
+        if (res.ok && data.success) { showActive(data); return; }
 
-        if (tries < maxTries) {
-          setTimeout(verify, interval * 1.5);
-        } else {
-          setErrorMsg(data.message ?? t("payment_verify_failed"));
-          setPhase("error");
-        }
+        if (fallbackTries < MAX_FALLBACK) setTimeout(activateFallback, POLL_MS * 1.5);
+        else { setErrorMsg(data.message ?? t("payment_verify_failed")); setPhase("error"); }
       } catch {
-        if (tries < maxTries) {
-          setTimeout(verify, interval * 1.5);
-        } else {
-          setErrorMsg(t("network_error_retry"));
-          setPhase("error");
-        }
+        if (fallbackTries < MAX_FALLBACK) setTimeout(activateFallback, POLL_MS * 1.5);
+        else { setErrorMsg(t("network_error_retry")); setPhase("error"); }
       }
     };
 
-    verify();
+    // ── Phase 1: poll purchase-status (webhook confirmation path) ────────────
+    const pollStatus = async () => {
+      pollTries++;
+      try {
+        const authHeaders = await getAuthHeaders();
+        const res = await fetch(
+          `${API_BASE}/api/stripe/purchase-status?session_id=${encodeURIComponent(sessionId)}`,
+          { headers: authHeaders, credentials: "include" },
+        );
+        if (res.ok) {
+          const data = await res.json();
+          if (data.granted) {
+            // Webhook confirmed — fetch live elevate status for the success card
+            try {
+              const statusRes = await fetch(`${API_BASE}/api/elevate/status`, {
+                headers: authHeaders, credentials: "include",
+              });
+              const status = statusRes.ok ? await statusRes.json() : {};
+              const isSuper = packParam === "super-elevate";
+              showActive({
+                elevateType:     isSuper ? "super_elevate" : "elevate",
+                quantity:        1,
+                creditsAdded:    1,
+                expiresAt:       status.expiresAt ?? null,
+                durationMinutes: isSuper ? 60 : 30,
+              });
+            } catch {
+              // status fetch failed — show a generic success
+              showActive({ elevateType: "elevate", quantity: 1, creditsAdded: 1, expiresAt: null, durationMinutes: 30 });
+            }
+            return;
+          }
+        }
+      } catch { /* network error — keep polling */ }
+
+      if (pollTries < POLL_TRIES) setTimeout(pollStatus, POLL_MS);
+      else activateFallback();
+    };
+
+    pollStatus();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const remainingCredits = boostInfo
