@@ -144,6 +144,41 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (event === "SIGNED_IN" && u && session?.access_token) {
         const token = session.access_token;
 
+        // ── Pending-verification guard (SIGNED_IN) ────────────────────────────
+        // If a signup was started for email B while Account A was logged in, we
+        // store "lulou_pending_verification_email" = B in sessionStorage.  When
+        // the user returns to the app mid-verification, Supabase may fire SIGNED_IN
+        // with Account A's freshly-refreshed token.  Block it so the verification
+        // screen stays intact.  When B's own email link fires SIGNED_IN with B's
+        // confirmed session, clear the flag and let normal flow continue.
+        {
+          const pendingEmail = sessionStorage.getItem("lulou_pending_verification_email");
+          if (pendingEmail) {
+            if (u.email === pendingEmail) {
+              // This is the verified email we've been waiting for — clear the guard.
+              console.log("[VERIFY] VERIFIED_EMAIL_MATCHED — clearing pending verification flag", {
+                email: pendingEmail.slice(0, 4) + "***",
+                userId: u.id.slice(0, 8) + "…",
+              });
+              sessionStorage.removeItem("lulou_pending_verification_email");
+              // Fall through to normal SIGNED_IN path below.
+            } else {
+              // Different account trying to slip in while verification is pending.
+              console.warn("[VERIFY] SESSION_EMAIL_MISMATCH_BLOCKED — SIGNED_IN with non-pending email, blocking session restore", {
+                sessionEmail: (u.email ?? "").slice(0, 4) + "***",
+                pendingEmail: pendingEmail.slice(0, 4) + "***",
+              });
+              supabase.auth.signOut({ scope: "local" }).catch(() => {});
+              if (mounted) {
+                setUser(null);
+                setProfileReady(true);
+                setIsLoading(false);
+              }
+              return;
+            }
+          }
+        }
+
         // ── Skip single-device gate on Stripe return ──────────────────────────
         // When the user is redirected back from Stripe Checkout, the browser
         // fires a full page navigation to /extras/success or /elevate/success.
@@ -273,6 +308,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // (< 1 s after setUser(u)), and every 60 s thereafter while the user is
       // signed in.  Its lifecycle is tied to the user state, so it automatically
       // stops when the user logs out — no race condition is possible.
+
+      // ── Pending-verification guard (INITIAL_SESSION / TOKEN_REFRESHED) ───────
+      // After signup for email B, the old Account A session may still be cached
+      // in Supabase's localStorage (signOut({ scope:"local" }) was called before
+      // signUp but there is a race window on slow networks / page restores).
+      // If sessionStorage says we're waiting for B to verify, drop any restored
+      // session that isn't for B to prevent the "silently logged into old account"
+      // bug.
+      if (event === "INITIAL_SESSION" && u) {
+        const pendingEmail = sessionStorage.getItem("lulou_pending_verification_email");
+        if (pendingEmail && u.email !== pendingEmail) {
+          console.warn("[VERIFY] OLD_SESSION_BLOCKED — INITIAL_SESSION with non-pending email while verification is pending", {
+            sessionEmail: (u.email ?? "").slice(0, 4) + "***",
+            pendingEmail: pendingEmail.slice(0, 4) + "***",
+            userId: u.id.slice(0, 8) + "…",
+          });
+          supabase.auth.signOut({ scope: "local" }).catch(() => {});
+          if (mounted) {
+            setUser(null);
+            setProfileReady(true);
+            setIsLoading(false);
+          }
+          return;
+        }
+      }
+
       setUser(u);
 
       if (mounted) {

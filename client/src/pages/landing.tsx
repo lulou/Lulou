@@ -525,6 +525,15 @@ export default function Landing() {
 
     try {
       if (mode === "signup") {
+        // ── Clear any existing session BEFORE signUp ──────────────────────────
+        // If Account A is already logged in its session lives in Supabase's
+        // localStorage.  Without this, when the app is backgrounded and resumed
+        // INITIAL_SESSION fires with A's token → setUser(A) → landing.tsx
+        // unmounts → the pending-verification state is silently lost and the
+        // user finds themselves inside Account A's profile.
+        console.log("[VERIFY] SIGNUP_START_CLEAR_SESSION");
+        await supabase.auth.signOut({ scope: "local" }).catch(() => {});
+
         // signUp → /auth/v1/signup  (NOT /auth/v1/token?grant_type=password)
         authCallCountRef.current += 1;
         const _signUpTs = new Date().toISOString().slice(11, 23);
@@ -628,6 +637,30 @@ export default function Landing() {
             authReturnedUser: true,
             authReturnedSession: false,
           });
+
+          // ── Already-registered email detection ──────────────────────────────
+          // When Supabase "Confirm email" is ON and you call signUp() with an
+          // email that already belongs to a confirmed account, it returns
+          // {user (with email_confirmed_at set), session: null, error: null}.
+          // This looks identical to a successful new-user signup.  We detect it
+          // here by checking email_confirmed_at — if it's already set the
+          // account exists and no new email was sent.
+          if (data.user.email_confirmed_at) {
+            console.warn("[VERIFY] EMAIL_ALREADY_REGISTERED — signUp returned confirmed user, no email sent", {
+              userId: data.user.id.slice(0, 8) + "…",
+              email: trimmedEmail.slice(0, 4) + "***",
+              confirmedAt: data.user.email_confirmed_at,
+            });
+            setMode("signin");
+            setPassword("");
+            setAuthError({
+              kind: "already-exists",
+              message: "An account with this email already exists. Please sign in instead.",
+            });
+            setLoading(false);
+            return;
+          }
+
           console.warn("[AUTH] SIGNUP_NO_SESSION: email confirmation required", { userId: data.user.id });
           console.log("[VERIFY] VERIFICATION_EMAIL_SENT", {
             userId: data.user.id.slice(0, 8) + "…",
@@ -636,6 +669,13 @@ export default function Landing() {
             redirectTo: window.location.origin + "/auth/callback",
             note: "User must click the link in the email to confirm. email_confirmed_at will be null until then.",
           });
+          // ── Persist pending email in sessionStorage ──────────────────────────
+          // verificationEmail is local state — it's lost if landing.tsx unmounts
+          // (e.g. if an old session restores while the app is backgrounded).
+          // Storing it here lets use-auth.ts block any old session from slipping
+          // through while verification is still pending.
+          sessionStorage.setItem("lulou_pending_verification_email", trimmedEmail);
+          console.log("[VERIFY] PENDING_EMAIL_SET", { email: trimmedEmail.slice(0, 4) + "***" });
           setVerificationEmail(trimmedEmail);
           setLoading(false);
           return;
@@ -889,18 +929,39 @@ export default function Landing() {
               <p className="text-xs text-destructive leading-snug">{resendError}</p>
             </div>
           )}
-          <button
-            onClick={() => {
-              setVerificationEmail(null);
-              setMode("signin");
-              setResendSent(false);
-              setResendError(null);
-            }}
-            className="w-full text-sm text-muted-foreground hover:text-primary transition-colors py-2"
-            data-testid="button-back-to-signin"
-          >
-            {t("landing_back_to_signin")}
-          </button>
+          <div className="pt-2 border-t border-border/40 flex flex-col gap-1">
+            <p className="text-center text-xs text-muted-foreground pb-1">
+              Finish verifying your email to continue.
+            </p>
+            <button
+              onClick={() => {
+                sessionStorage.removeItem("lulou_pending_verification_email");
+                setVerificationEmail(null);
+                setMode("signup");
+                setEmail("");
+                setPassword("");
+                setResendSent(false);
+                setResendError(null);
+              }}
+              className="w-full text-sm text-muted-foreground hover:text-primary transition-colors py-2"
+              data-testid="button-use-different-email"
+            >
+              Use a different email
+            </button>
+            <button
+              onClick={() => {
+                sessionStorage.removeItem("lulou_pending_verification_email");
+                setVerificationEmail(null);
+                setMode("signin");
+                setResendSent(false);
+                setResendError(null);
+              }}
+              className="w-full text-sm text-muted-foreground hover:text-primary transition-colors py-2"
+              data-testid="button-back-to-signin"
+            >
+              Sign in instead
+            </button>
+          </div>
         </div>
       </div>
     );

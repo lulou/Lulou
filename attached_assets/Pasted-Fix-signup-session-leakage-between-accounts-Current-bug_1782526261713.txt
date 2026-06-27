@@ -1,0 +1,69 @@
+Fix signup/session leakage between accounts.
+
+Current bug:
+I tried to sign up with a new test email using verify+test.
+The app said "email sent".
+I went to my email and the email was not there.
+When I returned to the app, I was somehow signed into my normal existing account instead of staying on the verify-email screen.
+
+This must never happen.
+
+Expected behaviour:
+After signup with a new email:
+- If email verification is required, the user should NOT be logged in.
+- The app should show the "Check your email" / verify-email screen.
+- The app must NOT restore a previous account session.
+- The app must NOT automatically switch to another existing user.
+- The app must NOT enter the app until the new email is verified.
+
+Audit and fix:
+
+1. Before starting signup, explicitly clear any existing Supabase session.
+2. After signup returns user + session:null, stay locked on the verify-email screen.
+3. Do not call getSession and let an old session restore the previous account.
+4. Store pending signup email separately, e.g. pendingVerificationEmail.
+5. If there is a pending signup email, AppContent must not allow a different existing session to enter the app.
+6. If Supabase still has an old session in localStorage, clear it during signup.
+7. On app resume/focus after signup, do not restore the previous account.
+8. Only allow entry after the verification callback signs in the newly verified email.
+9. If the user manually presses Back, show:
+  "Finish verifying your email to continue."
+  with options:
+  - Resend email
+  - Use a different email
+  - Sign in instead
+10. Add logs:
+  [VERIFY] SIGNUP_START_CLEAR_SESSION
+  [VERIFY] PENDING_EMAIL_SET
+  [VERIFY] OLD_SESSION_BLOCKED
+  [VERIFY] SESSION_EMAIL_MISMATCH_BLOCKED
+  [VERIFY] VERIFIED_EMAIL_MATCHED
+
+Also audit why the email did not arrive:
+- Confirm Supabase signUp returned no error.
+- Log rate limit errors.
+- Log email already registered errors.
+- If the email already exists, show a clear message instead of pretending a new verification was sent.
+- Check spam/junk wording is fine, but do not rely on that only.
+
+Validation:
+Test with two accounts:
+1. Be logged into existing Account A.
+2. Start signup for Account B.
+3. App must clear Account A session.
+4. App shows verification screen for Account B.
+5. Leaving and returning to the app must not restore Account A.
+6. Account B cannot enter app until email verified.
+7. After clicking verification email, Account B enters onboarding/app.
+8. Account A is not restored accidentally.
+
+Run:
+npm run check
+npm run build
+
+Report:
+- Root cause
+- Files changed
+- How old sessions are blocked
+- How pending verification email is stored
+- How email-not-received cases are handled
