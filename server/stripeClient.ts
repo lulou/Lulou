@@ -151,11 +151,13 @@ function _logCredentials(creds: Credentials, source: CredentialSource) {
     `pub=pk_${pubMode.toLowerCase()}_…${creds.publishableKey.slice(-4)}`,
   );
 
-  // ── [STRIPE_MODE] block ───────────────────────────────────────────────────
+  // ── [STRIPE_MODE] block (exact format for ops monitoring) ────────────────
+  const secretPrefix = creds.secretKey.startsWith('sk_live') ? 'sk_live' : 'sk_test';
+  const pubPrefix    = creds.publishableKey.startsWith('pk_live') ? 'pk_live' : 'pk_test';
   console.log(`[STRIPE_MODE] source=${source}`);
   console.log(`[STRIPE_MODE] livemode=${livemode}`);
-  // accountId is only known after accounts.retrieve(); log a placeholder here.
-  console.log(`[STRIPE_MODE] keyMode=${keyMode} secretSuffix=…${creds.secretKey.slice(-4)} pubSuffix=…${creds.publishableKey.slice(-4)}`);
+  console.log(`[STRIPE_MODE] secretKeyPrefix=${secretPrefix}`);
+  console.log(`[STRIPE_MODE] publishableKeyPrefix=${pubPrefix}`);
 
   if (!livemode) {
     if (isProduction) {
