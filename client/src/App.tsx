@@ -1294,20 +1294,28 @@ async function checkProfileExists(
     profileRowFound: null,
     profileErrorMessage: null,
   });
-  // Separate fetch from response handling so network errors are clearly retryable.
-  // 4-second abort — must be shorter than SPINNER_TIMEOUT_MS (12 s) so the
-  // request fails cleanly and the query enters error state before the spinner
-  // declares a timeout.  The "Try Again" button handles manual retry.
+  // 8-second master abort — covers both getAuthHeaders() (up to 5 s internally)
+  // and the actual fetch (server has 2.5 s checkEmailVerified + 3 s getProfile timeouts).
+  // Must be < SPINNER_TIMEOUT_MS so the query enters error state before the spinner
+  // declares timeout and the "Try Again" button handles manual retry.
   let res: Response;
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => {
+  let _currentStep = "getAuthHeaders";
+  const t_total = performance.now();
+  const masterTimeoutId = setTimeout(() => {
     controller.abort();
-    console.error("[AUTH] PROFILE_LOAD_FAILED: network timeout after 4 s");
-  }, 4_000);
+    console.error(`[AUTH] PROFILE_LOAD_FAILED: master timeout 8s — stuck at step="${_currentStep}"`);
+  }, 8_000);
   try {
-    console.log("[SETUP] PROFILE_FETCH_NETWORK_START", { userId });
+    console.log("[SETUP] STEP 1/3 getAuthHeaders START", { userId });
     const t0 = performance.now();
     const authHeaders = await getAuthHeaders();
+    const headersMs = Math.round(performance.now() - t0);
+    console.log(`[SETUP] STEP 1/3 getAuthHeaders DONE in ${headersMs}ms — userId=${userId ?? "none"}`);
+
+    _currentStep = "fetch /api/profile";
+    console.log("[SETUP] STEP 2/3 fetch /api/profile START");
+    const t1 = performance.now();
     // Use /api/profile (full profile) — photos are now short Storage URLs (~2–5 kB total)
     // so payload size is negligible. Fetching the full profile here lets us seed the
     // ["/api/profile"] cache on success, so profile.tsx reads from cache on first render
@@ -1317,18 +1325,22 @@ async function checkProfileExists(
       headers: authHeaders,
       signal: controller.signal,
     });
-    clearTimeout(timeoutId);
+    clearTimeout(masterTimeoutId);
+    const fetchMs = Math.round(performance.now() - t1);
     // TEMP: latency debugging — remove before production release
     if (PERF_ENABLED) {
-      logLatency("/api/profile", Math.round(performance.now() - t0), parseServerTiming(res.headers.get("server-timing")), 0);
+      logLatency("/api/profile", fetchMs, parseServerTiming(res.headers.get("server-timing")), 0);
     }
-    console.log("[SETUP] PROFILE_FETCH_NETWORK_DONE", { status: res.status, userId, ms: Math.round(performance.now() - t0) });
+    console.log(`[SETUP] STEP 2/3 fetch /api/profile DONE in ${fetchMs}ms — status=${res.status} total=${Math.round(performance.now() - t_total)}ms`);
+    _currentStep = "response";
   } catch (err: any) {
-    clearTimeout(timeoutId);
-    const isTimeout = err?.name === "AbortError";
-    console.error("[AUTH] PROFILE_LOAD_FAILED:", isTimeout ? "timeout" : "network error", "—", err?.message);
-    writeDebug({ profileErrorMessage: isTimeout ? "TIMEOUT_6S" : (err?.message ?? "NETWORK_ERROR") });
-    throw new Error(isTimeout ? "TIMEOUT" : "NETWORK_ERROR");
+    clearTimeout(masterTimeoutId);
+    const isAbort = err?.name === "AbortError";
+    const totalMs = Math.round(performance.now() - t_total);
+    const label = isAbort ? `TIMEOUT at step="${_currentStep}"` : `network error at step="${_currentStep}"`;
+    console.error(`[AUTH] PROFILE_LOAD_FAILED: ${label} — ${err?.message} — total ${totalMs}ms`);
+    writeDebug({ profileErrorMessage: isAbort ? `TIMEOUT_8S:${_currentStep}` : (err?.message ?? "NETWORK_ERROR") });
+    throw new Error(isAbort ? `TIMEOUT:${_currentStep}` : "NETWORK_ERROR");
   }
 
   if (res.status === 404) {
@@ -1798,25 +1810,47 @@ function AppContent() {
   const [serverEmailGate, setServerEmailGate] = useState<"checking" | "ok" | "required">("checking");
   useEffect(() => {
     if (authLoading || !user) { setServerEmailGate("checking"); return; }
-    if (!user.email_confirmed_at) { setServerEmailGate("ok"); return; } // frontend handles
+    // If Supabase confirms email client-side, skip server check entirely.
+    if (!user.email_confirmed_at) { setServerEmailGate("ok"); return; }
     let cancelled = false;
+    const abortCtrl = new AbortController();
+    // Hard 5 s timeout: checkEmailVerified has a 2.5 s server-side timeout,
+    // so 5 s is plenty.  Fail-open so a slow server never blocks app startup.
+    const gateTimeoutId = setTimeout(() => {
+      console.warn("[SETUP] serverEmailGate: 5 s timeout — failing open");
+      abortCtrl.abort();
+      if (!cancelled) setServerEmailGate("ok");
+    }, 5_000);
     (async () => {
       try {
+        console.log(`[SETUP] serverEmailGate: getSession start — userId=${user.id.slice(0, 8)}`);
+        const t0 = performance.now();
         const { data: { session } } = await supabase.auth.getSession();
         const token = session?.access_token;
-        if (!token) { if (!cancelled) setServerEmailGate("ok"); return; }
-        const res = await fetch("/api/auth/verify/status", {
+        console.log(`[SETUP] serverEmailGate: getSession done in ${Math.round(performance.now() - t0)}ms — hasToken=${!!token}`);
+        if (!token) { clearTimeout(gateTimeoutId); if (!cancelled) setServerEmailGate("ok"); return; }
+        console.log("[SETUP] serverEmailGate: calling /api/auth/verify/status");
+        const t1 = performance.now();
+        const res = await fetch(API_BASE + "/api/auth/verify/status", {
           headers: { Authorization: `Bearer ${token}` },
+          signal: abortCtrl.signal,
         });
+        clearTimeout(gateTimeoutId);
+        console.log(`[SETUP] serverEmailGate: verify/status responded in ${Math.round(performance.now() - t1)}ms — status=${res.status}`);
         if (cancelled) return;
         if (res.status === 403) {
           const body = await res.json().catch(() => ({})) as { code?: string };
           if (body.code === "EMAIL_NOT_VERIFIED") { setServerEmailGate("required"); return; }
         }
         setServerEmailGate("ok");
-      } catch { if (!cancelled) setServerEmailGate("ok"); }
+      } catch (e: any) {
+        clearTimeout(gateTimeoutId);
+        const isAbort = e?.name === "AbortError";
+        console.warn(`[SETUP] serverEmailGate: ${isAbort ? "aborted (timeout)" : `error: ${e?.message}`} — failing open`);
+        if (!cancelled) setServerEmailGate("ok");
+      }
     })();
-    return () => { cancelled = true; };
+    return () => { cancelled = true; abortCtrl.abort(); clearTimeout(gateTimeoutId); };
   }, [authLoading, user?.id]);
 
   // IMPORTANT: This query uses a dedicated key "profile-exists-check" that is intentionally
@@ -1836,6 +1870,34 @@ function AppContent() {
   // isLoading (isPending && isFetching) would be false on that first render
   // because isFetching hasn't flipped to true yet, causing the app to fall
   // through to `if (!profileExists)` and briefly flash the Onboarding screen.
+  // ── Startup health check ─────────────────────────────────────────────────
+  // Runs once when the user first authenticates. Probes /api/health (Supabase
+  // PostgREST) and logs results to the console. Non-blocking — result is only
+  // used for diagnostics, never gates app flow.
+  const healthCheckedRef = useRef(false);
+  useEffect(() => {
+    if (!user || healthCheckedRef.current) return;
+    healthCheckedRef.current = true;
+    const t0 = performance.now();
+    console.log("[SETUP] HEALTH_CHECK start — userId =", user.id.slice(0, 8));
+    fetch(API_BASE + "/api/health")
+      .then(r => r.json())
+      .then(data => {
+        const ms = Math.round(performance.now() - t0);
+        const supaOk = data?.supabase?.ok;
+        const supaMs = data?.supabase?.ms;
+        const supaErr = data?.supabase?.error;
+        if (supaOk) {
+          console.log(`[SETUP] HEALTH_CHECK ✓ supabase PostgREST ok in ${supaMs}ms (round-trip ${ms}ms)`);
+        } else {
+          console.error(`[SETUP] HEALTH_CHECK ✗ supabase PostgREST FAILED in ${supaMs}ms — ${supaErr} (round-trip ${ms}ms)`);
+        }
+      })
+      .catch(err => {
+        console.error("[SETUP] HEALTH_CHECK: fetch failed —", err?.message);
+      });
+  }, [user?.id]);
+
   const { data, isPending: profilePending, isError: profileError, error: profileFetchError } = useQuery<ProfileCheckResult>({
     queryKey: ["profile-exists-check"],
     queryFn: () => {
@@ -2153,8 +2215,9 @@ function AppContent() {
   if (isSpinning) {
     if (spinnerTimedOut) {
       // The spinner ran past SPINNER_TIMEOUT_MS — all retries exhausted; show recovery screen.
+      const _errDetail = (profileFetchError as Error | null)?.message ?? null;
       console.warn("[SETUP] FINAL_APP_GATE: blocked_by_loading_state (spinner_timeout)", {
-        userId: user.id, clearingCache, profilePending, profileReady, spinnerTimedOut,
+        userId: user.id, clearingCache, profilePending, profileReady, spinnerTimedOut, errDetail: _errDetail,
       });
       return (
         <div className="min-h-screen flex items-center justify-center bg-background">
@@ -2163,6 +2226,11 @@ function AppContent() {
             <p className="text-sm text-muted-foreground leading-relaxed" data-testid="text-timeout-body">
               Your account is safe. We're reconnecting you to Lulou.
             </p>
+            {_errDetail && (
+              <p className="text-xs font-mono bg-muted rounded px-3 py-1.5 text-muted-foreground break-all" data-testid="text-timeout-error">
+                {_errDetail}
+              </p>
+            )}
             <div className="flex flex-wrap justify-center gap-3 pt-2">
               <button
                 className="px-5 py-2.5 rounded-full bg-primary text-primary-foreground text-sm font-medium hover:brightness-110 transition-all"
@@ -2210,8 +2278,9 @@ function AppContent() {
   }
 
   if (fetchFailed && !effectiveProfileExists) {
+    const _fetchErrDetail = (profileFetchError as Error | null)?.message ?? null;
     console.warn("[SETUP] FINAL_APP_GATE: blocked_by_profile_gate", {
-      userId: user.id, fetchFailed, profileExists, effectiveProfileExists, forceProceed,
+      userId: user.id, fetchFailed, profileExists, effectiveProfileExists, forceProceed, errDetail: _fetchErrDetail,
     });
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
@@ -2220,6 +2289,11 @@ function AppContent() {
           <p className="text-sm text-muted-foreground leading-relaxed" data-testid="text-fetch-failed-body">
             Your account is safe. We're reconnecting you to Lulou.
           </p>
+          {_fetchErrDetail && (
+            <p className="text-xs font-mono bg-muted rounded px-3 py-1.5 text-muted-foreground break-all" data-testid="text-fetch-failed-error">
+              {_fetchErrDetail}
+            </p>
+          )}
           <div className="flex flex-wrap justify-center gap-3 pt-2">
             <button
               className="px-5 py-2.5 rounded-full bg-primary text-primary-foreground text-sm font-medium hover:brightness-110 transition-all"

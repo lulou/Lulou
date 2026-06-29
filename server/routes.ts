@@ -1150,12 +1150,37 @@ export async function registerRoutes(
   // Fast startup check — returns profile WITHOUT photos (base64 photos skipped).
   // Used by the client's profile-exists-check on every app launch.
   // Avoids transferring up to 5 MB of base64 photos just to determine onboarding status.
+  // ── Health check ─────────────────────────────────────────────────────────
+  // No auth required — used by startup diagnostics to test Supabase PostgREST.
+  app.get("/api/health", async (_req, res) => {
+    const t0 = Date.now();
+    const results: Record<string, unknown> = { ts: new Date().toISOString() };
+    try {
+      const { error } = await Promise.race<any>([
+        supabaseAdmin.from("profiles").select("user_id").limit(1),
+        new Promise<{ error: Error }>((_, reject) =>
+          setTimeout(() => reject(new Error("SUPABASE_TIMEOUT_2S")), 2000)
+        ),
+      ]);
+      results.supabase = { ok: !error, ms: Date.now() - t0, error: error?.message ?? null };
+    } catch (err: any) {
+      results.supabase = { ok: false, ms: Date.now() - t0, error: err.message };
+    }
+    results.totalMs = Date.now() - t0;
+    res.json(results);
+  });
+
   app.get("/api/profile/meta", isAuthenticated, async (req: any, res) => {
     const t0 = Date.now();
     try {
       const storage = getStorage(req);
       const userId = req.user.id;
-      const profile = await storage.getProfileMeta(userId);
+      const profile = await Promise.race<any>([
+        storage.getProfileMeta(userId),
+        new Promise<undefined>((_, reject) =>
+          setTimeout(() => reject(new Error("SUPABASE_TIMEOUT_3S")), 3000)
+        ),
+      ]);
       if (!profile) {
         if (IS_DEV) console.log(`[PROFILE_META] not found userId=${userId} in ${Date.now() - t0} ms`);
         return res.status(404).json({ message: "Profile not found." });
@@ -1174,12 +1199,20 @@ export async function registerRoutes(
     try {
       const storage = getStorage(req);
       const userId = req.user.id;
-      const profile = await storage.getProfile(userId);
+      console.log(`[PROFILE] getProfile start userId=${userId.slice(0, 8)}`);
+      const profile = await Promise.race<any>([
+        storage.getProfile(userId),
+        new Promise<undefined>((_, reject) =>
+          setTimeout(() => reject(new Error("SUPABASE_TIMEOUT_3S")), 3000)
+        ),
+      ]);
       if (!profile) {
+        console.log(`[PROFILE] not found userId=${userId.slice(0, 8)} in ${Date.now() - t0} ms`);
         devPerf("/api/profile", Date.now() - t0, { status: 404, userId: userId.slice(0, 8) });
         return res.status(404).json({ message: "Profile not found. Please complete onboarding to create your profile." });
       }
       const profileJson = IS_DEV ? JSON.stringify(profile) : "";
+      console.log(`[PROFILE] fetched userId=${userId.slice(0, 8)} in ${Date.now() - t0} ms`);
       devPerf("/api/profile", Date.now() - t0, {
         status: 200,
         userId: userId.slice(0, 8),
@@ -1191,9 +1224,8 @@ export async function registerRoutes(
     } catch (error: any) {
       const errMsg = (error?.message || "Unknown error").slice(0, 200);
       // 503 = Service Unavailable — signals the client to retry.
-      // This catch fires when the Supabase DB is unreachable (e.g. 522 connection
-      // timeout during cold-start). The client treats 503 as retryable; 500 as permanent.
-      console.error("[AUTH] PROFILE_FETCH_ERROR: root cause =", errMsg, "| userId =", req.user?.id, `| ${Date.now() - t0} ms`);
+      // This catch fires when Supabase PostgREST is unreachable or times out.
+      console.error("[PROFILE] FETCH_ERROR:", errMsg, "| userId =", req.user?.id?.slice(0, 8), `| ${Date.now() - t0} ms`);
       res.status(503).json({ message: `Profile temporarily unavailable: ${errMsg}` });
     }
   });
