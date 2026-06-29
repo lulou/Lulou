@@ -273,6 +273,11 @@ const EMAIL_VERIFIED_CACHE_TTL_MS = 5 * 60_000;
 // Short TTL for unverified/auto-confirmed users so OTP completion takes effect
 // within ~60 seconds without waiting for the full 5-min cache window.
 const EMAIL_VERIFIED_UNVERIFIED_TTL_MS = 60_000;
+// CRITICAL: supabaseAdmin.auth.admin.getUserById() can hang indefinitely in
+// Replit's network (same UND_ERR_HEADERS_TIMEOUT issue that caused isAuthenticated
+// to switch to local JWT decode). This timeout ensures the check always resolves
+// within 2.5 s — safely under the client's 4-second AbortController window.
+const EMAIL_VERIFIED_TIMEOUT_MS = 2500;
 // Accounts created before this date may have been auto-confirmed under previous
 // Supabase settings where "Confirm email" was OFF — they are grandfathered in.
 // New accounts created on/after this date must pass explicit email verification.
@@ -282,8 +287,22 @@ async function checkEmailVerified(userId: string): Promise<boolean> {
   const now = Date.now();
   const cached = _emailVerifiedCache.get(userId);
   if (cached && cached.expiresAt > now) return cached.verified;
+
+  // No cache entry — must call the Supabase admin API.
+  // IMPORTANT: wrap in a timeout. supabaseAdmin.auth.admin.getUserById() can hang
+  // indefinitely (UND_ERR_HEADERS_TIMEOUT) in Replit's network environment — the
+  // same reason isAuthenticated uses local JWT decode instead of supabase.auth.getUser().
+  // Without this timeout, every cache-miss request would block until the client's
+  // 4-second AbortController fires, causing the "Taking a little longer" reconnect screen.
+  const t0 = Date.now();
+  console.log(`[AUTH] checkEmailVerified: cache miss — calling admin API userId=${userId.slice(0, 8)}`);
   try {
-    const { data: { user }, error } = await supabaseAdmin.auth.admin.getUserById(userId);
+    const adminCall = supabaseAdmin.auth.admin.getUserById(userId);
+    const timeout = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error(`getUserById timeout after ${EMAIL_VERIFIED_TIMEOUT_MS}ms`)), EMAIL_VERIFIED_TIMEOUT_MS)
+    );
+    const { data: { user }, error } = await Promise.race([adminCall, timeout]);
+    console.log(`[AUTH] checkEmailVerified: admin API OK in ${Date.now() - t0}ms userId=${userId.slice(0, 8)}`);
 
     if (error || !user) {
       console.error("[AUTH] checkEmailVerified admin API error (fail-open):", error?.message);
@@ -321,12 +340,18 @@ async function checkEmailVerified(userId: string): Promise<boolean> {
     logEmailEvent({ type: "verified", userId: userId.slice(0, 8), success: true });
     return true;
   } catch (e: any) {
-    console.error("[AUTH] checkEmailVerified error (fail-open):", e?.message);
+    const isTimeout = (e?.message ?? "").includes("timeout");
+    if (isTimeout) {
+      console.error(`[AUTH] checkEmailVerified TIMEOUT after ${EMAIL_VERIFIED_TIMEOUT_MS}ms (fail-open) userId=${userId.slice(0, 8)} — Supabase admin API did not respond in time`);
+    } else {
+      console.error("[AUTH] checkEmailVerified error (fail-open):", e?.message);
+    }
     return true;
   }
 }
 
 const isAuthenticated: RequestHandler = async (req: any, res, next) => {
+  const _mwStart = Date.now();
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
     return res.status(401).json({ message: "Unauthorized" });
@@ -334,7 +359,9 @@ const isAuthenticated: RequestHandler = async (req: any, res, next) => {
   const token = authHeader.split(" ")[1];
   try {
     const user = verifyJwt(token);
+    const _jwtMs = Date.now() - _mwStart;
     if (!user) {
+      console.warn(`[AUTH] isAuthenticated: JWT invalid after ${_jwtMs}ms url=${req.path}`);
       return res.status(401).json({ message: "Unauthorized" });
     }
     req.user = user;
@@ -342,7 +369,12 @@ const isAuthenticated: RequestHandler = async (req: any, res, next) => {
     // Server-side email verification gate.
     // Returns 403 EMAIL_NOT_VERIFIED for unverified users regardless of JWT validity.
     // The frontend VerifyEmailGate intercepts this code and shows the verify screen.
+    const _emailStart = Date.now();
     const verified = await checkEmailVerified(user.id);
+    const _emailMs = Date.now() - _emailStart;
+    if (_emailMs > 500) {
+      console.warn(`[AUTH] isAuthenticated: checkEmailVerified took ${_emailMs}ms (slow!) url=${req.path} userId=${user.id.slice(0, 8)}`);
+    }
     if (!verified) {
       return res.status(403).json({
         message: "Email not verified. Check your inbox for the confirmation link.",
