@@ -1,160 +1,85 @@
 import Stripe from 'stripe';
 
-type Credentials = { publishableKey: string; secretKey: string };
-type CredentialSource = 'env' | 'replit_connector';
+// ── Credential loading ────────────────────────────────────────────────────────
+// Reads ONLY from environment variables — no Replit connector, no sandbox claim.
+// Required vars: STRIPE_SECRET_KEY + (STRIPE_PUBLISHABLE_KEY or VITE_STRIPE_PUBLISHABLE_KEY)
+
+type Credentials = { secretKey: string; publishableKey: string };
 
 let _cachedCreds: Credentials | null = null;
 let _cachedCredsAt = 0;
-let _cachedSource: CredentialSource | null = null;
 const CREDS_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
-// ── Helper: derive livemode from a key string ─────────────────────────────────
-function keyLivemode(key: string): boolean {
-  return key.startsWith('sk_live_') || key.startsWith('pk_live_');
-}
+function loadCredentials(): Credentials {
+  const secretKey =
+    process.env.STRIPE_SECRET_KEY ?? '';
 
-// ── Replit connector fetch ────────────────────────────────────────────────────
-async function fetchConnectionForEnv(
-  hostname: string,
-  xReplitToken: string,
-  environment: string,
-): Promise<Credentials | null> {
-  const url = new URL(`https://${hostname}/api/v2/connection`);
-  url.searchParams.set('include_secrets', 'true');
-  url.searchParams.set('connector_names', 'stripe');
-  url.searchParams.set('environment', environment);
-
-  const response = await fetch(url.toString(), {
-    headers: {
-      Accept: 'application/json',
-      'X-Replit-Token': xReplitToken,
-    },
-  });
-
-  if (!response.ok) {
-    console.warn(`[STRIPE_CLIENT] Connector fetch failed for env=${environment}: HTTP ${response.status}`);
-    return null;
-  }
-
-  const data = await response.json();
-  const settings = data.items?.[0]?.settings;
-
-  if (!settings?.publishable || !settings?.secret) {
-    return null;
-  }
-
-  return { publishableKey: settings.publishable, secretKey: settings.secret };
-}
-
-// ── Core credential resolver ──────────────────────────────────────────────────
-// Priority order:
-//   1. Explicit env vars  (STRIPE_SECRET_KEY + STRIPE_PUBLISHABLE_KEY / VITE_STRIPE_PUBLISHABLE_KEY)
-//   2. Replit connector   (development → production fallback)
-async function getCredentials(): Promise<{ creds: Credentials; source: CredentialSource }> {
-  const now = Date.now();
-  if (_cachedCreds && _cachedSource && now - _cachedCredsAt < CREDS_TTL_MS) {
-    return { creds: _cachedCreds, source: _cachedSource };
-  }
-
-  // ── 1. Explicit environment variables ────────────────────────────────────────
-  const envSecret = process.env.STRIPE_SECRET_KEY ?? '';
-  const envPub =
+  const publishableKey =
     process.env.STRIPE_PUBLISHABLE_KEY ??
     process.env.VITE_STRIPE_PUBLISHABLE_KEY ??
     '';
 
-  if (envSecret && envPub) {
-    const creds: Credentials = { secretKey: envSecret, publishableKey: envPub };
-    _cachedCreds = creds;
-    _cachedCredsAt = now;
-    _cachedSource = 'env';
-    _logCredentials(creds, 'env');
-    return { creds, source: 'env' };
-  }
-
-  if (envSecret && !envPub) {
-    console.warn(
-      '[STRIPE_CLIENT] ⚠ STRIPE_SECRET_KEY is set but STRIPE_PUBLISHABLE_KEY / VITE_STRIPE_PUBLISHABLE_KEY is missing. ' +
-      'Falling back to Replit connector for publishable key.',
-    );
-  }
-  if (!envSecret && envPub) {
-    console.warn(
-      '[STRIPE_CLIENT] ⚠ STRIPE_PUBLISHABLE_KEY is set but STRIPE_SECRET_KEY is missing. ' +
-      'Ignoring partial env override — using Replit connector.',
-    );
-  }
-
-  // ── 2. Replit connector ───────────────────────────────────────────────────────
-  const hostname = process.env.REPLIT_CONNECTORS_HOSTNAME;
-  if (!hostname) {
+  if (!secretKey) {
     throw new Error(
-      '[STRIPE_CLIENT] No Stripe credentials found. Set STRIPE_SECRET_KEY + STRIPE_PUBLISHABLE_KEY, ' +
-      'or ensure REPLIT_CONNECTORS_HOSTNAME is set for the Replit Stripe connector.',
+      '[STRIPE_CLIENT] STRIPE_SECRET_KEY is not set. ' +
+      'Add it to Replit Secrets and redeploy.',
     );
   }
-
-  const xReplitToken = process.env.REPL_IDENTITY
-    ? 'repl ' + process.env.REPL_IDENTITY
-    : process.env.WEB_REPL_RENEWAL
-      ? 'depl ' + process.env.WEB_REPL_RENEWAL
-      : null;
-
-  if (!xReplitToken) {
-    throw new Error('[STRIPE_CLIENT] REPL_IDENTITY and WEB_REPL_RENEWAL are both unset — cannot authenticate with Replit connectors');
-  }
-
-  const isProduction = process.env.REPLIT_DEPLOYMENT === '1';
-  const primaryEnv = isProduction ? 'production' : 'development';
-  const fallbackEnv = isProduction ? 'development' : null;
-
-  let creds = await fetchConnectionForEnv(hostname, xReplitToken, primaryEnv);
-
-  if (!creds && fallbackEnv) {
-    console.warn(`[STRIPE_CLIENT] No ${primaryEnv} Stripe connection found, falling back to ${fallbackEnv}`);
-    creds = await fetchConnectionForEnv(hostname, xReplitToken, fallbackEnv);
-  }
-
-  if (!creds) {
+  if (!publishableKey) {
     throw new Error(
-      `[STRIPE_CLIENT] Stripe connection not found for environment="${primaryEnv}"${fallbackEnv ? ` or "${fallbackEnv}"` : ''}. ` +
-      'Please ensure the Stripe integration is connected in your Replit project.',
+      '[STRIPE_CLIENT] Neither STRIPE_PUBLISHABLE_KEY nor VITE_STRIPE_PUBLISHABLE_KEY is set. ' +
+      'Add one to Replit Secrets and redeploy.',
     );
   }
 
-  _cachedCreds = creds;
-  _cachedCredsAt = now;
-  _cachedSource = 'replit_connector';
-  _logCredentials(creds, 'replit_connector');
-  return { creds, source: 'replit_connector' };
+  return { secretKey, publishableKey };
 }
 
-function _logCredentials(creds: Credentials, source: CredentialSource) {
-  const keyMode   = creds.secretKey.startsWith('sk_live') ? 'LIVE' : creds.secretKey.startsWith('sk_test') ? 'TEST' : 'UNKNOWN';
-  const pubMode   = creds.publishableKey.startsWith('pk_live') ? 'LIVE' : creds.publishableKey.startsWith('pk_test') ? 'TEST' : 'UNKNOWN';
+function getCredentials(): Credentials {
+  const now = Date.now();
+  if (_cachedCreds && now - _cachedCredsAt < CREDS_TTL_MS) {
+    return _cachedCreds;
+  }
+
+  const creds = loadCredentials();
+
+  _cachedCreds    = creds;
+  _cachedCredsAt  = now;
+
+  _logCredentials(creds);
+  return creds;
+}
+
+function _logCredentials(creds: Credentials): void {
+  const keyMode  = creds.secretKey.startsWith('sk_live')  ? 'LIVE'    :
+                   creds.secretKey.startsWith('sk_test')  ? 'TEST'    : 'UNKNOWN';
+  const pubMode  = creds.publishableKey.startsWith('pk_live') ? 'LIVE' :
+                   creds.publishableKey.startsWith('pk_test') ? 'TEST' : 'UNKNOWN';
+
   const pubParts  = creds.publishableKey.split('_');
-  const acctFrag  = pubParts.length >= 3 ? pubParts[2]?.slice(0, 8) + '…' : '(unknown)';
+  const acctFrag  = pubParts.length >= 3 ? (pubParts[2]?.slice(0, 8) ?? '') + '…' : '(unknown)';
   const livemode  = keyMode === 'LIVE';
 
   if (keyMode !== pubMode) {
     console.error(
-      `[STRIPE_CLIENT] ⚠ KEY MODE MISMATCH — secret key is ${keyMode} but publishable key is ${pubMode}. ` +
-      'They must belong to the same account and mode.',
+      `[STRIPE_CLIENT] ⚠ KEY MODE MISMATCH — secret=${keyMode} publishable=${pubMode}. ` +
+      'Keys must belong to the same Stripe account and mode.',
     );
   }
 
+  const secretPrefix = livemode ? 'sk_live' : 'sk_test';
+  const pubPrefix    = creds.publishableKey.startsWith('pk_live') ? 'pk_live' : 'pk_test';
   const isProduction = process.env.REPLIT_DEPLOYMENT === '1';
 
+  // ── summary line ─────────────────────────────────────────────────────────
   console.log(
-    `[STRIPE_CLIENT] ✓ Credentials loaded — source=${source} mode=${keyMode} ` +
-    `acct=…${acctFrag} secret=sk_${keyMode.toLowerCase()}_…${creds.secretKey.slice(-4)} ` +
-    `pub=pk_${pubMode.toLowerCase()}_…${creds.publishableKey.slice(-4)}`,
+    `[STRIPE_CLIENT] ✓ Credentials loaded — source=env mode=${keyMode} ` +
+    `acct=…${acctFrag} secret=${secretPrefix}_…${creds.secretKey.slice(-4)} ` +
+    `pub=${pubPrefix}_…${creds.publishableKey.slice(-4)}`,
   );
 
-  // ── [STRIPE_MODE] block (exact format for ops monitoring) ────────────────
-  const secretPrefix = creds.secretKey.startsWith('sk_live') ? 'sk_live' : 'sk_test';
-  const pubPrefix    = creds.publishableKey.startsWith('pk_live') ? 'pk_live' : 'pk_test';
-  console.log(`[STRIPE_MODE] source=${source}`);
+  // ── [STRIPE_MODE] block (exact format for ops monitoring) ─────────────
+  console.log(`[STRIPE_MODE] source=env`);
   console.log(`[STRIPE_MODE] livemode=${livemode}`);
   console.log(`[STRIPE_MODE] secretKeyPrefix=${secretPrefix}`);
   console.log(`[STRIPE_MODE] publishableKeyPrefix=${pubPrefix}`);
@@ -165,14 +90,14 @@ function _logCredentials(creds: Credentials, source: CredentialSource) {
         '\n╔══════════════════════════════════════════════════════════════════╗\n' +
         '║  ⛔  STRIPE TEST KEYS IN PRODUCTION                             ║\n' +
         '║  Real money will NOT be charged.                                ║\n' +
-        '║  Set STRIPE_SECRET_KEY + STRIPE_PUBLISHABLE_KEY (live keys)     ║\n' +
-        '║  in Replit Secrets → redeploy to enable live payments.          ║\n' +
+        '║  Update STRIPE_SECRET_KEY + STRIPE_PUBLISHABLE_KEY to live keys ║\n' +
+        '║  in Replit Secrets and redeploy to enable live payments.        ║\n' +
         '╚══════════════════════════════════════════════════════════════════╝\n',
       );
     } else {
       console.log(
         '[STRIPE_CLIENT] ℹ Running in TEST mode. ' +
-        'To see sessions: dashboard.stripe.com → toggle "Test mode" (top-left) → Payments → Checkout.',
+        'To see sessions: dashboard.stripe.com → toggle "Test mode" → Payments → Checkout.',
       );
     }
   }
@@ -180,24 +105,22 @@ function _logCredentials(creds: Credentials, source: CredentialSource) {
 
 // ── Public helpers ────────────────────────────────────────────────────────────
 
-export async function getUncachableStripeClient(): Promise<Stripe> {
-  const { creds } = await getCredentials();
-  return new Stripe(creds.secretKey, { apiVersion: '2025-08-27.basil' as any });
+export function getUncachableStripeClient(): Stripe {
+  const { secretKey } = getCredentials();
+  return new Stripe(secretKey, { apiVersion: '2025-08-27.basil' as any });
 }
 
-export async function getStripePublishableKey(): Promise<string> {
-  const { creds } = await getCredentials();
-  return creds.publishableKey;
+export function getStripePublishableKey(): string {
+  return getCredentials().publishableKey;
 }
 
-export async function getStripeSecretKey(): Promise<string> {
-  const { creds } = await getCredentials();
-  return creds.secretKey;
+export function getStripeSecretKey(): string {
+  return getCredentials().secretKey;
 }
 
 // ── Mode descriptor ───────────────────────────────────────────────────────────
 export type StripeModeInfo = {
-  source: CredentialSource;
+  source: 'env';
   livemode: boolean;
   /** true when running in production with test keys — checkout should be blocked */
   isBlocked: boolean;
@@ -205,17 +128,17 @@ export type StripeModeInfo = {
   pubSuffix: string;
 };
 
-export async function getStripeMode(): Promise<StripeModeInfo> {
-  const { creds, source } = await getCredentials();
-  const livemode   = creds.secretKey.startsWith('sk_live_');
+export function getStripeMode(): StripeModeInfo {
+  const creds        = getCredentials();
+  const livemode     = creds.secretKey.startsWith('sk_live_');
   const isProduction = process.env.REPLIT_DEPLOYMENT === '1';
-  const isBlocked  = isProduction && !livemode;
+  const isBlocked    = isProduction && !livemode;
   return {
-    source,
+    source: 'env',
     livemode,
     isBlocked,
     secretSuffix: creds.secretKey.slice(-4),
-    pubSuffix: creds.publishableKey.slice(-4),
+    pubSuffix:    creds.publishableKey.slice(-4),
   };
 }
 
@@ -224,8 +147,8 @@ export async function getStripeMode(): Promise<StripeModeInfo> {
  * Throws a 402 payload if the app is in production but only has test keys,
  * so real users never see a test-mode checkout session.
  */
-export async function checkStripeReady(): Promise<void> {
-  const mode = await getStripeMode();
+export function checkStripeReady(): void {
+  const mode = getStripeMode();
   if (mode.isBlocked) {
     throw Object.assign(
       new Error('Payments are still in test mode. Live keys have not been configured.'),
@@ -234,16 +157,15 @@ export async function checkStripeReady(): Promise<void> {
   }
 }
 
-// ── Stripe account info (cached) ──────────────────────────────────────────────
-
+// ── Stripe account info (cached, calls accounts.retrieve()) ──────────────────
 export type StripeAccountInfo = {
-  accountId: string;
-  displayName: string | null;
-  country: string | null;
-  livemode: boolean;
+  accountId:       string;
+  displayName:     string | null;
+  country:         string | null;
+  livemode:        boolean;
   secretKeyPrefix: string;
-  pubKeyPrefix: string;
-  source: CredentialSource;
+  pubKeyPrefix:    string;
+  source:          'env';
 };
 
 let _cachedAccountInfo: StripeAccountInfo | null = null;
@@ -255,18 +177,20 @@ export async function getStripeAccountInfo(): Promise<StripeAccountInfo> {
     return _cachedAccountInfo;
   }
 
-  const { creds, source } = await getCredentials();
+  const creds   = getCredentials();
   const stripe  = new Stripe(creds.secretKey, { apiVersion: '2025-08-27.basil' as any });
   const account = await stripe.accounts.retrieve();
 
   const info: StripeAccountInfo = {
     accountId:       account.id,
-    displayName:     (account as any).display_name ?? (account as any).settings?.dashboard?.display_name ?? null,
+    displayName:     (account as any).display_name
+                       ?? (account as any).settings?.dashboard?.display_name
+                       ?? null,
     country:         account.country ?? null,
     livemode:        (account as any).livemode ?? !creds.secretKey.startsWith('sk_test'),
     secretKeyPrefix: creds.secretKey.slice(0, 12),
     pubKeyPrefix:    creds.publishableKey.slice(0, 12),
-    source,
+    source:          'env',
   };
 
   console.log('[STRIPE_ACCOUNT]', {
@@ -291,7 +215,7 @@ let stripeSync: any = null;
 export async function getStripeSync() {
   if (!stripeSync) {
     const { StripeSync } = await import('stripe-replit-sync');
-    const secretKey = await getStripeSecretKey();
+    const secretKey = getStripeSecretKey();
     stripeSync = new StripeSync({
       poolConfig: { connectionString: process.env.DATABASE_URL!, max: 2 },
       stripeSecretKey: secretKey,

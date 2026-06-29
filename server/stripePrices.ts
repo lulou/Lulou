@@ -84,7 +84,7 @@ async function ensurePrice(stripe: Stripe, def: PackDefinition): Promise<string>
  * Returns packId → priceId map.
  */
 async function resolveAllPriceIds(): Promise<PriceCache> {
-  const stripe = await getUncachableStripeClient();
+  const stripe = getUncachableStripeClient();
   const result: PriceCache = {};
   const errors: string[] = [];
 

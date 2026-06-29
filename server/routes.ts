@@ -3229,13 +3229,13 @@ export async function registerRoutes(
     const { itemId, returnPath } = req.body;
     console.log(`[CHECKOUT] REQUEST_RECEIVED item=${itemId} user=${userId} returnPath=${returnPath}`);
     try {
-      await checkStripeReady();
+      checkStripeReady();
       const item = EXTRAS_ITEMS[itemId as ExtrasItemId];
       if (!item) {
         console.warn(`[CHECKOUT] INVALID_ITEM item=${itemId} validItems=${Object.keys(EXTRAS_ITEMS).join(", ")}`);
         return res.status(400).json({ message: `Invalid item. Must be one of: ${Object.keys(EXTRAS_ITEMS).join(", ")}` });
       }
-      const stripe = await getUncachableStripeClient();
+      const stripe = getUncachableStripeClient();
       const baseUrl = process.env.FRONTEND_URL ??
         `https://${process.env.REPLIT_DOMAINS?.split(",")[0] ?? "localhost:5000"}`;
 
@@ -3377,7 +3377,7 @@ export async function registerRoutes(
       const { sessionId } = req.body;
       if (!sessionId) return res.status(400).json({ message: "sessionId required" });
 
-      const stripe = await getUncachableStripeClient();
+      const stripe = getUncachableStripeClient();
       const session = await stripe.checkout.sessions.retrieve(sessionId);
 
       console.log(`[STRIPE] CONFIRM_SESSION extras sessionId=${sessionId} session_user=${session.metadata?.userId} stripe_user=${userId} paid=${session.payment_status}`);
@@ -3477,7 +3477,7 @@ export async function registerRoutes(
     const userId = req.user.id;
     console.log(`[RESTORE] START user=${userId}`);
     try {
-      const stripe = await getUncachableStripeClient();
+      const stripe = getUncachableStripeClient();
       const storage = getStorage(req);
 
       // Paginate Stripe sessions (newest-first). Stripe doesn't allow filtering
@@ -3622,7 +3622,7 @@ export async function registerRoutes(
         return res.status(400).json({ message: "No active subscription found." });
       }
 
-      const stripe = await getUncachableStripeClient();
+      const stripe = getUncachableStripeClient();
       const baseUrl =
         process.env.FRONTEND_URL ??
         `https://${process.env.REPLIT_DOMAINS?.split(",")[0] ?? "localhost:5000"}`;
@@ -3644,7 +3644,7 @@ export async function registerRoutes(
 
   app.get("/api/stripe/config", isAuthenticated, async (_req, res) => {
     try {
-      const publishableKey = await getStripePublishableKey();
+      const publishableKey = getStripePublishableKey();
       res.json({ publishableKey });
     } catch (err: any) {
       console.error("Error fetching Stripe config:", err.message);
@@ -3662,7 +3662,7 @@ export async function registerRoutes(
     const { packId, cancelPath } = req.body as { packId?: string; cancelPath?: string };
     console.log(`[CHECKOUT] REQUEST_RECEIVED product=${packId} user=${userId}`);
     try {
-      await checkStripeReady();
+      checkStripeReady();
       const pack = ELEVATE_PACKS[packId as keyof typeof ELEVATE_PACKS];
       if (!pack) {
         return res.status(400).json({ message: "Invalid pack ID. Must be one of: elevate-1, elevate-3, elevate-5, super-elevate" });
@@ -3674,7 +3674,7 @@ export async function registerRoutes(
       const allowedCancelPaths = ["/likes", "/profile"];
       const safeCancelPath = allowedCancelPaths.includes(cancelPath ?? "") ? (cancelPath ?? "/likes") : "/likes";
 
-      const stripe = await getUncachableStripeClient();
+      const stripe = getUncachableStripeClient();
       const baseUrl = process.env.FRONTEND_URL ??
         `https://${process.env.REPLIT_DOMAINS?.split(",")[0] ?? "localhost:5000"}`;
 
@@ -3775,7 +3775,7 @@ export async function registerRoutes(
     try {
       if (!sessionId) return res.status(400).json({ message: "sessionId required" });
 
-      const stripe = await getUncachableStripeClient();
+      const stripe = getUncachableStripeClient();
       const session = await stripe.checkout.sessions.retrieve(sessionId);
 
       console.log(`[STRIPE] CONFIRM_SESSION elevate sessionId=${sessionId} session_user=${session.metadata?.userId} stripe_user=${userId} paid=${session.payment_status}`);
@@ -3925,7 +3925,7 @@ export async function registerRoutes(
 
       if (sub?.stripeSubscriptionId && sub.status === "active") {
         try {
-          const stripe = await getUncachableStripeClient();
+          const stripe = getUncachableStripeClient();
           await (stripe.subscriptions.cancel as Function)(sub.stripeSubscriptionId);
           log.push(`stripe_subscription_cancelled:${sub.stripeSubscriptionId}`);
         } catch (stripeErr: any) {
