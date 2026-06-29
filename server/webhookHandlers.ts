@@ -1,4 +1,4 @@
-import { getStripeSync } from './stripeClient';
+import { getUncachableStripeClient, getWebhookSecret } from './stripeClient';
 import { db } from './db';
 import { sql } from 'drizzle-orm';
 import { eq } from 'drizzle-orm';
@@ -228,20 +228,13 @@ export class WebhookHandlers {
       );
     }
 
-    // stripe-replit-sync verifies the Stripe signature and throws on failure.
-    // After this line succeeds the payload is cryptographically trusted.
-    const sync = await getStripeSync();
-    await sync.processWebhook(payload, signature);
+    // Verify the Stripe signature. constructEvent throws SignatureVerificationError
+    // on invalid/tampered payloads, which propagates to the caller as a 400.
+    const stripe = getUncachableStripeClient();
+    const secret = await getWebhookSecret();
+    const event = stripe.webhooks.constructEvent(payload, signature, secret);
 
     // ── Application-layer handlers ────────────────────────────────────────────
-    // Parse the verified payload to run our own benefit-granting logic.
-    let event: { type: string; data: { object: any } };
-    try {
-      event = JSON.parse(payload.toString());
-    } catch {
-      return;
-    }
-
     try {
       if (event.type === "checkout.session.completed") {
         await handleCheckoutSessionCompleted(event.data.object);
@@ -251,8 +244,7 @@ export class WebhookHandlers {
         await handleSubscriptionDeleted(event.data.object);
       }
     } catch (err: any) {
-      // Log but never rethrow — the sync already succeeded.
-      // Rethrowing would cause Stripe to retry the webhook unnecessarily.
+      // Log but never rethrow — avoid unnecessary Stripe webhook retries.
       console.error(`[WEBHOOK] Application handler error for ${event.type}:`, err?.message);
     }
   }

@@ -316,39 +316,6 @@ app.use((req, res, next) => {
     }
   })();
 
-  // Init Stripe schema & sync
-  (async () => {
-    try {
-      const { runMigrations } = await import("stripe-replit-sync");
-      const databaseUrl = process.env.DATABASE_URL;
-      if (databaseUrl) {
-        await runMigrations({ databaseUrl });
-        const { getStripeSync } = await import("./stripeClient");
-        const stripeSync = await getStripeSync();
-        const webhookBaseUrl = `https://${process.env.REPLIT_DOMAINS?.split(",")[0]}`;
-        const webhookUrl = `${webhookBaseUrl}/api/stripe/webhook`;
-        console.log(`[WEBHOOK_SETUP] Registering Stripe webhook → ${webhookUrl}`);
-        // findOrCreateManagedWebhook handles stale/missing IDs internally:
-        // it will catch any 404 from Stripe, remove the stale ID from the local DB,
-        // clean up orphaned webhooks in Stripe, then register a fresh endpoint.
-        // 404 errors logged below this line are expected cleanup — not crashes.
-        try {
-          await stripeSync.findOrCreateManagedWebhook(webhookUrl);
-          console.log(`[WEBHOOK_SETUP] Webhook endpoint ready ✓`);
-        } catch (webhookErr: any) {
-          const code = webhookErr?.raw?.code ?? webhookErr?.code ?? "unknown";
-          const status = webhookErr?.statusCode ?? webhookErr?.raw?.statusCode ?? "";
-          console.warn(
-            `[WEBHOOK_SETUP] Webhook registration failed (${status} ${code}) — checkout still works; ` +
-            `webhooks may not fire until next restart. Message: ${webhookErr.message}`
-          );
-        }
-        stripeSync.syncBackfill().catch((err: any) => console.error("Stripe backfill error:", err));
-      }
-    } catch (err: any) {
-      console.error("Stripe init error (non-fatal):", err.message);
-    }
-  })();
 
   // Warm up Stripe price IDs (creates products/prices once if missing)
   (async () => {

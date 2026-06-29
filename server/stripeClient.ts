@@ -209,17 +209,43 @@ export async function getStripeAccountInfo(): Promise<StripeAccountInfo> {
   return info;
 }
 
-// ── StripeSync (webhook wiring) ───────────────────────────────────────────────
-let stripeSync: any = null;
+// ── Webhook secret ─────────────────────────────────────────────────────────
+// Reads from STRIPE_WEBHOOK_SECRET env var first, then falls back to the
+// stripe._managed_webhooks table that was created by the old stripe-replit-sync setup.
+let _cachedWebhookSecret: string | null = null;
 
-export async function getStripeSync() {
-  if (!stripeSync) {
-    const { StripeSync } = await import('stripe-replit-sync');
-    const secretKey = getStripeSecretKey();
-    stripeSync = new StripeSync({
-      poolConfig: { connectionString: process.env.DATABASE_URL!, max: 2 },
-      stripeSecretKey: secretKey,
-    });
+export async function getWebhookSecret(): Promise<string> {
+  if (_cachedWebhookSecret) return _cachedWebhookSecret;
+
+  // 1. Env var takes precedence
+  if (process.env.STRIPE_WEBHOOK_SECRET) {
+    _cachedWebhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+    console.log('[STRIPE_WEBHOOK] Secret loaded from STRIPE_WEBHOOK_SECRET env var');
+    return _cachedWebhookSecret;
   }
-  return stripeSync;
+
+  // 2. Fall back to the _managed_webhooks table
+  try {
+    const { Pool } = await import('pg');
+    const pool = new Pool({ connectionString: process.env.DATABASE_URL!, max: 1 });
+    const isLive = (process.env.STRIPE_SECRET_KEY ?? '').startsWith('sk_live');
+    const result = await pool.query<{ secret: string }>(
+      `SELECT secret FROM stripe._managed_webhooks WHERE livemode = $1 AND secret IS NOT NULL ORDER BY created DESC LIMIT 1`,
+      [isLive],
+    );
+    await pool.end();
+    const secret = result.rows[0]?.secret ?? null;
+    if (secret) {
+      _cachedWebhookSecret = secret;
+      console.log(`[STRIPE_WEBHOOK] Secret loaded from _managed_webhooks (livemode=${isLive})`);
+      return _cachedWebhookSecret;
+    }
+  } catch (err: any) {
+    console.warn('[STRIPE_WEBHOOK] Could not read secret from _managed_webhooks:', err.message);
+  }
+
+  throw new Error(
+    '[STRIPE_WEBHOOK] No webhook signing secret found. ' +
+    'Set STRIPE_WEBHOOK_SECRET in Replit Secrets, or ensure the stripe._managed_webhooks table is populated.',
+  );
 }
