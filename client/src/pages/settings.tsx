@@ -148,11 +148,13 @@ export default function SettingsPage() {
   const [audioTranscripts,  setAudioTranscripts]  = useToggle("audio_transcripts", false);
   const {
     isSupported:        pushSupported,
+    isIosSafari:        pushIsIosSafari,
     permission:         pushPermission,
     isSubscribed:       pushSubscribed,
     preferences:        pushPrefs,
     isLoading:          pushLoading,
     error:              pushError,
+    debugStep:          pushDebugStep,
     subscribe:          pushSubscribeRaw,
     unsubscribe:        pushUnsubscribeRaw,
     updatePreference:   updatePushPref,
@@ -167,8 +169,14 @@ export default function SettingsPage() {
   }, [pushError]);
 
   const pushSubscribe = useCallback(async () => {
-    const ok = await pushSubscribeRaw();
-    if (ok) toast({ title: "Notifications enabled", description: "You'll receive push notifications on this device." });
+    const onStep = (step: string) => {
+      // Toast only key milestones so the user isn't spammed — full trace in console
+      if (step.startsWith("Step 2") || step.startsWith("Step 4") || step.startsWith("Step 5") || step.startsWith("FAIL") || step.startsWith("Done")) {
+        toast({ title: "Notifications", description: step, duration: 4000 });
+      }
+    };
+    const ok = await pushSubscribeRaw(onStep);
+    if (ok) toast({ title: "✓ Notifications enabled", description: "You'll receive push notifications on this device." });
   }, [pushSubscribeRaw]);
 
   const pushUnsubscribe = useCallback(async () => {
@@ -834,11 +842,19 @@ export default function SettingsPage() {
 
           {/* ── 5. Notifications ── */}
           <SectionHeader title={t("notifications")} />
-          {!pushSupported ? (
+          {pushIsIosSafari ? (
             <SettingRow
               icon={<Bell className="w-[18px] h-[18px] text-muted-foreground" />}
               label={t("push_notifications")}
-              description="Not supported in this browser."
+              description="Push notifications only work after adding Lulou to your Home Screen. Tap the Share button → Add to Home Screen, then reopen the app."
+              showChevron={false}
+              testId="row-push-ios-safari"
+            />
+          ) : !pushSupported ? (
+            <SettingRow
+              icon={<Bell className="w-[18px] h-[18px] text-muted-foreground" />}
+              label={t("push_notifications")}
+              description="Push notifications are not supported on this device or browser."
               showChevron={false}
               testId="row-push-not-supported"
             />
@@ -846,7 +862,7 @@ export default function SettingsPage() {
             <SettingRow
               icon={<Bell className="w-[18px] h-[18px] text-muted-foreground" />}
               label={t("push_notifications")}
-              description="Blocked by your browser — enable in device or browser settings."
+              description="Notifications are blocked. Go to iPhone Settings → Notifications → Lulou and turn on Allow Notifications."
               showChevron={false}
               testId="row-push-denied"
             />
@@ -855,10 +871,16 @@ export default function SettingsPage() {
               <SettingRow
                 icon={<Bell className="w-[18px] h-[18px] text-muted-foreground" />}
                 label={t("push_notifications")}
-                description={pushSubscribed ? t("push_notif_desc") : "Tap to enable push notifications"}
+                description={
+                  pushLoading && pushDebugStep
+                    ? pushDebugStep
+                    : pushSubscribed
+                      ? t("push_notif_desc")
+                      : "Tap to enable push notifications on this device"
+                }
                 trailing={
                   pushLoading ? (
-                    <span className="text-xs text-muted-foreground px-2">…</span>
+                    <span className="text-xs text-muted-foreground px-2 animate-pulse">…</span>
                   ) : (
                     <Switch
                       checked={pushSubscribed}

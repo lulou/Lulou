@@ -5,12 +5,15 @@
  *
  * Usage:
  *   const push = usePushNotifications();
- *   push.subscribe()         — request permission + subscribe device
- *   push.unsubscribe()       — remove subscription from server + browser
- *   push.preferences         — { newLike, newMatch, … }
- *   push.updatePreference()  — toggle a single category
- *   push.isSubscribed        — boolean
- *   push.permission          — "default" | "granted" | "denied"
+ *   push.subscribe(onStep)    — request permission + subscribe device
+ *   push.unsubscribe()        — remove subscription from server + browser
+ *   push.preferences          — { newLike, newMatch, … }
+ *   push.updatePreference()   — toggle a single category
+ *   push.isSubscribed         — boolean
+ *   push.permission           — "default" | "granted" | "denied"
+ *   push.isIosSafari          — true if iOS Safari (push NOT supported)
+ *   push.isIosPwa             — true if iOS Home Screen PWA (push supported)
+ *   push.debugStep            — current step label shown in UI while loading
  */
 
 import { useState, useEffect, useCallback, useRef } from "react";
@@ -48,9 +51,23 @@ const DEFAULT_PREFS: NotifPreferences = {
   safety:       true,
 };
 
+// ── iOS detection helpers ─────────────────────────────────────────────────────
+
+function detectIos(): { isIos: boolean; isIosPwa: boolean; isIosSafari: boolean } {
+  if (typeof window === "undefined") return { isIos: false, isIosPwa: false, isIosSafari: false };
+  const ua  = navigator.userAgent;
+  const isIos = /iphone|ipad|ipod/i.test(ua);
+  // navigator.standalone is true when launched from Home Screen on iOS
+  const isIosPwa = isIos && !!(navigator as any).standalone;
+  const isIosSafari = isIos && !isIosPwa;
+  return { isIos, isIosPwa, isIosSafari };
+}
+
 // ── Hook ──────────────────────────────────────────────────────────────────────
 
 export function usePushNotifications() {
+  const { isIos, isIosPwa, isIosSafari } = detectIos();
+
   const [permission, setPermission] = useState<NotificationPermission>(
     typeof Notification !== "undefined" ? Notification.permission : "default",
   );
@@ -58,39 +75,72 @@ export function usePushNotifications() {
   const [preferences,    setPreferences]    = useState<NotifPreferences>(DEFAULT_PREFS);
   const [isLoading,      setIsLoading]      = useState(false);
   const [error,          setError]          = useState<string | null>(null);
+  const [debugStep,      setDebugStep]      = useState<string>("");
   const [swReg,          setSwReg]          = useState<ServiceWorkerRegistration | null>(null);
   const vapidKeyRef = useRef<string | null>(null);
 
+  // isSupported: PushManager requires iOS 16.4+ installed PWA, or any modern desktop/Android Chrome
   const isSupported =
     typeof window !== "undefined" &&
     "serviceWorker" in navigator &&
     "PushManager" in window &&
     "Notification" in window;
 
+  // ── Diagnostics logged once on mount ──────────────────────────────────────
+  useEffect(() => {
+    console.log("[PUSH] Environment check:", {
+      isIos,
+      isIosPwa,
+      isIosSafari,
+      hasServiceWorker: "serviceWorker" in navigator,
+      hasPushManager:   "PushManager" in window,
+      hasNotification:  "Notification" in window,
+      isSupported,
+      permission: typeof Notification !== "undefined" ? Notification.permission : "N/A",
+      ua: navigator.userAgent,
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // ── Register Service Worker ────────────────────────────────────────────────
   useEffect(() => {
-    if (!isSupported) return;
+    if (!isSupported) {
+      console.log("[PUSH] SW registration skipped — push not supported in this environment");
+      return;
+    }
+    console.log("[PUSH] Registering service worker…");
     navigator.serviceWorker
       .register("/sw.js", { scope: "/" })
       .then((reg) => {
         setSwReg(reg);
-        console.log("[PUSH] SW registered scope:", reg.scope);
+        console.log("[PUSH] SW registered OK — scope:", reg.scope, "| state:", reg.active?.state ?? "no active worker yet");
       })
       .catch((err) => {
-        console.warn("[PUSH] SW registration failed:", err?.message);
+        console.warn("[PUSH] SW registration FAILED:", err?.name, err?.message);
       });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isSupported]);
 
   // ── Fetch VAPID public key once ────────────────────────────────────────────
   const getVapidKey = useCallback(async (): Promise<string | null> => {
-    if (vapidKeyRef.current) return vapidKeyRef.current;
+    if (vapidKeyRef.current) {
+      console.log("[PUSH] VAPID key (cached):", vapidKeyRef.current.slice(0, 12) + "…");
+      return vapidKeyRef.current;
+    }
     try {
+      console.log("[PUSH] Fetching VAPID key from", API_BASE + "/api/push/vapid-key");
       const res = await fetch(API_BASE + "/api/push/vapid-key");
-      if (!res.ok) return null;
+      console.log("[PUSH] VAPID key response status:", res.status);
+      if (!res.ok) {
+        console.error("[PUSH] VAPID key fetch failed — HTTP", res.status);
+        return null;
+      }
       const { publicKey } = await res.json();
+      console.log("[PUSH] VAPID key received:", publicKey.slice(0, 12) + "…");
       vapidKeyRef.current = publicKey;
       return publicKey;
-    } catch {
+    } catch (e: any) {
+      console.error("[PUSH] VAPID key fetch threw:", e?.message);
       return null;
     }
   }, []);
@@ -101,86 +151,149 @@ export function usePushNotifications() {
     (async () => {
       try {
         const existing = await swReg.pushManager.getSubscription();
+        console.log("[PUSH] Existing subscription on mount:", existing ? "YES" : "none");
         setIsSubscribed(!!existing);
         if (existing) {
           const res = await apiRequest("GET", "/api/push/preferences");
           const data = await res.json();
           setPreferences({ ...DEFAULT_PREFS, ...data });
         }
-      } catch { /* ignore */ }
+      } catch (e: any) {
+        console.warn("[PUSH] getSubscription on mount failed:", e?.message);
+      }
     })();
   }, [isSupported, swReg]);
 
   // ── Subscribe ──────────────────────────────────────────────────────────────
-  const subscribe = useCallback(async (): Promise<boolean> => {
+  const subscribe = useCallback(async (
+    onStep?: (step: string) => void,
+  ): Promise<boolean> => {
+    const step = (msg: string) => {
+      console.log("[PUSH]", msg);
+      setDebugStep(msg);
+      onStep?.(msg);
+    };
+
+    step("Toggle tapped");
+
     if (!isSupported) {
-      setError("Push notifications are not supported on this device or browser.");
+      const reason = isIosSafari
+        ? "Push only works in the installed app. Add Lulou to your Home Screen first."
+        : "Push notifications are not supported on this browser.";
+      step("FAIL — not supported: " + reason);
+      setError(reason);
+      setIsLoading(false);
       return false;
     }
+
     setIsLoading(true);
     setError(null);
+
     try {
-      // Resolve the SW registration — fall back to navigator.serviceWorker.ready
-      // so a first-tap race condition (swReg not yet set) doesn't silently fail.
+      // Step 1 — resolve service worker registration
+      step("Step 1/5 — Resolving service worker…");
       let reg = swReg;
       if (!reg) {
+        step("Step 1/5 — swReg null, waiting for navigator.serviceWorker.ready…");
         try {
           reg = await Promise.race([
             navigator.serviceWorker.ready,
             new Promise<never>((_, reject) =>
-              setTimeout(() => reject(new Error("SW registration timed out")), 8000)
+              setTimeout(() => reject(new Error("SW ready timed out after 8 s")), 8000)
             ),
           ]) as ServiceWorkerRegistration;
           setSwReg(reg);
-        } catch (err: any) {
-          setError("Could not start the notification service. Please reload and try again.");
+          step("Step 1/5 — SW ready: " + reg.scope);
+        } catch (e: any) {
+          step("FAIL — SW ready timeout: " + e?.message);
+          setError("Service worker did not start. Reload the app and try again.");
           return false;
         }
+      } else {
+        step("Step 1/5 — SW already registered: " + reg.scope);
       }
 
-      // Request permission — must be in a user-gesture call stack on iOS PWA
-      const perm = await Notification.requestPermission();
+      // Step 2 — request notification permission
+      step("Step 2/5 — Requesting notification permission…");
+      console.log("[PUSH] Current Notification.permission before request:", Notification.permission);
+      let perm: NotificationPermission;
+      try {
+        perm = await Notification.requestPermission();
+      } catch (e: any) {
+        step("FAIL — requestPermission threw: " + e?.name + " " + e?.message);
+        setError("Permission request failed: " + (e?.message ?? "unknown error"));
+        return false;
+      }
       setPermission(perm);
+      step("Step 2/5 — Permission result: " + perm);
+
       if (perm !== "granted") {
-        setError(perm === "denied"
-          ? "Notifications are blocked. Go to device Settings → Notifications → Lulou and allow notifications."
-          : "Notification permission was not granted."
-        );
+        const msg = perm === "denied"
+          ? "Notifications are blocked. Go to iPhone Settings → Notifications → Lulou and turn on Allow Notifications."
+          : "Notification permission was not granted (result: " + perm + ").";
+        setError(msg);
         return false;
       }
 
+      // Step 3 — fetch VAPID key
+      step("Step 3/5 — Fetching VAPID key…");
       const vapidKey = await getVapidKey();
-      if (!vapidKey) { setError("Could not fetch notification key from server."); return false; }
+      if (!vapidKey) {
+        step("FAIL — VAPID key not received from server");
+        setError("Could not fetch the notification key from the server. Check your connection.");
+        return false;
+      }
+      step("Step 3/5 — VAPID key OK: " + vapidKey.slice(0, 12) + "…");
 
-      const sub = await reg.pushManager.subscribe({
-        userVisibleOnly:      true,
-        applicationServerKey: urlBase64ToUint8Array(vapidKey),
-      });
+      // Step 4 — push subscription
+      step("Step 4/5 — Subscribing to push (PushManager.subscribe)…");
+      let sub: PushSubscription;
+      try {
+        sub = await reg.pushManager.subscribe({
+          userVisibleOnly:      true,
+          applicationServerKey: urlBase64ToUint8Array(vapidKey),
+        });
+        step("Step 4/5 — PushManager.subscribe OK — endpoint prefix: " + sub.endpoint.slice(0, 40) + "…");
+      } catch (e: any) {
+        step("FAIL — PushManager.subscribe threw: " + e?.name + ": " + e?.message);
+        if (e?.name === "NotAllowedError") {
+          setError("Notifications blocked. Enable in iPhone Settings → Notifications → Lulou.");
+        } else if (e?.name === "AbortError") {
+          setError("Subscription was cancelled by the browser. Please try again.");
+        } else {
+          setError("Push subscribe failed: " + (e?.message ?? e?.name ?? "unknown error"));
+        }
+        return false;
+      }
 
-      await apiRequest("POST", "/api/push/subscribe", {
-        endpoint: sub.endpoint,
-        p256dh:   arrayBufferToBase64(sub.getKey("p256dh")),
-        auth:     arrayBufferToBase64(sub.getKey("auth")),
-        userAgent: navigator.userAgent.slice(0, 200),
-      });
+      // Step 5 — save to server
+      step("Step 5/5 — Saving subscription to server…");
+      try {
+        await apiRequest("POST", "/api/push/subscribe", {
+          endpoint:  sub.endpoint,
+          p256dh:    arrayBufferToBase64(sub.getKey("p256dh")),
+          auth:      arrayBufferToBase64(sub.getKey("auth")),
+          userAgent: navigator.userAgent.slice(0, 200),
+        });
+        step("Step 5/5 — Subscription saved to server ✓");
+      } catch (e: any) {
+        step("FAIL — server save threw: " + e?.message);
+        setError("Subscribed but failed to save to server: " + (e?.message ?? "network error"));
+        return false;
+      }
 
       setIsSubscribed(true);
-      console.log("[PUSH] Subscribed to push notifications");
+      step("Done — push notifications enabled ✓");
       return true;
+
     } catch (err: any) {
-      console.error("[PUSH] Subscribe error:", err?.message, err?.name);
-      if (err?.name === "NotAllowedError") {
-        setError("Notifications blocked. Enable them in device Settings → Notifications → Lulou.");
-      } else if (err?.name === "AbortError") {
-        setError("Subscription was cancelled. Please try again.");
-      } else {
-        setError("Failed to enable notifications — " + (err?.message ?? "unknown error") + ". Please try again.");
-      }
+      step("FAIL — unexpected error: " + err?.name + ": " + err?.message);
+      setError("Unexpected error: " + (err?.message ?? "unknown") + " (" + (err?.name ?? "") + ")");
       return false;
     } finally {
       setIsLoading(false);
     }
-  }, [isSupported, swReg, getVapidKey]);
+  }, [isSupported, isIosSafari, swReg, getVapidKey]);
 
   // ── Unsubscribe ────────────────────────────────────────────────────────────
   const unsubscribe = useCallback(async (): Promise<void> => {
@@ -212,7 +325,7 @@ export function usePushNotifications() {
       await apiRequest("PUT", "/api/push/preferences", { [category]: value });
     } catch (err: any) {
       console.error("[PUSH] updatePreference error:", err?.message);
-      setPreferences(preferences); // revert
+      setPreferences(preferences);
     }
   }, [preferences]);
 
@@ -231,11 +344,15 @@ export function usePushNotifications() {
 
   return {
     isSupported,
+    isIos,
+    isIosPwa,
+    isIosSafari,
     permission,
     isSubscribed,
     preferences,
     isLoading,
     error,
+    debugStep,
     subscribe,
     unsubscribe,
     updatePreference,
