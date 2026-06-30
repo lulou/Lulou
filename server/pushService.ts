@@ -324,11 +324,12 @@ export const buildPush = {
     ttl:   86400,
   }),
 
-  newMessage: (senderName: string, matchId: string, preview?: string): PushPayload => ({
+  newMessage: (senderName: string, matchId: string, preview?: string, badgeCount = 1): PushPayload => ({
     title: senderName,
     body:  preview ? preview.slice(0, 80) : "Sent you a message",
     data:  { url: `/messages/${matchId}`, type: "new_message", tag: `msg_${matchId}` },
     ttl:   3600,
+    ...(badgeCount > 0 ? { badgeCount } : {}),
   }),
 
   incomingCall: (callerName: string, matchId: string): PushPayload => ({

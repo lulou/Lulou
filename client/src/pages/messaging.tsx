@@ -22,6 +22,7 @@ import { Input } from "@/components/ui/input";
 import type { Message, Match, Profile } from "@shared/schema";
 import { useLanguageContext } from "@/contexts/language-context";
 import { type TranslationKey } from "@/lib/i18n";
+import { usePushNotifications } from "@/hooks/use-push-notifications";
 
 const MAX_MESSAGES_PER_USER = 15;
 const MAX_CHARS = 500;
@@ -441,6 +442,10 @@ export default function Messaging() {
   const forceScrollRef = useRef(false);
   const initialScrollDoneRef = useRef(false);
   const matchId = params?.matchId;
+
+  // ── Badge clearing — clear app badge whenever chat is opened ─────────────
+  const { clearBadge } = usePushNotifications();
+  useEffect(() => { clearBadge(); }, [clearBadge]);
 
   // ── Timing (perf diagnostics) ──────────────────────────────────────────────
   const mountedAtRef = useRef(Date.now());
@@ -1461,37 +1466,51 @@ export default function Messaging() {
                     />
                   </div>
                 ) : (
-                  /* ── Normal state: textarea with tap-to-record mic ── */
-                  <div className="relative flex-1">
-                    <Textarea
-                      value={message}
-                      onChange={e => setMessage(e.target.value.slice(0, MAX_CHARS))}
-                      placeholder={t("write_meaningful_placeholder")}
-                      className="resize-none min-h-[44px] max-h-[120px] text-sm pr-10"
-                      onKeyDown={e => {
-                        if (e.key === "Enter" && !e.shiftKey) {
-                          e.preventDefault();
-                          if (message.trim()) doSend(message.trim());
-                        }
-                      }}
-                      data-testid="input-message"
+                  /* ── Normal state: textarea ── */
+                  <Textarea
+                    value={message}
+                    onChange={e => setMessage(e.target.value.slice(0, MAX_CHARS))}
+                    placeholder={t("write_meaningful_placeholder")}
+                    className="resize-none min-h-[44px] max-h-[120px] text-sm flex-1"
+                    onKeyDown={e => {
+                      if (e.key === "Enter" && !e.shiftKey) {
+                        e.preventDefault();
+                        if (message.trim()) doSend(message.trim());
+                      }
+                    }}
+                    data-testid="input-message"
+                  />
+                )}
+
+                {/* ── Standalone mic button in input bar ── */}
+                {voicePhase !== "preview" && (
+                  <button
+                    onClick={() => {
+                      if (!voiceNotesUnlocked) { setPurchasePromptFeature("mic"); return; }
+                      if (voicePhase === "idle") startRecording();
+                      else if (voicePhase === "recording") stopRecording();
+                    }}
+                    className={`flex-shrink-0 w-9 h-9 flex items-center justify-center rounded-full transition-all active:scale-90 ${
+                      voicePhase === "recording"
+                        ? "bg-red-100 dark:bg-red-950/40"
+                        : voiceNotesUnlocked
+                        ? "hover:bg-green-50 dark:hover:bg-green-950/30"
+                        : "hover:bg-muted/50"
+                    }`}
+                    data-testid="button-mic-input"
+                    title={voiceNotesUnlocked ? (voicePhase === "recording" ? "Tap to stop recording" : "Tap to record voice note") : "Unlock voice notes"}
+                  >
+                    <Mic
+                      className="w-4 h-4 transition-all duration-200"
+                      style={
+                        voicePhase === "recording"
+                          ? { color: "rgb(239,68,68)", filter: "drop-shadow(0 0 4px rgba(239,68,68,0.6))" }
+                          : voiceNotesUnlocked
+                          ? { color: "rgb(34,197,94)", filter: "drop-shadow(0 0 4px rgba(34,197,94,0.5))" }
+                          : { color: "var(--muted-foreground)", opacity: 0.4 }
+                      }
                     />
-                    <button
-                      onClick={() => {
-                        if (!voiceNotesUnlocked) { setPurchasePromptFeature("mic"); return; }
-                        startRecording();
-                      }}
-                      className={`absolute right-2 bottom-[9px] p-1.5 rounded-full transition-all active:scale-90 ${
-                        voiceNotesUnlocked
-                          ? "text-green-500 hover:bg-green-50 dark:hover:bg-green-950/30"
-                          : "text-muted-foreground/40 hover:bg-muted/50"
-                      }`}
-                      data-testid="button-mic-input"
-                      title={voiceNotesUnlocked ? "Tap to record voice note" : "Unlock voice notes"}
-                    >
-                      <Mic className="w-4 h-4" />
-                    </button>
-                  </div>
+                  </button>
                 )}
 
                 {aiStartersEnabled && voicePhase === "idle" && (
@@ -1528,14 +1547,9 @@ export default function Messaging() {
                       <Loader2 className="w-4 h-4 animate-spin" />
                     </Button>
                   ) : (
-                    <>
-                      <Button size="icon" variant="ghost" onClick={cancelRecording} data-testid="button-cancel-recording">
-                        <X className="w-4 h-4" />
-                      </Button>
-                      <Button size="icon" onClick={stopRecording} data-testid="button-stop-recording">
-                        <Mic className="w-4 h-4 text-red-500" />
-                      </Button>
-                    </>
+                    <Button size="icon" variant="ghost" onClick={cancelRecording} data-testid="button-cancel-recording">
+                      <X className="w-4 h-4" />
+                    </Button>
                   )
                 ) : (
                   <Button
