@@ -1,0 +1,113 @@
+Implement an admin-only payment testing system for Lulou so we can verify purchase and refund flows without repeatedly charging a real card.
+
+Goal:
+Create safe internal tools that let an admin simulate the full lifecycle:
+
+1. Purchase success
+2. Entitlement granted
+3. Purchase confirmation email sent
+4. Refund processed
+5. Refund confirmation email sent
+6. Idempotency/duplicate protection verified
+
+Requirements:
+
+1. Admin-only access
+- Only allow access for admin users.
+- Use existing admin authentication/authorization.
+- Never expose this to normal users.
+- Add strong server-side checks, not just frontend hiding.
+
+2. Test purchase simulation
+Create an admin endpoint that can simulate a successful purchase for:
+- Halo
+- Sparks
+- Elevate
+- Extra messages
+- Extra calls
+- Extra video calls
+- Any other paid Lulou item
+
+The simulation should:
+- Create a fake/internal test purchase record.
+- Grant the correct entitlement using the same entitlement logic as real Stripe purchases.
+- Trigger the same purchase confirmation email flow.
+- Log that it was an admin simulation.
+- Never call live Stripe.
+- Never create a real Checkout Session.
+- Never charge a card.
+
+3. Test refund simulation
+Create an admin endpoint that can simulate a refund for a simulated purchase.
+
+The simulation should:
+- Mark the simulated purchase as refunded.
+- Trigger the same branded refund confirmation email.
+- Test refund email idempotency.
+- Ensure duplicate refund simulations for the same refund_id do not send duplicate emails.
+- Log clearly that it was an admin refund simulation.
+- Never call live Stripe.
+- Never send money.
+
+4. Admin UI
+Add a simple admin-only testing panel with:
+- Select user
+- Select product/item
+- Simulate purchase button
+- Simulate refund button
+- Show latest simulated purchase/refund status
+- Show whether emails were sent
+- Show database record IDs
+- Show logs/errors
+
+5. Safety
+- Use a clear prefix for simulated IDs:
+ sim_purchase_
+ sim_refund_
+ sim_session_
+- Never mix simulated transactions with real Stripe payment IDs.
+- Clearly mark all simulated records as test/admin simulated.
+- Do not affect Stripe dashboard totals.
+- Do not affect real payment accounting.
+- Do not allow simulated refunds on real Stripe payments unless explicitly implemented separately and protected.
+
+6. Email testing
+- Send emails to the selected user only.
+- Include a small internal note in logs that the email came from a simulation.
+- The user-facing email should still look exactly like the real branded Lulou email.
+- Verify purchase confirmation and refund confirmation emails both work.
+
+7. Logging
+Log:
+- Admin user who triggered it
+- Target user
+- Product/item
+- Simulated purchase ID
+- Simulated refund ID
+- Entitlement result
+- Email send result
+- Timestamp
+- Any errors
+
+8. Database
+Add any needed tables/columns for:
+- admin_payment_simulations
+- simulated purchase/refund records
+- email idempotency records if not already present
+
+9. Do not break production payments
+Do not change live Stripe checkout behavior.
+Do not change real webhook behavior except to reuse shared helper functions safely.
+Do not remove any existing real purchase/refund logic.
+
+10. Verification
+After implementation:
+- Run type check.
+- Run build.
+- Simulate one Halo purchase.
+- Confirm Halo is granted.
+- Simulate one refund.
+- Confirm one refund email is sent.
+- Repeat the same refund simulation.
+- Confirm no duplicate refund email is sent.
+- Report all results clearly.

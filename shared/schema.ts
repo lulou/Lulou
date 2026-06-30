@@ -387,3 +387,31 @@ export const PROFILE_QUESTIONS = [
   "What does being present with someone look like to you?",
   "What's the bravest thing you've ever done?",
 ] as const;
+
+// ── Admin Payment Simulations ─────────────────────────────────────────────────
+// Stores records of admin-triggered test purchase and refund simulations.
+// IDs use sim_session_ / sim_refund_ prefixes — never mixed with real Stripe IDs.
+
+export const adminPaymentSimulations = pgTable("admin_payment_simulations", {
+  id:                 varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  simSessionId:       varchar("sim_session_id").notNull().unique(),
+  adminUserId:        varchar("admin_user_id").notNull(),
+  targetUserId:       varchar("target_user_id").notNull(),
+  itemId:             text("item_id"),
+  packId:             text("pack_id"),
+  productName:        text("product_name").notNull(),
+  amountCents:        integer("amount_cents").notNull().default(0),
+  currency:           text("currency").notNull().default("aud"),
+  status:             text("status").notNull().default("granted"),
+  refundSimId:        varchar("refund_sim_id"),
+  grantResult:        text("grant_result"),
+  purchaseEmailSent:  boolean("purchase_email_sent").notNull().default(false),
+  refundEmailSent:    boolean("refund_email_sent").notNull().default(false),
+  errorLog:           text("error_log"),
+  createdAt:          timestamp("created_at").defaultNow(),
+  refundedAt:         timestamp("refunded_at"),
+}, (table) => [
+  index("idx_admin_sim_target").on(table.targetUserId),
+  index("idx_admin_sim_admin").on(table.adminUserId),
+]);
+export type AdminPaymentSimulation = typeof adminPaymentSimulations.$inferSelect;

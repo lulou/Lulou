@@ -24,6 +24,7 @@ import ElevateSuccessPage from "@/pages/elevate-success";
 import ExtrasSuccessPage from "@/pages/extras-success";
 import DragTestPage from "@/pages/drag-test";
 import AdminDiagnosticsPage from "@/pages/admin-diagnostics";
+import AdminPaymentSimPage from "@/pages/admin-payment-sim";
 import AuthCallbackPage from "@/pages/auth-callback";
 import {
   PrivacyPolicyPage,
@@ -2335,6 +2336,7 @@ function AppContent() {
       <Route path="/elevate/success" component={ElevateSuccessPage} />
       <Route path="/extras/success" component={ExtrasSuccessPage} />
       <Route path="/admin/diagnostics" component={AdminDiagnosticsPage} />
+      <Route path="/admin/payment-sim" component={AdminPaymentSimPage} />
       <Route>
         <AppLayout>
           <PersistentTabs />

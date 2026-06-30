@@ -250,8 +250,30 @@ app.use((req, res, next) => {
         safety         BOOLEAN DEFAULT TRUE,
         updated_at     TIMESTAMP DEFAULT NOW()
       );
+
+      CREATE TABLE IF NOT EXISTS admin_payment_simulations (
+        id                  VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
+        sim_session_id      VARCHAR NOT NULL UNIQUE,
+        admin_user_id       VARCHAR NOT NULL,
+        target_user_id      VARCHAR NOT NULL,
+        item_id             TEXT,
+        pack_id             TEXT,
+        product_name        TEXT NOT NULL,
+        amount_cents        INTEGER NOT NULL DEFAULT 0,
+        currency            TEXT NOT NULL DEFAULT 'aud',
+        status              TEXT NOT NULL DEFAULT 'granted',
+        refund_sim_id       VARCHAR,
+        grant_result        TEXT,
+        purchase_email_sent BOOLEAN DEFAULT FALSE,
+        refund_email_sent   BOOLEAN DEFAULT FALSE,
+        error_log           TEXT,
+        created_at          TIMESTAMP DEFAULT NOW(),
+        refunded_at         TIMESTAMP
+      );
+      CREATE INDEX IF NOT EXISTS idx_admin_sim_target ON admin_payment_simulations(target_user_id);
+      CREATE INDEX IF NOT EXISTS idx_admin_sim_admin  ON admin_payment_simulations(admin_user_id);
     `);
-    console.log("[STARTUP] Local DB tables verified/created: user_benefits, user_elevates, call_credits, saved_wheel_profiles, active_sessions, membership_subscriptions, push_subscriptions, notification_preferences");
+    console.log("[STARTUP] Local DB tables verified/created: user_benefits, user_elevates, call_credits, saved_wheel_profiles, active_sessions, membership_subscriptions, push_subscriptions, notification_preferences, admin_payment_simulations");
   } catch (err: any) {
     console.error("[STARTUP] Local DB table migration failed:", err?.message);
   }

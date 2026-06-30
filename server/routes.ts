@@ -17,6 +17,7 @@ import { tryGetPriceId } from "./stripePrices";
 import { writeLimiter, callLimiter, paymentLimiter } from "./limiters";
 import { sendEmail, getEmailLog } from "./emailService";
 import { welcomeEmail } from "./emailTemplates";
+import { registerAdminSimulatorRoutes } from "./adminSimulator";
 
 
 // Debounced last-active updater — fires at most once per 2 min per user.
@@ -780,7 +781,9 @@ export async function registerRoutes(
     res.json({ emailVerified: true, userId: req.user.id });
   });
 
-  // ── Admin email diagnostics ───────────────────────────────────────────────
+  // ── Admin payment simulator routes ──────────────────────────────────────────
+  registerAdminSimulatorRoutes(app, isAuthenticated);
+
   // Returns the in-memory email event log.  Gated by isAuthenticated and the
   // ADMIN_EMAIL env var (comma-separated list of admin email addresses).
   // If ADMIN_EMAIL is not set, only allows access in development mode.
