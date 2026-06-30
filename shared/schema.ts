@@ -1,5 +1,5 @@
 import { sql, relations } from "drizzle-orm";
-import { pgTable, text, varchar, integer, boolean, timestamp, index, doublePrecision, json } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, boolean, timestamp, index, doublePrecision, json, primaryKey } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -415,3 +415,16 @@ export const adminPaymentSimulations = pgTable("admin_payment_simulations", {
   index("idx_admin_sim_admin").on(table.adminUserId),
 ]);
 export type AdminPaymentSimulation = typeof adminPaymentSimulations.$inferSelect;
+
+// ── Per-user per-match badge counts ───────────────────────────────────────────
+// Tracks how many unread push-triggered messages each user has per match.
+// Incremented when a push notification is sent; reset when the user reads the chat.
+// Used to supply the correct cumulative badgeCount to the iOS Home Screen icon.
+export const userMatchBadgeCounts = pgTable("user_match_badge_counts", {
+  userId:  varchar("user_id").notNull(),
+  matchId: varchar("match_id").notNull(),
+  count:   integer("count").notNull().default(0),
+}, (table) => [
+  primaryKey({ columns: [table.userId, table.matchId] }),
+  index("idx_badge_counts_user").on(table.userId),
+]);

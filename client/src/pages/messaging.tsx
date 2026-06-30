@@ -443,9 +443,27 @@ export default function Messaging() {
   const initialScrollDoneRef = useRef(false);
   const matchId = params?.matchId;
 
-  // ── Badge clearing — clear app badge whenever chat is opened ─────────────
-  const { clearBadge } = usePushNotifications();
-  useEffect(() => { clearBadge(); }, [clearBadge]);
+  // ── Badge: mark this match as read and sync badge count ───────────────────
+  const { setBadge } = usePushNotifications();
+  useEffect(() => {
+    if (!matchId) return;
+    (async () => {
+      try {
+        const res = await fetch(`/api/messages/${matchId}/mark-read`, {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+        });
+        if (res.ok) {
+          const { total } = await res.json();
+          setBadge(typeof total === "number" ? Math.max(0, total) : 0);
+        }
+      } catch {
+        // Non-fatal — badge just won't update immediately
+      }
+    })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [matchId]);
 
   // ── Timing (perf diagnostics) ──────────────────────────────────────────────
   const mountedAtRef = useRef(Date.now());

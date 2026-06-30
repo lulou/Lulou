@@ -16,6 +16,7 @@ import { useTabActive } from "@/hooks/use-tab-active";
 import { isCallSessionCancelled, markCallSessionCancelled, clearCancelledSession } from "@/lib/cancelled-calls";
 import { useRealtimeMessages } from "@/hooks/use-realtime-messages";
 import { useUnreadCounts } from "@/hooks/use-unread-counts";
+import { usePushNotifications } from "@/hooks/use-push-notifications";
 import { useTypingIndicator } from "@/hooks/use-typing-indicator";
 import { Input } from "@/components/ui/input";
 import { MessageCircle, Send, Phone, Video, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, PhoneOff, Clock, Check, X, Sparkles, Calendar, Heart, PhoneForwarded, Moon, User, Mic, Loader2, Pause, Play, BadgeCheck } from "lucide-react";
@@ -3207,6 +3208,7 @@ export default function Matches() {
   // (display:none via PersistentTabs) all unread WebSocket channels are torn
   // down.  They are rebuilt the moment the user taps back to this tab.
   const { unreadCounts, markRead } = useUnreadCounts(matchIds, user?.id || null, expandedMatchId, handleNewBackgroundMessage, isActive);
+  const { setBadge, syncBadgeFromServer } = usePushNotifications();
 
 
 
@@ -3230,27 +3232,11 @@ export default function Matches() {
   const activeChats    = useMemo(() => (matches || []).filter(m => !!m.lastMessage), [matches]);
   const totalUnread    = useMemo(() => Object.values(unreadCounts).reduce((sum, n) => sum + n, 0), [unreadCounts]);
 
-  // ── App-icon badge: reflect unread count ──────────────────────────────────
-  useEffect(() => {
-    if ("setAppBadge" in navigator) {
-      if (totalUnread > 0) {
-        (navigator as any).setAppBadge(totalUnread).catch(() => {});
-      } else {
-        (navigator as any).clearAppBadge?.().catch(() => {});
-      }
-    }
-  }, [totalUnread]);
-
-  // Clear badge on page focus when everything is read
-  useEffect(() => {
-    const onVisible = () => {
-      if (!document.hidden && "clearAppBadge" in navigator) {
-        (navigator as any).clearAppBadge?.().catch(() => {});
-      }
-    };
-    document.addEventListener("visibilitychange", onVisible);
-    return () => document.removeEventListener("visibilitychange", onVisible);
-  }, []);
+  // ── App-icon badge: reflect real-time unread count while app is open ───────
+  // On cold open: sync from server (covers messages received while closed).
+  // While running: keep badge in sync with live Realtime unread counts.
+  useEffect(() => { syncBadgeFromServer(); }, [syncBadgeFromServer]);
+  useEffect(() => { setBadge(totalUnread); }, [totalUnread, setBadge]);
 
   const connectionCount = matches?.length || 0;
   const atLimit = connectionCount >= MAX_CONNECTIONS;
@@ -3320,7 +3306,15 @@ export default function Matches() {
           expanded={true}
           onToggleExpand={() => setExpandedMatchId(null)}
           unreadCount={unreadCounts[selectedMatch.id] || 0}
-          onMarkRead={() => markRead(selectedMatch.id)}
+          onMarkRead={() => {
+            markRead(selectedMatch.id);
+            fetch(`/api/messages/${selectedMatch.id}/mark-read`, {
+              method: "POST", credentials: "include",
+              headers: { "Content-Type": "application/json" },
+            }).then(r => r.json()).then(({ total }) => {
+              setBadge(typeof total === "number" ? Math.max(0, total) : 0);
+            }).catch(() => {});
+          }}
         />
       </div>
     );

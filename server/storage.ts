@@ -3617,3 +3617,45 @@ export async function removeBlockedContactForUser(
     .delete(blockedContacts)
     .where(and(eq(blockedContacts.id, contactId), eq(blockedContacts.userId, userId)));
 }
+
+// ── Badge count helpers (local Drizzle DB) ────────────────────────────────────
+// Tracks per-match unread counts for the iOS Home Screen badge.
+// Server increments when a push is sent; client decrements when chat is opened.
+
+/**
+ * Increment the badge count for (userId, matchId) by 1.
+ * Returns the new *total* unread count across all matches for this user.
+ */
+export async function incrementMatchBadge(userId: string, matchId: string): Promise<number> {
+  await db.execute(sql`
+    INSERT INTO user_match_badge_counts (user_id, match_id, count)
+    VALUES (${userId}, ${matchId}, 1)
+    ON CONFLICT (user_id, match_id) DO UPDATE
+      SET count = user_match_badge_counts.count + 1
+  `);
+  return getTotalBadge(userId);
+}
+
+/**
+ * Zero out the badge count for (userId, matchId) — user read this chat.
+ * Returns the new *total* unread count across all remaining matches.
+ */
+export async function resetMatchBadge(userId: string, matchId: string): Promise<number> {
+  await db.execute(sql`
+    DELETE FROM user_match_badge_counts
+    WHERE user_id = ${userId} AND match_id = ${matchId}
+  `);
+  return getTotalBadge(userId);
+}
+
+/**
+ * Return the total unread count for a user across all matches.
+ */
+export async function getTotalBadge(userId: string): Promise<number> {
+  const result = await db.execute(sql`
+    SELECT COALESCE(SUM(count), 0)::int AS total
+    FROM user_match_badge_counts
+    WHERE user_id = ${userId}
+  `);
+  return (result.rows[0] as any)?.total ?? 0;
+}

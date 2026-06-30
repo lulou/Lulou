@@ -1,7 +1,7 @@
 import type { Express, RequestHandler } from "express";
 import { createServer, type Server } from "http";
 import { randomUUID } from "crypto";
-import { SupabaseStorage, mapMatch, type CompleteCallOptions, geocodeLocation, getHasLatLngColumns, getHasEmailVerifiedColumn } from "./storage";
+import { SupabaseStorage, mapMatch, type CompleteCallOptions, geocodeLocation, getHasLatLngColumns, getHasEmailVerifiedColumn, incrementMatchBadge, resetMatchBadge, getTotalBadge } from "./storage";
 import { transcodeToM4a } from "./transcoder";
 import { seedDatabase } from "./seed";
 import { z } from "zod";
@@ -2116,6 +2116,31 @@ export async function registerRoutes(
     }
   });
 
+  // ── Badge count: total unread across all matches ───────────────────────────
+  app.get("/api/messages/unread-count", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const total = await getTotalBadge(userId);
+      res.json({ total });
+    } catch (err: any) {
+      console.error("BADGE_GET_ERROR", err?.message);
+      res.json({ total: 0 });
+    }
+  });
+
+  // ── Mark a match as read (decrements badge count for that match) ───────────
+  app.post("/api/messages/:matchId/mark-read", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const { matchId } = req.params;
+      const total = await resetMatchBadge(userId, matchId);
+      res.json({ total });
+    } catch (err: any) {
+      console.error("BADGE_MARK_READ_ERROR", err?.message);
+      res.json({ total: 0 });
+    }
+  });
+
   app.post("/api/messages/:messageId/reaction", isAuthenticated, async (req: any, res) => {
     try {
       const storage = getStorage(req);
@@ -2267,9 +2292,11 @@ export async function registerRoutes(
             const senderProfile = await adminStorage.getProfileMeta(userId);
             const senderName    = senderProfile?.firstName || "Someone";
             console.log(`[PUSH_AUDIT] MSG route: calling sendPushToUser → recipient=${otherUserId.slice(0,8)} sender="${senderName}" category=new_message`);
+            const badgeTotal = await incrementMatchBadge(otherUserId, matchId);
+            console.log(`[PUSH_AUDIT] MSG route: badgeTotal=${badgeTotal} for recipient=${otherUserId.slice(0,8)}`);
             sendPushToUser(
               otherUserId,
-              buildPush.newMessage(senderName, matchId, message.content),
+              buildPush.newMessage(senderName, matchId, message.content, badgeTotal),
               "new_message",
             ).catch((err: any) => {
               console.error(`[PUSH_AUDIT] MSG route: sendPushToUser threw userId=${otherUserId.slice(0,8)}: ${err?.message}`);

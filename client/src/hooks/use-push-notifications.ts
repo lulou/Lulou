@@ -359,16 +359,37 @@ export function usePushNotifications() {
 
   // ── Badge helpers ──────────────────────────────────────────────────────────
   const setBadge = useCallback((count: number) => {
-    if (!swReg) return;
-    swReg.active?.postMessage({ type: "SET_BADGE", count });
-    if ("setAppBadge" in navigator) (navigator as any).setAppBadge(count).catch(() => {});
+    const n = Math.max(0, Math.round(count));
+    if (n > 0) {
+      if ("setAppBadge" in navigator) (navigator as any).setAppBadge(n).catch(() => {});
+      swReg?.active?.postMessage({ type: "SET_BADGE", count: n });
+    } else {
+      if ("clearAppBadge" in navigator) (navigator as any).clearAppBadge().catch(() => {});
+      swReg?.active?.postMessage({ type: "CLEAR_BADGE" });
+    }
   }, [swReg]);
 
   const clearBadge = useCallback(() => {
-    if (!swReg) return;
-    swReg.active?.postMessage({ type: "CLEAR_BADGE" });
     if ("clearAppBadge" in navigator) (navigator as any).clearAppBadge().catch(() => {});
+    swReg?.active?.postMessage({ type: "CLEAR_BADGE" });
   }, [swReg]);
+
+  /**
+   * Fetch the current server-side badge total and apply it to the app icon.
+   * Call this on cold open so the badge reflects messages received while closed.
+   */
+  const syncBadgeFromServer = useCallback(async (): Promise<number> => {
+    try {
+      const res = await fetch(API_BASE + "/api/messages/unread-count", { credentials: "include" });
+      if (!res.ok) return 0;
+      const { total } = await res.json();
+      const count = typeof total === "number" ? Math.max(0, total) : 0;
+      setBadge(count);
+      return count;
+    } catch {
+      return 0;
+    }
+  }, [setBadge]);
 
   return {
     isSupported,
@@ -386,6 +407,7 @@ export function usePushNotifications() {
     updatePreference,
     setBadge,
     clearBadge,
+    syncBadgeFromServer,
   };
 }
 
