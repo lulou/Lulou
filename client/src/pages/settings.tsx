@@ -667,12 +667,12 @@ export default function SettingsPage() {
           {/* ── 2. Membership ── */}
           {membershipStatus?.active && (
             <>
-              <SectionHeader title="Membership" />
+              <SectionHeader title={t("membership_label")} />
               <div className="mx-4 mb-1 p-4 rounded-xl bg-primary/5 border border-primary/20">
                 <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center gap-2">
                     <Crown className="w-4 h-4 text-primary" />
-                    <span className="text-sm font-semibold text-primary">Lulou Member</span>
+                    <span className="text-sm font-semibold text-primary">{t("lulou_member_label")}</span>
                   </div>
                   <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-primary/15 text-primary capitalize">
                     {membershipStatus.status ?? "active"}
@@ -775,11 +775,11 @@ export default function SettingsPage() {
           />
 
           {/* ── 4. Lulou Guide ── */}
-          <SectionHeader title="Lulou Guide" />
+          <SectionHeader title={t("lulou_guide_label")} />
           <SettingRow
             icon={<BookOpen className="w-[18px] h-[18px] text-muted-foreground" />}
-            label="Replay guides"
-            description="Revisit tips from your journey"
+            label={t("replay_guides_label")}
+            description={t("replay_guides_desc")}
             onPress={() => setActiveSheet("lulou_guide")}
             testId="button-lulou-guide"
           />
@@ -1326,7 +1326,7 @@ export default function SettingsPage() {
                   className="w-full text-xs font-semibold text-primary py-2 rounded-xl border border-primary/25 hover:bg-primary/5 active:scale-95 transition-all"
                   data-testid={`button-replay-guide-${key}`}
                 >
-                  Replay this guide
+                  {t("replay_guide_btn")}
                 </button>
               </div>
             ))}

@@ -2285,7 +2285,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
             {expanded && matchLoading && !matchDetail && (
               <div className="flex flex-col items-center justify-center py-10 gap-3" data-testid={`chat-loading-${match.id}`}>
                 <div className="w-8 h-8 rounded-full border-2 border-primary border-t-transparent animate-spin" />
-                <p className="text-xs text-muted-foreground">Loading conversation…</p>
+                <p className="text-xs text-muted-foreground">{t("loading_conversation")}</p>
               </div>
             )}
             {expanded && matchError && (
@@ -2457,9 +2457,9 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                 </div>
                 <div className="text-center space-y-1">
                   <p className="text-white font-serif font-semibold text-base" data-testid={`text-incoming-call-${match.id}`}>
-                    {match.profile.firstName} is calling
+                    {t("is_calling_label").replace("{name}", match.profile.firstName)}
                   </p>
-                  <p className="text-white/40 text-xs">Answer to start your conversation</p>
+                  <p className="text-white/40 text-xs">{t("answer_to_start_hint")}</p>
                 </div>
                 <div className="flex items-center gap-3">
                   <button
@@ -2575,8 +2575,8 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                 <div className="final-card-anim space-y-3">
                   <div className="text-center space-y-1">
                     <Sparkles className="w-4 h-4 text-primary mx-auto" />
-                    <p className="font-semibold text-sm">What's next with {match.profile.firstName}?</p>
-                    <p className="text-xs text-muted-foreground">You've completed all your calls together.</p>
+                    <p className="font-semibold text-sm">{t("whats_next_name").replace("{name}", match.profile.firstName)}</p>
+                    <p className="text-xs text-muted-foreground">{t("completed_all_calls_hint")}</p>
                   </div>
                   <div className="grid grid-cols-3 gap-2">
                     <button
@@ -2589,8 +2589,8 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                         <Calendar className="w-4 h-4 text-green-700" />
                       </div>
                       <div>
-                        <p className="text-xs font-semibold text-green-700 leading-tight">Plan a Date</p>
-                        <p className="text-[10px] mt-0.5" style={{ color: "hsl(155 25% 40%)" }}>Free</p>
+                        <p className="text-xs font-semibold text-green-700 leading-tight">{t("plan_date_btn")}</p>
+                        <p className="text-[10px] mt-0.5" style={{ color: "hsl(155 25% 40%)" }}>{t("free_label")}</p>
                       </div>
                     </button>
                     <button
@@ -2603,8 +2603,8 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                         <MessageCircle className="w-4 h-4 text-primary" />
                       </div>
                       <div>
-                        <p className="text-xs font-semibold leading-tight">Keep Chatting</p>
-                        <p className="text-[10px] text-muted-foreground mt-0.5">Continue</p>
+                        <p className="text-xs font-semibold leading-tight">{t("keep_chatting_btn")}</p>
+                        <p className="text-[10px] text-muted-foreground mt-0.5">{t("continue_label")}</p>
                       </div>
                     </button>
                     <button
@@ -2617,8 +2617,8 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                         <X className="w-4 h-4 text-muted-foreground" />
                       </div>
                       <div>
-                        <p className="text-xs font-semibold text-muted-foreground leading-tight">End</p>
-                        <p className="text-[10px] text-muted-foreground mt-0.5">Leave gracefully</p>
+                        <p className="text-xs font-semibold text-muted-foreground leading-tight">{t("end_label")}</p>
+                        <p className="text-[10px] text-muted-foreground mt-0.5">{t("leave_gracefully_label")}</p>
                       </div>
                     </button>
                   </div>
@@ -2682,7 +2682,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                     className="w-full"
                     data-testid={`button-plan-date-now-${match.id}`}
                   >
-                    <Calendar className="w-3.5 h-3.5 me-1.5" /> Plan a Date
+                    <Calendar className="w-3.5 h-3.5 me-1.5" /> {t("plan_date_btn")}
                   </Button>
                   <Button
                     size="sm"
@@ -2701,8 +2701,8 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
             <div className="p-4 border-t" data-testid={`extension-offer-${match.id}`}>
               <div className="rounded-lg border border-primary/30 bg-primary/5 p-4 space-y-3">
                 <div className="space-y-1">
-                  <p className="text-sm font-medium text-primary">Want to keep going?</p>
-                  <p className="text-xs text-muted-foreground">You have a +5 message extension. Add 5 more messages to this conversation?</p>
+                  <p className="text-sm font-medium text-primary">{t("want_to_keep_going")}</p>
+                  <p className="text-xs text-muted-foreground">{t("extension_offer_body")}</p>
                 </div>
                 <div className="flex gap-2 justify-end">
                   <Button
@@ -2711,7 +2711,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                     onClick={() => setDismissedExtension(true)}
                     data-testid={`button-dismiss-extension-${match.id}`}
                   >
-                    Not now
+                    {t("not_now_btn")}
                   </Button>
                   <Button
                     size="sm"
@@ -2825,13 +2825,13 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                   >
                     <span className="text-xs text-muted-foreground">{t("plan_date_cta_hint")}</span>
                     <span className="text-xs font-medium text-primary flex items-center gap-1 shrink-0">
-                      <Calendar className="w-3 h-3" /> Plan a Date
+                      <Calendar className="w-3 h-3" /> {t("plan_date_btn")}
                     </span>
                   </button>
                 </div>
               )}
               {postCallApproaching && (
-                <StageHint>You're almost ready to plan your first date with {match.profile.firstName}!</StageHint>
+                <StageHint>{t("post_call_approaching_hint").replace("{name}", match.profile.firstName)}</StageHint>
               )}
               {callStage === 0 && messagesRemaining <= 5 && messagesRemaining > 1 && (
                 <StageHint>{t("really_connecting_hint")}</StageHint>
@@ -3259,7 +3259,7 @@ export default function Matches() {
           <div className="w-16 h-16 rounded-full bg-destructive/10 flex items-center justify-center mx-auto">
             <Moon className="w-8 h-8 text-destructive" />
           </div>
-          <h2 className="font-serif text-xl font-bold" data-testid="text-matches-error">Something went wrong</h2>
+          <h2 className="font-serif text-xl font-bold" data-testid="text-matches-error">{t("something_went_wrong")}</h2>
           <p className="text-muted-foreground text-sm" data-testid="text-matches-error-detail">{errMsg}</p>
           <button
             className="px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:brightness-110 transition-all"
