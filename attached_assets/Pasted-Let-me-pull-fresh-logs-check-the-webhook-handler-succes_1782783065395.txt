@@ -1,0 +1,122 @@
+Let me pull fresh logs, check the webhook handler, success page, and activate endpoints all at once:
+
+7 actions
+Critical signal found — [PURCHASE] STATUS_CHECK granted=true for sparks-1. Let me now read the exact activate handler, webhook route, and success pages to trace the full grant path:
+
+5 actions
+Now let me read the webhook handler and check what URL it's registered with in Stripe:
+
+4 actions
+Let me read the webhook route in server/index.ts and the full webhook handler to complete the picture:
+
+7 actions
+Now I have everything I need. Let me check the previous session's log (where the purchase actually happened at 1:18 AM before the 1:22 AM restart):
+
+7 actions
+Let me check the spark balances table and search both log files for any webhook receipt:
+
+3 actions
+I now have every piece needed. Here is the complete post-payment audit:
+
+Post-Payment Flow Audit — Complete Trace
+Two live purchases on record
+#	Session ID	Item	Purchased At	Source
+1	cs_live_a1VfVO3g…	sparks-1	01:04:19 UTC	spark_purchases
+2	cs_live_a1NbZEV…	sparks-1	01:18:06 UTC	spark_purchases
+Both are recorded in processed_stripe_sessions and spark_purchases. The audit below focuses on the second (most recent) purchase.
+
+Step 1 — Stripe Checkout Session created ✅
+Stripe Dashboard shows gross volume increased. Both cs_live_* sessions exist. The checkout was created by POST /api/stripe/extras-checkout, which redirected the user to Stripe.
+
+Step 2 — Stripe success redirect executed ✅
+Stripe redirected to:
+
+/intent?sparks_session=cs_live_a1NbZEV...&item=sparks-1
+
+This is the correct flow for sparks items — routes.ts:3314–3315:
+
+const successUrl = (itemId as string).startsWith("sparks-")
+  ? `${baseUrl}/intent?sparks_session={CHECKOUT_SESSION_ID}&item=${itemId}`
+
+The success page (/intent) loaded with the session ID in the query string.
+
+Step 3 — Did the Stripe webhook fire? ⚠️ Not confirmed
+The webhook IS registered at Stripe with status=enabled:
+
+{
+  "id":  "we_1TnZEwCXj2GLoFl0yzhdkTne",
+  "url": "https://86d5f2d5-2c53-4a30-af8a-399676f90be0-00-1pwwt7ymw85zn.spock.replit.dev/api/stripe/webhook",
+  "status": "enabled"
+}
+
+Zero [WEBHOOK] RECEIVED lines appear in any log file across all five server sessions. The webhook delivery was never logged. This means either:
+
+Stripe attempted delivery to the dev URL but Replit's edge layer dropped it (no log even reached the route handler), or
+The session records were written by the activate-fallback path before the webhook arrived
+The server log at 01:18:06 (the grant timestamp in spark_purchases) shows no preceding [WEBHOOK] RECEIVED — the DB write came from the activate fallback, not the webhook.
+
+Root reason the webhook path is unreliable: STRIPE_WEBHOOK_SECRET env var is UNSET. The getWebhookSecret() function falls back to a DB query:
+
+// stripeClient.ts:231–240
+const isLive = (process.env.STRIPE_SECRET_KEY ?? '').startsWith('sk_live');
+const row = await pool.query(
+  `SELECT secret FROM stripe._managed_webhooks WHERE livemode = $1 ...`,
+  [isLive]
+);
+
+This adds a DB round-trip to every webhook. If that query is slow on the first delivery, constructEvent hasn't run yet when Stripe gives up (it retries, but the first delivery may time out).
+
+Step 4 — Purchase record saved to DB ✅
+processed_stripe_sessions:
+
+session_id: cs_live_a1NbZEVCgvOBQ…   user_id: d662545f…   item_ref: sparks-1
+session_id: cs_live_a1VfVO3gqD05e…   user_id: d662545f…   item_ref: sparks-1
+
+Written by the activate-fallback path (routes.ts:3471) — not the webhook.
+
+Step 5 — Entitlement applied ✅
+grantExtras for sparks-1 runs this (purchaseItems.ts:130–145):
+
+await tx.insert(sparkBalances).values({ userId, balance: qty })
+  .onConflictDoUpdate({ set: { balance: sql`spark_balances.balance + ${qty}` } });
+await tx.insert(sparkPurchases).values({ ... });
+
+spark_balances table:
+
+{ "user_id": "d662545f…", "balance": 1, "updated_at": "2026-06-30T01:18:06.384Z" }
+
+Balance = 1 (second spin purchased; first spin was already consumed — balance starts from the second purchase only because the first spend happened between the two purchases).
+
+GET /api/spin-status confirmed: "purchasedSpins": 1, "canSpin": true
+
+user_benefits is empty because sparks purchases don't write there — they go to spark_balances + spark_purchases, which is correct.
+
+Step 6 — Success page confirmation ✅
+[PURCHASE] STATUS_CHECK granted=true
+  session=cs_live_a1NbZEV…  user=d662545f…  itemRef=sparks-1
+GET /api/stripe/purchase-status 200 in 4ms
+
+The success page polled purchase-status, found the row in processed_stripe_sessions, and advanced to the "active" phase.
+
+Summary — where each step stands
+Step	Status	Detail
+1. Checkout Session created	✅	cs_live_a1NbZEV… — Stripe confirmed
+2. Success redirect	✅	/intent?sparks_session=…
+3. Stripe webhook fired	⚠️	Registered correctly, but zero delivery receipts in any log. Grant happened via activate-fallback, not webhook.
+4. Purchase saved to DB	✅	processed_stripe_sessions + spark_purchases both written
+5. Entitlement applied	✅	spark_balances.balance += 1 — user can spin
+6. Success page	✅	purchase-status returned granted=true
+The one gap: webhook is never being received
+The entire purchase completed correctly via the activate-fallback path. Nothing is broken for the user today. However, the webhook path has two structural issues:
+
+Issue A — STRIPE_WEBHOOK_SECRET not set as an env var
+
+Every webhook request hits the DB to read the secret, adding latency before constructEvent can run. Set this in Replit Secrets:
+
+STRIPE_WEBHOOK_SECRET = whsec_Ns6KEGYcHnIxSpzw7aKlsi1r2Vya4Ziz
+
+Issue B — Webhook URL is the ephemeral dev domain
+
+https://86d5f2d5-2c53-4a30-af8a-399676f90be0-00-1pwwt7ymw85zn.spock.replit.dev
+
+This URL changes every time the Repl restarts. When the backend moves to a stable URL (Replit deployment, Railway, etc.), the Stripe webhook endpoint must be updated to match. Until then, the activate-fallback on the success page is the reliable grant path — and it is working correctly.

@@ -14,6 +14,8 @@ import { eq, and, isNull, gt, or, inArray } from "drizzle-orm";
 import { getUncachableStripeClient, getStripePublishableKey, getStripeAccountInfo, checkStripeReady } from "./stripeClient";
 import { tryGetPriceId } from "./stripePrices";
 import { writeLimiter, callLimiter, paymentLimiter } from "./limiters";
+import { sendEmail, getEmailLog } from "./emailService";
+import { welcomeEmail } from "./emailTemplates";
 
 
 // Debounced last-active updater — fires at most once per 2 min per user.
@@ -798,11 +800,18 @@ export async function registerRoutes(
       verified: _emailEventLog.filter(e => e.type === "verified" || e.type === "otp_verified").length,
       blocked: _emailEventLog.filter(e => e.type === "blocked_unconfirmed" || e.type === "blocked_auto_confirmed").length,
     };
+    const transactionalLog = getEmailLog();
     return res.json({
       summary,
       events: [..._emailEventLog].reverse(), // newest first
       serverUptime: process.uptime(),
       enforcementDate: new Date(VERIFICATION_ENFORCEMENT_TS).toISOString(),
+      transactional: {
+        total:   transactionalLog.length,
+        sent:    transactionalLog.filter(e => e.success).length,
+        failed:  transactionalLog.filter(e => !e.success).length,
+        events:  transactionalLog,
+      },
     });
   });
 
@@ -1549,6 +1558,28 @@ export async function registerRoutes(
       // effect on the very next /api/discover call.
       _userDiscoverMeta.delete(userId);
       res.json(result);
+
+      // Send welcome email when the user completes onboarding for the first time
+      if ((parsed.data as any).onboardingComplete === true) {
+        void (async () => {
+          try {
+            const { data: authData } = await supabaseAdmin.auth.admin.getUserById(userId);
+            const email = authData?.user?.email;
+            if (!email) return;
+            const { data: profileData } = await supabaseAdmin
+              .from("profiles").select("firstName").eq("userId", userId).single();
+            const firstName = (profileData as any)?.firstName ?? "there";
+            await sendEmail({
+              to:      email,
+              subject: "Welcome to Lulou 🌸",
+              html:    welcomeEmail(firstName),
+              type:    "welcome",
+            });
+          } catch (err: any) {
+            console.warn(`[EMAIL] welcome email failed for user ${userId.slice(0,8)}: ${err?.message}`);
+          }
+        })();
+      }
     } catch (error: any) {
       const errMsg = error?.message || "Failed to save profile";
       console.error("PROFILE_SAVE_ERROR", errMsg, error);
