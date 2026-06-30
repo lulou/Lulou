@@ -1500,37 +1500,6 @@ export default function Messaging() {
                   />
                 )}
 
-                {/* ── Standalone mic button in input bar ── */}
-                {voicePhase !== "preview" && (
-                  <button
-                    onClick={() => {
-                      if (!voiceNotesUnlocked) { setPurchasePromptFeature("mic"); return; }
-                      if (voicePhase === "idle") startRecording();
-                      else if (voicePhase === "recording") stopRecording();
-                    }}
-                    className={`flex-shrink-0 w-9 h-9 flex items-center justify-center rounded-full transition-all active:scale-90 ${
-                      voicePhase === "recording"
-                        ? "bg-red-100 dark:bg-red-950/40"
-                        : voiceNotesUnlocked
-                        ? "hover:bg-green-50 dark:hover:bg-green-950/30"
-                        : "hover:bg-muted/50"
-                    }`}
-                    data-testid="button-mic-input"
-                    title={voiceNotesUnlocked ? (voicePhase === "recording" ? "Tap to stop recording" : "Tap to record voice note") : "Unlock voice notes"}
-                  >
-                    <Mic
-                      className="w-4 h-4 transition-all duration-200"
-                      style={
-                        voicePhase === "recording"
-                          ? { color: "rgb(239,68,68)", filter: "drop-shadow(0 0 4px rgba(239,68,68,0.6))" }
-                          : voiceNotesUnlocked
-                          ? { color: "rgb(34,197,94)", filter: "drop-shadow(0 0 4px rgba(34,197,94,0.5))" }
-                          : { color: "var(--muted-foreground)", opacity: 0.4 }
-                      }
-                    />
-                  </button>
-                )}
-
                 {aiStartersEnabled && voicePhase === "idle" && (
                   <Button
                     size="icon"
@@ -1542,6 +1511,44 @@ export default function Messaging() {
                   >
                     <Sparkles className="w-4 h-4" />
                   </Button>
+                )}
+
+                {/* ── Mic button — after sparkle, before send; hold to record ── */}
+                {voicePhase !== "preview" && (
+                  <button
+                    onPointerDown={e => {
+                      e.currentTarget.setPointerCapture(e.pointerId);
+                      if (!voiceNotesUnlocked) { setPurchasePromptFeature("mic"); return; }
+                      if (voicePhase === "idle") startRecording();
+                    }}
+                    onPointerUp={() => {
+                      if (voicePhase === "recording" && Date.now() - recordingStartMsRef.current >= 300) stopRecording();
+                      else if (voicePhase === "recording") cancelRecording();
+                    }}
+                    onPointerLeave={() => { if (voicePhase === "recording") stopRecording(); }}
+                    onPointerCancel={() => { if (voicePhase === "recording") cancelRecording(); }}
+                    onContextMenu={e => e.preventDefault()}
+                    className={`flex-shrink-0 w-9 h-9 flex items-center justify-center rounded-full transition-all active:scale-90 select-none ${
+                      voicePhase === "recording"
+                        ? "bg-red-100 dark:bg-red-950/40"
+                        : voiceNotesUnlocked
+                        ? "hover:bg-green-50 dark:hover:bg-green-950/30"
+                        : "hover:bg-muted/50"
+                    }`}
+                    data-testid="button-mic-input"
+                    title={voiceNotesUnlocked ? (voicePhase === "recording" ? "Release to stop" : "Hold to record voice note") : "Unlock voice notes"}
+                  >
+                    <Mic
+                      className="w-[18px] h-[18px] transition-all duration-300"
+                      style={
+                        voicePhase === "recording"
+                          ? { color: "rgb(239,68,68)", filter: "drop-shadow(0 0 5px rgba(239,68,68,0.7))" }
+                          : voiceNotesUnlocked
+                          ? { color: "rgb(34,197,94)", filter: "drop-shadow(0 0 5px rgba(34,197,94,0.7))" }
+                          : { color: "hsl(var(--muted-foreground))", opacity: 0.35 }
+                      }
+                    />
+                  </button>
                 )}
 
                 {voicePhase === "preview" ? (

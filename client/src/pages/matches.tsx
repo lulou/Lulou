@@ -1737,6 +1737,12 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Preview state (set when recording stops so user can review before sending)
+  const [previewBlob, setPreviewBlob] = useState<Blob | null>(null);
+  const [previewMimeType, setPreviewMimeType] = useState<string>("");
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const voicePhase = isRecording ? "recording" as const : previewUrl ? "preview" as const : "idle" as const;
+  const recordingStartMsRef = useRef<number>(0);
 
   const stopRecordingTimer = () => {
     if (recordingTimerRef.current) { clearInterval(recordingTimerRef.current); recordingTimerRef.current = null; }
@@ -1759,10 +1765,16 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
       recorder.onstop = () => {
         stream.getTracks().forEach(t => t.stop());
         const blob = new Blob(audioChunksRef.current, { type: actualMimeType });
-        if (blob.size > 0) sendVoiceNote.mutate({ blob, mimeType: actualMimeType });
+        if (blob.size > 0) {
+          const url = URL.createObjectURL(blob);
+          setPreviewBlob(blob);
+          setPreviewMimeType(actualMimeType);
+          setPreviewUrl(url);
+        }
       };
       recorder.start(100);
       mediaRecorderRef.current = recorder;
+      recordingStartMsRef.current = Date.now();
       setIsRecording(true);
       setRecordingTime(0);
       recordingTimerRef.current = setInterval(() => {
@@ -1805,6 +1817,16 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
     setRecordingTime(0);
   };
 
+  const sendPreview = () => {
+    if (previewBlob) sendVoiceNote.mutate({ blob: previewBlob, mimeType: previewMimeType });
+  };
+  const cancelPreview = () => {
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    setPreviewBlob(null);
+    setPreviewMimeType("");
+    setPreviewUrl(null);
+  };
+
   // Release the microphone if the component unmounts while recording is active.
   // Without this the browser mic-in-use indicator stays on after the chat is closed.
   useEffect(() => {
@@ -1839,6 +1861,9 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/matches", match.id] });
       forceScrollRef.current = true;
+      setPreviewBlob(null);
+      setPreviewMimeType("");
+      setPreviewUrl(null);
     },
     onError: (err: any) => {
       toast({ title: err?.message || "Failed to send voice note", variant: "destructive" });
@@ -2248,8 +2273,10 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
               onClick={() => {
                 if (!voiceNotesUnlocked) {
                   setPurchasePromptFeature("mic");
-                } else if (!isRecording) {
-                  startRecording();
+                } else if (voicePhase === "preview") {
+                  cancelPreview();
+                } else if (voicePhase === "recording") {
+                  stopRecording();
                 }
               }}
               className="flex flex-col items-center gap-0.5 min-w-[44px] py-1.5 px-2 rounded-xl transition-all active:scale-90"
@@ -2258,14 +2285,14 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
               <Mic
                 className="w-[18px] h-[18px] transition-all duration-300"
                 style={voiceNotesUnlocked
-                  ? { color: isRecording ? "rgb(239,68,68)" : "rgb(34,197,94)", filter: isRecording ? "drop-shadow(0 0 5px rgba(239,68,68,0.7))" : "drop-shadow(0 0 5px rgba(34,197,94,0.7))" }
+                  ? { color: voicePhase === "recording" ? "rgb(239,68,68)" : "rgb(34,197,94)", filter: voicePhase === "recording" ? "drop-shadow(0 0 5px rgba(239,68,68,0.7))" : "drop-shadow(0 0 5px rgba(34,197,94,0.7))" }
                   : { color: "hsl(var(--muted-foreground))", opacity: 0.35 }}
               />
               <span
                 className="text-[10px] font-semibold leading-none"
-                style={voiceNotesUnlocked ? { color: isRecording ? "rgb(239,68,68)" : "rgb(34,197,94)" } : { color: "hsl(var(--muted-foreground))", opacity: 0.6 }}
+                style={voiceNotesUnlocked ? { color: voicePhase === "recording" ? "rgb(239,68,68)" : "rgb(34,197,94)" } : { color: "hsl(var(--muted-foreground))", opacity: 0.6 }}
               >
-                {voiceNotesUnlocked ? (isRecording ? "Rec" : "On") : "Mic"}
+                {voiceNotesUnlocked ? (voicePhase === "recording" ? "Rec" : voicePhase === "preview" ? "On" : "On") : "Mic"}
               </span>
             </button>
           </div>
@@ -2840,23 +2867,36 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                 <StageHint>{t("last_message_hint")}</StageHint>
               )}
               <div className="flex gap-2 items-end">
-                <Textarea
-                  value={message}
-                  onChange={e => {
-                    setMessage(e.target.value.slice(0, MAX_CHARS));
-                    if (e.target.value.trim()) sendTyping();
-                  }}
-                  placeholder={t("write_meaningful_placeholder")}
-                  className="resize-none min-h-[44px] max-h-[80px] text-sm"
-                  onKeyDown={e => {
-                    if (e.key === "Enter" && !e.shiftKey) {
-                      e.preventDefault();
-                      if (message.trim()) { const c = message.trim(); setMessage(""); doSend(c); }
-                    }
-                  }}
-                  data-testid={`input-message-${match.id}`}
-                />
-                {aiStartersEnabled && (
+                {voicePhase === "preview" && previewUrl ? (
+                  <div className="flex-1 flex items-center gap-2 min-h-[44px] px-3 rounded-md border border-primary/20 bg-primary/5">
+                    <audio
+                      key={previewUrl}
+                      src={previewUrl}
+                      controls
+                      preload="auto"
+                      className="flex-1 min-w-0"
+                      style={{ height: 28 }}
+                    />
+                  </div>
+                ) : (
+                  <Textarea
+                    value={message}
+                    onChange={e => {
+                      setMessage(e.target.value.slice(0, MAX_CHARS));
+                      if (e.target.value.trim()) sendTyping();
+                    }}
+                    placeholder={t("write_meaningful_placeholder")}
+                    className="resize-none min-h-[44px] max-h-[80px] text-sm"
+                    onKeyDown={e => {
+                      if (e.key === "Enter" && !e.shiftKey) {
+                        e.preventDefault();
+                        if (message.trim()) { const c = message.trim(); setMessage(""); doSend(c); }
+                      }
+                    }}
+                    data-testid={`input-message-${match.id}`}
+                  />
+                )}
+                {aiStartersEnabled && voicePhase === "idle" && (
                   <Button
                     size="icon"
                     variant="ghost"
@@ -2868,15 +2908,62 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                     <Sparkles className="w-4 h-4" />
                   </Button>
                 )}
-                <Button
-                  size="icon"
-                  onMouseDown={e => e.preventDefault()}
-                  onClick={() => { if (message.trim()) { const c = message.trim(); setMessage(""); doSend(c); } }}
-                  disabled={!message.trim()}
-                  data-testid={`button-send-${match.id}`}
-                >
-                  <Send className="w-4 h-4" />
-                </Button>
+                {voicePhase !== "preview" && (
+                  <button
+                    onPointerDown={e => {
+                      e.currentTarget.setPointerCapture(e.pointerId);
+                      if (!voiceNotesUnlocked) { setPurchasePromptFeature("mic"); return; }
+                      if (voicePhase === "idle") startRecording();
+                    }}
+                    onPointerUp={() => {
+                      if (voicePhase === "recording" && Date.now() - recordingStartMsRef.current >= 300) stopRecording();
+                      else if (voicePhase === "recording") cancelRecording();
+                    }}
+                    onPointerLeave={() => { if (voicePhase === "recording") stopRecording(); }}
+                    onPointerCancel={() => { if (voicePhase === "recording") cancelRecording(); }}
+                    onContextMenu={e => e.preventDefault()}
+                    className={`flex-shrink-0 w-9 h-9 flex items-center justify-center rounded-full transition-all active:scale-90 select-none ${
+                      voicePhase === "recording" ? "bg-red-100 dark:bg-red-950/40" : voiceNotesUnlocked ? "hover:bg-green-50 dark:hover:bg-green-950/30" : "hover:bg-muted/50"
+                    }`}
+                    data-testid={`button-mic-input-${match.id}`}
+                    title={!voiceNotesUnlocked ? "Unlock voice notes" : voicePhase === "recording" ? "Release to stop recording" : "Hold to record voice note"}
+                  >
+                    <Mic
+                      className="w-[18px] h-[18px] transition-all duration-300"
+                      style={voicePhase === "recording"
+                        ? { color: "rgb(239,68,68)", filter: "drop-shadow(0 0 5px rgba(239,68,68,0.7))" }
+                        : voiceNotesUnlocked
+                        ? { color: "rgb(34,197,94)", filter: "drop-shadow(0 0 5px rgba(34,197,94,0.7))" }
+                        : { color: "hsl(var(--muted-foreground))", opacity: 0.35 }}
+                    />
+                  </button>
+                )}
+                {voicePhase === "preview" ? (
+                  sendVoiceNote.isPending ? (
+                    <Button size="icon" disabled data-testid={`button-send-voice-note-${match.id}`}>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    </Button>
+                  ) : (
+                    <>
+                      <Button size="icon" variant="ghost" onClick={cancelPreview} data-testid={`button-cancel-preview-${match.id}`}>
+                        <X className="w-4 h-4" />
+                      </Button>
+                      <Button size="icon" onClick={sendPreview} data-testid={`button-send-preview-${match.id}`}>
+                        <Send className="w-4 h-4" />
+                      </Button>
+                    </>
+                  )
+                ) : (
+                  <Button
+                    size="icon"
+                    onMouseDown={e => e.preventDefault()}
+                    onClick={() => { if (message.trim()) { const c = message.trim(); setMessage(""); doSend(c); } }}
+                    disabled={!message.trim()}
+                    data-testid={`button-send-${match.id}`}
+                  >
+                    <Send className="w-4 h-4" />
+                  </Button>
+                )}
               </div>
               <p className="text-xs text-muted-foreground mt-1 text-end">
                 {message.length}/{MAX_CHARS}
