@@ -3230,6 +3230,28 @@ export default function Matches() {
   const activeChats    = useMemo(() => (matches || []).filter(m => !!m.lastMessage), [matches]);
   const totalUnread    = useMemo(() => Object.values(unreadCounts).reduce((sum, n) => sum + n, 0), [unreadCounts]);
 
+  // ── App-icon badge: reflect unread count ──────────────────────────────────
+  useEffect(() => {
+    if ("setAppBadge" in navigator) {
+      if (totalUnread > 0) {
+        (navigator as any).setAppBadge(totalUnread).catch(() => {});
+      } else {
+        (navigator as any).clearAppBadge?.().catch(() => {});
+      }
+    }
+  }, [totalUnread]);
+
+  // Clear badge on page focus when everything is read
+  useEffect(() => {
+    const onVisible = () => {
+      if (!document.hidden && "clearAppBadge" in navigator) {
+        (navigator as any).clearAppBadge?.().catch(() => {});
+      }
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, []);
+
   const connectionCount = matches?.length || 0;
   const atLimit = connectionCount >= MAX_CONNECTIONS;
   const hasContent = (matches && matches.length > 0) || incomingRequests.length > 0 || outgoingPending.length > 0 || requestsLoading;

@@ -536,12 +536,19 @@ export default function Messaging() {
   const [purchasePromptFeature, setPurchasePromptFeature] = useState<PurchaseFeature | null>(null);
 
   // Recording state
-  const [isRecording, setIsRecording] = useState(false);
+  type VoicePhase = "idle" | "recording" | "preview";
+  const [voicePhase, setVoicePhase] = useState<VoicePhase>("idle");
+  const isRecording = voicePhase === "recording";
   const [recordingTime, setRecordingTime] = useState(0);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const recordingStartMsRef = useRef<number>(0);
+  // Preview state (blob ready to send after recording stops)
+  const [previewBlob, setPreviewBlob] = useState<Blob | null>(null);
+  const [previewMimeType, setPreviewMimeType] = useState<string>("");
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const previewUrlRef = useRef<string | null>(null);
 
   const stopRecordingTimer = () => {
     if (recordingTimerRef.current) { clearInterval(recordingTimerRef.current); recordingTimerRef.current = null; }
@@ -569,14 +576,20 @@ export default function Messaging() {
         const blob = new Blob(audioChunksRef.current, { type: actualMimeType });
         console.log(`[VOICE] BLOB_CREATED size=${blob.size} type="${blob.type}"`);
         if (blob.size > 0) {
-          console.log("[VOICE] UPLOAD_START");
-          sendVoiceNote.mutate({ blob, mimeType: actualMimeType });
+          const url = URL.createObjectURL(blob);
+          previewUrlRef.current = url;
+          setPreviewBlob(blob);
+          setPreviewMimeType(actualMimeType);
+          setPreviewUrl(url);
+          setVoicePhase("preview");
+        } else {
+          setVoicePhase("idle");
         }
       };
       recorder.start(100);
       mediaRecorderRef.current = recorder;
       recordingStartMsRef.current = Date.now();
-      setIsRecording(true);
+      setVoicePhase("recording");
       setRecordingTime(0);
       recordingTimerRef.current = setInterval(() => {
         setRecordingTime(t => {
@@ -604,16 +617,16 @@ export default function Messaging() {
     if (elapsed < 600) {
       // Too short to be a useful voice note — cancel silently
       cancelRecording();
-      toast({ title: "Hold mic to record", description: "Press and hold the 🎙️ icon to record a voice note" });
+      toast({ title: "Recording too short", description: "Tap the mic to start, tap again to stop and preview." });
       return;
     }
     console.log(`[VOICE] RECORD_STOP elapsed=${elapsed}ms`);
     stopRecordingTimer();
+    setVoicePhase("idle"); // briefly idle while onstop fires and sets "preview"
+    setRecordingTime(0);
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
       mediaRecorderRef.current.stop();
     }
-    setIsRecording(false);
-    setRecordingTime(0);
   };
 
   const cancelRecording = () => {
@@ -625,12 +638,24 @@ export default function Messaging() {
       try { mr.stream?.getTracks().forEach(t => t.stop()); mr.stop(); } catch { /* ignore */ }
     }
     audioChunksRef.current = [];
-    setIsRecording(false);
+    setVoicePhase("idle");
     setRecordingTime(0);
   };
 
-  // Release the microphone if the page unmounts while recording is active.
-  // Without this the browser mic-in-use indicator stays on after navigation.
+  const cancelPreview = () => {
+    if (previewUrlRef.current) { URL.revokeObjectURL(previewUrlRef.current); previewUrlRef.current = null; }
+    setPreviewUrl(null);
+    setPreviewBlob(null);
+    setPreviewMimeType("");
+    setVoicePhase("idle");
+  };
+
+  const sendPreview = () => {
+    if (!previewBlob) return;
+    sendVoiceNote.mutate({ blob: previewBlob, mimeType: previewMimeType });
+  };
+
+  // Release the microphone and revoke any preview URL on unmount.
   useEffect(() => {
     return () => {
       stopRecordingTimer();
@@ -641,6 +666,7 @@ export default function Messaging() {
         try { mr.stream?.getTracks().forEach(t => t.stop()); } catch {}
         try { mr.stop(); } catch {}
       }
+      if (previewUrlRef.current) { URL.revokeObjectURL(previewUrlRef.current); previewUrlRef.current = null; }
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -664,6 +690,7 @@ export default function Messaging() {
       console.log("[VOICE] MESSAGE_CREATED client-side");
       queryClient.invalidateQueries({ queryKey: ["/api/matches", matchId, "messages"] });
       forceScrollRef.current = true;
+      cancelPreview();
     },
     onError: (err: any) => {
       console.log(`[VOICE] ERROR client="${err?.message}"`);
@@ -672,6 +699,7 @@ export default function Messaging() {
         description: err?.message || "Please try again.",
         variant: "destructive",
       });
+      cancelPreview();
     },
   });
 
@@ -1189,11 +1217,9 @@ export default function Messaging() {
             )}
             <button
               onClick={() => {
-                if (!voiceNotesUnlocked) {
-                  setPurchasePromptFeature("mic");
-                }
-                // When unlocked this is a status indicator only — recording uses
-                // the press-and-hold mic button inside the message input.
+                if (!voiceNotesUnlocked) { setPurchasePromptFeature("mic"); return; }
+                if (voicePhase === "idle") startRecording();
+                else if (voicePhase === "recording") stopRecording();
               }}
               className="flex flex-col items-center gap-0.5 min-w-[44px] py-1.5 px-2 rounded-xl transition-all active:scale-90"
               data-testid="button-mic-tray"
@@ -1201,14 +1227,14 @@ export default function Messaging() {
               <Mic
                 className="w-[18px] h-[18px] transition-all duration-300"
                 style={voiceNotesUnlocked
-                  ? { color: isRecording ? "rgb(239,68,68)" : "rgb(34,197,94)", filter: isRecording ? "drop-shadow(0 0 5px rgba(239,68,68,0.7))" : "drop-shadow(0 0 5px rgba(34,197,94,0.7))" }
+                  ? { color: voicePhase === "recording" ? "rgb(239,68,68)" : "rgb(34,197,94)", filter: voicePhase === "recording" ? "drop-shadow(0 0 5px rgba(239,68,68,0.7))" : "drop-shadow(0 0 5px rgba(34,197,94,0.7))" }
                   : { color: "hsl(var(--muted-foreground))", opacity: 0.35 }}
               />
               <span
                 className="text-[10px] font-semibold leading-none"
-                style={voiceNotesUnlocked ? { color: isRecording ? "rgb(239,68,68)" : "rgb(34,197,94)" } : { color: "hsl(var(--muted-foreground))", opacity: 0.6 }}
+                style={voiceNotesUnlocked ? { color: voicePhase === "recording" ? "rgb(239,68,68)" : "rgb(34,197,94)" } : { color: "hsl(var(--muted-foreground))", opacity: 0.6 }}
               >
-                {voiceNotesUnlocked ? (isRecording ? "Rec" : "On") : "Mic"}
+                {voiceNotesUnlocked ? (voicePhase === "recording" ? "Stop" : voicePhase === "preview" ? "Send" : "Mic") : "Mic"}
               </span>
             </button>
           </div>
@@ -1420,16 +1446,28 @@ export default function Messaging() {
                         {`${Math.floor(recordingTime / 60)}:${String(recordingTime % 60).padStart(2, "0")}`}
                       </span>
                     </span>
-                    <span className="text-xs text-muted-foreground/60 shrink-0">release to send</span>
+                    <span className="text-xs text-muted-foreground/60 shrink-0">tap mic to stop</span>
+                  </div>
+                ) : voicePhase === "preview" && previewUrl ? (
+                  /* ── Preview state: listen before sending ── */
+                  <div className="flex-1 flex items-center gap-2 min-h-[44px] px-3 rounded-md border border-primary/20 bg-primary/5">
+                    <audio
+                      key={previewUrl}
+                      src={previewUrl}
+                      controls
+                      preload="auto"
+                      className="flex-1 min-w-0"
+                      style={{ height: 28 }}
+                    />
                   </div>
                 ) : (
-                  /* ── Normal state: textarea with press-and-hold mic on the right ── */
+                  /* ── Normal state: textarea with tap-to-record mic ── */
                   <div className="relative flex-1">
                     <Textarea
                       value={message}
                       onChange={e => setMessage(e.target.value.slice(0, MAX_CHARS))}
                       placeholder={t("write_meaningful_placeholder")}
-                      className={`resize-none min-h-[44px] max-h-[120px] text-sm${voiceNotesUnlocked ? " pr-10" : ""}`}
+                      className="resize-none min-h-[44px] max-h-[120px] text-sm pr-10"
                       onKeyDown={e => {
                         if (e.key === "Enter" && !e.shiftKey) {
                           e.preventDefault();
@@ -1438,31 +1476,25 @@ export default function Messaging() {
                       }}
                       data-testid="input-message"
                     />
-                    {voiceNotesUnlocked && (
-                      <button
-                        className="absolute right-2 bottom-[9px] p-1.5 rounded-full text-green-500 hover:bg-green-50 dark:hover:bg-green-950/30 active:scale-90 transition-all touch-none select-none"
-                        onPointerDown={e => {
-                          e.preventDefault();
-                          (e.target as Element).setPointerCapture(e.pointerId);
-                          startRecording();
-                        }}
-                        onPointerUp={e => {
-                          e.preventDefault();
-                          (e.target as Element).releasePointerCapture(e.pointerId);
-                          stopRecording();
-                        }}
-                        onPointerCancel={() => cancelRecording()}
-                        onContextMenu={e => e.preventDefault()}
-                        data-testid="button-mic-input"
-                        title="Hold to record voice note"
-                      >
-                        <Mic className="w-4 h-4" />
-                      </button>
-                    )}
+                    <button
+                      onClick={() => {
+                        if (!voiceNotesUnlocked) { setPurchasePromptFeature("mic"); return; }
+                        startRecording();
+                      }}
+                      className={`absolute right-2 bottom-[9px] p-1.5 rounded-full transition-all active:scale-90 ${
+                        voiceNotesUnlocked
+                          ? "text-green-500 hover:bg-green-50 dark:hover:bg-green-950/30"
+                          : "text-muted-foreground/40 hover:bg-muted/50"
+                      }`}
+                      data-testid="button-mic-input"
+                      title={voiceNotesUnlocked ? "Tap to record voice note" : "Unlock voice notes"}
+                    >
+                      <Mic className="w-4 h-4" />
+                    </button>
                   </div>
                 )}
 
-                {aiStartersEnabled && !isRecording && (
+                {aiStartersEnabled && voicePhase === "idle" && (
                   <Button
                     size="icon"
                     variant="ghost"
@@ -1475,15 +1507,35 @@ export default function Messaging() {
                   </Button>
                 )}
 
-                {isRecording ? (
+                {voicePhase === "preview" ? (
                   sendVoiceNote.isPending ? (
                     <Button size="icon" disabled data-testid="button-send-voice-note">
                       <Loader2 className="w-4 h-4 animate-spin" />
                     </Button>
                   ) : (
-                    <Button size="icon" variant="ghost" onClick={cancelRecording} data-testid="button-cancel-recording">
-                      <X className="w-4 h-4" />
+                    <>
+                      <Button size="icon" variant="ghost" onClick={cancelPreview} data-testid="button-cancel-preview">
+                        <X className="w-4 h-4" />
+                      </Button>
+                      <Button size="icon" onClick={sendPreview} data-testid="button-send-voice-note">
+                        <Send className="w-4 h-4" />
+                      </Button>
+                    </>
+                  )
+                ) : voicePhase === "recording" ? (
+                  sendVoiceNote.isPending ? (
+                    <Button size="icon" disabled data-testid="button-send-voice-note">
+                      <Loader2 className="w-4 h-4 animate-spin" />
                     </Button>
+                  ) : (
+                    <>
+                      <Button size="icon" variant="ghost" onClick={cancelRecording} data-testid="button-cancel-recording">
+                        <X className="w-4 h-4" />
+                      </Button>
+                      <Button size="icon" onClick={stopRecording} data-testid="button-stop-recording">
+                        <Mic className="w-4 h-4 text-red-500" />
+                      </Button>
+                    </>
                   )
                 ) : (
                   <Button
@@ -1496,7 +1548,7 @@ export default function Messaging() {
                   </Button>
                 )}
               </div>
-              {!isRecording && (
+              {voicePhase === "idle" && (
                 <p className="text-xs text-muted-foreground mt-1 text-right">
                   {message.length}/{MAX_CHARS}
                 </p>
