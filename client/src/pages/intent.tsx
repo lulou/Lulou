@@ -1272,13 +1272,16 @@ export default function IntentPage() {
       const aRad = (orbitAngleRef2.current * Math.PI) / 180;
 
       // ── 3D Oval carousel positioning ──────────────────────────────────
-      // Cards orbit a true horizontal ellipse with real vertical depth.
-      // Front card (cosT=+1) rises to the TOP of the oval — aligning with
-      // the landing marker — and back card (cosT=-1) sinks to the BOTTOM.
-      // This produces visible travel around the back that was missing when
-      // Y_TILT was only 30 px.
+      // Viewer is looking slightly DOWN onto a tilted carousel, like a real
+      // prize wheel on a table.
+      //   front card (cosT=+1) → bottom of stage (closest, largest)
+      //   back  card (cosT=-1) → top of stage   (furthest, smallest, blurred)
+      //   sides (cosT=0)       → vertical centre of stage
+      //
+      // rotateX tilt gives genuine 3-D lean: front cards tip toward the
+      // viewer, back cards tip away — so it never looks like a flat circle.
       const RX_OVAL = 152; // horizontal semi-radius px
-      const RY_OVAL = 80;  // vertical semi-radius px (was just Y_TILT=30 before)
+      const RY_OVAL = 75;  // vertical semi-radius px (real oval depth)
       const carouselCenter = -(aRad / (Math.PI * 2)) * N;
 
       for (let i = 0; i < N; i++) {
@@ -1288,21 +1291,22 @@ export default function IntentPage() {
         const wrapped = ((rawDist % N) + N) % N;
         const t = wrapped > N / 2 ? wrapped - N : wrapped; // signed offset from front card
 
-        // Oval angle: t=0 → front (θ=0, top of oval), t=±N/2 → back (θ=π, bottom)
+        // Oval angle: t=0 → front (θ=0, bottom of stage), t=±N/2 → back (θ=π, top)
         const θ    = (t / N) * Math.PI * 2;
         const sinT = Math.sin(θ);
-        const cosT = Math.cos(θ);       // +1 = front (top), -1 = back (bottom)
+        const cosT = Math.cos(θ);       // +1 = front (bottom), -1 = back (top)
         const zNorm = (cosT + 1) / 2;   // 0 = back, 1 = front
 
         const xPx    = RX_OVAL * sinT;
-        const yPx    = -RY_OVAL * cosT;  // front→top (−RY), back→bottom (+RY)
+        const yPx    = RY_OVAL * cosT;   // front→bottom (+RY), back→top (−RY)
+        const rotX   = cosT * 10;        // front leans toward viewer, back tilts away
         const sc     = 0.28 + 0.72 * zNorm;
         const op     = Math.max(0.05, 0.05 + 0.95 * zNorm);
         const blurPx = Math.max(0, (1 - zNorm) * 5.5 - 0.3);
-        const rotY   = -sinT * 32;      // cards face centre tangentially
+        const rotY   = -sinT * 32;       // cards face centre tangentially
         const zi     = Math.round(1 + zNorm * 80);
 
-        el.style.transform = `translate(calc(-50% + ${xPx.toFixed(1)}px), calc(-50% + ${yPx.toFixed(1)}px)) perspective(800px) rotateY(${rotY.toFixed(1)}deg) scale(${sc.toFixed(3)})`;
+        el.style.transform = `translate(calc(-50% + ${xPx.toFixed(1)}px), calc(-50% + ${yPx.toFixed(1)}px)) perspective(800px) rotateX(${rotX.toFixed(1)}deg) rotateY(${rotY.toFixed(1)}deg) scale(${sc.toFixed(3)})`;
         el.style.opacity   = op.toFixed(3);
         el.style.filter    = blurPx > 0.2 ? `blur(${blurPx.toFixed(1)}px)` : '';
         el.style.zIndex    = String(zi);
@@ -1409,7 +1413,8 @@ export default function IntentPage() {
     requestAnimationFrame(() => {
       winner.style.transition =
         'transform 1.35s cubic-bezier(0.12, 0.0, 0.08, 1), box-shadow 1.0s ease 0.20s';
-      winner.style.transform = 'translate(-50%, -50%) perspective(800px) rotateY(0deg) scale(2.2)';
+      // rotateX(0deg) eases from the orbit tilt angle → flat as winner centres
+      winner.style.transform = 'translate(-50%, -50%) perspective(800px) rotateX(0deg) rotateY(0deg) scale(2.2)';
       winner.style.boxShadow = '0 0 60px 18px rgba(212,92,116,0.38), 0 0 120px 40px rgba(212,92,116,0.16)';
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1426,7 +1431,7 @@ export default function IntentPage() {
     if (!winner) return;
     winner.style.transition =
       'transform 1.1s cubic-bezier(0.18, 0.0, 0.08, 1), box-shadow 1.1s ease';
-    winner.style.transform = 'translate(-50%, -50%) perspective(800px) rotateY(0deg) scale(2.8)';
+    winner.style.transform = 'translate(-50%, -50%) perspective(800px) rotateX(0deg) rotateY(0deg) scale(2.8)';
     winner.style.boxShadow =
       '0 0 90px 32px rgba(212,92,116,0.55), 0 0 180px 70px rgba(212,92,116,0.22), 0 0 260px 100px rgba(212,92,116,0.10)';
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -2486,7 +2491,7 @@ export default function IntentPage() {
                 ref={landingMarkerRef}
                 style={{
                   position: "absolute",
-                  top: "calc(50% - 98px)",
+                  top: "calc(50% + 38px)",
                   left: "50%",
                   transform: "translateX(-50%)",
                   display: "flex", flexDirection: "column", alignItems: "center",
@@ -2567,7 +2572,8 @@ export default function IntentPage() {
                   const cosT0 = Math.cos(θ0);
                   const zN0   = (cosT0 + 1) / 2;
                   const xPx0  = (152 * sinT0).toFixed(1);
-                  const yPx0  = (-80 * cosT0).toFixed(1);  // front→top, back→bottom
+                  const yPx0  = (75 * cosT0).toFixed(1);   // front→bottom (+RY), back→top (−RY)
+                  const rotX0 = (cosT0 * 10).toFixed(1);   // front leans toward viewer
                   const sc0   = (0.28 + 0.72 * zN0).toFixed(3);
                   const op0   = Math.max(0.05, 0.05 + 0.95 * zN0).toFixed(3);
                   const rotY0 = (-sinT0 * 32).toFixed(1);
@@ -2577,7 +2583,7 @@ export default function IntentPage() {
                       ref={el => { orbitBubbles.current[i] = el; }}
                       style={{
                         position: "absolute", top: "50%", left: "50%",
-                        transform: `translate(calc(-50% + ${xPx0}px), calc(-50% + ${yPx0}px)) perspective(800px) rotateY(${rotY0}deg) scale(${sc0})`,
+                        transform: `translate(calc(-50% + ${xPx0}px), calc(-50% + ${yPx0}px)) perspective(800px) rotateX(${rotX0}deg) rotateY(${rotY0}deg) scale(${sc0})`,
                         width: 110, height: 165,
                         borderRadius: 16,
                         overflow: "hidden",
