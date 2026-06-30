@@ -1459,47 +1459,66 @@ export default function Messaging() {
               )}
 
               <div className="flex gap-2 items-end">
-                {/* ── Recording state: inline indicator in place of textarea ── */}
-                {isRecording ? (
-                  <div className="flex-1 flex items-center gap-3 min-h-[44px] px-3 rounded-md border border-red-300/50 bg-red-50/40 dark:bg-red-950/20 select-none">
-                    <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse shrink-0" />
-                    <span className="text-sm text-muted-foreground flex-1">
-                      Recording…&nbsp;
-                      <span className="font-mono tabular-nums">
+                {/* ── Input wrapper with mic embedded inside ── */}
+                <div className="relative flex-1">
+                  {voicePhase === "recording" ? (
+                    <div className="flex items-center gap-2 min-h-[44px] px-3 pr-10 rounded-md border border-red-300/50 bg-red-50/40 dark:bg-red-950/20 select-none">
+                      <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse shrink-0" />
+                      <span className="text-sm text-muted-foreground flex-1 font-mono tabular-nums">
                         {`${Math.floor(recordingTime / 60)}:${String(recordingTime % 60).padStart(2, "0")}`}
                       </span>
-                    </span>
-                    <span className="text-xs text-muted-foreground/60 shrink-0">tap mic to stop</span>
-                  </div>
-                ) : voicePhase === "preview" && previewUrl ? (
-                  /* ── Preview state: listen before sending ── */
-                  <div className="flex-1 flex items-center gap-2 min-h-[44px] px-3 rounded-md border border-primary/20 bg-primary/5">
-                    <audio
-                      key={previewUrl}
-                      src={previewUrl}
-                      controls
-                      preload="auto"
-                      className="flex-1 min-w-0"
-                      style={{ height: 28 }}
+                    </div>
+                  ) : voicePhase === "preview" && previewUrl ? (
+                    <div className="flex items-center gap-2 min-h-[44px] px-3 rounded-md border border-primary/20 bg-primary/5">
+                      <audio key={previewUrl} src={previewUrl} controls preload="auto" className="flex-1 min-w-0" style={{ height: 28 }} />
+                    </div>
+                  ) : (
+                    <Textarea
+                      value={message}
+                      onChange={e => setMessage(e.target.value.slice(0, MAX_CHARS))}
+                      placeholder={t("write_meaningful_placeholder")}
+                      className="resize-none min-h-[44px] max-h-[120px] text-sm pr-8"
+                      onKeyDown={e => {
+                        if (e.key === "Enter" && !e.shiftKey) {
+                          e.preventDefault();
+                          if (message.trim()) doSend(message.trim());
+                        }
+                      }}
+                      data-testid="input-message"
                     />
-                  </div>
-                ) : (
-                  /* ── Normal state: textarea ── */
-                  <Textarea
-                    value={message}
-                    onChange={e => setMessage(e.target.value.slice(0, MAX_CHARS))}
-                    placeholder={t("write_meaningful_placeholder")}
-                    className="resize-none min-h-[44px] max-h-[120px] text-sm flex-1"
-                    onKeyDown={e => {
-                      if (e.key === "Enter" && !e.shiftKey) {
-                        e.preventDefault();
-                        if (message.trim()) doSend(message.trim());
-                      }
-                    }}
-                    data-testid="input-message"
-                  />
-                )}
+                  )}
+                  {/* Mic embedded inside — hold to record */}
+                  {voicePhase !== "preview" && (
+                    <button
+                      onPointerDown={e => {
+                        e.currentTarget.setPointerCapture(e.pointerId);
+                        if (!voiceNotesUnlocked) { setPurchasePromptFeature("mic"); return; }
+                        if (voicePhase === "idle") startRecording();
+                      }}
+                      onPointerUp={() => {
+                        if (voicePhase === "recording" && Date.now() - recordingStartMsRef.current >= 300) stopRecording();
+                        else if (voicePhase === "recording") cancelRecording();
+                      }}
+                      onPointerLeave={() => { if (voicePhase === "recording") stopRecording(); }}
+                      onPointerCancel={() => { if (voicePhase === "recording") cancelRecording(); }}
+                      onContextMenu={e => e.preventDefault()}
+                      className="absolute right-2 bottom-[10px] flex items-center justify-center select-none transition-transform active:scale-90"
+                      data-testid="button-mic-input"
+                      title={voiceNotesUnlocked ? (voicePhase === "recording" ? "Release to stop" : "Hold to record voice note") : "Unlock voice notes"}
+                    >
+                      <Mic
+                        className="w-[18px] h-[18px] transition-all duration-300"
+                        style={voicePhase === "recording"
+                          ? { color: "rgb(239,68,68)", filter: "drop-shadow(0 0 5px rgba(239,68,68,0.7))" }
+                          : voiceNotesUnlocked
+                          ? { color: "rgb(34,197,94)", filter: "drop-shadow(0 0 5px rgba(34,197,94,0.7))" }
+                          : { color: "hsl(var(--muted-foreground))", opacity: 0.35 }}
+                      />
+                    </button>
+                  )}
+                </div>
 
+                {/* ✨ Conversation starters */}
                 {aiStartersEnabled && voicePhase === "idle" && (
                   <Button
                     size="icon"
@@ -1513,44 +1532,30 @@ export default function Messaging() {
                   </Button>
                 )}
 
-                {/* ── Mic button — after sparkle, before send; hold to record ── */}
-                {voicePhase !== "preview" && (
+                {/* 📞 Voice call shortcut */}
+                {!allCallsDone && voicePhase === "idle" && (
                   <button
-                    onPointerDown={e => {
-                      e.currentTarget.setPointerCapture(e.pointerId);
-                      if (!voiceNotesUnlocked) { setPurchasePromptFeature("mic"); return; }
-                      if (voicePhase === "idle") startRecording();
+                    onClick={() => {
+                      if (phoneCredits > 0) startPaidCall.mutate({ isVideo: false });
+                      else setPurchasePromptFeature("phone");
                     }}
-                    onPointerUp={() => {
-                      if (voicePhase === "recording" && Date.now() - recordingStartMsRef.current >= 300) stopRecording();
-                      else if (voicePhase === "recording") cancelRecording();
-                    }}
-                    onPointerLeave={() => { if (voicePhase === "recording") stopRecording(); }}
-                    onPointerCancel={() => { if (voicePhase === "recording") cancelRecording(); }}
-                    onContextMenu={e => e.preventDefault()}
-                    className={`flex-shrink-0 w-9 h-9 flex items-center justify-center rounded-full transition-all active:scale-90 select-none ${
-                      voicePhase === "recording"
-                        ? "bg-red-100 dark:bg-red-950/40"
-                        : voiceNotesUnlocked
-                        ? "hover:bg-green-50 dark:hover:bg-green-950/30"
-                        : "hover:bg-muted/50"
-                    }`}
-                    data-testid="button-mic-input"
-                    title={voiceNotesUnlocked ? (voicePhase === "recording" ? "Release to stop" : "Hold to record voice note") : "Unlock voice notes"}
+                    disabled={startPaidCall.isPending}
+                    className="flex-shrink-0 w-9 h-9 flex items-center justify-center rounded-full transition-all active:scale-90 disabled:opacity-50 hover:bg-muted/40"
+                    data-testid="button-phone-composer"
+                    title={phoneCredits > 0 ? t("start_voice_call") : t("unlock_voice_calling")}
                   >
-                    <Mic
+                    <Phone
                       className="w-[18px] h-[18px] transition-all duration-300"
-                      style={
-                        voicePhase === "recording"
-                          ? { color: "rgb(239,68,68)", filter: "drop-shadow(0 0 5px rgba(239,68,68,0.7))" }
-                          : voiceNotesUnlocked
-                          ? { color: "rgb(34,197,94)", filter: "drop-shadow(0 0 5px rgba(34,197,94,0.7))" }
-                          : { color: "hsl(var(--muted-foreground))", opacity: 0.35 }
-                      }
+                      style={!callCreditsData
+                        ? { color: "hsl(var(--muted-foreground))", opacity: 0.4 }
+                        : phoneCredits > 0
+                        ? { color: "rgb(34,197,94)", filter: "drop-shadow(0 0 5px rgba(34,197,94,0.7))" }
+                        : { color: "hsl(var(--muted-foreground))", opacity: 0.5 }}
                     />
                   </button>
                 )}
 
+                {/* ➤ Send / preview controls */}
                 {voicePhase === "preview" ? (
                   sendVoiceNote.isPending ? (
                     <Button size="icon" disabled data-testid="button-send-voice-note">
@@ -1567,15 +1572,9 @@ export default function Messaging() {
                     </>
                   )
                 ) : voicePhase === "recording" ? (
-                  sendVoiceNote.isPending ? (
-                    <Button size="icon" disabled data-testid="button-send-voice-note">
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                    </Button>
-                  ) : (
-                    <Button size="icon" variant="ghost" onClick={cancelRecording} data-testid="button-cancel-recording">
-                      <X className="w-4 h-4" />
-                    </Button>
-                  )
+                  <Button size="icon" variant="ghost" onClick={cancelRecording} data-testid="button-cancel-recording">
+                    <X className="w-4 h-4" />
+                  </Button>
                 ) : (
                   <Button
                     size="icon"

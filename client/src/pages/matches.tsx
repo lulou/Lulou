@@ -2386,29 +2386,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
             <div ref={messagesEndRef} />
           </div>
 
-          {isRecording ? (
-            <div className="p-3 border-t" style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom, 0.75rem))" }}>
-              <div className="flex items-center gap-2.5">
-                <div className="w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse shrink-0" />
-                <div className="flex-1 h-1.5 rounded-full overflow-hidden bg-muted-foreground/20">
-                  <div
-                    className="h-full rounded-full bg-primary/70 transition-all"
-                    style={{ width: `${(recordingTime / 60) * 100}%` }}
-                  />
-                </div>
-                <span className="text-xs text-muted-foreground font-mono tabular-nums shrink-0">
-                  {`${Math.floor(recordingTime / 60)}:${String(recordingTime % 60).padStart(2, "0")}`} / 1:00
-                </span>
-                <Button size="icon" variant="ghost" className="w-7 h-7 shrink-0" onClick={cancelRecording} data-testid={`button-cancel-recording-${match.id}`}>
-                  <X className="w-3.5 h-3.5" />
-                </Button>
-                <Button size="sm" className="shrink-0 gap-1" onClick={stopRecording} disabled={sendVoiceNote.isPending} data-testid={`button-send-voice-note-${match.id}`}>
-                  {sendVoiceNote.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
-                  Send
-                </Button>
-              </div>
-            </div>
-          ) : isCallRinging && iAmCaller ? (
+          {isCallRinging && iAmCaller ? (
             <div
               className="border-t"
               style={{ background: "linear-gradient(160deg, hsl(350 45% 14%) 0%, hsl(350 40% 9%) 100%)" }}
@@ -2867,35 +2845,68 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                 <StageHint>{t("last_message_hint")}</StageHint>
               )}
               <div className="flex gap-2 items-end">
-                {voicePhase === "preview" && previewUrl ? (
-                  <div className="flex-1 flex items-center gap-2 min-h-[44px] px-3 rounded-md border border-primary/20 bg-primary/5">
-                    <audio
-                      key={previewUrl}
-                      src={previewUrl}
-                      controls
-                      preload="auto"
-                      className="flex-1 min-w-0"
-                      style={{ height: 28 }}
+                {/* ── Input wrapper with embedded mic ── */}
+                <div className="relative flex-1">
+                  {voicePhase === "recording" ? (
+                    <div className="flex items-center gap-2 min-h-[44px] px-3 pr-10 rounded-md border border-red-300/50 bg-red-50/40 dark:bg-red-950/20 select-none">
+                      <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse shrink-0" />
+                      <span className="text-sm text-muted-foreground flex-1 font-mono tabular-nums">
+                        {`${Math.floor(recordingTime / 60)}:${String(recordingTime % 60).padStart(2, "0")}`}
+                      </span>
+                    </div>
+                  ) : voicePhase === "preview" && previewUrl ? (
+                    <div className="flex items-center gap-2 min-h-[44px] px-3 rounded-md border border-primary/20 bg-primary/5">
+                      <audio key={previewUrl} src={previewUrl} controls preload="auto" className="flex-1 min-w-0" style={{ height: 28 }} />
+                    </div>
+                  ) : (
+                    <Textarea
+                      value={message}
+                      onChange={e => {
+                        setMessage(e.target.value.slice(0, MAX_CHARS));
+                        if (e.target.value.trim()) sendTyping();
+                      }}
+                      placeholder={t("write_meaningful_placeholder")}
+                      className="resize-none min-h-[44px] max-h-[80px] text-sm pr-8"
+                      onKeyDown={e => {
+                        if (e.key === "Enter" && !e.shiftKey) {
+                          e.preventDefault();
+                          if (message.trim()) { const c = message.trim(); setMessage(""); doSend(c); }
+                        }
+                      }}
+                      data-testid={`input-message-${match.id}`}
                     />
-                  </div>
-                ) : (
-                  <Textarea
-                    value={message}
-                    onChange={e => {
-                      setMessage(e.target.value.slice(0, MAX_CHARS));
-                      if (e.target.value.trim()) sendTyping();
-                    }}
-                    placeholder={t("write_meaningful_placeholder")}
-                    className="resize-none min-h-[44px] max-h-[80px] text-sm"
-                    onKeyDown={e => {
-                      if (e.key === "Enter" && !e.shiftKey) {
-                        e.preventDefault();
-                        if (message.trim()) { const c = message.trim(); setMessage(""); doSend(c); }
-                      }
-                    }}
-                    data-testid={`input-message-${match.id}`}
-                  />
-                )}
+                  )}
+                  {/* Mic inside the input — hold to record */}
+                  {voicePhase !== "preview" && (
+                    <button
+                      onPointerDown={e => {
+                        e.currentTarget.setPointerCapture(e.pointerId);
+                        if (!voiceNotesUnlocked) { setPurchasePromptFeature("mic"); return; }
+                        if (voicePhase === "idle") startRecording();
+                      }}
+                      onPointerUp={() => {
+                        if (voicePhase === "recording" && Date.now() - recordingStartMsRef.current >= 300) stopRecording();
+                        else if (voicePhase === "recording") cancelRecording();
+                      }}
+                      onPointerLeave={() => { if (voicePhase === "recording") stopRecording(); }}
+                      onPointerCancel={() => { if (voicePhase === "recording") cancelRecording(); }}
+                      onContextMenu={e => e.preventDefault()}
+                      className="absolute right-2 bottom-[10px] flex items-center justify-center select-none transition-transform active:scale-90"
+                      data-testid={`button-mic-input-${match.id}`}
+                      title={!voiceNotesUnlocked ? "Unlock voice notes" : voicePhase === "recording" ? "Release to stop" : "Hold to record"}
+                    >
+                      <Mic
+                        className="w-[18px] h-[18px] transition-all duration-300"
+                        style={voicePhase === "recording"
+                          ? { color: "rgb(239,68,68)", filter: "drop-shadow(0 0 5px rgba(239,68,68,0.7))" }
+                          : voiceNotesUnlocked
+                          ? { color: "rgb(34,197,94)", filter: "drop-shadow(0 0 5px rgba(34,197,94,0.7))" }
+                          : { color: "hsl(var(--muted-foreground))", opacity: 0.35 }}
+                      />
+                    </button>
+                  )}
+                </div>
+                {/* ✨ Conversation starters */}
                 {aiStartersEnabled && voicePhase === "idle" && (
                   <Button
                     size="icon"
@@ -2908,36 +2919,29 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                     <Sparkles className="w-4 h-4" />
                   </Button>
                 )}
-                {voicePhase !== "preview" && (
+                {/* 📞 Voice call shortcut */}
+                {!allCallsDone && voicePhase === "idle" && (
                   <button
-                    onPointerDown={e => {
-                      e.currentTarget.setPointerCapture(e.pointerId);
-                      if (!voiceNotesUnlocked) { setPurchasePromptFeature("mic"); return; }
-                      if (voicePhase === "idle") startRecording();
+                    onClick={() => {
+                      if ((phoneCredits ?? 0) > 0) startPaidCall.mutate({ isVideo: false });
+                      else setPurchasePromptFeature("phone");
                     }}
-                    onPointerUp={() => {
-                      if (voicePhase === "recording" && Date.now() - recordingStartMsRef.current >= 300) stopRecording();
-                      else if (voicePhase === "recording") cancelRecording();
-                    }}
-                    onPointerLeave={() => { if (voicePhase === "recording") stopRecording(); }}
-                    onPointerCancel={() => { if (voicePhase === "recording") cancelRecording(); }}
-                    onContextMenu={e => e.preventDefault()}
-                    className={`flex-shrink-0 w-9 h-9 flex items-center justify-center rounded-full transition-all active:scale-90 select-none ${
-                      voicePhase === "recording" ? "bg-red-100 dark:bg-red-950/40" : voiceNotesUnlocked ? "hover:bg-green-50 dark:hover:bg-green-950/30" : "hover:bg-muted/50"
-                    }`}
-                    data-testid={`button-mic-input-${match.id}`}
-                    title={!voiceNotesUnlocked ? "Unlock voice notes" : voicePhase === "recording" ? "Release to stop recording" : "Hold to record voice note"}
+                    disabled={startPaidCall.isPending}
+                    className="flex-shrink-0 w-9 h-9 flex items-center justify-center rounded-full transition-all active:scale-90 disabled:opacity-50 hover:bg-muted/40"
+                    data-testid={`button-phone-composer-${match.id}`}
+                    title={(phoneCredits ?? 0) > 0 ? t("start_voice_call") : t("unlock_voice_calling")}
                   >
-                    <Mic
+                    <Phone
                       className="w-[18px] h-[18px] transition-all duration-300"
-                      style={voicePhase === "recording"
-                        ? { color: "rgb(239,68,68)", filter: "drop-shadow(0 0 5px rgba(239,68,68,0.7))" }
-                        : voiceNotesUnlocked
+                      style={!callCreditsData
+                        ? { color: "hsl(var(--muted-foreground))", opacity: 0.4 }
+                        : (phoneCredits ?? 0) > 0
                         ? { color: "rgb(34,197,94)", filter: "drop-shadow(0 0 5px rgba(34,197,94,0.7))" }
-                        : { color: "hsl(var(--muted-foreground))", opacity: 0.35 }}
+                        : { color: "hsl(var(--muted-foreground))", opacity: 0.5 }}
                     />
                   </button>
                 )}
+                {/* ➤ Send / preview controls */}
                 {voicePhase === "preview" ? (
                   sendVoiceNote.isPending ? (
                     <Button size="icon" disabled data-testid={`button-send-voice-note-${match.id}`}>
@@ -2953,6 +2957,10 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                       </Button>
                     </>
                   )
+                ) : voicePhase === "recording" ? (
+                  <Button size="icon" variant="ghost" onClick={cancelRecording} data-testid={`button-cancel-recording-${match.id}`}>
+                    <X className="w-4 h-4" />
+                  </Button>
                 ) : (
                   <Button
                     size="icon"

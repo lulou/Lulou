@@ -1290,6 +1290,8 @@ export const TRANSLATIONS = {
     replay_guides_label:           "Replay guides",
     replay_guides_desc:            "Revisit tips from your journey",
     replay_guide_btn:              "Replay this guide",
+    start_voice_call:              "Start voice call",
+    unlock_voice_calling:          "Unlock voice calling",
   },
   es: {
     discover:     "Descubrir",
