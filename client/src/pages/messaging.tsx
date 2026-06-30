@@ -559,19 +559,15 @@ export default function Messaging() {
   const [purchasePromptFeature, setPurchasePromptFeature] = useState<PurchaseFeature | null>(null);
 
   // Recording state
-  type VoicePhase = "idle" | "recording" | "preview";
+  type VoicePhase = "idle" | "recording";
   const [voicePhase, setVoicePhase] = useState<VoicePhase>("idle");
   const isRecording = voicePhase === "recording";
   const [recordingTime, setRecordingTime] = useState(0);
+  const [inputFocused, setInputFocused] = useState(false);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const recordingStartMsRef = useRef<number>(0);
-  // Preview state (blob ready to send after recording stops)
-  const [previewBlob, setPreviewBlob] = useState<Blob | null>(null);
-  const [previewMimeType, setPreviewMimeType] = useState<string>("");
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  const previewUrlRef = useRef<string | null>(null);
 
   const stopRecordingTimer = () => {
     if (recordingTimerRef.current) { clearInterval(recordingTimerRef.current); recordingTimerRef.current = null; }
@@ -579,35 +575,28 @@ export default function Messaging() {
 
   const startRecording = async () => {
     try {
-      console.log("[VOICE] RECORD_START");
+      // Detect first-time permission prompt — show a hint instead of starting recording.
+      const micPerm = await navigator.permissions?.query({ name: "microphone" as PermissionName }).catch(() => null);
+      const needsPermission = micPerm?.state === "prompt";
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      // Prefer opus-in-webm for Chrome/Firefox, fall back to ogg, then to mp4 for
-      // Safari/iOS (which does not support WebM at all), then let the browser decide.
+      if (needsPermission) {
+        stream.getTracks().forEach(t => t.stop());
+        toast({ title: "Hold the mic to record", description: "Press and hold while you speak, then release to send." });
+        return;
+      }
       const preferredTypes = ["audio/webm;codecs=opus", "audio/ogg;codecs=opus", "audio/webm", "audio/mp4"];
       const mimeType = preferredTypes.find(t => {
         try { return MediaRecorder.isTypeSupported(t); } catch { return false; }
       }) ?? "";
-      console.log(`[VOICE] MIME_SELECTED mimeType="${mimeType || "(browser default)"}"`);
       const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
-      // Use the actual mimeType the browser negotiated (may differ on Safari).
       const actualMimeType = recorder.mimeType || mimeType;
-      console.log(`[VOICE] RECORDER_MIME actualMimeType="${actualMimeType}"`);
       audioChunksRef.current = [];
       recorder.ondataavailable = e => { if (e.data.size > 0) audioChunksRef.current.push(e.data); };
       recorder.onstop = () => {
         stream.getTracks().forEach(t => t.stop());
         const blob = new Blob(audioChunksRef.current, { type: actualMimeType });
-        console.log(`[VOICE] BLOB_CREATED size=${blob.size} type="${blob.type}"`);
-        if (blob.size > 0) {
-          const url = URL.createObjectURL(blob);
-          previewUrlRef.current = url;
-          setPreviewBlob(blob);
-          setPreviewMimeType(actualMimeType);
-          setPreviewUrl(url);
-          setVoicePhase("preview");
-        } else {
-          setVoicePhase("idle");
-        }
+        if (blob.size > 0) sendVoiceNote.mutate({ blob, mimeType: actualMimeType });
+        else setVoicePhase("idle");
       };
       recorder.start(100);
       mediaRecorderRef.current = recorder;
@@ -623,7 +612,6 @@ export default function Messaging() {
     } catch (err: any) {
       const isPermission = err?.name === "NotAllowedError" || err?.name === "PermissionDeniedError";
       const isNotFound = err?.name === "NotFoundError" || err?.name === "DevicesNotFoundError";
-      console.log(`[VOICE] ERROR name="${err?.name}" msg="${err?.message}"`);
       toast({
         title: isPermission
           ? "Microphone access is needed to send voice notes"
@@ -637,15 +625,13 @@ export default function Messaging() {
 
   const stopRecording = () => {
     const elapsed = Date.now() - recordingStartMsRef.current;
-    if (elapsed < 600) {
-      // Too short to be a useful voice note — cancel silently
+    if (elapsed < 300) {
       cancelRecording();
-      toast({ title: "Recording too short", description: "Tap the mic to start, tap again to stop and preview." });
+      toast({ title: "Hold the mic longer", description: "Press and hold while you speak, then release to send." });
       return;
     }
-    console.log(`[VOICE] RECORD_STOP elapsed=${elapsed}ms`);
     stopRecordingTimer();
-    setVoicePhase("idle"); // briefly idle while onstop fires and sets "preview"
+    setVoicePhase("idle");
     setRecordingTime(0);
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
       mediaRecorderRef.current.stop();
@@ -665,20 +651,7 @@ export default function Messaging() {
     setRecordingTime(0);
   };
 
-  const cancelPreview = () => {
-    if (previewUrlRef.current) { URL.revokeObjectURL(previewUrlRef.current); previewUrlRef.current = null; }
-    setPreviewUrl(null);
-    setPreviewBlob(null);
-    setPreviewMimeType("");
-    setVoicePhase("idle");
-  };
-
-  const sendPreview = () => {
-    if (!previewBlob) return;
-    sendVoiceNote.mutate({ blob: previewBlob, mimeType: previewMimeType });
-  };
-
-  // Release the microphone and revoke any preview URL on unmount.
+  // Release the microphone on unmount.
   useEffect(() => {
     return () => {
       stopRecordingTimer();
@@ -689,7 +662,6 @@ export default function Messaging() {
         try { mr.stream?.getTracks().forEach(t => t.stop()); } catch {}
         try { mr.stop(); } catch {}
       }
-      if (previewUrlRef.current) { URL.revokeObjectURL(previewUrlRef.current); previewUrlRef.current = null; }
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -710,19 +682,17 @@ export default function Messaging() {
       return res.json();
     },
     onSuccess: () => {
-      console.log("[VOICE] MESSAGE_CREATED client-side");
       queryClient.invalidateQueries({ queryKey: ["/api/matches", matchId, "messages"] });
       forceScrollRef.current = true;
-      cancelPreview();
+      setVoicePhase("idle");
     },
     onError: (err: any) => {
-      console.log(`[VOICE] ERROR client="${err?.message}"`);
       toast({
         title: "Voice note couldn't be sent",
         description: err?.message || "Please try again.",
         variant: "destructive",
       });
-      cancelPreview();
+      setVoicePhase("idle");
     },
   });
 
@@ -1257,7 +1227,7 @@ export default function Messaging() {
                 className="text-[10px] font-semibold leading-none"
                 style={voiceNotesUnlocked ? { color: voicePhase === "recording" ? "rgb(239,68,68)" : "rgb(34,197,94)" } : { color: "hsl(var(--muted-foreground))", opacity: 0.6 }}
               >
-                {voiceNotesUnlocked ? (voicePhase === "recording" ? "Stop" : voicePhase === "preview" ? "Send" : "Mic") : "Mic"}
+                {voiceNotesUnlocked ? (voicePhase === "recording" ? "Stop" : "Mic") : "Mic"}
               </span>
             </button>
           </div>
@@ -1468,16 +1438,14 @@ export default function Messaging() {
                         {`${Math.floor(recordingTime / 60)}:${String(recordingTime % 60).padStart(2, "0")}`}
                       </span>
                     </div>
-                  ) : voicePhase === "preview" && previewUrl ? (
-                    <div className="flex items-center gap-2 min-h-[44px] px-3 rounded-md border border-primary/20 bg-primary/5">
-                      <audio key={previewUrl} src={previewUrl} controls preload="auto" className="flex-1 min-w-0" style={{ height: 28 }} />
-                    </div>
                   ) : (
                     <Textarea
                       value={message}
                       onChange={e => setMessage(e.target.value.slice(0, MAX_CHARS))}
                       placeholder={t("write_meaningful_placeholder")}
                       className="resize-none min-h-[44px] max-h-[120px] text-sm pr-8"
+                      onFocus={() => setInputFocused(true)}
+                      onBlur={() => setInputFocused(false)}
                       onKeyDown={e => {
                         if (e.key === "Enter" && !e.shiftKey) {
                           e.preventDefault();
@@ -1487,39 +1455,36 @@ export default function Messaging() {
                       data-testid="input-message"
                     />
                   )}
-                  {/* Mic embedded inside — hold to record */}
-                  {voicePhase !== "preview" && (
-                    <button
-                      onPointerDown={e => {
-                        e.currentTarget.setPointerCapture(e.pointerId);
-                        if (!voiceNotesUnlocked) { setPurchasePromptFeature("mic"); return; }
-                        if (voicePhase === "idle") startRecording();
-                      }}
-                      onPointerUp={() => {
-                        if (voicePhase === "recording" && Date.now() - recordingStartMsRef.current >= 300) stopRecording();
-                        else if (voicePhase === "recording") cancelRecording();
-                      }}
-                      onPointerLeave={() => { if (voicePhase === "recording") stopRecording(); }}
-                      onPointerCancel={() => { if (voicePhase === "recording") cancelRecording(); }}
-                      onContextMenu={e => e.preventDefault()}
-                      className="absolute right-2 bottom-[10px] flex items-center justify-center select-none transition-transform active:scale-90"
-                      data-testid="button-mic-input"
-                      title={voiceNotesUnlocked ? (voicePhase === "recording" ? "Release to stop" : "Hold to record voice note") : "Unlock voice notes"}
-                    >
-                      <Mic
-                        className="w-[18px] h-[18px] transition-all duration-300"
-                        style={voicePhase === "recording"
-                          ? { color: "rgb(239,68,68)", filter: "drop-shadow(0 0 5px rgba(239,68,68,0.7))" }
-                          : voiceNotesUnlocked
-                          ? { color: "rgb(34,197,94)", filter: "drop-shadow(0 0 5px rgba(34,197,94,0.7))" }
-                          : { color: "hsl(var(--muted-foreground))", opacity: 0.35 }}
-                      />
-                    </button>
-                  )}
+                  {/* Mic inside the input — hold to record, slide away to cancel */}
+                  <button
+                    onPointerDown={e => {
+                      e.currentTarget.setPointerCapture(e.pointerId);
+                      if (!voiceNotesUnlocked) { setPurchasePromptFeature("mic"); return; }
+                      if (voicePhase === "idle") startRecording();
+                    }}
+                    onPointerUp={() => {
+                      if (voicePhase === "recording") stopRecording();
+                    }}
+                    onPointerLeave={() => { if (voicePhase === "recording") cancelRecording(); }}
+                    onPointerCancel={() => { if (voicePhase === "recording") cancelRecording(); }}
+                    onContextMenu={e => e.preventDefault()}
+                    className="absolute right-2 bottom-[10px] flex items-center justify-center select-none transition-transform active:scale-90"
+                    data-testid="button-mic-input"
+                    title={voiceNotesUnlocked ? (voicePhase === "recording" ? "Release to send" : "Hold to record voice note") : "Unlock voice notes"}
+                  >
+                    <Mic
+                      className="w-[18px] h-[18px] transition-all duration-300"
+                      style={voicePhase === "recording"
+                        ? { color: "rgb(239,68,68)", filter: "drop-shadow(0 0 5px rgba(239,68,68,0.7))" }
+                        : voiceNotesUnlocked
+                        ? { color: "rgb(34,197,94)", filter: "drop-shadow(0 0 5px rgba(34,197,94,0.7))" }
+                        : { color: "hsl(var(--muted-foreground))", opacity: 0.35 }}
+                    />
+                  </button>
                 </div>
 
-                {/* ✨ Conversation starters */}
-                {aiStartersEnabled && voicePhase === "idle" && (
+                {/* ✨ Conversation starters — hidden while typing */}
+                {aiStartersEnabled && voicePhase === "idle" && !inputFocused && (
                   <Button
                     size="icon"
                     variant="ghost"
@@ -1532,8 +1497,8 @@ export default function Messaging() {
                   </Button>
                 )}
 
-                {/* 📞 Voice call shortcut */}
-                {!allCallsDone && voicePhase === "idle" && (
+                {/* 📞 Voice call shortcut — hidden while typing */}
+                {!allCallsDone && voicePhase === "idle" && !inputFocused && (
                   <button
                     onClick={() => {
                       if (phoneCredits > 0) startPaidCall.mutate({ isVideo: false });
@@ -1555,22 +1520,11 @@ export default function Messaging() {
                   </button>
                 )}
 
-                {/* ➤ Send / preview controls */}
-                {voicePhase === "preview" ? (
-                  sendVoiceNote.isPending ? (
-                    <Button size="icon" disabled data-testid="button-send-voice-note">
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                    </Button>
-                  ) : (
-                    <>
-                      <Button size="icon" variant="ghost" onClick={cancelPreview} data-testid="button-cancel-preview">
-                        <X className="w-4 h-4" />
-                      </Button>
-                      <Button size="icon" onClick={sendPreview} data-testid="button-send-voice-note">
-                        <Send className="w-4 h-4" />
-                      </Button>
-                    </>
-                  )
+                {/* ➤ Send / recording controls */}
+                {sendVoiceNote.isPending ? (
+                  <Button size="icon" disabled data-testid="button-send-voice-note">
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  </Button>
                 ) : voicePhase === "recording" ? (
                   <Button size="icon" variant="ghost" onClick={cancelRecording} data-testid="button-cancel-recording">
                     <X className="w-4 h-4" />

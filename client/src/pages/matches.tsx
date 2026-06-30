@@ -1156,6 +1156,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
   const [, navigate] = useLocation();
   const isActive = useTabActive();
   const [message, setMessage] = useState("");
+  const [inputFocused, setInputFocused] = useState(false);
   const [showProfilePanel, setShowProfilePanel] = useState(false);
   const [showAIStarters, setShowAIStarters] = useState(false);
   const hasAutoShownStartersRef = useRef(false);
@@ -1737,11 +1738,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  // Preview state (set when recording stops so user can review before sending)
-  const [previewBlob, setPreviewBlob] = useState<Blob | null>(null);
-  const [previewMimeType, setPreviewMimeType] = useState<string>("");
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  const voicePhase = isRecording ? "recording" as const : previewUrl ? "preview" as const : "idle" as const;
+  const voicePhase = isRecording ? "recording" as const : "idle" as const;
   const recordingStartMsRef = useRef<number>(0);
 
   const stopRecordingTimer = () => {
@@ -1750,27 +1747,27 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
 
   const startRecording = async () => {
     try {
+      // Detect first-time permission prompt — show a hint instead of starting recording.
+      const micPerm = await navigator.permissions?.query({ name: "microphone" as PermissionName }).catch(() => null);
+      const needsPermission = micPerm?.state === "prompt";
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      // Prefer opus-in-webm for Chrome/Firefox, fall back to ogg, then to mp4 for
-      // Safari/iOS (which does not support WebM at all), then let the browser decide.
+      if (needsPermission) {
+        stream.getTracks().forEach(t => t.stop());
+        toast({ title: "Hold the mic to record", description: "Press and hold while you speak, then release to send." });
+        return;
+      }
       const preferredTypes = ["audio/webm;codecs=opus", "audio/ogg;codecs=opus", "audio/webm", "audio/mp4"];
       const mimeType = preferredTypes.find(t => {
         try { return MediaRecorder.isTypeSupported(t); } catch { return false; }
       }) ?? "";
       const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
-      // Use the actual mimeType the browser negotiated (may differ on Safari).
       const actualMimeType = recorder.mimeType || mimeType;
       audioChunksRef.current = [];
       recorder.ondataavailable = e => { if (e.data.size > 0) audioChunksRef.current.push(e.data); };
       recorder.onstop = () => {
         stream.getTracks().forEach(t => t.stop());
         const blob = new Blob(audioChunksRef.current, { type: actualMimeType });
-        if (blob.size > 0) {
-          const url = URL.createObjectURL(blob);
-          setPreviewBlob(blob);
-          setPreviewMimeType(actualMimeType);
-          setPreviewUrl(url);
-        }
+        if (blob.size > 0) sendVoiceNote.mutate({ blob, mimeType: actualMimeType });
       };
       recorder.start(100);
       mediaRecorderRef.current = recorder;
@@ -1796,6 +1793,12 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
   };
 
   const stopRecording = () => {
+    const elapsed = Date.now() - recordingStartMsRef.current;
+    if (elapsed < 300) {
+      cancelRecording();
+      toast({ title: "Hold the mic longer", description: "Press and hold while you speak, then release to send." });
+      return;
+    }
     stopRecordingTimer();
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
       mediaRecorderRef.current.stop();
@@ -1815,16 +1818,6 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
     audioChunksRef.current = [];
     setIsRecording(false);
     setRecordingTime(0);
-  };
-
-  const sendPreview = () => {
-    if (previewBlob) sendVoiceNote.mutate({ blob: previewBlob, mimeType: previewMimeType });
-  };
-  const cancelPreview = () => {
-    if (previewUrl) URL.revokeObjectURL(previewUrl);
-    setPreviewBlob(null);
-    setPreviewMimeType("");
-    setPreviewUrl(null);
   };
 
   // Release the microphone if the component unmounts while recording is active.
@@ -1861,9 +1854,6 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/matches", match.id] });
       forceScrollRef.current = true;
-      setPreviewBlob(null);
-      setPreviewMimeType("");
-      setPreviewUrl(null);
     },
     onError: (err: any) => {
       toast({ title: err?.message || "Failed to send voice note", variant: "destructive" });
@@ -2271,13 +2261,8 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
             )}
             <button
               onClick={() => {
-                if (!voiceNotesUnlocked) {
-                  setPurchasePromptFeature("mic");
-                } else if (voicePhase === "preview") {
-                  cancelPreview();
-                } else if (voicePhase === "recording") {
-                  stopRecording();
-                }
+                if (!voiceNotesUnlocked) setPurchasePromptFeature("mic");
+                else if (voicePhase === "recording") stopRecording();
               }}
               className="flex flex-col items-center gap-0.5 min-w-[44px] py-1.5 px-2 rounded-xl transition-all active:scale-90"
               data-testid={`button-mic-tray-${match.id}`}
@@ -2292,7 +2277,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                 className="text-[10px] font-semibold leading-none"
                 style={voiceNotesUnlocked ? { color: voicePhase === "recording" ? "rgb(239,68,68)" : "rgb(34,197,94)" } : { color: "hsl(var(--muted-foreground))", opacity: 0.6 }}
               >
-                {voiceNotesUnlocked ? (voicePhase === "recording" ? "Rec" : voicePhase === "preview" ? "On" : "On") : "Mic"}
+                {voiceNotesUnlocked ? (voicePhase === "recording" ? "Rec" : "On") : "Mic"}
               </span>
             </button>
           </div>
@@ -2854,10 +2839,6 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                         {`${Math.floor(recordingTime / 60)}:${String(recordingTime % 60).padStart(2, "0")}`}
                       </span>
                     </div>
-                  ) : voicePhase === "preview" && previewUrl ? (
-                    <div className="flex items-center gap-2 min-h-[44px] px-3 rounded-md border border-primary/20 bg-primary/5">
-                      <audio key={previewUrl} src={previewUrl} controls preload="auto" className="flex-1 min-w-0" style={{ height: 28 }} />
-                    </div>
                   ) : (
                     <Textarea
                       value={message}
@@ -2867,6 +2848,8 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                       }}
                       placeholder={t("write_meaningful_placeholder")}
                       className="resize-none min-h-[44px] max-h-[80px] text-sm pr-8"
+                      onFocus={() => setInputFocused(true)}
+                      onBlur={() => setInputFocused(false)}
                       onKeyDown={e => {
                         if (e.key === "Enter" && !e.shiftKey) {
                           e.preventDefault();
@@ -2876,38 +2859,35 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                       data-testid={`input-message-${match.id}`}
                     />
                   )}
-                  {/* Mic inside the input — hold to record */}
-                  {voicePhase !== "preview" && (
-                    <button
-                      onPointerDown={e => {
-                        e.currentTarget.setPointerCapture(e.pointerId);
-                        if (!voiceNotesUnlocked) { setPurchasePromptFeature("mic"); return; }
-                        if (voicePhase === "idle") startRecording();
-                      }}
-                      onPointerUp={() => {
-                        if (voicePhase === "recording" && Date.now() - recordingStartMsRef.current >= 300) stopRecording();
-                        else if (voicePhase === "recording") cancelRecording();
-                      }}
-                      onPointerLeave={() => { if (voicePhase === "recording") stopRecording(); }}
-                      onPointerCancel={() => { if (voicePhase === "recording") cancelRecording(); }}
-                      onContextMenu={e => e.preventDefault()}
-                      className="absolute right-2 bottom-[10px] flex items-center justify-center select-none transition-transform active:scale-90"
-                      data-testid={`button-mic-input-${match.id}`}
-                      title={!voiceNotesUnlocked ? "Unlock voice notes" : voicePhase === "recording" ? "Release to stop" : "Hold to record"}
-                    >
-                      <Mic
-                        className="w-[18px] h-[18px] transition-all duration-300"
-                        style={voicePhase === "recording"
-                          ? { color: "rgb(239,68,68)", filter: "drop-shadow(0 0 5px rgba(239,68,68,0.7))" }
-                          : voiceNotesUnlocked
-                          ? { color: "rgb(34,197,94)", filter: "drop-shadow(0 0 5px rgba(34,197,94,0.7))" }
-                          : { color: "hsl(var(--muted-foreground))", opacity: 0.35 }}
-                      />
-                    </button>
-                  )}
+                  {/* Mic inside the input — hold to record, slide away to cancel */}
+                  <button
+                    onPointerDown={e => {
+                      e.currentTarget.setPointerCapture(e.pointerId);
+                      if (!voiceNotesUnlocked) { setPurchasePromptFeature("mic"); return; }
+                      if (voicePhase === "idle") startRecording();
+                    }}
+                    onPointerUp={() => {
+                      if (voicePhase === "recording") stopRecording();
+                    }}
+                    onPointerLeave={() => { if (voicePhase === "recording") cancelRecording(); }}
+                    onPointerCancel={() => { if (voicePhase === "recording") cancelRecording(); }}
+                    onContextMenu={e => e.preventDefault()}
+                    className="absolute right-2 bottom-[10px] flex items-center justify-center select-none transition-transform active:scale-90"
+                    data-testid={`button-mic-input-${match.id}`}
+                    title={!voiceNotesUnlocked ? "Unlock voice notes" : voicePhase === "recording" ? "Release to send" : "Hold to record"}
+                  >
+                    <Mic
+                      className="w-[18px] h-[18px] transition-all duration-300"
+                      style={voicePhase === "recording"
+                        ? { color: "rgb(239,68,68)", filter: "drop-shadow(0 0 5px rgba(239,68,68,0.7))" }
+                        : voiceNotesUnlocked
+                        ? { color: "rgb(34,197,94)", filter: "drop-shadow(0 0 5px rgba(34,197,94,0.7))" }
+                        : { color: "hsl(var(--muted-foreground))", opacity: 0.35 }}
+                    />
+                  </button>
                 </div>
-                {/* ✨ Conversation starters */}
-                {aiStartersEnabled && voicePhase === "idle" && (
+                {/* ✨ Conversation starters — hidden while typing */}
+                {aiStartersEnabled && voicePhase === "idle" && !inputFocused && (
                   <Button
                     size="icon"
                     variant="ghost"
@@ -2919,8 +2899,8 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                     <Sparkles className="w-4 h-4" />
                   </Button>
                 )}
-                {/* 📞 Voice call shortcut */}
-                {!allCallsDone && voicePhase === "idle" && (
+                {/* 📞 Voice call shortcut — hidden while typing */}
+                {!allCallsDone && voicePhase === "idle" && !inputFocused && (
                   <button
                     onClick={() => {
                       if ((phoneCredits ?? 0) > 0) startPaidCall.mutate({ isVideo: false });
@@ -2941,22 +2921,11 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                     />
                   </button>
                 )}
-                {/* ➤ Send / preview controls */}
-                {voicePhase === "preview" ? (
-                  sendVoiceNote.isPending ? (
-                    <Button size="icon" disabled data-testid={`button-send-voice-note-${match.id}`}>
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                    </Button>
-                  ) : (
-                    <>
-                      <Button size="icon" variant="ghost" onClick={cancelPreview} data-testid={`button-cancel-preview-${match.id}`}>
-                        <X className="w-4 h-4" />
-                      </Button>
-                      <Button size="icon" onClick={sendPreview} data-testid={`button-send-preview-${match.id}`}>
-                        <Send className="w-4 h-4" />
-                      </Button>
-                    </>
-                  )
+                {/* ➤ Send / recording controls */}
+                {sendVoiceNote.isPending ? (
+                  <Button size="icon" disabled data-testid={`button-send-voice-note-${match.id}`}>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  </Button>
                 ) : voicePhase === "recording" ? (
                   <Button size="icon" variant="ghost" onClick={cancelRecording} data-testid={`button-cancel-recording-${match.id}`}>
                     <X className="w-4 h-4" />

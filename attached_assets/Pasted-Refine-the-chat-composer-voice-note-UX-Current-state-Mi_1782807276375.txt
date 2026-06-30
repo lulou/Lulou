@@ -1,0 +1,53 @@
+Refine the chat composer voice note UX.
+
+Current state:
+- Mic is now inside the message input field, which is good.
+- Voice note recording works.
+- But the UX is wrong.
+
+Fix 1 — Hold-to-record and auto-send
+Change the voice note behaviour to match modern messaging apps:
+
+- User presses and holds the mic.
+- Recording starts immediately after mic permission is already granted.
+- User speaks while holding.
+- When user releases the mic, recording stops and the voice note automatically sends.
+- Do not require the user to manually press send after recording.
+- If this is the first time and iPhone asks for mic permission:
+ - Ask for permission.
+ - After permission is granted, show a clear hint: “Hold the mic to record”.
+ - Do not auto-start a confusing recording from the permission tap.
+- Add cancel behaviour:
+ - While holding, if the user slides away/cancels, discard the recording.
+ - If recording is too short, discard and show a small message.
+- Keep voice note unlock rules unchanged.
+
+Fix 2 — Focused message bar layout
+When the message input is NOT focused:
+- Show the compact composer with:
+ [message input + mic inside] [conversation starters] [phone] [send]
+
+When the message input IS focused / keyboard open:
+- Make the message input bar use the main visual width again.
+- Keep the mic inside the input field.
+- Hide the conversation starters and phone icons while typing.
+- Keep the send button visible.
+- The input should not look short or cramped when focused.
+- The focused layout should feel like native iOS messaging apps.
+
+Final focused layout:
+[ Write something meaningful........ mic ] [send]
+
+Final unfocused layout:
+[ Write something meaningful........ mic ] [sparkle] [phone] [send]
+
+Run:
+npm run check
+npm run build
+
+Verify on iPhone:
+- Mic hold-to-record works.
+- Releasing the mic automatically sends the voice note.
+- First-time mic permission does not start a confusing recording.
+- Input bar expands/looks correct when keyboard opens.
+- Conversation starters and phone hide while typing.
