@@ -1740,6 +1740,8 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
   const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const voicePhase = isRecording ? "recording" as const : "idle" as const;
   const recordingStartMsRef = useRef<number>(0);
+  // Reuse the same MediaStream across recordings so iOS never re-prompts.
+  const micStreamRef = useRef<MediaStream | null>(null);
 
   const stopRecordingTimer = () => {
     if (recordingTimerRef.current) { clearInterval(recordingTimerRef.current); recordingTimerRef.current = null; }
@@ -1747,15 +1749,12 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
 
   const startRecording = async () => {
     try {
-      // Detect first-time permission prompt — show a hint instead of starting recording.
-      const micPerm = await navigator.permissions?.query({ name: "microphone" as PermissionName }).catch(() => null);
-      const needsPermission = micPerm?.state === "prompt";
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      if (needsPermission) {
-        stream.getTracks().forEach(t => t.stop());
-        toast({ title: "Hold the mic to record", description: "Press and hold while you speak, then release to send." });
-        return;
-      }
+      // Reuse an existing live stream — avoids re-prompting on iOS Safari.
+      let stream = micStreamRef.current && micStreamRef.current.active
+        ? micStreamRef.current
+        : await navigator.mediaDevices.getUserMedia({ audio: true });
+      micStreamRef.current = stream;
+
       const preferredTypes = ["audio/webm;codecs=opus", "audio/ogg;codecs=opus", "audio/webm", "audio/mp4"];
       const mimeType = preferredTypes.find(t => {
         try { return MediaRecorder.isTypeSupported(t); } catch { return false; }
@@ -1765,7 +1764,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
       audioChunksRef.current = [];
       recorder.ondataavailable = e => { if (e.data.size > 0) audioChunksRef.current.push(e.data); };
       recorder.onstop = () => {
-        stream.getTracks().forEach(t => t.stop());
+        // Do NOT stop stream tracks — keep the stream alive for the next recording.
         const blob = new Blob(audioChunksRef.current, { type: actualMimeType });
         if (blob.size > 0) sendVoiceNote.mutate({ blob, mimeType: actualMimeType });
       };
@@ -1784,8 +1783,10 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
       const isPermission = err?.name === "NotAllowedError" || err?.name === "PermissionDeniedError";
       const isNotFound = err?.name === "NotFoundError" || err?.name === "DevicesNotFoundError";
       toast({
-        title: isPermission ? "Microphone access denied"
-          : isNotFound ? "No microphone found on this device"
+        title: isPermission
+          ? "Microphone access is blocked. Enable it in iPhone Settings."
+          : isNotFound
+          ? "No microphone found on this device"
           : "Could not start recording",
         variant: "destructive",
       });
@@ -1813,15 +1814,16 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
     if (mr && mr.state !== "inactive") {
       mr.ondataavailable = null;
       mr.onstop = null;
-      try { mr.stream?.getTracks().forEach(t => t.stop()); mr.stop(); } catch { /* ignore */ }
+      // Do NOT stop the stream tracks — keep micStreamRef alive for the next recording.
+      try { mr.stop(); } catch { /* ignore */ }
     }
     audioChunksRef.current = [];
     setIsRecording(false);
     setRecordingTime(0);
   };
 
-  // Release the microphone if the component unmounts while recording is active.
-  // Without this the browser mic-in-use indicator stays on after the chat is closed.
+  // Release the microphone stream when the component unmounts.
+  // (We keep it alive between recordings but must clean up on unmount.)
   useEffect(() => {
     return () => {
       stopRecordingTimer();
@@ -1829,9 +1831,10 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
       if (mr && mr.state !== "inactive") {
         mr.ondataavailable = null;
         mr.onstop = null;
-        try { mr.stream?.getTracks().forEach(t => t.stop()); } catch {}
         try { mr.stop(); } catch {}
       }
+      micStreamRef.current?.getTracks().forEach(t => t.stop());
+      micStreamRef.current = null;
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
