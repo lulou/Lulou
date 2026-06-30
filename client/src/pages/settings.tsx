@@ -152,10 +152,29 @@ export default function SettingsPage() {
     isSubscribed:       pushSubscribed,
     preferences:        pushPrefs,
     isLoading:          pushLoading,
-    subscribe:          pushSubscribe,
-    unsubscribe:        pushUnsubscribe,
+    error:              pushError,
+    subscribe:          pushSubscribeRaw,
+    unsubscribe:        pushUnsubscribeRaw,
     updatePreference:   updatePushPref,
   } = usePushNotifications();
+
+  // Show any push error as a toast
+  useEffect(() => {
+    if (pushError) {
+      toast({ title: "Notifications", description: pushError, variant: "destructive" });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pushError]);
+
+  const pushSubscribe = useCallback(async () => {
+    const ok = await pushSubscribeRaw();
+    if (ok) toast({ title: "Notifications enabled", description: "You'll receive push notifications on this device." });
+  }, [pushSubscribeRaw]);
+
+  const pushUnsubscribe = useCallback(async () => {
+    await pushUnsubscribeRaw();
+    toast({ title: "Notifications disabled" });
+  }, [pushUnsubscribeRaw]);
 
   const PUSH_CATS: Array<{ key: NotifCategory; label: string; Icon: typeof Heart }> = [
     { key: "newMatch"     as NotifCategory, label: "Matches",       Icon: Heart      },

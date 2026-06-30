@@ -113,28 +113,46 @@ export function usePushNotifications() {
 
   // ── Subscribe ──────────────────────────────────────────────────────────────
   const subscribe = useCallback(async (): Promise<boolean> => {
-    if (!isSupported || !swReg) {
-      setError("Push notifications are not supported on this device.");
+    if (!isSupported) {
+      setError("Push notifications are not supported on this device or browser.");
       return false;
     }
     setIsLoading(true);
     setError(null);
     try {
-      // Request permission
+      // Resolve the SW registration — fall back to navigator.serviceWorker.ready
+      // so a first-tap race condition (swReg not yet set) doesn't silently fail.
+      let reg = swReg;
+      if (!reg) {
+        try {
+          reg = await Promise.race([
+            navigator.serviceWorker.ready,
+            new Promise<never>((_, reject) =>
+              setTimeout(() => reject(new Error("SW registration timed out")), 8000)
+            ),
+          ]) as ServiceWorkerRegistration;
+          setSwReg(reg);
+        } catch (err: any) {
+          setError("Could not start the notification service. Please reload and try again.");
+          return false;
+        }
+      }
+
+      // Request permission — must be in a user-gesture call stack on iOS PWA
       const perm = await Notification.requestPermission();
       setPermission(perm);
       if (perm !== "granted") {
         setError(perm === "denied"
-          ? "Notifications are blocked. Enable them in your browser settings."
-          : "Permission not granted."
+          ? "Notifications are blocked. Go to device Settings → Notifications → Lulou and allow notifications."
+          : "Notification permission was not granted."
         );
         return false;
       }
 
       const vapidKey = await getVapidKey();
-      if (!vapidKey) { setError("Could not fetch notification key."); return false; }
+      if (!vapidKey) { setError("Could not fetch notification key from server."); return false; }
 
-      const sub = await swReg.pushManager.subscribe({
+      const sub = await reg.pushManager.subscribe({
         userVisibleOnly:      true,
         applicationServerKey: urlBase64ToUint8Array(vapidKey),
       });
@@ -150,8 +168,14 @@ export function usePushNotifications() {
       console.log("[PUSH] Subscribed to push notifications");
       return true;
     } catch (err: any) {
-      console.error("[PUSH] Subscribe error:", err?.message);
-      setError("Failed to enable notifications. Please try again.");
+      console.error("[PUSH] Subscribe error:", err?.message, err?.name);
+      if (err?.name === "NotAllowedError") {
+        setError("Notifications blocked. Enable them in device Settings → Notifications → Lulou.");
+      } else if (err?.name === "AbortError") {
+        setError("Subscription was cancelled. Please try again.");
+      } else {
+        setError("Failed to enable notifications — " + (err?.message ?? "unknown error") + ". Please try again.");
+      }
       return false;
     } finally {
       setIsLoading(false);
