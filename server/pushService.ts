@@ -16,7 +16,7 @@
 
 import webpush from "web-push";
 import { db } from "./db";
-import { pushSubscriptions, notificationPreferences, blockedContacts } from "@shared/schema";
+import { pushSubscriptions, notificationPreferences } from "@shared/schema";
 import { eq, and, lt, sql as drizzleSql } from "drizzle-orm";
 
 // ── VAPID key management ──────────────────────────────────────────────────────
@@ -155,18 +155,13 @@ export async function isUserActiveInApp(userId: string): Promise<boolean> {
 }
 
 // ── Check if sender is blocked by recipient ───────────────────────────────────
+// NOTE: The local `blocked_contacts` table stores phone-contact blocks (no user ID).
+// User-to-user blocking is managed in Supabase. This is a stub that always returns
+// false until a user-to-user block table is available locally.
 
-export async function isBlockedBy(senderUserId: string, recipientUserId: string): Promise<boolean> {
+export async function isBlockedBy(_senderUserId: string, _recipientUserId: string): Promise<boolean> {
   try {
-    const [row] = await db
-      .select({ id: blockedContacts.id })
-      .from(blockedContacts)
-      .where(and(
-        eq(blockedContacts.userId, recipientUserId),
-        eq(blockedContacts.blockedUserId, senderUserId),
-      ))
-      .limit(1);
-    return !!row;
+    return false;
   } catch {
     return false;
   }

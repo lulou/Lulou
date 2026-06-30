@@ -7,7 +7,7 @@ import { seedDatabase } from "./seed";
 import { z } from "zod";
 import type { Profile } from "@shared/schema";
 import { userBenefits, callCredits, activeSessions, processedStripeSessions, membershipSubscriptions, userElevates, blockedContacts, savedWheelProfiles, sparkBalances, sparkPurchases, pushSubscriptions, notificationPreferences } from "@shared/schema";
-import { sendPushToUser, buildPush, isUserActiveInApp, isBlockedBy, getVapidPublicKey, cleanupFailedSubscriptions } from "./pushService";
+import { sendPushToUser, buildPush, isUserActiveInApp, getVapidPublicKey, cleanupFailedSubscriptions } from "./pushService";
 import { EXTRAS_ITEMS, ELEVATE_PACKS, type ExtrasItemId, type ElevatePackId, grantExtras, grantElevate, isUniqueViolation } from './purchaseItems';
 import { supabase, supabaseAdmin, createUserClient, hasServiceRoleKey } from "./supabase";
 import { db } from "./db";
@@ -2257,12 +2257,9 @@ export async function registerRoutes(
 
           const otherUserId = match.user1Id === userId ? match.user2Id : match.user1Id;
 
-          // Push notification to recipient (skip if they're active in app or blocked)
-          const [activeInApp, blocked] = await Promise.all([
-            isUserActiveInApp(otherUserId),
-            isBlockedBy(userId, otherUserId),
-          ]);
-          if (!activeInApp && !blocked && !isSeedUser(otherUserId)) {
+          // Push notification to recipient (skip if they're active in app)
+          const activeInApp = await isUserActiveInApp(otherUserId);
+          if (!activeInApp && !isSeedUser(otherUserId)) {
             const senderProfile = await adminStorage.getProfileMeta(userId);
             const senderName    = senderProfile?.firstName || "Someone";
             sendPushToUser(
