@@ -1272,11 +1272,13 @@ export default function IntentPage() {
       const aRad = (orbitAngleRef2.current * Math.PI) / 180;
 
       // ── 3D Oval carousel positioning ──────────────────────────────────
-      // Cards sit on a horizontal ellipse.  carouselCenter is unchanged so
-      // the existing winner-selection formula (sinVal min) still picks the
-      // card at θ=0 (front of oval, closest to viewer).
-      const RX_OVAL = 170; // horizontal radius px
-      const Y_TILT  = 30;  // back cards appear this many px above front (camera-looking-down)
+      // Cards orbit a true horizontal ellipse with real vertical depth.
+      // Front card (cosT=+1) rises to the TOP of the oval — aligning with
+      // the landing marker — and back card (cosT=-1) sinks to the BOTTOM.
+      // This produces visible travel around the back that was missing when
+      // Y_TILT was only 30 px.
+      const RX_OVAL = 152; // horizontal semi-radius px
+      const RY_OVAL = 80;  // vertical semi-radius px (was just Y_TILT=30 before)
       const carouselCenter = -(aRad / (Math.PI * 2)) * N;
 
       for (let i = 0; i < N; i++) {
@@ -1286,18 +1288,18 @@ export default function IntentPage() {
         const wrapped = ((rawDist % N) + N) % N;
         const t = wrapped > N / 2 ? wrapped - N : wrapped; // signed offset from front card
 
-        // Oval angle: t=0 → front (θ=0), t=±N/2 → back (θ=π)
+        // Oval angle: t=0 → front (θ=0, top of oval), t=±N/2 → back (θ=π, bottom)
         const θ    = (t / N) * Math.PI * 2;
         const sinT = Math.sin(θ);
-        const cosT = Math.cos(θ);       // +1 = front, -1 = back
-        const zNorm = (cosT + 1) / 2;  // 0 = back, 1 = front
+        const cosT = Math.cos(θ);       // +1 = front (top), -1 = back (bottom)
+        const zNorm = (cosT + 1) / 2;   // 0 = back, 1 = front
 
         const xPx    = RX_OVAL * sinT;
-        const yPx    = -Y_TILT * (1 - zNorm); // back cards rise on screen
-        const sc     = 0.34 + 0.66 * zNorm;
-        const op     = Math.max(0.10, 0.10 + 0.90 * zNorm);
-        const blurPx = Math.max(0, (1 - zNorm) * 4.5 - 0.3);
-        const rotY   = -sinT * 36;     // cards face centre tangentially
+        const yPx    = -RY_OVAL * cosT;  // front→top (−RY), back→bottom (+RY)
+        const sc     = 0.28 + 0.72 * zNorm;
+        const op     = Math.max(0.05, 0.05 + 0.95 * zNorm);
+        const blurPx = Math.max(0, (1 - zNorm) * 5.5 - 0.3);
+        const rotY   = -sinT * 32;      // cards face centre tangentially
         const zi     = Math.round(1 + zNorm * 80);
 
         el.style.transform = `translate(calc(-50% + ${xPx.toFixed(1)}px), calc(-50% + ${yPx.toFixed(1)}px)) perspective(800px) rotateY(${rotY.toFixed(1)}deg) scale(${sc.toFixed(3)})`;
@@ -2484,7 +2486,7 @@ export default function IntentPage() {
                 ref={landingMarkerRef}
                 style={{
                   position: "absolute",
-                  top: "calc(50% - 118px)",
+                  top: "calc(50% - 98px)",
                   left: "50%",
                   transform: "translateX(-50%)",
                   display: "flex", flexDirection: "column", alignItems: "center",
@@ -2519,7 +2521,7 @@ export default function IntentPage() {
 
               {/* 3D oval stage — no overflow:hidden so pullforward card can scale freely */}
               <div style={{
-                position: "relative", width: "100%", height: 260,
+                position: "relative", width: "100%", height: 340,
                 flexShrink: 0,
               }}>
                 {/* Ambient glow orb at oval centre — box-shadow driven by RAF */}
@@ -2557,17 +2559,18 @@ export default function IntentPage() {
                 {items.slice(0, Math.min(items.length, 10)).map((item, i) => {
                   const N2 = Math.min(items.length, 10);
                   // Static initial oval positions (RAF overwrites on first frame)
+                  // Must stay in sync with the orbit RAF constants: RX=152, RY=80
                   const t0s   = ((i % N2) + N2) % N2;
                   const ts    = t0s > N2 / 2 ? t0s - N2 : t0s;
                   const θ0    = (ts / N2) * Math.PI * 2;
                   const sinT0 = Math.sin(θ0);
                   const cosT0 = Math.cos(θ0);
                   const zN0   = (cosT0 + 1) / 2;
-                  const xPx0  = (170 * sinT0).toFixed(1);
-                  const yPx0  = (-30 * (1 - zN0)).toFixed(1);
-                  const sc0   = (0.34 + 0.66 * zN0).toFixed(3);
-                  const op0   = Math.max(0.10, 0.10 + 0.90 * zN0).toFixed(3);
-                  const rotY0 = (-sinT0 * 36).toFixed(1);
+                  const xPx0  = (152 * sinT0).toFixed(1);
+                  const yPx0  = (-80 * cosT0).toFixed(1);  // front→top, back→bottom
+                  const sc0   = (0.28 + 0.72 * zN0).toFixed(3);
+                  const op0   = Math.max(0.05, 0.05 + 0.95 * zN0).toFixed(3);
+                  const rotY0 = (-sinT0 * 32).toFixed(1);
                   return (
                     <div
                       key={item.userId}
