@@ -1,7 +1,7 @@
 {
   "buildCommand": "npx vite build",
   "outputDirectory": "dist/public",
-  "installCommand": "npm install --ignore-scripts && node node_modules/esbuild/install.js",
+  "installCommand": "npm ci --ignore-scripts && node node_modules/esbuild/install.js",
   "framework": null,
   "headers": [
     {
