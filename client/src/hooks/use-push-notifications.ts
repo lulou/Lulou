@@ -243,15 +243,43 @@ export function usePushNotifications() {
         setError("Could not fetch the notification key from the server. Check your connection.");
         return false;
       }
-      step("Step 3/5 — VAPID key OK: " + vapidKey.slice(0, 12) + "…");
+      const keyBytes = urlBase64ToUint8Array(vapidKey);
+      step(
+        `Step 3/5 — VAPID key OK: ${vapidKey.length} chars → ${keyBytes.length} bytes, ` +
+        `first byte 0x${keyBytes[0]?.toString(16).padStart(2,"0")} ` +
+        `(expect 65 bytes, 0x04)`
+      );
+      if (keyBytes.length !== 65 || keyBytes[0] !== 0x04) {
+        step(`FAIL — decoded key invalid: length=${keyBytes.length} firstByte=0x${keyBytes[0]?.toString(16)}`);
+        setError(`VAPID key decoded incorrectly: got ${keyBytes.length} bytes, first byte 0x${keyBytes[0]?.toString(16)}. Expected 65 bytes starting with 0x04.`);
+        return false;
+      }
+
+      // Step 3b — clear any stale subscription before subscribing
+      // An existing subscription registered with a different VAPID key causes
+      // iOS to throw "applicationServerKey must contain a valid P-256 public key".
+      step("Step 3b/5 — Checking for stale existing subscription…");
+      try {
+        const existingSub = await reg.pushManager.getSubscription();
+        if (existingSub) {
+          step("Step 3b/5 — Stale subscription found — clearing it before re-subscribing…");
+          await existingSub.unsubscribe();
+          step("Step 3b/5 — Stale subscription cleared ✓");
+        } else {
+          step("Step 3b/5 — No stale subscription found ✓");
+        }
+      } catch (e: any) {
+        step("Step 3b/5 — WARNING: Could not clear stale subscription: " + e?.message);
+        // Non-fatal — continue and let subscribe() handle it
+      }
 
       // Step 4 — push subscription
-      step("Step 4/5 — Subscribing to push (PushManager.subscribe)…");
+      step("Step 4/5 — Calling PushManager.subscribe (userVisibleOnly=true)…");
       let sub: PushSubscription;
       try {
         sub = await reg.pushManager.subscribe({
           userVisibleOnly:      true,
-          applicationServerKey: urlBase64ToUint8Array(vapidKey),
+          applicationServerKey: keyBytes,
         });
         step("Step 4/5 — PushManager.subscribe OK — endpoint prefix: " + sub.endpoint.slice(0, 40) + "…");
       } catch (e: any) {
