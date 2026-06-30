@@ -83,6 +83,7 @@ vite_turn_credential = "/JwJa8PLMYCjoruo"
 vite_turn_username = "c9bf5219fdc48366185d5be5"
 vite_turn_url = "turns:lulou.metered.live:443?transport=tcp"
 FRONTEND_URL = "https://lulouapp.vercel.app"
+ADMIN_EMAIL = "abayomibalogun@icloud.com"
 
 [postMerge]
 path = "scripts/post-merge.sh"
