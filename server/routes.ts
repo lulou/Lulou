@@ -2262,14 +2262,20 @@ export async function registerRoutes(
 
           // Push notification to recipient (skip if they're active in app)
           const activeInApp = await isUserActiveInApp(otherUserId);
+          console.log(`[PUSH_AUDIT] MSG route: recipientId=${otherUserId.slice(0,8)} matchId=${matchId} activeInApp=${activeInApp} isSeed=${isSeedUser(otherUserId)}`);
           if (!activeInApp && !isSeedUser(otherUserId)) {
             const senderProfile = await adminStorage.getProfileMeta(userId);
             const senderName    = senderProfile?.firstName || "Someone";
+            console.log(`[PUSH_AUDIT] MSG route: calling sendPushToUser → recipient=${otherUserId.slice(0,8)} sender="${senderName}" category=new_message`);
             sendPushToUser(
               otherUserId,
               buildPush.newMessage(senderName, matchId, message.content),
               "new_message",
-            ).catch(() => {});
+            ).catch((err: any) => {
+              console.error(`[PUSH_AUDIT] MSG route: sendPushToUser threw userId=${otherUserId.slice(0,8)}: ${err?.message}`);
+            });
+          } else {
+            console.log(`[PUSH_AUDIT] MSG route: SKIPPED push — activeInApp=${activeInApp} isSeed=${isSeedUser(otherUserId)}`);
           }
 
           if (isSeedUser(otherUserId) && callStage === 0) {

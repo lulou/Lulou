@@ -92,24 +92,33 @@ async function sendToSubscription(
   payload: PushPayload,
   ttl: number,
 ): Promise<SendResult> {
+  const endpointTag = sub.endpoint.slice(-30);
+  const jsonBody = JSON.stringify({
+    title: payload.title,
+    body:  payload.body,
+    icon:  payload.icon  ?? "/icon-192.png",
+    badge: payload.badge ?? "/favicon-32.png",
+    data:  payload.data  ?? {},
+    requireInteraction: payload.requireInteraction ?? false,
+    badgeCount: (payload as any).badgeCount,
+  });
+  console.log(`[PUSH_AUDIT] sendToSubscription → endpoint=…${endpointTag} ttl=${ttl} bodyLen=${jsonBody.length}`);
   try {
-    await webpush.sendNotification(
+    const resp = await webpush.sendNotification(
       { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
-      JSON.stringify({
-        title: payload.title,
-        body:  payload.body,
-        icon:  payload.icon  ?? "/icon-192.png",
-        badge: payload.badge ?? "/favicon-32.png",
-        data:  payload.data  ?? {},
-        requireInteraction: payload.requireInteraction ?? false,
-      }),
+      jsonBody,
       { TTL: ttl, urgency: ttl < 120 ? "high" : "normal" },
     );
+    console.log(`[PUSH_AUDIT] sendToSubscription ✓ HTTP=${(resp as any)?.statusCode ?? "?"} endpoint=…${endpointTag}`);
     return "ok";
   } catch (err: any) {
     const status = err?.statusCode ?? 0;
-    if (status === 410 || status === 404) return "expired";
-    console.warn(`[PUSH] send failed endpoint=${sub.endpoint.slice(-20)} status=${status}: ${err?.message}`);
+    const body   = err?.body ?? "";
+    if (status === 410 || status === 404) {
+      console.log(`[PUSH_AUDIT] sendToSubscription EXPIRED HTTP=${status} endpoint=…${endpointTag}`);
+      return "expired";
+    }
+    console.warn(`[PUSH_AUDIT] sendToSubscription FAILED HTTP=${status} body="${body}" err="${err?.message}" endpoint=…${endpointTag}`);
     return "error";
   }
 }
@@ -151,11 +160,24 @@ export async function isUserActiveInApp(userId: string): Promise<boolean> {
   try {
     const { pool } = await import("./db");
     const result = await pool.query(
-      `SELECT 1 FROM active_sessions WHERE user_id = $1 AND last_seen_at > NOW() - INTERVAL '90 seconds' LIMIT 1`,
+      `SELECT last_seen_at, NOW() - last_seen_at AS age FROM active_sessions WHERE user_id = $1 ORDER BY last_seen_at DESC LIMIT 1`,
       [userId],
     );
-    return (result.rowCount ?? 0) > 0;
-  } catch {
+    if ((result.rowCount ?? 0) === 0) {
+      console.log(`[PUSH_AUDIT] isUserActiveInApp userId=${userId.slice(0,8)} → NO session row → false (will send push)`);
+      return false;
+    }
+    const row = result.rows[0];
+    // pg returns interval as a string "HH:MM:SS.ffffff" — parse to seconds
+    const ageStr: string = String(row.age ?? "");
+    let ageSecs = 999;
+    const m = ageStr.match(/^(-?\d+):(\d+):(\d+)/);
+    if (m) ageSecs = Math.abs(parseInt(m[1]) * 3600 + parseInt(m[2]) * 60 + parseInt(m[3]));
+    const isActive = ageSecs < 90;
+    console.log(`[PUSH_AUDIT] isUserActiveInApp userId=${userId.slice(0,8)} last_seen=${row.last_seen_at} ageStr="${ageStr}" ageSecs=${ageSecs} → active=${isActive}`);
+    return isActive;
+  } catch (err: any) {
+    console.warn(`[PUSH_AUDIT] isUserActiveInApp ERROR userId=${userId.slice(0,8)}: ${err?.message} → defaulting to false (will send push)`);
     return false;
   }
 }
@@ -188,15 +210,21 @@ export async function sendPushToUser(
 ): Promise<SendPushResult> {
   ensureVapid();
 
+  const uid8 = userId.slice(0, 8);
+  console.log(`[PUSH_AUDIT] ▶ sendPushToUser ENTER userId=${uid8} category=${category} title="${payload.title}" body="${payload.body?.slice(0,60)}"`);
+
   const result: SendPushResult = { sent: 0, failed: 0, expired: 0 };
 
   try {
+    // Step A: check notification preferences
     const prefOn = await isPreferenceOn(userId, category);
+    console.log(`[PUSH_AUDIT] Step A — preference check: category=${category} enabled=${prefOn} userId=${uid8}`);
     if (!prefOn) {
-      console.log(`[PUSH] category=${category} disabled for user=${userId.slice(0,8)} — skip`);
+      console.log(`[PUSH_AUDIT] ✗ BLOCKED by preference — category=${category} userId=${uid8}`);
       return result;
     }
 
+    // Step B: fetch subscriptions from DB
     const subs = await db
       .select()
       .from(pushSubscriptions)
@@ -205,11 +233,24 @@ export async function sendPushToUser(
         lt(pushSubscriptions.failCount, 5),
       ));
 
-    if (subs.length === 0) return result;
+    console.log(`[PUSH_AUDIT] Step B — subscriptions found: count=${subs.length} userId=${uid8}`);
+    for (const s of subs) {
+      const hasP256 = !!(s.p256dh && s.p256dh.length > 10);
+      const hasAuth = !!(s.auth && s.auth.length > 4);
+      console.log(`[PUSH_AUDIT]   sub endpoint=…${s.endpoint.slice(-30)} p256dh=${hasP256} auth=${hasAuth} failCount=${s.failCount}`);
+    }
 
+    if (subs.length === 0) {
+      console.log(`[PUSH_AUDIT] ✗ NO SUBSCRIPTIONS for userId=${uid8} — push not sent`);
+      return result;
+    }
+
+    // Step C: send to each subscription
     const ttl = payload.ttl ?? 3600;
     const expiredIds: string[] = [];
     const failedIds:  string[] = [];
+
+    console.log(`[PUSH_AUDIT] Step C — sending to ${subs.length} subscription(s) ttl=${ttl}`);
 
     await Promise.all(subs.map(async (sub) => {
       const outcome = await sendToSubscription(sub, payload, ttl);
@@ -230,7 +271,7 @@ export async function sendPushToUser(
     // Remove permanently expired subscriptions
     for (const ep of expiredIds) {
       await db.delete(pushSubscriptions).where(eq(pushSubscriptions.endpoint, ep));
-      console.log(`[PUSH] Removed expired subscription endpoint=…${ep.slice(-20)}`);
+      console.log(`[PUSH_AUDIT] Removed expired subscription endpoint=…${ep.slice(-20)}`);
     }
 
     // Increment fail count for errored subscriptions
@@ -240,11 +281,9 @@ export async function sendPushToUser(
         .where(eq(pushSubscriptions.endpoint, ep));
     }
 
-    if (result.sent > 0 || result.expired > 0) {
-      console.log(`[PUSH] userId=${userId.slice(0,8)} cat=${category} sent=${result.sent} expired=${result.expired} failed=${result.failed}`);
-    }
+    console.log(`[PUSH_AUDIT] ◀ sendPushToUser DONE userId=${uid8} cat=${category} sent=${result.sent} expired=${result.expired} failed=${result.failed}`);
   } catch (err: any) {
-    console.error(`[PUSH] sendPushToUser error userId=${userId.slice(0,8)}: ${err?.message}`);
+    console.error(`[PUSH_AUDIT] ✗ sendPushToUser EXCEPTION userId=${uid8}: ${err?.message}`, err?.stack?.split("\n")[0]);
   }
 
   return result;
