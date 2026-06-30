@@ -378,10 +378,89 @@ async function handleCheckoutSessionCompleted(session: any): Promise<void> {
   })();
 }
 
+// ── Shared refund email sender (idempotent) ───────────────────────────────────
+// Called by both charge.refunded and refund.created handlers.
+// Uses processed_stripe_sessions with key "refund_email_<refundId>" to ensure
+// exactly one email is sent per refund, regardless of how many events fire.
+
+async function sendRefundEmail(
+  refundId:        string,
+  paymentIntentId: string,
+  amountCents:     number,
+  currency:        string,
+): Promise<void> {
+  const idempotencyKey = `refund_email_${refundId}`;
+
+  // ── Idempotency guard ──────────────────────────────────────────────────────
+  try {
+    await db.insert(processedStripeSessions).values({
+      sessionId: idempotencyKey,
+      userId:    "refund",
+      itemRef:   refundId,
+    });
+  } catch (err: any) {
+    if (isUniqueViolation(err)) {
+      console.log(`[EMAIL] refund_confirmation: already sent for refundId=${refundId} — idempotent skip`);
+      return;
+    }
+    throw err;
+  }
+
+  console.log(`[EMAIL] refund_confirmation: starting send for refundId=${refundId} pi=${paymentIntentId} amount=${amountCents} ${currency}`);
+
+  // ── Look up checkout session → userId + product name ──────────────────────
+  let userId:  string | undefined;
+  let itemId:  string | undefined;
+  let packId:  string | undefined;
+
+  try {
+    const stripe   = getUncachableStripeClient();
+    const sessions = await stripe.checkout.sessions.list({ payment_intent: paymentIntentId, limit: 1 });
+    const session  = sessions.data[0];
+    if (session) {
+      userId = session.metadata?.userId;
+      itemId = session.metadata?.itemId;
+      packId = session.metadata?.packId;
+    }
+  } catch (lookupErr: any) {
+    console.warn(`[EMAIL] refund_confirmation: session lookup failed for pi=${paymentIntentId}: ${lookupErr?.message}`);
+  }
+
+  const productName = getProductName(itemId, packId);
+  const amount      = formatAmount(amountCents, currency);
+
+  console.log(`[WEBHOOK] REFUND_CONFIRMED refundId=${refundId} user=${userId ?? "unknown"} product=${productName} amount=${amount}`);
+
+  if (!userId) {
+    console.warn(`[EMAIL] refund_confirmation: userId not found for pi=${paymentIntentId} — email not sent`);
+    return;
+  }
+
+  // ── Send email (fire-and-forget; never blocks webhook response) ───────────
+  try {
+    const info = await getUserInfo(userId);
+    if (!info.email) {
+      console.warn(`[EMAIL] refund_confirmation: no email address for userId=${userId.slice(0, 8)} — skipping`);
+      return;
+    }
+    const ok = await sendEmail({
+      to:      info.email,
+      subject: "Your Lulou refund has been processed ❤️",
+      html:    refundConfirmationEmail(info.firstName ?? "there", amount, productName, refundId),
+      type:    "refund_confirmation",
+    });
+    if (ok) {
+      console.log(`[EMAIL] refund_confirmation: SUCCESS refundId=${refundId} to=${info.email.slice(0, 4)}***`);
+    } else {
+      console.error(`[EMAIL] refund_confirmation: FAILED (all retries exhausted) refundId=${refundId}`);
+    }
+  } catch (emailErr: any) {
+    console.error(`[EMAIL] refund_confirmation: FAILED with exception refundId=${refundId}: ${emailErr?.message}`);
+  }
+}
+
 // ── charge.refunded ───────────────────────────────────────────────────────────
-// Fired when a refund is issued on a charge (partial or full).
-// Looks up the originating checkout session to find the userId, then sends
-// a branded refund confirmation email.
+// Fired when a refund is applied to a charge (partial or full).
 
 async function handleChargeRefunded(charge: any): Promise<void> {
   const paymentIntentId: string | undefined =
@@ -389,64 +468,51 @@ async function handleChargeRefunded(charge: any): Promise<void> {
       ? charge.payment_intent
       : (charge.payment_intent?.id ?? undefined);
 
-  const refundObj  = charge.refunds?.data?.[0];
-  const refundId   = refundObj?.id ?? charge.id ?? "N/A";
-  const refundCents: number = charge.amount_refunded ?? 0;
-  const currency: string    = charge.currency ?? "aud";
+  const refundObj   = charge.refunds?.data?.[0];
+  const refundId    = refundObj?.id ?? charge.id ?? "N/A";
+  const amountCents = charge.amount_refunded as number ?? 0;
+  const currency    = charge.currency as string ?? "aud";
 
-  console.log(`[WEBHOOK] charge.refunded: paymentIntent=${paymentIntentId ?? "none"} refundId=${refundId} amount=${refundCents} ${currency}`);
+  console.log(`[WEBHOOK] charge.refunded: pi=${paymentIntentId ?? "none"} refundId=${refundId} amount=${amountCents} ${currency}`);
 
   if (!paymentIntentId) {
-    console.warn("[WEBHOOK] charge.refunded: no payment_intent on charge — cannot look up user");
+    console.warn("[WEBHOOK] charge.refunded: no payment_intent on charge — cannot resolve user");
     return;
   }
 
-  // ── Find checkout session & userId ────────────────────────────────────────
-  let userId:      string | undefined;
-  let itemId:      string | undefined;
-  let packId:      string | undefined;
+  // Fire-and-forget — never delays the webhook 200 response
+  void sendRefundEmail(refundId, paymentIntentId, amountCents, currency);
+}
 
-  try {
-    const stripe  = getUncachableStripeClient();
-    const sessions = await stripe.checkout.sessions.list({
-      payment_intent: paymentIntentId,
-      limit: 1,
-    });
-    const session = sessions.data[0];
-    if (session) {
-      userId = session.metadata?.userId;
-      itemId = session.metadata?.itemId;
-      packId = session.metadata?.packId;
-    }
-  } catch (lookupErr: any) {
-    console.warn(`[WEBHOOK] charge.refunded: session lookup failed for pi=${paymentIntentId}: ${lookupErr?.message}`);
-  }
+// ── refund.created ────────────────────────────────────────────────────────────
+// Fired immediately when a Refund object is created. We only act on
+// status==="succeeded" — pending/failed refunds are ignored here.
+// The idempotency guard in sendRefundEmail prevents duplicate emails if
+// charge.refunded also fires for the same refund.
 
-  const productName = getProductName(itemId, packId);
-  const amount      = formatAmount(refundCents, currency);
+async function handleRefundCreated(refund: any): Promise<void> {
+  const refundId    = refund.id as string;
+  const status      = refund.status as string;
+  const amountCents = refund.amount as number ?? 0;
+  const currency    = refund.currency as string ?? "aud";
+  const paymentIntentId: string | undefined =
+    typeof refund.payment_intent === "string"
+      ? refund.payment_intent
+      : (refund.payment_intent?.id ?? undefined);
 
-  console.log(`[WEBHOOK] REFUND_CONFIRMED refundId=${refundId} user=${userId ?? "unknown"} product=${productName} amount=${amount}`);
+  console.log(`[WEBHOOK] refund.created: refundId=${refundId} status=${status} pi=${paymentIntentId ?? "none"}`);
 
-  if (!userId) {
-    console.warn("[WEBHOOK] charge.refunded: could not determine userId — email not sent");
+  if (status !== "succeeded") {
+    console.log(`[WEBHOOK] refund.created: status=${status} — waiting for succeeded status, skipping email`);
     return;
   }
 
-  // Send refund email (fire-and-forget, never blocks webhook response)
-  void (async () => {
-    try {
-      const info = await getUserInfo(userId!);
-      if (!info.email) return;
-      await sendEmail({
-        to:      info.email,
-        subject: "Your Lulou refund has been processed ❤️",
-        html:    refundConfirmationEmail(info.firstName ?? "there", amount, productName, refundId),
-        type:    "refund_confirmation",
-      });
-    } catch (emailErr: any) {
-      console.warn(`[EMAIL] refund_confirmation email failed for refundId=${refundId}: ${emailErr?.message}`);
-    }
-  })();
+  if (!paymentIntentId) {
+    console.warn("[WEBHOOK] refund.created: no payment_intent — cannot resolve user");
+    return;
+  }
+
+  void sendRefundEmail(refundId, paymentIntentId, amountCents, currency);
 }
 
 // ── Main entry point ──────────────────────────────────────────────────────────
@@ -474,6 +540,8 @@ export class WebhookHandlers {
         await handleSubscriptionDeleted(event.data.object);
       } else if (event.type === "charge.refunded") {
         await handleChargeRefunded(event.data.object);
+      } else if (event.type === "refund.created") {
+        await handleRefundCreated(event.data.object);
       }
     } catch (err: any) {
       console.error(`[WEBHOOK] Application handler error for ${event.type}:`, err?.message);

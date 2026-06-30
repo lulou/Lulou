@@ -426,7 +426,7 @@ export function refundConfirmationEmail(
     <p style="${BODY_STYLE}">Hi ${firstName},</p>
     <p style="${MUTED_STYLE}">
       We've successfully processed your refund. The amount will be returned to
-      your original payment method within 2–10 business days, depending on your bank.
+      your original payment method within 5–10 business days, depending on your bank.
     </p>
     ${amountPill(amount, "Refund Amount")}
     ${infoRow("Purchase", productName)}
@@ -434,7 +434,7 @@ export function refundConfirmationEmail(
     ${DIVIDER}
     <p style="margin:0 0 24px;font-size:15px;color:#5a3040;line-height:1.75;">
       The refund has been issued back to your original payment method. Depending on
-      your bank, it may take <strong style="color:#3d1a22;">2–10 business days</strong> to appear on your statement.
+      your bank, it may take <strong style="color:#3d1a22;">5–10 business days</strong> to appear on your statement.
     </p>
     <p style="margin:0 0 0;font-size:15px;color:#5a3040;line-height:1.75;">
       If you requested this refund by mistake or have any questions, simply reply to
