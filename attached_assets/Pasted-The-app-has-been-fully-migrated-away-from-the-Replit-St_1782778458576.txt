@@ -1,0 +1,66 @@
+The app has been fully migrated away from the Replit Stripe connector.
+
+Current state:
+- Stripe is loaded ONLY from environment variables.
+- Replit Stripe connector code has been completely removed.
+- Startup logs confirm:
+ [STRIPE_MODE] source=env
+ [STRIPE_MODE] livemode=true
+ [STRIPE_MODE] secretKeyPrefix=sk_live
+ [STRIPE_MODE] publishableKeyPrefix=pk_live
+- Server compiles successfully.
+- App loads successfully.
+- Stripe products and webhook are registered.
+- Live payments are configured through env vars only.
+
+The only remaining issue is Replit Publish.
+
+The Stripe integration page shows:
+- Overall status: Healthy
+- Connected App: lulou dating
+- Live account: Not connected
+- "Claim sandbox" always returns "Expired claim token" for both the existing sandbox and creating a new sandbox.
+- "Test connection" spins briefly and stops without any result.
+- Publish remains blocked by "Finish Stripe sandbox setup."
+
+Tasks:
+
+1. Verify there is absolutely no remaining dependency anywhere in the codebase on the Replit Stripe connector.
+
+2. Confirm the app can be deployed completely independently of Replit Publish.
+
+3. Prepare the project for deployment on Vercel.
+
+4. Tell me the exact:
+  - Build command
+  - Output directory
+  - Framework preset
+  - Required production environment variables:
+    • STRIPE_SECRET_KEY
+    • STRIPE_PUBLISHABLE_KEY
+    • VITE_STRIPE_PUBLISHABLE_KEY
+    • VITE_SUPABASE_URL
+    • VITE_SUPABASE_ANON_KEY
+    • SUPABASE_SERVICE_ROLE_KEY
+    • TURN variables
+    • FRONTEND_URL
+    • Any additional required variables
+
+5. Confirm whether the project is:
+  - a single full-stack deployment, or
+  - frontend and backend deployed separately.
+
+6. Verify every production API route will function correctly after deployment.
+
+7. Check authentication, Supabase, Stripe Checkout, webhooks, uploads, messaging, calls, notifications, and all payment flows for deployment readiness.
+
+8. If anything still references Replit Publish, Replit Stripe, sandbox claims, or connector APIs, remove those references where possible.
+
+9. If the publishing block is caused solely by Replit project metadata rather than application code, explicitly state that no further code changes are required and that the issue must be resolved by Replit Support removing the stale Stripe publishing requirement or regenerating the claim token.
+
+10. Produce a final deployment readiness report with:
+- ✅ Passed
+- ⚠ Needs attention
+- ❌ Blocking
+
+Do not modify any working Stripe logic unless it is required for deployment.
