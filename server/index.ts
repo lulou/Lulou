@@ -223,11 +223,45 @@ app.use((req, res, next) => {
         updated_at             TIMESTAMP DEFAULT NOW()
       );
       CREATE INDEX IF NOT EXISTS idx_membership_subs_customer ON membership_subscriptions(stripe_customer_id);
+
+      CREATE TABLE IF NOT EXISTS push_subscriptions (
+        id            VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id       TEXT NOT NULL,
+        endpoint      TEXT NOT NULL UNIQUE,
+        p256dh        TEXT NOT NULL,
+        auth          TEXT NOT NULL,
+        user_agent    TEXT DEFAULT '',
+        fail_count    INTEGER DEFAULT 0,
+        created_at    TIMESTAMP DEFAULT NOW(),
+        last_used_at  TIMESTAMP DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_push_subs_user ON push_subscriptions(user_id);
+
+      CREATE TABLE IF NOT EXISTS notification_preferences (
+        user_id        TEXT PRIMARY KEY,
+        new_like       BOOLEAN DEFAULT TRUE,
+        new_match      BOOLEAN DEFAULT TRUE,
+        new_message    BOOLEAN DEFAULT TRUE,
+        incoming_call  BOOLEAN DEFAULT TRUE,
+        missed_call    BOOLEAN DEFAULT TRUE,
+        halo           BOOLEAN DEFAULT TRUE,
+        elevate        BOOLEAN DEFAULT TRUE,
+        payment        BOOLEAN DEFAULT TRUE,
+        safety         BOOLEAN DEFAULT TRUE,
+        updated_at     TIMESTAMP DEFAULT NOW()
+      );
     `);
-    console.log("[STARTUP] Local DB tables verified/created: user_benefits, user_elevates, call_credits, saved_wheel_profiles, active_sessions, membership_subscriptions");
+    console.log("[STARTUP] Local DB tables verified/created: user_benefits, user_elevates, call_credits, saved_wheel_profiles, active_sessions, membership_subscriptions, push_subscriptions, notification_preferences");
   } catch (err: any) {
     console.error("[STARTUP] Local DB table migration failed:", err?.message);
   }
+
+  // Clean up any push subscriptions that repeatedly failed (failCount >= 5).
+  // This is a fast local PG call so it's safe to await here.
+  try {
+    const { cleanupFailedSubscriptions } = await import("./pushService");
+    await cleanupFailedSubscriptions();
+  } catch { /* non-critical — server starts regardless */ }
 
   await registerRoutes(httpServer, app);
 

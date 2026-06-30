@@ -2350,6 +2350,15 @@ const _appStartMs = performance.now();
 console.log("[PERF] APP_BUNDLE_EXECUTED", { ms: Math.round(_appStartMs) });
 
 function App() {
+  // Register Service Worker for push notifications (once, at root level).
+  useEffect(() => {
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.register("/sw.js", { scope: "/" })
+        .then(reg => console.log("[SW] Registered:", reg.scope))
+        .catch(err => console.warn("[SW] Registration failed:", err?.message));
+    }
+  }, []);
+
   // useEffect must be called unconditionally (Rules of Hooks).
   // The supabaseConfigError guard comes AFTER the hook.
   useEffect(() => {

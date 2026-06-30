@@ -8,6 +8,8 @@ import { apiRequest } from "@/lib/queryClient";
 import { startPurchase, restorePurchases as doRestorePurchases } from "@/lib/purchase-service";
 import { supabase } from "@/lib/supabase";
 import { useUnits } from "@/lib/units";
+import { usePushNotifications } from "@/hooks/use-push-notifications";
+import type { NotifCategory } from "@/hooks/use-push-notifications";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -144,7 +146,25 @@ export default function SettingsPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [aiStarters]);
   const [audioTranscripts,  setAudioTranscripts]  = useToggle("audio_transcripts", false);
-  const [pushNotifications, setPushNotifications] = useToggle("push_notifications", true);
+  const {
+    isSupported:        pushSupported,
+    permission:         pushPermission,
+    isSubscribed:       pushSubscribed,
+    preferences:        pushPrefs,
+    isLoading:          pushLoading,
+    subscribe:          pushSubscribe,
+    unsubscribe:        pushUnsubscribe,
+    updatePreference:   updatePushPref,
+  } = usePushNotifications();
+
+  const PUSH_CATS: Array<{ key: NotifCategory; label: string; Icon: typeof Heart }> = [
+    { key: "newMatch"     as NotifCategory, label: "Matches",       Icon: Heart      },
+    { key: "newLike"      as NotifCategory, label: "Likes",         Icon: Eye        },
+    { key: "newMessage"   as NotifCategory, label: "Messages",      Icon: Mail       },
+    { key: "incomingCall" as NotifCategory, label: "Calls",         Icon: Phone      },
+    { key: "payment"      as NotifCategory, label: "Purchases",     Icon: CreditCard },
+    { key: "safety"       as NotifCategory, label: "Safety alerts", Icon: Shield     },
+  ];
 
   // ── Active sheets / dialogs ───────────────────────────────────────────────
   const [activeSheet,     setActiveSheet]     = useState<ActiveSheet>(null);
@@ -795,20 +815,60 @@ export default function SettingsPage() {
 
           {/* ── 5. Notifications ── */}
           <SectionHeader title={t("notifications")} />
-          <SettingRow
-            icon={<Bell className="w-[18px] h-[18px] text-muted-foreground" />}
-            label={t("push_notifications")}
-            description={t("push_notif_desc")}
-            trailing={
-              <Switch
-                checked={pushNotifications}
-                onCheckedChange={setPushNotifications}
-                data-testid="switch-push-notifications"
+          {!pushSupported ? (
+            <SettingRow
+              icon={<Bell className="w-[18px] h-[18px] text-muted-foreground" />}
+              label={t("push_notifications")}
+              description="Not supported in this browser."
+              showChevron={false}
+              testId="row-push-not-supported"
+            />
+          ) : pushPermission === "denied" ? (
+            <SettingRow
+              icon={<Bell className="w-[18px] h-[18px] text-muted-foreground" />}
+              label={t("push_notifications")}
+              description="Blocked by your browser — enable in device or browser settings."
+              showChevron={false}
+              testId="row-push-denied"
+            />
+          ) : (
+            <>
+              <SettingRow
+                icon={<Bell className="w-[18px] h-[18px] text-muted-foreground" />}
+                label={t("push_notifications")}
+                description={pushSubscribed ? t("push_notif_desc") : "Tap to enable push notifications"}
+                trailing={
+                  pushLoading ? (
+                    <span className="text-xs text-muted-foreground px-2">…</span>
+                  ) : (
+                    <Switch
+                      checked={pushSubscribed}
+                      onCheckedChange={(v) => v ? pushSubscribe() : pushUnsubscribe()}
+                      data-testid="switch-push-notifications"
+                    />
+                  )
+                }
+                showChevron={false}
+                testId="row-push-notifications"
               />
-            }
-            showChevron={false}
-            testId="row-push-notifications"
-          />
+              {pushSubscribed && PUSH_CATS.map(({ key, label, Icon }) => (
+                <SettingRow
+                  key={key}
+                  icon={<Icon className="w-[18px] h-[18px] text-muted-foreground" />}
+                  label={label}
+                  trailing={
+                    <Switch
+                      checked={pushPrefs[key] !== false}
+                      onCheckedChange={(v) => updatePushPref(key, v)}
+                      data-testid={`switch-notif-${key}`}
+                    />
+                  }
+                  showChevron={false}
+                  testId={`row-notif-${key}`}
+                />
+              ))}
+            </>
+          )}
 
           {/* ── 6. Subscription ── */}
           <SectionHeader title={t("subscription")} />

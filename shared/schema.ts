@@ -255,6 +255,39 @@ export const activeSessions = pgTable("active_sessions", {
   index("idx_active_sessions_user").on(table.userId),
 ]);
 
+// ── Push Notification Subscriptions ──────────────────────────────────────────
+export const pushSubscriptions = pgTable("push_subscriptions", {
+  id:          varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId:      text("user_id").notNull(),
+  endpoint:    text("endpoint").notNull().unique(),
+  p256dh:      text("p256dh").notNull(),
+  auth:        text("auth").notNull(),
+  userAgent:   text("user_agent").default(""),
+  failCount:   integer("fail_count").default(0),
+  createdAt:   timestamp("created_at").defaultNow(),
+  lastUsedAt:  timestamp("last_used_at").defaultNow(),
+}, (table) => [
+  index("idx_push_subs_user").on(table.userId),
+]);
+
+// ── Notification Preferences (per user, per category) ─────────────────────────
+export const notificationPreferences = pgTable("notification_preferences", {
+  userId:       text("user_id").primaryKey(),
+  newLike:      boolean("new_like").default(true),
+  newMatch:     boolean("new_match").default(true),
+  newMessage:   boolean("new_message").default(true),
+  incomingCall: boolean("incoming_call").default(true),
+  missedCall:   boolean("missed_call").default(true),
+  halo:         boolean("halo").default(true),
+  elevate:      boolean("elevate").default(true),
+  payment:      boolean("payment").default(true),
+  safety:       boolean("safety").default(true),
+  updatedAt:    timestamp("updated_at").defaultNow(),
+});
+
+export type PushSubscription     = typeof pushSubscriptions.$inferSelect;
+export type NotificationPrefs    = typeof notificationPreferences.$inferSelect;
+
 export type UserBenefit = typeof userBenefits.$inferSelect;
 export type ActiveSession = typeof activeSessions.$inferSelect;
 export type UserElevate = typeof userElevates.$inferSelect;

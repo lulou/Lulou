@@ -6,6 +6,7 @@ import { processedStripeSessions, userBenefits, callCredits, membershipSubscript
 import { EXTRAS_ITEMS, ELEVATE_PACKS, type ExtrasItemId, type ElevatePackId, grantExtras, grantElevate, isUniqueViolation } from './purchaseItems';
 import { supabaseAdmin } from './supabase';
 import { sendEmail } from './emailService';
+import { sendPushToUser, buildPush } from './pushService';
 import {
   purchaseConfirmationEmail,
   haloPurchaseEmail,
@@ -372,6 +373,16 @@ async function handleCheckoutSessionCompleted(session: any): Promise<void> {
 
       await sendEmail({ to: info.email, subject, html, type: `purchase_${itemId ?? packId ?? "generic"}` });
 
+      // Push notification — fire-and-forget alongside email
+      if (sparksQty > 0) {
+        sendPushToUser(userId, buildPush.halo(sparksQty), "halo").catch(() => {});
+      } else if (isElevate || isSuperElevate) {
+        const packLabel = packId ? (ELEVATE_PACKS[packId as ElevatePackId]?.label ?? grantedProductName) : grantedProductName;
+        sendPushToUser(userId, buildPush.elevate(packLabel), "elevate").catch(() => {});
+      } else {
+        sendPushToUser(userId, buildPush.payment(grantedProductName), "payment").catch(() => {});
+      }
+
     } catch (emailErr: any) {
       console.warn(`[EMAIL] purchase confirmation email failed for session=${session.id}: ${emailErr?.message}`);
     }
@@ -454,6 +465,8 @@ async function sendRefundEmail(
     } else {
       console.error(`[EMAIL] refund_confirmation: FAILED (all retries exhausted) refundId=${refundId}`);
     }
+    // Push notification for refund (fire-and-forget alongside email)
+    sendPushToUser(userId, buildPush.refund(amount), "payment").catch(() => {});
   } catch (emailErr: any) {
     console.error(`[EMAIL] refund_confirmation: FAILED with exception refundId=${refundId}: ${emailErr?.message}`);
   }

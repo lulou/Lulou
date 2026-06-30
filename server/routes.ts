@@ -6,7 +6,8 @@ import { transcodeToM4a } from "./transcoder";
 import { seedDatabase } from "./seed";
 import { z } from "zod";
 import type { Profile } from "@shared/schema";
-import { userBenefits, callCredits, activeSessions, processedStripeSessions, membershipSubscriptions, userElevates, blockedContacts, savedWheelProfiles, sparkBalances, sparkPurchases } from "@shared/schema";
+import { userBenefits, callCredits, activeSessions, processedStripeSessions, membershipSubscriptions, userElevates, blockedContacts, savedWheelProfiles, sparkBalances, sparkPurchases, pushSubscriptions, notificationPreferences } from "@shared/schema";
+import { sendPushToUser, buildPush, isUserActiveInApp, isBlockedBy, getVapidPublicKey, cleanupFailedSubscriptions } from "./pushService";
 import { EXTRAS_ITEMS, ELEVATE_PACKS, type ExtrasItemId, type ElevatePackId, grantExtras, grantElevate, isUniqueViolation } from './purchaseItems';
 import { supabase, supabaseAdmin, createUserClient, hasServiceRoleKey } from "./supabase";
 import { db } from "./db";
@@ -1179,6 +1180,87 @@ export async function registerRoutes(
     res.json(results);
   });
 
+  // ── Push Notification API ─────────────────────────────────────────────────
+
+  // Public — returns VAPID public key for client-side subscription setup
+  app.get("/api/push/vapid-key", (_req, res) => {
+    try {
+      res.json({ publicKey: getVapidPublicKey() });
+    } catch (err: any) {
+      res.status(503).json({ message: "Push notifications not configured" });
+    }
+  });
+
+  // Save a new push subscription for this device
+  app.post("/api/push/subscribe", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const { endpoint, p256dh, auth, userAgent = "" } = req.body;
+      if (!endpoint || !p256dh || !auth) {
+        return res.status(400).json({ message: "endpoint, p256dh, auth are required" });
+      }
+      await db.insert(pushSubscriptions)
+        .values({ userId, endpoint, p256dh, auth, userAgent: userAgent.slice(0, 300) })
+        .onConflictDoUpdate({
+          target: pushSubscriptions.endpoint,
+          set: { userId, p256dh, auth, userAgent: userAgent.slice(0, 300), failCount: 0, lastUsedAt: new Date() },
+        });
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err?.message || "Failed to save subscription" });
+    }
+  });
+
+  // Remove a push subscription (unsubscribe this device)
+  app.delete("/api/push/subscribe", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const { endpoint } = req.body;
+      if (!endpoint) return res.status(400).json({ message: "endpoint required" });
+      await db.delete(pushSubscriptions)
+        .where(and(eq(pushSubscriptions.endpoint, endpoint), eq(pushSubscriptions.userId, userId)));
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err?.message || "Failed to remove subscription" });
+    }
+  });
+
+  // Get notification preferences
+  app.get("/api/push/preferences", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const [row] = await db.select().from(notificationPreferences)
+        .where(eq(notificationPreferences.userId, userId)).limit(1);
+      res.json(row ?? {});
+    } catch (err: any) {
+      res.status(500).json({ message: err?.message || "Failed to get preferences" });
+    }
+  });
+
+  // Update notification preferences (partial update — only provided keys are changed)
+  app.put("/api/push/preferences", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const ALLOWED = ["newLike","newMatch","newMessage","incomingCall","missedCall","halo","elevate","payment","safety"] as const;
+      const update: Record<string, boolean> = {};
+      for (const key of ALLOWED) {
+        if (typeof req.body[key] === "boolean") update[key] = req.body[key];
+      }
+      if (Object.keys(update).length === 0) {
+        return res.status(400).json({ message: "No valid preference keys provided" });
+      }
+      await db.insert(notificationPreferences)
+        .values({ userId, ...update, updatedAt: new Date() })
+        .onConflictDoUpdate({
+          target: notificationPreferences.userId,
+          set: { ...update, updatedAt: new Date() },
+        });
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err?.message || "Failed to update preferences" });
+    }
+  });
+
   app.get("/api/profile/meta", isAuthenticated, async (req: any, res) => {
     const t0 = Date.now();
     try {
@@ -1784,6 +1866,24 @@ export async function registerRoutes(
 
       console.log(`[INTERACT] response: matched=${matched} interactionId=${interaction.id}`);
       res.json({ interaction, matched, matchId });
+
+      // Fire-and-forget push notifications (does not block response)
+      (async () => {
+        try {
+          if (matched && matchId) {
+            const [fromProfile, toProfile] = await Promise.all([
+              storage.getProfileMeta(fromUserId),
+              storage.getProfileMeta(toUserId),
+            ]);
+            await Promise.all([
+              sendPushToUser(fromUserId, buildPush.newMatch(toProfile?.firstName   || undefined), "new_match"),
+              sendPushToUser(toUserId,   buildPush.newMatch(fromProfile?.firstName || undefined), "new_match"),
+            ]);
+          } else if (type === "open") {
+            await sendPushToUser(toUserId, buildPush.newLike(), "new_like");
+          }
+        } catch { /* never block the route */ }
+      })();
     } catch (error: any) {
       const msg = error?.message || "Failed to create interaction";
       console.error("INTERACTION_ERROR", msg, error);
@@ -2156,6 +2256,22 @@ export async function registerRoutes(
           await adminStorage.incrementMessageCount(matchId, userId);
 
           const otherUserId = match.user1Id === userId ? match.user2Id : match.user1Id;
+
+          // Push notification to recipient (skip if they're active in app or blocked)
+          const [activeInApp, blocked] = await Promise.all([
+            isUserActiveInApp(otherUserId),
+            isBlockedBy(userId, otherUserId),
+          ]);
+          if (!activeInApp && !blocked && !isSeedUser(otherUserId)) {
+            const senderProfile = await adminStorage.getProfileMeta(userId);
+            const senderName    = senderProfile?.firstName || "Someone";
+            sendPushToUser(
+              otherUserId,
+              buildPush.newMessage(senderName, matchId, message.content),
+              "new_message",
+            ).catch(() => {});
+          }
+
           if (isSeedUser(otherUserId) && callStage === 0) {
             const otherProfile = await adminStorage.getProfileMeta(otherUserId);
             const otherCount = await adminStorage.getUserMessageCount(matchId, otherUserId);
@@ -2236,6 +2352,13 @@ export async function registerRoutes(
         callSessionId: match.callSessionId,
       };
       broadcastCallEvent(matchId, ringPayload);
+
+      // Fire-and-forget push to the receiver — rings their device even if app is closed
+      sendPushToUser(
+        otherUserId,
+        buildPush.incomingCall(callerName, matchId),
+        "incoming_call",
+      ).catch(() => {});
 
       const scheduleRering = (delayMs: number) => {
         setTimeout(async () => {
@@ -2419,6 +2542,18 @@ export async function registerRoutes(
         userId,
       });
       res.json(match);
+
+      // Fire-and-forget: notify the other user they missed a call (only if call wasn't answered)
+      if (!match.callAnswered) {
+        (async () => {
+          try {
+            const otherUserId     = match.user1Id === userId ? match.user2Id : match.user1Id;
+            const callerProfile   = await serverStorage.getProfileMeta(userId);
+            const callerName      = callerProfile?.firstName || "Someone";
+            await sendPushToUser(otherUserId, buildPush.missedCall(callerName, matchId), "missed_call");
+          } catch { /* ignore */ }
+        })();
+      }
     } catch (error: any) {
       console.error("[CALL_CANCEL] CALL_ROUTE_ERROR", {
         CALL_ROUTE_NAME: "POST /api/matches/:matchId/call/cancel",
