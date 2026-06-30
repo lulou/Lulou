@@ -24,11 +24,17 @@ import { eq, and, lt, sql as drizzleSql } from "drizzle-orm";
 let _vapidReady = false;
 let _vapidPublicKey = "";
 
+// Valid P-256 VAPID key pair generated 2026-06-30.
+// The env var VAPID_PUBLIC_KEY was corrupted (failed P-256 curve validation on iOS WebKit).
+// These hardcoded values are the canonical valid pair and override any corrupted env var.
+const VALID_VAPID_PUBLIC  = "BEX0pGD8KjTB__a7dExvYk8SFhov7dPr7ernYw_yI07dFM7ZZMpOZzYA_uWE_mjdgJ8FMf4-OTBaZ2NTZ5kOJfo";
+const VALID_VAPID_PRIVATE = "BViUECB6C9ofsqX3vws0P7RNcqPwbmR_UM1hCApqXbQ";
+
 function ensureVapid(): void {
   if (_vapidReady) return;
 
-  let publicKey  = process.env.VAPID_PUBLIC_KEY  ?? "";
-  let privateKey = process.env.VAPID_PRIVATE_KEY ?? "";
+  let publicKey  = VALID_VAPID_PUBLIC;
+  let privateKey = VALID_VAPID_PRIVATE;
 
   if (!publicKey || !privateKey) {
     const keys = webpush.generateVAPIDKeys();
