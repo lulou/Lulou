@@ -14,7 +14,7 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, API_BASE } from "@/lib/queryClient";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -85,7 +85,7 @@ export function usePushNotifications() {
   const getVapidKey = useCallback(async (): Promise<string | null> => {
     if (vapidKeyRef.current) return vapidKeyRef.current;
     try {
-      const res = await fetch("/api/push/vapid-key");
+      const res = await fetch(API_BASE + "/api/push/vapid-key");
       if (!res.ok) return null;
       const { publicKey } = await res.json();
       vapidKeyRef.current = publicKey;
