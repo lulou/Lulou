@@ -6,7 +6,7 @@ import { transcodeToM4a } from "./transcoder";
 import { seedDatabase } from "./seed";
 import { z } from "zod";
 import type { Profile } from "@shared/schema";
-import { userBenefits, callCredits, activeSessions, processedStripeSessions, membershipSubscriptions, userElevates, blockedContacts, savedWheelProfiles, sparkBalances, sparkPurchases, pushSubscriptions, notificationPreferences } from "@shared/schema";
+import { userBenefits, callCredits, activeSessions, processedStripeSessions, membershipSubscriptions, userElevates, blockedContacts, savedWheelProfiles, sparkBalances, sparkPurchases, pushSubscriptions, notificationPreferences, datePlanRemindersSent } from "@shared/schema";
 import { sendPushToUser, buildPush, isUserActiveInApp, getVapidPublicKey, cleanupFailedSubscriptions } from "./pushService";
 import { EXTRAS_ITEMS, ELEVATE_PACKS, type ExtrasItemId, type ElevatePackId, grantExtras, grantElevate, isUniqueViolation } from './purchaseItems';
 import { supabase, supabaseAdmin, createUserClient, hasServiceRoleKey } from "./supabase";
@@ -661,6 +661,115 @@ export async function registerRoutes(
       console.error("[PERIODIC_CLEANUP] periodic stale-call sweep failed:", err?.message);
     }
   }, 5 * 60 * 1000);
+
+  // ── Date-plan 24 h push reminder ─────────────────────────────────────────
+  // Runs hourly. Finds any confirmed date plans that are 23–25 h away and
+  // sends a push to both parties if one hasn't been sent yet (dedup via the
+  // local date_plan_reminders_sent table).
+  async function sendDatePlanReminders24h() {
+    try {
+      // 1. Fetch all __DATE_DATETIME__: messages across every match.
+      //    supabaseAdmin bypasses RLS so no match_id scoping is needed.
+      const { data: dtMessages } = await supabaseAdmin
+        .from("messages")
+        .select("match_id, content, created_at")
+        .like("content", "__DATE_DATETIME__%");
+
+      if (!dtMessages?.length) return;
+
+      // 2. Pick the *latest* datetime proposal per match.
+      const latestByMatch = new Map<string, { date: string; time: string; createdAt: Date }>();
+      for (const m of dtMessages) {
+        if (!m.content.startsWith("__DATE_DATETIME__:")) continue;
+        try {
+          const json = JSON.parse(m.content.slice("__DATE_DATETIME__:".length));
+          if (!json.date || !json.time) continue;
+          const existing = latestByMatch.get(m.match_id);
+          const ts = new Date(m.created_at);
+          if (!existing || ts > existing.createdAt) {
+            latestByMatch.set(m.match_id, { date: json.date, time: json.time, createdAt: ts });
+          }
+        } catch { continue; }
+      }
+
+      // 3. Keep only matches whose date is 23–25 h away.
+      const now = Date.now();
+      const WINDOW_LO = 23 * 3_600_000;
+      const WINDOW_HI = 25 * 3_600_000;
+      const candidates: string[] = [];
+      for (const [matchId, dt] of latestByMatch) {
+        const diff = new Date(`${dt.date}T${dt.time}:00`).getTime() - now;
+        if (diff >= WINDOW_LO && diff <= WINDOW_HI) candidates.push(matchId);
+      }
+      if (!candidates.length) return;
+
+      for (const matchId of candidates) {
+        // 4. Skip if already reminded.
+        const [alreadySent] = await db
+          .select()
+          .from(datePlanRemindersSent)
+          .where(and(
+            eq(datePlanRemindersSent.matchId, matchId),
+            eq(datePlanRemindersSent.reminderType, "24h"),
+          ));
+        if (alreadySent) continue;
+
+        // 5. Both users must have confirmed (__DATE_CONFIRM__: from 2 distinct senders).
+        const { data: confirmMsgs } = await supabaseAdmin
+          .from("messages")
+          .select("sender_id")
+          .eq("match_id", matchId)
+          .like("content", "__DATE_CONFIRM__:%");
+        const confirmerIds = new Set((confirmMsgs ?? []).map((m: any) => m.sender_id));
+        if (confirmerIds.size < 2) continue;
+
+        // 6. Get match user IDs.
+        const { data: match } = await supabaseAdmin
+          .from("matches")
+          .select("user1_id, user2_id")
+          .eq("id", matchId)
+          .maybeSingle();
+        if (!match) continue;
+        if (!confirmerIds.has(match.user1_id) || !confirmerIds.has(match.user2_id)) continue;
+
+        // 7. Get first names.
+        const { data: profiles } = await supabaseAdmin
+          .from("profiles")
+          .select("user_id, first_name")
+          .in("user_id", [match.user1_id, match.user2_id]);
+        const nameOf = (uid: string) =>
+          (profiles ?? []).find((p: any) => p.user_id === uid)?.first_name ?? "your match";
+
+        const dt = latestByMatch.get(matchId)!;
+
+        // 8. Send push to both (fire-and-forget; allSettled swallows errors).
+        await Promise.allSettled([
+          sendPushToUser(
+            match.user1_id,
+            buildPush.dateReminder24h(nameOf(match.user2_id), matchId, dt.date, dt.time),
+            "safety",
+          ),
+          sendPushToUser(
+            match.user2_id,
+            buildPush.dateReminder24h(nameOf(match.user1_id), matchId, dt.date, dt.time),
+            "safety",
+          ),
+        ]);
+
+        // 9. Mark sent so we never fire again for this match+type.
+        await db.insert(datePlanRemindersSent).values({ matchId, reminderType: "24h" });
+
+        console.log(`[DATE_REMINDER] Sent 24h reminder matchId=${matchId.slice(0, 8)}`);
+      }
+    } catch (err: any) {
+      console.error("[DATE_REMINDER] sendDatePlanReminders24h error:", err?.message);
+    }
+  }
+
+  // Run immediately 30 s after startup (avoids hammering Supabase on cold boot),
+  // then every 60 minutes.
+  setTimeout(() => sendDatePlanReminders24h(), 30_000);
+  setInterval(() => sendDatePlanReminders24h(), 60 * 60_000);
 
   // ── Request timing middleware ─────────────────────────────────────────────
   // Logs routes that take longer than 500 ms so slow queries are easy to spot.

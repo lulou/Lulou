@@ -416,6 +416,16 @@ export const adminPaymentSimulations = pgTable("admin_payment_simulations", {
 ]);
 export type AdminPaymentSimulation = typeof adminPaymentSimulations.$inferSelect;
 
+// ── Date-plan 24h reminder dedup ─────────────────────────────────────────────
+// Prevents the cron from sending the same reminder twice across server restarts.
+export const datePlanRemindersSent = pgTable("date_plan_reminders_sent", {
+  matchId:      varchar("match_id").notNull(),
+  reminderType: text("reminder_type").notNull(),  // e.g. "24h"
+  sentAt:       timestamp("sent_at").defaultNow().notNull(),
+}, (table) => [
+  primaryKey({ columns: [table.matchId, table.reminderType] }),
+]);
+
 // ── Per-user per-match badge counts ───────────────────────────────────────────
 // Tracks how many unread push-triggered messages each user has per match.
 // Incremented when a push notification is sent; reset when the user reads the chat.

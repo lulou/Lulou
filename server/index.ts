@@ -272,8 +272,15 @@ app.use((req, res, next) => {
       );
       CREATE INDEX IF NOT EXISTS idx_admin_sim_target ON admin_payment_simulations(target_user_id);
       CREATE INDEX IF NOT EXISTS idx_admin_sim_admin  ON admin_payment_simulations(admin_user_id);
+
+      CREATE TABLE IF NOT EXISTS date_plan_reminders_sent (
+        match_id      VARCHAR NOT NULL,
+        reminder_type TEXT NOT NULL,
+        sent_at       TIMESTAMP NOT NULL DEFAULT NOW(),
+        PRIMARY KEY (match_id, reminder_type)
+      );
     `);
-    console.log("[STARTUP] Local DB tables verified/created: user_benefits, user_elevates, call_credits, saved_wheel_profiles, active_sessions, membership_subscriptions, push_subscriptions, notification_preferences, admin_payment_simulations");
+    console.log("[STARTUP] Local DB tables verified/created: user_benefits, user_elevates, call_credits, saved_wheel_profiles, active_sessions, membership_subscriptions, push_subscriptions, notification_preferences, admin_payment_simulations, date_plan_reminders_sent");
   } catch (err: any) {
     console.error("[STARTUP] Local DB table migration failed:", err?.message);
   }

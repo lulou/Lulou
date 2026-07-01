@@ -381,4 +381,11 @@ export const buildPush = {
     data:  { url: "/profile", type: "safety", tag: "safety" },
     ttl:   86400,
   }),
+
+  dateReminder24h: (matchName: string, matchId: string, dateStr: string, timeStr: string): PushPayload => ({
+    title: "Your date is tomorrow 🥂",
+    body:  `Don't forget — you have a date with ${matchName} tomorrow at ${timeStr}`,
+    data:  { url: `/date-plan/${matchId}`, type: "date_reminder", tag: `date_reminder_24h_${matchId}` },
+    ttl:   25 * 3600,
+  }),
 };
