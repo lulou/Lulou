@@ -1,0 +1,206 @@
+Build the complete Lulou Date Planning experience.
+
+This should be a premium feature that naturally follows the final conversation decision when two users choose "Plan a Date."
+
+Objective:
+Lulou shouldn't stop after two people decide to meet. The app should help them confidently organise their first date from start to finish.
+
+──────────────────────────────
+
+DATE PLANNING FLOW
+
+When both users choose "Plan a Date":
+
+Create a new "Date Planning" screen.
+
+Show:
+
+• "Congratulations! You both chose to meet ❤️"
+
+Then guide them through planning together.
+
+──────────────────────────────
+
+DATE TYPE
+
+Allow both users to vote on ideas such as:
+
+☕ Coffee
+🍸 Drinks
+🍽 Dinner
+🌅 Sunset walk
+🎳 Activities
+🏖 Beach
+🥐 Brunch
+🍦 Ice cream
+🍷 Wine bar
+🎨 Something unique
+
+If both vote for the same option:
+Automatically continue.
+
+If they choose different ideas:
+Allow them to continue chatting until they agree.
+
+──────────────────────────────
+
+LOCATION
+
+Suggest nearby venues using their approximate location.
+
+Display:
+
+Venue image
+Rating
+Distance
+Opening hours
+Price level
+
+Allow users to:
+
+• Choose one
+• Search another venue
+• Enter their own location manually
+
+──────────────────────────────
+
+DATE & TIME
+
+Beautiful calendar picker.
+
+Time selector.
+
+Show both users' selected availability.
+
+Prevent impossible selections.
+
+──────────────────────────────
+
+CONFIRMATION
+
+Display a premium summary:
+
+Date type
+
+Venue
+
+Time
+
+Day
+
+Both profile photos
+
+Button:
+
+"Confirm Date"
+
+Only confirm when BOTH users accept.
+
+──────────────────────────────
+
+CALENDAR
+
+After confirmation:
+
+Offer:
+
+Add to Apple Calendar
+
+Add to Google Calendar
+
+Set reminders
+
+──────────────────────────────
+
+REMINDERS
+
+Automatically remind both users:
+
+24 hours before
+
+2 hours before
+
+30 minutes before
+
+Allow reminder settings.
+
+──────────────────────────────
+
+SAFETY
+
+Include optional features:
+
+Share date with trusted contact
+
+Emergency information
+
+Safe dating tips
+
+Meeting in public reminder
+
+──────────────────────────────
+
+AFTER THE DATE
+
+24 hours later ask:
+
+"How did your date go?"
+
+Options:
+
+❤️ Amazing
+
+😊 Good
+
+😐 Okay
+
+😕 Not great
+
+👎 Didn't happen
+
+If both choose Amazing:
+
+Celebrate with animation.
+
+Unlock a special couple badge.
+
+──────────────────────────────
+
+DESIGN
+
+Luxury.
+
+Minimal.
+
+Apple-quality animations.
+
+Smooth transitions.
+
+Beautiful illustrations.
+
+No clutter.
+
+Everything should feel exciting, romantic and effortless.
+
+──────────────────────────────
+
+TECHNICAL
+
+• Keep existing messaging system.
+• Keep existing call system.
+• Integrate naturally after the final "Plan Date" decision.
+• Do not break existing flows.
+• Fully responsive.
+• Optimised for iPhone.
+• Run:
+ - npm run check
+ - npm run build
+
+Finally, report:
+
+• New files created
+• Existing files modified
+• New routes added
+• Database changes
+• Any APIs required (maps/places/calendar)
+• Remaining work before production.

@@ -788,6 +788,7 @@ export interface IStorage {
   getIncomingWheelSparks(userId: string): Promise<(Interaction & { profile: Profile })[]>;
   acceptWheelSpark(fromUserId: string, toUserId: string): Promise<{ matchId: string }>;
   declineWheelSpark(fromUserId: string, toUserId: string): Promise<void>;
+  getDatePlanMessages(matchId: string): Promise<Message[]>;
 }
 
 /**
@@ -3328,6 +3329,18 @@ export class SupabaseStorage implements IStorage {
       .eq("from_user_id", fromUserId)
       .eq("to_user_id", toUserId)
       .eq("type", "wheel_connection");
+  }
+
+  async getDatePlanMessages(matchId: string): Promise<Message[]> {
+    const MSG_COLS = "id, match_id, sender_id, content, reaction, created_at";
+    const { data, error } = await this.sb
+      .from("messages")
+      .select(MSG_COLS)
+      .eq("match_id", matchId)
+      .like("content", "__DATE_%")
+      .order("created_at", { ascending: true });
+    if (error) throw new Error(`getDatePlanMessages: ${error.message}`);
+    return (data ?? []).map(mapMessage);
   }
 
   async resetUserTestData(userId: string): Promise<void> {

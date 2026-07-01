@@ -26,6 +26,7 @@ import DragTestPage from "@/pages/drag-test";
 import AdminDiagnosticsPage from "@/pages/admin-diagnostics";
 import AdminPaymentSimPage from "@/pages/admin-payment-sim";
 import AuthCallbackPage from "@/pages/auth-callback";
+import DatePlanPage from "@/pages/date-plan";
 import {
   PrivacyPolicyPage,
   TermsOfServicePage,
@@ -221,7 +222,7 @@ function PersistentTabs() {
 
   const activeTab = location === "/" ? "/discover" : location;
   const isTabRoute = TAB_PAGES.some(t => activeTab.startsWith(t.path));
-  const isSubRoute = location.startsWith("/messages/");
+  const isSubRoute = location.startsWith("/messages/") || location.startsWith("/date-plan/");
   const isSettingsRoute = location === "/settings";
 
   // Navigation trace — logs every time the active tab changes so we can pinpoint
@@ -271,6 +272,7 @@ function PersistentTabs() {
         <PageErrorBoundary name="/messages">
           <Switch>
             <Route path="/messages/:matchId" component={Messaging} />
+            <Route path="/date-plan/:matchId" component={DatePlanPage} />
           </Switch>
         </PageErrorBoundary>
       )}

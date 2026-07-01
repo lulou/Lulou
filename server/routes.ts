@@ -4362,6 +4362,273 @@ export async function registerRoutes(
     res.json({ iceServers, hasTurn });
   });
 
+  // ── Date Plan routes ─────────────────────────────────────────────────────────
+  // Uses system messages (content prefixed __DATE_*) — no new DB tables needed.
+  // All state is computed by parsing messages on every GET request.
+
+  function parseDatePlanState(messages: any[], userId: string, user1Id: string, user2Id: string) {
+    const otherUserId = user1Id === userId ? user2Id : user1Id;
+
+    const safeParse = (prefix: string, content: string) => {
+      try { return JSON.parse(content.slice(prefix.length)); } catch { return {}; }
+    };
+
+    // Votes — latest per user wins (allow re-vote)
+    const votes = messages.filter((m: any) => m.content.startsWith("__DATE_TYPE_VOTE__:"));
+    const myVoteMsg   = [...votes].reverse().find((m: any) => m.senderId === userId);
+    const theirVoteMsg = [...votes].reverse().find((m: any) => m.senderId === otherUserId);
+    const myVote    = myVoteMsg   ? (safeParse("__DATE_TYPE_VOTE__:", myVoteMsg.content).type   ?? null) : null;
+    const theirVote = theirVoteMsg ? (safeParse("__DATE_TYPE_VOTE__:", theirVoteMsg.content).type ?? null) : null;
+
+    // Venue — latest proposal wins
+    const venueMsg = [...messages].reverse().find((m: any) => m.content.startsWith("__DATE_VENUE__:"));
+    let venueName: string|null = null, venueAddress: string|null = null, venueProposedBy: string|null = null;
+    if (venueMsg) {
+      const d = safeParse("__DATE_VENUE__:", venueMsg.content);
+      venueName = d.name ?? null;
+      venueAddress = d.address || null;
+      venueProposedBy = venueMsg.senderId;
+    }
+
+    // Venue accept — must come AFTER the latest venue proposal
+    const venueAcceptMsg = venueMsg
+      ? messages.filter((m: any) => m.content.startsWith("__DATE_VENUE_ACCEPT__:")
+          && new Date(m.createdAt) > new Date(venueMsg.createdAt)).pop()
+      : null;
+    const venueAccepted = !!venueAcceptMsg;
+
+    // DateTime — latest proposal wins
+    const dtMsg = [...messages].reverse().find((m: any) => m.content.startsWith("__DATE_DATETIME__:"));
+    let proposedDate: string|null = null, proposedTime: string|null = null, datetimeProposedBy: string|null = null;
+    if (dtMsg) {
+      const d = safeParse("__DATE_DATETIME__:", dtMsg.content);
+      proposedDate = d.date ?? null;
+      proposedTime = d.time ?? null;
+      datetimeProposedBy = dtMsg.senderId;
+    }
+
+    // DateTime accept — must come AFTER the latest datetime proposal
+    const dtAcceptMsg = dtMsg
+      ? messages.filter((m: any) => m.content.startsWith("__DATE_DATETIME_ACCEPT__:")
+          && new Date(m.createdAt) > new Date(dtMsg.createdAt)).pop()
+      : null;
+    const datetimeAccepted = !!dtAcceptMsg;
+
+    // Confirmations
+    const confirms = messages.filter((m: any) => m.content.startsWith("__DATE_CONFIRM__:"));
+    const confirmedByMe   = confirms.some((m: any) => m.senderId === userId);
+    const confirmedByThem = confirms.some((m: any) => m.senderId === otherUserId);
+    const confirmedAt = confirms.length > 0
+      ? (confirms[confirms.length - 1].createdAt instanceof Date
+          ? confirms[confirms.length - 1].createdAt.toISOString()
+          : String(confirms[confirms.length - 1].createdAt))
+      : null;
+
+    // Feedback
+    const feedbacks = messages.filter((m: any) => m.content.startsWith("__DATE_FEEDBACK__:"));
+    const myFbMsg    = feedbacks.find((m: any) => m.senderId === userId);
+    const theirFbMsg = feedbacks.find((m: any) => m.senderId === otherUserId);
+    const myFeedback    = myFbMsg    ? (safeParse("__DATE_FEEDBACK__:", myFbMsg.content).rating    ?? null) : null;
+    const theirFeedback = theirFbMsg ? (safeParse("__DATE_FEEDBACK__:", theirFbMsg.content).rating ?? null) : null;
+
+    // Determine step
+    let step: string;
+    if (confirmedByMe && confirmedByThem) {
+      step = "confirmed";
+    } else if (venueAccepted && datetimeAccepted) {
+      step = "confirming";
+    } else if (venueAccepted) {
+      step = "datetime";
+    } else if (myVote && theirVote && myVote === theirVote) {
+      step = "venue";
+    } else {
+      step = "type";
+    }
+
+    return {
+      step, myVote, theirVote,
+      venueName, venueAddress, venueProposedBy, venueAccepted,
+      proposedDate, proposedTime, datetimeProposedBy, datetimeAccepted,
+      confirmedByMe, confirmedByThem, confirmedAt,
+      myFeedback, theirFeedback,
+      userId,
+    };
+  }
+
+  app.get("/api/date-plan/:matchId", isAuthenticated, async (req: any, res) => {
+    try {
+      const storage = getStorage(req);
+      const userId = req.user.id;
+      const { matchId } = req.params;
+
+      const [matchDetail, myProfile, datePlanMessages] = await Promise.all([
+        storage.getMatch(matchId, userId),
+        storage.getProfile(userId),
+        storage.getDatePlanMessages(matchId),
+      ]);
+
+      if (!matchDetail) return res.status(404).json({ message: "Match not found" });
+
+      const { user1Id, user2Id } = matchDetail;
+      const state = parseDatePlanState(datePlanMessages, userId, user1Id, user2Id);
+
+      const theirProfile = matchDetail.profile;
+      const theirPhotos: string[] = theirProfile?.photos ?? [];
+      const myPhotos: string[] = myProfile?.photos ?? [];
+
+      res.json({
+        ...state,
+        theirName:  theirProfile?.firstName ?? "them",
+        theirPhoto: theirPhotos[0] ?? null,
+        myName:     myProfile?.firstName ?? "you",
+        myPhoto:    myPhotos[0] ?? null,
+      });
+    } catch (err: any) {
+      console.error("GET /api/date-plan error:", err?.message);
+      res.status(500).json({ message: "Failed to load date plan" });
+    }
+  });
+
+  app.post("/api/date-plan/:matchId/vote", isAuthenticated, async (req: any, res) => {
+    try {
+      const storage = getStorage(req);
+      const userId = req.user.id;
+      const { matchId } = req.params;
+      const { type } = req.body;
+      if (typeof type !== "string" || !type.trim()) return res.status(400).json({ message: "type required" });
+
+      const matchDetail = await storage.getMatch(matchId, userId);
+      if (!matchDetail) return res.status(404).json({ message: "Match not found" });
+
+      await storage.createMessage({ matchId, senderId: userId, content: `__DATE_TYPE_VOTE__:${JSON.stringify({ type })}` });
+      res.json({ ok: true });
+    } catch (err: any) {
+      console.error("POST /api/date-plan/vote error:", err?.message);
+      res.status(500).json({ message: "Failed to vote" });
+    }
+  });
+
+  app.post("/api/date-plan/:matchId/venue", isAuthenticated, async (req: any, res) => {
+    try {
+      const storage = getStorage(req);
+      const userId = req.user.id;
+      const { matchId } = req.params;
+      const { name, address } = req.body;
+      if (typeof name !== "string" || !name.trim()) return res.status(400).json({ message: "name required" });
+
+      const matchDetail = await storage.getMatch(matchId, userId);
+      if (!matchDetail) return res.status(404).json({ message: "Match not found" });
+
+      await storage.createMessage({ matchId, senderId: userId, content: `__DATE_VENUE__:${JSON.stringify({ name: name.trim(), address: (address ?? "").trim() })}` });
+      res.json({ ok: true });
+    } catch (err: any) {
+      console.error("POST /api/date-plan/venue error:", err?.message);
+      res.status(500).json({ message: "Failed to propose venue" });
+    }
+  });
+
+  app.post("/api/date-plan/:matchId/venue-accept", isAuthenticated, async (req: any, res) => {
+    try {
+      const storage = getStorage(req);
+      const userId = req.user.id;
+      const { matchId } = req.params;
+
+      const matchDetail = await storage.getMatch(matchId, userId);
+      if (!matchDetail) return res.status(404).json({ message: "Match not found" });
+
+      await storage.createMessage({ matchId, senderId: userId, content: `__DATE_VENUE_ACCEPT__:${JSON.stringify({ userId })}` });
+      res.json({ ok: true });
+    } catch (err: any) {
+      console.error("POST /api/date-plan/venue-accept error:", err?.message);
+      res.status(500).json({ message: "Failed to accept venue" });
+    }
+  });
+
+  app.post("/api/date-plan/:matchId/datetime", isAuthenticated, async (req: any, res) => {
+    try {
+      const storage = getStorage(req);
+      const userId = req.user.id;
+      const { matchId } = req.params;
+      const { date, time } = req.body;
+      if (!date || !time) return res.status(400).json({ message: "date and time required" });
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ message: "Invalid date format" });
+      if (!/^\d{2}:\d{2}$/.test(time)) return res.status(400).json({ message: "Invalid time format" });
+
+      const matchDetail = await storage.getMatch(matchId, userId);
+      if (!matchDetail) return res.status(404).json({ message: "Match not found" });
+
+      await storage.createMessage({ matchId, senderId: userId, content: `__DATE_DATETIME__:${JSON.stringify({ date, time })}` });
+      res.json({ ok: true });
+    } catch (err: any) {
+      console.error("POST /api/date-plan/datetime error:", err?.message);
+      res.status(500).json({ message: "Failed to propose date/time" });
+    }
+  });
+
+  app.post("/api/date-plan/:matchId/datetime-accept", isAuthenticated, async (req: any, res) => {
+    try {
+      const storage = getStorage(req);
+      const userId = req.user.id;
+      const { matchId } = req.params;
+
+      const matchDetail = await storage.getMatch(matchId, userId);
+      if (!matchDetail) return res.status(404).json({ message: "Match not found" });
+
+      await storage.createMessage({ matchId, senderId: userId, content: `__DATE_DATETIME_ACCEPT__:${JSON.stringify({ userId })}` });
+      res.json({ ok: true });
+    } catch (err: any) {
+      console.error("POST /api/date-plan/datetime-accept error:", err?.message);
+      res.status(500).json({ message: "Failed to accept date/time" });
+    }
+  });
+
+  app.post("/api/date-plan/:matchId/confirm", isAuthenticated, async (req: any, res) => {
+    try {
+      const storage = getStorage(req);
+      const userId = req.user.id;
+      const { matchId } = req.params;
+
+      const matchDetail = await storage.getMatch(matchId, userId);
+      if (!matchDetail) return res.status(404).json({ message: "Match not found" });
+
+      // Idempotent: don't double-confirm
+      const existing = await storage.getDatePlanMessages(matchId);
+      const alreadyConfirmed = existing.filter(m => m.content.startsWith("__DATE_CONFIRM__:")).some(m => m.senderId === userId);
+      if (!alreadyConfirmed) {
+        await storage.createMessage({ matchId, senderId: userId, content: `__DATE_CONFIRM__:${JSON.stringify({ userId })}` });
+      }
+      res.json({ ok: true });
+    } catch (err: any) {
+      console.error("POST /api/date-plan/confirm error:", err?.message);
+      res.status(500).json({ message: "Failed to confirm" });
+    }
+  });
+
+  app.post("/api/date-plan/:matchId/feedback", isAuthenticated, async (req: any, res) => {
+    try {
+      const storage = getStorage(req);
+      const userId = req.user.id;
+      const { matchId } = req.params;
+      const { rating } = req.body;
+      const validRatings = ["amazing","good","okay","not_great","didnt_happen"];
+      if (!validRatings.includes(rating)) return res.status(400).json({ message: "Invalid rating" });
+
+      const matchDetail = await storage.getMatch(matchId, userId);
+      if (!matchDetail) return res.status(404).json({ message: "Match not found" });
+
+      // Idempotent: update existing feedback or insert
+      const existing = await storage.getDatePlanMessages(matchId);
+      const myFbMsg = existing.find(m => m.content.startsWith("__DATE_FEEDBACK__:") && m.senderId === userId);
+      if (!myFbMsg) {
+        await storage.createMessage({ matchId, senderId: userId, content: `__DATE_FEEDBACK__:${JSON.stringify({ rating })}` });
+      }
+      res.json({ ok: true });
+    } catch (err: any) {
+      console.error("POST /api/date-plan/feedback error:", err?.message);
+      res.status(500).json({ message: "Failed to submit feedback" });
+    }
+  });
+
   // Global error handler — catches any unhandled errors that escape route try/catch blocks.
   // Without this, Express would return an HTML error page instead of JSON, causing clients
   // to display a literal "Internal Server Error" string from the HTTP status text.

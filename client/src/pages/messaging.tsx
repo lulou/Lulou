@@ -66,6 +66,7 @@ function ReadyToMeetSection({ matchDetail, matchId }: { matchDetail: MatchDetail
   const { toast } = useToast();
   const { t } = useLanguageContext();
   const queryClient = useQueryClient();
+  const [, navigate] = useLocation();
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [selectedSlots, setSelectedSlots] = useState<string[]>([]);
   const [showPhoneInput, setShowPhoneInput] = useState(false);
@@ -221,7 +222,7 @@ function ReadyToMeetSection({ matchDetail, matchId }: { matchDetail: MatchDetail
 
   if (myNumberExchanged) {
     return (
-      <div className="p-4 border-t">
+      <div className="p-4 border-t space-y-3">
         <Card className="p-5 text-center space-y-3 bg-primary/5 border-primary/20">
           <Heart className="w-6 h-6 text-primary mx-auto" />
           <p className="font-medium text-sm">{t("number_shared_title")}</p>
@@ -240,6 +241,16 @@ function ReadyToMeetSection({ matchDetail, matchId }: { matchDetail: MatchDetail
                 })}
               </div>
             </div>
+          )}
+          {theirNumberExchanged && (
+            <Button
+              className="w-full mt-2"
+              onClick={() => navigate(`/date-plan/${matchId}`)}
+              data-testid="button-plan-date"
+            >
+              <Heart className="w-4 h-4 me-2" />
+              Plan Your Date in Lulou
+            </Button>
           )}
         </Card>
       </div>
