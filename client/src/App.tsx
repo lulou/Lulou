@@ -114,7 +114,6 @@ class PageErrorBoundary extends Component<{ name: string; children: ReactNode },
           <p className="text-sm text-muted-foreground max-w-xs">
             This page crashed. Your other tabs are still working.
           </p>
-          <p className="text-xs text-muted-foreground/60 font-mono">{this.state.error?.message}</p>
           <button
             className="px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm font-medium"
             onClick={() => this.setState({ hasError: false, error: null })}
@@ -1307,8 +1306,8 @@ async function checkProfileExists(
   const t_total = performance.now();
   const masterTimeoutId = setTimeout(() => {
     controller.abort();
-    console.error(`[AUTH] PROFILE_LOAD_FAILED: master timeout 8s — stuck at step="${_currentStep}"`);
-  }, 8_000);
+    console.error(`[AUTH] PROFILE_LOAD_FAILED: master timeout 15s — stuck at step="${_currentStep}"`);
+  }, 15_000);
   try {
     console.log("[SETUP] STEP 1/3 getAuthHeaders START", { userId });
     const t0 = performance.now();
@@ -1380,11 +1379,10 @@ async function checkProfileExists(
 }
 
 // How long the loading spinner is allowed to show before we cut it off and
-// display a retry/bypass screen.  Must be longer than the network abort inside
-// checkProfileExists (4 s) so the fetch has time to fail cleanly before the
-// spinner declares a timeout.  Acts only as a last-resort backstop for cases
-// where the request stalls without triggering a TCP reset.
-const SPINNER_TIMEOUT_MS = 22_000;
+// display a retry/bypass screen. Must be longer than the total retry window
+// (3 attempts × 15 s abort + exponential delays ≈ 55 s). Acts as a last-resort
+// backstop for cases where the request stalls without triggering a TCP reset.
+const SPINNER_TIMEOUT_MS = 55_000;
 
 // ── Email verification gate ──────────────────────────────────────────────────
 // Standalone component so it can use useState without violating the rules
@@ -1913,11 +1911,14 @@ function AppContent() {
     },
     enabled: !!user && profileReady && !clearingCache,
     // Auto-retry twice (3 attempts total) before surfacing the error screen.
-    // Each attempt has a 4 s AbortController abort in checkProfileExists().
-    // SPINNER_TIMEOUT_MS is set to 22 s to give all 3 attempts room to breathe
-    // before the spinner-timeout circuit fires.
+    // Each attempt has a 15 s AbortController abort in checkProfileExists().
+    // SPINNER_TIMEOUT_MS is set to 55 s to give all 3 attempts room to breathe
+    // (3 × 15 s + exponential delays ≈ 55 s) before the spinner-timeout fires.
     retry: 2,
-    retryDelay: 800,
+    // Exponential back-off: 2 s → 8 s between attempts (capped at 8 s).
+    // Gives transient network blips and Supabase cold-starts time to recover
+    // without burning through all retries in under 2 seconds.
+    retryDelay: (attempt: number) => Math.min(2000 * 2 ** attempt, 8000),
     staleTime: Infinity,
   });
 
@@ -2112,7 +2113,6 @@ function AppContent() {
         <div className="flex flex-col items-center gap-3">
           <Loader2 className="w-8 h-8 text-primary animate-spin" />
           <p className="text-sm text-muted-foreground">Loading…</p>
-          <p className="text-xs text-muted-foreground font-mono">FINAL_APP_GATE: blocked_auth_loading</p>
         </div>
       </div>
     );
@@ -2229,11 +2229,6 @@ function AppContent() {
             <p className="text-sm text-muted-foreground leading-relaxed" data-testid="text-timeout-body">
               Your account is safe. We're reconnecting you to Lulou.
             </p>
-            {_errDetail && (
-              <p className="text-xs font-mono bg-muted rounded px-3 py-1.5 text-muted-foreground break-all" data-testid="text-timeout-error">
-                {_errDetail}
-              </p>
-            )}
             <div className="flex flex-wrap justify-center gap-3 pt-2">
               <button
                 className="px-5 py-2.5 rounded-full bg-primary text-primary-foreground text-sm font-medium hover:brightness-110 transition-all"
@@ -2292,11 +2287,6 @@ function AppContent() {
           <p className="text-sm text-muted-foreground leading-relaxed" data-testid="text-fetch-failed-body">
             Your account is safe. We're reconnecting you to Lulou.
           </p>
-          {_fetchErrDetail && (
-            <p className="text-xs font-mono bg-muted rounded px-3 py-1.5 text-muted-foreground break-all" data-testid="text-fetch-failed-error">
-              {_fetchErrDetail}
-            </p>
-          )}
           <div className="flex flex-wrap justify-center gap-3 pt-2">
             <button
               className="px-5 py-2.5 rounded-full bg-primary text-primary-foreground text-sm font-medium hover:brightness-110 transition-all"

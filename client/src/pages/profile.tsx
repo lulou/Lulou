@@ -686,7 +686,7 @@ export default function ProfilePage() {
         <div className="text-center space-y-4 max-w-xs">
           <LulouFlowerIcon className="w-12 h-12 text-primary mx-auto" />
           <p className="font-medium">Couldn't load your profile</p>
-          <p className="text-sm text-muted-foreground">{errMsg}</p>
+          <p className="text-sm text-muted-foreground">We're having trouble loading your profile right now. Please try again.</p>
           <Button onClick={() => refetch()} variant="outline" data-testid="button-profile-retry">
             Try again
           </Button>

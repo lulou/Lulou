@@ -1,0 +1,130 @@
+We have two production issues that need to be fixed properly without breaking any existing functionality.
+
+──────────────────────────────
+ISSUE 1 — REMOVE TECHNICAL ERRORS FROM THE UI
+──────────────────────────────
+
+Users should NEVER see technical error messages.
+
+Current examples include:
+- "Load failed"
+- "NETWORK_ERROR"
+- Debug information such as:
+ - Logged in as...
+ - Matches loaded...
+ - Error: ...
+
+This is not production quality.
+
+Requirements:
+
+• Remove all debug text from production UI.
+• Remove raw error strings from all user-facing screens.
+• Continue logging the full error to the console and server logs for debugging.
+• Display only friendly messages.
+
+Examples:
+
+Instead of:
+
+"Load failed"
+
+Show:
+
+"Something went wrong"
+
+"We're having trouble loading this right now.
+Please try again."
+
+Instead of:
+
+"NETWORK_ERROR"
+
+Show:
+
+"Taking a little longer than usual..."
+
+"Your account is safe.
+We're reconnecting you to Lulou."
+
+Keep:
+
+✓ Try Again button
+
+Only show Sign Out if authentication has genuinely failed.
+
+Do not expose internal error codes to users.
+
+──────────────────────────────
+ISSUE 2 — FIX RECURRING FALSE NETWORK/RECONNECT SCREEN
+──────────────────────────────
+
+The reconnect screen appears far too often even though the app is still functioning.
+
+Investigate why it is being triggered.
+
+Requirements:
+
+• Find the root cause.
+• Do NOT hide the problem.
+• Fix the logic.
+
+Possible causes to investigate:
+
+• Query retry behaviour
+• API timeout values
+• React Query error handling
+• Temporary fetch failures
+• Slow responses
+• Race conditions
+• Authentication refresh timing
+• Offline detection
+• Network state detection
+
+The reconnect screen should only appear when:
+
+• the device is genuinely offline,
+OR
+• authentication has actually expired,
+OR
+• the server cannot be reached after multiple retries.
+
+A single failed request must NOT send the entire app into reconnect mode.
+
+Implement:
+
+• exponential retry
+• graceful retry
+• background reconnect
+• automatic recovery without disturbing the user whenever possible
+
+The app should continue functioning normally if one request temporarily fails.
+
+──────────────────────────────
+PRODUCTION REQUIREMENTS
+──────────────────────────────
+
+• Keep all diagnostic logging in development.
+• Hide diagnostics completely in production.
+• Do not remove existing logging.
+• Do not break authentication.
+• Do not break messaging.
+• Do not break push notifications.
+• Do not break payments.
+• Do not break date planning.
+
+Run:
+
+npm run check
+
+npm run build
+
+Do not finish until both pass.
+
+Finally provide:
+
+1. Root cause of the recurring reconnect screen.
+2. Files modified.
+3. What logic changed.
+4. How the new behaviour differs from before.
+5. Confirmation that no technical errors are exposed to end users in production.

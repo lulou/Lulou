@@ -590,6 +590,7 @@ export const TRANSLATIONS = {
     add_5_messages_btn:           "Add 5 messages",
     end_match_btn:                "End Match",
     could_not_load_connections:   "Could not load connections",
+    we_are_having_trouble_loading: "We're having trouble loading this right now. Please try again.",
     connection_limit_reached:     "Connection limit reached - remove a chat to connect with new people",
     all_chats_have_active:        "All your connections have active chats.",
     no_new_connections:           "No new connections yet.",
