@@ -320,22 +320,29 @@ export function ActiveCallOverlay({
     if (!el) return;
 
     if (!isIOS && typeof el.setSinkId === "function") {
-      // Desktop / Android Chrome — setSinkId routes audio to the correct device
-      // AND registers the output with Chrome's AEC reference pipeline so echo
-      // cancellation tracks the actual playback device.
+      // Desktop / Android Chrome — ALWAYS call setSinkId("default") regardless of
+      // speakerOn state. This is not a speaker-vs-earpiece routing call; it is an
+      // AEC reference path registration.
       //
-      // Speaker OFF → "" (empty = "default communications device"):
-      //   On Windows this is the headset / earpiece comms device.
-      //   On Android Chrome this triggers earpiece routing in WebRTC mode.
-      //   This makes the speaker button functional and routes to the natural
-      //   phone-call output device when the user hasn't explicitly requested speaker.
-      // Speaker ON → "default" (multimedia default = loudspeakers):
-      //   Explicitly routes to the main speaker, matching the user's intent.
-      const sinkId = speakerOn ? "default" : "";
-      el.setSinkId(sinkId).catch(() => {});
+      // Chrome's software AEC needs to know which output device the remote voice
+      // is playing through so it can sample that device's signal as the echo
+      // reference when cancelling it from the mic input. Without setSinkId, the AEC
+      // reference path may diverge from the actual output route (e.g. Bluetooth
+      // headset, external speaker) causing the echo/screech feedback loop.
+      //
+      // setSinkId("") (empty / "comms device") was tried as an earpiece-routing
+      // trick but it breaks the AEC reference path on Chrome → echo returns.
+      // setSinkId("default") is the correct value: it routes to the system default
+      // multimedia playback device AND correctly seeds Chrome's AEC pipeline.
+      //
+      // Web / PWA limitation: earpiece routing is NOT achievable via setSinkId on
+      // Chrome or any web browser. The speaker button is a loudness toggle for iOS
+      // (volume 0.25 vs 1.0) — on desktop/Android the button is intentionally a
+      // no-op for routing since we cannot safely change the AEC reference device.
+      el.setSinkId("default").catch(() => {});
       el.volume = 1.0;
-      console.log("[CALL_AUDIO] setSinkId routing applied", { sinkId, speakerOn, volume: 1.0, matchId });
-      console.log("[CALL_FIX] laptop speaker routing", { method: `setSinkId(${JSON.stringify(sinkId)})`, speakerOn, volume: 1.0, matchId });
+      console.log("[CALL_AUDIO] setSinkId(default) — AEC reference path set", { speakerOn, volume: 1.0, matchId });
+      console.log("[CALL_FIX] laptop speaker default", { method: "setSinkId(default)-always", speakerOn, volume: 1.0, matchId });
     } else if (isIOS) {
       // iOS only: web cannot reach the AVAudioSession earpiece route.
       // We approximate the two modes with volume:

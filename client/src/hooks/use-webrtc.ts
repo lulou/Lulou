@@ -865,6 +865,24 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
 
       if (cleanedUpRef.current) return;
 
+      // ── Duplicate PC guard ────────────────────────────────────────────────
+      // If a previous init() run left a stale RTCPeerConnection (e.g. a rapid
+      // re-render during answer, or a React Strict Mode double-invoke), close it
+      // before creating the new one. A leaked PC still receives ICE candidates
+      // and fires ontrack events, which would produce a second audio path and
+      // cause echo/doubling. Closing it early is safe: the new PC will renegotiate
+      // from scratch.
+      if (pcRef.current) {
+        const stale = pcRef.current;
+        console.error("[WebRTC] DUPLICATE_PC_GUARD: existing RTCPeerConnection found before init — closing stale PC", {
+          connectionState: stale.connectionState,
+          signalingState: stale.signalingState,
+          matchId,
+        });
+        try { stale.close(); } catch {}
+        pcRef.current = null;
+      }
+
       const iceServers = await fetchIceServers();
       console.log("[WebRTC] PC_CREATE_START: creating RTCPeerConnection with", iceServers.length, "ICE server(s)");
       const pc = new RTCPeerConnection({ iceServers });
