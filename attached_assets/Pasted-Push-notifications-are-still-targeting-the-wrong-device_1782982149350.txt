@@ -1,0 +1,84 @@
+Push notifications are still targeting the wrong device/user.
+
+Current production behaviour:
+- I send a message from my phone.
+- My own phone receives a notification for the message I just sent.
+- When a different account sends a message to the account on my phone, my phone does NOT receive the notification.
+- This is backwards.
+
+Correct behaviour:
+- Sender must NEVER receive a push notification for their own message.
+- Only the receiving user should get message notifications.
+- Users can still receive other update notifications such as likes, matches, payments, refunds, calls, etc.
+
+Do not guess. Trace the device subscription mapping.
+
+Audit and fix:
+
+1. Inspect push_subscriptions table.
+2. For every subscription row, log:
+  - subscription id
+  - userId
+  - endpoint last 20 chars
+  - createdAt
+  - updatedAt
+  - device/browser info if stored
+
+3. Verify the phone's push subscription belongs to the account currently logged in on that phone.
+
+4. When a user logs in, logs out, or switches account on the same device:
+  - unsubscribe/delete the old push subscription for the previous user
+  - create a fresh subscription for the current user
+  - never allow one device endpoint to remain attached to the wrong user
+
+5. Fix POST /api/push/subscribe so it cannot silently reassign an existing endpoint to a different user without cleanup/logging.
+
+6. Add a hard server-side safety check before message push:
+  - senderId must never equal targetUserId
+  - if the device endpoint belongs to senderId, skip it
+  - log BLOCKED_SELF_NOTIFICATION
+
+7. In the message send route:
+  - compute senderId from authenticated user
+  - compute recipientId from the match
+  - log senderId and recipientId
+  - only call sendPushToUser(recipientId, ...)
+  - never call sendPushToUser(senderId, ...) for message notifications
+
+8. In sendPushToUser:
+  - query only subscriptions where user_id = targetUserId
+  - before sending, verify every returned subscription still belongs to targetUserId
+  - log targetUserId, subscriptionCount, and endpoint suffixes
+  - if no subscriptions are found, log NO_SUBSCRIPTIONS_FOR_TARGET
+
+9. Add temporary admin/debug endpoint to inspect the current logged-in user's push subscriptions:
+  GET /api/push/my-subscriptions
+
+10. Add client-side safety:
+  - on logout, call DELETE /api/push/subscribe for the current device
+  - on login/account switch, re-subscribe push for the current account
+  - on notification toggle off, delete the subscription from server and browser
+
+11. Clear/fix stale bad subscriptions currently in the database:
+  - delete any push_subscriptions rows where the endpoint is linked to the wrong user
+  - if unsure, force all devices to resubscribe cleanly
+
+12. After fixing, test:
+  - Phone logged in as User A.
+  - Laptop logged in as User B.
+  - User A sends message to User B: User A receives NO notification.
+  - User B sends message to User A while phone app is closed: User A receives notification.
+  - Badge increments only on recipient device.
+  - Notification opens correct chat.
+
+Run:
+npm run check
+npm run build
+
+Report:
+- root cause
+- exact stale subscription rows found
+- files changed
+- how self-notifications are blocked
+- how account switching is handled
+- proof that only the recipient receives message push notifications

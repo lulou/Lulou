@@ -1341,6 +1341,40 @@ export async function registerRoutes(
     }
   });
 
+  // Debug: inspect current user's push subscriptions
+  app.get("/api/push/my-subscriptions", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const subs = await db.select({
+        id:          pushSubscriptions.id,
+        userId:      pushSubscriptions.userId,
+        endpoint:    pushSubscriptions.endpoint,
+        userAgent:   pushSubscriptions.userAgent,
+        failCount:   pushSubscriptions.failCount,
+        createdAt:   pushSubscriptions.createdAt,
+        lastUsedAt:  pushSubscriptions.lastUsedAt,
+      }).from(pushSubscriptions).where(eq(pushSubscriptions.userId, userId));
+
+      const masked = subs.map(s => ({
+        id:           s.id.slice(0, 8) + "…",
+        userId:       s.userId.slice(0, 8) + "…",
+        endpointSuffix: "…" + s.endpoint.slice(-30),
+        userAgent:    (s.userAgent || "").slice(0, 80),
+        failCount:    s.failCount,
+        createdAt:    s.createdAt,
+        lastUsedAt:   s.lastUsedAt,
+      }));
+
+      console.log(`[PUSH_AUDIT] /my-subscriptions: userId=${userId.slice(0,8)} found=${subs.length} sub(s)`);
+      for (const m of masked) {
+        console.log(`[PUSH_AUDIT]   ${JSON.stringify(m)}`);
+      }
+      res.json({ userId: userId.slice(0,8) + "…", count: subs.length, subscriptions: masked });
+    } catch (err: any) {
+      res.status(500).json({ message: err?.message || "Failed to list subscriptions" });
+    }
+  });
+
   // Get notification preferences
   app.get("/api/push/preferences", isAuthenticated, async (req: any, res) => {
     try {

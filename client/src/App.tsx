@@ -1802,6 +1802,42 @@ function AppContent() {
 
   const { user, isLoading: authLoading, profileReady, clearingCache, logout, passwordRecovery, clearPasswordRecovery } = useAuth();
 
+  // ── Push subscription auto-reregistration ────────────────────────────────
+  // Fires once per login session (when user id becomes available).
+  // If the browser has a push subscription, silently re-POSTs it under the
+  // current authenticated user's ID. The server uses DELETE+INSERT so any
+  // stale userId→endpoint mapping (caused by account-switching on the same
+  // device) is corrected immediately without the user visiting Settings.
+  useEffect(() => {
+    if (!user?.id) return;
+    (async () => {
+      try {
+        if (!("serviceWorker" in navigator) || !("PushManager" in window)) return;
+        const sw  = await navigator.serviceWorker.ready.catch(() => null);
+        if (!sw) return;
+        const sub = await sw.pushManager.getSubscription().catch(() => null);
+        if (!sub) return;
+        const p256 = sub.getKey("p256dh");
+        const auth = sub.getKey("auth");
+        if (!p256 || !auth) return;
+        const toB64 = (buf: ArrayBuffer) => btoa(String.fromCharCode(...new Uint8Array(buf)));
+        await fetch("/api/push/subscribe", {
+          method:      "POST",
+          credentials: "include",
+          headers:     { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            endpoint:  sub.endpoint,
+            p256dh:    toB64(p256),
+            auth:      toB64(auth),
+            userAgent: navigator.userAgent.slice(0, 200),
+          }),
+        }).catch(() => {});
+        console.log("[PUSH] AppContent: auto-reregistered subscription for userId=", user.id.slice(0, 8));
+      } catch {}
+    })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
+
   // ── Server-side email verification gate ──────────────────────────────────
   // Catches auto-confirmed accounts when Supabase "Confirm email" is OFF.
   // In that mode signUp() immediately sets email_confirmed_at≈created_at, so

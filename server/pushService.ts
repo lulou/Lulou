@@ -245,15 +245,27 @@ export async function sendPushToUser(
         lt(pushSubscriptions.failCount, 5),
       ));
 
-    console.log(`[PUSH_AUDIT] Step B — subscriptions found: count=${subs.length} userId=${uid8}`);
+    console.log(`[PUSH_AUDIT] Step B — subscriptions found: count=${subs.length} targetUser=${uid8} targetSubscriptions=${subs.length}`);
     for (const s of subs) {
       const hasP256 = !!(s.p256dh && s.p256dh.length > 10);
       const hasAuth = !!(s.auth && s.auth.length > 4);
-      console.log(`[PUSH_AUDIT]   sub endpoint=…${s.endpoint.slice(-30)} p256dh=${hasP256} auth=${hasAuth} failCount=${s.failCount}`);
+      // Belt-and-suspenders: verify each returned row actually belongs to the target user.
+      // The WHERE clause already ensures this, but log any mismatch as a hard warning.
+      if (s.userId !== userId) {
+        console.error(
+          `[PUSH_AUDIT] SUBSCRIPTION_OWNER_MISMATCH — sub.userId=${s.userId.slice(0,8)} ≠ targetUserId=${uid8} ` +
+          `endpoint=…${s.endpoint.slice(-20)} — SKIPPING this subscription`
+        );
+        continue; // never send to a subscription that belongs to a different user
+      }
+      console.log(`[PUSH_AUDIT]   sub userId=${s.userId.slice(0,8)} endpoint=…${s.endpoint.slice(-30)} p256dh=${hasP256} auth=${hasAuth} failCount=${s.failCount}`);
     }
 
-    if (subs.length === 0) {
-      console.log(`[PUSH_AUDIT] ✗ NO SUBSCRIPTIONS for userId=${uid8} — push not sent`);
+    // Re-filter after mismatch check (normally a no-op since the WHERE clause is correct)
+    const safeSubs = subs.filter(s => s.userId === userId);
+
+    if (safeSubs.length === 0) {
+      console.log(`[PUSH_AUDIT] ✗ NO_SUBSCRIPTIONS_FOR_TARGET userId=${uid8} — push not sent`);
       return result;
     }
 
@@ -262,9 +274,9 @@ export async function sendPushToUser(
     const expiredIds: string[] = [];
     const failedIds:  string[] = [];
 
-    console.log(`[PUSH_AUDIT] Step C — sending to ${subs.length} subscription(s) ttl=${ttl}`);
+    console.log(`[PUSH_AUDIT] Step C — sending to ${safeSubs.length} subscription(s) ttl=${ttl}`);
 
-    await Promise.all(subs.map(async (sub) => {
+    await Promise.all(safeSubs.map(async (sub) => {
       const outcome = await sendToSubscription(sub, payload, ttl);
       if (outcome === "ok") {
         result.sent++;

@@ -407,6 +407,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           method: "DELETE",
           headers: { Authorization: `Bearer ${_s.access_token}` },
         });
+
+        // Remove push subscription before signing out so this device stops
+        // receiving notifications for this account after logout.
+        // Must happen while the session is still valid (before signOut).
+        try {
+          if ("serviceWorker" in navigator && "PushManager" in window) {
+            const sw = await navigator.serviceWorker.ready.catch(() => null);
+            const sub = sw ? await sw.pushManager.getSubscription().catch(() => null) : null;
+            if (sub) {
+              await fetch(`${API_BASE}/api/push/subscribe`, {
+                method: "DELETE",
+                headers: {
+                  "Content-Type": "application/json",
+                  "Authorization": `Bearer ${_s.access_token}`,
+                },
+                body: JSON.stringify({ endpoint: sub.endpoint }),
+              }).catch(() => {});
+              await sub.unsubscribe().catch(() => {});
+              console.log("[AUTH_LOGOUT] Push subscription removed from server and browser ✓");
+            }
+          }
+        } catch (pushErr: any) {
+          console.warn("[AUTH_LOGOUT] Push cleanup failed (non-fatal):", pushErr?.message);
+        }
       }
     } catch {}
     localStorage.removeItem("lulou_session_id");

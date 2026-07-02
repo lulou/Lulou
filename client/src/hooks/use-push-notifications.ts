@@ -146,6 +146,11 @@ export function usePushNotifications() {
   }, []);
 
   // ── Load subscription state + preferences on mount ─────────────────────────
+  // Also silently re-registers any existing browser subscription under the
+  // currently authenticated user. This corrects stale userId→endpoint mappings
+  // that can arise when the same device is used with multiple accounts.
+  // The server's POST /api/push/subscribe uses DELETE+INSERT so the endpoint
+  // is always re-owned by the authenticated user making the request.
   useEffect(() => {
     if (!isSupported || !swReg) return;
     (async () => {
@@ -154,6 +159,19 @@ export function usePushNotifications() {
         console.log("[PUSH] Existing subscription on mount:", existing ? "YES" : "none");
         setIsSubscribed(!!existing);
         if (existing) {
+          // Re-register under the current authenticated user (silent — fixes stale mappings)
+          try {
+            await apiRequest("POST", "/api/push/subscribe", {
+              endpoint:  existing.endpoint,
+              p256dh:    arrayBufferToBase64(existing.getKey("p256dh")),
+              auth:      arrayBufferToBase64(existing.getKey("auth")),
+              userAgent: navigator.userAgent.slice(0, 200),
+            });
+            console.log("[PUSH] Auto-reregistered existing subscription under current user ✓");
+          } catch (reregErr: any) {
+            // 401 means not authenticated yet — harmless, subscription stays in browser
+            console.log("[PUSH] Auto-reregister skipped (not authenticated or server error):", reregErr?.message);
+          }
           const res = await apiRequest("GET", "/api/push/preferences");
           const data = await res.json();
           setPreferences({ ...DEFAULT_PREFS, ...data });

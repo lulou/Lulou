@@ -292,6 +292,59 @@ app.use((req, res, next) => {
     await cleanupFailedSubscriptions();
   } catch { /* non-critical — server starts regardless */ }
 
+  // ── One-time push subscription nuclear cleanup ───────────────────────────
+  // Root-cause fix for the self-notification production bug:
+  // The old onConflictDoUpdate({ set: { userId } }) in POST /api/push/subscribe
+  // silently reassigned push endpoints to different users on the same device.
+  // This resulted in stale rows where push_subscriptions.user_id != the actual
+  // device owner, causing sends to recipientId to deliver to the sender's device.
+  //
+  // This block runs EXACTLY ONCE (guarded by push_cleanup_runs sentinel table).
+  // After deletion, every device auto-re-registers its subscription under the
+  // correct logged-in userId on the next app load (via AppContent useEffect).
+  try {
+    const { pool: pushPool } = await import("./db");
+    await pushPool.query(`CREATE TABLE IF NOT EXISTS push_cleanup_runs (version INTEGER PRIMARY KEY, ran_at TIMESTAMP DEFAULT NOW())`);
+    const guard = await pushPool.query(`SELECT 1 FROM push_cleanup_runs WHERE version = 1`);
+    if ((guard.rowCount ?? 0) === 0) {
+      const { rows, rowCount: existingCount } = await pushPool.query(
+        `SELECT id, user_id, endpoint, user_agent, fail_count, created_at, last_used_at FROM push_subscriptions ORDER BY created_at DESC`
+      );
+      console.log(`[PUSH_AUDIT] STARTUP nuclear cleanup — found ${rows.length} stale subscription(s):`);
+      for (const row of rows) {
+        console.log(
+          `[PUSH_AUDIT]   id=${String(row.id).slice(0,8)} ` +
+          `userId=${String(row.user_id).slice(0,8)} ` +
+          `endpoint=…${String(row.endpoint).slice(-20)} ` +
+          `ua="${String(row.user_agent || "").slice(0, 60)}" ` +
+          `failCount=${row.fail_count} ` +
+          `createdAt=${row.created_at} ` +
+          `lastUsed=${row.last_used_at}`
+        );
+      }
+      const { rowCount: deleted } = await pushPool.query(`DELETE FROM push_subscriptions`);
+      await pushPool.query(`INSERT INTO push_cleanup_runs (version) VALUES (1)`);
+      console.log(`[PUSH_AUDIT] STARTUP nuclear cleanup DONE — deleted ${deleted ?? 0} subscription(s). All devices will auto-re-register on next app open.`);
+    } else {
+      // Subsequent startups: just audit the current state
+      const { rows } = await pushPool.query(
+        `SELECT id, user_id, endpoint, user_agent, fail_count, created_at, last_used_at FROM push_subscriptions ORDER BY created_at DESC`
+      );
+      console.log(`[PUSH_AUDIT] STARTUP (post-cleanup): ${rows.length} active subscription(s):`);
+      for (const row of rows) {
+        console.log(
+          `[PUSH_AUDIT]   id=${String(row.id).slice(0,8)} ` +
+          `userId=${String(row.user_id).slice(0,8)} ` +
+          `endpoint=…${String(row.endpoint).slice(-20)} ` +
+          `failCount=${row.fail_count} ` +
+          `lastUsed=${row.last_used_at}`
+        );
+      }
+    }
+  } catch (e: any) {
+    console.warn("[PUSH_AUDIT] STARTUP cleanup error (non-fatal):", e?.message);
+  }
+
   await registerRoutes(httpServer, app);
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
