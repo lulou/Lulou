@@ -1311,12 +1311,16 @@ export async function registerRoutes(
       if (!endpoint || !p256dh || !auth) {
         return res.status(400).json({ message: "endpoint, p256dh, auth are required" });
       }
+      // Delete any existing row for this endpoint before inserting.
+      // This prevents the "self-notification" bug: if a different user previously
+      // registered this browser endpoint, the old userId association is removed so
+      // that only the current authenticated user owns this endpoint going forward.
+      // An onConflictDoUpdate that wrote userId would silently re-assign the
+      // endpoint to a new user while leaving old subscriptions intact, which could
+      // cause pushes sent to the old user to land on the new user's device.
+      await db.delete(pushSubscriptions).where(eq(pushSubscriptions.endpoint, endpoint));
       await db.insert(pushSubscriptions)
-        .values({ userId, endpoint, p256dh, auth, userAgent: userAgent.slice(0, 300) })
-        .onConflictDoUpdate({
-          target: pushSubscriptions.endpoint,
-          set: { userId, p256dh, auth, userAgent: userAgent.slice(0, 300), failCount: 0, lastUsedAt: new Date() },
-        });
+        .values({ userId, endpoint, p256dh, auth, userAgent: userAgent.slice(0, 300) });
       res.json({ ok: true });
     } catch (err: any) {
       res.status(500).json({ message: err?.message || "Failed to save subscription" });
@@ -2392,37 +2396,45 @@ export async function registerRoutes(
         try {
           await adminStorage.incrementMessageCount(matchId, userId);
 
-          const otherUserId = match.user1Id === userId ? match.user2Id : match.user1Id;
+          const senderId    = userId; // authenticated author of this message
+          const recipientId = match.user1Id === userId ? match.user2Id : match.user1Id;
 
-          // Push notification to recipient (skip if they're active in app)
-          const activeInApp = await isUserActiveInApp(otherUserId);
-          console.log(`[PUSH_AUDIT] MSG route: recipientId=${otherUserId.slice(0,8)} matchId=${matchId} activeInApp=${activeInApp} isSeed=${isSeedUser(otherUserId)}`);
-          if (!activeInApp && !isSeedUser(otherUserId)) {
-            const senderProfile = await adminStorage.getProfileMeta(userId);
-            const senderName    = senderProfile?.firstName || "Someone";
-            console.log(`[PUSH_AUDIT] MSG route: calling sendPushToUser → recipient=${otherUserId.slice(0,8)} sender="${senderName}" category=new_message`);
-            const badgeTotal = await incrementMatchBadge(otherUserId, matchId);
-            console.log(`[PUSH_AUDIT] MSG route: badgeTotal=${badgeTotal} for recipient=${otherUserId.slice(0,8)}`);
-            sendPushToUser(
-              otherUserId,
-              buildPush.newMessage(senderName, matchId, message.content, badgeTotal),
-              "new_message",
-            ).catch((err: any) => {
-              console.error(`[PUSH_AUDIT] MSG route: sendPushToUser threw userId=${otherUserId.slice(0,8)}: ${err?.message}`);
-            });
+          // ── Hard safety guard: never push to the sender ────────────────────
+          // Prevents self-notifications even if upstream logic ever passes wrong
+          // IDs.  recipientId must differ from senderId in every match.
+          if (recipientId === senderId) {
+            console.warn(`[PUSH_AUDIT] BLOCKED: attempted self-notification senderId=${senderId.slice(0,8)} recipientId=${recipientId.slice(0,8)} matchId=${matchId}`);
           } else {
-            console.log(`[PUSH_AUDIT] MSG route: SKIPPED push — activeInApp=${activeInApp} isSeed=${isSeedUser(otherUserId)}`);
+            // Push notification to recipient (skip if they're active in app)
+            const activeInApp = await isUserActiveInApp(recipientId);
+            console.log(`[PUSH_AUDIT] senderId=${senderId.slice(0,8)} recipientId=${recipientId.slice(0,8)} matchId=${matchId} activeInApp=${activeInApp} isSeed=${isSeedUser(recipientId)}`);
+            if (!activeInApp && !isSeedUser(recipientId)) {
+              const senderProfile = await adminStorage.getProfileMeta(senderId);
+              const senderName    = senderProfile?.firstName || "Someone";
+              const badgeTotal = await incrementMatchBadge(recipientId, matchId);
+              console.log(`[PUSH_AUDIT] senderId=${senderId.slice(0,8)} recipientId=${recipientId.slice(0,8)} targetUser=${recipientId.slice(0,8)} targetSubscriptions=pending senderName="${senderName}" badgeTotal=${badgeTotal}`);
+              sendPushToUser(
+                recipientId,
+                buildPush.newMessage(senderName, matchId, message.content, badgeTotal),
+                "new_message",
+                { senderId },
+              ).catch((err: any) => {
+                console.error(`[PUSH_AUDIT] sendPushToUser threw recipientId=${recipientId.slice(0,8)}: ${err?.message}`);
+              });
+            } else {
+              console.log(`[PUSH_AUDIT] SKIPPED push — senderId=${senderId.slice(0,8)} recipientId=${recipientId.slice(0,8)} activeInApp=${activeInApp} isSeed=${isSeedUser(recipientId)}`);
+            }
           }
 
-          if (isSeedUser(otherUserId) && callStage === 0) {
-            const otherProfile = await adminStorage.getProfileMeta(otherUserId);
-            const otherCount = await adminStorage.getUserMessageCount(matchId, otherUserId);
+          if (isSeedUser(recipientId) && callStage === 0) {
+            const otherProfile = await adminStorage.getProfileMeta(recipientId);
+            const otherCount = await adminStorage.getUserMessageCount(matchId, recipientId);
             if (otherCount < 15) {
               setTimeout(async () => {
                 try {
                   const reply = generateAutoReply(otherProfile, otherCount);
-                  await adminStorage.createMessage({ matchId, senderId: otherUserId, content: reply });
-                  await adminStorage.incrementMessageCount(matchId, otherUserId);
+                  await adminStorage.createMessage({ matchId, senderId: recipientId, content: reply });
+                  await adminStorage.incrementMessageCount(matchId, recipientId);
                 } catch (err) {
                   console.error("Auto-reply error:", err);
                 }

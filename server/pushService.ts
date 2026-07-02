@@ -207,11 +207,23 @@ export async function sendPushToUser(
   userId:   string,
   payload:  PushPayload,
   category: NotifCategory,
+  meta?:    { senderId?: string },
 ): Promise<SendPushResult> {
   ensureVapid();
 
-  const uid8 = userId.slice(0, 8);
-  console.log(`[PUSH_AUDIT] ▶ sendPushToUser ENTER userId=${uid8} category=${category} title="${payload.title}" body="${payload.body?.slice(0,60)}"`);
+  const uid8     = userId.slice(0, 8);
+  const sender8  = meta?.senderId?.slice(0, 8) ?? "n/a";
+
+  // ── Hard self-notification guard (second line of defence) ────────────────
+  // The call site in routes.ts already blocks recipientId === senderId, but
+  // this inner check ensures safety even if sendPushToUser is called from any
+  // other path in the future.
+  if (meta?.senderId && meta.senderId === userId) {
+    console.warn(`[PUSH_AUDIT] BLOCKED: self-notification attempt inside sendPushToUser senderId=${sender8} recipientId=${uid8} category=${category}`);
+    return { sent: 0, failed: 0, expired: 0 };
+  }
+
+  console.log(`[PUSH_AUDIT] ▶ sendPushToUser ENTER senderId=${sender8} recipientId=${uid8} targetUser=${uid8} category=${category} title="${payload.title}" body="${payload.body?.slice(0,60)}"`);
 
   const result: SendPushResult = { sent: 0, failed: 0, expired: 0 };
 
