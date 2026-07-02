@@ -182,6 +182,47 @@ export async function isUserActiveInApp(userId: string): Promise<boolean> {
   }
 }
 
+// ── Check if user is actively viewing a specific chat ─────────────────────────
+// Returns true if userId has an active_chat_sessions row for matchId with
+// last_seen_at within 45 seconds. Used to suppress push notifications when both
+// participants are already looking at the same conversation.
+
+export async function isUserActiveInChat(userId: string, matchId: string): Promise<boolean> {
+  try {
+    const { pool } = await import("./db");
+    const result = await pool.query(
+      `SELECT last_seen_at, match_id, NOW() - last_seen_at AS age
+       FROM active_chat_sessions
+       WHERE user_id = $1`,
+      [userId],
+    );
+    if ((result.rowCount ?? 0) === 0) {
+      console.log(`[PUSH_AUDIT] isUserActiveInChat userId=${userId.slice(0,8)} matchId=${matchId.slice(0,8)} → NO row → false`);
+      return false;
+    }
+    const row = result.rows[0];
+    // Different matchId — user is in the app but NOT in this chat
+    if (row.match_id !== matchId) {
+      const ageStr = String(row.age ?? "");
+      const m = ageStr.match(/^(-?\d+):(\d+):(\d+)/);
+      const ageSecs = m ? Math.abs(parseInt(m[1]) * 3600 + parseInt(m[2]) * 60 + parseInt(m[3])) : 999;
+      console.log(`[PUSH_AUDIT] isUserActiveInChat userId=${userId.slice(0,8)} matchId=${matchId.slice(0,8)} → different chat (activeMatchId=${String(row.match_id).slice(0,8)} ageSecs=${ageSecs}) → false`);
+      return false;
+    }
+    // Same matchId — check freshness (45-second window)
+    const ageStr: string = String(row.age ?? "");
+    let ageSecs = 999;
+    const m = ageStr.match(/^(-?\d+):(\d+):(\d+)/);
+    if (m) ageSecs = Math.abs(parseInt(m[1]) * 3600 + parseInt(m[2]) * 60 + parseInt(m[3]));
+    const isActive = ageSecs < 45;
+    console.log(`[PUSH_AUDIT] isUserActiveInChat userId=${userId.slice(0,8)} matchId=${matchId.slice(0,8)} ageStr="${ageStr}" ageSecs=${ageSecs} → activeInSameChat=${isActive}`);
+    return isActive;
+  } catch (err: any) {
+    console.warn(`[PUSH_AUDIT] isUserActiveInChat ERROR userId=${userId.slice(0,8)}: ${err?.message} → defaulting to false (will send push)`);
+    return false;
+  }
+}
+
 // ── Check if sender is blocked by recipient ───────────────────────────────────
 // NOTE: The local `blocked_contacts` table stores phone-contact blocks (no user ID).
 // User-to-user blocking is managed in Supabase. This is a stub that always returns

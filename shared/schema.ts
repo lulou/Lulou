@@ -288,7 +288,18 @@ export const notificationPreferences = pgTable("notification_preferences", {
 export type PushSubscription     = typeof pushSubscriptions.$inferSelect;
 export type NotificationPrefs    = typeof notificationPreferences.$inferSelect;
 
+// ── Active Chat Sessions (push suppression for same-chat recipients) ──────────
+// One row per user — tracks the matchId they are currently viewing.
+// lastSeenAt is updated every 20 s by client heartbeat.
+// Push notifications are suppressed if lastSeenAt < 45 s ago and matchId matches.
+export const activeChatSessions = pgTable("active_chat_sessions", {
+  userId:     text("user_id").primaryKey(),
+  matchId:    text("match_id").notNull(),
+  lastSeenAt: timestamp("last_seen_at").defaultNow().notNull(),
+});
+
 export type UserBenefit = typeof userBenefits.$inferSelect;
+export type ActiveChatSession = typeof activeChatSessions.$inferSelect;
 export type ActiveSession = typeof activeSessions.$inferSelect;
 export type UserElevate = typeof userElevates.$inferSelect;
 export type BlockedContact = typeof blockedContacts.$inferSelect;

@@ -279,8 +279,14 @@ app.use((req, res, next) => {
         sent_at       TIMESTAMP NOT NULL DEFAULT NOW(),
         PRIMARY KEY (match_id, reminder_type)
       );
+
+      CREATE TABLE IF NOT EXISTS active_chat_sessions (
+        user_id      TEXT PRIMARY KEY,
+        match_id     TEXT NOT NULL,
+        last_seen_at TIMESTAMP NOT NULL DEFAULT NOW()
+      );
     `);
-    console.log("[STARTUP] Local DB tables verified/created: user_benefits, user_elevates, call_credits, saved_wheel_profiles, active_sessions, membership_subscriptions, push_subscriptions, notification_preferences, admin_payment_simulations, date_plan_reminders_sent");
+    console.log("[STARTUP] Local DB tables verified/created: user_benefits, user_elevates, call_credits, saved_wheel_profiles, active_sessions, membership_subscriptions, push_subscriptions, notification_preferences, admin_payment_simulations, date_plan_reminders_sent, active_chat_sessions");
   } catch (err: any) {
     console.error("[STARTUP] Local DB table migration failed:", err?.message);
   }

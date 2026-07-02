@@ -6,8 +6,8 @@ import { transcodeToM4a } from "./transcoder";
 import { seedDatabase } from "./seed";
 import { z } from "zod";
 import type { Profile } from "@shared/schema";
-import { userBenefits, callCredits, activeSessions, processedStripeSessions, membershipSubscriptions, userElevates, blockedContacts, savedWheelProfiles, sparkBalances, sparkPurchases, pushSubscriptions, notificationPreferences, datePlanRemindersSent } from "@shared/schema";
-import { sendPushToUser, buildPush, isUserActiveInApp, getVapidPublicKey, cleanupFailedSubscriptions } from "./pushService";
+import { userBenefits, callCredits, activeSessions, processedStripeSessions, membershipSubscriptions, userElevates, blockedContacts, savedWheelProfiles, sparkBalances, sparkPurchases, pushSubscriptions, notificationPreferences, datePlanRemindersSent, activeChatSessions } from "@shared/schema";
+import { sendPushToUser, buildPush, isUserActiveInApp, isUserActiveInChat, getVapidPublicKey, cleanupFailedSubscriptions } from "./pushService";
 import { EXTRAS_ITEMS, ELEVATE_PACKS, type ExtrasItemId, type ElevatePackId, grantExtras, grantElevate, isUniqueViolation } from './purchaseItems';
 import { supabase, supabaseAdmin, createUserClient, hasServiceRoleKey } from "./supabase";
 import { db } from "./db";
@@ -1341,6 +1341,44 @@ export async function registerRoutes(
     }
   });
 
+  // ── Active chat session tracking (push suppression for same-chat recipients) ──
+  // Client calls POST when entering a chatroom and DELETE when leaving.
+  // A 20-second heartbeat from the client keeps the row fresh while the chat is open.
+  // The server reads this table in the message-send route to suppress push
+  // notifications when the recipient is already viewing the same conversation.
+
+  app.post("/api/chat/active", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId  = req.user.id;
+      const { matchId } = req.body ?? {};
+      if (!matchId || typeof matchId !== "string") {
+        return res.status(400).json({ message: "matchId required" });
+      }
+      // Upsert: one row per user, updated on each heartbeat
+      await db.insert(activeChatSessions)
+        .values({ userId, matchId, lastSeenAt: new Date() })
+        .onConflictDoUpdate({
+          target: activeChatSessions.userId,
+          set: { matchId, lastSeenAt: new Date() },
+        });
+      console.log(`[PUSH_AUDIT] CHAT_ACTIVE_SET userId=${userId.slice(0,8)} matchId=${matchId.slice(0,8)}`);
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err?.message || "Failed to set active chat" });
+    }
+  });
+
+  app.delete("/api/chat/active", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      await db.delete(activeChatSessions).where(eq(activeChatSessions.userId, userId));
+      console.log(`[PUSH_AUDIT] CHAT_ACTIVE_CLEAR userId=${userId.slice(0,8)}`);
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err?.message || "Failed to clear active chat" });
+    }
+  });
+
   // Debug: inspect current user's push subscriptions
   app.get("/api/push/my-subscriptions", isAuthenticated, async (req: any, res) => {
     try {
@@ -2438,25 +2476,50 @@ export async function registerRoutes(
           // IDs.  recipientId must differ from senderId in every match.
           if (recipientId === senderId) {
             console.warn(`[PUSH_AUDIT] BLOCKED: attempted self-notification senderId=${senderId.slice(0,8)} recipientId=${recipientId.slice(0,8)} matchId=${matchId}`);
+          } else if (isSeedUser(recipientId)) {
+            // Seed users never receive push notifications
+            console.log(`[PUSH_AUDIT] SKIPPED push — seed recipient recipientId=${recipientId.slice(0,8)}`);
           } else {
-            // Push notification to recipient (skip if they're active in app)
-            const activeInApp = await isUserActiveInApp(recipientId);
-            console.log(`[PUSH_AUDIT] senderId=${senderId.slice(0,8)} recipientId=${recipientId.slice(0,8)} matchId=${matchId} activeInApp=${activeInApp} isSeed=${isSeedUser(recipientId)}`);
-            if (!activeInApp && !isSeedUser(recipientId)) {
+            // ── Three-way push suppression check ──────────────────────────────
+            // Case 1: Recipient is actively viewing THIS chat (same matchId, < 45s)
+            //         → suppress entirely — message appears inline in real-time
+            // Case 2: Recipient is in the app but on a different screen (< 90s)
+            //         → suppress lock-screen push — in-app unread badge updates
+            //           via Supabase Realtime subscription (already live)
+            // Case 3: Recipient is inactive / app closed / phone locked
+            //         → send full push notification with badge increment
+
+            const [activeInSameChat, activeInApp] = await Promise.all([
+              isUserActiveInChat(recipientId, matchId),
+              isUserActiveInApp(recipientId),
+            ]);
+
+            const rid8 = recipientId.slice(0, 8);
+            const sid8 = senderId.slice(0, 8);
+            const mid8 = matchId.slice(0, 8);
+
+            if (activeInSameChat) {
+              // Case 1: recipient is looking at this exact chat right now
+              console.log(`[PUSH_AUDIT] SUPPRESSED — recipient active in same chat senderId=${sid8} recipientId=${rid8} matchId=${mid8} activeInSameChat=true`);
+            } else if (activeInApp) {
+              // Case 2: recipient has the app open but on another screen
+              // The Supabase Realtime subscription already delivers the message
+              // and increments the unread badge in-app; no lock-screen ping needed.
+              console.log(`[PUSH_AUDIT] SUPPRESSED — recipient active elsewhere in app senderId=${sid8} recipientId=${rid8} matchId=${mid8} activeInApp=true activeInSameChat=false`);
+            } else {
+              // Case 3: recipient is outside the app — send full push
               const senderProfile = await adminStorage.getProfileMeta(senderId);
               const senderName    = senderProfile?.firstName || "Someone";
-              const badgeTotal = await incrementMatchBadge(recipientId, matchId);
-              console.log(`[PUSH_AUDIT] senderId=${senderId.slice(0,8)} recipientId=${recipientId.slice(0,8)} targetUser=${recipientId.slice(0,8)} targetSubscriptions=pending senderName="${senderName}" badgeTotal=${badgeTotal}`);
+              const badgeTotal    = await incrementMatchBadge(recipientId, matchId);
+              console.log(`[PUSH_AUDIT] SENDING push — recipient inactive senderId=${sid8} recipientId=${rid8} matchId=${mid8} senderName="${senderName}" badgeTotal=${badgeTotal}`);
               sendPushToUser(
                 recipientId,
                 buildPush.newMessage(senderName, matchId, message.content, badgeTotal),
                 "new_message",
                 { senderId },
               ).catch((err: any) => {
-                console.error(`[PUSH_AUDIT] sendPushToUser threw recipientId=${recipientId.slice(0,8)}: ${err?.message}`);
+                console.error(`[PUSH_AUDIT] sendPushToUser threw recipientId=${rid8}: ${err?.message}`);
               });
-            } else {
-              console.log(`[PUSH_AUDIT] SKIPPED push — senderId=${senderId.slice(0,8)} recipientId=${recipientId.slice(0,8)} activeInApp=${activeInApp} isSeed=${isSeedUser(recipientId)}`);
             }
           }
 

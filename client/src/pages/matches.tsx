@@ -3165,6 +3165,52 @@ export default function Matches() {
   const handleMatchOpen = useCallback((matchId: string) => {
     setExpandedMatchId(matchId);
   }, []);
+
+  // ── Active chat session tracking (push suppression) ────────────────────────
+  // When the user opens a chatroom, POST the matchId to the server so it knows
+  // the recipient is actively viewing this chat.  A 20-second heartbeat keeps
+  // the row fresh while they remain in the chat.  On exit (close button, back,
+  // unmount, or page hidden) the row is cleared so push notifications resume.
+  useEffect(() => {
+    if (!user?.id) return;
+    if (!expandedMatchId) {
+      // User closed the chat — clear the active record (fire-and-forget)
+      fetch("/api/chat/active", { method: "DELETE", credentials: "include" }).catch(() => {});
+      return;
+    }
+
+    // User opened a chat — register immediately
+    const register = () =>
+      fetch("/api/chat/active", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ matchId: expandedMatchId }),
+      }).catch(() => {});
+
+    register();
+
+    // Heartbeat: re-POST every 20s to keep the row fresh (server window is 45s)
+    const heartbeatId = setInterval(register, 20_000);
+
+    // If user backgrounds the page / switches tabs, clear the record immediately
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        fetch("/api/chat/active", { method: "DELETE", credentials: "include" }).catch(() => {});
+      } else if (document.visibilityState === "visible") {
+        // Re-register when they come back
+        register();
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      clearInterval(heartbeatId);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      fetch("/api/chat/active", { method: "DELETE", credentials: "include" }).catch(() => {});
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [expandedMatchId, user?.id]);
   const [activeTab, setActiveTab] = useState<"new" | "active">("new");
   // Belt-and-suspenders: kill any stale ringtone/ringback the moment the user
   // taps either internal tab. The primary guard is in CallDetectors (the rering
