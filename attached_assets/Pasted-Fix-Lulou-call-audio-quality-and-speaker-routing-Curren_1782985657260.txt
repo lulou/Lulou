@@ -1,0 +1,110 @@
+Fix Lulou call audio quality and speaker routing.
+
+Current problems:
+1. Calls have severe echo and beeping.
+2. Even when devices are in different rooms, users hear feedback/noise.
+3. Calls seem stuck on speaker phone.
+4. Audio calls should behave like normal phone calls:
+  - default to earpiece/receiver if possible
+  - speaker should only activate when user taps the speaker button
+
+Requirements:
+
+AUDIO QUALITY / ECHO FIX
+
+Audit the full WebRTC call flow.
+
+Check:
+- getUserMedia audio constraints
+- echoCancellation
+- noiseSuppression
+- autoGainControl
+- audio track settings
+- duplicate remote audio elements
+- duplicate peer connections
+- duplicate ringtone playback
+- remote stream attached more than once
+- local audio accidentally playing back to the same user
+- call reconnect creating multiple audio streams
+- cleanup when call ends/cancels
+- iOS Safari audio behaviour
+- WebRTC renegotiation creating duplicate tracks
+
+Required audio constraints:
+
+{
+ audio: {
+   echoCancellation: true,
+   noiseSuppression: true,
+   autoGainControl: true
+ }
+}
+
+Make sure:
+- local microphone audio is never played back locally
+- only one remote audio element exists per call
+- only one remote MediaStream is attached
+- ringtone stops immediately when call is answered, declined, cancelled, or times out
+- old audio elements/tracks are fully stopped and removed before starting a new call
+- duplicate peer connections are impossible
+- call state cleanup is reliable
+
+SPEAKER / EARPIECE BEHAVIOUR
+
+Audio calls should NOT default to loudspeaker.
+
+Expected behaviour:
+- Audio calls default to normal phone receiver/earpiece where supported.
+- Speaker mode is OFF by default.
+- Speaker button toggles speaker mode ON/OFF.
+- Video calls may use speaker by default, but audio-only calls should not.
+- If iOS Safari/PWA does not allow forcing earpiece routing, clearly document limitation and implement the best available behaviour:
+ - avoid setting audio output to speaker automatically
+ - use playsInline
+ - do not force amplified output
+ - only use speaker-style output when user taps speaker
+
+UI REQUIREMENTS
+
+- Speaker button should clearly show ON/OFF state.
+- Default state for audio calls: speaker OFF.
+- When user taps speaker: speaker ON.
+- When user taps again: speaker OFF.
+- Reset speaker OFF when call ends.
+- Do not change video call controls unless needed.
+
+DEBUGGING / LOGGING
+
+Add call audio debug logs:
+[CALL_AUDIO] getUserMedia constraints
+[CALL_AUDIO] local tracks count
+[CALL_AUDIO] remote tracks count
+[CALL_AUDIO] remote audio element created
+[CALL_AUDIO] duplicate remote stream blocked
+[CALL_AUDIO] ringtone stopped
+[CALL_AUDIO] cleanup complete
+[CALL_AUDIO] speaker default off
+[CALL_AUDIO] speaker toggled on/off
+
+VALIDATION
+
+Test:
+1. Audio call between two devices in same room.
+2. Audio call between two devices in different rooms.
+3. Confirm no echo/beeping.
+4. Confirm ringtone stops after answer.
+5. Confirm no duplicate audio after reconnect.
+6. Confirm speaker is OFF by default.
+7. Confirm speaker button toggles speaker.
+8. Confirm call cleanup works after ending and starting again.
+
+Run:
+npm run check
+npm run build
+
+Report:
+- Root cause of echo/beeping.
+- Files changed.
+- How duplicate streams/tracks were prevented.
+- How speaker default was changed.
+- Any iOS limitations that cannot be controlled from web/PWA.

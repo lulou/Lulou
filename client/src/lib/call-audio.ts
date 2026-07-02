@@ -590,6 +590,7 @@ export function stopAllCallSounds(reason: string): void {
     try { el.srcObject = null; } catch {}
   }
   _voiceElements.length = 0;
+  console.log("[CALL_AUDIO] cleanup complete", { reason });
 }
 
 // ── Backward-compat aliases ────────────────────────────────────────────────

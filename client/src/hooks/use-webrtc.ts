@@ -563,15 +563,16 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
       // ── Critical: stop ALL ringtone audio BEFORE opening the mic ──────────
       // cleanupCallAudio() pauses and clears the ringtone/ringback HTMLAudioElements
       // before getUserMedia() is called. This ensures a completely silent audio
-      // environment when the mic opens. The 80 ms pause gives the OS time to
-      // complete its audio session category switch before capture begins.
+      // environment when the mic opens. The 200 ms pause gives the OS time to
+      // complete its audio session category switch before capture begins, and
+      // allows any in-progress tone oscillators to fully drain their buffers.
       cleanupCallAudio("webrtc_init_before_getUserMedia");
       console.log("[CALL_FIX] non-voice audio stopped before connect", { matchId, isCaller, phase: "before_getUserMedia" });
       console.log("[FINAL_AUDIO_FIX] all non-voice timers stopped before connect", { matchId, isCaller, phase: "before_getUserMedia" });
       console.log("[PHONE_AUDIO] non-call sound removed: before getUserMedia");
       callDebug.event("init: audio cleanup done");
-      console.log("[CALL_ANSWER] audio_cleanup_done — pausing 80ms for AVAudioSession handshake");
-      await new Promise<void>(r => setTimeout(r, 80));
+      console.log("[CALL_ANSWER] audio_cleanup_done — pausing 200ms for AVAudioSession handshake and ringtone drain");
+      await new Promise<void>(r => setTimeout(r, 200));
       // ── Early-abort check ─────────────────────────────────────────────────
       // cleanedUpRef becomes true if:
       //   (a) The component unmounted during the 80ms (activeCall went null)

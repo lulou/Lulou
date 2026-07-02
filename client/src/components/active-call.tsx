@@ -320,17 +320,22 @@ export function ActiveCallOverlay({
     if (!el) return;
 
     if (!isIOS && typeof el.setSinkId === "function") {
-      // Desktop / Android Chrome — always call setSinkId("default") regardless
-      // of speakerOn state. Chrome's software AEC needs the output device
-      // registered with its audio pipeline to use the correct reference signal
-      // when cancelling the remote voice from the mic input. Without setSinkId,
-      // the AEC reference path may diverge from the actual system output route
-      // (e.g. Bluetooth headset, external speaker) causing the echo/screech
-      // feedback loop. setSinkId("default") is safe even before srcObject is set.
-      el.setSinkId("default").catch(() => {});
+      // Desktop / Android Chrome — setSinkId routes audio to the correct device
+      // AND registers the output with Chrome's AEC reference pipeline so echo
+      // cancellation tracks the actual playback device.
+      //
+      // Speaker OFF → "" (empty = "default communications device"):
+      //   On Windows this is the headset / earpiece comms device.
+      //   On Android Chrome this triggers earpiece routing in WebRTC mode.
+      //   This makes the speaker button functional and routes to the natural
+      //   phone-call output device when the user hasn't explicitly requested speaker.
+      // Speaker ON → "default" (multimedia default = loudspeakers):
+      //   Explicitly routes to the main speaker, matching the user's intent.
+      const sinkId = speakerOn ? "default" : "";
+      el.setSinkId(sinkId).catch(() => {});
       el.volume = 1.0;
-      console.log("[CALL_AUDIO] laptop setSinkId(default) — AEC reference path set", { speakerOn, volume: 1.0, matchId });
-      console.log("[CALL_FIX] laptop speaker default", { method: "setSinkId(default)-always", speakerOn, volume: 1.0, matchId });
+      console.log("[CALL_AUDIO] setSinkId routing applied", { sinkId, speakerOn, volume: 1.0, matchId });
+      console.log("[CALL_FIX] laptop speaker routing", { method: `setSinkId(${JSON.stringify(sinkId)})`, speakerOn, volume: 1.0, matchId });
     } else if (isIOS) {
       // iOS only: web cannot reach the AVAudioSession earpiece route.
       // We approximate the two modes with volume:
@@ -403,6 +408,7 @@ export function ActiveCallOverlay({
     if (!webrtcEnabled) return;
     configureVoiceChat();
     console.log("[NATIVE_AUDIO] early configureVoiceChat — before getUserMedia", { matchId, isVideo });
+    console.log("[CALL_AUDIO] speaker default off", { speakerOn: false, matchId, note: "call answered — speaker starts in earpiece/quiet mode" });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [webrtcEnabled]);
 
@@ -602,6 +608,7 @@ export function ActiveCallOverlay({
       allAudioEls.forEach((a) => {
         if (a !== el && a.srcObject === remoteStream) {
           console.log(`[CALL_FEEDBACK_FIX] duplicate remote audio removed — found stale <audio> element with remoteStream attached, pausing and clearing`, { matchId });
+          console.log(`[CALL_AUDIO] duplicate remote stream blocked`, { matchId, reason: "stale <audio> element had remoteStream attached — paused and cleared" });
           a.pause();
           a.srcObject = null;
         }
@@ -670,6 +677,17 @@ export function ActiveCallOverlay({
           (el as any).playsInline = true;
           el.srcObject = remoteStream;
           el.muted = false;
+          console.log("[CALL_AUDIO] remote audio element created", {
+            matchId,
+            audioTracks: remoteStream.getAudioTracks().length,
+            videoTracks: remoteStream.getVideoTracks().length,
+            streamId: remoteStream.id.slice(0, 16),
+          });
+          console.log("[CALL_AUDIO] remote tracks count", {
+            matchId,
+            audioTracks: remoteStream.getAudioTracks().length,
+            videoTracks: remoteStream.getVideoTracks().length,
+          });
           // Re-apply iOS volume immediately after srcObject set — iOS audio session
           // switches when getUserMedia opens the mic, which can silently reset
           // el.volume to 1.0 after the speaker effect's initial run on mount.
@@ -1331,7 +1349,11 @@ export function ActiveCallOverlay({
             {/* Speaker toggle only shown on audio calls — video is always loudspeaker */}
             {!isVideo && (
               <ControlButton
-                onClick={() => setSpeakerOn(s => !s)}
+                onClick={() => setSpeakerOn(s => {
+                  const next = !s;
+                  console.log("[CALL_AUDIO] speaker toggled", { speakerOn: next, matchId });
+                  return next;
+                })}
                 label={speakerOn ? t("call_speaker_on_label") : t("call_speaker")}
                 active={speakerOn}
                 testId="button-toggle-speaker"
