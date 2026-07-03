@@ -506,8 +506,14 @@ const PHONE_PREFIX = "__PHONE__:";
 const VOICE_PREFIX = "__VOICE__:";
 
 function renderMessageContent(content: string, t: (k: any) => string): string {
+  if (content.startsWith(VOICE_PREFIX)) {
+    return "🎤 Voice message";
+  }
   if (content.startsWith(PHONE_PREFIX)) {
     return `${t("my_number_is")} ${content.slice(PHONE_PREFIX.length)}`;
+  }
+  if (content.startsWith("__SCHEDULE__:") || content.startsWith("__DATE_")) {
+    return "";
   }
   return content;
 }
@@ -1158,6 +1164,9 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
   const [message, setMessage] = useState("");
   const [inputFocused, setInputFocused] = useState(false);
   const [showProfilePanel, setShowProfilePanel] = useState(false);
+  const [sheetDragY, setSheetDragY] = useState(0);
+  const [isSheetDragging, setIsSheetDragging] = useState(false);
+  const sheetGestureRef = useRef<{ active: boolean; startY: number }>({ active: false, startY: 0 });
   const [showAIStarters, setShowAIStarters] = useState(false);
   const hasAutoShownStartersRef = useRef(false);
   const [filterConfirm, setFilterConfirm] = useState<{ content: string; tempId: string; categories: string[] } | null>(null);
@@ -1742,12 +1751,24 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
   const recordingStartMsRef = useRef<number>(0);
   // Reuse the same MediaStream across recordings so iOS never re-prompts.
   const micStreamRef = useRef<MediaStream | null>(null);
+  // Synchronous recording-state ref — avoids the async race between startRecording()
+  // awaits and pointerUp firing before setState resolves.
+  const isRecordingRef = useRef(false);
+  // Set true when the user releases/cancels while the recorder is still initialising.
+  const stopRequestedRef = useRef(false);
 
   const stopRecordingTimer = () => {
     if (recordingTimerRef.current) { clearInterval(recordingTimerRef.current); recordingTimerRef.current = null; }
   };
 
   const startRecording = async () => {
+    // Guard against double-start. isRecordingRef is set synchronously BEFORE any
+    // await so even an immediate pointerUp (before getUserMedia resolves) is caught.
+    if (isRecordingRef.current) return;
+    isRecordingRef.current = true;
+    stopRequestedRef.current = false;
+    // Record start time synchronously so the elapsed check works for quick releases.
+    recordingStartMsRef.current = Date.now();
     try {
       // Reuse an existing live stream — avoids re-prompting on iOS Safari.
       let stream = micStreamRef.current && micStreamRef.current.active
@@ -1770,7 +1791,6 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
       };
       recorder.start(100);
       mediaRecorderRef.current = recorder;
-      recordingStartMsRef.current = Date.now();
       setIsRecording(true);
       setRecordingTime(0);
       recordingTimerRef.current = setInterval(() => {
@@ -1779,7 +1799,11 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
           return t + 1;
         });
       }, 1000);
+      // If the user released before setup completed, stop/cancel immediately.
+      if (stopRequestedRef.current) stopRecording();
     } catch (err: any) {
+      isRecordingRef.current = false;
+      stopRequestedRef.current = false;
       const isPermission = err?.name === "NotAllowedError" || err?.name === "PermissionDeniedError";
       const isNotFound = err?.name === "NotFoundError" || err?.name === "DevicesNotFoundError";
       toast({
@@ -1794,16 +1818,21 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
   };
 
   const stopRecording = () => {
+    // Signal stop intent — startRecording checks this flag after async setup completes.
+    stopRequestedRef.current = true;
+    // If the recorder isn't ready yet, the check in startRecording handles it.
+    if (!isRecordingRef.current) return;
     const elapsed = Date.now() - recordingStartMsRef.current;
-    if (elapsed < 300) {
+    if (elapsed < 500) {
+      // Too short (< 0.5 s per spec) — cancel silently; no toast for accidental touches.
       cancelRecording();
-      toast({ title: "Hold the mic longer", description: "Press and hold while you speak, then release to send." });
       return;
     }
     stopRecordingTimer();
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
       mediaRecorderRef.current.stop();
     }
+    isRecordingRef.current = false;
     setIsRecording(false);
     setRecordingTime(0);
   };
@@ -1818,6 +1847,8 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
       try { mr.stop(); } catch { /* ignore */ }
     }
     audioChunksRef.current = [];
+    isRecordingRef.current = false;
+    stopRequestedRef.current = false;
     setIsRecording(false);
     setRecordingTime(0);
   };
@@ -1833,6 +1864,8 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
         mr.onstop = null;
         try { mr.stop(); } catch {}
       }
+      isRecordingRef.current = false;
+      stopRequestedRef.current = false;
       micStreamRef.current?.getTracks().forEach(t => t.stop());
       micStreamRef.current = null;
     };
@@ -2867,15 +2900,20 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                     onPointerDown={e => {
                       e.currentTarget.setPointerCapture(e.pointerId);
                       if (!voiceNotesUnlocked) { setPurchasePromptFeature("mic"); return; }
-                      if (voicePhase === "idle") startRecording();
+                      startRecording();
                     }}
                     onPointerUp={() => {
-                      if (voicePhase === "recording") stopRecording();
+                      // Mark stop requested — handles both: already recording AND still in async setup
+                      stopRequestedRef.current = true;
+                      if (isRecordingRef.current) stopRecording();
                     }}
-                    onPointerLeave={() => { if (voicePhase === "recording") cancelRecording(); }}
-                    onPointerCancel={() => { if (voicePhase === "recording") cancelRecording(); }}
+                    onPointerCancel={() => {
+                      stopRequestedRef.current = true;
+                      if (isRecordingRef.current) cancelRecording();
+                    }}
                     onContextMenu={e => e.preventDefault()}
                     className="absolute right-2 bottom-[10px] flex items-center justify-center select-none transition-transform active:scale-90"
+                    style={{ touchAction: "none" }}
                     data-testid={`button-mic-input-${match.id}`}
                     title={!voiceNotesUnlocked ? "Unlock voice notes" : voicePhase === "recording" ? "Release to send" : "Hold to record"}
                   >
@@ -3034,12 +3072,12 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
             className="absolute inset-0"
             style={{
               background: "rgba(0,0,0,0.48)",
-              // Skip backdrop-blur on mobile — forces full-screen GPU rasterisation
-              // on every frame, severely degrading scroll/animation on iPhone.
+              opacity: sheetDragY > 0 ? Math.max(0.1, 1 - sheetDragY / 320) : 1,
+              transition: isSheetDragging ? "none" : "opacity 0.25s ease",
               backdropFilter: isMobile ? undefined : "blur(4px)",
               WebkitBackdropFilter: isMobile ? undefined : "blur(4px)",
             }}
-            onClick={() => setShowProfilePanel(false)}
+            onClick={() => { if (!isSheetDragging) setShowProfilePanel(false); }}
           />
           <div
             className="absolute inset-x-0 bottom-0 overflow-hidden"
@@ -3048,14 +3086,52 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
               borderRadius: "20px 20px 0 0",
               background: "hsl(var(--background))",
               boxShadow: "0 -8px 40px rgba(0,0,0,0.18)",
-              animation: "sheetSlideUp 0.28s cubic-bezier(0.22,1,0.36,1) both",
+              animation: sheetDragY > 0 ? "none" : "sheetSlideUp 0.28s cubic-bezier(0.22,1,0.36,1) both",
+              transform: sheetDragY > 0 ? `translateY(${sheetDragY}px)` : undefined,
+              transition: isSheetDragging ? "none" : "transform 0.3s cubic-bezier(0.32, 0.72, 0, 1)",
             }}
           >
-            <div className="flex justify-center pt-2.5 pb-1 flex-shrink-0">
+            {/* Drag handle — initiates swipe-down dismiss */}
+            <div
+              className="flex justify-center pt-2.5 pb-2 flex-shrink-0 cursor-grab active:cursor-grabbing"
+              style={{ touchAction: "none" }}
+              onPointerDown={e => {
+                sheetGestureRef.current = { active: true, startY: e.clientY };
+                setIsSheetDragging(false);
+                (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+              }}
+              onPointerMove={e => {
+                if (!sheetGestureRef.current.active) return;
+                const dy = e.clientY - sheetGestureRef.current.startY;
+                if (dy > 2) {
+                  if (!isSheetDragging) setIsSheetDragging(true);
+                  // Rubber-band: full drag below 100px, 50% resistance above
+                  const rubberBand = dy < 100 ? dy : 100 + (dy - 100) * 0.4;
+                  setSheetDragY(rubberBand);
+                }
+              }}
+              onPointerUp={e => {
+                if (!sheetGestureRef.current.active) return;
+                sheetGestureRef.current.active = false;
+                const dy = e.clientY - sheetGestureRef.current.startY;
+                setIsSheetDragging(false);
+                if (dy > 80) {
+                  setSheetDragY(0);
+                  setShowProfilePanel(false);
+                } else {
+                  setSheetDragY(0);
+                }
+              }}
+              onPointerCancel={() => {
+                sheetGestureRef.current.active = false;
+                setIsSheetDragging(false);
+                setSheetDragY(0);
+              }}
+            >
               <div className="w-10 h-1 rounded-full" style={{ background: "hsl(var(--muted-foreground)/0.25)" }} />
             </div>
-            <div style={{ height: "calc(88dvh - 20px)", overflow: "hidden", display: "flex", flexDirection: "column" }}>
-              <ProfilePanel profile={match.profile} onClose={() => setShowProfilePanel(false)} />
+            <div style={{ height: "calc(88dvh - 24px)", overflow: "hidden", display: "flex", flexDirection: "column" }}>
+              <ProfilePanel profile={match.profile} onClose={() => { setSheetDragY(0); setShowProfilePanel(false); }} />
             </div>
           </div>
         </div>

@@ -1,5 +1,4 @@
 import { memo, useState, useEffect, useLayoutEffect, useCallback, useRef, type ReactNode } from "react";
-import { ChevronLeft, ChevronRight } from "lucide-react";
 import { decodedPhotos, preloadPhoto } from "@/lib/image-utils";
 import { isMobile } from "@/lib/perf";
 
@@ -63,6 +62,9 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
     id: number;
   } | null>(null);
 
+  const [showSwipeHint, setShowSwipeHint] = useState(false);
+  const [hintOpacity, setHintOpacity] = useState(0);
+
   const overlayTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isDraggingRef = useRef(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -117,6 +119,16 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
     setDragX(0);
     setPhotoOverlay(null);
   }, [photos]);
+
+  // Show "← Swipe to see more →" hint on first visit (once per app lifetime).
+  useEffect(() => {
+    if (n <= 1 || localStorage.getItem("lulou_photo_swiped")) return;
+    setShowSwipeHint(true);
+    const t1 = setTimeout(() => setHintOpacity(1), 80);
+    const t2 = setTimeout(() => setHintOpacity(0), 2000);
+    const t3 = setTimeout(() => setShowSwipeHint(false), 2450);
+    return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     [safeIdx - 1, safeIdx, safeIdx + 1].forEach(i => {
@@ -243,6 +255,11 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
 
       setCommitting(true);
       setDragX(targetDragX); // spring now active (isDragging just set false)
+      // Dismiss swipe hint on first navigation and record in localStorage
+      if (!localStorage.getItem("lulou_photo_swiped")) {
+        localStorage.setItem("lulou_photo_swiped", "1");
+      }
+      setShowSwipeHint(false);
 
       if (commitTimerRef.current !== null) clearTimeout(commitTimerRef.current);
       commitTimerRef.current = setTimeout(() => {
@@ -569,69 +586,31 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
         )}
       </div>
 
-      {/* ── Arrow buttons ────────────────────────────────────────────────────
-          Outside clip div → always visible over the photo, never clipped. */}
-      {n > 1 && safeIdx > 0 && (
-        <button
-          onClick={e => {
-            e.stopPropagation();
-            navigatePhoto(safeIdx - 1, "bwd");
-          }}
-          onPointerDown={e => e.stopPropagation()}
-          aria-label="Previous photo"
-          data-testid="button-viewer-prev"
+      {/* ── First-time swipe hint ─────────────────────────────────────────── */}
+      {showSwipeHint && n > 1 && (
+        <div
+          aria-hidden="true"
           style={{
             position: "absolute",
-            left: 10,
-            top: "50%",
-            transform: "translateY(-50%)",
-            zIndex: 10,
-            width: 36,
-            height: 36,
-            borderRadius: "50%",
-            background: "rgba(0,0,0,0.38)",
-            backdropFilter: "blur(8px)",
-            WebkitBackdropFilter: "blur(8px)",
-            border: "1px solid rgba(255,255,255,0.18)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            cursor: "pointer",
+            bottom: 44,
+            left: "50%",
+            transform: "translateX(-50%)",
+            whiteSpace: "nowrap",
+            background: "rgba(0,0,0,0.52)",
+            backdropFilter: "blur(10px)",
+            WebkitBackdropFilter: "blur(10px)",
+            borderRadius: 20,
+            padding: "6px 18px",
+            pointerEvents: "none",
+            zIndex: 12,
+            opacity: hintOpacity,
+            transition: "opacity 0.4s ease",
           }}
         >
-          <ChevronLeft style={{ width: 16, height: 16, color: "white" }} />
-        </button>
-      )}
-      {n > 1 && safeIdx < n - 1 && (
-        <button
-          onClick={e => {
-            e.stopPropagation();
-            navigatePhoto(safeIdx + 1, "fwd");
-          }}
-          onPointerDown={e => e.stopPropagation()}
-          aria-label="Next photo"
-          data-testid="button-viewer-next"
-          style={{
-            position: "absolute",
-            right: 10,
-            top: "50%",
-            transform: "translateY(-50%)",
-            zIndex: 10,
-            width: 36,
-            height: 36,
-            borderRadius: "50%",
-            background: "rgba(0,0,0,0.38)",
-            backdropFilter: "blur(8px)",
-            WebkitBackdropFilter: "blur(8px)",
-            border: "1px solid rgba(255,255,255,0.18)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            cursor: "pointer",
-          }}
-        >
-          <ChevronRight style={{ width: 16, height: 16, color: "white" }} />
-        </button>
+          <span style={{ color: "rgba(255,255,255,0.92)", fontSize: 13, letterSpacing: 0.3 }}>
+            ← Swipe to see more →
+          </span>
+        </div>
       )}
 
       {/* ── Dot indicators ───────────────────────────────────────────────────

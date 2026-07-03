@@ -1,0 +1,250 @@
+Complete a full audit and polish pass on Lulou's messaging, voice notes, profile viewer, and calling experience.
+
+Do NOT apply temporary workarounds. Find the root cause of every issue and fix it properly.
+
+Run:
+- npm run check
+- npm run build
+
+Everything must pass before completion.
+
+──────────────────────────────
+1. VOICE NOTES (HIGH PRIORITY)
+
+Voice notes currently feel broken.
+
+Current issues:
+
+• Holding the microphone doesn't consistently begin recording.
+• Sometimes the message composer collapses while trying to record.
+• Recording unexpectedly stops.
+• Voice notes don't always send correctly.
+• Hold-to-record behaviour feels unreliable.
+• The interaction is not smooth like iMessage or WhatsApp.
+
+Required behaviour:
+
+• First use requests microphone permission once only.
+• After permission is granted, never ask again unless the OS requires it.
+• User presses and HOLDS the microphone.
+• Recording starts instantly.
+• Recording continues while finger remains down.
+• Releasing the finger immediately sends the voice note automatically.
+• No separate Send button.
+• No extra confirmation.
+• No collapsing message bar.
+• No accidental cancellation.
+• No interrupted recordings.
+• Smooth waveform animation while recording.
+• Recording timer updates live.
+• Haptic feedback when recording starts and sends.
+• If recording is less than 0.5 seconds, cancel instead of sending.
+
+Audit every touch event:
+
+pointerdown
+pointerup
+pointercancel
+touchstart
+touchend
+touchcancel
+
+Ensure iOS Safari/PWA behaves correctly.
+
+──────────────────────────────
+2. VOICE NOTE PREVIEW BUG
+
+On the Connections page the latest message preview currently shows:
+
+You:
+__VOICE__:https://...
+
+Users should NEVER see raw storage URLs or internal message formats.
+
+Instead:
+
+Display:
+
+🎤 Voice message
+
+or
+
+You: 🎤 Voice message
+
+Apply this everywhere:
+
+• Connections list
+• Active chats
+• New connections
+• Notifications
+• Search
+• Anywhere last-message previews appear
+
+Never expose internal storage paths.
+
+──────────────────────────────
+3. PROFILE PHOTO VIEWER
+
+Remove every left/right navigation arrow.
+
+Users should navigate naturally.
+
+Requirements:
+
+• Swipe left/right only.
+• Smooth paging.
+• Keep page indicators.
+• Remove visual arrows completely.
+• Consistent behaviour in:
+
+- Discover
+- Likes
+- Connections
+- Chat profile
+- Full profile viewer
+
+──────────────────────────────
+4. PROFILE SHEET
+
+Currently swipe-down does not dismiss.
+
+Implement native iOS behaviour.
+
+Allow:
+
+• Swipe down to close.
+• Velocity dismissal.
+• Rubber-band interaction.
+• Smooth spring animation.
+• Tap outside (where appropriate).
+• Close button still works.
+
+Feels like Apple Maps or Photos.
+
+──────────────────────────────
+5. FIRST-TIME PHOTO GUIDANCE
+
+Instead of arrows:
+
+Display once only:
+
+← Swipe to view more photos →
+
+Fade out after 2–3 seconds.
+
+Never show again once the user successfully swipes.
+
+Store locally.
+
+──────────────────────────────
+6. AUDIO CALLS (CRITICAL)
+
+Calls still have:
+
+• Screeching
+• Loud feedback
+• Echo
+• Random beeping
+
+This is unacceptable.
+
+Audit the ENTIRE WebRTC pipeline.
+
+Investigate:
+
+ICE
+TURN
+STUN
+PeerConnections
+MediaStreams
+Audio elements
+Track duplication
+Remote playback
+Local playback
+Echo cancellation
+Noise suppression
+Gain control
+Speaker routing
+Ringtone cleanup
+Call lifecycle
+
+Guarantee:
+
+• Only one PeerConnection.
+• Only one remote audio element.
+• Local microphone is NEVER played back locally.
+• Remote stream attached once.
+• No duplicate tracks.
+• No duplicate play().
+• Ringtone fully stops before microphone opens.
+• Speaker state behaves consistently.
+
+Use extensive logging until solved.
+
+──────────────────────────────
+7. TURN / ICE
+
+The app currently reports:
+
+relay=0
+STUN-only
+ice_failed
+
+Audit:
+
+TURN credentials
+TURN server
+ICE gathering
+ICE policy
+Relay candidates
+Fallback behaviour
+
+Ensure relay candidates are actually available when required.
+
+──────────────────────────────
+8. CHAT MESSAGE BAR
+
+Never collapse while:
+
+• Recording
+• Typing
+• Keyboard opening
+• Keyboard closing
+
+The composer should remain stable.
+
+Only animate intentionally.
+
+──────────────────────────────
+9. GENERAL UX POLISH
+
+Everything should feel premium.
+
+Animations:
+
+• Fluid
+• Apple-quality
+• Responsive
+• No layout jumping
+• No flickering
+• No unexpected resizing
+
+──────────────────────────────
+10. REPORT
+
+When complete provide:
+
+• Root cause for each issue.
+• Files modified.
+• Functions changed.
+• Voice note fixes.
+• Preview text fixes.
+• Profile viewer fixes.
+• Swipe dismissal fixes.
+• Call audio fixes.
+• TURN/ICE findings.
+• Any remaining platform limitations.
+• Build results.
+• Check results.
+
+Do not stop until every issue above has been audited, fixed correctly, and verified.
