@@ -140,7 +140,6 @@ function ProfileModal({
         photos={photos}
         currentIndex={photoIndex}
         onIndexChange={setPhotoIndex}
-        showArrows={false}
         showDots={false}
         style={{ height: "60vh", minHeight: 300, maxHeight: 520 }}
       >

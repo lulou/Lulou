@@ -1,0 +1,260 @@
+Improve onboarding guidance, voice notes, profile interactions, and completely overhaul the calling experience.
+
+Goal:
+Every interaction in Lulou should feel effortless, premium and native to iPhone.
+
+Do NOT implement workarounds.
+Find and fix the root cause of every issue.
+
+Run:
+
+- npm run check
+- npm run build
+
+Everything must pass.
+
+──────────────────────────────
+1. PROFILE SHEET SWIPE
+
+The swipe-down gesture feels stiff.
+
+Make it behave like a native iOS sheet.
+
+Requirements:
+
+• Lower drag threshold.
+• Finger tracks 1:1.
+• Natural momentum.
+• Velocity dismissal.
+• Rubber-band effect.
+• Smooth spring animation.
+• Match Apple Maps / Apple Music / Photos.
+
+──────────────────────────────
+2. LULOU GUIDANCE SYSTEM
+
+Create one reusable Lulou Tip component.
+
+Elegant floating card.
+
+Rounded.
+
+Soft shadow.
+
+Premium animation.
+
+Never intrusive.
+
+Appears once only.
+
+Automatically disappears forever after the user successfully performs the action.
+
+Tips include:
+
+• Swipe to view more photos.
+• Hold the microphone to send a voice note.
+• Release to send automatically.
+• Swipe right to like.
+• Tap speaker to change audio output.
+• Spin the Intention Wheel.
+• Plan your first date inside Lulou.
+• Notifications guidance.
+
+Store completion locally (with future ability to sync).
+
+──────────────────────────────
+3. PROFILE PHOTOS
+
+Remove all navigation arrows.
+
+Navigation should be swipe-only.
+
+Keep page indicators.
+
+Consistent across:
+
+• Discover
+• Likes
+• Connections
+• Chat profile
+• Full profile viewer
+
+──────────────────────────────
+4. VOICE NOTES
+
+Completely audit the recording system.
+
+Current issues:
+
+• Recording randomly stops.
+• Hold gesture unreliable.
+• Composer collapses.
+• Voice notes don't always send.
+• General interaction feels inconsistent.
+
+Required behaviour:
+
+Permission:
+
+• Ask for microphone permission only once.
+• Never ask again unless the browser or OS genuinely requires it.
+
+Recording:
+
+• Hold microphone.
+• Recording starts instantly.
+• Live waveform.
+• Live timer.
+• Release finger.
+• Automatically sends.
+• No Send button.
+• No confirmation.
+• No collapsing UI.
+• Haptic feedback.
+
+Audit every pointer/touch event.
+
+──────────────────────────────
+5. MESSAGE PREVIEWS
+
+Never expose raw internal data.
+
+Instead of:
+
+__VOICE__:https://...
+
+Display:
+
+🎤 Voice message
+
+or
+
+You: 🎤 Voice message
+
+Apply everywhere.
+
+──────────────────────────────
+6. AUDIO CALLS (HIGHEST PRIORITY)
+
+Calls still do NOT behave like a premium calling experience.
+
+Current issues:
+
+• Severe screeching.
+• Loud beeping.
+• Echo.
+• Feedback.
+• Calls sometimes fail.
+• Audio quality is unacceptable.
+
+Do not assume this is an unavoidable browser limitation.
+
+Perform a complete audit of:
+
+• WebRTC lifecycle
+• PeerConnections
+• ICE
+• STUN
+• TURN
+• Audio routing
+• Local stream
+• Remote stream
+• Media elements
+• Track duplication
+• Ringtone cleanup
+• Speaker routing
+• Microphone lifecycle
+• Connection timing
+• Reconnect logic
+
+Guarantee:
+
+• One PeerConnection only.
+• One remote stream.
+• One audio element.
+• No duplicate playback.
+• No ringtone survives connection.
+• Local microphone is never played back locally.
+• Remote stream attached once only.
+• No duplicate tracks.
+• No duplicate play() calls.
+• No screeching.
+• No feedback.
+• No beeping.
+
+Instrument every stage with detailed logging until the root cause is eliminated.
+
+──────────────────────────────
+7. CALL CONNECTION UX
+
+Calls should feel instant.
+
+When a user answers:
+
+• The call should immediately connect.
+• No unnecessary delays.
+• No confusing transitions.
+
+Microphone permission:
+
+If permission has already been granted previously, the user should NOT see another microphone permission prompt every time they answer a call.
+
+Only request microphone permission when the browser or operating system genuinely requires it.
+
+If the permission prompt is appearing repeatedly because of our implementation, fix the lifecycle so permission is requested once and then reused correctly.
+
+If this behaviour is caused by a platform restriction (for example, Safari requiring user interaction after permission has been revoked), explain that clearly in the report instead of masking it.
+
+──────────────────────────────
+8. TURN / ICE
+
+Current diagnostics have shown:
+
+relay=0
+STUN-only
+ice_failed
+
+Audit:
+
+• TURN credentials
+• TURN configuration
+• Relay candidates
+• ICE policy
+• Candidate gathering
+• Symmetric NAT handling
+• Connection fallbacks
+
+Confirm relay candidates are actually being used whenever required.
+
+──────────────────────────────
+9. GENERAL POLISH
+
+Everything should feel:
+
+• Apple-quality.
+• Fluid.
+• Responsive.
+• No flickering.
+• No layout jumps.
+• No unexpected resizing.
+
+──────────────────────────────
+10. REPORT
+
+Provide:
+
+• Root cause of every issue.
+• Files changed.
+• Functions changed.
+• Voice note fixes.
+• Guidance system implementation.
+• Swipe improvements.
+• Call audio findings.
+• TURN findings.
+• ICE findings.
+• Whether repeated microphone prompts were caused by code or platform behaviour.
+• Any genuine browser limitations remaining.
+• Build results.
+• Check results.
+
+Do not finish until every issue above has been audited, fixed correctly and verified.

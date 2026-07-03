@@ -1,5 +1,4 @@
 import { useState, useEffect, useLayoutEffect, useRef, useCallback, type ReactNode } from "react";
-import { ChevronLeft, ChevronRight } from "lucide-react";
 import { decodedPhotos, preloadPhoto } from "@/lib/image-utils";
 import { useLanguageContext } from "@/contexts/language-context";
 
@@ -63,9 +62,7 @@ interface PhotoCarouselProps {
   height?: number | string;
   currentIndex?: number;
   onIndexChange?: (idx: number) => void;
-  showArrows?: boolean;
   showDots?: boolean;
-  gap?: number;
   className?: string;
   style?: React.CSSProperties;
   children?: ReactNode;
@@ -76,7 +73,6 @@ export function PhotoCarousel({
   height = 300,
   currentIndex: controlledIdx,
   onIndexChange,
-  showArrows = true,
   showDots = true,
   className = "",
   style,
@@ -91,6 +87,11 @@ export function PhotoCarousel({
   // suppressTransition = true for exactly one render during the index swap so
   // the current-card div snaps to centre without springing from off-screen.
   const [suppressTransition, setSuppressTransition] = useState(false);
+
+  // First-time swipe hint state (populated after n is known — see useEffect below)
+  const [showSwipeHint, setShowSwipeHint] = useState(false);
+  const [hintOpacity, setHintOpacity] = useState(0);
+  const hintDismissedRef = useRef(false);
 
   const isDraggingRef = useRef(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -109,6 +110,17 @@ export function PhotoCarousel({
   const n = photos.length;
   const idx = controlledIdx !== undefined ? controlledIdx : internalIdx;
   const safeIdx = n === 0 ? 0 : Math.min(idx, n - 1);
+
+  // First-time swipe hint — runs after n is declared
+  useEffect(() => {
+    if (n <= 1) return;
+    try { if (localStorage.getItem("lulou_photo_swiped") === "1") return; } catch {}
+    setShowSwipeHint(true);
+    const t1 = setTimeout(() => setHintOpacity(1), 80);
+    const t2 = setTimeout(() => setHintOpacity(0), 2500);
+    const t3 = setTimeout(() => setShowSwipeHint(false), 2900);
+    return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); };
+  }, [n]);
 
   const goTo = useCallback(
     (next: number) => {
@@ -251,6 +263,12 @@ export function PhotoCarousel({
     setIsDragging(false); // enables spring transition
 
     if (willGoNext || willGoPrev) {
+      // Dismiss first-time swipe hint on first successful swipe
+      if (!hintDismissedRef.current) {
+        hintDismissedRef.current = true;
+        setShowSwipeHint(false);
+        try { localStorage.setItem("lulou_photo_swiped", "1"); } catch {}
+      }
       // ── Commit animation ──────────────────────────────────────────────────
       // Drive dragX to ±(W+GAP): current card exits fully, peek lands at 0.
       // After the spring settles, update the active index and reset dragX.
@@ -475,71 +493,31 @@ export function PhotoCarousel({
             </div>
           </div>
 
-          {/* ── Arrow buttons ─────────────────────────────────────────────────
-              Outside clip div → never clipped; always visible over the photo. */}
-          {showArrows && n > 1 && safeIdx > 0 && (
-            <button
+          {/* ── First-time swipe hint ────────────────────────────────────── */}
+          {showSwipeHint && (
+            <div
+              aria-hidden="true"
               style={{
                 position: "absolute",
-                left: 10,
-                top: "50%",
-                transform: "translateY(-50%)",
-                zIndex: 3,
-                width: 36,
-                height: 36,
-                borderRadius: "50%",
-                background: "rgba(0,0,0,0.38)",
-                backdropFilter: "blur(8px)",
-                WebkitBackdropFilter: "blur(8px)",
-                border: "1px solid rgba(255,255,255,0.18)",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                cursor: "pointer",
+                bottom: 44,
+                left: "50%",
+                transform: "translateX(-50%)",
+                whiteSpace: "nowrap",
+                background: "rgba(0,0,0,0.52)",
+                backdropFilter: "blur(10px)",
+                WebkitBackdropFilter: "blur(10px)",
+                borderRadius: 20,
+                padding: "6px 18px",
+                pointerEvents: "none",
+                zIndex: 4,
+                opacity: hintOpacity,
+                transition: "opacity 0.4s ease",
               }}
-              onPointerDown={e => e.stopPropagation()}
-              onClick={() => goTo(safeIdx - 1)}
-              data-testid="button-carousel-prev"
-              aria-label="Previous photo"
             >
-              {isRTL ? (
-                <ChevronRight style={{ width: 16, height: 16, color: "white" }} />
-              ) : (
-                <ChevronLeft style={{ width: 16, height: 16, color: "white" }} />
-              )}
-            </button>
-          )}
-          {showArrows && n > 1 && safeIdx < n - 1 && (
-            <button
-              style={{
-                position: "absolute",
-                right: 10,
-                top: "50%",
-                transform: "translateY(-50%)",
-                zIndex: 3,
-                width: 36,
-                height: 36,
-                borderRadius: "50%",
-                background: "rgba(0,0,0,0.38)",
-                backdropFilter: "blur(8px)",
-                WebkitBackdropFilter: "blur(8px)",
-                border: "1px solid rgba(255,255,255,0.18)",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                cursor: "pointer",
-              }}
-              onPointerDown={e => e.stopPropagation()}
-              onClick={() => goTo(safeIdx + 1)}
-              data-testid="button-carousel-next"
-              aria-label="Next photo"
-            >
-              {isRTL ? (
-                <ChevronLeft style={{ width: 16, height: 16, color: "white" }} />
-              ) : (
-                <ChevronRight style={{ width: 16, height: 16, color: "white" }} />
-              )}
-            </button>
+              <span style={{ color: "rgba(255,255,255,0.92)", fontSize: 13, letterSpacing: 0.3 }}>
+                ← Swipe to see more →
+              </span>
+            </div>
           )}
 
           {/* ── Dot indicators ────────────────────────────────────────────────

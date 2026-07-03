@@ -1602,7 +1602,6 @@ export default function Messaging() {
             <PhotoCarousel
               photos={profile.photos}
               height={400}
-              showArrows={profile.photos.length > 1}
               showDots={profile.photos.length > 1}
             />
           )}

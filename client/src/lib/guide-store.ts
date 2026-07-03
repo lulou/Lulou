@@ -11,6 +11,15 @@ export const GUIDE_KEYS = {
   SPIN_ROOM_ENTRY:          "spin_room_entry",
   ELEVATE_SCREEN:           "elevate_screen",
   MEMBERSHIP_VIEW:          "membership_view",
+  // Onboarding tips — shown once per user, auto-dismiss
+  MIC_HOLD:                 "mic_hold",
+  RELEASE_TO_SEND:          "release_to_send",
+  PHOTOS_SWIPE:             "photos_swipe",
+  SWIPE_LIKE:               "swipe_like",
+  SPEAKER_TIP:              "speaker_tip",
+  INTENTION_WHEEL:          "intention_wheel",
+  PLAN_DATE_TIP:            "plan_date_tip",
+  NOTIFICATIONS_TIP:        "notifications_tip",
 } as const;
 
 export type GuideKey = typeof GUIDE_KEYS[keyof typeof GUIDE_KEYS];

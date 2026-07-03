@@ -39,9 +39,14 @@ const _STUN_ONLY: RTCIceServer[] = [
 ];
 // Cached after first successful authenticated fetch. Failures are not cached
 // so that a retry on the next call attempt will succeed once the user is logged in.
+// Cache TTL: 5 minutes — ensures fresh TURN credentials are used on new calls.
 let _iceServersCache: RTCIceServer[] | null = null;
+let _iceServersCacheTime = 0;
+const ICE_CACHE_TTL_MS = 5 * 60 * 1000;
 function fetchIceServers(): Promise<RTCIceServer[]> {
-  if (_iceServersCache) return Promise.resolve(_iceServersCache);
+  if (_iceServersCache && Date.now() - _iceServersCacheTime < ICE_CACHE_TTL_MS) {
+    return Promise.resolve(_iceServersCache);
+  }
   return fetch("/api/webrtc/ice-servers")
     .then(r => r.ok ? r.json() : Promise.reject(r.status))
     .then(data => {
@@ -49,6 +54,7 @@ function fetchIceServers(): Promise<RTCIceServer[]> {
         ? data.iceServers
         : _STUN_ONLY;
       _iceServersCache = servers;
+      _iceServersCacheTime = Date.now();
       if (data?.hasTurn) {
         console.log("[WebRTC] TURN server configured — relay candidates available");
       } else {

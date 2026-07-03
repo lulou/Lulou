@@ -1166,13 +1166,14 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
   const [showProfilePanel, setShowProfilePanel] = useState(false);
   const [sheetDragY, setSheetDragY] = useState(0);
   const [isSheetDragging, setIsSheetDragging] = useState(false);
-  const sheetGestureRef = useRef<{ active: boolean; startY: number }>({ active: false, startY: 0 });
+  const sheetGestureRef = useRef<{ active: boolean; startY: number; velocityBuf: { y: number; t: number }[] }>({ active: false, startY: 0, velocityBuf: [] });
   const [showAIStarters, setShowAIStarters] = useState(false);
   const hasAutoShownStartersRef = useRef(false);
   const [filterConfirm, setFilterConfirm] = useState<{ content: string; tempId: string; categories: string[] } | null>(null);
-  const [chatGuideTriggered,  setChatGuideTriggered]  = useState(false);
-  const [callGuideTriggered,  setCallGuideTriggered]  = useState(false);
-  const [videoGuideTriggered, setVideoGuideTriggered] = useState(false);
+  const [chatGuideTriggered,    setChatGuideTriggered]    = useState(false);
+  const [callGuideTriggered,    setCallGuideTriggered]    = useState(false);
+  const [videoGuideTriggered,   setVideoGuideTriggered]   = useState(false);
+  const [micHoldGuideTriggered, setMicHoldGuideTriggered] = useState(false);
   // Tracks messages sent in the current call-stage session for optimistic counter display.
   // Resets when match.id or callStage changes so the badge always starts from the DB value.
   const [localSentCount, setLocalSentCount] = useState(0);
@@ -1701,6 +1702,13 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
     setLocalSentCount(0);
   }, [match.id, detail.callStage]);
 
+  // Trigger the mic-hold onboarding tip once per user when they first open any chat
+  useEffect(() => {
+    if (!expanded) return;
+    const timer = setTimeout(() => setMicHoldGuideTriggered(true), 1800);
+    return () => clearTimeout(timer);
+  }, [expanded]); // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => {
     if (expanded) {
       onMarkRead();
@@ -1756,6 +1764,18 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
   const isRecordingRef = useRef(false);
   // Set true when the user releases/cancels while the recorder is still initialising.
   const stopRequestedRef = useRef(false);
+  // Live waveform analyser — optional, fails silently
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const waveformRafRef = useRef<number | null>(null);
+  const [waveformBars, setWaveformBars] = useState<number[]>(Array(20).fill(0.05));
+
+  const stopWaveform = () => {
+    if (waveformRafRef.current) { cancelAnimationFrame(waveformRafRef.current); waveformRafRef.current = null; }
+    if (audioCtxRef.current) { try { audioCtxRef.current.close(); } catch {} audioCtxRef.current = null; }
+    analyserRef.current = null;
+    setWaveformBars(Array(20).fill(0.05));
+  };
 
   const stopRecordingTimer = () => {
     if (recordingTimerRef.current) { clearInterval(recordingTimerRef.current); recordingTimerRef.current = null; }
@@ -1790,6 +1810,30 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
         if (blob.size > 0) sendVoiceNote.mutate({ blob, mimeType: actualMimeType });
       };
       recorder.start(100);
+      // ── Live waveform analyser (optional — fails silently on restrictive browsers) ──
+      try {
+        const AudioCtxClass = window.AudioContext || (window as any).webkitAudioContext;
+        if (AudioCtxClass) {
+          const ctx = new AudioCtxClass() as AudioContext;
+          audioCtxRef.current = ctx;
+          const analyser = ctx.createAnalyser();
+          analyser.fftSize = 64;
+          analyser.smoothingTimeConstant = 0.75;
+          analyserRef.current = analyser;
+          ctx.createMediaStreamSource(stream).connect(analyser);
+          const freqData = new Uint8Array(analyser.frequencyBinCount);
+          const tick = () => {
+            if (!analyserRef.current) return;
+            analyserRef.current.getByteFrequencyData(freqData);
+            setWaveformBars(Array.from({ length: 20 }, (_, i) => {
+              const idx = Math.floor(i * freqData.length / 20);
+              return Math.max(0.05, freqData[idx] / 255);
+            }));
+            waveformRafRef.current = requestAnimationFrame(tick);
+          };
+          waveformRafRef.current = requestAnimationFrame(tick);
+        }
+      } catch { /* analyser is non-critical — pulse dot is the fallback */ }
       mediaRecorderRef.current = recorder;
       setIsRecording(true);
       setRecordingTime(0);
@@ -1828,6 +1872,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
       cancelRecording();
       return;
     }
+    stopWaveform();
     stopRecordingTimer();
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
       mediaRecorderRef.current.stop();
@@ -1838,6 +1883,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
   };
 
   const cancelRecording = () => {
+    stopWaveform();
     stopRecordingTimer();
     const mr = mediaRecorderRef.current;
     if (mr && mr.state !== "inactive") {
@@ -1857,6 +1903,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
   // (We keep it alive between recordings but must clean up on unmount.)
   useEffect(() => {
     return () => {
+      stopWaveform();
       stopRecordingTimer();
       const mr = mediaRecorderRef.current;
       if (mr && mr.state !== "inactive") {
@@ -2870,8 +2917,26 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                 <div className="relative flex-1">
                   {voicePhase === "recording" ? (
                     <div className="flex items-center gap-2 min-h-[44px] px-3 pr-10 rounded-md border border-red-300/50 bg-red-50/40 dark:bg-red-950/20 select-none">
-                      <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse shrink-0" />
-                      <span className="text-sm text-muted-foreground flex-1 font-mono tabular-nums">
+                      {/* Live waveform bars — fall back to pulse dot if analyser unavailable */}
+                      {analyserRef.current ? (
+                        <div className="flex items-end gap-[2px] h-[22px] flex-1">
+                          {waveformBars.map((h, i) => (
+                            <div
+                              key={i}
+                              style={{
+                                flex: 1,
+                                height: Math.max(3, h * 20) + "px",
+                                borderRadius: 1.5,
+                                background: "rgb(239,68,68)",
+                                transition: "height 0.06s ease",
+                              }}
+                            />
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse shrink-0" />
+                      )}
+                      <span className="text-sm font-mono tabular-nums text-red-500 shrink-0 font-semibold">
                         {`${Math.floor(recordingTime / 60)}:${String(recordingTime % 60).padStart(2, "0")}`}
                       </span>
                     </div>
@@ -3091,36 +3156,52 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
               transition: isSheetDragging ? "none" : "transform 0.3s cubic-bezier(0.32, 0.72, 0, 1)",
             }}
           >
-            {/* Drag handle — initiates swipe-down dismiss */}
+            {/* Drag handle — native-feel iOS sheet dismiss */}
             <div
               className="flex justify-center pt-2.5 pb-2 flex-shrink-0 cursor-grab active:cursor-grabbing"
               style={{ touchAction: "none" }}
               onPointerDown={e => {
-                sheetGestureRef.current = { active: true, startY: e.clientY };
+                sheetGestureRef.current = {
+                  active: true,
+                  startY: e.clientY,
+                  velocityBuf: [{ y: e.clientY, t: Date.now() }],
+                };
                 setIsSheetDragging(false);
                 (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
               }}
               onPointerMove={e => {
-                if (!sheetGestureRef.current.active) return;
-                const dy = e.clientY - sheetGestureRef.current.startY;
-                if (dy > 2) {
+                const g = sheetGestureRef.current;
+                if (!g.active) return;
+                const dy = e.clientY - g.startY;
+                if (dy > 1) {
                   if (!isSheetDragging) setIsSheetDragging(true);
-                  // Rubber-band: full drag below 100px, 50% resistance above
-                  const rubberBand = dy < 100 ? dy : 100 + (dy - 100) * 0.4;
-                  setSheetDragY(rubberBand);
+                  // 1:1 tracking up to 160 px, then 25% resistance — matches iOS Maps physics
+                  const translated = dy <= 160 ? dy : 160 + (dy - 160) * 0.25;
+                  setSheetDragY(translated);
+                  // Velocity ring buffer — cap at 8 samples for performance
+                  g.velocityBuf.push({ y: e.clientY, t: Date.now() });
+                  if (g.velocityBuf.length > 8) g.velocityBuf.shift();
                 }
               }}
               onPointerUp={e => {
-                if (!sheetGestureRef.current.active) return;
-                sheetGestureRef.current.active = false;
-                const dy = e.clientY - sheetGestureRef.current.startY;
+                const g = sheetGestureRef.current;
+                if (!g.active) return;
+                g.active = false;
+                const dy = e.clientY - g.startY;
                 setIsSheetDragging(false);
-                if (dy > 80) {
-                  setSheetDragY(0);
-                  setShowProfilePanel(false);
-                } else {
-                  setSheetDragY(0);
+                // Velocity from last 4 samples (px/s, positive = downward)
+                let velocity = 0;
+                const buf = g.velocityBuf;
+                if (buf.length >= 2) {
+                  const recent = buf.slice(-4);
+                  const dt = recent[recent.length - 1].t - recent[0].t;
+                  const dd = recent[recent.length - 1].y - recent[0].y;
+                  velocity = dt > 0 ? (dd / dt) * 1000 : 0;
                 }
+                // Dismiss: distance threshold OR velocity flick
+                const shouldDismiss = dy > 50 || velocity > 450;
+                setSheetDragY(0);
+                if (shouldDismiss) setShowProfilePanel(false);
               }}
               onPointerCancel={() => {
                 sheetGestureRef.current.active = false;
@@ -3142,6 +3223,16 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
         returnPath={window.location.pathname}
       />
 
+      {micHoldGuideTriggered && (
+        <LulouGuide
+          guideKey={GUIDE_KEYS.MIC_HOLD}
+          userId={user?.id}
+          icon="🎙"
+          title="Hold to record a voice note"
+          body="Release to send automatically. Slide left to cancel."
+          delay={400}
+        />
+      )}
       {chatGuideTriggered && (
         <LulouGuide
           guideKey={GUIDE_KEYS.CHAT_FIRST_MESSAGE}
