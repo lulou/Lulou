@@ -36,6 +36,7 @@ import {
   CookiePolicyPage,
   BillingTermsPage,
 } from "@/pages/legal";
+import { CallDiagnosticsButton } from "@/components/call-diagnostics-button";
 // Dev-only perf overlay stays lazy — never adds to production bundle.
 const PerfOverlayLazy = import.meta.env.DEV
   ? lazy(() => import("@/components/perf-overlay").then(m => ({ default: m.PerfOverlay })))
@@ -2429,6 +2430,7 @@ function App() {
               <TooltipProvider>
                 <Toaster />
                 <AppContent />
+                <CallDiagnosticsButton />
                 <PurchaseDebugPanel />
                 {import.meta.env.DEV && PerfOverlayLazy && (
                   <Suspense fallback={null}>
