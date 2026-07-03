@@ -14,6 +14,7 @@ import { apiRequest, batchPrefetchPhotos } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
 import { useTabActive } from "@/hooks/use-tab-active";
 import { isCallSessionCancelled, markCallSessionCancelled, clearCancelledSession } from "@/lib/cancelled-calls";
+import { requestMicStream, prewarmMicStream, wasMicGrantedBefore, getMicPermState, releaseMicStream, type MicPermState } from "@/lib/mic-permission";
 import { useRealtimeMessages } from "@/hooks/use-realtime-messages";
 import { useUnreadCounts } from "@/hooks/use-unread-counts";
 import { usePushNotifications } from "@/hooks/use-push-notifications";
@@ -1757,8 +1758,12 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
   const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const voicePhase = isRecording ? "recording" as const : "idle" as const;
   const recordingStartMsRef = useRef<number>(0);
-  // Reuse the same MediaStream across recordings so iOS never re-prompts.
+  // Module-level shared stream — persists across component mounts so iOS never re-prompts.
+  // micStreamRef is kept only for waveform analyser compatibility; actual stream comes from
+  // the mic-permission module which lives at module scope (survives chat switching).
   const micStreamRef = useRef<MediaStream | null>(null);
+  // Permission state — drives the hint pill and denied card.
+  const [micPermState, setMicPermState] = useState<MicPermState>(() => getMicPermState());
   // Synchronous recording-state ref — avoids the async race between startRecording()
   // awaits and pointerUp firing before setState resolves.
   const isRecordingRef = useRef(false);
@@ -1790,11 +1795,13 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
     // Record start time synchronously so the elapsed check works for quick releases.
     recordingStartMsRef.current = Date.now();
     try {
-      // Reuse an existing live stream — avoids re-prompting on iOS Safari.
-      let stream = micStreamRef.current && micStreamRef.current.active
-        ? micStreamRef.current
-        : await navigator.mediaDevices.getUserMedia({ audio: true });
-      micStreamRef.current = stream;
+      // Use the module-level shared stream — persists across component mounts so
+      // iOS never re-prompts after the first grant. requestMicStream() is a no-op
+      // if the stream is already live (returns immediately, no async getUserMedia).
+      const stream = await requestMicStream();
+      micStreamRef.current = stream; // also store locally for the waveform analyser
+      setMicPermState("granted");
+      console.log("[VOICE_NOTE_MIC] recording started");
 
       const preferredTypes = ["audio/webm;codecs=opus", "audio/ogg;codecs=opus", "audio/webm", "audio/mp4"];
       const mimeType = preferredTypes.find(t => {
@@ -1805,7 +1812,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
       audioChunksRef.current = [];
       recorder.ondataavailable = e => { if (e.data.size > 0) audioChunksRef.current.push(e.data); };
       recorder.onstop = () => {
-        // Do NOT stop stream tracks — keep the stream alive for the next recording.
+        // Do NOT stop stream tracks — module keeps the stream alive for the next recording.
         const blob = new Blob(audioChunksRef.current, { type: actualMimeType });
         if (blob.size > 0) sendVoiceNote.mutate({ blob, mimeType: actualMimeType });
       };
@@ -1850,14 +1857,21 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
       stopRequestedRef.current = false;
       const isPermission = err?.name === "NotAllowedError" || err?.name === "PermissionDeniedError";
       const isNotFound = err?.name === "NotFoundError" || err?.name === "DevicesNotFoundError";
-      toast({
-        title: isPermission
-          ? "Microphone access is blocked. Enable it in iPhone Settings."
-          : isNotFound
-          ? "No microphone found on this device"
-          : "Could not start recording",
-        variant: "destructive",
-      });
+      if (isPermission) {
+        console.log("[VOICE_NOTE_MIC] permission denied");
+        setMicPermState("denied");
+      } else if (isNotFound) {
+        setMicPermState("unavailable");
+      }
+      // Denied state is shown via inline card — no destructive toast needed.
+      if (!isPermission) {
+        toast({
+          title: isNotFound
+            ? "No microphone found on this device"
+            : "Could not start recording",
+          variant: "destructive",
+        });
+      }
     }
   };
 
@@ -1899,8 +1913,19 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
     setRecordingTime(0);
   };
 
-  // Release the microphone stream when the component unmounts.
-  // (We keep it alive between recordings but must clean up on unmount.)
+  // Pre-warm the shared mic stream as soon as this chat view mounts.
+  // If the user previously granted mic permission, we call getUserMedia() in the
+  // background NOW (not on button press) so the stream is hot before they hold.
+  // This makes recording feel instant — no async delay on the first hold.
+  useEffect(() => {
+    if (voiceNotesUnlocked && wasMicGrantedBefore()) {
+      prewarmMicStream();
+    }
+  }, [voiceNotesUnlocked]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Clean up the MediaRecorder and waveform on unmount.
+  // Do NOT stop the module-level mic stream — it must survive component remounts
+  // so iOS never re-prompts and recording starts instantly on the next chat.
   useEffect(() => {
     return () => {
       stopWaveform();
@@ -1913,7 +1938,8 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
       }
       isRecordingRef.current = false;
       stopRequestedRef.current = false;
-      micStreamRef.current?.getTracks().forEach(t => t.stop());
+      // micStreamRef is a local alias — do NOT stop its tracks.
+      // The module-level stream in mic-permission.ts stays alive.
       micStreamRef.current = null;
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -2911,6 +2937,25 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
               )}
               {callStage === 0 && messagesRemaining === 1 && (
                 <StageHint>{t("last_message_hint")}</StageHint>
+              )}
+              {/* ── First-time mic permission hint ── */}
+              {voiceNotesUnlocked && micPermState === "unknown" && !wasMicGrantedBefore() && (
+                <p className="text-[11px] text-muted-foreground/60 text-center mb-1 px-2 select-none" data-testid={`text-mic-hint-${match.id}`}>
+                  Allow microphone once to send voice notes.
+                </p>
+              )}
+              {/* ── Microphone access denied card ── */}
+              {(micPermState === "denied" || micPermState === "unavailable") && voiceNotesUnlocked && (
+                <div className="mb-2 rounded-xl border border-rose-200/60 bg-rose-50/50 dark:bg-rose-950/20 dark:border-rose-800/40 px-3 py-2.5" data-testid={`card-mic-denied-${match.id}`}>
+                  <p className="text-xs font-medium text-rose-700 dark:text-rose-300 mb-0.5">
+                    {micPermState === "unavailable" ? "No microphone found" : "Microphone access blocked"}
+                  </p>
+                  <p className="text-[11px] text-rose-600/80 dark:text-rose-400/80 leading-relaxed">
+                    {micPermState === "unavailable"
+                      ? "This device doesn't have a microphone available."
+                      : "To send voice notes, go to iPhone Settings → Safari → Microphone and tap Allow."}
+                  </p>
+                </div>
               )}
               <div className="flex gap-2 items-end">
                 {/* ── Input wrapper with embedded mic ── */}
