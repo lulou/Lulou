@@ -1,0 +1,190 @@
+VOICE NOTES FINAL PRODUCTION PASS
+
+Voice notes are much better than before, but they are still not at production quality. I want this feature to behave exactly like a modern messaging app (WhatsApp, iMessage, Telegram, Signal, Messenger). Do not patch around the problems—find the root causes and fix them properly.
+
+━━━━━━━━━━━━━━━━━━━━━━
+1. RESTORE THE MESSAGE COMPOSER
+━━━━━━━━━━━━━━━━━━━━━━
+
+The message composer has regressed.
+
+Current behaviour:
+• The message input is no longer full width.
+• There is a large empty gap before the send button.
+• The composer looks compressed compared to before.
+
+Fix:
+
+• Restore the composer to its original full-width layout.
+• Restore the original spacing.
+• The send button should align exactly as it previously did.
+• Recording mode must use this same layout.
+• No visual regressions.
+
+━━━━━━━━━━━━━━━━━━━━━━
+2. RECORDING MUST NEVER MOVE THE UI
+━━━━━━━━━━━━━━━━━━━━━━
+
+This is currently the biggest UX problem.
+
+When holding the microphone:
+
+• The composer drops downward.
+• The conversation starters move.
+• The chat layout shifts.
+• The whole bottom area jumps.
+
+This is unacceptable.
+
+Required behaviour:
+
+• The composer remains completely fixed.
+• Nothing on the screen moves.
+• The recording UI morphs inside the existing composer.
+• The recording interface replaces the text input without changing the overall height or position.
+• Conversation starters never move.
+• Chat messages never move.
+• Keyboard behaviour remains stable.
+
+The entire bottom section should feel anchored to the screen.
+
+━━━━━━━━━━━━━━━━━━━━━━
+3. NATIVE RECORDING EXPERIENCE
+━━━━━━━━━━━━━━━━━━━━━━
+
+Make recording feel identical to premium messaging apps.
+
+When the user presses and holds the mic:
+
+• Recording starts immediately.
+• The mic smoothly enlarges slightly.
+• Add subtle scale animation.
+• Add subtle glow/pulse while recording.
+• No layout changes.
+• Timer begins immediately.
+• Waveform starts immediately.
+
+When released:
+
+• Recording stops instantly.
+• Upload begins immediately.
+• Composer smoothly returns to text mode.
+
+Slide to cancel:
+
+• Must remain smooth.
+• No accidental cancellations.
+• No UI jumping.
+
+━━━━━━━━━━━━━━━━━━━━━━
+4. FIX "LOAD FAILED"
+━━━━━━━━━━━━━━━━━━━━━━
+
+Voice notes still randomly fail with "Load failed".
+
+Do not hide the error.
+
+Find the actual cause.
+
+Audit the complete pipeline:
+
+• MediaRecorder lifecycle
+• Audio blob generation
+• Blob validation
+• Blob upload
+• Supabase Storage upload
+• Signed URL generation
+• Database message creation
+• Realtime delivery
+• Playback URL retrieval
+• Voice note rendering
+
+Determine exactly where failures occur.
+
+Implement automatic retries for transient failures.
+
+Voice notes must never disappear after recording.
+
+If upload succeeds, playback must always work.
+
+━━━━━━━━━━━━━━━━━━━━━━
+5. MAKE VOICE NOTES FEEL INSTANT
+━━━━━━━━━━━━━━━━━━━━━━
+
+Everything should happen faster.
+
+Recording:
+• Starts instantly.
+
+Stopping:
+• Stops instantly.
+
+Uploading:
+• Begins instantly.
+
+Message:
+• Appears immediately with an uploading state.
+
+Playback:
+• Available immediately after upload completes.
+
+The experience should feel responsive and effortless.
+
+━━━━━━━━━━━━━━━━━━━━━━
+6. NO UI REGRESSIONS
+━━━━━━━━━━━━━━━━━━━━━━
+
+Verify that none of these break:
+
+• Typing messages
+• Sending text
+• Voice notes
+• Conversation starters
+• Keyboard animation
+• Safe area spacing
+• Bottom navigation
+• Chat scrolling
+• Auto-scroll
+• Long conversations
+
+━━━━━━━━━━━━━━━━━━━━━━
+7. INVESTIGATE ROOT CAUSES
+━━━━━━━━━━━━━━━━━━━━━━
+
+Do not apply temporary fixes.
+
+Find and eliminate the actual causes of:
+
+• Composer shrinking
+• Layout movement
+• Recording layout shift
+• Voice note upload failures
+• Playback failures
+• Any unnecessary re-renders during recording
+
+Optimise the implementation so recording mode does not trigger unnecessary component re-layouts.
+
+━━━━━━━━━━━━━━━━━━━━━━
+8. VALIDATION
+━━━━━━━━━━━━━━━━━━━━━━
+
+After completing the work:
+
+• Run npm run check
+• Run npm run build
+
+Both must pass with zero errors.
+
+Then perform real-device testing for:
+
+✓ Recording
+✓ Upload
+✓ Playback
+✓ Multiple consecutive voice notes
+✓ Long recordings
+✓ Poor network conditions
+✓ Keyboard open/close
+✓ Chat switching
+✓ Background/foreground app transitions
+
+Do not consider this task complete until the voice note experience feels as polished and reliable as WhatsApp or iMessage.

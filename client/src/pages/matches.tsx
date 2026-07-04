@@ -2094,18 +2094,21 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
   // ── [VOICE_NOTE_LAYOUT] diagnostics ─────────────────────────────────────────
   // ResizeObserver fires whenever the composer container changes size.
   // On a stable implementation this should fire at most once (initial mount).
+  // Use a ref for the callback to avoid reconnecting the observer on every render.
+  const inputFocusedRef = useRef(false);
+  inputFocusedRef.current = inputFocused;
   useEffect(() => {
     const el = composerRef.current;
     if (!el || typeof ResizeObserver === "undefined") return;
     const ro = new ResizeObserver(entries => {
       for (const entry of entries) {
         const h = Math.round(entry.contentRect.height);
-        console.log(`[VOICE_NOTE_LAYOUT] composer height=${h} recording=${isRecordingRef.current} inputFocused=${inputFocused}`);
+        console.log(`[VOICE_NOTE_LAYOUT] composer height=${h} recording=${isRecordingRef.current} inputFocused=${inputFocusedRef.current}`);
       }
     });
     ro.observe(el);
     return () => ro.disconnect();
-  }); // intentionally runs every render so inputFocused is always fresh in closure
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Log keyboard visibility changes via visualViewport.
   useEffect(() => {
@@ -3285,17 +3288,17 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                   </button>
                 </div>
                 {/*
-                  AI starters and phone buttons are ALWAYS rendered when the feature is available.
-                  They use CSS visibility (not conditional &&) so they always occupy flex space.
-                  This is critical: if buttons are added/removed from the DOM when inputFocused
-                  or voicePhase changes, the flex row reflows and the composer jumps.
-                  Hidden states:
-                    - while keyboard is open (inputFocused)  → visually unnecessary, hide them
-                    - while recording                        → hide via visibility
-                  Both states preserve layout because the element is still in the DOM.
+                  AI starters and phone buttons use !inputFocused as a RENDER condition
+                  (not just visibility) so the input is truly full-width when the keyboard is open.
+                  This is SAFE with e.preventDefault() on the mic button: mic press never causes
+                  a blur when the keyboard is open, so inputFocused stays true and these buttons
+                  are never inserted into the DOM mid-recording (which would cause a shift).
+                  When recording starts while the keyboard is CLOSED (inputFocused=false),
+                  the buttons are already in the DOM — we use visibility:hidden so they keep
+                  their flex space without being removed.
                 */}
-                {/* ✨ Conversation starters */}
-                {aiStartersEnabled && (
+                {/* ✨ Conversation starters — only when keyboard is closed */}
+                {aiStartersEnabled && !inputFocused && (
                   <Button
                     size="icon"
                     variant="ghost"
@@ -3303,14 +3306,14 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                     onMouseDown={e => e.preventDefault()}
                     onClick={() => setShowAIStarters(v => !v)}
                     className={showAIStarters ? "text-primary" : "text-muted-foreground"}
-                    style={{ visibility: (inputFocused || voicePhase === "recording") ? "hidden" : "visible" }}
+                    style={{ visibility: voicePhase === "recording" ? "hidden" : "visible" }}
                     data-testid={`button-ai-starters-${match.id}`}
                   >
                     <Sparkles className="w-4 h-4" />
                   </Button>
                 )}
-                {/* 📞 Voice call shortcut */}
-                {!allCallsDone && (
+                {/* 📞 Voice call shortcut — only when keyboard is closed */}
+                {!allCallsDone && !inputFocused && (
                   <button
                     tabIndex={-1}
                     onMouseDown={e => e.preventDefault()}
@@ -3320,7 +3323,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                     }}
                     disabled={startPaidCall.isPending}
                     className="flex-shrink-0 w-9 h-9 flex items-center justify-center rounded-full transition-all active:scale-90 disabled:opacity-50 hover:bg-muted/40"
-                    style={{ visibility: (inputFocused || voicePhase === "recording") ? "hidden" : "visible" }}
+                    style={{ visibility: voicePhase === "recording" ? "hidden" : "visible" }}
                     data-testid={`button-phone-composer-${match.id}`}
                     title={(phoneCredits ?? 0) > 0 ? t("start_voice_call") : t("unlock_voice_calling")}
                   >
