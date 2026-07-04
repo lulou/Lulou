@@ -528,11 +528,134 @@ type PendingVoiceNote = {
   status: "sending" | "failed";
 };
 
-function VoiceNoteBubble({ url, isMe, status, onRetry }: {
+// ── Voice Debug Panel ─────────────────────────────────────────────────────────
+// Visible only when import.meta.env.DEV=true OR when ?voicedebug=1 is in the URL.
+// Shows all voice note lifecycle state on-screen so iPhone issues can be diagnosed
+// without a desktop console. Tap "Copy Voice Note Debug" to get a full text dump.
+
+type VoiceDebugLive = {
+  composerBefore: string;
+  composerDuring: string;
+  composerAfter: string;
+  blobSize: number;
+  blobType: string;
+  uploadStatus: string;
+  uploadError: string;
+  insertStatus: string;
+  lastPointerEvent: string;
+  mrState: string;
+  playbackUrlStatus: string;
+};
+
+function VoiceDebugPanel({
+  live,
+  log,
+  keyboardOpen,
+  inputFocused,
+  isRecording,
+  mediaRecorderRef,
+  onClear,
+}: {
+  live: React.MutableRefObject<VoiceDebugLive>;
+  log: string[];
+  keyboardOpen: boolean;
+  inputFocused: boolean;
+  isRecording: boolean;
+  mediaRecorderRef: React.MutableRefObject<MediaRecorder | null>;
+  onClear: () => void;
+}) {
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setTick(t => t + 1), 250);
+    return () => clearInterval(id);
+  }, []);
+
+  const vv = window.visualViewport;
+  const l = live.current;
+  const mrState = mediaRecorderRef.current?.state ?? "none";
+
+  const allText = [
+    `=== LIVE ${new Date().toISOString().slice(11, 23)} ===`,
+    `keyboardOpen: ${keyboardOpen}  inputFocused: ${inputFocused}`,
+    `isRecording: ${isRecording}  MR: ${mrState}`,
+    `VP h=${vv ? Math.round(vv.height) : "N/A"} offsetTop=${vv ? Math.round(vv.offsetTop) : "N/A"} scale=${vv ? vv.scale.toFixed(2) : "N/A"}`,
+    `screen.h=${window.screen.height} outer.h=${window.outerHeight}`,
+    `lastPointer: ${l.lastPointerEvent || "none"}`,
+    ``,
+    `=== COMPOSER ===`,
+    `BEFORE: ${l.composerBefore || "not captured"}`,
+    `DURING: ${l.composerDuring || "not captured"}`,
+    `AFTER:  ${l.composerAfter || "not captured"}`,
+    ``,
+    `=== VOICE NOTE ===`,
+    `blob: ${l.blobSize}B  type="${l.blobType}"`,
+    `upload: ${l.uploadStatus || "idle"}`,
+    `uploadErr: ${l.uploadError || "none"}`,
+    `insert: ${l.insertStatus || "idle"}`,
+    `playback: ${l.playbackUrlStatus || "idle"}`,
+    ``,
+    `=== EVENT LOG (newest first) ===`,
+    ...log,
+  ].join("\n");
+
+  const handleCopy = () => {
+    const fallback = () => { prompt("Select all and copy:", allText); };
+    if (!navigator.clipboard) { fallback(); return; }
+    navigator.clipboard.writeText(allText).then(() => { alert("Copied to clipboard!"); }).catch(fallback);
+  };
+
+  return (
+    <div style={{
+      position: "fixed",
+      top: 0,
+      left: 0,
+      right: 0,
+      zIndex: 99999,
+      background: "rgba(0,0,0,0.93)",
+      color: "#00ff88",
+      fontSize: 9,
+      fontFamily: "'Courier New', monospace",
+      lineHeight: 1.35,
+      maxHeight: "45vh",
+      overflowY: "auto",
+      borderBottom: "2px solid #00ff88",
+    }}>
+      <div style={{
+        display: "flex",
+        gap: 6,
+        padding: "4px 8px",
+        background: "rgba(0,0,0,0.5)",
+        position: "sticky",
+        top: 0,
+        zIndex: 1,
+      }}>
+        <button
+          onClick={handleCopy}
+          style={{ background: "#00ff88", color: "#000", border: "none", borderRadius: 3, padding: "3px 12px", fontSize: 11, fontWeight: "bold", cursor: "pointer" }}
+        >
+          📋 Copy Voice Note Debug
+        </button>
+        <button
+          onClick={onClear}
+          style={{ background: "#ff4444", color: "#fff", border: "none", borderRadius: 3, padding: "3px 8px", fontSize: 10, cursor: "pointer" }}
+        >
+          Clear
+        </button>
+        <span style={{ fontSize: 8, color: "#666", alignSelf: "center" }}>voice-debug panel</span>
+      </div>
+      <pre style={{ margin: 0, padding: "4px 8px 8px", whiteSpace: "pre-wrap", wordBreak: "break-all" }}>
+        {allText}
+      </pre>
+    </div>
+  );
+}
+
+function VoiceNoteBubble({ url, isMe, status, onRetry, onLoadStateChange }: {
   url: string;
   isMe: boolean;
   status?: "sending" | "failed";
   onRetry?: () => void;
+  onLoadStateChange?: (state: string, url: string) => void;
 }) {
   const [playing, setPlaying] = useState(false);
   const [duration, setDuration] = useState(0);
@@ -554,6 +677,11 @@ function VoiceNoteBubble({ url, isMe, status, onRetry }: {
     setAudioKey(k => k + 1);
     return () => { if (retryTimerRef.current) clearTimeout(retryTimerRef.current); };
   }, [url]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Report load state changes to parent debug panel (noop when not in debug mode)
+  useEffect(() => {
+    onLoadStateChange?.(loadState, url);
+  }, [loadState]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleAudioError = () => {
     // While the bubble is in "sending" state, the blob URL is always valid — suppress.
@@ -1298,6 +1426,29 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
   // blur event (which doesn't close the keyboard) won't insert DOM nodes and
   // trigger a flex reflow that drops the composer.
   const [keyboardOpen, setKeyboardOpen] = useState(false);
+
+  // ── Voice debug panel state ────────────────────────────────────────────────
+  const voiceDebugEnabled = import.meta.env.DEV || new URLSearchParams(window.location.search).has("voicedebug");
+  const [debugLog, setDebugLog] = useState<string[]>([]);
+  const debugLiveRef = useRef<VoiceDebugLive>({
+    composerBefore: "",
+    composerDuring: "",
+    composerAfter: "",
+    blobSize: 0,
+    blobType: "",
+    uploadStatus: "",
+    uploadError: "",
+    insertStatus: "",
+    lastPointerEvent: "",
+    mrState: "",
+    playbackUrlStatus: "",
+  });
+  const addDbg = useCallback((msg: string) => {
+    const ts = new Date().toISOString().slice(11, 23);
+    setDebugLog(prev => [`${ts} ${msg}`, ...prev].slice(0, 120));
+  }, []);
+  // ── end debug ──────────────────────────────────────────────────────────────
+
   const composerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [showProfilePanel, setShowProfilePanel] = useState(false);
@@ -1960,18 +2111,28 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
       // If both are empty (buggy iOS Safari that doesn't report mimeType), guess from UA.
       const actualMimeType = recorderMime || (isIOS ? "audio/mp4" : "audio/webm");
       console.log(`[VOICE_NOTE_SEND] recording started isIOS=${isIOS} mimeType="${mimeType}" recorderMime="${recorder.mimeType}" actualMimeType="${actualMimeType}"`);
+      addDbg(`recStart isIOS=${isIOS} req="${mimeType}" got="${recorder.mimeType}" actual="${actualMimeType}"`);
       audioChunksRef.current = [];
-      recorder.ondataavailable = e => { if (e.data.size > 0) audioChunksRef.current.push(e.data); };
+      recorder.ondataavailable = e => {
+        if (e.data.size > 0) audioChunksRef.current.push(e.data);
+        addDbg(`chunk ${audioChunksRef.current.length} size=${e.data.size}B`);
+      };
       recorder.onstop = () => {
         // Do NOT stop stream tracks — module keeps the stream alive for the next recording.
         const tStop = performance.now();
         console.log(`[VOICE_NOTE_SEND] recording stopped chunks=${audioChunksRef.current.length}`);
+        addDbg(`recStop chunks=${audioChunksRef.current.length}`);
         const blob = new Blob(audioChunksRef.current, { type: actualMimeType });
         console.log(`[VOICE_NOTE_SEND] blob size=${blob.size}B type="${blob.type}" durationMs=${Math.round(performance.now() - tStop)}`);
+        debugLiveRef.current.blobSize = blob.size;
+        debugLiveRef.current.blobType = blob.type || actualMimeType || "(empty)";
+        addDbg(`onstop blob=${blob.size}B type="${blob.type || "(empty)"}" actual="${actualMimeType}"`);
         if (blob.size === 0) {
           // iOS Safari sometimes fires onstop BEFORE the final ondataavailable chunk.
           // In this case the blob is empty. We show an error so the user knows to retry.
           console.error("[VOICE_NOTE_SEND] blob size=0 — recording produced no audio (iOS timing bug?)");
+          debugLiveRef.current.uploadStatus = "FAILED: blob=0B";
+          addDbg(`FAIL blob.size=0 (iOS ondataavailable timing bug?)`);
           toast({ title: "Recording failed — please try again", description: "Hold the mic for at least 1 second.", variant: "destructive" });
           return;
         }
@@ -1981,6 +2142,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
           const tStart = performance.now();
           // Show bubble IMMEDIATELY — upload happens in background
           console.log(`[VOICE_NOTE_SEND] optimistic bubble shown tempId=${tempId}`);
+          addDbg(`optimistic bubble shown, calling mutate`);
           setPendingVoiceNotes(prev => [...prev, { tempId, blobUrl, blob, mimeType: actualMimeType, tStart, status: "sending" }]);
           forceScrollRef.current = true;
           sendVoiceNote.mutate({ tempId, blobUrl, blob, mimeType: actualMimeType, tStart });
@@ -2173,11 +2335,15 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
       // composer to jump). The real keyboard state is checked again when
       // recording ends.
       if (isRecordingRef.current && !kbVisible) {
+        const msg = `VP resize SUPPRESSED (recording) h=${Math.round(vv.height)} kbVisible=${kbVisible}`;
         console.log(`[VOICE_NOTE_LAYOUT] keyboard close suppressed during recording viewport=${Math.round(vv.height)}px`);
+        addDbg(msg);
         return;
       }
       setKeyboardOpen(kbVisible);
+      const msg2 = `VP resize h=${Math.round(vv.height)} ot=${Math.round(vv.offsetTop)} → kbOpen=${kbVisible}`;
       console.log(`[VOICE_NOTE_LAYOUT] keyboard visible=${kbVisible} viewport=${Math.round(vv.height)}px`);
+      addDbg(msg2);
     };
     vv.addEventListener("resize", handler);
     return () => vv.removeEventListener("resize", handler);
@@ -2186,25 +2352,43 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
   // Log input focus state changes.
   useEffect(() => {
     console.log(`[VOICE_NOTE_LAYOUT] input focused=${inputFocused}`);
-  }, [inputFocused]);
+    addDbg(`inputFocused → ${inputFocused}`);
+  }, [inputFocused]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Log composer position before→during→after recording transitions.
+  // Snapshot composer rect before→during→after recording + write to debug panel.
   useEffect(() => {
     const r = composerRef.current?.getBoundingClientRect();
     if (!r) return;
-    console.log(`[VOICE_NOTE_LAYOUT] ${isRecording ? "during" : "after"} top=${Math.round(r.top)} bottom=${Math.round(r.bottom)} height=${Math.round(r.height)} inputFocused=${inputFocusedRef.current}`);
-  }, [isRecording]);
+    const txt = `top=${Math.round(r.top)} bot=${Math.round(r.bottom)} h=${Math.round(r.height)}`;
+    const vv = window.visualViewport;
+    const vpTxt = vv ? ` VP.h=${Math.round(vv.height)} VP.ot=${Math.round(vv.offsetTop)}` : "";
+    const logLine = `composer ${isRecording ? "DURING" : "AFTER"}: ${txt}${vpTxt} kb=${keyboardOpen} focused=${inputFocusedRef.current}`;
+    console.log(`[VOICE_NOTE_LAYOUT] ${logLine}`);
+    if (isRecording) {
+      debugLiveRef.current.composerDuring = txt + vpTxt;
+    } else {
+      debugLiveRef.current.composerAfter = txt + vpTxt;
+    }
+    addDbg(logLine);
+  }, [isRecording]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const sendVoiceNote = useMutation({
     mutationFn: async ({ blob, mimeType, tStart }: { blob: Blob; mimeType: string; blobUrl: string; tempId: string; tStart: number }) => {
       // ── Step 1: Validate blob ──
       console.log(`[VOICE_NOTE_SEND] blob created size=${blob.size}B type="${blob.type}" mimeType="${mimeType}"`);
+      debugLiveRef.current.blobSize = blob.size;
+      debugLiveRef.current.blobType = blob.type || mimeType || "(empty)";
+      debugLiveRef.current.uploadStatus = "validating";
+      debugLiveRef.current.uploadError = "";
+      addDbg(`blob size=${blob.size}B type="${blob.type || "(empty)"}" mime="${mimeType}"`);
       if (blob.size === 0) throw new Error("Recording produced no audio. Please try again.");
       if (blob.size < 200) throw new Error("Recording too short — hold the mic for at least 0.5 seconds.");
       if (blob.size > 3_000_000) throw new Error("Recording too large (max ~60 seconds). Please try again.");
 
       // ── Step 2: Convert to ArrayBuffer ──
       console.log(`[VOICE_NOTE_SEND] upload started path=/api/voice-notes/send/${match.id}`);
+      debugLiveRef.current.uploadStatus = "uploading…";
+      addDbg(`upload → /api/voice-notes/send/${match.id}`);
       const tUpload = performance.now();
       let arrayBuf: ArrayBuffer;
       try {
@@ -2239,6 +2423,8 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
       }
       const uploadMs = Math.round(performance.now() - tUpload);
       console.log(`[VOICE_NOTE_SEND] upload response status=${res.status} ms=${uploadMs}`);
+      debugLiveRef.current.uploadStatus = `HTTP ${res.status} (${uploadMs}ms)`;
+      addDbg(`uploadResp HTTP ${res.status} in ${uploadMs}ms`);
 
       // ── Step 5: Parse server response ──
       let data: any;
@@ -2249,6 +2435,8 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
       }
       if (!res.ok) {
         console.error(`[VOICE_NOTE_SEND] server error status=${res.status} message="${data?.message}"`);
+        debugLiveRef.current.uploadError = `${res.status}: ${data?.message || "unknown"}`;
+        addDbg(`serverErr ${res.status} "${data?.message || "no msg"}"`);
         throw new Error(data?.message || `Server error ${res.status} — please try again`);
       }
 
@@ -2256,6 +2444,8 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
       const messageId = data?.message?.id;
       const publicUrl = data?.message?.content?.startsWith("__VOICE__:") ? data.message.content.slice(10) : "(no url)";
       console.log(`[VOICE_NOTE_SEND] message inserted id=${messageId} url="${publicUrl}" totalMs=${Math.round(performance.now() - tStart)}`);
+      debugLiveRef.current.insertStatus = messageId ? `ok id=${messageId}` : "WARN: no message obj";
+      addDbg(`insert ${messageId ? "ok id=" + messageId : "WARN: no msg"} url="${publicUrl.slice(0,60)}"`);
       if (!data?.message) {
         console.warn(`[VOICE_NOTE_SEND] server returned success but no message object`);
       }
@@ -2275,8 +2465,10 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
         });
         broadcastNewMessage(realMsg);
         console.log(`[VOICE_NOTE_SEND] cache updated messageId=${realMsg.id} — voice note visible`);
+        addDbg(`onSuccess: cache updated id=${realMsg.id}`);
       } else {
         console.warn(`[VOICE_NOTE_SEND] no realMsg in response — invalidating query`);
+        addDbg(`onSuccess: no realMsg — invalidating query`);
         queryClient.invalidateQueries({ queryKey: ["/api/matches", match.id] });
       }
       // Remove the pending entry — real message is now in cache
@@ -2286,6 +2478,9 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
     onError: (err: any, vars) => {
       // Mark as failed so user can retry — do NOT remove from list
       console.error(`[VOICE_NOTE_SEND] FAILED error="${err?.message}"`);
+      debugLiveRef.current.uploadStatus = "FAILED";
+      debugLiveRef.current.uploadError = err?.message || "unknown";
+      addDbg(`onError: "${err?.message || "unknown"}"`);
       setPendingVoiceNotes(prev => prev.map(v => v.tempId === vars.tempId ? { ...v, status: "failed" } : v));
       toast({ title: err?.message || "Failed to send voice note", variant: "destructive" });
     },
@@ -2813,6 +3008,10 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                         setPendingVoiceNotes(prev => prev.map(v => v.tempId === pv.tempId ? { ...v, status: "sending" } : v));
                         sendVoiceNote.mutate({ tempId: pv.tempId, blobUrl: pv.blobUrl, blob: pv.blob, mimeType: pv.mimeType, tStart: performance.now() });
                       }}
+                      onLoadStateChange={(state, url) => {
+                        debugLiveRef.current.playbackUrlStatus = `${state} (${url.slice(0, 40)})`;
+                        addDbg(`playback loadState="${state}" url="${url.slice(0, 40)}"`);
+                      }}
                     />
                   </div>
                 </div>
@@ -2820,6 +3019,19 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
             ))}
             <div ref={messagesEndRef} />
           </div>
+
+          {/* ── Voice Debug Panel — only in dev mode or ?voicedebug=1 ── */}
+          {voiceDebugEnabled && expanded && (
+            <VoiceDebugPanel
+              live={debugLiveRef}
+              log={debugLog}
+              keyboardOpen={keyboardOpen}
+              inputFocused={inputFocused}
+              isRecording={isRecording}
+              mediaRecorderRef={mediaRecorderRef}
+              onClear={() => setDebugLog([])}
+            />
+          )}
 
           {isCallRinging && iAmCaller ? (
             <div
@@ -3375,9 +3587,25 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                       // Prevent focus transfer and iOS keyboard dismissal — MUST be first
                       e.preventDefault();
                       e.currentTarget.setPointerCapture(e.pointerId);
-                      // Log composer position BEFORE recording starts
+                      // Log + snapshot composer position BEFORE recording starts
                       const r = composerRef.current?.getBoundingClientRect();
-                      if (r) console.log(`[VOICE_NOTE_LAYOUT] before top=${Math.round(r.top)} bottom=${Math.round(r.bottom)} height=${Math.round(r.height)} inputFocused=${inputFocusedRef.current}`);
+                      const vv = window.visualViewport;
+                      if (r) {
+                        const txt = `top=${Math.round(r.top)} bot=${Math.round(r.bottom)} h=${Math.round(r.height)}`;
+                        const vpTxt = vv ? ` VP.h=${Math.round(vv.height)} VP.ot=${Math.round(vv.offsetTop)}` : "";
+                        debugLiveRef.current.composerBefore = txt + vpTxt;
+                        debugLiveRef.current.composerDuring = "";
+                        debugLiveRef.current.composerAfter = "";
+                        debugLiveRef.current.blobSize = 0;
+                        debugLiveRef.current.blobType = "";
+                        debugLiveRef.current.uploadStatus = "";
+                        debugLiveRef.current.uploadError = "";
+                        debugLiveRef.current.insertStatus = "";
+                        debugLiveRef.current.playbackUrlStatus = "";
+                        debugLiveRef.current.lastPointerEvent = `DOWN @ ${new Date().toISOString().slice(11,23)}`;
+                        addDbg(`ptrDOWN — composer BEFORE: ${txt}${vpTxt} kb=${keyboardOpen} focused=${inputFocusedRef.current}`);
+                        console.log(`[VOICE_NOTE_LAYOUT] before top=${Math.round(r.top)} bottom=${Math.round(r.bottom)} height=${Math.round(r.height)} inputFocused=${inputFocusedRef.current}`);
+                      }
                       if (!voiceNotesUnlocked) { setPurchasePromptFeature("mic"); return; }
                       startRecording();
                     }}
@@ -3386,14 +3614,19 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                       // to prevent the browser from transferring focus away from the textarea.
                       // pointerdown+preventDefault alone is insufficient on some iOS versions.
                       e.preventDefault();
+                      addDbg(`touchStart (iOS focus-lock)`);
                     }}
                     onPointerUp={e => {
                       e.preventDefault();
+                      debugLiveRef.current.lastPointerEvent = `UP @ ${new Date().toISOString().slice(11,23)}`;
+                      addDbg(`ptrUP — isRecording=${isRecordingRef.current}`);
                       stopRequestedRef.current = true;
                       if (isRecordingRef.current) stopRecording();
                     }}
                     onPointerCancel={e => {
                       e.preventDefault();
+                      debugLiveRef.current.lastPointerEvent = `CANCEL @ ${new Date().toISOString().slice(11,23)}`;
+                      addDbg(`ptrCANCEL — isRecording=${isRecordingRef.current}`);
                       stopRequestedRef.current = true;
                       if (isRecordingRef.current) cancelRecording();
                     }}
