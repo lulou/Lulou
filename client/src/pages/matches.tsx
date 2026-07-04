@@ -558,15 +558,21 @@ function VoiceNoteBubble({ url, isMe, status, onRetry }: {
   const handleAudioError = () => {
     // While the bubble is in "sending" state, the blob URL is always valid — suppress.
     if (status === "sending") return;
-    // For real CDN URLs, the storage edge may not have propagated yet right after upload.
-    // Retry up to 3 times (1.5s apart) before showing a hard error.
-    if (retryCountRef.current < 3) {
+    // For real CDN URLs, Supabase storage edge propagation can take several seconds.
+    // We retry up to 5 times with a 2-second gap (10 seconds total coverage).
+    // The first error is expected right after upload — don't show anything until we know
+    // whether it's a transient CDN delay or a real failure.
+    const MAX_RETRIES = 5;
+    const RETRY_DELAY_MS = 2000;
+    if (retryCountRef.current < MAX_RETRIES) {
       retryCountRef.current += 1;
+      console.log(`[VOICE_NOTE_SEND] playback URL error — retry ${retryCountRef.current}/${MAX_RETRIES} in ${RETRY_DELAY_MS}ms`);
       setLoadState("retrying");
       retryTimerRef.current = setTimeout(() => {
         setAudioKey(k => k + 1); // remounts <audio>, triggers a fresh fetch of the CDN URL
-      }, 1500);
+      }, RETRY_DELAY_MS);
     } else {
+      console.error(`[VOICE_NOTE_SEND] playback URL failed after ${MAX_RETRIES} retries`);
       setLoadState("error");
     }
   };
@@ -1936,28 +1942,45 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
       const stream = await requestMicStream();
       micStreamRef.current = stream; // also store locally for the waveform analyser
       setMicPermState("granted");
-      console.log("[VOICE_NOTE] recording started");
 
-      const preferredTypes = ["audio/webm;codecs=opus", "audio/ogg;codecs=opus", "audio/webm", "audio/mp4"];
+      // iOS Safari: prefer audio/mp4 first since isTypeSupported may return false for
+      // webm/ogg even though audio/mp4 works. Putting it last risks the fallback path
+      // where recorder.mimeType is empty → upload sends wrong Content-Type → FFmpeg fail.
+      const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as any).MSStream;
+      const preferredTypes = isIOS
+        ? ["audio/mp4", "audio/webm;codecs=opus", "audio/ogg;codecs=opus", "audio/webm"]
+        : ["audio/webm;codecs=opus", "audio/ogg;codecs=opus", "audio/webm", "audio/mp4"];
       const mimeType = preferredTypes.find(t => {
         try { return MediaRecorder.isTypeSupported(t); } catch { return false; }
       }) ?? "";
       const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
-      const actualMimeType = recorder.mimeType || mimeType;
+      // recorder.mimeType is the authoritative type (browser fills it even when we don't
+      // specify one). Fall back to mimeType from isTypeSupported, then to platform guess.
+      const recorderMime = recorder.mimeType || mimeType;
+      // If both are empty (buggy iOS Safari that doesn't report mimeType), guess from UA.
+      const actualMimeType = recorderMime || (isIOS ? "audio/mp4" : "audio/webm");
+      console.log(`[VOICE_NOTE_SEND] recording started isIOS=${isIOS} mimeType="${mimeType}" recorderMime="${recorder.mimeType}" actualMimeType="${actualMimeType}"`);
       audioChunksRef.current = [];
       recorder.ondataavailable = e => { if (e.data.size > 0) audioChunksRef.current.push(e.data); };
       recorder.onstop = () => {
         // Do NOT stop stream tracks — module keeps the stream alive for the next recording.
         const tStop = performance.now();
-        console.log("[VOICE_NOTE] recording stopped");
+        console.log(`[VOICE_NOTE_SEND] recording stopped chunks=${audioChunksRef.current.length}`);
         const blob = new Blob(audioChunksRef.current, { type: actualMimeType });
-        console.log(`[VOICE_NOTE] blob ready size=${blob.size}B type=${actualMimeType} blobMs=${Math.round(performance.now() - tStop)}`);
+        console.log(`[VOICE_NOTE_SEND] blob size=${blob.size}B type="${blob.type}" durationMs=${Math.round(performance.now() - tStop)}`);
+        if (blob.size === 0) {
+          // iOS Safari sometimes fires onstop BEFORE the final ondataavailable chunk.
+          // In this case the blob is empty. We show an error so the user knows to retry.
+          console.error("[VOICE_NOTE_SEND] blob size=0 — recording produced no audio (iOS timing bug?)");
+          toast({ title: "Recording failed — please try again", description: "Hold the mic for at least 1 second.", variant: "destructive" });
+          return;
+        }
         if (blob.size > 0) {
           const blobUrl = URL.createObjectURL(blob);
           const tempId = `voice-temp-${Date.now()}-${Math.random().toString(36).slice(2)}`;
           const tStart = performance.now();
           // Show bubble IMMEDIATELY — upload happens in background
-          console.log("[VOICE_NOTE] optimistic bubble shown");
+          console.log(`[VOICE_NOTE_SEND] optimistic bubble shown tempId=${tempId}`);
           setPendingVoiceNotes(prev => [...prev, { tempId, blobUrl, blob, mimeType: actualMimeType, tStart, status: "sending" }]);
           forceScrollRef.current = true;
           sendVoiceNote.mutate({ tempId, blobUrl, blob, mimeType: actualMimeType, tStart });
@@ -2045,6 +2068,15 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
     isRecordingRef.current = false;
     setIsRecording(false);
     setRecordingTime(0);
+    // Re-sync keyboardOpen after recording ends. The visualViewport handler suppresses
+    // keyboard-close events during recording to prevent flex layout shifts. Now that
+    // recording is done, reconcile with the actual viewport state.
+    const vv = window.visualViewport;
+    if (vv) {
+      const kbActuallyVisible = (window.outerHeight || window.screen.height) - vv.height > 150;
+      setKeyboardOpen(kbActuallyVisible);
+      console.log(`[VOICE_NOTE_LAYOUT] post-recording keyboard re-sync visible=${kbActuallyVisible} viewport=${Math.round(vv.height)}px`);
+    }
   };
 
   const cancelRecording = () => {
@@ -2135,6 +2167,15 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
     if (!vv) return;
     const handler = () => {
       const kbVisible = (window.outerHeight || window.screen.height) - vv.height > 150;
+      // CRITICAL: if the keyboard is apparently closing while we are recording,
+      // do NOT update keyboardOpen. This prevents the AI/phone buttons from
+      // being re-inserted into the flex row mid-recording (which causes the
+      // composer to jump). The real keyboard state is checked again when
+      // recording ends.
+      if (isRecordingRef.current && !kbVisible) {
+        console.log(`[VOICE_NOTE_LAYOUT] keyboard close suppressed during recording viewport=${Math.round(vv.height)}px`);
+        return;
+      }
       setKeyboardOpen(kbVisible);
       console.log(`[VOICE_NOTE_LAYOUT] keyboard visible=${kbVisible} viewport=${Math.round(vv.height)}px`);
     };
