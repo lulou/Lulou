@@ -1892,18 +1892,22 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
   const isRecordingRef = useRef(false);
   // Set true when the user releases/cancels while the recorder is still initialising.
   const stopRequestedRef = useRef(false);
-  // Live waveform analyser — optional, fails silently
+  // Live waveform analyser — optional, fails silently.
+  // IMPORTANT: waveform bar heights are updated via DIRECT DOM manipulation (waveformBarEls refs)
+  // rather than React state. This eliminates 60 re-renders/second during recording which was
+  // causing iOS to repaint and visually jump the fixed-position composer.
   const analyserRef = useRef<AnalyserNode | null>(null);
   const audioCtxRef = useRef<AudioContext | null>(null);
   const waveformRafRef = useRef<number | null>(null);
-  const [waveformBars, setWaveformBars] = useState<number[]>(Array(20).fill(0.05));
+  const waveformBarEls = useRef<HTMLDivElement[]>([]);
   const [pendingVoiceNotes, setPendingVoiceNotes] = useState<PendingVoiceNote[]>([]);
 
   const stopWaveform = () => {
     if (waveformRafRef.current) { cancelAnimationFrame(waveformRafRef.current); waveformRafRef.current = null; }
     if (audioCtxRef.current) { try { audioCtxRef.current.close(); } catch {} audioCtxRef.current = null; }
     analyserRef.current = null;
-    setWaveformBars(Array(20).fill(0.05));
+    // Reset bar heights directly — no React state update needed
+    waveformBarEls.current.forEach(el => { if (el) el.style.height = "3px"; });
   };
 
   const stopRecordingTimer = () => {
@@ -1968,10 +1972,14 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
           const tick = () => {
             if (!analyserRef.current) return;
             analyserRef.current.getByteFrequencyData(freqData);
-            setWaveformBars(Array.from({ length: 20 }, (_, i) => {
-              const idx = Math.floor(i * freqData.length / 20);
-              return Math.max(0.05, freqData[idx] / 255);
-            }));
+            // Direct DOM update — zero React re-renders, zero layout thrash on iOS
+            const bars = waveformBarEls.current;
+            for (let i = 0; i < bars.length; i++) {
+              if (bars[i]) {
+                const idx = Math.floor(i * freqData.length / bars.length);
+                bars[i].style.height = Math.max(3, (freqData[idx] / 255) * 20) + "px";
+              }
+            }
             waveformRafRef.current = requestAnimationFrame(tick);
           };
           waveformRafRef.current = requestAnimationFrame(tick);
@@ -2126,6 +2134,13 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
   useEffect(() => {
     console.log(`[VOICE_NOTE_LAYOUT] input focused=${inputFocused}`);
   }, [inputFocused]);
+
+  // Log composer position before→during→after recording transitions.
+  useEffect(() => {
+    const r = composerRef.current?.getBoundingClientRect();
+    if (!r) return;
+    console.log(`[VOICE_NOTE_LAYOUT] ${isRecording ? "during" : "after"} top=${Math.round(r.top)} bottom=${Math.round(r.bottom)} height=${Math.round(r.height)} inputFocused=${inputFocusedRef.current}`);
+  }, [isRecording]);
 
   const sendVoiceNote = useMutation({
     mutationFn: async ({ blob, mimeType, tStart }: { blob: Blob; mimeType: string; blobUrl: string; tempId: string; tStart: number }) => {
@@ -3204,7 +3219,16 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                     placeholder={t("write_meaningful_placeholder")}
                     className={`resize-none min-h-[44px] max-h-[80px] text-sm pr-8 transition-none${voicePhase === "recording" ? " invisible pointer-events-none" : ""}`}
                     onFocus={() => setInputFocused(true)}
-                    onBlur={() => setInputFocused(false)}
+                    onBlur={() => {
+                      // CRITICAL: suppress blur during recording on iOS.
+                      // Even with e.preventDefault() on pointerdown, iOS Safari can still fire
+                      // blur in certain conditions. If we let setInputFocused(false) run while
+                      // recording, the !inputFocused guard adds the AI/phone buttons to the DOM
+                      // mid-recording → flex row reflows → composer jumps.
+                      const blurDuringRecording = isRecordingRef.current;
+                      console.log(`[VOICE_NOTE_LAYOUT] input blurred? recording=${blurDuringRecording}`);
+                      if (!blurDuringRecording) setInputFocused(false);
+                    }}
                     onKeyDown={e => {
                       if (e.key === "Enter" && !e.shiftKey) {
                         e.preventDefault();
@@ -3216,25 +3240,24 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                   {/* Recording overlay — absolute so it occupies the same space as the textarea */}
                   {voicePhase === "recording" && (
                     <div className="absolute inset-0 flex items-center gap-2 px-3 pr-10 rounded-md border border-red-300/50 bg-red-50/40 dark:bg-red-950/20 select-none pointer-events-none">
-                      {/* Live waveform bars — fall back to pulse dot if analyser unavailable */}
-                      {analyserRef.current ? (
-                        <div className="flex items-end gap-[2px] h-[22px] flex-1">
-                          {waveformBars.map((h, i) => (
-                            <div
-                              key={i}
-                              style={{
-                                flex: 1,
-                                height: Math.max(3, h * 20) + "px",
-                                borderRadius: 1.5,
-                                background: "rgb(239,68,68)",
-                                transition: "height 0.06s ease",
-                              }}
-                            />
-                          ))}
-                        </div>
-                      ) : (
-                        <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse shrink-0" />
-                      )}
+                      {/* Live waveform bars — heights updated via direct DOM refs (no React state)
+                          to prevent 60fps re-renders that cause iOS layout thrash */}
+                      <div className="flex items-end gap-[2px] h-[22px] flex-1">
+                        {Array.from({ length: 20 }, (_, i) => (
+                          <div
+                            key={i}
+                            ref={el => { if (el) waveformBarEls.current[i] = el; }}
+                            style={{
+                              flex: 1,
+                              height: "3px",
+                              borderRadius: 1.5,
+                              background: "rgb(239,68,68)",
+                              transition: "height 0.06s ease",
+                              willChange: "height",
+                            }}
+                          />
+                        ))}
+                      </div>
                       <span className="text-sm font-mono tabular-nums text-red-500 shrink-0 font-semibold">
                         {`${Math.floor(recordingTime / 60)}:${String(recordingTime % 60).padStart(2, "0")}`}
                       </span>
@@ -3251,6 +3274,9 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                       // Prevent focus transfer and iOS keyboard dismissal — MUST be first
                       e.preventDefault();
                       e.currentTarget.setPointerCapture(e.pointerId);
+                      // Log composer position BEFORE recording starts
+                      const r = composerRef.current?.getBoundingClientRect();
+                      if (r) console.log(`[VOICE_NOTE_LAYOUT] before top=${Math.round(r.top)} bottom=${Math.round(r.bottom)} height=${Math.round(r.height)} inputFocused=${inputFocusedRef.current}`);
                       if (!voiceNotesUnlocked) { setPurchasePromptFeature("mic"); return; }
                       startRecording();
                     }}

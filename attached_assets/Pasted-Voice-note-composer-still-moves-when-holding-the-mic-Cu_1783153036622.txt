@@ -1,0 +1,59 @@
+Voice note composer still moves when holding the mic.
+
+Current issue:
+When the keyboard is open and I press/hold the mic, the message bar drops down toward the keyboard. It should stay exactly where it is.
+
+Reference behaviour:
+The composer must stay in the exact same position shown before recording starts.
+
+Required behaviour:
+- Keyboard stays open.
+- Composer stays anchored above the keyboard.
+- Message bar does not move down.
+- Message bar does not resize.
+- Conversation starters do not move.
+- Send button does not jump.
+- Only the mic icon changes visually.
+- Mic should gently scale/glow while recording.
+- Recording UI must render inside the existing composer/input area or as an overlay that does not affect layout.
+- Do not replace the composer with a different recording row.
+- Do not blur the textarea/input on mic press.
+- Prevent iOS from treating the mic press as input blur.
+
+Technical audit:
+- Find the exact state change that causes the composer to drop.
+- Check focus/blur handlers.
+- Check keyboard visibility logic.
+- Check safe-area bottom padding.
+- Check fixed/sticky positioning.
+- Check conditional rendering when isRecording=true.
+- Check whether recording mode hides composer buttons or changes row height.
+- Check any CSS classes applied only during recording.
+
+Implementation:
+- Keep the same composer wrapper mounted at all times.
+- Lock composer height and bottom position before recording starts.
+- During recording, update only inner content using absolute overlay or CSS transform.
+- Use pointerdown/touchstart with preventDefault where needed so input does not blur.
+- Preserve focus while recording.
+- Restore exact same layout after release.
+- Add logs:
+ [VOICE_NOTE_LAYOUT] before top/bottom/height
+ [VOICE_NOTE_LAYOUT] during top/bottom/height
+ [VOICE_NOTE_LAYOUT] after top/bottom/height
+ [VOICE_NOTE_LAYOUT] input blurred? true/false
+
+Success test:
+1. Open chat.
+2. Tap message input so keyboard is open.
+3. Press and hold the mic.
+4. Composer must not move even 1px.
+5. Release mic.
+6. Composer must still not move.
+7. Voice note sends.
+
+Run:
+npm run check
+npm run build
+
+Do not finish until the actual iPhone composer stays fixed while recording.
