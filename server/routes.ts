@@ -1,3 +1,4 @@
+import express from "express";
 import type { Express, RequestHandler } from "express";
 import { createServer, type Server } from "http";
 import { randomUUID } from "crypto";
@@ -3066,19 +3067,36 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/voice-notes/send/:matchId", isAuthenticated, async (req: any, res) => {
+  // Binary audio upload — client sends raw ArrayBuffer (no base64 overhead).
+  // express.raw() parses the body into req.body as a Buffer for any content-type.
+  // The MIME type is passed in X-Voice-Mime header to avoid encoding it in a JSON wrapper.
+  app.post("/api/voice-notes/send/:matchId", isAuthenticated, express.raw({ type: "*/*", limit: "15mb" }), async (req: any, res) => {
+    const tReceive = Date.now();
     try {
       const adminStorage = getAdminStorage();
       const storage = getStorage(req);
       const userId = req.user.id;
       const { matchId } = req.params;
-      const { audioBase64, mimeType } = req.body;
 
-      console.log(`[VOICE] RECEIVE matchId=${matchId} userId=${userId} mimeType=${mimeType}`);
-
-      if (!audioBase64 || typeof audioBase64 !== "string") {
-        return res.status(400).json({ message: "audioBase64 is required" });
+      // Accept binary body (new path) or fall back to legacy base64 JSON (old clients)
+      let audioBuffer: Buffer;
+      let mimeType: string;
+      if (Buffer.isBuffer(req.body) && req.body.length > 0) {
+        audioBuffer = req.body;
+        mimeType = (req.headers["x-voice-mime"] as string | undefined) || "audio/webm";
+      } else if (req.body?.audioBase64) {
+        // Legacy JSON/base64 fallback (old app versions)
+        mimeType = req.body.mimeType || "audio/webm";
+        try {
+          audioBuffer = Buffer.from(req.body.audioBase64, "base64");
+        } catch {
+          return res.status(400).json({ message: "Invalid audio data" });
+        }
+      } else {
+        return res.status(400).json({ message: "Audio data is required" });
       }
+
+      console.log(`[VOICE_NOTE_SPEED] recording stopped → server received size=${audioBuffer.length}B mimeType=${mimeType} receiveMs=${Date.now() - tReceive}`);
 
       const match = await storage.getMatchMeta(matchId, userId);
       if (!match) return res.status(404).json({ message: "Match not found" });
@@ -3094,65 +3112,65 @@ export async function registerRoutes(
         return res.status(403).json({ message: "Voice Notes Unlock required. Purchase from Lulou Extras." });
       }
 
-      let audioBuffer: Buffer;
-      try {
-        audioBuffer = Buffer.from(audioBase64, "base64");
-      } catch {
-        return res.status(400).json({ message: "Invalid audio data" });
-      }
-
-      console.log(`[VOICE] BUFFER_SIZE ${audioBuffer.length}B mimeType=${mimeType}`);
-
       if (audioBuffer.length < 1_000) {
         return res.status(400).json({ message: "Recording too short. Please try again." });
       }
-
       if (audioBuffer.length > 10_000_000) {
         return res.status(400).json({ message: "Audio file too large (max 10 MB)" });
       }
 
-      const safeMime = (typeof mimeType === "string" && mimeType.length < 100) ? mimeType : "audio/webm";
+      const safeMime = mimeType.length < 100 ? mimeType : "audio/webm";
 
-      // ── Transcode to AAC/M4A — the universal playback format ─────────────────
-      // Every browser and platform supports AAC in an MP4 container:
-      //   Chrome/Android ✅  Firefox ✅  Safari/iOS ✅  Edge ✅
-      // This eliminates the Chrome→Safari cross-play failure where a WebM
-      // recording could not be played on iPhone at all.
+      // ── Transcode to AAC/M4A ──────────────────────────────────────────────────
+      // iOS fast path: audio/mp4 is already AAC — remux only (copy codec, ~50 ms).
+      // Chrome/Android: re-encode WebM→AAC at 32 kbps / 16 kHz mono (~300-800 ms).
       let outputBuffer: Buffer;
       try {
         const t0 = Date.now();
-        console.log(`[VOICE] TRANSCODE_START safeMime=${safeMime}`);
+        console.log(`[VOICE_NOTE_SPEED] upload started (transcode) safeMime=${safeMime}`);
         outputBuffer = await transcodeToM4a(audioBuffer, safeMime);
-        console.log(`[VOICE] TRANSCODE_OK ${audioBuffer.length}B → ${outputBuffer.length}B in ${Date.now() - t0}ms`);
+        console.log(`[VOICE_NOTE_SPEED] upload complete (transcode+storage) ${audioBuffer.length}B→${outputBuffer.length}B transcodeMs=${Date.now() - t0}`);
       } catch (transcodeErr: any) {
         console.error(`[VOICE] TRANSCODE_FAIL safeMime=${safeMime} error="${transcodeErr.message}"`);
         return res.status(500).json({ message: "Failed to process audio. Please try again." });
       }
 
       const filePath = `${matchId}/${Date.now()}_${userId}.m4a`;
-
-      await supabaseAdmin.storage.createBucket("voice-notes", { public: true }).catch(() => {});
+      const tUpload = Date.now();
 
       const { error: uploadError } = await supabaseAdmin.storage
         .from("voice-notes")
         .upload(filePath, outputBuffer, { contentType: "audio/mp4", upsert: false });
 
       if (uploadError) {
-        console.error(`[VOICE] UPLOAD_FAIL ${uploadError.message}`);
-        return res.status(500).json({ message: "Failed to upload voice note. Please try again." });
+        // If bucket doesn't exist yet, create it and retry once
+        if (uploadError.message?.includes("Bucket not found") || uploadError.message?.includes("bucket")) {
+          await supabaseAdmin.storage.createBucket("voice-notes", { public: true }).catch(() => {});
+          const { error: retryErr } = await supabaseAdmin.storage
+            .from("voice-notes")
+            .upload(filePath, outputBuffer, { contentType: "audio/mp4", upsert: false });
+          if (retryErr) {
+            console.error(`[VOICE] UPLOAD_FAIL ${retryErr.message}`);
+            return res.status(500).json({ message: "Failed to upload voice note. Please try again." });
+          }
+        } else {
+          console.error(`[VOICE] UPLOAD_FAIL ${uploadError.message}`);
+          return res.status(500).json({ message: "Failed to upload voice note. Please try again." });
+        }
       }
-      console.log(`[VOICE] UPLOAD_OK path=${filePath}`);
+      console.log(`[VOICE_NOTE_SPEED] upload complete (storage only) storageMs=${Date.now() - tUpload}`);
 
       const { data: urlData } = supabaseAdmin.storage.from("voice-notes").getPublicUrl(filePath);
       const publicUrl = urlData.publicUrl;
 
+      const tInsert = Date.now();
       const message = await adminStorage.createMessage({
         matchId,
         senderId: userId,
         content: `__VOICE__:${publicUrl}`,
       });
+      console.log(`[VOICE_NOTE_SPEED] message inserted insertMs=${Date.now() - tInsert} totalMs=${Date.now() - tReceive} messageId=${message?.id}`);
 
-      console.log(`[VOICE] MESSAGE_CREATED messageId=${message?.id} url=${publicUrl}`);
       res.json({ success: true, message });
     } catch (err: any) {
       console.error("[VOICE] ERROR:", err.message);

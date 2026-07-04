@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
-import { apiRequest, batchPrefetchPhotos } from "@/lib/queryClient";
+import { apiRequest, batchPrefetchPhotos, getAuthHeaders, API_BASE } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
 import { useTabActive } from "@/hooks/use-tab-active";
 import { isCallSessionCancelled, markCallSessionCancelled, clearCancelledSession } from "@/lib/cancelled-calls";
@@ -519,7 +519,21 @@ function renderMessageContent(content: string, t: (k: any) => string): string {
   return content;
 }
 
-function VoiceNoteBubble({ url, isMe }: { url: string; isMe: boolean }) {
+type PendingVoiceNote = {
+  tempId: string;
+  blobUrl: string;
+  blob: Blob;
+  mimeType: string;
+  tStart: number;
+  status: "sending" | "failed";
+};
+
+function VoiceNoteBubble({ url, isMe, status, onRetry }: {
+  url: string;
+  isMe: boolean;
+  status?: "sending" | "failed";
+  onRetry?: () => void;
+}) {
   const audioRef = useRef<HTMLAudioElement>(null);
   const [playing, setPlaying] = useState(false);
   const [duration, setDuration] = useState(0);
@@ -542,6 +556,7 @@ function VoiceNoteBubble({ url, isMe }: { url: string; isMe: boolean }) {
       }`}
       data-testid="voice-note-bubble"
     >
+      {/* Hidden audio element always mounted so local blob URL is preloaded */}
       <audio
         ref={audioRef}
         src={url}
@@ -551,9 +566,39 @@ function VoiceNoteBubble({ url, isMe }: { url: string; isMe: boolean }) {
         onEnded={() => { setPlaying(false); setCurrentTime(0); }}
         onLoadedMetadata={e => setDuration((e.target as HTMLAudioElement).duration || 0)}
         onTimeUpdate={e => setCurrentTime((e.target as HTMLAudioElement).currentTime)}
-        onError={() => setAudioError(true)}
+        onError={() => { if (!status) setAudioError(true); }}
       />
-      {audioError ? (
+      {status === "sending" ? (
+        <>
+          <div className="w-7 h-7 rounded-full flex items-center justify-center shrink-0"
+            style={{ background: isMe ? "rgba(255,255,255,0.18)" : "rgba(0,0,0,0.08)" }}>
+            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+          </div>
+          <div className="flex-1 min-w-0 space-y-1">
+            <div className="h-1 rounded-full overflow-hidden"
+              style={{ background: isMe ? "rgba(255,255,255,0.22)" : "rgba(0,0,0,0.10)" }}>
+              <div className="h-full rounded-full w-0" />
+            </div>
+            <p className="text-[10px] opacity-55 font-mono tabular-nums">Sending…</p>
+          </div>
+          <Mic className="w-3 h-3 shrink-0 opacity-40" />
+        </>
+      ) : status === "failed" ? (
+        <>
+          <button
+            onClick={e => { e.stopPropagation(); onRetry?.(); }}
+            className="w-7 h-7 rounded-full flex items-center justify-center shrink-0"
+            style={{ background: isMe ? "rgba(255,255,255,0.18)" : "rgba(0,0,0,0.08)" }}
+            data-testid="button-voice-note-retry"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+          <div className="flex-1 min-w-0">
+            <p className="text-[10px] opacity-70">Failed — tap to retry</p>
+          </div>
+          <Mic className="w-3 h-3 shrink-0 opacity-40" />
+        </>
+      ) : audioError ? (
         <p className="text-[10px] opacity-60 italic flex-1">Unable to play on this device</p>
       ) : (
         <>
@@ -1774,6 +1819,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
   const audioCtxRef = useRef<AudioContext | null>(null);
   const waveformRafRef = useRef<number | null>(null);
   const [waveformBars, setWaveformBars] = useState<number[]>(Array(20).fill(0.05));
+  const [pendingVoiceNotes, setPendingVoiceNotes] = useState<PendingVoiceNote[]>([]);
 
   const stopWaveform = () => {
     if (waveformRafRef.current) { cancelAnimationFrame(waveformRafRef.current); waveformRafRef.current = null; }
@@ -1813,8 +1859,19 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
       recorder.ondataavailable = e => { if (e.data.size > 0) audioChunksRef.current.push(e.data); };
       recorder.onstop = () => {
         // Do NOT stop stream tracks — module keeps the stream alive for the next recording.
+        const tStop = performance.now();
+        console.log("[VOICE_NOTE_SPEED] recording stopped");
         const blob = new Blob(audioChunksRef.current, { type: actualMimeType });
-        if (blob.size > 0) sendVoiceNote.mutate({ blob, mimeType: actualMimeType });
+        console.log(`[VOICE_NOTE_SPEED] blob ready size=${blob.size}B type=${actualMimeType} blobMs=${Math.round(performance.now() - tStop)}`);
+        if (blob.size > 0) {
+          const blobUrl = URL.createObjectURL(blob);
+          const tempId = `voice-temp-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+          const tStart = performance.now();
+          // Show bubble IMMEDIATELY — upload happens in background
+          setPendingVoiceNotes(prev => [...prev, { tempId, blobUrl, blob, mimeType: actualMimeType, tStart, status: "sending" }]);
+          forceScrollRef.current = true;
+          sendVoiceNote.mutate({ tempId, blobUrl, blob, mimeType: actualMimeType, tStart });
+        }
       };
       recorder.start(100);
       // ── Live waveform analyser (optional — fails silently on restrictive browsers) ──
@@ -1923,7 +1980,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
     }
   }, [voiceNotesUnlocked]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Clean up the MediaRecorder and waveform on unmount.
+  // Clean up the MediaRecorder, waveform, and pending blob URLs on unmount.
   // Do NOT stop the module-level mic stream — it must survive component remounts
   // so iOS never re-prompts and recording starts instantly on the next chat.
   useEffect(() => {
@@ -1944,27 +2001,64 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const sendVoiceNote = useMutation({
-    mutationFn: async ({ blob, mimeType }: { blob: Blob; mimeType: string }) => {
-      // Client-side guard: reject before encoding to avoid unnecessary work.
-      if (blob.size > 3_000_000) throw new Error("Recording too large (max ~60 seconds). Please try again.");
-      // FileReader is the safest cross-browser way to convert a Blob to base64 —
-      // avoids the O(n) string-concatenation loop that freezes on low-end devices.
-      const audioBase64 = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve((reader.result as string).split(",")[1] ?? "");
-        reader.onerror = () => reject(new Error("Failed to encode audio"));
-        reader.readAsDataURL(blob);
+  // Revoke pending blob URLs when this chat closes to free browser memory.
+  // Pending notes are per-chat so we can safely revoke on unmount.
+  useEffect(() => {
+    return () => {
+      setPendingVoiceNotes(prev => {
+        prev.forEach(pv => { try { URL.revokeObjectURL(pv.blobUrl); } catch {} });
+        return [];
       });
-      const res = await apiRequest("POST", `/api/voice-notes/send/${match.id}`, { audioBase64, mimeType });
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const sendVoiceNote = useMutation({
+    mutationFn: async ({ blob, mimeType, tStart }: { blob: Blob; mimeType: string; blobUrl: string; tempId: string; tStart: number }) => {
+      if (blob.size > 3_000_000) throw new Error("Recording too large (max ~60 seconds). Please try again.");
+      // Binary upload via ArrayBuffer — no FileReader, no base64, 33% smaller payload
+      console.log(`[VOICE_NOTE_SPEED] upload started size=${blob.size}B`);
+      const tUpload = performance.now();
+      const authHeaders = await getAuthHeaders();
+      const arrayBuf = await blob.arrayBuffer();
+      const res = await fetch(API_BASE + `/api/voice-notes/send/${match.id}`, {
+        method: "POST",
+        headers: {
+          ...authHeaders,
+          "Content-Type": mimeType || "audio/webm",
+          "X-Voice-Mime": mimeType || "audio/webm",
+        },
+        body: arrayBuf,
+      });
+      console.log(`[VOICE_NOTE_SPEED] upload complete ms=${Math.round(performance.now() - tUpload)}`);
       if (!res.ok) { const b = await res.json().catch(() => ({})); throw new Error(b.message || "Failed to send"); }
-      return res.json();
+      const data = await res.json();
+      console.log(`[VOICE_NOTE_SPEED] message inserted totalMs=${Math.round(performance.now() - tStart)}`);
+      return data;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/matches", match.id] });
+    onSuccess: (data: any, vars) => {
+      const realMsg = data?.message as Message | undefined;
+      // Revoke the temporary blob URL to free memory
+      URL.revokeObjectURL(vars.blobUrl);
+      if (realMsg) {
+        // Atomically replace pending entry with the real server message in the cache
+        queryClient.setQueryData<MatchDetail>(["/api/matches", match.id], (old) => {
+          if (!old) return old;
+          const exists = old.messages.some(m => m.id === realMsg.id);
+          if (exists) return old;
+          return { ...old, messages: [...old.messages, realMsg] };
+        });
+        broadcastNewMessage(realMsg);
+        console.log(`[VOICE_NOTE_SPEED] realtime received (cache updated) messageId=${realMsg.id}`);
+      } else {
+        queryClient.invalidateQueries({ queryKey: ["/api/matches", match.id] });
+      }
+      // Remove the pending entry — real message is now in cache
+      setPendingVoiceNotes(prev => prev.filter(v => v.tempId !== vars.tempId));
       forceScrollRef.current = true;
     },
-    onError: (err: any) => {
+    onError: (err: any, vars) => {
+      // Mark as failed so user can retry — do NOT remove from list
+      setPendingVoiceNotes(prev => prev.map(v => v.tempId === vars.tempId ? { ...v, status: "failed" } : v));
       toast({ title: err?.message || "Failed to send voice note", variant: "destructive" });
     },
   });
@@ -2476,6 +2570,25 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
             })}
             {(guidanceByIndex.map.get(guidanceByIndex.visibleMsgs.length) || []).map(g => (
               <SystemGuidanceMessage key={g.id} testId={`guidance-${g.id}`}>{g.text}</SystemGuidanceMessage>
+            ))}
+            {/* Optimistic voice note bubbles — appear instantly on mic release, removed when upload completes */}
+            {pendingVoiceNotes.map(pv => (
+              <div key={pv.tempId} className="flex justify-end">
+                <div className="relative">
+                  <div className="max-w-[75vw] rounded-md text-sm select-none">
+                    <VoiceNoteBubble
+                      url={pv.blobUrl}
+                      isMe={true}
+                      status={pv.status}
+                      onRetry={() => {
+                        // Reset to sending + retry the upload
+                        setPendingVoiceNotes(prev => prev.map(v => v.tempId === pv.tempId ? { ...v, status: "sending" } : v));
+                        sendVoiceNote.mutate({ tempId: pv.tempId, blobUrl: pv.blobUrl, blob: pv.blob, mimeType: pv.mimeType, tStart: performance.now() });
+                      }}
+                    />
+                  </div>
+                </div>
+              </div>
             ))}
             <div ref={messagesEndRef} />
           </div>
@@ -3073,11 +3186,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                   </button>
                 )}
                 {/* ➤ Send / recording controls */}
-                {sendVoiceNote.isPending ? (
-                  <Button size="icon" disabled data-testid={`button-send-voice-note-${match.id}`}>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                  </Button>
-                ) : voicePhase === "recording" ? (
+                {voicePhase === "recording" ? (
                   <Button size="icon" variant="ghost" onClick={cancelRecording} data-testid={`button-cancel-recording-${match.id}`}>
                     <X className="w-4 h-4" />
                   </Button>
