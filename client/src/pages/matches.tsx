@@ -2086,6 +2086,12 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
     stopRequestedRef.current = false;
     // Record start time synchronously so the elapsed check works for quick releases.
     recordingStartMsRef.current = Date.now();
+    // CRITICAL iOS FIX: focus the textarea SYNCHRONOUSLY before any await.
+    // iOS Safari fires blur on the active element when JS enters an async microtask
+    // gap (e.g. awaiting getUserMedia). If blur fires first, the keyboard closes and
+    // the composer drops. Calling focus() here, before the first await, keeps iOS
+    // focused on the textarea and the keyboard stays open.
+    textareaRef.current?.focus({ preventScroll: true });
     try {
       // Use the module-level shared stream — persists across component mounts so
       // iOS never re-prompts after the first grant. requestMicStream() is a no-op
@@ -2355,21 +2361,55 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
     addDbg(`inputFocused → ${inputFocused}`);
   }, [inputFocused]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Snapshot composer rect before→during→after recording + write to debug panel.
+  // Snapshot composer rect + position-lock during recording.
+  // When isRecording becomes true:  lock composer with position:fixed so no layout
+  //   change (keyboard close, DOM insertion) can move it.
+  // When isRecording becomes false: release the lock and log the final rect.
   useEffect(() => {
-    const r = composerRef.current?.getBoundingClientRect();
-    if (!r) return;
-    const txt = `top=${Math.round(r.top)} bot=${Math.round(r.bottom)} h=${Math.round(r.height)}`;
+    const el = composerRef.current;
+    const r = el?.getBoundingClientRect();
     const vv = window.visualViewport;
-    const vpTxt = vv ? ` VP.h=${Math.round(vv.height)} VP.ot=${Math.round(vv.offsetTop)}` : "";
-    const logLine = `composer ${isRecording ? "DURING" : "AFTER"}: ${txt}${vpTxt} kb=${keyboardOpen} focused=${inputFocusedRef.current}`;
-    console.log(`[VOICE_NOTE_LAYOUT] ${logLine}`);
-    if (isRecording) {
+    const vpH = vv ? Math.round(vv.height) : window.innerHeight;
+    const vpOT = vv ? Math.round(vv.offsetTop) : 0;
+    const vpTxt = ` VP.h=${vpH} VP.ot=${vpOT}`;
+
+    if (isRecording && el && r) {
+      // ── 1. Snapshot DURING rect BEFORE applying fixed positioning ───────────
+      const txt = `top=${Math.round(r.top)} bot=${Math.round(r.bottom)} h=${Math.round(r.height)}`;
       debugLiveRef.current.composerDuring = txt + vpTxt;
-    } else {
-      debugLiveRef.current.composerAfter = txt + vpTxt;
+      const typingRect = debugLiveRef.current.composerBefore || "(not captured)";
+      console.log(`[VOICE_NOTE_LAYOUT] typingRect=${typingRect} recordingRect=${txt}${vpTxt} keyboardOpen=${keyboardOpen} inputFocused=${inputFocusedRef.current} visualViewportHeight=${vpH} visualViewportOffsetTop=${vpOT}`);
+      addDbg(`DURING: ${txt}${vpTxt} kb=${keyboardOpen} focused=${inputFocusedRef.current}`);
+
+      // ── 2. Position-lock: pin the composer at its current visual position ───
+      // iOS may close the keyboard during the async getUserMedia gap, which
+      // causes a viewport resize → layout reflow → composer drops.
+      // Locking with position:fixed + computed bottom prevents any movement
+      // regardless of what happens to the keyboard or viewport after this point.
+      const bottomFromVp = vpH - r.bottom; // distance from composer bottom to VP bottom
+      el.style.position = "fixed";
+      el.style.bottom = `${Math.max(0, bottomFromVp)}px`;
+      el.style.left = "0";
+      el.style.right = "0";
+      el.style.zIndex = "50";
+      el.style.background = "hsl(var(--background))";
+    } else if (el) {
+      // ── 3. Release lock ─────────────────────────────────────────────────────
+      el.style.position = "";
+      el.style.bottom = "";
+      el.style.left = "";
+      el.style.right = "";
+      el.style.zIndex = "";
+      el.style.background = "";
+
+      // Snapshot AFTER rect (now back in normal flow)
+      const r2 = el.getBoundingClientRect();
+      const txt2 = `top=${Math.round(r2.top)} bot=${Math.round(r2.bottom)} h=${Math.round(r2.height)}`;
+      debugLiveRef.current.composerAfter = txt2 + vpTxt;
+      const typingRect2 = debugLiveRef.current.composerBefore || "(not captured)";
+      console.log(`[VOICE_NOTE_LAYOUT] typingRect=${typingRect2} recordingRect=${txt2}${vpTxt} keyboardOpen=${keyboardOpen} inputFocused=${inputFocusedRef.current} visualViewportHeight=${vpH} visualViewportOffsetTop=${vpOT}`);
+      addDbg(`AFTER: ${txt2}${vpTxt} kb=${keyboardOpen} focused=${inputFocusedRef.current}`);
     }
-    addDbg(logLine);
   }, [isRecording]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const sendVoiceNote = useMutation({
@@ -2385,20 +2425,20 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
       if (blob.size < 200) throw new Error("Recording too short — hold the mic for at least 0.5 seconds.");
       if (blob.size > 3_000_000) throw new Error("Recording too large (max ~60 seconds). Please try again.");
 
-      // ── Step 2: Convert to ArrayBuffer ──
+      // ── Step 2: Upload ──
       console.log(`[VOICE_NOTE_SEND] upload started path=/api/voice-notes/send/${match.id}`);
       debugLiveRef.current.uploadStatus = "uploading…";
-      addDbg(`upload → /api/voice-notes/send/${match.id}`);
+      const fullUploadUrl = API_BASE + `/api/voice-notes/send/${match.id}`;
+      addDbg(`upload → ${fullUploadUrl.slice(-50)} blob=${blob.size}B mime="${mimeType}"`);
       const tUpload = performance.now();
-      let arrayBuf: ArrayBuffer;
-      try {
-        arrayBuf = await blob.arrayBuffer();
-        console.log(`[VOICE_NOTE_SEND] arraybuffer ready bytes=${arrayBuf.byteLength}`);
-      } catch (bufErr: any) {
-        throw new Error(`Failed to read recording: ${bufErr.message}`);
-      }
+      // ── NOTE: No ArrayBuffer conversion needed or wanted ──────────────────────
+      // iOS Safari has a documented bug where fetch() with body: ArrayBuffer
+      // throws "Load failed" (a network error, not HTTP error). Sending the Blob
+      // directly works correctly: the browser streams the bytes with the correct
+      // Content-Type. Express express.raw() receives it as a Buffer on the server.
+      // DO NOT add blob.arrayBuffer() back here — it will reintroduce "Load failed".
 
-      // ── Step 3: Fetch auth headers ──
+      // ── Step 2: Fetch auth headers ──
       let authHeaders: Record<string, string>;
       try {
         authHeaders = await getAuthHeaders();
@@ -2406,20 +2446,30 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
         throw new Error(`Auth error — please refresh and try again: ${authErr.message}`);
       }
 
-      // ── Step 4: Upload binary to server ──
+      // ── Step 3: Upload blob directly to server ────────────────────────────────
+      const contentType = mimeType || "audio/webm";
+      console.log(`[VOICE_NOTE_SEND] fetch POST url="${fullUploadUrl}" contentType="${contentType}" blobSize=${blob.size} authPresent=${!!authHeaders.Authorization || !!authHeaders.authorization}`);
+      addDbg(`fetch: url="${fullUploadUrl.slice(-40)}" ct="${contentType}" auth=${!!(authHeaders.Authorization || authHeaders.authorization)}`);
       let res: Response;
       try {
-        res = await fetch(API_BASE + `/api/voice-notes/send/${match.id}`, {
+        res = await fetch(fullUploadUrl, {
           method: "POST",
           headers: {
             ...authHeaders,
-            "Content-Type": mimeType || "audio/webm",
-            "X-Voice-Mime": mimeType || "audio/webm",
+            "Content-Type": contentType,
+            "X-Voice-Mime": contentType,
           },
-          body: arrayBuf,
+          body: blob, // Send Blob directly — never ArrayBuffer on iOS
         });
       } catch (fetchErr: any) {
-        throw new Error(`Network error uploading voice note: ${fetchErr.message}`);
+        // "Load failed" = iOS Safari network/CORS/ArrayBuffer bug.
+        // "Failed to fetch" = Chrome network error.
+        // Keep the recording in pendingVoiceNotes (status=failed) so user can retry.
+        const errMsg = fetchErr.message || "unknown";
+        debugLiveRef.current.uploadError = `fetch threw: ${errMsg}`;
+        addDbg(`fetch THREW: "${errMsg}"`);
+        console.error(`[VOICE_NOTE_SEND] fetch threw: "${errMsg}" url="${fullUploadUrl}"`);
+        throw new Error(`Connection error — tap the bubble to retry. (${errMsg})`);
       }
       const uploadMs = Math.round(performance.now() - tUpload);
       console.log(`[VOICE_NOTE_SEND] upload response status=${res.status} ms=${uploadMs}`);
@@ -3530,14 +3580,15 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                     className={`resize-none min-h-[44px] max-h-[80px] text-sm pr-8 transition-none${voicePhase === "recording" ? " invisible pointer-events-none" : ""}`}
                     onFocus={() => setInputFocused(true)}
                     onBlur={() => {
-                      // CRITICAL: if iOS fires blur while recording, immediately refocus the
-                      // textarea so the keyboard stays open and the composer doesn't move.
-                      // We also do NOT update inputFocused so no state change triggers a reflow.
+                      // CRITICAL: if iOS fires blur while recording, refocus SYNCHRONOUSLY
+                      // (no RAF delay). requestAnimationFrame gives the keyboard time to
+                      // start its dismissal animation before focus returns. Synchronous
+                      // .focus() inside the blur handler cancels the dismissal immediately.
                       const blurDuringRecording = isRecordingRef.current;
                       console.log(`[VOICE_NOTE_LAYOUT] input blurred? recording=${blurDuringRecording}`);
+                      addDbg(`blur recording=${blurDuringRecording}`);
                       if (blurDuringRecording) {
-                        // Refocus in next frame — prevents the keyboard from closing
-                        requestAnimationFrame(() => textareaRef.current?.focus());
+                        textareaRef.current?.focus({ preventScroll: true }); // sync, no RAF
                         return;
                       }
                       setInputFocused(false);
