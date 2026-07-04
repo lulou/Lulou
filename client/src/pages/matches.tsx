@@ -1286,6 +1286,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
   const isActive = useTabActive();
   const [message, setMessage] = useState("");
   const [inputFocused, setInputFocused] = useState(false);
+  const composerRef = useRef<HTMLDivElement>(null);
   const [showProfilePanel, setShowProfilePanel] = useState(false);
   const [sheetDragY, setSheetDragY] = useState(0);
   const [isSheetDragging, setIsSheetDragging] = useState(false);
@@ -2089,6 +2090,39 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
       });
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── [VOICE_NOTE_LAYOUT] diagnostics ─────────────────────────────────────────
+  // ResizeObserver fires whenever the composer container changes size.
+  // On a stable implementation this should fire at most once (initial mount).
+  useEffect(() => {
+    const el = composerRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(entries => {
+      for (const entry of entries) {
+        const h = Math.round(entry.contentRect.height);
+        console.log(`[VOICE_NOTE_LAYOUT] composer height=${h} recording=${isRecordingRef.current} inputFocused=${inputFocused}`);
+      }
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }); // intentionally runs every render so inputFocused is always fresh in closure
+
+  // Log keyboard visibility changes via visualViewport.
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const handler = () => {
+      const kbVisible = (window.outerHeight || window.screen.height) - vv.height > 150;
+      console.log(`[VOICE_NOTE_LAYOUT] keyboard visible=${kbVisible} viewport=${Math.round(vv.height)}px`);
+    };
+    vv.addEventListener("resize", handler);
+    return () => vv.removeEventListener("resize", handler);
+  }, []);
+
+  // Log input focus state changes.
+  useEffect(() => {
+    console.log(`[VOICE_NOTE_LAYOUT] input focused=${inputFocused}`);
+  }, [inputFocused]);
 
   const sendVoiceNote = useMutation({
     mutationFn: async ({ blob, mimeType, tStart }: { blob: Blob; mimeType: string; blobUrl: string; tempId: string; tStart: number }) => {
@@ -3096,7 +3130,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
               </div>
             )
           ) : (
-            <div className="p-3 border-t" style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom, 0.75rem))" }}>
+            <div ref={composerRef} className="p-3 border-t" style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom, 0.75rem))" }}>
               {isOtherTyping && (
                 <div className="flex items-center gap-1.5 px-1 pb-2 text-xs text-muted-foreground" data-testid="text-typing-indicator">
                   <span className="flex gap-0.5 items-center">
@@ -3204,27 +3238,36 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                     </div>
                   )}
                   {/* Mic inside the input — hold to record, release to send.
-                      Scale is controlled via style (not active:scale-*) so the mic
-                      ENLARGES while held, rather than the Tailwind active: class shrinking it. */}
+                      IMPORTANT: e.preventDefault() on pointerdown is CRITICAL on iOS.
+                      Without it, pressing the mic button blurs the textarea → iOS keyboard
+                      dismisses → visual viewport changes height → the entire composer jumps.
+                      e.preventDefault() keeps focus on the textarea so the keyboard stays up. */}
                   <button
+                    tabIndex={-1}
                     onPointerDown={e => {
+                      // Prevent focus transfer and iOS keyboard dismissal — MUST be first
+                      e.preventDefault();
                       e.currentTarget.setPointerCapture(e.pointerId);
                       if (!voiceNotesUnlocked) { setPurchasePromptFeature("mic"); return; }
                       startRecording();
                     }}
-                    onPointerUp={() => {
-                      // Mark stop requested — handles both: already recording AND still in async setup
+                    onPointerUp={e => {
+                      e.preventDefault();
                       stopRequestedRef.current = true;
                       if (isRecordingRef.current) stopRecording();
                     }}
-                    onPointerCancel={() => {
+                    onPointerCancel={e => {
+                      e.preventDefault();
                       stopRequestedRef.current = true;
                       if (isRecordingRef.current) cancelRecording();
                     }}
                     onContextMenu={e => e.preventDefault()}
+                    onMouseDown={e => e.preventDefault()}
                     className="absolute right-2 bottom-[10px] flex items-center justify-center select-none"
                     style={{
                       touchAction: "none",
+                      WebkitUserSelect: "none" as React.CSSProperties["WebkitUserSelect"],
+                      WebkitTouchCallout: "none" as any,
                       transform: voicePhase === "recording" ? "scale(1.3)" : "scale(1)",
                       transition: "transform 200ms ease",
                     }}
@@ -3241,30 +3284,43 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                     />
                   </button>
                 </div>
-                {/* ✨ Conversation starters — invisible during recording (keeps layout stable) */}
-                {aiStartersEnabled && !inputFocused && (
+                {/*
+                  AI starters and phone buttons are ALWAYS rendered when the feature is available.
+                  They use CSS visibility (not conditional &&) so they always occupy flex space.
+                  This is critical: if buttons are added/removed from the DOM when inputFocused
+                  or voicePhase changes, the flex row reflows and the composer jumps.
+                  Hidden states:
+                    - while keyboard is open (inputFocused)  → visually unnecessary, hide them
+                    - while recording                        → hide via visibility
+                  Both states preserve layout because the element is still in the DOM.
+                */}
+                {/* ✨ Conversation starters */}
+                {aiStartersEnabled && (
                   <Button
                     size="icon"
                     variant="ghost"
+                    tabIndex={-1}
                     onMouseDown={e => e.preventDefault()}
                     onClick={() => setShowAIStarters(v => !v)}
                     className={showAIStarters ? "text-primary" : "text-muted-foreground"}
-                    style={{ visibility: voicePhase === "recording" ? "hidden" : "visible" }}
+                    style={{ visibility: (inputFocused || voicePhase === "recording") ? "hidden" : "visible" }}
                     data-testid={`button-ai-starters-${match.id}`}
                   >
                     <Sparkles className="w-4 h-4" />
                   </Button>
                 )}
-                {/* 📞 Voice call shortcut — invisible during recording (keeps layout stable) */}
-                {!allCallsDone && !inputFocused && (
+                {/* 📞 Voice call shortcut */}
+                {!allCallsDone && (
                   <button
+                    tabIndex={-1}
+                    onMouseDown={e => e.preventDefault()}
                     onClick={() => {
                       if ((phoneCredits ?? 0) > 0) startPaidCall.mutate({ isVideo: false });
                       else setPurchasePromptFeature("phone");
                     }}
                     disabled={startPaidCall.isPending}
                     className="flex-shrink-0 w-9 h-9 flex items-center justify-center rounded-full transition-all active:scale-90 disabled:opacity-50 hover:bg-muted/40"
-                    style={{ visibility: voicePhase === "recording" ? "hidden" : "visible" }}
+                    style={{ visibility: (inputFocused || voicePhase === "recording") ? "hidden" : "visible" }}
                     data-testid={`button-phone-composer-${match.id}`}
                     title={(phoneCredits ?? 0) > 0 ? t("start_voice_call") : t("unlock_voice_calling")}
                   >
@@ -3278,9 +3334,16 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                     />
                   </button>
                 )}
-                {/* ➤ Send button — always rendered to prevent layout shift; hidden during recording */}
+                {/* ➤ Send / Cancel — same size="icon" in both states so the flex row doesn't shift */}
                 {voicePhase === "recording" ? (
-                  <Button size="icon" variant="ghost" onClick={cancelRecording} data-testid={`button-cancel-recording-${match.id}`}>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    tabIndex={-1}
+                    onMouseDown={e => e.preventDefault()}
+                    onClick={cancelRecording}
+                    data-testid={`button-cancel-recording-${match.id}`}
+                  >
                     <X className="w-4 h-4" />
                   </Button>
                 ) : (

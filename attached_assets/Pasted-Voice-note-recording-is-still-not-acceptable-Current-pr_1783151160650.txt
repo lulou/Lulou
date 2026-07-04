@@ -1,0 +1,67 @@
+Voice note recording is still not acceptable.
+
+Current problem:
+When I press and hold the mic, the message bar drops/moves/collapses. This makes the voice note feature feel broken.
+
+This must behave like iMessage, WhatsApp, Messenger, Instagram, and every normal voice note system.
+
+Required behaviour:
+- The composer must NOT move when recording starts.
+- The message bar must NOT drop down.
+- The message bar must NOT collapse.
+- The keyboard/input area must NOT jump.
+- The layout must stay fixed and stable.
+- Only the mic icon should visually react.
+- The mic should slightly enlarge/glow while being held.
+- Recording should start on hold.
+- Releasing should auto-send.
+- If cancelled, return to the exact same composer layout.
+- No preview panel should push the composer down.
+- No recording UI should change the height of the composer.
+- No conditional rendering should replace the input row during recording.
+- No absolute/fixed positioning should cause safe-area or keyboard layout jumps.
+
+Audit the actual iPhone production message composer, not an unused component.
+
+Look specifically for:
+- conditional JSX that renders a different composer while recording
+- recording preview panels inserted above/below the input
+- state changes that change composer height
+- focus/blur handlers firing on mic press
+- keyboard dismissal causing the bar to move
+- textarea resizing when recording starts
+- touch/pointer handlers calling preventDefault incorrectly or not enough
+- CSS classes that change padding, margin, height, bottom, transform, position, or safe-area during recording
+
+Fix approach:
+- Keep one single stable composer container at all times.
+- Give it a fixed/minimum height.
+- Keep the input row mounted during recording.
+- Do not blur the text input when mic is held.
+- Use transform: scale() and opacity/glow for the mic active state only.
+- If a recording timer/waveform is needed, render it inside the existing input bar or as an overlay that does not affect layout.
+- If sending/uploading state is needed, render it inside the message bubble area, not by moving the composer.
+
+Add diagnostics:
+[VOICE_NOTE_LAYOUT] composer height before recording
+[VOICE_NOTE_LAYOUT] composer height during recording
+[VOICE_NOTE_LAYOUT] composer height after recording
+[VOICE_NOTE_LAYOUT] keyboard visible true/false
+[VOICE_NOTE_LAYOUT] input focused true/false
+
+Success criteria:
+- On iPhone, press and hold mic.
+- Composer stays perfectly still.
+- Mic enlarges/glows.
+- Recording starts.
+- Release sends automatically.
+- Composer still stays perfectly still.
+- Voice note bubble appears as sending.
+- No "Loading failed" unless upload genuinely fails.
+- Normal text messages still work.
+
+Run:
+npm run check
+npm run build
+
+Do not mark complete until tested on the actual visible chat composer and the bar no longer moves at all.
