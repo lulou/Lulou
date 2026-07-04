@@ -20,7 +20,7 @@ import { useUnreadCounts } from "@/hooks/use-unread-counts";
 import { usePushNotifications } from "@/hooks/use-push-notifications";
 import { useTypingIndicator } from "@/hooks/use-typing-indicator";
 import { Input } from "@/components/ui/input";
-import { MessageCircle, Send, Phone, Video, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, PhoneOff, Clock, Check, X, Sparkles, Calendar, Heart, PhoneForwarded, Moon, User, Mic, Loader2, Pause, Play, BadgeCheck } from "lucide-react";
+import { MessageCircle, Send, Phone, Video, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, PhoneOff, Clock, Check, X, Sparkles, Calendar, Heart, PhoneForwarded, Moon, User, Mic, Loader2, Pause, Play, BadgeCheck, RotateCcw } from "lucide-react";
 import { ProfileInfoRow } from "@/components/profile-info-row";
 import { LANGUAGE_NAME_TO_CODE } from "@/lib/i18n";
 import { translateSignal, translateGreenFlag, translateIntent, translateStyle, translateStarterItem } from "@/lib/profile-i18n";
@@ -534,16 +534,48 @@ function VoiceNoteBubble({ url, isMe, status, onRetry }: {
   status?: "sending" | "failed";
   onRetry?: () => void;
 }) {
-  const audioRef = useRef<HTMLAudioElement>(null);
   const [playing, setPlaying] = useState(false);
   const [duration, setDuration] = useState(0);
   const [currentTime, setCurrentTime] = useState(0);
-  const [audioError, setAudioError] = useState(false);
+  // "loading" = waiting for metadata; "ready" = playable; "retrying" = CDN not ready yet; "error" = gave up
+  const [loadState, setLoadState] = useState<"loading" | "ready" | "retrying" | "error">("loading");
+  // Incrementing this key remounts the <audio> element, forcing a fresh network request on retry
+  const [audioKey, setAudioKey] = useState(0);
+  const retryCountRef = useRef(0);
+  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Reset load state whenever the URL or status changes (e.g. optimistic → real message)
+  useEffect(() => {
+    setLoadState("loading");
+    setDuration(0);
+    setCurrentTime(0);
+    setPlaying(false);
+    retryCountRef.current = 0;
+    setAudioKey(k => k + 1);
+    return () => { if (retryTimerRef.current) clearTimeout(retryTimerRef.current); };
+  }, [url]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleAudioError = () => {
+    // While the bubble is in "sending" state, the blob URL is always valid — suppress.
+    if (status === "sending") return;
+    // For real CDN URLs, the storage edge may not have propagated yet right after upload.
+    // Retry up to 3 times (1.5s apart) before showing a hard error.
+    if (retryCountRef.current < 3) {
+      retryCountRef.current += 1;
+      setLoadState("retrying");
+      retryTimerRef.current = setTimeout(() => {
+        setAudioKey(k => k + 1); // remounts <audio>, triggers a fresh fetch of the CDN URL
+      }, 1500);
+    } else {
+      setLoadState("error");
+    }
+  };
 
   const toggle = () => {
-    const a = audioRef.current;
+    const a = document.getElementById(`vna-${audioKey}`) as HTMLAudioElement | null;
     if (!a) return;
-    if (playing) a.pause(); else a.play().catch(() => setAudioError(true));
+    if (playing) a.pause();
+    else a.play().catch(() => { if (retryCountRef.current >= 3) setLoadState("error"); });
   };
 
   const fmt = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
@@ -556,19 +588,28 @@ function VoiceNoteBubble({ url, isMe, status, onRetry }: {
       }`}
       data-testid="voice-note-bubble"
     >
-      {/* Hidden audio element always mounted so local blob URL is preloaded */}
-      <audio
-        ref={audioRef}
-        src={url}
-        preload="metadata"
-        onPlay={() => setPlaying(true)}
-        onPause={() => setPlaying(false)}
-        onEnded={() => { setPlaying(false); setCurrentTime(0); }}
-        onLoadedMetadata={e => setDuration((e.target as HTMLAudioElement).duration || 0)}
-        onTimeUpdate={e => setCurrentTime((e.target as HTMLAudioElement).currentTime)}
-        onError={() => { if (!status) setAudioError(true); }}
-      />
+      {/* Audio element — keyed so it remounts on retry */}
+      {status !== "sending" && (
+        <audio
+          key={audioKey}
+          id={`vna-${audioKey}`}
+          src={url}
+          preload="metadata"
+          onPlay={() => setPlaying(true)}
+          onPause={() => setPlaying(false)}
+          onEnded={() => { setPlaying(false); setCurrentTime(0); }}
+          onLoadedMetadata={e => {
+            setDuration((e.target as HTMLAudioElement).duration || 0);
+            setLoadState("ready");
+          }}
+          onTimeUpdate={e => setCurrentTime((e.target as HTMLAudioElement).currentTime)}
+          onError={handleAudioError}
+          style={{ display: "none" }}
+        />
+      )}
+
       {status === "sending" ? (
+        /* ── Optimistic / uploading state ── */
         <>
           <div className="w-7 h-7 rounded-full flex items-center justify-center shrink-0"
             style={{ background: isMe ? "rgba(255,255,255,0.18)" : "rgba(0,0,0,0.08)" }}>
@@ -584,6 +625,7 @@ function VoiceNoteBubble({ url, isMe, status, onRetry }: {
           <Mic className="w-3 h-3 shrink-0 opacity-40" />
         </>
       ) : status === "failed" ? (
+        /* ── Upload failed — user can retry ── */
         <>
           <button
             onClick={e => { e.stopPropagation(); onRetry?.(); }}
@@ -591,16 +633,51 @@ function VoiceNoteBubble({ url, isMe, status, onRetry }: {
             style={{ background: isMe ? "rgba(255,255,255,0.18)" : "rgba(0,0,0,0.08)" }}
             data-testid="button-voice-note-retry"
           >
-            <X className="w-3.5 h-3.5" />
+            <RotateCcw className="w-3.5 h-3.5" />
           </button>
           <div className="flex-1 min-w-0">
             <p className="text-[10px] opacity-70">Failed — tap to retry</p>
           </div>
           <Mic className="w-3 h-3 shrink-0 opacity-40" />
         </>
-      ) : audioError ? (
-        <p className="text-[10px] opacity-60 italic flex-1">Unable to play on this device</p>
+      ) : loadState === "loading" || loadState === "retrying" ? (
+        /* ── Audio URL loading / CDN propagating (show spinner, NOT "failed") ── */
+        <>
+          <div className="w-7 h-7 rounded-full flex items-center justify-center shrink-0"
+            style={{ background: isMe ? "rgba(255,255,255,0.18)" : "rgba(0,0,0,0.08)" }}>
+            <Loader2 className="w-3.5 h-3.5 animate-spin opacity-60" />
+          </div>
+          <div className="flex-1 min-w-0 space-y-1">
+            <div className="h-1 rounded-full overflow-hidden"
+              style={{ background: isMe ? "rgba(255,255,255,0.22)" : "rgba(0,0,0,0.10)" }}>
+              <div className="h-full rounded-full w-0" />
+            </div>
+            <p className="text-[10px] opacity-40 font-mono tabular-nums">
+              {loadState === "retrying" ? "Loading…" : ""}
+            </p>
+          </div>
+          <Mic className="w-3 h-3 shrink-0 opacity-40" />
+        </>
+      ) : loadState === "error" ? (
+        /* ── Hard error after retries exhausted ── */
+        <>
+          <div className="w-7 h-7 rounded-full flex items-center justify-center shrink-0"
+            style={{ background: isMe ? "rgba(255,255,255,0.18)" : "rgba(0,0,0,0.08)" }}>
+            <button
+              onClick={e => { e.stopPropagation(); retryCountRef.current = 0; setAudioKey(k => k + 1); setLoadState("loading"); }}
+              data-testid="button-voice-note-reload"
+              title="Reload"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+            </button>
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-[10px] opacity-60 italic">Tap to reload</p>
+          </div>
+          <Mic className="w-3 h-3 shrink-0 opacity-40" />
+        </>
       ) : (
+        /* ── Ready: playback UI ── */
         <>
           <button
             onClick={e => { e.stopPropagation(); toggle(); }}
@@ -1847,7 +1924,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
       const stream = await requestMicStream();
       micStreamRef.current = stream; // also store locally for the waveform analyser
       setMicPermState("granted");
-      console.log("[VOICE_NOTE_MIC] recording started");
+      console.log("[VOICE_NOTE] recording started");
 
       const preferredTypes = ["audio/webm;codecs=opus", "audio/ogg;codecs=opus", "audio/webm", "audio/mp4"];
       const mimeType = preferredTypes.find(t => {
@@ -1860,14 +1937,15 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
       recorder.onstop = () => {
         // Do NOT stop stream tracks — module keeps the stream alive for the next recording.
         const tStop = performance.now();
-        console.log("[VOICE_NOTE_SPEED] recording stopped");
+        console.log("[VOICE_NOTE] recording stopped");
         const blob = new Blob(audioChunksRef.current, { type: actualMimeType });
-        console.log(`[VOICE_NOTE_SPEED] blob ready size=${blob.size}B type=${actualMimeType} blobMs=${Math.round(performance.now() - tStop)}`);
+        console.log(`[VOICE_NOTE] blob ready size=${blob.size}B type=${actualMimeType} blobMs=${Math.round(performance.now() - tStop)}`);
         if (blob.size > 0) {
           const blobUrl = URL.createObjectURL(blob);
           const tempId = `voice-temp-${Date.now()}-${Math.random().toString(36).slice(2)}`;
           const tStart = performance.now();
           // Show bubble IMMEDIATELY — upload happens in background
+          console.log("[VOICE_NOTE] optimistic bubble shown");
           setPendingVoiceNotes(prev => [...prev, { tempId, blobUrl, blob, mimeType: actualMimeType, tStart, status: "sending" }]);
           forceScrollRef.current = true;
           sendVoiceNote.mutate({ tempId, blobUrl, blob, mimeType: actualMimeType, tStart });
@@ -1915,7 +1993,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
       const isPermission = err?.name === "NotAllowedError" || err?.name === "PermissionDeniedError";
       const isNotFound = err?.name === "NotFoundError" || err?.name === "DevicesNotFoundError";
       if (isPermission) {
-        console.log("[VOICE_NOTE_MIC] permission denied");
+        console.log("[VOICE_NOTE] permission denied");
         setMicPermState("denied");
       } else if (isNotFound) {
         setMicPermState("unavailable");
@@ -2016,7 +2094,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
     mutationFn: async ({ blob, mimeType, tStart }: { blob: Blob; mimeType: string; blobUrl: string; tempId: string; tStart: number }) => {
       if (blob.size > 3_000_000) throw new Error("Recording too large (max ~60 seconds). Please try again.");
       // Binary upload via ArrayBuffer — no FileReader, no base64, 33% smaller payload
-      console.log(`[VOICE_NOTE_SPEED] upload started size=${blob.size}B`);
+      console.log(`[VOICE_NOTE] upload started size=${blob.size}B`);
       const tUpload = performance.now();
       const authHeaders = await getAuthHeaders();
       const arrayBuf = await blob.arrayBuffer();
@@ -2029,10 +2107,10 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
         },
         body: arrayBuf,
       });
-      console.log(`[VOICE_NOTE_SPEED] upload complete ms=${Math.round(performance.now() - tUpload)}`);
+      console.log(`[VOICE_NOTE] upload complete ms=${Math.round(performance.now() - tUpload)}`);
       if (!res.ok) { const b = await res.json().catch(() => ({})); throw new Error(b.message || "Failed to send"); }
       const data = await res.json();
-      console.log(`[VOICE_NOTE_SPEED] message inserted totalMs=${Math.round(performance.now() - tStart)}`);
+      console.log(`[VOICE_NOTE] message inserted totalMs=${Math.round(performance.now() - tStart)}`);
       return data;
     },
     onSuccess: (data: any, vars) => {
@@ -2048,7 +2126,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
           return { ...old, messages: [...old.messages, realMsg] };
         });
         broadcastNewMessage(realMsg);
-        console.log(`[VOICE_NOTE_SPEED] realtime received (cache updated) messageId=${realMsg.id}`);
+        console.log(`[VOICE_NOTE] realtime received (cache updated) messageId=${realMsg.id}`);
       } else {
         queryClient.invalidateQueries({ queryKey: ["/api/matches", match.id] });
       }
@@ -2058,6 +2136,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
     },
     onError: (err: any, vars) => {
       // Mark as failed so user can retry — do NOT remove from list
+      console.log(`[VOICE_NOTE] upload failed error="${err?.message}"`);
       setPendingVoiceNotes(prev => prev.map(v => v.tempId === vars.tempId ? { ...v, status: "failed" } : v));
       toast({ title: err?.message || "Failed to send voice note", variant: "destructive" });
     },
@@ -3072,9 +3151,34 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
               )}
               <div className="flex gap-2 items-end">
                 {/* ── Input wrapper with embedded mic ── */}
+                {/*
+                  IMPORTANT: The textarea is ALWAYS in the DOM. During recording we apply
+                  `invisible pointer-events-none` so it takes up the exact same space but
+                  isn't visible. An absolutely-positioned overlay shows the waveform on top.
+                  This prevents ANY layout shift when recording starts/stops.
+                */}
                 <div className="relative flex-1">
-                  {voicePhase === "recording" ? (
-                    <div className="flex items-center gap-2 min-h-[44px] px-3 pr-10 rounded-md border border-red-300/50 bg-red-50/40 dark:bg-red-950/20 select-none">
+                  <Textarea
+                    value={message}
+                    onChange={e => {
+                      setMessage(e.target.value.slice(0, MAX_CHARS));
+                      if (e.target.value.trim()) sendTyping();
+                    }}
+                    placeholder={t("write_meaningful_placeholder")}
+                    className={`resize-none min-h-[44px] max-h-[80px] text-sm pr-8 transition-none${voicePhase === "recording" ? " invisible pointer-events-none" : ""}`}
+                    onFocus={() => setInputFocused(true)}
+                    onBlur={() => setInputFocused(false)}
+                    onKeyDown={e => {
+                      if (e.key === "Enter" && !e.shiftKey) {
+                        e.preventDefault();
+                        if (message.trim()) { const c = message.trim(); setMessage(""); doSend(c); }
+                      }
+                    }}
+                    data-testid={`input-message-${match.id}`}
+                  />
+                  {/* Recording overlay — absolute so it occupies the same space as the textarea */}
+                  {voicePhase === "recording" && (
+                    <div className="absolute inset-0 flex items-center gap-2 px-3 pr-10 rounded-md border border-red-300/50 bg-red-50/40 dark:bg-red-950/20 select-none pointer-events-none">
                       {/* Live waveform bars — fall back to pulse dot if analyser unavailable */}
                       {analyserRef.current ? (
                         <div className="flex items-end gap-[2px] h-[22px] flex-1">
@@ -3098,27 +3202,10 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                         {`${Math.floor(recordingTime / 60)}:${String(recordingTime % 60).padStart(2, "0")}`}
                       </span>
                     </div>
-                  ) : (
-                    <Textarea
-                      value={message}
-                      onChange={e => {
-                        setMessage(e.target.value.slice(0, MAX_CHARS));
-                        if (e.target.value.trim()) sendTyping();
-                      }}
-                      placeholder={t("write_meaningful_placeholder")}
-                      className="resize-none min-h-[44px] max-h-[80px] text-sm pr-8"
-                      onFocus={() => setInputFocused(true)}
-                      onBlur={() => setInputFocused(false)}
-                      onKeyDown={e => {
-                        if (e.key === "Enter" && !e.shiftKey) {
-                          e.preventDefault();
-                          if (message.trim()) { const c = message.trim(); setMessage(""); doSend(c); }
-                        }
-                      }}
-                      data-testid={`input-message-${match.id}`}
-                    />
                   )}
-                  {/* Mic inside the input — hold to record, slide away to cancel */}
+                  {/* Mic inside the input — hold to record, release to send.
+                      Scale is controlled via style (not active:scale-*) so the mic
+                      ENLARGES while held, rather than the Tailwind active: class shrinking it. */}
                   <button
                     onPointerDown={e => {
                       e.currentTarget.setPointerCapture(e.pointerId);
@@ -3135,36 +3222,41 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                       if (isRecordingRef.current) cancelRecording();
                     }}
                     onContextMenu={e => e.preventDefault()}
-                    className="absolute right-2 bottom-[10px] flex items-center justify-center select-none transition-transform active:scale-90"
-                    style={{ touchAction: "none" }}
+                    className="absolute right-2 bottom-[10px] flex items-center justify-center select-none"
+                    style={{
+                      touchAction: "none",
+                      transform: voicePhase === "recording" ? "scale(1.3)" : "scale(1)",
+                      transition: "transform 200ms ease",
+                    }}
                     data-testid={`button-mic-input-${match.id}`}
                     title={!voiceNotesUnlocked ? "Unlock voice notes" : voicePhase === "recording" ? "Release to send" : "Hold to record"}
                   >
                     <Mic
-                      className="w-[18px] h-[18px] transition-all duration-300"
+                      className="w-[18px] h-[18px]"
                       style={voicePhase === "recording"
-                        ? { color: "rgb(239,68,68)", filter: "drop-shadow(0 0 5px rgba(239,68,68,0.7))" }
+                        ? { color: "rgb(239,68,68)", filter: "drop-shadow(0 0 6px rgba(239,68,68,0.85))", transition: "all 200ms ease" }
                         : voiceNotesUnlocked
-                        ? { color: "rgb(34,197,94)", filter: "drop-shadow(0 0 5px rgba(34,197,94,0.7))" }
-                        : { color: "hsl(var(--muted-foreground))", opacity: 0.35 }}
+                        ? { color: "rgb(34,197,94)", filter: "drop-shadow(0 0 5px rgba(34,197,94,0.7))", transition: "all 200ms ease" }
+                        : { color: "hsl(var(--muted-foreground))", opacity: 0.35, transition: "all 200ms ease" }}
                     />
                   </button>
                 </div>
-                {/* ✨ Conversation starters — hidden while typing */}
-                {aiStartersEnabled && voicePhase === "idle" && !inputFocused && (
+                {/* ✨ Conversation starters — invisible during recording (keeps layout stable) */}
+                {aiStartersEnabled && !inputFocused && (
                   <Button
                     size="icon"
                     variant="ghost"
                     onMouseDown={e => e.preventDefault()}
                     onClick={() => setShowAIStarters(v => !v)}
                     className={showAIStarters ? "text-primary" : "text-muted-foreground"}
+                    style={{ visibility: voicePhase === "recording" ? "hidden" : "visible" }}
                     data-testid={`button-ai-starters-${match.id}`}
                   >
                     <Sparkles className="w-4 h-4" />
                   </Button>
                 )}
-                {/* 📞 Voice call shortcut — hidden while typing */}
-                {!allCallsDone && voicePhase === "idle" && !inputFocused && (
+                {/* 📞 Voice call shortcut — invisible during recording (keeps layout stable) */}
+                {!allCallsDone && !inputFocused && (
                   <button
                     onClick={() => {
                       if ((phoneCredits ?? 0) > 0) startPaidCall.mutate({ isVideo: false });
@@ -3172,6 +3264,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                     }}
                     disabled={startPaidCall.isPending}
                     className="flex-shrink-0 w-9 h-9 flex items-center justify-center rounded-full transition-all active:scale-90 disabled:opacity-50 hover:bg-muted/40"
+                    style={{ visibility: voicePhase === "recording" ? "hidden" : "visible" }}
                     data-testid={`button-phone-composer-${match.id}`}
                     title={(phoneCredits ?? 0) > 0 ? t("start_voice_call") : t("unlock_voice_calling")}
                   >
@@ -3185,7 +3278,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                     />
                   </button>
                 )}
-                {/* ➤ Send / recording controls */}
+                {/* ➤ Send button — always rendered to prevent layout shift; hidden during recording */}
                 {voicePhase === "recording" ? (
                   <Button size="icon" variant="ghost" onClick={cancelRecording} data-testid={`button-cancel-recording-${match.id}`}>
                     <X className="w-4 h-4" />
