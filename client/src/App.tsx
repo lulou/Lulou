@@ -1,6 +1,6 @@
 import { Switch, Route, useLocation } from "wouter";
 import { createContext, useContext, useState, useCallback, useEffect, useRef, useMemo, lazy, Suspense, Component, type ReactNode, type ErrorInfo } from "react";
-import { queryClient, getAuthHeaders, apiRequest, logLatency, parseServerTiming, PERF_ENABLED, API_BASE, requireApiBase } from "./lib/queryClient";
+import { queryClient, getAuthHeaders, apiRequest, logLatency, parseServerTiming, PERF_ENABLED, API_BASE, IS_CROSS_ORIGIN_DEPLOY, refreshAuthToken, requireApiBase } from "./lib/queryClient";
 import { QueryClientProvider, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { PurchaseDebugPanel } from "@/components/purchase-debug-panel";
@@ -1298,6 +1298,19 @@ async function checkProfileExists(
     profileRowFound: null,
     profileErrorMessage: null,
   });
+
+  const fullFetchUrl = API_BASE + "/api/profile";
+
+  // ── STARTUP DIAGNOSTIC: log API routing state ────────────────────────────
+  // Appears in the console on every profile fetch attempt so we can confirm
+  // the correct backend URL is being used in production.
+  console.log("[STARTUP_DIAG] checkProfileExists", {
+    API_BASE: API_BASE || "(empty — same-origin)",
+    IS_CROSS_ORIGIN_DEPLOY,
+    fullFetchUrl,
+    userId,
+  });
+
   // 15-second master abort — covers both getAuthHeaders() (up to 5 s internally)
   // and the actual fetch (server has 2.5 s checkEmailVerified + 3 s getProfile timeouts).
   // Must be < SPINNER_TIMEOUT_MS so the query enters error state before the spinner
@@ -1308,43 +1321,108 @@ async function checkProfileExists(
   const t_total = performance.now();
   const masterTimeoutId = setTimeout(() => {
     controller.abort();
-    console.error(`[AUTH] PROFILE_LOAD_FAILED: master timeout 15s — stuck at step="${_currentStep}"`);
+    console.error(`[RECONNECT_ROOT_CAUSE] timeout — master 15s limit hit at step="${_currentStep}"`);
   }, 15_000);
   try {
     console.log("[SETUP] STEP 1/3 getAuthHeaders START", { userId });
     const t0 = performance.now();
     const authHeaders = await getAuthHeaders();
     const headersMs = Math.round(performance.now() - t0);
-    console.log(`[SETUP] STEP 1/3 getAuthHeaders DONE in ${headersMs}ms — userId=${userId ?? "none"}`);
+
+    // ── DIAGNOSTIC: inspect auth header state ───────────────────────────────
+    const hasAuthHeader = !!authHeaders.Authorization;
+    const tokenPreview = hasAuthHeader
+      ? authHeaders.Authorization.slice(0, 40) + "…"
+      : "(none)";
+    console.log(`[SETUP] STEP 1/3 getAuthHeaders DONE in ${headersMs}ms`, {
+      userId: userId ?? "none",
+      hasAuthHeader,
+      tokenPreview,
+    });
+    if (!hasAuthHeader) {
+      console.error("[RECONNECT_ROOT_CAUSE] auth header missing/expired — getAuthHeaders() returned no token", {
+        userId,
+        API_BASE: API_BASE || "(empty)",
+        fullFetchUrl,
+      });
+    }
 
     _currentStep = "fetch /api/profile";
-    console.log("[SETUP] STEP 2/3 fetch /api/profile START");
+    console.log("[SETUP] STEP 2/3 fetch /api/profile START", { fullFetchUrl });
     const t1 = performance.now();
     // Use /api/profile (full profile) — photos are now short Storage URLs (~2–5 kB total)
     // so payload size is negligible. Fetching the full profile here lets us seed the
     // ["/api/profile"] cache on success, so profile.tsx reads from cache on first render
     // instead of issuing a second network request.
-    res = await fetch(API_BASE + "/api/profile", {
+    res = await fetch(fullFetchUrl, {
       credentials: "include",
       headers: authHeaders,
       signal: controller.signal,
     });
     clearTimeout(masterTimeoutId);
     const fetchMs = Math.round(performance.now() - t1);
-    // TEMP: latency debugging — remove before production release
     if (PERF_ENABLED) {
       logLatency("/api/profile", fetchMs, parseServerTiming(res.headers.get("server-timing")), 0);
     }
+
+    // ── DIAGNOSTIC: inspect every response before processing ────────────────
+    const contentType = res.headers.get("content-type") ?? "";
+    const isHtmlResponse = contentType.includes("text/html") ||
+      (!contentType.includes("application/json") && !contentType.includes("text/plain") && res.ok);
+    console.log(`[STARTUP_DIAG] /api/profile response`, {
+      status: res.status,
+      statusText: res.statusText,
+      contentType: contentType || "(none)",
+      isHtmlResponse,
+      fetchMs,
+      fullFetchUrl,
+      API_BASE: API_BASE || "(empty)",
+    });
+
+    if (isHtmlResponse) {
+      // Vercel returns the React index.html for any unmatched /api/* path when
+      // VITE_API_BASE_URL is wrong or missing. The response is 200 with text/html —
+      // status check alone won't catch it.
+      const preview = await res.clone().text()
+        .then(t => t.slice(0, 200))
+        .catch(() => "(could not read body)");
+      console.error("[RECONNECT_ROOT_CAUSE] API returned HTML — backend URL is wrong", {
+        API_BASE: API_BASE || "(empty — VITE_API_BASE_URL not set in Vercel)",
+        IS_CROSS_ORIGIN_DEPLOY,
+        fullFetchUrl,
+        contentType,
+        responsePreview: preview,
+      });
+      throw new Error("API_HTML_RESPONSE");
+    }
+
     console.log(`[SETUP] STEP 2/3 fetch /api/profile DONE in ${fetchMs}ms — status=${res.status} total=${Math.round(performance.now() - t_total)}ms`);
     _currentStep = "response";
   } catch (err: any) {
     clearTimeout(masterTimeoutId);
     const isAbort = err?.name === "AbortError";
     const totalMs = Math.round(performance.now() - t_total);
-    const label = isAbort ? `TIMEOUT at step="${_currentStep}"` : `network error at step="${_currentStep}"`;
-    console.error(`[AUTH] PROFILE_LOAD_FAILED: ${label} — ${err?.message} — total ${totalMs}ms`);
+    if (err?.message === "API_HTML_RESPONSE") {
+      // Already logged with full detail above — just rethrow for TanStack to retry.
+      throw err;
+    }
+    if (isAbort) {
+      console.error(`[RECONNECT_ROOT_CAUSE] timeout — stuck at step="${_currentStep}" after ${totalMs}ms`, {
+        fullFetchUrl,
+        API_BASE: API_BASE || "(empty)",
+      });
+    } else {
+      console.error(`[RECONNECT_ROOT_CAUSE] backend unreachable`, {
+        step: _currentStep,
+        error: err?.message,
+        totalMs,
+        fullFetchUrl,
+        API_BASE: API_BASE || "(empty)",
+        IS_CROSS_ORIGIN_DEPLOY,
+      });
+    }
     console.log("[AUTH_FLOW] profile fetch failed — reconnect screen", { userId, reason: isAbort ? "timeout" : "network" });
-    writeDebug({ profileErrorMessage: isAbort ? `TIMEOUT_8S:${_currentStep}` : (err?.message ?? "NETWORK_ERROR") });
+    writeDebug({ profileErrorMessage: isAbort ? `TIMEOUT_15S:${_currentStep}` : (err?.message ?? "NETWORK_ERROR") });
     throw new Error(isAbort ? `TIMEOUT:${_currentStep}` : "NETWORK_ERROR");
   }
 
@@ -1361,8 +1439,14 @@ async function checkProfileExists(
     // anything else = unexpected server error. All are treated as retryable so
     // TanStack Query's retry loop handles transient failures automatically.
     const text = await res.text().catch(() => res.statusText);
-    const trimmed = text.replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim().slice(0, 120);
-    console.error(`[AUTH] PROFILE_LOAD_FAILED: HTTP ${res.status} — root cause: ${trimmed}`);
+    const trimmed = text.replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim().slice(0, 200);
+    console.error(`[RECONNECT_ROOT_CAUSE] HTTP ${res.status} from /api/profile`, {
+      status: res.status,
+      fullFetchUrl,
+      API_BASE: API_BASE || "(empty)",
+      IS_CROSS_ORIGIN_DEPLOY,
+      responsePreview: trimmed,
+    });
     console.log("[AUTH_FLOW] profile fetch failed — reconnect screen", { userId, reason: `http_${res.status}` });
     writeDebug({ profileErrorMessage: `HTTP_${res.status}: ${trimmed}` });
     throw new Error(`HTTP_${res.status}`);
@@ -2293,8 +2377,13 @@ function AppContent() {
             <div className="flex flex-wrap justify-center gap-3 pt-2">
               <button
                 className="px-5 py-2.5 rounded-full bg-primary text-primary-foreground text-sm font-medium hover:brightness-110 transition-all"
-                onClick={() => {
+                onClick={async () => {
                   console.warn("[SETUP] RETRY: user tapped Try Again on timeout screen", { userId: user?.id });
+                  // Force a Supabase session refresh before retrying — if the token
+                  // expired while the spinner was running, resetQueries would just
+                  // fetch with the same stale JWT and get another 401.
+                  const refreshed = await refreshAuthToken();
+                  console.log("[SETUP] RETRY: token refresh result", { refreshed, userId: user?.id });
                   setSpinnerTimedOut(false);
                   spinnerStartRef.current = null;
                   queryClient.resetQueries({ queryKey: ["profile-exists-check"] });
@@ -2351,8 +2440,13 @@ function AppContent() {
           <div className="flex flex-wrap justify-center gap-3 pt-2">
             <button
               className="px-5 py-2.5 rounded-full bg-primary text-primary-foreground text-sm font-medium hover:brightness-110 transition-all"
-              onClick={() => {
+              onClick={async () => {
                 console.warn("[SETUP] RETRY: user tapped Try Again on fetch-failed screen", { userId: user?.id });
+                // Force a Supabase session refresh before retrying — without this,
+                // if the root cause was an expired JWT, getAuthHeaders() returns
+                // the same stale token → server returns 401 → reconnect screen stays.
+                const refreshed = await refreshAuthToken();
+                console.log("[SETUP] RETRY: token refresh result", { refreshed, userId: user?.id });
                 queryClient.resetQueries({ queryKey: ["profile-exists-check"] });
               }}
               data-testid="button-retry-profile"

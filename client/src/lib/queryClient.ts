@@ -36,6 +36,17 @@ export const API_BASE: string = (() => {
   return "https://lulou-dating.replit.app";
 })();
 
+// ── Startup diagnostic: log API routing config immediately ────────────────────
+// This fires at module evaluation time — before any component mounts — so it
+// appears at the very top of the console on every page load.  Lets us confirm
+// VITE_API_BASE_URL is set correctly in the production Vercel build.
+console.log("[STARTUP_DIAG] API routing config", {
+  hostname: _host,
+  IS_CROSS_ORIGIN_DEPLOY,
+  API_BASE: API_BASE || "(empty — same-origin relative URLs)",
+  VITE_API_BASE_URL: (import.meta.env.VITE_API_BASE_URL as string | undefined) || "(not set)",
+});
+
 /**
  * Throws a clear, actionable error when VITE_API_BASE_URL is missing in a
  * cross-origin deployment.  Call this before every fetch to /api/... so
@@ -87,18 +98,37 @@ export async function getAuthHeaders(): Promise<Record<string, string>> {
     return { Authorization: `Bearer ${_cachedToken}` };
   }
 
-  // If we have a cached token but the expiry check just failed, still use it.
-  // The server will return a 401 if the JWT is genuinely expired.
+  // Near-expiry / expired path: token exists but < 60 s left (or already expired).
+  // DO NOT send the stale token — the server will return 401, and TanStack Query
+  // will retry 3× with the same expired token, then show the reconnect screen.
+  // Instead, attempt a silent session refresh here so the caller gets a live token.
   if (_cachedToken) {
-    console.warn("[AUTH_HEADERS] CACHED_TOKEN_EXPIRY_BYPASS", {
+    const remainingMs = _tokenExpiresAt * 1000 - Date.now();
+    console.warn("[AUTH_HEADERS] TOKEN_NEAR_EXPIRY — attempting silent refresh before fetch", {
       tokenExpiresAt: _tokenExpiresAt,
-      remainingMs: _tokenExpiresAt * 1000 - Date.now(),
+      remainingMs,
     });
-    return { Authorization: `Bearer ${_cachedToken}` };
+    try {
+      const { data, error } = await supabase.auth.refreshSession();
+      if (data.session?.access_token) {
+        const newExpiresAt: number | undefined = (data.session as any).expires_at;
+        _cachedToken = data.session.access_token;
+        _tokenExpiresAt = (newExpiresAt && newExpiresAt > 0)
+          ? newExpiresAt
+          : Math.floor(Date.now() / 1000) + 3600;
+        console.log("[AUTH_HEADERS] SILENT_REFRESH_SUCCESS", { newExpiresAt });
+        return { Authorization: `Bearer ${data.session.access_token}` };
+      }
+      console.warn("[AUTH_HEADERS] SILENT_REFRESH_RETURNED_NO_SESSION", { error: error?.message });
+    } catch (refreshErr: any) {
+      console.warn("[AUTH_HEADERS] SILENT_REFRESH_EXCEPTION", { error: refreshErr?.message });
+    }
+    // Refresh failed — fall through to the slow path (getSession may still work)
+    _cachedToken = null;
   }
 
   // Slow path: only reached on initial page load (before INITIAL_SESSION event)
-  // or immediately after logout cleared _cachedToken.
+  // or after a failed refresh cleared _cachedToken.
   console.log("[AUTH_HEADERS] SLOW_PATH — no cached token, calling getSession()");
   try {
     const sessionPromise = supabase.auth.getSession();
@@ -124,6 +154,32 @@ export async function getAuthHeaders(): Promise<Record<string, string>> {
   _cachedToken = null;
   console.warn("[AUTH_HEADERS] NO_TOKEN — returning empty headers");
   return {};
+}
+
+/**
+ * Force a Supabase session refresh and update the in-memory token cache.
+ * Call this before manually retrying a failed profile fetch so the next
+ * getAuthHeaders() call gets a live token instead of the stale cached one.
+ * Returns true if a fresh token was obtained, false otherwise.
+ */
+export async function refreshAuthToken(): Promise<boolean> {
+  console.log("[AUTH_HEADERS] MANUAL_REFRESH — forcing Supabase session refresh");
+  try {
+    const { data, error } = await supabase.auth.refreshSession();
+    if (data.session?.access_token) {
+      const newExpiresAt: number | undefined = (data.session as any).expires_at;
+      setCachedToken(data.session.access_token, newExpiresAt);
+      console.log("[AUTH_HEADERS] MANUAL_REFRESH_SUCCESS", { newExpiresAt });
+      return true;
+    }
+    console.warn("[AUTH_HEADERS] MANUAL_REFRESH_NO_SESSION", { error: error?.message });
+    setCachedToken(null);
+    return false;
+  } catch (err: any) {
+    console.warn("[AUTH_HEADERS] MANUAL_REFRESH_EXCEPTION", { error: err?.message });
+    setCachedToken(null);
+    return false;
+  }
 }
 
 // Detect when a response is non-JSON (e.g. Vercel returning index.html for an
