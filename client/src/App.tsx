@@ -1286,9 +1286,9 @@ type ProfileCheckResult = { exists: boolean; fetchFailed: boolean };
 // Enabled in dev mode OR when localStorage.lulou_diag === "1".
 // Set it in DevTools: localStorage.setItem("lulou_diag","1") then refresh.
 // Shown on the reconnect screen so the exact failure can be copied without DevTools.
-const DIAG_ENABLED: boolean =
-  import.meta.env.DEV ||
-  (typeof localStorage !== "undefined" && localStorage.getItem("lulou_diag") === "1");
+// Always show diagnostics on the reconnect screen until the root cause is confirmed.
+// Remove this (restore localStorage gate) once the production issue is resolved.
+const DIAG_ENABLED: boolean = true;
 
 interface ProfileDiag {
   timestamp: number;
