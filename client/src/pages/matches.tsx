@@ -1286,7 +1286,14 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
   const isActive = useTabActive();
   const [message, setMessage] = useState("");
   const [inputFocused, setInputFocused] = useState(false);
+  // keyboardOpen is derived from visualViewport and is the source of truth for
+  // whether the software keyboard is actually visible on screen. Using this
+  // instead of inputFocused for button-visibility guards means a spurious iOS
+  // blur event (which doesn't close the keyboard) won't insert DOM nodes and
+  // trigger a flex reflow that drops the composer.
+  const [keyboardOpen, setKeyboardOpen] = useState(false);
   const composerRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [showProfilePanel, setShowProfilePanel] = useState(false);
   const [sheetDragY, setSheetDragY] = useState(0);
   const [isSheetDragging, setIsSheetDragging] = useState(false);
@@ -2118,12 +2125,17 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
     return () => ro.disconnect();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Log keyboard visibility changes via visualViewport.
+  // Track keyboard visibility via visualViewport.
+  // This is the authoritative source — it changes only when the keyboard actually
+  // opens or closes, NOT on spurious iOS focus/blur events. We use keyboardOpen
+  // instead of inputFocused to control button DOM presence so a fake blur (keyboard
+  // stays open) never inserts buttons and reflows the composer.
   useEffect(() => {
     const vv = window.visualViewport;
     if (!vv) return;
     const handler = () => {
       const kbVisible = (window.outerHeight || window.screen.height) - vv.height > 150;
+      setKeyboardOpen(kbVisible);
       console.log(`[VOICE_NOTE_LAYOUT] keyboard visible=${kbVisible} viewport=${Math.round(vv.height)}px`);
     };
     vv.addEventListener("resize", handler);
@@ -2144,25 +2156,68 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
 
   const sendVoiceNote = useMutation({
     mutationFn: async ({ blob, mimeType, tStart }: { blob: Blob; mimeType: string; blobUrl: string; tempId: string; tStart: number }) => {
+      // ── Step 1: Validate blob ──
+      console.log(`[VOICE_NOTE_SEND] blob created size=${blob.size}B type="${blob.type}" mimeType="${mimeType}"`);
+      if (blob.size === 0) throw new Error("Recording produced no audio. Please try again.");
+      if (blob.size < 200) throw new Error("Recording too short — hold the mic for at least 0.5 seconds.");
       if (blob.size > 3_000_000) throw new Error("Recording too large (max ~60 seconds). Please try again.");
-      // Binary upload via ArrayBuffer — no FileReader, no base64, 33% smaller payload
-      console.log(`[VOICE_NOTE] upload started size=${blob.size}B`);
+
+      // ── Step 2: Convert to ArrayBuffer ──
+      console.log(`[VOICE_NOTE_SEND] upload started path=/api/voice-notes/send/${match.id}`);
       const tUpload = performance.now();
-      const authHeaders = await getAuthHeaders();
-      const arrayBuf = await blob.arrayBuffer();
-      const res = await fetch(API_BASE + `/api/voice-notes/send/${match.id}`, {
-        method: "POST",
-        headers: {
-          ...authHeaders,
-          "Content-Type": mimeType || "audio/webm",
-          "X-Voice-Mime": mimeType || "audio/webm",
-        },
-        body: arrayBuf,
-      });
-      console.log(`[VOICE_NOTE] upload complete ms=${Math.round(performance.now() - tUpload)}`);
-      if (!res.ok) { const b = await res.json().catch(() => ({})); throw new Error(b.message || "Failed to send"); }
-      const data = await res.json();
-      console.log(`[VOICE_NOTE] message inserted totalMs=${Math.round(performance.now() - tStart)}`);
+      let arrayBuf: ArrayBuffer;
+      try {
+        arrayBuf = await blob.arrayBuffer();
+        console.log(`[VOICE_NOTE_SEND] arraybuffer ready bytes=${arrayBuf.byteLength}`);
+      } catch (bufErr: any) {
+        throw new Error(`Failed to read recording: ${bufErr.message}`);
+      }
+
+      // ── Step 3: Fetch auth headers ──
+      let authHeaders: Record<string, string>;
+      try {
+        authHeaders = await getAuthHeaders();
+      } catch (authErr: any) {
+        throw new Error(`Auth error — please refresh and try again: ${authErr.message}`);
+      }
+
+      // ── Step 4: Upload binary to server ──
+      let res: Response;
+      try {
+        res = await fetch(API_BASE + `/api/voice-notes/send/${match.id}`, {
+          method: "POST",
+          headers: {
+            ...authHeaders,
+            "Content-Type": mimeType || "audio/webm",
+            "X-Voice-Mime": mimeType || "audio/webm",
+          },
+          body: arrayBuf,
+        });
+      } catch (fetchErr: any) {
+        throw new Error(`Network error uploading voice note: ${fetchErr.message}`);
+      }
+      const uploadMs = Math.round(performance.now() - tUpload);
+      console.log(`[VOICE_NOTE_SEND] upload response status=${res.status} ms=${uploadMs}`);
+
+      // ── Step 5: Parse server response ──
+      let data: any;
+      try {
+        data = await res.json();
+      } catch {
+        data = {};
+      }
+      if (!res.ok) {
+        console.error(`[VOICE_NOTE_SEND] server error status=${res.status} message="${data?.message}"`);
+        throw new Error(data?.message || `Server error ${res.status} — please try again`);
+      }
+
+      // ── Step 6: Verify message was inserted ──
+      const messageId = data?.message?.id;
+      const publicUrl = data?.message?.content?.startsWith("__VOICE__:") ? data.message.content.slice(10) : "(no url)";
+      console.log(`[VOICE_NOTE_SEND] message inserted id=${messageId} url="${publicUrl}" totalMs=${Math.round(performance.now() - tStart)}`);
+      if (!data?.message) {
+        console.warn(`[VOICE_NOTE_SEND] server returned success but no message object`);
+      }
       return data;
     },
     onSuccess: (data: any, vars) => {
@@ -2178,8 +2233,9 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
           return { ...old, messages: [...old.messages, realMsg] };
         });
         broadcastNewMessage(realMsg);
-        console.log(`[VOICE_NOTE] realtime received (cache updated) messageId=${realMsg.id}`);
+        console.log(`[VOICE_NOTE_SEND] cache updated messageId=${realMsg.id} — voice note visible`);
       } else {
+        console.warn(`[VOICE_NOTE_SEND] no realMsg in response — invalidating query`);
         queryClient.invalidateQueries({ queryKey: ["/api/matches", match.id] });
       }
       // Remove the pending entry — real message is now in cache
@@ -2188,7 +2244,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
     },
     onError: (err: any, vars) => {
       // Mark as failed so user can retry — do NOT remove from list
-      console.log(`[VOICE_NOTE] upload failed error="${err?.message}"`);
+      console.error(`[VOICE_NOTE_SEND] FAILED error="${err?.message}"`);
       setPendingVoiceNotes(prev => prev.map(v => v.tempId === vars.tempId ? { ...v, status: "failed" } : v));
       toast({ title: err?.message || "Failed to send voice note", variant: "destructive" });
     },
@@ -3211,6 +3267,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                 */}
                 <div className="relative flex-1">
                   <Textarea
+                    ref={textareaRef}
                     value={message}
                     onChange={e => {
                       setMessage(e.target.value.slice(0, MAX_CHARS));
@@ -3220,14 +3277,17 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                     className={`resize-none min-h-[44px] max-h-[80px] text-sm pr-8 transition-none${voicePhase === "recording" ? " invisible pointer-events-none" : ""}`}
                     onFocus={() => setInputFocused(true)}
                     onBlur={() => {
-                      // CRITICAL: suppress blur during recording on iOS.
-                      // Even with e.preventDefault() on pointerdown, iOS Safari can still fire
-                      // blur in certain conditions. If we let setInputFocused(false) run while
-                      // recording, the !inputFocused guard adds the AI/phone buttons to the DOM
-                      // mid-recording → flex row reflows → composer jumps.
+                      // CRITICAL: if iOS fires blur while recording, immediately refocus the
+                      // textarea so the keyboard stays open and the composer doesn't move.
+                      // We also do NOT update inputFocused so no state change triggers a reflow.
                       const blurDuringRecording = isRecordingRef.current;
                       console.log(`[VOICE_NOTE_LAYOUT] input blurred? recording=${blurDuringRecording}`);
-                      if (!blurDuringRecording) setInputFocused(false);
+                      if (blurDuringRecording) {
+                        // Refocus in next frame — prevents the keyboard from closing
+                        requestAnimationFrame(() => textareaRef.current?.focus());
+                        return;
+                      }
+                      setInputFocused(false);
                     }}
                     onKeyDown={e => {
                       if (e.key === "Enter" && !e.shiftKey) {
@@ -3280,6 +3340,12 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                       if (!voiceNotesUnlocked) { setPurchasePromptFeature("mic"); return; }
                       startRecording();
                     }}
+                    onTouchStart={e => {
+                      // iOS Safari: touchstart with preventDefault is the MOST RELIABLE way
+                      // to prevent the browser from transferring focus away from the textarea.
+                      // pointerdown+preventDefault alone is insufficient on some iOS versions.
+                      e.preventDefault();
+                    }}
                     onPointerUp={e => {
                       e.preventDefault();
                       stopRequestedRef.current = true;
@@ -3323,8 +3389,11 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                   the buttons are already in the DOM — we use visibility:hidden so they keep
                   their flex space without being removed.
                 */}
-                {/* ✨ Conversation starters — only when keyboard is closed */}
-                {aiStartersEnabled && !inputFocused && (
+                {/* ✨ Conversation starters — only when keyboard is closed.
+                    keyboardOpen is derived from visualViewport (not focus events) so a
+                    spurious iOS blur that doesn't actually close the keyboard won't
+                    insert this button mid-recording and trigger a flex reflow. */}
+                {aiStartersEnabled && !keyboardOpen && (
                   <Button
                     size="icon"
                     variant="ghost"
@@ -3339,7 +3408,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                   </Button>
                 )}
                 {/* 📞 Voice call shortcut — only when keyboard is closed */}
-                {!allCallsDone && !inputFocused && (
+                {!allCallsDone && !keyboardOpen && (
                   <button
                     tabIndex={-1}
                     onMouseDown={e => e.preventDefault()}

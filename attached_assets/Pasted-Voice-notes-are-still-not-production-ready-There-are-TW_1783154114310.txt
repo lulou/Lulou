@@ -1,0 +1,123 @@
+Voice notes are still not production-ready.
+
+There are TWO launch-blocking issues:
+
+1. Voice notes do not reliably send through.
+2. The message bar drops/moves when holding the mic, even though it stays perfectly stable while typing.
+
+This must behave exactly like typing:
+- When the keyboard is open and the user types, the composer stays fixed.
+- When the keyboard is open and the user holds the mic, the composer must stay fixed in the exact same place.
+- Holding mic must not blur the input, dismiss keyboard, change safe-area padding, or trigger a different layout path.
+
+━━━━━━━━━━━━━━━━━━━━━━
+ISSUE 1 — VOICE NOTES NOT SENDING
+━━━━━━━━━━━━━━━━━━━━━━
+
+Do not hide this with UI.
+
+Find the exact failing step.
+
+Audit and log the full send pipeline:
+
+[VOICE_NOTE_SEND]
+recording started
+recording stopped
+mediaRecorder state
+blob created
+blob size
+blob type
+duration
+upload started
+upload path
+upload response status/error
+public/signed URL created
+message insert started
+message insert response/error
+optimistic message reconciled
+recipient realtime received
+playback URL valid
+
+Requirements:
+- If blob size is 0, do not send; show friendly error.
+- If upload fails, keep local recording and allow retry.
+- If message insert fails, keep local recording and allow retry.
+- If playback URL fails, retry URL generation before showing error.
+- Never show permanent “Loading failed” unless all retries fail.
+- Do not lose the recording after failure.
+- Voice note must appear instantly as sending, then become playable after upload.
+- Recipient must receive the voice note.
+- Last-message preview must show “🎤 Voice message”, never raw URL.
+
+Fix the real cause, whether it is:
+- MediaRecorder stopping too early
+- wrong MIME type
+- empty blob
+- Supabase upload failure
+- storage path issue
+- message insert issue
+- realtime issue
+- playback URL issue
+- optimistic message reconciliation issue
+
+━━━━━━━━━━━━━━━━━━━━━━
+ISSUE 2 — COMPOSER DROPS WHEN HOLDING MIC
+━━━━━━━━━━━━━━━━━━━━━━
+
+The composer must behave the same as typing.
+
+Current behaviour:
+- Typing: composer stays fixed above keyboard.
+- Holding mic: composer drops/moves.
+
+Find exactly why.
+
+Audit:
+- pointerdown/touchstart on mic
+- input blur
+- keyboard dismissal
+- isRecording conditional JSX
+- safe-area bottom padding
+- keyboard height listeners
+- composer wrapper position
+- textarea focus state
+- conversation starter visibility
+- recording overlay rendering
+- any state that changes height/margin/bottom/transform
+
+Implementation requirement:
+- There must be ONE composer layout path.
+- Do not replace the composer with a recording composer.
+- Keep the same wrapper, height, bottom position, and keyboard offset while recording.
+- The recording UI must be an overlay INSIDE the same composer box.
+- The input must remain focused while holding mic.
+- Use preventDefault on mic pointerdown/touchstart if needed to stop iOS blurring the input.
+- Do not dismiss keyboard when recording starts.
+- Only the mic icon should change: scale/glow/recording colour.
+- If showing timer/waveform, render it inside the input area without changing dimensions.
+
+Add layout logs:
+[VOICE_NOTE_LAYOUT] before record rect/top/bottom/height
+[VOICE_NOTE_LAYOUT] during record rect/top/bottom/height
+[VOICE_NOTE_LAYOUT] after record rect/top/bottom/height
+[VOICE_NOTE_LAYOUT] input focus before/during/after
+[VOICE_NOTE_LAYOUT] keyboard visible before/during/after
+
+Success criteria:
+1. Open chat on iPhone.
+2. Tap input so keyboard opens.
+3. Hold mic.
+4. Composer does not move even 1px.
+5. Keyboard stays open.
+6. Release mic.
+7. Voice note sends automatically.
+8. Recipient receives it.
+9. Playback works.
+
+Run:
+npm run check
+npm run build
+
+Do not mark this complete until both:
+- voice notes reliably send through, and
+- the composer stays fixed exactly like typing while recording.
