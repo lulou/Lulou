@@ -1,0 +1,178 @@
+Fix the existing-user onboarding bug AND the recurring reconnect screen bug.
+
+These are high-priority production issues because they make existing users think their account is broken or reset.
+
+──────────────────────────────
+ISSUE 1 — EXISTING USER SENT BACK TO ONBOARDING
+──────────────────────────────
+
+Current problem:
+When signing back into an existing account, the user is sometimes taken to onboarding Step 1:
+
+"Tell us about yourself"
+
+This should NEVER happen if the account already exists and onboarding was already completed.
+
+Expected behaviour:
+
+When a user signs in:
+
+1. Authenticate with Supabase.
+2. Wait for session restoration to fully complete.
+3. Fetch the user's existing profile.
+4. Only after profile fetch completes, decide where to route them.
+
+Rules:
+
+- If profile exists and onboarding is complete:
+ → send user to main app.
+
+- If profile exists but is missing optional fields:
+ → do NOT restart onboarding unless required fields are genuinely missing.
+
+- If no profile exists:
+ → start onboarding.
+
+- If profile fetch fails because of network/API issue:
+ → show reconnect/error screen, NOT onboarding.
+
+- Never route to onboarding while profile is still loading.
+
+Investigate:
+
+- auth state listener
+- session restoration
+- profile loading
+- checkProfileExists()
+- onboarding guard
+- onboarding completion flag
+- cached queries
+- race conditions
+- temporary null profile state
+- redirects after login
+- Supabase response timing
+
+Add navigation decision logs:
+
+[AUTH_FLOW] session restored
+[AUTH_FLOW] profile fetch started
+[AUTH_FLOW] profile found
+[AUTH_FLOW] onboarding complete
+[AUTH_FLOW] route main app
+[AUTH_FLOW] profile missing
+[AUTH_FLOW] route onboarding
+[AUTH_FLOW] profile fetch failed — reconnect screen
+
+──────────────────────────────
+ISSUE 2 — RECURRING RECONNECT SCREEN
+──────────────────────────────
+
+Current problem:
+The screen keeps appearing:
+
+"Taking a little longer than usual.
+Your account is safe. We're reconnecting you to Lulou."
+
+This appears too often, even when the app should recover silently.
+
+Expected behaviour:
+
+The reconnect screen should only appear when:
+
+- device is genuinely offline,
+- auth has actually expired,
+- server cannot be reached after multiple retries,
+- profile/app-critical request genuinely fails after retry.
+
+A single slow request or temporary failed API call should NOT put the whole app into reconnect mode.
+
+Investigate:
+
+- checkProfileExists timeout
+- getAuthHeaders timing
+- Supabase session refresh timing
+- API_BASE_URL
+- failed fetch handling
+- AbortController timeout
+- React Query retry behaviour
+- app-level isError handling
+- race condition between auth loaded and profile loaded
+- offline/online detection
+- network status events
+- production Vercel frontend calling backend URL
+
+Fix:
+
+- Use longer timeout for profile/auth-critical requests.
+- Do not abort too aggressively.
+- Add exponential backoff.
+- Retry silently in background first.
+- Show reconnect screen only after confirmed repeated critical failure.
+- Auto-recover without user needing to press Try Again whenever possible.
+- If user is online and session is valid, keep retrying gracefully.
+- Do not show onboarding because of a failed profile request.
+
+──────────────────────────────
+ISSUE 3 — REMOVE TECHNICAL ERROR TEXT FROM USERS
+──────────────────────────────
+
+Users should not see internal codes or debug text.
+
+Hide from production UI:
+
+- NETWORK_ERROR
+- Load failed
+- Logged in as...
+- Matches loaded...
+- raw endpoint errors
+- raw stack/error strings
+
+Instead show polished messages only:
+
+"Something went wrong"
+"We're having trouble loading this right now. Please try again."
+
+or
+
+"Taking a little longer than usual"
+"Your account is safe. We're reconnecting you to Lulou."
+
+Keep technical details only in console/server logs.
+
+──────────────────────────────
+VALIDATION
+──────────────────────────────
+
+Test these exact cases:
+
+1. Existing complete user logs in:
+  → goes to main app, never onboarding.
+
+2. Existing complete user logs in on slow network:
+  → shows loading/reconnect if needed, never onboarding.
+
+3. Brand new user logs in:
+  → goes to onboarding.
+
+4. Backend temporarily slow:
+  → retries gracefully.
+
+5. Backend unavailable:
+  → reconnect screen only after multiple retries.
+
+6. Press Try Again:
+  → retries session/profile fetch cleanly.
+
+Run:
+
+npm run check
+npm run build
+
+Report:
+
+- Root cause of existing users entering onboarding.
+- Root cause of reconnect screen appearing too often.
+- Files changed.
+- New routing decision logic.
+- New retry/timeout logic.
+- Confirmation technical errors are hidden from production users.

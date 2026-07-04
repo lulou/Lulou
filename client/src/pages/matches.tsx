@@ -1391,7 +1391,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
           ? t("cant_call_yourself_desc")
           : isAuth
             ? t("please_refresh_desc")
-            : (error.message || t("unknown_server_error")),
+            : t("unknown_server_error"),
         variant: "destructive",
       });
     },
@@ -1432,7 +1432,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
       const isSelfCall = error.message?.includes("own account");
       toast({
         title: isSelfCall ? t("cant_call_yourself_title") : isAuth ? t("session_expired_title") : t("call_failed_title"),
-        description: isSelfCall ? t("cant_call_yourself_desc") : isAuth ? t("please_refresh_desc") : (error.message || t("unknown_server_error")),
+        description: isSelfCall ? t("cant_call_yourself_desc") : isAuth ? t("please_refresh_desc") : t("unknown_server_error"),
         variant: "destructive",
       });
     },
@@ -1500,7 +1500,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
       mergeCallFields(queryClient, match.id, { callStartedAt: null, callInitiatorId: null, callAnswered: false, callCompleted: false, callSessionId: null });
       toast({
         title: isAuth ? t("session_expired_title") : t("cancel_failed_title"),
-        description: isAuth ? t("please_refresh_desc") : error.message,
+        description: isAuth ? t("please_refresh_desc") : t("unknown_server_error"),
         variant: "destructive",
       });
     },
@@ -1570,7 +1570,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
       console.error("[CALL_UI] CALL_ANSWER_FAILED", { matchId: match.id, error: error.message });
       markCallSessionCancelled(match.id, lastCallSessionIdRef.current);
       mergeCallFields(queryClient, match.id, { callStartedAt: null, callInitiatorId: null, callAnswered: false, callCompleted: false, callSessionId: null });
-      toast({ title: t("couldnt_answer_title"), description: error.message, variant: "destructive" });
+      toast({ title: t("couldnt_answer_title"), description: t("unknown_server_error"), variant: "destructive" });
     },
   });
 

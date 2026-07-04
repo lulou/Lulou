@@ -1289,6 +1289,7 @@ async function checkProfileExists(
   userId?: string,
   onProfileData?: (data: unknown) => void,
 ): Promise<ProfileCheckResult> {
+  console.log("[AUTH_FLOW] profile fetch started", { userId });
   writeDebug({
     postAuthProfileFetchStarted: true,
     postAuthProfileFetchSucceeded: false,
@@ -1297,7 +1298,7 @@ async function checkProfileExists(
     profileRowFound: null,
     profileErrorMessage: null,
   });
-  // 8-second master abort — covers both getAuthHeaders() (up to 5 s internally)
+  // 15-second master abort — covers both getAuthHeaders() (up to 5 s internally)
   // and the actual fetch (server has 2.5 s checkEmailVerified + 3 s getProfile timeouts).
   // Must be < SPINNER_TIMEOUT_MS so the query enters error state before the spinner
   // declares timeout and the "Try Again" button handles manual retry.
@@ -1342,12 +1343,14 @@ async function checkProfileExists(
     const totalMs = Math.round(performance.now() - t_total);
     const label = isAbort ? `TIMEOUT at step="${_currentStep}"` : `network error at step="${_currentStep}"`;
     console.error(`[AUTH] PROFILE_LOAD_FAILED: ${label} — ${err?.message} — total ${totalMs}ms`);
+    console.log("[AUTH_FLOW] profile fetch failed — reconnect screen", { userId, reason: isAbort ? "timeout" : "network" });
     writeDebug({ profileErrorMessage: isAbort ? `TIMEOUT_8S:${_currentStep}` : (err?.message ?? "NETWORK_ERROR") });
     throw new Error(isAbort ? `TIMEOUT:${_currentStep}` : "NETWORK_ERROR");
   }
 
   if (res.status === 404) {
     // Profile row does not exist → user needs to complete onboarding.
+    console.log("[AUTH_FLOW] profile missing — route onboarding", { userId });
     console.log("[AUTH] PROFILE_EXISTS_CHECK: no profile found (onboarding needed)");
     writeDebug({ postAuthProfileFetchSucceeded: true, profileRowFound: false });
     return { exists: false, fetchFailed: false };
@@ -1360,6 +1363,7 @@ async function checkProfileExists(
     const text = await res.text().catch(() => res.statusText);
     const trimmed = text.replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim().slice(0, 120);
     console.error(`[AUTH] PROFILE_LOAD_FAILED: HTTP ${res.status} — root cause: ${trimmed}`);
+    console.log("[AUTH_FLOW] profile fetch failed — reconnect screen", { userId, reason: `http_${res.status}` });
     writeDebug({ profileErrorMessage: `HTTP_${res.status}: ${trimmed}` });
     throw new Error(`HTTP_${res.status}`);
   }
@@ -1374,6 +1378,7 @@ async function checkProfileExists(
   } catch {
     // Body parse failure is non-fatal — profile.tsx will fetch on its own.
   }
+  console.log("[AUTH_FLOW] profile found — onboarding complete — route main app", { userId });
   console.log("[AUTH] PROFILE_EXISTS_CHECK: profile found");
   writeDebug({ postAuthProfileFetchSucceeded: true, profileRowFound: true });
   return { exists: true, fetchFailed: false };
@@ -1959,6 +1964,10 @@ function AppContent() {
     staleTime: Infinity,
   });
 
+  // profileHasData is true once the query has settled with a real result (success or error).
+  // Used to prevent the onboarding guard from firing during the brief window where
+  // isPending transitions to false but data hasn't arrived yet (e.g., after cache clear).
+  const profileHasData = data !== undefined;
   const profileExists = data?.exists ?? false;
   // fetchFailed is true only after all retries are exhausted (isError=true).
   const fetchFailed = profileError;
@@ -2024,7 +2033,11 @@ function AppContent() {
   // profilePending = query has no data yet (covers the gap between "enabled"
   // and "fetch started" that caused isLoading to briefly be false).
   // forceProceed collapses the spinner immediately when the user bypasses.
-  const isSpinning = !forceProceed && !authLoading && !!user && (clearingCache || profilePending || !profileReady);
+  // !fetchFailed && !profileHasData: extra guard for the rare window where isPending
+  // is briefly false but data hasn't arrived yet (e.g., after queryClient.clear()),
+  // preventing a momentary flash of the onboarding screen for existing users.
+  const isSpinning = !forceProceed && !authLoading && !!user &&
+    (clearingCache || profilePending || !profileReady || (!fetchFailed && !profileHasData));
 
   useEffect(() => {
     if (!isSpinning) {
@@ -2075,18 +2088,28 @@ function AppContent() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isSpinning]);
 
-  // ── Fetch failure log ────────────────────────────────────────────────────────
-  // Log when all TanStack Query retries are exhausted.  No auto-retry loop here
-  // because it creates an infinite spinner cycle: after 12 s of retries the
+  // ── Fetch failure log + online auto-retry ───────────────────────────────────
+  // Log when all TanStack Query retries are exhausted.  No manual auto-retry loop
+  // here because it creates an infinite spinner cycle: after 12 s of retries the
   // spinner stops (isError=true → isPending=false), which cancels the 15 s
   // timeout timer before it can set spinnerTimedOut=true, so the circuit
   // breaker never engages and the loop repeats forever.
   // The "Try Again" button on the error screen lets the user retry manually.
+  // Exception: when the browser goes back online we auto-retry once silently.
   useEffect(() => {
     if (!fetchFailed) return;
     console.error("[SETUP] FETCH_FAILED: all retries exhausted — showing error screen", {
       userId: user?.id,
     });
+    console.log("[AUTH_FLOW] profile fetch failed — reconnect screen shown to user", { userId: user?.id });
+    // Auto-retry whenever the device comes back online (e.g., lost Wi-Fi, airplane mode).
+    // This means the reconnect screen dismisses itself without the user tapping "Try Again".
+    const onOnline = () => {
+      console.log("[AUTH_FLOW] network back online — auto-retrying profile fetch", { userId: user?.id });
+      queryClient.resetQueries({ queryKey: ["profile-exists-check"] });
+    };
+    window.addEventListener("online", onOnline);
+    return () => window.removeEventListener("online", onOnline);
   }, [fetchFailed, user?.id]);
 
   // ── Pre-gate: compute phase/decision and write to debug store ────────────
@@ -2103,7 +2126,7 @@ function AppContent() {
     : profilePending
     ? "loading profile…"
     : profileError
-    ? `error: ${(profileFetchError as Error | null)?.message ?? "unknown"}`
+    ? "reconnecting…"
     : "ready";
 
   const finalGateDecision = authLoading
@@ -2156,6 +2179,7 @@ function AppContent() {
   }
 
   if (!user) {
+    console.log("[AUTH_FLOW] no session — showing landing");
     console.log("[SETUP] FINAL_APP_GATE: no_user — showing landing");
     return <Landing />;
   }
@@ -2313,9 +2337,9 @@ function AppContent() {
   }
 
   if (fetchFailed && !effectiveProfileExists) {
-    const _fetchErrDetail = (profileFetchError as Error | null)?.message ?? null;
+    console.log("[AUTH_FLOW] profile fetch failed — reconnect screen", { userId: user.id });
     console.warn("[SETUP] FINAL_APP_GATE: blocked_by_profile_gate", {
-      userId: user.id, fetchFailed, profileExists, effectiveProfileExists, forceProceed, errDetail: _fetchErrDetail,
+      userId: user.id, fetchFailed, profileExists, effectiveProfileExists, forceProceed,
     });
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
@@ -2352,14 +2376,16 @@ function AppContent() {
   }
 
   if (!effectiveProfileExists) {
+    console.log("[AUTH_FLOW] profile missing — route onboarding", { userId: user.id, profileHasData, profileExists });
     console.log("[SETUP] FINAL_APP_GATE: blocked_by_onboarding_guard", {
-      userId: user.id, profileExists, effectiveProfileExists, fetchFailed, profilePending,
+      userId: user.id, profileExists, effectiveProfileExists, fetchFailed, profilePending, profileHasData,
     });
     return (
       <Onboarding existingProfile={null} userEmail={user?.email ?? ""} />
     );
   }
 
+  console.log("[AUTH_FLOW] session restored — route main app", { userId: user.id });
   return (
     <Switch>
       <Route path="/elevate/success" component={ElevateSuccessPage} />

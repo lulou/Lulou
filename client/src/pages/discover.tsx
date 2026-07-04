@@ -555,22 +555,6 @@ export default function Discover() {
     });
   }, [toast, t, currentProfile?.firstName]);
 
-  // ─── STEP 2: Minimal render — confirms routing/layout works ─────────────────
-  const STEP2_MINIMAL = false;
-  if (STEP2_MINIMAL) {
-    return (
-      <div className="flex-1 p-6 space-y-3" data-testid="discover-diagnostic">
-        <h2 className="text-lg font-semibold">Discover — Page Rendered ✓</h2>
-        <div className="text-xs font-mono text-muted-foreground space-y-0.5">
-          <div>isLoading: {String(isLoading)}</div>
-          <div>isError: {String(isDiscoverError)}</div>
-          <div>profiles accumulated: {accumulatedProfiles.length}</div>
-          <div>visible: {visibleProfiles.length}</div>
-        </div>
-      </div>
-    );
-  }
-
   // Show skeleton on initial load OR when pool is empty and more are being fetched
   const isLoadingMore = isFetching && accumulatedProfiles.length > 0 && visibleProfiles.length === 0;
   if (isLoading || isLoadingMore) {

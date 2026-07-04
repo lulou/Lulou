@@ -646,23 +646,6 @@ export default function ProfilePage() {
     profileFirstName: profile?.firstName,
   });
 
-  // ─── STEP 2: Minimal render — confirms routing/layout works ─────────────────
-  const STEP2_MINIMAL = false;
-  if (STEP2_MINIMAL) {
-    return (
-      <div className="flex-1 p-6 space-y-3" data-testid="profile-diagnostic">
-        <h2 className="text-lg font-semibold">Profile — Page Rendered ✓</h2>
-        <div className="text-xs font-mono text-muted-foreground space-y-0.5">
-          <div>userId: {user?.id?.slice(0, 8) ?? "—"}</div>
-          <div>isLoading: {String(isLoading)}</div>
-          <div>isError: {String(isError)}</div>
-          <div>hasProfile: {String(!!profile)}</div>
-          <div>firstName: {profile?.firstName ?? "—"}</div>
-        </div>
-      </div>
-    );
-  }
-
   if (isLoading) {
     return (
       <div className="flex-1 p-6 space-y-6 max-w-lg mx-auto w-full">
