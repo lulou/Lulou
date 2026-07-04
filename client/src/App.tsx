@@ -1282,6 +1282,89 @@ function CallDetectors({ userId }: { userId: string }) {
 
 type ProfileCheckResult = { exists: boolean; fetchFailed: boolean };
 
+// ── Profile-gate diagnostic store ─────────────────────────────────────────────
+// Enabled in dev mode OR when localStorage.lulou_diag === "1".
+// Set it in DevTools: localStorage.setItem("lulou_diag","1") then refresh.
+// Shown on the reconnect screen so the exact failure can be copied without DevTools.
+const DIAG_ENABLED: boolean =
+  import.meta.env.DEV ||
+  (typeof localStorage !== "undefined" && localStorage.getItem("lulou_diag") === "1");
+
+interface ProfileDiag {
+  timestamp: number;
+  hostname: string;
+  apiBase: string;
+  viteApiBaseUrl: string;
+  isCrossOrigin: boolean;
+  userId: string | null;
+  fullFetchUrl: string;
+  // Session state captured before the fetch
+  sessionExists: boolean | null;
+  accessTokenExists: boolean | null;
+  tokenExpiresAt: number | null;
+  tokenExpiryReadable: string | null;
+  // Auth header state
+  hasAuthHeader: boolean | null;
+  // Response fields (null = never received a response)
+  fetchStatus: number | null;
+  contentType: string | null;
+  bodyPreview: string | null;
+  isHtml: boolean;
+  // Error classification
+  errorCategory: "401" | "403" | "404" | "timeout" | "cors" | "network" | "html" | "server_error" | null;
+  errorMessage: string | null;
+}
+let _lastProfileDiag: ProfileDiag | null = null;
+
+function DiagPanel() {
+  if (!DIAG_ENABLED) return null;
+  const d = _lastProfileDiag;
+  if (!d) {
+    return (
+      <div className="mt-4 text-xs text-muted-foreground/60 text-center font-mono">
+        No diagnostic data — profile fetch hasn't run yet
+      </div>
+    );
+  }
+  const lines = [
+    `[RECONNECT_ROOT_CAUSE]`,
+    `endpoint=${d.fullFetchUrl}`,
+    `status=${d.fetchStatus ?? "(no response — pre-fetch failure)"}`,
+    `contentType=${d.contentType ?? "(none)"}`,
+    `bodyPreview=${d.bodyPreview ?? "(none)"}`,
+    `authState=session=${d.sessionExists} token=${d.accessTokenExists} expiry=${d.tokenExpiryReadable ?? "(unknown)"}`,
+    `hasAuthHeader=${d.hasAuthHeader}`,
+    `apiBase=${d.apiBase || "(empty — same-origin)"}`,
+    `viteApiBaseUrl=${d.viteApiBaseUrl}`,
+    `hostname=${d.hostname}`,
+    `currentUrl=${typeof window !== "undefined" ? window.location.href : "(server)"}`,
+    `isCrossOrigin=${d.isCrossOrigin}`,
+    `userId=${d.userId ?? "(unknown)"}`,
+    `isHtml=${d.isHtml}`,
+    `errorCategory=${d.errorCategory ?? "(none)"}`,
+    `error=${d.errorMessage ?? "(none)"}`,
+    `capturedAt=${new Date(d.timestamp).toISOString()}`,
+  ].join("\n");
+  return (
+    <div className="mt-6 w-full text-left border-t border-muted-foreground/20 pt-4">
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-xs font-mono font-semibold text-muted-foreground uppercase tracking-wide">
+          Diagnostic info
+        </span>
+        <button
+          className="text-xs px-2 py-0.5 rounded border border-muted-foreground/30 hover:bg-muted transition-colors font-mono"
+          onClick={() => { try { navigator.clipboard.writeText(lines); } catch {} }}
+        >
+          Copy
+        </button>
+      </div>
+      <pre className="text-xs font-mono bg-black/5 rounded p-2 overflow-auto max-h-52 whitespace-pre-wrap break-all leading-relaxed">
+        {lines}
+      </pre>
+    </div>
+  );
+}
+
 // Check profile existence via the server's /api/profile endpoint.
 // Using the server avoids client-side Supabase auth dependency and keeps
 // the single source of truth for profile state on the backend.
@@ -1301,14 +1384,50 @@ async function checkProfileExists(
 
   const fullFetchUrl = API_BASE + "/api/profile";
 
+  // Initialise the diagnostic record — updated incrementally so partial failures
+  // still leave useful data. The reconnect screen reads from _lastProfileDiag.
+  const diag: ProfileDiag = {
+    timestamp: Date.now(),
+    hostname: typeof window !== "undefined" ? window.location.hostname : "(server)",
+    apiBase: API_BASE,
+    viteApiBaseUrl: (import.meta.env.VITE_API_BASE_URL as string | undefined) || "(not set)",
+    isCrossOrigin: IS_CROSS_ORIGIN_DEPLOY,
+    userId: userId ?? null,
+    fullFetchUrl,
+    sessionExists: null,
+    accessTokenExists: null,
+    tokenExpiresAt: null,
+    tokenExpiryReadable: null,
+    hasAuthHeader: null,
+    fetchStatus: null,
+    contentType: null,
+    bodyPreview: null,
+    isHtml: false,
+    errorCategory: null,
+    errorMessage: null,
+  };
+  _lastProfileDiag = diag;
+
+  // Capture the Supabase session state NOW — before getAuthHeaders() might refresh
+  // it — so we see exactly what the client had at the point the fetch started.
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    diag.sessionExists = !!session;
+    diag.accessTokenExists = !!session?.access_token;
+    const exp: number | null = (session as any)?.expires_at ?? null;
+    diag.tokenExpiresAt = exp;
+    diag.tokenExpiryReadable = exp ? new Date(exp * 1000).toISOString() : null;
+  } catch { /* non-fatal — diagnostic only */ }
+
   // ── STARTUP DIAGNOSTIC: log API routing state ────────────────────────────
-  // Appears in the console on every profile fetch attempt so we can confirm
-  // the correct backend URL is being used in production.
   console.log("[STARTUP_DIAG] checkProfileExists", {
     API_BASE: API_BASE || "(empty — same-origin)",
     IS_CROSS_ORIGIN_DEPLOY,
     fullFetchUrl,
     userId,
+    sessionExists: diag.sessionExists,
+    accessTokenExists: diag.accessTokenExists,
+    tokenExpiryReadable: diag.tokenExpiryReadable,
   });
 
   // 15-second master abort — covers both getAuthHeaders() (up to 5 s internally)
@@ -1339,12 +1458,15 @@ async function checkProfileExists(
       hasAuthHeader,
       tokenPreview,
     });
+    diag.hasAuthHeader = hasAuthHeader;
     if (!hasAuthHeader) {
       console.error("[RECONNECT_ROOT_CAUSE] auth header missing/expired — getAuthHeaders() returned no token", {
         userId,
         API_BASE: API_BASE || "(empty)",
         fullFetchUrl,
       });
+      diag.errorCategory = "401";
+      diag.errorMessage = "getAuthHeaders() returned no token — session missing or expired and refresh failed";
     }
 
     _currentStep = "fetch /api/profile";
@@ -1369,6 +1491,8 @@ async function checkProfileExists(
     const contentType = res.headers.get("content-type") ?? "";
     const isHtmlResponse = contentType.includes("text/html") ||
       (!contentType.includes("application/json") && !contentType.includes("text/plain") && res.ok);
+    diag.fetchStatus = res.status;
+    diag.contentType = contentType || null;
     console.log(`[STARTUP_DIAG] /api/profile response`, {
       status: res.status,
       statusText: res.statusText,
@@ -1393,6 +1517,10 @@ async function checkProfileExists(
         contentType,
         responsePreview: preview,
       });
+      diag.isHtml = true;
+      diag.bodyPreview = preview;
+      diag.errorCategory = "html";
+      diag.errorMessage = "API returned HTML — wrong backend URL or Vercel serving index.html for /api/* routes";
       throw new Error("API_HTML_RESPONSE");
     }
 
@@ -1403,7 +1531,7 @@ async function checkProfileExists(
     const isAbort = err?.name === "AbortError";
     const totalMs = Math.round(performance.now() - t_total);
     if (err?.message === "API_HTML_RESPONSE") {
-      // Already logged with full detail above — just rethrow for TanStack to retry.
+      // Already logged and diag populated above — just rethrow.
       throw err;
     }
     if (isAbort) {
@@ -1411,8 +1539,11 @@ async function checkProfileExists(
         fullFetchUrl,
         API_BASE: API_BASE || "(empty)",
       });
+      diag.errorCategory = "timeout";
+      diag.errorMessage = `timeout at step="${_currentStep}" after ${totalMs}ms`;
     } else {
-      console.error(`[RECONNECT_ROOT_CAUSE] backend unreachable`, {
+      const isCors = !!(err?.message?.includes("CORS") || err?.message?.includes("cross-origin") || err?.message?.includes("NetworkError"));
+      console.error(`[RECONNECT_ROOT_CAUSE] ${isCors ? "CORS" : "backend unreachable"}`, {
         step: _currentStep,
         error: err?.message,
         totalMs,
@@ -1420,6 +1551,8 @@ async function checkProfileExists(
         API_BASE: API_BASE || "(empty)",
         IS_CROSS_ORIGIN_DEPLOY,
       });
+      diag.errorCategory = isCors ? "cors" : "network";
+      diag.errorMessage = err?.message ?? "NETWORK_ERROR";
     }
     console.log("[AUTH_FLOW] profile fetch failed — reconnect screen", { userId, reason: isAbort ? "timeout" : "network" });
     writeDebug({ profileErrorMessage: isAbort ? `TIMEOUT_15S:${_currentStep}` : (err?.message ?? "NETWORK_ERROR") });
@@ -1447,6 +1580,9 @@ async function checkProfileExists(
       IS_CROSS_ORIGIN_DEPLOY,
       responsePreview: trimmed,
     });
+    diag.bodyPreview = text.slice(0, 300);
+    diag.errorCategory = res.status === 401 ? "401" : res.status === 403 ? "403" : res.status === 404 ? "404" : "server_error";
+    diag.errorMessage = `HTTP_${res.status}: ${trimmed}`;
     console.log("[AUTH_FLOW] profile fetch failed — reconnect screen", { userId, reason: `http_${res.status}` });
     writeDebug({ profileErrorMessage: `HTTP_${res.status}: ${trimmed}` });
     throw new Error(`HTTP_${res.status}`);
@@ -2403,6 +2539,7 @@ function AppContent() {
             <p className="text-xs text-muted-foreground/60 mt-1">
               If this keeps happening, close and reopen the app.
             </p>
+            <DiagPanel />
           </div>
         </div>
       );
@@ -2464,6 +2601,7 @@ function AppContent() {
           <p className="text-xs text-muted-foreground/60 mt-1">
             If this keeps happening, close and reopen the app.
           </p>
+          <DiagPanel />
         </div>
       </div>
     );
