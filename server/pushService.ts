@@ -74,9 +74,10 @@ export interface PushPayload {
   icon?: string;
   badge?: string;
   data?: {
-    url:   string;
-    type:  string;
-    tag?:  string;
+    url:           string;
+    type:          string;
+    tag?:          string;
+    callSessionId?: string | null;
   };
   ttl?: number;
   requireInteraction?: boolean;
@@ -397,10 +398,15 @@ export const buildPush = {
     ...(badgeCount > 0 ? { badgeCount } : {}),
   }),
 
-  incomingCall: (callerName: string, matchId: string): PushPayload => ({
+  incomingCall: (callerName: string, matchId: string, callSessionId?: string | null): PushPayload => ({
     title: "Incoming call 📞",
     body:  `${callerName} is calling you`,
-    data:  { url: `/messages/${matchId}`, type: "incoming_call", tag: `call_${matchId}` },
+    data:  {
+      url: `/messages/${matchId}${callSessionId ? `?push_call_sid=${callSessionId}` : ""}`,
+      type: "incoming_call",
+      tag: `call_${matchId}`,
+      callSessionId: callSessionId ?? null,
+    },
     ttl:   60,
     requireInteraction: true,
   }),

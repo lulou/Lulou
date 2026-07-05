@@ -436,6 +436,7 @@ export function startIncomingRingtone(sessionId?: string | null): void {
     el.currentTime  = 0;
 
     console.log("[CALL_RINGTONE] incoming ringtone started");
+    console.log("[CALL_RING] ringtone started");
 
     el.play().catch(() => {
       // Blocked by autoplay policy (cold session, no prior gesture).
@@ -467,6 +468,7 @@ export function stopIncomingRingtone(reason: string): void {
   el.pause();
   el.currentTime = 0;
   console.log(`[CALL_RINGTONE] stopped: ${reason}`);
+  console.log(`[CALL_RING] ringtone stopped: ${reason}`);
 }
 
 /**

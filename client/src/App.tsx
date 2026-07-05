@@ -65,7 +65,7 @@ if (typeof window !== "undefined") {
 }
 import { useCallSignaling, setCallEndedHandler, setCallRingHandler, clearDedupeForMatch } from "@/hooks/use-call-signaling";
 import { stopAllNonVoiceCallAudio, stopAllCallSounds, registerCallAudioUnlock, unregisterCallAudioUnlock } from "@/lib/call-audio";
-import { isArmedSession, armCallSession, disarmCallSession, clearAllArmedSessions, setOnArmChange, isPaidCallSession, isVideoCallSession } from "@/lib/live-call-sessions";
+import { isArmedSession, armCallSession, disarmCallSession, clearAllArmedSessions, setOnArmChange, isPaidCallSession, isVideoCallSession, armSessionFromPush, isPushArmedSession } from "@/lib/live-call-sessions";
 import { markStartupSweepComplete, resetStartupSweep } from "@/lib/startup-sweep";
 import { markCallSessionCancelled, markStartupCancelledSession, isCallSessionCancelled, clearCancelledSession, setOnCancelledSessionChange } from "@/lib/cancelled-calls";
 import type { Profile, Match } from "@shared/schema";
@@ -360,6 +360,28 @@ function CallDetectors({ userId }: { userId: string }) {
   // first-load staleness sweep has run and cleared any ghost call state.
   const [startupVerified, setStartupVerified] = useState(false);
   const startupDoneRef = useRef(false);
+
+  // ── Push-notification incoming-call arm ────────────────────────────────────
+  // When the user opens the app by tapping an incoming-call push notification,
+  // the service worker navigates to /messages/${matchId}?push_call_sid=${sessionId}.
+  // We capture the param once at mount (before the URL gets cleaned) and use it
+  // in the startup sweep to arm that specific session — bypassing the normal
+  // APP_LOAD_TIME guard (which would otherwise block every call that started
+  // before the app was opened, including legitimate push-notification rings).
+  const pushCallSidRef = useRef<string | null>(
+    typeof window !== "undefined"
+      ? new URLSearchParams(window.location.search).get("push_call_sid")
+      : null
+  );
+
+  // Clean the URL immediately so the param doesn't persist across navigations.
+  useEffect(() => {
+    if (pushCallSidRef.current) {
+      const clean = window.location.pathname + window.location.hash;
+      window.history.replaceState({}, "", clean);
+      console.log("[CALL_RING] app opened via push notification", { sid: pushCallSidRef.current.slice(0, 8) });
+    }
+  }, []);
 
   // ── cancelledTick — React bridge for the cancelled-calls Set ─────────────
   // cancelled-calls.ts holds a plain module-level Set that React cannot observe.
@@ -709,6 +731,36 @@ function CallDetectors({ userId }: { userId: string }) {
       const ageMs = Date.now() - callStartMs;
       const isCallerSide = m.callInitiatorId === userId;
 
+      // ── Push-notification arm ──────────────────────────────────────────────
+      // If this is already push-armed (set on a previous sweep run), preserve
+      // it — never startup-cancel a session that was confirmed live by a push tap.
+      if (isPushArmedSession(m.callSessionId)) {
+        console.log("[CALL_RING] push-armed session preserved in startup sweep", { matchId: m.id, sessionId: m.callSessionId.slice(0, 8), ageMs });
+        continue;
+      }
+
+      // First-time detection: user just opened the app from a push notification.
+      // The push param encodes the expected callSessionId — if it matches this
+      // match's session AND the call is still active AND < 90 s old, arm it.
+      if (
+        pushCallSidRef.current !== null &&
+        m.callSessionId === pushCallSidRef.current &&
+        !m.callAnswered &&
+        !m.callCompleted &&
+        !isCallerSide &&      // push ring is only for the RECEIVER
+        ageMs < 90_000
+      ) {
+        console.log("[CALL_RING] app opened with active call — arming session via push", {
+          matchId: m.id,
+          sessionId: m.callSessionId.slice(0, 8),
+          ageMs,
+        });
+        armSessionFromPush(m.callSessionId);
+        hasRingRef.current = true;
+        pushCallSidRef.current = null; // consume — only arm once
+        continue; // do NOT startup-cancel this session
+      }
+
       hadStale = true;
       console.warn("[CALL_RESET] startup sweep — pre-load call blocked until rering confirms live", {
         matchId: m.id,
@@ -896,9 +948,15 @@ function CallDetectors({ userId }: { userId: string }) {
     // once a live rering arrives, which increments cancelledTick and re-runs this memo.
     // Without callStartedAt >= APP_LOAD_TIME the memo would pass stale DB data through
     // before the startup sweep (a useEffect) has a chance to mark it as cancelled.
+    //
+    // Push-notification exception: when the user opens the app by tapping an
+    // incoming-call push notification, the call necessarily started BEFORE this
+    // app session (callStartedAt < APP_LOAD_TIME). The startup sweep detects the
+    // ?push_call_sid URL param and arms the session via armSessionFromPush().
+    // That session must bypass this guard — it is provably live, not stale.
     if (new Date(m.callStartedAt).getTime() < APP_LOAD_TIME) {
-      if (!isCallSessionCancelled(m.id, m.callSessionId)) return false;
-      return false; // always false for pre-load calls until rering re-stamps callStartedAt
+      if (!isPushArmedSession(m.callSessionId)) return false;
+      // Push-armed: fall through to isArmedSession + cancelled checks below.
     }
     if (isSelfCall(m)) return false;
     if (isEndedCall(m)) return false;

@@ -2,7 +2,7 @@ import { useEffect, useRef } from "react";
 import { supabase } from "@/lib/supabase";
 import { queryClient } from "@/lib/queryClient";
 import { markCallSessionCancelled, markStartupCancelledSession, isCallSessionCancelled, isStartupCancelledOnly, clearStartupCancelledSession } from "@/lib/cancelled-calls";
-import { armCallSession, markSessionAsVideo } from "@/lib/live-call-sessions";
+import { armCallSession, markSessionAsVideo, isPushArmedSession } from "@/lib/live-call-sessions";
 import { APP_LOAD_TIME } from "@/lib/app-load-time";
 import { isStartupSweepComplete } from "@/lib/startup-sweep";
 
@@ -141,21 +141,34 @@ export function useCallSignaling(matchIds: string[], userId: string) {
             return isNaN(ts) ? null : ts;
           })();
           if (cachedMatchEntry !== undefined && !cachedCallStartAt && ringTimestampMs !== null && ringTimestampMs < APP_LOAD_TIME) {
-            console.log("[CALL_SIGNAL] STALE_RING_BLOCKED pre-load session with null cache", {
-              matchId, callSessionId: ringSessionId?.slice(0, 8), ringTimestampMs, APP_LOAD_TIME,
-            });
-            markCallSessionCancelled(matchId, ringSessionId);
-            return;
+            // Push-notification exception: if the app was opened by tapping an
+            // incoming-call notification, the session is already armed via the
+            // startup sweep — never cancel it based on a pre-load timestamp.
+            if (isPushArmedSession(ringSessionId)) {
+              console.log("[CALL_RING] pre-load rering allowed — session already push-armed", { matchId, callSessionId: ringSessionId?.slice(0, 8) });
+            } else {
+              console.log("[CALL_SIGNAL] STALE_RING_BLOCKED pre-load session with null cache", {
+                matchId, callSessionId: ringSessionId?.slice(0, 8), ringTimestampMs, APP_LOAD_TIME,
+              });
+              markCallSessionCancelled(matchId, ringSessionId);
+              return;
+            }
           }
 
           if (cachedCallStartAt) {
             const callStartMs = new Date(cachedCallStartAt).getTime();
             if (callStartMs > 0 && callStartMs < APP_LOAD_TIME) {
-              console.log("[CALL_SIGNAL] PRE_LOAD_RING_BLOCKED stale call predates session", {
-                matchId, callStartMs, APP_LOAD_TIME, delta: APP_LOAD_TIME - callStartMs,
-              });
-              markCallSessionCancelled(matchId, ringSessionId);
-              return;
+              // Same push-notification exception: allow rererings for sessions
+              // that were explicitly armed by a push notification tap.
+              if (isPushArmedSession(ringSessionId)) {
+                console.log("[CALL_RING] pre-load rering allowed — session already push-armed", { matchId, callSessionId: ringSessionId?.slice(0, 8) });
+              } else {
+                console.log("[CALL_SIGNAL] PRE_LOAD_RING_BLOCKED stale call predates session", {
+                  matchId, callStartMs, APP_LOAD_TIME, delta: APP_LOAD_TIME - callStartMs,
+                });
+                markCallSessionCancelled(matchId, ringSessionId);
+                return;
+              }
             }
           }
 

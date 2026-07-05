@@ -26,6 +26,12 @@ let _onArmChange: ArmChangeCallback | null = null;
 
 const _armedSessionIds = new Set<string>();
 
+// Sessions armed specifically because the user opened the app by tapping a push
+// notification for an incoming call.  These sessions bypass the APP_LOAD_TIME
+// guard in the incomingCall memo (the call started before the app was open so
+// callStartedAt < APP_LOAD_TIME by definition, yet the call is genuinely live).
+const _pushArmedSessionIds = new Set<string>();
+
 // Paid call sessions — started via credits, bypass stage gates
 const _paidCallSessionIds = new Set<string>();
 // Video call sessions — paid video credit or face call
@@ -91,11 +97,35 @@ export function isArmedSession(sessionId: string | null | undefined): boolean {
   return _armedSessionIds.has(sessionId);
 }
 
+/**
+ * Arm a session that was confirmed live by the user tapping a push notification
+ * for an incoming call.  This bypasses the APP_LOAD_TIME guard in the
+ * incomingCall memo because the call started before the app was open
+ * (callStartedAt < APP_LOAD_TIME by definition) yet is genuinely active.
+ */
+export function armSessionFromPush(sessionId: string | null | undefined): void {
+  if (!sessionId) return;
+  _pushArmedSessionIds.add(sessionId);
+  console.log("[CALL_RING] session armed via push notification", { sessionId: sessionId.slice(0, 8) });
+  armCallSession(sessionId); // also arms in the standard set + notifies React
+}
+
+/**
+ * Returns true only if this session was armed by a push notification tap.
+ * Used by the incomingCall memo and the pre-load ring guard to bypass the
+ * APP_LOAD_TIME check for sessions that are provably live.
+ */
+export function isPushArmedSession(sessionId: string | null | undefined): boolean {
+  if (!sessionId) return false;
+  return _pushArmedSessionIds.has(sessionId);
+}
+
 export function clearAllArmedSessions(): void {
-  if (_armedSessionIds.size === 0 && _paidCallSessionIds.size === 0 && _videoCallSessionIds.size === 0) return;
+  if (_armedSessionIds.size === 0 && _paidCallSessionIds.size === 0 && _videoCallSessionIds.size === 0 && _pushArmedSessionIds.size === 0) return;
   _armedSessionIds.clear();
   _paidCallSessionIds.clear();
   _videoCallSessionIds.clear();
+  _pushArmedSessionIds.clear();
   console.log("[LIVE_CALL] all sessions disarmed (logout/reset)");
   notifyArmChange();
 }
