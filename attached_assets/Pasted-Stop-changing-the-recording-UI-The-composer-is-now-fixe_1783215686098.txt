@@ -1,0 +1,126 @@
+Stop changing the recording UI. The composer is now fixed.
+
+The remaining issue is that voice note uploads still fail.
+
+Current behaviour:
+- Recording starts.
+- Composer stays stable.
+- A voice note bubble appears.
+- Then the app shows:
+ “Couldn’t send voice message — tap the bubble to retry.”
+
+This means the failure is now in the upload/send pipeline, not the composer UI.
+
+Do not make speculative fixes.
+Do not switch upload method again blindly.
+Trace the upload pipeline end-to-end and identify the FIRST failing step.
+
+━━━━━━━━━━━━━━━━━━━━━━
+VOICE NOTE PIPELINE TRACE
+━━━━━━━━━━━━━━━━━━━━━━
+
+Add detailed logs for every stage.
+
+CLIENT LOGS:
+
+[VOICE_NOTE_PIPELINE] recording stopped
+[VOICE_NOTE_PIPELINE] blob size=
+[VOICE_NOTE_PIPELINE] blob type=
+[VOICE_NOTE_PIPELINE] durationMs=
+[VOICE_NOTE_PIPELINE] filename=
+[VOICE_NOTE_PIPELINE] upload url=
+[VOICE_NOTE_PIPELINE] upload method=
+[VOICE_NOTE_PIPELINE] body type=
+[VOICE_NOTE_PIPELINE] auth header present=
+[VOICE_NOTE_PIPELINE] request started
+[VOICE_NOTE_PIPELINE] response status=
+[VOICE_NOTE_PIPELINE] response content-type=
+[VOICE_NOTE_PIPELINE] response body first 500 chars=
+[VOICE_NOTE_PIPELINE] request failed exception name/message=
+
+SERVER LOGS:
+
+[VOICE_NOTE_PIPELINE] route hit
+[VOICE_NOTE_PIPELINE] auth user id=
+[VOICE_NOTE_PIPELINE] match id=
+[VOICE_NOTE_PIPELINE] multipart parsed true/false
+[VOICE_NOTE_PIPELINE] file exists true/false
+[VOICE_NOTE_PIPELINE] file size=
+[VOICE_NOTE_PIPELINE] file mimetype=
+[VOICE_NOTE_PIPELINE] temp file created=
+[VOICE_NOTE_PIPELINE] transcode started
+[VOICE_NOTE_PIPELINE] transcode complete/error
+[VOICE_NOTE_PIPELINE] storage upload started
+[VOICE_NOTE_PIPELINE] storage upload complete/error
+[VOICE_NOTE_PIPELINE] final audio url=
+[VOICE_NOTE_PIPELINE] db insert started
+[VOICE_NOTE_PIPELINE] db insert complete/error
+[VOICE_NOTE_PIPELINE] response returned
+
+━━━━━━━━━━━━━━━━━━━━━━
+FIND THE FIRST FAILING STEP
+━━━━━━━━━━━━━━━━━━━━━━
+
+Determine exactly where it fails:
+
+A. POST never reaches server
+→ investigate API_BASE_URL, routing, auth headers, CORS, Vercel/backend URL.
+
+B. Server receives request but file is missing
+→ investigate multipart parsing, multer/FormData field names.
+
+C. File received but transcode fails
+→ investigate FFmpeg, MIME type, input extension, iPhone audio format.
+
+D. Transcode succeeds but Supabase Storage fails
+→ investigate bucket, path, permissions, service role, file type.
+
+E. Storage succeeds but DB insert fails
+→ investigate message insert schema/content.
+
+F. DB succeeds but playback fails
+→ investigate final URL, signed/public access, iOS playable MIME type.
+
+━━━━━━━━━━━━━━━━━━━━━━
+REQUIREMENTS
+━━━━━━━━━━━━━━━━━━━━━━
+
+- Do not show raw technical errors to normal users.
+- Keep user message:
+ “Couldn’t send voice message. Tap to retry.”
+- Keep the local audio blob after failure so retry can reuse it.
+- Retry must send the same recorded audio again.
+- Do not lose the recording.
+- Do not touch composer layout unless absolutely necessary.
+- Do not break text messaging.
+- Do not break voice note playback if already working.
+
+━━━━━━━━━━━━━━━━━━━━━━
+VALIDATION
+━━━━━━━━━━━━━━━━━━━━━━
+
+Test on real iPhone:
+
+1. Record voice note.
+2. Release to send.
+3. Confirm upload request reaches server.
+4. Confirm server logs show route hit.
+5. Confirm file is parsed.
+6. Confirm storage upload succeeds.
+7. Confirm DB insert succeeds.
+8. Confirm API returns success.
+9. Confirm sender can play the voice note.
+10. Confirm recipient receives and can play it.
+
+Run:
+
+npm run check
+npm run build
+
+Report:
+
+1. Exact first failing step.
+2. Exact error/status/body.
+3. Files changed.
+4. What fixed the upload.
+5. Proof from logs that one real iPhone voice note went end-to-end successfully.

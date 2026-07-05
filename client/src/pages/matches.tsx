@@ -2543,7 +2543,14 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
     mutationFn: async ({ blob, mimeType, tStart }: { blob: Blob; mimeType: string; blobUrl: string; tempId: string; tStart: number }) => {
       // ── Step 1: Validate blob ──
       const durationMs = debugLiveRef.current.blobDurationMs || 0;
-      console.log(`[VOICE_NOTE_PIPELINE] client blob size=${blob.size}B type="${blob.type}" mimeType="${mimeType}" durationMs=${durationMs}`);
+      const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as any).MSStream;
+      const filename = mimeType.includes("mp4") ? "voice.m4a" : mimeType.includes("ogg") ? "voice.ogg" : "voice.webm";
+
+      console.log(`[VOICE_NOTE_PIPELINE] recording stopped`);
+      console.log(`[VOICE_NOTE_PIPELINE] blob size=${blob.size}`);
+      console.log(`[VOICE_NOTE_PIPELINE] blob type=${blob.type || "(empty)"}`);
+      console.log(`[VOICE_NOTE_PIPELINE] durationMs=${durationMs}`);
+      console.log(`[VOICE_NOTE_PIPELINE] filename=${filename}`);
       console.log(`[VOICE_NOTE_SEND] blob created size=${blob.size}B type="${blob.type}" mimeType="${mimeType}"`);
       debugLiveRef.current.blobSize = blob.size;
       debugLiveRef.current.blobType = blob.type || mimeType || "(empty)";
@@ -2554,72 +2561,59 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
       if (blob.size < 200) throw new Error("Recording too short — hold the mic for at least 0.5 seconds.");
       if (blob.size > 3_000_000) throw new Error("Recording too large (max ~60 seconds). Please try again.");
 
-      // ── Step 2: Upload ──
-      console.log(`[VOICE_NOTE_SEND] upload started path=/api/voice-notes/send/${match.id}`);
-      debugLiveRef.current.uploadStatus = "uploading…";
-      const fullUploadUrl = API_BASE + `/api/voice-notes/send/${match.id}`;
-      addDbg(`upload → ${fullUploadUrl.slice(-50)} blob=${blob.size}B mime="${mimeType}"`);
-      const tUpload = performance.now();
-      // ── NOTE: No ArrayBuffer conversion needed or wanted ──────────────────────
-      // iOS Safari has a documented bug where fetch() with body: ArrayBuffer
-      // throws "Load failed" (a network error, not HTTP error). Sending the Blob
-      // directly works correctly: the browser streams the bytes with the correct
-      // Content-Type. Express express.raw() receives it as a Buffer on the server.
-      // DO NOT add blob.arrayBuffer() back here — it will reintroduce "Load failed".
-
       // ── Step 2: Fetch auth headers ──
+      const fullUploadUrl = API_BASE + `/api/voice-notes/send/${match.id}`;
+      debugLiveRef.current.uploadStatus = "uploading…";
+      addDbg(`upload → ${fullUploadUrl.slice(-50)} blob=${blob.size}B mime="${mimeType}"`);
+
       let authHeaders: Record<string, string>;
       try {
         authHeaders = await getAuthHeaders();
       } catch (authErr: any) {
         throw new Error(`Auth error — please refresh and try again: ${authErr.message}`);
       }
-
-      // ── Step 3: Upload blob to server ─────────────────────────────────────────
-      const contentType = mimeType || "audio/webm";
       const authPresent = !!(authHeaders.Authorization || authHeaders.authorization);
-      console.log(`[VOICE_NOTE_UPLOAD] request url="${fullUploadUrl}" method=POST content-type="${contentType}" blobSize=${blob.size} auth=${authPresent}`);
-      addDbg(`upload: url="${fullUploadUrl.slice(-40)}" ct="${contentType}" auth=${authPresent}`);
 
-      // ── FormData multipart upload — reliable on iOS Safari ───────────────────
-      // Raw binary XHR/fetch with custom Content-Type (e.g. audio/mp4) fails on iOS
-      // with network errors because iOS URLSession rejects non-standard binary streams.
-      // FormData multipart/form-data is handled natively by iOS and works reliably.
+      // ── Step 3: Build FormData ─────────────────────────────────────────────────
+      // FormData multipart/form-data is the only reliable way to send binary audio
+      // on iOS Safari. Raw binary fetch throws "Load failed" on iOS.
+      // CRITICAL: Do NOT set Content-Type header manually — the browser sets it to
+      // "multipart/form-data; boundary=…" automatically. Setting it manually drops
+      // the boundary parameter and the server cannot parse the body.
       //
-      // CRITICAL: Do NOT set Content-Type manually — the browser sets it to
-      // "multipart/form-data; boundary=…" automatically. Setting it manually
-      // removes the boundary and the server cannot parse the body.
-      const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as any).MSStream;
-      const filename = mimeType.includes("mp4") ? "voice.m4a" : mimeType.includes("ogg") ? "voice.ogg" : "voice.webm";
+      // X-Voice-Mime was removed from fetch headers — it triggered CORS preflight
+      // failures on cross-origin deploys (Vercel → Replit) because it was not in
+      // Access-Control-Allow-Headers. The mimeType is already sent in the FormData
+      // body so the server reads it from req.body.mimeType instead.
       const formData = new FormData();
       formData.append("audio", blob, filename);
       formData.append("mimeType", mimeType);
-      formData.append("durationMs", String(debugLiveRef.current.blobDurationMs || 0));
-      const bodyType = "FormData+fetch";
-      debugLiveRef.current.uploadBodyType = bodyType;
+      formData.append("durationMs", String(durationMs));
+
+      console.log(`[VOICE_NOTE_PIPELINE] upload url=${fullUploadUrl}`);
+      console.log(`[VOICE_NOTE_PIPELINE] upload method=POST`);
+      console.log(`[VOICE_NOTE_PIPELINE] body type=FormData`);
+      console.log(`[VOICE_NOTE_PIPELINE] auth header present=${authPresent}`);
+      debugLiveRef.current.uploadBodyType = "FormData+fetch";
       debugLiveRef.current.uploadStartMs = performance.now();
+      addDbg(`upload started FormData isIOS=${isIOS} size=${blob.size} file="${filename}"`);
+
+      // ── Step 4: Send request ───────────────────────────────────────────────────
+      const tUpload = performance.now();
       let res: Response;
-      console.log(`[VOICE_NOTE_PIPELINE] upload request url="${fullUploadUrl}" method=POST bodyType=${bodyType} isIOS=${isIOS} blobSize=${blob.size} filename="${filename}" mimeType="${mimeType}"`);
-      console.log(`[VOICE_NOTE_UPLOAD] url="${fullUploadUrl}" method=POST bodyType=${bodyType} isIOS=${isIOS} blobSize=${blob.size} filename="${filename}" mimeType="${mimeType}"`);
-      addDbg(`upload started bodyType=${bodyType} isIOS=${isIOS} size=${blob.size} file="${filename}"`);
+      console.log(`[VOICE_NOTE_PIPELINE] request started`);
+      console.log(`[VOICE_NOTE_SEND] upload → ${fullUploadUrl} blobSize=${blob.size} isIOS=${isIOS}`);
       try {
         res = await fetch(fullUploadUrl, {
           method: "POST",
           headers: {
-            // No Content-Type — browser adds multipart/form-data with boundary
+            // No Content-Type — browser sets multipart/form-data + boundary automatically.
+            // No X-Voice-Mime — removed because it triggered CORS preflight failures.
+            // mimeType is in the FormData body instead (req.body.mimeType on server).
             ...authHeaders,
-            "X-Voice-Mime": mimeType,
           },
           body: formData,
         });
-        const status = res.status;
-        console.log(`[VOICE_NOTE_UPLOAD] status=${status}`);
-        addDbg(`upload response status=${status}`);
-        if (!res.ok) {
-          const body = await res.clone().text().catch(() => "");
-          debugLiveRef.current.uploadRespBody = body.slice(0, 300);
-          addDbg(`upload errBody="${body.slice(0, 80)}"`);
-        }
       } catch (uploadErr: any) {
         debugLiveRef.current.uploadFailMs = performance.now();
         const errName = uploadErr?.name || uploadErr?.constructor?.name || "Error";
@@ -2627,13 +2621,18 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
         debugLiveRef.current.uploadErrName = errName;
         debugLiveRef.current.uploadError = errMsg;
         addDbg(`upload FAILED errName="${errName}" errMsg="${errMsg}"`);
-        console.error(`[VOICE_NOTE_UPLOAD] FAILED name="${errName}" msg="${errMsg}" url="${fullUploadUrl}" bodyType=${bodyType} isIOS=${isIOS}`);
+        console.error(`[VOICE_NOTE_PIPELINE] request failed exception name=${errName} message=${errMsg}`);
+        console.error(`[VOICE_NOTE_UPLOAD] FAILED name="${errName}" msg="${errMsg}" url="${fullUploadUrl}" isIOS=${isIOS}`);
         throw new Error(`Couldn't send voice message — tap the bubble to retry.`);
       }
+
       const uploadMs = Math.round(performance.now() - tUpload);
-      console.log(`[VOICE_NOTE_SEND] upload response status=${res.status} ms=${uploadMs}`);
+      const respCt = res.headers.get("content-type") || "(none)";
+      console.log(`[VOICE_NOTE_PIPELINE] response status=${res.status}`);
+      console.log(`[VOICE_NOTE_PIPELINE] response content-type=${respCt}`);
       debugLiveRef.current.uploadStatus = `HTTP ${res.status} (${uploadMs}ms)`;
-      addDbg(`uploadResp HTTP ${res.status} in ${uploadMs}ms`);
+      addDbg(`uploadResp HTTP ${res.status} ct="${respCt}" in ${uploadMs}ms`);
+      console.log(`[VOICE_NOTE_SEND] upload response status=${res.status} ms=${uploadMs}`);
 
       // ── Step 5: Parse server response ──
       let data: any;

@@ -3084,26 +3084,36 @@ export async function registerRoutes(
   app.post("/api/voice-notes/send/:matchId", isAuthenticated, voiceNoteParser, async (req: any, res) => {
     const tReceive = Date.now();
     try {
+      console.log(`[VOICE_NOTE_PIPELINE] route hit`);
       const adminStorage = getAdminStorage();
       const storage = getStorage(req);
       const userId = req.user.id;
       const { matchId } = req.params;
+      console.log(`[VOICE_NOTE_PIPELINE] auth user id=${userId}`);
+      console.log(`[VOICE_NOTE_PIPELINE] match id=${matchId}`);
 
       // Path 1: FormData multipart (new — iOS-compatible via multer)
       // Path 2: Raw binary   (legacy — express.raw() populates req.body as Buffer)
       // Path 3: Base64 JSON  (oldest — kept for backward compat)
       let audioBuffer: Buffer;
       let mimeType: string;
-      const isMultipart = !!(req.file?.buffer && req.file.buffer.length > 0);
+      const fileExists = !!(req.file?.buffer && req.file.buffer.length > 0);
+      const isMultipart = fileExists;
+      console.log(`[VOICE_NOTE_PIPELINE] multipart parsed ${isMultipart}`);
+      console.log(`[VOICE_NOTE_PIPELINE] file exists ${fileExists}`);
       if (isMultipart) {
         audioBuffer = req.file!.buffer;
         mimeType = (req.body?.mimeType as string | undefined) || req.file!.mimetype || "audio/webm";
-        console.log(`[VOICE_NOTE_PIPELINE] server received multipart=true size=${audioBuffer.length} type="${mimeType}" receiveMs=${Date.now() - tReceive}`);
+        console.log(`[VOICE_NOTE_PIPELINE] file size=${audioBuffer.length}`);
+        console.log(`[VOICE_NOTE_PIPELINE] file mimetype=${mimeType}`);
+        console.log(`[VOICE_NOTE_PIPELINE] temp file created=false (memoryStorage — buffer in RAM)`);
         console.log(`[VOICE_NOTE_UPLOAD] serverReceived=FormData size=${audioBuffer.length} mimeType=${mimeType} receiveMs=${Date.now() - tReceive}`);
       } else if (Buffer.isBuffer(req.body) && req.body.length > 0) {
         audioBuffer = req.body;
         mimeType = (req.headers["x-voice-mime"] as string | undefined) || "audio/webm";
-        console.log(`[VOICE_NOTE_PIPELINE] server received multipart=false (raw binary) size=${audioBuffer.length} type="${mimeType}" receiveMs=${Date.now() - tReceive}`);
+        console.log(`[VOICE_NOTE_PIPELINE] file size=${audioBuffer.length}`);
+        console.log(`[VOICE_NOTE_PIPELINE] file mimetype=${mimeType} (raw binary fallback)`);
+        console.log(`[VOICE_NOTE_PIPELINE] temp file created=false (raw body buffer)`);
         console.log(`[VOICE_NOTE_UPLOAD] serverReceived=RawBinary size=${audioBuffer.length} mimeType=${mimeType} receiveMs=${Date.now() - tReceive}`);
       } else if (req.body?.audioBase64) {
         // Legacy JSON/base64 fallback (old app versions)
@@ -3113,10 +3123,12 @@ export async function registerRoutes(
         } catch {
           return res.status(400).json({ message: "Invalid audio data" });
         }
-        console.log(`[VOICE_NOTE_PIPELINE] server received multipart=false (base64) size=${audioBuffer.length} type="${mimeType}" receiveMs=${Date.now() - tReceive}`);
+        console.log(`[VOICE_NOTE_PIPELINE] file size=${audioBuffer.length}`);
+        console.log(`[VOICE_NOTE_PIPELINE] file mimetype=${mimeType} (base64 fallback)`);
+        console.log(`[VOICE_NOTE_PIPELINE] temp file created=false (base64 decoded)`);
         console.log(`[VOICE_NOTE_UPLOAD] serverReceived=Base64 size=${audioBuffer.length} mimeType=${mimeType} receiveMs=${Date.now() - tReceive}`);
       } else {
-        console.error(`[VOICE_NOTE_PIPELINE] server received NOTHING — req.file=${JSON.stringify(req.file)} bodyType=${typeof req.body} bodyKeys=${req.body ? Object.keys(req.body) : "null"} ct="${req.headers["content-type"]}"`);
+        console.error(`[VOICE_NOTE_PIPELINE] file exists false — no audio found. req.file=${JSON.stringify(req.file)} bodyType=${typeof req.body} bodyKeys=${req.body ? Object.keys(req.body) : "null"} ct="${req.headers["content-type"]}"`);
         console.error(`[VOICE_NOTE_UPLOAD] serverReceived=NOTHING req.file=${JSON.stringify(req.file)} bodyType=${typeof req.body} bodyKeys=${req.body ? Object.keys(req.body) : "null"}`);
         return res.status(400).json({ message: "Audio data is required" });
       }
@@ -3152,19 +3164,21 @@ export async function registerRoutes(
       let outputBuffer: Buffer;
       try {
         const t0 = Date.now();
+        console.log(`[VOICE_NOTE_PIPELINE] transcode started safeMime=${safeMime} inputSize=${audioBuffer.length}`);
         console.log(`[VOICE_NOTE_SPEED] upload started (transcode) safeMime=${safeMime}`);
         outputBuffer = await transcodeToM4a(audioBuffer, safeMime);
         const transcodeMs = Date.now() - t0;
-        console.log(`[VOICE_NOTE_PIPELINE] server file transcoded size=${outputBuffer.length}B format="audio/mp4 AAC" transcodeMs=${transcodeMs}`);
+        console.log(`[VOICE_NOTE_PIPELINE] transcode complete outputSize=${outputBuffer.length}B transcodeMs=${transcodeMs}`);
         console.log(`[VOICE_NOTE_SPEED] upload complete (transcode+storage) ${audioBuffer.length}B→${outputBuffer.length}B transcodeMs=${transcodeMs}`);
       } catch (transcodeErr: any) {
-        console.error(`[VOICE_NOTE_PIPELINE] transcode failed safeMime="${safeMime}" error="${transcodeErr.message}"`);
+        console.error(`[VOICE_NOTE_PIPELINE] transcode error safeMime="${safeMime}" error="${transcodeErr.message}"`);
         console.error(`[VOICE] TRANSCODE_FAIL safeMime=${safeMime} error="${transcodeErr.message}"`);
         return res.status(500).json({ message: "Failed to process audio. Please try again." });
       }
 
       const filePath = `${matchId}/${Date.now()}_${userId}.m4a`;
       const tUpload = Date.now();
+      console.log(`[VOICE_NOTE_PIPELINE] storage upload started path="${filePath}" size=${outputBuffer.length}`);
 
       const { error: uploadError } = await supabaseAdmin.storage
         .from("voice-notes")
@@ -3178,33 +3192,42 @@ export async function registerRoutes(
             .from("voice-notes")
             .upload(filePath, outputBuffer, { contentType: "audio/mp4", upsert: false });
           if (retryErr) {
-            console.error(`[VOICE_NOTE_PIPELINE] storage upload failed (after bucket create) error="${retryErr.message}"`);
+            console.error(`[VOICE_NOTE_PIPELINE] storage upload error (after bucket create) error="${retryErr.message}"`);
             console.error(`[VOICE] UPLOAD_FAIL ${retryErr.message}`);
             return res.status(500).json({ message: "Failed to upload voice note. Please try again." });
           }
         } else {
-          console.error(`[VOICE_NOTE_PIPELINE] storage upload failed error="${uploadError.message}"`);
+          console.error(`[VOICE_NOTE_PIPELINE] storage upload error="${uploadError.message}"`);
           console.error(`[VOICE] UPLOAD_FAIL ${uploadError.message}`);
           return res.status(500).json({ message: "Failed to upload voice note. Please try again." });
         }
       }
       const storageMs = Date.now() - tUpload;
-      console.log(`[VOICE_NOTE_PIPELINE] storage upload ok path="${filePath}" size=${outputBuffer.length}B storageMs=${storageMs}`);
+      console.log(`[VOICE_NOTE_PIPELINE] storage upload complete path="${filePath}" size=${outputBuffer.length}B storageMs=${storageMs}`);
       console.log(`[VOICE_NOTE_SPEED] upload complete (storage only) storageMs=${storageMs}`);
 
       const { data: urlData } = supabaseAdmin.storage.from("voice-notes").getPublicUrl(filePath);
       const publicUrl = urlData.publicUrl;
-      console.log(`[VOICE_NOTE_PIPELINE] final audio url="${publicUrl}"`);
+      console.log(`[VOICE_NOTE_PIPELINE] final audio url=${publicUrl}`);
 
       const tInsert = Date.now();
-      const message = await adminStorage.createMessage({
-        matchId,
-        senderId: userId,
-        content: `__VOICE__:${publicUrl}`,
-      });
-      console.log(`[VOICE_NOTE_PIPELINE] db insert ${message?.id ? "ok id=" + message.id : "FAILED"} insertMs=${Date.now() - tInsert} totalMs=${Date.now() - tReceive}`);
+      console.log(`[VOICE_NOTE_PIPELINE] db insert started`);
+      let message: any;
+      try {
+        message = await adminStorage.createMessage({
+          matchId,
+          senderId: userId,
+          content: `__VOICE__:${publicUrl}`,
+        });
+        console.log(`[VOICE_NOTE_PIPELINE] db insert complete messageId=${message?.id} insertMs=${Date.now() - tInsert}`);
+      } catch (dbErr: any) {
+        console.error(`[VOICE_NOTE_PIPELINE] db insert error="${dbErr.message}"`);
+        console.error(`[VOICE_NOTE_SPEED] message inserted FAILED insertMs=${Date.now() - tInsert}`);
+        return res.status(500).json({ message: "Failed to save voice note. Please try again." });
+      }
       console.log(`[VOICE_NOTE_SPEED] message inserted insertMs=${Date.now() - tInsert} totalMs=${Date.now() - tReceive} messageId=${message?.id}`);
 
+      console.log(`[VOICE_NOTE_PIPELINE] response returned status=200 totalMs=${Date.now() - tReceive}`);
       res.json({ success: true, message });
     } catch (err: any) {
       console.error("[VOICE] ERROR:", err.message);
