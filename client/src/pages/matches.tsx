@@ -534,18 +534,57 @@ type PendingVoiceNote = {
 // without a desktop console. Tap "Copy Voice Note Debug" to get a full text dump.
 
 type VoiceDebugLive = {
+  // Composer geometry — captured at each recording phase
   composerBefore: string;
   composerDuring: string;
   composerAfter: string;
+  // Composer computed CSS snapshot — position/bottom/transform/margin/padding
+  // that could cause a visual shift. Captured at key moments.
+  composerCSSBefore: string;
+  composerCSSDuring: string;
+  composerCSSAfter: string;
+  // Which JSX branch is active
+  voicePhase: string;
+  // Blob info
   blobSize: number;
   blobType: string;
+  blobDurationMs: number;   // ms from recorder.start() to recorder.onstop()
+  // Upload info
   uploadStatus: string;
-  uploadError: string;
+  uploadBodyType: string;   // "XHR" | "fetch" | "none"
+  uploadStartMs: number;    // performance.now() when fetch/XHR begins
+  uploadFailMs: number;     // performance.now() when fetch/XHR fails
+  uploadErrName: string;    // err.constructor.name or err.name
+  uploadError: string;      // err.message
+  uploadRespBody: string;   // first 300 chars of server response (on error)
+  // Post-upload
   insertStatus: string;
+  playbackUrlStatus: string;
+  // Pointer + MediaRecorder
   lastPointerEvent: string;
   mrState: string;
-  playbackUrlStatus: string;
 };
+
+// Helper: snapshot computed CSS properties that could cause composer layout shifts.
+// Called synchronously at pointer-down (before), after setIsRecording (during),
+// and after recording ends (after). Returns a compact single-line string.
+function snapshotComposerCSS(el: HTMLElement | null): string {
+  if (!el) return "(no element)";
+  const s = window.getComputedStyle(el);
+  // Inline styles take priority — grab both computed and inline
+  const inlinePos = el.style.position || "(none)";
+  const inlineBot = el.style.bottom || "(none)";
+  const inlineMinH = el.style.minHeight || "(none)";
+  return (
+    `pos=${s.position}(inline:${inlinePos}) ` +
+    `bot=${s.bottom}(inline:${inlineBot}) ` +
+    `minH=${s.minHeight}(inline:${inlineMinH}) ` +
+    `h=${s.height} ` +
+    `mb=${s.marginBottom} pb=${s.paddingBottom} ` +
+    `transform=${s.transform === "none" ? "none" : s.transform.slice(0, 30)} ` +
+    `zIndex=${s.zIndex}`
+  );
+}
 
 function VoiceDebugPanel({
   live,
@@ -554,7 +593,9 @@ function VoiceDebugPanel({
   inputFocused,
   isRecording,
   mediaRecorderRef,
+  composerRef,
   onClear,
+  onSnapCSS,
 }: {
   live: React.MutableRefObject<VoiceDebugLive>;
   log: string[];
@@ -562,7 +603,9 @@ function VoiceDebugPanel({
   inputFocused: boolean;
   isRecording: boolean;
   mediaRecorderRef: React.MutableRefObject<MediaRecorder | null>;
+  composerRef: React.MutableRefObject<HTMLDivElement | null>;
   onClear: () => void;
+  onSnapCSS: () => void;
 }) {
   const [, setTick] = useState(0);
   useEffect(() => {
@@ -575,33 +618,52 @@ function VoiceDebugPanel({
   const mrState = mediaRecorderRef.current?.state ?? "none";
 
   const allText = [
-    `=== LIVE ${new Date().toISOString().slice(11, 23)} ===`,
+    `=== LIVE SNAPSHOT ${new Date().toISOString()} ===`,
+    `UA: ${navigator.userAgent}`,
+    ``,
+    `=== VIEWPORT / KEYBOARD ===`,
     `keyboardOpen: ${keyboardOpen}  inputFocused: ${inputFocused}`,
-    `isRecording: ${isRecording}  MR: ${mrState}`,
-    `VP h=${vv ? Math.round(vv.height) : "N/A"} offsetTop=${vv ? Math.round(vv.offsetTop) : "N/A"} scale=${vv ? vv.scale.toFixed(2) : "N/A"}`,
-    `screen.h=${window.screen.height} outer.h=${window.outerHeight}`,
-    `lastPointer: ${l.lastPointerEvent || "none"}`,
+    `isRecording: ${isRecording}  voicePhase: ${l.voicePhase || "idle"}  MR: ${mrState}`,
+    `VP h=${vv ? Math.round(vv.height) : "N/A"} offsetTop=${vv ? Math.round(vv.offsetTop) : "N/A"} scale=${vv ? vv.scale.toFixed(3) : "N/A"}`,
+    `window.innerHeight=${window.innerHeight} screen.height=${window.screen.height} outerHeight=${window.outerHeight}`,
     ``,
-    `=== COMPOSER ===`,
-    `BEFORE: ${l.composerBefore || "not captured"}`,
-    `DURING: ${l.composerDuring || "not captured"}`,
-    `AFTER:  ${l.composerAfter || "not captured"}`,
+    `=== COMPOSER GEOMETRY ===`,
+    `BEFORE rect:  ${l.composerBefore || "not captured"}`,
+    `DURING rect:  ${l.composerDuring || "not captured"}`,
+    `AFTER  rect:  ${l.composerAfter || "not captured"}`,
     ``,
-    `=== VOICE NOTE ===`,
-    `blob: ${l.blobSize}B  type="${l.blobType}"`,
-    `upload: ${l.uploadStatus || "idle"}`,
-    `uploadErr: ${l.uploadError || "none"}`,
+    `=== COMPOSER CSS (computed + inline) ===`,
+    `BEFORE css:   ${l.composerCSSBefore || "not captured"}`,
+    `DURING css:   ${l.composerCSSDuring || "not captured"}`,
+    `AFTER  css:   ${l.composerCSSAfter || "not captured"}`,
+    `LIVE   css:   ${snapshotComposerCSS(composerRef.current)}`,
+    ``,
+    `=== BLOB ===`,
+    `size: ${l.blobSize}B  type: "${l.blobType}"  durationMs: ${l.blobDurationMs || 0}`,
+    ``,
+    `=== UPLOAD ===`,
+    `status: ${l.uploadStatus || "idle"}`,
+    `bodyType: ${l.uploadBodyType || "none"}  startMs: ${l.uploadStartMs || 0}`,
+    `failMs: ${l.uploadFailMs || 0}  (elapsed: ${l.uploadStartMs && l.uploadFailMs ? l.uploadFailMs - l.uploadStartMs : 0}ms)`,
+    `errName: ${l.uploadErrName || "none"}`,
+    `errMessage: ${l.uploadError || "none"}`,
+    `respBody: ${l.uploadRespBody || "none"}`,
     `insert: ${l.insertStatus || "idle"}`,
     `playback: ${l.playbackUrlStatus || "idle"}`,
+    ``,
+    `=== POINTER ===`,
+    `lastPointer: ${l.lastPointerEvent || "none"}`,
     ``,
     `=== EVENT LOG (newest first) ===`,
     ...log,
   ].join("\n");
 
   const handleCopy = () => {
-    const fallback = () => { prompt("Select all and copy:", allText); };
+    const fallback = () => { prompt("Select all and copy this debug dump:", allText); };
     if (!navigator.clipboard) { fallback(); return; }
-    navigator.clipboard.writeText(allText).then(() => { alert("Copied to clipboard!"); }).catch(fallback);
+    navigator.clipboard.writeText(allText)
+      .then(() => { alert("✅ Copied! Paste in chat."); })
+      .catch(fallback);
   };
 
   return (
@@ -611,37 +673,44 @@ function VoiceDebugPanel({
       left: 0,
       right: 0,
       zIndex: 99999,
-      background: "rgba(0,0,0,0.93)",
+      background: "rgba(0,0,0,0.95)",
       color: "#00ff88",
       fontSize: 9,
       fontFamily: "'Courier New', monospace",
       lineHeight: 1.35,
-      maxHeight: "45vh",
+      maxHeight: "40vh",
       overflowY: "auto",
       borderBottom: "2px solid #00ff88",
     }}>
       <div style={{
         display: "flex",
-        gap: 6,
-        padding: "4px 8px",
-        background: "rgba(0,0,0,0.5)",
+        flexWrap: "wrap",
+        gap: 4,
+        padding: "4px 6px",
+        background: "rgba(0,0,0,0.7)",
         position: "sticky",
         top: 0,
         zIndex: 1,
       }}>
         <button
           onClick={handleCopy}
-          style={{ background: "#00ff88", color: "#000", border: "none", borderRadius: 3, padding: "3px 12px", fontSize: 11, fontWeight: "bold", cursor: "pointer" }}
+          style={{ background: "#00ff88", color: "#000", border: "none", borderRadius: 3, padding: "4px 10px", fontSize: 11, fontWeight: "bold", cursor: "pointer", flex: "1 0 auto" }}
         >
-          📋 Copy Voice Note Debug
+          📋 Copy Debug Dump
+        </button>
+        <button
+          onClick={onSnapCSS}
+          style={{ background: "#00aaff", color: "#000", border: "none", borderRadius: 3, padding: "4px 8px", fontSize: 10, fontWeight: "bold", cursor: "pointer" }}
+          title="Snapshot current composer CSS to LIVE css line above"
+        >
+          📸 Snap CSS
         </button>
         <button
           onClick={onClear}
-          style={{ background: "#ff4444", color: "#fff", border: "none", borderRadius: 3, padding: "3px 8px", fontSize: 10, cursor: "pointer" }}
+          style={{ background: "#ff4444", color: "#fff", border: "none", borderRadius: 3, padding: "4px 8px", fontSize: 10, cursor: "pointer" }}
         >
           Clear
         </button>
-        <span style={{ fontSize: 8, color: "#666", alignSelf: "center" }}>voice-debug panel</span>
       </div>
       <pre style={{ margin: 0, padding: "4px 8px 8px", whiteSpace: "pre-wrap", wordBreak: "break-all" }}>
         {allText}
@@ -1434,14 +1503,24 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
     composerBefore: "",
     composerDuring: "",
     composerAfter: "",
+    composerCSSBefore: "",
+    composerCSSDuring: "",
+    composerCSSAfter: "",
+    voicePhase: "idle",
     blobSize: 0,
     blobType: "",
+    blobDurationMs: 0,
     uploadStatus: "",
+    uploadBodyType: "",
+    uploadStartMs: 0,
+    uploadFailMs: 0,
+    uploadErrName: "",
     uploadError: "",
+    uploadRespBody: "",
     insertStatus: "",
+    playbackUrlStatus: "",
     lastPointerEvent: "",
     mrState: "",
-    playbackUrlStatus: "",
   });
   const addDbg = useCallback((msg: string) => {
     const ts = new Date().toISOString().slice(11, 23);
@@ -2119,6 +2198,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
       console.log(`[VOICE_NOTE_SEND] recording started isIOS=${isIOS} mimeType="${mimeType}" recorderMime="${recorder.mimeType}" actualMimeType="${actualMimeType}"`);
       addDbg(`recStart isIOS=${isIOS} req="${mimeType}" got="${recorder.mimeType}" actual="${actualMimeType}"`);
       audioChunksRef.current = [];
+      const recStartPerfMs = performance.now(); // for computing duration in onstop
       recorder.ondataavailable = e => {
         if (e.data.size > 0) audioChunksRef.current.push(e.data);
         addDbg(`chunk ${audioChunksRef.current.length} size=${e.data.size}B`);
@@ -2126,8 +2206,10 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
       recorder.onstop = () => {
         // Do NOT stop stream tracks — module keeps the stream alive for the next recording.
         const tStop = performance.now();
-        console.log(`[VOICE_NOTE_SEND] recording stopped chunks=${audioChunksRef.current.length}`);
-        addDbg(`recStop chunks=${audioChunksRef.current.length}`);
+        const durationMs = Math.round(tStop - recStartPerfMs);
+        debugLiveRef.current.blobDurationMs = durationMs;
+        console.log(`[VOICE_NOTE_SEND] recording stopped chunks=${audioChunksRef.current.length} durationMs=${durationMs}`);
+        addDbg(`recStop chunks=${audioChunksRef.current.length} durationMs=${durationMs}`);
         const blob = new Blob(audioChunksRef.current, { type: actualMimeType });
         console.log(`[VOICE_NOTE_SEND] blob size=${blob.size}B type="${blob.type}" durationMs=${Math.round(performance.now() - tStop)}`);
         debugLiveRef.current.blobSize = blob.size;
@@ -2368,12 +2450,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
     addDbg(`inputFocused → ${inputFocused}`);
   }, [inputFocused]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Log recording state transitions + proof that composer rect is stable.
-  // DO NOT apply position:fixed here — that removes the element from normal flow,
-  // collapses its parent, expands the message list, and IS the visual "drop" bug.
-  // Height-lock is applied synchronously in onPointerDown (before any React state
-  // change) via composerRef.current.style.minHeight, and released in
-  // stopRecording() / cancelRecording().
+  // Log recording state transitions + composer rect/CSS for diagnosis.
   useEffect(() => {
     const el = composerRef.current;
     const r = el?.getBoundingClientRect();
@@ -2381,20 +2458,28 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
     const vpH = vv ? Math.round(vv.height) : window.innerHeight;
     const vpOT = vv ? Math.round(vv.offsetTop) : 0;
     const vpTxt = ` VP.h=${vpH} VP.ot=${vpOT}`;
+    const phase = isRecording ? "recording" : "idle";
+    debugLiveRef.current.voicePhase = phase;
 
     if (isRecording && el && r) {
       const txt = `top=${Math.round(r.top)} bot=${Math.round(r.bottom)} h=${Math.round(r.height)}`;
       debugLiveRef.current.composerDuring = txt + vpTxt;
+      debugLiveRef.current.composerCSSDuring = snapshotComposerCSS(el);
       const typingRect = debugLiveRef.current.composerBefore || "(not captured)";
       console.log(`[VOICE_NOTE_LAYOUT] typingRect=${typingRect} recordingRect=${txt}${vpTxt} keyboardOpen=${keyboardOpen} inputFocused=${inputFocusedRef.current} visualViewportHeight=${vpH} visualViewportOffsetTop=${vpOT}`);
+      console.log(`[VOICE_NOTE_LAYOUT] during-css: ${debugLiveRef.current.composerCSSDuring}`);
       addDbg(`DURING: ${txt}${vpTxt} kb=${keyboardOpen} focused=${inputFocusedRef.current}`);
+      addDbg(`DURING-css: ${debugLiveRef.current.composerCSSDuring}`);
     } else if (el) {
       const r2 = el.getBoundingClientRect();
       const txt2 = `top=${Math.round(r2.top)} bot=${Math.round(r2.bottom)} h=${Math.round(r2.height)}`;
       debugLiveRef.current.composerAfter = txt2 + vpTxt;
+      debugLiveRef.current.composerCSSAfter = snapshotComposerCSS(el);
       const typingRect2 = debugLiveRef.current.composerBefore || "(not captured)";
       console.log(`[VOICE_NOTE_LAYOUT] typingRect=${typingRect2} recordingRect=${txt2}${vpTxt} keyboardOpen=${keyboardOpen} inputFocused=${inputFocusedRef.current} visualViewportHeight=${vpH} visualViewportOffsetTop=${vpOT}`);
+      console.log(`[VOICE_NOTE_LAYOUT] after-css: ${debugLiveRef.current.composerCSSAfter}`);
       addDbg(`AFTER: ${txt2}${vpTxt} kb=${keyboardOpen} focused=${inputFocusedRef.current}`);
+      addDbg(`AFTER-css: ${debugLiveRef.current.composerCSSAfter}`);
     }
   }, [isRecording]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -2446,46 +2531,52 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
       // XMLHttpRequest does NOT share these bugs — it has been the reliable path
       // for binary uploads on iOS since iOS 5. We use XHR on iOS and fetch elsewhere.
       const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as any).MSStream;
+      const bodyType = isIOS ? "XHR+Blob" : "fetch+Blob";
+      debugLiveRef.current.uploadBodyType = bodyType;
+      debugLiveRef.current.uploadStartMs = performance.now();
       let res: Response;
-      console.log(`[VOICE_NOTE_UPLOAD] fetch started isIOS=${isIOS}`);
-      addDbg(`fetch started isIOS=${isIOS}`);
+      console.log(`[VOICE_NOTE_UPLOAD] fetch started isIOS=${isIOS} bodyType=${bodyType} blobSize=${blob.size} blobType="${blob.type}"`);
+      addDbg(`upload started isIOS=${isIOS} bodyType=${bodyType}`);
       try {
         if (isIOS) {
-          // XHR path — reliable binary upload on iOS Safari
+          // XHR path — reliable binary upload on iOS Safari.
+          // fetch() with binary Blob + Authorization header throws "Load failed"
+          // on iOS URLSession. XHR does not share this bug.
           res = await new Promise<Response>((resolve, reject) => {
             const xhr = new XMLHttpRequest();
             xhr.open("POST", fullUploadUrl, true);
             xhr.timeout = 90_000; // 90 s — large files on slow connections
-            // Set all request headers
             xhr.setRequestHeader("Content-Type", contentType);
             xhr.setRequestHeader("X-Voice-Mime", contentType);
             if (authHeaders.Authorization) xhr.setRequestHeader("Authorization", authHeaders.Authorization);
             if (authHeaders.authorization) xhr.setRequestHeader("authorization", authHeaders.authorization);
             xhr.onload = () => {
-              console.log(`[VOICE_NOTE_UPLOAD] XHR response status=${xhr.status}`);
-              addDbg(`XHR onload status=${xhr.status}`);
-              // Build a Response object from the XHR result so downstream
-              // code can call res.ok, res.status, res.json() identically.
+              const respBody = xhr.responseText?.slice(0, 300) || "";
+              console.log(`[VOICE_NOTE_UPLOAD] XHR response status=${xhr.status} body="${respBody.slice(0,100)}"`);
+              addDbg(`XHR onload status=${xhr.status} body="${respBody.slice(0,60)}"`);
+              if (xhr.status >= 400) {
+                debugLiveRef.current.uploadRespBody = respBody;
+              }
               resolve(new Response(xhr.responseText, {
                 status: xhr.status,
                 headers: { "content-type": "application/json" },
               }));
             };
             xhr.onerror = () => {
-              const msg = xhr.statusText || "XHR network error";
-              console.error(`[VOICE_NOTE_UPLOAD] XHR onerror: "${msg}"`);
-              addDbg(`XHR onerror: "${msg}"`);
-              reject(new Error(msg));
+              const msg = xhr.statusText || "XHR network error (statusText empty)";
+              console.error(`[VOICE_NOTE_UPLOAD] XHR onerror status=${xhr.status} statusText="${xhr.statusText}"`);
+              addDbg(`XHR onerror: status=${xhr.status} msg="${msg}"`);
+              reject(Object.assign(new Error(msg), { name: "XHRError" }));
             };
             xhr.ontimeout = () => {
               console.error(`[VOICE_NOTE_UPLOAD] XHR timeout after 90s`);
               addDbg(`XHR timeout after 90s`);
-              reject(new Error("Upload timeout after 90 seconds — check your connection"));
+              reject(Object.assign(new Error("Upload timeout after 90s"), { name: "TimeoutError" }));
             };
             xhr.onabort = () => {
               console.error(`[VOICE_NOTE_UPLOAD] XHR aborted`);
               addDbg(`XHR aborted`);
-              reject(new Error("Upload was aborted"));
+              reject(Object.assign(new Error("Upload aborted by browser"), { name: "AbortError" }));
             };
             xhr.send(blob);
           });
@@ -2500,15 +2591,23 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
             },
             body: blob,
           });
-          console.log(`[VOICE_NOTE_UPLOAD] fetch response status=${res.status}`);
-          addDbg(`fetch response status=${res.status}`);
+          const fetchStatus = res.status;
+          console.log(`[VOICE_NOTE_UPLOAD] fetch response status=${fetchStatus}`);
+          addDbg(`fetch response status=${fetchStatus}`);
+          if (!res.ok) {
+            const body = await res.clone().text().catch(() => "");
+            debugLiveRef.current.uploadRespBody = body.slice(0, 300);
+          }
         }
       } catch (uploadErr: any) {
-        const errMsg = uploadErr.message || "unknown";
-        debugLiveRef.current.uploadError = `upload threw: ${errMsg}`;
-        addDbg(`upload FAILED: "${errMsg}"`);
-        console.error(`[VOICE_NOTE_UPLOAD] fetch failed: "${errMsg}" url="${fullUploadUrl}" isIOS=${isIOS}`);
-        throw new Error(`Couldn't send voice message — tap the bubble to retry.`);
+        debugLiveRef.current.uploadFailMs = performance.now();
+        const errName = uploadErr?.name || uploadErr?.constructor?.name || "Error";
+        const errMsg = uploadErr?.message || "unknown";
+        debugLiveRef.current.uploadErrName = errName;
+        debugLiveRef.current.uploadError = errMsg;
+        addDbg(`upload FAILED errName="${errName}" errMsg="${errMsg}"`);
+        console.error(`[VOICE_NOTE_UPLOAD] FAILED: name="${errName}" message="${errMsg}" url="${fullUploadUrl}" isIOS=${isIOS} bodyType=${bodyType}`);
+        throw new Error(`Couldn't send voice message — tap the bubble to retry. (${errName}: ${errMsg})`);
       }
       const uploadMs = Math.round(performance.now() - tUpload);
       console.log(`[VOICE_NOTE_SEND] upload response status=${res.status} ms=${uploadMs}`);
@@ -3118,7 +3217,12 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
               inputFocused={inputFocused}
               isRecording={isRecording}
               mediaRecorderRef={mediaRecorderRef}
+              composerRef={composerRef}
               onClear={() => setDebugLog([])}
+              onSnapCSS={() => {
+                const snap = snapshotComposerCSS(composerRef.current);
+                addDbg(`MANUAL-SNAP: ${snap}`);
+              }}
             />
           )}
 
@@ -3684,6 +3788,8 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                       // the composer cannot shrink. Released in stopRecording/cancelRecording.
                       const composerEl = composerRef.current;
                       const r = composerEl?.getBoundingClientRect();
+                      // Snapshot CSS BEFORE locking minHeight so we see the natural computed styles
+                      const cssBefore = snapshotComposerCSS(composerEl ?? null);
                       if (composerEl && r) {
                         composerEl.style.minHeight = `${Math.round(r.height)}px`;
                       }
@@ -3693,17 +3799,29 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                         const txt = `top=${Math.round(r.top)} bot=${Math.round(r.bottom)} h=${Math.round(r.height)}`;
                         const vpTxt = vv ? ` VP.h=${Math.round(vv.height)} VP.ot=${Math.round(vv.offsetTop)}` : "";
                         debugLiveRef.current.composerBefore = txt + vpTxt;
+                        debugLiveRef.current.composerCSSBefore = cssBefore;
                         debugLiveRef.current.composerDuring = "";
+                        debugLiveRef.current.composerCSSDuring = "";
                         debugLiveRef.current.composerAfter = "";
+                        debugLiveRef.current.composerCSSAfter = "";
+                        debugLiveRef.current.voicePhase = "idle";
                         debugLiveRef.current.blobSize = 0;
                         debugLiveRef.current.blobType = "";
+                        debugLiveRef.current.blobDurationMs = 0;
                         debugLiveRef.current.uploadStatus = "";
+                        debugLiveRef.current.uploadBodyType = "";
+                        debugLiveRef.current.uploadStartMs = 0;
+                        debugLiveRef.current.uploadFailMs = 0;
+                        debugLiveRef.current.uploadErrName = "";
                         debugLiveRef.current.uploadError = "";
+                        debugLiveRef.current.uploadRespBody = "";
                         debugLiveRef.current.insertStatus = "";
                         debugLiveRef.current.playbackUrlStatus = "";
                         debugLiveRef.current.lastPointerEvent = `DOWN @ ${new Date().toISOString().slice(11,23)}`;
-                        addDbg(`ptrDOWN — composer BEFORE: ${txt}${vpTxt} kb=${keyboardOpen} focused=${inputFocusedRef.current} minH locked`);
+                        addDbg(`ptrDOWN — BEFORE: ${txt}${vpTxt} kb=${keyboardOpen} focused=${inputFocusedRef.current} minH=${Math.round(r.height)}px`);
+                        addDbg(`BEFORE-css: ${cssBefore}`);
                         console.log(`[VOICE_NOTE_LAYOUT] before top=${Math.round(r.top)} bottom=${Math.round(r.bottom)} height=${Math.round(r.height)} inputFocused=${inputFocusedRef.current} minHeight=${Math.round(r.height)}px locked`);
+                        console.log(`[VOICE_NOTE_LAYOUT] before-css: ${cssBefore}`);
                       }
                       if (!voiceNotesUnlocked) { setPurchasePromptFeature("mic"); return; }
                       startRecording();
