@@ -746,6 +746,11 @@ function VoiceDebugPanel({
   );
 }
 
+// Module-level coordinator: only one VoiceNoteBubble plays at a time.
+// When a bubble starts playing it stores its pause callback here.
+// The next bubble to start will call it first, pausing the previous.
+let _vnGlobalPause: (() => void) | null = null;
+
 function VoiceNoteBubble({ url, isMe, status, onRetry, onLoadStateChange }: {
   url: string;
   isMe: boolean;
@@ -766,6 +771,8 @@ function VoiceNoteBubble({ url, isMe, status, onRetry, onLoadStateChange }: {
   // Direct ref to the audio element — avoids fragile document.getElementById lookups
   // which silently return null if the element isn't in the DOM at the exact moment of query.
   const audioRef = useRef<HTMLAudioElement>(null);
+  // Stable ref to this bubble's pause callback — registered in the global coordinator on play.
+  const myPauseRef = useRef<() => void>(() => { audioRef.current?.pause(); });
 
   // Reset load state whenever the URL or status changes (e.g. optimistic → real message)
   useEffect(() => {
@@ -826,6 +833,11 @@ function VoiceNoteBubble({ url, isMe, status, onRetry, onLoadStateChange }: {
     if (playing) {
       a.pause();
     } else {
+      // Pause any other currently playing voice note first (one-at-a-time policy).
+      if (_vnGlobalPause && _vnGlobalPause !== myPauseRef.current) {
+        _vnGlobalPause();
+      }
+      _vnGlobalPause = myPauseRef.current;
       // On iOS, play() triggers the audio load (since preload is effectively "none").
       // onLoadedMetadata fires when ready → loadState becomes "ready" → duration appears.
       console.log("[VOICE_NOTE_PLAYBACK] play() called");
@@ -841,10 +853,11 @@ function VoiceNoteBubble({ url, isMe, status, onRetry, onLoadStateChange }: {
 
   const fmt = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
   const progress = duration > 0 ? currentTime / duration : 0;
-  // Show play button whenever the audio element exists (status !== "sending"), even while
-  // loading. iOS Safari requires a user gesture to trigger audio loading, so hiding the
-  // play button during "loading" state breaks playback on iPhone — user gets stuck at spinner.
-  const showPlayBtn = status !== "sending" && status !== "failed" && loadState !== "error";
+  // Remaining time (for display while playing, iMessage-style)
+  const remaining = duration > 0 ? Math.max(0, duration - currentTime) : 0;
+  // Show play button even while uploading (blob URL is immediately playable by the sender).
+  // Only hide for hard failures. iOS requires a user gesture to trigger audio loading.
+  const showPlayBtn = status !== "failed" && loadState !== "error";
 
   return (
     <div
@@ -853,62 +866,44 @@ function VoiceNoteBubble({ url, isMe, status, onRetry, onLoadStateChange }: {
       }`}
       data-testid="voice-note-bubble"
     >
-      {/* Audio element — keyed so it remounts on retry.
-          ref={audioRef} gives toggle() a direct handle; no document.getElementById needed.
-          type="audio/mp4" declared on the <source> so Safari knows the codec before probing.
+      {/* Audio element — always rendered (even during "sending") so the sender can tap play
+          on the local blob URL before the CDN upload completes.
+          ref={audioRef} gives toggle() a direct React handle — no getElementById needed.
           preload="auto" is set but iOS Safari ignores it; actual load starts on play(). */}
-      {status !== "sending" && (
-        <audio
-          ref={audioRef}
-          key={audioKey}
-          src={url}
-          preload="auto"
-          onPlay={() => { console.log("[VOICE_NOTE_PLAYBACK] canplay fired — audio is playing"); setPlaying(true); }}
-          onPause={() => setPlaying(false)}
-          onEnded={() => { setPlaying(false); setCurrentTime(0); }}
-          onLoadedMetadata={e => {
+      <audio
+        ref={audioRef}
+        key={audioKey}
+        src={url}
+        preload="auto"
+        onPlay={() => { console.log("[VOICE_NOTE_PLAYBACK] canplay fired — audio is playing"); setPlaying(true); }}
+        onPause={() => { setPlaying(false); if (_vnGlobalPause === myPauseRef.current) _vnGlobalPause = null; }}
+        onEnded={() => { setPlaying(false); setCurrentTime(0); if (_vnGlobalPause === myPauseRef.current) _vnGlobalPause = null; }}
+        onLoadedMetadata={e => {
+          const d = (e.target as HTMLAudioElement).duration || 0;
+          const loadMs = Date.now() - tLoadStartRef.current;
+          console.log(`[VOICE_NOTE_PLAYBACK] canplay fired — loadedMetadata duration=${d.toFixed(2)}s loadMs=${loadMs}ms`);
+          console.log(`[VOICE_NOTE_SPEED] audio canplay — loadMs=${loadMs}ms duration=${d.toFixed(2)}s`);
+          setDuration(d);
+          setLoadState("ready");
+        }}
+        onCanPlay={e => {
+          // Backup for iOS: canplay fires when enough data is available to start playback.
+          // This can fire instead of / before loadedmetadata on some iOS Safari versions.
+          if (loadState !== "ready") {
             const d = (e.target as HTMLAudioElement).duration || 0;
             const loadMs = Date.now() - tLoadStartRef.current;
-            console.log(`[VOICE_NOTE_PLAYBACK] canplay fired — loadedMetadata duration=${d.toFixed(2)}s loadMs=${loadMs}ms`);
+            console.log(`[VOICE_NOTE_PLAYBACK] canplay fired — canPlay duration=${d.toFixed(2)}s loadMs=${loadMs}ms`);
             console.log(`[VOICE_NOTE_SPEED] audio canplay — loadMs=${loadMs}ms duration=${d.toFixed(2)}s`);
             setDuration(d);
             setLoadState("ready");
-          }}
-          onCanPlay={e => {
-            // Backup for iOS: canplay fires when enough data is available to start playback.
-            // This can fire instead of / before loadedmetadata on some iOS Safari versions.
-            if (loadState !== "ready") {
-              const d = (e.target as HTMLAudioElement).duration || 0;
-              const loadMs = Date.now() - tLoadStartRef.current;
-              console.log(`[VOICE_NOTE_PLAYBACK] canplay fired — canPlay duration=${d.toFixed(2)}s loadMs=${loadMs}ms`);
-              console.log(`[VOICE_NOTE_SPEED] audio canplay — loadMs=${loadMs}ms duration=${d.toFixed(2)}s`);
-              setDuration(d);
-              setLoadState("ready");
-            }
-          }}
-          onTimeUpdate={e => setCurrentTime((e.target as HTMLAudioElement).currentTime)}
-          onError={handleAudioError}
-          style={{ display: "none" }}
-        />
-      )}
+          }
+        }}
+        onTimeUpdate={e => setCurrentTime((e.target as HTMLAudioElement).currentTime)}
+        onError={handleAudioError}
+        style={{ display: "none" }}
+      />
 
-      {status === "sending" ? (
-        /* ── Optimistic / uploading state ── */
-        <>
-          <div className="w-7 h-7 rounded-full flex items-center justify-center shrink-0"
-            style={{ background: isMe ? "rgba(255,255,255,0.18)" : "rgba(0,0,0,0.08)" }}>
-            <Loader2 className="w-3.5 h-3.5 animate-spin" />
-          </div>
-          <div className="flex-1 min-w-0 space-y-1">
-            <div className="h-1 rounded-full overflow-hidden"
-              style={{ background: isMe ? "rgba(255,255,255,0.22)" : "rgba(0,0,0,0.10)" }}>
-              <div className="h-full rounded-full w-0" />
-            </div>
-            <p className="text-[10px] opacity-55 font-mono tabular-nums">Sending…</p>
-          </div>
-          <Mic className="w-3 h-3 shrink-0 opacity-40" />
-        </>
-      ) : status === "failed" ? (
+      {status === "failed" ? (
         /* ── Upload failed — user can retry ── */
         <>
           <button
@@ -943,47 +938,60 @@ function VoiceNoteBubble({ url, isMe, status, onRetry, onLoadStateChange }: {
           <Mic className="w-3 h-3 shrink-0 opacity-40" />
         </>
       ) : showPlayBtn ? (
-        /* ── Play / loading / ready state ──
-           iOS Safari ignores preload="metadata", so loadedMetadata only fires after
-           the user taps play. We show the play button immediately so iOS can load
-           audio via user gesture. While loading, a small spinner overlays the icon. */
+        /* ── Play / loading / ready / sending state ──
+           The play button is shown even while uploading so the sender can listen immediately.
+           While loading (CDN not ready yet), a subtle spinner overlays the icon.
+           A pulsing badge in the corner indicates the upload is still in progress. */
         <>
-          <button
-            onClick={e => { e.stopPropagation(); toggle(); }}
-            className="w-7 h-7 rounded-full flex items-center justify-center shrink-0 relative"
-            style={{ background: isMe ? "rgba(255,255,255,0.18)" : "rgba(0,0,0,0.08)" }}
-            data-testid="button-voice-note-play"
-          >
-            {playing ? (
-              <Pause className="w-3.5 h-3.5" />
-            ) : loadState === "loading" || loadState === "retrying" ? (
-              /* Show play icon with subtle opacity so user knows they can tap,
-                 but a spinner sits behind to indicate it's still fetching */
-              <Play className="w-3.5 h-3.5 opacity-60" />
-            ) : (
-              <Play className="w-3.5 h-3.5" />
-            )}
+          <div className="relative shrink-0">
+            <button
+              onClick={e => { e.stopPropagation(); toggle(); }}
+              className="w-7 h-7 rounded-full flex items-center justify-center"
+              style={{ background: isMe ? "rgba(255,255,255,0.18)" : "rgba(0,0,0,0.08)", transition: "opacity 120ms ease" }}
+              data-testid="button-voice-note-play"
+            >
+              {playing ? (
+                <Pause className="w-3.5 h-3.5" />
+              ) : loadState === "loading" || loadState === "retrying" ? (
+                <Play className="w-3.5 h-3.5 opacity-60" />
+              ) : (
+                <Play className="w-3.5 h-3.5" />
+              )}
+            </button>
+            {/* Spinner overlay while loading from CDN */}
             {(loadState === "loading" || loadState === "retrying") && !playing && (
               <span className="absolute inset-0 flex items-center justify-center pointer-events-none">
                 <Loader2 className="w-6 h-6 animate-spin opacity-25" />
               </span>
             )}
-          </button>
+            {/* Pulsing upload-in-progress badge */}
+            {status === "sending" && (
+              <span
+                className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full animate-pulse pointer-events-none"
+                style={{ background: isMe ? "rgba(255,255,255,0.75)" : "hsl(var(--primary))" }}
+              />
+            )}
+          </div>
           <div className="flex-1 min-w-0 space-y-1">
             <div
               className="h-1 rounded-full overflow-hidden"
               style={{ background: isMe ? "rgba(255,255,255,0.22)" : "rgba(0,0,0,0.10)" }}
             >
               <div
-                className="h-full rounded-full transition-all duration-200"
+                className="h-full rounded-full"
                 style={{
                   width: `${progress * 100}%`,
                   background: isMe ? "rgba(255,255,255,0.80)" : "hsl(var(--primary))",
+                  transition: "width 0.2s linear",
                 }}
               />
             </div>
             <p className="text-[10px] opacity-55 font-mono tabular-nums">
-              {fmt(playing ? currentTime : (duration || 0))}
+              {status === "sending" && !playing
+                ? "Sending…"
+                : playing
+                ? fmt(remaining)
+                : fmt(duration || 0)}
             </p>
           </div>
           <Mic className="w-3 h-3 shrink-0 opacity-40" />
@@ -2223,6 +2231,10 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
   const waveformRafRef = useRef<number | null>(null);
   const waveformBarEls = useRef<HTMLDivElement[]>([]);
   const [pendingVoiceNotes, setPendingVoiceNotes] = useState<PendingVoiceNote[]>([]);
+  // Slide-to-cancel: track pointer start X + whether threshold crossed
+  const pointerStartXRef = useRef(0);
+  const cancelPendingRef = useRef(false);
+  const [cancelPending, setCancelPending] = useState(false);
 
   const stopWaveform = () => {
     if (waveformRafRef.current) { cancelAnimationFrame(waveformRafRef.current); waveformRafRef.current = null; }
@@ -2346,6 +2358,8 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
       mediaRecorderRef.current = recorder;
       setIsRecording(true);
       setRecordingTime(0);
+      // Light haptic feedback when recording starts (no-op on unsupported browsers)
+      try { navigator.vibrate(25); } catch {}
       recordingTimerRef.current = setInterval(() => {
         setRecordingTime(t => {
           if (t >= 59) { stopRecording(); return 60; }
@@ -2399,6 +2413,10 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
       mediaRecorderRef.current.stop();
     }
     isRecordingRef.current = false;
+    // Light haptic feedback when recording ends
+    try { navigator.vibrate(15); } catch {}
+    cancelPendingRef.current = false;
+    setCancelPending(false);
     setIsRecording(false);
     setRecordingTime(0);
     // Re-sync keyboardOpen after recording ends. The visualViewport handler suppresses
@@ -2427,6 +2445,10 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
     audioChunksRef.current = [];
     isRecordingRef.current = false;
     stopRequestedRef.current = false;
+    // Distinct haptic pattern for cancel (so user knows it was cancelled, not sent)
+    try { navigator.vibrate([20, 30, 20]); } catch {}
+    cancelPendingRef.current = false;
+    setCancelPending(false);
     setIsRecording(false);
     setRecordingTime(0);
   };
@@ -3807,30 +3829,56 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                     }}
                     data-testid={`input-message-${match.id}`}
                   />
-                  {/* Recording overlay — absolute so it occupies the same space as the textarea */}
+                  {/* Recording overlay — absolute so it occupies the same space as the textarea.
+                      Colors use Lulou primary rose (hsl 350 45% 52%) throughout. */}
                   {voicePhase === "recording" && (
-                    <div className="absolute inset-0 flex items-center gap-2 px-3 pr-10 rounded-md border border-red-300/50 bg-red-50/40 dark:bg-red-950/20 select-none pointer-events-none">
-                      {/* Live waveform bars — heights updated via direct DOM refs (no React state)
-                          to prevent 60fps re-renders that cause iOS layout thrash */}
-                      <div className="flex items-end gap-[2px] h-[22px] flex-1">
-                        {Array.from({ length: 20 }, (_, i) => (
-                          <div
-                            key={i}
-                            ref={el => { if (el) waveformBarEls.current[i] = el; }}
-                            style={{
-                              flex: 1,
-                              height: "3px",
-                              borderRadius: 1.5,
-                              background: "rgb(239,68,68)",
-                              transition: "height 0.06s ease",
-                              willChange: "height",
-                            }}
-                          />
-                        ))}
+                    <div
+                      className="absolute inset-0 flex items-center gap-2 px-3 pr-10 rounded-md select-none pointer-events-none"
+                      style={{
+                        border: "1px solid hsl(350 45% 52% / 0.35)",
+                        background: "hsl(350 45% 52% / 0.05)",
+                      }}
+                    >
+                      {cancelPending ? (
+                        /* Slide-cancel mode: show cancel confirmation text */
+                        <span
+                          className="flex-1 text-sm font-medium"
+                          style={{ color: "hsl(350 45% 48%)" }}
+                        >
+                          ← Release to cancel
+                        </span>
+                      ) : (
+                        /* Normal recording: waveform bars (heights via direct DOM refs) */
+                        <div className="flex items-end gap-[2px] h-[22px] flex-1">
+                          {Array.from({ length: 20 }, (_, i) => (
+                            <div
+                              key={i}
+                              ref={el => { if (el) waveformBarEls.current[i] = el; }}
+                              style={{
+                                flex: 1,
+                                height: "3px",
+                                borderRadius: 1.5,
+                                background: "hsl(350 45% 52%)",
+                                transition: "height 0.06s ease",
+                                willChange: "height",
+                              }}
+                            />
+                          ))}
+                        </div>
+                      )}
+                      {/* Recording indicator dot + timer */}
+                      <div className="flex items-center gap-1 shrink-0">
+                        <span
+                          className="w-1.5 h-1.5 rounded-full animate-pulse"
+                          style={{ background: "hsl(350 45% 52%)" }}
+                        />
+                        <span
+                          className="text-sm font-mono tabular-nums font-semibold"
+                          style={{ color: "hsl(350 45% 48%)" }}
+                        >
+                          {`${Math.floor(recordingTime / 60)}:${String(recordingTime % 60).padStart(2, "0")}`}
+                        </span>
                       </div>
-                      <span className="text-sm font-mono tabular-nums text-red-500 shrink-0 font-semibold">
-                        {`${Math.floor(recordingTime / 60)}:${String(recordingTime % 60).padStart(2, "0")}`}
-                      </span>
                     </div>
                   )}
                   {/* Mic inside the input — hold to record, release to send.
@@ -3844,6 +3892,10 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                       // Prevent focus transfer and iOS keyboard dismissal — MUST be first
                       e.preventDefault();
                       e.currentTarget.setPointerCapture(e.pointerId);
+                      // Reset slide-cancel state for this new recording gesture
+                      pointerStartXRef.current = e.clientX;
+                      cancelPendingRef.current = false;
+                      setCancelPending(false);
                       // CRITICAL: lock composer height SYNCHRONOUSLY before any React state
                       // change. This is the only safe moment — no async gap, no re-render,
                       // no useEffect. Setting minHeight here means even if the keyboard
@@ -3896,12 +3948,29 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                       e.preventDefault();
                       addDbg(`touchStart (iOS focus-lock)`);
                     }}
+                    onPointerMove={e => {
+                      // Slide-to-cancel: if user drags > 55px left while recording, arm cancel
+                      if (!isRecordingRef.current) return;
+                      const dx = e.clientX - pointerStartXRef.current;
+                      const shouldCancel = dx < -55;
+                      if (shouldCancel !== cancelPendingRef.current) {
+                        cancelPendingRef.current = shouldCancel;
+                        setCancelPending(shouldCancel);
+                      }
+                    }}
                     onPointerUp={e => {
                       e.preventDefault();
                       debugLiveRef.current.lastPointerEvent = `UP @ ${new Date().toISOString().slice(11,23)}`;
-                      addDbg(`ptrUP — isRecording=${isRecordingRef.current}`);
+                      addDbg(`ptrUP — isRecording=${isRecordingRef.current} cancelPending=${cancelPendingRef.current}`);
                       stopRequestedRef.current = true;
-                      if (isRecordingRef.current) stopRecording();
+                      if (isRecordingRef.current) {
+                        // cancelPendingRef is always current (ref, not stale closure)
+                        if (cancelPendingRef.current) {
+                          cancelRecording();
+                        } else {
+                          stopRecording();
+                        }
+                      }
                     }}
                     onPointerCancel={e => {
                       e.preventDefault();
@@ -3917,7 +3986,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                       touchAction: "none",
                       WebkitUserSelect: "none" as React.CSSProperties["WebkitUserSelect"],
                       WebkitTouchCallout: "none" as any,
-                      transform: voicePhase === "recording" ? "scale(1.3)" : "scale(1)",
+                      transform: voicePhase === "recording" ? "scale(1.35)" : "scale(1)",
                       transition: "transform 200ms ease",
                     }}
                     data-testid={`button-mic-input-${match.id}`}
@@ -3926,12 +3995,19 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                     <Mic
                       className="w-[18px] h-[18px]"
                       style={voicePhase === "recording"
-                        ? { color: "rgb(239,68,68)", filter: "drop-shadow(0 0 6px rgba(239,68,68,0.85))", transition: "all 200ms ease" }
+                        ? { color: "hsl(350,45%,52%)", filter: "drop-shadow(0 0 8px hsl(350 45% 52% / 0.9))", transition: "all 200ms ease" }
                         : voiceNotesUnlocked
                         ? { color: "rgb(34,197,94)", filter: "drop-shadow(0 0 5px rgba(34,197,94,0.7))", transition: "all 200ms ease" }
                         : { color: "hsl(var(--muted-foreground))", opacity: 0.35, transition: "all 200ms ease" }}
                     />
                   </button>
+                  {/* Pulsing halo ring around mic while recording — Lulou rose, no layout impact */}
+                  {voicePhase === "recording" && (
+                    <span
+                      className="absolute right-2 bottom-[10px] w-[18px] h-[18px] rounded-full animate-ping pointer-events-none"
+                      style={{ background: "hsl(350 45% 52% / 0.22)", animationDuration: "1.4s" }}
+                    />
+                  )}
                 </div>
                 {/*
                   AI starters and phone buttons use !inputFocused as a RENDER condition

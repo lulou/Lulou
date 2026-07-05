@@ -1,0 +1,172 @@
+Voice notes are now fully functional.
+
+Do NOT change the recording pipeline, upload pipeline, or playback logic unless absolutely necessary.
+
+The next task is to make the entire experience feel premium and instant, like WhatsApp, iMessage, Telegram or Instagram.
+
+━━━━━━━━━━━━━━━━━━━━━━
+VOICE NOTE PREMIUM UX PASS
+━━━━━━━━━━━━━━━━━━━━━━
+
+Goal:
+Everything should feel effortless, polished and immediate.
+
+━━━━━━━━━━━━━━━━━━━━━━
+1. INSTANT SENDING
+━━━━━━━━━━━━━━━━━━━━━━
+
+When the user releases the mic:
+
+• The voice note bubble appears instantly.
+• Playback should work immediately.
+• Upload happens seamlessly in the background.
+• Once the server version is ready, replace the temporary/local version silently.
+• No visible flicker.
+
+━━━━━━━━━━━━━━━━━━━━━━
+2. INSTANT PLAYBACK
+━━━━━━━━━━━━━━━━━━━━━━
+
+Playback should feel immediate.
+
+Requirements:
+
+• Tap Play.
+• Audio starts immediately.
+• No noticeable delay.
+• Only one voice note may play at a time.
+• Starting another voice note automatically pauses the previous one.
+
+━━━━━━━━━━━━━━━━━━━━━━
+3. PREMIUM RECORDING UI
+━━━━━━━━━━━━━━━━━━━━━━
+
+While recording:
+
+• Mic gently scales up.
+• Soft pulse animation.
+• Subtle Lulou accent glow.
+• Light haptic feedback when recording starts.
+• Light haptic feedback when recording ends.
+• Live waveform or audio level animation.
+• Timer updates smoothly.
+
+No layout movement.
+No composer movement.
+No keyboard movement.
+
+━━━━━━━━━━━━━━━━━━━━━━
+4. CANCEL GESTURE
+━━━━━━━━━━━━━━━━━━━━━━
+
+Improve cancel behaviour.
+
+Requirements:
+
+• Slide left to cancel.
+• Smooth animation.
+• Clear cancel indication.
+• Haptic when cancelled.
+• Composer instantly returns to normal.
+
+━━━━━━━━━━━━━━━━━━━━━━
+5. PLAYBACK UI
+━━━━━━━━━━━━━━━━━━━━━━
+
+Improve playback visuals.
+
+Include:
+
+• Smooth progress animation.
+• Current playback position.
+• Remaining duration.
+• Better animated play/pause button.
+• Smooth seek/progress updates.
+
+━━━━━━━━━━━━━━━━━━━━━━
+6. PERFORMANCE
+━━━━━━━━━━━━━━━━━━━━━━
+
+Optimise everything.
+
+Reduce:
+
+• upload latency
+• playback latency
+• unnecessary renders
+• unnecessary audio element recreation
+• unnecessary state updates
+
+Preload audio where appropriate.
+
+━━━━━━━━━━━━━━━━━━━━━━
+7. RELIABILITY
+━━━━━━━━━━━━━━━━━━━━━━
+
+If upload fails:
+
+• Keep local recording.
+• Allow retry.
+• Never lose the recording.
+
+If playback fails:
+
+• Retry automatically.
+• Refresh URL if required.
+• Show friendly retry state.
+
+━━━━━━━━━━━━━━━━━━━━━━
+8. NO REGRESSIONS
+━━━━━━━━━━━━━━━━━━━━━━
+
+Verify:
+
+✓ text messaging
+✓ voice notes
+✓ playback
+✓ retries
+✓ conversation previews
+✓ chat scrolling
+✓ keyboard behaviour
+✓ composer stability
+✓ iPhone Safari
+✓ Android Chrome
+✓ desktop browsers
+
+━━━━━━━━━━━━━━━━━━━━━━
+9. FINAL POLISH
+━━━━━━━━━━━━━━━━━━━━━━
+
+Everything should feel Apple-quality.
+
+Animations:
+• smooth
+• subtle
+• premium
+• consistent
+
+No abrupt transitions.
+
+No flashing.
+
+No UI jumps.
+
+Voice notes should feel native to Lulou.
+
+━━━━━━━━━━━━━━━━━━━━━━
+VALIDATION
+━━━━━━━━━━━━━━━━━━━━━━
+
+Run:
+
+npm run check
+npm run build
+
+Report:
+
+• Files changed.
+• Performance improvements made.
+• Playback improvements.
+• Recording UI improvements.
+• Animation improvements.
+• Any remaining production work.
