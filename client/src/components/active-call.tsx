@@ -129,7 +129,9 @@ export function ActiveCallOverlay({
   const { t } = useLanguageContext();
   const queryClient = useQueryClient();
   const endedRef = useRef(false);
-  const [speakerOn, setSpeakerOn] = useState(false);
+  // Video calls default to loudspeaker (full volume). Audio calls default to earpiece
+  // (low volume on iOS to reduce acoustic echo bleed into the open mic).
+  const [speakerOn, setSpeakerOn] = useState(isVideo);
   // Ref so the connectionState effect can read the current speaker toggle without
   // adding speakerOn to its deps array (which would re-run the whole effect on every toggle).
   const speakerOnRef = useRef(false);

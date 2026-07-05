@@ -1,0 +1,242 @@
+Build the final production-quality Call Stability & Audio pass for Lulou.
+
+Calls are now much better than before, but they still are not at the level of FaceTime, WhatsApp or Messenger.
+
+This is now a quality and reliability task, not a feature task.
+
+Do not redesign the call UI.
+Do not break the existing call flow.
+Focus only on making calls feel stable, clear and premium.
+
+━━━━━━━━━━━━━━━━━━━━━━
+OBJECTIVE
+━━━━━━━━━━━━━━━━━━━━━━
+
+Two matched users should be able to start an audio or video call and experience:
+
+• Clear voices
+• No screeching
+• No beeping
+• No echo
+• Fast connection
+• Stable audio
+• Smooth reconnects
+• Natural speaker behaviour
+• Premium experience
+
+━━━━━━━━━━━━━━━━━━━━━━
+1. FULL WEBRTC AUDIT
+━━━━━━━━━━━━━━━━━━━━━━
+
+Audit the complete call pipeline:
+
+• signalling
+• SDP exchange
+• ICE gathering
+• STUN
+• TURN
+• relay usage
+• ICE restarts
+• candidate selection
+• connection state
+• reconnect logic
+• duplicate peer connections
+• duplicate audio tracks
+• duplicate HTMLAudioElements
+• duplicate MediaStreams
+• audio routing
+• cleanup after call
+
+Eliminate every duplicate path.
+
+━━━━━━━━━━━━━━━━━━━━━━
+2. AUDIO QUALITY
+━━━━━━━━━━━━━━━━━━━━━━
+
+Calls should sound like normal phone calls.
+
+Investigate:
+
+• screeching
+• echo
+• ringing bleeding into microphone
+• duplicate playback
+• remote audio looping
+• local audio leakage
+• feedback
+• clipping
+• gain spikes
+• incorrect sink routing
+• race conditions during connection
+
+Ensure:
+
+• echoCancellation
+• noiseSuppression
+• autoGainControl
+
+remain enabled throughout the entire call lifecycle.
+
+━━━━━━━━━━━━━━━━━━━━━━
+3. CONNECTION SPEED
+━━━━━━━━━━━━━━━━━━━━━━
+
+Optimise:
+
+• call setup
+• ICE negotiation
+• TURN selection
+• reconnect speed
+
+Reduce unnecessary waits.
+
+Pre-create anything safe to pre-create.
+
+━━━━━━━━━━━━━━━━━━━━━━
+4. SPEAKER / AUDIO ROUTING
+━━━━━━━━━━━━━━━━━━━━━━
+
+Desired behaviour:
+
+Audio call:
+• default = phone/earpiece where supported
+• Speaker button switches to loudspeaker
+• Toggle instantly
+• Never unexpectedly jump to loudspeaker
+
+Video call:
+• default = loudspeaker
+• Speaker toggle still works
+
+Respect platform limitations.
+
+Do not fake unsupported behaviour.
+
+━━━━━━━━━━━━━━━━━━━━━━
+5. RINGTONE / CONNECT
+━━━━━━━━━━━━━━━━━━━━━━
+
+Ensure:
+
+• ringtone stops immediately once connected
+• no ringtone audio leaks into microphone
+• no leftover audio elements
+• no ringing after answer
+• no beeps during transition
+
+━━━━━━━━━━━━━━━━━━━━━━
+6. NETWORK RESILIENCE
+━━━━━━━━━━━━━━━━━━━━━━
+
+Handle gracefully:
+
+• Wi-Fi → mobile
+• mobile → Wi-Fi
+• brief packet loss
+• temporary ICE disconnect
+• background → foreground
+• app interruption
+
+Reconnect without forcing users to redial whenever possible.
+
+━━━━━━━━━━━━━━━━━━━━━━
+7. PERFORMANCE
+━━━━━━━━━━━━━━━━━━━━━━
+
+Reduce:
+
+• unnecessary re-renders
+• duplicate streams
+• duplicate peer connections
+• unnecessary renegotiations
+• unnecessary getUserMedia calls
+
+Keep CPU and battery usage low.
+
+━━━━━━━━━━━━━━━━━━━━━━
+8. USER EXPERIENCE
+━━━━━━━━━━━━━━━━━━━━━━
+
+Calls should feel premium.
+
+Animations:
+
+• smooth connect
+• smooth disconnect
+• smooth mute
+• smooth speaker toggle
+• smooth camera switch
+
+No flashing.
+
+No jumping UI.
+
+━━━━━━━━━━━━━━━━━━━━━━
+9. DIAGNOSTICS
+━━━━━━━━━━━━━━━━━━━━━━
+
+Keep detailed developer logs:
+
+[CALL_PIPELINE]
+[ICE]
+[TURN]
+[WEBRTC]
+[AUDIO]
+[STREAM]
+[CALL_PERFORMANCE]
+
+Log:
+
+• ICE candidate types
+• selected candidate pair
+• relay usage
+• connection time
+• reconnect time
+• audio route
+• duplicate stream detection
+• audio element count
+• peer connection count
+• getUserMedia duration
+• call setup duration
+
+━━━━━━━━━━━━━━━━━━━━━━
+10. VALIDATION
+━━━━━━━━━━━━━━━━━━━━━━
+
+Run:
+
+npm run check
+npm run build
+
+Both must pass.
+
+Then perform real-device testing:
+
+✓ iPhone ↔ iPhone
+✓ iPhone ↔ Android
+✓ iPhone ↔ Desktop
+✓ Wi-Fi
+✓ Mobile data
+✓ TURN relay
+✓ STUN only
+✓ Audio calls
+✓ Video calls
+✓ Long calls (10+ minutes)
+✓ Mute/unmute
+✓ Speaker toggle
+✓ Camera toggle
+✓ Network interruption
+
+━━━━━━━━━━━━━━━━━━━━━━
+REPORT
+━━━━━━━━━━━━━━━━━━━━━━
+
+Provide:
+
+• Root causes found.
+• Files changed.
+• Performance improvements.
+• Audio improvements.
+• Connection improvements.
+• Remaining platform limitations (if any), clearly distinguishing browser limitations from application bugs.
+• Confirmation that the full call flow works reliably on real devices before marking the task complete.

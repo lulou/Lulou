@@ -298,7 +298,9 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
       });
     };
 
-    const sendOffer = async () => {
+    // iceRestart=true: include new ICE credentials so both sides re-gather candidates.
+    // Used when ICE disconnects (network switch) to reconnect without redialing.
+    const sendOffer = async (iceRestart = false) => {
       const pc = pcRef.current;
       if (!pc || cleanedUpRef.current) return;
       // Guard 1: signalingState must be stable before we can create a new offer.
@@ -316,11 +318,11 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
       }
       isNegotiatingRef.current = true;
       try {
-        console.log("[WebRTC] SEND_OFFER_START: calling createOffer, signalingState:", pc.signalingState);
-        callDebug.event("offer: createOffer start");
+        console.log("[WebRTC] SEND_OFFER_START: calling createOffer, signalingState:", pc.signalingState, iceRestart ? "(ICE RESTART)" : "");
+        callDebug.event(iceRestart ? "offer: createOffer (ICE RESTART)" : "offer: createOffer start");
         hasSetRemoteDescRef.current = false;
         pendingCandidatesRef.current = [];
-        const offer = await pc.createOffer();
+        const offer = await pc.createOffer(iceRestart ? { iceRestart: true } : undefined);
         console.log("[WebRTC] SEND_OFFER_CREATED: offer type:", offer.type, "sdp length:", offer.sdp?.length);
         callDebug.update({ offerCreated: true });
         callDebug.event(`offer: created (sdp ${offer.sdp?.length ?? 0}b)`);
@@ -436,6 +438,10 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
             clearInterval(readyRetryIntervalRef.current);
             readyRetryIntervalRef.current = null;
           }
+          // Reset so any ICE candidates that arrive while setRemoteDescription is in
+          // progress (e.g. during an ICE restart re-offer) are queued rather than
+          // added immediately with stale/wrong credentials.
+          hasSetRemoteDescRef.current = false;
           console.log("[CALLEE_FIX] offer received", { matchId, signalingState: pc.signalingState });
           console.log("[WebRTC] OFFER received — before setRemoteDescription, signalingState:", pc.signalingState);
           console.log("[CALL_ANSWER] remote_offer_received", { matchId, signalingState: pc.signalingState, ts: new Date().toISOString() });
@@ -766,9 +772,12 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
 
       // If we consumed a pre-subscribed channel, reuse its subscribePromise (already
       // in-flight or resolved) instead of calling channel.subscribe() again.
-      const [mediaResult, channelResult] = await Promise.allSettled([
+      // Fetch ICE servers in PARALLEL with media + channel — saves the RTT for the
+      // TURN credential request (~100-200 ms) which was previously sequential.
+      const [mediaResult, channelResult, iceServersResult] = await Promise.allSettled([
         getUserMediaWithFallback(),
         presub ? presub.subscribePromise : subscribeChannel(channel),
+        fetchIceServers(),
       ]);
 
       console.log("[CALL_ANSWER] getUserMedia_and_channel_settled", {
@@ -889,7 +898,15 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
         pcRef.current = null;
       }
 
-      const iceServers = await fetchIceServers();
+      // Use the ICE servers from the parallel fetch; fall back to STUN-only if it failed.
+      const iceServers: RTCIceServer[] = iceServersResult.status === "fulfilled"
+        ? iceServersResult.value
+        : _STUN_ONLY;
+      if (iceServersResult.status === "rejected") {
+        console.warn("[CALL_PIPELINE] ICE server fetch failed during parallel init — using STUN-only", {
+          matchId, error: (iceServersResult.reason as any)?.message ?? String(iceServersResult.reason),
+        });
+      }
       console.log("[WebRTC] PC_CREATE_START: creating RTCPeerConnection with", iceServers.length, "ICE server(s)");
       const pc = new RTCPeerConnection({ iceServers });
       pcRef.current = pc;
@@ -1157,8 +1174,40 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
             });
           }
         } else if (state === "disconnected") {
-          callDebug.event("ice: disconnected — 20s timer started");
+          callDebug.event("ice: disconnected — ICE restart + 20s timer");
           setConnectionState("reconnecting");
+
+          // ── ICE restart (caller only) ─────────────────────────────────────
+          // On network switches (Wi-Fi → mobile, brief packet loss, background→
+          // foreground) the ICE agent enters "disconnected" rather than "failed".
+          // A createOffer({iceRestart:true}) generates new ICE credentials so
+          // both sides re-gather candidates on the current network path.
+          // The callee handles it as a normal offer (signalingState is "stable"
+          // after an established call).  If ICE recovers within 20s, the call
+          // continues without the user redialing.
+          if (isCaller && !cleanedUpRef.current && pcRef.current) {
+            const restartPc = pcRef.current;
+            (async () => {
+              try {
+                // restartIce() marks the next createOffer to include iceRestart.
+                // Not universally supported, so guard + sendOffer(true) as primary path.
+                if (typeof (restartPc as any).restartIce === "function") {
+                  (restartPc as any).restartIce();
+                }
+                console.log("[WebRTC] ICE_RESTART: sending restart offer", { matchId });
+                callDebug.event("ice: restart offer start");
+                await sendOffer(true);
+                console.log("[WebRTC] ICE_RESTART: restart offer sent successfully", { matchId });
+                callDebug.event("ice: restart offer sent");
+              } catch (err: any) {
+                console.warn("[WebRTC] ICE_RESTART: failed to send restart offer", {
+                  matchId, error: err?.message ?? String(err),
+                });
+                callDebug.event(`ice: restart offer FAILED — ${err?.message ?? ""}`);
+              }
+            })();
+          }
+
           if (disconnectTimerRef.current) clearTimeout(disconnectTimerRef.current);
           disconnectTimerRef.current = setTimeout(() => {
             if (!cleanedUpRef.current && pcRef.current?.iceConnectionState === "disconnected") {
