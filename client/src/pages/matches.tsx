@@ -2550,81 +2550,43 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
       console.log(`[VOICE_NOTE_UPLOAD] request url="${fullUploadUrl}" method=POST content-type="${contentType}" blobSize=${blob.size} auth=${authPresent}`);
       addDbg(`upload: url="${fullUploadUrl.slice(-40)}" ct="${contentType}" auth=${authPresent}`);
 
-      // iOS Safari has two documented bugs with fetch() for binary uploads:
-      //   1. body: ArrayBuffer → always "Load failed" (fixed previously)
-      //   2. body: Blob + Authorization header → "Load failed" on many iOS versions
-      //      because iOS URLSession decides to reject the non-simple CORS request
-      //      even on same-origin, or aborts during streaming of large Blobs.
-      // XMLHttpRequest does NOT share these bugs — it has been the reliable path
-      // for binary uploads on iOS since iOS 5. We use XHR on iOS and fetch elsewhere.
+      // ── FormData multipart upload — reliable on iOS Safari ───────────────────
+      // Raw binary XHR/fetch with custom Content-Type (e.g. audio/mp4) fails on iOS
+      // with network errors because iOS URLSession rejects non-standard binary streams.
+      // FormData multipart/form-data is handled natively by iOS and works reliably.
+      //
+      // CRITICAL: Do NOT set Content-Type manually — the browser sets it to
+      // "multipart/form-data; boundary=…" automatically. Setting it manually
+      // removes the boundary and the server cannot parse the body.
       const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as any).MSStream;
-      const bodyType = isIOS ? "XHR+Blob" : "fetch+Blob";
+      const filename = mimeType.includes("mp4") ? "voice.m4a" : mimeType.includes("ogg") ? "voice.ogg" : "voice.webm";
+      const formData = new FormData();
+      formData.append("audio", blob, filename);
+      formData.append("mimeType", mimeType);
+      formData.append("durationMs", String(debugLiveRef.current.blobDurationMs || 0));
+      const bodyType = "FormData+fetch";
       debugLiveRef.current.uploadBodyType = bodyType;
       debugLiveRef.current.uploadStartMs = performance.now();
       let res: Response;
-      console.log(`[VOICE_NOTE_UPLOAD] fetch started isIOS=${isIOS} bodyType=${bodyType} blobSize=${blob.size} blobType="${blob.type}"`);
-      addDbg(`upload started isIOS=${isIOS} bodyType=${bodyType}`);
+      console.log(`[VOICE_NOTE_UPLOAD] url="${fullUploadUrl}" method=POST bodyType=${bodyType} isIOS=${isIOS} blobSize=${blob.size} filename="${filename}" mimeType="${mimeType}"`);
+      addDbg(`upload started bodyType=${bodyType} isIOS=${isIOS} size=${blob.size} file="${filename}"`);
       try {
-        if (isIOS) {
-          // XHR path — reliable binary upload on iOS Safari.
-          // fetch() with binary Blob + Authorization header throws "Load failed"
-          // on iOS URLSession. XHR does not share this bug.
-          res = await new Promise<Response>((resolve, reject) => {
-            const xhr = new XMLHttpRequest();
-            xhr.open("POST", fullUploadUrl, true);
-            xhr.timeout = 90_000; // 90 s — large files on slow connections
-            xhr.setRequestHeader("Content-Type", contentType);
-            xhr.setRequestHeader("X-Voice-Mime", contentType);
-            if (authHeaders.Authorization) xhr.setRequestHeader("Authorization", authHeaders.Authorization);
-            if (authHeaders.authorization) xhr.setRequestHeader("authorization", authHeaders.authorization);
-            xhr.onload = () => {
-              const respBody = xhr.responseText?.slice(0, 300) || "";
-              console.log(`[VOICE_NOTE_UPLOAD] XHR response status=${xhr.status} body="${respBody.slice(0,100)}"`);
-              addDbg(`XHR onload status=${xhr.status} body="${respBody.slice(0,60)}"`);
-              if (xhr.status >= 400) {
-                debugLiveRef.current.uploadRespBody = respBody;
-              }
-              resolve(new Response(xhr.responseText, {
-                status: xhr.status,
-                headers: { "content-type": "application/json" },
-              }));
-            };
-            xhr.onerror = () => {
-              const msg = xhr.statusText || "XHR network error (statusText empty)";
-              console.error(`[VOICE_NOTE_UPLOAD] XHR onerror status=${xhr.status} statusText="${xhr.statusText}"`);
-              addDbg(`XHR onerror: status=${xhr.status} msg="${msg}"`);
-              reject(Object.assign(new Error(msg), { name: "XHRError" }));
-            };
-            xhr.ontimeout = () => {
-              console.error(`[VOICE_NOTE_UPLOAD] XHR timeout after 90s`);
-              addDbg(`XHR timeout after 90s`);
-              reject(Object.assign(new Error("Upload timeout after 90s"), { name: "TimeoutError" }));
-            };
-            xhr.onabort = () => {
-              console.error(`[VOICE_NOTE_UPLOAD] XHR aborted`);
-              addDbg(`XHR aborted`);
-              reject(Object.assign(new Error("Upload aborted by browser"), { name: "AbortError" }));
-            };
-            xhr.send(blob);
-          });
-        } else {
-          // fetch path — reliable on Android/Chrome/desktop
-          res = await fetch(fullUploadUrl, {
-            method: "POST",
-            headers: {
-              ...authHeaders,
-              "Content-Type": contentType,
-              "X-Voice-Mime": contentType,
-            },
-            body: blob,
-          });
-          const fetchStatus = res.status;
-          console.log(`[VOICE_NOTE_UPLOAD] fetch response status=${fetchStatus}`);
-          addDbg(`fetch response status=${fetchStatus}`);
-          if (!res.ok) {
-            const body = await res.clone().text().catch(() => "");
-            debugLiveRef.current.uploadRespBody = body.slice(0, 300);
-          }
+        res = await fetch(fullUploadUrl, {
+          method: "POST",
+          headers: {
+            // No Content-Type — browser adds multipart/form-data with boundary
+            ...authHeaders,
+            "X-Voice-Mime": mimeType,
+          },
+          body: formData,
+        });
+        const status = res.status;
+        console.log(`[VOICE_NOTE_UPLOAD] status=${status}`);
+        addDbg(`upload response status=${status}`);
+        if (!res.ok) {
+          const body = await res.clone().text().catch(() => "");
+          debugLiveRef.current.uploadRespBody = body.slice(0, 300);
+          addDbg(`upload errBody="${body.slice(0, 80)}"`);
         }
       } catch (uploadErr: any) {
         debugLiveRef.current.uploadFailMs = performance.now();
@@ -2633,8 +2595,8 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
         debugLiveRef.current.uploadErrName = errName;
         debugLiveRef.current.uploadError = errMsg;
         addDbg(`upload FAILED errName="${errName}" errMsg="${errMsg}"`);
-        console.error(`[VOICE_NOTE_UPLOAD] FAILED: name="${errName}" message="${errMsg}" url="${fullUploadUrl}" isIOS=${isIOS} bodyType=${bodyType}`);
-        throw new Error(`Couldn't send voice message — tap the bubble to retry. (${errName}: ${errMsg})`);
+        console.error(`[VOICE_NOTE_UPLOAD] FAILED name="${errName}" msg="${errMsg}" url="${fullUploadUrl}" bodyType=${bodyType} isIOS=${isIOS}`);
+        throw new Error(`Couldn't send voice message — tap the bubble to retry.`);
       }
       const uploadMs = Math.round(performance.now() - tUpload);
       console.log(`[VOICE_NOTE_SEND] upload response status=${res.status} ms=${uploadMs}`);
@@ -3747,7 +3709,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                       if (e.target.value.trim()) sendTyping();
                     }}
                     placeholder={t("write_meaningful_placeholder")}
-                    className={`resize-none min-h-[44px] max-h-[80px] text-sm pr-8 transition-none${voicePhase === "recording" ? " invisible pointer-events-none" : ""}`}
+                    className={`resize-none min-h-[44px] max-h-[80px] text-sm pr-8 transition-none${voicePhase === "recording" ? " opacity-0 pointer-events-none" : ""}`}
                     onFocus={() => setInputFocused(true)}
                     onBlur={() => {
                       // CRITICAL: if iOS fires blur while recording, refocus SYNCHRONOUSLY

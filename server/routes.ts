@@ -1,5 +1,6 @@
 import express from "express";
 import type { Express, RequestHandler } from "express";
+import multer from "multer";
 import { createServer, type Server } from "http";
 import { randomUUID } from "crypto";
 import { SupabaseStorage, mapMatch, type CompleteCallOptions, geocodeLocation, getHasLatLngColumns, getHasEmailVerifiedColumn, incrementMatchBadge, resetMatchBadge, getTotalBadge } from "./storage";
@@ -3068,9 +3069,19 @@ export async function registerRoutes(
   });
 
   // Binary audio upload — client sends raw ArrayBuffer (no base64 overhead).
-  // express.raw() parses the body into req.body as a Buffer for any content-type.
-  // The MIME type is passed in X-Voice-Mime header to avoid encoding it in a JSON wrapper.
-  app.post("/api/voice-notes/send/:matchId", isAuthenticated, express.raw({ type: "*/*", limit: "15mb" }), async (req: any, res) => {
+  // Dynamic body parser: multer for FormData multipart (iOS-compatible new path),
+  // express.raw() for legacy raw-binary clients.
+  const memUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024 } });
+  const voiceNoteParser = (req: any, res: any, next: any) => {
+    const ct = (req.headers["content-type"] as string | undefined) || "";
+    if (ct.startsWith("multipart/form-data")) {
+      memUpload.single("audio")(req, res, next);
+    } else {
+      express.raw({ type: "*/*", limit: "15mb" })(req, res, next);
+    }
+  };
+
+  app.post("/api/voice-notes/send/:matchId", isAuthenticated, voiceNoteParser, async (req: any, res) => {
     const tReceive = Date.now();
     try {
       const adminStorage = getAdminStorage();
@@ -3078,12 +3089,19 @@ export async function registerRoutes(
       const userId = req.user.id;
       const { matchId } = req.params;
 
-      // Accept binary body (new path) or fall back to legacy base64 JSON (old clients)
+      // Path 1: FormData multipart (new — iOS-compatible via multer)
+      // Path 2: Raw binary   (legacy — express.raw() populates req.body as Buffer)
+      // Path 3: Base64 JSON  (oldest — kept for backward compat)
       let audioBuffer: Buffer;
       let mimeType: string;
-      if (Buffer.isBuffer(req.body) && req.body.length > 0) {
+      if (req.file?.buffer && req.file.buffer.length > 0) {
+        audioBuffer = req.file.buffer;
+        mimeType = (req.body?.mimeType as string | undefined) || req.file.mimetype || "audio/webm";
+        console.log(`[VOICE_NOTE_UPLOAD] serverReceived=FormData size=${audioBuffer.length} mimeType=${mimeType} receiveMs=${Date.now() - tReceive}`);
+      } else if (Buffer.isBuffer(req.body) && req.body.length > 0) {
         audioBuffer = req.body;
         mimeType = (req.headers["x-voice-mime"] as string | undefined) || "audio/webm";
+        console.log(`[VOICE_NOTE_UPLOAD] serverReceived=RawBinary size=${audioBuffer.length} mimeType=${mimeType} receiveMs=${Date.now() - tReceive}`);
       } else if (req.body?.audioBase64) {
         // Legacy JSON/base64 fallback (old app versions)
         mimeType = req.body.mimeType || "audio/webm";
@@ -3092,7 +3110,9 @@ export async function registerRoutes(
         } catch {
           return res.status(400).json({ message: "Invalid audio data" });
         }
+        console.log(`[VOICE_NOTE_UPLOAD] serverReceived=Base64 size=${audioBuffer.length} mimeType=${mimeType} receiveMs=${Date.now() - tReceive}`);
       } else {
+        console.error(`[VOICE_NOTE_UPLOAD] serverReceived=NOTHING req.file=${JSON.stringify(req.file)} bodyType=${typeof req.body} bodyKeys=${req.body ? Object.keys(req.body) : "null"}`);
         return res.status(400).json({ message: "Audio data is required" });
       }
 

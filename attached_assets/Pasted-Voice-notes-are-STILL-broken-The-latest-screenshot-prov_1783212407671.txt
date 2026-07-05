@@ -1,0 +1,105 @@
+Voice notes are STILL broken.
+
+The latest screenshot proves two things:
+
+1. Upload is failing with:
+“XHRError: XHR network error (statusText empty)”
+
+2. The composer still drops/moves while recording.
+
+Do not say “check/build passed”.
+Do not make broad guesses.
+Fix these exact runtime failures.
+
+━━━━━━━━━━━━━━━━━━━━━━
+BUG 1 — XHR NETWORK ERROR
+━━━━━━━━━━━━━━━━━━━━━━
+
+The XHR upload path is failing on iPhone with:
+
+XHRError: XHR network error (statusText empty)
+
+This usually means the request is not completing at network level, often because of:
+- wrong upload URL
+- CORS/preflight issue
+- Authorization header issue
+- iOS Safari XHR blob upload issue
+- request body format issue
+- backend route not reachable
+- Vercel frontend calling wrong backend
+- server rejecting multipart/binary request
+- response blocked before status is returned
+
+Find the exact failing request.
+
+Required fix:
+- Stop using raw binary XHR if it fails on iPhone.
+- Use FormData multipart upload instead:
+ formData.append("file", blob, filename)
+ formData.append("matchId", matchId)
+ formData.append("durationMs", durationMs)
+- Send using the most reliable iOS-compatible method.
+- Backend must parse multipart/form-data.
+- Keep auth working.
+- Upload must reach server.
+- Server must store the file and create the voice message.
+- If upload fails, keep the local blob and allow retry.
+- Do not show raw “XHRError” or “Load failed” to users.
+- Show only:
+ “Couldn’t send voice message. Tap to retry.”
+
+Add logs:
+[VOICE_NOTE_UPLOAD] url=
+[VOICE_NOTE_UPLOAD] method=
+[VOICE_NOTE_UPLOAD] bodyType=FormData
+[VOICE_NOTE_UPLOAD] authPresent=
+[VOICE_NOTE_UPLOAD] requestStarted=
+[VOICE_NOTE_UPLOAD] serverReceived=
+[VOICE_NOTE_UPLOAD] status=
+[VOICE_NOTE_UPLOAD] responseBody=
+[VOICE_NOTE_UPLOAD] storageResult=
+[VOICE_NOTE_UPLOAD] messageInserted=
+
+━━━━━━━━━━━━━━━━━━━━━━
+BUG 2 — COMPOSER STILL DROPS
+━━━━━━━━━━━━━━━━━━━━━━
+
+The composer still moves down while recording.
+
+Correct behaviour:
+- Typing: composer stays fixed.
+- Holding mic: composer must stay in EXACT SAME PLACE.
+- Recording UI must NOT replace the composer.
+- Recording UI must NOT render below the composer.
+- Conversation starters must NOT move.
+- Keyboard must NOT dismiss.
+- Input must NOT blur.
+- Only the mic should scale/glow.
+
+Implement:
+- ONE composer layout only.
+- Keep text input mounted.
+- Render waveform/timer as absolute overlay INSIDE the input field.
+- Do not change composer height, margin, padding, bottom, transform, or position when recording.
+- Do not conditionally render a separate recording row.
+- Prevent mic touch from blurring input.
+- Compare rect before/during/after recording and make them identical.
+
+Success:
+On iPhone:
+1. Keyboard open.
+2. Hold mic.
+3. Composer stays still.
+4. Release.
+5. Voice note sends.
+6. Bubble becomes playable.
+7. Repeat 10 times.
+
+Run:
+npm run check
+npm run build
+
+Report:
+- Exact upload route/body fix.
+- Exact CSS/JSX fix for composer movement.
+- Proof voice note sends on iPhone.
