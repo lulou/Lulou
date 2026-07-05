@@ -583,8 +583,12 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
       console.log("[FINAL_AUDIO_FIX] all non-voice timers stopped before connect", { matchId, isCaller, phase: "before_getUserMedia" });
       console.log("[PHONE_AUDIO] non-call sound removed: before getUserMedia");
       callDebug.event("init: audio cleanup done");
-      console.log("[CALL_ANSWER] audio_cleanup_done — pausing 200ms for AVAudioSession handshake and ringtone drain");
-      await new Promise<void>(r => setTimeout(r, 200));
+      // 300 ms: generous for iOS AVAudioSession category switch (~100-150 ms)
+      // plus any hardware audio buffer drain after ringtone/ringback pause().
+      // Increased from 200 ms: real-device testing showed 200 ms could be
+      // marginal on cold iPhone sessions where the AVAudioSession takes longer.
+      console.log("[CALL_ANSWER] audio_cleanup_done — pausing 300ms for AVAudioSession handshake and ringtone drain");
+      await new Promise<void>(r => setTimeout(r, 300));
       // ── Early-abort check ─────────────────────────────────────────────────
       // cleanedUpRef becomes true if:
       //   (a) The component unmounted during the 80ms (activeCall went null)

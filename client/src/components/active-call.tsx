@@ -129,9 +129,23 @@ export function ActiveCallOverlay({
   const { t } = useLanguageContext();
   const queryClient = useQueryClient();
   const endedRef = useRef(false);
-  // Video calls default to loudspeaker (full volume). Audio calls default to earpiece
-  // (low volume on iOS to reduce acoustic echo bleed into the open mic).
-  const [speakerOn, setSpeakerOn] = useState(isVideo);
+  // Speaker defaults to OFF for ALL call types (audio and video).
+  //
+  // WHY NOT `useState(isVideo)` for video calls:
+  //   On iPhone Safari (plain web — NOT Capacitor), configureVoiceChat() and
+  //   setSpeaker() are no-ops.  The ONLY audio routing control is el.volume.
+  //   The iPhone speaker is physically millimetres from the open mic.  At
+  //   volume=1.0 the mic picks up the speaker output; without hardware AEC
+  //   (which requires the native AVAudioSession voiceChat mode, only available
+  //   via Capacitor) the software AEC cannot suppress the feedback loop.
+  //   Result: acoustic feedback builds into screeching and ringing tones.
+  //   At volume=0.25 the signal is weak enough for the software AEC to handle.
+  //
+  //   Users who want loudspeaker on an audio call can tap the speaker button.
+  //   Video calls have no speaker button — they stay at 0.25 (earpiece-safe)
+  //   on iOS and at 1.0 via setSinkId("default") on desktop Chrome/Android
+  //   where hardware echo cancellation works properly.
+  const [speakerOn, setSpeakerOn] = useState(false);
   // Ref so the connectionState effect can read the current speaker toggle without
   // adding speakerOn to its deps array (which would re-run the whole effect on every toggle).
   const speakerOnRef = useRef(false);
@@ -605,114 +619,124 @@ export function ActiveCallOverlay({
     if (remoteAudioRef.current) {
       const el = remoteAudioRef.current;
 
-      // ── Duplicate-audio DOM sweep ─────────────────────────────────────────
-      // Before attaching, scan every <audio> on the page. Any element OTHER than
-      // our target that already has remoteStream attached must be paused and
-      // cleared — this is the only way a duplicate remote-audio source could
-      // exist (e.g. a stale element from a previous render or a leaked ref).
-      // Duplicate remote audio would play the same voice twice, creating a
-      // chorus/doubling artefact and breaking the browser's echo-cancellation
-      // reference path.
+      // ── HARD SAFETY: full DOM audio sweep ────────────────────────────────
+      // Before attaching, stop EVERY <audio> element on the page that has a
+      // MediaStream srcObject, except our intended remote element.  This catches:
+      //   • Duplicate remote-stream elements (same or different object reference)
+      //   • Any element that somehow got localStream attached (mic feedback)
+      //   • Stale elements from a previous call that the cleanup missed
+      // Note: the singleton ringtone/ringback elements are created with `new
+      // Audio()` and NOT appended to the DOM, so querySelectorAll("audio") does
+      // NOT find them — this sweep cannot accidentally stop the ring elements.
       const allAudioEls = Array.from(document.querySelectorAll("audio")) as HTMLAudioElement[];
       allAudioEls.forEach((a) => {
-        if (a !== el && a.srcObject === remoteStream) {
-          console.log(`[CALL_FEEDBACK_FIX] duplicate remote audio removed — found stale <audio> element with remoteStream attached, pausing and clearing`, { matchId });
-          console.log(`[CALL_AUDIO] duplicate remote stream blocked`, { matchId, reason: "stale <audio> element had remoteStream attached — paused and cleared" });
+        if (a === el) return; // skip our target element
+        const srcStream = a.srcObject instanceof MediaStream ? a.srcObject : null;
+        if (srcStream !== null) {
+          const reason = srcStream === remoteStream ? "duplicate_remote_stream"
+            : (localStream && srcStream === localStream) ? "local_mic_leak"
+            : "unknown_stream_leak";
+          console.warn(`[CALL_AUDIO_SAFETY] stopping stale <audio> element with MediaStream attached`, { matchId, reason, paused: a.paused });
           a.pause();
           a.srcObject = null;
         }
+      });
+      console.log("[CALL_AUDIO_SAFETY] DOM sweep complete", {
+        matchId,
+        totalAudioEls: allAudioEls.length,
+        stoppedCount: allAudioEls.filter(a => a !== el && a.srcObject === null && !a.paused).length,
       });
 
       const existing = el.srcObject as MediaStream | null;
       const existingIds = existing?.getTracks().map(t => t.id).sort().join(",") ?? "";
       const incomingIds = remoteStream.getTracks().map(t => t.id).sort().join(",");
 
-      // Guard D: if the stream we're about to attach as "remote" has the same ID
-      // as localStream, something is critically wrong — block it and log loudly.
+      // Guard D: stream-level local-mic block
       if (localStream && remoteStream.id === localStream.id) {
         console.error("[CALL_AUDIO_ONLY] local mic blocked", {
           reason: "guard D — remoteStream.id === localStream.id, refusing to attach to audio element",
           streamId: remoteStream.id.slice(0, 16),
           matchId,
         });
-        console.error("[CALL_AUDIO] blocked local stream from audio element", {
-          streamId: remoteStream.id.slice(0, 16),
-          reason: "guard D — remoteStream.id === localStream.id",
-          matchId,
-        });
         console.error("[STREAM_AUDIT] BLOCKED local stream playback — remoteStream.id === localStream.id, not attaching to audio element!", {
           streamId: remoteStream.id,
           matchId,
         });
-      } else {
-        console.log("[STREAM_AUDIT] audio element srcObject id", {
+        return; // hard block — do not proceed to srcObject assignment
+      }
+
+      // Guard E: per-track crosscheck — verify NO individual audio track appears
+      // in both the local and remote streams.  A stream-ID mismatch (guard D)
+      // does not guarantee the tracks themselves are distinct; this check is the
+      // definitive firewall against any mic-routing bug that would cause the
+      // local microphone signal to be played back as remote audio.
+      if (localStream) {
+        const localAudioIds = new Set(localStream.getAudioTracks().map(t => t.id));
+        const overlapping = remoteStream.getAudioTracks().filter(t => localAudioIds.has(t.id));
+        if (overlapping.length > 0) {
+          console.error("[STREAM_AUDIT] BLOCKED guard E — remote audio track IDs overlap with local audio track IDs — refusing attachment", {
+            overlappingTrackIds: overlapping.map(t => t.id.slice(0, 12)),
+            matchId,
+          });
+          return; // hard block
+        }
+        console.log("[STREAM_AUDIT] guard E passed — no track-ID overlap between local and remote streams", {
+          localAudioTracks: localStream.getAudioTracks().length,
+          remoteAudioTracks: remoteStream.getAudioTracks().length,
           matchId,
-          remoteStreamId: remoteStream.id,
-          localStreamId: localStream?.id ?? "none",
-          isSameAsLocal: remoteStream.id === localStream?.id,
-          audioTracks: remoteStream.getAudioTracks().length,
-          verdict: remoteStream.id !== localStream?.id ? "OK — remote stream is distinct from local stream" : "ERROR",
         });
       }
 
+      console.log("[STREAM_AUDIT] audio element srcObject id", {
+        matchId,
+        remoteStreamId: remoteStream.id,
+        localStreamId: localStream?.id ?? "none",
+        isSameAsLocal: false,
+        audioTracks: remoteStream.getAudioTracks().length,
+        verdict: "OK — guards D + E passed",
+      });
+
       if (existingIds !== incomingIds) {
-        // Skip attaching if it matches localStream (safety net in addition to log above).
-        if (localStream && remoteStream.id === localStream.id) {
-          console.error("[STREAM_AUDIT] BLOCKED local stream playback — skipping srcObject assignment", { matchId });
-        } else {
-          console.log("[STREAM_AUDIT] audio element srcObject id", {
-            streamId: remoteStream.id,
-            audioTracks: remoteStream.getAudioTracks().length,
-            videoTracks: remoteStream.getVideoTracks().length,
-            localStreamId: localStream?.id ?? "none",
-            isSameAsLocal: remoteStream.id === localStream?.id,
-            matchId,
-          });
-          console.log("[SCREECH_FIX] audio element stream id", {
-            streamId: remoteStream.id.slice(0, 16),
-            audioTracks: remoteStream.getAudioTracks().length,
-            audioTrackIds: remoteStream.getAudioTracks().map(t => t.id.slice(0, 12)),
-            localStreamId: localStream?.id?.slice(0, 16) ?? "none",
-            isSameAsLocal: false,
-            matchId,
-          });
-          // Set playsInline as a DOM property (belt-and-suspenders for iOS Safari —
-          // JSX playsInline sets the HTML attribute but iOS may not honour it
-          // unless the DOM property is also set explicitly before play()).
-          // Stop ringtone/ringback synchronously before attaching remote audio.
-          // Belt-and-suspenders on top of the connectionState effect stop.
-          stopAllNonVoiceCallAudio("transition_before_remote_audio");
-          console.log("[CALL_FIX] non-voice audio stopped before connect", { matchId, phase: "before_srcObject" });
-          (el as any).playsInline = true;
-          el.srcObject = remoteStream;
-          el.muted = false;
-          console.log("[CALL_AUDIO] remote audio element created", {
-            matchId,
-            audioTracks: remoteStream.getAudioTracks().length,
-            videoTracks: remoteStream.getVideoTracks().length,
-            streamId: remoteStream.id.slice(0, 16),
-          });
-          console.log("[CALL_AUDIO] remote tracks count", {
-            matchId,
-            audioTracks: remoteStream.getAudioTracks().length,
-            videoTracks: remoteStream.getVideoTracks().length,
-          });
-          // Re-apply iOS volume immediately after srcObject set — iOS audio session
-          // switches when getUserMedia opens the mic, which can silently reset
-          // el.volume to 1.0 after the speaker effect's initial run on mount.
-          if (isIOS) {
-            // Re-apply iOS volume immediately after srcObject is set — iOS audio
-            // session switches when getUserMedia opens the mic, which can silently
-            // reset el.volume to 1.0 after the speaker effect's initial run on mount.
-            const vol = speakerOn ? 1.0 : 0.25;
-            el.volume = vol;
-            console.log("[CALL_FIX] iphone earpiece/default low volume", { volume: vol, speakerOn, matchId, phase: "srcObject_set" });
-          } else if (typeof (el as any).setSinkId !== "function") {
-            // Non-iOS without setSinkId (desktop Firefox/Safari) — always full volume.
-            el.volume = 1.0;
-            console.log("[CALL_FIX] laptop speaker default", { volume: 1.0, matchId, phase: "srcObject_set" });
-          }
+        // Guards D + E already verified above — safe to proceed with attachment.
+        console.log("[STREAM_AUDIT] attaching remote stream to audio element", {
+          streamId: remoteStream.id.slice(0, 16),
+          audioTracks: remoteStream.getAudioTracks().length,
+          videoTracks: remoteStream.getVideoTracks().length,
+          matchId,
+        });
+        // Stop ringtone/ringback synchronously before attaching remote audio.
+        // Belt-and-suspenders on top of the connectionState effect stop.
+        stopAllNonVoiceCallAudio("transition_before_remote_audio");
+        console.log("[CALL_FIX] non-voice audio stopped before connect", { matchId, phase: "before_srcObject" });
+        // Set playsInline as a DOM property (belt-and-suspenders for iOS Safari —
+        // JSX playsInline sets the HTML attribute but iOS may not honour it
+        // unless the DOM property is also set explicitly before play()).
+        (el as any).playsInline = true;
+        // MUTED GUARD: mute the element BEFORE setting srcObject so that the
+        // autoPlay attribute cannot produce a brief audio burst at the wrong
+        // volume during the srcObject switch.  Un-mute only after volume is set.
+        el.muted = true;
+        el.srcObject = remoteStream;
+        // Re-apply volume immediately after srcObject set — iOS audio session
+        // switches when getUserMedia opens the mic, which can silently reset
+        // el.volume to 1.0 after the speaker effect's initial run on mount.
+        if (isIOS) {
+          const vol = speakerOn ? 1.0 : 0.25;
+          el.volume = vol;
+          console.log("[CALL_FIX] iphone earpiece/default low volume applied", { volume: vol, speakerOn, matchId, phase: "srcObject_set" });
+        } else if (typeof (el as any).setSinkId !== "function") {
+          el.volume = 1.0;
+          console.log("[CALL_FIX] laptop speaker default applied", { volume: 1.0, matchId, phase: "srcObject_set" });
         }
+        el.muted = false; // un-mute only after srcObject + volume are fully set
+        console.log("[CALL_AUDIO] remote stream attached to audio element", {
+          matchId,
+          audioTracks: remoteStream.getAudioTracks().length,
+          videoTracks: remoteStream.getVideoTracks().length,
+          streamId: remoteStream.id.slice(0, 16),
+          volume: el.volume,
+          muted: el.muted,
+        });
         // Register with call-audio so cleanupCallAudio() can detach this element.
         registerCallAudioElement(el, `remote-audio:${matchId}`);
         // [SELF_AUDIO_FIX] This is the ONLY audible element during a connected call.

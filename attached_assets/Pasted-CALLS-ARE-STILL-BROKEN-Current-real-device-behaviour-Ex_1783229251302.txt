@@ -1,0 +1,119 @@
+CALLS ARE STILL BROKEN.
+
+Current real-device behaviour:
+- Extreme beeping during calls.
+- Extreme screeching during calls.
+- Audio is not usable.
+- This happens during real calls after the latest WebRTC stability pass.
+
+This is a launch blocker.
+
+Do NOT make another broad “call stability” pass.
+Do NOT say build/check passed as proof.
+Do NOT assume it is only an iOS limitation.
+
+Find the exact cause of the beeping/screeching.
+
+Focus only on audio feedback/beeping/screeching.
+
+━━━━━━━━━━━━━━━━━━━━━━
+REPRODUCE AND TRACE
+━━━━━━━━━━━━━━━━━━━━━━
+
+Use the call diagnostics that already exist.
+
+During one real call, capture:
+
+- all [CALL_AUDIO] logs
+- all [CALL_PIPELINE] logs
+- all [WEBRTC] logs
+- all [STREAM_AUDIT] logs
+- all [SCREECH_FIX] logs
+- peer connection count
+- local track IDs
+- remote track IDs
+- audio element count
+- remote stream ID
+- local stream ID
+- ringtone/ringback cleanup logs
+- audio srcObject assignments
+- audio play() calls
+- duplicate stream detection
+- duplicate audio element detection
+
+Add missing logs if needed.
+
+━━━━━━━━━━━━━━━━━━━━━━
+SPECIFIC THINGS TO PROVE
+━━━━━━━━━━━━━━━━━━━━━━
+
+1. Local mic is never played back locally.
+2. Local stream is never attached to any audible audio/video element.
+3. Remote stream is attached exactly once.
+4. There is exactly one audio element playing remote audio.
+5. There is exactly one PeerConnection.
+6. Ringtone/ringback fully stops before remote audio plays.
+7. No AudioContext oscillator/ringtone is still running.
+8. No duplicate call state creates two remote streams.
+9. No reconnect/ICE restart creates duplicate tracks.
+10. Speaker/volume state is not causing feedback loop.
+
+━━━━━━━━━━━━━━━━━━━━━━
+HARD SAFETY FIXES
+━━━━━━━━━━━━━━━━━━━━━━
+
+Implement hard runtime guards:
+
+- Before playing remote audio, stop and detach every other audio element except the intended remote audio element.
+- If localStream.id === remoteStream.id, block playback.
+- If any remote track id equals any local track id, block playback.
+- If more than one remote audio element exists, destroy extras.
+- If more than one PeerConnection exists for the same matchId, close the older one.
+- Stop ringtone/ringback immediately on answer AND before getUserMedia AND before setting remote srcObject AND before audio.play().
+- Add a 300ms silent gap between stopping ringtone and opening/playing call audio.
+- Never allow local microphone stream to be assigned to an audio element.
+
+━━━━━━━━━━━━━━━━━━━━━━
+AUDIO ROUTING
+━━━━━━━━━━━━━━━━━━━━━━
+
+For now, prioritise eliminating screeching over perfect speaker behaviour.
+
+If speaker output is causing feedback:
+- force lower output volume for audio calls by default,
+- keep speaker OFF by default,
+- only increase volume when user explicitly enables speaker,
+- document iOS limitations separately.
+
+━━━━━━━━━━━━━━━━━━━━━━
+TESTING
+━━━━━━━━━━━━━━━━━━━━━━
+
+Real-device tests required:
+
+1. Audio call iPhone ↔ laptop.
+2. Audio call iPhone ↔ iPhone if possible.
+3. Devices in same room.
+4. Devices in different rooms.
+5. End call and start again.
+6. Reconnect scenario.
+
+Success criteria:
+- no screeching,
+- no beeping,
+- voices are understandable,
+- ringtone stops cleanly,
+- no duplicate audio,
+- no self-audio feedback.
+
+Run:
+npm run check
+npm run build
+
+Report:
+1. Exact cause of screeching/beeping.
+2. Exact logs proving the cause.
+3. Files changed.
+4. Guards added.
+5. Proof from real call diagnostics that only one remote audio path exists.
+6. Any remaining true platform limitation.
