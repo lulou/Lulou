@@ -1,0 +1,104 @@
+Great — the composer layout is now fixed.
+
+The remaining issue is voice-note loading/sending.
+
+Do not touch the composer layout anymore.
+
+Focus ONLY on why voice notes still do not load/play/send after recording.
+
+Current behaviour:
+- Recording UI works.
+- Composer stays fixed.
+- Voice note bubble appears.
+- But voice notes still fail to load/play/send.
+
+Find the exact failing step.
+
+Audit the full voice-note pipeline:
+
+1. Client recording
+- blob size
+- blob type
+- duration
+- filename
+- FormData contents
+
+2. Client upload request
+- upload URL
+- method
+- auth header present
+- content-type behaviour
+- response status
+- response body
+- network exception
+
+3. Server route
+- confirm multipart/form-data is received
+- confirm file exists in request
+- confirm file size/type
+- confirm authenticated user
+- confirm matchId
+- confirm durationMs
+
+4. Storage
+- confirm Supabase bucket name
+- confirm upload path
+- confirm upload result/error
+- confirm public/signed URL generation
+
+5. Database message
+- confirm message content format
+- confirm message insert success
+- confirm returned message ID
+
+6. Playback
+- confirm audio URL is reachable from iPhone
+- confirm audio MIME type is playable on iOS
+- confirm VoiceNoteBubble receives a valid URL
+- confirm retry logic works before showing failed state
+
+Important:
+If the current pipeline uploads audio to the backend first and the backend transcodes it with FFmpeg, check whether FFmpeg is failing or producing a format iPhone cannot play.
+
+Preferred iPhone-compatible output:
+- audio/mp4
+- audio/m4a
+- AAC codec
+
+Avoid relying on:
+- webm
+- ogg
+- formats Safari cannot play
+
+Required behaviour:
+- After release, voice bubble appears instantly as sending.
+- Upload completes.
+- Bubble becomes playable.
+- Sender can play it.
+- Recipient receives it.
+- Recipient can play it.
+- Last message preview shows “🎤 Voice message”.
+- No raw URLs.
+- No “Load failed” unless all retries fail.
+- If upload fails, keep retryable local blob.
+
+Add proof logs:
+[VOICE_NOTE_PIPELINE] client blob size/type/duration
+[VOICE_NOTE_PIPELINE] upload request url/method
+[VOICE_NOTE_PIPELINE] server received multipart true/false
+[VOICE_NOTE_PIPELINE] server file size/type
+[VOICE_NOTE_PIPELINE] storage upload result
+[VOICE_NOTE_PIPELINE] final audio url
+[VOICE_NOTE_PIPELINE] db insert result
+[VOICE_NOTE_PIPELINE] playback loaded/failed
+
+Run:
+npm run check
+npm run build
+
+Report:
+- exact failing step
+- exact error/status/body
+- whether iPhone can play the produced file format
+- files changed
+- proof that sender and recipient can play the voice note on iPhone

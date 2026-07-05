@@ -776,40 +776,57 @@ function VoiceNoteBubble({ url, isMe, status, onRetry, onLoadStateChange }: {
 
   // Report load state changes to parent debug panel (noop when not in debug mode)
   useEffect(() => {
+    console.log(`[VOICE_NOTE_PIPELINE] playback loadState="${loadState}" url="${url.slice(0, 60)}"`);
     onLoadStateChange?.(loadState, url);
   }, [loadState]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const handleAudioError = () => {
+  const handleAudioError = (e: React.SyntheticEvent<HTMLAudioElement>) => {
     // While the bubble is in "sending" state, the blob URL is always valid — suppress.
     if (status === "sending") return;
+    const mediaErr = (e.target as HTMLAudioElement).error;
+    const errCode = mediaErr?.code ?? -1;
+    const errMsg = mediaErr?.message ?? "unknown";
     // For real CDN URLs, Supabase storage edge propagation can take several seconds.
     // We retry up to 5 times with a 2-second gap (10 seconds total coverage).
-    // The first error is expected right after upload — don't show anything until we know
-    // whether it's a transient CDN delay or a real failure.
     const MAX_RETRIES = 5;
     const RETRY_DELAY_MS = 2000;
     if (retryCountRef.current < MAX_RETRIES) {
       retryCountRef.current += 1;
-      console.log(`[VOICE_NOTE_SEND] playback URL error — retry ${retryCountRef.current}/${MAX_RETRIES} in ${RETRY_DELAY_MS}ms`);
+      console.log(`[VOICE_NOTE_PIPELINE] playback failed (code=${errCode} msg="${errMsg}") — retry ${retryCountRef.current}/${MAX_RETRIES} url="${url.slice(0, 60)}"`);
       setLoadState("retrying");
       retryTimerRef.current = setTimeout(() => {
         setAudioKey(k => k + 1); // remounts <audio>, triggers a fresh fetch of the CDN URL
       }, RETRY_DELAY_MS);
     } else {
-      console.error(`[VOICE_NOTE_SEND] playback URL failed after ${MAX_RETRIES} retries`);
+      console.error(`[VOICE_NOTE_PIPELINE] playback failed permanently (code=${errCode} msg="${errMsg}") after ${MAX_RETRIES} retries url="${url.slice(0, 60)}"`);
       setLoadState("error");
     }
   };
 
+  // iOS Safari ignores preload="metadata" and requires a user gesture to start loading.
+  // This means onLoadedMetadata never fires until the user taps play.
+  // We always show an interactive play button so iOS can load audio on tap.
   const toggle = () => {
     const a = document.getElementById(`vna-${audioKey}`) as HTMLAudioElement | null;
     if (!a) return;
-    if (playing) a.pause();
-    else a.play().catch(() => { if (retryCountRef.current >= 3) setLoadState("error"); });
+    if (playing) {
+      a.pause();
+    } else {
+      // On iOS, play() triggers the audio load (since preload is effectively "none").
+      // onLoadedMetadata fires when ready → loadState becomes "ready" → duration appears.
+      a.play().catch((playErr: Error) => {
+        console.error(`[VOICE_NOTE_PIPELINE] play() rejected: ${playErr.message} url="${url.slice(0, 60)}"`);
+        if (retryCountRef.current >= 3) setLoadState("error");
+      });
+    }
   };
 
   const fmt = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
   const progress = duration > 0 ? currentTime / duration : 0;
+  // Show play button whenever the audio element exists (status !== "sending"), even while
+  // loading. iOS Safari requires a user gesture to trigger audio loading, so hiding the
+  // play button during "loading" state breaks playback on iPhone — user gets stuck at spinner.
+  const showPlayBtn = status !== "sending" && status !== "failed" && loadState !== "error";
 
   return (
     <div
@@ -818,7 +835,9 @@ function VoiceNoteBubble({ url, isMe, status, onRetry, onLoadStateChange }: {
       }`}
       data-testid="voice-note-bubble"
     >
-      {/* Audio element — keyed so it remounts on retry */}
+      {/* Audio element — keyed so it remounts on retry.
+          type="audio/mp4" tells iOS Safari the format upfront so it doesn't have to probe.
+          iOS ignores preload="metadata"; loading only starts on user gesture (play button tap). */}
       {status !== "sending" && (
         <audio
           key={audioKey}
@@ -829,8 +848,20 @@ function VoiceNoteBubble({ url, isMe, status, onRetry, onLoadStateChange }: {
           onPause={() => setPlaying(false)}
           onEnded={() => { setPlaying(false); setCurrentTime(0); }}
           onLoadedMetadata={e => {
-            setDuration((e.target as HTMLAudioElement).duration || 0);
+            const d = (e.target as HTMLAudioElement).duration || 0;
+            console.log(`[VOICE_NOTE_PIPELINE] playback loaded duration=${d.toFixed(2)}s url="${url.slice(0, 60)}"`);
+            setDuration(d);
             setLoadState("ready");
+          }}
+          onCanPlay={e => {
+            // Backup for iOS: canplay fires when enough data is available to start playback.
+            // This can fire instead of / before loadedmetadata on some iOS Safari versions.
+            if (loadState !== "ready") {
+              const d = (e.target as HTMLAudioElement).duration || 0;
+              console.log(`[VOICE_NOTE_PIPELINE] playback canplay duration=${d.toFixed(2)}s url="${url.slice(0, 60)}"`);
+              setDuration(d);
+              setLoadState("ready");
+            }
           }}
           onTimeUpdate={e => setCurrentTime((e.target as HTMLAudioElement).currentTime)}
           onError={handleAudioError}
@@ -870,24 +901,6 @@ function VoiceNoteBubble({ url, isMe, status, onRetry, onLoadStateChange }: {
           </div>
           <Mic className="w-3 h-3 shrink-0 opacity-40" />
         </>
-      ) : loadState === "loading" || loadState === "retrying" ? (
-        /* ── Audio URL loading / CDN propagating (show spinner, NOT "failed") ── */
-        <>
-          <div className="w-7 h-7 rounded-full flex items-center justify-center shrink-0"
-            style={{ background: isMe ? "rgba(255,255,255,0.18)" : "rgba(0,0,0,0.08)" }}>
-            <Loader2 className="w-3.5 h-3.5 animate-spin opacity-60" />
-          </div>
-          <div className="flex-1 min-w-0 space-y-1">
-            <div className="h-1 rounded-full overflow-hidden"
-              style={{ background: isMe ? "rgba(255,255,255,0.22)" : "rgba(0,0,0,0.10)" }}>
-              <div className="h-full rounded-full w-0" />
-            </div>
-            <p className="text-[10px] opacity-40 font-mono tabular-nums">
-              {loadState === "retrying" ? "Loading…" : ""}
-            </p>
-          </div>
-          <Mic className="w-3 h-3 shrink-0 opacity-40" />
-        </>
       ) : loadState === "error" ? (
         /* ── Hard error after retries exhausted ── */
         <>
@@ -906,16 +919,32 @@ function VoiceNoteBubble({ url, isMe, status, onRetry, onLoadStateChange }: {
           </div>
           <Mic className="w-3 h-3 shrink-0 opacity-40" />
         </>
-      ) : (
-        /* ── Ready: playback UI ── */
+      ) : showPlayBtn ? (
+        /* ── Play / loading / ready state ──
+           iOS Safari ignores preload="metadata", so loadedMetadata only fires after
+           the user taps play. We show the play button immediately so iOS can load
+           audio via user gesture. While loading, a small spinner overlays the icon. */
         <>
           <button
             onClick={e => { e.stopPropagation(); toggle(); }}
-            className="w-7 h-7 rounded-full flex items-center justify-center shrink-0"
+            className="w-7 h-7 rounded-full flex items-center justify-center shrink-0 relative"
             style={{ background: isMe ? "rgba(255,255,255,0.18)" : "rgba(0,0,0,0.08)" }}
             data-testid="button-voice-note-play"
           >
-            {playing ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
+            {playing ? (
+              <Pause className="w-3.5 h-3.5" />
+            ) : loadState === "loading" || loadState === "retrying" ? (
+              /* Show play icon with subtle opacity so user knows they can tap,
+                 but a spinner sits behind to indicate it's still fetching */
+              <Play className="w-3.5 h-3.5 opacity-60" />
+            ) : (
+              <Play className="w-3.5 h-3.5" />
+            )}
+            {(loadState === "loading" || loadState === "retrying") && !playing && (
+              <span className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                <Loader2 className="w-6 h-6 animate-spin opacity-25" />
+              </span>
+            )}
           </button>
           <div className="flex-1 min-w-0 space-y-1">
             <div
@@ -936,7 +965,7 @@ function VoiceNoteBubble({ url, isMe, status, onRetry, onLoadStateChange }: {
           </div>
           <Mic className="w-3 h-3 shrink-0 opacity-40" />
         </>
-      )}
+      ) : null}
     </div>
   );
 }
@@ -2513,6 +2542,8 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
   const sendVoiceNote = useMutation({
     mutationFn: async ({ blob, mimeType, tStart }: { blob: Blob; mimeType: string; blobUrl: string; tempId: string; tStart: number }) => {
       // ── Step 1: Validate blob ──
+      const durationMs = debugLiveRef.current.blobDurationMs || 0;
+      console.log(`[VOICE_NOTE_PIPELINE] client blob size=${blob.size}B type="${blob.type}" mimeType="${mimeType}" durationMs=${durationMs}`);
       console.log(`[VOICE_NOTE_SEND] blob created size=${blob.size}B type="${blob.type}" mimeType="${mimeType}"`);
       debugLiveRef.current.blobSize = blob.size;
       debugLiveRef.current.blobType = blob.type || mimeType || "(empty)";
@@ -2568,6 +2599,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
       debugLiveRef.current.uploadBodyType = bodyType;
       debugLiveRef.current.uploadStartMs = performance.now();
       let res: Response;
+      console.log(`[VOICE_NOTE_PIPELINE] upload request url="${fullUploadUrl}" method=POST bodyType=${bodyType} isIOS=${isIOS} blobSize=${blob.size} filename="${filename}" mimeType="${mimeType}"`);
       console.log(`[VOICE_NOTE_UPLOAD] url="${fullUploadUrl}" method=POST bodyType=${bodyType} isIOS=${isIOS} blobSize=${blob.size} filename="${filename}" mimeType="${mimeType}"`);
       addDbg(`upload started bodyType=${bodyType} isIOS=${isIOS} size=${blob.size} file="${filename}"`);
       try {
