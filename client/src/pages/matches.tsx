@@ -659,11 +659,38 @@ function VoiceDebugPanel({
   ].join("\n");
 
   const handleCopy = () => {
-    const fallback = () => { prompt("Select all and copy this debug dump:", allText); };
-    if (!navigator.clipboard) { fallback(); return; }
-    navigator.clipboard.writeText(allText)
-      .then(() => { alert("✅ Copied! Paste in chat."); })
-      .catch(fallback);
+    // On iOS Safari, navigator.share() is far more reliable than clipboard.
+    // It lets the user send the dump to Notes, Messages, Mail, etc.
+    if (navigator.share) {
+      navigator.share({ title: "Voice Debug Dump", text: allText })
+        .catch(() => {
+          // User dismissed share sheet — fall through to clipboard
+          copyToClipboard();
+        });
+      return;
+    }
+    copyToClipboard();
+  };
+  const copyToClipboard = () => {
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(allText)
+        .then(() => { alert("✅ Copied! Paste in chat."); })
+        .catch(() => { fallbackCopy(); });
+    } else {
+      fallbackCopy();
+    }
+  };
+  const fallbackCopy = () => {
+    // Last resort: put text in a textarea and execCommand
+    const ta = document.createElement("textarea");
+    ta.value = allText;
+    ta.style.cssText = "position:fixed;top:0;left:0;opacity:0;";
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    try { document.execCommand("copy"); alert("✅ Copied!"); }
+    catch { prompt("Select all & copy:", allText); }
+    document.body.removeChild(ta);
   };
 
   return (
