@@ -763,6 +763,9 @@ function VoiceNoteBubble({ url, isMe, status, onRetry, onLoadStateChange }: {
   const retryCountRef = useRef(0);
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const tLoadStartRef = useRef(Date.now());
+  // Direct ref to the audio element — avoids fragile document.getElementById lookups
+  // which silently return null if the element isn't in the DOM at the exact moment of query.
+  const audioRef = useRef<HTMLAudioElement>(null);
 
   // Reset load state whenever the URL or status changes (e.g. optimistic → real message)
   useEffect(() => {
@@ -785,9 +788,11 @@ function VoiceNoteBubble({ url, isMe, status, onRetry, onLoadStateChange }: {
   const handleAudioError = (e: React.SyntheticEvent<HTMLAudioElement>) => {
     // While the bubble is in "sending" state, the blob URL is always valid — suppress.
     if (status === "sending") return;
-    const mediaErr = (e.target as HTMLAudioElement).error;
+    const a = e.target as HTMLAudioElement;
+    const mediaErr = a.error;
     const errCode = mediaErr?.code ?? -1;
     const errMsg = mediaErr?.message ?? "unknown";
+    console.error(`[VOICE_NOTE_PLAYBACK] error code=${errCode} message="${errMsg}" src="${url.slice(0, 80)}" readyState=${a.readyState} networkState=${a.networkState}`);
     // For real CDN URLs, Supabase storage edge propagation can take a moment.
     // Exponential backoff: fast first retry (500ms), backing off to 4s max.
     const RETRY_DELAYS_MS = [500, 800, 1500, 2500, 4000];
@@ -806,20 +811,30 @@ function VoiceNoteBubble({ url, isMe, status, onRetry, onLoadStateChange }: {
     }
   };
 
-  // iOS Safari ignores preload="metadata" and requires a user gesture to start loading.
-  // This means onLoadedMetadata never fires until the user taps play.
-  // We always show an interactive play button so iOS can load audio on tap.
+  // Toggle play/pause.
+  // Uses audioRef (direct React ref) — NOT document.getElementById, which was the previous
+  // silent-failure point: getElementById returned null whenever the element hadn't yet been
+  // committed to the DOM (key change cycle) or when multiple bubbles shared the same ID.
   const toggle = () => {
-    const a = document.getElementById(`vna-${audioKey}`) as HTMLAudioElement | null;
-    if (!a) return;
+    const a = audioRef.current;
+    console.log(`[VOICE_NOTE_PLAYBACK] play tapped — ref=${a ? "ok" : "NULL"} playing=${playing} loadState=${loadState} src="${url.slice(0, 80)}"`);
+    if (!a) {
+      console.error("[VOICE_NOTE_PLAYBACK] audio ref is null — element not mounted yet");
+      return;
+    }
+    console.log(`[VOICE_NOTE_PLAYBACK] audio src="${a.src.slice(0, 80)}" readyState=${a.readyState} networkState=${a.networkState} paused=${a.paused}`);
     if (playing) {
       a.pause();
     } else {
       // On iOS, play() triggers the audio load (since preload is effectively "none").
       // onLoadedMetadata fires when ready → loadState becomes "ready" → duration appears.
-      a.play().catch((playErr: Error) => {
-        console.error(`[VOICE_NOTE_PIPELINE] play() rejected: ${playErr.message} url="${url.slice(0, 60)}"`);
-        if (retryCountRef.current >= 3) setLoadState("error");
+      console.log("[VOICE_NOTE_PLAYBACK] play() called");
+      a.play().then(() => {
+        console.log("[VOICE_NOTE_PLAYBACK] play() resolved — playback started");
+      }).catch((playErr: Error) => {
+        console.error(`[VOICE_NOTE_PLAYBACK] play() rejected: ${playErr.name}: ${playErr.message}`);
+        // Any rejection is visible — show error state so user can tap to retry
+        setLoadState("error");
       });
     }
   };
@@ -839,21 +854,22 @@ function VoiceNoteBubble({ url, isMe, status, onRetry, onLoadStateChange }: {
       data-testid="voice-note-bubble"
     >
       {/* Audio element — keyed so it remounts on retry.
-          type="audio/mp4" tells iOS Safari the format upfront so it doesn't have to probe.
-          iOS ignores preload="metadata"; loading only starts on user gesture (play button tap). */}
+          ref={audioRef} gives toggle() a direct handle; no document.getElementById needed.
+          type="audio/mp4" declared on the <source> so Safari knows the codec before probing.
+          preload="auto" is set but iOS Safari ignores it; actual load starts on play(). */}
       {status !== "sending" && (
         <audio
+          ref={audioRef}
           key={audioKey}
-          id={`vna-${audioKey}`}
           src={url}
           preload="auto"
-          onPlay={() => setPlaying(true)}
+          onPlay={() => { console.log("[VOICE_NOTE_PLAYBACK] canplay fired — audio is playing"); setPlaying(true); }}
           onPause={() => setPlaying(false)}
           onEnded={() => { setPlaying(false); setCurrentTime(0); }}
           onLoadedMetadata={e => {
             const d = (e.target as HTMLAudioElement).duration || 0;
             const loadMs = Date.now() - tLoadStartRef.current;
-            console.log(`[VOICE_NOTE_PIPELINE] playback loaded duration=${d.toFixed(2)}s url="${url.slice(0, 60)}"`);
+            console.log(`[VOICE_NOTE_PLAYBACK] canplay fired — loadedMetadata duration=${d.toFixed(2)}s loadMs=${loadMs}ms`);
             console.log(`[VOICE_NOTE_SPEED] audio canplay — loadMs=${loadMs}ms duration=${d.toFixed(2)}s`);
             setDuration(d);
             setLoadState("ready");
@@ -864,7 +880,7 @@ function VoiceNoteBubble({ url, isMe, status, onRetry, onLoadStateChange }: {
             if (loadState !== "ready") {
               const d = (e.target as HTMLAudioElement).duration || 0;
               const loadMs = Date.now() - tLoadStartRef.current;
-              console.log(`[VOICE_NOTE_PIPELINE] playback canplay duration=${d.toFixed(2)}s url="${url.slice(0, 60)}"`);
+              console.log(`[VOICE_NOTE_PLAYBACK] canplay fired — canPlay duration=${d.toFixed(2)}s loadMs=${loadMs}ms`);
               console.log(`[VOICE_NOTE_SPEED] audio canplay — loadMs=${loadMs}ms duration=${d.toFixed(2)}s`);
               setDuration(d);
               setLoadState("ready");
