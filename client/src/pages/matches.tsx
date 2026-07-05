@@ -2279,12 +2279,11 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
         debugLiveRef.current.blobType = blob.type || actualMimeType || "(empty)";
         addDbg(`onstop blob=${blob.size}B type="${blob.type || "(empty)"}" actual="${actualMimeType}"`);
         if (blob.size === 0) {
-          // iOS Safari sometimes fires onstop BEFORE the final ondataavailable chunk.
-          // In this case the blob is empty. We show an error so the user knows to retry.
-          console.error("[VOICE_NOTE_SEND] blob size=0 — recording produced no audio (iOS timing bug?)");
+          // MediaRecorder produced no data — genuine failure (e.g. mic denied mid-session).
+          console.error("[VOICE_NOTE_SEND] blob size=0 — recording produced no audio");
           debugLiveRef.current.uploadStatus = "FAILED: blob=0B";
-          addDbg(`FAIL blob.size=0 (iOS ondataavailable timing bug?)`);
-          toast({ title: "Recording failed — please try again", description: "Hold the mic for at least 1 second.", variant: "destructive" });
+          addDbg(`FAIL blob.size=0 — no audio captured`);
+          toast({ title: "Recording failed. Please try again.", variant: "destructive" });
           return;
         }
         if (blob.size > 0) {
@@ -2565,8 +2564,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
       debugLiveRef.current.uploadStatus = "validating";
       debugLiveRef.current.uploadError = "";
       addDbg(`blob size=${blob.size}B type="${blob.type || "(empty)"}" mime="${mimeType}"`);
-      if (blob.size === 0) throw new Error("Recording produced no audio. Please try again.");
-      if (blob.size < 200) throw new Error("Recording too short — hold the mic for at least 0.5 seconds.");
+      if (blob.size === 0) throw new Error("Recording failed. Please try again.");
       if (blob.size > 3_000_000) throw new Error("Recording too large (max ~60 seconds). Please try again.");
 
       // ── Step 2: Fetch auth headers ──

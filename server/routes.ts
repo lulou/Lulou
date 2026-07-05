@@ -3135,9 +3135,6 @@ export async function registerRoutes(
 
       console.log(`[VOICE_NOTE_SPEED] recording stopped — server received size=${audioBuffer.length}B mimeType=${mimeType} receiveMs=${Date.now() - tReceive}ms`);
 
-      if (audioBuffer.length < 1_000) {
-        return res.status(400).json({ message: "Recording too short. Please try again." });
-      }
       if (audioBuffer.length > 10_000_000) {
         return res.status(400).json({ message: "Audio file too large (max 10 MB)" });
       }
