@@ -80,13 +80,7 @@ export async function transcodeToM4a(
 
   if (isMp4) {
     console.log(`[VOICE_NOTE_PIPELINE] transcode skipped — already MP4/AAC (no FFmpeg needed)`);
-    // Run a probe so we can log codec/container info even on the skip path
-    const id = randomBytes(8).toString("hex");
-    const probePath = join(tmpdir(), `vn_${id}_probe.mp4`);
-    await writeFile(probePath, inputBuffer);
-    const probeOut = await probeWithFfmpeg(probePath);
-    await unlink(probePath).catch(() => {});
-    console.log(`[VOICE_NOTE_PIPELINE] ffprobe output:\n${probeOut}`);
+    console.log(`[VOICE_NOTE_SPEED] transcode=skipped format=MP4 size=${inputBuffer.length}B`);
     return inputBuffer;
   }
 

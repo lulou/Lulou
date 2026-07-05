@@ -3133,21 +3133,7 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Audio data is required" });
       }
 
-      console.log(`[VOICE_NOTE_SPEED] recording stopped → server received size=${audioBuffer.length}B mimeType=${mimeType} receiveMs=${Date.now() - tReceive}`);
-
-      const match = await storage.getMatchMeta(matchId, userId);
-      if (!match) return res.status(404).json({ message: "Match not found" });
-
-      const otherUserId = match.user1Id === userId ? match.user2Id : match.user1Id;
-
-      const [myUnlock, theirUnlock] = await Promise.all([
-        db.select().from(userBenefits).where(and(eq(userBenefits.userId, userId), eq(userBenefits.type, "voice_notes_unlock"))).limit(1),
-        db.select().from(userBenefits).where(and(eq(userBenefits.userId, otherUserId), eq(userBenefits.type, "voice_notes_unlock"))).limit(1),
-      ]);
-
-      if (myUnlock.length === 0 && theirUnlock.length === 0) {
-        return res.status(403).json({ message: "Voice Notes Unlock required. Purchase from Lulou Extras." });
-      }
+      console.log(`[VOICE_NOTE_SPEED] recording stopped — server received size=${audioBuffer.length}B mimeType=${mimeType} receiveMs=${Date.now() - tReceive}ms`);
 
       if (audioBuffer.length < 1_000) {
         return res.status(400).json({ message: "Recording too short. Please try again." });
@@ -3156,28 +3142,44 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Audio file too large (max 10 MB)" });
       }
 
+      const tMatchMeta = Date.now();
+      const match = await storage.getMatchMeta(matchId, userId);
+      if (!match) return res.status(404).json({ message: "Match not found" });
+      const otherUserId = match.user1Id === userId ? match.user2Id : match.user1Id;
+      console.log(`[VOICE_NOTE_SPEED] upload started — matchMetaMs=${Date.now() - tMatchMeta}ms`);
+
       const safeMime = mimeType.length < 100 ? mimeType : "audio/webm";
 
-      // ── Transcode to AAC/M4A ──────────────────────────────────────────────────
-      // iOS fast path: audio/mp4 is already AAC — remux only (copy codec, ~50 ms).
-      // Chrome/Android: re-encode WebM→AAC at 32 kbps / 16 kHz mono (~300-800 ms).
+      // ── Entitlement check + transcode in parallel ─────────────────────────────
+      // iOS fast path: transcodeToM4a returns inputBuffer immediately (0 ms, no FFmpeg).
+      // Running entitlement DB query concurrently with the transcode saves ~50 ms.
+      const tProcess = Date.now();
+      console.log(`[VOICE_NOTE_PIPELINE] transcode started safeMime=${safeMime} inputSize=${audioBuffer.length}`);
       let outputBuffer: Buffer;
+      let myUnlock: any[], theirUnlock: any[];
       try {
-        const t0 = Date.now();
-        console.log(`[VOICE_NOTE_PIPELINE] transcode started safeMime=${safeMime} inputSize=${audioBuffer.length}`);
-        console.log(`[VOICE_NOTE_SPEED] upload started (transcode) safeMime=${safeMime}`);
-        outputBuffer = await transcodeToM4a(audioBuffer, safeMime);
-        const transcodeMs = Date.now() - t0;
-        console.log(`[VOICE_NOTE_PIPELINE] transcode complete outputSize=${outputBuffer.length}B transcodeMs=${transcodeMs}`);
-        console.log(`[VOICE_NOTE_SPEED] upload complete (transcode+storage) ${audioBuffer.length}B→${outputBuffer.length}B transcodeMs=${transcodeMs}`);
+        [[myUnlock, theirUnlock], outputBuffer] = await Promise.all([
+          Promise.all([
+            db.select().from(userBenefits).where(and(eq(userBenefits.userId, userId), eq(userBenefits.type, "voice_notes_unlock"))).limit(1),
+            db.select().from(userBenefits).where(and(eq(userBenefits.userId, otherUserId), eq(userBenefits.type, "voice_notes_unlock"))).limit(1),
+          ]),
+          transcodeToM4a(audioBuffer, safeMime),
+        ]);
       } catch (transcodeErr: any) {
         console.error(`[VOICE_NOTE_PIPELINE] transcode error safeMime="${safeMime}" error="${transcodeErr.message}"`);
         console.error(`[VOICE] TRANSCODE_FAIL safeMime=${safeMime} error="${transcodeErr.message}"`);
         return res.status(500).json({ message: "Failed to process audio. Please try again." });
       }
+      const processMs = Date.now() - tProcess;
+      console.log(`[VOICE_NOTE_PIPELINE] transcode complete outputSize=${outputBuffer.length}B processMs=${processMs}`);
+      console.log(`[VOICE_NOTE_SPEED] upload complete — transcodeMs=${processMs}ms size=${audioBuffer.length}B→${outputBuffer.length}B`);
+
+      if (myUnlock.length === 0 && theirUnlock.length === 0) {
+        return res.status(403).json({ message: "Voice Notes Unlock required. Purchase from Lulou Extras." });
+      }
 
       const filePath = `${matchId}/${Date.now()}_${userId}.m4a`;
-      const tUpload = Date.now();
+      const tStorage = Date.now();
       console.log(`[VOICE_NOTE_PIPELINE] storage upload started path="${filePath}" size=${outputBuffer.length}`);
 
       const { error: uploadError } = await supabaseAdmin.storage
@@ -3202,13 +3204,14 @@ export async function registerRoutes(
           return res.status(500).json({ message: "Failed to upload voice note. Please try again." });
         }
       }
-      const storageMs = Date.now() - tUpload;
+      const storageMs = Date.now() - tStorage;
       console.log(`[VOICE_NOTE_PIPELINE] storage upload complete path="${filePath}" size=${outputBuffer.length}B storageMs=${storageMs}`);
-      console.log(`[VOICE_NOTE_SPEED] upload complete (storage only) storageMs=${storageMs}`);
+      console.log(`[VOICE_NOTE_SPEED] server processed — storageMs=${storageMs}ms`);
 
       const { data: urlData } = supabaseAdmin.storage.from("voice-notes").getPublicUrl(filePath);
       const publicUrl = urlData.publicUrl;
       console.log(`[VOICE_NOTE_PIPELINE] final audio url=${publicUrl}`);
+      console.log(`[VOICE_NOTE_SPEED] playback url ready — url=${publicUrl}`);
 
       const tInsert = Date.now();
       console.log(`[VOICE_NOTE_PIPELINE] db insert started`);
@@ -3222,12 +3225,12 @@ export async function registerRoutes(
         console.log(`[VOICE_NOTE_PIPELINE] db insert complete messageId=${message?.id} insertMs=${Date.now() - tInsert}`);
       } catch (dbErr: any) {
         console.error(`[VOICE_NOTE_PIPELINE] db insert error="${dbErr.message}"`);
-        console.error(`[VOICE_NOTE_SPEED] message inserted FAILED insertMs=${Date.now() - tInsert}`);
+        console.error(`[VOICE_NOTE_SPEED] db inserted FAILED insertMs=${Date.now() - tInsert}ms`);
         return res.status(500).json({ message: "Failed to save voice note. Please try again." });
       }
-      console.log(`[VOICE_NOTE_SPEED] message inserted insertMs=${Date.now() - tInsert} totalMs=${Date.now() - tReceive} messageId=${message?.id}`);
-
-      console.log(`[VOICE_NOTE_PIPELINE] response returned status=200 totalMs=${Date.now() - tReceive}`);
+      const totalMs = Date.now() - tReceive;
+      console.log(`[VOICE_NOTE_SPEED] db inserted — insertMs=${Date.now() - tInsert}ms totalMs=${totalMs}ms messageId=${message?.id}`);
+      console.log(`[VOICE_NOTE_PIPELINE] response returned status=200 totalMs=${totalMs}`);
       res.json({ success: true, message });
     } catch (err: any) {
       console.error("[VOICE] ERROR:", err.message);

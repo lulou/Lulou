@@ -762,6 +762,7 @@ function VoiceNoteBubble({ url, isMe, status, onRetry, onLoadStateChange }: {
   const [audioKey, setAudioKey] = useState(0);
   const retryCountRef = useRef(0);
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const tLoadStartRef = useRef(Date.now());
 
   // Reset load state whenever the URL or status changes (e.g. optimistic → real message)
   useEffect(() => {
@@ -770,6 +771,7 @@ function VoiceNoteBubble({ url, isMe, status, onRetry, onLoadStateChange }: {
     setCurrentTime(0);
     setPlaying(false);
     retryCountRef.current = 0;
+    tLoadStartRef.current = Date.now();
     setAudioKey(k => k + 1);
     return () => { if (retryTimerRef.current) clearTimeout(retryTimerRef.current); };
   }, [url]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -786,17 +788,18 @@ function VoiceNoteBubble({ url, isMe, status, onRetry, onLoadStateChange }: {
     const mediaErr = (e.target as HTMLAudioElement).error;
     const errCode = mediaErr?.code ?? -1;
     const errMsg = mediaErr?.message ?? "unknown";
-    // For real CDN URLs, Supabase storage edge propagation can take several seconds.
-    // We retry up to 5 times with a 2-second gap (10 seconds total coverage).
-    const MAX_RETRIES = 5;
-    const RETRY_DELAY_MS = 2000;
+    // For real CDN URLs, Supabase storage edge propagation can take a moment.
+    // Exponential backoff: fast first retry (500ms), backing off to 4s max.
+    const RETRY_DELAYS_MS = [500, 800, 1500, 2500, 4000];
+    const MAX_RETRIES = RETRY_DELAYS_MS.length;
     if (retryCountRef.current < MAX_RETRIES) {
+      const delayMs = RETRY_DELAYS_MS[retryCountRef.current];
       retryCountRef.current += 1;
-      console.log(`[VOICE_NOTE_PIPELINE] playback failed (code=${errCode} msg="${errMsg}") — retry ${retryCountRef.current}/${MAX_RETRIES} url="${url.slice(0, 60)}"`);
+      console.log(`[VOICE_NOTE_PIPELINE] playback failed (code=${errCode} msg="${errMsg}") — retry ${retryCountRef.current}/${MAX_RETRIES} in ${delayMs}ms url="${url.slice(0, 60)}"`);
       setLoadState("retrying");
       retryTimerRef.current = setTimeout(() => {
         setAudioKey(k => k + 1); // remounts <audio>, triggers a fresh fetch of the CDN URL
-      }, RETRY_DELAY_MS);
+      }, delayMs);
     } else {
       console.error(`[VOICE_NOTE_PIPELINE] playback failed permanently (code=${errCode} msg="${errMsg}") after ${MAX_RETRIES} retries url="${url.slice(0, 60)}"`);
       setLoadState("error");
@@ -843,13 +846,15 @@ function VoiceNoteBubble({ url, isMe, status, onRetry, onLoadStateChange }: {
           key={audioKey}
           id={`vna-${audioKey}`}
           src={url}
-          preload="metadata"
+          preload="auto"
           onPlay={() => setPlaying(true)}
           onPause={() => setPlaying(false)}
           onEnded={() => { setPlaying(false); setCurrentTime(0); }}
           onLoadedMetadata={e => {
             const d = (e.target as HTMLAudioElement).duration || 0;
+            const loadMs = Date.now() - tLoadStartRef.current;
             console.log(`[VOICE_NOTE_PIPELINE] playback loaded duration=${d.toFixed(2)}s url="${url.slice(0, 60)}"`);
+            console.log(`[VOICE_NOTE_SPEED] audio canplay — loadMs=${loadMs}ms duration=${d.toFixed(2)}s`);
             setDuration(d);
             setLoadState("ready");
           }}
@@ -858,7 +863,9 @@ function VoiceNoteBubble({ url, isMe, status, onRetry, onLoadStateChange }: {
             // This can fire instead of / before loadedmetadata on some iOS Safari versions.
             if (loadState !== "ready") {
               const d = (e.target as HTMLAudioElement).duration || 0;
+              const loadMs = Date.now() - tLoadStartRef.current;
               console.log(`[VOICE_NOTE_PIPELINE] playback canplay duration=${d.toFixed(2)}s url="${url.slice(0, 60)}"`);
+              console.log(`[VOICE_NOTE_SPEED] audio canplay — loadMs=${loadMs}ms duration=${d.toFixed(2)}s`);
               setDuration(d);
               setLoadState("ready");
             }
@@ -2546,6 +2553,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
       const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as any).MSStream;
       const filename = mimeType.includes("mp4") ? "voice.m4a" : mimeType.includes("ogg") ? "voice.ogg" : "voice.webm";
 
+      console.log(`[VOICE_NOTE_SPEED] recording stopped — blobSize=${blob.size}B mimeType="${mimeType}" durationMs=${durationMs}`);
       console.log(`[VOICE_NOTE_PIPELINE] recording stopped`);
       console.log(`[VOICE_NOTE_PIPELINE] blob size=${blob.size}`);
       console.log(`[VOICE_NOTE_PIPELINE] blob type=${blob.type || "(empty)"}`);
@@ -2590,6 +2598,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
       formData.append("mimeType", mimeType);
       formData.append("durationMs", String(durationMs));
 
+      console.log(`[VOICE_NOTE_SPEED] upload started — blobSize=${blob.size}B url="${fullUploadUrl.slice(-60)}"`);
       console.log(`[VOICE_NOTE_PIPELINE] upload url=${fullUploadUrl}`);
       console.log(`[VOICE_NOTE_PIPELINE] upload method=POST`);
       console.log(`[VOICE_NOTE_PIPELINE] body type=FormData`);
@@ -2628,6 +2637,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
 
       const uploadMs = Math.round(performance.now() - tUpload);
       const respCt = res.headers.get("content-type") || "(none)";
+      console.log(`[VOICE_NOTE_SPEED] upload complete — status=${res.status} uploadMs=${uploadMs}ms`);
       console.log(`[VOICE_NOTE_PIPELINE] response status=${res.status}`);
       console.log(`[VOICE_NOTE_PIPELINE] response content-type=${respCt}`);
       debugLiveRef.current.uploadStatus = `HTTP ${res.status} (${uploadMs}ms)`;
@@ -2651,18 +2661,37 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
       // ── Step 6: Verify message was inserted ──
       const messageId = data?.message?.id;
       const publicUrl = data?.message?.content?.startsWith("__VOICE__:") ? data.message.content.slice(10) : "(no url)";
-      console.log(`[VOICE_NOTE_SEND] message inserted id=${messageId} url="${publicUrl}" totalMs=${Math.round(performance.now() - tStart)}`);
+      const totalMs = Math.round(performance.now() - tStart);
+      console.log(`[VOICE_NOTE_SPEED] server processed — response parsed totalMs=${totalMs}ms`);
+      console.log(`[VOICE_NOTE_SEND] message inserted id=${messageId} url="${publicUrl}" totalMs=${totalMs}`);
       debugLiveRef.current.insertStatus = messageId ? `ok id=${messageId}` : "WARN: no message obj";
       addDbg(`insert ${messageId ? "ok id=" + messageId : "WARN: no msg"} url="${publicUrl.slice(0,60)}"`);
       if (!data?.message) {
         console.warn(`[VOICE_NOTE_SEND] server returned success but no message object`);
       }
+
+      // ── Preload CDN URL immediately so it's cached before bubble mounts ──
+      // The VoiceNoteBubble will mount with the CDN URL right after this returns.
+      // Starting the fetch now gives the browser a head-start, reducing or eliminating
+      // the CDN propagation wait that causes the initial "loading" state.
+      if (publicUrl !== "(no url)") {
+        console.log(`[VOICE_NOTE_SPEED] playback url ready — preloading CDN url now`);
+        try {
+          const preloadAudio = new Audio();
+          preloadAudio.preload = "auto";
+          preloadAudio.src = publicUrl;
+          preloadAudio.load();
+        } catch { /* ignore preload errors — bubble will retry normally */ }
+      }
+
+      console.log(`[VOICE_NOTE_SPEED] total ms — ${totalMs}ms from recording stopped to CDN preload started`);
       return data;
     },
     onSuccess: (data: any, vars) => {
       const realMsg = data?.message as Message | undefined;
-      // Revoke the temporary blob URL to free memory
-      URL.revokeObjectURL(vars.blobUrl);
+      // Delay blob URL revoke by 15s — the CDN preload audio element references it and the
+      // browser may still be mid-fetch. Revoking immediately cuts that off on some browsers.
+      setTimeout(() => URL.revokeObjectURL(vars.blobUrl), 15_000);
       if (realMsg) {
         // Atomically replace pending entry with the real server message in the cache
         queryClient.setQueryData<MatchDetail>(["/api/matches", match.id], (old) => {
