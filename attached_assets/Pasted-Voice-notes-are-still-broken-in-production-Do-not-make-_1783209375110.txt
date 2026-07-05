@@ -1,0 +1,165 @@
+Voice notes are still broken in production. Do not make another blind fix. Use the screenshots and isolate the exact two root causes.
+
+There are TWO separate unresolved bugs:
+
+1. The composer/message bar drops and reflows while recording.
+2. Voice note upload fails after recording with “Load failed”.
+
+Treat these as separate bugs and solve them independently.
+
+━━━━━━━━━━━━━━━━━━━━━━
+BUG 1 — COMPOSER DROPS WHILE RECORDING
+━━━━━━━━━━━━━━━━━━━━━━
+
+Current behaviour:
+When I hold the mic, the normal message bar disappears/reflows and the recording UI appears lower. The composer drops down and the whole bottom area moves.
+
+Correct behaviour:
+Voice notes should behave like WhatsApp/iMessage/Instagram:
+
+- Press and hold mic.
+- The composer stays in the exact same position.
+- The message input stays mounted.
+- The composer height does not change.
+- Conversation starters do not move.
+- Send button does not jump.
+- Keyboard does not dismiss.
+- Only the mic icon should visually react: scale/glow/recording colour.
+- Timer/waveform must appear inside the existing input/composer area as an overlay, not as a new row underneath.
+- Do not switch to a separate recording composer.
+- Do not conditionally replace the whole composer layout when isRecording=true.
+
+Find the exact JSX/CSS/state causing the reflow.
+
+Audit:
+- isRecording conditional JSX
+- composer wrapper height
+- bottom safe-area padding
+- keyboard/visualViewport handlers
+- textarea blur/focus
+- touchstart/pointerdown handlers
+- conversation starter visibility
+- recording waveform placement
+- flex/grid layout changes
+- margin/padding/bottom/position/transform changes while recording
+
+Required implementation:
+- One single composer layout path.
+- Same wrapper mounted at all times.
+- Lock composer height and bottom position.
+- Render recording UI inside the existing input box using absolute overlay.
+- Keep input focused while recording.
+- Use preventDefault on mic pointerdown/touchstart where needed to stop iOS blur.
+- Composer rect before/during/after recording must be identical.
+
+Add proof logs:
+[VOICE_NOTE_LAYOUT] before rect top bottom height
+[VOICE_NOTE_LAYOUT] during rect top bottom height
+[VOICE_NOTE_LAYOUT] after rect top bottom height
+[VOICE_NOTE_LAYOUT] input focused true/false
+[VOICE_NOTE_LAYOUT] keyboard visible true/false
+
+━━━━━━━━━━━━━━━━━━━━━━
+BUG 2 — VOICE NOTE UPLOAD FAILS
+━━━━━━━━━━━━━━━━━━━━━━
+
+Current behaviour:
+Recording starts and creates a bubble, but upload fails with:
+“Connection error — tap the bubble to retry. (Load failed)”
+
+This means recording likely succeeds, but the upload/send pipeline fails after recording.
+
+Do not hide the error. Find the exact failing step.
+
+Trace one full upload from start to finish:
+
+- mic pressed
+- recording started
+- recording stopped
+- MediaRecorder state
+- blob created
+- blob size
+- blob type
+- blob duration
+- upload request URL
+- upload request method
+- upload request headers/content-type
+- auth header present true/false
+- fetch started
+- fetch exception if any
+- response status
+- response content-type
+- response body first 300 chars
+- server receives file true/false
+- Supabase storage upload result
+- signed/public URL result
+- database message insert result
+- optimistic message reconciliation
+- playback URL verification
+- recipient realtime delivery
+
+Add logs:
+[VOICE_NOTE_UPLOAD] blob size/type/duration
+[VOICE_NOTE_UPLOAD] request url/method/content-type
+[VOICE_NOTE_UPLOAD] auth header present
+[VOICE_NOTE_UPLOAD] fetch started
+[VOICE_NOTE_UPLOAD] fetch failed
+[VOICE_NOTE_UPLOAD] response status/body
+[VOICE_NOTE_UPLOAD] storage upload started/complete/error
+[VOICE_NOTE_UPLOAD] message insert started/complete/error
+[VOICE_NOTE_UPLOAD] playback url verified/failed
+
+Required behaviour:
+- If upload fails, keep the local recording.
+- Show “Couldn’t send voice message. Tap to retry.”
+- Never show raw “Load failed” to normal users.
+- Retry must reuse the original local audio blob.
+- Do not lose the recording.
+- If upload succeeds, playback must work.
+- Recipient must receive the voice note.
+- Last message preview must show “🎤 Voice message”, never raw URL.
+
+Investigate likely causes:
+- iOS fetch body issue
+- wrong blob type
+- empty blob
+- wrong upload endpoint
+- API_BASE_URL mismatch
+- auth header missing
+- 401/403/404/500
+- CORS/network failure
+- Supabase storage bucket/path issue
+- server route parsing issue
+- FFmpeg/transcode issue
+- signed URL/public URL issue
+- optimistic message being replaced incorrectly
+
+━━━━━━━━━━━━━━━━━━━━━━
+VALIDATION
+━━━━━━━━━━━━━━━━━━━━━━
+
+Do not mark complete because npm run check/build pass.
+
+Required real iPhone test:
+1. Open chat.
+2. Tap input so keyboard is open.
+3. Hold mic.
+4. Composer must not move even 1px.
+5. Release mic.
+6. Voice note sends automatically.
+7. Sender can play it.
+8. Recipient receives it.
+9. Recipient can play it.
+10. Repeat 10 times on iPhone.
+11. Test Wi-Fi and mobile data.
+
+Run:
+npm run check
+npm run build
+
+Report:
+- Exact JSX/CSS/state that caused composer movement.
+- Exact upload request/failing step causing “Load failed”.
+- Files changed.
+- Proof from logs that composer rect stays identical.
+- Proof from logs that voice note upload succeeds end-to-end.

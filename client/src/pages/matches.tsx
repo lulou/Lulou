@@ -2230,6 +2230,11 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
     }
     stopWaveform();
     stopRecordingTimer();
+    // Release composer height lock (applied synchronously in onPointerDown).
+    // Must be cleared BEFORE setIsRecording(false) so the composer height
+    // never flickers — the lock kept it stable during recording, and clearing
+    // it now lets the element return to its natural (same) height.
+    if (composerRef.current) composerRef.current.style.minHeight = "";
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
       mediaRecorderRef.current.stop();
     }
@@ -2250,6 +2255,8 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
   const cancelRecording = () => {
     stopWaveform();
     stopRecordingTimer();
+    // Release composer height lock.
+    if (composerRef.current) composerRef.current.style.minHeight = "";
     const mr = mediaRecorderRef.current;
     if (mr && mr.state !== "inactive") {
       mr.ondataavailable = null;
@@ -2361,10 +2368,12 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
     addDbg(`inputFocused → ${inputFocused}`);
   }, [inputFocused]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Snapshot composer rect + position-lock during recording.
-  // When isRecording becomes true:  lock composer with position:fixed so no layout
-  //   change (keyboard close, DOM insertion) can move it.
-  // When isRecording becomes false: release the lock and log the final rect.
+  // Log recording state transitions + proof that composer rect is stable.
+  // DO NOT apply position:fixed here — that removes the element from normal flow,
+  // collapses its parent, expands the message list, and IS the visual "drop" bug.
+  // Height-lock is applied synchronously in onPointerDown (before any React state
+  // change) via composerRef.current.style.minHeight, and released in
+  // stopRecording() / cancelRecording().
   useEffect(() => {
     const el = composerRef.current;
     const r = el?.getBoundingClientRect();
@@ -2374,35 +2383,12 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
     const vpTxt = ` VP.h=${vpH} VP.ot=${vpOT}`;
 
     if (isRecording && el && r) {
-      // ── 1. Snapshot DURING rect BEFORE applying fixed positioning ───────────
       const txt = `top=${Math.round(r.top)} bot=${Math.round(r.bottom)} h=${Math.round(r.height)}`;
       debugLiveRef.current.composerDuring = txt + vpTxt;
       const typingRect = debugLiveRef.current.composerBefore || "(not captured)";
       console.log(`[VOICE_NOTE_LAYOUT] typingRect=${typingRect} recordingRect=${txt}${vpTxt} keyboardOpen=${keyboardOpen} inputFocused=${inputFocusedRef.current} visualViewportHeight=${vpH} visualViewportOffsetTop=${vpOT}`);
       addDbg(`DURING: ${txt}${vpTxt} kb=${keyboardOpen} focused=${inputFocusedRef.current}`);
-
-      // ── 2. Position-lock: pin the composer at its current visual position ───
-      // iOS may close the keyboard during the async getUserMedia gap, which
-      // causes a viewport resize → layout reflow → composer drops.
-      // Locking with position:fixed + computed bottom prevents any movement
-      // regardless of what happens to the keyboard or viewport after this point.
-      const bottomFromVp = vpH - r.bottom; // distance from composer bottom to VP bottom
-      el.style.position = "fixed";
-      el.style.bottom = `${Math.max(0, bottomFromVp)}px`;
-      el.style.left = "0";
-      el.style.right = "0";
-      el.style.zIndex = "50";
-      el.style.background = "hsl(var(--background))";
     } else if (el) {
-      // ── 3. Release lock ─────────────────────────────────────────────────────
-      el.style.position = "";
-      el.style.bottom = "";
-      el.style.left = "";
-      el.style.right = "";
-      el.style.zIndex = "";
-      el.style.background = "";
-
-      // Snapshot AFTER rect (now back in normal flow)
       const r2 = el.getBoundingClientRect();
       const txt2 = `top=${Math.round(r2.top)} bot=${Math.round(r2.bottom)} h=${Math.round(r2.height)}`;
       debugLiveRef.current.composerAfter = txt2 + vpTxt;
@@ -2446,30 +2432,83 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
         throw new Error(`Auth error — please refresh and try again: ${authErr.message}`);
       }
 
-      // ── Step 3: Upload blob directly to server ────────────────────────────────
+      // ── Step 3: Upload blob to server ─────────────────────────────────────────
       const contentType = mimeType || "audio/webm";
-      console.log(`[VOICE_NOTE_SEND] fetch POST url="${fullUploadUrl}" contentType="${contentType}" blobSize=${blob.size} authPresent=${!!authHeaders.Authorization || !!authHeaders.authorization}`);
-      addDbg(`fetch: url="${fullUploadUrl.slice(-40)}" ct="${contentType}" auth=${!!(authHeaders.Authorization || authHeaders.authorization)}`);
+      const authPresent = !!(authHeaders.Authorization || authHeaders.authorization);
+      console.log(`[VOICE_NOTE_UPLOAD] request url="${fullUploadUrl}" method=POST content-type="${contentType}" blobSize=${blob.size} auth=${authPresent}`);
+      addDbg(`upload: url="${fullUploadUrl.slice(-40)}" ct="${contentType}" auth=${authPresent}`);
+
+      // iOS Safari has two documented bugs with fetch() for binary uploads:
+      //   1. body: ArrayBuffer → always "Load failed" (fixed previously)
+      //   2. body: Blob + Authorization header → "Load failed" on many iOS versions
+      //      because iOS URLSession decides to reject the non-simple CORS request
+      //      even on same-origin, or aborts during streaming of large Blobs.
+      // XMLHttpRequest does NOT share these bugs — it has been the reliable path
+      // for binary uploads on iOS since iOS 5. We use XHR on iOS and fetch elsewhere.
+      const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as any).MSStream;
       let res: Response;
+      console.log(`[VOICE_NOTE_UPLOAD] fetch started isIOS=${isIOS}`);
+      addDbg(`fetch started isIOS=${isIOS}`);
       try {
-        res = await fetch(fullUploadUrl, {
-          method: "POST",
-          headers: {
-            ...authHeaders,
-            "Content-Type": contentType,
-            "X-Voice-Mime": contentType,
-          },
-          body: blob, // Send Blob directly — never ArrayBuffer on iOS
-        });
-      } catch (fetchErr: any) {
-        // "Load failed" = iOS Safari network/CORS/ArrayBuffer bug.
-        // "Failed to fetch" = Chrome network error.
-        // Keep the recording in pendingVoiceNotes (status=failed) so user can retry.
-        const errMsg = fetchErr.message || "unknown";
-        debugLiveRef.current.uploadError = `fetch threw: ${errMsg}`;
-        addDbg(`fetch THREW: "${errMsg}"`);
-        console.error(`[VOICE_NOTE_SEND] fetch threw: "${errMsg}" url="${fullUploadUrl}"`);
-        throw new Error(`Connection error — tap the bubble to retry. (${errMsg})`);
+        if (isIOS) {
+          // XHR path — reliable binary upload on iOS Safari
+          res = await new Promise<Response>((resolve, reject) => {
+            const xhr = new XMLHttpRequest();
+            xhr.open("POST", fullUploadUrl, true);
+            xhr.timeout = 90_000; // 90 s — large files on slow connections
+            // Set all request headers
+            xhr.setRequestHeader("Content-Type", contentType);
+            xhr.setRequestHeader("X-Voice-Mime", contentType);
+            if (authHeaders.Authorization) xhr.setRequestHeader("Authorization", authHeaders.Authorization);
+            if (authHeaders.authorization) xhr.setRequestHeader("authorization", authHeaders.authorization);
+            xhr.onload = () => {
+              console.log(`[VOICE_NOTE_UPLOAD] XHR response status=${xhr.status}`);
+              addDbg(`XHR onload status=${xhr.status}`);
+              // Build a Response object from the XHR result so downstream
+              // code can call res.ok, res.status, res.json() identically.
+              resolve(new Response(xhr.responseText, {
+                status: xhr.status,
+                headers: { "content-type": "application/json" },
+              }));
+            };
+            xhr.onerror = () => {
+              const msg = xhr.statusText || "XHR network error";
+              console.error(`[VOICE_NOTE_UPLOAD] XHR onerror: "${msg}"`);
+              addDbg(`XHR onerror: "${msg}"`);
+              reject(new Error(msg));
+            };
+            xhr.ontimeout = () => {
+              console.error(`[VOICE_NOTE_UPLOAD] XHR timeout after 90s`);
+              addDbg(`XHR timeout after 90s`);
+              reject(new Error("Upload timeout after 90 seconds — check your connection"));
+            };
+            xhr.onabort = () => {
+              console.error(`[VOICE_NOTE_UPLOAD] XHR aborted`);
+              addDbg(`XHR aborted`);
+              reject(new Error("Upload was aborted"));
+            };
+            xhr.send(blob);
+          });
+        } else {
+          // fetch path — reliable on Android/Chrome/desktop
+          res = await fetch(fullUploadUrl, {
+            method: "POST",
+            headers: {
+              ...authHeaders,
+              "Content-Type": contentType,
+              "X-Voice-Mime": contentType,
+            },
+            body: blob,
+          });
+          console.log(`[VOICE_NOTE_UPLOAD] fetch response status=${res.status}`);
+          addDbg(`fetch response status=${res.status}`);
+        }
+      } catch (uploadErr: any) {
+        const errMsg = uploadErr.message || "unknown";
+        debugLiveRef.current.uploadError = `upload threw: ${errMsg}`;
+        addDbg(`upload FAILED: "${errMsg}"`);
+        console.error(`[VOICE_NOTE_UPLOAD] fetch failed: "${errMsg}" url="${fullUploadUrl}" isIOS=${isIOS}`);
+        throw new Error(`Couldn't send voice message — tap the bubble to retry.`);
       }
       const uploadMs = Math.round(performance.now() - tUpload);
       console.log(`[VOICE_NOTE_SEND] upload response status=${res.status} ms=${uploadMs}`);
@@ -3638,8 +3677,17 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                       // Prevent focus transfer and iOS keyboard dismissal — MUST be first
                       e.preventDefault();
                       e.currentTarget.setPointerCapture(e.pointerId);
+                      // CRITICAL: lock composer height SYNCHRONOUSLY before any React state
+                      // change. This is the only safe moment — no async gap, no re-render,
+                      // no useEffect. Setting minHeight here means even if the keyboard
+                      // closes (viewport resize) or a conditional element changes height,
+                      // the composer cannot shrink. Released in stopRecording/cancelRecording.
+                      const composerEl = composerRef.current;
+                      const r = composerEl?.getBoundingClientRect();
+                      if (composerEl && r) {
+                        composerEl.style.minHeight = `${Math.round(r.height)}px`;
+                      }
                       // Log + snapshot composer position BEFORE recording starts
-                      const r = composerRef.current?.getBoundingClientRect();
                       const vv = window.visualViewport;
                       if (r) {
                         const txt = `top=${Math.round(r.top)} bot=${Math.round(r.bottom)} h=${Math.round(r.height)}`;
@@ -3654,8 +3702,8 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                         debugLiveRef.current.insertStatus = "";
                         debugLiveRef.current.playbackUrlStatus = "";
                         debugLiveRef.current.lastPointerEvent = `DOWN @ ${new Date().toISOString().slice(11,23)}`;
-                        addDbg(`ptrDOWN — composer BEFORE: ${txt}${vpTxt} kb=${keyboardOpen} focused=${inputFocusedRef.current}`);
-                        console.log(`[VOICE_NOTE_LAYOUT] before top=${Math.round(r.top)} bottom=${Math.round(r.bottom)} height=${Math.round(r.height)} inputFocused=${inputFocusedRef.current}`);
+                        addDbg(`ptrDOWN — composer BEFORE: ${txt}${vpTxt} kb=${keyboardOpen} focused=${inputFocusedRef.current} minH locked`);
+                        console.log(`[VOICE_NOTE_LAYOUT] before top=${Math.round(r.top)} bottom=${Math.round(r.bottom)} height=${Math.round(r.height)} inputFocused=${inputFocusedRef.current} minHeight=${Math.round(r.height)}px locked`);
                       }
                       if (!voiceNotesUnlocked) { setPurchasePromptFeature("mic"); return; }
                       startRecording();
