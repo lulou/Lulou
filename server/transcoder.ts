@@ -4,33 +4,98 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { randomBytes } from "crypto";
 import ffmpegStatic from "ffmpeg-static";
+
 const FFMPEG_BIN: string = (ffmpegStatic as string | null) ?? "ffmpeg";
 
+// ── Magic-byte container detection ────────────────────────────────────────────
+// Detects actual audio container from file bytes — more reliable than MIME type
+// because multer may report application/octet-stream or the client can lie.
+type AudioFormat = "mp4" | "webm" | "ogg" | "unknown";
+
+function detectFormat(buf: Buffer): AudioFormat {
+  if (buf.length < 12) return "unknown";
+  // MP4 / M4A / MPEG-4: bytes 4-7 = "ftyp"
+  if (buf.slice(4, 8).toString("binary") === "ftyp") return "mp4";
+  // WebM / Matroska: EBML header starts with 0x1A 0x45 0xDF 0xA3
+  if (buf[0] === 0x1a && buf[1] === 0x45 && buf[2] === 0xdf && buf[3] === 0xa3) return "webm";
+  // OGG: starts with "OggS"
+  if (buf.slice(0, 4).toString("binary") === "OggS") return "ogg";
+  return "unknown";
+}
+
+// ── FFprobe-style probe using FFmpeg -i (ffprobe not bundled) ─────────────────
+async function probeWithFfmpeg(filePath: string): Promise<string> {
+  return new Promise((resolve) => {
+    // ffmpeg -i file (no output) always exits non-zero but prints stream info to stderr
+    const proc = spawn(FFMPEG_BIN, ["-hide_banner", "-i", filePath], {
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let out = "";
+    proc.stdout?.on("data", (c: Buffer) => { out += c.toString(); });
+    proc.stderr?.on("data", (c: Buffer) => { out += c.toString(); });
+    const timer = setTimeout(() => { proc.kill("SIGKILL"); resolve("(probe timeout)"); }, 5_000);
+    proc.on("close", () => { clearTimeout(timer); resolve(out); });
+    proc.on("error", (e) => { clearTimeout(timer); resolve(`(probe error: ${e.message})`); });
+  });
+}
+
 /**
- * Transcodes any browser-recorded audio to AAC inside an MP4 container (.m4a).
+ * Transcodes any browser-recorded audio to AAC inside an MP4 container.
  *
- * Fast path (iOS Safari / audio/mp4):
- *   The browser already records native AAC in fragmented MP4. We remux without
- *   re-encoding (-c:a copy) and just move the moov atom to the front for
- *   instant browser playback. This takes ~50 ms regardless of clip length.
+ * Format detection uses magic bytes — not just the declared MIME type.
  *
- * Standard path (Chrome/Android WebM, Firefox OGG):
- *   Re-encode to AAC at 32 kbps / 16 kHz mono. 16 kHz mono is more than
- *   sufficient for voice notes and cuts file size roughly in half compared
- *   to the previous 64 kbps / 44.1 kHz settings.
+ * iOS Safari fast path (audio already MP4/AAC):
+ *   Returns the original buffer WITHOUT running FFmpeg.
+ *   Safari records fragmented MP4. FFmpeg -c:a copy can fail on fragmented
+ *   MP4 because there is no standalone moov atom before the media data.
+ *   The raw fragmented MP4 plays natively in Safari/iOS and modern browsers.
  *
- * Typical output sizes after optimisation:
- *   10-second clip  → iOS ~40 KB (copy) / Chrome ~40 KB (32 k)
- *   30-second clip  → iOS ~120 KB (copy) / Chrome ~120 KB (32 k)
- *   60-second clip  → iOS ~240 KB (copy) / Chrome ~240 KB (32 k)
+ * Chrome/Android (WebM) and Firefox (OGG):
+ *   Re-encode to AAC at 32 kbps / 16 kHz mono via FFmpeg.
+ *   Logs exact command, stdout, stderr, and exit code.
  */
 export async function transcodeToM4a(
   inputBuffer: Buffer,
   inputMime: string
 ): Promise<Buffer> {
-  const isMp4Input =
-    inputMime.includes("mp4") || inputMime.includes("m4a") || inputMime.includes("aac");
-  const inputExt = isMp4Input ? ".mp4" : inputMime.includes("ogg") ? ".ogg" : ".webm";
+  const magicHex = inputBuffer.slice(0, 16).toString("hex").toUpperCase().replace(/.{2}/g, "$& ").trim();
+  const actualFormat = detectFormat(inputBuffer);
+
+  console.log(`[VOICE_NOTE_PIPELINE] original filename=voice.${actualFormat === "mp4" ? "m4a" : actualFormat === "ogg" ? "ogg" : "webm"}`);
+  console.log(`[VOICE_NOTE_PIPELINE] MIME type (declared)=${inputMime}`);
+  console.log(`[VOICE_NOTE_PIPELINE] detected format (magic bytes)=${actualFormat}`);
+  console.log(`[VOICE_NOTE_PIPELINE] magic bytes (first 16)=${magicHex}`);
+  console.log(`[VOICE_NOTE_PIPELINE] input size=${inputBuffer.length}B`);
+  console.log(`[VOICE_NOTE_PIPELINE] FFmpeg binary=${FFMPEG_BIN}`);
+
+  // ── iOS / MP4 fast path: no FFmpeg needed ────────────────────────────────
+  // iOS Safari records native AAC in a fragmented MP4 container. Running
+  // `ffmpeg -c:a copy` on fragmented MP4 fails when the moov atom is not
+  // present before the mdat atoms (common in live-recording mode).
+  // The original buffer plays natively — skip transcoding entirely.
+  const isMp4 =
+    actualFormat === "mp4" ||
+    (actualFormat === "unknown" &&
+      (inputMime.includes("mp4") || inputMime.includes("m4a") || inputMime.includes("aac")));
+
+  if (isMp4) {
+    console.log(`[VOICE_NOTE_PIPELINE] transcode skipped — already MP4/AAC (no FFmpeg needed)`);
+    // Run a probe so we can log codec/container info even on the skip path
+    const id = randomBytes(8).toString("hex");
+    const probePath = join(tmpdir(), `vn_${id}_probe.mp4`);
+    await writeFile(probePath, inputBuffer);
+    const probeOut = await probeWithFfmpeg(probePath);
+    await unlink(probePath).catch(() => {});
+    console.log(`[VOICE_NOTE_PIPELINE] ffprobe output:\n${probeOut}`);
+    return inputBuffer;
+  }
+
+  // ── WebM / OGG: transcode via FFmpeg ─────────────────────────────────────
+  const inputExt =
+    actualFormat === "ogg" ? ".ogg"
+    : actualFormat === "webm" ? ".webm"
+    : inputMime.includes("ogg") ? ".ogg"
+    : ".webm";
 
   const id = randomBytes(8).toString("hex");
   const inputPath = join(tmpdir(), `vn_${id}_in${inputExt}`);
@@ -38,53 +103,69 @@ export async function transcodeToM4a(
 
   await writeFile(inputPath, inputBuffer);
 
-  // Safari/iOS produces fragmented MP4 — need these flags for correct decoding.
-  const inputFlags: string[] = isMp4Input ? ["-fflags", "+genpts+igndts"] : [];
+  // Probe before transcoding
+  const probeOut = await probeWithFfmpeg(inputPath);
+  console.log(`[VOICE_NOTE_PIPELINE] ffprobe output:\n${probeOut}`);
 
-  const encodeArgs: string[] = isMp4Input
-    // Fast path: just remux, no re-encode (~50 ms)
-    ? ["-c:a", "copy", "-movflags", "+faststart"]
-    // Standard path: re-encode at 32 kbps / 16 kHz mono
-    : ["-c:a", "aac", "-b:a", "32k", "-ac", "1", "-ar", "16000", "-movflags", "+faststart"];
+  const args = [
+    "-hide_banner",
+    "-i", inputPath,
+    "-c:a", "aac",
+    "-b:a", "32k",
+    "-ac", "1",
+    "-ar", "16000",
+    "-vn",
+    "-movflags", "+faststart",
+    "-y",
+    outputPath,
+  ];
+
+  console.log(`[VOICE_NOTE_PIPELINE] FFmpeg command=${FFMPEG_BIN} ${args.join(" ")}`);
 
   try {
-    await runFfmpeg(
-      [
-        ...inputFlags,
-        "-i", inputPath,
-        ...encodeArgs,
-        "-y",
-        outputPath,
-      ],
-      30_000
-    );
-    return await readFile(outputPath);
+    const { stdout, stderr, code } = await runFfmpeg(args, 30_000);
+    console.log(`[VOICE_NOTE_PIPELINE] FFmpeg exit code=${code}`);
+    if (stdout) console.log(`[VOICE_NOTE_PIPELINE] FFmpeg stdout=${stdout}`);
+    console.log(`[VOICE_NOTE_PIPELINE] FFmpeg stderr=${stderr}`);
+
+    const output = await readFile(outputPath);
+    console.log(`[VOICE_NOTE_PIPELINE] transcode complete outputSize=${output.length}B`);
+    return output;
+  } catch (err: any) {
+    console.error(`[VOICE_NOTE_PIPELINE] FFmpeg failed: ${err.message}`);
+    throw err;
   } finally {
     await unlink(inputPath).catch(() => {});
     await unlink(outputPath).catch(() => {});
   }
 }
 
-function runFfmpeg(args: string[], timeoutMs: number): Promise<void> {
+interface FfmpegResult {
+  stdout: string;
+  stderr: string;
+  code: number | null;
+}
+
+function runFfmpeg(args: string[], timeoutMs: number): Promise<FfmpegResult> {
   return new Promise((resolve, reject) => {
     const proc = spawn(FFMPEG_BIN, args, { stdio: ["ignore", "pipe", "pipe"] });
 
+    let stdout = "";
     let stderr = "";
-    proc.stderr?.on("data", (chunk: Buffer) => {
-      stderr += chunk.toString();
-    });
+    proc.stdout?.on("data", (chunk: Buffer) => { stdout += chunk.toString(); });
+    proc.stderr?.on("data", (chunk: Buffer) => { stderr += chunk.toString(); });
 
     const timer = setTimeout(() => {
       proc.kill("SIGKILL");
-      reject(new Error(`FFmpeg timed out after ${timeoutMs / 1000}s`));
+      reject(new Error(`FFmpeg timed out after ${timeoutMs / 1000}s\nstderr: ${stderr.slice(-400)}`));
     }, timeoutMs);
 
     proc.on("close", (code) => {
       clearTimeout(timer);
       if (code === 0) {
-        resolve();
+        resolve({ stdout, stderr, code });
       } else {
-        reject(new Error(`FFmpeg exited ${code}: ${stderr.slice(-600)}`));
+        reject(new Error(`FFmpeg exited ${code}\nstderr: ${stderr.slice(-800)}`));
       }
     });
 
