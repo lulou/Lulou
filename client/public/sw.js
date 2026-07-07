@@ -1,29 +1,34 @@
 /**
- * Lulou Service Worker
+ * Lulou Service Worker v2.2
  * Handles: push notifications, notification clicks, install/activate lifecycle,
  * badge management.
  * Served at /sw.js — scope covers the entire PWA origin.
+ *
+ * IMPORTANT: increment SW_VERSION on every deploy so browsers re-download this
+ * file even when the URL doesn't change (iOS Safari is especially aggressive
+ * about caching service workers).
  */
 
+const SW_VERSION = "2.2";
 const ICON  = "/icon-192.png";
 const BADGE = "/favicon-32.png";
 
 // ── Lifecycle ─────────────────────────────────────────────────────────────────
 
-self.addEventListener("install", () => {
-  console.log("[SW] installed");
-  self.skipWaiting();
+self.addEventListener("install", (event) => {
+  console.log("[SW] installed version=" + SW_VERSION);
+  // Activate immediately — don't wait for old tabs to close.
+  event.waitUntil(self.skipWaiting());
 });
 
 self.addEventListener("activate", (event) => {
-  console.log("[SW] activated — claiming clients");
+  console.log("[SW] activated version=" + SW_VERSION + " — claiming clients");
   event.waitUntil(clients.claim());
 });
 
 // ── Badge helper (works in both SW and Window context) ────────────────────────
 
 function setBadgeCount(count) {
-  // ServiceWorkerGlobalScope exposes setAppBadge directly on `self`
   if ("setAppBadge" in self) {
     self.setAppBadge(count).catch(() => {});
   } else if (typeof navigator !== "undefined" && "setAppBadge" in navigator) {
@@ -40,51 +45,75 @@ function clearBadgeCount() {
 }
 
 // ── Push event ────────────────────────────────────────────────────────────────
+// CRITICAL: the handler MUST always call showNotification before returning.
+// On iOS Safari, if the push event handler exits without calling
+// showNotification, the OS shows its own generic "Lulou — Notification"
+// placeholder instead.  Every code path below ends with event.waitUntil().
 
 self.addEventListener("push", (event) => {
-  console.log("[SW] push received", event.data ? "has data" : "no data");
-  if (!event.data) return;
+  console.log("[SW] push received version=" + SW_VERSION, event.data ? "has data" : "NO DATA");
 
-  let data;
-  try {
-    data = event.data.json();
-  } catch {
-    console.warn("[SW] push: failed to parse JSON payload");
-    return;
+  // Parse the payload — fall back to safe defaults on any failure so we
+  // always end up calling showNotification regardless of payload quality.
+  let title            = "Incoming call";
+  let body             = "Tap to open Lulou";
+  let icon             = ICON;
+  let badge            = BADGE;
+  let notifData        = {};
+  let requireInteract  = false;
+  let badgeCount;
+
+  if (event.data) {
+    try {
+      const raw = event.data.json();
+      // Log the full payload so we can verify what the server sent.
+      console.log("[SW] push payload:", JSON.stringify(raw).slice(0, 300));
+
+      if (raw.title)              title           = raw.title;
+      if (raw.body)               body            = raw.body;
+      if (raw.icon)               icon            = raw.icon;
+      if (raw.badge)              badge           = raw.badge;
+      if (raw.data)               notifData       = raw.data;
+      if (raw.requireInteraction) requireInteract = raw.requireInteraction;
+      if (typeof raw.badgeCount === "number") badgeCount = raw.badgeCount;
+    } catch (err) {
+      // JSON parse failure — keep defaults but log so we can investigate.
+      console.warn("[SW] push: failed to parse JSON payload —", err && err.message);
+    }
+  } else {
+    // No payload data (can happen if VAPID encryption mismatches the
+    // subscription key, or the push was sent without a body).
+    console.warn("[SW] push: event.data is null — showing fallback notification");
   }
 
-  const {
-    title  = "Lulou",
-    body   = "",
-    icon   = ICON,
-    badge  = BADGE,
-    data: notifData = {},
-    requireInteraction = false,
-    badgeCount,
-  } = data;
+  console.log(
+    "[SW] showNotification",
+    "version=" + SW_VERSION,
+    "title=\"" + title + "\"",
+    "type=" + (notifData.type || "?"),
+    "url=" + (notifData.url || "?"),
+    "callSessionId=" + (notifData.callSessionId || "?"),
+  );
 
-  console.log(`[SW] push: title="${title}" type="${notifData.type || "?"}" badgeCount=${badgeCount}`);
+  if (typeof badgeCount === "number") {
+    setBadgeCount(badgeCount);
+  } else {
+    setBadgeCount(1);
+  }
 
   const options = {
     body,
     icon,
     badge,
-    data: notifData,
-    vibrate: [150, 80, 150],
-    requireInteraction,
-    tag:      notifData.tag  || notifData.type || "lulou",
-    renotify: true,
-    silent:   false,
+    data:               notifData,
+    vibrate:            [150, 80, 150],
+    requireInteraction: requireInteract,
+    tag:                notifData.tag || notifData.type || "lulou",
+    renotify:           true,
+    silent:             false,
   };
 
-  // Update badge with the count from the push payload when provided
-  if (typeof badgeCount === "number") {
-    setBadgeCount(badgeCount);
-  } else {
-    // Fallback: set a generic "has unread" badge
-    setBadgeCount(1);
-  }
-
+  // Always wrapped in event.waitUntil — never exits without a notification.
   event.waitUntil(
     self.registration.showNotification(title, options)
   );
@@ -96,7 +125,7 @@ self.addEventListener("notificationclick", (event) => {
   event.notification.close();
 
   const url = event.notification.data?.url || "/";
-  console.log(`[SW] notificationclick url="${url}"`);
+  console.log("[SW] notificationclick version=" + SW_VERSION, "url=\"" + url + "\"");
 
   event.waitUntil(
     clients
@@ -117,7 +146,7 @@ self.addEventListener("notificationclick", (event) => {
 });
 
 // ── Badge management ──────────────────────────────────────────────────────────
-// Listens for SET_BADGE / CLEAR_BADGE messages from the main thread.
+// Listens for SET_BADGE / CLEAR_BADGE / SKIP_WAITING messages from the main thread.
 
 self.addEventListener("message", (event) => {
   if (!event.data) return;
@@ -129,6 +158,7 @@ self.addEventListener("message", (event) => {
     clearBadgeCount();
   }
   if (event.data.type === "SKIP_WAITING") {
+    console.log("[SW] SKIP_WAITING received — activating immediately");
     self.skipWaiting();
   }
 });
