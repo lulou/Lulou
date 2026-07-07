@@ -399,7 +399,7 @@ export const buildPush = {
   }),
 
   incomingCall: (callerName: string, matchId: string, callSessionId?: string | null): PushPayload => ({
-    title: "Incoming call 📞",
+    title: "Incoming call",
     body:  `${callerName} is calling you`,
     data:  {
       url: `/messages/${matchId}${callSessionId ? `?push_call_sid=${callSessionId}` : ""}`,

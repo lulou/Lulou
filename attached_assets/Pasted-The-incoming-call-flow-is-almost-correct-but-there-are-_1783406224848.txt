@@ -1,0 +1,112 @@
+The incoming call flow is almost correct, but there are three state/UI bugs that need fixing.
+
+DO NOT redesign the UI.
+
+━━━━━━━━━━━━━━━━━━━━━━
+BUG 1 — PUSH NOTIFICATION CONTENT
+━━━━━━━━━━━━━━━━━━━━━━
+
+The notification currently shows only a generic "Lulou" notification.
+
+Instead it should clearly identify an incoming call.
+
+Example:
+
+Title:
+Incoming call
+
+Body:
+{FirstName} is calling you
+
+or
+
+Incoming call from {FirstName}
+
+Tapping the notification should continue opening the correct chat and incoming call screen.
+
+━━━━━━━━━━━━━━━━━━━━━━
+BUG 2 — DECLINING A CALL LEAVES STALE UI
+━━━━━━━━━━━━━━━━━━━━━━
+
+Reproduction:
+
+• App closed
+• Receive incoming call
+• Tap notification
+• Incoming call screen appears
+• Decline
+
+After declining, the chat incorrectly shows the old call-stage card:
+
+"You've both shared a lot..."
+
+This card belongs to an earlier conversation stage and must never reappear after the users have already reached the call stage.
+
+The conversation stage should be derived from the authoritative server state, not stale local state.
+
+━━━━━━━━━━━━━━━━━━━━━━
+BUG 3 — CHAT ONLY FIXES AFTER LEAVING AND RE-ENTERING
+━━━━━━━━━━━━━━━━━━━━━━
+
+After declining, backing out of the chat and opening it again displays the correct UI.
+
+This proves the underlying data is correct.
+
+The current chat screen is not refreshing after the decline event.
+
+Find why the decline/cancel/end event is not invalidating or refreshing the current chat state.
+
+After a decline:
+
+• refresh the current match
+• refresh conversation stage
+• refresh call status
+• remove stale UI immediately
+
+The user should never need to leave and re-enter the chat.
+
+━━━━━━━━━━━━━━━━━━━━━━
+AUDIT
+━━━━━━━━━━━━━━━━━━━━━━
+
+Audit:
+
+• call declined flow
+• call ended flow
+• call cancelled flow
+• conversation stage calculation
+• React Query invalidation
+• cached match state
+• cached conversation stage
+• memoisation that may preserve stale state
+
+━━━━━━━━━━━━━━━━━━━━━━
+EXPECTED RESULT
+━━━━━━━━━━━━━━━━━━━━━━
+
+After declining a call:
+
+✓ incoming call overlay disappears
+✓ ringtone stops
+✓ call status resets
+✓ correct call-stage UI remains visible
+✓ old "You've both shared a lot..." card never returns
+✓ no navigation required
+✓ no manual refresh required
+
+━━━━━━━━━━━━━━━━━━━━━━
+VALIDATION
+━━━━━━━━━━━━━━━━━━━━━━
+
+Run:
+
+npm run check
+npm run build
+
+Report:
+
+1. Root cause.
+2. Files changed.
+3. Why stale UI remained after decline.
+4. How cache/state invalidation was corrected.
+5. Confirmation the UI updates immediately without leaving the chat.

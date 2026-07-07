@@ -336,10 +336,16 @@ export function useCallSignaling(matchIds: string[], userId: string) {
         }
 
         if (isEndSignal) {
-          console.log("[CALL_SESSION] CHAT_STATE_PRESERVED", {
+          // Refresh match detail so call status, conversation stage, and
+          // message counts immediately reflect authoritative server state.
+          // exact:true on the detail key avoids invalidating the messages
+          // sub-query ([matchId, "messages"]), so chat history is untouched.
+          queryClient.invalidateQueries({ queryKey: ["/api/matches", matchId], exact: true });
+          queryClient.invalidateQueries({ queryKey: ["/api/matches"], exact: true });
+          console.log("[CALL_SESSION] END_SIGNAL_REFRESH", {
             matchId,
             signal: event.type,
-            note: "end signal received — queries NOT invalidated, chat history intact",
+            note: "detail + list re-fetched; messages sub-query preserved via exact:true",
           });
         } else if (event.type !== "call:ring" && event.type !== "call:answered") {
           // call:ring  — handled exclusively by the optimistic cache patch above.

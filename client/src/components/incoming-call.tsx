@@ -255,18 +255,21 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss, onAn
         userId: user!.id,
         callSessionId: match.callSessionId,
       } as any);
+      const cleared = { callStartedAt: null, callInitiatorId: null, callAnswered: false, callCompleted: false, callSessionId: null };
       queryClient.setQueriesData<MatchWithProfile[]>({ queryKey: ["/api/matches"] }, old => {
         if (!old || !Array.isArray(old)) return old;
-        return old.map(m =>
-          m.id === match.id
-            ? { ...m, callStartedAt: null, callInitiatorId: null, callAnswered: false, callCompleted: false, callSessionId: null }
-            : m
-        );
+        return old.map(m => m.id === match.id ? { ...m, ...cleared } : m);
       });
-      console.log("[CALL_SESSION] CHAT_STATE_PRESERVED", {
+      queryClient.setQueriesData<any>({ queryKey: ["/api/matches", match.id] }, (old: any) => {
+        if (!old || Array.isArray(old)) return old;
+        return { ...old, ...cleared };
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/matches", match.id], exact: true });
+      queryClient.invalidateQueries({ queryKey: ["/api/matches"], exact: true });
+      console.log("[CALL_SESSION] DECLINE_CACHE_REFRESHED", {
         matchId: match.id,
         callSessionId: match.callSessionId,
-        reason: "receiver_declined",
+        note: "detail + list patched immediately; both re-fetched to confirm server state",
       });
       toast({ title: "Call declined" });
       onDismiss();
@@ -289,14 +292,17 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss, onAn
         userId: user!.id,
         callSessionId: match.callSessionId,
       } as any);
+      const cleared = { callStartedAt: null, callInitiatorId: null, callAnswered: false, callCompleted: false, callSessionId: null };
       queryClient.setQueriesData<MatchWithProfile[]>({ queryKey: ["/api/matches"] }, old => {
         if (!old || !Array.isArray(old)) return old;
-        return old.map(m =>
-          m.id === match.id
-            ? { ...m, callStartedAt: null, callInitiatorId: null, callAnswered: false, callCompleted: false, callSessionId: null }
-            : m
-        );
+        return old.map(m => m.id === match.id ? { ...m, ...cleared } : m);
       });
+      queryClient.setQueriesData<any>({ queryKey: ["/api/matches", match.id] }, (old: any) => {
+        if (!old || Array.isArray(old)) return old;
+        return { ...old, ...cleared };
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/matches", match.id], exact: true });
+      queryClient.invalidateQueries({ queryKey: ["/api/matches"], exact: true });
       toast({ title: "Call declined" });
       onDismiss();
     },
