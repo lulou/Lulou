@@ -592,6 +592,9 @@ export default function SettingsPage() {
     }
   };
 
+  // ── About section scroll ref ──────────────────────────────────────────────
+  const aboutRef = useRef<HTMLDivElement>(null);
+
   // ── Version / deployment proof ────────────────────────────────────────────
   const { data: healthData } = useQuery<{
     commitHash?: string; buildTime?: string; env?: string;
@@ -671,7 +674,17 @@ export default function SettingsPage() {
           >
             <ArrowLeft className="w-5 h-5 rtl:rotate-180" />
           </button>
-          <h1 className="font-serif text-xl font-bold">{t("settings")}</h1>
+          <h1 className="font-serif text-xl font-bold flex-1">{t("settings")}</h1>
+          {/* Version chip — tap to scroll to the About/diagnostics panel */}
+          <button
+            onClick={() => aboutRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
+            data-testid="button-settings-version-chip"
+            className="flex items-center gap-1 px-2 py-1 rounded-full bg-muted/60 border border-border/40 text-[10px] font-mono text-muted-foreground hover:bg-muted active:scale-95 transition-all shrink-0"
+            title="Scroll to version info"
+          >
+            <span className="text-[9px] opacity-60">v</span>
+            <span data-testid="text-version-chip-hash">{__COMMIT_HASH__}</span>
+          </button>
         </div>
       </div>
 
@@ -1046,6 +1059,7 @@ export default function SettingsPage() {
           />
 
           {/* ── 9. Version / Deployment ── */}
+          <div ref={aboutRef} />
           <SectionHeader title="About" />
 
           {/* Version info panel */}
