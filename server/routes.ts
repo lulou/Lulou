@@ -3,6 +3,13 @@ import type { Express, RequestHandler } from "express";
 import multer from "multer";
 import { createServer, type Server } from "http";
 import { randomUUID } from "crypto";
+import { execSync as _execSync } from "child_process";
+
+// ── Server-level version constants (set once at process start) ────────────────
+const SERVER_START_TIME = new Date();
+let SERVER_COMMIT_HASH = process.env.COMMIT_HASH || process.env.VERCEL_GIT_COMMIT_SHA || "dev";
+try { SERVER_COMMIT_HASH = _execSync("git rev-parse --short HEAD", { stdio: "pipe" }).toString().trim(); } catch {}
+
 import { SupabaseStorage, mapMatch, type CompleteCallOptions, geocodeLocation, getHasLatLngColumns, getHasEmailVerifiedColumn, incrementMatchBadge, resetMatchBadge, getTotalBadge } from "./storage";
 import { transcodeToM4a } from "./transcoder";
 import { seedDatabase } from "./seed";
@@ -1278,7 +1285,12 @@ export async function registerRoutes(
   // No auth required — used by startup diagnostics to test Supabase PostgREST.
   app.get("/api/health", async (_req, res) => {
     const t0 = Date.now();
-    const results: Record<string, unknown> = { ts: new Date().toISOString() };
+    const results: Record<string, unknown> = {
+      ts:          new Date().toISOString(),
+      commitHash:  SERVER_COMMIT_HASH,
+      env:         process.env.NODE_ENV || "development",
+      startedAt:   SERVER_START_TIME.toISOString(),
+    };
     try {
       const { error } = await Promise.race<any>([
         supabaseAdmin.from("profiles").select("user_id").limit(1),

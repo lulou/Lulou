@@ -161,4 +161,10 @@ self.addEventListener("message", (event) => {
     console.log("[SW] SKIP_WAITING received — activating immediately");
     self.skipWaiting();
   }
+  if (event.data.type === "GET_VERSION") {
+    // Reply on the provided MessageChannel port so the main thread can display
+    // the exact SW version running on this device.
+    const port = event.ports && event.ports[0];
+    if (port) port.postMessage({ type: "VERSION", version: SW_VERSION });
+  }
 });

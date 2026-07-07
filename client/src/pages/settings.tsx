@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import type { ReactNode } from "react";
 import { useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -592,6 +592,45 @@ export default function SettingsPage() {
     }
   };
 
+  // ── Version / deployment proof ────────────────────────────────────────────
+  const { data: healthData } = useQuery<{
+    commitHash?: string; env?: string; startedAt?: string; ts?: string;
+  }>({ queryKey: ["/api/health"], staleTime: 30_000, refetchOnWindowFocus: false });
+
+  const [swVersion, setSwVersion] = useState<string>("querying…");
+  useEffect(() => {
+    if (!("serviceWorker" in navigator)) { setSwVersion("not supported"); return; }
+    navigator.serviceWorker.ready.then(reg => {
+      if (!reg.active) { setSwVersion("inactive"); return; }
+      const mc = new MessageChannel();
+      const timer = setTimeout(() => setSwVersion("timeout"), 3000);
+      mc.port1.onmessage = (e) => {
+        clearTimeout(timer);
+        if (e.data?.type === "VERSION") setSwVersion(e.data.version);
+      };
+      reg.active.postMessage({ type: "GET_VERSION" }, [mc.port2]);
+    }).catch(() => setSwVersion("error"));
+  }, []);
+
+  const [isResetting, setIsResetting] = useState(false);
+  const handleResetCache = async () => {
+    setIsResetting(true);
+    try {
+      if ("serviceWorker" in navigator) {
+        const regs = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(regs.map(r => r.unregister()));
+      }
+      if ("caches" in window) {
+        const cacheKeys = await caches.keys();
+        await Promise.all(cacheKeys.map(k => caches.delete(k)));
+      }
+      window.location.reload();
+    } catch (err: any) {
+      setIsResetting(false);
+      toast({ title: "Reset failed", description: err?.message, variant: "destructive" });
+    }
+  };
+
   // ── Delete account ────────────────────────────────────────────────────────
   const [isDeleting, setIsDeleting] = useState(false);
 
@@ -1001,9 +1040,82 @@ export default function SettingsPage() {
             testId="button-billing-terms"
           />
 
-          <p className="text-center text-xs text-muted-foreground/40 pt-8 pb-2 select-none">
-            Lulou Dating · v1.0
-          </p>
+          {/* ── 9. Version / Deployment ── */}
+          <SectionHeader title="About" />
+
+          {/* Version info panel */}
+          <div className="mx-4 mb-3 rounded-2xl bg-muted/40 border border-border/50 overflow-hidden">
+            {/* Frontend row */}
+            <div className="flex items-start justify-between px-4 py-3 border-b border-border/30">
+              <span className="text-xs text-muted-foreground font-medium">Frontend</span>
+              <div className="text-right">
+                <p className="text-xs font-mono font-semibold" data-testid="text-version-frontend-commit">
+                  {__COMMIT_HASH__}
+                </p>
+                <p className="text-[10px] text-muted-foreground/60 font-mono" data-testid="text-version-build-time">
+                  {new Date(__BUILD_TIME__).toLocaleString()}
+                </p>
+              </div>
+            </div>
+            {/* Service worker row */}
+            <div className="flex items-center justify-between px-4 py-3 border-b border-border/30">
+              <span className="text-xs text-muted-foreground font-medium">Service Worker</span>
+              <span className="text-xs font-mono font-semibold" data-testid="text-version-sw">
+                v{swVersion}
+              </span>
+            </div>
+            {/* API URL row */}
+            <div className="flex items-start justify-between px-4 py-3 border-b border-border/30">
+              <span className="text-xs text-muted-foreground font-medium">API</span>
+              <span className="text-[10px] font-mono text-muted-foreground max-w-[60%] text-right break-all" data-testid="text-version-api-url">
+                {(import.meta.env.VITE_API_BASE_URL as string | undefined) || "(same origin)"}
+              </span>
+            </div>
+            {/* Backend row */}
+            <div className="flex items-start justify-between px-4 py-3 border-b border-border/30">
+              <span className="text-xs text-muted-foreground font-medium">Backend commit</span>
+              <span className="text-xs font-mono font-semibold" data-testid="text-version-backend-commit">
+                {healthData?.commitHash ?? "…"}
+              </span>
+            </div>
+            {/* Backend env row */}
+            <div className="flex items-center justify-between px-4 py-3 border-b border-border/30">
+              <span className="text-xs text-muted-foreground font-medium">Backend env</span>
+              <span className="text-xs font-mono" data-testid="text-version-backend-env">
+                {healthData?.env ?? "…"}
+              </span>
+            </div>
+            {/* Server started row */}
+            <div className="flex items-start justify-between px-4 py-3">
+              <span className="text-xs text-muted-foreground font-medium">Server started</span>
+              <span className="text-[10px] font-mono text-muted-foreground text-right" data-testid="text-version-server-started">
+                {healthData?.startedAt ? new Date(healthData.startedAt).toLocaleString() : "…"}
+              </span>
+            </div>
+          </div>
+
+          {/* Reset App Cache */}
+          <div className="mx-4 mb-6">
+            <button
+              onClick={handleResetCache}
+              disabled={isResetting}
+              data-testid="button-reset-app-cache"
+              className="w-full py-3.5 px-4 rounded-2xl border border-destructive/30 text-destructive text-sm font-semibold hover:bg-destructive/5 active:scale-[0.98] transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+            >
+              {isResetting ? (
+                <>
+                  <span className="w-4 h-4 rounded-full border-2 border-destructive border-t-transparent animate-spin" />
+                  Resetting…
+                </>
+              ) : (
+                "Reset App Cache"
+              )}
+            </button>
+            <p className="text-center text-[11px] text-muted-foreground/50 mt-2 px-2">
+              Unregisters the service worker, clears all caches, and reloads. Use this if notifications or the app feel stale.
+            </p>
+          </div>
+
         </div>
       </div>
 

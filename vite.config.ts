@@ -1,6 +1,7 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import path from "path";
+import { execSync } from "child_process";
 import runtimeErrorOverlay from "@replit/vite-plugin-runtime-error-modal";
 
 export default defineConfig({
@@ -83,6 +84,14 @@ export default defineConfig({
   // Expose both VITE_ (standard) and vite_ (lowercase) prefixed variables.
   // Vercel sometimes stores env var names in lowercase; this ensures both
   // VITE_SUPABASE_URL and vite_supabase_url are visible in import.meta.env.
+  define: (() => {
+    let commitHash = "dev";
+    try { commitHash = execSync("git rev-parse --short HEAD", { stdio: "pipe" }).toString().trim(); } catch {}
+    return {
+      __COMMIT_HASH__: JSON.stringify(commitHash),
+      __BUILD_TIME__:  JSON.stringify(new Date().toISOString()),
+    };
+  })(),
   envPrefix: ["VITE_", "vite_"],
   server: {
     fs: {
