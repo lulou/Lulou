@@ -1,0 +1,82 @@
+We have confirmed the app is running the latest code (frontend commit 88a3e72 and backend commit 88a3e72 match in the About panel). This is NOT a deployment, cache, or version mismatch anymore.
+
+Do not make speculative changes. Trace the code and identify the actual root causes.
+
+BUG 1 — Incoming call notification
+
+On iPhone, the notification still appears as:
+
+"Lulou"
+"Notification"
+
+instead of an incoming call notification.
+
+Trace the complete notification pipeline from end to end:
+
+• buildPush.incomingCall()
+• sendPushToUser()
+• stored payload
+• service worker push event
+• showNotification()
+• notificationclick
+• iOS Safari/Web Push behaviour
+
+Determine exactly why iOS is falling back to the generic notification instead of displaying our supplied title/body.
+
+Log the payload at every stage and prove where the correct values are being lost. Fix the root cause only.
+
+------------------------------------------------
+
+BUG 2 — Stale call-stage card after declining
+
+Steps:
+
+1. Receive incoming call.
+2. Decline it.
+3. Overlay closes.
+4. Chat immediately shows the old:
+  "You've both shared a lot / Start First Call"
+  card.
+5. Leaving the chat and opening it again immediately fixes it.
+
+This proves the server state is already correct and only the live UI is stale.
+
+Trace the entire decline flow:
+
+• declineCall()
+• mutation
+• onSuccess()
+• query cache updates
+• invalidateQueries()
+• match detail cache
+• chat screen rendering
+• stage calculation
+• CTA card selection
+
+Find exactly why the stale match detail remains in memory after decline.
+
+Do not force a page reload.
+Do not use arbitrary timeouts.
+Fix the underlying cache/state synchronization bug so the correct call stage is shown immediately after declining.
+
+------------------------------------------------
+
+Requirements
+
+• No workarounds.
+• No guesses.
+• Read the existing implementation before editing.
+• Add temporary diagnostic logs if necessary, then remove them once the fix is confirmed.
+• Run:
+
+npm run check
+npm run build
+
+Both must pass before finishing.
+
+Finally provide:
+
+1. Root cause for Bug 1
+2. Root cause for Bug 2
+3. Every file changed
+4. Why the fixes solve the issue permanently.

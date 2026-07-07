@@ -9,7 +9,7 @@
  * about caching service workers).
  */
 
-const SW_VERSION = "2.2";
+const SW_VERSION = "2.3";
 const ICON  = "/icon-192.png";
 const BADGE = "/favicon-32.png";
 
@@ -101,21 +101,43 @@ self.addEventListener("push", (event) => {
     setBadgeCount(1);
   }
 
+  const tag = notifData.tag || notifData.type || "lulou";
+
+  // Full options — some are Android/Chrome-only and silently rejected on iOS.
   const options = {
     body,
     icon,
     badge,
     data:               notifData,
+    tag,
     vibrate:            [150, 80, 150],
     requireInteraction: requireInteract,
-    tag:                notifData.tag || notifData.type || "lulou",
     renotify:           true,
     silent:             false,
   };
 
+  // Minimal options that all platforms accept (no vibrate / requireInteraction
+  // / renotify / silent).  Used as a fallback if showNotification rejects above
+  // — on iOS WebKit these unsupported options can cause a silent rejection
+  // which makes iOS display its own generic "Lulou — Notification" placeholder
+  // instead of our custom title/body.
+  const safeOptions = {
+    body,
+    icon,
+    badge,
+    data: notifData,
+    tag,
+  };
+
   // Always wrapped in event.waitUntil — never exits without a notification.
+  // The .catch() retry with safeOptions ensures iOS gets the correct
+  // title/body even when the full options set is unsupported.
   event.waitUntil(
     self.registration.showNotification(title, options)
+      .catch(function (err) {
+        console.warn("[SW] showNotification failed (full options), retrying with safe options —", err && err.message);
+        return self.registration.showNotification(title, safeOptions);
+      })
   );
 });
 

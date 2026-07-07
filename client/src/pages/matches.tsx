@@ -2044,6 +2044,8 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
         callSessionId: sessionId,
       } as any);
       mergeCallFields(queryClient, match.id, { callStartedAt: null, callInitiatorId: null, callAnswered: false, callCompleted: false, callSessionId: null });
+      queryClient.invalidateQueries({ queryKey: ["/api/matches", match.id], exact: true });
+      queryClient.invalidateQueries({ queryKey: ["/api/matches"], exact: true });
       console.log("[CALL_SESSION] CHAT_STATE_PRESERVED", { matchId: match.id, reason: "receiver_declined_inline", note: "messages and thread intact" });
       toast({ title: t("call_declined_title") });
     },
