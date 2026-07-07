@@ -594,13 +594,18 @@ export default function SettingsPage() {
 
   // ── Version / deployment proof ────────────────────────────────────────────
   const { data: healthData } = useQuery<{
-    commitHash?: string; env?: string; startedAt?: string; ts?: string;
+    commitHash?: string; buildTime?: string; env?: string;
+    appVersion?: string; startedAt?: string; ts?: string;
   }>({ queryKey: ["/api/health"], staleTime: 30_000, refetchOnWindowFocus: false });
 
   const [swVersion, setSwVersion] = useState<string>("querying…");
+  const [swScope, setSwScope]     = useState<string>("querying…");
   useEffect(() => {
-    if (!("serviceWorker" in navigator)) { setSwVersion("not supported"); return; }
+    if (!("serviceWorker" in navigator)) {
+      setSwVersion("not supported"); setSwScope("n/a"); return;
+    }
     navigator.serviceWorker.ready.then(reg => {
+      setSwScope(reg.scope || "(unknown)");
       if (!reg.active) { setSwVersion("inactive"); return; }
       const mc = new MessageChannel();
       const timer = setTimeout(() => setSwVersion("timeout"), 3000);
@@ -609,7 +614,7 @@ export default function SettingsPage() {
         if (e.data?.type === "VERSION") setSwVersion(e.data.version);
       };
       reg.active.postMessage({ type: "GET_VERSION" }, [mc.port2]);
-    }).catch(() => setSwVersion("error"));
+    }).catch(() => { setSwVersion("error"); setSwScope("error"); });
   }, []);
 
   const [isResetting, setIsResetting] = useState(false);
@@ -1085,11 +1090,32 @@ export default function SettingsPage() {
                 {healthData?.env ?? "…"}
               </span>
             </div>
+            {/* Backend build time row */}
+            <div className="flex items-start justify-between px-4 py-3 border-b border-border/30">
+              <span className="text-xs text-muted-foreground font-medium">Backend build</span>
+              <span className="text-[10px] font-mono text-muted-foreground text-right" data-testid="text-version-backend-build">
+                {healthData?.buildTime ? new Date(healthData.buildTime).toLocaleString() : "…"}
+              </span>
+            </div>
             {/* Server started row */}
-            <div className="flex items-start justify-between px-4 py-3">
+            <div className="flex items-start justify-between px-4 py-3 border-b border-border/30">
               <span className="text-xs text-muted-foreground font-medium">Server started</span>
               <span className="text-[10px] font-mono text-muted-foreground text-right" data-testid="text-version-server-started">
                 {healthData?.startedAt ? new Date(healthData.startedAt).toLocaleString() : "…"}
+              </span>
+            </div>
+            {/* App version row */}
+            <div className="flex items-center justify-between px-4 py-3 border-b border-border/30">
+              <span className="text-xs text-muted-foreground font-medium">App version</span>
+              <span className="text-xs font-mono font-semibold" data-testid="text-version-app">
+                {healthData?.appVersion ?? "…"}
+              </span>
+            </div>
+            {/* SW scope row */}
+            <div className="flex items-start justify-between px-4 py-3">
+              <span className="text-xs text-muted-foreground font-medium">SW scope</span>
+              <span className="text-[10px] font-mono text-muted-foreground max-w-[60%] text-right break-all" data-testid="text-version-sw-scope">
+                {swScope}
               </span>
             </div>
           </div>

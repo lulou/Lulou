@@ -4,11 +4,24 @@ import multer from "multer";
 import { createServer, type Server } from "http";
 import { randomUUID } from "crypto";
 import { execSync as _execSync } from "child_process";
+import { statSync as _statSync } from "fs";
 
 // ── Server-level version constants (set once at process start) ────────────────
 const SERVER_START_TIME = new Date();
 let SERVER_COMMIT_HASH = process.env.COMMIT_HASH || process.env.VERCEL_GIT_COMMIT_SHA || "dev";
 try { SERVER_COMMIT_HASH = _execSync("git rev-parse --short HEAD", { stdio: "pipe" }).toString().trim(); } catch {}
+
+// Build time: mtime of the compiled bundle (dist/index.cjs) when available.
+// Falls back to process start time, which is an acceptable proxy in dev.
+let SERVER_BUILD_TIME: string = SERVER_START_TIME.toISOString();
+try {
+  // import.meta.url is shim-patched by esbuild in CJS output to __filename URL
+  const bundlePath = new URL(import.meta.url).pathname;
+  SERVER_BUILD_TIME = _statSync(bundlePath).mtime.toISOString();
+} catch {}
+
+// App version from package.json (available via npm_package_version when run via npm).
+const APP_VERSION: string = (process.env.npm_package_version as string | undefined) || "1.0.0";
 
 import { SupabaseStorage, mapMatch, type CompleteCallOptions, geocodeLocation, getHasLatLngColumns, getHasEmailVerifiedColumn, incrementMatchBadge, resetMatchBadge, getTotalBadge } from "./storage";
 import { transcodeToM4a } from "./transcoder";
@@ -1288,7 +1301,9 @@ export async function registerRoutes(
     const results: Record<string, unknown> = {
       ts:          new Date().toISOString(),
       commitHash:  SERVER_COMMIT_HASH,
+      buildTime:   SERVER_BUILD_TIME,
       env:         process.env.NODE_ENV || "development",
+      appVersion:  APP_VERSION,
       startedAt:   SERVER_START_TIME.toISOString(),
     };
     try {
