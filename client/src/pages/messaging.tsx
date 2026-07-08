@@ -1061,6 +1061,23 @@ export default function Messaging() {
   const messagesRemaining = msgLimit - myStageMessageCount;
   const isLimitReached = messagesRemaining <= 0;
 
+  // Guard the call CTA card when a call is live (ringing or active).
+  // messaging.tsx reads matchDetail from ["/api/matches", matchId]; the ring
+  // handler now also patches this detail cache so these flags are accurate
+  // immediately on ring arrival — without waiting for the next poll refetch.
+  const isCallRinging = !!(
+    matchDetail?.callStartedAt &&
+    !matchDetail?.callAnswered &&
+    !matchDetail?.callCompleted &&
+    matchDetail?.callSessionId
+  );
+  const isCallActiveInDetail = !!(
+    matchDetail?.callStartedAt &&
+    (matchDetail as any)?.callAnswered === true &&
+    !matchDetail?.callCompleted &&
+    matchDetail?.callSessionId
+  );
+
   // ── Starters visibility (pure derivation — no effect needed) ──────────────
   // System messages (those whose content begins with "__") are call-state signals
   // inserted by the server (e.g. __SCHEDULE__, __PHONE__:, __VOICE__:).
@@ -1395,7 +1412,7 @@ export default function Messaging() {
             <div ref={messagesEndRef} />
           </div>
 
-          {(isLimitReached || callStage >= 2) && !allCallsDone ? (
+          {(isLimitReached || callStage >= 2) && !allCallsDone && !isCallRinging && !isCallActiveInDetail ? (
             <div className="p-4 border-t">
               <Card className="p-5 text-center space-y-3 bg-primary/5 border-primary/20">
                 <callPrompt.icon className="w-6 h-6 text-primary mx-auto" />
@@ -1570,6 +1587,32 @@ export default function Messaging() {
                         ? { color: "hsl(var(--muted-foreground))", opacity: 0.4 }
                         : phoneCredits > 0
                         ? { color: "rgb(34,197,94)", filter: "drop-shadow(0 0 5px rgba(34,197,94,0.7))" }
+                        : { color: "hsl(var(--muted-foreground))", opacity: 0.5 }}
+                    />
+                  </button>
+                )}
+
+                {/* 🎥 Video call shortcut — always shown next to the phone icon.
+                    Grey/locked when no credits; indigo-glow when available.
+                    Root cause of missing icon: it was absent from this file entirely —
+                    previous edits incorrectly targeted matches.tsx (inline chat). */}
+                {!allCallsDone && voicePhase === "idle" && !inputFocused && (
+                  <button
+                    onClick={() => {
+                      if (videoCredits > 0) startPaidCall.mutate({ isVideo: true });
+                      else setPurchasePromptFeature("video");
+                    }}
+                    disabled={startPaidCall.isPending}
+                    className="flex-shrink-0 w-9 h-9 flex items-center justify-center rounded-full transition-all active:scale-90 disabled:opacity-50 hover:bg-muted/40"
+                    data-testid="button-video-composer"
+                    title={t("start_video_call")}
+                  >
+                    <Video
+                      className="w-[18px] h-[18px] transition-all duration-300"
+                      style={!callCreditsData
+                        ? { color: "hsl(var(--muted-foreground))", opacity: 0.4 }
+                        : videoCredits > 0
+                        ? { color: "rgb(99,102,241)", filter: "drop-shadow(0 0 5px rgba(99,102,241,0.7))" }
                         : { color: "hsl(var(--muted-foreground))", opacity: 0.5 }}
                     />
                   </button>

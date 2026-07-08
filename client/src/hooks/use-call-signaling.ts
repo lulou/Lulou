@@ -268,6 +268,23 @@ export function useCallSignaling(matchIds: string[], userId: string) {
                 callCompleted: m.callCompleted ?? false,
               } : m);
             });
+            // Also patch the DETAIL cache ["/api/matches", matchId] — messaging.tsx
+            // reads from this cache (not the list), so without this patch the detail
+            // query never sees callStartedAt and isCallRinging stays false there.
+            // The call:answered handler already does this; ring must mirror it.
+            queryClient.setQueriesData<any>({ queryKey: ["/api/matches", matchId] }, (old: any) => {
+              if (!old || Array.isArray(old)) return old;
+              return {
+                ...old,
+                callStartedAt: old.callStartedAt || new Date().toISOString(),
+                callInitiatorId: old.callInitiatorId || ring.callerId,
+                callSessionId: old.callSessionId || ring.callSessionId,
+                callAnswered: (old.callSessionId && old.callSessionId === ring.callSessionId)
+                  ? (old.callAnswered ?? false)
+                  : false,
+                callCompleted: old.callCompleted ?? false,
+              };
+            });
             // Signal that a ring is now active so CallDetectors can pause
             // the 5-second refetchInterval — prevents the next poll from
             // overwriting this optimistic patch with stale REST data before

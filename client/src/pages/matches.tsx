@@ -2067,11 +2067,6 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
       console.log("[CALL_DECLINE] detail cache after patch — callStartedAt:", detailAfter?.callStartedAt, "callSessionId:", detailAfter?.callSessionId);
       queryClient.invalidateQueries({ queryKey: ["/api/matches", match.id], exact: true });
       queryClient.invalidateQueries({ queryKey: ["/api/matches"], exact: true });
-      // Suppress the "Start First Call" CTA card for 4 s after a decline.
-      // Without this, the instant isCallRinging → false the CTA re-appears
-      // because callStage===0 && isLimitReached is still true.
-      setCallJustDeclined(true);
-      setTimeout(() => setCallJustDeclined(false), 4000);
       console.log("[CALL_SESSION] CHAT_STATE_PRESERVED", { matchId: match.id, reason: "receiver_declined_inline", note: "messages and thread intact" });
       toast({ title: t("call_declined_title") });
     },
@@ -2204,10 +2199,6 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
   const [dismissedExtension, setDismissedExtension] = useState(false);
   const [nextStepChoice, setNextStepChoice] = useState<null | 'call' | 'end'>(null);
   const [finalChoice, setFinalChoice] = useState<null | 'date' | 'chat' | 'end'>(null);
-  // Suppresses the "Start First Call" CTA immediately after the user declines an
-  // incoming call — without this guard the CTA re-appears the instant
-  // isCallRinging → false (because callStage===0 && isLimitReached is still true).
-  const [callJustDeclined, setCallJustDeclined] = useState(false);
 
   const { data: elevateStatus } = useQuery<{ active: boolean; elevateCredits: number; superElevateCredits: number }>({
     queryKey: ["/api/elevate/status"],
@@ -3715,22 +3706,6 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                 </div>
               </div>
             </div>
-          ) : callStage === 0 && isLimitReached && !callJustDeclined ? (
-            // Proof log — fires every render while the CTA card is shown.
-            // Check for [STALE_CALL_CARD_RENDER] in the browser console to
-            // verify which values are driving the render.
-            (() => {
-              console.log("[STALE_CALL_CARD_RENDER]", {
-                source: "callStage===0 && isLimitReached",
-                matchId: match.id,
-                callStage,
-                messagesRemaining,
-                callStartedAt: (detail as any).callStartedAt ?? null,
-                callSessionId: (detail as any).callSessionId ?? null,
-                detailSource: matchDetail ? "matchDetail" : "list",
-              });
-              return null;
-            })()
           ) : callStage === 0 && isLimitReached ? (
             nextStepChoice === 'call' ? (
               <div>
