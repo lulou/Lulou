@@ -2030,20 +2030,41 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
   const inlineDeclineCall = useMutation({
     mutationFn: async () => {
       const sessionId = lastCallSessionIdRef.current;
-      console.log("[CALL_UI] CALL_DECLINED", { matchId: match.id, callSessionId: sessionId, userId: user?.id, role: "receiver", source: "inline_chat" });
+      // Also read session ID from the list cache — the ring handler only patches
+      // the LIST cache, not the DETAIL cache.  If matchDetail loaded before the
+      // call started, lastCallSessionIdRef may still be null.
+      const cachedList = queryClient.getQueryData<any[]>(["/api/matches"]);
+      const listSessionId = cachedList?.find((m: any) => m.id === match.id)?.callSessionId ?? null;
+      console.log("[CALL_DECLINE] clicked — ref:", sessionId, "list:", listSessionId);
+      console.log("[CALL_UI] CALL_DECLINED", { matchId: match.id, callSessionId: sessionId ?? listSessionId, userId: user?.id, role: "receiver", source: "inline_chat" });
       const res = await apiRequest("POST", `/api/matches/${match.id}/call/cancel`, {});
       return await res.json();
     },
     onSuccess: () => {
       const sessionId = lastCallSessionIdRef.current;
+      // Belt-and-suspenders: also read from the list cache in case the ref is
+      // stale or null (detail loaded before ring arrived, so ref never updated).
+      const cachedList = queryClient.getQueryData<any[]>(["/api/matches"]);
+      const listSessionId = cachedList?.find((m: any) => m.id === match.id)?.callSessionId ?? null;
+      const effectiveSessionId = sessionId || listSessionId;
+      console.log("[CALL_DECLINE] onSuccess — ref:", sessionId, "list:", listSessionId, "effective:", effectiveSessionId);
       markCallSessionCancelled(match.id, sessionId);
+      if (listSessionId && listSessionId !== sessionId) {
+        markCallSessionCancelled(match.id, listSessionId);
+        console.log("[CALL_DECLINE] also cancelled list session:", listSessionId);
+      }
       broadcastCallSignal(match.id, {
         type: "call:declined",
         matchId: match.id,
         userId: user!.id,
-        callSessionId: sessionId,
+        callSessionId: effectiveSessionId,
       } as any);
       mergeCallFields(queryClient, match.id, { callStartedAt: null, callInitiatorId: null, callAnswered: false, callCompleted: false, callSessionId: null });
+      const listAfter = queryClient.getQueryData<any[]>(["/api/matches"]);
+      const matchAfter = listAfter?.find((m: any) => m.id === match.id);
+      const detailAfter = queryClient.getQueryData<any>(["/api/matches", match.id]);
+      console.log("[CALL_DECLINE] list cache after patch — callStartedAt:", matchAfter?.callStartedAt, "callSessionId:", matchAfter?.callSessionId);
+      console.log("[CALL_DECLINE] detail cache after patch — callStartedAt:", detailAfter?.callStartedAt, "callSessionId:", detailAfter?.callSessionId);
       queryClient.invalidateQueries({ queryKey: ["/api/matches", match.id], exact: true });
       queryClient.invalidateQueries({ queryKey: ["/api/matches"], exact: true });
       console.log("[CALL_SESSION] CHAT_STATE_PRESERVED", { matchId: match.id, reason: "receiver_declined_inline", note: "messages and thread intact" });
@@ -3099,9 +3120,8 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
           )}
         </div>
         </div>
-        {/* ── Action tray: phone / video / mic with credit counts ── */}
-        {(!allCallsDone || voiceNotesUnlocked) && (
-          <div className="flex items-center justify-center gap-6 px-4 pb-2.5 border-t border-border/30">
+        {/* ── Action tray: phone / video / face-call / mic with credit counts ── */}
+        <div className="flex items-center justify-center gap-6 px-4 pb-2.5 border-t border-border/30">
             {!allCallsDone && (
               <button
                 onClick={() => {
@@ -3160,6 +3180,37 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                 </span>
               </button>
             )}
+            {/* ── Face / video call button — unlocks after all voice calls done ── */}
+            {allCallsDone && (
+              <button
+                onClick={() => {
+                  if ((videoCredits ?? 0) > 0) {
+                    startPaidCall.mutate({ isVideo: true });
+                  } else {
+                    setPurchasePromptFeature("video");
+                  }
+                }}
+                disabled={startPaidCall.isPending}
+                className="flex flex-col items-center gap-0.5 min-w-[44px] py-1.5 px-2 rounded-xl transition-all active:scale-90 disabled:opacity-50"
+                data-testid={`button-face-call-tray-${match.id}`}
+                title={t("face_call_label")}
+              >
+                <Video
+                  className="w-[18px] h-[18px] transition-all duration-300"
+                  style={!callCreditsData
+                    ? { color: "hsl(var(--muted-foreground))", opacity: 0.4 }
+                    : (videoCredits ?? 0) > 0
+                    ? { color: "rgb(99,102,241)", filter: "drop-shadow(0 0 5px rgba(99,102,241,0.7))" }
+                    : { color: "hsl(var(--muted-foreground))", opacity: 0.35 }}
+                />
+                <span
+                  className="text-[10px] font-semibold leading-none"
+                  style={(videoCredits ?? 0) > 0 ? { color: "rgb(99,102,241)" } : { color: "hsl(var(--muted-foreground))", opacity: 0.6 }}
+                >
+                  {!callCreditsData ? "·" : (videoCredits ?? 0) > 0 ? "Face" : "Unlock"}
+                </span>
+              </button>
+            )}
             <button
               onClick={() => {
                 if (!voiceNotesUnlocked) setPurchasePromptFeature("mic");
@@ -3182,7 +3233,6 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
               </span>
             </button>
           </div>
-        )}
       </div>
 
       {expanded && <SparkProgressBar sparkStep={sparkStep} />}
@@ -3772,7 +3822,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                 <StageHint>{t("last_message_hint")}</StageHint>
               )}
               {/* ── First-time mic permission hint ── */}
-              {voiceNotesUnlocked && micPermState === "unknown" && !wasMicGrantedBefore() && (
+              {voiceNotesUnlocked && micPermState !== "granted" && !wasMicGrantedBefore() && (
                 <p className="text-[11px] text-muted-foreground/60 text-center mb-1 px-2 select-none" data-testid={`text-mic-hint-${match.id}`}>
                   Allow microphone once to send voice notes.
                 </p>
@@ -4060,6 +4110,31 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                         ? { color: "hsl(var(--muted-foreground))", opacity: 0.4 }
                         : (phoneCredits ?? 0) > 0
                         ? { color: "rgb(34,197,94)", filter: "drop-shadow(0 0 5px rgba(34,197,94,0.7))" }
+                        : { color: "hsl(var(--muted-foreground))", opacity: 0.5 }}
+                    />
+                  </button>
+                )}
+                {/* 🎥 Face / video call shortcut — after all voice calls done */}
+                {allCallsDone && !keyboardOpen && (
+                  <button
+                    tabIndex={-1}
+                    onMouseDown={e => e.preventDefault()}
+                    onClick={() => {
+                      if ((videoCredits ?? 0) > 0) startPaidCall.mutate({ isVideo: true });
+                      else setPurchasePromptFeature("video");
+                    }}
+                    disabled={startPaidCall.isPending}
+                    className="flex-shrink-0 w-9 h-9 flex items-center justify-center rounded-full transition-all active:scale-90 disabled:opacity-50 hover:bg-muted/40"
+                    style={{ visibility: voicePhase === "recording" ? "hidden" : "visible" }}
+                    data-testid={`button-video-composer-${match.id}`}
+                    title={t("start_video_call")}
+                  >
+                    <Video
+                      className="w-[18px] h-[18px] transition-all duration-300"
+                      style={!callCreditsData
+                        ? { color: "hsl(var(--muted-foreground))", opacity: 0.4 }
+                        : (videoCredits ?? 0) > 0
+                        ? { color: "rgb(99,102,241)", filter: "drop-shadow(0 0 5px rgba(99,102,241,0.7))" }
                         : { color: "hsl(var(--muted-foreground))", opacity: 0.5 }}
                     />
                   </button>
