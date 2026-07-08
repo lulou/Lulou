@@ -1,0 +1,127 @@
+These three fixes still did not reach the real UI.
+
+We have screenshots proving:
+
+1. Incoming call push still says only:
+  "Lulou"
+  "Notification"
+
+2. After declining the call, the old stale card still appears:
+  "You've both shared a lot"
+  "Start First Call"
+
+3. The video/FaceTime icon is still NOT visible next to the star/conversation-starter icon and phone icon in the bottom composer row.
+
+Do not claim fixed from build passing.
+
+First prove the exact rendered/live paths.
+
+━━━━━━━━━━━━━━━━━━━━━━
+BUG 1 — PUSH STILL GENERIC
+━━━━━━━━━━━━━━━━━━━━━━
+
+The lock-screen push still shows generic text.
+
+Investigate why iOS is not receiving/displaying title/body.
+
+Required proof:
+
+- Log server payload before webpush.sendNotification:
+ [PUSH_CALL] title=
+ [PUSH_CALL] body=
+ [PUSH_CALL] data=
+ [PUSH_CALL] payload JSON=
+
+- In sw.js, make notification title/body hardcoded temporarily for incoming_call only:
+ title: "Incoming call"
+ body: "Someone is calling you on Lulou"
+
+This is a proof test.
+
+If iOS still shows "Lulou — Notification" with hardcoded service-worker title/body, then the service worker is not controlling that push or iOS is using fallback before showNotification.
+
+Also verify:
+- current service worker version in Settings after deploy
+- sw.js contains the hardcoded incoming_call notification
+- push event always calls showNotification
+- no synchronous throw before showNotification
+
+━━━━━━━━━━━━━━━━━━━━━━
+BUG 2 — DECLINE STILL SHOWS STALE CARD
+━━━━━━━━━━━━━━━━━━━━━━
+
+After declining, the stale card still appears immediately.
+
+The card shown is:
+"You've both shared a lot"
+"Start First Call"
+
+Find the exact component/conditional rendering this card.
+
+Required proof:
+- Add a temporary console/log marker right before this card renders:
+ [STALE_CALL_CARD_RENDER] source=
+ [STALE_CALL_CARD_RENDER] matchId=
+ [STALE_CALL_CARD_RENDER] callStage=
+ [STALE_CALL_CARD_RENDER] messagesCount=
+ [STALE_CALL_CARD_RENDER] callStartedAt=
+ [STALE_CALL_CARD_RENDER] callSessionId=
+ [STALE_CALL_CARD_RENDER] detail source=matchDetail/list/local
+
+Fix the actual condition so this card cannot render after a declined/ended call if the current server stage is already later.
+
+After decline:
+- clear incoming overlay
+- clear local call state
+- patch list cache
+- patch detail cache
+- invalidate/refetch detail cache
+- recompute CTA immediately
+
+No leaving/re-entering should be required.
+
+━━━━━━━━━━━━━━━━━━━━━━
+BUG 3 — VIDEO/FACETIME ICON STILL NOT VISIBLE
+━━━━━━━━━━━━━━━━━━━━━━
+
+The screenshot shows bottom composer row still only has:
+- star/conversation-starter icon
+- phone icon
+- send icon
+
+There is NO video icon.
+
+The video/FaceTime icon must be placed next to the phone icon in the bottom composer row.
+
+Required UI:
+[message input] [star icon] [phone icon] [video icon] [send icon]
+
+Rules:
+- If video is locked, show grey/disabled video icon.
+- If video is available, show active video icon.
+- Do not hide the video icon behind allCallsDone only.
+- The icon should always be visible when the chat is at any call-capable stage, even if locked.
+- It should match the existing phone icon style.
+
+Find why the previous video icon did not render:
+- wrong condition
+- wrong component
+- hidden by keyboardOpen
+- hidden by allCallsDone
+- inserted in unused action tray instead of real composer row
+- CSS/width issue
+
+━━━━━━━━━━━━━━━━━━━━━━
+VALIDATION
+━━━━━━━━━━━━━━━━━━━━━━
+
+Run:
+npm run check
+npm run build
+
+Report:
+1. Exact reason push still generic.
+2. Exact source of stale call card.
+3. Exact reason video icon did not render.
+4. Files changed.
+5. Screenshot/description of final bottom row showing star + phone + video + send.

@@ -104,6 +104,7 @@ async function sendToSubscription(
     badgeCount: (payload as any).badgeCount,
   });
   console.log(`[PUSH_CALL] sendToSubscription → endpoint=…${endpointTag} ttl=${ttl} title="${payload.title}" body="${String(payload.body ?? "").slice(0, 60)}" type="${(payload.data as any)?.type ?? "?"}" bodyLen=${jsonBody.length}`);
+  console.log(`[PUSH_CALL] payload JSON → ${jsonBody.slice(0, 500)}`);
   try {
     const resp = await webpush.sendNotification(
       { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },

@@ -9,7 +9,7 @@
  * about caching service workers).
  */
 
-const SW_VERSION = "2.4";
+const SW_VERSION = "2.5";
 const ICON  = "/icon-192.png";
 const BADGE = "/favicon-32.png";
 
@@ -98,6 +98,18 @@ self.addEventListener("push", (event) => {
         if (raw.data)               notifData       = raw.data;
         if (raw.requireInteraction) requireInteract = raw.requireInteraction;
         if (typeof raw.badgeCount === "number") badgeCount = raw.badgeCount;
+
+        // ── PROOF TEST ─────────────────────────────────────────────────────────
+        // Hardcode title/body for incoming_call so we can verify on device that
+        // the service worker IS controlling this push.
+        // If iOS still shows "Lulou — Notification" even with these exact strings
+        // it means the OS-level fallback is firing BEFORE showNotification runs
+        // (SW not yet activated, or push delivered to a different registration).
+        if (notifData.type === "incoming_call") {
+          console.log("[SW_PUSH] PROOF_HARDCODE — incoming_call → overriding title/body");
+          title = "Incoming call";
+          body  = "Someone is calling you on Lulou";
+        }
       } catch (err) {
         // JSON parse failure — keep defaults so we still show a notification.
         console.warn("[SW_PUSH] JSON parse failed —", err && err.message);
