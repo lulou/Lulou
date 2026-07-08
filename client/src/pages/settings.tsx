@@ -58,6 +58,7 @@ import {
   Ruler,
   Lock,
   Download,
+  RotateCcw,
   Heart,
   BookOpen,
   Users,
@@ -620,6 +621,26 @@ export default function SettingsPage() {
     }).catch(() => { setSwVersion("error"); setSwScope("error"); });
   }, []);
 
+  const [isResettingNotifs, setIsResettingNotifs] = useState(false);
+  const handleResetNotifications = async () => {
+    setIsResettingNotifs(true);
+    try {
+      // 1. Unsubscribe so the old endpoint is removed from the server
+      await pushUnsubscribeRaw();
+      // 2. Unregister all service workers so iOS picks up the new one
+      if ("serviceWorker" in navigator) {
+        const regs = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(regs.map(r => r.unregister()));
+      }
+      // 3. Reload — app re-registers the SW and resubscribes on load
+      toast({ title: "Notifications reset", description: "Reloading to register the new service worker…" });
+      setTimeout(() => { window.location.reload(); }, 1200);
+    } catch (err: any) {
+      setIsResettingNotifs(false);
+      toast({ title: "Reset failed", description: err?.message, variant: "destructive" });
+    }
+  };
+
   const [isResetting, setIsResetting] = useState(false);
   const handleResetCache = async () => {
     setIsResetting(true);
@@ -965,6 +986,16 @@ export default function SettingsPage() {
                   testId={`row-notif-${key}`}
                 />
               ))}
+              {/* Reset Notifications — unregisters SW + clears subscription so iOS
+                  picks up the latest service worker. Use when push shows generic
+                  "Lulou — Notification" text or notifications stop arriving. */}
+              <SettingRow
+                icon={<RotateCcw className={`w-[18px] h-[18px] text-muted-foreground${isResettingNotifs ? " animate-spin" : ""}`} />}
+                label="Reset Notifications"
+                description="Unregisters the service worker and resubscribes. Use this if notifications show as 'Lulou – Notification' or stopped working."
+                onPress={isResettingNotifs ? undefined : handleResetNotifications}
+                testId="button-reset-notifications"
+              />
             </>
           )}
 

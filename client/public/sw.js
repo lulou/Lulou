@@ -9,7 +9,7 @@
  * about caching service workers).
  */
 
-const SW_VERSION = "2.5";
+const SW_VERSION = "2.6";
 const ICON  = "/icon-192.png";
 const BADGE = "/favicon-32.png";
 
@@ -99,17 +99,23 @@ self.addEventListener("push", (event) => {
         if (raw.requireInteraction) requireInteract = raw.requireInteraction;
         if (typeof raw.badgeCount === "number") badgeCount = raw.badgeCount;
 
-        // ── PROOF TEST ─────────────────────────────────────────────────────────
-        // Hardcode title/body for incoming_call so we can verify on device that
-        // the service worker IS controlling this push.
-        // If iOS still shows "Lulou — Notification" even with these exact strings
-        // it means the OS-level fallback is firing BEFORE showNotification runs
-        // (SW not yet activated, or push delivered to a different registration).
-        if (notifData.type === "incoming_call") {
-          console.log("[SW_PUSH] PROOF_HARDCODE — incoming_call → overriding title/body");
-          title = "Incoming call";
-          body  = "Someone is calling you on Lulou";
-        }
+        // ── GLOBAL PROOF TEST ──────────────────────────────────────────────────
+        // Override title/body for ALL pushes (regardless of type) so we can
+        // verify on device whether the service worker controls the notification.
+        //
+        // If the locked iPhone STILL shows "Lulou — Notification" even with
+        // this exact string, it means the OS-level fallback is firing before
+        // showNotification runs.  Root causes:
+        //   (A) The push subscription was created when an old SW was active —
+        //       the browser still routes the push to the old dead registration.
+        //   (B) iOS killed the SW process while the app was backgrounded and
+        //       the new SW hasn't claimed the client yet.
+        //
+        // Fix: use Settings → Reset Notifications to unregister the old SW,
+        // clear the push subscription, resubscribe, and reload.
+        console.log("[SW_PUSH] GLOBAL_PROOF_HARDCODE v" + SW_VERSION + " — overriding ALL pushes (type=" + (notifData.type || "?") + ")");
+        title = "LULOU PUSH TEST";
+        body  = "This is the new service worker";
       } catch (err) {
         // JSON parse failure — keep defaults so we still show a notification.
         console.warn("[SW_PUSH] JSON parse failed —", err && err.message);

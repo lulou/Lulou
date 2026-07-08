@@ -1,0 +1,96 @@
+Two bugs still remain. The FaceTime/video icon is now fixed. Do not touch that again.
+
+Remaining bugs:
+
+1. Incoming call notification on locked iPhone still says:
+"Lulou"
+"Notification"
+
+It should say:
+"Lulou"
+"Incoming call from {name}"
+or
+"Incoming call"
+"{name} is calling you"
+
+2. After declining the incoming call, the stale card still appears:
+"You've both shared a lot"
+"Start First Call"
+
+Do not make more broad fixes. Find the exact live path.
+
+━━━━━━━━━━━━━━━━━━━━━━
+BUG 1 — PUSH STILL GENERIC
+━━━━━━━━━━━━━━━━━━━━━━
+
+Prove whether the service worker is actually controlling the push.
+
+Add a temporary, obvious hardcoded notification for ALL pushes:
+
+Title:
+"LULOU PUSH TEST"
+
+Body:
+"This is the new service worker"
+
+If the locked iPhone still shows "Lulou — Notification", then the service worker push handler is not controlling the notification.
+
+Then investigate:
+- old push subscription tied to old service worker
+- iOS PWA/service worker not updated
+- push payload missing title/body
+- showNotification never called
+- iOS fallback notification firing before service worker handles it
+
+Add a "Reset Notifications" button in Settings:
+- unregister service worker
+- clear push subscription
+- resubscribe push
+- reload app
+
+Do not continue until iPhone lock-screen shows the hardcoded test notification.
+
+━━━━━━━━━━━━━━━━━━━━━━
+BUG 2 — DECLINE STILL SHOWS STALE CARD
+━━━━━━━━━━━━━━━━━━━━━━
+
+The card still appears in messaging.tsx after decline.
+
+Find the exact condition rendering:
+"You've both shared a lot"
+"Start First Call"
+
+After decline, hide/remove this card immediately if the call was declined or just ended.
+
+Do not use random timeouts.
+
+Use real state:
+- call declined
+- call ended
+- call session cancelled
+- latest callSessionId
+- match detail after decline
+
+After successful decline:
+- set local call declined state keyed by matchId + callSessionId
+- patch matchDetail cache
+- patch list cache
+- invalidate detail query
+- prevent the call-stage CTA from rendering for that declined session
+
+Add logs:
+[CALL_DECLINE_FIX] declined session id=
+[CALL_DECLINE_FIX] card render blocked=true/false
+[CALL_DECLINE_FIX] callStartedAt=
+[CALL_DECLINE_FIX] callSessionId=
+[CALL_DECLINE_FIX] callStage=
+
+Run:
+npm run check
+npm run build
+
+Report:
+- Why push still generic.
+- Whether hardcoded push test appeared.
+- Why stale card still rendered.
+- Exact files changed.

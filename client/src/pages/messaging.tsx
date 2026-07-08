@@ -493,6 +493,11 @@ export default function Messaging() {
   const [isLoadingOlder, setIsLoadingOlder] = useState(false);
   const oldestCursorRef = useRef<string | null>(null);
   const scrollAnchorRef = useRef<number | null>(null);
+  // Declined session tracking — prevents the CTA card re-appearing after decline.
+  // When matchDetail's callSessionId is cleared (decline/cancel), we keep the
+  // previous session ID so the card stays suppressed for that session.
+  const [declinedSessionIds, setDeclinedSessionIds] = useState<Set<string>>(() => new Set());
+  const lastSeenCallSessionIdRef = useRef<string | null>(null);
 
   const handleMessagesScroll = useCallback(() => {
     const el = messagesContainerRef.current;
@@ -1078,6 +1083,41 @@ export default function Messaging() {
     matchDetail?.callSessionId
   );
 
+  // ── Declined session tracking ──────────────────────────────────────────────
+  // Detects when a live call session is cleared by the server without
+  // callCompleted becoming true — meaning the call was declined or cancelled.
+  // We store the previous callSessionId so the CTA card stays hidden for that
+  // session even after matchDetail.callStartedAt reverts to null.
+  useEffect(() => {
+    const sessionId  = matchDetail?.callSessionId  ?? null;
+    const started    = matchDetail?.callStartedAt  ?? null;
+    const completed  = matchDetail?.callCompleted  ?? false;
+
+    if (sessionId && started) {
+      // Active or ringing — track the live session ID
+      lastSeenCallSessionIdRef.current = sessionId;
+      console.log("[CALL_DECLINE_FIX] callSessionId=", sessionId, "callStartedAt=", started, "callStage=", callStage);
+    } else if (!sessionId && !started && lastSeenCallSessionIdRef.current && !completed) {
+      // Session cleared without completing → declined or cancelled
+      const prevId = lastSeenCallSessionIdRef.current;
+      lastSeenCallSessionIdRef.current = null;
+      setDeclinedSessionIds(existing => { const s = new Set(existing); s.add(prevId); return s; });
+      console.log("[CALL_DECLINE_FIX] declined session id=", prevId);
+    }
+  }, [matchDetail?.callSessionId, matchDetail?.callStartedAt, matchDetail?.callCompleted]);
+
+  const isDeclinedSession = declinedSessionIds.size > 0;
+
+  // Log when the CTA card boundary is evaluated — helps verify suppression on device
+  useEffect(() => {
+    if (!isLimitReached && callStage < 2) return;
+    const blocked = isCallRinging || isCallActiveInDetail || isDeclinedSession;
+    console.log("[CALL_DECLINE_FIX] card render blocked=", String(blocked),
+      "callStartedAt=", matchDetail?.callStartedAt ?? null,
+      "callSessionId=", matchDetail?.callSessionId ?? null,
+      "callStage=", callStage);
+  }, [isLimitReached, callStage, isCallRinging, isCallActiveInDetail, isDeclinedSession]);
+
   // ── Starters visibility (pure derivation — no effect needed) ──────────────
   // System messages (those whose content begins with "__") are call-state signals
   // inserted by the server (e.g. __SCHEDULE__, __PHONE__:, __VOICE__:).
@@ -1412,7 +1452,7 @@ export default function Messaging() {
             <div ref={messagesEndRef} />
           </div>
 
-          {(isLimitReached || callStage >= 2) && !allCallsDone && !isCallRinging && !isCallActiveInDetail ? (
+          {(isLimitReached || callStage >= 2) && !allCallsDone && !isCallRinging && !isCallActiveInDetail && !isDeclinedSession ? (
             <div className="p-4 border-t">
               <Card className="p-5 text-center space-y-3 bg-primary/5 border-primary/20">
                 <callPrompt.icon className="w-6 h-6 text-primary mx-auto" />
