@@ -60,6 +60,10 @@ app.use(
       },
     },
     crossOriginEmbedderPolicy: false,
+    // CORP: same-origin (helmet default) can block cross-origin fetch reads even
+    // when CORS is configured correctly. Disable it on the API server so the
+    // Vercel frontend can read responses; CORS headers handle access control.
+    crossOriginResourcePolicy: false,
   }),
 );
 

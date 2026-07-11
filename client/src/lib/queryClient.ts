@@ -33,7 +33,8 @@ export const API_BASE: string = (() => {
   )?.replace(/\/$/, "");
   if (explicit) return explicit;
   if (_isSameOriginHost) return "";
-  return "https://lulou-dating.replit.app";
+  // Production Railway backend — replaces the old lulou-dating.replit.app fallback
+  return "https://lulou-production.up.railway.app";
 })();
 
 // ── Startup diagnostic: log API routing config immediately ────────────────────
@@ -59,10 +60,34 @@ export function requireApiBase(url: string): void {
     const msg =
       `VITE_API_BASE_URL is not set — cannot reach ${url} from host "${_host}". ` +
       `Go to Vercel → Settings → Environment Variables and add: ` +
-      `VITE_API_BASE_URL = https://lulou-dating.replit.app  then redeploy.`;
+      `VITE_API_BASE_URL = https://lulou-production.up.railway.app  then redeploy.`;
     console.error("[API_BASE] MISSING:", msg);
     throw new Error(msg);
   }
+}
+
+/**
+ * Logs pre-fetch TypeErrors (CORS/CSP/network failures) without exposing tokens.
+ * A TypeError from fetch() means the browser blocked or dropped the request
+ * before receiving a response — common causes: CSP connect-src, CORP header,
+ * or a network-level failure. Call this in every fetch catch block.
+ */
+export function logPrefetchError(url: string, err: unknown, method = "GET"): void {
+  const isTypeError = err instanceof TypeError;
+  const msg = err instanceof Error ? err.message : String(err);
+  console.error("[PREFETCH_FAIL]", {
+    method,
+    // Strip query-string to avoid leaking tokens in URL params
+    url: url.replace(/\?.*/, ""),
+    errClass: isTypeError ? "TypeError (CORS/CSP/network block)" : "Error",
+    msg,
+    apiBase: API_BASE || "(empty — same-origin)",
+    isCrossOrigin: IS_CROSS_ORIGIN_DEPLOY,
+    host: typeof window !== "undefined" ? window.location.hostname : "SSR",
+    hint: isTypeError
+      ? "Check DevTools → Console for a 'Content Security Policy' or 'CORS' error above this line."
+      : "Non-network error — check stack trace.",
+  });
 }
 
 // TEMP: latency debugging — remove before production release
@@ -223,15 +248,21 @@ export async function apiRequest(
   const authHeaders = await getAuthHeaders();
   // TEMP: latency debugging — remove before production release
   const t0 = PERF_ENABLED ? performance.now() : 0;
-  const res = await fetch(API_BASE + url, {
-    method,
-    headers: {
-      ...authHeaders,
-      ...(data ? { "Content-Type": "application/json" } : {}),
-    },
-    body: data ? JSON.stringify(data) : undefined,
-    credentials: "include",
-  });
+  let res: Response;
+  try {
+    res = await fetch(API_BASE + url, {
+      method,
+      headers: {
+        ...authHeaders,
+        ...(data ? { "Content-Type": "application/json" } : {}),
+      },
+      body: data ? JSON.stringify(data) : undefined,
+      credentials: "include",
+    });
+  } catch (fetchErr) {
+    logPrefetchError(API_BASE + url, fetchErr, method);
+    throw fetchErr;
+  }
   if (PERF_ENABLED) {
     logLatency(`${method} ${url}`, Math.round(performance.now() - t0), parseServerTiming(res.headers.get("server-timing")), 0);
   }
@@ -295,10 +326,16 @@ export const getQueryFn: <T>(options: {
 
     // TEMP: latency debugging — timer only started when PERF_ENABLED
     const t0 = PERF_ENABLED ? performance.now() : 0;
-    const res = await fetch(API_BASE + url, {
-      credentials: "include",
-      headers: authHeaders,
-    });
+    let res: Response;
+    try {
+      res = await fetch(API_BASE + url, {
+        credentials: "include",
+        headers: authHeaders,
+      });
+    } catch (fetchErr) {
+      logPrefetchError(API_BASE + url, fetchErr);
+      throw fetchErr;
+    }
 
     if (res.status === 401) {
       endQuery({ status: 401 });
@@ -336,7 +373,7 @@ export const getQueryFn: <T>(options: {
       endQuery({ status: res.status, error: true });
       const isHtml = preview.trimStart().toLowerCase().startsWith("<");
       const msg = isHtml
-        ? "API unreachable — set VITE_API_BASE_URL in Vercel environment variables to your Replit backend URL, then redeploy"
+        ? "API unreachable — set VITE_API_BASE_URL in Vercel environment variables to https://lulou-production.up.railway.app, then redeploy"
         : `Unexpected response (${ct || "no content-type"}) for ${url}`;
       console.error(`[QUERY_FETCH] non-JSON response for ${url}:`, { ct, preview });
       throw new Error(msg);
