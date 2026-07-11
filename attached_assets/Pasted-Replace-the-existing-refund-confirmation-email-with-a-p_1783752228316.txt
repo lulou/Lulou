@@ -1,0 +1,75 @@
+Replace the existing refund confirmation email with a premium, production-ready version that feels comparable to emails sent by Apple, Stripe, Airbnb or Uber.
+
+Do not remove any existing functionality or dynamic placeholders. Preserve all existing variables (customer first name, refund amount, product name, refund ID, support email, etc.). Only improve the wording, layout and presentation.
+
+Requirements:
+
+Subject:
+Your Lulou refund has been processed ❤️
+
+Preview text:
+Your refund has been successfully processed and is on its way.
+
+Header:
+Lulou logo
+Refund Processed ❤️
+Your refund is on its way.
+
+Greeting:
+Hi {firstName},
+(Fallback to "Hi there," if no first name exists.)
+
+Body:
+Thank the customer and clearly confirm that their refund has been successfully processed.
+
+Explain that the refund has already been sent back to the original payment method used for the purchase.
+
+State that while Lulou has completed the refund, banks can take several business days to process it before it appears on the customer's statement.
+
+Include a friendly note explaining that some banks do not send refund notifications immediately. As a result, the refund may already be visible on their statement before they receive any notification from their bank. This provides reassurance because many customers assume something is wrong if they don't receive a banking notification.
+
+Display the following information in a clean summary card:
+
+• Refund Amount
+• Product Purchased
+• Refund Reference
+• Refund Date
+
+Use the existing dynamic values already available in the code.
+
+After the summary card include:
+
+"If you have any questions or believe something doesn't look right, simply reply to this email and our support team will be happy to help."
+
+Closing:
+
+Thank you for being part of Lulou.
+
+— The Lulou Team
+
+Footer:
+
+support@lulou.app
+
+lulou.app
+
+Privacy Policy
+
+Terms of Service
+
+© 2026 Lulou. All rights reserved.
+
+Design requirements:
+
+- Elegant spacing.
+- Mobile-first responsive layout.
+- Premium typography.
+- Soft Lulou colours.
+- Keep the current logo/header styling.
+- Make the refund amount the primary visual element.
+- Make the refund reference smaller and secondary.
+- Render beautifully in Gmail, Apple Mail and Outlook.
+- Preserve dark-mode compatibility where possible.
+
+Important:
+Do not remove or rename any existing variables, placeholders or backend logic. This task is a presentation and copy improvement only. Keep all existing refund functionality intact while upgrading the email to production quality.

@@ -32,7 +32,7 @@ const DIVIDER =
 
 // ── Shared layout wrapper ─────────────────────────────────────────────────────
 
-function layout(headerTitle: string, headerSubtitle: string, body: string, footerExtra?: string): string {
+function layout(headerTitle: string, headerSubtitle: string, body: string, footerExtra?: string, preheader?: string): string {
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -41,6 +41,7 @@ function layout(headerTitle: string, headerSubtitle: string, body: string, foote
   <title>${headerTitle} — Lulou</title>
 </head>
 <body style="margin:0;padding:0;background-color:#f5eeeb;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;">
+  ${preheader ? `<div style="display:none;max-height:0;overflow:hidden;mso-hide:all;font-size:1px;color:#f5eeeb;line-height:1px;">${preheader}&nbsp;‌&nbsp;‌&nbsp;‌&nbsp;‌&nbsp;‌&nbsp;‌&nbsp;‌&nbsp;‌&nbsp;‌&nbsp;‌&nbsp;‌&nbsp;‌&nbsp;‌&nbsp;‌&nbsp;‌&nbsp;‌&nbsp;‌&nbsp;‌</div>` : ""}
   <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f5eeeb;padding:48px 20px;">
     <tr>
       <td align="center">
@@ -85,7 +86,7 @@ function layout(headerTitle: string, headerSubtitle: string, body: string, foote
                     <p style="margin:0 0 5px;font-size:13px;color:#9c6070;text-align:center;">
                       Questions? <a href="mailto:support@lulou.app" style="color:#bc4e60;text-decoration:none;font-weight:700;">support@lulou.app</a>
                     </p>
-                    <p style="margin:0 0 8px;font-size:12px;color:#c49aaa;text-align:center;">© 2025 Lulou Dating. All rights reserved.</p>
+                    <p style="margin:0 0 8px;font-size:12px;color:#c49aaa;text-align:center;">© 2026 Lulou. All rights reserved.</p>
                     <p style="margin:0;font-size:11px;color:#d4b0bb;text-align:center;line-height:1.6;">
                       <a href="https://lulou.app" style="color:#d4b0bb;text-decoration:none;">lulou.app</a>
                       &nbsp;·&nbsp;
@@ -422,33 +423,86 @@ export function refundConfirmationEmail(
   productName: string,
   refundId: string,
 ): string {
+  const refundDate = new Date().toLocaleDateString("en-GB", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
+
   const body = `
-    <p style="${BODY_STYLE}">Hi ${firstName},</p>
+    <p style="${BODY_STYLE}">Hi ${firstName || "there"},</p>
     <p style="${MUTED_STYLE}">
-      We've successfully processed your refund. The amount will be returned to
-      your original payment method within 5–10 business days, depending on your bank.
+      Thank you — your refund has been successfully processed and is already on its
+      way back to you. We've returned it to the original payment method used for
+      this purchase.
     </p>
+
+    <!-- Refund amount — primary visual element -->
     ${amountPill(amount, "Refund Amount")}
-    ${infoRow("Purchase", productName)}
-    ${infoRow("Refund ID", refundId)}
-    ${DIVIDER}
-    <p style="margin:0 0 24px;font-size:15px;color:#5a3040;line-height:1.75;">
-      The refund has been issued back to your original payment method. Depending on
-      your bank, it may take <strong style="color:#3d1a22;">5–10 business days</strong> to appear on your statement.
+
+    <!-- Summary card -->
+    <table width="100%" cellpadding="0" cellspacing="0" style="background:#fdf6f7;border:1px solid rgba(188,78,96,0.10);border-radius:16px;margin:0 0 28px;overflow:hidden;">
+      <tr>
+        <td style="padding:24px 28px 16px;">
+
+          <!-- Product Purchased -->
+          <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:18px;">
+            <tr><td style="font-size:10px;font-weight:800;letter-spacing:0.22em;text-transform:uppercase;color:#bc4e60;padding-bottom:4px;">Product Purchased</td></tr>
+            <tr><td style="font-size:16px;font-weight:600;color:#1a0a0e;padding-bottom:14px;border-bottom:1px solid rgba(188,78,96,0.10);">${productName}</td></tr>
+          </table>
+
+          <!-- Refund Date -->
+          <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:18px;">
+            <tr><td style="font-size:10px;font-weight:800;letter-spacing:0.22em;text-transform:uppercase;color:#bc4e60;padding-bottom:4px;">Refund Date</td></tr>
+            <tr><td style="font-size:16px;font-weight:600;color:#1a0a0e;padding-bottom:14px;border-bottom:1px solid rgba(188,78,96,0.10);">${refundDate}</td></tr>
+          </table>
+
+          <!-- Refund Reference — smaller, secondary -->
+          <table width="100%" cellpadding="0" cellspacing="0">
+            <tr><td style="font-size:10px;font-weight:700;letter-spacing:0.18em;text-transform:uppercase;color:#c49aaa;padding-bottom:4px;">Refund Reference</td></tr>
+            <tr><td style="font-size:12px;font-family:'Courier New',Courier,monospace;color:#8a5a68;letter-spacing:0.04em;">${refundId}</td></tr>
+          </table>
+
+        </td>
+      </tr>
+    </table>
+
+    <!-- Bank timing note -->
+    <table width="100%" cellpadding="0" cellspacing="0" style="background:linear-gradient(160deg,#fdf4f5,#fff8f9);border:1px solid rgba(188,78,96,0.13);border-radius:14px;margin:0 0 28px;">
+      <tr>
+        <td style="padding:20px 24px;">
+          <p style="margin:0 0 8px;font-size:10px;font-weight:800;letter-spacing:0.22em;text-transform:uppercase;color:#bc4e60;">About your refund timeline</p>
+          <p style="margin:0 0 10px;font-size:14px;color:#5a3040;line-height:1.65;">
+            While we've completed the refund on our end, banks typically take <strong style="color:#3d1a22;">3–5 business days</strong>
+            to process it before it appears on your statement.
+          </p>
+          <p style="margin:0;font-size:14px;color:#5a3040;line-height:1.65;">
+            Please note that some banks don't send refund notifications right away — your refund may
+            already be visible on your statement before you hear from your bank. There's no need to
+            worry if you haven't received a notification from them yet.
+          </p>
+        </td>
+      </tr>
+    </table>
+
+    <p style="margin:0 0 32px;font-size:15px;color:#5a3040;line-height:1.75;">
+      If you have any questions or believe something doesn't look right, simply reply
+      to this email and our support team will be happy to help.
     </p>
-    <p style="margin:0 0 0;font-size:15px;color:#5a3040;line-height:1.75;">
-      If you requested this refund by mistake or have any questions, simply reply to
-      this email and our team will help right away.
-    </p>
+
     ${DIVIDER}
-    <p style="margin:0;font-size:15px;color:#5a3040;line-height:1.75;font-style:italic;">
-      Thank you for being part of Lulou. — <strong style="color:#3d1a22;">The Lulou Team</strong>
+
+    <p style="margin:0;font-size:15px;color:#5a3040;line-height:1.75;text-align:center;">
+      Thank you for being part of Lulou.<br>
+      <strong style="color:#3d1a22;">— The Lulou Team</strong>
     </p>
   `;
+
   return layout(
     "Refund Processed ❤️",
     "Your refund is on its way.",
     body,
-    "Reply to this email if you have any questions.",
+    undefined,
+    "Your refund has been successfully processed and is on its way.",
   );
 }
