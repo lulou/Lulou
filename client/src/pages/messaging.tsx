@@ -11,6 +11,7 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { broadcastCallSignal } from "@/hooks/use-call-signaling";
 import { armCallSession, markSessionAsPaid } from "@/lib/live-call-sessions";
+import { getEndedSessionForMatch, clearEndedSessionForMatch } from "@/lib/cancelled-calls";
 import { useAuth } from "@/hooks/use-auth";
 import { useRealtimeMessages } from "@/hooks/use-realtime-messages";
 import { ArrowLeft, Send, Phone, Video, Check, Clock, Calendar, Heart, PhoneForwarded, X, Moon, MapPin, Ruler, MessageCircle, Loader2, Mic, Pause, Play, BadgeCheck, Sparkles, ChevronDown, RefreshCw } from "lucide-react";
@@ -1086,25 +1087,43 @@ export default function Messaging() {
   // ── Declined session tracking ──────────────────────────────────────────────
   // Detects when a live call session is cleared by the server without
   // callCompleted becoming true — meaning the call was declined or cancelled.
-  // We store the previous callSessionId so the CTA card stays hidden for that
-  // session even after matchDetail.callStartedAt reverts to null.
+  //
+  // TWO sources are checked so the card is suppressed whether or not the user
+  // was on this page during the call:
+  //
+  //   A) lastSeenCallSessionIdRef (component-local) — set while the component
+  //      is mounted and the call is ringing/active.  Works for the in-page
+  //      case where the user stays on messaging.tsx throughout.
+  //
+  //   B) getEndedSessionForMatch (module-level Map in cancelled-calls.ts) —
+  //      populated by use-call-signaling.ts when call:cancelled / call:declined /
+  //      call:ended arrives, regardless of which page is mounted.  Works for the
+  //      navigate-after-cancel case where lastSeenCallSessionIdRef is null because
+  //      the component mounted fresh after the call already ended.
   useEffect(() => {
     const sessionId  = matchDetail?.callSessionId  ?? null;
     const started    = matchDetail?.callStartedAt  ?? null;
     const completed  = matchDetail?.callCompleted  ?? false;
 
     if (sessionId && started) {
-      // Active or ringing — track the live session ID
+      // Active or ringing — track the live session ID; clear any stale ended entry
       lastSeenCallSessionIdRef.current = sessionId;
+      clearEndedSessionForMatch(matchId!);
+      // A new call starting resets any prior declined-session suppression
+      setDeclinedSessionIds(new Set());
       console.log("[CALL_DECLINE_FIX] callSessionId=", sessionId, "callStartedAt=", started, "callStage=", callStage);
-    } else if (!sessionId && !started && lastSeenCallSessionIdRef.current && !completed) {
-      // Session cleared without completing → declined or cancelled
-      const prevId = lastSeenCallSessionIdRef.current;
-      lastSeenCallSessionIdRef.current = null;
-      setDeclinedSessionIds(existing => { const s = new Set(existing); s.add(prevId); return s; });
-      console.log("[CALL_DECLINE_FIX] declined session id=", prevId);
+    } else if (!sessionId && !started && !completed) {
+      // Session cleared without completing — check both sources for a session ID
+      const fromRef = lastSeenCallSessionIdRef.current;
+      const fromMap = getEndedSessionForMatch(matchId!)?.sessionId ?? null;
+      const prevId = fromRef ?? fromMap;
+      if (prevId) {
+        lastSeenCallSessionIdRef.current = null;
+        setDeclinedSessionIds(existing => { const s = new Set(existing); s.add(prevId); return s; });
+        console.log("[CALL_DECLINE_FIX] declined session id=", prevId, "source=", fromRef ? "ref" : "module-map");
+      }
     }
-  }, [matchDetail?.callSessionId, matchDetail?.callStartedAt, matchDetail?.callCompleted]);
+  }, [matchDetail?.callSessionId, matchDetail?.callStartedAt, matchDetail?.callCompleted, matchId]);
 
   const isDeclinedSession = declinedSessionIds.size > 0;
 
@@ -1402,6 +1421,12 @@ export default function Messaging() {
               </div>
             )}
             {allMessages.map(msg => {
+              // Internal protocol messages — never rendered as plain chat bubbles
+              if (
+                msg.content.startsWith("__SCHEDULE__:") ||
+                msg.content.startsWith("__SYS__:")
+              ) return null;
+
               const isMe = msg.senderId === user?.id;
               const hasReaction = msg.reaction && typeof msg.reaction === 'string' && msg.reaction.length > 0;
               const isVoiceNote = msg.content.startsWith("__VOICE__:");

@@ -2634,12 +2634,16 @@ export async function registerRoutes(
       broadcastCallEvent(matchId, ringPayload);
 
       // Fire-and-forget push to the receiver — rings their device even if app is closed
-      console.log("[CALL_RING] push sent", { matchId, callSessionId: match.callSessionId, receiverId: otherUserId.slice(0, 8) });
-      sendPushToUser(
-        otherUserId,
-        buildPush.incomingCall(callerName, matchId, match.callSessionId),
-        "incoming_call",
-      ).catch(() => {});
+      const pushPayload = buildPush.incomingCall(callerName, matchId, match.callSessionId);
+      console.log("[PUSH_CALL_SEND]", {
+        receiverId: otherUserId.slice(0, 8),
+        matchId: matchId.slice(0, 8),
+        callSessionId: match.callSessionId?.slice(0, 12),
+        title: pushPayload.title,
+        body: pushPayload.body,
+        type: (pushPayload.data as any)?.type,
+      });
+      sendPushToUser(otherUserId, pushPayload, "incoming_call").catch(() => {});
 
       const scheduleRering = (delayMs: number) => {
         setTimeout(async () => {

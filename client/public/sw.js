@@ -1,5 +1,5 @@
 /**
- * Lulou Service Worker v2.4
+ * Lulou Service Worker v2.8
  * Handles: push notifications, notification clicks, install/activate lifecycle,
  * badge management.
  * Served at /sw.js — scope covers the entire PWA origin.
@@ -9,7 +9,7 @@
  * about caching service workers).
  */
 
-const SW_VERSION = "2.7";
+const SW_VERSION = "2.8";
 const ICON  = "/icon-192.png";
 const BADGE = "/favicon-32.png";
 
@@ -75,11 +75,11 @@ self.addEventListener("push", (event) => {
   // badge-setting, and showNotification.  Any exception inside the IIFE is
   // caught by the Promise — it can never propagate out and kill the handler.
   event.waitUntil((async () => {
-    console.log("[SW_PUSH] received version=" + SW_VERSION, event.data ? "has data" : "NO DATA");
+    console.log("[SW_PUSH_RECEIVED] version=" + SW_VERSION + " hasData=" + (!!event.data));
 
     // ── Parse payload ────────────────────────────────────────────────────────
     let title           = "Incoming call";
-    let body            = "Tap to open Lulou";
+    let body            = "Tap to answer";
     let icon            = ICON;
     let badge           = BADGE;
     let notifData       = {};
@@ -89,8 +89,6 @@ self.addEventListener("push", (event) => {
     if (event.data) {
       try {
         const raw = event.data.json();
-        // Log the full payload so we can verify title/body on the server side.
-        console.log("[SW_PUSH] raw payload:", JSON.stringify(raw).slice(0, 300));
         if (raw.title)              title           = raw.title;
         if (raw.body)               body            = raw.body;
         if (raw.icon)               icon            = raw.icon;
@@ -98,18 +96,15 @@ self.addEventListener("push", (event) => {
         if (raw.data)               notifData       = raw.data;
         if (raw.requireInteraction) requireInteract = raw.requireInteraction;
         if (typeof raw.badgeCount === "number") badgeCount = raw.badgeCount;
-
       } catch (err) {
-        // JSON parse failure — keep defaults so we still show a notification.
-        console.warn("[SW_PUSH] JSON parse failed —", err && err.message);
+        console.warn("[SW_PUSH_FAILED] JSON parse failed —", err && err.message);
       }
     } else {
-      // No payload at all (VAPID encryption mismatch or push sent without body).
-      console.warn("[SW_PUSH] event.data is null — showing fallback notification");
+      console.warn("[SW_PUSH_FAILED] event.data is null — VAPID mismatch or push sent without body");
     }
 
     console.log(
-      "[SW_PUSH] parsed:",
+      "[SW_PUSH_PARSED] swv=" + SW_VERSION,
       "title=\"" + title + "\"",
       "body=\"" + body.slice(0, 60) + "\"",
       "type=" + (notifData.type || "?"),
@@ -122,13 +117,9 @@ self.addEventListener("push", (event) => {
     // supported.  Without this guard, the throw propagates out of the async
     // function and showNotification is never reached — iOS shows the fallback.
     try {
-      if (typeof badgeCount === "number") {
-        setBadgeCount(badgeCount);
-      } else {
-        setBadgeCount(1);
-      }
+      setBadgeCount(typeof badgeCount === "number" ? badgeCount : 1);
     } catch (badgeErr) {
-      console.warn("[SW_PUSH] setBadgeCount threw (non-fatal) —", badgeErr && badgeErr.message);
+      console.warn("[SW_PUSH_FAILED] setBadgeCount threw (non-fatal) —", badgeErr && badgeErr.message);
     }
 
     const tag = notifData.tag || notifData.type || "lulou";
@@ -149,36 +140,42 @@ self.addEventListener("push", (event) => {
       silent:             false,
     };
 
-    // Safe cross-platform options: only the subset that all platforms accept.
+    // Safe cross-platform options: only properties iOS WebKit accepts.
+    // No badge (unsupported on iOS), no vibrate/requireInteraction/renotify/silent.
+    // Keep body, icon, data (needed for click handler), tag.
     const safeOptions = {
       body,
       icon,
-      badge,
       data: notifData,
       tag,
     };
 
-    console.log(
-      "[SW_PUSH] showNotification —",
-      "title=\"" + title + "\"",
-      "safeOptions:", JSON.stringify(safeOptions).slice(0, 200),
-    );
-
-    // Three-tier fallback to guarantee a notification is ALWAYS shown:
+    // Three-tier fallback to guarantee a notification is ALWAYS shown.
+    // Each tier is wrapped in its own try-catch so a throw never propagates
+    // out of the IIFE — which would cause event.waitUntil to reject and iOS
+    // to display its own generic "Lulou — Notification" placeholder.
     //   Tier 1 — full options  (Chrome / Android)
     //   Tier 2 — safe options  (iOS WebKit)
-    //   Tier 3 — title only    (absolute last resort)
+    //   Tier 3 — title + body only (absolute last resort)
     try {
       await self.registration.showNotification(title, options);
-      console.log("[SW_PUSH] showNotification OK (full options)");
+      console.log("[SW_PUSH_SHOWN] tier=full title=\"" + title + "\"");
     } catch (err1) {
-      console.warn("[SW_PUSH] showNotification FAILED (full options) —", err1 && err1.message, "— retrying with safe options");
+      console.warn("[SW_PUSH_FAILED] tier=full —", err1 && err1.message);
       try {
         await self.registration.showNotification(title, safeOptions);
-        console.log("[SW_PUSH] showNotification OK (safe options)");
+        console.log("[SW_PUSH_SHOWN] tier=safe title=\"" + title + "\"");
       } catch (err2) {
-        console.warn("[SW_PUSH] showNotification FAILED (safe options) —", err2 && err2.message, "— final fallback: title only");
-        await self.registration.showNotification(title);
+        console.warn("[SW_PUSH_FAILED] tier=safe —", err2 && err2.message);
+        try {
+          await self.registration.showNotification(title, { body, tag });
+          console.log("[SW_PUSH_SHOWN] tier=minimal title=\"" + title + "\"");
+        } catch (err3) {
+          // Final catch — if even the minimal call fails, log and let
+          // the IIFE resolve cleanly. iOS may show its own placeholder,
+          // but the handler exits without throwing.
+          console.warn("[SW_PUSH_FAILED] tier=minimal (all tiers failed) —", err3 && err3.message);
+        }
       }
     }
   })());

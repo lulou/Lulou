@@ -78,6 +78,7 @@ export interface PushPayload {
     type:          string;
     tag?:          string;
     callSessionId?: string | null;
+    callerName?:   string;
   };
   ttl?: number;
   requireInteraction?: boolean;
@@ -400,13 +401,14 @@ export const buildPush = {
   }),
 
   incomingCall: (callerName: string, matchId: string, callSessionId?: string | null): PushPayload => ({
-    title: "Incoming call",
-    body:  `${callerName} is calling you`,
+    title: `Incoming call from ${callerName}`,
+    body:  "Tap to answer",
     data:  {
       url: `/messages/${matchId}${callSessionId ? `?push_call_sid=${callSessionId}` : ""}`,
       type: "incoming_call",
       tag: `call_${matchId}`,
       callSessionId: callSessionId ?? null,
+      callerName,
     },
     ttl:   60,
     requireInteraction: true,

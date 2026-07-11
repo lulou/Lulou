@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import { supabase } from "@/lib/supabase";
 import { queryClient } from "@/lib/queryClient";
-import { markCallSessionCancelled, markStartupCancelledSession, isCallSessionCancelled, isStartupCancelledOnly, clearStartupCancelledSession } from "@/lib/cancelled-calls";
+import { markCallSessionCancelled, markStartupCancelledSession, isCallSessionCancelled, isStartupCancelledOnly, clearStartupCancelledSession, markSessionEndedForMatch } from "@/lib/cancelled-calls";
 import { armCallSession, markSessionAsVideo, isPushArmedSession } from "@/lib/live-call-sessions";
 import { APP_LOAD_TIME } from "@/lib/app-load-time";
 import { isStartupSweepComplete } from "@/lib/startup-sweep";
@@ -333,6 +333,7 @@ export function useCallSignaling(matchIds: string[], userId: string) {
           const sid = (event as any).callSessionId ?? null;
           console.log("[CALL_SIGNAL] CALL_DECLINED", { matchId, declinedBy: senderId, callSessionId: sid });
           markCallSessionCancelled(matchId, sid);
+          markSessionEndedForMatch(matchId, sid, "declined");
           callRingHandler?.(false);
           processEndSignal(matchId, "declined", sid);
           isEndSignal = true;
@@ -340,6 +341,7 @@ export function useCallSignaling(matchIds: string[], userId: string) {
           const sid = (event as any).callSessionId ?? null;
           console.log("[CALL_SIGNAL] CALL_CANCELLED", { matchId, cancelledBy: senderId, callSessionId: sid });
           markCallSessionCancelled(matchId, sid);
+          markSessionEndedForMatch(matchId, sid, "cancelled");
           callRingHandler?.(false);
           processEndSignal(matchId, "cancelled", sid);
           isEndSignal = true;
@@ -347,12 +349,32 @@ export function useCallSignaling(matchIds: string[], userId: string) {
           const sid = (event as any).callSessionId ?? null;
           console.log("[CALL_SIGNAL] CALL_ENDED", { matchId, endedBy: senderId, callSessionId: sid });
           markCallSessionCancelled(matchId, sid);
+          markSessionEndedForMatch(matchId, sid, "ended");
           callRingHandler?.(false);
           processEndSignal(matchId, "ended", sid);
           isEndSignal = true;
         }
 
         if (isEndSignal) {
+          // Optimistically clear call fields in both caches immediately so
+          // messaging.tsx transitions out of isCallRinging/isCallActiveInDetail
+          // without waiting for the server refetch (which can take 1-3 s).
+          // The subsequent invalidateQueries will confirm the authoritative state.
+          const clearPatch = {
+            callStartedAt: null,
+            callSessionId: null,
+            callAnswered: false,
+            callCompleted: false,
+            callInitiatorId: null,
+          };
+          queryClient.setQueriesData<any>({ queryKey: ["/api/matches", matchId] }, (old: any) => {
+            if (!old || Array.isArray(old)) return old;
+            return { ...old, ...clearPatch };
+          });
+          queryClient.setQueriesData<any[]>({ queryKey: ["/api/matches"] }, (old) => {
+            if (!old || !Array.isArray(old)) return old;
+            return old.map((m: any) => m.id === matchId ? { ...m, ...clearPatch } : m);
+          });
           // Refresh match detail so call status, conversation stage, and
           // message counts immediately reflect authoritative server state.
           // exact:true on the detail key avoids invalidating the messages

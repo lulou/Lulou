@@ -107,6 +107,41 @@ export function isSelfCancelled(matchId: string, callSessionId?: string | null):
   return selfCancelledByCurrentUser.has(sessionKey(matchId, callSessionId));
 }
 
+// ── Recently-ended session tracking ──────────────────────────────────────────
+// Module-level Map (persists across component navigation).  When a call:cancelled
+// or call:declined signal fires in use-call-signaling.ts, the session is recorded
+// here keyed by matchId.  messaging.tsx reads this on mount so the "Start First
+// Call" CTA card is suppressed even when the user navigates TO the chat AFTER the
+// call ended (where the component-local lastSeenCallSessionIdRef would be null).
+
+type EndedEntry = { sessionId: string; reason: string; at: number };
+const recentlyEndedByMatch = new Map<string, EndedEntry>();
+const RECENTLY_ENDED_TTL_MS = 3 * 60 * 1000; // suppress for 3 minutes
+
+export function markSessionEndedForMatch(matchId: string, sessionId: string | null | undefined, reason: string) {
+  if (!sessionId) return;
+  recentlyEndedByMatch.set(matchId, { sessionId, reason, at: Date.now() });
+  console.log("[CALL_DECLINE_FIX] markSessionEndedForMatch", {
+    matchId: matchId.slice(0, 8),
+    sessionId: sessionId.slice(0, 8),
+    reason,
+  });
+}
+
+export function getEndedSessionForMatch(matchId: string): EndedEntry | null {
+  const entry = recentlyEndedByMatch.get(matchId);
+  if (!entry) return null;
+  if (Date.now() - entry.at > RECENTLY_ENDED_TTL_MS) {
+    recentlyEndedByMatch.delete(matchId);
+    return null;
+  }
+  return entry;
+}
+
+export function clearEndedSessionForMatch(matchId: string) {
+  recentlyEndedByMatch.delete(matchId);
+}
+
 export function clearCancelledSession(matchId: string, callSessionId?: string | null) {
   if (callSessionId) {
     const key = sessionKey(matchId, callSessionId);
