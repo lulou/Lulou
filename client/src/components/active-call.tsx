@@ -12,6 +12,7 @@ import {
   unregisterCallAudioElement,
 } from "@/lib/call-audio";
 import { callDebug } from "@/lib/call-debug";
+import { markSelfCancelled } from "@/lib/cancelled-calls";
 import { CallDebugPanel } from "@/components/call-debug-panel";
 import {
   configureVoiceChat,
@@ -960,6 +961,14 @@ export function ActiveCallOverlay({
     }
 
     onCallEnd();
+
+    // If the caller is cancelling a still-ringing call (before it was answered),
+    // record this in the self-cancelled Set so matches.tsx can distinguish
+    // "I cancelled my own call" from "the recipient declined" and suppress
+    // the false "{name} declined" toast on the caller's side.
+    if (isCancelRinging) {
+      markSelfCancelled(matchId, callSessionId);
+    }
 
     broadcastCallSignal(matchId, {
       type: signalType as any,

@@ -90,6 +90,23 @@ export function isCallSessionCancelled(matchId: string, callSessionId?: string |
   return cancelledSessions.has(sessionKey(matchId, callSessionId));
 }
 
+// ── Self-cancelled sessions ───────────────────────────────────────────────────
+// Tracks sessions where the CURRENT USER was the one who cancelled the call
+// (via the full-screen overlay end button, not via the inline chat cancel button
+// in matches.tsx). Used to suppress the false "{name} declined" toast in the
+// caller's inline chat when the caller ends their own ringing call from the overlay.
+const selfCancelledByCurrentUser = new Set<string>();
+
+export function markSelfCancelled(matchId: string, callSessionId?: string | null) {
+  if (!callSessionId) return;
+  selfCancelledByCurrentUser.add(sessionKey(matchId, callSessionId));
+}
+
+export function isSelfCancelled(matchId: string, callSessionId?: string | null): boolean {
+  if (!callSessionId) return false;
+  return selfCancelledByCurrentUser.has(sessionKey(matchId, callSessionId));
+}
+
 export function clearCancelledSession(matchId: string, callSessionId?: string | null) {
   if (callSessionId) {
     const key = sessionKey(matchId, callSessionId);

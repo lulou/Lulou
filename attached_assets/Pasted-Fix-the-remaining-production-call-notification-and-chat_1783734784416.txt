@@ -1,0 +1,235 @@
+Fix the remaining production call-notification and chat-state bugs.
+
+Current production setup:
+
+Frontend:
+https://lulouapp.vercel.app
+
+Backend:
+https://lulou-production.up.railway.app
+
+Database:
+Neon PostgreSQL
+
+Important confirmed facts:
+
+- Push notifications were previously disabled on the iPhone.
+- Push notifications are now enabled.
+- An incoming-call notification now reaches the locked iPhone.
+- However, the notification still displays only:
+ “Lulou”
+ “Notification”
+- It does not display the caller name or “Tap to answer.”
+- The full-page chat shown in the screenshot is rendered by messaging.tsx.
+- After a call is cancelled or declined, the “You’ve both shared a lot / Start First Call” card still appears.
+- Raw internal schedule protocol messages are also visible in the chat:
+ __SCHEDULE__:
+ {"type":"propose", ...}
+ __SCHEDULE__:
+ {"type":"accept", ...}
+
+Do not make another speculative fix.
+Trace the real production codepaths first and prove which files and handlers are active.
+
+BUG 1 — Incoming-call push is still generic
+
+Expected lock-screen notification:
+
+Title:
+Incoming call from {callerFirstName}
+
+Body:
+Tap to answer
+
+Use:
+- Lulou app icon
+- Lulou notification badge
+- type: "incoming_call"
+- matchId
+- callerId
+- callerName
+- callSessionId
+- isVideo
+- destination URL for the correct chat
+
+Investigate the complete push pipeline:
+
+1. The server route or call-start mutation that sends the push.
+2. The exact JSON payload passed to webpush.sendNotification.
+3. The saved push subscription belonging to the receiving user.
+4. The deployed service worker currently active on lulouapp.vercel.app.
+5. The push event handler in client/public/sw.js.
+6. Whether event.data.json() succeeds.
+7. Whether the payload type is actually "incoming_call".
+8. Whether showNotification receives the correct title and body.
+9. Whether an old service worker, stale subscription, or fallback notification is still being used.
+10. Whether the installed iPhone PWA was subscribed before the current service worker deployment.
+
+Requirements:
+
+- Remove all hardcoded proof titles such as:
+ “LULOU PUSH TEST”
+ “This is the new service worker”
+- Do not allow an empty or malformed payload to fall back to generic “Lulou — Notification.”
+- Ensure event.waitUntil() wraps the entire push-handling promise.
+- Ensure synchronous errors cannot escape before showNotification.
+- Use an iOS-safe showNotification options object.
+- Add production-safe logs:
+ [PUSH_CALL_SEND]
+ [PUSH_CALL_PAYLOAD]
+ [SW_PUSH_RECEIVED]
+ [SW_PUSH_PARSED]
+ [SW_PUSH_SHOWN]
+ [SW_PUSH_FAILED]
+- Never log tokens, private keys, or full subscription endpoints.
+- Add a service-worker version identifier visible in Settings/About.
+- If the active subscription belongs to an old service worker, implement a safe reset/re-subscribe flow.
+- The final real notification must show the caller name and “Tap to answer.”
+
+BUG 2 — Wrong first-call card after cancellation/decline
+
+Current incorrect behaviour:
+
+- A call starts.
+- The caller ends the call before it is answered, or the recipient declines.
+- The receiving user returns to the chat.
+- The “You’ve both shared a lot / Start First Call” card appears immediately.
+- In some cases the user is told they declined even though the caller cancelled.
+
+The backend must be the authority for the final reason.
+
+Distinguish these outcomes:
+
+- recipient_declined
+- caller_cancelled
+- missed
+- timed_out
+- ended_after_connection
+- connection_lost
+
+Rules:
+
+- If the caller ends before answer:
+ Recipient sees:
+ “{callerName} cancelled the call.”
+
+- If the recipient explicitly presses Decline:
+ Caller sees:
+ “Call declined.”
+
+- If nobody answers before timeout:
+ Both users see:
+ “Missed call.”
+
+- If the call connected and later ended:
+ Both users see:
+ “Call ended.”
+
+- Never show “You declined the call” unless that exact user pressed Decline.
+
+Investigate:
+
+1. The caller End button mutation.
+2. The recipient Decline mutation.
+3. The server cancel/decline/end endpoints.
+4. WebRTC or realtime signals:
+  call:declined
+  call:cancelled
+  call:ended
+  call:timeout
+5. Cache updates for:
+  ["/api/matches"]
+  ["/api/matches", matchId]
+6. messaging.tsx call-card rendering condition.
+7. Whether callStage, messagesRemaining, callStartedAt, callSessionId, callAnswered and callCompleted are enough to distinguish the final reason.
+8. Whether a stale ring signal can restore the old call state after cancellation.
+
+Requirements:
+
+- Use the real callSessionId throughout the entire lifecycle.
+- Reject stale signals from old sessions.
+- Only one terminal state may win.
+- Patch and invalidate both list and detail caches.
+- Do not use arbitrary 4-second suppression timers.
+- Do not show the “Start First Call” card while:
+ - a call is ringing
+ - a call is active
+ - the latest session is still being finalised
+ - a cancellation/decline status message should be shown
+- After the correct terminal status has rendered, the user may start a new call again.
+
+BUG 3 — Internal schedule messages are visible
+
+The following are internal protocol messages and must never be displayed as normal chat text:
+
+__SCHEDULE__:
+{"type":"propose", ...}
+
+__SCHEDULE__:
+{"type":"accept", ...}
+
+Requirements:
+
+- Find where these messages are created, stored and rendered.
+- Keep the underlying data if the scheduling feature needs it.
+- Parse them before normal chat rendering.
+- Render a proper schedule card or hide them from the message list.
+- Do not display raw JSON, UUIDs, internal stage values or protocol prefixes to users.
+- Handle at least:
+ - propose
+ - accept
+ - decline
+ - cancel
+ - reschedule
+- Existing historical raw schedule messages must also render correctly.
+
+FILES TO VERIFY
+
+At minimum inspect:
+
+- client/public/sw.js
+- server/pushService.ts
+- server/routes.ts
+- client/src/hooks/use-call-signaling.ts
+- client/src/pages/messaging.tsx
+- client/src/pages/matches.tsx
+- query/cache update helpers
+- schedule-message parser/rendering code
+- push subscription registration code
+
+VERIFICATION
+
+Perform real verification, not only TypeScript checks.
+
+1. Confirm the active service-worker version.
+2. Confirm the receiving user has an active push subscription.
+3. Trigger one real incoming-call push and report the exact payload fields.
+4. Confirm the notification title/body passed to showNotification.
+5. Confirm caller-cancel and recipient-decline produce different terminal states.
+6. Confirm the first-call card does not appear incorrectly.
+7. Confirm raw __SCHEDULE__ JSON no longer appears.
+8. Run:
+  npm run check
+  npm run build
+9. Push the fix to GitHub.
+10. Report:
+  - exact root cause for each bug
+  - files changed
+  - service-worker version
+  - cache keys updated
+  - final call-state rules
+  - commit hash
+  - build results
+
+Do not modify:
+
+- Neon database structure unless absolutely necessary
+- Supabase authentication
+- user accounts
+- payment logic
+- message quotas
+- call durations
+- Discover
+- Likes
+- Connections
+- unrelated profile functionality

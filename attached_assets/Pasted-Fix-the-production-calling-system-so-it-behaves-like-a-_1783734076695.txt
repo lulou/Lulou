@@ -1,0 +1,122 @@
+Fix the production calling system so it behaves like a real messaging app (FaceTime/WhatsApp).
+
+CURRENT ISSUES
+
+1. If User A starts a call while User B's phone is locked or the app is in the background, User B receives absolutely nothing:
+- No push notification
+- No ringtone
+- No vibration
+- No lock-screen notification
+- No incoming call screen
+
+2. If the caller hangs up before the recipient answers, the recipient incorrectly sees "You declined the call." This is wrong because the recipient never declined anything.
+
+REQUIREMENTS
+
+INCOMING CALLS
+
+Implement production-ready incoming call notifications.
+
+When a user starts an audio or video call:
+
+• Immediately send a push notification to the recipient.
+• If the app is open, show the existing incoming call screen instantly.
+• If the app is backgrounded, display a notification.
+• If the phone is locked, show a lock-screen notification and play the ringtone where supported.
+• Tapping the notification must open Lulou directly into the incoming call screen.
+• Support iOS PWA now and keep the implementation compatible with future native iOS and Android apps.
+• Do not rely on polling while the app is closed.
+
+CALL STATE MACHINE
+
+Implement proper call lifecycle states:
+
+- Calling
+- Ringing
+- Accepted
+- Connected
+- Declined by recipient
+- Cancelled by caller
+- Missed
+- Timed out
+- Ended after connection
+- Connection lost
+
+Rules:
+
+If the caller ends the call before it is answered:
+Recipient sees:
+"Caller cancelled the call."
+
+If the recipient presses Decline:
+Caller sees:
+"Call declined."
+
+If nobody answers:
+Both users see:
+"Missed call."
+
+If the call connected successfully:
+Both users see:
+"Call ended."
+
+Never show "You declined the call" unless the recipient actually pressed the Decline button.
+
+SERVER AUTHORITY
+
+The backend must be the single source of truth.
+
+Prevent race conditions where:
+- Caller cancels while recipient declines.
+- Recipient receives multiple end states.
+- Duplicate ringing occurs.
+- Old calls remain active.
+- Stale call records are reused.
+
+Only one final call state may exist.
+
+RELIABILITY
+
+Verify and fix:
+
+- WebRTC signalling
+- Realtime events
+- Push notification delivery
+- Ring timeout handling
+- Cleanup of abandoned calls
+- State reset after every completed or cancelled call
+
+LOGGING
+
+Add production-safe diagnostics (never log tokens).
+
+Log:
+- Call created
+- Notification sent
+- Notification received (where available)
+- Ring started
+- Accepted
+- Declined
+- Cancelled by caller
+- Connected
+- Ended
+- Missed
+- Timeout
+- Connection lost
+
+DO NOT MODIFY
+
+Do not change:
+- Supabase authentication
+- User accounts
+- Matching
+- Messaging
+- Discover
+- Likes
+- Connections
+- Payments
+- Existing call quotas
+- Existing call timers
+- Database schema unless absolutely necessary for the new call state implementation.
+
+The final result should make Lulou's calling experience behave like FaceTime or WhatsApp, with reliable incoming notifications, correct call status messages, accurate lifecycle handling, and no false "declined" messages.

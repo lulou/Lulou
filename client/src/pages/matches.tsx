@@ -13,7 +13,7 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest, batchPrefetchPhotos, getAuthHeaders, API_BASE } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
 import { useTabActive } from "@/hooks/use-tab-active";
-import { isCallSessionCancelled, markCallSessionCancelled, clearCancelledSession } from "@/lib/cancelled-calls";
+import { isCallSessionCancelled, markCallSessionCancelled, clearCancelledSession, isSelfCancelled } from "@/lib/cancelled-calls";
 import { requestMicStream, prewarmMicStream, wasMicGrantedBefore, getMicPermState, releaseMicStream, type MicPermState } from "@/lib/mic-permission";
 import { useRealtimeMessages } from "@/hooks/use-realtime-messages";
 import { useUnreadCounts } from "@/hooks/use-unread-counts";
@@ -2930,7 +2930,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
     const isRingingNow = !!(isCallRinging && iAmCaller);
     prevRingingRef.current = isRingingNow;
 
-    const selfCancelled = iCancelledRef.current;
+    const selfCancelled = iCancelledRef.current || isSelfCancelled(match.id, lastCallSessionIdRef.current ?? "");
     if (wasRinging && !isRingingNow && !isCallActive && !selfCancelled) {
       console.log("[CALL_UI] CALL_DECLINED", { matchId: match.id, reason: "declined_by_receiver_detected", callSessionId: lastCallSessionIdRef.current });
       toast({ title: t("name_declined_title").replace("{name}", match.profile.firstName), description: t("name_declined_desc") });
