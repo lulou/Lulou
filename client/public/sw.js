@@ -1,5 +1,5 @@
 /**
- * Lulou Service Worker v3.1
+ * Lulou Service Worker v3.3
  * Handles: push notifications, notification clicks, install/activate lifecycle,
  * badge management, version reporting, safe update activation.
  * Served at /sw.js — scope covers the entire PWA origin.
@@ -9,7 +9,7 @@
  * about caching service workers).
  */
 
-const SW_VERSION = "3.2";
+const SW_VERSION = "3.3";
 const ICON  = "/icon-192.png";
 const BADGE = "/favicon-32.png";
 

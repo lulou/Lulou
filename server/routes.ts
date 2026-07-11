@@ -2868,16 +2868,18 @@ export async function registerRoutes(
     try {
       const serverStorage = getCallStorage(req);
 
-      // Capture callInitiatorId BEFORE cancelCall clears it so we know who was
-      // the caller even after the DB columns are zeroed out.
+      // Capture callInitiatorId + call_started_at BEFORE cancelCall clears them so
+      // we know who was the caller and can compute a dedup key for the event message.
       let preCancelInitiatorId: string | null = null;
+      let preCancelStartedAt: string | null = null;
       try {
         const { data: pre } = await supabaseAdmin
           .from("matches")
-          .select("call_initiator_id")
+          .select("call_initiator_id, call_started_at")
           .eq("id", matchId)
           .maybeSingle();
         preCancelInitiatorId = pre?.call_initiator_id ?? null;
+        preCancelStartedAt   = pre?.call_started_at   ?? null;
       } catch { /* non-fatal — fall back to treating userId as caller */ }
 
       const match = await serverStorage.cancelCall(matchId, userId);
@@ -2891,24 +2893,59 @@ export async function registerRoutes(
       });
       res.json(match);
 
-      // Fire-and-forget: insert call event message + optionally notify the other user.
+      // Fire-and-forget: insert call event message + push the other user.
       if (!match.callAnswered) {
         (async () => {
           try {
-            const callerId         = preCancelInitiatorId ?? userId;
+            const callerId           = preCancelInitiatorId ?? userId;
             const isCallerCancelling = callerId === userId;
-            const otherUserId      = match.user1Id === userId ? match.user2Id : match.user1Id;
-            const callerProfile    = await serverStorage.getProfileMeta(callerId);
-            const callerName       = callerProfile?.firstName || "Someone";
+            const calleeId           = isCallerCancelling
+              ? (match.user1Id === userId ? match.user2Id : match.user1Id)
+              : userId;
+            const otherUserId        = match.user1Id === userId ? match.user2Id : match.user1Id;
 
-            // Insert a system message visible to both participants
+            // ── Dedup guard ───────────────────────────────────────────────────
+            // Two concurrent cancel requests (race: caller timer + callee Decline)
+            // can both reach this block. Skip inserting a second event if one was
+            // already written for this call session in the last 90 seconds.
+            if (preCancelStartedAt) {
+              const { data: existingEvent } = await supabaseAdmin
+                .from("messages")
+                .select("id")
+                .eq("match_id", matchId)
+                .like("content", "__CALL_EVENT__%")
+                .gte("created_at", new Date(new Date(preCancelStartedAt).getTime() - 1000).toISOString())
+                .limit(1)
+                .maybeSingle();
+              if (existingEvent) {
+                console.log("[CALL_CANCEL] DEDUP: call event already written, skipping", { matchId });
+                return;
+              }
+            }
+
+            // Fetch both profiles in parallel for correct name capitalisation
+            const [callerProfile, calleeProfile] = await Promise.all([
+              serverStorage.getProfileMeta(callerId),
+              serverStorage.getProfileMeta(calleeId),
+            ]);
+            const callerName = callerProfile?.firstName || "Someone";
+            const calleeName = calleeProfile?.firstName || "Someone";
+
+            // Insert a system message visible to both participants.
+            // Payload includes callerName + calleeName so each side can render
+            // perspective-aware text without another profile fetch.
             const eventType    = isCallerCancelling ? "cancelled" : "declined";
-            const eventContent = `__CALL_EVENT__:${JSON.stringify({ type: eventType, callerId, callerName })}`;
+            const eventContent = `__CALL_EVENT__:${JSON.stringify({
+              type: eventType, callerId, callerName, calleeId, calleeName,
+            })}`;
             await serverStorage.createMessage({ matchId, senderId: callerId, content: eventContent });
 
-            // Push only when the caller cancelled (the callee missed the call)
             if (isCallerCancelling) {
+              // Caller gave up / timed out → callee missed the call
               await sendPushToUser(otherUserId, buildPush.missedCall(callerName, matchId), "missed_call");
+            } else {
+              // Callee explicitly declined → notify the caller
+              await sendPushToUser(callerId, buildPush.callDeclined(calleeName, matchId), "missed_call");
             }
           } catch { /* ignore */ }
         })();

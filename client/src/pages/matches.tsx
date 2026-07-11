@@ -548,9 +548,15 @@ function renderMatchPreview(
       const ev = JSON.parse(content.slice("__CALL_EVENT__:".length));
       const isMe = msg.senderId === userId;
       if (ev.type === "cancelled" || ev.type === "missed") {
-        return isMe ? `📞 You called ${otherFirstName || "them"}` : "📞 Missed call";
+        return isMe
+          ? `📞 You called ${otherFirstName || "them"}`
+          : `📞 Missed call from ${ev.callerName || otherFirstName || "them"}`;
       }
-      if (ev.type === "declined") return "📞 Call declined";
+      if (ev.type === "declined") {
+        return isMe
+          ? `📞 ${ev.calleeName || otherFirstName || "They"} declined your call`
+          : `📞 You declined ${ev.callerName || otherFirstName || "their"} call`;
+      }
       if (ev.type === "ended")    return "📞 Call ended";
     } catch {}
     return "📞 Call";
@@ -3352,7 +3358,11 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                       ? `📞 You called ${match.profile.firstName}`
                       : `📞 Missed call from ${ev.callerName || match.profile.firstName}`;
                   }
-                  if (ev.type === "declined") callText = "📞 Call declined";
+                  if (ev.type === "declined") {
+                    callText = isMe
+                      ? `📞 ${ev.calleeName || match.profile.firstName} declined your call`
+                      : `📞 You declined ${ev.callerName || match.profile.firstName}'s call`;
+                  }
                   if (ev.type === "ended")    callText = "📞 Call ended";
                 } catch {}
                 if (!callText) return null;

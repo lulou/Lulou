@@ -415,9 +415,16 @@ export const buildPush = {
   }),
 
   missedCall: (callerName: string, matchId: string): PushPayload => ({
-    title: "Missed call",
-    body:  `You missed a call from ${callerName}`,
+    title: `Missed call from ${callerName}`,
+    body:  `${callerName} called but you didn't answer`,
     data:  { url: `/messages/${matchId}`, type: "missed_call", tag: `missed_${matchId}` },
+    ttl:   3600,
+  }),
+
+  callDeclined: (calleeName: string, matchId: string): PushPayload => ({
+    title: `${calleeName} declined your call`,
+    body:  `${calleeName} declined your call`,
+    data:  { url: `/messages/${matchId}`, type: "call_declined", tag: `missed_${matchId}` },
     ttl:   3600,
   }),
 

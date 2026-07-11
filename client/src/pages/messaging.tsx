@@ -1435,7 +1435,11 @@ export default function Messaging() {
                       ? `📞 You called ${matchDetail?.profile?.firstName || "them"}`
                       : `📞 Missed call from ${ev.callerName || matchDetail?.profile?.firstName || ""}`;
                   }
-                  if (ev.type === "declined") callText = "📞 Call declined";
+                  if (ev.type === "declined") {
+                    callText = isMe
+                      ? `📞 ${ev.calleeName || matchDetail?.profile?.firstName || "They"} declined your call`
+                      : `📞 You declined ${ev.callerName || matchDetail?.profile?.firstName || "their"} call`;
+                  }
                   if (ev.type === "ended")    callText = "📞 Call ended";
                 } catch {}
                 if (!callText) return null;
