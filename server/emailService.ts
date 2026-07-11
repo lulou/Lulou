@@ -22,6 +22,18 @@ const MAX_RETRIES      = 3;
 const RETRY_BASE_MS    = 800;
 const EMAIL_LOG_MAX    = 200;
 
+// Startup check — logged once at module load so Railway/Railway logs confirm
+// whether the key is present before the first email is attempted.
+if (RESEND_API_KEY) {
+  console.log(`[EMAIL] Resend configured — FROM="${FROM}" key=re_***${RESEND_API_KEY.slice(-4)}`);
+} else {
+  console.error(
+    '[EMAIL] CRITICAL: RESEND_API_KEY is not set. ' +
+    'ALL transactional emails (including refund confirmations) will be silently skipped. ' +
+    'Set RESEND_API_KEY in Railway environment variables to enable email delivery.'
+  );
+}
+
 // ── In-memory audit log ───────────────────────────────────────────────────────
 
 export interface EmailLogEntry {

@@ -5,7 +5,7 @@ import { eq } from 'drizzle-orm';
 import { processedStripeSessions, userBenefits, callCredits, membershipSubscriptions, refundRecords } from '@shared/schema';
 import { EXTRAS_ITEMS, ELEVATE_PACKS, type ExtrasItemId, type ElevatePackId, grantExtras, grantElevate, isUniqueViolation } from './purchaseItems';
 import { supabaseAdmin } from './supabase';
-import { sendEmail } from './emailService';
+import { sendEmail, getEmailLog } from './emailService';
 import { sendPushToUser, buildPush } from './pushService';
 import {
   purchaseConfirmationEmail,
@@ -34,9 +34,21 @@ interface UserInfo {
 }
 
 async function getUserInfo(userId: string): Promise<UserInfo> {
+  // supabaseAdmin.auth.admin.getUserById() can hang indefinitely in some
+  // network environments (documented: UND_ERR_HEADERS_TIMEOUT). Wrap it in a
+  // 4-second timeout so a stalled Supabase Admin API call never silently kills
+  // the refund email send.
+  const withTimeout = <T>(p: Promise<T>, ms: number, label: string): Promise<T> =>
+    Promise.race([
+      p,
+      new Promise<T>((_, reject) =>
+        setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms)
+      ),
+    ]);
+
   try {
     const [authResult, profileResult] = await Promise.all([
-      supabaseAdmin.auth.admin.getUserById(userId),
+      withTimeout(supabaseAdmin.auth.admin.getUserById(userId), 4000, "getUserById"),
       supabaseAdmin
         .from("profiles")
         .select("firstName")
@@ -393,16 +405,23 @@ async function handleCheckoutSessionCompleted(session: any): Promise<void> {
 // Called by both charge.refunded and refund.created handlers.
 // Uses processed_stripe_sessions with key "refund_email_<refundId>" to ensure
 // exactly one email is sent per refund, regardless of how many events fire.
+//
+// Production trace: search Railway logs for [REFUND_EMAIL_TRACE] to follow
+// the full path of any refund email attempt.
 
 async function sendRefundEmail(
   refundId:        string,
   paymentIntentId: string,
   amountCents:     number,
   currency:        string,
+  stripeEventType: string = "unknown",
 ): Promise<void> {
+  // ── Step 1: Entry ──────────────────────────────────────────────────────────
+  console.log(`[REFUND_EMAIL_TRACE] eventType=${stripeEventType} refundId=${refundId} paymentIntentId=${paymentIntentId} amount=${amountCents} currency=${currency}`);
+
   const idempotencyKey = `refund_email_${refundId}`;
 
-  // ── Idempotency guard ──────────────────────────────────────────────────────
+  // ── Step 2: Idempotency guard ──────────────────────────────────────────────
   try {
     await db.insert(processedStripeSessions).values({
       sessionId: idempotencyKey,
@@ -411,15 +430,13 @@ async function sendRefundEmail(
     });
   } catch (err: any) {
     if (isUniqueViolation(err)) {
-      console.log(`[EMAIL] refund_confirmation: already sent for refundId=${refundId} — idempotent skip`);
+      console.log(`[REFUND_EMAIL_TRACE] refundId=${refundId} — IDEMPOTENT_SKIP (email already sent for this refund)`);
       return;
     }
     throw err;
   }
 
-  console.log(`[EMAIL] refund_confirmation: starting send for refundId=${refundId} pi=${paymentIntentId} amount=${amountCents} ${currency}`);
-
-  // ── Look up checkout session → userId + product name ──────────────────────
+  // ── Step 3: Checkout session lookup → userId + product ────────────────────
   let userId:  string | undefined;
   let itemId:  string | undefined;
   let packId:  string | undefined;
@@ -432,10 +449,15 @@ async function sendRefundEmail(
       userId = session.metadata?.userId;
       itemId = session.metadata?.itemId;
       packId = session.metadata?.packId;
+      console.log(`[REFUND_EMAIL_TRACE] paymentIntentId=${paymentIntentId} sessionId=${session.id} itemId=${itemId ?? "none"} packId=${packId ?? "none"}`);
+    } else {
+      console.warn(`[REFUND_EMAIL_TRACE] paymentIntentId=${paymentIntentId} — no checkout session found; userId cannot be resolved`);
     }
   } catch (lookupErr: any) {
-    console.warn(`[EMAIL] refund_confirmation: session lookup failed for pi=${paymentIntentId}: ${lookupErr?.message}`);
+    console.warn(`[REFUND_EMAIL_TRACE] paymentIntentId=${paymentIntentId} session lookup FAILED: ${lookupErr?.message}`);
   }
+
+  console.log(`[REFUND_EMAIL_TRACE] userId=${userId ?? "NOT_FOUND"}`);
 
   const productName = getProductName(itemId, packId);
   const amount      = formatAmount(amountCents, currency);
@@ -443,11 +465,11 @@ async function sendRefundEmail(
   console.log(`[WEBHOOK] REFUND_CONFIRMED refundId=${refundId} user=${userId ?? "unknown"} product=${productName} amount=${amount}`);
 
   if (!userId) {
-    console.warn(`[EMAIL] refund_confirmation: userId not found for pi=${paymentIntentId} — email not sent`);
+    console.warn(`[REFUND_EMAIL_TRACE] userId=NOT_FOUND — cannot send refund email for refundId=${refundId}; paymentIntentId=${paymentIntentId} had no matching checkout session with userId metadata`);
     return;
   }
 
-  // ── Persist refund record for in-app history + unread notification ─────────
+  // ── Step 4: Persist refund record for in-app history + unread notification ─
   try {
     await db.insert(refundRecords).values({
       userId,
@@ -466,27 +488,51 @@ async function sendRefundEmail(
     }
   }
 
-  // ── Send email (fire-and-forget; never blocks webhook response) ───────────
+  // ── Step 5: Resolve email address (4-second timeout on getUserById) ────────
   try {
     const info = await getUserInfo(userId);
+    console.log(`[REFUND_EMAIL_TRACE] recipientEmail=${info.email ? `${info.email.slice(0, 4)}***` : "NOT_FOUND"}`);
+
     if (!info.email) {
-      console.warn(`[EMAIL] refund_confirmation: no email address for userId=${userId.slice(0, 8)} — skipping`);
+      console.warn(`[REFUND_EMAIL_TRACE] recipientEmail=NOT_FOUND — no email on Supabase account for userId=${userId.slice(0, 8)}`);
       return;
     }
+
+    // ── Step 6: Render template ──────────────────────────────────────────────
+    const html = refundConfirmationEmail(info.firstName ?? "there", amount, productName, refundId);
+    console.log(`[REFUND_EMAIL_TRACE] templateRendered=true htmlLength=${html.length}`);
+
+    // ── Step 7: Send via Resend ──────────────────────────────────────────────
+    console.log(`[REFUND_EMAIL_TRACE] resendAttempted=true to=${info.email.slice(0, 4)}***`);
     const ok = await sendEmail({
       to:      info.email,
       subject: "Your Lulou refund has been processed ❤️",
-      html:    refundConfirmationEmail(info.firstName ?? "there", amount, productName, refundId),
+      html,
       type:    "refund_confirmation",
     });
+
+    // ── Step 8: Log outcome ──────────────────────────────────────────────────
     if (ok) {
+      // getEmailLog() returns newest-first; index [0] is the send we just made.
+      const recentEntry = getEmailLog()[0];
+      const msgId = recentEntry?.success && recentEntry.type === "refund_confirmation"
+        ? (recentEntry.msgId ?? "(no-id)")
+        : "(no-id)";
+      console.log(`[REFUND_EMAIL_TRACE] resendMessageId=${msgId} resendError=none`);
       console.log(`[EMAIL] refund_confirmation: SUCCESS refundId=${refundId} to=${info.email.slice(0, 4)}***`);
     } else {
+      const recentEntry = getEmailLog()[0];
+      const errMsg = recentEntry?.type === "refund_confirmation"
+        ? (recentEntry.error ?? "unknown — check [EMAIL] FAILED log above")
+        : "unknown — check [EMAIL] FAILED log above";
+      console.error(`[REFUND_EMAIL_TRACE] resendMessageId=none resendError="${errMsg}"`);
       console.error(`[EMAIL] refund_confirmation: FAILED (all retries exhausted) refundId=${refundId}`);
     }
+
     // Push notification for refund (fire-and-forget alongside email)
     sendPushToUser(userId, buildPush.refund(amount), "payment").catch(() => {});
   } catch (emailErr: any) {
+    console.error(`[REFUND_EMAIL_TRACE] resendMessageId=none resendError="${emailErr?.message}"`);
     console.error(`[EMAIL] refund_confirmation: FAILED with exception refundId=${refundId}: ${emailErr?.message}`);
   }
 }
@@ -513,7 +559,7 @@ async function handleChargeRefunded(charge: any): Promise<void> {
   }
 
   // Fire-and-forget — never delays the webhook 200 response
-  void sendRefundEmail(refundId, paymentIntentId, amountCents, currency);
+  void sendRefundEmail(refundId, paymentIntentId, amountCents, currency, "charge.refunded");
 }
 
 // ── refund.created ────────────────────────────────────────────────────────────
@@ -544,7 +590,7 @@ async function handleRefundCreated(refund: any): Promise<void> {
     return;
   }
 
-  void sendRefundEmail(refundId, paymentIntentId, amountCents, currency);
+  void sendRefundEmail(refundId, paymentIntentId, amountCents, currency, "refund.created");
 }
 
 // ── Main entry point ──────────────────────────────────────────────────────────
