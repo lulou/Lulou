@@ -9,7 +9,7 @@
  * about caching service workers).
  */
 
-const SW_VERSION = "3.1";
+const SW_VERSION = "3.2";
 const ICON  = "/icon-192.png";
 const BADGE = "/favicon-32.png";
 
@@ -149,17 +149,18 @@ self.addEventListener("push", (event) => {
 
     // iOS-safe cross-platform options — ABSOLUTE MINIMUM for iOS WebKit.
     // Root cause of "Lulou — Notification" placeholder on some iOS 16.4 devices:
-    // even the `icon` property (though listed as supported) silently causes
-    // showNotification to resolve without displaying the notification on certain
-    // device/OS combinations. Tier 1 therefore strips icon entirely, keeping only
-    // the three properties confirmed reliable across all tested iOS versions:
-    //   body   — notification text (required for anything to appear)
-    //   data   — passed through to notificationclick for navigation
-    //   tag    — deduplicates concurrent ring notifications for the same call
-    // Chrome/Android picks up the richer tier 2 if tier 1 somehow throws there.
+    // ANY optional property in the options dict — including `icon` and `data` —
+    // can cause showNotification to resolve silently without displaying on certain
+    // iOS 16.4–17.x device/OS combinations. Tier 1 therefore uses ONLY `body`
+    // and `tag`:
+    //   body — notification text (required for anything to appear)
+    //   tag  — deduplicates concurrent ring notifications for the same call;
+    //           also used by notificationclick to reconstruct the target URL
+    //           when `data` is absent (see notificationclick handler below).
+    // Chrome/Android receives the full tier 2 options (including data/icon) if
+    // tier 1 throws there (which it won't — kept for defence in depth).
     const safeOptions = {
       body,
-      data: notifData,
       tag,
     };
 
@@ -226,7 +227,17 @@ self.addEventListener("notificationclick", (event) => {
   clearBadgeCount();
 
   const data    = event.notification.data || {};
-  const url     = data.url || "/";
+  const tag     = event.notification.tag || "";
+  // Reconstruct the target URL from `data.url` (tier-2 path) or from the
+  // notification `tag` (tier-1 iOS path, where `data` is stripped from
+  // safeOptions to work around iOS WebKit silent-notification failures).
+  let url = data.url;
+  if (!url) {
+    if (tag.startsWith("call_"))        url = "/messages/" + tag.slice(5);
+    else if (tag.startsWith("msg_"))    url = "/messages/" + tag.slice(4);
+    else if (tag.startsWith("missed_")) url = "/messages/" + tag.slice(7);
+    else                                url = "/";
+  }
   const origin  = self.location.origin;
   const target  = origin + url;
 

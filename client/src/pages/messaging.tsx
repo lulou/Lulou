@@ -1421,13 +1421,20 @@ export default function Messaging() {
               </div>
             )}
             {allMessages.map(msg => {
+              // Guard: null content must never reach any startsWith call
+              if (!msg.content) return null;
+
               // ── Call event system messages — rendered as centred banners ──
               if (msg.content.startsWith("__CALL_EVENT__:")) {
                 const isMe = msg.senderId === user?.id;
                 let callText = "";
                 try {
                   const ev = JSON.parse(msg.content.slice("__CALL_EVENT__:".length));
-                  if (ev.type === "missed")   callText = isMe ? "📞 No answer" : `📞 Missed call · ${ev.callerName || ""}`;
+                  if (ev.type === "cancelled" || ev.type === "missed") {
+                    callText = isMe
+                      ? `📞 You called ${matchDetail?.profile?.firstName || "them"}`
+                      : `📞 Missed call from ${ev.callerName || matchDetail?.profile?.firstName || ""}`;
+                  }
                   if (ev.type === "declined") callText = "📞 Call declined";
                   if (ev.type === "ended")    callText = "📞 Call ended";
                 } catch {}

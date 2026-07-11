@@ -506,7 +506,8 @@ const SCHEDULE_PREFIX = "__SCHEDULE__:";
 const PHONE_PREFIX = "__PHONE__:";
 const VOICE_PREFIX = "__VOICE__:";
 
-function renderMessageContent(content: string, t: (k: any) => string): string {
+function renderMessageContent(content: string | null | undefined, t: (k: any) => string): string {
+  if (!content) return "";
   if (content.startsWith(VOICE_PREFIX)) {
     return "🎤 Voice message";
   }
@@ -516,7 +517,7 @@ function renderMessageContent(content: string, t: (k: any) => string): string {
   if (content.startsWith("__CALL_EVENT__:")) {
     try {
       const ev = JSON.parse(content.slice("__CALL_EVENT__:".length));
-      if (ev.type === "missed")   return "📞 Missed call";
+      if (ev.type === "cancelled" || ev.type === "missed") return "📞 Missed call";
       if (ev.type === "declined") return "📞 Call declined";
       if (ev.type === "ended")    return "📞 Call ended";
     } catch {}
@@ -531,6 +532,31 @@ function renderMessageContent(content: string, t: (k: any) => string): string {
     return "";
   }
   return content;
+}
+
+// Renders the conversation-list preview for a match's last message,
+// with perspective-aware call event text (isMe derived from senderId vs userId).
+function renderMatchPreview(
+  msg: { senderId: string | null; content: string | null | undefined },
+  userId: string | null | undefined,
+  otherFirstName: string | null | undefined,
+  t: (k: any) => string,
+): string {
+  const content = msg.content ?? "";
+  if (content.startsWith("__CALL_EVENT__:")) {
+    try {
+      const ev = JSON.parse(content.slice("__CALL_EVENT__:".length));
+      const isMe = msg.senderId === userId;
+      if (ev.type === "cancelled" || ev.type === "missed") {
+        return isMe ? `📞 You called ${otherFirstName || "them"}` : "📞 Missed call";
+      }
+      if (ev.type === "declined") return "📞 Call declined";
+      if (ev.type === "ended")    return "📞 Call ended";
+    } catch {}
+    return "📞 Call";
+  }
+  const prefix = msg.senderId === userId ? t("you_label") : "";
+  return prefix + renderMessageContent(content, t);
 }
 
 type PendingVoiceNote = {
@@ -2082,7 +2108,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
       broadcastCallSignal(match.id, {
         type: "call:declined",
         matchId: match.id,
-        userId: user!.id,
+        userId: user?.id ?? "",
         callSessionId: effectiveSessionId,
       } as any);
       mergeCallFields(queryClient, match.id, { callStartedAt: null, callInitiatorId: null, callAnswered: false, callCompleted: false, callSessionId: null });
@@ -3010,7 +3036,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
   // stays at that position and gets pushed upward naturally as new messages arrive.
   const guidanceByIndex = useMemo(() => {
     const visibleMsgs = allMessages.filter(
-      m => !m.content.startsWith(SCHEDULE_PREFIX) && !m.content.startsWith("__SYSTEM__:") && !m.content.startsWith("__SYS__:")
+      m => m.content != null && !m.content.startsWith(SCHEDULE_PREFIX) && !m.content.startsWith("__SYSTEM__:") && !m.content.startsWith("__SYS__:")
     );
 
     // Record insertion index for guidance messages appearing for the first time
@@ -3316,11 +3342,16 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
               const isMe = msg.senderId === user?.id;
 
               // ── Call event system messages ────────────────────────────────
+              if (!msg.content) return null;
               if (msg.content.startsWith("__CALL_EVENT__:")) {
                 let callText = "";
                 try {
                   const ev = JSON.parse(msg.content.slice("__CALL_EVENT__:".length));
-                  if (ev.type === "missed")   callText = isMe ? "📞 No answer" : `📞 Missed call · ${ev.callerName || ""}`;
+                  if (ev.type === "cancelled" || ev.type === "missed") {
+                    callText = isMe
+                      ? `📞 You called ${match.profile.firstName}`
+                      : `📞 Missed call from ${ev.callerName || match.profile.firstName}`;
+                  }
                   if (ev.type === "declined") callText = "📞 Call declined";
                   if (ev.type === "ended")    callText = "📞 Call ended";
                 } catch {}
@@ -4486,7 +4517,7 @@ const MatchCard = memo(function MatchCard({ match, unreadCount, userId, onOpen }
           </h3>
           <p className="text-xs text-muted-foreground truncate mt-0.5" data-testid={`text-last-message-${match.id}`}>
             {match.lastMessage
-              ? (match.lastMessage.senderId === userId ? t("you_label") : "") + renderMessageContent(match.lastMessage.content, t)
+              ? renderMatchPreview(match.lastMessage, userId, match.profile.firstName, t)
               : (match.profile.datingIntent ? translateIntent(match.profile.datingIntent, t) : t("start_conversation"))}
           </p>
         </div>

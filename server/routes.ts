@@ -2902,7 +2902,7 @@ export async function registerRoutes(
             const callerName       = callerProfile?.firstName || "Someone";
 
             // Insert a system message visible to both participants
-            const eventType    = isCallerCancelling ? "missed" : "declined";
+            const eventType    = isCallerCancelling ? "cancelled" : "declined";
             const eventContent = `__CALL_EVENT__:${JSON.stringify({ type: eventType, callerId, callerName })}`;
             await serverStorage.createMessage({ matchId, senderId: callerId, content: eventContent });
 
