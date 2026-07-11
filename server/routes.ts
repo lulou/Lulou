@@ -23,7 +23,7 @@ try {
 // App version from package.json (available via npm_package_version when run via npm).
 const APP_VERSION: string = (process.env.npm_package_version as string | undefined) || "1.0.0";
 
-import { SupabaseStorage, mapMatch, type CompleteCallOptions, geocodeLocation, getHasLatLngColumns, getHasEmailVerifiedColumn, incrementMatchBadge, resetMatchBadge, getTotalBadge } from "./storage";
+import { SupabaseStorage, mapMatch, type CompleteCallOptions, geocodeLocation, getHasLatLngColumns, getHasEmailVerifiedColumn, incrementMatchBadge, resetMatchBadge, getTotalBadge, getAllMatchBadgeCounts } from "./storage";
 import { transcodeToM4a } from "./transcoder";
 import { seedDatabase } from "./seed";
 import { z } from "zod";
@@ -2374,6 +2374,17 @@ export async function registerRoutes(
     }
   });
 
+  // ── Per-match unread counts — used to restore badge state after app restart ──
+  app.get("/api/messages/badge-counts", isAuthenticated, async (req: any, res) => {
+    try {
+      const counts = await getAllMatchBadgeCounts(req.user.id);
+      res.json(counts);
+    } catch (err: any) {
+      console.error("BADGE_COUNTS_ERROR", err?.message);
+      res.json({});
+    }
+  });
+
   // ── Mark a match as read (decrements badge count for that match) ───────────
   app.post("/api/messages/:matchId/mark-read", isAuthenticated, async (req: any, res) => {
     try {
@@ -2856,6 +2867,19 @@ export async function registerRoutes(
     const matchId = req.params.matchId;
     try {
       const serverStorage = getCallStorage(req);
+
+      // Capture callInitiatorId BEFORE cancelCall clears it so we know who was
+      // the caller even after the DB columns are zeroed out.
+      let preCancelInitiatorId: string | null = null;
+      try {
+        const { data: pre } = await supabaseAdmin
+          .from("matches")
+          .select("call_initiator_id")
+          .eq("id", matchId)
+          .maybeSingle();
+        preCancelInitiatorId = pre?.call_initiator_id ?? null;
+      } catch { /* non-fatal — fall back to treating userId as caller */ }
+
       const match = await serverStorage.cancelCall(matchId, userId);
       if (!match) {
         return res.status(404).json({ message: "Match not found" });
@@ -2867,14 +2891,25 @@ export async function registerRoutes(
       });
       res.json(match);
 
-      // Fire-and-forget: notify the other user they missed a call (only if call wasn't answered)
+      // Fire-and-forget: insert call event message + optionally notify the other user.
       if (!match.callAnswered) {
         (async () => {
           try {
-            const otherUserId     = match.user1Id === userId ? match.user2Id : match.user1Id;
-            const callerProfile   = await serverStorage.getProfileMeta(userId);
-            const callerName      = callerProfile?.firstName || "Someone";
-            await sendPushToUser(otherUserId, buildPush.missedCall(callerName, matchId), "missed_call");
+            const callerId         = preCancelInitiatorId ?? userId;
+            const isCallerCancelling = callerId === userId;
+            const otherUserId      = match.user1Id === userId ? match.user2Id : match.user1Id;
+            const callerProfile    = await serverStorage.getProfileMeta(callerId);
+            const callerName       = callerProfile?.firstName || "Someone";
+
+            // Insert a system message visible to both participants
+            const eventType    = isCallerCancelling ? "missed" : "declined";
+            const eventContent = `__CALL_EVENT__:${JSON.stringify({ type: eventType, callerId, callerName })}`;
+            await serverStorage.createMessage({ matchId, senderId: callerId, content: eventContent });
+
+            // Push only when the caller cancelled (the callee missed the call)
+            if (isCallerCancelling) {
+              await sendPushToUser(otherUserId, buildPush.missedCall(callerName, matchId), "missed_call");
+            }
           } catch { /* ignore */ }
         })();
       }
@@ -2985,6 +3020,16 @@ export async function registerRoutes(
         userId,
         callCounted: result.counted,
       });
+
+      // Insert a "Call ended" system message once — only the first completer
+      // wins result.counted, preventing duplicate inserts from both sides.
+      if (result.counted) {
+        serverStorage.createMessage({
+          matchId,
+          senderId: userId,
+          content: '__CALL_EVENT__:{"type":"ended"}',
+        }).catch(() => {});
+      }
 
       res.json({ ...result.match, callCounted: result.counted });
     } catch (error: any) {

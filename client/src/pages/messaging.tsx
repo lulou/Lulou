@@ -1421,6 +1421,24 @@ export default function Messaging() {
               </div>
             )}
             {allMessages.map(msg => {
+              // ── Call event system messages — rendered as centred banners ──
+              if (msg.content.startsWith("__CALL_EVENT__:")) {
+                const isMe = msg.senderId === user?.id;
+                let callText = "";
+                try {
+                  const ev = JSON.parse(msg.content.slice("__CALL_EVENT__:".length));
+                  if (ev.type === "missed")   callText = isMe ? "📞 No answer" : `📞 Missed call · ${ev.callerName || ""}`;
+                  if (ev.type === "declined") callText = "📞 Call declined";
+                  if (ev.type === "ended")    callText = "📞 Call ended";
+                } catch {}
+                if (!callText) return null;
+                return (
+                  <div key={msg.id} className="flex justify-center py-2">
+                    <span className="text-xs text-muted-foreground bg-muted/60 rounded-full px-3 py-1.5" data-testid={`call-event-${msg.id}`}>{callText}</span>
+                  </div>
+                );
+              }
+
               // Internal protocol messages — never rendered as plain chat bubbles
               // Bug 3 fix: both __SYS__: and __SYSTEM__: are internal protocol
               // prefixes — neither should ever render as a plain chat bubble.

@@ -48,6 +48,33 @@ export function useUnreadCounts(
     onNewBackgroundMessageRef.current = onNewBackgroundMessage;
   }, [onNewBackgroundMessage]);
 
+  // Restore badge counts from the server on mount (persists across app restarts).
+  // The server increments user_match_badge_counts on every push; reading it back
+  // here seeds the in-memory state so the badge is correct immediately on open.
+  useEffect(() => {
+    if (!userId) return;
+    (async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const token = session?.access_token;
+        if (!token) return;
+        const res = await fetch("/api/messages/badge-counts", {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!res.ok) return;
+        const serverCounts: Record<string, number> = await res.json();
+        setUnreadCounts(prev => {
+          const merged: Record<string, number> = { ...serverCounts };
+          // In-memory wins if higher (real-time messages received this session)
+          for (const [id, n] of Object.entries(prev)) {
+            merged[id] = Math.max(merged[id] ?? 0, n);
+          }
+          return merged;
+        });
+      } catch { /* non-fatal — live realtime updates still work */ }
+    })();
+  }, [userId]);
+
   const markRead = useCallback((matchId: string) => {
     setUnreadCounts(prev => {
       if (!prev[matchId]) return prev;

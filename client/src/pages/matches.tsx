@@ -513,6 +513,15 @@ function renderMessageContent(content: string, t: (k: any) => string): string {
   if (content.startsWith(PHONE_PREFIX)) {
     return `${t("my_number_is")} ${content.slice(PHONE_PREFIX.length)}`;
   }
+  if (content.startsWith("__CALL_EVENT__:")) {
+    try {
+      const ev = JSON.parse(content.slice("__CALL_EVENT__:".length));
+      if (ev.type === "missed")   return "📞 Missed call";
+      if (ev.type === "declined") return "📞 Call declined";
+      if (ev.type === "ended")    return "📞 Call ended";
+    } catch {}
+    return "📞 Call";
+  }
   if (content.startsWith("__SCHEDULE__:") || content.startsWith("__DATE_")) {
     return "";
   }
@@ -3305,6 +3314,24 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
             )}
             {guidanceByIndex.visibleMsgs.map((msg, i) => {
               const isMe = msg.senderId === user?.id;
+
+              // ── Call event system messages ────────────────────────────────
+              if (msg.content.startsWith("__CALL_EVENT__:")) {
+                let callText = "";
+                try {
+                  const ev = JSON.parse(msg.content.slice("__CALL_EVENT__:".length));
+                  if (ev.type === "missed")   callText = isMe ? "📞 No answer" : `📞 Missed call · ${ev.callerName || ""}`;
+                  if (ev.type === "declined") callText = "📞 Call declined";
+                  if (ev.type === "ended")    callText = "📞 Call ended";
+                } catch {}
+                if (!callText) return null;
+                return (
+                  <div key={msg.id} className="flex justify-center py-1.5">
+                    <span className="text-xs text-muted-foreground bg-muted/50 rounded-full px-3 py-1" data-testid={`call-event-${msg.id}`}>{callText}</span>
+                  </div>
+                );
+              }
+
               const hasReaction = msg.reaction && typeof msg.reaction === 'string' && msg.reaction.length > 0;
               const isVoiceNote = msg.content.startsWith(VOICE_PREFIX);
               return (

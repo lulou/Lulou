@@ -3672,3 +3672,20 @@ export async function getTotalBadge(userId: string): Promise<number> {
   `);
   return (result.rows[0] as any)?.total ?? 0;
 }
+
+/**
+ * Return per-match unread counts for a user — used to restore badge state after
+ * an app restart.  Returns a Record<matchId, count> for all matches with count > 0.
+ */
+export async function getAllMatchBadgeCounts(userId: string): Promise<Record<string, number>> {
+  const result = await db.execute(sql`
+    SELECT match_id, count
+    FROM user_match_badge_counts
+    WHERE user_id = ${userId} AND count > 0
+  `);
+  const counts: Record<string, number> = {};
+  for (const row of result.rows as any[]) {
+    counts[String(row.match_id)] = Number(row.count);
+  }
+  return counts;
+}

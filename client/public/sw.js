@@ -1,5 +1,5 @@
 /**
- * Lulou Service Worker v2.9
+ * Lulou Service Worker v3.1
  * Handles: push notifications, notification clicks, install/activate lifecycle,
  * badge management, version reporting, safe update activation.
  * Served at /sw.js — scope covers the entire PWA origin.
@@ -9,7 +9,7 @@
  * about caching service workers).
  */
 
-const SW_VERSION = "3.0";
+const SW_VERSION = "3.1";
 const ICON  = "/icon-192.png";
 const BADGE = "/favicon-32.png";
 
@@ -147,18 +147,18 @@ self.addEventListener("push", (event) => {
 
     const tag = notifData.tag || notifData.type || "lulou";
 
-    // iOS-safe cross-platform options — only properties iOS WebKit reliably accepts.
-    // No badge (unsupported on iOS), no vibrate/requireInteraction/renotify/silent.
-    // IMPORTANT: requireInteraction:true and vibrate cause iOS to silently resolve
-    // showNotification() without actually showing the notification (no throw, no
-    // rejection — the Promise just resolves as if it worked). This means the
-    // catch blocks below would never fire, tiers 2-3 would be skipped, and iOS
-    // shows its own generic "Lulou — Notification" placeholder. Fix: safe options
-    // go FIRST so iOS always gets a working notification. Chrome-specific extras
-    // are attempted as tier 2 if the safe call somehow fails.
+    // iOS-safe cross-platform options — ABSOLUTE MINIMUM for iOS WebKit.
+    // Root cause of "Lulou — Notification" placeholder on some iOS 16.4 devices:
+    // even the `icon` property (though listed as supported) silently causes
+    // showNotification to resolve without displaying the notification on certain
+    // device/OS combinations. Tier 1 therefore strips icon entirely, keeping only
+    // the three properties confirmed reliable across all tested iOS versions:
+    //   body   — notification text (required for anything to appear)
+    //   data   — passed through to notificationclick for navigation
+    //   tag    — deduplicates concurrent ring notifications for the same call
+    // Chrome/Android picks up the richer tier 2 if tier 1 somehow throws there.
     const safeOptions = {
       body,
-      icon,
       data: notifData,
       tag,
     };
