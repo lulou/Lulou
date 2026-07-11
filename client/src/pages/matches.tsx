@@ -533,6 +533,9 @@ type PendingVoiceNote = {
   status: "sending" | "failed";
 };
 
+// Set false once Bug 2 (caller-cancel race) is confirmed fixed in production.
+const DEBUG_CALLS = true;
+
 // ── Voice Debug Panel ─────────────────────────────────────────────────────────
 // Visible only when import.meta.env.DEV=true OR when ?voicedebug=1 is in the URL.
 // Shows all voice note lifecycle state on-screen so iPhone issues can be diagnosed
@@ -1936,12 +1939,15 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
       // call:cancelled broadcast arrives before the HTTP response.
       iCancelledRef.current = true;
       const sessionId = lastCallSessionIdRef.current;
-      console.log("[BUG2_PROOF] mutationFn_start — iCancelledRef_set_true", { matchId: match.id, ts: _ts, callSessionId: sessionId });
+      // Belt-and-suspenders: register the cancel synchronously so isSelfCancelled()
+      // returns true even before onSuccess fires (covers any Realtime race).
+      markCallSessionCancelled(match.id, sessionId);
+      if (DEBUG_CALLS) console.log("[BUG2_PROOF] mutationFn_start — iCancelledRef_set_true", { matchId: match.id, ts: _ts, callSessionId: sessionId });
       console.log("[CALL_UI] CALL_CANCELLED", { matchId: match.id, callSessionId: sessionId, userId: user?.id, role: "caller" });
       console.log("[CALL_UI] CALL_STAGE_EXITED", { matchId: match.id, reason: "caller_cancelled" });
-      console.log("[BUG2_PROOF] POST_cancel_sending", { matchId: match.id, ts: Date.now() });
+      if (DEBUG_CALLS) console.log("[BUG2_PROOF] POST_cancel_sending", { matchId: match.id, ts: Date.now() });
       const res = await apiRequest("POST", `/api/matches/${match.id}/call/cancel`, {});
-      console.log("[BUG2_PROOF] POST_cancel_response_received", { matchId: match.id, ts: Date.now() });
+      if (DEBUG_CALLS) console.log("[BUG2_PROOF] POST_cancel_response_received", { matchId: match.id, ts: Date.now() });
       return res.json();
     },
     onSuccess: () => {
@@ -2946,7 +2952,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
     const selfCancelled = isCancelledByRef || isCancelledByFunc;
     // [BUG2_PROOF] Log every evaluation so we can confirm iCancelledRef was
     // already true when the Realtime call:cancelled signal arrived.
-    console.log("[BUG2_PROOF] ringing_effect_eval", {
+    if (DEBUG_CALLS) console.log("[BUG2_PROOF] ringing_effect_eval", {
       ts: Date.now(),
       matchId: match.id,
       wasRinging,
@@ -3428,7 +3434,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                     color: "hsl(0 60% 75%)",
                   }}
                   onClick={() => {
-                    console.log("[BUG2_PROOF] cancel_btn_pressed", { matchId: match.id, ts: Date.now(), iCancelledRef_before: iCancelledRef.current });
+                    if (DEBUG_CALLS) console.log("[BUG2_PROOF] cancel_btn_pressed", { matchId: match.id, ts: Date.now(), iCancelledRef_before: iCancelledRef.current });
                     cancelCall.mutate();
                   }}
                   disabled={cancelCall.isPending}

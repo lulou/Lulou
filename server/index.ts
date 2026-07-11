@@ -298,8 +298,22 @@ async function initLocalDb() {
         match_id     TEXT NOT NULL,
         last_seen_at TIMESTAMP NOT NULL DEFAULT NOW()
       );
+
+      CREATE TABLE IF NOT EXISTS refund_records (
+        id               VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id          VARCHAR NOT NULL,
+        refund_id        VARCHAR NOT NULL UNIQUE,
+        amount_cents     INTEGER NOT NULL,
+        currency         TEXT NOT NULL DEFAULT 'aud',
+        amount_formatted TEXT NOT NULL,
+        product_name     TEXT NOT NULL,
+        status           TEXT NOT NULL DEFAULT 'completed',
+        read_at          TIMESTAMP,
+        created_at       TIMESTAMP DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_refund_records_user ON refund_records(user_id);
     `);
-    console.log("[STARTUP] Local DB tables verified/created: user_benefits, user_elevates, call_credits, saved_wheel_profiles, active_sessions, membership_subscriptions, push_subscriptions, notification_preferences, admin_payment_simulations, date_plan_reminders_sent, active_chat_sessions");
+    console.log("[STARTUP] Local DB tables verified/created: user_benefits, user_elevates, call_credits, saved_wheel_profiles, active_sessions, membership_subscriptions, push_subscriptions, notification_preferences, admin_payment_simulations, date_plan_reminders_sent, active_chat_sessions, refund_records");
   } catch (err: any) {
     console.error("[STARTUP] Local DB table migration failed:", err?.message);
   }

@@ -1,0 +1,28 @@
+Implement all verified fixes from your investigation and keep all existing functionality intact.
+
+1. Fix iOS push notifications so they always display the caller's name instead of the generic "Lulou / Notification". Use an iOS-safe notification payload as the primary notification shown by the Service Worker (title, body, icon, tag, data only), removing unsupported options such as requireInteraction from the primary path. Ensure the notification consistently displays:
+Title: "Incoming call from {callerName}"
+Body: "Tap to answer"
+
+2. Fix the incorrect "declined" toast. A caller who cancels their own call must never see a message implying the recipient declined. Ensure self-cancel is detected before any Realtime call:cancelled event is processed, eliminate any remaining race conditions, and add diagnostic logging so the exact event order can be verified if it ever occurs again.
+
+3. Prevent all internal protocol/system messages from ever rendering as chat messages. This includes __SCHEDULE__, __SYS__, __SYSTEM__, and any future internal protocol beginning with "__". Apply the protection consistently across every chat view (Messaging, Matches, previews, conversation lists, notifications, etc.). Internal protocol messages should never appear to users as raw text.
+
+4. Keep all diagnostic logging added during the investigation until these issues are confirmed fixed in production, then leave the logging behind a development/debug flag.
+
+5. Improve the refund experience. Do not rely on Stripe emails or bank notifications. Whenever a refund is successfully processed:
+- Automatically send a branded Lulou email confirming the refund.
+- Include the refunded amount, currency, transaction/reference ID (if available), and explain that banks may take several business days to process the refund.
+- Send an in-app notification informing the user the refund has been processed.
+- Send a push notification (if the user has push notifications enabled).
+- Display the refund in the user's payment/history section with its current status (Processing, Completed, Failed if applicable).
+- Ensure duplicate emails, duplicate push notifications, and duplicate in-app notifications cannot occur if webhook events are retried.
+- If Stripe webhook delivery is delayed or retried, maintain idempotency so users receive only one refund confirmation.
+
+After implementation:
+- Run a full TypeScript check.
+- Run a production build.
+- Fix any errors.
+- Commit all changes.
+- Push to GitHub.
+- Confirm the commit hash that was pushed.

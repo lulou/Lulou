@@ -13,6 +13,9 @@ const SW_VERSION = "3.0";
 const ICON  = "/icon-192.png";
 const BADGE = "/favicon-32.png";
 
+// Set false once push-notification reliability is confirmed in production.
+const VERBOSE_LOGGING = true;
+
 // ── Lifecycle ─────────────────────────────────────────────────────────────────
 
 self.addEventListener("install", (event) => {
@@ -186,7 +189,7 @@ self.addEventListener("push", (event) => {
     // (requireInteraction, vibrate, renotify, silent) silently resolves without
     // displaying the notification — no throw, so the old catch-based fallback
     // never fired. Reversed order eliminates the silent-drop entirely.
-    console.log(
+    if (VERBOSE_LOGGING) console.log(
       "[SW_PUSH_PRE_NOTIFY] title=\"" + title + "\"",
       "tag=" + tag,
       "safeOpts=" + JSON.stringify({ body: body.slice(0, 30), icon, tag }),

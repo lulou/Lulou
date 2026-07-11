@@ -6,6 +6,9 @@ import { armCallSession, markSessionAsVideo, isPushArmedSession } from "@/lib/li
 import { APP_LOAD_TIME } from "@/lib/app-load-time";
 import { isStartupSweepComplete } from "@/lib/startup-sweep";
 
+// Set false once Bug 2 (caller-cancel race) is confirmed fixed in production.
+const DEBUG_CALLS = true;
+
 type CallSignalEvent =
   | { type: "call:ring"; matchId: string; callerId: string; callerName: string; callSessionId?: string; isVideo?: boolean }
   | { type: "call:answered"; matchId: string; userId: string; callSessionId?: string }
@@ -343,7 +346,7 @@ export function useCallSignaling(matchIds: string[], userId: string) {
           // cancel_btn_pressed / mutationFn_start timestamps logged in
           // matches.tsx. If ts_here > mutationFn_start then iCancelledRef
           // was already true before this handler ran — proving no race.
-          console.log("[BUG2_PROOF] realtime_call_cancelled_received", { matchId, cancelledBy: senderId, callSessionId: sid, ts: Date.now() });
+          if (DEBUG_CALLS) console.log("[BUG2_PROOF] realtime_call_cancelled_received", { matchId, cancelledBy: senderId, callSessionId: sid, ts: Date.now() });
           console.log("[CALL_SIGNAL] CALL_CANCELLED", { matchId, cancelledBy: senderId, callSessionId: sid });
           markCallSessionCancelled(matchId, sid);
           markSessionEndedForMatch(matchId, sid, "cancelled");

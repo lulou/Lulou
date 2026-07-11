@@ -90,8 +90,13 @@ export function useRealtimeMessages(matchId: string | undefined, enabled: boolea
     );
 
     // ── Last-message preview in the matches list ──
-    // Skip system/schedule messages from the preview.
-    if (!newMsg.content.startsWith("__SCHEDULE__")) {
+    // Skip all internal protocol messages (__SCHEDULE__:, __SYS__:, __SYSTEM__:)
+    // from the preview.  __VOICE__: and __PHONE__: are valid user-visible content.
+    if (
+      !newMsg.content.startsWith("__SCHEDULE__:") &&
+      !newMsg.content.startsWith("__SYS__:") &&
+      !newMsg.content.startsWith("__SYSTEM__:")
+    ) {
       queryClient.setQueryData<MatchWithProfile[]>(["/api/matches"], (list) => {
         if (!list) return list;
         const idx = list.findIndex((m) => m.id === matchId);

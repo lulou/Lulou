@@ -207,6 +207,25 @@ export const processedStripeSessions = pgTable("processed_stripe_sessions", {
   grantedAt: timestamp("granted_at").defaultNow(),
 });
 
+// ── Refund Records ────────────────────────────────────────────────────────────
+// One row per Stripe refund event. Provides in-app payment history + unread badge.
+// readAt = null means the user has not yet acknowledged this refund notification.
+export const refundRecords = pgTable("refund_records", {
+  id:              varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId:          varchar("user_id").notNull(),
+  refundId:        varchar("refund_id").notNull().unique(),
+  amountCents:     integer("amount_cents").notNull(),
+  currency:        text("currency").notNull().default("aud"),
+  amountFormatted: text("amount_formatted").notNull(),
+  productName:     text("product_name").notNull(),
+  status:          text("status").notNull().default("completed"),
+  readAt:          timestamp("read_at"),
+  createdAt:       timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_refund_records_user").on(table.userId),
+]);
+export type RefundRecord = typeof refundRecords.$inferSelect;
+
 // Persists purchased Spark credits (spin credits bought via Stripe).
 // One row per user — balance is incremented on purchase and decremented on use.
 export const sparkBalances = pgTable("spark_balances", {

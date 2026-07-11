@@ -2,7 +2,7 @@ import { getUncachableStripeClient, getWebhookSecret } from './stripeClient';
 import { db } from './db';
 import { sql } from 'drizzle-orm';
 import { eq } from 'drizzle-orm';
-import { processedStripeSessions, userBenefits, callCredits, membershipSubscriptions } from '@shared/schema';
+import { processedStripeSessions, userBenefits, callCredits, membershipSubscriptions, refundRecords } from '@shared/schema';
 import { EXTRAS_ITEMS, ELEVATE_PACKS, type ExtrasItemId, type ElevatePackId, grantExtras, grantElevate, isUniqueViolation } from './purchaseItems';
 import { supabaseAdmin } from './supabase';
 import { sendEmail } from './emailService';
@@ -445,6 +445,25 @@ async function sendRefundEmail(
   if (!userId) {
     console.warn(`[EMAIL] refund_confirmation: userId not found for pi=${paymentIntentId} — email not sent`);
     return;
+  }
+
+  // ── Persist refund record for in-app history + unread notification ─────────
+  try {
+    await db.insert(refundRecords).values({
+      userId,
+      refundId,
+      amountCents,
+      currency,
+      amountFormatted: amount,
+      productName,
+      status: "completed",
+    });
+    console.log(`[WEBHOOK] refund_record inserted userId=${userId.slice(0,8)} refundId=${refundId}`);
+  } catch (dbErr: any) {
+    // A unique-key violation means the record was already inserted by a parallel event — safe to ignore.
+    if (!isUniqueViolation(dbErr)) {
+      console.warn(`[WEBHOOK] refund_record insert failed: ${dbErr?.message}`);
+    }
   }
 
   // ── Send email (fire-and-forget; never blocks webhook response) ───────────

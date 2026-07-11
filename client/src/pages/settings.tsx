@@ -71,8 +71,9 @@ import {
   Mic,
   CreditCard,
   Cookie,
+  Receipt,
 } from "lucide-react";
-import type { Profile, BlockedContact } from "@shared/schema";
+import type { Profile, BlockedContact, RefundRecord } from "@shared/schema";
 import { useLanguageContext } from "@/contexts/language-context";
 import { LulouGuidePreview } from "@/components/lulou-guide";
 import { GUIDE_KEYS, resetGuide } from "@/lib/guide-store";
@@ -99,7 +100,7 @@ function useToggle(key: string, defaultVal = false): [boolean, (v: boolean) => v
 }
 
 
-type ActiveSheet = "selfie" | "blocklist" | "extras" | "language" | "units" | "privacy" | "terms" | "download_data" | "safety" | "principles" | "licences" | "privacy_prefs" | "data_deletion" | "cookie_policy" | "billing_terms" | "lulou_guide" | null;
+type ActiveSheet = "selfie" | "blocklist" | "extras" | "language" | "units" | "privacy" | "terms" | "download_data" | "safety" | "principles" | "licences" | "privacy_prefs" | "data_deletion" | "cookie_policy" | "billing_terms" | "lulou_guide" | "payment_history" | null;
 
 export default function SettingsPage() {
   const [, navigate] = useLocation();
@@ -109,6 +110,25 @@ export default function SettingsPage() {
 
   const { data: profile } = useQuery<Profile>({ queryKey: ["/api/profile"] });
   const { data: blockedContacts = [] } = useQuery<BlockedContact[]>({ queryKey: ["/api/blocked-contacts"] });
+  const { data: refunds = [] } = useQuery<RefundRecord[]>({ queryKey: ["/api/refunds"] });
+  const unreadRefunds = useMemo(() => refunds.filter(r => !r.readAt), [refunds]);
+
+  const markRefundsRead = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/refunds/read-all"),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["/api/refunds"] }),
+  });
+
+  // Show an in-app toast once when the page mounts and there are unread refunds.
+  const refundToastShownRef = useRef(false);
+  useEffect(() => {
+    if (refundToastShownRef.current || unreadRefunds.length === 0) return;
+    refundToastShownRef.current = true;
+    const r = unreadRefunds[0];
+    toast({
+      title: unreadRefunds.length === 1 ? "Refund processed" : `${unreadRefunds.length} refunds processed`,
+      description: `${r.amountFormatted} has been refunded to your payment method`,
+    });
+  }, [unreadRefunds, toast]);
 
   // ── Toggle preferences ────────────────────────────────────────────────────
   const [showLastActive,    setShowLastActive]    = useToggle("show_last_active", true);
@@ -1101,6 +1121,16 @@ export default function SettingsPage() {
             description={t("subscribe_lulou_desc")}
             onPress={() => setActiveSheet("extras")}
             testId="button-settings-subscribe"
+          />
+          <SettingRow
+            icon={<Receipt className="w-[18px] h-[18px] text-muted-foreground" />}
+            label="Payment History"
+            value={unreadRefunds.length > 0 ? `${unreadRefunds.length} new` : undefined}
+            onPress={() => {
+              setActiveSheet("payment_history");
+              if (unreadRefunds.length > 0) markRefundsRead.mutate();
+            }}
+            testId="button-payment-history"
           />
 
           {/* ── 7. Preferences ── */}
@@ -2175,6 +2205,48 @@ export default function SettingsPage() {
                 <p>{t(s.bodyKey as any)}</p>
               </section>
             ))}
+          </div>
+        </SheetContent>
+      </Sheet>
+
+      {/* ── Payment History sheet ── */}
+      <Sheet open={activeSheet === "payment_history"} onOpenChange={open => !open && setActiveSheet(null)}>
+        <SheetContent side="bottom" className="h-[80vh] flex flex-col p-0">
+          <SheetHeader className="px-5 pt-5 pb-3 border-b shrink-0">
+            <SheetTitle className="font-serif">Payment History</SheetTitle>
+          </SheetHeader>
+          <div className="flex-1 overflow-y-auto px-5 pb-10 pt-5">
+            {refunds.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-8">No refunds on your account</p>
+            ) : (
+              <div className="space-y-3">
+                {refunds.map(r => (
+                  <div key={r.id} className="rounded-2xl border border-border/50 bg-card px-4 py-3 space-y-1.5">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-sm font-semibold text-foreground leading-tight">{r.productName}</span>
+                      <span className="text-sm font-bold text-emerald-600 dark:text-emerald-400 shrink-0">{r.amountFormatted}</span>
+                    </div>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-xs text-muted-foreground">
+                        {r.createdAt ? new Date(r.createdAt as unknown as string).toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" }) : ""}
+                      </span>
+                      <span className={`text-[11px] font-medium rounded-full px-2.5 py-0.5 ${
+                        r.status === "completed"
+                          ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400"
+                          : r.status === "failed"
+                          ? "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400"
+                          : "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400"
+                      }`}>
+                        {r.status === "completed" ? "Completed" : r.status === "failed" ? "Failed" : "Processing"}
+                      </span>
+                    </div>
+                    {!r.readAt && (
+                      <span className="text-[10px] font-semibold text-primary tracking-wide uppercase">New</span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </SheetContent>
       </Sheet>

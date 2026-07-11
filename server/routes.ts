@@ -28,12 +28,12 @@ import { transcodeToM4a } from "./transcoder";
 import { seedDatabase } from "./seed";
 import { z } from "zod";
 import type { Profile } from "@shared/schema";
-import { userBenefits, callCredits, activeSessions, processedStripeSessions, membershipSubscriptions, userElevates, blockedContacts, savedWheelProfiles, sparkBalances, sparkPurchases, pushSubscriptions, notificationPreferences, datePlanRemindersSent, activeChatSessions } from "@shared/schema";
+import { userBenefits, callCredits, activeSessions, processedStripeSessions, membershipSubscriptions, userElevates, blockedContacts, savedWheelProfiles, sparkBalances, sparkPurchases, pushSubscriptions, notificationPreferences, datePlanRemindersSent, activeChatSessions, refundRecords } from "@shared/schema";
 import { sendPushToUser, buildPush, isUserActiveInApp, isUserActiveInChat, getVapidPublicKey, cleanupFailedSubscriptions } from "./pushService";
 import { EXTRAS_ITEMS, ELEVATE_PACKS, type ExtrasItemId, type ElevatePackId, grantExtras, grantElevate, isUniqueViolation } from './purchaseItems';
 import { supabase, supabaseAdmin, createUserClient, hasServiceRoleKey } from "./supabase";
 import { db } from "./db";
-import { eq, and, isNull, gt, or, inArray } from "drizzle-orm";
+import { eq, and, isNull, gt, or, inArray, desc } from "drizzle-orm";
 import { getUncachableStripeClient, getStripePublishableKey, getStripeAccountInfo, checkStripeReady } from "./stripeClient";
 import { tryGetPriceId } from "./stripePrices";
 import { writeLimiter, callLimiter, paymentLimiter } from "./limiters";
@@ -1544,6 +1544,38 @@ export async function registerRoutes(
     res.redirect(307, "/api/account/export");
   });
 
+  // ── Refund history ────────────────────────────────────────────────────────
+  // Returns all refund records for the authenticated user, newest first.
+  app.get("/api/refunds", isAuthenticated, async (req: any, res) => {
+    const userId: string = req.user.id;
+    try {
+      const records = await db
+        .select()
+        .from(refundRecords)
+        .where(eq(refundRecords.userId, userId))
+        .orderBy(desc(refundRecords.createdAt));
+      res.json(records);
+    } catch (err: any) {
+      console.error("[API] GET /api/refunds error:", err?.message);
+      res.json([]);
+    }
+  });
+
+  // Marks all unread refund records for the user as read (clears in-app badge).
+  app.post("/api/refunds/read-all", isAuthenticated, async (req: any, res) => {
+    const userId: string = req.user.id;
+    try {
+      await db
+        .update(refundRecords)
+        .set({ readAt: new Date() })
+        .where(and(eq(refundRecords.userId, userId), isNull(refundRecords.readAt)));
+      res.json({ ok: true });
+    } catch (err: any) {
+      console.error("[API] POST /api/refunds/read-all error:", err?.message);
+      res.json({ ok: false });
+    }
+  });
+
   // ── Complete personal data export (GDPR Article 20 / CCPA compliant) ───────
   // Returns a single structured JSON file containing ALL data the platform
   // holds for the authenticated user.
@@ -2543,7 +2575,14 @@ export async function registerRoutes(
               console.log(`[PUSH_AUDIT] SENDING push — recipient inactive senderId=${sid8} recipientId=${rid8} matchId=${mid8} senderName="${senderName}" badgeTotal=${badgeTotal}`);
               sendPushToUser(
                 recipientId,
-                buildPush.newMessage(senderName, matchId, message.content, badgeTotal),
+                buildPush.newMessage(
+                  senderName,
+                  matchId,
+                  // Never pass internal protocol messages (__SCHEDULE__:, __SYS__:, __VOICE__: etc.) as the
+                  // push preview — the recipient would see raw system tokens on their lock screen.
+                  message.content.startsWith("__") ? undefined : message.content,
+                  badgeTotal,
+                ),
                 "new_message",
                 { senderId },
               ).catch((err: any) => {
