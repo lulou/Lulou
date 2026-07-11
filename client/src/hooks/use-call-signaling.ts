@@ -339,6 +339,11 @@ export function useCallSignaling(matchIds: string[], userId: string) {
           isEndSignal = true;
         } else if (event.type === "call:cancelled") {
           const sid = (event as any).callSessionId ?? null;
+          // [BUG2_PROOF] Timestamp this so we can compare it against the
+          // cancel_btn_pressed / mutationFn_start timestamps logged in
+          // matches.tsx. If ts_here > mutationFn_start then iCancelledRef
+          // was already true before this handler ran — proving no race.
+          console.log("[BUG2_PROOF] realtime_call_cancelled_received", { matchId, cancelledBy: senderId, callSessionId: sid, ts: Date.now() });
           console.log("[CALL_SIGNAL] CALL_CANCELLED", { matchId, cancelledBy: senderId, callSessionId: sid });
           markCallSessionCancelled(matchId, sid);
           markSessionEndedForMatch(matchId, sid, "cancelled");

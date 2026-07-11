@@ -1422,9 +1422,14 @@ export default function Messaging() {
             )}
             {allMessages.map(msg => {
               // Internal protocol messages — never rendered as plain chat bubbles
+              // Bug 3 fix: both __SYS__: and __SYSTEM__: are internal protocol
+              // prefixes — neither should ever render as a plain chat bubble.
+              // Previously each component only filtered one of the two prefixes,
+              // so messages from the other prefix leaked as raw text in that view.
               if (
                 msg.content.startsWith("__SCHEDULE__:") ||
-                msg.content.startsWith("__SYS__:")
+                msg.content.startsWith("__SYS__:") ||
+                msg.content.startsWith("__SYSTEM__:")
               ) return null;
 
               const isMe = msg.senderId === user?.id;
@@ -1455,7 +1460,7 @@ export default function Messaging() {
                         />
                       ) : (
                         <>
-                          <p className="leading-relaxed">{msg.content.startsWith("__PHONE__:") ? msg.content.slice("__PHONE__:".length) : msg.content}</p>
+                          <p className="leading-relaxed">{msg.content.startsWith("__PHONE__:") ? msg.content.slice("__PHONE__:".length) : msg.content.startsWith("__") ? "" : msg.content}</p>
                           <p className={`text-[10px] mt-1.5 leading-none opacity-60 ${isMe ? "text-primary-foreground" : "text-muted-foreground"}`}>
                             {msg.createdAt ? new Date(msg.createdAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : ""}
                           </p>

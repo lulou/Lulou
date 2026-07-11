@@ -516,6 +516,11 @@ function renderMessageContent(content: string, t: (k: any) => string): string {
   if (content.startsWith("__SCHEDULE__:") || content.startsWith("__DATE_")) {
     return "";
   }
+  // Safety net: any other unrecognised __ protocol string must never render
+  // as raw chat text. __VOICE__ and __PHONE__ are already handled above.
+  if (content.startsWith("__")) {
+    return "";
+  }
   return content;
 }
 
@@ -1925,12 +1930,18 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
 
   const cancelCall = useMutation({
     mutationFn: async () => {
-      // Set immediately so a concurrent 10s poll doesn't trigger the "declined" toast
+      const _ts = Date.now();
+      // Set SYNCHRONOUSLY before any await — this must be visible to the
+      // wasRinging/selfCancelled effect even if the server's Realtime
+      // call:cancelled broadcast arrives before the HTTP response.
       iCancelledRef.current = true;
       const sessionId = lastCallSessionIdRef.current;
+      console.log("[BUG2_PROOF] mutationFn_start — iCancelledRef_set_true", { matchId: match.id, ts: _ts, callSessionId: sessionId });
       console.log("[CALL_UI] CALL_CANCELLED", { matchId: match.id, callSessionId: sessionId, userId: user?.id, role: "caller" });
       console.log("[CALL_UI] CALL_STAGE_EXITED", { matchId: match.id, reason: "caller_cancelled" });
+      console.log("[BUG2_PROOF] POST_cancel_sending", { matchId: match.id, ts: Date.now() });
       const res = await apiRequest("POST", `/api/matches/${match.id}/call/cancel`, {});
+      console.log("[BUG2_PROOF] POST_cancel_response_received", { matchId: match.id, ts: Date.now() });
       return res.json();
     },
     onSuccess: () => {
@@ -2930,7 +2941,23 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
     const isRingingNow = !!(isCallRinging && iAmCaller);
     prevRingingRef.current = isRingingNow;
 
-    const selfCancelled = iCancelledRef.current || isSelfCancelled(match.id, lastCallSessionIdRef.current ?? "");
+    const isCancelledByRef  = iCancelledRef.current;
+    const isCancelledByFunc = isSelfCancelled(match.id, lastCallSessionIdRef.current ?? "");
+    const selfCancelled = isCancelledByRef || isCancelledByFunc;
+    // [BUG2_PROOF] Log every evaluation so we can confirm iCancelledRef was
+    // already true when the Realtime call:cancelled signal arrived.
+    console.log("[BUG2_PROOF] ringing_effect_eval", {
+      ts: Date.now(),
+      matchId: match.id,
+      wasRinging,
+      isRingingNow,
+      isCallActive,
+      selfCancelled,
+      iCancelledByRef: isCancelledByRef,
+      isCancelledByFunc,
+      sessionId: lastCallSessionIdRef.current,
+      willToast: wasRinging && !isRingingNow && !isCallActive && !selfCancelled,
+    });
     if (wasRinging && !isRingingNow && !isCallActive && !selfCancelled) {
       console.log("[CALL_UI] CALL_DECLINED", { matchId: match.id, reason: "declined_by_receiver_detected", callSessionId: lastCallSessionIdRef.current });
       toast({ title: t("name_declined_title").replace("{name}", match.profile.firstName), description: t("name_declined_desc") });
@@ -2968,7 +2995,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
   // stays at that position and gets pushed upward naturally as new messages arrive.
   const guidanceByIndex = useMemo(() => {
     const visibleMsgs = allMessages.filter(
-      m => !m.content.startsWith(SCHEDULE_PREFIX) && !m.content.startsWith("__SYSTEM__:")
+      m => !m.content.startsWith(SCHEDULE_PREFIX) && !m.content.startsWith("__SYSTEM__:") && !m.content.startsWith("__SYS__:")
     );
 
     // Record insertion index for guidance messages appearing for the first time
@@ -3401,7 +3428,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                     color: "hsl(0 60% 75%)",
                   }}
                   onClick={() => {
-                    console.log("[MatchChat] CANCEL_CALL_REQUESTED", { matchId: match.id });
+                    console.log("[BUG2_PROOF] cancel_btn_pressed", { matchId: match.id, ts: Date.now(), iCancelledRef_before: iCancelledRef.current });
                     cancelCall.mutate();
                   }}
                   disabled={cancelCall.isPending}

@@ -9,7 +9,7 @@
  * about caching service workers).
  */
 
-const SW_VERSION = "2.9";
+const SW_VERSION = "3.0";
 const ICON  = "/icon-192.png";
 const BADGE = "/favicon-32.png";
 
@@ -144,11 +144,24 @@ self.addEventListener("push", (event) => {
 
     const tag = notifData.tag || notifData.type || "lulou";
 
-    // Full options — vibrate / requireInteraction / renotify / silent are
-    // Android/Chrome-only.  iOS WebKit silently rejects them, causing
-    // showNotification to reject (or silently fail) and the iOS fallback to
-    // show.  We try full options first, then fall back to the safe subset.
-    const options = {
+    // iOS-safe cross-platform options — only properties iOS WebKit reliably accepts.
+    // No badge (unsupported on iOS), no vibrate/requireInteraction/renotify/silent.
+    // IMPORTANT: requireInteraction:true and vibrate cause iOS to silently resolve
+    // showNotification() without actually showing the notification (no throw, no
+    // rejection — the Promise just resolves as if it worked). This means the
+    // catch blocks below would never fire, tiers 2-3 would be skipped, and iOS
+    // shows its own generic "Lulou — Notification" placeholder. Fix: safe options
+    // go FIRST so iOS always gets a working notification. Chrome-specific extras
+    // are attempted as tier 2 if the safe call somehow fails.
+    const safeOptions = {
+      body,
+      icon,
+      data: notifData,
+      tag,
+    };
+
+    // Chrome/Android-enhanced options with vibration, persistence, badge.
+    const enhancedOptions = {
       body,
       icon,
       badge,
@@ -160,33 +173,34 @@ self.addEventListener("push", (event) => {
       silent:             false,
     };
 
-    // Safe cross-platform options: only properties iOS WebKit accepts.
-    // No badge (unsupported on iOS), no vibrate/requireInteraction/renotify/silent.
-    // Keep body, icon, data (needed for click handler), tag.
-    const safeOptions = {
-      body,
-      icon,
-      data: notifData,
-      tag,
-    };
-
     // Three-tier fallback to guarantee a notification is ALWAYS shown.
     // Each tier is wrapped in its own try-catch so a throw never propagates
     // out of the IIFE — which would cause event.waitUntil to reject and iOS
     // to display its own generic "Lulou — Notification" placeholder.
-    //   Tier 1 — full options  (Chrome / Android)
-    //   Tier 2 — safe options  (iOS WebKit)
-    //   Tier 3 — title + body only (absolute last resort)
+    //
+    //   Tier 1 — safe options   (iOS + Chrome/Android — always attempted first)
+    //   Tier 2 — enhanced opts  (Chrome/Android extras; skipped if tier 1 ok)
+    //   Tier 3 — title+body     (absolute last resort, no options at all)
+    //
+    // WHY SAFE FIRST: on iOS WebKit, showNotification() with unsupported options
+    // (requireInteraction, vibrate, renotify, silent) silently resolves without
+    // displaying the notification — no throw, so the old catch-based fallback
+    // never fired. Reversed order eliminates the silent-drop entirely.
+    console.log(
+      "[SW_PUSH_PRE_NOTIFY] title=\"" + title + "\"",
+      "tag=" + tag,
+      "safeOpts=" + JSON.stringify({ body: body.slice(0, 30), icon, tag }),
+    );
     try {
-      await self.registration.showNotification(title, options);
-      console.log("[SW_PUSH_SHOWN] tier=full title=\"" + title + "\"");
+      await self.registration.showNotification(title, safeOptions);
+      console.log("[SW_PUSH_SHOWN] tier=safe title=\"" + title + "\" tag=" + tag);
     } catch (err1) {
-      console.warn("[SW_PUSH_FAILED] tier=full —", err1 && err1.message);
+      console.warn("[SW_PUSH_FAILED] tier=safe — trying enhanced —", err1 && err1.message);
       try {
-        await self.registration.showNotification(title, safeOptions);
-        console.log("[SW_PUSH_SHOWN] tier=safe title=\"" + title + "\"");
+        await self.registration.showNotification(title, enhancedOptions);
+        console.log("[SW_PUSH_SHOWN] tier=enhanced title=\"" + title + "\"");
       } catch (err2) {
-        console.warn("[SW_PUSH_FAILED] tier=safe —", err2 && err2.message);
+        console.warn("[SW_PUSH_FAILED] tier=enhanced —", err2 && err2.message);
         try {
           await self.registration.showNotification(title, { body, tag });
           console.log("[SW_PUSH_SHOWN] tier=minimal title=\"" + title + "\"");
