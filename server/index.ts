@@ -9,6 +9,17 @@ import { generalLimiter, authLimiter } from "./limiters";
 const app = express();
 const httpServer = createServer(app);
 
+// ── Trust Railway's reverse proxy so req.ip / rate-limiter keying is correct ─
+app.set("trust proxy", 1);
+
+// ── Top-of-stack request logger (fires before ALL other middleware) ───────────
+// Lets Railway deployment logs confirm whether requests reach Express at all.
+// Logs: METHOD /path timestamp
+app.use((req, _res, next) => {
+  console.log(`[REQ] ${req.method} ${req.path} ${new Date().toISOString()}`);
+  next();
+});
+
 declare module "http" {
   interface IncomingMessage {
     rawBody: unknown;
@@ -154,15 +165,13 @@ app.use((req, res, next) => {
   next();
 });
 
-(async () => {
-  // ── Phase 1: register routes, set up static serving, then START LISTENING ───
-  // The health-check probe fires immediately after the container starts.
-  // All slow background tasks (Stripe sync, Supabase column probes) must NOT
-  // block the listen() call — they are kicked off after the server is ready.
-
-  // Ensure local PostgreSQL tables exist before routes are registered so that
-  // the very first request doesn't hit a missing-table error. This is a fast
-  // local PG call (sub-second) so it is safe to await here.
+// ── Background: ensure local Neon tables exist ───────────────────────────────
+// Run AFTER listen() so the DB connection setup never delays port binding.
+// On cold Railway starts Neon's first TCP+SSL handshake can take 5-30 s;
+// awaiting it before listen() causes Railway's health probe to see
+// "connection refused" and report the deployment as failed.
+// Tables already exist on subsequent restarts so this DDL is near-instant then.
+async function initLocalDb() {
   try {
     const { pool: localPool } = await import("./db");
     await localPool.query(`
@@ -294,13 +303,16 @@ app.use((req, res, next) => {
   } catch (err: any) {
     console.error("[STARTUP] Local DB table migration failed:", err?.message);
   }
+}
 
+// ── Background: push subscription maintenance ─────────────────────────────────
+// Also runs AFTER listen() — one-time nuclear cleanup + fail-count pruning.
+async function initPushCleanup() {
   // Clean up any push subscriptions that repeatedly failed (failCount >= 5).
-  // This is a fast local PG call so it's safe to await here.
   try {
     const { cleanupFailedSubscriptions } = await import("./pushService");
     await cleanupFailedSubscriptions();
-  } catch { /* non-critical — server starts regardless */ }
+  } catch { /* non-critical */ }
 
   // ── One-time push subscription nuclear cleanup ───────────────────────────
   // Root-cause fix for the self-notification production bug:
@@ -317,7 +329,7 @@ app.use((req, res, next) => {
     await pushPool.query(`CREATE TABLE IF NOT EXISTS push_cleanup_runs (version INTEGER PRIMARY KEY, ran_at TIMESTAMP DEFAULT NOW())`);
     const guard = await pushPool.query(`SELECT 1 FROM push_cleanup_runs WHERE version = 1`);
     if ((guard.rowCount ?? 0) === 0) {
-      const { rows, rowCount: existingCount } = await pushPool.query(
+      const { rows } = await pushPool.query(
         `SELECT id, user_id, endpoint, user_agent, fail_count, created_at, last_used_at FROM push_subscriptions ORDER BY created_at DESC`
       );
       console.log(`[PUSH_AUDIT] STARTUP nuclear cleanup — found ${rows.length} stale subscription(s):`);
@@ -336,7 +348,6 @@ app.use((req, res, next) => {
       await pushPool.query(`INSERT INTO push_cleanup_runs (version) VALUES (1)`);
       console.log(`[PUSH_AUDIT] STARTUP nuclear cleanup DONE — deleted ${deleted ?? 0} subscription(s). All devices will auto-re-register on next app open.`);
     } else {
-      // Subsequent startups: just audit the current state
       const { rows } = await pushPool.query(
         `SELECT id, user_id, endpoint, user_agent, fail_count, created_at, last_used_at FROM push_subscriptions ORDER BY created_at DESC`
       );
@@ -354,9 +365,14 @@ app.use((req, res, next) => {
   } catch (e: any) {
     console.warn("[PUSH_AUDIT] STARTUP cleanup error (non-fatal):", e?.message);
   }
+}
 
+// ── Main startup IIFE ─────────────────────────────────────────────────────────
+(async () => {
+  // 1. Register all route handlers (synchronous registration, fast).
   await registerRoutes(httpServer, app);
 
+  // 2. Global error handler (must be after routes).
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
     const message = err.message || "Internal Server Error";
@@ -370,6 +386,7 @@ app.use((req, res, next) => {
     return res.status(status).json({ message });
   });
 
+  // 3. Static serving / Vite dev server.
   if (process.env.NODE_ENV === "production") {
     serveStatic(app);
   } else {
@@ -377,6 +394,11 @@ app.use((req, res, next) => {
     await setupVite(httpServer, app);
   }
 
+  // 4. START LISTENING — port opens here, before any slow DB/network init.
+  //    Railway's health-check probe must see an open port within a few seconds
+  //    of the container starting.  Neon's first TCP+SSL handshake can take
+  //    5-30 s on a cold start; awaiting DB work before listen() causes the
+  //    probe to see "connection refused" and mark the deployment as failed.
   const port = parseInt(process.env.PORT || "5000", 10);
   httpServer.listen(
     {
@@ -386,6 +408,10 @@ app.use((req, res, next) => {
     },
     () => {
       log(`serving on port ${port}`);
+      // 5. Background DB/push init — runs after port is open so it never
+      //    delays Railway's health-check or the first incoming request.
+      void initLocalDb();
+      void initPushCleanup();
     },
   );
 
