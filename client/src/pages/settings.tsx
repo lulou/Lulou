@@ -602,14 +602,40 @@ export default function SettingsPage() {
     appVersion?: string; startedAt?: string; ts?: string;
   }>({ queryKey: ["/api/health"], staleTime: 30_000, refetchOnWindowFocus: false });
 
-  const [swVersion, setSwVersion] = useState<string>("querying…");
-  const [swScope, setSwScope]     = useState<string>("querying…");
+  const [swVersion, setSwVersion]     = useState<string>("querying…");
+  const [swScope, setSwScope]         = useState<string>("querying…");
+  const [swControlled, setSwControlled] = useState<boolean | null>(null);
+  const [swScriptUrl, setSwScriptUrl] = useState<string | null>(null);
+  const [swState, setSwState]         = useState<string | null>(null);
+  const [swWaiting, setSwWaiting]     = useState(false);
+  const [isUpdating, setIsUpdating]   = useState(false);
+
   useEffect(() => {
+    // Expose build info immediately for console diagnostics
+    (window as any).LULOU_BUILD_INFO = {
+      appCommit:              __COMMIT_HASH__,
+      buildTime:              __BUILD_TIME__,
+      serviceWorkerVersion:   __SW_VERSION__,
+      apiBaseUrl:             (import.meta.env.VITE_API_BASE_URL as string | undefined) || "(same-origin)",
+      currentUrl:             window.location.href,
+    };
+    console.log("[BUILD_INFO] window.LULOU_BUILD_INFO =", (window as any).LULOU_BUILD_INFO);
+
     if (!("serviceWorker" in navigator)) {
-      setSwVersion("not supported"); setSwScope("n/a"); return;
+      setSwVersion("not supported"); setSwScope("n/a");
+      setSwControlled(false); setSwScriptUrl(null); setSwState(null);
+      return;
     }
+
+    // Snapshot current controller immediately (synchronous)
+    const ctrl = navigator.serviceWorker.controller;
+    setSwControlled(!!ctrl);
+    setSwScriptUrl(ctrl?.scriptURL ?? null);
+    setSwState(ctrl?.state ?? null);
+
     navigator.serviceWorker.ready.then(reg => {
       setSwScope(reg.scope || "(unknown)");
+      setSwWaiting(!!reg.waiting);
       if (!reg.active) { setSwVersion("inactive"); return; }
       const mc = new MessageChannel();
       const timer = setTimeout(() => setSwVersion("timeout"), 3000);
@@ -619,6 +645,16 @@ export default function SettingsPage() {
       };
       reg.active.postMessage({ type: "GET_VERSION" }, [mc.port2]);
     }).catch(() => { setSwVersion("error"); setSwScope("error"); });
+
+    // Keep controller info live
+    const onCtrlChange = () => {
+      const c = navigator.serviceWorker.controller;
+      setSwControlled(!!c);
+      setSwScriptUrl(c?.scriptURL ?? null);
+      setSwState(c?.state ?? null);
+    };
+    navigator.serviceWorker.addEventListener("controllerchange", onCtrlChange);
+    return () => navigator.serviceWorker.removeEventListener("controllerchange", onCtrlChange);
   }, []);
 
   const [isResettingNotifs, setIsResettingNotifs] = useState(false);
@@ -638,6 +674,64 @@ export default function SettingsPage() {
     } catch (err: any) {
       setIsResettingNotifs(false);
       toast({ title: "Reset failed", description: err?.message, variant: "destructive" });
+    }
+  };
+
+  const handleCheckForUpdate = async () => {
+    if (!("serviceWorker" in navigator)) {
+      toast({ title: "Not supported", description: "Service workers are not available in this browser." });
+      return;
+    }
+    setIsUpdating(true);
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      await reg.update();
+      const waiting = reg.waiting;
+      if (waiting) {
+        setSwWaiting(true);
+        // SKIP_WAITING activates the new worker without clearing caches,
+        // push subscriptions, or auth session.
+        waiting.postMessage({ type: "SKIP_WAITING" });
+        // Reload exactly once when the new worker takes control.
+        navigator.serviceWorker.addEventListener(
+          "controllerchange",
+          () => window.location.reload(),
+          { once: true },
+        );
+      } else {
+        toast({
+          title: "Already up to date",
+          description: `Service worker v${swVersion} is current. No update waiting.`,
+        });
+      }
+    } catch (err: any) {
+      toast({ title: "Update check failed", description: err?.message ?? "Unknown error", variant: "destructive" });
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
+  const handleCopyVersionInfo = () => {
+    const lines = [
+      `appCommit: ${__COMMIT_HASH__}`,
+      `buildTime: ${__BUILD_TIME__}`,
+      `bundledSWVersion: ${__SW_VERSION__}`,
+      `activeSWVersion: ${swVersion}`,
+      `swControlled: ${swControlled ?? "querying…"}`,
+      `swScriptUrl: ${swScriptUrl ?? "(none)"}`,
+      `swState: ${swState ?? "(none)"}`,
+      `swScope: ${swScope}`,
+      `currentUrl: ${window.location.href}`,
+      `apiBaseUrl: ${(import.meta.env.VITE_API_BASE_URL as string | undefined) || "(same-origin)"}`,
+      `backendCommit: ${healthData?.commitHash ?? "unknown"}`,
+      `backendEnv: ${healthData?.env ?? "unknown"}`,
+      `backendBuildTime: ${healthData?.buildTime ?? "unknown"}`,
+    ].join("\n");
+    try {
+      navigator.clipboard.writeText(lines);
+      toast({ title: "Copied", description: "Version info copied to clipboard." });
+    } catch {
+      toast({ title: "Copy failed", description: "Check browser permissions.", variant: "destructive" });
     }
   };
 
@@ -1095,9 +1189,9 @@ export default function SettingsPage() {
 
           {/* Version info panel */}
           <div className="mx-4 mb-3 rounded-2xl bg-muted/40 border border-border/50 overflow-hidden">
-            {/* Frontend row */}
+            {/* Frontend commit + build time */}
             <div className="flex items-start justify-between px-4 py-3 border-b border-border/30">
-              <span className="text-xs text-muted-foreground font-medium">Frontend</span>
+              <span className="text-xs text-muted-foreground font-medium">App commit</span>
               <div className="text-right">
                 <p className="text-xs font-mono font-semibold" data-testid="text-version-frontend-commit">
                   {__COMMIT_HASH__}
@@ -1107,56 +1201,85 @@ export default function SettingsPage() {
                 </p>
               </div>
             </div>
-            {/* Service worker row */}
+            {/* Service worker (active via postMessage) */}
             <div className="flex items-center justify-between px-4 py-3 border-b border-border/30">
               <span className="text-xs text-muted-foreground font-medium">Service Worker</span>
               <span className="text-xs font-mono font-semibold" data-testid="text-version-sw">
                 v{swVersion}
+                {swWaiting && <span className="ml-2 text-amber-500 text-[10px]">(update waiting)</span>}
               </span>
             </div>
-            {/* API URL row */}
+            {/* SW controlled */}
+            <div className="flex items-center justify-between px-4 py-3 border-b border-border/30">
+              <span className="text-xs text-muted-foreground font-medium">SW controlled</span>
+              <span className="text-xs font-mono" data-testid="text-version-sw-controlled">
+                {swControlled === null ? "querying…" : swControlled ? "yes" : "no"}
+              </span>
+            </div>
+            {/* SW script URL */}
             <div className="flex items-start justify-between px-4 py-3 border-b border-border/30">
-              <span className="text-xs text-muted-foreground font-medium">API</span>
+              <span className="text-xs text-muted-foreground font-medium shrink-0 mr-3">SW script</span>
+              <span className="text-[10px] font-mono text-muted-foreground max-w-[60%] text-right break-all" data-testid="text-version-sw-script">
+                {swScriptUrl ?? "(none)"}
+              </span>
+            </div>
+            {/* SW state */}
+            <div className="flex items-center justify-between px-4 py-3 border-b border-border/30">
+              <span className="text-xs text-muted-foreground font-medium">SW state</span>
+              <span className="text-xs font-mono" data-testid="text-version-sw-state">
+                {swState ?? "(none)"}
+              </span>
+            </div>
+            {/* Current URL */}
+            <div className="flex items-start justify-between px-4 py-3 border-b border-border/30">
+              <span className="text-xs text-muted-foreground font-medium shrink-0 mr-3">Current URL</span>
+              <span className="text-[10px] font-mono text-muted-foreground max-w-[60%] text-right break-all" data-testid="text-version-current-url">
+                {window.location.href}
+              </span>
+            </div>
+            {/* API URL */}
+            <div className="flex items-start justify-between px-4 py-3 border-b border-border/30">
+              <span className="text-xs text-muted-foreground font-medium">API base</span>
               <span className="text-[10px] font-mono text-muted-foreground max-w-[60%] text-right break-all" data-testid="text-version-api-url">
                 {(import.meta.env.VITE_API_BASE_URL as string | undefined) || "(same origin)"}
               </span>
             </div>
-            {/* Backend row */}
+            {/* Backend commit */}
             <div className="flex items-start justify-between px-4 py-3 border-b border-border/30">
               <span className="text-xs text-muted-foreground font-medium">Backend commit</span>
               <span className="text-xs font-mono font-semibold" data-testid="text-version-backend-commit">
                 {healthData?.commitHash ?? "…"}
               </span>
             </div>
-            {/* Backend env row */}
+            {/* Backend env */}
             <div className="flex items-center justify-between px-4 py-3 border-b border-border/30">
               <span className="text-xs text-muted-foreground font-medium">Backend env</span>
               <span className="text-xs font-mono" data-testid="text-version-backend-env">
                 {healthData?.env ?? "…"}
               </span>
             </div>
-            {/* Backend build time row */}
+            {/* Backend build time */}
             <div className="flex items-start justify-between px-4 py-3 border-b border-border/30">
               <span className="text-xs text-muted-foreground font-medium">Backend build</span>
               <span className="text-[10px] font-mono text-muted-foreground text-right" data-testid="text-version-backend-build">
                 {healthData?.buildTime ? new Date(healthData.buildTime).toLocaleString() : "…"}
               </span>
             </div>
-            {/* Server started row */}
+            {/* Server started */}
             <div className="flex items-start justify-between px-4 py-3 border-b border-border/30">
               <span className="text-xs text-muted-foreground font-medium">Server started</span>
               <span className="text-[10px] font-mono text-muted-foreground text-right" data-testid="text-version-server-started">
                 {healthData?.startedAt ? new Date(healthData.startedAt).toLocaleString() : "…"}
               </span>
             </div>
-            {/* App version row */}
+            {/* App version */}
             <div className="flex items-center justify-between px-4 py-3 border-b border-border/30">
               <span className="text-xs text-muted-foreground font-medium">App version</span>
               <span className="text-xs font-mono font-semibold" data-testid="text-version-app">
                 {healthData?.appVersion ?? "…"}
               </span>
             </div>
-            {/* SW scope row */}
+            {/* SW scope */}
             <div className="flex items-start justify-between px-4 py-3">
               <span className="text-xs text-muted-foreground font-medium">SW scope</span>
               <span className="text-[10px] font-mono text-muted-foreground max-w-[60%] text-right break-all" data-testid="text-version-sw-scope">
@@ -1164,6 +1287,35 @@ export default function SettingsPage() {
               </span>
             </div>
           </div>
+
+          {/* Check for app update + Copy version info */}
+          <div className="mx-4 mb-3 flex gap-2">
+            <button
+              onClick={handleCheckForUpdate}
+              disabled={isUpdating}
+              data-testid="button-check-for-update"
+              className="flex-1 py-3 px-3 rounded-2xl bg-primary text-primary-foreground text-sm font-semibold hover:brightness-110 active:scale-[0.98] transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+            >
+              {isUpdating ? (
+                <>
+                  <span className="w-4 h-4 rounded-full border-2 border-primary-foreground border-t-transparent animate-spin" />
+                  Checking…
+                </>
+              ) : (
+                "Check for app update"
+              )}
+            </button>
+            <button
+              onClick={handleCopyVersionInfo}
+              data-testid="button-copy-version-info"
+              className="py-3 px-4 rounded-2xl border border-border text-sm font-semibold hover:bg-muted active:scale-[0.98] transition-all"
+            >
+              Copy version info
+            </button>
+          </div>
+          <p className="text-center text-[11px] text-muted-foreground/50 mb-4 px-6">
+            "Check for app update" activates any waiting service worker safely — your login, notifications, and data are not affected.
+          </p>
 
           {/* Reset App Cache */}
           <div className="mx-4 mb-6">

@@ -2,6 +2,7 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import path from "path";
 import { execSync } from "child_process";
+import { readFileSync } from "fs";
 import runtimeErrorOverlay from "@replit/vite-plugin-runtime-error-modal";
 
 export default defineConfig({
@@ -87,9 +88,19 @@ export default defineConfig({
   define: (() => {
     let commitHash = "dev";
     try { commitHash = execSync("git rev-parse --short HEAD", { stdio: "pipe" }).toString().trim(); } catch {}
+    let swVersion = "unknown";
+    try {
+      const swText = readFileSync(
+        path.resolve(path.dirname(new URL(import.meta.url).pathname), "client/public/sw.js"),
+        "utf8",
+      );
+      const m = swText.match(/const SW_VERSION\s*=\s*"([^"]+)"/);
+      if (m) swVersion = m[1];
+    } catch {}
     return {
       __COMMIT_HASH__: JSON.stringify(commitHash),
       __BUILD_TIME__:  JSON.stringify(new Date().toISOString()),
+      __SW_VERSION__:  JSON.stringify(swVersion),
     };
   })(),
   envPrefix: ["VITE_", "vite_"],

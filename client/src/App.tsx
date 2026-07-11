@@ -1384,8 +1384,15 @@ function DiagPanel() {
       </div>
     );
   }
+  const swCtrl = typeof navigator !== "undefined" ? navigator.serviceWorker?.controller : null;
   const lines = [
     `[RECONNECT_ROOT_CAUSE]`,
+    `appCommit=${__COMMIT_HASH__}`,
+    `buildTime=${__BUILD_TIME__}`,
+    `swVersionBundled=${__SW_VERSION__}`,
+    `swControlled=${typeof navigator !== "undefined" ? String(!!navigator.serviceWorker?.controller) : "?"}`,
+    `swScriptUrl=${swCtrl?.scriptURL ?? "(none)"}`,
+    `swState=${swCtrl?.state ?? "(none)"}`,
     `endpoint=${d.fullFetchUrl}`,
     `status=${d.fetchStatus ?? "(no response — pre-fetch failure)"}`,
     `contentType=${d.contentType ?? "(none)"}`,

@@ -1,7 +1,7 @@
 /**
- * Lulou Service Worker v2.8
+ * Lulou Service Worker v2.9
  * Handles: push notifications, notification clicks, install/activate lifecycle,
- * badge management.
+ * badge management, version reporting, safe update activation.
  * Served at /sw.js — scope covers the entire PWA origin.
  *
  * IMPORTANT: increment SW_VERSION on every deploy so browsers re-download this
@@ -9,7 +9,7 @@
  * about caching service workers).
  */
 
-const SW_VERSION = "2.8";
+const SW_VERSION = "2.9";
 const ICON  = "/icon-192.png";
 const BADGE = "/favicon-32.png";
 
@@ -24,6 +24,26 @@ self.addEventListener("install", (event) => {
 self.addEventListener("activate", (event) => {
   console.log("[SW] activated version=" + SW_VERSION + " — claiming clients");
   event.waitUntil(clients.claim());
+});
+
+// ── Message handler ───────────────────────────────────────────────────────────
+//
+// GET_VERSION  → reply with the active SW_VERSION string via MessageChannel.
+//               Used by Settings → About to show the running SW version.
+//
+// SKIP_WAITING → activate this waiting worker immediately.
+//               Safe: does NOT clear caches, push subscriptions, or auth.
+//               The app page listens for "controllerchange" then reloads once.
+//
+self.addEventListener("message", (event) => {
+  if (!event.data) return;
+  if (event.data.type === "GET_VERSION") {
+    event.ports[0]?.postMessage({ type: "VERSION", version: SW_VERSION });
+  }
+  if (event.data.type === "SKIP_WAITING") {
+    console.log("[SW] SKIP_WAITING received — activating v" + SW_VERSION);
+    self.skipWaiting();
+  }
 });
 
 // ── Badge helper (works in both SW and Window context) ────────────────────────
