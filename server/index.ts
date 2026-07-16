@@ -101,30 +101,71 @@ app.use(
 app.use(express.urlencoded({ extended: false, limit: "2mb" }));
 
 // ── CORS ─────────────────────────────────────────────────────────────────────
-// Allows cross-origin requests from the Vercel frontend (and local dev).
-// On Replit fullstack mode the frontend is same-origin so this is a no-op.
-// Add extra origins via ALLOWED_ORIGINS="https://a.com,https://b.com".
-const _corsAllowPatterns: RegExp[] = [
+// Two-layer allowlist:
+//   1. Explicit origins — exact strings (production custom domain + known URLs).
+//   2. Pattern-based — dev hosts (Replit, Vercel preview, localhost).
+//
+// FRONTEND_URL and ALLOWED_ORIGINS env vars are both consumed so Railway /
+// Replit secrets control the live list without code changes.
+
+// Layer 1: explicit production origins (exact match, case-insensitive compare)
+const _corsExplicitOrigins = new Set<string>([
+  "https://www.luloudating.com",
+  "https://luloudating.com",
+  "https://lulouapp.vercel.app",
+  // Env-driven: FRONTEND_URL (single origin) and ALLOWED_ORIGINS (CSV list)
+  ...(process.env.FRONTEND_URL ? [process.env.FRONTEND_URL.trim()] : []),
+  ...(process.env.ALLOWED_ORIGINS
+    ? process.env.ALLOWED_ORIGINS.split(",").map((o) => o.trim()).filter(Boolean)
+    : []),
+]);
+
+// Layer 2: pattern-based dev/preview origins
+const _corsPatterns: RegExp[] = [
   /\.replit\.app$/,
   /\.replit\.dev$/,
   /\.vercel\.app$/,
   /^https?:\/\/localhost(:\d+)?$/,
-  ...(process.env.ALLOWED_ORIGINS
-    ? process.env.ALLOWED_ORIGINS.split(",").map(
-        (o) => new RegExp(`^${o.trim().replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*")}$`),
-      )
-    : []),
 ];
+
+function isCorsAllowed(origin: string): boolean {
+  if (_corsExplicitOrigins.has(origin)) return true;
+  return _corsPatterns.some((p) => p.test(origin));
+}
+
+// Log the active explicit allowlist once at startup for Railway diagnostics.
+console.log(`[CORS] Explicit origin allowlist: ${[..._corsExplicitOrigins].join(", ") || "(empty)"}`);
 
 app.use((req, res, next) => {
   const origin = req.headers.origin;
-  if (origin && _corsAllowPatterns.some((p) => p.test(origin))) {
-    res.setHeader("Access-Control-Allow-Origin", origin);
-    res.setHeader("Access-Control-Allow-Credentials", "true");
-    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Voice-Mime");
-    res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
+
+  // Always set Vary: Origin so CDNs/proxies never serve a cached response
+  // with the wrong (or missing) Access-Control-Allow-Origin header.
+  res.setHeader("Vary", "Origin");
+
+  if (origin) {
+    if (isCorsAllowed(origin)) {
+      res.setHeader("Access-Control-Allow-Origin", origin);
+      res.setHeader("Access-Control-Allow-Credentials", "true");
+      res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Voice-Mime");
+      res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
+
+      // Diagnostic: log every OPTIONS preflight for /api/profile so CORS flow
+      // is traceable in Railway logs without noise on normal requests.
+      if (req.method === "OPTIONS" && req.path === "/api/profile") {
+        console.log(`[CORS] OPTIONS /api/profile origin=${origin} → allowed, ACAO=${origin}`);
+      }
+    } else {
+      // Rejected — log so Railway logs show exactly which origin was blocked.
+      console.warn(`[CORS] REJECTED origin=${origin} method=${req.method} path=${req.path}`);
+    }
   }
+
+  // Respond to all preflight requests immediately (with or without CORS headers
+  // — the browser will block if headers are absent, which is the correct behaviour
+  // for disallowed origins).
   if (req.method === "OPTIONS") return res.status(204).end();
+
   next();
 });
 

@@ -1,0 +1,39 @@
+Fix the production CORS failure after moving the frontend from https://lulouapp.vercel.app to the custom domain.
+
+Current facts:
+- Frontend origin: https://www.luloudating.com
+- Root domain: https://luloudating.com
+- Backend: https://lulou-production.up.railway.app
+- Direct GET /api/health works from iPhone Safari.
+- Direct GET /api/profile returns {"message":"Unauthorized"}, which is expected without the Authorization header and proves Railway is reachable.
+- Inside the app after login, fetch to /api/profile fails with:
+ status=(no response — pre-fetch failure)
+ errorCategory=network
+ error=Load failed
+ isCrossOrigin=true
+ hasAuthHeader=true
+- Railway logs show OPTIONS /api/profile but the authenticated GET /api/profile does not follow.
+- Railway FRONTEND_URL is now https://www.luloudating.com and has been redeployed.
+
+Inspect the actual Express CORS middleware and fix it properly.
+
+Requirements:
+1. Allow these exact production origins:
+  - https://www.luloudating.com
+  - https://luloudating.com
+  - https://lulouapp.vercel.app
+2. Keep localhost development origins allowed where already required.
+3. Handle OPTIONS preflight globally before protected routes.
+4. The preflight response must include:
+  - Access-Control-Allow-Origin matching the requesting allowed origin
+  - Access-Control-Allow-Methods including GET, POST, PUT, PATCH, DELETE, OPTIONS
+  - Access-Control-Allow-Headers including Content-Type and Authorization
+  - Vary: Origin
+5. Do not use Access-Control-Allow-Origin: * with credentials.
+6. Preserve Authorization bearer headers.
+7. Add concise diagnostic logging for rejected origins and for OPTIONS /api/profile, showing the request Origin and the final Access-Control-Allow-Origin value.
+8. Check for any hardcoded lulouapp.vercel.app origin outside FRONTEND_URL and replace the single-origin logic with an explicit allowlist.
+9. Run npm run check and npm run build.
+10. Commit and push to main, then report the commit hash and exact files changed.
+
+Do not change authentication, Supabase sessions, Railway networking, or the service worker unless the CORS inspection proves they are involved.
