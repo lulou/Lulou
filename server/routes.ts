@@ -84,10 +84,15 @@ const JWT_CACHE_MAX = 500;
 function parseJwtPayload(token: string): Record<string, any> | null {
   try {
     const parts = token.split(".");
-    if (parts.length !== 3) return null;
+    if (parts.length !== 3) {
+      console.warn(`[AUTH_DIAG] JWT_MALFORMED: expected 3 parts, got ${parts.length} — tokenPrefix="${token.slice(0, 20)}"`);
+      return null;
+    }
     // Node's base64 decoder handles base64url (no padding, - and _ chars) transparently
-    return JSON.parse(Buffer.from(parts[1], "base64").toString("utf8"));
-  } catch {
+    const payload = JSON.parse(Buffer.from(parts[1], "base64").toString("utf8"));
+    return payload;
+  } catch (e: any) {
+    console.warn(`[AUTH_DIAG] JWT_PARSE_ERROR: ${e?.message} — tokenPrefix="${token.slice(0, 20)}"`);
     return null;
   }
 }
@@ -120,14 +125,17 @@ function verifyJwt(token: string): any | null {
   const { sub, exp, email, aud, role, app_metadata, user_metadata } = payload;
 
   if (!sub) {
-    console.error("[AUTH] JWT_DECODE_FAILED: missing sub (userId) field in payload");
+    console.error(`[AUTH_DIAG] JWT_NO_SUB: payload has no sub field — tokenPrefix="${token.slice(0, 20)}" email=${email ?? "(none)"}`);
     return null;
   }
 
   // Reject if the JWT is already expired
   const expMs = exp ? (exp as number) * 1000 : 0;
   if (expMs > 0 && expMs < now) {
-    console.warn("[AUTH] JWT_EXPIRED: exp=%d now=%d delta=%ds", exp, Math.floor(now / 1000), Math.floor((now - expMs) / 1000));
+    console.warn(
+      `[AUTH_DIAG] JWT_EXPIRED: sub=${(sub as string).slice(0, 8)} exp=${exp} now=${Math.floor(now / 1000)} ` +
+      `delta=${Math.floor((now - expMs) / 1000)}s tokenPrefix="${token.slice(0, 20)}"`
+    );
     return null;
   }
 
@@ -380,16 +388,29 @@ const isAuthenticated: RequestHandler = async (req: any, res, next) => {
   const _mwStart = Date.now();
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    console.warn(
+      `[AUTH_DIAG] 401 hasAuthHeader=${!!authHeader} hasBearer=${authHeader?.startsWith("Bearer ") ?? false} ` +
+      `method=${req.method} path=${req.path} origin=${req.headers.origin ?? "(none)"}`
+    );
     return res.status(401).json({ message: "Unauthorized" });
   }
   const token = authHeader.split(" ")[1];
+  const tokenPrefix = token ? `"${token.slice(0, 20)}"` : `"(empty)"`;
   try {
     const user = verifyJwt(token);
     const _jwtMs = Date.now() - _mwStart;
     if (!user) {
-      console.warn(`[AUTH] isAuthenticated: JWT invalid after ${_jwtMs}ms url=${req.path}`);
+      console.warn(
+        `[AUTH_DIAG] 401 hasAuthHeader=true tokenPrefix=${tokenPrefix} jwtVerifyResult=failed ` +
+        `elapsed=${_jwtMs}ms method=${req.method} path=${req.path} ` +
+        `(see JWT_MALFORMED / JWT_PARSE_ERROR / JWT_NO_SUB / JWT_EXPIRED log above for exact reason)`
+      );
       return res.status(401).json({ message: "Unauthorized" });
     }
+    console.log(
+      `[AUTH_DIAG] verified hasAuthHeader=true tokenPrefix=${tokenPrefix} userId=${user.id} ` +
+      `elapsed=${_jwtMs}ms method=${req.method} path=${req.path}`
+    );
     req.user = user;
 
     // Server-side email verification gate.
