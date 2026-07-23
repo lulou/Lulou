@@ -320,3 +320,12 @@
     inset: -1px;
   }
 }
+
+/* ── Flourish heading: prevent "fl" ligature on all browsers/engines ── */
+.flourish-word {
+  display: inline-flex;
+  align-items: baseline;
+}
+.flourish-word > span:first-child {
+  margin-right: 0.02em;
+}

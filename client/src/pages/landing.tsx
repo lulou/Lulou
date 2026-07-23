@@ -1048,7 +1048,19 @@ export default function Landing() {
                   className="text-primary"
                   style={{ fontFeatureSettings: '"liga" 0', fontVariantLigatures: 'none' }}
                 >
-                  {" "}{t("landing_hero_flourish")}
+                  {" "}
+                  {(() => {
+                    const word = t("landing_hero_flourish");
+                    if (word.startsWith("fl")) {
+                      return (
+                        <span className="flourish-word">
+                          <span>{word[0]}</span>
+                          <span>{word.slice(1)}</span>
+                        </span>
+                      );
+                    }
+                    return word;
+                  })()}
                 </span>
               </h1>
               <p className="text-lg text-muted-foreground leading-relaxed max-w-lg" data-testid="text-hero-description">
