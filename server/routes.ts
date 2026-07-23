@@ -28,7 +28,7 @@ import { transcodeToM4a } from "./transcoder";
 import { seedDatabase } from "./seed";
 import { z } from "zod";
 import type { Profile } from "@shared/schema";
-import { userBenefits, callCredits, activeSessions, processedStripeSessions, membershipSubscriptions, userElevates, blockedContacts, savedWheelProfiles, sparkBalances, sparkPurchases, pushSubscriptions, notificationPreferences, datePlanRemindersSent, activeChatSessions, refundRecords, voiceNoteUnlocks } from "@shared/schema";
+import { userBenefits, callCredits, activeSessions, processedStripeSessions, membershipSubscriptions, userElevates, blockedContacts, savedWheelProfiles, sparkBalances, sparkPurchases, pushSubscriptions, notificationPreferences, datePlanRemindersSent, activeChatSessions, refundRecords, voiceNoteUnlocks, voiceNotePopupSeen } from "@shared/schema";
 import { sendPushToUser, buildPush, isUserActiveInApp, isUserActiveInChat, getVapidPublicKey, cleanupFailedSubscriptions } from "./pushService";
 import { EXTRAS_ITEMS, ELEVATE_PACKS, type ExtrasItemId, type ElevatePackId, grantExtras, grantElevate, isUniqueViolation } from './purchaseItems';
 import { supabase, supabaseAdmin, createUserClient, hasServiceRoleKey } from "./supabase";
@@ -3233,10 +3233,21 @@ export async function registerRoutes(
       const userId = req.user.id;
       const { matchId } = req.params;
 
-      // Fast path: already permanently unlocked for this match
+      // Helper: get popup-seen status for this user+match from local DB
+      const getPopupSeen = async (): Promise<boolean> => {
+        const [row] = await db.select().from(voiceNotePopupSeen)
+          .where(and(eq(voiceNotePopupSeen.matchId, matchId), eq(voiceNotePopupSeen.userId, userId)))
+          .limit(1);
+        return !!row;
+      };
+
+      // Fast path: already permanently unlocked — skip Supabase query
       const [existing] = await db.select().from(voiceNoteUnlocks)
         .where(eq(voiceNoteUnlocks.matchId, matchId)).limit(1);
-      if (existing) return res.json({ unlocked: true });
+      if (existing) {
+        const popupSeen = await getPopupSeen();
+        return res.json({ unlocked: true, popupSeen });
+      }
 
       // Check whether both users have reached the engagement threshold
       const match = await storage.getMatchMeta(matchId, userId);
@@ -3244,20 +3255,65 @@ export async function registerRoutes(
 
       const count1 = match.messageCount1 ?? 0;
       const count2 = match.messageCount2 ?? 0;
-      const shouldUnlock = count1 >= VOICE_NOTE_MSG_THRESHOLD && count2 >= VOICE_NOTE_MSG_THRESHOLD;
+      // Retroactive: call_stage > 0 proves the match already crossed the first-call
+      // threshold — voice notes should have been unlocked earlier even if message
+      // counts were reset by the progression system.
+      const shouldUnlockByStage = (match.callStage ?? 0) > 0;
+      const shouldUnlockByCount = count1 >= VOICE_NOTE_MSG_THRESHOLD && count2 >= VOICE_NOTE_MSG_THRESHOLD;
 
-      if (shouldUnlock) {
-        // Persist so unlock survives call-stage count resets
+      if (shouldUnlockByStage || shouldUnlockByCount) {
+        // Persist unlock so it survives future call-stage count resets
         await db.insert(voiceNoteUnlocks).values({ matchId }).onConflictDoNothing();
-        console.log(`[VOICE_NOTE_UNLOCK] match=${matchId} count1=${count1} count2=${count2} → unlocked`);
-        return res.json({ unlocked: true });
+        console.log(`[VOICE_NOTE_UNLOCK] match=${matchId} stage=${match.callStage} count1=${count1} count2=${count2} → unlocked (byStage=${shouldUnlockByStage})`);
+        // Broadcast realtime event so both connected clients update instantly
+        broadcastViaHttpApi(`chat:${matchId}`, "voice-note-unlock", { matchId }).catch(() => {});
+        const popupSeen = await getPopupSeen();
+        return res.json({ unlocked: true, popupSeen });
       }
 
-      return res.json({ unlocked: false });
+      return res.json({ unlocked: false, popupSeen: false });
     } catch (err: any) {
       res.status(500).json({ message: err.message || "Failed to check voice notes entitlement" });
     }
   });
+
+  // Mark voice-note unlock popup as seen for the requesting user in this match.
+  // Server is source of truth; ensures popup doesn't re-appear on other devices.
+  app.post("/api/voice-notes/popup-seen/:matchId", isAuthenticated, async (req: any, res) => {
+    try {
+      const storage = getStorage(req);
+      const userId = req.user.id;
+      const { matchId } = req.params;
+      // Verify the user belongs to this match
+      const match = await storage.getMatchMeta(matchId, userId);
+      if (!match) return res.status(403).json({ message: "Not authorized" });
+      await db.insert(voiceNotePopupSeen).values({ matchId, userId }).onConflictDoNothing();
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message || "Failed to mark popup seen" });
+    }
+  });
+
+  // Startup backfill: retroactively grant voice-note unlock to any match that
+  // already progressed past call_stage 0 (i.e. earned the unlock in the past).
+  // Safe to run on every startup — onConflictDoNothing is idempotent.
+  void (async () => {
+    try {
+      const { data: advanced } = await supabaseAdmin
+        .from("matches")
+        .select("id")
+        .gt("call_stage", 0)
+        .limit(2000);
+      if (advanced && advanced.length > 0) {
+        for (const m of advanced) {
+          await db.insert(voiceNoteUnlocks).values({ matchId: m.id }).onConflictDoNothing();
+        }
+        console.log(`[VOICE_NOTE_BACKFILL] Processed ${advanced.length} advanced matches`);
+      }
+    } catch (err: any) {
+      console.error(`[VOICE_NOTE_BACKFILL] Error: ${err?.message}`);
+    }
+  })();
 
   // Binary audio upload — client sends raw ArrayBuffer (no base64 overhead).
   // Dynamic body parser: multer for FormData multipart (iOS-compatible new path),
@@ -3353,8 +3409,10 @@ export async function registerRoutes(
               .where(eq(voiceNoteUnlocks.matchId, matchId)).limit(1);
             if (existing) return true;
             const meta = await storage.getMatchMeta(matchId, userId);
-            return meta != null &&
-              (meta.messageCount1 ?? 0) >= VOICE_NOTE_MSG_THRESHOLD &&
+            if (!meta) return false;
+            // Retroactive: call_stage > 0 means match already earned the unlock
+            if ((meta.callStage ?? 0) > 0) return true;
+            return (meta.messageCount1 ?? 0) >= VOICE_NOTE_MSG_THRESHOLD &&
               (meta.messageCount2 ?? 0) >= VOICE_NOTE_MSG_THRESHOLD;
           })(),
         ]);

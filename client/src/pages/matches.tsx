@@ -1621,6 +1621,14 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
   const { user } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  // Realtime unlock: instantly mark entitlement cache as unlocked when the broadcast fires.
+  // Must be declared before useRealtimeMessages (which wires the broadcast listener).
+  const onVoiceNoteUnlock = useCallback(() => {
+    queryClient.setQueryData(
+      ["/api/voice-notes/entitlement", match.id],
+      (old: any) => old ? { ...old, unlocked: true } : { unlocked: true, popupSeen: false },
+    );
+  }, [match.id, queryClient]);
   const [, navigate] = useLocation();
   const isActive = useTabActive();
   const [message, setMessage] = useState("");
@@ -1713,7 +1721,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
     placeholderData: (prev) => prev,
   });
 
-  const { broadcastNewMessage, broadcastDateChoice } = useRealtimeMessages(match.id, expanded);
+  const { broadcastNewMessage, broadcastDateChoice } = useRealtimeMessages(match.id, expanded, onVoiceNoteUnlock);
 
   // ── AI Conversation Starters ──────────────────────────────────────────────
   const aiStartersEnabled = localStorage.getItem("settings_conversation_starter_ai") !== "false";
@@ -2273,22 +2281,23 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
   const phoneCredits = callCreditsData?.phoneCredits;
   const videoCredits = callCreditsData?.videoCredits;
 
-  // Voice notes entitlement — unlocks when both users have sent ≥10 messages
-  const { data: voiceNoteData } = useQuery<{ unlocked: boolean }>({
+  // Voice notes entitlement — unlocks when both users have sent ≥10 messages (or call_stage > 0).
+  // popupSeen is server-persisted so the popup only shows once across all devices.
+  const { data: voiceNoteData } = useQuery<{ unlocked: boolean; popupSeen: boolean }>({
     queryKey: ["/api/voice-notes/entitlement", match.id],
     enabled: expanded,
     staleTime: 0,
-    refetchInterval: 10_000,
+    refetchInterval: 60_000, // true-realtime via broadcast; polling is fallback only
   });
   const voiceNotesUnlocked = voiceNoteData?.unlocked ?? false;
 
   // Purchase prompt state
   const [purchasePromptFeature, setPurchasePromptFeature] = useState<PurchaseFeature | null>(null);
 
-  // Voice-note unlock popup — shown once per user per match when the engagement
-  // threshold is first crossed (localStorage prevents repeat on reload / device switch)
+  // Voice-note unlock popup — shown once per user per match when unlock first detected.
+  // Server is source of truth (popupSeen); localStorage is a fast local cache to
+  // avoid a flash on re-mount before the query response arrives.
   const [voiceNotePopupOpen, setVoiceNotePopupOpen] = useState(false);
-  const prevVoiceNoteUnlockedRef = useRef(false);
 
   // Recording state
   const [isRecording, setIsRecording] = useState(false);
@@ -2550,17 +2559,15 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
     }
   }, [voiceNotesUnlocked]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Show the one-time unlock popup when voiceNotesUnlocked first flips to true.
-  // localStorage prevents the popup re-appearing after reload or on another device.
+  // Show the one-time unlock popup when: unlocked AND server says not yet seen.
+  // localStorage is a fast local cache to prevent a flash before the next query response.
   useEffect(() => {
-    if (voiceNotesUnlocked && !prevVoiceNoteUnlockedRef.current) {
-      const key = `vn_popup_${match.id}`;
-      if (!localStorage.getItem(key)) {
+    if (voiceNotesUnlocked && voiceNoteData?.popupSeen === false) {
+      if (!localStorage.getItem(`vn_popup_${match.id}`)) {
         setVoiceNotePopupOpen(true);
       }
     }
-    prevVoiceNoteUnlockedRef.current = voiceNotesUnlocked;
-  }, [voiceNotesUnlocked, match.id]);
+  }, [voiceNotesUnlocked, voiceNoteData?.popupSeen, match.id]);
 
   // Clean up the MediaRecorder, waveform, and pending blob URLs on unmount.
   // Do NOT stop the module-level mic stream — it must survive component remounts
@@ -4479,6 +4486,13 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
               onClick={() => {
                 localStorage.setItem(`vn_popup_${match.id}`, "1");
                 setVoiceNotePopupOpen(false);
+                // Optimistically mark seen in cache so popup won't show again on re-mount
+                queryClient.setQueryData(
+                  ["/api/voice-notes/entitlement", match.id],
+                  (old: any) => old ? { ...old, popupSeen: true } : old,
+                );
+                // Persist to server so it's durable across devices
+                apiRequest("POST", `/api/voice-notes/popup-seen/${match.id}`).catch(() => {});
               }}
               data-testid={`button-voice-note-popup-continue-${match.id}`}
             >

@@ -1,0 +1,199 @@
+Implement the three remaining fixes for the voice-note engagement unlock.
+
+Do not change any unrelated feature.
+
+CURRENT STATE
+
+Commit b8b94ae already implements:
+- Voice notes unlock when both users reach 10 eligible messages each
+- Voice notes are free
+- First call remains at 15 messages each
+- Server-side enforcement exists
+- Payment requirements were removed
+
+Only fix the three PARTIAL requirements below.
+
+1. SERVER-PERSISTED POPUP-SEEN STATE
+
+The popup-seen state is currently stored only in localStorage.
+
+Replace this with server-persisted state stored separately for each user and each match.
+
+Add a table such as:
+
+voice_note_popup_seen
+- match_id
+- user_id
+- seen_at
+
+Use a composite primary key or unique constraint on:
+(match_id, user_id)
+
+Requirements:
+
+- Each user must see the unlock popup once.
+- User A dismissing it must not mark it seen for User B.
+- The state must survive:
+ - refresh
+ - logout/login
+ - switching browsers
+ - switching devices
+ - clearing localStorage
+- The server must verify that the authenticated user belongs to the match.
+- Keep localStorage only as an optional UI cache, not the source of truth.
+
+Add endpoints or extend the entitlement response so the client receives:
+
+{
+ unlocked: boolean,
+ popupSeen: boolean
+}
+
+Add an authenticated endpoint to mark the popup as seen.
+
+The Continue button must call that endpoint successfully before permanently dismissing the popup.
+
+Prevent duplicate rows using an idempotent insert or upsert.
+
+2. TRUE REALTIME UNLOCK
+
+The current implementation polls every 10 seconds.
+
+Replace the unlock delay with a realtime update.
+
+When the second user reaches 10 messages and the voice_note_unlocks row is created:
+
+- Broadcast a realtime event for that match
+- Both connected clients must receive the event
+- Immediately invalidate or update the entitlement query
+- Immediately enable the microphone
+- Immediately show the popup for each user whose popupSeen state is false
+
+Use the existing Supabase Realtime system or the app’s existing match-channel infrastructure.
+
+Requirements:
+
+- No page refresh
+- No 10-second wait
+- No duplicate popups
+- No duplicate unlock rows
+- Handle simultaneous messages safely
+- Retain a low-frequency fallback refetch only if needed for reconnect recovery, not as the primary unlock mechanism
+- Unsubscribe cleanly when leaving the conversation
+
+3. RETROACTIVE UNLOCK FOR EXISTING MATCHES
+
+Existing matches may already have progressed beyond the first call and had their message counters reset.
+
+Fix this so they are not incorrectly shown as locked.
+
+When checking entitlement:
+
+Grant voice-note access when either:
+
+A. A voice_note_unlocks row already exists
+
+OR
+
+B. Both current message counters are at least 10
+
+OR
+
+C. The match history proves the match already progressed beyond the original first-call threshold
+
+Use a reliable existing progression indicator such as:
+- call_stage > 0
+- completed first-call record
+- stage history
+- another existing persisted progression field
+
+Do not rely only on reset message counters.
+
+When condition B or C is true:
+- Insert voice_note_unlocks with on-conflict-do-nothing
+- Return unlocked: true
+
+Also add a safe backfill during startup or migration for existing matches already beyond the first-call stage.
+
+The backfill must:
+- Be idempotent
+- Not reset message counts
+- Not modify call progress
+- Not create duplicate rows
+- Not unlock matches that never reached the required stage
+
+DATABASE REQUIREMENTS
+
+Add only the required schema changes.
+
+Likely required:
+
+voice_note_popup_seen
+- match_id TEXT NOT NULL
+- user_id TEXT NOT NULL
+- seen_at TIMESTAMP NOT NULL DEFAULT NOW()
+- PRIMARY KEY (match_id, user_id)
+
+Add indexes where appropriate.
+
+Use CREATE TABLE IF NOT EXISTS and safe migration logic.
+
+SECURITY REQUIREMENTS
+
+- Verify the authenticated user belongs to the match before reading or writing popup state.
+- Users must not read or change another user’s popup state.
+- Voice-note sending must remain server-enforced.
+- Do not expose other users’ private state.
+- Do not weaken any existing auth middleware.
+
+DO NOT CHANGE
+
+- The 10-message-per-user voice-note threshold
+- The 15-message-per-user first-call threshold
+- Message-count logic
+- Call stages
+- WebRTC
+- Call timers
+- Paid extra-call rules
+- Final date decision flow
+- Other payment features
+- Connection DNA
+- Landing page
+- Matching algorithm
+
+TEST THESE CASES
+
+1. User A = 10, User B = 9 → locked
+2. User A = 10, User B = 10 → both unlock immediately
+3. Popup appears once for User A
+4. Popup appears once for User B
+5. User A dismisses popup; User B still receives theirs
+6. Refresh after dismissal → popup does not return
+7. Login on another device → popup does not return
+8. Simultaneous tenth messages → one unlock row only
+9. Existing match with call_stage > 0 and counters reset → unlocked
+10. Existing stage-0 match below threshold → remains locked
+11. Realtime reconnect → entitlement state recovers correctly
+12. Unauthorized user cannot read or write popup state
+
+Run:
+
+npm run check
+npm run build
+
+Then commit this as a separate focused commit and push to GitHub main.
+
+Report:
+
+- commit hash
+- exact files changed
+- migration details
+- realtime channel/event used
+- retroactive-unlock rule used
+- tests completed
+- raw output of:
+ git status
+ git log --oneline -5
+ git push origin main
+
+Do not claim the push succeeded unless the raw output confirms GitHub main advanced to the new commit.

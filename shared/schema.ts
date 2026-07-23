@@ -478,6 +478,18 @@ export const voiceNoteUnlocks = pgTable("voice_note_unlocks", {
   unlockedAt: timestamp("unlocked_at").defaultNow().notNull(),
 });
 
+// ── Voice-note popup-seen state ────────────────────────────────────────────────
+// Tracks whether each individual user has dismissed the voice-note unlock popup
+// for a given match. Composite PK ensures one row per user per match — idempotent
+// inserts are safe. Server is the source of truth; localStorage is a UI cache only.
+export const voiceNotePopupSeen = pgTable("voice_note_popup_seen", {
+  matchId: text("match_id").notNull(),
+  userId:  text("user_id").notNull(),
+  seenAt:  timestamp("seen_at").defaultNow().notNull(),
+}, (table) => ({
+  pk: primaryKey({ columns: [table.matchId, table.userId] }),
+}));
+
 // ── Connection DNA ─────────────────────────────────────────────────────────────
 
 /** Raw quiz answers — one row per user per question. */

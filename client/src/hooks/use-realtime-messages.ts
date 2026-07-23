@@ -9,10 +9,18 @@ type MsgsCache = { messages: Message[]; hasMore: boolean };
 // MatchDetail has .messages array embedded — used by _MatchChat in matches.tsx
 type MatchDetailLike = { messages: Message[]; [key: string]: any };
 
-export function useRealtimeMessages(matchId: string | undefined, enabled: boolean) {
+export function useRealtimeMessages(
+  matchId: string | undefined,
+  enabled: boolean,
+  onVoiceNoteUnlock?: () => void,
+) {
   const queryClient = useQueryClient();
   const broadcastChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const pgChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+  // Ref-based callback so the channel setup effect never needs to re-run when the
+  // callback identity changes (avoids unnecessary reconnects).
+  const onVoiceNoteUnlockRef = useRef(onVoiceNoteUnlock);
+  useEffect(() => { onVoiceNoteUnlockRef.current = onVoiceNoteUnlock; }, [onVoiceNoteUnlock]);
 
   // Shared handler — called by both broadcast and postgres_changes.
   // Writes to TWO caches:
@@ -183,6 +191,10 @@ export function useRealtimeMessages(matchId: string | undefined, enabled: boolea
             ? { ...old, dateChoiceUser1: choice }
             : { ...old, dateChoiceUser2: choice };
         });
+      })
+      .on("broadcast", { event: "voice-note-unlock" }, () => {
+        console.log("[VOICE_NOTE_REALTIME] unlock event received", { matchId: matchId.slice(0, 8) });
+        onVoiceNoteUnlockRef.current?.();
       })
       .subscribe((status) => {
         console.log("[CHAT_REALTIME] broadcast channel status", { matchId: matchId.slice(0, 8), status });

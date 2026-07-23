@@ -529,12 +529,13 @@ export default function Messaging() {
   const phoneCredits = callCreditsData?.phoneCredits ?? 0;
   const videoCredits = callCreditsData?.videoCredits ?? 0;
 
-  // Voice notes entitlement — unlocks when both users have sent ≥10 messages
-  const { data: voiceNoteData } = useQuery<{ unlocked: boolean }>({
+  // Voice notes entitlement — unlocks when both users have sent ≥10 messages (or call_stage > 0).
+  // popupSeen is server-persisted so the popup only shows once across all devices.
+  const { data: voiceNoteData } = useQuery<{ unlocked: boolean; popupSeen: boolean }>({
     queryKey: ["/api/voice-notes/entitlement", matchId],
     enabled: !!matchId,
     staleTime: 0,
-    refetchInterval: 10_000,
+    refetchInterval: 60_000, // true-realtime via broadcast; polling is fallback only
   });
   const voiceNotesUnlocked = voiceNoteData?.unlocked ?? false;
 
@@ -580,7 +581,13 @@ export default function Messaging() {
   // Voice-note unlock popup — shown once per user per match when the engagement
   // threshold is first crossed (localStorage prevents repeat on reload / device switch)
   const [voiceNotePopupOpen, setVoiceNotePopupOpen] = useState(false);
-  const prevVoiceNoteUnlockedRef = useRef(false);
+  // Realtime unlock: instantly mark entitlement cache as unlocked when the broadcast fires.
+  const onVoiceNoteUnlock = useCallback(() => {
+    queryClient.setQueryData(
+      ["/api/voice-notes/entitlement", matchId],
+      (old: any) => old ? { ...old, unlocked: true } : { unlocked: true, popupSeen: false },
+    );
+  }, [matchId, queryClient]);
 
   // Recording state
   type VoicePhase = "idle" | "recording";
@@ -695,17 +702,15 @@ export default function Messaging() {
     }
   }, [voiceNotesUnlocked]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Show the one-time unlock popup when voiceNotesUnlocked first flips to true.
-  // localStorage prevents the popup re-appearing after reload or on another device.
+  // Show the one-time unlock popup when: unlocked AND server says not yet seen.
+  // localStorage is a fast local cache to prevent a flash before the next query response.
   useEffect(() => {
-    if (voiceNotesUnlocked && !prevVoiceNoteUnlockedRef.current) {
-      const key = `vn_popup_${matchId}`;
-      if (!localStorage.getItem(key)) {
+    if (voiceNotesUnlocked && voiceNoteData?.popupSeen === false) {
+      if (!localStorage.getItem(`vn_popup_${matchId}`)) {
         setVoiceNotePopupOpen(true);
       }
     }
-    prevVoiceNoteUnlockedRef.current = voiceNotesUnlocked;
-  }, [voiceNotesUnlocked, matchId]);
+  }, [voiceNotesUnlocked, voiceNoteData?.popupSeen, matchId]);
 
   // Clean up the MediaRecorder on unmount.
   // Do NOT stop the module-level mic stream — it must survive component remounts
@@ -773,7 +778,7 @@ export default function Messaging() {
     enabled: !!matchId,
   });
 
-  const { broadcastNewMessage } = useRealtimeMessages(matchId, !!matchId);
+  const { broadcastNewMessage } = useRealtimeMessages(matchId, !!matchId, onVoiceNoteUnlock);
 
   const sendMessage = useMutation({
     mutationFn: async (vars: { content: string; tempId: string }) => {
@@ -1911,6 +1916,13 @@ export default function Messaging() {
               onClick={() => {
                 localStorage.setItem(`vn_popup_${matchId}`, "1");
                 setVoiceNotePopupOpen(false);
+                // Optimistically mark seen in cache so popup won't show again on re-mount
+                queryClient.setQueryData(
+                  ["/api/voice-notes/entitlement", matchId],
+                  (old: any) => old ? { ...old, popupSeen: true } : old,
+                );
+                // Persist to server so it's durable across devices
+                apiRequest("POST", `/api/voice-notes/popup-seen/${matchId}`).catch(() => {});
               }}
               data-testid="button-voice-note-popup-continue"
             >
