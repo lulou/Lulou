@@ -192,7 +192,41 @@ export function welcomeEmail(firstName: string): string {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 2. Email Verification (OTP version — sent via our own flow)
+// 2a. Email Verification — link-based (sent via managed signup flow)
+//
+// Used when POST /api/auth/signup routes through our backend.  The `verifyUrl`
+// is a Supabase admin-generated one-click confirmation link.  Clicking it
+// confirms the user's email and redirects to /auth/callback.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export function emailVerificationLinkEmail(firstName: string, verifyUrl: string): string {
+  const body = `
+    <p style="${BODY_STYLE}">Hi ${firstName || "there"},</p>
+    <p style="${MUTED_STYLE}">
+      Thank you for joining Lulou. Click the button below to verify your email address
+      and begin building meaningful connections.
+    </p>
+    ${ctaButton("Verify My Email", verifyUrl)}
+    <p style="margin:0 0 16px;font-size:13px;color:#8a5a68;text-align:center;line-height:1.6;">
+      This link expires in 24&nbsp;hours. If you didn't create a Lulou account,
+      you can safely ignore this email.
+    </p>
+    ${DIVIDER}
+    ${checkRow("Verified profiles only", "every member is real")}
+    ${checkRow("No games, no ghosting", "structured conversations that matter")}
+    ${checkRow("Genuine intentions", "people here are looking for something real")}
+  `;
+  return layout(
+    "Verify Your Email",
+    "One step to go.",
+    body,
+    "If the button doesn't work, copy this link into your browser: " + verifyUrl,
+    "Verify your email to start your Lulou journey.",
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 2b. Email Verification (OTP version — sent via our own flow)
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function emailVerificationEmail(firstName: string, otp: string): string {

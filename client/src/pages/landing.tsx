@@ -562,6 +562,66 @@ export default function Landing() {
         console.log("[VERIFY] SIGNUP_START_CLEAR_SESSION");
         await supabase.auth.signOut({ scope: "local" }).catch(() => {});
 
+        // ── Managed signup: rate-limited, Resend-powered ──────────────────────
+        // POST /api/auth/signup creates the user via the Supabase admin API
+        // (so Supabase sends NO email) then dispatches the verification link
+        // through our Resend account — completely bypassing Supabase's low
+        // default email quota (~2–4 emails/hour project-wide on the free tier).
+        // If the backend returns "use-direct-signup" (service-role key or Resend
+        // unavailable) we fall through to the direct supabase.auth.signUp() call.
+        {
+          let _managedHandled = false;
+          try {
+            const _mgr = await fetch(`${API_BASE}/api/auth/signup`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                email: trimmedEmail,
+                password: effectivePassword,
+                redirectTo: window.location.origin + "/auth/callback",
+              }),
+            });
+            const _b = await _mgr.json() as { status: string; message?: string; waitMs?: number };
+            console.log("[AUTH] MANAGED_SIGNUP_RESPONSE", { status: _b.status, email: trimmedEmail.slice(0, 4) + "***" });
+
+            if (_b.status === "verification-sent") {
+              sessionStorage.setItem("lulou_pending_verification_email", trimmedEmail);
+              console.log("[VERIFY] MANAGED_SIGNUP_SUCCESS — verification email sent via Resend");
+              setVerificationEmail(trimmedEmail);
+              setLoading(false);
+              _managedHandled = true;
+
+            } else if (_b.status === "already-verified") {
+              setMode("signin"); setPassword("");
+              setAuthError({ kind: "already-exists", message: _b.message ?? "An account with this email already exists. Please sign in instead." });
+              setLoading(false);
+              _managedHandled = true;
+
+            } else if ((_b.status ?? "").startsWith("rate-limited-")) {
+              const _waitSec = Math.ceil((_b.waitMs ?? 60_000) / 1000);
+              const _reason  = _b.status.replace("rate-limited-", "");
+              if (_reason === "email-cooldown") {
+                sessionStorage.setItem("lulou_pending_verification_email", trimmedEmail);
+                sessionStorage.setItem("lulou_rate_limit_pending", "1");
+                setRateLimitEmail(trimmedEmail);
+                setRateLimitCooldown(_waitSec);
+              }
+              setAuthError({ kind: "rate-limit", message: _b.message ?? "Too many requests. Please wait before trying again." });
+              setLoading(false);
+              _managedHandled = true;
+
+            } else if (_b.status === "error") {
+              setAuthError({ kind: "network", message: _b.message ?? "Failed to create account. Please try again." });
+              setLoading(false);
+              _managedHandled = true;
+            }
+            // "use-direct-signup" or unknown → _managedHandled stays false → fall through
+          } catch {
+            console.warn("[AUTH] MANAGED_SIGNUP_ENDPOINT_UNREACHABLE — falling back to direct Supabase signUp");
+          }
+          if (_managedHandled) return;
+        }
+
         // signUp → /auth/v1/signup  (NOT /auth/v1/token?grant_type=password)
         authCallCountRef.current += 1;
         const _signUpTs = new Date().toISOString().slice(11, 23);
@@ -881,32 +941,64 @@ export default function Landing() {
     setResendError(null);
     setResendSent(false);
     try {
-      console.log("[AUTH] RESEND_VERIFICATION_START", { email: verificationEmail.slice(0, 4) + "***", redirectTo: window.location.origin + "/auth/callback" });
-      const { error } = await supabase.auth.resend({
-        type: "signup",
-        email: verificationEmail,
-        options: {
-          // Must match the emailRedirectTo used in signUp so the confirmation link
-          // points to the correct app URL — not the Supabase dashboard "Site URL".
-          emailRedirectTo: window.location.origin + "/auth/callback",
-        },
-      });
-      if (error) {
-        console.error("[AUTH] RESEND_VERIFICATION_ERROR", { message: error.message, status: (error as any).status, code: (error as any).code });
-        throw error;
+      console.log("[AUTH] RESEND_VERIFICATION_START", { email: verificationEmail.slice(0, 4) + "***" });
+
+      // Try the managed resend endpoint first (server-side rate limiting + Resend).
+      // Falls back to supabase.auth.resend() when the endpoint returns "use-direct-resend".
+      let useDirectFallback = false;
+      try {
+        const r = await fetch(`${API_BASE}/api/auth/resend-verification`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email: verificationEmail, redirectTo: window.location.origin + "/auth/callback" }),
+        });
+        const body = await r.json() as { status: string; message?: string; waitMs?: number };
+        console.log("[AUTH] RESEND_MANAGED_RESPONSE", { status: body.status });
+
+        if (body.status === "verification-sent") {
+          console.log("[AUTH] RESEND_MANAGED_SUCCESS — email dispatched via Resend");
+          setResendSent(true);
+          setResendCooldown(60);
+          return;
+        } else if ((body.status ?? "").startsWith("rate-limited-")) {
+          const waitSec = Math.ceil((body.waitMs ?? 60_000) / 1000);
+          setResendError(body.message ?? `We recently sent a verification email. You can request another in ${waitSec} seconds.`);
+          setResendCooldown(Math.min(waitSec, 300));
+          return;
+        } else if (body.status === "already-verified") {
+          setResendError("This email is already verified. Please sign in instead.");
+          return;
+        } else {
+          // "use-direct-resend" or unexpected status → fall through
+          useDirectFallback = true;
+        }
+      } catch {
+        useDirectFallback = true;
+        console.warn("[AUTH] RESEND_MANAGED_ENDPOINT_UNREACHABLE — falling back to direct Supabase resend");
       }
-      console.log("[AUTH] RESEND_VERIFICATION_SUCCESS — Supabase queued the email");
+
+      if (useDirectFallback) {
+        const { error } = await supabase.auth.resend({
+          type: "signup",
+          email: verificationEmail,
+          options: { emailRedirectTo: window.location.origin + "/auth/callback" },
+        });
+        if (error) {
+          console.error("[AUTH] RESEND_DIRECT_ERROR", { message: error.message, status: (error as any).status });
+          throw error;
+        }
+        console.log("[AUTH] RESEND_DIRECT_SUCCESS — Supabase queued the email");
+      }
       setResendSent(true);
-      setResendCooldown(60); // prevent spam; Supabase / custom SMTP both throttle fast repeats
+      setResendCooldown(60);
     } catch (err: any) {
       const raw: string = err?.message ?? "";
-      // Translate technical Supabase rate-limit messages into user-friendly text
       const isRateLimit = /rate.?limit|too.?many|over_email/i.test(raw);
-      const msg = isRateLimit
-        ? "Email just sent — please wait a minute before requesting another."
-        : (raw || "Could not resend — please try again.");
-      console.error("[AUTH] RESEND_VERIFICATION_THROW", { message: raw });
-      setResendError(msg);
+      setResendError(
+        isRateLimit
+          ? "We recently sent a verification email. Please wait a minute before requesting another."
+          : (raw || "Could not resend — please try again."),
+      );
       if (isRateLimit) setResendCooldown(60);
     } finally {
       setResendLoading(false);

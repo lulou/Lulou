@@ -1,0 +1,309 @@
+Fix Lulou’s email verification flow so legitimate users are not blocked after only a few signup attempts and so the system can scale safely.
+
+CURRENT PROBLEM
+
+On iPhone Safari, creating approximately three test accounts using different email addresses produced:
+
+“Too many verification emails were requested. Please wait before trying again.”
+
+This must not happen after a few legitimate signups.
+
+Do not simply shorten the visible countdown or hide the error. Find and fix the underlying cause.
+
+AUDIT FIRST
+
+Inspect every place that can trigger:
+
+- Supabase signUp
+- resend verification email
+- magic-link email
+- password-reset email
+- email confirmation
+- automatic retry
+- React effect or mutation retry
+- duplicate form submission
+- double-tap submission
+- account creation on page reload
+- verification resend after signup
+
+Search the whole codebase for:
+
+signUp
+resend
+emailRedirectTo
+verifyOtp
+resetPasswordForEmail
+generateLink
+auth.admin
+email confirmation
+verification email
+
+Report how many email requests currently happen from one user action.
+
+ONE ACTION MUST EQUAL ONE REQUEST
+
+A single tap on Create account must produce no more than:
+
+- one account-creation request
+- one verification-email request
+
+Prevent duplicate requests caused by:
+
+- repeated taps
+- double-clicks
+- React Strict Mode
+- form onSubmit plus button onClick both firing
+- mutation retries
+- component rerenders
+- network retries
+- route changes
+- frontend and backend both triggering verification
+
+Disable the submit button immediately while the request is pending.
+
+Use an idempotency guard so the same signup action cannot trigger multiple verification emails.
+
+SIGNUP FLOW
+
+Use the correct flow:
+
+1. User submits email and password once.
+2. Call Supabase signUp once.
+3. If signup succeeds and confirmation is required:
+  - show the “Check your email” screen
+  - do not automatically resend
+4. Only send another email when the user explicitly taps Resend.
+5. Never call resend automatically on:
+  - page load
+  - component mount
+  - timer completion
+  - login attempt
+  - returning to the verification screen
+
+RESEND RULES
+
+Add a dedicated Resend verification email button.
+
+Requirements:
+
+- Start with a 60-second per-email cooldown
+- Show the countdown only after a confirmed successful request
+- Store cooldown server-side or derive it from a server response, not only localStorage
+- Persist the cooldown through refreshes
+- Disable the button while pending
+- Do not trigger a resend when the timer reaches zero
+- Allow the user to change email without sending anything automatically
+
+Use separate limits for:
+
+- per email address
+- per IP address
+- per device/session
+- provider-wide sending capacity
+
+Do not let a few attempts from one IP consume a global limit for all users.
+
+RATE-LIMIT DESIGN
+
+Implement reasonable application-level limits before requests reach the email provider.
+
+Suggested starting limits:
+
+Signup:
+- maximum 1 active signup request per email at a time
+- maximum 3 signup attempts per email per hour
+- maximum 10 signup attempts per IP per hour
+- add bot protection before increasing these limits significantly
+
+Verification resend:
+- minimum 60 seconds between sends to the same email
+- maximum 5 resends per email per 24 hours
+- maximum 20 verification sends per IP per 24 hours
+
+These are starting values and must be configurable through environment variables.
+
+Do not permanently block legitimate shared networks such as:
+
+- universities
+- workplaces
+- hotels
+- mobile carriers
+- public Wi-Fi
+
+Use progressive controls rather than a single harsh IP lockout.
+
+ERROR HANDLING
+
+Distinguish these cases clearly:
+
+1. Account created, verification email sent
+2. Account already exists and is verified
+3. Account exists but is unverified
+4. Email resend cooldown active
+5. Per-email limit reached
+6. Per-IP abuse limit reached
+7. Supabase/provider-wide email limit reached
+8. Temporary provider outage
+9. Invalid email
+10. Network failure
+
+Do not show every error as “Too many attempts.”
+
+Use messages such as:
+
+Cooldown:
+“We recently sent a verification email. You can request another in 45 seconds.”
+
+Existing unverified account:
+“This email already has an account waiting for verification. Check your inbox or request a new email.”
+
+Provider temporarily unavailable:
+“We couldn’t send the email right now. Your account details are safe. Please try again shortly.”
+
+Never reveal whether an email belongs to another person in a way that creates account-enumeration risk.
+
+EXISTING UNVERIFIED ACCOUNTS
+
+When an unverified email tries to sign up again:
+
+- do not create duplicate profiles
+- do not repeatedly create new auth users
+- route them to the verification-pending screen
+- allow a controlled manual resend
+- do not automatically send another email
+
+EMAIL PROVIDER AND PRODUCTION CAPACITY
+
+Inspect the current production email setup.
+
+Confirm:
+
+- whether Supabase’s default email sender is still being used
+- whether custom SMTP is configured
+- whether Resend is configured for Supabase Auth emails
+- whether the verified Lulou domain is being used
+- the sender address
+- the current provider limits
+- whether the limit is project-wide, recipient-based, IP-based or provider-wide
+
+If the app is still using a development/default Supabase sender, configure production SMTP through the existing Resend account.
+
+Do not put private SMTP or API credentials in client-side VITE variables.
+
+Use server-only environment variables.
+
+SCALABILITY
+
+Design this so large signup traffic does not cause a global outage.
+
+Requirements:
+
+- verification requests must be idempotent
+- add structured logs for email sends
+- record success, cooldown, rate-limit category and provider failure
+- never log passwords, full tokens or secret keys
+- monitor send success rate and provider rejection rate
+- avoid synchronous retry storms
+- use exponential backoff only for safe transient provider failures
+- do not retry user-caused rate-limit responses automatically
+- provide a path to queue outbound authentication emails if traffic grows significantly
+
+The system should not attempt to send one million emails simultaneously.
+
+It must absorb traffic safely using provider capacity, rate limits, bot protection and controlled queues.
+
+BOT AND ABUSE PROTECTION
+
+Add protection before production scale:
+
+- CAPTCHA or Turnstile after suspicious behaviour
+- disposable-email detection as a soft signal
+- hidden honeypot field
+- request fingerprinting
+- repeated-account detection
+- progressive cooldowns
+- abuse logging
+
+Do not block all VPNs, shared IPs or mobile networks.
+
+DATABASE AND PROFILE SAFETY
+
+Make sure:
+
+- an auth user is not duplicated
+- profile creation is idempotent
+- verification retries do not create extra profile rows
+- unfinished signups can resume safely
+- changing email does not leave orphaned profiles
+- under-18 checks remain enforced
+- verified-account login still works normally
+
+TEST THESE CASES
+
+1. One signup tap sends exactly one request
+2. Double-tapping sends exactly one request
+3. Slow network does not cause duplicate requests
+4. Three different legitimate emails on one device do not trigger a global block
+5. Same email immediately retries and sees a cooldown
+6. Existing unverified email reaches verification-pending state
+7. Manual resend works after cooldown
+8. Refresh does not send another email
+9. Countdown reaching zero does not send another email
+10. Provider rate-limit error is displayed accurately
+11. Two users behind the same shared IP can still register
+12. Bot-like repeated requests trigger additional protection
+13. Verified account can sign in
+14. Unverified account cannot bypass verification
+15. No duplicate auth users or profile rows are created
+
+OBSERVABILITY
+
+Add temporary structured logs with a prefix:
+
+[AUTH_EMAIL_DIAG]
+
+Log:
+
+- action type
+- signup or resend
+- request ID
+- hashed email identifier, not plaintext email
+- whether the frontend action was deduplicated
+- provider response category
+- cooldown category
+- HTTP status
+- duration
+
+Do not log:
+
+- passwords
+- access tokens
+- refresh tokens
+- verification links
+- SMTP credentials
+- full email addresses
+
+DELIVERY
+
+Run:
+
+npm run check
+npm run build
+
+Then commit and push as a focused authentication-email fix.
+
+Report:
+
+- root cause found
+- how many requests one tap previously generated
+- exact signup flow after the fix
+- exact resend flow
+- rate-limit rules
+- current email provider configuration
+- whether production SMTP is configured
+- files changed
+- environment variables required
+- commit hash
+- raw git push output
+
+Do not claim this is fixed until you test at least three different signup emails without triggering an incorrect global lockout.
