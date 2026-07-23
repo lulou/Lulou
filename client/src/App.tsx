@@ -72,6 +72,7 @@ import { markCallSessionCancelled, markStartupCancelledSession, isCallSessionCan
 import type { Profile, Match } from "@shared/schema";
 import { Loader2, Mail, CheckCircle } from "lucide-react";
 import { supabase, supabaseConfigError } from "@/lib/supabase";
+import { sendVerificationResend } from "@/lib/auth-helpers";
 
 // ── Global debug store ───────────────────────────────────────────────────────
 // Imported from a shared module so landing.tsx and use-auth.ts can also write
@@ -1717,63 +1718,15 @@ function VerifyEmailGate({
     setResendError(null);
     try {
       console.log("[AUTH] VERIFY_GATE_RESEND_START", { email: email.slice(0, 4) + "***" });
-
-      // Try managed resend endpoint (server-side rate limiting + Resend delivery).
-      // Falls back to supabase.auth.resend() on "use-direct-resend" or network error.
-      let useDirectFallback = false;
-      try {
-        const r = await fetch("/api/auth/resend-verification", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email, redirectTo: window.location.origin + "/auth/callback" }),
-        });
-        const body = await r.json() as { status: string; message?: string; waitMs?: number };
-        console.log("[AUTH] VERIFY_GATE_RESEND_MANAGED_RESPONSE", { status: body.status });
-
-        if (body.status === "verification-sent") {
-          console.log("[AUTH] VERIFY_GATE_RESEND_MANAGED_SUCCESS");
-          setResendSent(true);
-          setResendCooldown(60);
-          return;
-        } else if ((body.status ?? "").startsWith("rate-limited-")) {
-          const waitSec = Math.ceil((body.waitMs ?? 60_000) / 1000);
-          setResendError(body.message ?? `We recently sent a verification email. You can request another in ${waitSec} seconds.`);
-          setResendCooldown(Math.min(waitSec, 300));
-          return;
-        } else if (body.status === "already-verified") {
-          setResendError("This email is already verified. Please sign in.");
-          return;
-        } else {
-          useDirectFallback = true;
-        }
-      } catch {
-        useDirectFallback = true;
-        console.warn("[AUTH] VERIFY_GATE_RESEND_ENDPOINT_UNREACHABLE — using direct Supabase resend");
+      const result = await sendVerificationResend(email);
+      if (result.ok) {
+        console.log("[AUTH] VERIFY_GATE_RESEND_SUCCESS — Supabase queued the email");
+        setResendSent(true);
+        setResendCooldown(60);
+      } else {
+        setResendError(result.message || t("verify_email_resend_err"));
+        if (result.rateLimit) setResendCooldown(60);
       }
-
-      if (useDirectFallback) {
-        const { error } = await supabase.auth.resend({
-          type: "signup",
-          email,
-          options: { emailRedirectTo: window.location.origin + "/auth/callback" },
-        });
-        if (error) {
-          console.error("[AUTH] VERIFY_GATE_RESEND_DIRECT_ERROR", { message: error.message, status: (error as any).status });
-          throw error;
-        }
-        console.log("[AUTH] VERIFY_GATE_RESEND_DIRECT_SUCCESS — Supabase queued the email");
-      }
-      setResendSent(true);
-      setResendCooldown(60);
-    } catch (err: any) {
-      const raw: string = err?.message ?? "";
-      const isRateLimit = /rate.?limit|too.?many|over_email/i.test(raw);
-      setResendError(
-        isRateLimit
-          ? "We recently sent a verification email. Please wait a minute before requesting another."
-          : (raw || t("verify_email_resend_err")),
-      );
-      if (isRateLimit) setResendCooldown(60);
     } finally {
       setResendLoading(false);
     }

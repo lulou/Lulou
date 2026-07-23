@@ -1,0 +1,345 @@
+Replace the unfinished custom Express Admin API signup system with the standard Supabase Auth signup and verification flow.
+
+The security audit found that the custom backend-managed flow accepts arbitrary redirectTo URLs and could expose verification sessions through an attacker-controlled redirect. Do not commit or push that vulnerable implementation.
+
+DECISION
+
+Use:
+
+- supabase.auth.signUp(...)
+- supabase.auth.resend(...)
+- Supabase-managed confirmation tokens
+- Resend configured as custom SMTP inside Supabase Auth
+
+Do not create Auth users using:
+
+supabaseAdmin.auth.admin.createUser(...)
+
+Do not generate signup verification links using:
+
+supabaseAdmin.auth.admin.generateLink(...)
+
+Do not send signup confirmation links directly through the Express backend.
+
+PART 1 — REMOVE THE UNSAFE CUSTOM FLOW
+
+Remove or fully revert the unfinished custom signup implementation, including:
+
+- POST /api/auth/signup
+- POST /api/auth/resend-verification
+- Admin createUser signup logic
+- Admin generateLink signup logic
+- Client calls to those custom signup/resend endpoints
+- Any arbitrary client-controlled redirectTo handling
+- Any new in-memory rate-limit maps used only by those routes
+- Any unused imports or helper functions introduced for that flow
+
+Do not remove unrelated Resend functionality used for:
+
+- refund emails
+- welcome emails
+- other legitimate application notifications
+
+Do not remove the existing server-side email-verification protection from authenticated application routes.
+
+PART 2 — RESTORE SUPABASE-NATIVE SIGNUP
+
+The signup form must call Supabase exactly once:
+
+const { data, error } = await supabase.auth.signUp({
+ email: normalizedEmail,
+ password,
+ options: {
+   emailRedirectTo: APPROVED_CALLBACK_URL
+ }
+});
+
+Use a fixed application-controlled callback URL.
+
+Production:
+
+https://luloudating.com/auth/callback
+
+Development may use an explicitly approved development URL.
+
+Never accept emailRedirectTo or redirectTo from:
+
+- form input
+- request body
+- query parameters
+- arbitrary Origin headers
+- user-controlled client state
+
+Create a central helper or constant that returns only an approved callback URL.
+
+PART 3 — PREVENT DUPLICATE REQUESTS
+
+Ensure one tap produces one Supabase signup request.
+
+Protect against:
+
+- double taps
+- button onClick plus form onSubmit duplication
+- React rerenders
+- mutation retries
+- Strict Mode
+- slow networks
+- repeated submission while pending
+
+Requirements:
+
+- use only form onSubmit for submission
+- disable the submit button immediately
+- retain the existing in-flight ref or equivalent deduplication guard
+- do not automatically retry Supabase 429 responses
+- do not automatically resend verification
+- do not trigger signup from useEffect
+
+After a successful signup requiring confirmation:
+
+- show the verification-pending screen
+- do not call resend automatically
+- do not create another user
+- do not repeatedly call signUp
+
+PART 4 — RESTORE NATIVE RESEND
+
+The Resend verification button must use:
+
+supabase.auth.resend({
+ type: "signup",
+ email: normalizedEmail,
+ options: {
+   emailRedirectTo: APPROVED_CALLBACK_URL
+ }
+});
+
+Requirements:
+
+- resend only after an explicit user tap
+- never resend on mount
+- never resend on refresh
+- never resend when the countdown reaches zero
+- never resend after a sign-in attempt automatically
+- immediately disable the button while pending
+- show a 60-second cooldown after a successful send
+- persist the visible cooldown through refresh where practical
+- do not treat localStorage as a security control
+- let Supabase remain the authoritative rate limiter
+
+Ensure both resend locations use the same implementation:
+
+- landing/signup verification screen
+- VerifyEmailGate in App.tsx
+
+Prefer extracting a shared helper or hook so the behaviour cannot diverge.
+
+PART 5 — SAFE ERROR MESSAGES
+
+Handle Supabase responses without exposing unnecessary account-enumeration information.
+
+Use user-facing categories such as:
+
+Verification email recently sent:
+“We recently sent a verification email. Please check your inbox or try again shortly.”
+
+Generic existing-account state:
+“If an account is associated with this email, check your inbox or sign in.”
+
+Rate limit:
+“Too many email requests were made recently. Please wait before trying again.”
+
+Temporary delivery failure:
+“We couldn’t send the verification email right now. Please try again shortly.”
+
+Invalid email:
+“Enter a valid email address.”
+
+Network failure:
+“Connection problem. Check your internet connection and try again.”
+
+Do not expose raw Supabase errors by default.
+
+Keep expandable technical details only for safe error codes and never include tokens, credentials or verification URLs.
+
+PART 6 — EXISTING UNVERIFIED USERS
+
+For an existing unverified email:
+
+- do not create duplicate profiles
+- do not create duplicate application records
+- show the verification-pending state
+- allow an explicit controlled resend
+- preserve the original account safely
+
+For an already verified account:
+
+- direct the user toward Sign in
+- do not reset their password
+- do not recreate the account
+- do not send repeated verification emails automatically
+
+PART 7 — CALLBACK SECURITY
+
+Inspect client/src/pages/auth-callback.tsx.
+
+Confirm:
+
+- it uses Supabase’s supported callback/session handling
+- it does not trust an arbitrary redirect destination
+- it routes only to approved internal application paths
+- it does not log access tokens, refresh tokens or verification tokens
+- reused or expired links fail safely
+- verification does not create duplicate profile rows
+
+Keep authentication callback handling Supabase-native.
+
+PART 8 — SERVER AUTH ENFORCEMENT
+
+Preserve the current server protection that blocks access when email_confirmed_at is not set.
+
+Verify that:
+
+- unverified users cannot access protected API routes
+- verified users can access normally
+- the service-role key remains server-only
+- RESEND_API_KEY remains server-only
+- no secret appears in VITE variables
+- no secret appears in the client bundle
+
+Do not weaken isAuthenticated or checkEmailVerified.
+
+PART 9 — SUPABASE SMTP CONFIGURATION REPORT
+
+The code cannot configure the Supabase dashboard automatically.
+
+After completing the code changes, report the exact manual dashboard steps required:
+
+Supabase Dashboard:
+Authentication
+Emails or SMTP Settings
+Enable custom SMTP
+
+Use:
+
+Host:
+smtp.resend.com
+
+Port:
+465
+
+Username:
+resend
+
+Password:
+RESEND_API_KEY value
+
+Sender email:
+Use a verified Lulou-domain sender such as:
+noreply@luloudating.com
+
+Sender name:
+Lulou
+
+Do not print the real API key.
+
+Also report the required Supabase URL configuration:
+
+Site URL:
+https://luloudating.com
+
+Allowed redirect URL:
+https://luloudating.com/auth/callback
+
+Include any required localhost/development callback separately.
+
+Do not claim SMTP is configured until I confirm it in the Supabase dashboard.
+
+PART 10 — EMAIL TEMPLATE
+
+Preserve the Lulou branding by documenting how the existing emailVerificationLinkEmail content should be transferred into Supabase’s confirmation-email template.
+
+Use Supabase’s confirmation URL template variable rather than a manually generated URL.
+
+Do not hard-code tokens or verification links.
+
+PART 11 — RATE LIMITING AND ABUSE
+
+Do not build a new memory-only limiter and claim it is production-safe.
+
+For now:
+
+- rely on Supabase Auth rate limits
+- rely on Resend provider limits
+- keep frontend request deduplication
+- keep a 60-second UI resend cooldown
+- add Turnstile or CAPTCHA as a separate future abuse-protection task if required
+
+If application-level server rate limiting is retained for any server endpoint:
+
+- use req.ip
+- rely on the existing trusted-proxy configuration
+- never manually trust the leftmost X-Forwarded-For value
+- clearly state that memory-only maps do not work across multiple instances
+- do not use them as the sole production control
+
+PART 12 — TESTS
+
+Verify:
+
+1. One signup tap sends one signUp request.
+2. Double tapping sends one signUp request.
+3. Slow network produces no duplicate request.
+4. Refresh sends no email.
+5. Countdown reaching zero sends no email.
+6. Resend only occurs after an explicit tap.
+7. Existing unverified account creates no duplicate profile.
+8. Existing verified account is not recreated.
+9. Unverified user remains blocked from protected APIs.
+10. Verified user can sign in normally.
+11. Callback uses only the approved domain.
+12. No client-controlled redirect URL exists.
+13. Service-role and Resend secrets are absent from the client.
+14. npm run check passes.
+15. npm run build passes.
+
+Do not claim that three-email production testing passed until Resend SMTP has actually been configured in the Supabase dashboard and the live test has been performed.
+
+DELIVERY
+
+Before committing, show:
+
+git diff --stat
+git diff -- client/src server shared
+
+Then run:
+
+npm run check
+npm run build
+
+Commit this as a focused authentication-email security fix.
+
+Push to GitHub main and show the raw outputs of:
+
+git status
+git log --oneline -5
+git push origin main
+
+Report:
+
+- commit hash
+- files changed
+- unsafe custom routes removed
+- final signup flow
+- final resend flow
+- fixed callback URL
+- manual Supabase SMTP steps still required
+- tests completed
+- raw push confirmation
+
+Do not claim production email verification is fixed until:
+
+1. The code is deployed
+2. Resend custom SMTP is configured in Supabase
+3. The sender domain is verified
+4. Three separate live signup emails succeed without the project-wide Supabase default-sender limit
