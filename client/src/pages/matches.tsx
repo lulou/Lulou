@@ -2273,16 +2273,22 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
   const phoneCredits = callCreditsData?.phoneCredits;
   const videoCredits = callCreditsData?.videoCredits;
 
-  // Voice notes entitlement (either user in this match having the unlock activates it for both)
-  const { data: voiceNoteData } = useQuery<{ unlocked: boolean; isMine: boolean }>({
+  // Voice notes entitlement — unlocks when both users have sent ≥10 messages
+  const { data: voiceNoteData } = useQuery<{ unlocked: boolean }>({
     queryKey: ["/api/voice-notes/entitlement", match.id],
     enabled: expanded,
-    staleTime: 5 * 60 * 1000,
+    staleTime: 0,
+    refetchInterval: 10_000,
   });
   const voiceNotesUnlocked = voiceNoteData?.unlocked ?? false;
 
   // Purchase prompt state
   const [purchasePromptFeature, setPurchasePromptFeature] = useState<PurchaseFeature | null>(null);
+
+  // Voice-note unlock popup — shown once per user per match when the engagement
+  // threshold is first crossed (localStorage prevents repeat on reload / device switch)
+  const [voiceNotePopupOpen, setVoiceNotePopupOpen] = useState(false);
+  const prevVoiceNoteUnlockedRef = useRef(false);
 
   // Recording state
   const [isRecording, setIsRecording] = useState(false);
@@ -2543,6 +2549,18 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
       prewarmMicStream();
     }
   }, [voiceNotesUnlocked]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Show the one-time unlock popup when voiceNotesUnlocked first flips to true.
+  // localStorage prevents the popup re-appearing after reload or on another device.
+  useEffect(() => {
+    if (voiceNotesUnlocked && !prevVoiceNoteUnlockedRef.current) {
+      const key = `vn_popup_${match.id}`;
+      if (!localStorage.getItem(key)) {
+        setVoiceNotePopupOpen(true);
+      }
+    }
+    prevVoiceNoteUnlockedRef.current = voiceNotesUnlocked;
+  }, [voiceNotesUnlocked, match.id]);
 
   // Clean up the MediaRecorder, waveform, and pending blob URLs on unmount.
   // Do NOT stop the module-level mic stream — it must survive component remounts
@@ -3287,8 +3305,11 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
             )}
             <button
               onClick={() => {
-                if (!voiceNotesUnlocked) setPurchasePromptFeature("mic");
-                else if (voicePhase === "recording") stopRecording();
+                if (!voiceNotesUnlocked) {
+                  toast({ description: "Voice notes unlock after you've both sent 10 messages." });
+                  return;
+                }
+                if (voicePhase === "recording") stopRecording();
               }}
               className="flex flex-col items-center gap-0.5 min-w-[44px] py-1.5 px-2 rounded-xl transition-all active:scale-90"
               data-testid={`button-mic-tray-${match.id}`}
@@ -4091,7 +4112,10 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                         console.log(`[VOICE_NOTE_LAYOUT] before top=${Math.round(r.top)} bottom=${Math.round(r.bottom)} height=${Math.round(r.height)} inputFocused=${inputFocusedRef.current} minHeight=${Math.round(r.height)}px locked`);
                         console.log(`[VOICE_NOTE_LAYOUT] before-css: ${cssBefore}`);
                       }
-                      if (!voiceNotesUnlocked) { setPurchasePromptFeature("mic"); return; }
+                      if (!voiceNotesUnlocked) {
+                        toast({ description: "Voice notes unlock after you've both sent 10 messages." });
+                        return;
+                      }
                       startRecording();
                     }}
                     onTouchStart={e => {
@@ -4441,6 +4465,28 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
         onClose={() => setPurchasePromptFeature(null)}
         returnPath={window.location.pathname}
       />
+
+      {voiceNotePopupOpen && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 px-6" data-testid={`dialog-voice-note-unlock-${match.id}`}>
+          <div className="bg-background rounded-2xl p-6 w-full max-w-xs shadow-xl text-center">
+            <p className="text-3xl mb-3">🎙️</p>
+            <h2 className="font-semibold text-lg mb-2">Voice notes unlocked</h2>
+            <p className="text-sm text-muted-foreground mb-5">
+              Congrats — you've unlocked voice notes. Keep up the good work and keep getting to know each other.
+            </p>
+            <Button
+              className="w-full"
+              onClick={() => {
+                localStorage.setItem(`vn_popup_${match.id}`, "1");
+                setVoiceNotePopupOpen(false);
+              }}
+              data-testid={`button-voice-note-popup-continue-${match.id}`}
+            >
+              Continue
+            </Button>
+          </div>
+        </div>
+      )}
 
       {micHoldGuideTriggered && (
         <LulouGuide

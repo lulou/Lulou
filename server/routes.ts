@@ -28,7 +28,7 @@ import { transcodeToM4a } from "./transcoder";
 import { seedDatabase } from "./seed";
 import { z } from "zod";
 import type { Profile } from "@shared/schema";
-import { userBenefits, callCredits, activeSessions, processedStripeSessions, membershipSubscriptions, userElevates, blockedContacts, savedWheelProfiles, sparkBalances, sparkPurchases, pushSubscriptions, notificationPreferences, datePlanRemindersSent, activeChatSessions, refundRecords } from "@shared/schema";
+import { userBenefits, callCredits, activeSessions, processedStripeSessions, membershipSubscriptions, userElevates, blockedContacts, savedWheelProfiles, sparkBalances, sparkPurchases, pushSubscriptions, notificationPreferences, datePlanRemindersSent, activeChatSessions, refundRecords, voiceNoteUnlocks } from "@shared/schema";
 import { sendPushToUser, buildPush, isUserActiveInApp, isUserActiveInChat, getVapidPublicKey, cleanupFailedSubscriptions } from "./pushService";
 import { EXTRAS_ITEMS, ELEVATE_PACKS, type ExtrasItemId, type ElevatePackId, grantExtras, grantElevate, isUniqueViolation } from './purchaseItems';
 import { supabase, supabaseAdmin, createUserClient, hasServiceRoleKey } from "./supabase";
@@ -3224,19 +3224,36 @@ export async function registerRoutes(
   });
 
   // ── Voice Notes entitlement & upload ─────────────────────────────────────
+  // Voice notes unlock threshold (messages each user must send before voice notes open)
+  const VOICE_NOTE_MSG_THRESHOLD = 10;
+
   app.get("/api/voice-notes/entitlement/:matchId", isAuthenticated, async (req: any, res) => {
     try {
       const storage = getStorage(req);
       const userId = req.user.id;
       const { matchId } = req.params;
+
+      // Fast path: already permanently unlocked for this match
+      const [existing] = await db.select().from(voiceNoteUnlocks)
+        .where(eq(voiceNoteUnlocks.matchId, matchId)).limit(1);
+      if (existing) return res.json({ unlocked: true });
+
+      // Check whether both users have reached the engagement threshold
       const match = await storage.getMatchMeta(matchId, userId);
       if (!match) return res.status(404).json({ message: "Match not found" });
-      const otherUserId = match.user1Id === userId ? match.user2Id : match.user1Id;
-      const [myUnlock, theirUnlock] = await Promise.all([
-        db.select().from(userBenefits).where(and(eq(userBenefits.userId, userId), eq(userBenefits.type, "voice_notes_unlock"))).limit(1),
-        db.select().from(userBenefits).where(and(eq(userBenefits.userId, otherUserId), eq(userBenefits.type, "voice_notes_unlock"))).limit(1),
-      ]);
-      res.json({ unlocked: myUnlock.length > 0 || theirUnlock.length > 0, isMine: myUnlock.length > 0 });
+
+      const count1 = match.messageCount1 ?? 0;
+      const count2 = match.messageCount2 ?? 0;
+      const shouldUnlock = count1 >= VOICE_NOTE_MSG_THRESHOLD && count2 >= VOICE_NOTE_MSG_THRESHOLD;
+
+      if (shouldUnlock) {
+        // Persist so unlock survives call-stage count resets
+        await db.insert(voiceNoteUnlocks).values({ matchId }).onConflictDoNothing();
+        console.log(`[VOICE_NOTE_UNLOCK] match=${matchId} count1=${count1} count2=${count2} → unlocked`);
+        return res.json({ unlocked: true });
+      }
+
+      return res.json({ unlocked: false });
     } catch (err: any) {
       res.status(500).json({ message: err.message || "Failed to check voice notes entitlement" });
     }
@@ -3327,14 +3344,19 @@ export async function registerRoutes(
       const tProcess = Date.now();
       console.log(`[VOICE_NOTE_PIPELINE] transcode started safeMime=${safeMime} inputSize=${audioBuffer.length}`);
       let outputBuffer: Buffer;
-      let myUnlock: any[], theirUnlock: any[];
+      let isVoiceNoteUnlocked: boolean;
       try {
-        [[myUnlock, theirUnlock], outputBuffer] = await Promise.all([
-          Promise.all([
-            db.select().from(userBenefits).where(and(eq(userBenefits.userId, userId), eq(userBenefits.type, "voice_notes_unlock"))).limit(1),
-            db.select().from(userBenefits).where(and(eq(userBenefits.userId, otherUserId), eq(userBenefits.type, "voice_notes_unlock"))).limit(1),
-          ]),
+        [outputBuffer, isVoiceNoteUnlocked] = await Promise.all([
           transcodeToM4a(audioBuffer, safeMime),
+          (async () => {
+            const [existing] = await db.select().from(voiceNoteUnlocks)
+              .where(eq(voiceNoteUnlocks.matchId, matchId)).limit(1);
+            if (existing) return true;
+            const meta = await storage.getMatchMeta(matchId, userId);
+            return meta != null &&
+              (meta.messageCount1 ?? 0) >= VOICE_NOTE_MSG_THRESHOLD &&
+              (meta.messageCount2 ?? 0) >= VOICE_NOTE_MSG_THRESHOLD;
+          })(),
         ]);
       } catch (transcodeErr: any) {
         console.error(`[VOICE_NOTE_PIPELINE] transcode error safeMime="${safeMime}" error="${transcodeErr.message}"`);
@@ -3345,8 +3367,8 @@ export async function registerRoutes(
       console.log(`[VOICE_NOTE_PIPELINE] transcode complete outputSize=${outputBuffer.length}B processMs=${processMs}`);
       console.log(`[VOICE_NOTE_SPEED] upload complete — transcodeMs=${processMs}ms size=${audioBuffer.length}B→${outputBuffer.length}B`);
 
-      if (myUnlock.length === 0 && theirUnlock.length === 0) {
-        return res.status(403).json({ message: "Voice Notes Unlock required. Purchase from Lulou Extras." });
+      if (!isVoiceNoteUnlocked) {
+        return res.status(403).json({ message: "Voice notes unlock after you've both sent 10 messages." });
       }
 
       const filePath = `${matchId}/${Date.now()}_${userId}.m4a`;

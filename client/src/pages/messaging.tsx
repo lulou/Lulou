@@ -529,11 +529,12 @@ export default function Messaging() {
   const phoneCredits = callCreditsData?.phoneCredits ?? 0;
   const videoCredits = callCreditsData?.videoCredits ?? 0;
 
-  // Voice notes entitlement
-  const { data: voiceNoteData } = useQuery<{ unlocked: boolean; isMine: boolean }>({
+  // Voice notes entitlement — unlocks when both users have sent ≥10 messages
+  const { data: voiceNoteData } = useQuery<{ unlocked: boolean }>({
     queryKey: ["/api/voice-notes/entitlement", matchId],
     enabled: !!matchId,
-    staleTime: 5 * 60 * 1000,
+    staleTime: 0,
+    refetchInterval: 10_000,
   });
   const voiceNotesUnlocked = voiceNoteData?.unlocked ?? false;
 
@@ -575,6 +576,11 @@ export default function Messaging() {
 
   // Purchase prompt state
   const [purchasePromptFeature, setPurchasePromptFeature] = useState<PurchaseFeature | null>(null);
+
+  // Voice-note unlock popup — shown once per user per match when the engagement
+  // threshold is first crossed (localStorage prevents repeat on reload / device switch)
+  const [voiceNotePopupOpen, setVoiceNotePopupOpen] = useState(false);
+  const prevVoiceNoteUnlockedRef = useRef(false);
 
   // Recording state
   type VoicePhase = "idle" | "recording";
@@ -688,6 +694,18 @@ export default function Messaging() {
       prewarmMicStream();
     }
   }, [voiceNotesUnlocked]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Show the one-time unlock popup when voiceNotesUnlocked first flips to true.
+  // localStorage prevents the popup re-appearing after reload or on another device.
+  useEffect(() => {
+    if (voiceNotesUnlocked && !prevVoiceNoteUnlockedRef.current) {
+      const key = `vn_popup_${matchId}`;
+      if (!localStorage.getItem(key)) {
+        setVoiceNotePopupOpen(true);
+      }
+    }
+    prevVoiceNoteUnlockedRef.current = voiceNotesUnlocked;
+  }, [voiceNotesUnlocked, matchId]);
 
   // Clean up the MediaRecorder on unmount.
   // Do NOT stop the module-level mic stream — it must survive component remounts
@@ -1322,7 +1340,10 @@ export default function Messaging() {
             )}
             <button
               onClick={() => {
-                if (!voiceNotesUnlocked) { setPurchasePromptFeature("mic"); return; }
+                if (!voiceNotesUnlocked) {
+                  toast({ description: "Voice notes unlock after you've both sent 10 messages." });
+                  return;
+                }
                 if (voicePhase === "idle") startRecording();
                 else if (voicePhase === "recording") stopRecording();
               }}
@@ -1630,7 +1651,10 @@ export default function Messaging() {
                   <button
                     onPointerDown={e => {
                       e.currentTarget.setPointerCapture(e.pointerId);
-                      if (!voiceNotesUnlocked) { setPurchasePromptFeature("mic"); return; }
+                      if (!voiceNotesUnlocked) {
+                        toast({ description: "Voice notes unlock after you've both sent 10 messages." });
+                        return;
+                      }
                       if (voicePhase === "idle") startRecording();
                     }}
                     onPointerUp={() => {
@@ -1873,6 +1897,28 @@ export default function Messaging() {
         onClose={() => setPurchasePromptFeature(null)}
         returnPath={window.location.pathname}
       />
+
+      {voiceNotePopupOpen && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 px-6" data-testid="dialog-voice-note-unlock">
+          <div className="bg-background rounded-2xl p-6 w-full max-w-xs shadow-xl text-center">
+            <p className="text-3xl mb-3">🎙️</p>
+            <h2 className="font-semibold text-lg mb-2">Voice notes unlocked</h2>
+            <p className="text-sm text-muted-foreground mb-5">
+              Congrats — you've unlocked voice notes. Keep up the good work and keep getting to know each other.
+            </p>
+            <Button
+              className="w-full"
+              onClick={() => {
+                localStorage.setItem(`vn_popup_${matchId}`, "1");
+                setVoiceNotePopupOpen(false);
+              }}
+              data-testid="button-voice-note-popup-continue"
+            >
+              Continue
+            </Button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -353,8 +353,13 @@ async function initLocalDb() {
         created_at       TIMESTAMP DEFAULT NOW()
       );
       CREATE INDEX IF NOT EXISTS idx_refund_records_user ON refund_records(user_id);
+
+      CREATE TABLE IF NOT EXISTS voice_note_unlocks (
+        match_id    TEXT PRIMARY KEY,
+        unlocked_at TIMESTAMP NOT NULL DEFAULT NOW()
+      );
     `);
-    console.log("[STARTUP] Local DB tables verified/created: user_benefits, user_elevates, call_credits, saved_wheel_profiles, active_sessions, membership_subscriptions, push_subscriptions, notification_preferences, admin_payment_simulations, date_plan_reminders_sent, active_chat_sessions, refund_records");
+    console.log("[STARTUP] Local DB tables verified/created: user_benefits, user_elevates, call_credits, saved_wheel_profiles, active_sessions, membership_subscriptions, push_subscriptions, notification_preferences, admin_payment_simulations, date_plan_reminders_sent, active_chat_sessions, refund_records, voice_note_unlocks");
   } catch (err: any) {
     console.error("[STARTUP] Local DB table migration failed:", err?.message);
   }

@@ -1,0 +1,67 @@
+Change the Lulou conversation progression so voice notes are unlocked through engagement, not payment.
+
+NEW FLOW
+
+1. Text messaging starts normally.
+2. Voice notes are locked until BOTH users have sent at least 10 messages each in that match.
+3. As soon as the second user reaches 10 sent messages, show both users a one-time Lulou popup:
+
+Title:
+Voice notes unlocked 🎙️
+
+Message:
+Congrats — you’ve unlocked voice notes. Keep up the good work and keep getting to know each other.
+
+Button:
+Continue
+
+4. After the popup is dismissed:
+- Enable the microphone/voice-note button in that conversation.
+- Voice notes are free.
+- Voice notes remain permanently unlocked for that match.
+- Do not show any payment prompt for voice notes.
+- Remove any voice-note purchase requirement or paid entitlement check.
+
+5. The first-call stage begins only when BOTH users have sent at least 15 messages each.
+6. Once both users reach 15:
+- Show the existing first-call prompt.
+- Prevent further normal messaging until the call-stage choice is completed, using the current progression rules.
+- The first call remains free.
+
+IMPORTANT COUNTING RULES
+
+- Count only successfully sent messages.
+- Failed messages and failed voice-note uploads do not count.
+- Deleted messages do not reverse an unlock that already happened.
+- Voice notes may count toward the 15-message progression only if the existing system treats every successfully sent message as one message. Keep the rule consistent for both users.
+- A user cannot unlock voice notes alone; both users must reach 10.
+- A user cannot trigger the call stage alone; both users must reach 15.
+- Store the voice-note unlock state per match so refreshing, logging out, or switching devices does not relock it.
+- Store whether the unlock popup has been seen separately for each user.
+- Make the update realtime so the other user sees the microphone unlock without refreshing.
+
+UI
+
+Before unlock:
+- Show the microphone button disabled.
+- Tapping it should show:
+ “Voice notes unlock after you’ve both sent 10 messages.”
+
+After unlock:
+- Show the normal active microphone button.
+- No price, upgrade, checkout, or subscription messaging.
+
+Do not change the later call stages, timers, WebRTC behaviour, paid extra-call rules, or final date decision flow.
+
+Inspect the existing database schema and reuse the current progression fields where sensible. Add a migration only if required.
+
+Run:
+- npm run check
+- npm run build
+
+Then commit and push to GitHub main and report:
+- commit hash
+- files changed
+- migration details
+- exact message-count logic used
+- confirmation Railway and Vercel will auto-deploy
