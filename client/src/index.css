@@ -335,6 +335,8 @@
   font-family: "Lora", Georgia, "Times New Roman", serif;
   font-variant-ligatures: none;
   font-feature-settings: "liga" 0, "clig" 0;
+  font-weight: 500;   /* lighter than heading's bold-700; more elegant */
+  font-size: 0.96em;  /* ~4% smaller than the h1 size; stays proportional at all breakpoints */
 }
 .flourish-f {
   margin-right: 0.045em;

@@ -1042,7 +1042,7 @@ export default function Landing() {
           <div className="space-y-8">
             <div className="space-y-4">
               <p className="text-sm font-medium tracking-wider uppercase text-primary" data-testid="text-tagline">{t("landing_intentional_dating")}</p>
-              <h1 className="font-serif text-5xl lg:text-6xl font-bold leading-tight tracking-tight" data-testid="text-hero-headline">
+              <h1 className="font-serif text-5xl lg:text-6xl font-bold leading-tight tracking-tight -mb-2" data-testid="text-hero-headline">
                 {t("landing_hero_1")}
                 <span className="text-primary">
                   {" "}
