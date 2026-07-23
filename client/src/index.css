@@ -321,11 +321,21 @@
   }
 }
 
-/* ── Flourish heading: prevent "fl" ligature on all browsers/engines ── */
+/* ── Flourish heading ───────────────────────────────────────────────────────
+   Switch "flourish" to Lora (already loaded via Google Fonts), falling back to
+   Georgia / Times New Roman. All three have a compact "f" top-terminal that does
+   NOT visually merge with the following "l" at large display sizes.
+   Playfair Display's "f" has an extended swash that causes the overlap; this
+   font-family swap removes that shape entirely.
+   Ligature suppression is kept for belt-and-suspenders safety.
+   ──────────────────────────────────────────────────────────────────────────── */
 .flourish-word {
   display: inline-flex;
   align-items: baseline;
+  font-family: "Lora", Georgia, "Times New Roman", serif;
+  font-variant-ligatures: none;
+  font-feature-settings: "liga" 0, "clig" 0;
 }
-.flourish-word > span:first-child {
-  margin-right: 0.02em;
+.flourish-f {
+  margin-right: 0.045em;
 }
