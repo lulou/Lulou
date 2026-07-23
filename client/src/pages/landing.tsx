@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Heart, MessageCircle, Phone, Shield, RefreshCw, Loader2, Lock, Eye, EyeOff, AlertCircle, WifiOff, CheckCircle, ChevronDown, ChevronUp, Clock } from "lucide-react";
+import { Heart, MessageCircle, Phone, Shield, RefreshCw, Loader2, Lock, Eye, EyeOff, AlertCircle, WifiOff, CheckCircle, ChevronDown, ChevronUp, Clock, Mic, Video, X, ArrowRight, Users, Calendar, Dna } from "lucide-react";
 import { LulouFlowerIcon } from "@/components/app-layout";
 import { supabase, lastAuthFetchDebug, resetAuthFetchDebug, SUPABASE_URL, SUPABASE_KEY_LEN, AUTH_ENDPOINT } from "@/lib/supabase";
 import { API_BASE } from "@/lib/queryClient";
@@ -179,6 +179,7 @@ interface RawAuthError {
 export default function Landing() {
   const { t } = useLanguageContext();
   const { deviceBlocked, clearDeviceBlocked } = useAuth();
+  const [showHowItWorks, setShowHowItWorks] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -1043,12 +1044,31 @@ export default function Landing() {
               <p className="text-sm font-medium tracking-wider uppercase text-primary" data-testid="text-tagline">{t("landing_intentional_dating")}</p>
               <h1 className="font-serif text-5xl lg:text-6xl font-bold leading-tight tracking-tight" data-testid="text-hero-headline">
                 {t("landing_hero_1")}
-                <span className="text-primary"> {t("landing_hero_flourish")}</span>
+                <span
+                  className="text-primary"
+                  style={{ fontFeatureSettings: '"liga" 0', fontVariantLigatures: 'none' }}
+                >
+                  {" "}{t("landing_hero_flourish")}
+                </span>
               </h1>
               <p className="text-lg text-muted-foreground leading-relaxed max-w-lg" data-testid="text-hero-description">
                 {t("landing_hero_desc")}
               </p>
+              <p className="text-sm font-medium text-primary/80 tracking-wide" data-testid="text-algo-statement">
+                Matched by how you connect — not just how you look.
+              </p>
+              <button
+                type="button"
+                onClick={() => setShowHowItWorks(true)}
+                className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors underline underline-offset-4"
+                data-testid="button-how-lulou-works"
+              >
+                How Lulou works <ArrowRight className="w-3.5 h-3.5" />
+              </button>
             </div>
+
+            {/* ── Improved form card ──────────────────────────────────────────── */}
+            <div className="max-w-sm rounded-2xl bg-card border border-border/50 shadow-lg shadow-rose-100/10 p-6 space-y-4">
 
             <form ref={formRef} onSubmit={handleSubmit} className="max-w-sm space-y-3" data-testid="form-login" noValidate>
               {/* ── Outage banner ────────────────────────────────────────────────────
@@ -1402,15 +1422,21 @@ code:    ${rawAuthError.code}`}
                 </button>
               </div>
             </form>
+            </div>{/* end form card */}
 
-            <div className="flex items-center gap-6 flex-wrap text-sm text-muted-foreground">
-              <div className="flex items-center gap-2">
-                <Shield className="w-4 h-4 text-primary" />
+            {/* Trust strip */}
+            <div className="flex items-center gap-5 flex-wrap text-sm text-muted-foreground">
+              <div className="flex items-center gap-1.5">
+                <Shield className="w-3.5 h-3.5 text-primary" />
                 <span>{t("landing_verified_profiles")}</span>
               </div>
-              <div className="flex items-center gap-2">
-                <Heart className="w-4 h-4 text-primary" />
+              <div className="flex items-center gap-1.5">
+                <Heart className="w-3.5 h-3.5 text-primary" />
                 <span>{t("landing_no_games")}</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <Users className="w-3.5 h-3.5 text-primary" />
+                <span>Built for real dates</span>
               </div>
             </div>
           </div>
@@ -1437,35 +1463,60 @@ code:    ${rawAuthError.code}`}
             <p className="text-muted-foreground max-w-xl mx-auto">{t("landing_journey_desc")}</p>
           </div>
 
-          <div className="grid md:grid-cols-3 gap-8">
-            <FeatureCard
-              icon={<LulouFlowerIcon className="w-5 h-5" />}
-              title={t("landing_feat_discover_title")}
-              description={t("landing_feat_discover_desc")}
-              testId="card-feature-discover"
-            />
-            <FeatureCard
-              icon={<MessageCircle className="w-5 h-5" />}
-              title={t("landing_feat_convo_title")}
-              description={t("landing_feat_convo_desc")}
-              testId="card-feature-message"
-            />
-            <FeatureCard
-              icon={<Phone className="w-5 h-5" />}
-              title={t("landing_feat_call_title")}
-              description={t("landing_feat_call_desc")}
-              testId="card-feature-call"
-            />
+          {/* 4-step journey progression */}
+          <div className="relative" data-testid="section-journey-steps">
+            {/* Connecting line (desktop) */}
+            <div className="hidden md:block absolute top-8 left-[12.5%] right-[12.5%] h-px bg-border/60" aria-hidden="true" />
+            <div className="grid md:grid-cols-4 gap-8">
+              {[
+                { icon: <MessageCircle className="w-5 h-5" />, step: "01", label: "Meaningful messages", desc: "Limited messages encourage you to say something real." },
+                { icon: <Mic className="w-5 h-5" />, step: "02", label: "Voice notes", desc: "Unlocked through genuine engagement — hear each other's real voice." },
+                { icon: <Phone className="w-5 h-5" />, step: "03", label: "Guided calls", desc: "A structured first call, then a second. No pressure, just connection." },
+                { icon: <Calendar className="w-5 h-5" />, step: "04", label: "Meet in person", desc: "When both of you are ready — Lulou helps you take the step." },
+              ].map((item, i) => (
+                <div key={i} className="flex flex-col items-center text-center gap-3" data-testid={`card-step-${i + 1}`}>
+                  <div className="relative w-16 h-16 rounded-full bg-background border border-border/60 flex items-center justify-center text-primary shadow-sm z-10">
+                    {item.icon}
+                    <span className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-primary text-primary-foreground text-[10px] font-bold flex items-center justify-center">{item.step}</span>
+                  </div>
+                  <p className="font-semibold text-sm">{item.label}</p>
+                  <p className="text-xs text-muted-foreground leading-relaxed">{item.desc}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Connection DNA callout */}
+          <div className="mt-12 rounded-2xl border border-primary/20 bg-primary/[0.03] p-6 flex flex-col md:flex-row items-center gap-4" data-testid="card-dna-callout">
+            <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center flex-shrink-0">
+              <Dna className="w-6 h-6 text-primary" />
+            </div>
+            <div className="space-y-1 text-center md:text-left">
+              <p className="font-semibold text-sm">Connection DNA — a different kind of matching</p>
+              <p className="text-xs text-muted-foreground leading-relaxed max-w-lg">
+                Other apps learn who you swipe on. Lulou learns who you genuinely connect with. After joining, a short quiz helps us understand how you build real relationships — not just what you look like.
+              </p>
+            </div>
           </div>
         </div>
       </section>
 
-      <section className="py-24 px-6">
-        <div className="max-w-4xl mx-auto text-center space-y-8">
-          <h2 className="font-serif text-3xl lg:text-4xl font-bold" data-testid="text-cta-heading">{t("landing_cta_title")}</h2>
-          <p className="text-lg text-muted-foreground max-w-xl mx-auto">
-            {t("landing_cta_desc")}
-          </p>
+      {/* Testimonial */}
+      <section className="py-20 px-6" data-testid="section-testimonial">
+        <div className="max-w-3xl mx-auto">
+          <div className="rounded-2xl bg-card border border-border/50 p-8 md:p-12 text-center shadow-sm space-y-6">
+            <div className="flex justify-center gap-1">
+              {[0,1,2,3,4].map(i => (
+                <Heart key={i} className="w-4 h-4 fill-primary text-primary" />
+              ))}
+            </div>
+            <blockquote className="font-serif text-xl md:text-2xl text-foreground leading-relaxed">
+              "We spoke for three days, completed our first call and met that weekend. I've never felt so prepared for a first date."
+            </blockquote>
+            <p className="text-sm text-muted-foreground italic">
+              — Early Lulou member
+            </p>
+          </div>
         </div>
       </section>
 
@@ -1478,6 +1529,76 @@ code:    ${rawAuthError.code}`}
           <p>{t("landing_designed_for")}</p>
         </div>
       </footer>
+
+      {/* ── How Lulou Works modal ─────────────────────────────────────── */}
+      {showHowItWorks && (
+        <div
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center"
+          role="dialog"
+          aria-modal="true"
+          aria-label="How Lulou works"
+        >
+          <div
+            className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+            onClick={() => setShowHowItWorks(false)}
+          />
+          <div className="relative z-10 w-full sm:max-w-lg bg-background rounded-t-2xl sm:rounded-2xl border border-border/50 shadow-2xl overflow-y-auto max-h-[85dvh] p-6 sm:p-8 space-y-6" data-testid="modal-how-it-works">
+            <div className="flex items-center justify-between">
+              <h2 className="font-serif text-2xl font-bold">How Lulou works</h2>
+              <button
+                onClick={() => setShowHowItWorks(false)}
+                className="p-2 rounded-full hover:bg-muted transition-colors"
+                aria-label="Close"
+                data-testid="button-close-how-it-works"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <p className="text-muted-foreground text-sm leading-relaxed">
+              Lulou is designed to move you from a first message to a real meeting — with every feature built to deepen connection, not prolong scrolling.
+            </p>
+            <div className="space-y-5">
+              {[
+                {
+                  icon: <MessageCircle className="w-5 h-5" />,
+                  title: "Start with meaningful messages",
+                  desc: "A limit on messages encourages you to make every word count. No small talk for weeks — real conversations from the start.",
+                },
+                {
+                  icon: <Mic className="w-5 h-5" />,
+                  title: "Unlock voice notes through genuine engagement",
+                  desc: "Voice notes open up once both people have genuinely engaged in conversation. Hearing someone's real voice before meeting matters.",
+                },
+                {
+                  icon: <Phone className="w-5 h-5" />,
+                  title: "Complete a guided call",
+                  desc: "A short first voice call, then a second. Structured but natural. Lulou guides you toward it at the right moment.",
+                },
+                {
+                  icon: <Calendar className="w-5 h-5" />,
+                  title: "Decide whether to meet",
+                  desc: "After your calls, both of you choose whether to exchange numbers and meet in real life. No pressure — just a clear, intentional step.",
+                },
+                {
+                  icon: <Dna className="w-5 h-5" />,
+                  title: "Connection DNA — matched by how you connect",
+                  desc: "A short quiz helps Lulou understand your communication style, emotional openness, and relationship intentions — so introductions are based on genuine compatibility, not just photos.",
+                },
+              ].map((item, i) => (
+                <div key={i} className="flex items-start gap-4">
+                  <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center text-primary flex-shrink-0">
+                    {item.icon}
+                  </div>
+                  <div className="space-y-1">
+                    <p className="font-semibold text-sm">{item.title}</p>
+                    <p className="text-xs text-muted-foreground leading-relaxed">{item.desc}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );

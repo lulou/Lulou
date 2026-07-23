@@ -358,8 +358,62 @@ async function initLocalDb() {
         match_id    TEXT PRIMARY KEY,
         unlocked_at TIMESTAMP NOT NULL DEFAULT NOW()
       );
+
+      CREATE TABLE IF NOT EXISTS connection_dna_responses (
+        user_id       VARCHAR NOT NULL,
+        question_id   TEXT    NOT NULL,
+        answer_index  INTEGER NOT NULL,
+        updated_at    TIMESTAMP NOT NULL DEFAULT NOW(),
+        PRIMARY KEY (user_id, question_id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_dna_responses_user ON connection_dna_responses(user_id);
+
+      CREATE TABLE IF NOT EXISTS connection_dna_profiles (
+        user_id      VARCHAR   PRIMARY KEY,
+        dimensions   TEXT,
+        version      TEXT      NOT NULL DEFAULT 'dna_v1',
+        completed_at TIMESTAMP,
+        updated_at   TIMESTAMP NOT NULL DEFAULT NOW()
+      );
+
+      CREATE TABLE IF NOT EXISTS match_compatibility (
+        user_a_id        VARCHAR NOT NULL,
+        user_b_id        VARCHAR NOT NULL,
+        total_score      INTEGER NOT NULL,
+        component_scores TEXT,
+        reason_keys      TEXT,
+        reason_texts     TEXT,
+        is_variety_pick  BOOLEAN NOT NULL DEFAULT FALSE,
+        version          TEXT    NOT NULL DEFAULT 'dna_v1',
+        calculated_at    TIMESTAMP NOT NULL DEFAULT NOW(),
+        PRIMARY KEY (user_a_id, user_b_id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_compat_a ON match_compatibility(user_a_id);
+      CREATE INDEX IF NOT EXISTS idx_compat_b ON match_compatibility(user_b_id);
+
+      CREATE TABLE IF NOT EXISTS interaction_signals (
+        id             VARCHAR   PRIMARY KEY DEFAULT gen_random_uuid()::text,
+        user_id        VARCHAR   NOT NULL,
+        target_user_id VARCHAR   NOT NULL,
+        match_id       VARCHAR,
+        event_type     TEXT      NOT NULL,
+        event_weight   INTEGER   NOT NULL DEFAULT 1,
+        created_at     TIMESTAMP NOT NULL DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_signals_user   ON interaction_signals(user_id);
+      CREATE INDEX IF NOT EXISTS idx_signals_target ON interaction_signals(target_user_id);
+
+      CREATE TABLE IF NOT EXISTS private_connection_feedback (
+        id              VARCHAR   PRIMARY KEY DEFAULT gen_random_uuid()::text,
+        user_id         VARCHAR   NOT NULL,
+        match_id        VARCHAR   NOT NULL,
+        selected_reason TEXT      NOT NULL,
+        created_at      TIMESTAMP NOT NULL DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_feedback_user  ON private_connection_feedback(user_id);
+      CREATE INDEX IF NOT EXISTS idx_feedback_match ON private_connection_feedback(match_id);
     `);
-    console.log("[STARTUP] Local DB tables verified/created: user_benefits, user_elevates, call_credits, saved_wheel_profiles, active_sessions, membership_subscriptions, push_subscriptions, notification_preferences, admin_payment_simulations, date_plan_reminders_sent, active_chat_sessions, refund_records, voice_note_unlocks");
+    console.log("[STARTUP] Local DB tables verified/created: user_benefits, user_elevates, call_credits, saved_wheel_profiles, active_sessions, membership_subscriptions, push_subscriptions, notification_preferences, admin_payment_simulations, date_plan_reminders_sent, active_chat_sessions, refund_records, voice_note_unlocks, connection_dna_responses, connection_dna_profiles, match_compatibility, interaction_signals, private_connection_feedback");
   } catch (err: any) {
     console.error("[STARTUP] Local DB table migration failed:", err?.message);
   }

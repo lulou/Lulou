@@ -1,0 +1,683 @@
+Improve the Lulou login/landing page and design a unique, outcome-based matching algorithm that helps users form real relationships rather than simply optimising for swipes.
+
+PART 1 — FIX THE LANDING PAGE HEADING
+
+The word “flourish” currently has an awkward visual issue where the “f” and “l” merge together.
+
+Fix this without changing the overall elegant serif style.
+
+Use one of these approaches:
+
+- Disable the “fl” ligature on the word “flourish”
+- Apply:
+ font-variant-ligatures: none;
+ font-feature-settings: "liga" 0;
+- Slightly adjust letter spacing only if needed
+
+Do not replace the entire heading font unless the issue cannot be fixed cleanly.
+
+The heading should continue to read:
+
+Where real
+connections flourish
+
+Make sure the “f” and “l” are clearly separated and visually balanced on desktop and mobile.
+
+PART 2 — IMPROVE THE LANDING PAGE
+
+The current page feels clean and premium, but slightly empty and bland.
+
+Keep the soft, elegant, romantic Lulou style, but make the page feel more emotionally engaging and distinctive.
+
+Do not overcrowd it.
+
+Improve the page using the following direction:
+
+1. Keep the current cream, blush, muted green and refined serif visual identity.
+
+2. Strengthen the main value proposition.
+
+Use messaging such as:
+
+Headline:
+Where real connections flourish
+
+Supporting statement:
+Dating designed to become something real.
+
+Additional algorithm statement:
+Matched by how you connect — not just how you look.
+
+3. Add a clearer explanation of the Lulou journey:
+
+Message → Voice notes → Call → Meet
+
+This should appear as a tasteful horizontal or vertical progression graphic.
+
+Use subtle icons and thin connecting lines.
+
+4. Add one warm emotional visual.
+
+This may be:
+- A tasteful image of a real couple
+- A refined editorial-style relationship photograph
+- Or an upgraded botanical illustration that includes two subtle connected forms
+
+The image must feel premium, genuine and romantic rather than like a generic dating-app stock photo.
+
+5. Add a secondary button:
+
+How Lulou works
+
+This should open a small modal, drawer or section that explains:
+
+- Start with meaningful messages
+- Unlock voice notes through mutual engagement
+- Complete a guided call
+- Decide whether to meet in real life
+
+6. Improve the login form presentation.
+
+The form should feel intentionally integrated into the layout rather than floating in empty space.
+
+Use:
+- Slightly stronger card separation
+- Soft shadow or subtle border
+- Better spacing
+- Clear focus states
+- Consistent mobile responsiveness
+
+7. Add a small trust section below the form:
+
+Verified profiles
+No endless games
+Built for real dates
+
+8. Add a tasteful testimonial or product result below the fold.
+
+Example:
+
+“We spoke for three days, completed our first call and met that weekend.”
+
+Do not use fake names or fake statistics.
+
+Use placeholder testimonial content until real user testimonials are available.
+
+9. Add subtle movement.
+
+Examples:
+- A connecting line gently drawing on load
+- A botanical element softly growing
+- A mild fade or upward motion
+- Very subtle motion only
+
+Respect reduced-motion accessibility settings.
+
+10. Ensure the page works correctly across:
+- Desktop
+- Tablet
+- iPhone Safari
+- Android mobile browsers
+
+PART 3 — CREATE THE LULOU CONNECTION DNA SYSTEM
+
+Build a unique matching system called:
+
+Lulou Connection DNA
+
+The goal is to match users based on how they are likely to connect in real life, not just on who they visually like.
+
+The algorithm must combine:
+
+- Onboarding compatibility
+- User preferences
+- Behavioural learning
+- Conversation quality signals
+- Call outcomes
+- Continued mutual interest
+- Intentional variety
+
+Do not create a simple personality-label system.
+
+Do not assign users simplistic labels such as “introvert”, “romantic” or “type A”.
+
+Instead, create a multidimensional compatibility profile.
+
+PART 4 — CONNECTION DNA QUIZ
+
+After account creation and the required onboarding steps, every user should complete a short compatibility experience.
+
+The quiz should feel engaging and personal, not clinical or exhausting.
+
+Requirements:
+
+- Approximately 15 to 20 questions
+- Mobile-friendly
+- One question per screen
+- Progress indicator
+- Save progress between screens
+- Allow users to continue if they close the app
+- Require completion before full Discover access
+- Explain why the questions are being asked
+- Allow answers to be updated later in Settings
+
+Measure dimensions including:
+
+- Relationship intention
+- Communication style
+- Emotional openness
+- Affection style
+- Social energy
+- Lifestyle rhythm
+- Ambition and priorities
+- Conflict style
+- Dating pace
+- Independence versus togetherness
+- Future goals
+- Spontaneity versus structure
+- Depth versus playfulness
+- Ideal frequency of communication
+- Availability for dating
+
+Use realistic scenario-based questions.
+
+Avoid obvious or easily gamed questions.
+
+Bad example:
+“Are you a good communicator?”
+
+Better example:
+“Someone you are dating becomes quieter than usual. What would you naturally do?”
+
+Possible answers:
+- Ask directly if something is wrong
+- Give them space and check in later
+- Try to lighten the mood
+- Wait for them to bring it up
+- Feel uncertain and become quieter too
+
+Another example:
+
+“You have one completely free Saturday. Which sounds most appealing?”
+
+Possible answers:
+- A spontaneous day out
+- A planned activity and dinner
+- A quiet day together at home
+- Time apart followed by an evening together
+- Seeing friends as a couple
+
+Create a weighted response model that converts answers into compatibility dimensions.
+
+PART 5 — MATCHING DIMENSIONS
+
+Create internal numerical scores for each user across dimensions such as:
+
+- Relationship seriousness
+- Communication directness
+- Emotional depth
+- Affection expression
+- Social energy
+- Lifestyle pace
+- Ambition
+- Independence
+- Conflict repair
+- Planning style
+- Spontaneity
+- Dating pace
+- Future alignment
+- Playfulness
+- Availability
+
+Store these securely and do not expose raw internal scores publicly.
+
+Only show users tasteful summaries and match explanations.
+
+PART 6 — INITIAL MATCHING FORMULA
+
+Use the following starting balance:
+
+- 30% relationship values and intentions
+- 20% communication and emotional compatibility
+- 15% lifestyle compatibility
+- 10% dating pace and availability
+- 10% mutual preferences
+- 10% learned behaviour and interaction outcomes
+- 5% intentional variety and serendipity
+
+The exact implementation may use normalized component scores.
+
+Do not rely on one total score alone.
+
+Store component-level compatibility so the product can explain why two people were introduced.
+
+PART 7 — BEHAVIOURAL LEARNING
+
+Lulou should learn from user behaviour, but must not become another appearance-only swipe algorithm.
+
+Use signals including:
+
+Lower-value signals:
+- Profile viewed
+- Time spent reading prompts
+- Full profile opened
+- Like
+- Pass
+
+Medium-value signals:
+- Mutual match
+- Conversation started
+- Replies continued
+- Both users reached 10 messages
+- Voice notes unlocked
+
+High-value signals:
+- Both users reached the first call stage
+- Call completed
+- Both users chose to continue
+- Conversation progressed to later stages
+- Both users selected Plan date
+- Date was confirmed, where that feature exists
+
+The strongest algorithm signals must come from mutual progression and real interaction outcomes, not simple likes.
+
+A like alone must have limited influence.
+
+A pass should not permanently eliminate an entire personality type from future recommendations.
+
+PART 8 — POST-INTERACTION FEEDBACK
+
+After a call, ended conversation or final decision, ask one short private feedback question.
+
+Example:
+
+What felt strongest about this connection?
+
+Options:
+- Conversation flowed naturally
+- We shared similar values
+- I felt attracted to them
+- We wanted different things
+- Communication felt difficult
+- Our lifestyles did not align
+- I would like more introductions like this
+- I am not sure yet
+
+This feedback must:
+
+- Remain private
+- Never be shown to the other user
+- Improve future recommendations
+- Not unfairly punish the other user
+- Be used as a soft learning signal rather than an absolute label
+- Include abuse safeguards and rate limits
+
+Do not expose private negative feedback to users.
+
+PART 9 — EXPLAINABLE MATCHING
+
+Every recommended profile should include a section called:
+
+Why Lulou introduced you
+
+Examples:
+
+“You both value direct communication, prefer committed relationships and enjoy a similar social pace.”
+
+“A different kind of match: your personalities differ, but your relationship values and future priorities strongly align.”
+
+Show two or three meaningful reasons.
+
+Do not show percentages that imply scientific certainty.
+
+Do not show sensitive inferred traits.
+
+Do not reveal internal raw scores.
+
+The explanation should be:
+- Positive
+- Specific
+- Easy to understand
+- Grounded in answers and behaviour
+- Never manipulative
+
+PART 10 — PREVENT AN ALGORITHM BUBBLE
+
+The discovery feed must not narrow users into one repetitive visual or personality type.
+
+Use a recommendation mix approximately like:
+
+- 70% strong compatibility recommendations
+- 20% promising people slightly outside the user’s usual behaviour pattern
+- 10% carefully selected wildcard introductions
+
+A wildcard must not be random.
+
+It should still satisfy:
+- Hard preference requirements
+- Age and distance settings
+- Gender and orientation settings
+- Safety rules
+- Relationship intention compatibility
+- Block and exclusion rules
+
+Wildcard profiles may differ from the user’s usual interaction pattern while still showing strong underlying compatibility.
+
+PART 11 — CONNECTION COMPASS
+
+Create a user-facing feature called:
+
+Connection Compass
+
+This should gradually show users what appears to support their strongest connections.
+
+Possible dimensions:
+
+- Communication
+- Emotional depth
+- Lifestyle
+- Playfulness
+- Ambition
+- Relationship pace
+
+Do not show this immediately.
+
+Require enough interaction data before displaying insights.
+
+Do not pretend to know anything when there is insufficient data.
+
+Examples of safe insights:
+
+“You often like highly social profiles, but your strongest conversations have happened with people who prefer quieter, more intentional dates.”
+
+“You tend to progress further with people who communicate directly and want a similar relationship pace.”
+
+“This insight is still developing as Lulou learns from more of your genuine interactions.”
+
+The feature must not:
+- Diagnose users
+- Insult users
+- Rank their attractiveness
+- Reveal another user’s private feedback
+- Make overly confident claims from limited data
+
+PART 12 — COLD START LOGIC
+
+For new users with no behavioural history:
+
+- Use Connection DNA quiz results
+- Use stated preferences
+- Use relationship intention
+- Use location and availability
+- Use a controlled variety mix
+- Avoid over-personalising too early
+
+As interaction data grows, gradually increase the behavioural-learning component.
+
+Do not allow early likes and passes to overpower the original compatibility profile.
+
+PART 13 — FAIRNESS AND SAFETY
+
+The algorithm must never use or infer protected or highly sensitive personal traits for ranking unless required by an explicit user-controlled dating preference and legally permitted.
+
+Do not rank users based on:
+- Race
+- Religion
+- Disability
+- Income assumptions
+- Health conditions
+- Political beliefs
+- Device type
+- Subscription status
+- Whether they paid for boosts
+
+Paid features may increase visibility only where clearly disclosed.
+
+They must not falsely change compatibility scores.
+
+Include:
+- Blocked user exclusion
+- Reported user safety controls
+- Suspended and paused account exclusion
+- Under-18 exclusion
+- Geographic and legal restrictions
+- Spam and bot detection
+- Repeated negative-behaviour safeguards
+
+PART 14 — USER CONTROL
+
+Allow users to:
+
+- Retake or edit Connection DNA answers
+- Adjust hard preferences
+- See why a profile was recommended
+- Reduce or reset behavioural personalisation
+- Request more variety
+- Hide Connection Compass insights
+- Disable optional behavioural personalisation where required
+- Delete their algorithm-related data through account deletion and data export flows
+
+Clearly distinguish:
+
+Hard filters:
+- Gender preference
+- Age range
+- Distance
+- Relationship intention where required
+- Blocking and safety rules
+
+Soft compatibility preferences:
+- Communication
+- Lifestyle
+- Social energy
+- Ambition
+- Affection
+- Dating pace
+
+PART 15 — DATA MODEL
+
+Inspect the current database and reuse existing tables where sensible.
+
+Add migrations only where required.
+
+Likely data structures may include:
+
+connection_dna_responses
+- id
+- user_id
+- question_id
+- answer_value
+- created_at
+- updated_at
+
+connection_dna_profiles
+- user_id
+- dimension scores
+- version
+- calculated_at
+
+match_compatibility
+- match or candidate pair identifier
+- total score
+- component scores
+- explanation reasons
+- algorithm version
+- calculated_at
+
+interaction_signals
+- user_id
+- target_user_id
+- match_id
+- event type
+- event weight
+- created_at
+
+private_connection_feedback
+- user_id
+- match_id
+- selected reason
+- created_at
+
+connection_compass_insights
+- user_id
+- insight type
+- confidence
+- supporting sample size
+- generated_at
+- dismissed_at
+
+Use secure row-level access rules.
+
+Users must not be able to read another user’s raw quiz answers, private feedback or behavioural profile.
+
+PART 16 — ALGORITHM VERSIONING
+
+Add algorithm versioning so future changes do not silently corrupt old scores.
+
+Requirements:
+
+- Save the algorithm version with calculated profiles and recommendations
+- Recalculate safely when the model changes
+- Log component scores internally for debugging
+- Do not log sensitive raw answers in production logs
+- Add feature flags so the new algorithm can be tested gradually
+- Support A/B testing without changing hard safety rules
+
+PART 17 — ANALYTICS
+
+Measure whether the system creates better real connections.
+
+Track privacy-safe aggregate metrics such as:
+
+- Profile view to like rate
+- Match to conversation-start rate
+- Conversation to 10-each rate
+- Voice-note unlock rate
+- First-call unlock rate
+- Call completion rate
+- Continue-after-call rate
+- Plan-date rate
+- Unmatch or report rate
+- Time to meaningful progression
+- Recommendation diversity
+
+Do not optimise solely for time spent in the app.
+
+The primary success metric should be meaningful mutual progression toward real dates.
+
+PART 18 — PERFORMANCE
+
+Do not calculate expensive compatibility scores on every profile render.
+
+Use:
+- Precomputed or cached compatibility
+- Incremental updates
+- Background recalculation where appropriate
+- Indexed database fields
+- Pagination
+- Batching
+- Realtime updates only when needed
+
+Ensure Discover remains fast on iPhone Safari and lower-powered mobile devices.
+
+PART 19 — IMPLEMENTATION ORDER
+
+Implement this in phases.
+
+PHASE 1
+- Fix the “flourish” heading
+- Improve the landing page
+- Build the Connection DNA quiz
+- Store quiz responses securely
+- Generate initial compatibility dimensions
+- Add “Why Lulou introduced you”
+- Use quiz and preferences for recommendations
+
+PHASE 2
+- Add behavioural interaction signals
+- Weight genuine progression more heavily than likes
+- Add post-call and ended-conversation feedback
+- Add the 70/20/10 recommendation mix
+- Add algorithm versioning
+
+PHASE 3
+- Add Connection Compass
+- Add personalisation controls
+- Add safe insight generation
+- Add aggregate outcome analytics
+- Tune weights using real interaction outcomes
+
+Do not attempt to build an opaque machine-learning system before enough real outcome data exists.
+
+Start with a transparent weighted scoring model that can later evolve.
+
+PART 20 — DESIGN LANGUAGE
+
+The algorithm features must feel like part of Lulou’s premium romantic brand.
+
+Avoid:
+- Technical charts
+- Clinical personality-test language
+- Overuse of percentages
+- Gamified scoring
+- “Perfect match” claims
+- Scientific certainty
+
+Use language such as:
+
+Connection DNA
+Why Lulou introduced you
+Connection Compass
+A different kind of match
+What helped this connection?
+Lulou is learning what feels meaningful to you
+
+CORE BRAND MESSAGE
+
+Use this as the central positioning line:
+
+Other apps learn who you swipe on.
+Lulou learns who you genuinely connect with.
+
+IMPORTANT DELIVERY REQUIREMENTS
+
+Before changing anything:
+
+1. Inspect the existing landing page, onboarding flow, Discover logic, matching schema, message progression system, analytics and database migrations.
+2. Explain what already exists and what will be reused.
+3. Do not duplicate current functionality.
+4. Preserve all current authentication, messaging, voice-note, call, payment and safety behaviour unless explicitly changed above.
+5. Do not break existing users or reset their profiles.
+6. Use backward-compatible migrations.
+7. Protect all private algorithm and feedback data with proper server validation and RLS.
+8. Test desktop and mobile layouts.
+9. Run:
+  - npm run check
+  - npm run build
+10. Add tests for:
+  - Quiz completion
+  - Quiz resume
+  - Updated answers
+  - Cold-start recommendations
+  - Explainable recommendations
+  - Hard preference enforcement
+  - Blocked-user exclusion
+  - 70/20/10 recommendation mix
+  - Private feedback access protection
+  - Existing-user compatibility
+  - Mobile landing-page responsiveness
+  - Reduced-motion behaviour
+11. Commit and push all completed work to GitHub main.
+12. Report:
+  - Commit hash
+  - Files changed
+  - Database migrations added
+  - Exact scoring formula
+  - Hard filters used
+  - Behavioural event weights
+  - Privacy and RLS rules
+  - Tests completed
+  - Railway deployment status
+  - Vercel deployment status
+
+Do not claim the work has been pushed until the raw Git push output confirms that GitHub main advanced to the new commit.

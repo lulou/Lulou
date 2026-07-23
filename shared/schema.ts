@@ -477,3 +477,68 @@ export const voiceNoteUnlocks = pgTable("voice_note_unlocks", {
   matchId:    text("match_id").primaryKey(),
   unlockedAt: timestamp("unlocked_at").defaultNow().notNull(),
 });
+
+// ── Connection DNA ─────────────────────────────────────────────────────────────
+
+/** Raw quiz answers — one row per user per question. */
+export const connectionDnaResponses = pgTable("connection_dna_responses", {
+  userId:      varchar("user_id").notNull(),
+  questionId:  text("question_id").notNull(),
+  answerIndex: integer("answer_index").notNull(),
+  updatedAt:   timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  primaryKey({ columns: [t.userId, t.questionId] }),
+  index("idx_dna_responses_user").on(t.userId),
+]);
+
+/** Computed dimension scores + quiz completion state per user. */
+export const connectionDnaProfiles = pgTable("connection_dna_profiles", {
+  userId:      varchar("user_id").primaryKey(),
+  dimensions:  text("dimensions"),       // JSON: DnaDimensions
+  version:     text("version").notNull().default("dna_v1"),
+  completedAt: timestamp("completed_at"),
+  updatedAt:   timestamp("updated_at").defaultNow().notNull(),
+});
+
+/** Pairwise compatibility cache — keyed (userAId < userBId lexicographically). */
+export const matchCompatibility = pgTable("match_compatibility", {
+  userAId:         varchar("user_a_id").notNull(),
+  userBId:         varchar("user_b_id").notNull(),
+  totalScore:      integer("total_score").notNull(),
+  componentScores: text("component_scores"),  // JSON
+  reasonKeys:      text("reason_keys"),        // JSON string[]
+  reasonTexts:     text("reason_texts"),       // JSON string[]
+  isVarietyPick:   boolean("is_variety_pick").notNull().default(false),
+  version:         text("version").notNull().default("dna_v1"),
+  calculatedAt:    timestamp("calculated_at").defaultNow().notNull(),
+}, (t) => [
+  primaryKey({ columns: [t.userAId, t.userBId] }),
+  index("idx_compat_a").on(t.userAId),
+  index("idx_compat_b").on(t.userBId),
+]);
+
+/** Behavioural interaction signals for learning. */
+export const interactionSignals = pgTable("interaction_signals", {
+  id:           varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId:       varchar("user_id").notNull(),
+  targetUserId: varchar("target_user_id").notNull(),
+  matchId:      varchar("match_id"),
+  eventType:    text("event_type").notNull(),  // 'like','pass','open','message_10','voice_note','call_started','call_completed','plan_date'
+  eventWeight:  integer("event_weight").notNull().default(1),
+  createdAt:    timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("idx_signals_user").on(t.userId),
+  index("idx_signals_target").on(t.targetUserId),
+]);
+
+/** Private post-interaction feedback — never exposed to the other user. */
+export const privateConnectionFeedback = pgTable("private_connection_feedback", {
+  id:             varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId:         varchar("user_id").notNull(),
+  matchId:        varchar("match_id").notNull(),
+  selectedReason: text("selected_reason").notNull(),
+  createdAt:      timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("idx_feedback_user").on(t.userId),
+  index("idx_feedback_match").on(t.matchId),
+]);

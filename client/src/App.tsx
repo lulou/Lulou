@@ -27,6 +27,7 @@ import AdminDiagnosticsPage from "@/pages/admin-diagnostics";
 import AdminPaymentSimPage from "@/pages/admin-payment-sim";
 import AuthCallbackPage from "@/pages/auth-callback";
 import DatePlanPage from "@/pages/date-plan";
+import ConnectionDnaPage from "@/pages/connection-dna";
 import {
   PrivacyPolicyPage,
   TermsOfServicePage,
@@ -2689,6 +2690,7 @@ function AppContent() {
       <Route path="/extras/success" component={ExtrasSuccessPage} />
       <Route path="/admin/diagnostics" component={AdminDiagnosticsPage} />
       <Route path="/admin/payment-sim" component={AdminPaymentSimPage} />
+      <Route path="/connection-dna" component={ConnectionDnaPage} />
       <Route>
         <AppLayout>
           <PersistentTabs />

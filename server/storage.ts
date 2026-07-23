@@ -9,8 +9,9 @@ import {
 } from "@shared/schema";
 import { supabase as defaultSupabase } from "./supabase";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { db } from "./db";
+import { db, pool as localPool } from "./db";
 import { eq, gt, sql, and, or, asc } from "drizzle-orm";
+import { dnaBonusScore, deserializeDna, type DnaDimensions } from "./connectionDna";
 
 const IS_DEV = process.env.NODE_ENV !== "production";
 
@@ -438,6 +439,27 @@ function tasteAffinityScore(candidate: Profile, taste: TasteProfile): number {
  * The exploratory 25% are randomly sampled from lower-scoring candidates so the
  * user occasionally encounters profiles outside their established pattern.
  */
+async function loadDnaProfiles(
+  userIds: string[],
+): Promise<Map<string, DnaDimensions>> {
+  const map = new Map<string, DnaDimensions>();
+  if (userIds.length === 0) return map;
+  try {
+    const placeholders = userIds.map((_, i) => `$${i + 1}`).join(", ");
+    const r = await (localPool as any).query(
+      `SELECT user_id, dimensions FROM connection_dna_profiles WHERE user_id IN (${placeholders}) AND completed_at IS NOT NULL`,
+      userIds,
+    );
+    for (const row of r.rows) {
+      const dna = deserializeDna(row.dimensions);
+      if (dna) map.set(row.user_id, dna);
+    }
+  } catch {
+    // Non-critical — fall back gracefully with no DNA data
+  }
+  return map;
+}
+
 async function rankWithPersonalization(
   pool: Profile[],
   userId: string,
@@ -456,27 +478,36 @@ async function rankWithPersonalization(
   // Attempt to get personalisation; null = cold start → zero affinity bonus.
   const taste = await computeTasteProfile(userId, sb, now);
 
+  // Load Connection DNA profiles for scoring (user + all candidates).
+  // Falls back gracefully — no DNA data → neutral bonus (10 pts each).
+  const candidateIds = pool.map(p => p.userId);
+  const dnaMap = await loadDnaProfiles([userId, ...candidateIds]);
+  const userDna = dnaMap.get(userId) ?? null;
+
   // Score every candidate.
   const scored = pool.map(p => {
-    const b = scoreProfile(p, userLat, userLng, locationRadius, userDatingIntent, userConnectionStyle, memberUserIds, now);
-    const affinity = taste ? tasteAffinityScore(p, taste) : 0;
-    const jitter   = Math.random() * 4 - 2;
-    return { profile: p, base: b, affinity, final: b.base * b.elevateMultiplier + affinity + jitter };
+    const b          = scoreProfile(p, userLat, userLng, locationRadius, userDatingIntent, userConnectionStyle, memberUserIds, now);
+    const affinity   = taste ? tasteAffinityScore(p, taste) : 0;
+    const candidateDna = dnaMap.get(p.userId) ?? null;
+    const dnaBonus   = dnaBonusScore(userDna, candidateDna); // 0–20, neutral=10
+    const jitter     = Math.random() * 4 - 2;
+    return { profile: p, base: b, affinity, dnaBonus, final: b.base * b.elevateMultiplier + affinity + dnaBonus + jitter };
   });
 
   scored.sort((a, b) => b.final - a.final);
 
   if (IS_DEV) {
-    scored.slice(0, Math.min(8, scored.length)).forEach(({ profile: p, base: b, affinity: aff, final: f }) => {
+    scored.slice(0, Math.min(8, scored.length)).forEach(({ profile: p, base: b, affinity: aff, dnaBonus: dna, final: f }) => {
       const name = (p as any).firstName ?? p.userId.slice(0, 8);
       const elev = b.elevateMultiplier > 1 ? ` ×${b.elevateMultiplier}` : "";
       console.log(
-        `[SCORE] ${name} | final=${f.toFixed(1)}${elev} | base=${b.base} affinity=${aff.toFixed(1)} ` +
+        `[SCORE] ${name} | final=${f.toFixed(1)}${elev} | base=${b.base} affinity=${aff.toFixed(1)} dna=${dna} ` +
         `[dist=${b.distance} rec=${b.recency} verified=${b.photoVerified} complete=${b.completeness} ` +
         `intent=${b.sharedIntent} style=${b.sharedStyle} member=${b.membership} newUser=${b.newUser}]`,
       );
     });
     if (taste) console.log(`[TASTE] personalisation active for ${userId.slice(0, 8)} (n=${taste.sampleSize})`);
+    if (userDna) console.log(`[DNA] profile loaded for ${userId.slice(0, 8)}`);
   }
 
   // Anti-filter-bubble split: 75 % top-scored (core), 25 % exploratory.

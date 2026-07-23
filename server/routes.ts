@@ -5118,6 +5118,246 @@ export async function registerRoutes(
     }
   });
 
+  // ── Connection DNA ─────────────────────────────────────────────────────────────────────
+
+  /** GET /api/dna/status — check if the current user has completed the DNA quiz */
+  app.get("/api/dna/status", verifyJwt, async (req: any, res: any) => {
+    try {
+      const userId = req.user.id;
+      const { pool } = await import("./db");
+      const r = await (pool as any).query(
+        "SELECT completed_at, dimensions IS NOT NULL AS has_dimensions FROM connection_dna_profiles WHERE user_id = $1",
+        [userId],
+      );
+      const row = r.rows[0];
+      res.json({
+        completed:   !!row?.completed_at,
+        hasDna:      !!row?.has_dimensions,
+      });
+    } catch (err: any) {
+      console.error("GET /api/dna/status error:", err?.message);
+      res.status(500).json({ message: "Failed to fetch DNA status" });
+    }
+  });
+
+  /** GET /api/dna/responses — get saved answers for the current user */
+  app.get("/api/dna/responses", verifyJwt, async (req: any, res: any) => {
+    try {
+      const userId = req.user.id;
+      const { pool } = await import("./db");
+      const r = await (pool as any).query(
+        "SELECT question_id, answer_index FROM connection_dna_responses WHERE user_id = $1",
+        [userId],
+      );
+      const responses: Record<string, number> = {};
+      for (const row of r.rows) responses[row.question_id] = row.answer_index;
+      res.json({ responses });
+    } catch (err: any) {
+      console.error("GET /api/dna/responses error:", err?.message);
+      res.status(500).json({ message: "Failed to fetch responses" });
+    }
+  });
+
+  /** POST /api/dna/response — save a single answer (upsert) */
+  app.post("/api/dna/response", verifyJwt, async (req: any, res: any) => {
+    try {
+      const userId = req.user.id;
+      const { questionId, answerIndex } = req.body;
+      if (typeof questionId !== "string" || typeof answerIndex !== "number") {
+        return res.status(400).json({ message: "Invalid payload" });
+      }
+      const { pool } = await import("./db");
+      await (pool as any).query(
+        `INSERT INTO connection_dna_responses (user_id, question_id, answer_index, updated_at)
+         VALUES ($1, $2, $3, NOW())
+         ON CONFLICT (user_id, question_id)
+         DO UPDATE SET answer_index = EXCLUDED.answer_index, updated_at = NOW()`,
+        [userId, questionId, answerIndex],
+      );
+      res.json({ ok: true });
+    } catch (err: any) {
+      console.error("POST /api/dna/response error:", err?.message);
+      res.status(500).json({ message: "Failed to save response" });
+    }
+  });
+
+  /** POST /api/dna/complete — compute + store DNA profile */
+  app.post("/api/dna/complete", verifyJwt, async (req: any, res: any) => {
+    try {
+      const userId = req.user.id;
+      const { pool } = await import("./db");
+
+      // Load all answers
+      const r = await (pool as any).query(
+        "SELECT question_id, answer_index FROM connection_dna_responses WHERE user_id = $1",
+        [userId],
+      );
+      const responses: Record<string, number> = {};
+      for (const row of r.rows) responses[row.question_id] = row.answer_index;
+
+      // Compute dimensions
+      const { computeDnaProfile, serializeDna, ALGO_VERSION } = await import("./connectionDna");
+      const dimensions = computeDnaProfile(responses);
+      const dimensionsJson = serializeDna(dimensions);
+
+      await (pool as any).query(
+        `INSERT INTO connection_dna_profiles (user_id, dimensions, version, completed_at, updated_at)
+         VALUES ($1, $2, $3, NOW(), NOW())
+         ON CONFLICT (user_id)
+         DO UPDATE SET dimensions = EXCLUDED.dimensions, version = EXCLUDED.version,
+                       completed_at = COALESCE(connection_dna_profiles.completed_at, NOW()),
+                       updated_at = NOW()`,
+        [userId, dimensionsJson, ALGO_VERSION],
+      );
+
+      res.json({ ok: true, dimensions });
+    } catch (err: any) {
+      console.error("POST /api/dna/complete error:", err?.message);
+      res.status(500).json({ message: "Failed to complete DNA profile" });
+    }
+  });
+
+  /** POST /api/dna/retake — reset quiz answers + profile (keep row, clear completion) */
+  app.post("/api/dna/retake", verifyJwt, async (req: any, res: any) => {
+    try {
+      const userId = req.user.id;
+      const { pool } = await import("./db");
+      await (pool as any).query(
+        "DELETE FROM connection_dna_responses WHERE user_id = $1",
+        [userId],
+      );
+      await (pool as any).query(
+        `UPDATE connection_dna_profiles
+         SET dimensions = NULL, completed_at = NULL, updated_at = NOW()
+         WHERE user_id = $1`,
+        [userId],
+      );
+      // Invalidate cached compatibility for this user
+      await (pool as any).query(
+        "DELETE FROM match_compatibility WHERE user_a_id = $1 OR user_b_id = $1",
+        [userId],
+      );
+      res.json({ ok: true });
+    } catch (err: any) {
+      console.error("POST /api/dna/retake error:", err?.message);
+      res.status(500).json({ message: "Failed to reset quiz" });
+    }
+  });
+
+  /** GET /api/dna/reasons/:candidateId — get "Why Lulou introduced you" reasons */
+  app.get("/api/dna/reasons/:candidateId", verifyJwt, async (req: any, res: any) => {
+    try {
+      const userId      = req.user.id;
+      const candidateId = req.params.candidateId;
+      if (!candidateId) return res.status(400).json({ message: "Missing candidateId" });
+
+      const { pool } = await import("./db");
+
+      // Check cache first (user_a < user_b order)
+      const [keyA, keyB] = userId < candidateId ? [userId, candidateId] : [candidateId, userId];
+      const cached = await (pool as any).query(
+        "SELECT reason_texts, is_variety_pick FROM match_compatibility WHERE user_a_id = $1 AND user_b_id = $2",
+        [keyA, keyB],
+      );
+      if (cached.rows[0]?.reason_texts) {
+        const reasons = JSON.parse(cached.rows[0].reason_texts);
+        return res.json({ reasons, fromCache: true });
+      }
+
+      // Load both DNA profiles
+      const profilesR = await (pool as any).query(
+        "SELECT user_id, dimensions, completed_at FROM connection_dna_profiles WHERE user_id = ANY($1)",
+        [[userId, candidateId]],
+      );
+      const byId: Record<string, string | null> = {};
+      for (const row of profilesR.rows) byId[row.user_id] = row.dimensions;
+
+      const { computeDnaProfile, deserializeDna, computeCompatibility, generateReasons, serializeDna, ALGO_VERSION } = await import("./connectionDna");
+
+      const userDna      = deserializeDna(byId[userId]      ?? null);
+      const candidateDna = deserializeDna(byId[candidateId] ?? null);
+
+      if (!userDna || !candidateDna) {
+        return res.json({ reasons: [{ key: "default", text: "Lulou thought you might connect well" }] });
+      }
+
+      const { total, components } = computeCompatibility(userDna, candidateDna);
+      const isVariety = total < 55;
+      const reasons   = generateReasons(userDna, candidateDna, isVariety);
+
+      // Cache result
+      try {
+        await (pool as any).query(
+          `INSERT INTO match_compatibility
+             (user_a_id, user_b_id, total_score, component_scores, reason_texts, is_variety_pick, version, calculated_at)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,NOW())
+           ON CONFLICT (user_a_id, user_b_id) DO UPDATE
+             SET total_score=EXCLUDED.total_score, component_scores=EXCLUDED.component_scores,
+                 reason_texts=EXCLUDED.reason_texts, is_variety_pick=EXCLUDED.is_variety_pick,
+                 version=EXCLUDED.version, calculated_at=NOW()`,
+          [keyA, keyB, total, JSON.stringify(components), JSON.stringify(reasons.map(r => r.text)), isVariety, ALGO_VERSION],
+        );
+      } catch { /* cache write failure is non-critical */ }
+
+      res.json({ reasons: reasons.map(r => r.text), total });
+    } catch (err: any) {
+      console.error("GET /api/dna/reasons error:", err?.message);
+      res.status(500).json({ message: "Failed to fetch reasons" });
+    }
+  });
+
+  /** POST /api/dna/feedback — private post-interaction feedback (never exposed to other user) */
+  app.post("/api/dna/feedback", verifyJwt, async (req: any, res: any) => {
+    try {
+      const userId = req.user.id;
+      const { matchId, selectedReason } = req.body;
+      if (!matchId || !selectedReason) return res.status(400).json({ message: "Invalid payload" });
+
+      // Rate-limit: one feedback per match per user
+      const { pool } = await import("./db");
+      const existing = await (pool as any).query(
+        "SELECT id FROM private_connection_feedback WHERE user_id = $1 AND match_id = $2",
+        [userId, matchId],
+      );
+      if (existing.rows.length > 0) return res.json({ ok: true, duplicate: true });
+
+      await (pool as any).query(
+        "INSERT INTO private_connection_feedback (user_id, match_id, selected_reason) VALUES ($1, $2, $3)",
+        [userId, matchId, selectedReason],
+      );
+      res.json({ ok: true });
+    } catch (err: any) {
+      console.error("POST /api/dna/feedback error:", err?.message);
+      res.status(500).json({ message: "Failed to save feedback" });
+    }
+  });
+
+  /** POST /api/dna/signal — record a behavioural interaction signal */
+  app.post("/api/dna/signal", verifyJwt, async (req: any, res: any) => {
+    try {
+      const userId = req.user.id;
+      const { targetUserId, matchId, eventType } = req.body;
+      if (!targetUserId || !eventType) return res.status(400).json({ message: "Invalid payload" });
+
+      const WEIGHTS: Record<string, number> = {
+        open: 1, like: 2, pass: 1, message_10: 5, voice_note: 6,
+        call_started: 8, call_completed: 10, plan_date: 12,
+      };
+      const weight = WEIGHTS[eventType] ?? 1;
+
+      const { pool } = await import("./db");
+      await (pool as any).query(
+        `INSERT INTO interaction_signals (user_id, target_user_id, match_id, event_type, event_weight)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [userId, targetUserId, matchId ?? null, eventType, weight],
+      );
+      res.json({ ok: true });
+    } catch (err: any) {
+      console.error("POST /api/dna/signal error:", err?.message);
+      res.status(500).json({ message: "Failed to record signal" });
+    }
+  });
+
   // Global error handler — catches any unhandled errors that escape route try/catch blocks.
   // Without this, Express would return an HTML error page instead of JSON, causing clients
   // to display a literal "Internal Server Error" string from the HTTP status text.
