@@ -1,0 +1,140 @@
+Before committing or pushing, audit the new backend-managed signup and verification flow for security and correctness.
+
+Do not make further changes until you provide this report.
+
+ROOT CAUSE CONFIRMATION
+
+Confirm whether production Supabase Auth is currently using:
+
+- Supabase’s built-in email provider
+- Resend custom SMTP configured inside Supabase Auth
+- a Supabase Send Email Hook
+- or direct Resend API calls from the Express backend
+
+Show the exact evidence from the code and configuration available to you.
+
+Do not claim custom SMTP is configured unless you can verify it.
+
+SECURITY AUDIT OF THE NEW FLOW
+
+You proposed:
+
+1. Express backend creates the Supabase Auth user using the Admin API
+2. Supabase does not send the confirmation email
+3. Express generates a verification link
+4. Resend sends the verification email
+
+Verify all of the following:
+
+1. The Admin-created user begins with email_confirmed_at unset.
+2. The user cannot sign in until the verification link is completed.
+3. The verification link is generated using a supported Supabase Admin method.
+4. The link contains a short-lived, single-use token.
+5. The raw confirmation token is never stored in the database or logs.
+6. The service-role key remains server-only.
+7. No VITE environment variable contains the service-role key or Resend API key.
+8. The redirect URL is restricted to an approved Lulou domain.
+9. A user cannot supply an arbitrary redirect URL.
+10. The verification endpoint cannot confirm a different account by changing the email or user ID.
+11. Resending invalidates or safely coexists with earlier verification links.
+12. Verification cannot create duplicate profile rows.
+13. Repeated signup attempts for the same unverified email reuse the existing account safely.
+14. Verified users are not silently recreated or reset.
+15. Account-enumeration details are not exposed.
+16. Rate limiting uses the real client IP rather than treating all Railway traffic as one IP.
+17. Proxy headers are trusted only from the known deployment proxy.
+18. The backend cannot be used as an unrestricted email relay.
+19. The email address is validated and normalized before hashing or storing.
+20. Under-18 restrictions remain enforced before full account access.
+
+SHOW THE EXACT IMPLEMENTATION
+
+Provide the exact file paths and relevant code for:
+
+- signup endpoint
+- verification-link generation
+- Resend send call
+- resend endpoint
+- confirmation callback
+- sign-in rejection for unverified users
+- rate-limit key generation
+- request deduplication
+- profile creation
+- approved redirect URL validation
+
+SUPABASE-NATIVE OPTION
+
+Compare the custom backend flow against the safer standard option:
+
+Configure Resend as custom SMTP inside Supabase Auth and continue using:
+
+supabase.auth.signUp(...)
+supabase.auth.resend(...)
+
+Supabase officially supports Resend SMTP. The usual credentials are:
+
+Host: smtp.resend.com
+Port: 465
+Username: resend
+Password: RESEND API key
+
+Do not expose or print the actual password/API key.
+
+Explain why the custom Admin API flow is necessary instead of simply configuring Resend SMTP in Supabase.
+
+Unless there is a clear product requirement that Supabase SMTP cannot meet, prefer the Supabase-native custom SMTP flow because Supabase will continue managing:
+
+- confirmation-token generation
+- token expiry
+- single-use verification
+- email-confirmation state
+- callback verification
+- resend semantics
+- auth rate limits
+
+RATE LIMITS
+
+Confirm the current intended application limits and where each is enforced:
+
+- one in-flight request per form submission
+- 60 seconds between verification emails to the same address
+- maximum verification emails per address per day
+- maximum signup attempts per IP per hour
+- progressive bot protection
+- no automatic resend on mount, refresh or timer completion
+
+Do not use memory-only process maps as the sole rate limiter because Railway restarts and multiple instances would reset or bypass them.
+
+Use a shared persistent store or database-backed limiter if production may run more than one server instance.
+
+TEST RESULTS REQUIRED
+
+Show results for:
+
+1. One button tap produces one signup request
+2. Double tap produces one signup request
+3. Three separate emails can register without a project-wide Supabase email 429
+4. Unverified user cannot sign in
+5. Verification link confirms exactly one user
+6. Reusing the link fails safely
+7. Resend respects the cooldown
+8. Refresh sends no email
+9. Existing unverified account creates no duplicate auth user
+10. Existing verified account creates no duplicate auth user
+11. No duplicate profile rows
+12. Invalid redirect URL is rejected
+13. Service-role and Resend secrets are absent from the client bundle
+14. npm run check passes
+15. npm run build passes
+
+FINAL RECOMMENDATION
+
+At the end, state one of:
+
+A. Use Supabase Auth with Resend custom SMTP
+B. Use Supabase Send Email Hook with Resend
+C. Keep the custom Express Admin API flow
+
+Give the security and operational reason for the recommendation.
+
+Do not commit or push until this audit is complete.
