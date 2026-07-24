@@ -1,0 +1,134 @@
+The production signup flow is still broken on iPhone Safari.
+
+The latest screenshots prove both issues remain:
+
+1. Typing “Sydney” in Location shows no autocomplete dropdown.
+2. Continue remains disabled because the app never records a selected location.
+
+Do not make another visual-only change. Fix the real production logic.
+
+ROOT ISSUE TO INVESTIGATE
+
+The current code clears formData.location whenever the user types and only restores it when a Nominatim suggestion is clicked.
+
+On iPhone Safari, no suggestions are appearing, so:
+- locationQuery contains “Sydney”
+- formData.location remains ""
+- canProceed() remains false
+- Continue stays disabled permanently
+
+FIX THE LOCATION SEARCH
+
+Inspect the real browser network request made after typing “Sydney”.
+
+Confirm:
+- whether the Nominatim request fires
+- the exact request URL
+- HTTP status
+- response body
+- whether CORS blocks it
+- whether Safari blocks the request
+- whether the request is rate-limited
+- whether the response parsing fails
+- whether countrycodes=au causes zero results
+- whether the dropdown renders behind another element
+- whether the dropdown closes immediately due to blur/touch handling
+
+Required behaviour:
+- Typing “Sydney” must display selectable results within about one second.
+- Show a visible loading indicator while searching.
+- Show “No locations found” when the provider returns no results.
+- Show “Location search unavailable. Please try again.” when the request fails.
+- Never fail silently.
+- Suggestions must render above all form content using a correct z-index and portal if necessary.
+- Suggestions must be touch-selectable in iPhone Safari.
+- Use onPointerDown or onMouseDown where needed so input blur does not remove the dropdown before selection.
+- Do not rely only on desktop click behaviour.
+- Keep the dropdown visible when the keyboard is open.
+
+ADD A RELIABLE FALLBACK
+
+Do not depend solely on a direct browser request to Nominatim.
+
+Create a server-side location search endpoint such as:
+
+GET /api/location-search?q=Sydney
+
+The server endpoint should:
+- validate and encode the query
+- call the location provider server-side
+- include an appropriate User-Agent
+- return normalised JSON
+- handle provider timeout and errors
+- avoid exposing provider-specific response structures to the client
+- optionally fall back to another free provider already available in the project
+
+The client should call this same-origin API endpoint so Safari CORS restrictions cannot break the signup flow.
+
+NORMALISED RESULT FORMAT
+
+Return:
+{
+ id,
+ label,
+ city,
+ state,
+ country,
+ postcode,
+ latitude,
+ longitude
+}
+
+When a suggestion is selected:
+- set formData.location to the full label
+- set latitude and longitude
+- set the structured location fields
+- set locationSelected to true
+- render the premium selected-location chip
+- immediately enable Continue if all other required fields are complete
+
+FIX CONTINUE VALIDATION
+
+Continue must not depend on an invisible or unreachable state.
+
+Use an explicit validation value such as:
+- locationSelected === true
+- a valid selectedLocation object exists
+- latitude and longitude are present
+
+Pronouns, height and phone remain optional and must not block Continue.
+
+Add a visible validation message under Location when the user has typed but not selected a result:
+
+“Select a location from the list to continue.”
+
+Do not leave the button silently disabled.
+
+TEST THE EXACT PRODUCTION FLOW ON IPHONE SAFARI
+
+1. Open signup.
+2. Complete all required fields.
+3. Leave pronouns empty.
+4. Leave height empty.
+5. Leave phone empty.
+6. Type “Sydney”.
+7. Confirm suggestions appear.
+8. Tap “Sydney, NSW, Australia”.
+9. Confirm the premium location chip appears.
+10. Confirm Continue becomes active.
+11. Press Continue.
+12. Confirm loading state appears.
+13. Confirm the save request succeeds.
+14. Confirm the next onboarding page opens.
+
+Report PASS or FAIL for every step.
+
+Also provide:
+- exact root cause
+- network error or rendering error found
+- files changed
+- commit hash
+- deployment status
+- production test result
+
+Do not mark this complete until the exact iPhone Safari flow above passes in production.
