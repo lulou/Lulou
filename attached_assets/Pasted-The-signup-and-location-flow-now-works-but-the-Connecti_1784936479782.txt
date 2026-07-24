@@ -1,0 +1,154 @@
+The signup and location flow now works, but the Connection DNA algorithm onboarding is missing after signup.
+
+Currently, after the user completes the basic signup/profile information, the app skips the matching-algorithm questionnaire and moves forward without collecting the information needed to personalise Discover.
+
+Restore and properly connect the Connection DNA onboarding flow.
+
+REQUIRED FLOW
+
+The correct order must be:
+
+1. Account created and email verified
+2. Basic profile information completed
+3. Photos uploaded
+4. Connection DNA questionnaire completed
+5. Profile review/completion
+6. Enter Discover
+
+Do not send a new user directly to Discover before the Connection DNA questionnaire is complete.
+
+CONNECTION DNA PURPOSE
+
+The questionnaire must learn more than basic swipe preferences. It should collect information used to identify genuine compatibility, including:
+
+- personality signals
+- relationship values
+- communication style
+- emotional availability
+- connection pace
+- affection style
+- lifestyle compatibility
+- relationship intentions
+- green flags
+- deal-breakers
+- what makes the user feel understood
+- what they are genuinely looking for in another person
+
+Use the existing Connection DNA components, questions and database fields already in the project wherever possible. Do not create a completely unrelated questionnaire if this system already exists.
+
+QUESTION EXPERIENCE
+
+Make it feel premium and simple:
+
+- one question or one small group of choices per screen
+- clear progress indicator
+- large touch-friendly answer cards
+- Back and Continue controls
+- selected answers visibly highlighted
+- smooth transitions
+- answers saved as the user progresses
+- works properly on iPhone Safari
+- user can resume from the last completed question if they leave
+- no long technical explanations
+- keep Lulou’s cream, rose and charcoal design
+
+Include the previously agreed profile signals such as:
+
+- up to 5 personality signals
+- relationship intention / “Ready For”
+- green flags
+- preferred connection pace
+- communication and affection preferences
+
+ALGORITHM DATA
+
+Store the answers in structured fields rather than one unstructured text block.
+
+The matching system should be able to calculate compatibility using categories such as:
+
+- values compatibility
+- communication compatibility
+- lifestyle compatibility
+- emotional compatibility
+- relationship-goal compatibility
+- connection-pace compatibility
+
+Create or use a normalised compatibility score for internal ranking.
+
+Do not show users a fake percentage unless the score is genuinely calculated from both users’ completed answers.
+
+DISCOVER INTEGRATION
+
+After Connection DNA is complete:
+
+- mark connection_dna_complete = true
+- mark onboarding complete only when every required onboarding section is finished
+- route the user into Discover
+- use the Connection DNA answers in Discover ranking
+- still apply hard filters such as gender preference, age, distance, blocks and existing interactions
+- use Connection DNA as a ranking signal, not as a replacement for those required filters
+
+Elevated profiles may receive visibility priority, but Elevate must not overwrite compatibility ranking completely.
+
+ROUTING PROTECTION
+
+Add a proper onboarding gate.
+
+On login or refresh:
+
+- incomplete basic profile → return to basic profile step
+- missing photos → return to photo step
+- incomplete Connection DNA → return to the last unanswered Connection DNA question
+- fully completed onboarding → allow Discover
+
+A user must not bypass Connection DNA by refreshing, reopening the app or directly entering /discover.
+
+INVESTIGATE EXISTING CODE
+
+Search the existing project for:
+
+- Connection DNA
+- connection_dna
+- personality signals
+- relationship values
+- green flags
+- Ready For
+- connection pace
+- compatibility score
+- algorithm questionnaire
+- onboarding question components
+- the recent commit titled “Connection DNA matching system”
+
+Determine whether the UI already exists but is no longer connected to the signup route.
+
+Do not duplicate an existing implementation. Reconnect and repair it if it already exists.
+
+TEST THIS EXACT FLOW
+
+1. Create a brand-new account.
+2. Complete basic profile details.
+3. Upload the required photos.
+4. Confirm the Connection DNA questionnaire appears.
+5. Complete every required question.
+6. Confirm answers persist after refreshing midway.
+7. Finish the questionnaire.
+8. Confirm connection_dna_complete becomes true.
+9. Confirm the profile is then routed to Discover.
+10. Log out and back in.
+11. Confirm the questionnaire does not appear again after completion.
+12. Create another incomplete test account.
+13. Confirm it cannot bypass the questionnaire and open Discover.
+
+Report:
+
+- why the Connection DNA flow was being skipped
+- the existing components found
+- the routing change made
+- database fields used
+- how compatibility is calculated
+- files changed
+- commit hash
+- Railway and Vercel deployment status
+- PASS or FAIL for every test step
+
+Do not mark this complete merely because the questionnaire page exists. It must be connected to the real signup flow and its answers must affect Discover ranking.
