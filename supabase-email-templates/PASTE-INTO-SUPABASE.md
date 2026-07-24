@@ -1,6 +1,15 @@
 # Lulou — Supabase Email Templates
 
 Six premium HTML email templates to paste directly into the Supabase dashboard.
+Each template includes the **official Lulou app icon** at `https://luloudating.com/lulou-email-logo.png`
+(the 192×192 app icon served from `client/public/lulou-email-logo.png`).
+
+> **About the Gmail sender avatar (the icon shown next to "Lulou" in the inbox list):**
+> The Gmail sender avatar is **not** controlled by email HTML. It requires BIMI DNS configuration
+> plus a Verified Mark Certificate (VMC) from DigiCert or Entrust (~$1,200/yr). Without a VMC,
+> Gmail shows a generated initial ("L"). See `SENDER-AVATAR-BIMI.md` for the full setup guide.
+> The quickest alternative: create a Google Workspace account for `noreply@luloudating.com` and
+> set its profile photo to the Lulou icon (~$6/mo, no VMC needed).
 
 ---
 
