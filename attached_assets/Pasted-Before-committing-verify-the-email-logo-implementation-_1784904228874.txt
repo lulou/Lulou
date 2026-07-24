@@ -1,0 +1,63 @@
+Before committing, verify the email logo implementation properly.
+
+1. Confirm the exact official Lulou app logo asset used:
+- original source path
+- public copied path
+- final filename
+- image dimensions
+- production HTTPS URL
+
+The logo must match the real Lulou app icon shown on the iPhone home screen. Do not use a recreated monogram or a different logo.
+
+2. Check all six templates and confirm the logo was added to:
+- confirm signup
+- password reset
+- magic link
+- email change
+- invite user
+- reauthentication
+
+3. The email logo must:
+- use an absolute public HTTPS URL
+- have descriptive alt text: “Lulou”
+- include explicit width and height
+- preserve its aspect ratio
+- display correctly on mobile
+- not become blurry
+- have a text-based Lulou fallback underneath or beside it
+- not rely on JavaScript, SVG scripts or local file paths
+
+4. Confirm the production URL returns:
+- HTTP 200
+- the correct image content type
+- no authentication requirement
+- no redirect to the app login page
+- no Vercel SPA HTML response
+
+5. Render at least:
+- the confirmation email
+- the password-reset email
+- the reauthentication email
+
+Check them at mobile width and desktop width. Confirm the logo is visible and the layout is not broken.
+
+6. Be explicit:
+Adding the Lulou image inside the email HTML does not automatically replace Gmail’s blue circular sender avatar.
+
+Report whether the Gmail sender avatar itself has changed. If it has not, state that it still requires sender-domain branding such as BIMI and provider support.
+
+7. Update PASTE-INTO-SUPABASE.md with:
+- the logo URL
+- a warning that the public asset must remain available
+- instructions for testing after pasting
+- the difference between the in-email logo and Gmail’s sender avatar
+
+8. Then provide:
+- every file changed
+- commit hash
+- branch pushed
+- deployment status
+- final logo URL
+- confirmation that all six HTML templates pass validation
+
+Do not mark it complete until the public logo URL has been opened successfully and at least one real Supabase test email has been received with the logo visible.
