@@ -1,0 +1,116 @@
+The Git push is confirmed, but the report only verifies the authentication-security commit. It does not yet prove that the email-logo, premium-location and Continue-button fixes are included and deployed.
+
+Run these checks now.
+
+1. FIND THE RELEVANT COMMITS
+
+Show:
+
+git log --oneline --all --:
+- client/src/pages/onboarding.tsx
+- supabase-email-templates
+- public
+- PASTE-INTO-SUPABASE.md
+
+Identify the exact commit hash and message containing:
+- premium location selector
+- Continue-button fix
+- official Lulou email logo
+- BIMI documentation
+
+2. VERIFY FILES ARE ON GITHUB MAIN
+
+Run:
+
+git ls-tree -r origin/main --name-only
+
+Confirm origin/main contains:
+- the modified onboarding file
+- all six Supabase email templates
+- PASTE-INTO-SUPABASE.md
+- the official public Lulou logo asset
+
+Show the exact paths.
+
+3. VERIFY THE ONBOARDING CODE
+
+Show the current code from origin/main for:
+- location input state
+- autocomplete request
+- suggestion selection
+- selected-location card
+- clear button
+- Continue disabled condition
+- Continue submission handler
+- Supabase save
+- next-page navigation
+
+Confirm optional pronouns, height and phone number do not block Continue.
+
+4. VERIFY THE EMAIL LOGO
+
+Show:
+- original app-logo source path
+- public asset path
+- final production HTTPS URL
+- every template containing that URL
+
+Run a search across all six templates and prove each contains the official logo.
+
+Do not substitute a recreated monogram.
+
+5. VERIFY THE PRODUCTION ASSET
+
+Open the production logo URL and report:
+- HTTP status
+- content type
+- image dimensions
+- whether it returns the image rather than index.html
+- whether authentication is required
+
+6. VERIFY DEPLOYMENT
+
+Check the deployment generated from commit 05b9449 and report:
+- deployment status
+- production domain
+- deployed commit hash
+- build result
+- whether the logo asset is live
+- whether the new onboarding code is live
+
+7. RUN THE REAL SIGNUP TEST
+
+On the deployed production site:
+
+- open signup
+- complete required fields
+- leave pronouns empty
+- leave height empty
+- leave phone empty
+- type Sydney
+- select a real location result
+- confirm Continue activates
+- press Continue
+- confirm loading state
+- confirm Supabase save
+- confirm next onboarding page opens
+
+Report PASS or FAIL for each step.
+
+8. SEND A REAL EMAIL TEST
+
+After the templates and SMTP are installed:
+- create a test signup
+- confirm the email arrives
+- confirm the official Lulou logo is visible inside the email
+- confirm the confirmation link opens the approved callback URL
+
+Do not claim that Gmail’s circular sender avatar changed merely because the image appears inside the HTML email.
+
+9. CORRECT THE DOCUMENTATION
+
+Update any reference saying Supabase allows 3 built-in emails per hour.
+
+The current official limit is 2 emails per hour with the built-in provider, and custom SMTP is required to change that limit.
+
+Only mark the task complete after the deployed signup flow and a real received Supabase email both pass.
