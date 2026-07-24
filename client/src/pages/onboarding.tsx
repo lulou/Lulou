@@ -15,7 +15,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { cleanErrorMessage, withRetry } from "@/lib/profile-upsert";
 import { writeDebug } from "@/lib/debug-store";
 import { SIGNALS, GREEN_FLAGS, DATING_INTENTS, CONNECTION_STYLES, CONVERSATION_STARTERS, PROFILE_QUESTIONS } from "@shared/schema";
-import { Loader2, ArrowRight, ArrowLeft, Check, AlertCircle, Plus, X, ImagePlus } from "lucide-react";
+import { Loader2, ArrowRight, ArrowLeft, Check, AlertCircle, Plus, X, ImagePlus, MapPin } from "lucide-react";
 import { DobPicker } from "@/components/dob-picker";
 import { LulouFlowerIcon } from "@/components/app-layout";
 import { HeightPicker } from "@/components/height-picker";
@@ -193,12 +193,16 @@ export default function Onboarding({ existingProfile = null, userEmail = "" }: O
     return (loc && loc !== "Not set") ? loc : "";
   });
   const [locationSuggestions, setLocationSuggestions] = useState<Array<{
-    display_name: string; lat: string; lon: string; address: Record<string, string>;
+    display_name: string; lat: string; lon: string; place_id?: number; address: Record<string, string>;
   }>>([]);
   const [locationLoading, setLocationLoading] = useState(false);
   const [locationSelected, setLocationSelected] = useState(
     () => !!(existingProfile?.location && existingProfile.location !== "Not set")
   );
+  const [locationMeta, setLocationMeta] = useState<{
+    suburb: string; city: string; state: string; stateAbbr: string;
+    country: string; postcode: string; latitude: number; longitude: number; placeId: string;
+  } | null>(null);
   const locationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [customQDraft, setCustomQDraft] = useState({ question: "", answer: "" });
@@ -436,85 +440,150 @@ export default function Onboarding({ existingProfile = null, userEmail = "" }: O
                 </div>
                 <div className="space-y-2">
                   <Label>{t("label_location")}</Label>
-                  <div className="relative">
-                    <div className="relative flex items-center">
-                      <Input
-                        value={locationQuery}
-                        onChange={e => {
-                          const q = e.target.value;
-                          setLocationQuery(q);
-                          setLocationSelected(false);
-                          update("location", "");
-                          if (locationTimerRef.current) clearTimeout(locationTimerRef.current);
-                          if (q.trim().length < 2) { setLocationSuggestions([]); return; }
-                          locationTimerRef.current = setTimeout(async () => {
-                            setLocationLoading(true);
-                            try {
-                              const res = await fetch(
-                                `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q)}&countrycodes=au&limit=6&addressdetails=1`,
-                                { headers: { "User-Agent": "LulouDating/1.0 contact@lulou.app" } }
-                              );
-                              setLocationSuggestions(res.ok ? await res.json() : []);
-                            } catch { setLocationSuggestions([]); }
-                            finally { setLocationLoading(false); }
-                          }, 380);
-                        }}
-                        placeholder="Search suburb, city or postcode"
-                        className="pe-9"
-                        data-testid="input-location"
-                      />
-                      <span className="absolute end-3 pointer-events-none">
-                        {locationLoading
-                          ? <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
-                          : locationSelected
-                          ? <Check className="w-4 h-4 text-green-500" />
-                          : null}
-                      </span>
-                    </div>
-                    {locationSuggestions.length > 0 && !locationSelected && (
+
+                  {locationSelected ? (
+                    /* ── Selected location chip ─────────────────────── */
+                    <div
+                      className="flex items-center gap-3 px-4 py-3.5 rounded-2xl border-2 transition-all"
+                      style={{ borderColor: "hsl(350 45% 52% / 0.28)", background: "hsl(350 45% 52% / 0.05)" }}
+                      data-testid="location-chip"
+                    >
                       <div
-                        className="absolute top-full left-0 right-0 bg-background border border-border/40 rounded-2xl overflow-hidden z-50"
-                        style={{ marginTop: 6, boxShadow: "0 8px 40px rgba(0,0,0,0.10), 0 2px 8px rgba(0,0,0,0.05)" }}
+                        className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0"
+                        style={{ background: "hsl(350 45% 52% / 0.12)" }}
                       >
-                        {locationSuggestions.map((item, idx) => {
-                          const a = item.address;
-                          const area = a.suburb || a.quarter || a.city_district || a.town || a.village || a.city || a.county;
-                          const stateAbbr = a.state ? (AU_STATE_ABBR[a.state] ?? a.state) : null;
-                          const label = [area, stateAbbr].filter(Boolean).join(", ") || item.display_name.split(",")[0].trim();
-                          const [suburb, ...rest] = label.split(", ");
-                          return (
-                            <button
-                              key={idx}
-                              type="button"
-                              className="w-full text-start px-4 py-3.5 flex items-center gap-3.5 hover:bg-muted/40 active:bg-muted/60 transition-colors border-b border-border/15 last:border-0 group"
-                              onClick={() => {
-                                update("location", label);
-                                update("latitude", parseFloat(item.lat));
-                                update("longitude", parseFloat(item.lon));
-                                setLocationQuery(label);
-                                setLocationSuggestions([]);
-                                setLocationSelected(true);
-                              }}
-                              data-testid={`button-location-suggestion-${idx}`}
-                            >
-                              <div
-                                className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0 transition-colors"
-                                style={{ background: "hsl(350 45% 52% / 0.08)" }}
-                              >
-                                <span className="text-sm leading-none">📍</span>
-                              </div>
-                              <div className="flex-1 min-w-0">
-                                <p className="text-sm font-semibold text-foreground truncate">{suburb}</p>
-                                {rest.length > 0 && (
-                                  <p className="text-xs text-muted-foreground truncate mt-0.5">{rest.join(", ")}</p>
-                                )}
-                              </div>
-                            </button>
-                          );
-                        })}
+                        <MapPin className="w-4 h-4 text-primary" />
                       </div>
-                    )}
-                  </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-foreground truncate">{locationQuery}</p>
+                        {locationMeta?.country && (
+                          <p className="text-xs text-muted-foreground truncate mt-0.5">
+                            {[locationMeta.postcode, locationMeta.country].filter(Boolean).join(" · ")}
+                          </p>
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setLocationSelected(false);
+                          setLocationQuery("");
+                          update("location", "");
+                          update("latitude", null);
+                          update("longitude", null);
+                          setLocationSuggestions([]);
+                          setLocationMeta(null);
+                        }}
+                        className="w-7 h-7 rounded-full flex items-center justify-center hover:bg-muted/60 active:bg-muted/80 transition-colors shrink-0"
+                        aria-label="Clear location"
+                        data-testid="button-clear-location"
+                      >
+                        <X className="w-3.5 h-3.5 text-muted-foreground" />
+                      </button>
+                    </div>
+                  ) : (
+                    /* ── Location search input + dropdown ───────────── */
+                    <div className="relative">
+                      <div className="relative flex items-center">
+                        <MapPin className="absolute start-3.5 w-4 h-4 text-muted-foreground/55 pointer-events-none" />
+                        <Input
+                          value={locationQuery}
+                          onChange={e => {
+                            const q = e.target.value;
+                            setLocationQuery(q);
+                            setLocationSelected(false);
+                            update("location", "");
+                            if (locationTimerRef.current) clearTimeout(locationTimerRef.current);
+                            if (q.trim().length < 2) { setLocationSuggestions([]); return; }
+                            locationTimerRef.current = setTimeout(async () => {
+                              setLocationLoading(true);
+                              try {
+                                const res = await fetch(
+                                  `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q)}&limit=6&addressdetails=1`,
+                                  { headers: { "User-Agent": "LulouDating/1.0 contact@lulou.app" } }
+                                );
+                                setLocationSuggestions(res.ok ? await res.json() : []);
+                              } catch { setLocationSuggestions([]); }
+                              finally { setLocationLoading(false); }
+                            }, 380);
+                          }}
+                          placeholder="Search suburb, city or postcode"
+                          className="ps-10 pe-9"
+                          autoComplete="off"
+                          data-testid="input-location"
+                        />
+                        <span className="absolute end-3 pointer-events-none">
+                          {locationLoading && <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />}
+                        </span>
+                      </div>
+
+                      {locationSuggestions.length > 0 && (
+                        <div
+                          className="absolute top-full left-0 right-0 bg-background border border-border/40 rounded-2xl overflow-hidden z-50"
+                          style={{ marginTop: 6, boxShadow: "0 8px 40px rgba(0,0,0,0.10), 0 2px 8px rgba(0,0,0,0.05)" }}
+                        >
+                          {locationSuggestions.map((item, idx) => {
+                            const a = item.address;
+                            const suburb = a.suburb || a.quarter || a.city_district || a.town || a.village || a.neighbourhood || "";
+                            const city = a.city || a.county || a.municipality || "";
+                            const stateRaw = a.state || "";
+                            const stateAbbr = stateRaw ? (AU_STATE_ABBR[stateRaw] ?? stateRaw) : "";
+                            const country = a.country || "";
+                            const postcode = a.postcode || "";
+
+                            const primary = suburb || city || item.display_name.split(",")[0].trim();
+                            const secondary = [city && city !== primary ? city : null, stateAbbr || null, country || null].filter(Boolean).join(", ");
+                            const fullLabel = [primary, stateAbbr || null, country || null].filter(Boolean).join(", ");
+
+                            return (
+                              <button
+                                key={idx}
+                                type="button"
+                                className="w-full text-start px-4 py-3.5 flex items-center gap-3.5 hover:bg-muted/40 active:bg-muted/60 transition-colors border-b border-border/15 last:border-0"
+                                onClick={() => {
+                                  const meta = {
+                                    suburb, city, state: stateRaw, stateAbbr,
+                                    country, postcode,
+                                    latitude: parseFloat(item.lat),
+                                    longitude: parseFloat(item.lon),
+                                    placeId: item.place_id?.toString() ?? "",
+                                  };
+                                  console.log("[LOCATION_SELECT]", { fullLabel, meta });
+                                  update("location", fullLabel);
+                                  update("latitude", parseFloat(item.lat));
+                                  update("longitude", parseFloat(item.lon));
+                                  setLocationQuery(fullLabel);
+                                  setLocationSuggestions([]);
+                                  setLocationSelected(true);
+                                  setLocationMeta(meta);
+                                }}
+                                data-testid={`button-location-suggestion-${idx}`}
+                              >
+                                <div
+                                  className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0"
+                                  style={{ background: "hsl(350 45% 52% / 0.08)" }}
+                                >
+                                  <MapPin className="w-3.5 h-3.5 text-primary/70" />
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-sm font-semibold text-foreground truncate">{primary}</p>
+                                  {secondary && (
+                                    <p className="text-xs text-muted-foreground truncate mt-0.5">{secondary}</p>
+                                  )}
+                                </div>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Hint text — only while not yet selected */}
+                  {!locationSelected && (
+                    <p className="text-xs text-muted-foreground/70 ps-1">
+                      Type your suburb, city or postcode and select from the list
+                    </p>
+                  )}
                 </div>
                 <div className="space-y-2">
                   <Label>{t("label_height_opt")}</Label>
@@ -1071,6 +1140,39 @@ export default function Onboarding({ existingProfile = null, userEmail = "" }: O
             )}
           </div>
 
+          {/* ── Dev diagnostics (step 0 only) ─────────────────────────── */}
+          {import.meta.env.DEV && step === 0 && (
+            <div className="mt-3 p-3 rounded-xl border border-amber-300 bg-amber-50 text-xs font-mono space-y-1">
+              <p className="font-bold text-amber-900 mb-1.5">DEV — Step 0 validation</p>
+              {([
+                { label: "firstName",        ok: !!formData.firstName,                                              val: formData.firstName || "—" },
+                { label: "dateOfBirth",      ok: !!formData.dateOfBirth && calculateAgeFromDob(formData.dateOfBirth) >= 18, val: formData.dateOfBirth ? `${formData.dateOfBirth} (age ${calculateAgeFromDob(formData.dateOfBirth)})` : "—" },
+                { label: "gender",           ok: !!formData.gender,                                                val: formData.gender || "—" },
+                { label: "datingPreference", ok: !!formData.datingPreference,                                     val: formData.datingPreference || "—" },
+                { label: "location",         ok: !!formData.location,                                              val: formData.location || "(not selected — must click suggestion)" },
+                { label: "email",            ok: !!formData.email,                                                 val: formData.email || "—" },
+              ] as { label: string; ok: boolean; val: string }[]).map(({ label, ok, val }) => (
+                <div key={label} className={`flex items-baseline gap-1.5 ${ok ? "text-green-800" : "text-red-700"}`}>
+                  <span className="shrink-0">{ok ? "✓" : "✗"}</span>
+                  <span className="font-semibold shrink-0">{label}:</span>
+                  <span className="truncate opacity-80">{val}</span>
+                </div>
+              ))}
+              {!canProceed() && (
+                <p className="mt-2 pt-2 border-t border-amber-200 text-red-800 font-bold">
+                  → Disabled:{" "}
+                  {!formData.firstName ? "first name empty" :
+                   !formData.dateOfBirth ? "date of birth not set" :
+                   calculateAgeFromDob(formData.dateOfBirth) < 18 ? "must be 18 or older" :
+                   !formData.gender ? "gender not selected" :
+                   !formData.datingPreference ? "dating preference not selected" :
+                   !formData.location ? "location not selected from dropdown" :
+                   !formData.email ? "email empty" : "unknown"}
+                </p>
+              )}
+            </div>
+          )}
+
           <div className="flex items-center justify-between gap-4 pt-4">
             {step > 0 ? (
               <Button variant="ghost" onClick={() => setStep(step - 1)} data-testid="button-back">
@@ -1078,7 +1180,18 @@ export default function Onboarding({ existingProfile = null, userEmail = "" }: O
               </Button>
             ) : <div />}
             <Button
-              onClick={handleNext}
+              onClick={() => {
+                if (import.meta.env.DEV) {
+                  console.log("[CONTINUE_CLICK]", {
+                    step, canProceed: canProceed(), isPending: createProfile.isPending,
+                    location: formData.location, locationSelected,
+                    email: formData.email, firstName: formData.firstName,
+                    gender: formData.gender, datingPreference: formData.datingPreference,
+                    dateOfBirth: formData.dateOfBirth,
+                  });
+                }
+                handleNext();
+              }}
               disabled={!canProceed() || createProfile.isPending}
               data-testid="button-next"
             >

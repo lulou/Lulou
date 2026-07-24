@@ -1,0 +1,112 @@
+The email template work is complete, but you have not completed the original task.
+
+Do not rebuild or rewrite the email templates again.
+
+Now complete the remaining production fixes:
+
+1. REAL LULOU EMAIL SENDER LOGO
+
+The current sender avatar in Gmail is still a generic blue “L”.
+
+The official Lulou app icon is the pale cream square app icon shown in the attached iPhone home-screen screenshot. It contains the rose-pink Lulou double-L/heart monogram.
+
+Investigate how the sender avatar is actually controlled.
+
+Do not claim that changing HTML inside the email template will replace Gmail’s sender avatar if that is not true.
+
+Check and clearly document:
+- the From email currently used by Supabase
+- the From name
+- the Resend sender identity
+- whether noreply@luloudating.com is verified
+- the domain’s SPF status
+- the domain’s DKIM status
+- the domain’s DMARC status
+- whether BIMI can be configured
+- what SVG logo file BIMI would require
+- whether a VMC or CMC certificate is required
+- whether Gmail will display the logo without one
+- whether the sender email has a Google profile image or contact avatar affecting display
+
+Use the exact existing Lulou app logo asset. Do not invent a different monogram.
+
+Also use the official app logo inside the email header where appropriate, using a publicly accessible HTTPS URL with sensible alt text and a text fallback.
+
+2. PREMIUM LOCATION AUTOCOMPLETE
+
+Replace the plain Location text input in the real signup page.
+
+Requirements:
+- placeholder: “Search suburb, city or postcode”
+- live autocomplete suggestions
+- premium dropdown design
+- location pin icon
+- example selected result:
+ “Sydney, NSW, Australia”
+- the user must select a suggestion rather than merely type text
+- selected result becomes a polished location chip/card
+- include a clear/remove button
+- support iPhone Safari touch and keyboard interaction
+- do not let the dropdown appear behind other elements
+- maintain Lulou’s cream, rose and charcoal styling
+
+Store:
+- formatted location
+- suburb or city
+- state or region
+- country
+- postcode
+- latitude
+- longitude
+- provider place ID where available
+
+Use an existing location provider if one is already configured. Do not add an expensive provider without explaining it.
+
+3. FIX THE CONTINUE BUTTON
+
+The Continue button remains pale/disabled or does nothing despite the required visible fields being completed.
+
+Inspect the real component and determine the exact cause.
+
+Pronouns, height and phone number are optional and must never block progress.
+
+The required validation should only depend on fields genuinely required by the signup flow.
+
+Check:
+- incorrect disabled condition
+- raw location text being rejected because no selected place object exists
+- stale React state
+- optional fields incorrectly included in validation
+- form submit event not firing
+- button accidentally using type="button"
+- keyboard or password-manager overlays intercepting touches
+- transparent elements covering the button
+- Supabase insert/update failure
+- Supabase RLS failure
+- missing profile row
+- email verification state incorrectly blocking onboarding
+- navigation not firing after a successful save
+
+Required behaviour:
+- button becomes visibly active as soon as all required values are valid
+- pressing it dismisses the keyboard
+- show “Saving…” while submitting
+- prevent double submission
+- preserve entered data on failure
+- show a visible error instead of failing silently
+- save the onboarding data to Supabase
+- navigate to the correct next signup page after success
+- work reliably in iPhone Safari
+
+Add temporary development diagnostics that report:
+- every required field and whether it is valid
+- the exact reason the button is disabled
+- whether onClick/onSubmit fired
+- the payload sent to Supabase
+- the Supabase result or error
+- the navigation result
+
+Test the complete flow yourself:
+type Sydney → select “Sydney, NSW, Australia” → press Continue → confirm the next onboarding page opens.
+
+Do not stop after writing code. Report the exact root cause of the Continue failure and list the files changed.

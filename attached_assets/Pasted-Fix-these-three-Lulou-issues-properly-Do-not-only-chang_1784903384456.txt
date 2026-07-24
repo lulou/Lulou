@@ -1,0 +1,89 @@
+Fix these three Lulou issues properly. Do not only change the visual mockup—update the real production app and email configuration.
+
+1. USE THE REAL LULOU APP LOGO
+
+The correct Lulou app logo is shown in the first attached screenshot on the user’s iPhone home screen.
+
+Replace the generic blue “L” sender icon currently appearing beside Lulou verification emails with the actual Lulou app logo.
+
+Requirements:
+- Use the exact existing Lulou app icon asset already used by the installed app.
+- Do not create a new logo, monogram or substitute letter.
+- Use a publicly accessible HTTPS image URL because email clients cannot load local React/Vite assets.
+- Display it as a clean circular sender/brand image where supported.
+- Also ensure the email sender name is consistently written as “Lulou”.
+- Add or update the email favicon, app icon, email logo and relevant metadata so the same official logo is used consistently everywhere.
+- Do not alter the verification email design or wording.
+
+2. REPLACE THE LOCATION TEXT BOX WITH A PREMIUM LOCATION SELECTOR
+
+The current Location field is only a plain text input. Typing “Sydney” is not enough because it is not being converted into a valid selected location.
+
+Replace it with a polished premium location autocomplete similar to high-quality dating and travel apps.
+
+Required behaviour:
+- Placeholder: “Search suburb, city or postcode”
+- Show live location suggestions while typing.
+- Each suggestion must display a location pin and a properly formatted place name, for example:
+ “Sydney, NSW, Australia”
+- The user must select one of the suggestions.
+- After selection, display the selected location inside a premium styled location card/chip with:
+ - location pin
+ - full formatted location
+ - clear/remove button
+- Store structured location data:
+ - formatted location name
+ - suburb/city
+ - state/region
+ - country
+ - postcode when available
+ - latitude
+ - longitude
+- Do not treat raw typed text as a completed location.
+- Allow keyboard selection and touch selection.
+- Make the results dropdown appear above other content and remain usable on iPhone Safari.
+- Keep the existing Lulou cream, rose and charcoal design system.
+- Avoid introducing an expensive maps service unless one is already configured. Use the existing location provider if available.
+
+3. FIX THE CONTINUE BUTTON
+
+The signup form is fully completed, but the Continue button remains disabled or does nothing.
+
+Investigate the actual validation and submission flow instead of applying a visual workaround.
+
+The Continue button must become active when every required field has a valid value.
+
+Important:
+- Pronouns are optional.
+- Height is optional.
+- Phone number is optional.
+- The form must not silently require any field labelled optional.
+- A valid selected location must satisfy the location requirement.
+- Search radius must be accepted correctly.
+- The user’s verified email must be accepted.
+- Remove any hidden validation requiring values that are not shown to the user.
+
+When Continue is pressed:
+- Dismiss the mobile keyboard.
+- Prevent duplicate submissions.
+- Show a visible loading state.
+- Save the signup information to Supabase.
+- Move the user to the correct next onboarding page immediately after a successful save.
+- If saving fails, keep the entered information and show a clear error message.
+- Log the precise field or request causing failure in development.
+- Do not fail silently.
+- Ensure the button is not covered or blocked by the keyboard, password manager toolbar or another invisible overlay.
+- Make sure its click/touch handler works in iPhone Safari.
+- Check for incorrect `disabled` logic, stale React state, missing selected-location IDs, failed Supabase inserts, RLS errors and navigation failures.
+
+Add temporary structured diagnostics showing:
+- which required fields are valid or invalid
+- why Continue is disabled
+- whether the button handler fired
+- the Supabase response
+- the next-page navigation result
+
+Remove noisy logs after confirming the issue is fixed.
+
+Do not redesign unrelated parts of onboarding. Test the complete signup flow on iPhone Safari from entering the location through pressing Continue and reaching the following page.
+Sent from my iPhone
