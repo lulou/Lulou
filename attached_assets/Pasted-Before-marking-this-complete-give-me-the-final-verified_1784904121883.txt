@@ -1,0 +1,118 @@
+Before marking this complete, give me the final verified delivery report.
+
+Do not give me a general summary. Provide exact evidence for each item below.
+
+1. CONTINUE BUTTON ROOT CAUSE
+
+State the exact original cause of the failure.
+
+Confirm:
+- which variable was being cleared
+- which validation condition kept Continue disabled
+- whether any optional fields were incorrectly blocking progress
+- whether the button uses form submit or onClick
+- whether Supabase or navigation had any additional errors
+
+Show the old logic and the corrected logic.
+
+2. LOCATION SELECTOR
+
+Confirm the real signup page now has:
+- placeholder “Search suburb, city or postcode”
+- live suggestions
+- location pin icons
+- selectable results
+- selected location card/chip
+- full formatted location
+- clear/remove button
+- loading state
+- no-results message
+- visible error message
+- iPhone Safari touch support
+- dropdown z-index high enough to remain visible
+- keyboard accessibility
+
+Confirm exactly which values are saved:
+- formatted location
+- city/suburb
+- state
+- country
+- postcode
+- latitude
+- longitude
+- provider place ID, if available
+
+State which provider is used and whether results are still restricted to Australia.
+
+3. CONTINUE BUTTON TEST
+
+Run and report this exact test:
+
+- Open the signup basics page
+- Complete all required fields
+- Leave pronouns empty
+- Leave height empty
+- Leave phone number empty
+- Type “Sydney”
+- Select “Sydney, NSW, Australia” from the results
+- Confirm the button becomes active
+- Press Continue
+- Confirm “Saving…” appears
+- Confirm Supabase save succeeds
+- Confirm the correct next onboarding page opens
+
+Report PASS or FAIL for every step.
+
+Do not say it works unless you actually ran the full flow.
+
+4. SUPABASE
+
+Show:
+- the table being updated
+- the fields written
+- the exact successful response
+- any RLS policy involved
+- whether the existing profile row is updated or a new one is inserted
+
+Confirm entered data remains visible if the request fails.
+
+5. LOGO AND BIMI
+
+Confirm the exact official Lulou app logo file used.
+
+Provide:
+- source asset path
+- copied public asset path
+- final production HTTPS URL
+- where it appears inside the email
+- whether the Gmail sender avatar has actually changed
+
+Be explicit that adding the logo inside the HTML email does not automatically replace Gmail’s circular sender avatar.
+
+State what remains required for the Gmail sender avatar:
+- SPF
+- DKIM
+- DMARC enforcement
+- BIMI DNS record
+- BIMI-compatible SVG
+- VMC or CMC certificate
+- mailbox provider support
+
+Do not claim BIMI is complete if only documentation was written.
+
+6. FILES CHANGED
+
+List every changed or newly created file and explain the change in one sentence per file.
+
+7. DEPLOYMENT
+
+Confirm:
+- changes were committed
+- commit hash
+- branch pushed
+- production deployment status
+- production URL tested
+- no TypeScript errors
+- no console errors during the completed signup flow
+
+The task is only complete after the real production signup flow has been tested successfully on iPhone Safari.
