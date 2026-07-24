@@ -11,7 +11,7 @@ import { Card } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, API_BASE } from "@/lib/queryClient";
 import { cleanErrorMessage, withRetry } from "@/lib/profile-upsert";
 import { writeDebug } from "@/lib/debug-store";
 import { SIGNALS, GREEN_FLAGS, DATING_INTENTS, CONNECTION_STYLES, CONVERSATION_STARTERS, PROFILE_QUESTIONS } from "@shared/schema";
@@ -502,7 +502,7 @@ export default function Onboarding({ existingProfile = null, userEmail = "" }: O
                               setLocationLoading(true);
                               setLocationError(null);
                               try {
-                                const res = await fetch(`/api/location-search?q=${encodeURIComponent(q)}`);
+                                const res = await fetch(`${API_BASE}/api/location-search?q=${encodeURIComponent(q)}`);
                                 if (!res.ok) {
                                   setLocationSuggestions([]);
                                   setLocationError("Location search unavailable. Please try again.");
