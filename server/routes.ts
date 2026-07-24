@@ -5245,7 +5245,7 @@ export async function registerRoutes(
   // ── Connection DNA ─────────────────────────────────────────────────────────────────────
 
   /** GET /api/dna/status — check if the current user has completed the DNA quiz */
-  app.get("/api/dna/status", verifyJwt, async (req: any, res: any) => {
+  app.get("/api/dna/status", isAuthenticated, async (req: any, res: any) => {
     try {
       const userId = req.user.id;
       const { pool } = await import("./db");
@@ -5265,7 +5265,7 @@ export async function registerRoutes(
   });
 
   /** GET /api/dna/responses — get saved answers for the current user */
-  app.get("/api/dna/responses", verifyJwt, async (req: any, res: any) => {
+  app.get("/api/dna/responses", isAuthenticated, async (req: any, res: any) => {
     try {
       const userId = req.user.id;
       const { pool } = await import("./db");
@@ -5283,7 +5283,7 @@ export async function registerRoutes(
   });
 
   /** POST /api/dna/response — save a single answer (upsert) */
-  app.post("/api/dna/response", verifyJwt, async (req: any, res: any) => {
+  app.post("/api/dna/response", isAuthenticated, async (req: any, res: any) => {
     try {
       const userId = req.user.id;
       const { questionId, answerIndex } = req.body;
@@ -5306,7 +5306,7 @@ export async function registerRoutes(
   });
 
   /** POST /api/dna/complete — compute + store DNA profile */
-  app.post("/api/dna/complete", verifyJwt, async (req: any, res: any) => {
+  app.post("/api/dna/complete", isAuthenticated, async (req: any, res: any) => {
     try {
       const userId = req.user.id;
       const { pool } = await import("./db");
@@ -5342,7 +5342,7 @@ export async function registerRoutes(
   });
 
   /** POST /api/dna/retake — reset quiz answers + profile (keep row, clear completion) */
-  app.post("/api/dna/retake", verifyJwt, async (req: any, res: any) => {
+  app.post("/api/dna/retake", isAuthenticated, async (req: any, res: any) => {
     try {
       const userId = req.user.id;
       const { pool } = await import("./db");
@@ -5369,7 +5369,7 @@ export async function registerRoutes(
   });
 
   /** GET /api/dna/reasons/:candidateId — get "Why Lulou introduced you" reasons */
-  app.get("/api/dna/reasons/:candidateId", verifyJwt, async (req: any, res: any) => {
+  app.get("/api/dna/reasons/:candidateId", isAuthenticated, async (req: any, res: any) => {
     try {
       const userId      = req.user.id;
       const candidateId = req.params.candidateId;
@@ -5431,7 +5431,7 @@ export async function registerRoutes(
   });
 
   /** POST /api/dna/feedback — private post-interaction feedback (never exposed to other user) */
-  app.post("/api/dna/feedback", verifyJwt, async (req: any, res: any) => {
+  app.post("/api/dna/feedback", isAuthenticated, async (req: any, res: any) => {
     try {
       const userId = req.user.id;
       const { matchId, selectedReason } = req.body;
@@ -5457,7 +5457,7 @@ export async function registerRoutes(
   });
 
   /** POST /api/dna/signal — record a behavioural interaction signal */
-  app.post("/api/dna/signal", verifyJwt, async (req: any, res: any) => {
+  app.post("/api/dna/signal", isAuthenticated, async (req: any, res: any) => {
     try {
       const userId = req.user.id;
       const { targetUserId, matchId, eventType } = req.body;
