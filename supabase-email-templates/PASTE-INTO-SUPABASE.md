@@ -1,15 +1,90 @@
 # Lulou — Supabase Email Templates
 
 Six premium HTML email templates to paste directly into the Supabase dashboard.
-Each template includes the **official Lulou app icon** at `https://luloudating.com/lulou-email-logo.png`
-(the 192×192 app icon served from `client/public/lulou-email-logo.png`).
 
-> **About the Gmail sender avatar (the icon shown next to "Lulou" in the inbox list):**
-> The Gmail sender avatar is **not** controlled by email HTML. It requires BIMI DNS configuration
-> plus a Verified Mark Certificate (VMC) from DigiCert or Entrust (~$1,200/yr). Without a VMC,
-> Gmail shows a generated initial ("L"). See `SENDER-AVATAR-BIMI.md` for the full setup guide.
-> The quickest alternative: create a Google Workspace account for `noreply@luloudating.com` and
-> set its profile photo to the Lulou icon (~$6/mo, no VMC needed).
+---
+
+## Logo asset
+
+| Property | Value |
+|---|---|
+| Original source | `client/public/icon-192.png` (the real Lulou app icon) |
+| Copied to | `client/public/lulou-email-logo.png` |
+| Filename | `lulou-email-logo.png` |
+| Dimensions | 192 × 192 px |
+| File size | ~65 KB |
+| Production HTTPS URL | `https://www.luloudating.com/lulou-email-logo.png` |
+| Rendered size in email | 80 × 80 px (retina-crisp at 192 px source) |
+
+> **⚠️ The public asset must stay deployed.**
+> All six templates load the logo from `https://www.luloudating.com/lulou-email-logo.png`.
+> If `client/public/lulou-email-logo.png` is deleted or renamed, or if the Vercel deployment
+> is rebuilt without that file, the logo will break in every email already in users' inboxes.
+> Never remove this file. If you need to update the logo, overwrite the file in place and
+> redeploy so the URL stays the same.
+
+> **⚠️ The logo URL only works after the next deployment.**
+> The file was added to `client/public/` in this commit. Until you publish a new build to
+> Vercel/production, the URL returns the SPA's `index.html` instead of the PNG.
+> Do not paste these templates into Supabase until after you have deployed and confirmed the
+> URL returns `Content-Type: image/png` (see "Testing after pasting" below).
+
+---
+
+## In-email logo vs. Gmail sender avatar
+
+These are two completely separate things:
+
+| | In-email logo | Gmail sender avatar |
+|---|---|---|
+| **What it is** | The 80×80 Lulou icon inside the email body | The circular icon next to "Lulou" in the Gmail inbox list |
+| **Controlled by** | The `<img>` tag in the HTML template | Google's servers (fetched from BIMI DNS record) |
+| **Current status** | ✅ Added to all 6 templates | ❌ Not changed — Gmail shows a generated "L" initial |
+| **How to change it** | Already done — just deploy | Requires BIMI + VMC (~$1,200/yr) or Google Workspace (~$6/mo) |
+
+**Gmail sender avatar has NOT changed.** Gmail still shows a generated initial ("L") next to the
+sender name in the inbox list. The in-email logo (inside the message body) will display correctly
+once the asset is deployed, but these are independent.
+
+To change the Gmail avatar:
+- **Option A (cheapest):** Create a Google Workspace account for `noreply@luloudating.com` and
+  set its profile photo to the Lulou icon — ~$6/month, no certificate required.
+- **Option B (BIMI):** Add a BIMI DNS record pointing to an SVG logo + obtain a Verified Mark
+  Certificate (VMC) from DigiCert or Entrust — ~$1,200/year. See `SENDER-AVATAR-BIMI.md`.
+
+---
+
+## Testing after pasting
+
+Run these checks **before** and **after** pasting the templates into Supabase:
+
+### 1. Verify the logo URL is live (do this first)
+```
+curl -sI https://www.luloudating.com/lulou-email-logo.png
+```
+Expected output must include:
+- `HTTP/2 200`
+- `content-type: image/png`
+
+If you see `content-type: text/html`, the deployment hasn't included the file yet. Do not
+paste the templates until this returns a PNG.
+
+### 2. After pasting — trigger a test email
+1. Go to **Supabase → Authentication → Email Templates → Confirm signup**
+2. Click the **Send test** button (or do a real test signup with a mailbox you control)
+3. Open the email and confirm:
+   - The Lulou logo appears as a rounded 80×80 icon at the top of the card
+   - The button link works and redirects to `https://luloudating.com/auth/callback`
+   - Mobile layout is not broken (check on your phone or use Gmail mobile)
+
+### 3. Mobile width check
+Open the raw HTML file (`1-confirm-signup.html`) in a browser and resize the window to 375 px
+wide. The logo, heading, button, and footer should all remain centred and readable.
+
+### 4. What to look for if the logo is missing
+- White broken-image icon → the URL is not returning a PNG (re-check step 1)
+- "Lulou" text appears instead of the image → the `alt` fallback is working (logo not loaded)
+- Nothing at all → email client is blocking remote images (user setting, not a template bug)
 
 ---
 
