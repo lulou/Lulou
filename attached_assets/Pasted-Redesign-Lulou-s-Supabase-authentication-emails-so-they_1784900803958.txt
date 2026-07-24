@@ -1,0 +1,391 @@
+Redesign Lulou’s Supabase authentication emails so they feel premium, luxurious, modern and unmistakably branded.
+
+The current confirmation email is unacceptable:
+- It is mostly plain text
+- It looks unfinished
+- It does not feel premium
+- It was sent to spam
+- It did not include a visible confirmation button
+- The user could not complete signup
+
+The new emails must look like Lulou is already a world-class dating brand.
+
+PRIMARY GOAL
+
+Create a complete premium HTML email system for:
+
+1. Confirm signup
+2. Resend verification
+3. Password reset
+4. Magic link
+5. Email change confirmation
+6. Invite user
+7. Reauthentication
+8. Any other Supabase Auth email template currently used
+
+Do not change authentication logic.
+
+Do not generate verification links manually.
+
+Use Supabase’s official email-template variables.
+
+CONFIRM SIGNUP TEMPLATE
+
+Subject:
+
+Welcome to Lulou — confirm your account
+
+Preheader:
+
+Your real connection starts here.
+
+Main headline:
+
+Your real connection starts here
+
+Body copy:
+
+Confirm your email to activate your Lulou account and begin meeting people who are ready for something real.
+
+Primary button:
+
+Confirm my account
+
+The button must use:
+
+{{ .ConfirmationURL }}
+
+This variable must be present in the button href so the account can actually be verified.
+
+Fallback link:
+
+Below the main button, include:
+
+Having trouble with the button?
+Copy and paste this secure link into your browser:
+
+{{ .ConfirmationURL }}
+
+The fallback link should be visible but visually secondary.
+
+BRAND DIRECTION
+
+The email should feel:
+
+- Premium
+- Romantic
+- Editorial
+- Luxurious
+- Modern
+- Trustworthy
+- High-end
+- Soft but confident
+- More like a luxury fashion or hospitality brand than a generic app email
+
+Use the existing Lulou design language:
+
+- Cream background
+- Soft blush pink
+- Muted rose
+- Deep charcoal text
+- Warm taupe secondary text
+- Refined serif headings
+- Clean sans-serif body copy
+- Rounded premium card
+- Subtle border
+- Soft shadow
+- Generous spacing
+- Tasteful botanical accents
+- No childish hearts everywhere
+- No cheap gradients
+- No generic blue buttons
+- No plain-text-only appearance
+
+BRAND MESSAGE
+
+Include this positioning line in the footer:
+
+Other apps learn who you swipe on.
+Lulou learns who you genuinely connect with.
+
+LOGO
+
+Use a premium text-based Lulou wordmark if a reliable hosted logo URL is not available.
+
+Do not use base64 images.
+
+Do not use images that Gmail may block unless they are hosted on a stable HTTPS Lulou-controlled URL.
+
+The email must still look complete if images are disabled.
+
+EMAIL STRUCTURE
+
+Use:
+
+- Full-width cream background
+- Centred email card
+- Maximum width around 600px
+- Rounded corners
+- Refined Lulou header
+- Small uppercase label:
+ INTENTIONAL DATING
+- Large editorial headline
+- Supporting body text
+- Large pill-shaped rose confirmation button
+- Security reassurance
+- Fallback confirmation link
+- Lulou positioning footer
+- Small account-safety footer
+
+Suggested content:
+
+Header:
+Lulou
+
+Label:
+INTENTIONAL DATING
+
+Headline:
+Your real connection starts here
+
+Body:
+Confirm your email to activate your Lulou account and begin meeting people who are ready for something real.
+
+Button:
+Confirm my account
+
+Security note:
+This secure verification link is private and intended only for you.
+
+Footer:
+Other apps learn who you swipe on.
+Lulou learns who you genuinely connect with.
+
+Final note:
+If you did not create this account, you can safely ignore this email.
+
+TECHNICAL REQUIREMENTS
+
+The template must work correctly in:
+
+- Gmail mobile
+- Gmail desktop
+- Apple Mail
+- Outlook
+- Yahoo Mail
+- iPhone dark mode
+- Desktop dark mode
+- Mobile Safari email clients
+
+Use email-safe HTML only.
+
+Requirements:
+
+- Table-based layout
+- Inline CSS
+- No JavaScript
+- No external stylesheet dependency
+- No unsupported flexbox dependence
+- No CSS grid
+- No forms
+- No video
+- No animation required for core functionality
+- Button must work even if external images are blocked
+- Minimum 16px body text on mobile
+- Large tap target
+- Accessible contrast
+- Descriptive link text
+- Responsive mobile layout
+- Safe fallback fonts
+
+Use a font stack such as:
+
+Headings:
+Georgia, "Times New Roman", serif
+
+Body:
+Arial, Helvetica, sans-serif
+
+Do not depend on Google Fonts loading inside email clients.
+
+DARK MODE
+
+Add dark-mode-safe styling where supported.
+
+Ensure:
+
+- Text remains readable
+- Button remains visible
+- Background does not become harsh white
+- Logo remains visible
+- Border remains subtle
+- Links stay readable
+
+Do not allow Gmail or Apple Mail dark mode to make the button text disappear.
+
+DELIVERABILITY IMPROVEMENTS
+
+The current message landed in spam.
+
+Improve deliverability by:
+
+- Using a professional subject line
+- Avoiding spam-heavy wording
+- Avoiding excessive punctuation
+- Avoiding all-caps body text
+- Avoiding too many links
+- Avoiding image-only content
+- Including real text content
+- Including a plain-text version
+- Including a clear sender identity
+- Including a legitimate footer
+- Keeping the HTML clean
+- Avoiding hidden text
+- Avoiding tracking-heavy markup
+
+Use sender:
+
+Lulou <noreply@luloudating.com>
+
+Confirm that the Resend domain and SMTP setup remain unchanged.
+
+Do not change SPF, DKIM or MX records.
+
+PLAIN-TEXT VERSION
+
+Create a plain-text fallback containing:
+
+Welcome to Lulou
+
+Your real connection starts here.
+
+Confirm your email using this secure link:
+
+{{ .ConfirmationURL }}
+
+If you did not create this account, you can safely ignore this email.
+
+Other apps learn who you swipe on.
+Lulou learns who you genuinely connect with.
+
+OTHER AUTH EMAILS
+
+Create matching premium templates for:
+
+PASSWORD RESET
+
+Subject:
+Reset your Lulou password
+
+Headline:
+Let’s get you back to Lulou
+
+Button:
+Reset my password
+
+Use the correct Supabase recovery URL variable.
+
+MAGIC LINK
+
+Subject:
+Your secure Lulou sign-in link
+
+Headline:
+Your secure sign-in link is ready
+
+Button:
+Sign in to Lulou
+
+Use the correct Supabase magic-link variable.
+
+EMAIL CHANGE
+
+Subject:
+Confirm your new Lulou email
+
+Headline:
+Confirm your new email address
+
+Button:
+Confirm new email
+
+INVITE
+
+Subject:
+You’re invited to Lulou
+
+Headline:
+Something real could start here
+
+Button:
+Accept invitation
+
+REAUTHENTICATION
+
+Subject:
+Confirm it’s really you
+
+Headline:
+A quick security check
+
+Button:
+Confirm identity
+
+For every template:
+
+- Use the correct Supabase variable
+- Include a visible primary button
+- Include a plain fallback link
+- Keep the same premium design system
+- Keep the email mobile-safe
+- Keep all links functional
+
+SUPABASE CONFIGURATION
+
+Inspect the current Supabase email template configuration.
+
+Confirm which templates exist and which variables are supported.
+
+Do not invent template variables.
+
+Use only official Supabase variables for each template.
+
+The Confirm signup template must include:
+
+{{ .ConfirmationURL }}
+
+TESTING
+
+Test:
+
+1. New signup email arrives
+2. Button is visible
+3. Button opens the correct Lulou callback
+4. Account becomes verified
+5. Link works once
+6. Reused link fails safely
+7. Mobile Gmail renders correctly
+8. Desktop Gmail renders correctly
+9. Apple Mail renders correctly
+10. Dark mode remains readable
+11. Plain-text fallback contains the link
+12. Spam risk is reduced
+13. No broken images
+14. No missing button
+15. No raw template variables visible to the user
+
+DELIVERY
+
+Provide:
+
+- Final Confirm signup HTML
+- Final Confirm signup plain-text version
+- Final subject line
+- Final preheader
+- Matching HTML for the remaining Auth templates
+- Exact Supabase variables used
+- Exact place in Supabase where each template must be pasted
+- Screenshot or rendered preview at mobile width
+- Screenshot or rendered preview at desktop width
+
+Do not claim the signup flow is fixed until the live email contains a working confirmation button and the account can be verified successfully.
