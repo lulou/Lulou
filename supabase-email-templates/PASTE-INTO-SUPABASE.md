@@ -327,6 +327,19 @@ Set in **Supabase → Authentication → URL Configuration**:
 
 ---
 
+## Supabase built-in email rate limit
+
+Supabase's built-in (Inbucket) email provider allows a maximum of **2 emails per hour**.
+This is enforced by Supabase regardless of template content. If a user triggers more than 2
+verification emails in one hour, Supabase returns HTTP 429 with code `over_email_send_rate_limit`
+and no email is sent.
+
+**To remove this limit entirely, configure custom SMTP** (Resend is recommended — see
+"Sender configuration" above). With custom SMTP connected, Supabase delegates sending to your
+provider and the 2/hour cap does not apply.
+
+---
+
 ## Production status
 
 Email verification is **not fully fixed** until:
