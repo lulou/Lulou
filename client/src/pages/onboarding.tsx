@@ -193,9 +193,12 @@ export default function Onboarding({ existingProfile = null, userEmail = "" }: O
     return (loc && loc !== "Not set") ? loc : "";
   });
   const [locationSuggestions, setLocationSuggestions] = useState<Array<{
-    display_name: string; lat: string; lon: string; place_id?: number; address: Record<string, string>;
+    id: string; label: string; primary: string; secondary: string;
+    city: string; state: string; stateAbbr: string; country: string;
+    postcode: string; latitude: number; longitude: number;
   }>>([]);
   const [locationLoading, setLocationLoading] = useState(false);
+  const [locationError, setLocationError] = useState<string | null>(null);
   const [locationSelected, setLocationSelected] = useState(
     () => !!(existingProfile?.location && existingProfile.location !== "Not set")
   );
@@ -274,7 +277,7 @@ export default function Onboarding({ existingProfile = null, userEmail = "" }: O
 
   const canProceed = () => {
     switch (step) {
-      case 0: return formData.firstName && formData.dateOfBirth && calculateAgeFromDob(formData.dateOfBirth) >= 18 && formData.gender && formData.datingPreference && formData.location && formData.email;
+      case 0: return formData.firstName && formData.dateOfBirth && calculateAgeFromDob(formData.dateOfBirth) >= 18 && formData.gender && formData.datingPreference && locationSelected && formData.email;
       case 1: return formData.photos.length >= 2;
       case 2: return formData.conversationStarters.length >= 2 && formData.conversationStarters.length <= 3 && formData.conversationStarters.every(s => formData.starterAnswers[s]?.trim());
       case 3: return formData.questions.length >= 2 && formData.questions.length <= 3;
@@ -491,19 +494,29 @@ export default function Onboarding({ existingProfile = null, userEmail = "" }: O
                             const q = e.target.value;
                             setLocationQuery(q);
                             setLocationSelected(false);
+                            setLocationError(null);
                             update("location", "");
                             if (locationTimerRef.current) clearTimeout(locationTimerRef.current);
                             if (q.trim().length < 2) { setLocationSuggestions([]); return; }
                             locationTimerRef.current = setTimeout(async () => {
                               setLocationLoading(true);
+                              setLocationError(null);
                               try {
-                                const res = await fetch(
-                                  `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q)}&limit=6&addressdetails=1`,
-                                  { headers: { "User-Agent": "LulouDating/1.0 contact@lulou.app" } }
-                                );
-                                setLocationSuggestions(res.ok ? await res.json() : []);
-                              } catch { setLocationSuggestions([]); }
-                              finally { setLocationLoading(false); }
+                                const res = await fetch(`/api/location-search?q=${encodeURIComponent(q)}`);
+                                if (!res.ok) {
+                                  setLocationSuggestions([]);
+                                  setLocationError("Location search unavailable. Please try again.");
+                                } else {
+                                  const data = await res.json();
+                                  setLocationSuggestions(data);
+                                  if (data.length === 0) setLocationError("No locations found. Try a different search.");
+                                }
+                              } catch {
+                                setLocationSuggestions([]);
+                                setLocationError("Location search unavailable. Please try again.");
+                              } finally {
+                                setLocationLoading(false);
+                              }
                             }, 380);
                           }}
                           placeholder="Search suburb, city or postcode"
@@ -521,67 +534,81 @@ export default function Onboarding({ existingProfile = null, userEmail = "" }: O
                           className="absolute top-full left-0 right-0 bg-background border border-border/40 rounded-2xl overflow-hidden z-50"
                           style={{ marginTop: 6, boxShadow: "0 8px 40px rgba(0,0,0,0.10), 0 2px 8px rgba(0,0,0,0.05)" }}
                         >
-                          {locationSuggestions.map((item, idx) => {
-                            const a = item.address;
-                            const suburb = a.suburb || a.quarter || a.city_district || a.town || a.village || a.neighbourhood || "";
-                            const city = a.city || a.county || a.municipality || "";
-                            const stateRaw = a.state || "";
-                            const stateAbbr = stateRaw ? (AU_STATE_ABBR[stateRaw] ?? stateRaw) : "";
-                            const country = a.country || "";
-                            const postcode = a.postcode || "";
-
-                            const primary = suburb || city || item.display_name.split(",")[0].trim();
-                            const secondary = [city && city !== primary ? city : null, stateAbbr || null, country || null].filter(Boolean).join(", ");
-                            const fullLabel = [primary, stateAbbr || null, country || null].filter(Boolean).join(", ");
-
-                            return (
-                              <button
-                                key={idx}
-                                type="button"
-                                className="w-full text-start px-4 py-3.5 flex items-center gap-3.5 hover:bg-muted/40 active:bg-muted/60 transition-colors border-b border-border/15 last:border-0"
-                                onClick={() => {
-                                  const meta = {
-                                    suburb, city, state: stateRaw, stateAbbr,
-                                    country, postcode,
-                                    latitude: parseFloat(item.lat),
-                                    longitude: parseFloat(item.lon),
-                                    placeId: item.place_id?.toString() ?? "",
-                                  };
-                                  console.log("[LOCATION_SELECT]", { fullLabel, meta });
-                                  update("location", fullLabel);
-                                  update("latitude", parseFloat(item.lat));
-                                  update("longitude", parseFloat(item.lon));
-                                  setLocationQuery(fullLabel);
-                                  setLocationSuggestions([]);
-                                  setLocationSelected(true);
-                                  setLocationMeta(meta);
-                                }}
-                                data-testid={`button-location-suggestion-${idx}`}
+                          {locationSuggestions.map((item, idx) => (
+                            <button
+                              key={item.id}
+                              type="button"
+                              className="w-full text-start px-4 py-3.5 flex items-center gap-3.5 hover:bg-muted/40 active:bg-muted/60 transition-colors border-b border-border/15 last:border-0"
+                              /* onPointerDown fires before the input's onBlur, so the
+                                 dropdown stays visible long enough for the selection to
+                                 register on iPhone Safari (onClick arrives after blur
+                                 which would close the list first). */
+                              onPointerDown={e => {
+                                e.preventDefault(); // prevent input blur
+                                console.log("[LOCATION_SELECT]", { label: item.label, item });
+                                update("location", item.label);
+                                update("latitude", item.latitude);
+                                update("longitude", item.longitude);
+                                setLocationQuery(item.label);
+                                setLocationSuggestions([]);
+                                setLocationError(null);
+                                setLocationSelected(true);
+                                setLocationMeta({
+                                  suburb: item.primary,
+                                  city: item.city,
+                                  state: item.state,
+                                  stateAbbr: item.stateAbbr,
+                                  country: item.country,
+                                  postcode: item.postcode,
+                                  latitude: item.latitude,
+                                  longitude: item.longitude,
+                                  placeId: item.id,
+                                });
+                              }}
+                              data-testid={`button-location-suggestion-${idx}`}
+                            >
+                              <div
+                                className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0"
+                                style={{ background: "hsl(350 45% 52% / 0.08)" }}
                               >
-                                <div
-                                  className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0"
-                                  style={{ background: "hsl(350 45% 52% / 0.08)" }}
-                                >
-                                  <MapPin className="w-3.5 h-3.5 text-primary/70" />
-                                </div>
-                                <div className="flex-1 min-w-0">
-                                  <p className="text-sm font-semibold text-foreground truncate">{primary}</p>
-                                  {secondary && (
-                                    <p className="text-xs text-muted-foreground truncate mt-0.5">{secondary}</p>
-                                  )}
-                                </div>
-                              </button>
-                            );
-                          })}
+                                <MapPin className="w-3.5 h-3.5 text-primary/70" />
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm font-semibold text-foreground truncate">{item.primary}</p>
+                                {item.secondary && (
+                                  <p className="text-xs text-muted-foreground truncate mt-0.5">{item.secondary}</p>
+                                )}
+                              </div>
+                            </button>
+                          ))}
                         </div>
                       )}
                     </div>
                   )}
 
-                  {/* Hint text — only while not yet selected */}
-                  {!locationSelected && (
+                  {/* Error feedback (no results / network failure) */}
+                  {!locationSelected && locationError && locationQuery.trim().length >= 2 && !locationLoading && (
+                    <p className="text-xs text-destructive/80 ps-1">{locationError}</p>
+                  )}
+
+                  {/* Validation hint — typed but not yet selected */}
+                  {!locationSelected && !locationError && locationQuery.trim().length >= 2 && !locationLoading && locationSuggestions.length === 0 && (
                     <p className="text-xs text-muted-foreground/70 ps-1">
                       Type your suburb, city or postcode and select from the list
+                    </p>
+                  )}
+
+                  {/* Default hint — nothing typed yet */}
+                  {!locationSelected && locationQuery.trim().length < 2 && (
+                    <p className="text-xs text-muted-foreground/70 ps-1">
+                      Type your suburb, city or postcode and select from the list
+                    </p>
+                  )}
+
+                  {/* Inline validation — typed something but didn't pick a suggestion */}
+                  {!locationSelected && locationQuery.trim().length >= 2 && !locationLoading && locationSuggestions.length > 0 && (
+                    <p className="text-xs text-amber-600/80 ps-1">
+                      Select a location from the list to continue.
                     </p>
                   )}
                 </div>

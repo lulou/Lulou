@@ -1977,6 +1977,72 @@ export async function registerRoutes(
     }
   });
 
+  // ── Location Search (server-side Nominatim proxy) ─────────────────────────
+  // Running this server-side fixes iPhone Safari: browsers cannot set the
+  // User-Agent header (required by Nominatim policy), causing rate-limiting
+  // and silent failure.  A same-origin API call has no CORS restriction.
+  app.get("/api/location-search", async (req, res) => {
+    const q = ((req.query.q as string) ?? "").trim();
+    if (!q || q.length < 2) {
+      return res.status(400).json({ error: "Query too short" });
+    }
+    const AU_ABBR: Record<string, string> = {
+      "New South Wales": "NSW", "Victoria": "VIC", "Queensland": "QLD",
+      "South Australia": "SA", "Western Australia": "WA", "Tasmania": "TAS",
+      "Australian Capital Territory": "ACT", "Northern Territory": "NT",
+    };
+    try {
+      const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q)}&limit=6&addressdetails=1`;
+      const controller = new AbortController();
+      const tid = setTimeout(() => controller.abort(), 8000);
+      const upstream = await fetch(url, {
+        headers: {
+          "User-Agent": "LulouDating/1.0 contact@lulou.app",
+          "Accept-Language": "en",
+          "Accept": "application/json",
+        },
+        signal: controller.signal,
+      });
+      clearTimeout(tid);
+      if (!upstream.ok) {
+        return res.status(502).json({ error: "Location provider error" });
+      }
+      const raw: any[] = await upstream.json();
+      const results = raw.map(item => {
+        const a = item.address ?? {};
+        const suburb: string = a.suburb || a.quarter || a.city_district || a.town || a.village || a.neighbourhood || "";
+        const city: string = a.city || a.county || a.municipality || "";
+        const stateRaw: string = a.state || "";
+        const stateAbbr: string = stateRaw ? (AU_ABBR[stateRaw] ?? stateRaw) : "";
+        const country: string = a.country || "";
+        const postcode: string = a.postcode || "";
+        const primary: string = suburb || city || (item.display_name as string).split(",")[0].trim();
+        const secondary: string = [city && city !== primary ? city : null, stateAbbr || null, country || null].filter(Boolean).join(", ");
+        const label: string = [primary, stateAbbr || null, country || null].filter(Boolean).join(", ");
+        return {
+          id: item.place_id?.toString() ?? `${item.lat},${item.lon}`,
+          label,
+          primary,
+          secondary,
+          city,
+          state: stateRaw,
+          stateAbbr,
+          country,
+          postcode,
+          latitude: parseFloat(item.lat),
+          longitude: parseFloat(item.lon),
+        };
+      });
+      res.json(results);
+    } catch (err: any) {
+      if (err?.name === "AbortError") {
+        return res.status(504).json({ error: "Location search timed out" });
+      }
+      console.error("[LOCATION_SEARCH]", err?.message);
+      res.status(502).json({ error: "Location search unavailable" });
+    }
+  });
+
   app.get("/api/discover", isAuthenticated, async (req: any, res) => {
     const t0 = Date.now();
     try {
