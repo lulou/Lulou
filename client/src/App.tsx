@@ -2301,6 +2301,27 @@ function AppContent() {
   // Declared after forceProceed useState to avoid TDZ reference error.
   const effectiveProfileExists = profileExists || forceProceed;
 
+  // ── Connection DNA gate ──────────────────────────────────────────────────────
+  // Checks whether the current user has completed the Connection DNA questionnaire.
+  // Enabled only after profile is confirmed (effectiveProfileExists).
+  // Fail-open: if the query errors, dnaComplete defaults to true so existing
+  // users are never blocked by a transient Railway failure.
+  const { data: dnaData, isPending: dnaIsPending, isError: dnaIsError } = useQuery<{ completed: boolean; hasDna: boolean }>({
+    queryKey: ["dna-status-check"],
+    queryFn: async () => {
+      const headers = await getAuthHeaders();
+      const res = await fetch(`${API_BASE}/api/dna/status`, { headers });
+      if (!res.ok) return { completed: true, hasDna: false }; // fail-open on server error
+      return res.json();
+    },
+    enabled: !!user && profileReady && !clearingCache && effectiveProfileExists && !forceProceed,
+    staleTime: Infinity,
+    retry: 1,
+    retryDelay: 1000,
+  });
+  // fail-open: missing/errored data → assume complete so existing users aren't blocked
+  const dnaComplete: boolean = dnaData?.completed ?? true;
+
   // profilePending = query has no data yet (covers the gap between "enabled"
   // and "fetch started" that caused isLoading to briefly be false).
   // forceProceed collapses the spinner immediately when the user bypasses.
@@ -2668,6 +2689,26 @@ function AppContent() {
     );
   }
 
+  // ── Connection DNA gate ──────────────────────────────────────────────────────
+  // Profile exists but DNA quiz not yet completed → show the quiz.
+  // Show a brief spinner while the status is loading.
+  // Skip entirely for force-proceed bypasses (support tool for stuck users).
+  if (!forceProceed && dnaIsPending && !dnaIsError) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="flex flex-col items-center gap-3">
+          <Loader2 className="w-8 h-8 text-primary animate-spin" />
+          <p className="text-sm text-muted-foreground">Loading…</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!forceProceed && !dnaComplete) {
+    console.log("[AUTH_FLOW] dna incomplete — route connection-dna", { userId: user.id });
+    return <ConnectionDnaPage />;
+  }
+
   console.log("[AUTH_FLOW] session restored — route main app", { userId: user.id });
   return (
     <Switch>
@@ -2675,7 +2716,6 @@ function AppContent() {
       <Route path="/extras/success" component={ExtrasSuccessPage} />
       <Route path="/admin/diagnostics" component={AdminDiagnosticsPage} />
       <Route path="/admin/payment-sim" component={AdminPaymentSimPage} />
-      <Route path="/connection-dna" component={ConnectionDnaPage} />
       <Route>
         <AppLayout>
           <PersistentTabs />

@@ -1,11 +1,12 @@
 import { useState, useEffect, useCallback } from "react";
 import { useLocation } from "wouter";
+import { useQueryClient } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { ChevronLeft, Dna, Check, Loader2 } from "lucide-react";
 import { DNA_QUESTIONS } from "@/lib/dna-questions";
-import { getAuthHeaders } from "@/lib/queryClient";
+import { getAuthHeaders, API_BASE } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 
 const TOTAL = DNA_QUESTIONS.length;
@@ -31,6 +32,7 @@ function clearLocalProgress() {
 export default function ConnectionDna() {
   const [, navigate]       = useLocation();
   const { toast }          = useToast();
+  const queryClient        = useQueryClient();
   const [step, setStep]    = useState(0);         // 0 = intro, 1-N = questions, N+1 = done
   const [responses, setResponses]   = useState<Record<string, number>>({});
   const [direction, setDirection]   = useState<1 | -1>(1);
@@ -44,7 +46,7 @@ export default function ConnectionDna() {
       const local = loadLocalProgress();
       // Try server first
       try {
-        const res = await fetch("/api/dna/responses", { headers: await getAuthHeaders() });
+        const res = await fetch(`${API_BASE}/api/dna/responses`, { headers: await getAuthHeaders() });
         if (res.ok) {
           const { responses: serverResponses } = await res.json();
           const merged = { ...local, ...serverResponses };
@@ -71,7 +73,7 @@ export default function ConnectionDna() {
   const saveAnswer = useCallback(async (questionId: string, answerIndex: number) => {
     try {
       setSaving(true);
-      await fetch("/api/dna/response", {
+      await fetch(`${API_BASE}/api/dna/response`, {
         method: "POST",
         headers: { ...await getAuthHeaders(), "Content-Type": "application/json" },
         body: JSON.stringify({ questionId, answerIndex }),
@@ -106,19 +108,21 @@ export default function ConnectionDna() {
   const completeQuiz = useCallback(async () => {
     setCompleting(true);
     try {
-      const res = await fetch("/api/dna/complete", {
+      const res = await fetch(`${API_BASE}/api/dna/complete`, {
         method: "POST",
         headers: await getAuthHeaders(),
       });
       if (!res.ok) throw new Error("Failed");
       clearLocalProgress();
+      // Tell App.tsx gate that DNA is now complete so it unlocks the main app.
+      queryClient.setQueryData(["dna-status-check"], { completed: true, hasDna: true });
       navigate("/discover");
     } catch {
       toast({ title: "Something went wrong", description: "Please try again.", variant: "destructive" });
     } finally {
       setCompleting(false);
     }
-  }, [navigate, toast]);
+  }, [navigate, toast, queryClient]);
 
   if (!loaded) {
     return (
@@ -174,13 +178,6 @@ export default function ConnectionDna() {
             >
               Begin — takes about 3 minutes
             </Button>
-            <button
-              className="text-xs text-muted-foreground/50 hover:text-muted-foreground transition-colors underline underline-offset-2"
-              onClick={() => navigate("/discover")}
-              data-testid="button-skip-dna"
-            >
-              Skip for now
-            </button>
           </div>
         </div>
       </div>

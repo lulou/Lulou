@@ -249,8 +249,11 @@ export default function Onboarding({ existingProfile = null, userEmail = "" }: O
       // even after profile creation succeeds.  The navigate("/discover") below
       // only works once the gate switches to "render_main_app".
       queryClient.setQueryData(["profile-exists-check"], { exists: true, fetchFailed: false });
+      // Invalidate the DNA gate so AppContent re-checks after profile creation.
+      // New users have no DNA row yet — the gate will render ConnectionDnaPage next.
+      queryClient.removeQueries({ queryKey: ["dna-status-check"] });
       console.log("[PROFILE_SAVE] GATE_UNBLOCKED", { profileExists: true });
-      navigate("/discover");
+      navigate("/connection-dna");
     },
     onError: (error: any) => {
       const msg = cleanErrorMessage(error);
