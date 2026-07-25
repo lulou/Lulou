@@ -28,7 +28,7 @@ import { transcodeToM4a } from "./transcoder";
 import { seedDatabase } from "./seed";
 import { z } from "zod";
 import type { Profile } from "@shared/schema";
-import { userBenefits, callCredits, activeSessions, processedStripeSessions, membershipSubscriptions, userElevates, blockedContacts, savedWheelProfiles, sparkBalances, sparkPurchases, pushSubscriptions, notificationPreferences, datePlanRemindersSent, activeChatSessions, refundRecords, voiceNoteUnlocks, voiceNotePopupSeen } from "@shared/schema";
+import { userBenefits, callCredits, activeSessions, processedStripeSessions, membershipSubscriptions, userElevates, blockedContacts, savedWheelProfiles, sparkBalances, sparkPurchases, pushSubscriptions, notificationPreferences, datePlanRemindersSent, activeChatSessions, refundRecords, voiceNoteUnlocks, voiceNotePopupSeen, firstCallPromptSeen } from "@shared/schema";
 import { sendPushToUser, buildPush, isUserActiveInApp, isUserActiveInChat, getVapidPublicKey, cleanupFailedSubscriptions } from "./pushService";
 import { EXTRAS_ITEMS, ELEVATE_PACKS, type ExtrasItemId, type ElevatePackId, grantExtras, grantElevate, isUniqueViolation } from './purchaseItems';
 import { supabase, supabaseAdmin, createUserClient, hasServiceRoleKey } from "./supabase";
@@ -3290,8 +3290,10 @@ export async function registerRoutes(
   });
 
   // ── Voice Notes entitlement & upload ─────────────────────────────────────
-  // Voice notes unlock threshold (messages each user must send before voice notes open)
-  const VOICE_NOTE_MSG_THRESHOLD = 10;
+  // Voice notes unlock threshold — both users must reach this count before voice notes open.
+  const VOICE_NOTE_MSG_THRESHOLD = 8;
+  // First-call unlock threshold — both users must reach this count before the first call is possible.
+  const FIRST_CALL_MSG_THRESHOLD = 15;
 
   app.get("/api/voice-notes/entitlement/:matchId", isAuthenticated, async (req: any, res) => {
     try {
@@ -3299,7 +3301,22 @@ export async function registerRoutes(
       const userId = req.user.id;
       const { matchId } = req.params;
 
-      // Helper: get popup-seen status for this user+match from local DB
+      // Always fetch match meta so we can compute both unlock flags.
+      const match = await storage.getMatchMeta(matchId, userId);
+      if (!match) return res.status(404).json({ message: "Match not found" });
+
+      const count1 = match.messageCount1 ?? 0;
+      const count2 = match.messageCount2 ?? 0;
+      const callStage = match.callStage ?? 0;
+
+      // ── First-call unlock (separate milestone from voice notes) ──────────────
+      // Unlocked when both users have sent ≥ FIRST_CALL_MSG_THRESHOLD messages in
+      // stage 0, or retroactively when call_stage > 0 (first call already happened).
+      const firstCallUnlocked =
+        callStage > 0 ||
+        (count1 >= FIRST_CALL_MSG_THRESHOLD && count2 >= FIRST_CALL_MSG_THRESHOLD);
+
+      // Helper: get voice-note popup-seen status for this user+match
       const getPopupSeen = async (): Promise<boolean> => {
         const [row] = await db.select().from(voiceNotePopupSeen)
           .where(and(eq(voiceNotePopupSeen.matchId, matchId), eq(voiceNotePopupSeen.userId, userId)))
@@ -3307,37 +3324,58 @@ export async function registerRoutes(
         return !!row;
       };
 
-      // Fast path: already permanently unlocked — skip Supabase query
+      // Helper: get first-call prompt-seen status for this user+match
+      const getFirstCallPromptSeen = async (): Promise<boolean> => {
+        const [row] = await db.select().from(firstCallPromptSeen)
+          .where(and(eq(firstCallPromptSeen.matchId, matchId), eq(firstCallPromptSeen.userId, userId)))
+          .limit(1);
+        return !!row;
+      };
+
+      // Run both seen-checks in parallel for speed.
+      const [popupSeen, firstCallPromptSeenFlag] = await Promise.all([
+        getPopupSeen(),
+        getFirstCallPromptSeen(),
+      ]);
+
+      // Fast path: already permanently unlocked — skip re-evaluation of threshold.
       const [existing] = await db.select().from(voiceNoteUnlocks)
         .where(eq(voiceNoteUnlocks.matchId, matchId)).limit(1);
       if (existing) {
-        const popupSeen = await getPopupSeen();
-        return res.json({ unlocked: true, popupSeen });
+        return res.json({
+          unlocked: true,
+          popupSeen,
+          firstCallUnlocked,
+          firstCallPromptSeen: firstCallPromptSeenFlag,
+        });
       }
 
-      // Check whether both users have reached the engagement threshold
-      const match = await storage.getMatchMeta(matchId, userId);
-      if (!match) return res.status(404).json({ message: "Match not found" });
-
-      const count1 = match.messageCount1 ?? 0;
-      const count2 = match.messageCount2 ?? 0;
-      // Retroactive: call_stage > 0 proves the match already crossed the first-call
-      // threshold — voice notes should have been unlocked earlier even if message
-      // counts were reset by the progression system.
-      const shouldUnlockByStage = (match.callStage ?? 0) > 0;
+      // ── Voice-note unlock evaluation ──────────────────────────────────────────
+      // Retroactive: call_stage > 0 proves voice notes should have been unlocked
+      // earlier even if message counts were reset by the progression system.
+      const shouldUnlockByStage = callStage > 0;
       const shouldUnlockByCount = count1 >= VOICE_NOTE_MSG_THRESHOLD && count2 >= VOICE_NOTE_MSG_THRESHOLD;
 
       if (shouldUnlockByStage || shouldUnlockByCount) {
-        // Persist unlock so it survives future call-stage count resets
+        // Persist unlock so it survives future call-stage count resets.
         await db.insert(voiceNoteUnlocks).values({ matchId }).onConflictDoNothing();
-        console.log(`[VOICE_NOTE_UNLOCK] match=${matchId} stage=${match.callStage} count1=${count1} count2=${count2} → unlocked (byStage=${shouldUnlockByStage})`);
-        // Broadcast realtime event so both connected clients update instantly
+        console.log(`[VOICE_NOTE_UNLOCK] match=${matchId} stage=${callStage} count1=${count1} count2=${count2} → unlocked (byStage=${shouldUnlockByStage})`);
+        // Broadcast realtime event so both connected clients update instantly.
         broadcastViaHttpApi(`chat:${matchId}`, "voice-note-unlock", { matchId }).catch(() => {});
-        const popupSeen = await getPopupSeen();
-        return res.json({ unlocked: true, popupSeen });
+        return res.json({
+          unlocked: true,
+          popupSeen,
+          firstCallUnlocked,
+          firstCallPromptSeen: firstCallPromptSeenFlag,
+        });
       }
 
-      return res.json({ unlocked: false, popupSeen: false });
+      return res.json({
+        unlocked: false,
+        popupSeen: false,
+        firstCallUnlocked,
+        firstCallPromptSeen: firstCallPromptSeenFlag,
+      });
     } catch (err: any) {
       res.status(500).json({ message: err.message || "Failed to check voice notes entitlement" });
     }
@@ -3357,6 +3395,23 @@ export async function registerRoutes(
       res.json({ success: true });
     } catch (err: any) {
       res.status(500).json({ message: err.message || "Failed to mark popup seen" });
+    }
+  });
+
+  // Mark first-call prompt as seen for the requesting user in this match.
+  // Ensures the one-time first-call announcement popup never re-appears after dismiss.
+  app.post("/api/first-call/prompt-seen/:matchId", isAuthenticated, async (req: any, res) => {
+    try {
+      const storage = getStorage(req);
+      const userId = req.user.id;
+      const { matchId } = req.params;
+      // Verify the user belongs to this match
+      const match = await storage.getMatchMeta(matchId, userId);
+      if (!match) return res.status(403).json({ message: "Not authorized" });
+      await db.insert(firstCallPromptSeen).values({ matchId, userId }).onConflictDoNothing();
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message || "Failed to mark first-call prompt seen" });
     }
   });
 

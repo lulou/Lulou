@@ -529,15 +529,22 @@ export default function Messaging() {
   const phoneCredits = callCreditsData?.phoneCredits ?? 0;
   const videoCredits = callCreditsData?.videoCredits ?? 0;
 
-  // Voice notes entitlement — unlocks when both users have sent ≥10 messages (or call_stage > 0).
-  // popupSeen is server-persisted so the popup only shows once across all devices.
-  const { data: voiceNoteData } = useQuery<{ unlocked: boolean; popupSeen: boolean }>({
+  // Voice notes entitlement — unlocks when both users have sent ≥8 messages (or call_stage > 0).
+  // First call unlocks at ≥15 messages each way (separate milestone).
+  // All popup-seen flags are server-persisted so modals only show once across all devices.
+  const { data: voiceNoteData } = useQuery<{
+    unlocked: boolean;
+    popupSeen: boolean;
+    firstCallUnlocked: boolean;
+    firstCallPromptSeen: boolean;
+  }>({
     queryKey: ["/api/voice-notes/entitlement", matchId],
     enabled: !!matchId,
     staleTime: 0,
     refetchInterval: 60_000, // true-realtime via broadcast; polling is fallback only
   });
   const voiceNotesUnlocked = voiceNoteData?.unlocked ?? false;
+  const firstCallUnlocked  = voiceNoteData?.firstCallUnlocked ?? false;
 
   // Paid call mutation — starts an immediate call using a credit, bypassing stage gates.
   const startPaidCall = useMutation({
@@ -581,6 +588,8 @@ export default function Messaging() {
   // Voice-note unlock popup — shown once per user per match when the engagement
   // threshold is first crossed (localStorage prevents repeat on reload / device switch)
   const [voiceNotePopupOpen, setVoiceNotePopupOpen] = useState(false);
+  // First-call unlock popup — shown once per user per match when both reach 15 messages.
+  const [firstCallPopupOpen, setFirstCallPopupOpen] = useState(false);
   // Realtime unlock: instantly mark entitlement cache as unlocked when the broadcast fires.
   const onVoiceNoteUnlock = useCallback(() => {
     queryClient.setQueryData(
@@ -702,7 +711,7 @@ export default function Messaging() {
     }
   }, [voiceNotesUnlocked]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Show the one-time unlock popup when: unlocked AND server says not yet seen.
+  // Show the one-time voice-note unlock popup when: unlocked AND server says not yet seen.
   // localStorage is a fast local cache to prevent a flash before the next query response.
   useEffect(() => {
     if (voiceNotesUnlocked && voiceNoteData?.popupSeen === false) {
@@ -711,6 +720,21 @@ export default function Messaging() {
       }
     }
   }, [voiceNotesUnlocked, voiceNoteData?.popupSeen, matchId]);
+
+  // Show the one-time first-call unlock popup when:
+  //   • firstCallUnlocked is true (both users reached 15 messages each way)
+  //   • firstCallPromptSeen is false (server has not yet recorded this user seeing it)
+  //   • voice-note popup is NOT currently open (no overlapping modals)
+  useEffect(() => {
+    if (
+      firstCallUnlocked &&
+      voiceNoteData?.firstCallPromptSeen === false &&
+      !voiceNotePopupOpen &&
+      !localStorage.getItem(`fc_popup_${matchId}`)
+    ) {
+      setFirstCallPopupOpen(true);
+    }
+  }, [firstCallUnlocked, voiceNoteData?.firstCallPromptSeen, voiceNotePopupOpen, matchId]);
 
   // Clean up the MediaRecorder on unmount.
   // Do NOT stop the module-level mic stream — it must survive component remounts
@@ -1657,7 +1681,7 @@ export default function Messaging() {
                     onPointerDown={e => {
                       e.currentTarget.setPointerCapture(e.pointerId);
                       if (!voiceNotesUnlocked) {
-                        toast({ description: "Voice notes unlock after you've both sent 10 messages." });
+                        toast({ description: "Voice notes unlock after you've both sent 8 messages." });
                         return;
                       }
                       if (voicePhase === "idle") startRecording();
@@ -1909,7 +1933,7 @@ export default function Messaging() {
             <p className="text-3xl mb-3">🎙️</p>
             <h2 className="font-semibold text-lg mb-2">Voice notes unlocked</h2>
             <p className="text-sm text-muted-foreground mb-5">
-              Congrats — you've unlocked voice notes. Keep up the good work and keep getting to know each other.
+              You've both sent 8 messages — voice notes are now open. Keep the conversation going.
             </p>
             <Button
               className="w-full"
@@ -1927,6 +1951,35 @@ export default function Messaging() {
               data-testid="button-voice-note-popup-continue"
             >
               Continue
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {firstCallPopupOpen && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 px-6" data-testid="dialog-first-call-unlock">
+          <div className="bg-background rounded-2xl p-6 w-full max-w-xs shadow-xl text-center">
+            <p className="text-3xl mb-3">📞</p>
+            <h2 className="font-semibold text-lg mb-2">First call unlocked</h2>
+            <p className="text-sm text-muted-foreground mb-5">
+              You've both sent 15 messages. Time to hear each other's voices — schedule your first call below.
+            </p>
+            <Button
+              className="w-full"
+              onClick={() => {
+                localStorage.setItem(`fc_popup_${matchId}`, "1");
+                setFirstCallPopupOpen(false);
+                // Optimistically mark seen in cache so popup won't re-appear on re-mount
+                queryClient.setQueryData(
+                  ["/api/voice-notes/entitlement", matchId],
+                  (old: any) => old ? { ...old, firstCallPromptSeen: true } : old,
+                );
+                // Persist to server so it's durable across devices
+                apiRequest("POST", `/api/first-call/prompt-seen/${matchId}`).catch(() => {});
+              }}
+              data-testid="button-first-call-popup-continue"
+            >
+              Let's go
             </Button>
           </div>
         </div>

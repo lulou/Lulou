@@ -471,7 +471,7 @@ export const userMatchBadgeCounts = pgTable("user_match_badge_counts", {
 
 // ── Voice-note engagement unlocks ─────────────────────────────────────────────
 // Persists voice-note unlock state per match so it survives call-stage count
-// resets. A row here means both users reached 10 sent messages in this match
+// resets. A row here means both users reached 8 sent messages in this match
 // and voice notes are permanently free for that conversation.
 export const voiceNoteUnlocks = pgTable("voice_note_unlocks", {
   matchId:    text("match_id").primaryKey(),
@@ -483,6 +483,19 @@ export const voiceNoteUnlocks = pgTable("voice_note_unlocks", {
 // for a given match. Composite PK ensures one row per user per match — idempotent
 // inserts are safe. Server is the source of truth; localStorage is a UI cache only.
 export const voiceNotePopupSeen = pgTable("voice_note_popup_seen", {
+  matchId: text("match_id").notNull(),
+  userId:  text("user_id").notNull(),
+  seenAt:  timestamp("seen_at").defaultNow().notNull(),
+}, (table) => ({
+  pk: primaryKey({ columns: [table.matchId, table.userId] }),
+}));
+
+// ── First-call prompt seen state ───────────────────────────────────────────────
+// Tracks whether each individual user has dismissed the first-call unlock popup
+// for a given match. Composite PK ensures one row per user per match — idempotent
+// inserts are safe. Persisted to server so the popup doesn't re-appear on refresh
+// or other devices.
+export const firstCallPromptSeen = pgTable("first_call_prompt_seen", {
   matchId: text("match_id").notNull(),
   userId:  text("user_id").notNull(),
   seenAt:  timestamp("seen_at").defaultNow().notNull(),

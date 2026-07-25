@@ -367,6 +367,14 @@ async function initLocalDb() {
       );
       CREATE INDEX IF NOT EXISTS idx_vnps_user ON voice_note_popup_seen(user_id);
 
+      CREATE TABLE IF NOT EXISTS first_call_prompt_seen (
+        match_id TEXT NOT NULL,
+        user_id  TEXT NOT NULL,
+        seen_at  TIMESTAMP NOT NULL DEFAULT NOW(),
+        PRIMARY KEY (match_id, user_id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_fcps_user ON first_call_prompt_seen(user_id);
+
       CREATE TABLE IF NOT EXISTS connection_dna_responses (
         user_id       VARCHAR NOT NULL,
         question_id   TEXT    NOT NULL,
@@ -421,7 +429,7 @@ async function initLocalDb() {
       CREATE INDEX IF NOT EXISTS idx_feedback_user  ON private_connection_feedback(user_id);
       CREATE INDEX IF NOT EXISTS idx_feedback_match ON private_connection_feedback(match_id);
     `);
-    console.log("[STARTUP] Local DB tables verified/created: user_benefits, user_elevates, call_credits, saved_wheel_profiles, active_sessions, membership_subscriptions, push_subscriptions, notification_preferences, admin_payment_simulations, date_plan_reminders_sent, active_chat_sessions, refund_records, voice_note_unlocks, voice_note_popup_seen, connection_dna_responses, connection_dna_profiles, match_compatibility, interaction_signals, private_connection_feedback");
+    console.log("[STARTUP] Local DB tables verified/created: user_benefits, user_elevates, call_credits, saved_wheel_profiles, active_sessions, membership_subscriptions, push_subscriptions, notification_preferences, admin_payment_simulations, date_plan_reminders_sent, active_chat_sessions, refund_records, voice_note_unlocks, voice_note_popup_seen, first_call_prompt_seen, connection_dna_responses, connection_dna_profiles, match_compatibility, interaction_signals, private_connection_feedback");
   } catch (err: any) {
     console.error("[STARTUP] Local DB table migration failed:", err?.message);
   }

@@ -2281,15 +2281,22 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
   const phoneCredits = callCreditsData?.phoneCredits;
   const videoCredits = callCreditsData?.videoCredits;
 
-  // Voice notes entitlement — unlocks when both users have sent ≥10 messages (or call_stage > 0).
-  // popupSeen is server-persisted so the popup only shows once across all devices.
-  const { data: voiceNoteData } = useQuery<{ unlocked: boolean; popupSeen: boolean }>({
+  // Voice notes entitlement — unlocks when both users have sent ≥8 messages (or call_stage > 0).
+  // First call unlocks at ≥15 messages each way (separate milestone).
+  // All popup-seen flags are server-persisted so modals only show once across all devices.
+  const { data: voiceNoteData } = useQuery<{
+    unlocked: boolean;
+    popupSeen: boolean;
+    firstCallUnlocked: boolean;
+    firstCallPromptSeen: boolean;
+  }>({
     queryKey: ["/api/voice-notes/entitlement", match.id],
     enabled: expanded,
     staleTime: 0,
     refetchInterval: 60_000, // true-realtime via broadcast; polling is fallback only
   });
   const voiceNotesUnlocked = voiceNoteData?.unlocked ?? false;
+  const firstCallUnlocked  = voiceNoteData?.firstCallUnlocked ?? false;
 
   // Purchase prompt state
   const [purchasePromptFeature, setPurchasePromptFeature] = useState<PurchaseFeature | null>(null);
@@ -2298,6 +2305,10 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
   // Server is source of truth (popupSeen); localStorage is a fast local cache to
   // avoid a flash on re-mount before the query response arrives.
   const [voiceNotePopupOpen, setVoiceNotePopupOpen] = useState(false);
+
+  // First-call unlock popup — shown once per user per match when both users hit 15 messages.
+  // Shown only after the voice-note popup (if any) has been dismissed to prevent overlap.
+  const [firstCallPopupOpen, setFirstCallPopupOpen] = useState(false);
 
   // Recording state
   const [isRecording, setIsRecording] = useState(false);
@@ -2559,7 +2570,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
     }
   }, [voiceNotesUnlocked]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Show the one-time unlock popup when: unlocked AND server says not yet seen.
+  // Show the one-time voice-note unlock popup when: unlocked AND server says not yet seen.
   // localStorage is a fast local cache to prevent a flash before the next query response.
   useEffect(() => {
     if (voiceNotesUnlocked && voiceNoteData?.popupSeen === false) {
@@ -2568,6 +2579,21 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
       }
     }
   }, [voiceNotesUnlocked, voiceNoteData?.popupSeen, match.id]);
+
+  // Show the one-time first-call unlock popup when:
+  //   • firstCallUnlocked is true (both users reached 15 messages each way)
+  //   • firstCallPromptSeen is false (server has not yet recorded this user seeing it)
+  //   • voice-note popup is NOT currently open (no overlapping modals)
+  useEffect(() => {
+    if (
+      firstCallUnlocked &&
+      voiceNoteData?.firstCallPromptSeen === false &&
+      !voiceNotePopupOpen &&
+      !localStorage.getItem(`fc_popup_${match.id}`)
+    ) {
+      setFirstCallPopupOpen(true);
+    }
+  }, [firstCallUnlocked, voiceNoteData?.firstCallPromptSeen, voiceNotePopupOpen, match.id]);
 
   // Clean up the MediaRecorder, waveform, and pending blob URLs on unmount.
   // Do NOT stop the module-level mic stream — it must survive component remounts
@@ -4479,7 +4505,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
             <p className="text-3xl mb-3">🎙️</p>
             <h2 className="font-semibold text-lg mb-2">Voice notes unlocked</h2>
             <p className="text-sm text-muted-foreground mb-5">
-              Congrats — you've unlocked voice notes. Keep up the good work and keep getting to know each other.
+              You've both sent 8 messages — voice notes are now open. Keep the conversation going.
             </p>
             <Button
               className="w-full"
@@ -4502,6 +4528,35 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
         </div>
       )}
 
+      {firstCallPopupOpen && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 px-6" data-testid={`dialog-first-call-unlock-${match.id}`}>
+          <div className="bg-background rounded-2xl p-6 w-full max-w-xs shadow-xl text-center">
+            <p className="text-3xl mb-3">📞</p>
+            <h2 className="font-semibold text-lg mb-2">First call unlocked</h2>
+            <p className="text-sm text-muted-foreground mb-5">
+              You've both sent 15 messages. Time to hear each other's voices — schedule your first call below.
+            </p>
+            <Button
+              className="w-full"
+              onClick={() => {
+                localStorage.setItem(`fc_popup_${match.id}`, "1");
+                setFirstCallPopupOpen(false);
+                // Optimistically mark seen in cache so popup won't re-appear on re-mount
+                queryClient.setQueryData(
+                  ["/api/voice-notes/entitlement", match.id],
+                  (old: any) => old ? { ...old, firstCallPromptSeen: true } : old,
+                );
+                // Persist to server so it's durable across devices
+                apiRequest("POST", `/api/first-call/prompt-seen/${match.id}`).catch(() => {});
+              }}
+              data-testid={`button-first-call-popup-continue-${match.id}`}
+            >
+              Let's go
+            </Button>
+          </div>
+        </div>
+      )}
+
       {micHoldGuideTriggered && (
         <LulouGuide
           guideKey={GUIDE_KEYS.MIC_HOLD}
@@ -4516,7 +4571,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
         <LulouGuide
           guideKey={GUIDE_KEYS.CHAT_FIRST_MESSAGE}
           userId={user?.id}
-          title="15 messages each"
+          title="15 messages each way"
           body="Enough to spark chemistry before hearing their voice."
           delay={700}
         />
