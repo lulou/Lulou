@@ -1,0 +1,164 @@
+Improve the post-Connection DNA experience and redesign the Intention Wheel UI based on the attached screenshots.
+
+Do not change the Connection DNA questions themselves. The quiz is already professional, thoughtful and working well.
+
+1. ADD A CLEAR CONNECTION DNA COMPLETION SCREEN
+
+After the user finishes the final DNA question, do not send them immediately into Discover.
+
+Show a premium completion screen explaining what the quiz was for.
+
+Suggested structure:
+
+Heading:
+“Your Connection DNA is ready”
+
+Supporting text:
+“Your answers help Lulou understand how you communicate, connect, build trust and approach relationships.”
+
+Then explain clearly that Lulou uses it to:
+- rank more compatible profiles higher
+- identify shared values and communication styles
+- improve the quality of introductions
+- provide meaningful compatibility reasons
+- learn what type of connection is more likely to work for the user
+
+Include a short privacy reassurance:
+“Your individual answers are private. Other members only see selected profile signals and compatibility insights.”
+
+Show a tasteful visual summary using the user’s strongest Connection DNA dimensions, for example:
+- Deep communicator
+- Emotionally intentional
+- Values consistency
+- Slow-burn connection
+- Affection through quality time
+
+These must be calculated from the actual quiz answers. Do not display random or fake traits.
+
+Add a clear CTA:
+“See my connections”
+
+Pressing it should mark the quiz complete and route the user into Discover.
+
+Use Lulou’s premium cream, rose and charcoal design system. Keep it elegant, emotionally intelligent and uncluttered.
+
+2. FIX THE INTENTION WHEEL PAGE OVERLAP
+
+The second attached screenshot is too cramped and several elements overlap.
+
+Problems visible:
+- the title area is too close to the profile carousel
+- profile cards overlap the heading and descriptive text
+- the selected profile name is sitting over the image awkwardly
+- the thumbnail row is too close to the main card
+- the subtitle and thumbnail row compete for space
+- the spin button, streak progress and explanatory text feel compressed
+- the bottom navigation is too close to the content
+
+Redesign the spacing properly for iPhone Safari.
+
+Required layout order:
+
+- Lulou header
+- “Intention Wheel” title row
+- optional sound control and spin count
+- short explanation
+- main candidate carousel
+- selected candidate name and age
+- thumbnail strip
+- short supporting line
+- large premium Spin button
+- streak progress
+- bottom navigation
+
+Use proper vertical spacing between every section.
+
+Requirements:
+- no overlapping text
+- no content hidden behind the browser bar or bottom navigation
+- respect iPhone safe-area insets
+- make the main profile card large enough to feel premium
+- keep adjacent cards partially visible, but never cover the selected card
+- move the selected user’s name into a clean gradient caption area or beneath the card
+- prevent thumbnails from touching the main image
+- make the spin button easier to tap
+- keep the page scrollable on smaller screens
+- test at common iPhone widths
+
+3. MAKE THE INTENTION WHEEL REVEAL MORE PREMIUM
+
+The first attached screenshot shows the full-screen wheel reveal. The concept is good, but it can feel more luxurious and intentional.
+
+Keep:
+- the dark cinematic background
+- rose particles
+- centred candidate cards
+- “Tonight’s Connection”
+- the moon close button
+- the feeling of a special reveal
+
+Improve it with:
+
+- deeper charcoal-to-plum background gradient
+- subtle rose-gold glow behind the selected card
+- smoother card depth and soft shadows
+- stronger focus on the centre candidate
+- less blur on surrounding cards
+- elegant slow movement rather than busy animation
+- refined typography and spacing
+- a more premium progress/reveal animation
+- clearer candidate details after the animation finishes
+- a subtle compatibility or Connection DNA insight after reveal
+
+After the reveal finishes, show:
+
+Candidate name and age
+
+One short Connection DNA insight such as:
+“You both value calm communication and emotional consistency.”
+
+Then show two clear buttons:
+- “Open”
+- “Close”
+
+Use the existing Open and Close actions. Do not change their behaviour.
+
+The reveal should feel like receiving one carefully selected introduction, not a random slot machine.
+
+4. INTENTION WHEEL CONTENT RULES
+
+Keep the wording:
+“Every spin is random. One introduction each day.”
+
+However, visually distinguish:
+- randomness of the daily spin
+- compatibility information shown after the result
+
+Do not claim the selected person was algorithmically chosen if the spin is random.
+
+The Connection DNA insight may explain compatibility with the randomly selected profile, but it must not imply that the wheel secretly chose the highest-scoring match.
+
+5. TESTING
+
+Test all three changes on iPhone Safari:
+
+- complete Connection DNA
+- confirm the explanation screen appears
+- confirm calculated traits are accurate
+- press “See my connections”
+- open the Intention Wheel page
+- confirm there is no overlapping content
+- confirm the page scrolls correctly
+- trigger a wheel reveal
+- confirm the animation feels smooth
+- confirm the selected profile remains clearly visible
+- confirm the compatibility insight appears
+- confirm Open and Close both work
+
+Report:
+- files changed
+- layout root cause
+- how the DNA summary traits are calculated
+- commit hash
+- Vercel deployment status
+- PASS or FAIL for each mobile test
