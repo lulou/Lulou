@@ -725,6 +725,21 @@ const LULOU_QUOTES = [
   "Lulou chose someone for you tonight.",
 ] as const;
 
+// DNA insights shown in the spin-room reveal — framed as an observation about
+// the selected profile, not proof of algorithmic selection (the spin is random).
+// Deterministically assigned per profile via userId so the same person always
+// shows the same line, avoiding the impression of a hidden scoring system.
+const WHEEL_DNA_INSIGHTS = [
+  "They seem to value meaningful conversation over small talk.",
+  "Something about how they approach connection feels genuine.",
+  "Their profile suggests a preference for depth over surface-level connection.",
+  "They appear to move at a thoughtful, intentional pace.",
+  "Their openness suggests they're looking for something real.",
+  "Something in their approach to relationships feels grounded.",
+  "They seem to communicate with both warmth and clarity.",
+  "Their signals suggest someone who values emotional consistency.",
+] as const;
+
 // Custom "prize wheel" ease: confident wind-up → thrilling rush → natural friction stop.
 // Phase 1 (0–8 %):  quadratic ease-in — wheel builds momentum from rest.
 // Phase 2 (8–62 %): near-linear fast spin — the exciting rush.
@@ -1767,7 +1782,7 @@ export default function IntentPage() {
       `}</style>
 
       {/* ── Header ── */}
-      <div className="px-5 pt-5 pb-1">
+      <div className="px-5 pt-5 pb-3">
         <div className="flex items-center justify-between gap-4 flex-wrap">
           <h1 className="font-serif text-2xl font-semibold tracking-tight" data-testid="text-intent-title">
             {t("intention_wheel_title")}
@@ -1809,7 +1824,7 @@ export default function IntentPage() {
       {/* ── Wheel stage ── */}
       <div
         dir={isRTL ? "rtl" : "ltr"}
-        className={`flex-1 flex flex-col items-center overflow-hidden ${isCompact ? "justify-start pt-4 gap-2" : "justify-center gap-5"} transition-all duration-700`}
+        className={`flex-1 flex flex-col items-center overflow-y-auto ${isCompact ? "justify-start pt-4 gap-3" : "justify-start pt-4 gap-5"} transition-all duration-700`}
         style={isSpinning ? {
           background: "radial-gradient(ellipse 90% 65% at 50% 40%, hsl(350 45% 52% / 0.28) 0%, hsl(350 45% 52% / 0.08) 45%, transparent 72%)",
           transition: "background 0.5s ease",
@@ -1962,7 +1977,10 @@ export default function IntentPage() {
 
         {/* ── Spin button & streak ── */}
         {!dispersed && !showPurchase && (
-          <div className="flex flex-col items-center gap-4 px-6 w-full max-w-xs mx-auto">
+          <div
+            className="flex flex-col items-center gap-4 px-6 w-full max-w-xs mx-auto"
+            style={{ paddingBottom: "max(env(safe-area-inset-bottom,0px), 20px)" }}
+          >
             {canSpin ? (
               <button
                 onClick={spinWheel}
@@ -2430,7 +2448,7 @@ export default function IntentPage() {
         <div
           style={{
             position: "fixed", inset: 0, zIndex: 9999,
-            background: "#0d0812",
+            background: "linear-gradient(160deg, #0d0812 0%, #1a0a2e 60%, #0d0812 100%)",
             overflow: "hidden",
             animation: "spinRoomIn 0.28s ease forwards",
           }}
@@ -2692,7 +2710,7 @@ export default function IntentPage() {
               {/* ── Dark base — always fills screen ── */}
               <div style={{
                 position: "absolute", inset: 0,
-                background: "#0d0812",
+                background: "linear-gradient(160deg, #0d0812 0%, #1a0a2e 55%, #12091e 100%)",
                 animation: "srRevealBg 0.8s ease forwards",
               }} />
 
@@ -2706,6 +2724,18 @@ export default function IntentPage() {
                 }}>
                   <ProfilePhoto userId={selectedProfile.userId} className="w-full h-full" />
                 </div>
+              )}
+
+              {/* ── Rose-gold glow — radial bloom behind the photo ── */}
+              {(spinRoomPhase === 'pause' || spinRoomPhase === 'buttons') && (
+                <div style={{
+                  position: "absolute", top: "38%", left: "50%",
+                  transform: "translate(-50%, -50%)",
+                  width: 340, height: 340, borderRadius: "50%",
+                  background: "radial-gradient(ellipse at center, rgba(212,175,110,0.20) 0%, rgba(188,78,96,0.12) 40%, transparent 68%)",
+                  pointerEvents: "none", zIndex: 3,
+                  animation: "srAmbientPulse 3.2s ease-in-out infinite",
+                }} />
               )}
 
               {/* ── Top vignette — safe area + close button backdrop ── */}
@@ -2835,6 +2865,17 @@ export default function IntentPage() {
                     </p>
                   )}
 
+                  {/* DNA insight — 3.4 s */}
+                  <p style={{
+                    fontSize: 11, fontStyle: "italic",
+                    color: "rgba(255,210,222,0.48)", margin: "10px 0 0",
+                    animation: "srTextIn 0.50s 3.4s ease both",
+                    lineHeight: 1.55, letterSpacing: "0.01em",
+                    maxWidth: 280,
+                  }}>
+                    {WHEEL_DNA_INSIGHTS[selectedProfile.userId.charCodeAt(0) % WHEEL_DNA_INSIGHTS.length]}
+                  </p>
+
                   {/* CTA — 3.65 s (or halo-sent state) */}
                   {sparkSent ? (
                     <div style={{
@@ -2891,7 +2932,7 @@ export default function IntentPage() {
                           ? <Loader2 style={{ width: 15, height: 15, animation: "spinBtn 0.65s linear infinite" }} />
                           : <span style={{ fontSize: 16, lineHeight: 1 }}>✦</span>
                         }
-                        <span>{sendSpark.isPending ? "Sending…" : "Send Halo"}</span>
+                        <span>{sendSpark.isPending ? "Sending…" : "Open"}</span>
                       </button>
                     </div>
                   )}

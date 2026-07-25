@@ -29,6 +29,54 @@ function clearLocalProgress() {
   try { localStorage.removeItem(LS_KEY); } catch {}
 }
 
+// ── Trait computation ─────────────────────────────────────────────────────────
+// Scores 15 dimensions using the same answer-weight table the server uses, then
+// picks the top 4 dimensions by absolute deviation from the neutral midpoint (50)
+// — the most *characteristic* signals — and maps each to an evocative label.
+function computeTopTraits(responses: Record<string, number>): string[] {
+  const NEUTRAL = 50;
+  const accum: Record<string, number[]> = {};
+
+  for (const q of DNA_QUESTIONS) {
+    const idx = responses[q.id];
+    if (idx == null || idx < 0 || idx >= q.answers.length) continue;
+    for (const [dim, val] of Object.entries(q.answers[idx].weights)) {
+      if (!accum[dim]) accum[dim] = [];
+      accum[dim].push(val as number);
+    }
+  }
+
+  const scores: Record<string, number> = {};
+  for (const [dim, vals] of Object.entries(accum)) {
+    scores[dim] = Math.round(vals.reduce((a, b) => a + b, 0) / vals.length);
+  }
+
+  // Labels vary with the actual score direction so they reflect the user's choices
+  const TRAIT_MAP: Record<string, (s: number) => string> = {
+    commDirectness:    s => s >= 62 ? "Direct communicator"           : s <= 38 ? "Reads between the lines"       : "Thoughtful communicator",
+    emotionalDepth:    s => s >= 62 ? "Emotionally intentional"       : s <= 38 ? "Keeps things light"            : "Emotionally balanced",
+    affectionStyle:    s => s >= 62 ? "Affectionate by nature"        : s <= 38 ? "Quietly devoted"               : "Shows care through actions",
+    socialEnergy:      s => s >= 62 ? "Energised by people"           : s <= 38 ? "Cherishes quiet connection"    : "Comfortably social",
+    independence:      s => s >= 62 ? "Values personal space"         : s <= 38 ? "Seeks deep togetherness"       : "Balances closeness and space",
+    conflictRepair:    s => s >= 62 ? "Resolves conflict openly"      : s <= 38 ? "Needs time to process"         : "Works through disagreement",
+    datingPace:        s => s >= 62 ? "Connects quickly"              : s <= 38 ? "Slow-burn connection"          : "Takes time to feel sure",
+    planningStyle:     s => s >= 62 ? "Values structure"              : s <= 38 ? "Spontaneous at heart"          : "Balances plans and flow",
+    futureAlignment:   s => s >= 62 ? "Clear about the future"        : s <= 38 ? "Open to where life leads"      : "Future-aware",
+    playfulness:       s => s >= 62 ? "Playful and lighthearted"      : s <= 38 ? "Grounded and thoughtful"       : "Earnest with a lighter side",
+    commFrequency:     s => s >= 62 ? "Loves staying connected"       : s <= 38 ? "Communicates with purpose"     : "Consistent communicator",
+    ambitionPriority:  s => s >= 62 ? "Driven by purpose"             : s <= 38 ? "Values presence over ambition" : "Balances ambition and connection",
+    availabilityScore: s => s >= 62 ? "Fully invested in dating"      : s <= 38 ? "Dating around a full life"    : "Intentionally available",
+    lifestyle:         s => s >= 62 ? "Active, full lifestyle"        : s <= 38 ? "Calm and considered pace"      : "Balanced lifestyle",
+    seriousness:       s => s >= 62 ? "Relationship intentional"      : s <= 38 ? "Living in the moment"          : "Open to commitment",
+  };
+
+  return Object.entries(scores)
+    .filter(([dim]) => TRAIT_MAP[dim])
+    .sort(([, a], [, b]) => Math.abs(b - NEUTRAL) - Math.abs(a - NEUTRAL))
+    .slice(0, 4)
+    .map(([dim, score]) => TRAIT_MAP[dim](score));
+}
+
 export default function ConnectionDna() {
   const [, navigate]       = useLocation();
   const { toast }          = useToast();
@@ -186,28 +234,88 @@ export default function ConnectionDna() {
 
   // Completion screen
   if (step > TOTAL) {
+    const traits = computeTopTraits(responses);
+
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center px-6 py-12 bg-background">
-        <div className="max-w-md w-full text-center space-y-8">
-          <div className="flex flex-col items-center gap-4">
-            <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center">
-              <Check className="w-8 h-8 text-primary" />
+      <div className="min-h-screen flex flex-col bg-background">
+        <div className="flex-1 overflow-y-auto">
+          <div className="max-w-md mx-auto px-6 py-12 flex flex-col items-center text-center space-y-8">
+
+            {/* Icon + heading */}
+            <div className="flex flex-col items-center gap-4">
+              <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center">
+                <Dna className="w-8 h-8 text-primary" />
+              </div>
+              <div className="space-y-2">
+                <h2 className="font-serif text-3xl font-bold" data-testid="text-dna-complete-title">
+                  Your Connection DNA is ready
+                </h2>
+                <p className="text-muted-foreground leading-relaxed">
+                  Your answers help Lulou understand how you communicate, connect, build trust, and approach relationships.
+                </p>
+              </div>
             </div>
-            <div className="space-y-2">
-              <h2 className="font-serif text-3xl font-bold" data-testid="text-dna-complete-title">Your DNA is ready</h2>
-              <p className="text-muted-foreground leading-relaxed">
-                Lulou will now use your answers to find people who connect the way you do.
-              </p>
+
+            {/* Trait chips — computed from actual responses */}
+            {traits.length > 0 && (
+              <div className="w-full space-y-3">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-widest">
+                  Your strongest signals
+                </p>
+                <div className="flex flex-wrap justify-center gap-2">
+                  {traits.map((trait, i) => (
+                    <span
+                      key={i}
+                      className="px-4 py-2 rounded-full text-sm font-medium bg-primary/10 text-primary border border-primary/20"
+                    >
+                      {trait}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* What Lulou does with it */}
+            <div className="w-full bg-card border border-border/50 rounded-2xl p-6 space-y-4 text-left shadow-sm">
+              <p className="text-sm font-semibold text-foreground">How Lulou uses your DNA</p>
+              <div className="space-y-3">
+                {[
+                  "Ranks more compatible profiles higher on Discover",
+                  "Identifies shared values and communication styles",
+                  "Improves the quality of introductions over time",
+                  "Generates meaningful compatibility reasons",
+                  "Learns what type of connection works best for you",
+                ].map((item, i) => (
+                  <div key={i} className="flex items-start gap-3">
+                    <div className="w-5 h-5 rounded-full bg-primary/15 flex items-center justify-center flex-shrink-0 mt-0.5">
+                      <Check className="w-3 h-3 text-primary" />
+                    </div>
+                    <p className="text-sm text-muted-foreground leading-relaxed">{item}</p>
+                  </div>
+                ))}
+              </div>
             </div>
+
+            {/* Privacy note */}
+            <p className="text-xs text-muted-foreground/60 leading-relaxed px-2">
+              Your individual answers are private. Other members only see selected profile signals and compatibility insights.
+            </p>
+
+            {/* CTA */}
+            <div className="w-full pb-8">
+              <Button
+                className="w-full rounded-full h-12 text-base"
+                onClick={completeQuiz}
+                disabled={completing}
+                data-testid="button-finish-dna"
+              >
+                {completing
+                  ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Building your profile…</>
+                  : "See my connections"}
+              </Button>
+            </div>
+
           </div>
-          <Button
-            className="w-full rounded-full h-12 text-base"
-            onClick={completeQuiz}
-            disabled={completing}
-            data-testid="button-finish-dna"
-          >
-            {completing ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Building your profile…</> : "Discover matches"}
-          </Button>
         </div>
       </div>
     );
