@@ -1,0 +1,104 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ╔════════════════════════════════════════════════════════════════════╗
+  ║  LULOU — BIMI SVG TINY PS  ·  DRAFT FOR VISUAL APPROVAL ONLY     ║
+  ║  DO NOT PUBLISH, ACTIVATE, OR SUBMIT THIS FILE TO ANY DNS RECORD  ║
+  ║                                                                    ║
+  ║  Before production deployment:                                     ║
+  ║  1. Open in Inkscape or Illustrator                                ║
+  ║  2. Convert every <rect> / <path> to compound paths               ║
+  ║  3. Remove this comment block entirely                             ║
+  ║  4. Validate at https://bimigroup.org/bimi-generator/             ║
+  ║  5. Obtain a VMC (DigiCert / Entrust) or CMC before DNS publish   ║
+  ╚════════════════════════════════════════════════════════════════════╝
+
+  Design: Lulou dark-plum app icon
+    · Background  — radial gradient, dark plum #200e18 → #5e2a42
+    · Rounded rect — iOS-style corner radius (≈ 108/512 = 21 %)
+    · Monogram     — double-L serif, rose-pink #e8a4c0
+    · Heart        — same rose-pink, nestled between the two stems
+
+  Colour values picked from approved source PNG (image_1784941134673.png):
+    bg-centre   #5e2a42   rgb(94,  42,  66)
+    bg-edge     #200e18   rgb(32,  14,  24)
+    letter/heart #e8a4c0  rgb(232,164,192)
+-->
+<svg xmlns="http://www.w3.org/2000/svg"
+     version="1.2"
+     baseProfile="tiny-ps"
+     viewBox="0 0 512 512"
+     width="512"
+     height="512"
+     aria-label="Lulou">
+
+  <title>Lulou</title>
+  <desc>Lulou dating app — double-L monogram with heart on dark plum background</desc>
+
+  <defs>
+    <!-- Radial gradient replicates the 3-D depth glow of the approved icon -->
+    <radialGradient id="plum"
+                    cx="50%" cy="40%" r="68%"
+                    gradientUnits="userSpaceOnUse"
+                    fx="256" fy="205">
+      <stop offset="0%"   stop-color="#5e2a42"/>
+      <stop offset="50%"  stop-color="#3e1a2a"/>
+      <stop offset="100%" stop-color="#200e18"/>
+    </radialGradient>
+  </defs>
+
+  <!-- ── Dark plum rounded background ── -->
+  <rect x="0" y="0" width="512" height="512" rx="108" ry="108" fill="url(#plum)"/>
+
+  <!-- ══════════════════════════════════════════
+       LEFT  L  (smaller — matches approved art)
+       ══════════════════════════════════════════ -->
+
+  <!-- Top serif bar -->
+  <rect x="128" y="152" width="60" height="13" rx="1" fill="#e8a4c0"/>
+  <!-- Vertical stem -->
+  <rect x="145" y="152" width="28" height="196" rx="1" fill="#e8a4c0"/>
+  <!-- Horizontal foot -->
+  <rect x="145" y="318" width="90" height="30" rx="1" fill="#e8a4c0"/>
+  <!-- Bottom-left serif tab -->
+  <rect x="128" y="318" width="20" height="20" rx="1" fill="#e8a4c0"/>
+  <!-- Bottom-right serif tab -->
+  <rect x="223" y="318" width="18" height="20" rx="1" fill="#e8a4c0"/>
+
+  <!-- ══════════════════════════════════════════
+       RIGHT  L  (larger — matches approved art)
+       ══════════════════════════════════════════ -->
+
+  <!-- Top serif bar -->
+  <rect x="242" y="114" width="68" height="15" rx="1" fill="#e8a4c0"/>
+  <!-- Vertical stem -->
+  <rect x="258" y="114" width="34" height="258" rx="1" fill="#e8a4c0"/>
+  <!-- Horizontal foot -->
+  <rect x="258" y="340" width="130" height="36" rx="1" fill="#e8a4c0"/>
+  <!-- Bottom-left serif tab -->
+  <rect x="242" y="340" width="22" height="24" rx="1" fill="#e8a4c0"/>
+  <!-- Bottom-right serif tab / decorative spur -->
+  <rect x="376" y="340" width="26" height="24" rx="1" fill="#e8a4c0"/>
+  <!-- Small right-facing foot spur -->
+  <rect x="382" y="360" width="16" height="10" rx="1" fill="#e8a4c0"/>
+
+  <!-- ══════════════════════════════════════════
+       HEART  (between the two letter stems)
+       Centre ≈ x 218  y 295   height ≈ 80
+       ══════════════════════════════════════════ -->
+  <!--
+    Path description:
+      Start at the bottom tip (218, 348).
+      Left lobe: curve up-left to (172, 270), peaking at y≈258.
+      Right lobe: mirror curve up-right from (218, 265) to (264, 270).
+      Close back down to tip.
+  -->
+  <path d="M 218 348
+           C 200 332  172 312  172 284
+           C 172 258  190 245  205 252
+           C 210 255  218 265  218 265
+           C 218 265  226 255  231 252
+           C 246 245  264 258  264 284
+           C 264 312  236 332  218 348 Z"
+        fill="#e8a4c0"/>
+
+</svg>
