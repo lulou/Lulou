@@ -1,0 +1,90 @@
+Task #58 is approved. Switch to Build mode and implement it now.
+
+One correction before you build:
+
+Do not generate the Intention Wheel DNA insight from a userId hash or assign a generic observation per profile.
+
+The insight must be based on real Connection DNA data from both users.
+
+Use:
+- the viewer’s completed Connection DNA dimensions
+- the revealed profile’s completed Connection DNA dimensions
+- the existing compatibility scoring and reasons from server/connectionDna.ts or the existing compatibility API
+
+Show one short genuine shared insight, for example:
+
+“You both value calm communication and emotional consistency.”
+
+If either user has not completed Connection DNA, do not invent an insight. Show a neutral fallback such as:
+
+“Take a closer look and see where the conversation leads.”
+
+The random wheel result must remain random. The DNA insight only explains compatibility after the random person has been revealed; it must not imply the wheel selected the highest-scoring person.
+
+Proceed with all three approved changes:
+
+1. Premium Connection DNA completion screen
+2. Fix the cramped and overlapping Intention Wheel page
+3. Upgrade the full-screen wheel reveal
+
+Additional requirements:
+
+CONNECTION DNA COMPLETION
+
+- Keep “Your Connection DNA is ready”
+- Clearly explain how the answers improve Lulou
+- Show four traits calculated from the actual submitted answers
+- Do not show traits derived only from client-side guesses if the saved server profile is available
+- Preserve the user’s completed state
+- “See my connections” must complete the flow and route to Discover
+- Prevent double submission
+
+INTENTION WHEEL PAGE
+
+- Remove all overlap on iPhone Safari
+- Make the page vertically scrollable on smaller screens
+- Respect top and bottom safe areas
+- Keep the centre card visually dominant
+- Ensure names, thumbnails, supporting copy, Spin button and streak tracker each have their own clear space
+- Do not hide content behind the bottom navigation
+- Test with browser toolbars visible
+
+REVEAL SCREEN
+
+- Keep the dark charcoal/plum Intention Wheel palette
+- Add subtle rose-gold glow and refined depth
+- Avoid excessive blur or casino-style animation
+- Show candidate name and age clearly
+- Show one real Connection DNA compatibility insight where available
+- Keep Open and Close actions unchanged internally
+- Only change the visible “Send Halo” label to “Open” if that action genuinely performs the existing Open behaviour
+- Do not rename an unrelated sendSpark action misleadingly
+
+TESTING
+
+Run these exact checks:
+
+1. Complete the DNA quiz
+2. Confirm the new explanation screen appears
+3. Confirm all four traits match the submitted answers
+4. Refresh on the completion screen and confirm state remains correct
+5. Press “See my connections”
+6. Open the Intention Wheel on iPhone width
+7. Confirm no overlap or cramped sections
+8. Confirm the page scrolls with Safari toolbars visible
+9. Trigger the reveal
+10. Confirm the centre profile remains clear
+11. Confirm the insight is based on actual compatibility data
+12. Confirm Open works
+13. Confirm Close works
+14. Confirm the random-spin wording remains accurate
+
+Then report:
+- files changed
+- exact overlap root cause
+- how completion traits are calculated
+- how the reveal insight is calculated
+- fallback behaviour when DNA is unavailable
+- commit hash
+- Vercel deployment status
+- PASS or FAIL for every test
