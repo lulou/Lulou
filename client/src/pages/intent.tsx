@@ -967,6 +967,18 @@ export default function IntentPage() {
   // Quote shown in reveal stage — picked once when winner lands
   const [revealQuote, setRevealQuote] = useState<string>("");
 
+  // Real DNA compatibility reason for the spin-room reveal.
+  // Uses /api/dna/reasons/:id → generateReasons(viewerDna, candidateDna) which produces
+  // phrases like "You both value calm communication and emotional consistency."
+  // Falls back to a neutral phrase when either user hasn't completed Connection DNA.
+  const { data: dnaReasonsData } = useQuery<{ reasons: string[]; total: number }>({
+    queryKey: ["/api/dna/reasons", selectedProfile?.userId],
+    enabled: !!selectedProfile?.userId && showSpinRoom,
+    staleTime: 10 * 60 * 1000,
+  });
+  const spinRoomInsight: string =
+    dnaReasonsData?.reasons?.[0] ?? "Take a closer look and see where the conversation leads.";
+
   // SpinRoom cinematic phase — drives what's visible at each moment
   type SpinPhase = 'idle' | 'accelerate' | 'fast' | 'slow' | 'approach' | 'pullforward' | 'arrive' | 'reveal' | 'pause' | 'buttons';
   const [spinRoomPhase, setSpinRoomPhase] = useState<SpinPhase>('idle');
@@ -1004,7 +1016,9 @@ export default function IntentPage() {
   const isCompact = viewportH < 700;
   const itemWidth  = viewportW < 380 ? 118 : viewportW < 430 ? 136 : ITEM_WIDTH;
   const itemHeight = Math.round(itemWidth * (ITEM_HEIGHT / ITEM_WIDTH));
-  const wheelBufferY = isCompact ? 80 : viewportW < 380 ? 130 : 160;
+  // wheelBufferY = space below the card centre — must fit the name/age caption.
+  // Formula: needs >= itemHeight * 0.10 + 96 px (card overhang + caption + margin).
+  const wheelBufferY = isCompact ? 110 : viewportW < 380 ? 144 : 170;
 
   const glide = useCallback(() => {
     velocity.current *= 0.94;
@@ -1936,15 +1950,8 @@ export default function IntentPage() {
                   data-testid={`intent-profile-${i}`}
                 >
                   <ProfilePhoto userId={profile.userId} className="w-full h-full pointer-events-none" />
-                  <div style={{ position: "absolute", inset: 0, background: "linear-gradient(175deg, rgba(0,0,0,0) 35%, rgba(0,0,0,0.10) 58%, rgba(0,0,0,0.82) 100%)", pointerEvents: "none" }} />
-                  <div style={{
-                    position: "absolute", bottom: 0, left: 0, right: 0, padding: "10px 12px 13px", pointerEvents: "none",
-                    animation: isSelected && !dispersed ? "profileNameAppear 0.4s 0.2s ease both" : undefined,
-                  }}>
-                    <p style={{ color: "#fff", fontSize: 13, fontWeight: 700, letterSpacing: "0.01em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", textShadow: "0 1px 8px rgba(0,0,0,0.65)" }}>
-                      {profile.firstName}{profile.age ? `, ${profile.age}` : ""}
-                    </p>
-                  </div>
+                  {/* Subtle bottom depth gradient — name is now rendered BELOW the card */}
+                  <div style={{ position: "absolute", inset: 0, background: "linear-gradient(175deg, rgba(0,0,0,0) 55%, rgba(0,0,0,0.06) 78%, rgba(0,0,0,0.22) 100%)", pointerEvents: "none" }} />
                   {isSelected && !dispersed && (
                     <div style={{ position: "absolute", inset: 0, borderRadius: 20, boxShadow: "inset 0 0 0 2.5px rgba(255,255,255,0.80)", pointerEvents: "none" }} />
                   )}
@@ -1965,6 +1972,41 @@ export default function IntentPage() {
               pointerEvents: "none", zIndex: 200,
               transition: "border-color 0.4s, box-shadow 0.4s",
             }} />
+          )}
+
+          {/* ── Name + age caption — rendered below the selected card, never on the face ── */}
+          {/* Sits in the wheelBufferY space below the card centre; zIndex 210 keeps it above all cards */}
+          {selectedIndex !== null && items[selectedIndex] && !isSpinning && !dispersed && (
+            <div
+              style={{
+                position: "absolute",
+                top: `calc(50% + ${Math.round(itemHeight * 1.10 / 2 + 10)}px)`,
+                left: 0, right: 0,
+                textAlign: "center",
+                pointerEvents: "none",
+                zIndex: 210,
+                padding: "0 32px",
+              }}
+            >
+              <p style={{
+                color: "#fff",
+                fontSize: isCompact ? 13 : 15,
+                fontWeight: 700,
+                letterSpacing: "0.015em",
+                textShadow: "0 1px 14px rgba(0,0,0,0.85), 0 2px 28px rgba(0,0,0,0.65)",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+                animation: "profileNameAppear 0.4s 0.25s ease both",
+                lineHeight: 1.3,
+                margin: 0,
+              }}>
+                {items[selectedIndex].firstName}
+                {items[selectedIndex].age
+                  ? <span style={{ fontWeight: 400, opacity: 0.70 }}>, {items[selectedIndex].age}</span>
+                  : null}
+              </p>
+            </div>
           )}
         </div>
 
@@ -2873,7 +2915,7 @@ export default function IntentPage() {
                     lineHeight: 1.55, letterSpacing: "0.01em",
                     maxWidth: 280,
                   }}>
-                    {WHEEL_DNA_INSIGHTS[selectedProfile.userId.charCodeAt(0) % WHEEL_DNA_INSIGHTS.length]}
+                    {spinRoomInsight}
                   </p>
 
                   {/* CTA — 3.65 s (or halo-sent state) */}
@@ -2932,7 +2974,7 @@ export default function IntentPage() {
                           ? <Loader2 style={{ width: 15, height: 15, animation: "spinBtn 0.65s linear infinite" }} />
                           : <span style={{ fontSize: 16, lineHeight: 1 }}>✦</span>
                         }
-                        <span>{sendSpark.isPending ? "Sending…" : "Open"}</span>
+                        <span>{sendSpark.isPending ? "Sending…" : "Send Halo"}</span>
                       </button>
                     </div>
                   )}
