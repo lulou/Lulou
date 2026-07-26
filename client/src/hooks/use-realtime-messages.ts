@@ -13,14 +13,17 @@ export function useRealtimeMessages(
   matchId: string | undefined,
   enabled: boolean,
   onVoiceNoteUnlock?: () => void,
+  onFirstCallUnlock?: () => void,
 ) {
   const queryClient = useQueryClient();
   const broadcastChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const pgChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
-  // Ref-based callback so the channel setup effect never needs to re-run when the
-  // callback identity changes (avoids unnecessary reconnects).
+  // Ref-based callbacks so the channel setup effect never needs to re-run when
+  // callback identities change (avoids unnecessary channel reconnects).
   const onVoiceNoteUnlockRef = useRef(onVoiceNoteUnlock);
   useEffect(() => { onVoiceNoteUnlockRef.current = onVoiceNoteUnlock; }, [onVoiceNoteUnlock]);
+  const onFirstCallUnlockRef = useRef(onFirstCallUnlock);
+  useEffect(() => { onFirstCallUnlockRef.current = onFirstCallUnlock; }, [onFirstCallUnlock]);
 
   // Shared handler — called by both broadcast and postgres_changes.
   // Writes to TWO caches:
@@ -195,6 +198,10 @@ export function useRealtimeMessages(
       .on("broadcast", { event: "voice-note-unlock" }, () => {
         console.log("[VOICE_NOTE_REALTIME] unlock event received", { matchId: matchId.slice(0, 8) });
         onVoiceNoteUnlockRef.current?.();
+      })
+      .on("broadcast", { event: "first-call-unlock" }, () => {
+        console.log("[FIRST_CALL_REALTIME] unlock event received", { matchId: matchId.slice(0, 8) });
+        onFirstCallUnlockRef.current?.();
       })
       .subscribe((status) => {
         console.log("[CHAT_REALTIME] broadcast channel status", { matchId: matchId.slice(0, 8), status });

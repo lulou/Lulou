@@ -2640,6 +2640,19 @@ export async function registerRoutes(
       });
       if (IS_DEV) console.log(`[MSG] broadcast: ${Date.now() - tBcast0} ms`);
 
+      // ── Milestone broadcast: notify the OTHER user immediately ───────────────
+      // The sender gets the event from progressionEvent in the response body.
+      // Broadcasting to the chat channel ensures the other user receives their
+      // celebration without waiting for the 60-second entitlement poll, even
+      // across different devices or network conditions.
+      if (progressionEvent) {
+        const broadcastEvent = progressionEvent.type === "voice_notes_unlocked"
+          ? "voice-note-unlock"
+          : "first-call-unlock";
+        broadcastViaHttpApi(`chat:${matchId}`, broadcastEvent, { matchId }).catch(() => {});
+        console.log("[PROGRESSION] MILESTONE_BROADCAST_SENT", { event: broadcastEvent, matchId, userId: userId.slice(0, 8) });
+      }
+
       // ── Respond — sender UI confirms delivery ──
       // progressionEvent is non-null only when this message crossed a milestone threshold.
       if (IS_DEV) console.log(`[MSG] total send route: ${Date.now() - t0} ms`);
@@ -2746,6 +2759,47 @@ export async function registerRoutes(
       const matchId = req.params.matchId;
       console.log("[CALL_START] CALL_REQUEST_STARTED", { path: "/api/matches/:matchId/call/start", matchId, userId, timestamp: new Date().toISOString() });
       console.log("[CALL_START] CALL_SESSION_CHECKED", { path: "/api/matches/:matchId/call/start", matchId, userId, timestamp: new Date().toISOString() });
+
+      // ── Server-side milestone acknowledgement gate ─────────────────────────
+      // Blocks call start until the user has acknowledged all pending milestones.
+      // Cannot be bypassed by refreshing, a second device, or an altered frontend.
+      // Only applies to the FIRST call (callStage === 0); later calls skip this.
+      {
+        const gateStorage = getStorage(req);
+        const gateMeta = await gateStorage.getMatchMeta(matchId, userId);
+        if (!gateMeta) return res.status(404).json({ message: "Match not found" });
+
+        if ((gateMeta.callStage ?? 0) === 0) {
+          const isUser1 = gateMeta.user1Id === userId;
+          const myCount    = isUser1 ? (gateMeta.messageCount1 ?? 0) : (gateMeta.messageCount2 ?? 0);
+          const theirCount = isUser1 ? (gateMeta.messageCount2 ?? 0) : (gateMeta.messageCount1 ?? 0);
+
+          // Gate 1: voice-note milestone must be acknowledged
+          if (myCount >= 8 && theirCount >= 8) {
+            const [vnRow] = await db.select({ m: voiceNotePopupSeen.matchId })
+              .from(voiceNotePopupSeen)
+              .where(and(eq(voiceNotePopupSeen.matchId, matchId), eq(voiceNotePopupSeen.userId, userId)))
+              .limit(1);
+            if (!vnRow) {
+              console.log("[CALL_START] BLOCKED_VN_MILESTONE_PENDING", { matchId, userId: userId.slice(0, 8) });
+              return res.status(403).json({ message: "milestone_pending", milestone: "voice_notes_unlocked" });
+            }
+          }
+
+          // Gate 2: first-call milestone must be acknowledged
+          if (myCount >= 15 && theirCount >= 15) {
+            const [fcRow] = await db.select({ m: firstCallPromptSeen.matchId })
+              .from(firstCallPromptSeen)
+              .where(and(eq(firstCallPromptSeen.matchId, matchId), eq(firstCallPromptSeen.userId, userId)))
+              .limit(1);
+            if (!fcRow) {
+              console.log("[CALL_START] BLOCKED_FC_MILESTONE_PENDING", { matchId, userId: userId.slice(0, 8) });
+              return res.status(403).json({ message: "milestone_pending", milestone: "first_call_unlocked" });
+            }
+          }
+        }
+      }
+
       const { isPaidCredit } = req.body;
       const result = await serverStorage.startCall(matchId, userId, !!isPaidCredit);
       if (!result) {

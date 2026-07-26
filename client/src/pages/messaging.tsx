@@ -593,12 +593,28 @@ export default function Messaging() {
   // Set to true when the first-call milestone fires while the VN popup is still open.
   // After VN is dismissed, this triggers the first-call celebration immediately.
   const [pendingFirstCallCelebration, setPendingFirstCallCelebration] = useState(false);
-  // Realtime unlock: instantly mark entitlement cache as unlocked when the broadcast fires.
+  // Realtime VN unlock: instantly mark cache as unlocked when the broadcast fires.
+  // The recovery useEffect then shows the popup if popupSeen is still false.
   const onVoiceNoteUnlock = useCallback(() => {
     queryClient.setQueryData(
       ["/api/voice-notes/entitlement", matchId],
       (old: any) => old ? { ...old, unlocked: true } : { unlocked: true, popupSeen: false },
     );
+  }, [matchId, queryClient]);
+
+  // Realtime first-call unlock: fires on the OTHER user's client when the sender crossed
+  // the 15-message threshold. Routes through pendingFirstCallCelebration so the 1.5s
+  // "return to chat" delay and VN-open guard apply uniformly for both users.
+  const onFirstCallUnlock = useCallback(() => {
+    queryClient.setQueryData(
+      ["/api/voice-notes/entitlement", matchId],
+      (old: any) => old
+        ? { ...old, firstCallUnlocked: true }
+        : { unlocked: true, popupSeen: true, firstCallUnlocked: true, firstCallPromptSeen: false },
+    );
+    if (!localStorage.getItem(`fc_popup_${matchId}`)) {
+      setPendingFirstCallCelebration(true);
+    }
   }, [matchId, queryClient]);
 
   // Recording state
@@ -726,10 +742,8 @@ export default function Messaging() {
     }
   }, [voiceNotesUnlocked, voiceNoteData?.popupSeen, matchId]);
 
-  // Show the one-time first-call unlock popup when:
-  //   • firstCallUnlocked is true (both users reached 15 messages each way)
-  //   • firstCallPromptSeen is false (server has not yet recorded this user seeing it)
-  //   • voice-note popup is NOT currently open (no overlapping modals)
+  // Polling recovery: detects FC unlock via the 60s entitlement poll and routes it
+  // through pendingFirstCallCelebration so the 1.5s delay and VN-open guard apply.
   useEffect(() => {
     if (
       firstCallUnlocked &&
@@ -737,9 +751,27 @@ export default function Messaging() {
       !voiceNotePopupOpen &&
       !localStorage.getItem(`fc_popup_${matchId}`)
     ) {
-      setFirstCallPopupOpen(true);
+      setPendingFirstCallCelebration(true);
     }
   }, [firstCallUnlocked, voiceNoteData?.firstCallPromptSeen, voiceNotePopupOpen, matchId]);
+
+  // ── First-call celebration gate ────────────────────────────────────────────
+  // Fires when pendingFirstCallCelebration is true AND VN popup is not open.
+  // The 1500ms delay gives the user a brief "return to chat" moment, satisfying
+  // the spec requirement that FC does not open in the same render tick as VN dismiss.
+  useEffect(() => {
+    if (!pendingFirstCallCelebration) return;
+    if (voiceNotePopupOpen) return; // wait for VN to be dismissed first
+    if (localStorage.getItem(`fc_popup_${matchId}`)) {
+      setPendingFirstCallCelebration(false); // already seen on another device
+      return;
+    }
+    const t = setTimeout(() => {
+      setPendingFirstCallCelebration(false);
+      setFirstCallPopupOpen(true);
+    }, 1500);
+    return () => clearTimeout(t);
+  }, [pendingFirstCallCelebration, voiceNotePopupOpen, matchId]);
 
   // Clean up the MediaRecorder on unmount.
   // Do NOT stop the module-level mic stream — it must survive component remounts
@@ -807,7 +839,7 @@ export default function Messaging() {
     enabled: !!matchId,
   });
 
-  const { broadcastNewMessage } = useRealtimeMessages(matchId, !!matchId, onVoiceNoteUnlock);
+  const { broadcastNewMessage } = useRealtimeMessages(matchId, !!matchId, onVoiceNoteUnlock, onFirstCallUnlock);
 
   const sendMessage = useMutation({
     mutationFn: async (vars: { content: string; tempId: string }) => {
@@ -900,13 +932,9 @@ export default function Messaging() {
             ? { ...old, unlocked: true, firstCallUnlocked: true }
             : { unlocked: true, popupSeen: true, firstCallUnlocked: true, firstCallPromptSeen: false },
         );
-        // If VN popup is still showing (VN + call thresholds hit in the same session without dismiss),
-        // queue the first-call celebration so it shows immediately after VN is acknowledged.
-        if (voiceNotePopupOpen || voiceNoteData?.popupSeen === false) {
-          setPendingFirstCallCelebration(true);
-        } else {
-          setFirstCallPopupOpen(true);
-        }
+        // Always route through pendingFirstCallCelebration so the 1.5s delay and
+        // VN-open guard apply uniformly for the sender (same as the other user).
+        setPendingFirstCallCelebration(true);
       }
     },
     onError: (error: Error, _vars: any, context: any) => {
@@ -1998,11 +2026,9 @@ export default function Messaging() {
                     (old: any) => old ? { ...old, popupSeen: true } : old,
                   );
                   apiRequest("POST", `/api/voice-notes/popup-seen/${matchId}`).catch(() => {});
-                  // If first-call milestone was queued while this popup was open, show it now.
-                  if (pendingFirstCallCelebration) {
-                    setPendingFirstCallCelebration(false);
-                    setFirstCallPopupOpen(true);
-                  }
+                  // pendingFirstCallCelebration is handled by the useEffect above:
+                  // it waits for voiceNotePopupOpen to become false, then adds the
+                  // 1.5s "return to chat" delay before opening the FC celebration.
                 }}
                 data-testid="button-voice-note-popup-continue"
               >
