@@ -1,0 +1,57 @@
+Task #62 code verification is accepted, but correct the deployment report and run the real production interaction test.
+
+DEPLOYMENT CORRECTION
+
+Lulou production uses:
+
+- Frontend: Vercel
+- Backend/API: Railway
+- Source branch: GitHub main
+
+Do not report that the project deploys only through Replit Deploy.
+
+Verify:
+
+- commit 76fa6f0 is present on origin/main
+- Vercel production deployed a commit containing 76fa6f0
+- the live production domain contains the interleaved-photo layout
+- Railway was not unnecessarily changed for this frontend-only task
+
+REAL IPHONE SAFARI TEST
+
+The 58 automated assertions validate the insertion algorithm, but they do not prove the swipe interaction feels unchanged.
+
+Test the deployed Discover page on iPhone Safari with a six-photo profile.
+
+Report PASS or FAIL for:
+
+1. Hero photo appears first.
+2. Every additional photo appears exactly once.
+3. Photos remain in saved order.
+4. Photos are distributed through the written profile.
+5. Vertical scrolling is smooth.
+6. Slow vertical scrolling does not pull the card sideways.
+7. Fast vertical scrolling does not trigger a swipe action.
+8. A small horizontal pull snaps back exactly as before.
+9. A full left swipe performs the same existing action.
+10. A full right swipe performs the same existing action.
+11. Horizontal swipe starting directly on an inserted photo works.
+12. Card resistance and rotation feel unchanged.
+13. Next-card transition is unchanged.
+14. Open/Send Halo still works.
+15. Close/moon still works.
+16. Bottom navigation remains usable.
+17. No inserted photo is hidden behind floating controls.
+18. No content is hidden behind Safari bars.
+
+Also test one-photo, three-photo and six-photo profiles visually.
+
+Provide:
+
+- deployed Vercel commit hash
+- production URL tested
+- screenshots of the six-photo layout
+- confirmation that discover.tsx was the only file changed
+- PASS or FAIL for every production test
+
+Do not mark Task #62 fully complete until the live iPhone swipe behaviour has been tested.

@@ -1,0 +1,67 @@
+Correct the deployment report and verify Task #63 in production.
+
+DEPLOYMENT
+
+Confirm:
+
+- commit 75482fa is on origin/main
+- Railway deployed the server changes from 75482fa
+- Vercel deployed the frontend changes from 75482fa
+- the production frontend is https://www.luloudating.com
+- the backend endpoint is running on Railway
+- Replit Deploy is not reported as the production source of truth
+
+REAL TWO-ACCOUNT TEST
+
+Use two fresh test accounts connected to the same match.
+
+At 7 messages each way:
+- voice notes locked
+- call locked
+- no celebration
+
+At 8 messages each way:
+- the user sending the decisive message sees the voice-note celebration immediately
+- the other user sees it through realtime within a few seconds
+- neither user waits for the 60-second poll
+- call controls are not visible
+- both users acknowledge independently
+
+Messages 9–14:
+- voice notes remain available
+- call remains locked
+- no popup repeats
+
+At 15 messages each way:
+- both users receive the first-call celebration promptly
+- no voice-note celebration reappears
+- no modal overlap
+- call controls remain hidden before acknowledgement
+
+Before acknowledgement:
+- attempt POST /api/matches/:matchId/call/start
+- confirm HTTP 403
+- confirm milestone_pending and the correct milestone value
+
+After acknowledgement:
+- confirm call start succeeds
+- confirm the 10-minute audio call controls appear
+
+Also verify:
+- refresh with an unacknowledged milestone resumes it
+- refresh after acknowledgement does not replay it
+- a second device cannot bypass the server gate
+- an old match already at callStage > 0 gets no historical popup
+- no celebration ever appears over visible call controls
+
+Report PASS or FAIL for every step, including the actual realtime delivery time for the second user.
+
+TASK #62
+
+Correct its deployment status as well:
+
+- frontend change deployed through Vercel
+- no Railway change required
+- production iPhone Safari swipe test still pending unless it was genuinely performed on a real device
+
+Do not mark Task #63 fully complete until the real two-account production test passes.
