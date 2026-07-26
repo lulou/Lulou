@@ -1,0 +1,332 @@
+Redesign the Discover profile layout so every uploaded photo is distributed evenly throughout the user’s full profile, while preserving the existing horizontal swipe/pull interaction exactly as it works now.
+
+CURRENT PROBLEM
+
+The main profile photo disappears almost immediately once the viewer starts scrolling.
+
+The rest of the profile becomes a long text-heavy page containing sections such as:
+
+- personality
+- conversation starters
+- “They’d love to know”
+- “Ask me”
+- looking for
+- green flags
+- connection pace
+- compatibility/profile information
+
+Users can upload up to 6 photos, so those photos should remain visible throughout the profile while someone reads about them.
+
+CORE REQUIREMENT
+
+Use however many photos the profile owner uploaded and distribute them evenly through the vertically scrollable profile content.
+
+The first/primary photo must remain the hero image.
+
+The remaining photos must appear progressively between the written profile sections in their saved order.
+
+Example for a complete 6-photo profile:
+
+1. Photo 1 — hero image
+2. Basic details and personality
+3. Photo 2
+4. Conversation starters
+5. Photo 3
+6. “They’d love to know”
+7. Photo 4
+8. “Ask me”
+9. Photo 5
+10. Looking for, green flags and connection pace
+11. Photo 6
+12. Remaining compatibility information and final actions
+
+Do not hardcode this exact structure only for six photos.
+
+DYNAMIC PHOTO DISTRIBUTION
+
+Build the written profile as an ordered array of content sections.
+
+Only include sections that actually contain data.
+
+Examples of content sections:
+
+- basic information
+- personality traits
+- conversation starters
+- “They’d love to know”
+- “Ask me”
+- looking for
+- green flags
+- connection pace
+- Connection DNA signals
+- remaining compatibility/profile information
+
+Then calculate photo insertion points dynamically using:
+
+- the number of uploaded photos
+- the number of photos remaining after the hero image
+- the number of content sections that actually contain information
+
+Spread the remaining photos across the available content sections as evenly as possible.
+
+The layout must adapt correctly:
+
+- 1 photo: hero photo only, followed by all written content
+- 2 photos: hero plus one photo around the middle
+- 3 photos: hero, one around the middle and one near the lower section
+- 4 photos: distribute across approximately four balanced profile areas
+- 5 photos: spread evenly without creating tiny or awkward text blocks
+- 6 photos: distribute through the complete profile as evenly as possible
+
+Do not place photos after fixed components regardless of whether those components exist.
+
+The distribution must remain balanced when:
+
+- personality traits are missing
+- conversation starters are missing
+- green flags are missing
+- questions are unanswered
+- the user uploaded fewer than six photos
+
+Every uploaded photo must appear exactly once.
+
+Keep the saved photo order:
+
+- primary photo first
+- remaining photos in their existing stored order
+
+PHOTO PRESENTATION
+
+Each inserted photo must:
+
+- appear as part of the existing vertically scrollable profile
+- be large and visually premium
+- use the full available width inside the profile card
+- preserve the source image proportions without stretching
+- use object-fit: cover
+- have consistent rounded corners
+- use a stable aspect-ratio or reserved height to prevent layout jumping
+- lazy-load every image below the hero
+- show a subtle placeholder while loading
+- remain sharp on retina displays
+- never overlap text, headings, buttons or sticky controls
+- use draggable={false}
+- prevent native browser image dragging
+- not create a separate carousel
+- not create nested horizontal scrolling
+
+Add meaningful alt text using the profile name and image position, for example:
+
+“Hamish profile photo 3 of 6”
+
+Do not repeat photos.
+
+NON-NEGOTIABLE: DO NOT BREAK THE EXISTING HORIZONTAL SWIPE/PULL
+
+The current Discover horizontal swipe/pull card interaction is already working and must remain functionally and visually identical.
+
+This task must only modify the vertically scrollable content inside the card.
+
+Do not rewrite, replace, simplify or reimplement the existing swipe system.
+
+Before editing anything, identify and document:
+
+- the outer swipeable card component
+- all pointer/touch/mouse gesture handlers
+- the current horizontal gesture threshold
+- the current velocity logic
+- the current direction-lock behaviour
+- the pull resistance
+- the card rotation
+- snap-back behaviour
+- dismiss animation
+- like/pass/Open actions
+- next-card transition
+- how floating Open and Close controls interact with the card
+
+Preserve all of that code unchanged unless a tiny isolated adjustment is absolutely necessary.
+
+The outer card wrapper and its swipe gesture handlers must remain in place.
+
+Implement the interleaved photos as ordinary vertical content inside the existing internal scroll container.
+
+GESTURE REQUIREMENTS
+
+- Vertical movement must scroll the profile.
+- Horizontal movement must pull the card.
+- Normal vertical scrolling must never move the card sideways.
+- Fast vertical scrolling must never trigger a like or pass.
+- Horizontal pulling must continue to work when the gesture begins directly on an inserted photo.
+- Direction must lock once the user’s intent becomes clear.
+- Diagonal gestures must resolve using the existing dominant-axis logic.
+- Preserve the current horizontal threshold and velocity calculations.
+- Preserve the same pull distance.
+- Preserve the same resistance.
+- Preserve the same rotation.
+- Preserve the same snap-back animation.
+- Preserve the same dismiss animation.
+- Preserve the same next-profile transition.
+- Preserve the same action triggered by left and right swipes.
+- Do not add gesture handlers directly to inserted photos.
+- Do not broadly use stopPropagation() or preventDefault() in a way that blocks the card gesture.
+- Do not introduce horizontal overflow.
+- Do not introduce an image carousel.
+- Do not introduce nested swipe areas.
+- Preserve iPhone Safari touch behaviour.
+
+A user must be able to begin a horizontal swipe anywhere on the card, including directly over an inserted photo, exactly as they can now.
+
+VERTICAL SCROLLING
+
+The full profile must remain smoothly vertically scrollable.
+
+Requirements:
+
+- no sticky section should trap scrolling
+- no inserted image should intercept vertical scroll
+- no scroll jumping when images load
+- no accidental card dismiss while reading
+- maintain the current scroll position behaviour
+- loading additional images must not reset the profile scroll
+- opening the next profile must retain the current existing reset behaviour
+
+STICKY AND FLOATING CONTROLS
+
+Keep the current:
+
+- Lulou header
+- profile name and verification badge
+- Open/Send Halo control
+- Close/moon control
+- bottom navigation
+- any existing photo progress indicator
+
+Make sure these controls:
+
+- do not cover inserted photos
+- do not cover written sections
+- remain tappable
+- retain their current actions
+- remain clear of iPhone safe areas
+- do not block scrolling or horizontal swiping
+
+MOBILE AND SAFARI REQUIREMENTS
+
+Optimise specifically for iPhone Safari.
+
+Requirements:
+
+- respect safe-area-inset-top
+- respect safe-area-inset-bottom
+- no content hidden behind the browser address bar
+- no content hidden behind bottom navigation
+- no horizontal page overflow
+- no clipped text
+- no overlapping headings or cards
+- no layout shift while images load
+- smooth scrolling with 6 photos
+- no performance stutter during horizontal card drag
+- reduced-motion preferences must continue to work
+
+TEST PROFILES
+
+Test all of these exact cases:
+
+1. One photo and all profile sections completed
+2. Two photos and only some questions answered
+3. Three photos with no personality traits
+4. Four photos with no conversation starters
+5. Five photos with several empty profile sections
+6. Six photos with every profile section completed
+
+For every case confirm:
+
+- every uploaded photo appears exactly once
+- photos remain in the correct stored order
+- photo spacing feels balanced
+- text sections are not split awkwardly
+- there are no duplicate images
+- there are no missing images
+- no content overlaps
+- profile scroll remains smooth
+- floating controls remain usable
+- bottom navigation does not cover content
+
+MANDATORY SWIPE REGRESSION TESTS
+
+Record the existing swipe behaviour before editing and compare it after the change.
+
+Run every test below:
+
+1. Small horizontal drag snaps back exactly as before.
+2. Full left swipe performs the same existing left-swipe action.
+3. Full right swipe performs the same existing right-swipe action.
+4. Pull resistance feels unchanged.
+5. Card rotation feels unchanged.
+6. Release velocity behaviour is unchanged.
+7. Dismiss animation is unchanged.
+8. Next-card transition is unchanged.
+9. Slow vertical scroll does not move the card horizontally.
+10. Fast vertical scroll does not move the card horizontally.
+11. A diagonal gesture resolves to the dominant direction correctly.
+12. Horizontal swipe starting directly on Photo 2 works.
+13. Horizontal swipe starting directly on Photo 5 works.
+14. Long vertical profile with six photos scrolls smoothly.
+15. No accidental pass or like fires while reading.
+16. Open/Send Halo still works.
+17. Close/moon still works.
+18. Bottom navigation still works.
+19. Existing card-stack layering remains unchanged.
+20. Profile scroll resets for the next person exactly as it currently does.
+
+IMPLEMENTATION SAFETY
+
+Do not ship this as one large unverified rewrite.
+
+Use a minimal, isolated layout change.
+
+Prefer:
+
+- one helper that builds the available content sections
+- one helper that calculates balanced photo insertion indexes
+- one render list that interleaves sections and images
+
+Do not duplicate the profile-section markup.
+
+Do not modify the database schema unless absolutely necessary.
+
+Do not change:
+
+- matching logic
+- photo upload limits
+- photo ordering
+- swipe actions
+- Open/Send Halo behaviour
+- Close behaviour
+- card-stack logic
+- Discover ranking
+- bottom navigation
+- user profile data
+
+If the interleaved layout cannot be implemented without changing or risking the existing swipe system, stop and report the exact technical conflict instead of shipping a broken interaction.
+
+FINAL REPORT
+
+Provide:
+
+- exact root cause of the current text-heavy layout
+- files changed
+- components added or modified
+- the dynamic photo insertion algorithm
+- examples of insertion positions for 1–6 photos
+- how empty profile sections are handled
+- how gesture conflicts are prevented
+- confirmation that the outer swipe wrapper and existing handlers remain unchanged
+- before-and-after swipe behaviour comparison
+- commit hash
+- branch pushed
+- Vercel deployment status
+- PASS or FAIL for every photo-count test
+- PASS or FAIL for every swipe regression test
+
+Do not mark this complete unless all uploaded photos are distributed dynamically and every existing horizontal swipe/pull behaviour remains unchanged.
