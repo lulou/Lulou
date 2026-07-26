@@ -2558,6 +2558,9 @@ export async function registerRoutes(
       const { callStage, user1Id, user2Id } = match;
 
       // ── Step 2: Stage-based message limit checks ──
+      // progressionEvent is included in the send response so the sender's client
+      // can open the milestone celebration immediately — no polling cycle needed.
+      let progressionEvent: { type: string; threshold: number } | null = null;
       if (callStage === 0) {
         const tCount0 = Date.now();
         const [messageCount, [extension]] = await Promise.all([
@@ -2576,6 +2579,25 @@ export async function registerRoutes(
         }
         if (messageCount === limit - 1) {
           console.log("[CONNECTION_STAGE] FIRST_CALL_UNLOCKED", { matchId, userId, messageCount });
+        }
+
+        // ── Milestone threshold detection ──────────────────────────────────
+        // newCount = this user's count AFTER this message is saved.
+        // theirCount = the other user's current count (unchanged by this send).
+        // We fire the event exactly when this user's send crosses the threshold
+        // AND the other user has already reached it too.
+        const VN_THRESHOLD = 8;
+        const FC_THRESHOLD = 15;
+        const theirCount = match.user1Id === userId
+          ? (match.messageCount2 ?? 0)
+          : (match.messageCount1 ?? 0);
+        const newCount = messageCount + 1;
+        if (newCount === VN_THRESHOLD && theirCount >= VN_THRESHOLD) {
+          progressionEvent = { type: "voice_notes_unlocked", threshold: VN_THRESHOLD };
+          console.log("[PROGRESSION] VN_THRESHOLD_CROSSED", { matchId, userId: userId.slice(0, 8), newCount, theirCount });
+        } else if (newCount === FC_THRESHOLD && theirCount >= FC_THRESHOLD) {
+          progressionEvent = { type: "first_call_unlocked", threshold: FC_THRESHOLD };
+          console.log("[PROGRESSION] FC_THRESHOLD_CROSSED", { matchId, userId: userId.slice(0, 8), newCount, theirCount });
         }
       } else if (callStage === 1) {
         // Post-first-call messaging phase: 25 messages each before date planning unlocks.
@@ -2619,8 +2641,9 @@ export async function registerRoutes(
       if (IS_DEV) console.log(`[MSG] broadcast: ${Date.now() - tBcast0} ms`);
 
       // ── Respond — sender UI confirms delivery ──
+      // progressionEvent is non-null only when this message crossed a milestone threshold.
       if (IS_DEV) console.log(`[MSG] total send route: ${Date.now() - t0} ms`);
-      res.json(message);
+      res.json({ ...message, progressionEvent });
 
       // ── Background post-processing (does not block the HTTP response) ──
       (async () => {
@@ -3342,9 +3365,18 @@ export async function registerRoutes(
       const [existing] = await db.select().from(voiceNoteUnlocks)
         .where(eq(voiceNoteUnlocks.matchId, matchId)).limit(1);
       if (existing) {
+        // Backfill: conversations that advanced to call_stage > 0 before the popup-seen
+        // system existed would show a late VN popup on their next entitlement poll.
+        // Silently mark it acknowledged so the popup never appears over call controls.
+        let effectivePopupSeen = popupSeen;
+        if (!popupSeen && callStage > 0) {
+          await db.insert(voiceNotePopupSeen).values({ matchId, userId }).onConflictDoNothing();
+          effectivePopupSeen = true;
+          console.log(`[PROGRESSION] VN_POPUP_BACKFILLED match=${matchId} userId=${userId.slice(0, 8)} callStage=${callStage}`);
+        }
         return res.json({
           unlocked: true,
-          popupSeen,
+          popupSeen: effectivePopupSeen,
           firstCallUnlocked,
           firstCallPromptSeen: firstCallPromptSeenFlag,
         });
@@ -3362,9 +3394,17 @@ export async function registerRoutes(
         console.log(`[VOICE_NOTE_UNLOCK] match=${matchId} stage=${callStage} count1=${count1} count2=${count2} → unlocked (byStage=${shouldUnlockByStage})`);
         // Broadcast realtime event so both connected clients update instantly.
         broadcastViaHttpApi(`chat:${matchId}`, "voice-note-unlock", { matchId }).catch(() => {});
+        // Backfill: retroactive unlock via callStage means the popup was never shown
+        // at the right moment — silently acknowledge it to prevent a late overlay.
+        let effectivePopupSeen = popupSeen;
+        if (!popupSeen && shouldUnlockByStage) {
+          await db.insert(voiceNotePopupSeen).values({ matchId, userId }).onConflictDoNothing();
+          effectivePopupSeen = true;
+          console.log(`[PROGRESSION] VN_POPUP_BACKFILLED_BY_STAGE match=${matchId} userId=${userId.slice(0, 8)}`);
+        }
         return res.json({
           unlocked: true,
-          popupSeen,
+          popupSeen: effectivePopupSeen,
           firstCallUnlocked,
           firstCallPromptSeen: firstCallPromptSeenFlag,
         });

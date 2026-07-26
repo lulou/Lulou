@@ -590,6 +590,9 @@ export default function Messaging() {
   const [voiceNotePopupOpen, setVoiceNotePopupOpen] = useState(false);
   // First-call unlock popup — shown once per user per match when both reach 15 messages.
   const [firstCallPopupOpen, setFirstCallPopupOpen] = useState(false);
+  // Set to true when the first-call milestone fires while the VN popup is still open.
+  // After VN is dismissed, this triggers the first-call celebration immediately.
+  const [pendingFirstCallCelebration, setPendingFirstCallCelebration] = useState(false);
   // Realtime unlock: instantly mark entitlement cache as unlocked when the broadcast fires.
   const onVoiceNoteUnlock = useCallback(() => {
     queryClient.setQueryData(
@@ -711,8 +714,10 @@ export default function Messaging() {
     }
   }, [voiceNotesUnlocked]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Show the one-time voice-note unlock popup when: unlocked AND server says not yet seen.
-  // localStorage is a fast local cache to prevent a flash before the next query response.
+  // Recovery guard: shows VN popup via polling if the progressionEvent was missed
+  // (e.g. a different device sent the threshold message, or browser was briefly offline).
+  // The server entitlement endpoint backfills popupSeen=true for callStage > 0 conversations,
+  // so this useEffect naturally stays dormant for those — no redundant stage guard needed.
   useEffect(() => {
     if (voiceNotesUnlocked && voiceNoteData?.popupSeen === false) {
       if (!localStorage.getItem(`vn_popup_${matchId}`)) {
@@ -872,6 +877,37 @@ export default function Messaging() {
       // Broadcast to receiver instantly (~50ms) via the realtime broadcast channel.
       // handleNewMessage on the receiver's side deduplicates via message ID.
       broadcastNewMessage(realMsg);
+
+      // ── Milestone progression events (server-authoritative) ───────────────
+      // The server response includes a progressionEvent when this message crossed
+      // the 8-message VN threshold or the 15-message first-call threshold.
+      // This fires the celebration immediately — no 60s polling cycle needed.
+      const event = (data as any).progressionEvent as { type: string; threshold: number } | null | undefined;
+      if (event?.type === "voice_notes_unlocked") {
+        // Update entitlement cache so voice-note features unlock immediately.
+        queryClient.setQueryData(
+          ["/api/voice-notes/entitlement", matchId],
+          (old: any) => old
+            ? { ...old, unlocked: true, popupSeen: false }
+            : { unlocked: true, popupSeen: false, firstCallUnlocked: false, firstCallPromptSeen: false },
+        );
+        setVoiceNotePopupOpen(true);
+      } else if (event?.type === "first_call_unlocked") {
+        // Update entitlement cache to reflect both milestones.
+        queryClient.setQueryData(
+          ["/api/voice-notes/entitlement", matchId],
+          (old: any) => old
+            ? { ...old, unlocked: true, firstCallUnlocked: true }
+            : { unlocked: true, popupSeen: true, firstCallUnlocked: true, firstCallPromptSeen: false },
+        );
+        // If VN popup is still showing (VN + call thresholds hit in the same session without dismiss),
+        // queue the first-call celebration so it shows immediately after VN is acknowledged.
+        if (voiceNotePopupOpen || voiceNoteData?.popupSeen === false) {
+          setPendingFirstCallCelebration(true);
+        } else {
+          setFirstCallPopupOpen(true);
+        }
+      }
     },
     onError: (error: Error, _vars: any, context: any) => {
       if (context?.previousMsgs) {
@@ -1561,7 +1597,7 @@ export default function Messaging() {
             <div ref={messagesEndRef} />
           </div>
 
-          {(isLimitReached || callStage >= 2) && !allCallsDone && !isCallRinging && !isCallActiveInDetail && !isDeclinedSession ? (
+          {(isLimitReached || callStage >= 2) && !allCallsDone && !isCallRinging && !isCallActiveInDetail && !isDeclinedSession && !voiceNotePopupOpen && !firstCallPopupOpen ? (
             <div className="p-4 border-t">
               <Card className="p-5 text-center space-y-3 bg-primary/5 border-primary/20">
                 <callPrompt.icon className="w-6 h-6 text-primary mx-auto" />
@@ -1927,60 +1963,97 @@ export default function Messaging() {
         returnPath={window.location.pathname}
       />
 
+      {/* ── Voice-note milestone celebration ── */}
       {voiceNotePopupOpen && (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 px-6" data-testid="dialog-voice-note-unlock">
-          <div className="bg-background rounded-2xl p-6 w-full max-w-xs shadow-xl text-center">
-            <p className="text-3xl mb-3">🎙️</p>
-            <h2 className="font-semibold text-lg mb-2">Voice notes unlocked</h2>
-            <p className="text-sm text-muted-foreground mb-5">
-              You've both sent 8 messages — voice notes are now open. Keep the conversation going.
-            </p>
-            <Button
-              className="w-full"
-              onClick={() => {
-                localStorage.setItem(`vn_popup_${matchId}`, "1");
-                setVoiceNotePopupOpen(false);
-                // Optimistically mark seen in cache so popup won't show again on re-mount
-                queryClient.setQueryData(
-                  ["/api/voice-notes/entitlement", matchId],
-                  (old: any) => old ? { ...old, popupSeen: true } : old,
-                );
-                // Persist to server so it's durable across devices
-                apiRequest("POST", `/api/voice-notes/popup-seen/${matchId}`).catch(() => {});
-              }}
-              data-testid="button-voice-note-popup-continue"
-            >
-              Continue
-            </Button>
+        <div className="fixed inset-0 z-[200] flex items-end justify-center bg-black/60 backdrop-blur-sm px-4 pb-8" data-testid="dialog-voice-note-unlock">
+          <div className="relative w-full max-w-sm rounded-3xl overflow-hidden shadow-2xl" style={{ background: "linear-gradient(145deg,#fdf6f0 0%,#fff8f5 55%,#fdf0f3 100%)" }}>
+            {/* Sparkle particles — hidden when prefers-reduced-motion */}
+            <div className="absolute inset-0 pointer-events-none overflow-hidden" aria-hidden="true">
+              <span className="absolute top-5 right-9 w-1.5 h-1.5 rounded-full bg-rose-300/70 motion-safe:animate-ping" style={{ animationDuration: "2s" }} />
+              <span className="absolute top-14 right-5 w-1 h-1 rounded-full bg-amber-300/60 motion-safe:animate-ping" style={{ animationDuration: "2.4s", animationDelay: "0.5s" }} />
+              <span className="absolute top-7 left-7 w-1 h-1 rounded-full bg-rose-200/80 motion-safe:animate-ping" style={{ animationDuration: "1.8s", animationDelay: "0.9s" }} />
+              <span className="absolute bottom-20 right-7 w-1.5 h-1.5 rounded-full bg-amber-200/60 motion-safe:animate-ping" style={{ animationDuration: "2.2s", animationDelay: "0.3s" }} />
+              <span className="absolute bottom-10 left-9 w-1 h-1 rounded-full bg-rose-300/50 motion-safe:animate-ping" style={{ animationDuration: "2.6s", animationDelay: "1.1s" }} />
+            </div>
+            <div className="relative px-8 pt-10 pb-8 text-center">
+              {/* Glow icon */}
+              <div className="mx-auto mb-5 w-20 h-20 rounded-full flex items-center justify-center" style={{ background: "linear-gradient(135deg,#fce7ef,#fdf2e9)", boxShadow: "0 0 28px rgba(244,114,141,0.35),0 0 56px rgba(244,114,141,0.18)" }}>
+                <span className="text-4xl" role="img" aria-label="microphone">🎙️</span>
+              </div>
+              <h2 className="font-serif text-2xl font-bold tracking-tight text-stone-800 mb-2">Voice notes unlocked</h2>
+              <p className="text-stone-600 text-sm leading-relaxed mb-1.5">
+                You've built enough momentum to hear each other properly.
+              </p>
+              <p className="text-stone-400 text-xs leading-relaxed mb-7">
+                Send a voice note and bring more personality into the conversation.
+              </p>
+              <button
+                className="w-full py-3.5 rounded-2xl text-sm font-semibold text-white transition-all active:scale-95"
+                style={{ background: "linear-gradient(135deg,#e8526a,#d4445c)" }}
+                onClick={() => {
+                  localStorage.setItem(`vn_popup_${matchId}`, "1");
+                  setVoiceNotePopupOpen(false);
+                  queryClient.setQueryData(
+                    ["/api/voice-notes/entitlement", matchId],
+                    (old: any) => old ? { ...old, popupSeen: true } : old,
+                  );
+                  apiRequest("POST", `/api/voice-notes/popup-seen/${matchId}`).catch(() => {});
+                  // If first-call milestone was queued while this popup was open, show it now.
+                  if (pendingFirstCallCelebration) {
+                    setPendingFirstCallCelebration(false);
+                    setFirstCallPopupOpen(true);
+                  }
+                }}
+                data-testid="button-voice-note-popup-continue"
+              >
+                Continue chatting
+              </button>
+            </div>
           </div>
         </div>
       )}
 
+      {/* ── First-call milestone celebration ── */}
       {firstCallPopupOpen && (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 px-6" data-testid="dialog-first-call-unlock">
-          <div className="bg-background rounded-2xl p-6 w-full max-w-xs shadow-xl text-center">
-            <p className="text-3xl mb-3">📞</p>
-            <h2 className="font-semibold text-lg mb-2">First call unlocked</h2>
-            <p className="text-sm text-muted-foreground mb-5">
-              You've both sent 15 messages. Time to hear each other's voices — schedule your first call below.
-            </p>
-            <Button
-              className="w-full"
-              onClick={() => {
-                localStorage.setItem(`fc_popup_${matchId}`, "1");
-                setFirstCallPopupOpen(false);
-                // Optimistically mark seen in cache so popup won't re-appear on re-mount
-                queryClient.setQueryData(
-                  ["/api/voice-notes/entitlement", matchId],
-                  (old: any) => old ? { ...old, firstCallPromptSeen: true } : old,
-                );
-                // Persist to server so it's durable across devices
-                apiRequest("POST", `/api/first-call/prompt-seen/${matchId}`).catch(() => {});
-              }}
-              data-testid="button-first-call-popup-continue"
-            >
-              Let's go
-            </Button>
+        <div className="fixed inset-0 z-[200] flex items-end justify-center bg-black/60 backdrop-blur-sm px-4 pb-8" data-testid="dialog-first-call-unlock">
+          <div className="relative w-full max-w-sm rounded-3xl overflow-hidden shadow-2xl" style={{ background: "linear-gradient(145deg,#fdf9f0 0%,#fffcf5 55%,#fdf6e8 100%)" }}>
+            {/* Sparkle particles */}
+            <div className="absolute inset-0 pointer-events-none overflow-hidden" aria-hidden="true">
+              <span className="absolute top-5 right-9 w-1.5 h-1.5 rounded-full bg-amber-300/70 motion-safe:animate-ping" style={{ animationDuration: "2s" }} />
+              <span className="absolute top-14 right-5 w-1 h-1 rounded-full bg-rose-300/50 motion-safe:animate-ping" style={{ animationDuration: "2.4s", animationDelay: "0.5s" }} />
+              <span className="absolute top-7 left-7 w-1 h-1 rounded-full bg-amber-200/80 motion-safe:animate-ping" style={{ animationDuration: "1.8s", animationDelay: "0.9s" }} />
+              <span className="absolute bottom-20 right-7 w-1.5 h-1.5 rounded-full bg-rose-200/60 motion-safe:animate-ping" style={{ animationDuration: "2.2s", animationDelay: "0.3s" }} />
+              <span className="absolute bottom-10 left-9 w-1 h-1 rounded-full bg-amber-300/50 motion-safe:animate-ping" style={{ animationDuration: "2.6s", animationDelay: "1.1s" }} />
+            </div>
+            <div className="relative px-8 pt-10 pb-8 text-center">
+              {/* Glow icon */}
+              <div className="mx-auto mb-5 w-20 h-20 rounded-full flex items-center justify-center" style={{ background: "linear-gradient(135deg,#fef3c7,#fde8c9)", boxShadow: "0 0 28px rgba(245,158,11,0.35),0 0 56px rgba(245,158,11,0.18)" }}>
+                <span className="text-4xl" role="img" aria-label="telephone">📞</span>
+              </div>
+              <h2 className="font-serif text-2xl font-bold tracking-tight text-stone-800 mb-2">Your first call is ready</h2>
+              <p className="text-stone-600 text-sm leading-relaxed mb-1.5">
+                You've built enough connection to take the next step.
+              </p>
+              <p className="text-stone-400 text-xs leading-relaxed mb-7">
+                Start a private 10-minute audio call when you're both ready.
+              </p>
+              <button
+                className="w-full py-3.5 rounded-2xl text-sm font-semibold text-white transition-all active:scale-95"
+                style={{ background: "linear-gradient(135deg,#d97706,#b45309)" }}
+                onClick={() => {
+                  localStorage.setItem(`fc_popup_${matchId}`, "1");
+                  setFirstCallPopupOpen(false);
+                  queryClient.setQueryData(
+                    ["/api/voice-notes/entitlement", matchId],
+                    (old: any) => old ? { ...old, firstCallPromptSeen: true } : old,
+                  );
+                  apiRequest("POST", `/api/first-call/prompt-seen/${matchId}`).catch(() => {});
+                }}
+                data-testid="button-first-call-popup-continue"
+              >
+                Unlock call
+              </button>
+            </div>
           </div>
         </div>
       )}
