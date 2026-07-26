@@ -1,0 +1,281 @@
+Fix the progression timing and modal sequencing in Lulou.
+
+CURRENT PRODUCTION BUG
+
+The “Voice notes unlocked” popup is appearing late.
+
+The attached screenshot shows:
+
+- the conversation has already reached the first-call stage
+- the call controls are already visible in the background
+- both users were able to progress to the call stage
+- only after that did the “Voice notes unlocked” modal appear
+
+This is incorrect.
+
+Voice notes must unlock at 8 completed messages each way, and the milestone must be handled before either user can proceed towards the 15-message call stage.
+
+CORRECT PROGRESSION
+
+Messages 1–7 each way:
+- text only
+- voice notes locked
+- call locked
+
+At exactly 8 completed messages each way:
+- stop normal chat progression temporarily
+- unlock voice notes
+- show a premium celebratory milestone screen/modal immediately
+- call must remain locked
+- the user must acknowledge the milestone before continuing
+
+Messages 9–14 each way:
+- text and voice notes available
+- call remains locked
+
+At exactly 15 completed messages each way:
+- stop normal chat progression temporarily
+- show a separate premium “First call unlocked” celebration
+- only after acknowledgement should the first-call stage and call controls become available
+
+The voice-note modal must never appear after call controls are already visible.
+
+SEQUENCE MUST BE SERVER-AUTHORITATIVE
+
+Do not rely only on a delayed client useEffect.
+
+The server response that processes the message reaching the threshold must return a progression event, for example:
+
+{
+ messageSaved: true,
+ progressionEvent: {
+   type: "voice_notes_unlocked",
+   threshold: 8
+ }
+}
+
+At 15 each way:
+
+{
+ messageSaved: true,
+ progressionEvent: {
+   type: "first_call_unlocked",
+   threshold: 15
+ }
+}
+
+The client must process that event immediately after the successful message response.
+
+Do not wait for a later entitlement refetch, page refresh, polling cycle or component remount.
+
+BLOCK THE NEXT STAGE UNTIL ACKNOWLEDGED
+
+Add explicit milestone acknowledgement state.
+
+For example:
+
+- voice_notes_unlocked_at
+- voice_notes_acknowledged_at
+- first_call_unlocked_at
+- first_call_acknowledged_at
+
+Rules:
+
+- reaching 8 unlocks voice notes but does not unlock the call
+- reaching 15 marks the first call as eligible
+- call controls must not render until first_call_acknowledged_at exists
+- the chat must not render the call-stage interface underneath the voice-note milestone
+- progression events must be acknowledged separately for each user
+- one user acknowledging must not automatically dismiss the other user’s milestone
+
+If the user reaches 15 while the voice-note milestone is still unacknowledged:
+
+1. Show the voice-note milestone first.
+2. After it is acknowledged, return the user to chat.
+3. Do not immediately stack another modal over it.
+4. Show the first-call milestone separately.
+5. Only after that acknowledgement display the call controls.
+
+PREVENT LATE POPUPS
+
+When opening an existing conversation:
+
+- if callStage > 0 and the voice-note milestone was never recorded, silently backfill it as acknowledged
+- do not show a late voice-note popup over an existing call-stage conversation
+- do not replay historical milestone celebrations for progressed conversations
+- only show celebrations at the moment the user genuinely reaches that milestone
+
+The screenshot scenario must never happen again.
+
+PREMIUM CELEBRATION DESIGN
+
+Replace the plain white popup with a premium Lulou milestone celebration.
+
+Voice-note milestone:
+
+Icon:
+🎙️
+
+Heading:
+“Voice notes unlocked”
+
+Copy:
+“You’ve built enough momentum to hear each other properly.”
+
+Supporting line:
+“Send a voice note and bring more personality into the conversation.”
+
+CTA:
+“Continue chatting”
+
+Visual requirements:
+- subtle rose and gold sparkles
+- gentle glow
+- premium cream, rose and charcoal palette
+- small celebratory animation
+- no childish confetti
+- respect reduced-motion settings
+- animation finishes quickly
+- modal remains readable and tappable on iPhone Safari
+
+First-call milestone:
+
+Icon:
+📞
+
+Heading:
+“Your first call is ready”
+
+Copy:
+“You’ve built enough connection to take the next step.”
+
+Supporting line:
+“Start a private 10-minute audio call when you’re both ready.”
+
+CTA:
+“Unlock call”
+
+Only after pressing “Unlock call” should the call-stage controls become visible.
+
+COUNTING RULE
+
+Continue using messages each way.
+
+Only count successfully delivered genuine user text messages.
+
+Do not count:
+- failed messages
+- pending optimistic messages
+- duplicate inserts
+- deleted messages
+- system messages
+- voice-note payload messages
+- call-status messages
+- scheduling messages
+
+Voice notes unlock when:
+
+message_count_1 >= 8
+AND
+message_count_2 >= 8
+
+First call becomes eligible when:
+
+message_count_1 >= 15
+AND
+message_count_2 >= 15
+
+Do not use one shared threshold or one shared popup flag for both milestones.
+
+REMOVE DELAYED USEEFFECT-ONLY LOGIC
+
+Find the current logic in:
+
+- client/src/pages/matches.tsx
+- client/src/pages/messaging.tsx
+- server/routes.ts
+- message count/update handlers
+- entitlement queries
+- voice-note popup useEffects
+- call-stage rendering logic
+
+The current popup is clearly driven too late by an entitlement refetch or delayed client effect.
+
+Refactor so:
+
+- threshold detection occurs immediately after the successful message insert
+- the response includes the new progression event
+- the event opens the correct milestone UI immediately
+- server-persisted acknowledgement prevents replay
+- entitlement queries are only a fallback/recovery mechanism
+
+TEST EXACTLY WITH TWO NEW ACCOUNTS
+
+1. Send 7 messages each way.
+  Expected:
+  - voice notes locked
+  - call locked
+  - no popup
+
+2. Send the 8th message each way.
+  Expected:
+  - chat progression pauses
+  - voice-note celebration appears immediately
+  - call controls are not visible in the background
+  - both users receive their own celebration
+  - voice notes unlock only after the correct milestone
+
+3. Dismiss the celebration.
+  Expected:
+  - return to normal chat
+  - voice notes available
+  - call remains locked
+
+4. Send messages 9–14 each way.
+  Expected:
+  - voice notes available
+  - call locked
+  - no repeated popup
+
+5. Send the 15th message each way.
+  Expected:
+  - first-call celebration appears immediately
+  - call controls still hidden
+  - no voice-note popup
+  - no modal overlap
+
+6. Press “Unlock call”.
+  Expected:
+  - celebration closes
+  - call-stage controls become visible
+  - 10-minute audio call becomes available
+
+7. Refresh at every milestone.
+  Expected:
+  - acknowledged popups do not replay
+  - unacknowledged current milestone resumes correctly
+  - historical voice-note popup never appears over a call-stage conversation
+
+8. Test an old match already at callStage > 0.
+  Expected:
+  - no late voice-note popup
+  - no historical first-call popup
+  - existing call stage remains usable
+
+REPORT
+
+Provide:
+
+- exact root cause of the late voice-note popup
+- whether it was caused by delayed entitlement refetch, stale React state or modal useEffect ordering
+- files changed
+- new database fields or tables
+- exact message-response progression payload
+- how call controls are blocked until acknowledgement
+- migration/backfill behaviour for existing matches
+- commit hash
+- Railway deployment status
+- Vercel deployment status
+- PASS or FAIL for every test above
+
+Do not mark this complete until the voice-note celebration appears at 8 messages each way before either user can reach or see the call stage.
