@@ -142,9 +142,13 @@ function classifyAuthError(err: any, mode: AuthMode): AuthError {
     lower.includes("invalid login credentials") ||
     lower.includes("invalid_grant") ||
     lower.includes("user not found") ||
-    lower.includes("wrong password")
+    lower.includes("wrong password") ||
+    (err as any)?.code === "invalid_credentials"
   ) {
-    return { kind: "credentials", message: msg };
+    return {
+      kind: "credentials",
+      message: "Email or password is incorrect. Use 'Forgot password?' if you haven't set one or have forgotten it.",
+    };
   }
   if (
     err instanceof TypeError ||
@@ -344,7 +348,7 @@ export default function Landing() {
     setResetError(null);
     try {
       console.log("[AUTH] RESET_PASSWORD_START", { email: email.trim().slice(0, 4) + "***", redirectTo: window.location.origin + "/auth/callback" });
-      const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+      const { error } = await supabase.auth.resetPasswordForEmail(email.trim().toLowerCase(), {
         // Point to /auth/callback so password recovery links land on the
         // dedicated callback page which shows a loading state and then
         // triggers the PasswordRecoveryGate in the main app.
@@ -407,7 +411,7 @@ export default function Landing() {
       passwordState: password.length, passwordDOM: domPassword.length,
     });
 
-    const trimmedEmail = effectiveEmail.trim();
+    const trimmedEmail = effectiveEmail.trim().toLowerCase();
 
     // Show explicit errors for empty fields rather than silently blocking.
     // Reset the in-flight guard before each early return so future clicks work.

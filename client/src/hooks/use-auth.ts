@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import { supabase } from "@/lib/supabase";
 import { setCachedToken, queryClient, API_BASE } from "@/lib/queryClient";
 import { stopAllCallSounds } from "@/lib/call-audio";
-import { clearAllArmedSessions } from "@/lib/live-call-sessions";
+import { clearAllArmedSessions, setLoginTime } from "@/lib/live-call-sessions";
 import { writeDebug } from "@/lib/debug-store";
 import type { User } from "@supabase/supabase-js";
 
@@ -144,6 +144,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (event === "SIGNED_IN" && u && session?.access_token) {
         const token = session.access_token;
 
+        // ── Hard-reset call state on every sign-in ────────────────────────────
+        // Runs synchronously before any async work so that:
+        //  1. Any ringtone left over from the previous session (or a stale armed
+        //     session that survived logout) is silenced immediately.
+        //  2. clearAllArmedSessions wipes module-level state so the incomingCall
+        //     memo and rering guards see a clean slate for this login.
+        //  3. APP_LOAD_TIME is frozen at page-load and never updates between
+        //     logins; clearing armed sessions here ensures calls from the
+        //     previous session can never sneak past isArmedSession() after
+        //     re-login in the same tab.
+        stopAllCallSounds("[AUTH] SIGNED_IN audio/armed-session reset");
+        clearAllArmedSessions();
+
         // ── Pending-verification guard (SIGNED_IN) ────────────────────────────
         // If a signup was started for email B while Account A was logged in, we
         // store "lulou_pending_verification_email" = B in sessionStorage.  When
@@ -283,6 +296,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             // user stays null — Landing remains visible with the blocked banner
           } else {
             localStorage.setItem("lulou_session_id", grantedSessionId);
+            // Record the precise moment this login was accepted so that
+            // use-call-signaling.ts can reject rering broadcasts for calls
+            // that started before this login (previous session's stale calls).
+            setLoginTime(Date.now());
+            // Fire-and-forget: ask the server to clear any ringing call records
+            // older than 90 s that belong to this user.  This prevents stale
+            // DB rows from triggering rering broadcasts that would otherwise
+            // pass the APP_LOAD_TIME guard (same page load, different login).
+            fetch(`${API_BASE}/api/calls/sweep-expired`, {
+              method: "POST",
+              headers: { Authorization: `Bearer ${token}` },
+            }).then(async (r) => {
+              const j = await r.json().catch(() => ({}));
+              console.log("[AUTH] LOGIN_CALL_SWEEP", { cleared: j.cleared ?? 0, userId: newUserId?.slice(0, 8) });
+            }).catch((e) => {
+              console.warn("[AUTH] LOGIN_CALL_SWEEP_FAILED (non-fatal)", { error: String(e) });
+            });
             setUser(u);
             setProfileReady(true);
             setIsLoading(false);

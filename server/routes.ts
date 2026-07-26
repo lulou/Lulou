@@ -3039,6 +3039,70 @@ export async function registerRoutes(
     }
   });
 
+  // ── User-wide expired-call sweep ─────────────────────────────────────────
+  // Called by the client immediately after a successful login to clear any
+  // ringing call records left open from the previous session.  Uses a 90-second
+  // unanswered threshold — tighter than the background repair job (2 min) — so
+  // stale rows are removed before the client's startup sweep runs and before any
+  // Realtime rering broadcast can re-arm them.
+  app.post("/api/calls/sweep-expired", isAuthenticated, async (req: any, res) => {
+    const userId = req.user.id;
+    try {
+      const EXPIRED_RINGING_MS = 90_000; // 90 s — matches client-side stale cutoff
+      const { data: rows, error } = await supabaseAdmin
+        .from("matches")
+        .select("id, call_started_at, call_answered, call_completed, call_session_id, call_initiator_id")
+        .or(`user1_id.eq.${userId},user2_id.eq.${userId}`)
+        .not("call_started_at", "is", null)
+        .eq("call_answered", false)
+        .eq("call_completed", false);
+      if (error) {
+        console.error("[CALL_SWEEP] DB_SELECT_ERROR", { userId, error: error.message });
+        return res.status(500).json({ message: "DB error" });
+      }
+      const now = Date.now();
+      const expired = (rows ?? []).filter((r: any) => {
+        const age = now - new Date(r.call_started_at).getTime();
+        return age > EXPIRED_RINGING_MS;
+      });
+      if (expired.length === 0) {
+        console.log("[CALL_SWEEP] NO_EXPIRED_CALLS", { userId });
+        return res.json({ cleared: 0 });
+      }
+      let cleared = 0;
+      for (const row of expired) {
+        const age = now - new Date(row.call_started_at).getTime();
+        console.log("[CALL_SWEEP] CLEARING_EXPIRED_CALL", {
+          userId,
+          matchId: row.id,
+          callSessionId: row.call_session_id,
+          callAgeMs: age,
+        });
+        const { error: clearErr } = await supabaseAdmin
+          .from("matches")
+          .update({ call_started_at: null, call_initiator_id: null, call_answered: false, call_completed: false, call_session_id: null })
+          .eq("id", row.id);
+        if (clearErr) {
+          console.error("[CALL_SWEEP] CLEAR_ERROR", { matchId: row.id, error: clearErr.message });
+          continue;
+        }
+        // Broadcast call:ended so any still-listening device dismisses the overlay.
+        await broadcastCallEvent(row.id, {
+          type: "call:ended",
+          matchId: row.id,
+          userId,
+          callSessionId: row.call_session_id,
+        }).catch(() => {});
+        cleared++;
+      }
+      console.log("[CALL_SWEEP] SWEEP_COMPLETE", { userId, cleared, total: expired.length });
+      res.json({ cleared });
+    } catch (err: any) {
+      console.error("[CALL_SWEEP] ERROR", { userId, error: err?.message });
+      res.status(500).json({ message: err?.message });
+    }
+  });
+
   app.post("/api/matches/:matchId/call/answer", isAuthenticated, async (req: any, res) => {
     try {
       const serverStorage = getCallStorage(req);

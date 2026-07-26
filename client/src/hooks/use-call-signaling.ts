@@ -2,7 +2,7 @@ import { useEffect, useRef } from "react";
 import { supabase } from "@/lib/supabase";
 import { queryClient } from "@/lib/queryClient";
 import { markCallSessionCancelled, markStartupCancelledSession, isCallSessionCancelled, isStartupCancelledOnly, clearStartupCancelledSession, markSessionEndedForMatch } from "@/lib/cancelled-calls";
-import { armCallSession, markSessionAsVideo, isPushArmedSession } from "@/lib/live-call-sessions";
+import { armCallSession, markSessionAsVideo, isPushArmedSession, getLoginTime } from "@/lib/live-call-sessions";
 import { APP_LOAD_TIME } from "@/lib/app-load-time";
 import { isStartupSweepComplete } from "@/lib/startup-sweep";
 
@@ -230,6 +230,44 @@ export function useCallSignaling(matchIds: string[], userId: string) {
             return;
           }
 
+          // ── Login-time boundary ─────────────────────────────────────────────
+          // APP_LOAD_TIME is frozen at page-load and never changes between
+          // logout + re-login in the same tab.  A call started during the
+          // previous session has callStartedAt > APP_LOAD_TIME, so the existing
+          // APP_LOAD_TIME guard above won't catch it.  getLoginTime() returns
+          // the timestamp of the most recent successful SIGNED_IN, which always
+          // resets on re-login.  Any rering whose encoded timestamp (or whose
+          // cached callStartedAt) predates the current login is definitively
+          // from a previous session and must never ring again.
+          //
+          // Push-notification exception: calls opened via push tap are provably
+          // live even though callStartedAt < loginTime (the call arrived before
+          // the app re-opened for login).
+          const loginTime = getLoginTime();
+          const staleRelativeToLogin = (() => {
+            if (isPushArmedSession(ringSessionId)) return false; // push-armed — always allow
+            // Use the encoded timestamp from the session ID if available.
+            if (ringTimestampMs !== null && ringTimestampMs < loginTime) return true;
+            // Fall back to the cached callStartedAt from the matches list.
+            if (cachedCallStartAt) {
+              const startMs = new Date(cachedCallStartAt).getTime();
+              if (startMs > 0 && startMs < loginTime) return true;
+            }
+            return false;
+          })();
+          if (staleRelativeToLogin) {
+            console.log("[CALL_SIGNAL] PRE_LOGIN_RING_BLOCKED — call predates current login, ignoring rering", {
+              matchId,
+              callSessionId: ringSessionId?.slice(0, 8),
+              ringTimestampMs,
+              loginTime,
+              APP_LOAD_TIME,
+              cachedCallStartAt,
+            });
+            markCallSessionCancelled(matchId, ringSessionId);
+            return;
+          }
+
           // Skip stale ring signals for sessions that were cancelled by user action
           if (isCallSessionCancelled(matchId, ringSessionId)) {
             console.log("[CALL_SIGNAL] STALE_RING_BLOCKED", { matchId, callSessionId: ringSessionId, reason: "session_already_cancelled" });
@@ -237,6 +275,14 @@ export function useCallSignaling(matchIds: string[], userId: string) {
             // Arm the session: this is a live Realtime call:ring event, so the
             // session is confirmed active. Only armed sessions may trigger overlays
             // or audio — DB-polled data alone cannot arm a session.
+            console.log("[CALL_SIGNAL] RING_ARM_DECISION", {
+              matchId,
+              callSessionId: ringSessionId?.slice(0, 8),
+              ringTimestampMs,
+              loginTime,
+              APP_LOAD_TIME,
+              decision: "armed",
+            });
             armCallSession(ringSessionId);
             if ((ring as any).isVideo && ringSessionId) markSessionAsVideo(ringSessionId);
             console.log("[RING_DEBUG] verified live call trigger — armed by Realtime call:ring", {

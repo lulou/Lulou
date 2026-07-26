@@ -21,6 +21,25 @@
  * call-detection memos re-run immediately when a session is armed or disarmed.
  */
 
+// ── Login-time boundary ──────────────────────────────────────────────────────
+// Initialized to the page-load time (same as APP_LOAD_TIME) and updated to the
+// current timestamp every time a SIGNED_IN event passes the session check.
+// use-call-signaling.ts uses this boundary — instead of APP_LOAD_TIME alone —
+// to reject rering broadcasts for calls that started before the most recent
+// login.  This prevents stale calls from the previous session ringing again
+// after logout + re-login in the same browser tab, where APP_LOAD_TIME never
+// changes but the login time does.
+let _loginTime: number = Date.now();
+
+export function setLoginTime(ts: number): void {
+  _loginTime = ts;
+  console.log("[LIVE_CALL] login time updated", { loginTime: new Date(ts).toISOString() });
+}
+
+export function getLoginTime(): number {
+  return _loginTime;
+}
+
 type ArmChangeCallback = () => void;
 let _onArmChange: ArmChangeCallback | null = null;
 
