@@ -28,12 +28,12 @@ import { transcodeToM4a } from "./transcoder";
 import { seedDatabase } from "./seed";
 import { z } from "zod";
 import type { Profile } from "@shared/schema";
-import { userBenefits, callCredits, activeSessions, processedStripeSessions, membershipSubscriptions, userElevates, blockedContacts, savedWheelProfiles, sparkBalances, sparkPurchases, pushSubscriptions, notificationPreferences, datePlanRemindersSent, activeChatSessions, refundRecords, voiceNoteUnlocks, voiceNotePopupSeen, firstCallPromptSeen } from "@shared/schema";
+import { matches, messages, userBenefits, callCredits, activeSessions, processedStripeSessions, membershipSubscriptions, userElevates, blockedContacts, savedWheelProfiles, sparkBalances, sparkPurchases, pushSubscriptions, notificationPreferences, datePlanRemindersSent, activeChatSessions, refundRecords, voiceNoteUnlocks, voiceNotePopupSeen, firstCallPromptSeen } from "@shared/schema";
 import { sendPushToUser, buildPush, isUserActiveInApp, isUserActiveInChat, getVapidPublicKey, cleanupFailedSubscriptions } from "./pushService";
 import { EXTRAS_ITEMS, ELEVATE_PACKS, type ExtrasItemId, type ElevatePackId, grantExtras, grantElevate, isUniqueViolation } from './purchaseItems';
 import { supabase, supabaseAdmin, createUserClient, hasServiceRoleKey } from "./supabase";
 import { db } from "./db";
-import { eq, and, isNull, gt, or, inArray, desc } from "drizzle-orm";
+import { eq, and, isNull, gt, or, inArray, desc, sql as sqlExpr } from "drizzle-orm";
 import { getUncachableStripeClient, getStripePublishableKey, getStripeAccountInfo, checkStripeReady } from "./stripeClient";
 import { tryGetPriceId } from "./stripePrices";
 import { writeLimiter, callLimiter, paymentLimiter } from "./limiters";
@@ -2558,46 +2558,26 @@ export async function registerRoutes(
       const { callStage, user1Id, user2Id } = match;
 
       // ── Step 2: Stage-based message limit checks ──
-      // progressionEvent is included in the send response so the sender's client
-      // can open the milestone celebration immediately — no polling cycle needed.
-      let progressionEvent: { type: string; threshold: number } | null = null;
+      // Pre-increment counts come from getMatchMeta (read at top of handler).
+      // These are used for limit enforcement before the insert.
+      // Post-increment counts come from the atomic UPDATE after insert and drive milestone detection.
+      const isUser1Sender = match.user1Id === userId;
+      const preCount1 = match.messageCount1 ?? 0;
+      const preCount2 = match.messageCount2 ?? 0;
+      const myPreCount = isUser1Sender ? preCount1 : preCount2;
+
       if (callStage === 0) {
         const tCount0 = Date.now();
-        const [messageCount, [extension]] = await Promise.all([
-          storage.getUserMessageCount(matchId, userId),
-          db.select().from(userBenefits).where(and(
-            eq(userBenefits.userId, userId),
-            eq(userBenefits.type, "message_extension"),
-            eq(userBenefits.activatedMatchId, matchId),
-          )).limit(1),
-        ]);
-        if (IS_DEV) console.log(`[MSG] count+extension parallel: ${Date.now() - tCount0} ms | count=${messageCount} ext=${!!extension}`);
+        const [extension] = await db.select().from(userBenefits).where(and(
+          eq(userBenefits.userId, userId),
+          eq(userBenefits.type, "message_extension"),
+          eq(userBenefits.activatedMatchId, matchId),
+        )).limit(1);
+        if (IS_DEV) console.log(`[MSG] extension check: ${Date.now() - tCount0} ms | count=${myPreCount} ext=${!!extension}`);
         const limit = extension ? 20 : 15;
-        if (messageCount >= limit) {
-          console.log("[CONNECTION_STAGE] POST_CALL_MESSAGE_LIMIT_REACHED", { matchId, userId, callStage: 0, count: messageCount, limit });
+        if (myPreCount >= limit) {
+          console.log("[CONNECTION_STAGE] POST_CALL_MESSAGE_LIMIT_REACHED", { matchId, userId, callStage: 0, count: myPreCount, limit });
           return res.status(400).json({ message: "Message limit reached. Time to call!" });
-        }
-        if (messageCount === limit - 1) {
-          console.log("[CONNECTION_STAGE] FIRST_CALL_UNLOCKED", { matchId, userId, messageCount });
-        }
-
-        // ── Milestone threshold detection ──────────────────────────────────
-        // newCount = this user's count AFTER this message is saved.
-        // theirCount = the other user's current count (unchanged by this send).
-        // We fire the event exactly when this user's send crosses the threshold
-        // AND the other user has already reached it too.
-        const VN_THRESHOLD = 8;
-        const FC_THRESHOLD = 15;
-        const theirCount = match.user1Id === userId
-          ? (match.messageCount2 ?? 0)
-          : (match.messageCount1 ?? 0);
-        const newCount = messageCount + 1;
-        if (newCount === VN_THRESHOLD && theirCount >= VN_THRESHOLD) {
-          progressionEvent = { type: "voice_notes_unlocked", threshold: VN_THRESHOLD };
-          console.log("[PROGRESSION] VN_THRESHOLD_CROSSED", { matchId, userId: userId.slice(0, 8), newCount, theirCount });
-        } else if (newCount === FC_THRESHOLD && theirCount >= FC_THRESHOLD) {
-          progressionEvent = { type: "first_call_unlocked", threshold: FC_THRESHOLD };
-          console.log("[PROGRESSION] FC_THRESHOLD_CROSSED", { matchId, userId: userId.slice(0, 8), newCount, theirCount });
         }
       } else if (callStage === 1) {
         // Post-first-call messaging phase: 25 messages each before date planning unlocks.
@@ -2628,6 +2608,79 @@ export async function registerRoutes(
       });
       if (IS_DEV) console.log(`[MSG] insert: ${Date.now() - tInsert0} ms`);
 
+      // ── Step 3b: Atomic counter increment — no read-then-write race ──────────
+      // A single SQL UPDATE evaluates `message_count_X + 1` atomically inside
+      // Postgres; two concurrent sends can never both read the same stale value.
+      // RETURNING gives us the authoritative post-increment counts for both users
+      // so milestone detection never relies on a locally computed guess.
+      // Only genuine text messages increment the counter; system payloads
+      // (__VOICE__:, __SCHEDULE__:, __SYS__:, etc.) do not.
+      const VN_THRESHOLD = 8;
+      const FC_THRESHOLD = 15;
+      let newCount1 = preCount1;
+      let newCount2 = preCount2;
+      let progressionEvent: { type: string } | null = null;
+      let progression: object | null = null;
+
+      const isCountedMessage = callStage === 0 && !content.trim().startsWith("__");
+      if (isCountedMessage) {
+        const tInc0 = Date.now();
+        const [updated] = await db
+          .update(matches)
+          .set(isUser1Sender
+            ? { messageCount1: sqlExpr`message_count_1 + 1` }
+            : { messageCount2: sqlExpr`message_count_2 + 1` })
+          .where(eq(matches.id, matchId))
+          .returning({ messageCount1: matches.messageCount1, messageCount2: matches.messageCount2 });
+        newCount1 = updated?.messageCount1 ?? preCount1;
+        newCount2 = updated?.messageCount2 ?? preCount2;
+        if (IS_DEV) console.log(`[MSG] atomic-increment: ${Date.now() - tInc0} ms | count1=${newCount1} count2=${newCount2}`);
+
+        // ── Step 3c: Milestone detection on authoritative post-increment counts ──
+        // Uses >= (not ===) so a missed crossing from a prior race is self-healing.
+        // Emits the event only when eligibility transitions false → true on this message.
+        // FC is checked first (higher threshold) then VN so an unexpected jump is handled.
+        const vnWasEligible = preCount1 >= VN_THRESHOLD && preCount2 >= VN_THRESHOLD;
+        const vnNowEligible = newCount1 >= VN_THRESHOLD && newCount2 >= VN_THRESHOLD;
+        const fcWasEligible = preCount1 >= FC_THRESHOLD && preCount2 >= FC_THRESHOLD;
+        const fcNowEligible = newCount1 >= FC_THRESHOLD && newCount2 >= FC_THRESHOLD;
+
+        if (vnNowEligible && !vnWasEligible) {
+          // Persist unlock row so it survives future call-stage count resets.
+          await db.insert(voiceNoteUnlocks).values({ matchId }).onConflictDoNothing();
+          progressionEvent = { type: "voice_notes_unlocked" };
+          console.log("[PROGRESSION] VN_THRESHOLD_CROSSED", { matchId, userId: userId.slice(0, 8), count1: newCount1, count2: newCount2 });
+        } else if (fcNowEligible && !fcWasEligible) {
+          // VN must already exist (can't reach FC without crossing VN first).
+          progressionEvent = { type: "first_call_unlocked" };
+          console.log("[PROGRESSION] FC_THRESHOLD_CROSSED", { matchId, userId: userId.slice(0, 8), count1: newCount1, count2: newCount2 });
+        }
+
+        // ── Diagnostic log — one line per counted send ──────────────────────────
+        // Makes it immediately obvious why a milestone did or didn't fire.
+        console.log("[PROGRESSION_DIAG]", {
+          matchId: matchId.slice(0, 8),
+          senderId: userId.slice(0, 8),
+          messageId: message.id.slice(0, 8),
+          counted: true,
+          count1Before: preCount1, count2Before: preCount2,
+          count1After:  newCount1, count2After:  newCount2,
+          milestoneEmitted: progressionEvent?.type ?? null,
+          callStageBefore: callStage,
+        });
+
+        progression = {
+          user1Count:   newCount1,
+          user2Count:   newCount2,
+          myCount:      isUser1Sender ? newCount1 : newCount2,
+          theirCount:   isUser1Sender ? newCount2 : newCount1,
+          voiceNotesEligible: vnNowEligible,
+          firstCallEligible:  fcNowEligible,
+          callStage,
+          currentUserPendingMilestone: progressionEvent?.type ?? null,
+        };
+      }
+
       // ── Step 4: Broadcast to recipient (awaited so the log appears before response) ──
       const tBcast0 = Date.now();
       await broadcastMessage(matchId, {
@@ -2641,10 +2694,9 @@ export async function registerRoutes(
       if (IS_DEV) console.log(`[MSG] broadcast: ${Date.now() - tBcast0} ms`);
 
       // ── Milestone broadcast: notify the OTHER user immediately ───────────────
-      // The sender gets the event from progressionEvent in the response body.
-      // Broadcasting to the chat channel ensures the other user receives their
-      // celebration without waiting for the 60-second entitlement poll, even
-      // across different devices or network conditions.
+      // The sender gets the event via progressionEvent in the response body.
+      // The broadcast delivers it to the other user's realtime channel instantly,
+      // removing any dependency on the 60-second entitlement poll.
       if (progressionEvent) {
         const broadcastEvent = progressionEvent.type === "voice_notes_unlocked"
           ? "voice-note-unlock"
@@ -2653,16 +2705,16 @@ export async function registerRoutes(
         console.log("[PROGRESSION] MILESTONE_BROADCAST_SENT", { event: broadcastEvent, matchId, userId: userId.slice(0, 8) });
       }
 
-      // ── Respond — sender UI confirms delivery ──
-      // progressionEvent is non-null only when this message crossed a milestone threshold.
+      // ── Respond — include authoritative progression state ─────────────────────
+      // The client replaces its local counter with the server-authoritative counts.
       if (IS_DEV) console.log(`[MSG] total send route: ${Date.now() - t0} ms`);
-      res.json({ ...message, progressionEvent });
+      res.json({ ...message, progressionEvent, progression });
 
       // ── Background post-processing (does not block the HTTP response) ──
+      // incrementMessageCount is NOT called here — the atomic UPDATE above already
+      // incremented the counter synchronously and before the response was sent.
       (async () => {
         try {
-          await adminStorage.incrementMessageCount(matchId, userId);
-
           const senderId    = userId; // authenticated author of this message
           const recipientId = match.user1Id === userId ? match.user2Id : match.user1Id;
 
@@ -3506,6 +3558,100 @@ export async function registerRoutes(
       res.json({ success: true });
     } catch (err: any) {
       res.status(500).json({ message: err.message || "Failed to mark first-call prompt seen" });
+    }
+  });
+
+  // ── Reconciliation endpoint ──────────────────────────────────────────────────
+  // Repairs corrupted per-user message counts for a match by recounting valid
+  // persisted text messages directly from the messages table. Re-evaluates and
+  // persists milestone rows. Returns a before/recounted/after report.
+  // Access requires ADMIN_EMAIL env var (or dev mode with no ADMIN_EMAIL set).
+  app.post("/api/admin/reconcile-match-progression/:matchId", isAuthenticated, async (req: any, res) => {
+    try {
+      const adminEmails = (process.env.ADMIN_EMAIL ?? "").split(",").map((e: string) => e.trim()).filter(Boolean);
+      const IS_DEV_MODE = process.env.NODE_ENV !== "production";
+      if (!IS_DEV_MODE || adminEmails.length > 0) {
+        const userEmail = req.user?.email;
+        if (!adminEmails.includes(userEmail)) {
+          return res.status(403).json({ message: "Admin access required. Set ADMIN_EMAIL env var." });
+        }
+      }
+
+      const { matchId } = req.params;
+
+      // Read current stored state.
+      const [matchRow] = await db
+        .select({
+          user1Id: matches.user1Id,
+          user2Id: matches.user2Id,
+          messageCount1: matches.messageCount1,
+          messageCount2: matches.messageCount2,
+          callStage: matches.callStage,
+        })
+        .from(matches)
+        .where(eq(matches.id, matchId));
+
+      if (!matchRow) return res.status(404).json({ message: "Match not found" });
+
+      const before = {
+        messageCount1: matchRow.messageCount1 ?? 0,
+        messageCount2: matchRow.messageCount2 ?? 0,
+        callStage: matchRow.callStage ?? 0,
+      };
+
+      // Recount valid text messages per sender from the messages table.
+      // Excludes all system payloads (__VOICE__:, __SCHEDULE__:, __SYS__:, etc.)
+      // by filtering out any content that begins with two underscores.
+      const countRows = await db
+        .select({
+          senderId: messages.senderId,
+          count: sqlExpr<number>`count(*)::int`,
+        })
+        .from(messages)
+        .where(and(
+          eq(messages.matchId, matchId),
+          sqlExpr`content !~ '^__'`,
+        ))
+        .groupBy(messages.senderId);
+
+      const recounted = {
+        user1ValidCount: countRows.find(r => r.senderId === matchRow.user1Id)?.count ?? 0,
+        user2ValidCount: countRows.find(r => r.senderId === matchRow.user2Id)?.count ?? 0,
+      };
+
+      // Cap counts at MAX_MESSAGES_PER_USER (15) per stage so a legacy match with
+      // many messages never shows an inflated counter post-call.
+      const VN_T = 8;
+      const FC_T = 15;
+      const capped1 = Math.min(recounted.user1ValidCount, 15);
+      const capped2 = Math.min(recounted.user2ValidCount, 15);
+
+      // Write the repaired counts back to the matches table.
+      const [repaired] = await db
+        .update(matches)
+        .set({ messageCount1: capped1, messageCount2: capped2 })
+        .where(eq(matches.id, matchId))
+        .returning({ messageCount1: matches.messageCount1, messageCount2: matches.messageCount2 });
+
+      // Re-evaluate and persist milestone rows.
+      const vnEligible = capped1 >= VN_T && capped2 >= VN_T;
+      if (vnEligible) {
+        await db.insert(voiceNoteUnlocks).values({ matchId }).onConflictDoNothing();
+      }
+
+      const after = {
+        messageCount1: repaired?.messageCount1 ?? capped1,
+        messageCount2: repaired?.messageCount2 ?? capped2,
+        callStage: matchRow.callStage ?? 0,
+        vnMilestoneEligible: vnEligible,
+        fcMilestoneEligible: capped1 >= FC_T && capped2 >= FC_T,
+      };
+
+      console.log("[RECONCILE]", { matchId: matchId.slice(0, 8), before, recounted, after });
+
+      return res.json({ before, recounted, after });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message || "Failed to reconcile match progression" });
     }
   });
 

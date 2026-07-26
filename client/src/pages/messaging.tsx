@@ -889,8 +889,30 @@ export default function Messaging() {
     onSuccess: (data: any) => {
       const realMsg = data as Message;
       const msgsKey = ["/api/matches", matchId, "messages"];
-      // Increment the optimistic per-stage counter so the badge decreases immediately.
-      setLocalSentCount(c => c + 1);
+
+      // ── Apply server-authoritative progression counts ─────────────────────────
+      // The server response includes a `progression` block with the post-increment
+      // counts for both users (computed atomically). Use these to snap the match
+      // detail cache so dbStageCount reflects the real value immediately, then
+      // reset the optimistic localSentCount to 0. This replaces the previous
+      // approach of blindly incrementing a local counter, which could drift from
+      // the server when concurrent sends or a prior race had lost an increment.
+      const prog = (data as any).progression as {
+        user1Count: number; user2Count: number;
+        myCount: number; theirCount: number;
+        voiceNotesEligible: boolean; firstCallEligible: boolean;
+        callStage: number; currentUserPendingMilestone: string | null;
+      } | null | undefined;
+      if (prog) {
+        queryClient.setQueryData(["/api/matches", matchId], (old: any) =>
+          old ? { ...old, messageCount1: prog.user1Count, messageCount2: prog.user2Count } : old
+        );
+        setLocalSentCount(0);
+      } else {
+        // Stage 1 / system messages — no progression block; keep the optimistic increment.
+        setLocalSentCount(c => c + 1);
+      }
+
       queryClient.setQueryData<{ messages: Message[]; hasMore: boolean }>(msgsKey, (old) => {
         if (!old) return old;
         const tempIdx = old.messages.findIndex(
@@ -914,7 +936,7 @@ export default function Messaging() {
       // The server response includes a progressionEvent when this message crossed
       // the 8-message VN threshold or the 15-message first-call threshold.
       // This fires the celebration immediately — no 60s polling cycle needed.
-      const event = (data as any).progressionEvent as { type: string; threshold: number } | null | undefined;
+      const event = (data as any).progressionEvent as { type: string } | null | undefined;
       if (event?.type === "voice_notes_unlocked") {
         // Update entitlement cache so voice-note features unlock immediately.
         queryClient.setQueryData(
