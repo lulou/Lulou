@@ -648,6 +648,187 @@ export default function Discover() {
   const pronouns: string | null = (displayProfile as any).pronouns || null;
   const dateOfBirth: string | null = (displayProfile as any).dateOfBirth || null;
 
+  // ── Interleaved photo distribution ───────────────────────────────────────
+  // Build an ordered array of only-populated content sections so the
+  // distribution algorithm always works on real content, not placeholders.
+  const contentSections: { id: string; node: JSX.Element }[] = [
+    // 1. Identity — always present
+    {
+      id: "identity",
+      node: (
+        <div key="identity" className="space-y-1.5" style={{ animation: "discoverNameEnter 0.45s 0.22s ease both" }}>
+          <div className="flex items-center gap-2">
+            <h2 className="font-serif text-4xl font-bold tracking-tight" data-testid="text-profile-name">
+              {displayProfile.firstName}
+            </h2>
+            {displayProfile.photoVerified && (
+              <BadgeCheck className="w-5 h-5 text-primary shrink-0" data-testid="icon-verified-badge" />
+            )}
+          </div>
+          <ProfileInfoRow
+            age={displayProfile.age}
+            location={displayProfile.location}
+            height={displayProfile.height}
+            dateOfBirth={dateOfBirth}
+            pronouns={pronouns}
+          />
+        </div>
+      ),
+    },
+    // 2. Personality signals
+    ...(allSignals.length > 0 ? [{
+      id: "signals",
+      node: (
+        <div key="signals" className="space-y-2">
+          <p className="text-xs font-semibold tracking-widest uppercase text-primary">{t("personality")}</p>
+          <DragScrollRow>
+            {allSignals.map(signal => (
+              <Badge key={signal} variant="secondary" className="text-sm py-1.5 px-3 shrink-0 no-default-active-elevate" data-testid={`badge-signal-${signal}`}>
+                {translateSignal(signal, langCode)}
+              </Badge>
+            ))}
+          </DragScrollRow>
+        </div>
+      ),
+    }] : []),
+    // 3. Conversation starters
+    ...(allStarters.length > 0 ? [{
+      id: "starters",
+      node: (
+        <div key="starters" className="space-y-3" data-testid="section-conversation-starters">
+          <div className="flex items-center gap-1.5">
+            <MessageCircle className="w-3.5 h-3.5 text-primary" />
+            <p className="text-xs font-semibold tracking-widest uppercase text-primary">{t("conversation_starters")}</p>
+          </div>
+          <SlideCards items={allStarters.map(s => translateStarterItem(s, langCode))} type="starter" onReply={handleReply} />
+        </div>
+      ),
+    }] : []),
+    // 4. They'd love to know
+    ...(viewerQuestions.length > 0 ? [{
+      id: "viewerQuestions",
+      node: (
+        <div key="viewerQuestions" className="space-y-3" data-testid="section-viewer-questions">
+          <div className="flex items-center gap-1.5">
+            <HelpCircle className="w-3.5 h-3.5 text-primary" />
+            <p className="text-xs font-semibold tracking-widest uppercase text-primary">{t("they_love_to_know")}</p>
+          </div>
+          <SlideCards items={viewerQuestions.map(vq => vq.question)} type="starter" onReply={handleReply} />
+        </div>
+      ),
+    }] : []),
+    // 5. Ask me
+    ...((questions.length > 0 || customQAsItems.length > 0) ? [{
+      id: "questions",
+      node: (
+        <div key="questions" className="space-y-3" data-testid="section-questions">
+          <div className="flex items-center gap-1.5">
+            <HelpCircle className="w-3.5 h-3.5 text-primary" />
+            <p className="text-xs font-semibold tracking-widest uppercase text-primary">{t("ask_me")}</p>
+          </div>
+          <SlideCards items={[...questions.map(q => translateQuestion(q, langCode)), ...customQAsItems]} type="question" onReply={handleReply} />
+        </div>
+      ),
+    }] : []),
+    // 6. Intent — always present
+    {
+      id: "intent",
+      node: (
+        <div key="intent" className="space-y-2">
+          <p className="text-xs font-semibold tracking-widest uppercase text-primary">{t("looking_for")}</p>
+          <div className="flex items-center gap-2">
+            <span className="text-lg leading-none" aria-hidden="true">
+              {({"Committed Relationship": "💍", "Serious Dating": "❤️", "Open To Connection": "✨"} as Record<string,string>)[displayProfile.datingIntent ?? ""] ?? "💫"}
+            </span>
+            <p className="text-base font-semibold" data-testid="text-profile-intent">{translateIntent(displayProfile.datingIntent ?? "", t)}</p>
+          </div>
+        </div>
+      ),
+    },
+    // 7. Green flags
+    ...(allGreenFlags.length > 0 ? [{
+      id: "greenFlags",
+      node: (
+        <div key="greenFlags" className="space-y-2">
+          <p className="text-xs font-semibold tracking-widest uppercase text-primary">{t("green_flags_label")}</p>
+          <DragScrollRow>
+            {allGreenFlags.map(flag => (
+              <Badge key={flag} variant="outline" className="text-sm py-1.5 px-3 shrink-0 no-default-active-elevate" data-testid={`badge-flag-${flag}`}>
+                {translateGreenFlag(flag, langCode)}
+              </Badge>
+            ))}
+          </DragScrollRow>
+        </div>
+      ),
+    }] : []),
+    // 8. Connection pace — always present
+    {
+      id: "pace",
+      node: (
+        <div key="pace" className="space-y-2">
+          <p className="text-xs font-semibold tracking-widest uppercase text-primary">{t("pace_label")}</p>
+          <p className="text-base font-semibold" data-testid="text-profile-style">{translateStyle(displayProfile.connectionStyle ?? "", t)}</p>
+        </div>
+      ),
+    },
+  ];
+
+  // Hero shows only the primary photo. Remaining photos are distributed inline
+  // between sections so the profile stays visually rich throughout the scroll.
+  const heroPhoto = photos.length > 0 ? [photos[0]] : photos;
+  const extraPhotos = photos.slice(1);
+  const nExtra = extraPhotos.length;
+  const nSections = contentSections.length;
+
+  // Even distribution: insertAfterIndexes[i] = section index after which
+  // photo (i+2) is inserted. Formula: round((i+1)*nSections/(nExtra+1)).
+  const insertAfterIndexes: number[] = Array.from({ length: nExtra }, (_, i) =>
+    Math.min(Math.round(((i + 1) * nSections) / (nExtra + 1)), nSections - 1)
+  );
+
+  // Build the interleaved render list.
+  const renderItems: JSX.Element[] = [];
+  contentSections.forEach((section, sIdx) => {
+    renderItems.push(section.node);
+    insertAfterIndexes.forEach((afterIdx, photoIdx) => {
+      if (afterIdx === sIdx) {
+        const photoUrl = extraPhotos[photoIdx];
+        const photoNum = photoIdx + 2; // photo 1 is the hero
+        renderItems.push(
+          <div
+            key={`inline-photo-${photoIdx}`}
+            style={{
+              width: "100%",
+              borderRadius: "12px",
+              overflow: "hidden",
+              background: "hsl(var(--muted))",
+              aspectRatio: "4 / 5",
+            }}
+          >
+            <img
+              src={photoUrl}
+              alt={`${displayProfile.firstName} photo ${photoNum} of ${photos.length}`}
+              loading="lazy"
+              draggable={false}
+              onLoad={e => {
+                const parent = (e.currentTarget as HTMLImageElement).parentElement;
+                if (parent) parent.style.background = "transparent";
+              }}
+              style={{
+                width: "100%",
+                height: "100%",
+                objectFit: "cover",
+                display: "block",
+                userSelect: "none",
+                WebkitUserSelect: "none",
+              }}
+            />
+          </div>
+        );
+      }
+    });
+  });
+
   return (
     <div className="flex-1 overflow-y-auto">
       <div className="sticky top-0 z-30 bg-background/95 backdrop-blur-sm border-b px-5 py-3">
@@ -681,7 +862,7 @@ export default function Discover() {
           data-testid="profile-container"
         >
             <PhotoBubbles
-              photos={photos}
+              photos={heroPhoto}
               name={displayProfile.firstName}
               onOpen={handleOpen}
               isDisabled={interact.isPending || isExiting}
@@ -689,103 +870,7 @@ export default function Discover() {
             />
             <Card className="mt-2" style={{ boxShadow: "0 2px 20px rgba(0,0,0,0.06), 0 1px 4px rgba(0,0,0,0.04)" }} data-testid="card-profile">
               <div className="px-6 pb-8 pt-6 space-y-8" data-testid="profile-about-section">
-
-                {/* ── 1. Identity — first thing above the fold after the photo ── */}
-                <div className="space-y-1.5" style={{ animation: "discoverNameEnter 0.45s 0.22s ease both" }}>
-                  <div className="flex items-center gap-2">
-                    <h2 className="font-serif text-4xl font-bold tracking-tight" data-testid="text-profile-name">
-                      {displayProfile.firstName}
-                    </h2>
-                    {displayProfile.photoVerified && (
-                      <BadgeCheck className="w-5 h-5 text-primary shrink-0" data-testid="icon-verified-badge" />
-                    )}
-                  </div>
-                  <ProfileInfoRow
-                    age={displayProfile.age}
-                    location={displayProfile.location}
-                    height={displayProfile.height}
-                    dateOfBirth={dateOfBirth}
-                    pronouns={pronouns}
-                  />
-                </div>
-
-                {/* ── 2. Personality signals — quick scan before engagement ── */}
-                {allSignals.length > 0 && (
-                  <div className="space-y-2">
-                    <p className="text-xs font-semibold tracking-widest uppercase text-primary">{t("personality")}</p>
-                    <DragScrollRow>
-                      {allSignals.map(signal => (
-                        <Badge key={signal} variant="secondary" className="text-sm py-1.5 px-3 shrink-0 no-default-active-elevate" data-testid={`badge-signal-${signal}`}>
-                          {translateSignal(signal, langCode)}
-                        </Badge>
-                      ))}
-                    </DragScrollRow>
-                  </div>
-                )}
-
-                {/* ── 3. Conversation starters ── */}
-                {allStarters.length > 0 && (
-                  <div className="space-y-3" data-testid="section-conversation-starters">
-                    <div className="flex items-center gap-1.5">
-                      <MessageCircle className="w-3.5 h-3.5 text-primary" />
-                      <p className="text-xs font-semibold tracking-widest uppercase text-primary">{t("conversation_starters")}</p>
-                    </div>
-                    <SlideCards items={allStarters.map(s => translateStarterItem(s, langCode))} type="starter" onReply={handleReply} />
-                  </div>
-                )}
-
-                {/* ── 4. Questions they'd love to know ── */}
-                {viewerQuestions.length > 0 && (
-                  <div className="space-y-3" data-testid="section-viewer-questions">
-                    <div className="flex items-center gap-1.5">
-                      <HelpCircle className="w-3.5 h-3.5 text-primary" />
-                      <p className="text-xs font-semibold tracking-widest uppercase text-primary">{t("they_love_to_know")}</p>
-                    </div>
-                    <SlideCards items={viewerQuestions.map(vq => vq.question)} type="starter" onReply={handleReply} />
-                  </div>
-                )}
-
-                {/* ── 5. What to ask them ── */}
-                {(questions.length > 0 || customQAsItems.length > 0) && (
-                  <div className="space-y-3" data-testid="section-questions">
-                    <div className="flex items-center gap-1.5">
-                      <HelpCircle className="w-3.5 h-3.5 text-primary" />
-                      <p className="text-xs font-semibold tracking-widest uppercase text-primary">{t("ask_me")}</p>
-                    </div>
-                    <SlideCards items={[...questions.map(q => translateQuestion(q, langCode)), ...customQAsItems]} type="question" onReply={handleReply} />
-                  </div>
-                )}
-
-                {/* ── 6. Intent ── */}
-                <div className="space-y-2">
-                  <p className="text-xs font-semibold tracking-widest uppercase text-primary">{t("looking_for")}</p>
-                  <div className="flex items-center gap-2">
-                    <span className="text-lg leading-none" aria-hidden="true">
-                      {({"Committed Relationship": "💍", "Serious Dating": "❤️", "Open To Connection": "✨"} as Record<string,string>)[displayProfile.datingIntent ?? ""] ?? "💫"}
-                    </span>
-                    <p className="text-base font-semibold" data-testid="text-profile-intent">{translateIntent(displayProfile.datingIntent ?? "", t)}</p>
-                  </div>
-                </div>
-
-                {/* ── 7. Green flags ── */}
-                {allGreenFlags.length > 0 && (
-                  <div className="space-y-2">
-                    <p className="text-xs font-semibold tracking-widest uppercase text-primary">{t("green_flags_label")}</p>
-                    <DragScrollRow>
-                      {allGreenFlags.map(flag => (
-                        <Badge key={flag} variant="outline" className="text-sm py-1.5 px-3 shrink-0 no-default-active-elevate" data-testid={`badge-flag-${flag}`}>
-                          {translateGreenFlag(flag, langCode)}
-                        </Badge>
-                      ))}
-                    </DragScrollRow>
-                  </div>
-                )}
-
-                {/* ── 8. Connection pace ── */}
-                <div className="space-y-2">
-                  <p className="text-xs font-semibold tracking-widest uppercase text-primary">{t("pace_label")}</p>
-                  <p className="text-base font-semibold" data-testid="text-profile-style">{translateStyle(displayProfile.connectionStyle ?? "", t)}</p>
-                </div>
+                {renderItems}
               </div>
             </Card>
         </div>
