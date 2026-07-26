@@ -1,0 +1,319 @@
+Fix the production message-count and progression-stage logic properly.
+
+The attached screenshots prove two separate bugs:
+
+BUG 1 — VOICE NOTES NEVER UNLOCKED
+
+One conversation has clearly exchanged enough messages to pass the 8-messages-each-way threshold, but:
+
+- no “Voice notes unlocked” celebration appeared
+- the microphone remained locked
+- the conversation continued progressing towards the call stage
+
+BUG 2 — CALL STAGE UNLOCKED TOO EARLY
+
+On the second account, the conversation moved to:
+
+“Time for your first call!”
+
+before that account had finished all remaining required messages.
+
+The two users are therefore not seeing the same progression state.
+
+This is a server-side state consistency bug, not just a modal-rendering problem.
+
+NON-NEGOTIABLE SOURCE OF TRUTH
+
+There must be one authoritative progression calculation on the server.
+
+Do not independently calculate stage progression from:
+
+- client-side message arrays
+- stale React Query caches
+- optimistic messages
+- localStorage
+- separate entitlement queries
+- one user’s local count
+- rendered message bubbles
+
+Use only persisted, successfully inserted user messages from the database.
+
+For every match, calculate:
+
+- genuine user text messages sent by user 1
+- genuine user text messages sent by user 2
+- current call stage
+- voice-note milestone state for each user
+- first-call milestone state for each user
+
+VOICE-NOTE RULE
+
+Voice notes become eligible only when:
+
+user1_valid_text_count >= 8
+AND
+user2_valid_text_count >= 8
+
+At that moment:
+
+- persist the voice-note milestone for both users
+- broadcast the unlock event to both connected users
+- update entitlement immediately
+- show the celebration independently to each user
+- keep the first call locked
+
+FIRST-CALL RULE
+
+The first audio call becomes eligible only when:
+
+user1_valid_text_count >= 15
+AND
+user2_valid_text_count >= 15
+AND
+both users have reached the voice-note milestone
+
+Do not allow callStage to advance merely because one user reaches 15.
+
+Do not allow callStage to advance from:
+
+- total combined message count
+- Math.max(count1, count2)
+- one participant’s count
+- stale cached counts
+- optimistic UI state
+- duplicate realtime events
+
+Both directional counts must independently satisfy the threshold.
+
+MESSAGE COUNTING
+
+Count only successfully persisted, genuine user text messages.
+
+Do not count:
+
+- failed sends
+- optimistic messages
+- pending messages
+- duplicate realtime inserts
+- system messages
+- call-stage system messages
+- scheduling payloads
+- phone-share payloads
+- voice-note payloads
+- deleted messages
+- moderation-only messages
+- messages beginning with internal prefixes such as __
+- automated milestone messages
+
+The count must be computed or incremented only after the message insert succeeds.
+
+ATOMIC SERVER UPDATE
+
+The following operations must happen atomically in the same server-side operation or transaction:
+
+1. insert the message
+2. determine the sender
+3. update the correct directional message counter
+4. reload both authoritative counts
+5. calculate any newly reached milestone
+6. persist milestone rows for both users
+7. calculate whether call stage is eligible
+8. return the exact authoritative progression state
+9. broadcast the same state to both users
+
+Do not update the message count and call stage in separate race-prone requests.
+
+RETURN AUTHORITATIVE STATE
+
+After every successful message, return:
+
+{
+ message: {...},
+ progression: {
+   user1Count: number,
+   user2Count: number,
+   voiceNotesEligible: boolean,
+   firstCallEligible: boolean,
+   callStage: number,
+   currentUserPendingMilestone:
+     null |
+     "voice_notes_unlocked" |
+     "first_call_unlocked"
+ },
+ progressionEvent:
+   null |
+   {
+     type: "voice_notes_unlocked" | "first_call_unlocked"
+   }
+}
+
+The client must replace its local progression state using this response.
+
+Do not merely increment a local number.
+
+CLIENT SYNCHRONISATION
+
+Both messaging.tsx and matches.tsx must use the same progression data shape.
+
+After:
+
+- sending a message
+- receiving a realtime message
+- opening the conversation
+- returning from background
+- refreshing
+- switching devices
+
+the client must fetch or apply the authoritative server progression state.
+
+Both users must see:
+
+- the same count stage
+- the same call eligibility
+- their own milestone acknowledgement state
+
+No user should see the call stage while the other still appears several messages behind because of stale state.
+
+BLOCK EARLY CALL STAGE
+
+The server must reject call-stage progression and call start unless:
+
+- user1Count >= 15
+- user2Count >= 15
+- voice-note milestone exists
+- current user acknowledged first-call milestone
+
+Return HTTP 403 with a structured response when blocked:
+
+{
+ message: "progression_not_ready",
+ required: {
+   user1Count: 15,
+   user2Count: 15
+ },
+ current: {
+   user1Count: ...,
+   user2Count: ...
+ }
+}
+
+Do not render “Time for your first call” until the server confirms firstCallEligible.
+
+FIX EXISTING CORRUPTED MATCHES
+
+Create a safe reconciliation function for existing conversations.
+
+For a given match:
+
+1. recount valid persisted text messages directly from the messages table
+2. determine which user sent each valid message
+3. repair message_count_1 and message_count_2
+4. repair voice-note milestone state
+5. repair first-call eligibility
+6. do not delete messages
+7. do not replay old celebrations for conversations already beyond the stage
+8. do not move a progressed valid match backwards unless its stored counters are objectively wrong
+
+Add an admin-only or development reconciliation endpoint for testing one match, for example:
+
+POST /api/admin/reconcile-match-progression/:matchId
+
+Return:
+
+{
+ before: {...},
+ recounted: {...},
+ after: {...}
+}
+
+Do not expose this endpoint publicly without admin protection.
+
+ADD DIAGNOSTICS
+
+Add development logging for every message:
+
+- matchId
+- sender userId
+- recipient userId
+- inserted message ID
+- message type
+- whether it counted
+- previous user1Count
+- previous user2Count
+- new user1Count
+- new user2Count
+- milestone emitted
+- callStage before
+- callStage after
+
+This must make it obvious why a message was or was not counted.
+
+EXACT TWO-ACCOUNT TEST
+
+Use two fresh accounts in one new match.
+
+Test and report PASS or FAIL:
+
+1. User A sends 7 valid text messages.
+2. User B sends 7 valid text messages.
+3. Voice notes remain locked.
+4. Call stage remains locked.
+
+5. User A sends message 8.
+6. User B has only 7.
+7. Voice notes remain locked for both.
+
+8. User B sends message 8.
+9. Both users receive the voice-note milestone promptly.
+10. Both directional counts show 8.
+11. Call stage remains locked.
+
+12. User A sends messages 9–15.
+13. User B is still below 15.
+14. Call stage remains locked for both.
+
+15. User B sends the remaining messages up to 15.
+16. Both counts show exactly 15.
+17. Both users receive first-call eligibility.
+18. Neither user sees call controls before acknowledgement.
+19. After acknowledgement, call controls appear.
+
+20. Refresh both devices.
+21. Counts remain identical.
+22. No milestone replays.
+23. No account jumps stages early.
+24. No account misses the voice-note milestone.
+
+Also test:
+
+- rapid alternating messages
+- both users sending at nearly the same time
+- duplicate realtime delivery
+- failed message send
+- page refresh during threshold message
+- second device logged into one account
+- an existing corrupted match repaired by reconciliation
+
+REPORT
+
+Provide:
+
+- exact root cause
+- whether counts were total, directional, stale or race-affected
+- files changed
+- database fields used
+- whether a transaction was added
+- reconciliation logic
+- sample before/after match state
+- sample progression response payload
+- commit hash
+- Railway deployment status
+- Vercel deployment status
+- PASS or FAIL for every test
+
+Do not mark this complete until:
+
+- voice notes unlock only when both users reach 8
+- the voice-note celebration appears for both users
+- the first call remains locked until both users reach 15
+- both accounts always display the same authoritative progression stage
