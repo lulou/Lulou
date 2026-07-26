@@ -195,11 +195,35 @@ export function useRealtimeMessages(
             : { ...old, dateChoiceUser2: choice };
         });
       })
-      .on("broadcast", { event: "voice-note-unlock" }, () => {
+      .on("broadcast", { event: "voice-note-unlock" }, ({ payload }) => {
+        // Snap the recipient's match-detail cache to the authoritative counts
+        // broadcast by the server.  Without this the recipient sees their own
+        // localSentCount optimistically drifting from the real value until the
+        // next 60-second poll.
+        if (payload?.user1Count !== undefined && payload?.user2Count !== undefined) {
+          queryClient.setQueryData<any>(["/api/matches", matchId], (old: any) =>
+            old ? { ...old, messageCount1: payload.user1Count, messageCount2: payload.user2Count } : old
+          );
+          console.log("[VOICE_NOTE_REALTIME] counts applied from broadcast", {
+            matchId: matchId.slice(0, 8),
+            user1Count: payload.user1Count,
+            user2Count: payload.user2Count,
+          });
+        }
         console.log("[VOICE_NOTE_REALTIME] unlock event received", { matchId: matchId.slice(0, 8) });
         onVoiceNoteUnlockRef.current?.();
       })
-      .on("broadcast", { event: "first-call-unlock" }, () => {
+      .on("broadcast", { event: "first-call-unlock" }, ({ payload }) => {
+        if (payload?.user1Count !== undefined && payload?.user2Count !== undefined) {
+          queryClient.setQueryData<any>(["/api/matches", matchId], (old: any) =>
+            old ? { ...old, messageCount1: payload.user1Count, messageCount2: payload.user2Count } : old
+          );
+          console.log("[FIRST_CALL_REALTIME] counts applied from broadcast", {
+            matchId: matchId.slice(0, 8),
+            user1Count: payload.user1Count,
+            user2Count: payload.user2Count,
+          });
+        }
         console.log("[FIRST_CALL_REALTIME] unlock event received", { matchId: matchId.slice(0, 8) });
         onFirstCallUnlockRef.current?.();
       })

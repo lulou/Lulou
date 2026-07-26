@@ -2697,12 +2697,29 @@ export async function registerRoutes(
       // The sender gets the event via progressionEvent in the response body.
       // The broadcast delivers it to the other user's realtime channel instantly,
       // removing any dependency on the 60-second entitlement poll.
-      if (progressionEvent) {
+      if (progressionEvent && progression) {
         const broadcastEvent = progressionEvent.type === "voice_notes_unlocked"
           ? "voice-note-unlock"
           : "first-call-unlock";
-        broadcastViaHttpApi(`chat:${matchId}`, broadcastEvent, { matchId }).catch(() => {});
-        console.log("[PROGRESSION] MILESTONE_BROADCAST_SENT", { event: broadcastEvent, matchId, userId: userId.slice(0, 8) });
+        // Include the full authoritative progression state so the RECIPIENT's client
+        // can update its match-detail cache immediately without waiting for the next
+        // 60-second poll.  user1Count/user2Count are absolute — the recipient derives
+        // its own myCount/theirCount by comparing against its own userId.
+        const prog = progression as { voiceNotesEligible: boolean; firstCallEligible: boolean } | null;
+        broadcastViaHttpApi(`chat:${matchId}`, broadcastEvent, {
+          matchId,
+          user1Count: newCount1,
+          user2Count: newCount2,
+          voiceNotesEligible: prog?.voiceNotesEligible ?? false,
+          firstCallEligible:  prog?.firstCallEligible ?? false,
+        }).catch(() => {});
+        console.log("[PROGRESSION] MILESTONE_BROADCAST_SENT", {
+          event: broadcastEvent,
+          matchId,
+          userId: userId.slice(0, 8),
+          user1Count: newCount1,
+          user2Count: newCount2,
+        });
       }
 
       // ── Respond — include authoritative progression state ─────────────────────
