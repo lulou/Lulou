@@ -1,0 +1,185 @@
+Fix two production authentication/session bugs in Lulou.
+
+BUG 1 — SAME ACCOUNT WORKS ON PHONE BUT NOT LAPTOP
+
+The account:
+
+omibalogun270+test3@gmail.com
+
+has been signed into and out of successfully multiple times on the phone, but the laptop login returns:
+
+Invalid login credentials
+AuthApiError
+status: 400
+code: invalid_credentials
+
+Investigate the actual Supabase Auth user and session state.
+
+Do not assume the password is wrong without checking the account record.
+
+Verify:
+
+- whether this exact email exists in Supabase Auth
+- whether email confirmation is complete
+- whether the phone is using an old persisted session rather than successfully re-authenticating
+- whether the phone login form and laptop login form call the same Supabase project
+- whether both devices use the same VITE_SUPABASE_URL and anon key
+- whether one environment points to a different Supabase project
+- whether the email contains hidden whitespace or case differences
+- whether the password input is altered by autofill
+- whether the account was created through OAuth, magic link or password signup
+- whether a password identity actually exists for this user
+- whether the account has multiple identities
+- whether the user was deleted/recreated while the phone retained an old session
+- whether failed login attempts or rate limits are affecting the request
+
+Add safe diagnostics that report:
+
+- normalised email
+- Supabase project URL host
+- auth method attempted
+- whether a user/session already exists locally
+- whether the server returned invalid_credentials, email_not_confirmed or another code
+
+Do not log passwords, tokens or secrets.
+
+Required behaviour:
+
+- signing out must fully clear the Supabase session on that device
+- signing back in must perform a real password authentication request
+- the same confirmed password account must work on phone and laptop
+- if the user has no password identity, show a clear message and guide them to set/reset a password
+- “Forgot password?” must send a real reset email to this exact address
+- after reset, the new password must work on both devices
+
+Test:
+
+1. Sign out on the phone.
+2. Confirm the local session is completely cleared.
+3. Sign in again using the exact email and password.
+4. Sign out.
+5. Sign in on the laptop with the same credentials.
+6. Confirm both use the same Supabase project and user ID.
+7. Reset the password and confirm the new password works on both devices.
+
+Report the exact root cause and do not simply tell the user they typed the password incorrectly.
+
+BUG 2 — STALE INCOMING RING PLAYS AFTER SIGN-IN
+
+Immediately after signing in, an incoming call ringtone starts again even though no new live call was initiated.
+
+This means stale call state, old realtime events or persisted ringing state are being restored after authentication.
+
+Investigate:
+
+- incoming call state in React
+- realtime subscriptions
+- call invitation rows in the database
+- WebRTC signalling records
+- localStorage/sessionStorage call keys
+- cached React Query call data
+- service-worker or push-notification call events
+- duplicate Supabase realtime subscriptions after login
+- call records left in ringing/connecting status
+- previous call IDs restored on session hydration
+
+Required behaviour:
+
+- signing in must start with no ringing state
+- only a genuinely new active incoming call invitation may trigger the ringtone
+- old, ended, declined, expired or answered calls must never ring again
+- reconnecting realtime must not replay historical INSERT events as new calls
+- duplicate subscriptions must not produce duplicate ringing
+- switching accounts must clear all previous account call state
+- signing out must stop audio immediately and remove all call subscriptions
+- refreshing the page must not restart an expired ringtone
+
+SERVER-SIDE CALL EXPIRY
+
+Incoming call invitations must have:
+
+- created_at
+- expires_at
+- status
+
+Allowed active statuses should be narrowly defined, for example:
+
+- ringing
+- accepted
+- declined
+- ended
+- expired
+
+On login or subscription startup:
+
+- fetch only calls for the authenticated user
+- require status = ringing
+- require expires_at > now()
+- ignore calls created before the current session unless still genuinely active
+- automatically mark expired ringing calls as expired
+- never ring from ended, declined, accepted or expired records
+
+CLIENT-SIDE CLEANUP
+
+On sign-out, account switch or component unmount:
+
+- stop and reset the ringtone audio
+- clear incomingCall state
+- clear activeCallId
+- clear pending call modals
+- unsubscribe from every call channel
+- remove any call-related timers
+- invalidate/remove call-related query cache
+- remove stale call keys from localStorage/sessionStorage
+
+Prevent more than one call subscription per authenticated user.
+
+Add diagnostic logging for:
+
+- user ID
+- call ID
+- event type
+- call status
+- created_at
+- expires_at
+- whether the event was ignored or triggered ringing
+- reason for ignoring stale calls
+
+TEST EXACTLY
+
+1. End every active test call.
+2. Sign out.
+3. Confirm ringtone stops immediately.
+4. Sign back in.
+5. Confirm no ringtone plays.
+6. Refresh.
+7. Confirm no ringtone plays.
+8. Sign in on a second device.
+9. Confirm no ringtone plays.
+10. Initiate one genuine new call.
+11. Confirm the receiving device rings once.
+12. Decline the call.
+13. Refresh and sign in again.
+14. Confirm the declined call never rings again.
+15. Allow a ringing call to expire.
+16. Confirm it is marked expired and never replays.
+17. Switch between two accounts.
+18. Confirm neither receives call state from the other account.
+
+Report:
+
+- root cause of laptop invalid_credentials
+- whether the phone had a stale session
+- Supabase project used by each device
+- auth identity type for the account
+- root cause of stale ringing
+- database call status/expiry changes
+- files changed
+- commit hash
+- Railway deployment status
+- Vercel deployment status
+- PASS or FAIL for every test
+
+Do not mark this complete until:
+- the same account can authenticate on both phone and laptop
+- signing in never causes an old incoming call to ring again
