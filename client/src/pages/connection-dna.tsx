@@ -8,6 +8,7 @@ import { ChevronLeft, Dna, Check, Loader2 } from "lucide-react";
 import { DNA_QUESTIONS } from "@/lib/dna-questions";
 import { getAuthHeaders, API_BASE } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { useLanguageContext } from "@/contexts/language-context";
 
 const TOTAL = DNA_QUESTIONS.length;
 
@@ -29,11 +30,12 @@ function clearLocalProgress() {
   try { localStorage.removeItem(LS_KEY); } catch {}
 }
 
-// ── Trait computation ─────────────────────────────────────────────────────────
-// Scores 15 dimensions using the same answer-weight table the server uses, then
-// picks the top 4 dimensions by absolute deviation from the neutral midpoint (50)
-// — the most *characteristic* signals — and maps each to an evocative label.
-function computeTopTraits(responses: Record<string, number>): string[] {
+// ── Trait key computation ──────────────────────────────────────────────────────
+// Returns i18n key strings (e.g. "trait_commDirectness_high") rather than
+// English labels so the component can translate them at render time.
+type TraitKey = string;
+
+function computeTopTraitKeys(responses: Record<string, number>): TraitKey[] {
   const NEUTRAL = 50;
   const accum: Record<string, number[]> = {};
 
@@ -51,35 +53,28 @@ function computeTopTraits(responses: Record<string, number>): string[] {
     scores[dim] = Math.round(vals.reduce((a, b) => a + b, 0) / vals.length);
   }
 
-  // Labels vary with the actual score direction so they reflect the user's choices
-  const TRAIT_MAP: Record<string, (s: number) => string> = {
-    commDirectness:    s => s >= 62 ? "Direct communicator"           : s <= 38 ? "Reads between the lines"       : "Thoughtful communicator",
-    emotionalDepth:    s => s >= 62 ? "Emotionally intentional"       : s <= 38 ? "Keeps things light"            : "Emotionally balanced",
-    affectionStyle:    s => s >= 62 ? "Affectionate by nature"        : s <= 38 ? "Quietly devoted"               : "Shows care through actions",
-    socialEnergy:      s => s >= 62 ? "Energised by people"           : s <= 38 ? "Cherishes quiet connection"    : "Comfortably social",
-    independence:      s => s >= 62 ? "Values personal space"         : s <= 38 ? "Seeks deep togetherness"       : "Balances closeness and space",
-    conflictRepair:    s => s >= 62 ? "Resolves conflict openly"      : s <= 38 ? "Needs time to process"         : "Works through disagreement",
-    datingPace:        s => s >= 62 ? "Connects quickly"              : s <= 38 ? "Slow-burn connection"          : "Takes time to feel sure",
-    planningStyle:     s => s >= 62 ? "Values structure"              : s <= 38 ? "Spontaneous at heart"          : "Balances plans and flow",
-    futureAlignment:   s => s >= 62 ? "Clear about the future"        : s <= 38 ? "Open to where life leads"      : "Future-aware",
-    playfulness:       s => s >= 62 ? "Playful and lighthearted"      : s <= 38 ? "Grounded and thoughtful"       : "Earnest with a lighter side",
-    commFrequency:     s => s >= 62 ? "Loves staying connected"       : s <= 38 ? "Communicates with purpose"     : "Consistent communicator",
-    ambitionPriority:  s => s >= 62 ? "Driven by purpose"             : s <= 38 ? "Values presence over ambition" : "Balances ambition and connection",
-    availabilityScore: s => s >= 62 ? "Fully invested in dating"      : s <= 38 ? "Dating around a full life"    : "Intentionally available",
-    lifestyle:         s => s >= 62 ? "Active, full lifestyle"        : s <= 38 ? "Calm and considered pace"      : "Balanced lifestyle",
-    seriousness:       s => s >= 62 ? "Relationship intentional"      : s <= 38 ? "Living in the moment"          : "Open to commitment",
-  };
+  // Returns the i18n key suffix: "high" (≥62), "low" (≤38), or "mid"
+  const TRAIT_DIMS = [
+    "commDirectness", "emotionalDepth", "affectionStyle", "socialEnergy",
+    "independence", "conflictRepair", "datingPace", "planningStyle",
+    "futureAlignment", "playfulness", "commFrequency", "ambitionPriority",
+    "availabilityScore", "lifestyle", "seriousness",
+  ] as const;
 
   return Object.entries(scores)
-    .filter(([dim]) => TRAIT_MAP[dim])
+    .filter(([dim]) => (TRAIT_DIMS as readonly string[]).includes(dim))
     .sort(([, a], [, b]) => Math.abs(b - NEUTRAL) - Math.abs(a - NEUTRAL))
     .slice(0, 4)
-    .map(([dim, score]) => TRAIT_MAP[dim](score));
+    .map(([dim, score]) => {
+      const tier = score >= 62 ? "high" : score <= 38 ? "low" : "mid";
+      return `trait_${dim}_${tier}`;
+    });
 }
 
 export default function ConnectionDna() {
   const [, navigate]       = useLocation();
   const { toast }          = useToast();
+  const { t }              = useLanguageContext();
   const queryClient        = useQueryClient();
   const [step, setStep]    = useState(0);         // 0 = intro, 1-N = questions, N+1 = done
   const [responses, setResponses]   = useState<Record<string, number>>({});
@@ -166,11 +161,11 @@ export default function ConnectionDna() {
       queryClient.setQueryData(["dna-status-check"], { completed: true, hasDna: true });
       navigate("/discover");
     } catch {
-      toast({ title: "Something went wrong", description: "Please try again.", variant: "destructive" });
+      toast({ title: t("something_went_wrong"), description: t("dna_error_try_again"), variant: "destructive" });
     } finally {
       setCompleting(false);
     }
-  }, [navigate, toast, queryClient]);
+  }, [navigate, toast, queryClient, t]);
 
   if (!loaded) {
     return (
@@ -190,26 +185,22 @@ export default function ConnectionDna() {
               <Dna className="w-8 h-8 text-primary" />
             </div>
             <div className="space-y-2">
-              <h1 className="font-serif text-3xl font-bold" data-testid="text-dna-title">Connection DNA</h1>
+              <h1 className="font-serif text-3xl font-bold" data-testid="text-dna-title">{t("dna_intro_title")}</h1>
               <p className="text-muted-foreground leading-relaxed">
-                15 quick questions to understand how you connect — not just what you look like.
+                {t("dna_intro_subtitle")}
               </p>
             </div>
           </div>
 
           <div className="bg-card border border-border/50 rounded-2xl p-6 space-y-4 text-left shadow-sm">
-            <p className="text-sm font-semibold text-foreground">What this does</p>
+            <p className="text-sm font-semibold text-foreground">{t("dna_intro_what_this_does")}</p>
             <div className="space-y-3">
-              {[
-                "Matches you with people who connect the way you do",
-                "Helps us explain why we introduced two people",
-                "Improves over time as Lulou learns from real interactions",
-              ].map((item, i) => (
+              {(["dna_intro_bullet_1", "dna_intro_bullet_2", "dna_intro_bullet_3"] as const).map((key, i) => (
                 <div key={i} className="flex items-start gap-3">
                   <div className="w-5 h-5 rounded-full bg-primary/15 flex items-center justify-center flex-shrink-0 mt-0.5">
                     <Check className="w-3 h-3 text-primary" />
                   </div>
-                  <p className="text-sm text-muted-foreground leading-relaxed">{item}</p>
+                  <p className="text-sm text-muted-foreground leading-relaxed">{t(key)}</p>
                 </div>
               ))}
             </div>
@@ -217,14 +208,14 @@ export default function ConnectionDna() {
 
           <div className="space-y-3">
             <p className="text-xs text-muted-foreground/60">
-              Your answers are private. We never share raw scores with other users.
+              {t("dna_intro_privacy")}
             </p>
             <Button
               className="w-full rounded-full h-12 text-base"
               onClick={() => { setDirection(1); setStep(1); }}
               data-testid="button-start-dna"
             >
-              Begin — takes about 3 minutes
+              {t("dna_intro_begin_btn")}
             </Button>
           </div>
         </div>
@@ -234,7 +225,7 @@ export default function ConnectionDna() {
 
   // Completion screen
   if (step > TOTAL) {
-    const traits = computeTopTraits(responses);
+    const traitKeys = computeTopTraitKeys(responses);
 
     return (
       <div className="min-h-screen flex flex-col bg-background">
@@ -248,27 +239,27 @@ export default function ConnectionDna() {
               </div>
               <div className="space-y-2">
                 <h2 className="font-serif text-3xl font-bold" data-testid="text-dna-complete-title">
-                  Your Connection DNA is ready
+                  {t("dna_complete_title")}
                 </h2>
                 <p className="text-muted-foreground leading-relaxed">
-                  Your answers help Lulou understand how you communicate, connect, build trust, and approach relationships.
+                  {t("dna_complete_subtitle")}
                 </p>
               </div>
             </div>
 
-            {/* Trait chips — computed from actual responses */}
-            {traits.length > 0 && (
+            {/* Trait chips — computed from actual responses, translated at render */}
+            {traitKeys.length > 0 && (
               <div className="w-full space-y-3">
                 <p className="text-xs font-semibold text-muted-foreground uppercase tracking-widest">
-                  Your strongest signals
+                  {t("dna_complete_signals_label")}
                 </p>
                 <div className="flex flex-wrap justify-center gap-2">
-                  {traits.map((trait, i) => (
+                  {traitKeys.map((key, i) => (
                     <span
                       key={i}
                       className="px-4 py-2 rounded-full text-sm font-medium bg-primary/10 text-primary border border-primary/20"
                     >
-                      {trait}
+                      {t(key as Parameters<typeof t>[0])}
                     </span>
                   ))}
                 </div>
@@ -277,20 +268,14 @@ export default function ConnectionDna() {
 
             {/* What Lulou does with it */}
             <div className="w-full bg-card border border-border/50 rounded-2xl p-6 space-y-4 text-left shadow-sm">
-              <p className="text-sm font-semibold text-foreground">How Lulou uses your DNA</p>
+              <p className="text-sm font-semibold text-foreground">{t("dna_complete_how_lulou_uses")}</p>
               <div className="space-y-3">
-                {[
-                  "Ranks more compatible profiles higher on Discover",
-                  "Identifies shared values and communication styles",
-                  "Improves the quality of introductions over time",
-                  "Generates meaningful compatibility reasons",
-                  "Learns what type of connection works best for you",
-                ].map((item, i) => (
+                {(["dna_complete_bullet_1", "dna_complete_bullet_2", "dna_complete_bullet_3", "dna_complete_bullet_4", "dna_complete_bullet_5"] as const).map((key, i) => (
                   <div key={i} className="flex items-start gap-3">
                     <div className="w-5 h-5 rounded-full bg-primary/15 flex items-center justify-center flex-shrink-0 mt-0.5">
                       <Check className="w-3 h-3 text-primary" />
                     </div>
-                    <p className="text-sm text-muted-foreground leading-relaxed">{item}</p>
+                    <p className="text-sm text-muted-foreground leading-relaxed">{t(key)}</p>
                   </div>
                 ))}
               </div>
@@ -298,7 +283,7 @@ export default function ConnectionDna() {
 
             {/* Privacy note */}
             <p className="text-xs text-muted-foreground/60 leading-relaxed px-2">
-              Your individual answers are private. Other members only see selected profile signals and compatibility insights.
+              {t("dna_complete_privacy")}
             </p>
 
             {/* CTA */}
@@ -310,8 +295,8 @@ export default function ConnectionDna() {
                 data-testid="button-finish-dna"
               >
                 {completing
-                  ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Building your profile…</>
-                  : "See my connections"}
+                  ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />{t("dna_complete_building")}</>
+                  : t("dna_complete_cta")}
               </Button>
             </div>
 
@@ -336,7 +321,7 @@ export default function ConnectionDna() {
             onClick={goBack}
             disabled={step === 1}
             className="p-2 rounded-full hover:bg-muted transition-colors disabled:opacity-30"
-            aria-label="Go back"
+            aria-label={t("dna_go_back")}
             data-testid="button-dna-back"
           >
             <ChevronLeft className="w-5 h-5" />
@@ -419,7 +404,7 @@ export default function ConnectionDna() {
             className="text-sm text-primary hover:underline"
             data-testid="button-dna-next"
           >
-            Next question →
+            {t("dna_next_question")}
           </button>
         </div>
       )}
@@ -430,7 +415,7 @@ export default function ConnectionDna() {
             className="text-sm text-primary hover:underline"
             data-testid="button-dna-review"
           >
-            Review answers →
+            {t("dna_review_answers")}
           </button>
         </div>
       )}

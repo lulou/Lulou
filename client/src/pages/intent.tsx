@@ -715,14 +715,14 @@ type SpinStatus = {
   purchasedSpins?: number;
 };
 
-// Lulou quotes — shown in the reveal stage before profile details appear.
-const LULOU_QUOTES = [
-  "One possibility. One story.",
-  "Sometimes the right person arrives unexpectedly.",
-  "Tonight begins with a hello.",
-  "Some introductions feel different.",
-  "Every connection starts with a moment.",
-  "Lulou chose someone for you tonight.",
+// Lulou quote keys — i18n keys resolved at render time so they update with language.
+const LULOU_QUOTE_KEYS = [
+  "lulou_quote_1",
+  "lulou_quote_2",
+  "lulou_quote_3",
+  "lulou_quote_4",
+  "lulou_quote_5",
+  "lulou_quote_6",
 ] as const;
 
 // DNA insights shown in the spin-room reveal — framed as an observation about
@@ -977,7 +977,7 @@ export default function IntentPage() {
     staleTime: 10 * 60 * 1000,
   });
   const spinRoomInsight: string =
-    dnaReasonsData?.reasons?.[0] ?? "Take a closer look and see where the conversation leads.";
+    dnaReasonsData?.reasons?.[0] ?? t("spin_room_compat_fallback");
 
   // SpinRoom cinematic phase — drives what's visible at each moment
   type SpinPhase = 'idle' | 'accelerate' | 'fast' | 'slow' | 'approach' | 'pullforward' | 'arrive' | 'reveal' | 'pause' | 'buttons';
@@ -1233,7 +1233,7 @@ export default function IntentPage() {
         if (winner) {
           setSelectedIndex(closestI);
           setSelectedProfile(winner);
-          setRevealQuote(LULOU_QUOTES[Math.floor(Math.random() * LULOU_QUOTES.length)]);
+          setRevealQuote(LULOU_QUOTE_KEYS[Math.floor(Math.random() * LULOU_QUOTE_KEYS.length)]);
           recordSpin.mutate(winner.userId);
           setShowProfile(true);
         }
@@ -2822,7 +2822,7 @@ export default function IntentPage() {
                     animation: "srTextIn 1.2s 0.3s ease both",
                     textAlign: "center", margin: 0,
                   }}>
-                    "{revealQuote}"
+                    "{t(revealQuote as Parameters<typeof t>[0])}"
                   </p>
                   <p style={{
                     fontSize: 10, fontWeight: 700, letterSpacing: "0.26em",
@@ -3114,15 +3114,15 @@ export default function IntentPage() {
               fontSize: 10, fontWeight: 800, letterSpacing: "0.24em",
               textTransform: "uppercase", color: "rgba(212,92,116,0.72)",
               textAlign: "center", marginBottom: 14,
-            }}>✨ Get More Halos</p>
+            }}>✨ {t("halo_get_more")}</p>
 
             {/* Halo packs */}
             <div style={{ padding: "0 20px", display: "flex", flexDirection: "column", gap: 10 }}>
               {(
                 [
-                  { itemId: "sparks-1", label: "1 Halo",  sub: "One more connection tonight",  price: "$2.99",  highlight: false },
-                  { itemId: "sparks-3", label: "3 Halos", sub: "Three more chances tonight",   price: "$6.99",  highlight: true  },
-                  { itemId: "sparks-5", label: "5 Halos", sub: "Explore freely tonight",       price: "$9.99",  highlight: false },
+                  { itemId: "sparks-1", label: t("halo_pkg1_label"), sub: t("halo_pkg1_sub"), price: "$2.99",  highlight: false },
+                  { itemId: "sparks-3", label: t("halo_pkg3_label"), sub: t("halo_pkg3_sub"), price: "$6.99",  highlight: true  },
+                  { itemId: "sparks-5", label: t("halo_pkg5_label"), sub: t("halo_pkg5_sub"), price: "$9.99",  highlight: false },
                 ] as const
               ).map(({ itemId, label, sub, price, highlight }) => (
                 <button
@@ -3132,12 +3132,12 @@ export default function IntentPage() {
                   onClick={() => {
                     if (sparksCheckoutLoading) return;
                     setSparksCheckoutLoading(itemId);
-                    toast({ title: "Starting checkout…", description: "Connecting to payment provider." });
+                    toast({ title: t("checkout_starting"), description: t("checkout_connecting") });
                     void startPurchase({
                       productId: itemId,
                       body: { itemId, returnPath: "/intent" },
                       onError: (msg) => {
-                        toast({ title: "Checkout failed", description: msg, variant: "destructive" });
+                        toast({ title: t("checkout_failed"), description: msg, variant: "destructive" });
                         setSparksCheckoutLoading(null);
                       },
                     });
