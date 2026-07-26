@@ -1,0 +1,73 @@
+Task #63 still needs one final correction and full production verification.
+
+CURRENT GAP
+
+POST /api/matches/:matchId/messages returns progressionEvent only to the client that sends the threshold-crossing request.
+
+At 8 messages each way, the second user to send their eighth message receives the immediate voice-note event. The first user may not receive their celebration until the 60-second entitlement poll runs.
+
+That is not acceptable. Both users must receive the milestone promptly, and neither user should be able to progress towards the call stage while their milestone is pending.
+
+FIX BOTH-USERS DELIVERY
+
+When a threshold becomes true for the match:
+
+- persist a pending milestone independently for each user
+- notify both connected clients through the existing realtime/WebSocket mechanism if available
+- otherwise refetch entitlement immediately through the existing match/message invalidation path
+- do not rely on a 60-second polling interval as the normal delivery mechanism
+- polling may remain only as recovery
+
+Required persisted states per user and match:
+
+- voice-note milestone pending/acknowledged
+- first-call milestone pending/acknowledged
+
+The entitlement response must clearly return the next pending milestone for the current user.
+
+BLOCK PROGRESSION SERVER-SIDE
+
+Do not rely only on hiding call controls while a modal is open.
+
+The server must not allow the first call to start until the current user has acknowledged the first-call milestone.
+
+If either participant has an unacknowledged earlier voice-note milestone, prevent progression into the call stage for that participant.
+
+A client refresh, second device or altered frontend must not bypass the milestone.
+
+MODAL SEQUENCING
+
+If both milestones are pending for an old or migrated conversation:
+
+1. Show voice notes first.
+2. After acknowledgement, return to chat.
+3. Do not immediately open the call modal in the same render tick.
+4. Show the first-call celebration as a separate milestone after a brief normal-chat state or next intentional interaction.
+5. Never show call controls underneath either celebration.
+
+PRODUCTION TEST WITH TWO REAL ACCOUNTS
+
+Report PASS or FAIL:
+
+1. User A sends their eighth message before User B.
+2. User B sends their eighth message.
+3. User B receives the celebration immediately.
+4. User A receives the celebration immediately without waiting 60 seconds or refreshing.
+5. Both acknowledge independently.
+6. Messages 9–14 work and call stays locked.
+7. At 15 each way, both users receive their own first-call celebration promptly.
+8. Call start is rejected server-side before acknowledgement.
+9. Call start succeeds after acknowledgement.
+10. Refreshing or using a second device cannot bypass the gate.
+11. An existing call-stage conversation receives no historical popup.
+12. No celebration appears over visible call controls.
+
+Also provide the missing Task #62 report:
+- commit hash
+- exact Discover files changed
+- photo placement results for 1–6 photos
+- confirmation that the original swipe wrapper and handlers were unchanged
+- horizontal swipe regression results
+- Vercel deployment status
+
+Do not mark either task complete until the real two-account production tests pass.
