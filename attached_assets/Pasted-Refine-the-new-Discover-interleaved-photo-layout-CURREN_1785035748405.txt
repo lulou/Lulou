@@ -1,0 +1,213 @@
+Refine the new Discover interleaved-photo layout.
+
+CURRENT PROBLEM
+
+The photos are now distributed through the profile, but too many written response sections are grouped together in the middle.
+
+In the current production layout:
+
+- personality
+- conversation starters
+- “They’d love to know”
+- “Ask me”
+
+appear one after another before the next photo.
+
+The final photo is then followed by very little written information.
+
+This still makes the profile feel unbalanced.
+
+GOAL
+
+Distribute both the uploaded photos and the written profile sections across the full height of the profile.
+
+There must be meaningful profile content:
+
+- before the middle photos
+- between the middle photos
+- after the final uploaded photo
+
+The final photo must not automatically become the last major item in the profile.
+
+Some written sections should appear beneath the final photo so the profile continues naturally and ends with useful information rather than ending abruptly on an image.
+
+DYNAMIC CONTENT GROUPING
+
+Do not render every written section as one flat block.
+
+Build all available profile sections as an ordered list, including only sections that contain data:
+
+- basic details
+- personality traits
+- conversation starters
+- “They’d love to know”
+- “Ask me”
+- looking for
+- green flags
+- connection pace
+- Connection DNA signals
+- compatibility insights
+- remaining profile questions
+- final actions or closing profile information
+
+Then divide those written sections into balanced content groups based on:
+
+- number of available sections
+- number of uploaded photos
+- amount of content inside each section
+
+Interleave the content groups and photos so the complete profile feels evenly paced.
+
+IMPORTANT FINAL-PHOTO RULE
+
+Always reserve at least one meaningful written content group for after the final inserted photo whenever enough profile content exists.
+
+For example, with six photos and a complete profile:
+
+1. Hero photo
+2. Basic details and personality
+3. Photo 2
+4. Conversation starters
+5. Photo 3
+6. “They’d love to know”
+7. Photo 4
+8. “Ask me”
+9. Photo 5
+10. Looking for and green flags
+11. Photo 6
+12. Connection pace
+13. Connection DNA signals or compatibility information
+14. Final profile information/actions
+
+Do not hardcode this exact order.
+
+Calculate the distribution dynamically from the sections that actually contain content.
+
+Profiles with missing answers must still remain balanced.
+
+CONTENT WEIGHTING
+
+Do not treat every section as the same size.
+
+Estimate section weight using the amount of content:
+
+- basic details: small
+- personality chips: small
+- looking for: small
+- pace: small
+- green flags: medium
+- one response card: medium
+- multiple conversation starters: large
+- multiple “Ask me” cards: large
+- DNA/compatibility section: medium or large
+
+Use these weights to avoid placing several large response sections together.
+
+The algorithm should spread larger sections across different photo intervals.
+
+Do not place:
+
+- conversation starters
+- “They’d love to know”
+- “Ask me”
+
+all consecutively unless there are too few photos or no other content sections.
+
+BALANCED LAYOUT TARGET
+
+For profiles with enough content:
+
+- each photo should have written information near it
+- no area should contain several long response sections without a visual break
+- no photo should be immediately followed by another photo
+- the final photo should normally have profile content beneath it
+- the ending should feel intentional, not empty
+
+PHOTO COUNTS
+
+1 photo:
+- hero followed by all written sections
+
+2 photos:
+- hero
+- roughly half the written content
+- second photo
+- remaining written content
+
+3 photos:
+- hero
+- first content group
+- photo 2
+- second content group
+- photo 3
+- final content group
+
+4–6 photos:
+- distribute photos and content groups across the full profile
+- reserve content beneath the final photo
+- avoid tiny single-line groups between large images
+
+PRESERVE THE EXISTING SWIPE/PULL
+
+This refinement must not change the current horizontal swipe/pull system.
+
+Non-negotiable:
+
+- do not modify the outer swipe wrapper
+- do not modify swipe thresholds
+- do not modify resistance, rotation, snap-back or dismiss animations
+- do not modify left/right swipe actions
+- do not add gesture handlers to photos or content groups
+- inserted content remains ordinary vertical content
+- vertical scrolling must not accidentally trigger horizontal movement
+- horizontal swiping must still work when starting directly over any inserted photo
+
+The swipe behaviour must remain exactly as it is now.
+
+MOBILE REQUIREMENTS
+
+Test on iPhone Safari.
+
+Confirm:
+
+- written sections are distributed throughout the profile
+- some useful content appears beneath the final photo
+- no large cluster of reply cards remains in the middle
+- no text is clipped
+- no horizontal overflow
+- no overlap with the header, floating actions or bottom navigation
+- scrolling remains smooth
+- all photos remain sharp and appear once
+- swipe/pull remains unchanged
+
+TEST CASES
+
+Test:
+
+1. Two photos with all written sections
+2. Three photos with several missing answers
+3. Four photos with many conversation starters
+4. Five photos with no personality section
+5. Six photos with every section completed
+6. Six photos with only half the profile answered
+
+For every test, report:
+
+- section order
+- photo insertion order
+- which sections appear after the final photo
+- whether large response sections were separated
+- whether the visual pacing feels balanced
+- swipe regression result
+
+Provide:
+
+- files changed
+- new grouping/weighting algorithm
+- before-and-after content order for a six-photo profile
+- commit hash
+- push result
+- Vercel deployment status
+- PASS or FAIL for every test
+
+Do not mark this complete if all response sections remain clustered together or if the final photo has no meaningful content beneath it.
