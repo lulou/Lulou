@@ -242,6 +242,111 @@ const SlideCards = memo(function SlideCards({ items, type, onReply }: { items: s
 // are pruned once the pool exceeds this threshold, bounding the useMemo filter cost.
 const MAX_POOL_SIZE = 60;
 
+// ── Content-section weighting ────────────────────────────────────────────────
+// Weights control how the interleave algorithm groups sections between photos.
+// Large sections (score ≥ 3) each get their own photo slot whenever possible so
+// starters / viewerQuestions / questions are never shown back-to-back.
+const W_SMALL  = 1; // identity, signals, intent, pace
+const W_MEDIUM = 2; // green flags
+const W_LARGE  = 3; // conversation starters, they'd love to know, ask me
+
+type ContentSection = { id: string; weight: number; node: JSX.Element };
+
+/**
+ * Distribute `sections` across `targetIndices` group slots using cumulative
+ * weight.  Each section is pushed into the current slot; once the running
+ * total exceeds (totalWeight / nSlots × slotNumber) we advance to the next
+ * slot.  This ensures heavier sections naturally fill their own slot.
+ */
+function distributeToSlots(
+  sections: ContentSection[],
+  targetIndices: number[],
+  groups: ContentSection[][],
+): void {
+  if (!sections.length || !targetIndices.length) return;
+  const total      = sections.reduce((s, x) => s + x.weight, 0);
+  const perSlot    = total / targetIndices.length;
+  let slotPtr      = 0;
+  let accum        = 0;
+  sections.forEach((sec, i) => {
+    groups[targetIndices[slotPtr]].push(sec);
+    accum += sec.weight;
+    if (
+      i < sections.length - 1 &&
+      accum >= perSlot * (slotPtr + 1) &&
+      slotPtr < targetIndices.length - 1
+    ) {
+      slotPtr++;
+    }
+  });
+}
+
+/**
+ * Divide `sections` into (nExtra + 1) content groups for interleaving with
+ * extra uploaded photos.
+ *
+ * Rules:
+ *  1. Large sections (starters / viewerQuestions / questions) each get their
+ *     own group slot (positions 1…L), so a photo always separates them when
+ *     there are enough photo slots.
+ *  2. Non-large sections distribute across the remaining empty slots using
+ *     cumulative weight.
+ *  3. The FIRST slot (before photo 2) always gets some non-large content so
+ *     the profile opens with identity details rather than a response wall.
+ *  4. The LAST slot (after the final photo) is reserved for non-large content
+ *     whenever possible — "final-photo rule".
+ *  5. When there are more empty slots than non-large sections, content is
+ *     concentrated at the first and last slots rather than scattered thinly
+ *     across every gap, avoiding orphan single-line sections in the middle.
+ */
+function buildPhotoGroups(sections: ContentSection[], nExtra: number): ContentSection[][] {
+  const nGroups = nExtra + 1;
+  if (nGroups <= 1 || !sections.length) return [sections];
+
+  const large    = sections.filter(s => s.weight >= W_LARGE);
+  const nonLarge = sections.filter(s => s.weight <  W_LARGE);
+  const groups: ContentSection[][] = Array.from({ length: nGroups }, () => []);
+
+  if (!large.length) {
+    // No large sections — spread evenly across all groups.
+    distributeToSlots(nonLarge, Array.from({ length: nGroups }, (_, i) => i), groups);
+    return groups;
+  }
+
+  // Assign large sections to groups 1 … nLargeSlots.
+  // nGroups − 1 is the ceiling so the last group is always reserved for non-large.
+  const nLargeSlots = Math.min(large.length, nGroups - 1);
+  large.forEach((sec, i) => {
+    const slot = Math.min(
+      1 + Math.floor((i * nLargeSlots) / large.length),
+      nLargeSlots,
+    );
+    groups[slot].push(sec);
+  });
+
+  // Collect group indices that are still empty — they receive non-large content.
+  const emptyIdx = groups.map((g, i) => (g.length === 0 ? i : -1)).filter(i => i >= 0);
+
+  if (nonLarge.length && emptyIdx.length) {
+    // When spare slots outnumber non-large sections, concentrate content at
+    // the head and tail of the empty-slot list rather than scattering it
+    // one-per-slot through the middle.
+    let usedIdx: number[];
+    if (nonLarge.length < emptyIdx.length) {
+      const firstN = Math.ceil(nonLarge.length / 2);
+      const lastN  = Math.floor(nonLarge.length / 2);
+      const head   = emptyIdx.slice(0, firstN);
+      const tail   = lastN > 0 ? emptyIdx.slice(-lastN) : [];
+      usedIdx = [...new Set([...head, ...tail])];
+    } else {
+      usedIdx = emptyIdx;
+    }
+    distributeToSlots(nonLarge, usedIdx, groups);
+  }
+
+  return groups;
+}
+
 export default function Discover() {
   const { t, language } = useLanguageContext();
   const langCode = LANGUAGE_NAME_TO_CODE[language] ?? "en";
@@ -651,10 +756,11 @@ export default function Discover() {
   // ── Interleaved photo distribution ───────────────────────────────────────
   // Build an ordered array of only-populated content sections so the
   // distribution algorithm always works on real content, not placeholders.
-  const contentSections: { id: string; node: JSX.Element }[] = [
+  const contentSections: ContentSection[] = [
     // 1. Identity — always present
     {
       id: "identity",
+      weight: W_SMALL,
       node: (
         <div key="identity" className="space-y-1.5" style={{ animation: "discoverNameEnter 0.45s 0.22s ease both" }}>
           <div className="flex items-center gap-2">
@@ -678,6 +784,7 @@ export default function Discover() {
     // 2. Personality signals
     ...(allSignals.length > 0 ? [{
       id: "signals",
+      weight: W_SMALL,
       node: (
         <div key="signals" className="space-y-2">
           <p className="text-xs font-semibold tracking-widest uppercase text-primary">{t("personality")}</p>
@@ -694,6 +801,7 @@ export default function Discover() {
     // 3. Conversation starters
     ...(allStarters.length > 0 ? [{
       id: "starters",
+      weight: W_LARGE,
       node: (
         <div key="starters" className="space-y-3" data-testid="section-conversation-starters">
           <div className="flex items-center gap-1.5">
@@ -707,6 +815,7 @@ export default function Discover() {
     // 4. They'd love to know
     ...(viewerQuestions.length > 0 ? [{
       id: "viewerQuestions",
+      weight: W_LARGE,
       node: (
         <div key="viewerQuestions" className="space-y-3" data-testid="section-viewer-questions">
           <div className="flex items-center gap-1.5">
@@ -720,6 +829,7 @@ export default function Discover() {
     // 5. Ask me
     ...((questions.length > 0 || customQAsItems.length > 0) ? [{
       id: "questions",
+      weight: W_LARGE,
       node: (
         <div key="questions" className="space-y-3" data-testid="section-questions">
           <div className="flex items-center gap-1.5">
@@ -733,6 +843,7 @@ export default function Discover() {
     // 6. Intent — always present
     {
       id: "intent",
+      weight: W_SMALL,
       node: (
         <div key="intent" className="space-y-2">
           <p className="text-xs font-semibold tracking-widest uppercase text-primary">{t("looking_for")}</p>
@@ -748,6 +859,7 @@ export default function Discover() {
     // 7. Green flags
     ...(allGreenFlags.length > 0 ? [{
       id: "greenFlags",
+      weight: W_MEDIUM,
       node: (
         <div key="greenFlags" className="space-y-2">
           <p className="text-xs font-semibold tracking-widest uppercase text-primary">{t("green_flags_label")}</p>
@@ -764,6 +876,7 @@ export default function Discover() {
     // 8. Connection pace — always present
     {
       id: "pace",
+      weight: W_SMALL,
       node: (
         <div key="pace" className="space-y-2">
           <p className="text-xs font-semibold tracking-widest uppercase text-primary">{t("pace_label")}</p>
@@ -774,59 +887,57 @@ export default function Discover() {
   ];
 
   // Hero shows only the primary photo. Remaining photos are distributed inline
-  // between sections so the profile stays visually rich throughout the scroll.
-  const heroPhoto = photos.length > 0 ? [photos[0]] : photos;
+  // between written content groups so the profile stays visually rich throughout.
+  const heroPhoto   = photos.length > 0 ? [photos[0]] : photos;
   const extraPhotos = photos.slice(1);
-  const nExtra = extraPhotos.length;
-  const nSections = contentSections.length;
+  const nExtra      = extraPhotos.length;
 
-  // Even distribution: insertAfterIndexes[i] = section index after which
-  // photo (i+2) is inserted. Formula: round((i+1)*nSections/(nExtra+1)).
-  const insertAfterIndexes: number[] = Array.from({ length: nExtra }, (_, i) =>
-    Math.min(Math.round(((i + 1) * nSections) / (nExtra + 1)), nSections - 1)
-  );
+  // Divide written sections into (nExtra + 1) balanced content groups.
+  // Large sections (starters / viewerQuestions / questions) each get their own
+  // group so they are always separated by a photo.  Non-large sections fill the
+  // remaining groups with the first and last group prioritised so the profile
+  // opens with identity details and ends with useful information.
+  const groups = buildPhotoGroups(contentSections, nExtra);
 
-  // Build the interleaved render list.
+  // Interleave: group[0] → photo → group[1] → photo → … → group[nExtra]
   const renderItems: JSX.Element[] = [];
-  contentSections.forEach((section, sIdx) => {
-    renderItems.push(section.node);
-    insertAfterIndexes.forEach((afterIdx, photoIdx) => {
-      if (afterIdx === sIdx) {
-        const photoUrl = extraPhotos[photoIdx];
-        const photoNum = photoIdx + 2; // photo 1 is the hero
-        renderItems.push(
-          <div
-            key={`inline-photo-${photoIdx}`}
+  groups.forEach((group, gIdx) => {
+    group.forEach(sec => renderItems.push(sec.node));
+    if (gIdx < nExtra) {
+      const photoUrl = extraPhotos[gIdx];
+      const photoNum = gIdx + 2; // photo 1 is the hero
+      renderItems.push(
+        <div
+          key={`inline-photo-${gIdx}`}
+          style={{
+            width: "100%",
+            borderRadius: "12px",
+            overflow: "hidden",
+            background: "hsl(var(--muted))",
+            aspectRatio: "4 / 5",
+          }}
+        >
+          <img
+            src={photoUrl}
+            alt={`${displayProfile.firstName} photo ${photoNum} of ${photos.length}`}
+            loading="lazy"
+            draggable={false}
+            onLoad={e => {
+              const parent = (e.currentTarget as HTMLImageElement).parentElement;
+              if (parent) parent.style.background = "transparent";
+            }}
             style={{
               width: "100%",
-              borderRadius: "12px",
-              overflow: "hidden",
-              background: "hsl(var(--muted))",
-              aspectRatio: "4 / 5",
+              height: "100%",
+              objectFit: "cover",
+              display: "block",
+              userSelect: "none",
+              WebkitUserSelect: "none",
             }}
-          >
-            <img
-              src={photoUrl}
-              alt={`${displayProfile.firstName} photo ${photoNum} of ${photos.length}`}
-              loading="lazy"
-              draggable={false}
-              onLoad={e => {
-                const parent = (e.currentTarget as HTMLImageElement).parentElement;
-                if (parent) parent.style.background = "transparent";
-              }}
-              style={{
-                width: "100%",
-                height: "100%",
-                objectFit: "cover",
-                display: "block",
-                userSelect: "none",
-                WebkitUserSelect: "none",
-              }}
-            />
-          </div>
-        );
-      }
-    });
+          />
+        </div>
+      );
+    }
   });
 
   return (
