@@ -34,10 +34,6 @@ type AuthContextType = {
   profileInitError: null;
   profileReady: boolean;
   clearingCache: boolean;
-  // Single-device enforcement — true when login was blocked because the account
-  // is already active on another device.  Cleared by clearDeviceBlocked().
-  deviceBlocked: boolean;
-  clearDeviceBlocked: () => void;
   // Password recovery — true when the user arrives via a password-reset link.
   // The PASSWORD_RECOVERY auth event fires after detectSessionInUrl:true reads
   // the #access_token=...&type=recovery hash.  A PasswordRecoveryGate is shown
@@ -58,9 +54,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // otherwise queryClient.clear() fires mid-flight and resets the in-progress
   // fetch back to isLoading:true — the root cause of the "endless spinner" bug.
   const [clearingCache, setClearingCache] = useState(false);
-  // Set to true when a login attempt was blocked because another device already
-  // has an active session.  Stays true until clearDeviceBlocked() is called.
-  const [deviceBlocked, setDeviceBlocked] = useState(false);
 
   // Track the previous auth user ID so we can detect actual account changes
   // (as opposed to token-refresh events which keep the same user).
@@ -251,7 +244,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             localStorage.setItem("lulou_device_id", deviceId);
           }
 
-          let isBlocked = false;
+          // REVOKE model: session-check always allows new logins.
+          // The server revokes the old session atomically and broadcasts to the
+          // old device via a session-scoped channel.  We never block here.
           let grantedSessionId = sessionId;
 
           try {
@@ -270,14 +265,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             });
             if (r.ok) {
               const d = await r.json();
-              console.log("[AUTH] SESSION_CHECK_OK", { blocked: d.blocked, grantedSessionId: d.sessionId });
-              if (d.blocked) {
-                isBlocked = true;
-              } else {
-                grantedSessionId = d.sessionId ?? sessionId;
-              }
+              grantedSessionId = d.sessionId ?? sessionId;
+              console.log("[AUTH] SESSION_CHECK_OK", { grantedSessionId: grantedSessionId.slice(0, 8) + "…" });
             } else {
-              console.warn("[AUTH] SESSION_CHECK_NON_OK", { status: r.status });
+              console.warn("[AUTH] SESSION_CHECK_NON_OK — fail-open", { status: r.status });
             }
           } catch (e) {
             // Fail open — a transient network error never locks users out
@@ -286,38 +277,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
           if (!mounted) return;
 
-          if (isBlocked) {
-            console.log("[AUTH] DEVICE_BLOCKED — account already active on another device");
-            // Revoke the freshly-created Supabase session so it can't be used silently.
-            supabase.auth.signOut().catch(() => {});
-            setDeviceBlocked(true);
-            setProfileReady(true);
-            setIsLoading(false);
-            // user stays null — Landing remains visible with the blocked banner
-          } else {
-            localStorage.setItem("lulou_session_id", grantedSessionId);
-            // Record the precise moment this login was accepted so that
-            // use-call-signaling.ts can reject rering broadcasts for calls
-            // that started before this login (previous session's stale calls).
-            setLoginTime(Date.now());
-            // Fire-and-forget: ask the server to clear any ringing call records
-            // older than 90 s that belong to this user.  This prevents stale
-            // DB rows from triggering rering broadcasts that would otherwise
-            // pass the APP_LOAD_TIME guard (same page load, different login).
-            fetch(`${API_BASE}/api/calls/sweep-expired`, {
-              method: "POST",
-              headers: { Authorization: `Bearer ${token}` },
-            }).then(async (r) => {
-              const j = await r.json().catch(() => ({}));
-              console.log("[AUTH] LOGIN_CALL_SWEEP", { cleared: j.cleared ?? 0, userId: newUserId?.slice(0, 8) });
-            }).catch((e) => {
-              console.warn("[AUTH] LOGIN_CALL_SWEEP_FAILED (non-fatal)", { error: String(e) });
-            });
-            setUser(u);
-            setProfileReady(true);
-            setIsLoading(false);
-            console.log("[AUTH] AUTH_READY — user set, isLoading→false", { event, userId: newUserId });
-          }
+          localStorage.setItem("lulou_session_id", grantedSessionId);
+          // Record the precise moment this login was accepted so that
+          // use-call-signaling.ts can reject rering broadcasts for calls
+          // that started before this login (previous session's stale calls).
+          setLoginTime(Date.now());
+          // Fire-and-forget: ask the server to clear any ringing call records
+          // older than 90 s that belong to this user.  This prevents stale
+          // DB rows from triggering rering broadcasts that would otherwise
+          // pass the APP_LOAD_TIME guard (same page load, different login).
+          fetch(`${API_BASE}/api/calls/sweep-expired`, {
+            method: "POST",
+            headers: { Authorization: `Bearer ${token}` },
+          }).then(async (r) => {
+            const j = await r.json().catch(() => ({}));
+            console.log("[AUTH] LOGIN_CALL_SWEEP", { cleared: j.cleared ?? 0, userId: newUserId?.slice(0, 8) });
+          }).catch((e) => {
+            console.warn("[AUTH] LOGIN_CALL_SWEEP_FAILED (non-fatal)", { error: String(e) });
+          });
+          setUser(u);
+          setProfileReady(true);
+          setIsLoading(false);
+          console.log("[AUTH] AUTH_READY — user set, isLoading→false", { event, userId: newUserId });
         })();
 
         // Return WITHOUT calling setUser or setIsLoading.
@@ -455,14 +436,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               });
               if (r.ok) {
                 const d = await r.json();
-                if (d.blocked) {
-                  verified = false;
-                  console.warn("[AUTH] INITIAL_SESSION_REGISTER_BLOCKED — another device is active");
-                } else {
-                  localStorage.setItem("lulou_session_id", d.sessionId ?? newSessionId);
-                  verified = true;
-                  console.log("[AUTH] INITIAL_SESSION_REGISTERED — new session_id assigned", { userId: newUserId?.slice(0, 8) });
-                }
+                // REVOKE model: session-check always grants the new session.
+                // d.blocked is never returned; session is always allowed.
+                localStorage.setItem("lulou_session_id", d.sessionId ?? newSessionId);
+                verified = true;
+                console.log("[AUTH] INITIAL_SESSION_REGISTERED — new session_id assigned", { userId: newUserId?.slice(0, 8) });
               } else {
                 // Fail open on server errors
                 verified = true;
@@ -517,9 +495,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  const clearDeviceBlocked = useCallback(() => {
-    setDeviceBlocked(false);
-  }, []);
 
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   // Ref guard prevents a second call from starting if the user double-taps
@@ -675,23 +650,38 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, [user?.id]);
 
-  // ── Realtime session-replaced channel ────────────────────────────────────
-  // Subscribe to a private user channel so when another device logs in and
-  // replaces this session, the server can notify this device immediately via
-  // realtime broadcast.  Falls back to the 401 session_replaced path on the
-  // next API request if the broadcast is missed (e.g. device offline).
+  // ── Realtime session-replaced channel (SESSION-SCOPED) ───────────────────
+  // Subscribe to `private-session:{mySessionId}` — a channel that is unique to
+  // THIS device's application session.  When the server replaces this session
+  // (new login from a different device), it broadcasts ONLY to this channel,
+  // ensuring the NEW device (which subscribes to its own session channel) is
+  // never accidentally signed out by receiving the broadcast.
+  //
+  // Falls back to the 401 session_replaced path (middleware gate or heartbeat)
+  // if the broadcast is missed while the device is offline.
   useEffect(() => {
     if (!user?.id) return;
 
-    const channelName = `private-user:${user.id}`;
+    const mySessionId = localStorage.getItem("lulou_session_id") ?? "";
+    if (!mySessionId) return; // no session ID yet — heartbeat 401 covers this
+
+    const channelName = `private-session:${mySessionId}`;
     const channel = supabase
       .channel(channelName)
       .on("broadcast", { event: "session-replaced" }, (msg) => {
-        console.log("[AUTH] SESSION_REPLACED_BROADCAST received", { payload: msg.payload, userId: user.id.slice(0, 8) });
+        const payload = msg.payload ?? {};
+        // Defense-in-depth: only act if this broadcast is for our session ID.
+        // (The session-scoped channel already ensures this, but belt-and-braces.)
+        if (payload.newSessionId && payload.newSessionId === mySessionId) {
+          // We ARE the new device — server sent to wrong channel; ignore.
+          console.warn("[AUTH] IGNORED session-replaced broadcast (we are the new device)", { payload });
+          return;
+        }
+        console.log("[AUTH] SESSION_REPLACED_BROADCAST received on session channel", { sessionId: mySessionId.slice(0, 8) + "…", payload });
         window.dispatchEvent(new CustomEvent("lulou:session-replaced"));
       })
       .subscribe((status) => {
-        console.log(`[AUTH] PRIVATE_CHANNEL_STATUS ${channelName} → ${status}`);
+        console.log(`[AUTH] SESSION_CHANNEL_STATUS ${channelName} → ${status}`);
       });
 
     return () => {
@@ -722,15 +712,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       localStorage.removeItem("lulou_session_id");
       // 4. Set the flag that landing.tsx reads to show the "signed out on another device" toast.
       sessionStorage.setItem("lulou_forced_logout", "session_replaced");
-      // 5. Clear React state and query cache.
+      // 5. Clear query cache FIRST — before setUser(null) — so Account B can never
+      //    see Account A's cached data, even briefly during the React render caused
+      //    by setUser(null).  Clearing after setUser(null) leaves a window where a
+      //    rapid Account B login could see stale Account A data.
+      queryClient.clear();
+      // 6. Clear React user state (triggers re-render to Landing).
       setUser(null);
-      setTimeout(() => {
-        if (mounted) setClearingCache(true);
-        setTimeout(() => { queryClient.clear(); if (mounted) setClearingCache(false); }, 0);
-      }, 0);
-      // 6. Navigate to root (cosmetic — user is already null so Landing renders).
+      // 7. Navigate to root (cosmetic — user is already null so Landing renders).
       window.history.replaceState(null, "", "/");
-      // 7. Revoke the local Supabase session so INITIAL_SESSION doesn't fire again on refresh.
+      // 8. Revoke the local Supabase session so INITIAL_SESSION doesn't fire again on refresh.
       supabase.auth.signOut({ scope: "local" }).catch(() => {});
     };
 
@@ -754,8 +745,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     profileInitError: null,
     profileReady,
     clearingCache,
-    deviceBlocked,
-    clearDeviceBlocked,
     passwordRecovery,
     clearPasswordRecovery,
   };

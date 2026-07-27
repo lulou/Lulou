@@ -8,7 +8,6 @@ import { getApprovedCallbackUrl, sendVerificationResend } from "@/lib/auth-helpe
 import { useToast } from "@/hooks/use-toast";
 import { writeDebug, pushDebugError } from "@/lib/debug-store";
 import { useLanguageContext } from "@/contexts/language-context";
-import { useAuth } from "@/hooks/use-auth";
 
 type AuthMode = "signin" | "signup";
 type AuthErrorKind = "credentials" | "already-exists" | "network" | "rate-limit" | "auth";
@@ -182,7 +181,6 @@ interface RawAuthError {
 
 export default function Landing() {
   const { t } = useLanguageContext();
-  const { deviceBlocked, clearDeviceBlocked } = useAuth();
   const [showHowItWorks, setShowHowItWorks] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -202,6 +200,9 @@ export default function Landing() {
   const [resendCooldown, setResendCooldown] = useState(0); // seconds remaining
   const [rateLimitCooldown, setRateLimitCooldown] = useState(0); // signup rate-limit countdown
   const [rateLimitEmail, setRateLimitEmail] = useState<string | null>(null); // email that hit rate-limit
+  // Forgot-password pre-check: set to the stored session's email when a live
+  // session is detected so the user can choose to sign out first or keep it.
+  const [fpSignOutPrompt, setFpSignOutPrompt] = useState<string | null>(null);
 
   useEffect(() => {
     if (resendCooldown <= 0) return;
@@ -251,7 +252,7 @@ export default function Landing() {
       sessionStorage.removeItem("lulou_forced_logout");
       toast({
         title: "You've been signed out",
-        description: "Your account was signed into on another device.",
+        description: "You were signed out because this account was opened on another device.",
         variant: "destructive",
       });
     }
@@ -329,7 +330,6 @@ export default function Landing() {
     if (authError) setAuthError(null);
     if (rawAuthError) setRawAuthError(null);
     setResetSent(false);
-    clearDeviceBlocked();
   }
 
   function switchToSignIn() {
@@ -344,15 +344,43 @@ export default function Landing() {
 
   async function handlePasswordReset() {
     if (!email.trim()) return;
+
+    // ── Pre-check: is there a stored Supabase session? ───────────────────────
+    // Spec requirement: do not silently sign out a stored session; show the user
+    // an explicit choice so they understand what is happening and can opt out.
+    // The session may belong to a DIFFERENT account than the email typed in the
+    // form, so we always ask rather than assuming it's safe to auto-clear.
+    try {
+      const { data: { session: storedSession } } = await supabase.auth.getSession();
+      if (storedSession?.user) {
+        const storedEmail = storedSession.user.email ?? "your current account";
+        console.log("[AUTH] RESET_PASSWORD_STORED_SESSION_FOUND — showing sign-out prompt", { stored: storedEmail.slice(0, 4) + "***" });
+        setFpSignOutPrompt(storedEmail);
+        return; // wait for user confirmation — see fpSignOutPrompt UI + handlePasswordResetConfirmed
+      }
+    } catch {
+      // getSession() failure is non-fatal — proceed without the pre-check
+    }
+
+    await _sendPasswordReset();
+  }
+
+  async function handlePasswordResetConfirmed() {
+    // User chose "Sign out and send reset" in the fpSignOutPrompt dialog.
+    setFpSignOutPrompt(null);
+    // Sign out the stored session explicitly so INITIAL_SESSION never restores it.
+    await supabase.auth.signOut({ scope: "local" }).catch(() => {});
+    localStorage.removeItem("lulou_session_id");
+    console.log("[AUTH] RESET_PASSWORD_SIGN_OUT_CONFIRMED — stored session cleared");
+    await _sendPasswordReset();
+  }
+
+  async function _sendPasswordReset() {
     setResetLoading(true);
     setResetError(null);
     try {
-      // ── Clear any stored session FIRST ────────────────────────────────────────
-      // Forgot-password must never authenticate the user.  If the browser has a
-      // cached Supabase token for a previous account, removing it here prevents
-      // INITIAL_SESSION from firing on the next page refresh and silently
-      // re-opening that account — the root cause of "forgot-password → refresh →
-      // Account A appears" production bug.
+      // Guard: always clear any local session before sending the reset link.
+      // (handlePasswordResetConfirmed may have already done this — idempotent.)
       await supabase.auth.signOut({ scope: "local" }).catch(() => {});
       localStorage.removeItem("lulou_session_id");
       console.log("[AUTH] RESET_PASSWORD_START — cleared local session to prevent INITIAL_SESSION restore", { email: email.trim().slice(0, 4) + "***", redirectTo: window.location.origin + "/auth/callback" });
@@ -1078,22 +1106,42 @@ export default function Landing() {
                   network). This sits ABOVE the inputs so it is the first thing
                   the user sees — it is clearly not a credentials problem.
                   The inputs remain enabled so the user can retry immediately. */}
-              {deviceBlocked && (
+              {fpSignOutPrompt !== null && (
                 <div
                   role="alert"
-                  data-testid="banner-device-blocked"
-                  className="rounded-lg border border-rose-300 bg-rose-50 px-4 py-3 flex flex-col gap-2 animate-in fade-in slide-in-from-top-1 duration-200"
+                  data-testid="banner-fp-sign-out-prompt"
+                  className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 flex flex-col gap-2 animate-in fade-in slide-in-from-top-1 duration-200"
                 >
                   <div className="flex items-start gap-2">
-                    <Shield className="w-4 h-4 mt-0.5 shrink-0 text-rose-700" />
-                    <div className="space-y-1">
-                      <p className="font-semibold text-rose-900 text-sm leading-snug" data-testid="text-device-blocked-heading">
-                        Account already active on another device
+                    <Lock className="w-4 h-4 mt-0.5 shrink-0 text-amber-700" />
+                    <div className="space-y-1 flex-1 min-w-0">
+                      <p className="font-semibold text-amber-900 text-sm leading-snug">
+                        You're currently signed in
                       </p>
-                      <p className="text-sm text-rose-800 leading-snug" data-testid="text-device-blocked-message">
-                        You can only use Lulou on one device at a time. Sign out on your other device first, or wait 15 minutes for that session to expire.
+                      <p className="text-sm text-amber-800 leading-snug">
+                        To send a reset link{email.trim() && ` to ${email.trim().slice(0, 4)}***`}, we need to sign you out of{" "}
+                        <span className="font-medium">{fpSignOutPrompt}</span> first.
                       </p>
                     </div>
+                  </div>
+                  <div className="flex gap-2 pt-0.5">
+                    <button
+                      type="button"
+                      data-testid="button-fp-keep-signed-in"
+                      onClick={() => setFpSignOutPrompt(null)}
+                      className="flex-1 rounded-md border border-amber-300 bg-white px-3 py-1.5 text-xs font-medium text-amber-900 hover:bg-amber-50 transition-colors"
+                    >
+                      Keep me signed in
+                    </button>
+                    <button
+                      type="button"
+                      data-testid="button-fp-sign-out-and-reset"
+                      onClick={handlePasswordResetConfirmed}
+                      disabled={resetLoading}
+                      className="flex-1 rounded-md bg-amber-700 px-3 py-1.5 text-xs font-medium text-white hover:bg-amber-800 disabled:opacity-50 transition-colors"
+                    >
+                      {resetLoading ? "Signing out…" : "Sign out and send reset"}
+                    </button>
                   </div>
                 </div>
               )}

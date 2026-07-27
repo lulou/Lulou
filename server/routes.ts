@@ -1284,24 +1284,21 @@ export async function registerRoutes(
       // heartbeat upserts a row just after the logout DELETE completed, the row
       // will have the same deviceId as the user's browser.  The next login from
       // that browser sees isSameDevice=true and is NOT blocked.
+      // ── REVOKE model — newest login always wins ───────────────────────────────
+      // The spec requires: when an account signs in on a new device, the existing
+      // session is revoked immediately and the new session becomes active.
+      // "Blocking" the new login is explicitly prohibited — it would allow a stale
+      // device to lock an account out indefinitely.
+      //
+      // Reachable scenarios:
+      //   • No row exists                   → oldSessionId = null (first login)
+      //   • Same device, same sessionId     → oldSessionId = null (heartbeat refresh)
+      //   • Same device, new sessionId      → oldSessionId = old id, isSameDevice = true
+      //   • Different device (any state)    → oldSessionId = old id, isSameDevice = false
+      //     ↳ This is the REPLACE case — old device is notified and signed out
       const isSameDevice =
         !!deviceId && !!row?.deviceId && row.deviceId === deviceId;
 
-      if (row && row.expiresAt > now && row.sessionId !== sessionId && !isSameDevice) {
-        if (IS_DEV) console.log(`[SESSION] Blocked login for ${userId.slice(0, 8)} — active session on another device (expires ${row.expiresAt.toISOString()})`);
-        return res.json({ blocked: true });
-      }
-
-      // If we reach here, login is allowed (no active different-device session blocks us).
-      // Capture the old sessionId so we can invalidate it in the cache and, if it
-      // belonged to a different device, broadcast a forced-logout to that device.
-      //
-      // Reachable scenarios at this point:
-      //   • No row exists                          → oldSessionId = null
-      //   • Same device re-logging in (new id)     → oldSessionId = old id, !isSameDevice = false
-      //   • Same session refreshing                → oldSessionId = null (ids equal)
-      //   • Different device, but old session EXPIRED → oldSessionId = old id, !isSameDevice = true
-      //     (A fresh different-device session would have returned blocked:true above.)
       const oldSessionId: string | null =
         row && row.sessionId !== sessionId ? row.sessionId : null;
       const oldSessionWasDifferentDevice = !!oldSessionId && !isSameDevice;
@@ -1344,12 +1341,15 @@ export async function registerRoutes(
         // Mark old session as invalid in cache (fast path for middleware gate)
         cacheSessionIdValid(userId, oldSessionId, false);
         if (oldSessionWasDifferentDevice) {
-          // Broadcast to the old device's realtime listener
-          broadcastViaHttpApi(`private-user:${userId}`, "session-replaced", {
+          // Broadcast to a SESSION-SCOPED channel — only the old device is subscribed
+          // to `private-session:{oldSessionId}`.  The new device subscribes to its own
+          // `private-session:{newSessionId}`.  This prevents the new device from
+          // receiving the broadcast and accidentally signing itself out.
+          broadcastViaHttpApi(`private-session:${oldSessionId}`, "session-replaced", {
             oldSessionId,
             newSessionId: sessionId,
           }).catch(() => {});
-          console.log(`[SESSION] REPLACED old session for ${userId.slice(0, 8)} (different device, expired) — notified via realtime+cache`);
+          console.log(`[SESSION] REVOKED old session for ${userId.slice(0, 8)} — notified on private-session channel`);
         } else {
           console.log(`[SESSION] Replaced own session for ${userId.slice(0, 8)} (same device re-login) — cache invalidated`);
         }
