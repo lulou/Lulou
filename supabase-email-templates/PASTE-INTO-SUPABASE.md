@@ -15,7 +15,7 @@ The HTML templates load the logo from Supabase Storage (confirmed live, globally
 
 | Property | Value |
 |---|---|
-| **URL used in templates** | `https://bpphntgdpcsecbvoygzt.supabase.co/storage/v1/object/public/email-assets/lulou-email-logo-v5.png` |
+| **URL used in templates** | `https://bpphntgdpcsecbvoygzt.supabase.co/storage/v1/object/public/email-assets/lulou-email-logo-v6.png` |
 | Vercel backup URL | `https://www.luloudating.com/lulou-email-logo.png` |
 | Dimensions | 192 × 192 px source, rendered 80 × 80 px |
 | Content-Type | `image/png` ✅ confirmed |

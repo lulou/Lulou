@@ -1,0 +1,296 @@
+Use the newly approved dark-plum Lulou double-L heart logo as the single official logo across the entire Lulou product.
+
+Do not redraw, recolour, reinterpret or replace it with any older version.
+
+APPROVED SOURCE
+
+Use the exact approved logo image already created:
+
+dark plum rounded-square background
+rose-pink double-L serif monogram
+heart between the two L letters
+
+This must become the authoritative Lulou logo everywhere.
+
+GOAL
+
+Replace every old Lulou logo, flower icon, cream-background logo, blue L, single-letter icon and outdated monogram throughout the complete project.
+
+The same approved dark-plum logo must appear consistently in:
+
+- the website
+- the web app
+- mobile layouts
+- login and signup pages
+- onboarding
+- Discover
+- Intention Wheel
+- Likes
+- Connections
+- chat
+- calls
+- profile
+- settings
+- loading screens
+- error screens
+- verification screens
+- password-reset screens
+- emails
+- browser favicon
+- PWA icon
+- Apple touch icon
+- iPhone home-screen shortcut icon
+- Android icons
+- social sharing metadata
+- notification icons where full-colour icons are supported
+- any app-store or install assets
+- any documentation previews that show the Lulou logo
+
+AUTHORITATIVE SOURCE FILE
+
+Save the exact approved image as the master source:
+
+client/public/lulou-logo-master.png
+
+Do not alter its design.
+
+Generate required production sizes from this exact master only.
+
+WEB AND PWA ASSETS
+
+Create or replace:
+
+client/public/favicon-16x16.png
+client/public/favicon-32x32.png
+client/public/favicon-48x48.png
+client/public/favicon.ico
+client/public/icon-192.png
+client/public/icon-512.png
+client/public/apple-touch-icon.png
+client/public/icon-appstore.png
+client/public/lulou-email-logo.png
+client/public/lulou-email-logo-v5.png
+
+Also inspect and update:
+
+client/public/manifest.json
+client/public/site.webmanifest
+client/index.html
+any Vite favicon references
+any React Helmet/meta tags
+any Open Graph image references
+any Twitter card image references
+any Capacitor icon references
+any iOS icon asset folders
+any Android mipmap folders
+any PWA install configuration
+
+Do not stretch or crop the logo incorrectly.
+
+For square app icons:
+
+- preserve the full rounded-square logo
+- use a square canvas
+- keep the monogram centred
+- preserve safe padding
+- do not add white borders
+- do not add a second rounded container around it
+- do not make the logo tiny inside excessive empty space
+
+IPHONE HOME-SCREEN ICON
+
+The icon created from “Add to Home Screen” on iPhone must use the new dark-plum logo.
+
+Verify:
+
+- apple-touch-icon points to the approved logo
+- Safari does not use an old cached cream or flower icon
+- manifest icons point to the new files
+- browser favicon uses the same branding
+- installed PWA icon uses the same branding
+
+Because iOS aggressively caches home-screen icons, document the correct refresh process:
+
+1. remove the existing Lulou home-screen shortcut
+2. clear Safari website data for luloudating.com if necessary
+3. reopen https://www.luloudating.com
+4. use Share → Add to Home Screen again
+5. confirm the dark-plum double-L icon appears
+
+Do not claim the existing installed shortcut changes automatically.
+
+IN-APP LOGO REPLACEMENT
+
+Search the entire repository for:
+
+- old logo filenames
+- flower icons
+- icon-192.png references
+- apple-touch-icon references
+- app-icon.svg
+- favicon.svg
+- any inline SVG monograms
+- blue L logos
+- cream-background Lulou logos
+- emoji flower branding
+- generated “L” placeholders being used as branded icons
+
+Replace branded-logo usage with the approved master-derived assets.
+
+Do not remove legitimate profile images or decorative flowers unless they are incorrectly being used as the Lulou logo.
+
+Create one reusable component if appropriate:
+
+client/src/components/LulouLogo.tsx
+
+It should support:
+
+- size
+- className
+- alt text
+- optional rounded corners
+
+Default alt text:
+
+Lulou
+
+Use this component across the app instead of duplicating logo markup.
+
+EMAIL LOGOS
+
+Update all six Supabase email templates to use the same approved logo:
+
+supabase-email-templates/1-confirm-signup.html
+supabase-email-templates/2-password-reset.html
+supabase-email-templates/3-magic-link.html
+supabase-email-templates/4-email-change.html
+supabase-email-templates/5-invite-user.html
+supabase-email-templates/6-reauthentication.html
+
+Use the existing public Supabase Storage asset URL if that file already contains the approved dark-plum logo.
+
+Otherwise upload the approved master-derived email version and use one final URL consistently.
+
+Requirements:
+
+- HTTP 200
+- Content-Type image/png
+- no redirect
+- public access
+- no authentication required
+- 320 × 320 recommended
+- under 150 KB where possible
+- visually identical to the approved logo
+- explicit width and height in every email
+- meaningful alt text
+- no flower logo
+- no cream logo
+- no old v1/v2/v3/v4 asset references
+
+Do not confuse the email-body logo with Gmail’s circular sender avatar.
+
+State clearly in the report:
+
+Updating HTML templates changes the logo inside the email body.
+
+Gmail’s sender avatar is controlled separately by the mailbox provider, Google Workspace profile branding or BIMI. It cannot be controlled by the HTML image.
+
+CACHE BUSTING
+
+Old icons have previously remained visible because of browser and Gmail caching.
+
+Use new versioned filenames where needed.
+
+For example:
+
+lulou-logo-official-v1.png
+lulou-email-logo-v6.png
+
+Update every production reference to the new versioned asset.
+
+Do not overwrite an old cached file and expect every browser or email client to refresh immediately.
+
+VALIDATION
+
+Search the entire repository and confirm there are no remaining branded references to:
+
+- flower logo
+- cream-background logo
+- blue L logo
+- old double-L colours
+- outdated email-logo versions
+- old favicon
+- old Apple touch icon
+
+Ignore decorative flowers that are not acting as the Lulou brand logo.
+
+Test:
+
+1. Landing page
+2. Login
+3. Signup
+4. Email verification
+5. Password reset
+6. Onboarding
+7. Discover
+8. Intention Wheel
+9. Likes
+10. Connections
+11. Chat
+12. Call screen
+13. Profile
+14. Settings
+15. Browser tab favicon
+16. iPhone Add to Home Screen
+17. Installed PWA
+18. All six email previews
+19. Fresh Gmail signup email
+20. Fresh Gmail password-reset email
+
+For every test confirm:
+
+- dark-plum logo visible
+- rose-pink double-L heart visible
+- no flower
+- no cream-background version
+- no blue L
+- correct proportions
+- no stretching
+- no broken image
+- no stale cached logo in production source
+
+DEPLOYMENT
+
+Run TypeScript and production build checks.
+
+Commit and push to main.
+
+Verify Vercel deployed the frontend assets.
+
+Verify the final public logo URLs return:
+
+- HTTP 200
+- correct image Content-Type
+- no redirect
+
+Do not modify backend behaviour unless required for asset delivery.
+
+FINAL REPORT
+
+Provide:
+
+- authoritative master source path
+- every generated asset path and dimensions
+- every file changed
+- every old logo removed
+- reusable component added
+- manifest/favicon/meta changes
+- email-template URL used
+- public asset verification
+- iPhone reinstallation instructions
+- commit hash
+- push result
+- Vercel deployment status
+- PASS or FAIL for every validation test
+
+Do not mark this complete until the approved dark-plum double-L heart logo is the only official Lulou brand logo across the app, website, installed iPhone icon and all emails.

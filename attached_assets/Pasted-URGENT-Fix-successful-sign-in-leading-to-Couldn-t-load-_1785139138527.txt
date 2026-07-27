@@ -1,0 +1,216 @@
+URGENT: Fix successful sign-in leading to “Couldn’t load profiles”.
+
+PRODUCTION BUG
+
+After signing in, Lulou opens the authenticated app but Discover immediately shows:
+
+“Couldn’t load profiles”
+“Something went wrong”
+
+This started after the active-session / one-device authentication work.
+
+The user is visibly authenticated:
+- Lulou header renders
+- navigation renders
+- Sign Out is visible
+
+But the authenticated profile/Discover data cannot load.
+
+LIKELY ROOT CAUSE
+
+The Supabase login succeeds, but the application active session is not fully registered or restored before protected API queries begin.
+
+Possible causes:
+
+- no application session ID was created after password-recovery sign-in
+- X-Session-Id is missing from API requests
+- INITIAL_SESSION verification completes after Discover queries begin
+- recovery sessions are not passed through the same session-registration flow as normal password login
+- React Query starts authenticated requests before session-verify succeeds
+- active_sessions row belongs to a previous session/device
+- session replacement logic accidentally revokes the newly created session
+- API client has a stale session ID
+- Railway rejects the request with invalid_session or session_replaced
+- the client converts a 401 into a generic “Couldn’t load profiles” screen
+
+DO NOT weaken the single-session security system.
+
+Fix the session boot order properly.
+
+REQUIRED AUTHENTICATED BOOT FLOW
+
+After any successful Supabase authentication event, including:
+
+- password sign-in
+- password recovery
+- INITIAL_SESSION
+- magic link
+- email confirmation
+- OAuth
+- token refresh where the session genuinely changed
+
+the app must:
+
+1. obtain the current Supabase access token and user ID
+2. retrieve or create the application session ID
+3. register/verify it with the backend
+4. store the confirmed application session ID
+5. configure the shared API client to send:
+  X-Session-Id: <confirmed session ID>
+6. only then mark the application as authenticated and ready
+7. only then enable profile, Discover, Likes, Connections, DNA and call queries
+
+Do not render the authenticated app while application-session verification is unresolved.
+
+RECOVERY SESSION HANDLING
+
+The password-reset flow signs the user in with a Supabase recovery session.
+
+After the password is updated:
+
+- treat that recovery session as the new active Lulou session
+- register it in active_sessions
+- revoke older sessions
+- save its application session ID
+- verify it before navigating to Discover
+- invalidate and refetch user-specific queries only after registration succeeds
+
+Do not navigate directly to Discover while X-Session-Id is missing.
+
+QUERY GATING
+
+All protected React Query hooks must be disabled until:
+
+authReady === true
+AND supabaseSession exists
+AND activeSessionVerified === true
+AND applicationSessionId exists
+
+This includes:
+
+- profile existence
+- Discover profiles
+- matches
+- likes
+- messages
+- DNA
+- notifications
+- call state
+
+Show a brief loading screen during verification, not a broken Discover page.
+
+API CLIENT
+
+Inspect the central API request utility.
+
+Confirm every authenticated request includes both:
+
+Authorization: Bearer <Supabase access token>
+X-Session-Id: <application session ID>
+
+Do not manually add the session header to only some endpoints.
+
+Make sure requests made immediately after login read the latest session ID and not a stale closure or cached value.
+
+ERROR HANDLING
+
+When a protected request returns:
+
+401 invalid_session:
+- do not show “Couldn’t load profiles”
+- attempt one safe session-registration or verification recovery
+- retry the original request once
+- if recovery fails, sign out and show:
+ “Your session could not be verified. Please sign in again.”
+
+401 session_replaced:
+- stop calls and audio
+- clear all user state
+- sign out
+- show:
+ “You were signed out because this account was opened on another device.”
+
+403 or 500:
+- show the actual safe error category in development logs
+- do not collapse every authentication failure into a generic Discover error
+
+DIAGNOSTICS
+
+Add safe logs for:
+
+- auth event type
+- user ID
+- whether Supabase session exists
+- whether application session ID exists
+- session-verify response status
+- active-session registration response status
+- API endpoint
+- HTTP response status
+- error code: invalid_session / session_replaced / other
+- whether the request was retried
+
+Do not log tokens, passwords, API keys or full session IDs.
+
+TEST EXACTLY
+
+1. Normal password login.
+  Expected:
+  - active session registers
+  - Discover loads
+  - no error screen
+
+2. Password-reset recovery:
+  - open reset link
+  - enter password twice
+  - confirm password
+  - recovery session becomes active
+  - Discover loads
+  - X-Session-Id is present
+
+3. Refresh after recovery login.
+  Expected:
+  - session-verify runs
+  - same account loads
+  - Discover loads
+
+4. Sign in on a second device.
+  Expected:
+  - newest device loads Discover
+  - old device is signed out
+  - new session must not revoke itself
+
+5. Switch accounts.
+  Expected:
+  - new account registers a fresh session
+  - no old account cache
+  - Discover loads
+
+6. Delete X-Session-Id manually and refresh.
+  Expected:
+  - app repairs/registers the session or signs out cleanly
+  - never displays a broken authenticated app
+
+7. Simulate session_replaced.
+  Expected:
+  - forced logout message
+  - no generic profile-loading error
+
+REPORT
+
+Provide:
+
+- exact failing API endpoint
+- actual HTTP status and response body
+- whether X-Session-Id was missing, stale or revoked
+- whether the failure happened specifically after password recovery
+- files changed
+- auth boot-order changes
+- query gating changes
+- API-client changes
+- retry/recovery behaviour
+- commit hash
+- Railway deployment status
+- Vercel deployment status
+- PASS or FAIL for every test
+
+Do not mark complete until signing in, including after password reset, reliably opens Discover with no “Couldn’t load profiles” error.

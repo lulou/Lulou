@@ -188,7 +188,7 @@ DigiCert/Entrust, plus government trademark filing fees.
 The six Supabase email templates in this directory now reference:
 
 ```
-https://www.luloudating.com/lulou-email-logo-v3.png
+https://www.luloudating.com/lulou-email-logo-v6.png
 ```
 
 This controls the logo **inside the email body** only. It is not related to

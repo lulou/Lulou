@@ -502,10 +502,19 @@ const isAuthenticated: RequestHandler = async (req: any, res, next) => {
             row.expiresAt > new Date();
           cacheSessionIdValid(user.id, clientSessionId, isValid);
           if (!isValid) {
-            console.warn(`[SESSION] Rejected request with stale session for ${user.id.slice(0, 8)} path=${req.path}`);
+            // Distinguish recoverable from non-recoverable 401s:
+            // • invalid_session: no active_sessions row at all — client can re-register
+            //   (e.g. after PASSWORD_RECOVERY or a race before session-check completes)
+            //   and retry the request transparently.
+            // • session_replaced: a row exists but belongs to a different session —
+            //   another device has since logged in; client must force-logout.
+            const reason = !row ? "invalid_session" : "session_replaced";
+            console.warn(`[SESSION] ${reason} for ${user.id.slice(0, 8)} path=${req.path} sid=${clientSessionId?.slice(0, 8) ?? "none"}`);
             return res.status(401).json({
-              message: "session_replaced",
-              reason: "Your account was signed in on another device.",
+              message: reason,
+              reason: reason === "invalid_session"
+                ? "No active session registered — please re-authenticate."
+                : "Your account was signed in on another device.",
             });
           }
         } catch (e) {

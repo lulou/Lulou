@@ -59,6 +59,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // (as opposed to token-refresh events which keep the same user).
   const prevUserIdRef = useRef<string | null>(null);
 
+  // Guards against TOKEN_REFRESHED (or other concurrent auth events) calling
+  // setUser / setIsLoading while a SIGNED_IN or INITIAL_SESSION async IIFE is
+  // still in-flight registering the session.  Without this guard, TOKEN_REFRESHED
+  // can call setIsLoading(false) BEFORE lulou_session_id is updated to the new
+  // value, allowing queries to fire with the old (now-revoked) session ID and
+  // receive 401 session_replaced → forced logout on the device that just signed in.
+  const asyncAuthInProgressRef = useRef(false);
+
   useEffect(() => {
     let mounted = true;
 
@@ -229,6 +237,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           route: window.location.pathname,
         });
 
+        // Block concurrent TOKEN_REFRESHED / other events from calling setUser
+        // or setIsLoading(false) while session-check is still in-flight.
+        asyncAuthInProgressRef.current = true;
         (async () => {
           const sessionId =
             typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
@@ -295,6 +306,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           }).catch((e) => {
             console.warn("[AUTH] LOGIN_CALL_SWEEP_FAILED (non-fatal)", { error: String(e) });
           });
+          asyncAuthInProgressRef.current = false;
           setUser(u);
           setProfileReady(true);
           setIsLoading(false);
@@ -308,11 +320,54 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       // PASSWORD_RECOVERY fires when the user clicks a password-reset link and
       // detectSessionInUrl:true reads the #access_token=...&type=recovery hash.
-      // Set the passwordRecovery flag so the app renders a PasswordRecoveryGate
-      // instead of the normal UI while the user sets their new password.
-      if (event === "PASSWORD_RECOVERY") {
-        setPasswordRecovery(true);
-        console.log("[AUTH] PASSWORD_RECOVERY_SESSION — showing password recovery gate");
+      // We must register the recovery session in active_sessions BEFORE calling
+      // setUser(u), otherwise any stale lulou_session_id left in localStorage
+      // would cause every API request to get 401 session_replaced — preventing
+      // the user from completing their password reset.
+      if (event === "PASSWORD_RECOVERY" && u && session?.access_token) {
+        const token = session.access_token;
+        asyncAuthInProgressRef.current = true;
+        setIsLoading(true);
+        (async () => {
+          // Always clear the stale ID first — the recovery token represents a
+          // fresh login and needs its own active_sessions row.
+          localStorage.removeItem("lulou_session_id");
+          try {
+            const newSessionId =
+              typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+                ? crypto.randomUUID()
+                : `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+            let deviceId = localStorage.getItem("lulou_device_id") ?? "";
+            if (!deviceId) {
+              deviceId = typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+                ? crypto.randomUUID() : `${Date.now()}-d`;
+              localStorage.setItem("lulou_device_id", deviceId);
+            }
+            const r = await fetch(`${API_BASE}/api/auth/session-check`, {
+              method: "POST",
+              headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+              body: JSON.stringify({ sessionId: newSessionId, deviceId, userAgent: navigator.userAgent }),
+            });
+            if (r.ok) {
+              const d = await r.json();
+              localStorage.setItem("lulou_session_id", d.sessionId ?? newSessionId);
+              console.log("[AUTH] PASSWORD_RECOVERY_SESSION_REGISTERED", { userId: newUserId?.slice(0, 8) });
+            } else {
+              // Fail open — missing session ID means middleware skips the check
+              console.warn("[AUTH] PASSWORD_RECOVERY_SESSION_CHECK_FAILED (fail-open)", { status: r.status });
+            }
+          } catch (e) {
+            console.warn("[AUTH] PASSWORD_RECOVERY_SESSION_CHECK_ERROR (fail-open)", { error: String(e) });
+          }
+          asyncAuthInProgressRef.current = false;
+          if (!mounted) return;
+          setPasswordRecovery(true);
+          setUser(u);
+          setProfileReady(true);
+          setIsLoading(false);
+          console.log("[AUTH] PASSWORD_RECOVERY_SESSION — showing password recovery gate");
+        })();
+        return;
       }
 
       // All other events (INITIAL_SESSION, TOKEN_REFRESHED, SIGNED_OUT, etc.)
@@ -380,6 +435,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (event === "INITIAL_SESSION" && u && session?.access_token) {
         const token = session.access_token;
         setIsLoading(true);
+        asyncAuthInProgressRef.current = true;
         console.log("[AUTH] INITIAL_SESSION_VERIFY_START", { userId: newUserId?.slice(0, 8) });
 
         (async () => {
@@ -455,6 +511,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
           if (!mounted) return;
 
+          asyncAuthInProgressRef.current = false;
           if (verified) {
             setUser(u);
             setProfileReady(true);
@@ -478,6 +535,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         })();
 
         return; // async IIFE handles setUser / setIsLoading
+      }
+
+      // Guard: if a SIGNED_IN or INITIAL_SESSION async IIFE is in-flight, do not
+      // let TOKEN_REFRESHED (or any other concurrent event) override isLoading or
+      // call setUser before the session ID is registered.  The IIFE will handle
+      // all state transitions when it completes.  SIGNED_OUT is always allowed
+      // through so the user is never left in an authenticated limbo.
+      if (asyncAuthInProgressRef.current && event !== "SIGNED_OUT") {
+        return;
       }
 
       setUser(u);

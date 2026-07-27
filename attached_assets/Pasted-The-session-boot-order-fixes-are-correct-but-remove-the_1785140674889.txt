@@ -1,0 +1,118 @@
+The session boot-order fixes are correct, but remove the fail-open security path before completing this task.
+
+NON-NEGOTIABLE
+
+Protected APIs must never accept a request solely because X-Session-Id is missing.
+
+A valid Supabase JWT without a verified active Lulou session must not grant access.
+
+CORRECT RECOVERY BEHAVIOUR
+
+When PASSWORD_RECOVERY or a fresh authenticated session has no application session ID:
+
+1. Keep the authenticated app and all protected queries blocked.
+2. Register a new application session through a dedicated bootstrap endpoint.
+3. Store the confirmed session ID.
+4. Verify it.
+5. Only then set authReady=true and enable protected queries.
+
+If registration fails:
+
+- remain on a session-loading/recovery screen
+- offer Retry or Sign out
+- do not enter Discover
+- do not allow protected API access
+- do not silently skip active-session verification
+
+BOOTSTRAP ENDPOINT
+
+Use a dedicated endpoint such as:
+
+POST /api/auth/session-bootstrap
+
+Requirements:
+
+- requires a valid Supabase JWT
+- does not require an existing X-Session-Id
+- atomically revokes the previous active session
+- registers the new application session
+- returns the new session ID
+- must be narrowly scoped only to session creation
+- all other protected endpoints still require X-Session-Id
+
+Do not exempt general API routes from session enforcement.
+
+MIDDLEWARE RESPONSES
+
+Missing X-Session-Id on protected endpoint:
+
+401
+{
+ "message": "invalid_session",
+ "reason": "Application session is missing."
+}
+
+No matching active session:
+
+401
+{
+ "message": "invalid_session"
+}
+
+Another session owns the account:
+
+401
+{
+ "message": "session_replaced",
+ "reason": "Your account was signed in on another device."
+}
+
+CLIENT FLOW
+
+For SIGNED_IN, INITIAL_SESSION and PASSWORD_RECOVERY:
+
+- set auth boot state to verifying
+- prevent TOKEN_REFRESHED from changing readiness
+- bootstrap or verify the application session
+- store the latest session ID
+- only then expose the authenticated user to the rest of the app
+
+Do not retry protected requests before bootstrap completes.
+
+TEST
+
+1. Delete lulou_session_id and refresh with a valid Supabase token.
+  Expected:
+  - protected queries remain disabled
+  - session-bootstrap registers a new session
+  - Discover loads only afterwards
+
+2. Make session-bootstrap fail.
+  Expected:
+  - no protected API succeeds
+  - app shows Retry/Sign out
+  - no broken Discover page
+
+3. Send a valid JWT without X-Session-Id directly to /api/discover.
+  Expected:
+  - immediate 401 invalid_session
+
+4. Replace the session from another device.
+  Expected:
+  - old session receives 401 session_replaced
+  - it cannot bootstrap over the newer active session without a genuine new login flow
+
+5. Complete password recovery.
+  Expected:
+  - new recovery session is registered
+  - old device is revoked
+  - Discover loads after verification
+
+Then:
+
+- run TypeScript and production build
+- commit and push
+- verify Railway and Vercel deployments
+- report PASS or FAIL for every test
+
+Do not mark complete while any protected route can bypass X-Session-Id verification.

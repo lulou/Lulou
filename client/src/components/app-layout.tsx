@@ -19,18 +19,17 @@ interface MatchItem {
 }
 
 /**
- * LulouFlowerIcon — renders the approved Lulou LL heart monogram.
+ * LulouFlowerIcon — renders the approved Lulou dark-plum LL heart monogram.
  *
- * Uses the master transparent PNG produced directly from the approved
- * brand reference image. No hand-drawn SVG paths — this IS the logo.
+ * Delegates to the canonical LulouLogo component so all logo renders
+ * come from a single authoritative source file (lulou-logo-master.png).
  *
  * className controls size (w-*, h-*) and opacity only.
- * Colour is baked into the asset (rose/blush on transparent).
  */
 export function LulouFlowerIcon({ className }: { className?: string }) {
   return (
     <img
-      src="/lulou-logo-transparent.png"
+      src="/lulou-logo-master.png"
       alt="Lulou"
       draggable={false}
       className={className}

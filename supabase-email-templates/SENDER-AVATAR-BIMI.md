@@ -71,7 +71,7 @@ For BIMI you need the SVG version, hosted at e.g.:
 https://luloudating.com/lulou-bimi-logo.svg
 ```
 
-Use the existing `icon-appstore.png` or `lulou-logo-transparent.png` converted to SVG Tiny PS format using a tool like https://vecta.io or Adobe Illustrator.
+Use the existing `icon-appstore.png` or `lulou-logo-master.png` converted to SVG Tiny PS format using a tool like https://vecta.io or Adobe Illustrator.
 
 ---
 

@@ -251,6 +251,40 @@ function getAppSessionId(): string {
   try { return localStorage.getItem("lulou_session_id") ?? ""; } catch { return ""; }
 }
 
+/**
+ * Attempts to re-register the current Supabase session in active_sessions.
+ * Called when a protected request returns 401 invalid_session (no active row
+ * for the current user — e.g. after PASSWORD_RECOVERY or a race before
+ * SIGNED_IN session-check completes).
+ * On success updates localStorage and returns the new session ID.
+ * Never throws — returns null on any failure (fail-open policy).
+ */
+async function _attemptSessionReregistration(): Promise<string | null> {
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.access_token) return null;
+    const newSessionId =
+      typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+        ? crypto.randomUUID()
+        : `${Date.now()}-r${Math.random().toString(36).slice(2, 8)}`;
+    const deviceId = (() => { try { return localStorage.getItem("lulou_device_id") ?? ""; } catch { return ""; } })();
+    const r = await fetch(`${API_BASE}/api/auth/session-check`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${session.access_token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ sessionId: newSessionId, deviceId, userAgent: navigator.userAgent }),
+    });
+    if (!r.ok) return null;
+    const d = await r.json();
+    const granted = d.sessionId ?? newSessionId;
+    try { localStorage.setItem("lulou_session_id", granted); } catch {}
+    console.log("[SESSION] REREGISTERED — new session_id stored", { sessionId: granted.slice(0, 8) + "…" });
+    return granted;
+  } catch { return null; }
+}
+
 export async function apiRequest(
   method: string,
   url: string,
@@ -360,15 +394,56 @@ export const getQueryFn: <T>(options: {
 
     if (res.status === 401) {
       endQuery({ status: 401 });
-      // Check for session_replaced — signals that another device logged in
       let body: any = {};
       try { body = await res.clone().json(); } catch {}
+
       if (body?.message === "session_replaced") {
+        // Definitive: another device logged in and replaced the session.
+        // Force-logout immediately — no recovery attempt.
         console.warn(`[SESSION] session_replaced on query ${url} — dispatching forced-logout event`);
         if (typeof window !== "undefined") {
           window.dispatchEvent(new CustomEvent("lulou:session-replaced"));
         }
+        if (unauthorizedBehavior === "returnNull") return null as any;
+        throw new Error("session_replaced");
       }
+
+      if (body?.message === "invalid_session") {
+        // Recoverable: no active_sessions row for this user (e.g. after
+        // PASSWORD_RECOVERY or a race before session-check completes).
+        // Re-register transparently and retry the request once — the caller
+        // never sees an error if recovery succeeds.
+        console.warn(`[SESSION] invalid_session on query ${url} — attempting transparent re-registration`);
+        const newSessionId = await _attemptSessionReregistration();
+        if (newSessionId) {
+          try {
+            const freshHeaders = await getAuthHeaders();
+            const retryRes = await fetch(API_BASE + url, {
+              credentials: "include",
+              headers: { ...freshHeaders, "X-Session-Id": newSessionId },
+            });
+            if (retryRes.ok) {
+              const ct2 = retryRes.headers.get("content-type") ?? "";
+              if (ct2.includes("application/json")) {
+                endQuery({ status: 200 });
+                console.log(`[SESSION] Transparent retry succeeded for ${url}`);
+                return retryRes.json();
+              }
+            }
+            console.warn(`[SESSION] Transparent retry failed for ${url} — status ${retryRes.status}`);
+          } catch (retryErr) {
+            console.warn(`[SESSION] Transparent retry threw for ${url}`, retryErr);
+          }
+        }
+        // Recovery failed — force logout
+        console.warn(`[SESSION] invalid_session recovery failed on ${url} — dispatching forced-logout event`);
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(new CustomEvent("lulou:session-replaced"));
+        }
+        if (unauthorizedBehavior === "returnNull") return null as any;
+        throw new Error("invalid_session");
+      }
+
       console.warn(`[QUERY_FETCH] 401 Unauthorized for ${url}`, body);
       if (unauthorizedBehavior === "returnNull") return null as any;
       throw new Error(body?.message || "Unauthorized");
