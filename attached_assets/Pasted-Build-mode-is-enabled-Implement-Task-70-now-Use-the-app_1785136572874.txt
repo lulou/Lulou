@@ -1,0 +1,319 @@
+Build mode is enabled.
+
+Implement Task #70 now.
+
+Use the approved diagnosis:
+
+- INITIAL_SESSION restores a cached Supabase token without checking active_sessions.
+- Forgot Password does not clear the already stored session.
+- isAuthenticated validates only the JWT, so a replaced device continues working.
+- the existing active_sessions implementation is incomplete.
+
+NON-NEGOTIABLE RULE
+
+Only one active Lulou session may exist per account.
+
+When the same account signs in somewhere else:
+
+- the newest login becomes active
+- the older session is revoked
+- the older device is forced out promptly
+- the older session must no longer call protected APIs
+- no stale call, message or profile state may survive
+
+Do not allow a fixed 30-second security gap.
+
+ACTIVE SESSION DATABASE
+
+Use the existing active_sessions table and add any missing fields:
+
+- user_id
+- session_id
+- device_id
+- created_at
+- last_seen_at
+- revoked_at
+- revoked_reason
+- user_agent
+- optional device_name
+
+Enforce one non-revoked active session per user.
+
+A new login must atomically:
+
+1. revoke every previous active session for that user
+2. create/register the new session
+3. return the new application session ID
+4. broadcast session-replaced to the revoked session/device
+
+SESSION VERIFICATION
+
+Add:
+
+POST /api/auth/session-verify
+
+It must verify:
+
+- authenticated Supabase user ID
+- supplied X-Session-Id
+- matching active_sessions row
+- revoked_at is null
+- session belongs to the same user
+- session is the current active session
+
+Return:
+
+200:
+{
+ "valid": true,
+ "sessionId": "...",
+ "userId": "..."
+}
+
+401 when replaced:
+{
+ "message": "session_replaced",
+ "reason": "Your account was signed in on another device."
+}
+
+401 when invalid:
+{
+ "message": "invalid_session"
+}
+
+MIDDLEWARE ENFORCEMENT
+
+Update isAuthenticated so every protected API verifies both:
+
+- Supabase JWT
+- application X-Session-Id
+
+Do not rely only on JWT validity.
+
+Do not use a blind 30-second cache that allows revoked sessions to continue.
+
+Allowed options:
+
+- no cache for session verification, or
+- an event-invalidated cache where session replacement immediately removes the revoked session entry, with a very short fallback TTL
+
+For sensitive endpoints such as:
+
+- call start
+- message send
+- payments
+- account deletion
+- session changes
+
+always verify the active session directly or guarantee immediate invalidation.
+
+A revoked session must receive 401 immediately on its next protected request.
+
+CLIENT HEADERS
+
+Update the shared API client so every authenticated request sends:
+
+X-Session-Id: <current application session id>
+
+Do not manually duplicate this logic in individual fetch calls.
+
+If any request returns:
+
+{
+ "message": "session_replaced"
+}
+
+the client must immediately:
+
+1. stop all audio/ringtones
+2. clear calls and WebRTC state
+3. unsubscribe from realtime
+4. clear user-specific React Query cache
+5. clear app session storage
+6. sign out locally
+7. return to login
+8. show:
+
+“You were signed out because this account was opened on another device.”
+
+INITIAL_SESSION FIX
+
+INITIAL_SESSION must not grant access directly.
+
+On app load:
+
+1. read the stored Supabase session
+2. read the stored application session ID
+3. call /api/auth/session-verify
+4. render the authenticated app only after verification succeeds
+
+If verification fails:
+
+- clear Supabase local session
+- clear application session ID
+- clear all user caches
+- clear call state
+- render login
+
+Do not briefly flash another user’s profile while verification runs.
+
+FORGOT PASSWORD FIX
+
+When the user chooses Forgot Password from the logged-out/switch-account screen:
+
+- do not silently continue an existing stored session
+- first determine whether a session is still stored
+- show an explicit choice if needed:
+
+“Continue as [current account]”
+or
+“Sign out and reset another account”
+
+If they choose to reset another account:
+
+1. fully sign out the stored session
+2. verify getSession() returns null
+3. clear application session ID
+4. clear old account caches
+5. send the reset request
+6. remain logged out after refresh
+
+Forgot Password must never authenticate any account.
+
+SWITCH ACCOUNT
+
+Implement a full account transition:
+
+1. stop ringtone and call audio
+2. end/clear WebRTC objects
+3. clear incoming call and active call state
+4. unsubscribe from all user and match realtime channels
+5. revoke the application session server-side
+6. call Supabase signOut
+7. confirm getSession() is null
+8. clear X-Session-Id storage
+9. clear user-scoped React Query caches
+10. clear account-specific localStorage/sessionStorage
+11. show an empty login form
+
+REALTIME FORCED LOGOUT
+
+Use a private user/session-specific realtime channel.
+
+When a new session replaces an old session:
+
+- server broadcasts session-replaced
+- only the revoked session/device processes it
+- the active new session must not sign itself out
+- the old device clears state and returns to login immediately
+
+Prevent duplicate subscriptions.
+
+ACCOUNT CACHE ISOLATION
+
+Ensure all account-specific caches are cleared or keyed by user ID:
+
+- profile
+- matches
+- messages
+- Discover
+- Likes
+- DNA
+- progression
+- calls
+- notifications
+
+Account B must never display Account A’s cached data, even briefly.
+
+CALL SAFETY
+
+A replaced session must:
+
+- stop ringtone immediately
+- lose all call subscriptions
+- be blocked from call APIs
+- never process incoming-call broadcasts
+- never restore stale incomingCall state after refresh
+
+TESTS
+
+TEST 1 — SAME ACCOUNT ON TWO DEVICES
+
+1. Sign into Account A on Device 1.
+2. Sign into Account A on Device 2.
+3. Confirm Device 2 remains active.
+4. Confirm Device 1 is forced out promptly.
+5. Confirm Device 1 receives 401 session_replaced on protected API access.
+6. Confirm Device 1 receives no messages, call events or ringtone.
+
+TEST 2 — REFRESH
+
+1. Sign into Account A.
+2. Refresh.
+3. Confirm session-verify runs before app render.
+4. Confirm Account A remains only if still active.
+5. Confirm a replaced session returns to login.
+6. Confirm no stale profile flash.
+
+TEST 3 — SWITCH ACCOUNT
+
+1. Sign into Account A.
+2. Use Switch Account.
+3. Sign into Account B.
+4. Refresh.
+5. Confirm Account B remains active.
+6. Confirm no Account A content, calls, messages or cache appears.
+
+TEST 4 — FORGOT PASSWORD
+
+1. Leave a stored Account A session in the browser.
+2. Choose to reset Account B.
+3. Confirm Account A is fully signed out first.
+4. Send reset for Account B.
+5. Refresh.
+6. Confirm browser remains logged out.
+7. Confirm it never silently opens Account A or Account B.
+
+TEST 5 — SESSION REPLACEMENT DURING CALL
+
+1. Account A is active on Device 1 during a call.
+2. Sign into Account A on Device 2.
+3. Confirm Device 1 audio stops immediately.
+4. Confirm the call state is cleared.
+5. Confirm Device 1 signs out.
+6. Confirm no ringing returns after refresh.
+
+TEST 6 — DIRECT API BYPASS
+
+1. Save Device 1’s old JWT and X-Session-Id.
+2. Replace it with a Device 2 login.
+3. Call protected endpoints using the old credentials.
+4. Confirm immediate 401 session_replaced.
+
+REPORT
+
+Provide:
+
+- exact existing active_sessions schema
+- migration added
+- files changed
+- session registration flow
+- session verification middleware
+- cache strategy and why it cannot create a revocation window
+- INITIAL_SESSION changes
+- Forgot Password changes
+- Switch Account cleanup
+- realtime forced logout implementation
+- commit hash
+- Railway deployment status
+- Vercel deployment status
+- PASS or FAIL for every test
+
+Do not mark Task #70 complete until:
+
+- one account cannot remain active on two devices
+- refresh cannot restore a replaced session
+- Forgot Password cannot reopen another account
+- a revoked session immediately loses protected API access
+- switching accounts cannot leak old account state
+- stale ringing cannot survive session replacement

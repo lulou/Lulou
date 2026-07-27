@@ -2,32 +2,27 @@
 
 Six premium HTML email templates to paste directly into the Supabase dashboard.
 
+> **⚠️ Gmail showing "This message might be dangerous"?**
+> See **[DELIVERABILITY-FIX.md](./DELIVERABILITY-FIX.md)** for the full root-cause
+> diagnosis and exact fix steps (missing SPF record, Supabase custom SMTP not configured,
+> "nonreply" typo in sender address, template never pasted).
+
 ---
 
 ## Logo asset
 
+The HTML templates load the logo from Supabase Storage (confirmed live, globally CDN-cached):
+
 | Property | Value |
 |---|---|
-| Original source | `client/public/icon-192.png` (the real Lulou app icon) |
-| Copied to | `client/public/lulou-email-logo.png` |
-| Filename | `lulou-email-logo.png` |
-| Dimensions | 192 × 192 px |
-| File size | ~65 KB |
-| Production HTTPS URL | `https://www.luloudating.com/lulou-email-logo.png` |
-| Rendered size in email | 80 × 80 px (retina-crisp at 192 px source) |
+| **URL used in templates** | `https://bpphntgdpcsecbvoygzt.supabase.co/storage/v1/object/public/email-assets/lulou-email-logo-v5.png` |
+| Vercel backup URL | `https://www.luloudating.com/lulou-email-logo.png` |
+| Dimensions | 192 × 192 px source, rendered 80 × 80 px |
+| Content-Type | `image/png` ✅ confirmed |
 
-> **⚠️ The public asset must stay deployed.**
-> All six templates load the logo from `https://www.luloudating.com/lulou-email-logo.png`.
-> If `client/public/lulou-email-logo.png` is deleted or renamed, or if the Vercel deployment
-> is rebuilt without that file, the logo will break in every email already in users' inboxes.
-> Never remove this file. If you need to update the logo, overwrite the file in place and
-> redeploy so the URL stays the same.
-
-> **⚠️ The logo URL only works after the next deployment.**
-> The file was added to `client/public/` in this commit. Until you publish a new build to
-> Vercel/production, the URL returns the SPA's `index.html` instead of the PNG.
-> Do not paste these templates into Supabase until after you have deployed and confirmed the
-> URL returns `Content-Type: image/png` (see "Testing after pasting" below).
+> Both URLs are live. The templates use the **Supabase Storage URL** which is always
+> available regardless of Vercel deployment state. Do not change the `<img src>` in the
+> template files.
 
 ---
 
