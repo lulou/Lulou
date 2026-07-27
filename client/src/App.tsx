@@ -1373,6 +1373,15 @@ interface ProfileDiag {
   // Error classification
   errorCategory: "401" | "403" | "404" | "timeout" | "cors" | "network" | "html" | "server_error" | null;
   errorMessage: string | null;
+  // ── Session diagnostic fields ─────────────────────────────────────────────
+  // Populated whenever /api/profile returns a non-2xx status.
+  // Safe: only prefixes are stored — never full tokens or session IDs.
+  authUserIdPrefix: string | null;          // JWT sub, first 8 chars
+  localSessionIdPrefix: string | null;      // lulou_session_id in localStorage, first 8 chars
+  headerSessionIdIncluded: boolean | null;  // was X-Session-Id sent with /api/profile?
+  // Result of GET /api/auth/session-debug (called automatically on 401)
+  sessionDebugResult: Record<string, unknown> | null;
+  sessionDebugError: string | null;
 }
 let _lastProfileDiag: ProfileDiag | null = null;
 
@@ -1387,6 +1396,34 @@ function DiagPanel() {
     );
   }
   const swCtrl = typeof navigator !== "undefined" ? navigator.serviceWorker?.controller : null;
+  // Read auth-event diagnostics written by use-auth.ts (safe localStorage keys)
+  let _lastAuthEvent = "(unknown)";
+  let _bootstrapStatus = "(unknown)";
+  try {
+    _lastAuthEvent = localStorage.getItem("lulou_diag_last_auth_event") ?? "(none)";
+    _bootstrapStatus = localStorage.getItem("lulou_diag_bootstrap_status") ?? "(none)";
+  } catch {}
+
+  // ── Session-debug result lines ─────────────────────────────────────────────
+  const sd = d.sessionDebugResult;
+  const sessionDebugLines = sd
+    ? [
+        `[SESSION_DEBUG]`,
+        `sd.authUserIdPrefix=${sd.userId ?? "(none)"}`,
+        `sd.headerSessionIdPrefix=${sd.headerSessionId ?? "(none)"}`,
+        `sd.activeRowExists=${sd.activeRowExists}`,
+        `sd.activeSessionIdPrefix=${sd.storedSessionId ?? "(none)"}`,
+        `sd.sessionMatches=${sd.matches}`,
+        `sd.revoked=${sd.revoked}`,
+        `sd.revokedReason=${sd.revokedReason ?? "(none)"}`,
+        `sd.cacheResult=${sd.cacheResult ?? "(none)"}`,
+        `sd.expiresAt=${sd.expiresAt ?? "(none)"}`,
+        ...(sd.dbError ? [`sd.dbError=${sd.dbError}`] : []),
+      ]
+    : d.sessionDebugError
+    ? [`[SESSION_DEBUG] error=${d.sessionDebugError}`]
+    : [`[SESSION_DEBUG] not_called`];
+
   const lines = [
     `[RECONNECT_ROOT_CAUSE]`,
     `appCommit=${__COMMIT_HASH__}`,
@@ -1395,18 +1432,26 @@ function DiagPanel() {
     `swControlled=${typeof navigator !== "undefined" ? String(!!navigator.serviceWorker?.controller) : "?"}`,
     `swScriptUrl=${swCtrl?.scriptURL ?? "(none)"}`,
     `swState=${swCtrl?.state ?? "(none)"}`,
+    `lastAuthEvent=${_lastAuthEvent}`,
+    `bootstrapStatus=${_bootstrapStatus}`,
+    `[PROFILE_FETCH]`,
+    `profileStatus=${d.fetchStatus ?? "(no response — pre-fetch failure)"}`,
+    `profileResponseMessage=${d.bodyPreview?.slice(0, 120) ?? "(none)"}`,
     `endpoint=${d.fullFetchUrl}`,
-    `status=${d.fetchStatus ?? "(no response — pre-fetch failure)"}`,
     `contentType=${d.contentType ?? "(none)"}`,
-    `bodyPreview=${d.bodyPreview ?? "(none)"}`,
     `authState=session=${d.sessionExists} token=${d.accessTokenExists} expiry=${d.tokenExpiryReadable ?? "(unknown)"}`,
     `hasAuthHeader=${d.hasAuthHeader}`,
+    `[SESSION_STATE]`,
+    `authUserIdPrefix=${d.authUserIdPrefix ?? "(unknown)"}`,
+    `localSessionIdPrefix=${d.localSessionIdPrefix ?? "(none)"}`,
+    `headerSessionIdIncluded=${d.headerSessionIdIncluded}`,
+    ...sessionDebugLines,
+    `[ENV]`,
     `apiBase=${d.apiBase || "(empty — same-origin)"}`,
     `viteApiBaseUrl=${d.viteApiBaseUrl}`,
     `hostname=${d.hostname}`,
     `currentUrl=${typeof window !== "undefined" ? window.location.href : "(server)"}`,
     `isCrossOrigin=${d.isCrossOrigin}`,
-    `userId=${d.userId ?? "(unknown)"}`,
     `isHtml=${d.isHtml}`,
     `errorCategory=${d.errorCategory ?? "(none)"}`,
     `error=${d.errorMessage ?? "(none)"}`,
@@ -1453,6 +1498,11 @@ async function checkProfileExists(
 
   // Initialise the diagnostic record — updated incrementally so partial failures
   // still leave useful data. The reconnect screen reads from _lastProfileDiag.
+  // Capture local session ID at the very start so we know what was in
+  // localStorage when this fetch attempt began (before any async work).
+  let _localSessionId = "";
+  try { _localSessionId = localStorage.getItem("lulou_session_id") ?? ""; } catch {}
+
   const diag: ProfileDiag = {
     timestamp: Date.now(),
     hostname: typeof window !== "undefined" ? window.location.hostname : "(server)",
@@ -1472,6 +1522,11 @@ async function checkProfileExists(
     isHtml: false,
     errorCategory: null,
     errorMessage: null,
+    authUserIdPrefix: userId ? userId.slice(0, 8) + "…" : null,
+    localSessionIdPrefix: _localSessionId ? _localSessionId.slice(0, 8) + "…" : "(none)",
+    headerSessionIdIncluded: null,
+    sessionDebugResult: null,
+    sessionDebugError: null,
   };
   _lastProfileDiag = diag;
 
@@ -1502,6 +1557,8 @@ async function checkProfileExists(
   // Must be < SPINNER_TIMEOUT_MS so the query enters error state before the spinner
   // declares timeout and the "Try Again" button handles manual retry.
   let res: Response;
+  // Hoisted so the 401 handler below can reuse the same JWT for session-debug.
+  let _hoistedAuthHeaders: Record<string, string> = {};
   const controller = new AbortController();
   let _currentStep = "getAuthHeaders";
   const t_total = performance.now();
@@ -1513,6 +1570,7 @@ async function checkProfileExists(
     console.log("[SETUP] STEP 1/3 getAuthHeaders START", { userId });
     const t0 = performance.now();
     const authHeaders = await getAuthHeaders();
+    _hoistedAuthHeaders = authHeaders;
     const headersMs = Math.round(performance.now() - t0);
 
     // ── DIAGNOSTIC: inspect auth header state ───────────────────────────────
@@ -1543,9 +1601,17 @@ async function checkProfileExists(
     // so payload size is negligible. Fetching the full profile here lets us seed the
     // ["/api/profile"] cache on success, so profile.tsx reads from cache on first render
     // instead of issuing a second network request.
+    //
+    // Diagnostic: record whether X-Session-Id was included so the panel can
+    // show exactly what was sent vs. what the server expected.
+    const _profileSessionId = _localSessionId;
+    diag.headerSessionIdIncluded = !!_profileSessionId;
     res = await fetch(fullFetchUrl, {
       credentials: "include",
-      headers: authHeaders,
+      headers: {
+        ...authHeaders,
+        ...(_profileSessionId ? { "X-Session-Id": _profileSessionId } : {}),
+      },
       signal: controller.signal,
     });
     clearTimeout(masterTimeoutId);
@@ -1650,6 +1716,30 @@ async function checkProfileExists(
     diag.bodyPreview = text.slice(0, 300);
     diag.errorCategory = res.status === 401 ? "401" : res.status === 403 ? "403" : res.status === 404 ? "404" : "server_error";
     diag.errorMessage = `HTTP_${res.status}: ${trimmed}`;
+
+    // ── Auto-call session-debug to capture the server's exact decision ───────
+    // This runs regardless of error category so we always get the DB ground
+    // truth alongside the /api/profile failure.  Uses the SAME JWT and
+    // X-Session-Id that /api/profile used (hoisted above) so the server sees
+    // identical headers.  The endpoint is exempt from the session gate so it
+    // works even when the session ID is wrong or missing.
+    if (_hoistedAuthHeaders.Authorization) {
+      try {
+        const _debugHeaders: Record<string, string> = { ..._hoistedAuthHeaders };
+        if (_localSessionId) _debugHeaders["X-Session-Id"] = _localSessionId;
+        const _debugRes = await fetch(`${API_BASE}/api/auth/session-debug`, {
+          headers: _debugHeaders,
+          credentials: "include",
+        });
+        const _debugBody = await _debugRes.json().catch(() => ({ error: "non-json response" }));
+        diag.sessionDebugResult = _debugBody as Record<string, unknown>;
+        console.log("[SESSION-DEBUG] auto-called after /api/profile failure", _debugBody);
+      } catch (_debugErr: any) {
+        diag.sessionDebugError = _debugErr?.message ?? "session-debug call failed";
+        console.warn("[SESSION-DEBUG] auto-call failed:", _debugErr?.message);
+      }
+    }
+
     console.log("[AUTH_FLOW] profile fetch failed — reconnect screen", { userId, reason: `http_${res.status}` });
     writeDebug({ profileErrorMessage: `HTTP_${res.status}: ${trimmed}` });
     throw new Error(`HTTP_${res.status}`);

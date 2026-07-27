@@ -280,6 +280,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           console.log("[AUTH] SIGNED_IN_DEDUPED — INITIAL_SESSION bootstrap in-flight for same user", {
             userId: newUserId?.slice(0, 8),
           });
+          try { localStorage.setItem("lulou_diag_bootstrap_status", "deduped-SIGNED_IN-skipped"); } catch {}
           return;
         }
 
@@ -290,6 +291,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // Setting isLoading:true here ensures AppContent shows the auth spinner
         // during the check instead of the Landing page.
         setIsLoading(true);
+        try { localStorage.setItem("lulou_diag_last_auth_event", `SIGNED_IN:${newUserId?.slice(0, 8) ?? "?"}`); } catch {}
         console.log("[AUTH] SIGNED_IN_RECEIVED — session check starting, isLoading→true", {
           userId: newUserId,
           hasToken: !!token,
@@ -322,6 +324,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             asyncAuthInProgressRef.current = false;
             setSessionBootstrapFailed(true);
             setIsLoading(false);
+            try { localStorage.setItem("lulou_diag_bootstrap_status", "failed-SIGNED_IN"); } catch {}
             console.warn("[AUTH] SIGNED_IN_BOOTSTRAP_FAILED — showing retry screen", { userId: newUserId?.slice(0, 8) });
             return;
           }
@@ -331,6 +334,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           // removeItem and setItem calls (both are synchronous).
           localStorage.removeItem("lulou_session_id");
           localStorage.setItem("lulou_session_id", grantedSessionId);
+          try { localStorage.setItem("lulou_diag_bootstrap_status", `ok:${grantedSessionId.slice(0, 8)}…`); } catch {}
           console.log("[AUTH] SESSION_STORED", {
             sessionIdPrefix: grantedSessionId.slice(0, 8) + "…",
             userId: newUserId?.slice(0, 8),
@@ -375,6 +379,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const token = session.access_token;
         asyncAuthInProgressRef.current = true;
         setIsLoading(true);
+        try { localStorage.setItem("lulou_diag_last_auth_event", `PASSWORD_RECOVERY:${newUserId?.slice(0, 8) ?? "?"}`); } catch {}
         (async () => {
           // Always clear any stale ID — the recovery token represents a fresh
           // authentication and needs its own active_sessions row.
@@ -472,6 +477,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const token = session.access_token;
         setIsLoading(true);
         asyncAuthInProgressRef.current = true;
+        try { localStorage.setItem("lulou_diag_last_auth_event", `INITIAL_SESSION:${newUserId?.slice(0, 8) ?? "?"}`); } catch {}
         // Set SYNCHRONOUSLY before the async IIFE so a concurrent SIGNED_IN
         // event for the same user (which fires synchronously right after this
         // handler returns) sees the lock and skips its own bootstrap call.
