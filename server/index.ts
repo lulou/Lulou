@@ -265,6 +265,10 @@ async function initLocalDb() {
         last_seen_at TIMESTAMP DEFAULT NOW(),
         expires_at   TIMESTAMP NOT NULL
       );
+      -- Guard columns added in the single-session-enforcement update.
+      -- ADD COLUMN IF NOT EXISTS is idempotent — safe on every startup.
+      ALTER TABLE active_sessions ADD COLUMN IF NOT EXISTS revoked_at    TIMESTAMPTZ;
+      ALTER TABLE active_sessions ADD COLUMN IF NOT EXISTS revoked_reason TEXT;
       CREATE INDEX IF NOT EXISTS idx_active_sessions_user ON active_sessions(user_id);
 
       CREATE TABLE IF NOT EXISTS membership_subscriptions (

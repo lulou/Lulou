@@ -1292,13 +1292,19 @@ export async function registerRoutes(
         return res.json({ blocked: true });
       }
 
-      // Capture old session ID before upserting so we can notify the old device.
+      // If we reach here, login is allowed (no active different-device session blocks us).
+      // Capture the old sessionId so we can invalidate it in the cache and, if it
+      // belonged to a different device, broadcast a forced-logout to that device.
+      //
+      // Reachable scenarios at this point:
+      //   • No row exists                          → oldSessionId = null
+      //   • Same device re-logging in (new id)     → oldSessionId = old id, !isSameDevice = false
+      //   • Same session refreshing                → oldSessionId = null (ids equal)
+      //   • Different device, but old session EXPIRED → oldSessionId = old id, !isSameDevice = true
+      //     (A fresh different-device session would have returned blocked:true above.)
       const oldSessionId: string | null =
-        row && row.expiresAt > now && row.sessionId !== sessionId && !isSameDevice
-          ? null // blocked — shouldn't reach here
-          : (row && row.sessionId !== sessionId && !isSameDevice ? row.sessionId : null);
-      const isReplacingAnotherDevice =
-        !!row && !!row.sessionId && row.sessionId !== sessionId && !isSameDevice && row.expiresAt > now;
+        row && row.sessionId !== sessionId ? row.sessionId : null;
+      const oldSessionWasDifferentDevice = !!oldSessionId && !isSameDevice;
 
       // No active session, expired, or same session → register / refresh
       await db
@@ -1327,25 +1333,26 @@ export async function registerRoutes(
           },
         });
 
-      // ── Notify the replaced device ───────────────────────────────────────────
-      // If a fresh session from a DIFFERENT device was in active_sessions, that
-      // old device must be signed out immediately.
-      // We do two things:
-      //   1. Broadcast session-replaced to a private user channel so the old
-      //      device's realtime listener signs it out within seconds.
-      //   2. Invalidate the old session in our in-process cache so its very next
-      //      API request hits the session-id gate and receives 401 session_replaced
-      //      (fallback for devices that miss the realtime broadcast).
-      if (isReplacingAnotherDevice && row?.sessionId) {
-        const replacedId = row.sessionId;
-        // Mark old session as invalid in cache
-        cacheSessionIdValid(userId, replacedId, false);
-        // Broadcast to the old device's realtime listener
-        broadcastViaHttpApi(`private-user:${userId}`, "session-replaced", {
-          oldSessionId: replacedId,
-          newSessionId: sessionId,
-        }).catch(() => {});
-        console.log(`[SESSION] REPLACED old session for ${userId.slice(0, 8)} — notified via realtime+cache`);
+      // ── Invalidate and notify the replaced session ────────────────────────────
+      // If any old sessionId was replaced (same-device re-login OR a different
+      // device whose session had expired), mark it as invalid in the cache so
+      // the middleware gate fast-rejects any still-in-flight API requests from
+      // that session.  For different-device replacements, also broadcast so the
+      // old device can sign itself out immediately without waiting for a failed
+      // API call or a heartbeat 401.
+      if (oldSessionId) {
+        // Mark old session as invalid in cache (fast path for middleware gate)
+        cacheSessionIdValid(userId, oldSessionId, false);
+        if (oldSessionWasDifferentDevice) {
+          // Broadcast to the old device's realtime listener
+          broadcastViaHttpApi(`private-user:${userId}`, "session-replaced", {
+            oldSessionId,
+            newSessionId: sessionId,
+          }).catch(() => {});
+          console.log(`[SESSION] REPLACED old session for ${userId.slice(0, 8)} (different device, expired) — notified via realtime+cache`);
+        } else {
+          console.log(`[SESSION] Replaced own session for ${userId.slice(0, 8)} (same device re-login) — cache invalidated`);
+        }
       }
 
       if (IS_DEV) console.log(`[SESSION] Registered session for ${userId.slice(0, 8)} expires ${expiresAt.toISOString()}`);

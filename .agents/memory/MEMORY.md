@@ -1,3 +1,4 @@
+- [Single-session enforcement](single-session-enforcement.md) — full architecture: session-verify on INITIAL_SESSION, X-Session-Id middleware gate, realtime broadcast on replace, heartbeat conditional UPDATE. Fail-open policy on 5xx.
 - [Safari keyframe crash pattern](safari-keyframe-crash.md) — inline animation styles that reference @keyframes injected via useEffect crash Safari/WebKit; inject at module scope instead.
 - [i18n variable shadowing](i18n-variable-shadowing.md) — adding `const { t } = useLanguageContext()` to files that use `const t = setTimeout/requestAnimationFrame` inside useEffect causes TS shadowing errors; rename local vars.
 - [Units context pattern](units-context.md) — useUnits is a global context (UnitsProvider in App.tsx), so unit changes propagate app-wide instantly. units.ts re-exports useUnitsContext as useUnits for backward compat.
