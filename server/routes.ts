@@ -486,6 +486,7 @@ const isAuthenticated: RequestHandler = async (req: any, res, next) => {
     const SESSION_BOOTSTRAP_EXEMPT = new Set([
       "/api/auth/session-bootstrap",
       "/api/auth/session-check",
+      "/api/auth/session-debug",  // diagnostic — reads DB but does not write
     ]);
     const clientSessionId = req.headers["x-session-id"] as string | undefined;
 
@@ -1472,6 +1473,97 @@ export async function registerRoutes(
       console.error("[SESSION] session-bootstrap DB error:", e?.message);
       res.status(500).json({ message: "Failed to register session. Please try again." });
     }
+  });
+
+  // ── Diagnostic: session-debug ─────────────────────────────────────────────
+  // GET /api/auth/session-debug
+  //
+  // Temporary diagnostic endpoint.  Returns only SAFE (prefix-truncated) values.
+  // Exempt from the X-Session-Id gate so it works even when the session is
+  // broken — that's the exact scenario we need to observe.
+  // Requires a valid Supabase JWT so it cannot be called unauthenticated.
+  //
+  // Returns:
+  //   userId             — first 8 chars of JWT user ID
+  //   headerSessionId    — X-Session-Id header received (first 8 chars, or "(none)")
+  //   cacheResult        — "valid" | "revoked" | "miss"
+  //   activeRowExists    — whether active_sessions has a row for this user
+  //   storedSessionId    — first 8 chars of the stored session_id (or "(none)")
+  //   revoked            — whether revoked_at is set
+  //   revokedReason      — revoked_reason value (or null)
+  //   expiresAt          — ISO string of expires_at (or null)
+  //   matches            — storedSessionId === headerSessionId (full comparison)
+  //   cacheAfterQuery    — cache result AFTER the DB query (should be "valid" if matches=true)
+  app.get("/api/auth/session-debug", isAuthenticated, async (req: any, res) => {
+    const userId: string = req.user.id;
+    const headerSessionId = (req.headers["x-session-id"] as string | undefined) ?? "";
+
+    // Check in-memory cache first
+    const cached = headerSessionId ? lookupSessionIdCache(userId, headerSessionId) : null;
+    const cacheResult = cached === true ? "valid" : cached === false ? "revoked" : "miss";
+
+    // Always query DB regardless of cache — we need ground truth
+    let activeRowExists = false;
+    let storedSessionId = "(none)";
+    let revoked = false;
+    let revokedReason: string | null = null;
+    let expiresAt: string | null = null;
+    let matches = false;
+    let dbError: string | null = null;
+
+    try {
+      const [row] = await db
+        .select({
+          sessionId: activeSessions.sessionId,
+          revokedAt: activeSessions.revokedAt,
+          revokedReason: activeSessions.revokedReason,
+          expiresAt: activeSessions.expiresAt,
+        })
+        .from(activeSessions)
+        .where(eq(activeSessions.userId, userId))
+        .limit(1);
+
+      if (row) {
+        activeRowExists = true;
+        storedSessionId = row.sessionId ? row.sessionId.slice(0, 8) : "(empty)";
+        revoked = !!row.revokedAt;
+        revokedReason = row.revokedReason ?? null;
+        expiresAt = row.expiresAt ? row.expiresAt.toISOString() : null;
+        matches = !!headerSessionId && row.sessionId === headerSessionId;
+      }
+    } catch (e: any) {
+      dbError = e?.message ?? "unknown";
+    }
+
+    // Cache state AFTER our own query (reflects what middleware will see next time)
+    const cacheAfterQuery = headerSessionId
+      ? (() => { const c = lookupSessionIdCache(userId, headerSessionId); return c === true ? "valid" : c === false ? "revoked" : "miss"; })()
+      : "n/a";
+
+    console.log("[SESSION-DEBUG]", {
+      userId: userId.slice(0, 8),
+      headerSessionId: headerSessionId ? headerSessionId.slice(0, 8) + "…" : "(none)",
+      cacheResult,
+      activeRowExists,
+      storedSessionId,
+      revoked,
+      revokedReason,
+      matches,
+    });
+
+    return res.json({
+      userId: userId.slice(0, 8),
+      headerSessionId: headerSessionId ? headerSessionId.slice(0, 8) + "…" : "(none)",
+      cacheResult,
+      activeRowExists,
+      storedSessionId: storedSessionId + (storedSessionId !== "(none)" && storedSessionId !== "(empty)" ? "…" : ""),
+      revoked,
+      revokedReason,
+      expiresAt,
+      matches,
+      cacheAfterQuery,
+      dbError,
+    });
   });
 
   // Heartbeat — called every 60 s while the app is open.
