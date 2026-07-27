@@ -40,15 +40,48 @@ type AuthContextType = {
   // until the user sets a new password and we call clearPasswordRecovery().
   passwordRecovery: boolean;
   clearPasswordRecovery: () => void;
+  // Session bootstrap failure — true when the application-level session could
+  // not be registered after a new auth event (server error, network failure).
+  // The app shows a Retry / Sign out screen while this is true.
+  // Protected queries remain blocked until bootstrap succeeds.
+  sessionBootstrapFailed: boolean;
+  retrySessionBootstrap: () => Promise<void>;
 };
 
 const AuthContext = createContext<AuthContextType | null>(null);
+
+// ── Module-level bootstrap helper ─────────────────────────────────────────
+// Calls POST /api/auth/session-bootstrap — exempt from the X-Session-Id gate.
+// Returns the new sessionId on success, null on failure.
+// Intentionally fail-CLOSED: null means "show retry screen", never "proceed anyway".
+async function callSessionBootstrap(token: string, deviceId: string): Promise<string | null> {
+  try {
+    console.log("[AUTH] SESSION_BOOTSTRAP_START");
+    const r = await fetch(`${API_BASE}/api/auth/session-bootstrap`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ deviceId, userAgent: navigator.userAgent }),
+    });
+    if (r.ok) {
+      const d = await r.json();
+      const sid = typeof d.sessionId === "string" ? d.sessionId : null;
+      console.log("[AUTH] SESSION_BOOTSTRAP_OK", { sessionId: (sid ?? "").slice(0, 8) + "…" });
+      return sid;
+    }
+    console.warn("[AUTH] SESSION_BOOTSTRAP_FAILED", { status: r.status });
+    return null;
+  } catch (e) {
+    console.warn("[AUTH] SESSION_BOOTSTRAP_NETWORK_ERROR", { error: String(e) });
+    return null;
+  }
+}
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [profileReady, setProfileReady] = useState(false);
   const [passwordRecovery, setPasswordRecovery] = useState(false);
+  const [sessionBootstrapFailed, setSessionBootstrapFailed] = useState(false);
   // When true, the query cache is being cleared after an account change.
   // AppContent must not start the profile-exists-check query until this is false,
   // otherwise queryClient.clear() fires mid-flight and resets the in-progress
@@ -241,11 +274,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // or setIsLoading(false) while session-check is still in-flight.
         asyncAuthInProgressRef.current = true;
         (async () => {
-          const sessionId =
-            typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
-              ? crypto.randomUUID()
-              : `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
-
           let deviceId = localStorage.getItem("lulou_device_id") ?? "";
           if (!deviceId) {
             deviceId =
@@ -255,38 +283,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             localStorage.setItem("lulou_device_id", deviceId);
           }
 
-          // REVOKE model: session-check always allows new logins.
-          // The server revokes the old session atomically and broadcasts to the
-          // old device via a session-scoped channel.  We never block here.
-          let grantedSessionId = sessionId;
-
-          try {
-            console.log("[AUTH] SESSION_CHECK_START", { sessionId: sessionId.slice(0, 8) + "…", deviceId: deviceId.slice(0, 8) + "…" });
-            const r = await fetch(`${API_BASE}/api/auth/session-check`, {
-              method: "POST",
-              headers: {
-                Authorization: `Bearer ${token}`,
-                "Content-Type": "application/json",
-              },
-              body: JSON.stringify({
-                sessionId,
-                deviceId,
-                userAgent: navigator.userAgent,
-              }),
-            });
-            if (r.ok) {
-              const d = await r.json();
-              grantedSessionId = d.sessionId ?? sessionId;
-              console.log("[AUTH] SESSION_CHECK_OK", { grantedSessionId: grantedSessionId.slice(0, 8) + "…" });
-            } else {
-              console.warn("[AUTH] SESSION_CHECK_NON_OK — fail-open", { status: r.status });
-            }
-          } catch (e) {
-            // Fail open — a transient network error never locks users out
-            console.warn("[AUTH] SESSION_CHECK_FAILED (fail-open)", { error: String(e) });
-          }
+          // Session bootstrap — server generates the session ID and atomically
+          // revokes any prior session.  Fail-CLOSED: if bootstrap fails the app
+          // shows a Retry / Sign out screen instead of entering Discover unverified.
+          const grantedSessionId = await callSessionBootstrap(token, deviceId);
 
           if (!mounted) return;
+
+          if (!grantedSessionId) {
+            asyncAuthInProgressRef.current = false;
+            setSessionBootstrapFailed(true);
+            setIsLoading(false);
+            console.warn("[AUTH] SIGNED_IN_BOOTSTRAP_FAILED — showing retry screen", { userId: newUserId?.slice(0, 8) });
+            return;
+          }
 
           localStorage.setItem("lulou_session_id", grantedSessionId);
           // Record the precise moment this login was accepted so that
@@ -299,7 +309,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           // pass the APP_LOAD_TIME guard (same page load, different login).
           fetch(`${API_BASE}/api/calls/sweep-expired`, {
             method: "POST",
-            headers: { Authorization: `Bearer ${token}` },
+            headers: { Authorization: `Bearer ${token}`, "X-Session-Id": grantedSessionId },
           }).then(async (r) => {
             const j = await r.json().catch(() => ({}));
             console.log("[AUTH] LOGIN_CALL_SWEEP", { cleared: j.cleared ?? 0, userId: newUserId?.slice(0, 8) });
@@ -329,38 +339,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         asyncAuthInProgressRef.current = true;
         setIsLoading(true);
         (async () => {
-          // Always clear the stale ID first — the recovery token represents a
-          // fresh login and needs its own active_sessions row.
+          // Always clear any stale ID — the recovery token represents a fresh
+          // authentication and needs its own active_sessions row.
           localStorage.removeItem("lulou_session_id");
-          try {
-            const newSessionId =
-              typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
-                ? crypto.randomUUID()
-                : `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
-            let deviceId = localStorage.getItem("lulou_device_id") ?? "";
-            if (!deviceId) {
-              deviceId = typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
-                ? crypto.randomUUID() : `${Date.now()}-d`;
-              localStorage.setItem("lulou_device_id", deviceId);
-            }
-            const r = await fetch(`${API_BASE}/api/auth/session-check`, {
-              method: "POST",
-              headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-              body: JSON.stringify({ sessionId: newSessionId, deviceId, userAgent: navigator.userAgent }),
-            });
-            if (r.ok) {
-              const d = await r.json();
-              localStorage.setItem("lulou_session_id", d.sessionId ?? newSessionId);
-              console.log("[AUTH] PASSWORD_RECOVERY_SESSION_REGISTERED", { userId: newUserId?.slice(0, 8) });
-            } else {
-              // Fail open — missing session ID means middleware skips the check
-              console.warn("[AUTH] PASSWORD_RECOVERY_SESSION_CHECK_FAILED (fail-open)", { status: r.status });
-            }
-          } catch (e) {
-            console.warn("[AUTH] PASSWORD_RECOVERY_SESSION_CHECK_ERROR (fail-open)", { error: String(e) });
+          let recoveryDeviceId = localStorage.getItem("lulou_device_id") ?? "";
+          if (!recoveryDeviceId) {
+            recoveryDeviceId = typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+              ? crypto.randomUUID() : `${Date.now()}-d`;
+            localStorage.setItem("lulou_device_id", recoveryDeviceId);
           }
+          // Fail-CLOSED: if bootstrap fails show Retry / Sign out screen.
+          // The user cannot proceed to password reset without a valid session.
+          const recoverySessionId = await callSessionBootstrap(token, recoveryDeviceId);
           asyncAuthInProgressRef.current = false;
           if (!mounted) return;
+          if (!recoverySessionId) {
+            setSessionBootstrapFailed(true);
+            setIsLoading(false);
+            console.warn("[AUTH] PASSWORD_RECOVERY_BOOTSTRAP_FAILED — showing retry screen", { userId: newUserId?.slice(0, 8) });
+            return;
+          }
+          localStorage.setItem("lulou_session_id", recoverySessionId);
           setPasswordRecovery(true);
           setUser(u);
           setProfileReady(true);
@@ -443,64 +442,87 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           let verified = false;
 
           try {
+            let deviceId = localStorage.getItem("lulou_device_id") ?? "";
+            if (!deviceId) {
+              deviceId = typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+                ? crypto.randomUUID() : `${Date.now()}-d`;
+              localStorage.setItem("lulou_device_id", deviceId);
+            }
+
             if (storedSessionId) {
-              // Verify against active_sessions — fast path
+              // Verify existing session against active_sessions — fast path.
               const r = await fetch(`${API_BASE}/api/auth/session-verify`, {
                 method: "POST",
                 headers: {
                   Authorization: `Bearer ${token}`,
                   "Content-Type": "application/json",
-                  // Send the session-id in both the header (for middleware) and body (for endpoint)
+                  // Send session-id in both header (for middleware) and body (for endpoint)
                   "X-Session-Id": storedSessionId,
                 },
                 body: JSON.stringify({ sessionId: storedSessionId }),
               });
               if (r.ok) {
                 const d = await r.json();
-                verified = d.valid === true;
-                if (!verified) {
-                  console.warn("[AUTH] INITIAL_SESSION_VERIFY_REJECTED", { reason: d.reason, userId: newUserId?.slice(0, 8) });
-                } else {
+                if (d.valid === true) {
+                  verified = true;
                   console.log("[AUTH] INITIAL_SESSION_VERIFIED — entering app", { userId: newUserId?.slice(0, 8) });
+                } else if (d.reason === "invalid_session") {
+                  // Session expired or deleted (not replaced by another device).
+                  // Bootstrap a new session rather than signing the user out.
+                  console.warn("[AUTH] INITIAL_SESSION_VERIFY_EXPIRED — bootstrapping", { userId: newUserId?.slice(0, 8) });
+                  localStorage.removeItem("lulou_session_id");
+                  const newId = await callSessionBootstrap(token, deviceId);
+                  if (newId) {
+                    localStorage.setItem("lulou_session_id", newId);
+                    verified = true;
+                  } else {
+                    asyncAuthInProgressRef.current = false;
+                    if (mounted) { setSessionBootstrapFailed(true); setIsLoading(false); }
+                    return;
+                  }
+                } else {
+                  // session_replaced or unknown reason — sign out
+                  verified = false;
+                  console.warn("[AUTH] INITIAL_SESSION_VERIFY_REJECTED", { reason: d.reason, userId: newUserId?.slice(0, 8) });
                 }
               } else if (r.status === 401) {
-                // Middleware rejected: session replaced or expired
+                // Middleware rejected the request
                 const body = await r.json().catch(() => ({}));
-                verified = false;
-                console.warn("[AUTH] INITIAL_SESSION_VERIFY_401", { message: body?.message, userId: newUserId?.slice(0, 8) });
+                if (body?.message === "invalid_session") {
+                  // No active session row in DB — bootstrap rather than sign out
+                  console.warn("[AUTH] INITIAL_SESSION_VERIFY_401_INVALID — bootstrapping", { userId: newUserId?.slice(0, 8) });
+                  localStorage.removeItem("lulou_session_id");
+                  const newId = await callSessionBootstrap(token, deviceId);
+                  if (newId) {
+                    localStorage.setItem("lulou_session_id", newId);
+                    verified = true;
+                  } else {
+                    asyncAuthInProgressRef.current = false;
+                    if (mounted) { setSessionBootstrapFailed(true); setIsLoading(false); }
+                    return;
+                  }
+                } else {
+                  // session_replaced — another device owns the account → sign out
+                  verified = false;
+                  console.warn("[AUTH] INITIAL_SESSION_VERIFY_401_REPLACED", { message: body?.message, userId: newUserId?.slice(0, 8) });
+                }
               } else {
-                // 5xx / unexpected — fail open so an outage doesn't sign everyone out
+                // 5xx / unexpected — fail open so a DB outage doesn't sign everyone out
                 verified = true;
                 console.warn("[AUTH] INITIAL_SESSION_VERIFY_FAIL_OPEN (non-2xx, non-401)", { status: r.status });
               }
             } else {
-              // No application session ID — register this device via session-check.
-              // Handles devices that were already logged in before this enforcement
-              // code was deployed (they never received a lulou_session_id).
-              const newSessionId =
-                typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
-                  ? crypto.randomUUID()
-                  : `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-              const deviceId = localStorage.getItem("lulou_device_id") ?? "";
-              const r = await fetch(`${API_BASE}/api/auth/session-check`, {
-                method: "POST",
-                headers: {
-                  Authorization: `Bearer ${token}`,
-                  "Content-Type": "application/json",
-                },
-                body: JSON.stringify({ sessionId: newSessionId, deviceId, userAgent: navigator.userAgent }),
-              });
-              if (r.ok) {
-                const d = await r.json();
-                // REVOKE model: session-check always grants the new session.
-                // d.blocked is never returned; session is always allowed.
-                localStorage.setItem("lulou_session_id", d.sessionId ?? newSessionId);
+              // No stored session ID — must bootstrap.
+              // Fail-CLOSED: if bootstrap fails show Retry / Sign out screen.
+              console.warn("[AUTH] INITIAL_SESSION_NO_SESSION_ID — bootstrapping", { userId: newUserId?.slice(0, 8) });
+              const newId = await callSessionBootstrap(token, deviceId);
+              if (newId) {
+                localStorage.setItem("lulou_session_id", newId);
                 verified = true;
-                console.log("[AUTH] INITIAL_SESSION_REGISTERED — new session_id assigned", { userId: newUserId?.slice(0, 8) });
               } else {
-                // Fail open on server errors
-                verified = true;
-                console.warn("[AUTH] INITIAL_SESSION_REGISTER_FAIL_OPEN", { status: r.status });
+                asyncAuthInProgressRef.current = false;
+                if (mounted) { setSessionBootstrapFailed(true); setIsLoading(false); }
+                return;
               }
             }
           } catch (e) {
@@ -544,6 +566,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // through so the user is never left in an authenticated limbo.
       if (asyncAuthInProgressRef.current && event !== "SIGNED_OUT") {
         return;
+      }
+
+      // Reset bootstrap failure state on sign-out so the landing page is clean.
+      if (event === "SIGNED_OUT") {
+        setSessionBootstrapFailed(false);
       }
 
       setUser(u);
@@ -802,6 +829,66 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setPasswordRecovery(false);
   }, []);
 
+  // ── Session bootstrap retry ────────────────────────────────────────────────
+  // Called by the Retry / Sign out screen when the user taps "Retry".
+  // Re-fetches the current Supabase session and calls session-bootstrap again.
+  // Sets sessionBootstrapFailed=true again if it fails a second time.
+  const retrySessionBootstrap = useCallback(async () => {
+    setSessionBootstrapFailed(false);
+    setIsLoading(true);
+    asyncAuthInProgressRef.current = true;
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token || !session?.user) {
+        // No valid Supabase session — clear state and show landing
+        asyncAuthInProgressRef.current = false;
+        setIsLoading(false);
+        setUser(null);
+        setProfileReady(true);
+        return;
+      }
+      let deviceId = localStorage.getItem("lulou_device_id") ?? "";
+      if (!deviceId) {
+        deviceId = typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+          ? crypto.randomUUID() : `${Date.now()}-d`;
+        localStorage.setItem("lulou_device_id", deviceId);
+      }
+      localStorage.removeItem("lulou_session_id");
+      const sessionId = await callSessionBootstrap(session.access_token, deviceId);
+      asyncAuthInProgressRef.current = false;
+      if (sessionId) {
+        localStorage.setItem("lulou_session_id", sessionId);
+        setLoginTime(Date.now());
+        setUser(session.user as User);
+        setProfileReady(true);
+        setIsLoading(false);
+        console.log("[AUTH] RETRY_BOOTSTRAP_OK — entering app");
+      } else {
+        setSessionBootstrapFailed(true);
+        setIsLoading(false);
+        console.warn("[AUTH] RETRY_BOOTSTRAP_FAILED — showing retry screen again");
+      }
+    } catch (e) {
+      asyncAuthInProgressRef.current = false;
+      setSessionBootstrapFailed(true);
+      setIsLoading(false);
+      console.warn("[AUTH] RETRY_BOOTSTRAP_ERROR", { error: String(e) });
+    }
+  }, []);
+
+  // ── Session bootstrap needed event (from queryClient belt-and-suspenders) ──
+  // Fires when a protected query unexpectedly returns 401 invalid_session.
+  // Queries should never reach this state if the boot flow is working, but this
+  // provides a fallback that shows the retry screen instead of a broken Discover.
+  useEffect(() => {
+    const handleBootstrapNeeded = () => {
+      console.warn("[AUTH] lulou:session-bootstrap-needed received — showing retry screen");
+      setSessionBootstrapFailed(true);
+    };
+    window.addEventListener("lulou:session-bootstrap-needed", handleBootstrapNeeded);
+    return () => window.removeEventListener("lulou:session-bootstrap-needed", handleBootstrapNeeded);
+  }, []);
+
   const value: AuthContextType = {
     user,
     isLoading,
@@ -813,6 +900,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     clearingCache,
     passwordRecovery,
     clearPasswordRecovery,
+    sessionBootstrapFailed,
+    retrySessionBootstrap,
   };
 
   return createElement(AuthContext.Provider, { value }, children);

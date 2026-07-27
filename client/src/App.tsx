@@ -70,7 +70,7 @@ import { isArmedSession, armCallSession, disarmCallSession, clearAllArmedSession
 import { markStartupSweepComplete, resetStartupSweep } from "@/lib/startup-sweep";
 import { markCallSessionCancelled, markStartupCancelledSession, isCallSessionCancelled, clearCancelledSession, setOnCancelledSessionChange } from "@/lib/cancelled-calls";
 import type { Profile, Match } from "@shared/schema";
-import { Loader2, Mail, CheckCircle } from "lucide-react";
+import { Loader2, Mail, CheckCircle, AlertCircle } from "lucide-react";
 import { supabase, supabaseConfigError } from "@/lib/supabase";
 import { sendVerificationResend } from "@/lib/auth-helpers";
 
@@ -2077,7 +2077,7 @@ function AppContent() {
     return <LegalComponent />;
   }
 
-  const { user, isLoading: authLoading, profileReady, clearingCache, logout, passwordRecovery, clearPasswordRecovery } = useAuth();
+  const { user, isLoading: authLoading, profileReady, clearingCache, logout, passwordRecovery, clearPasswordRecovery, sessionBootstrapFailed, retrySessionBootstrap } = useAuth();
 
   // ── Push subscription auto-reregistration ────────────────────────────────
   // Fires once per login session (when user id becomes available).
@@ -2465,6 +2465,44 @@ function AppContent() {
         <div className="flex flex-col items-center gap-3">
           <Loader2 className="w-8 h-8 text-primary animate-spin" />
           <p className="text-sm text-muted-foreground">Loading…</p>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Session bootstrap failure gate ───────────────────────────────────────
+  // Shown after any auth event (SIGNED_IN, INITIAL_SESSION, PASSWORD_RECOVERY)
+  // when the application-level session could not be registered (server error or
+  // network failure).  Protected queries stay blocked until the user retries or
+  // signs out.  A valid Supabase JWT alone never grants access to protected APIs.
+  if (sessionBootstrapFailed) {
+    console.log("[SETUP] FINAL_APP_GATE: session_bootstrap_failed — showing retry screen");
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="flex flex-col items-center gap-5 max-w-sm px-6 text-center">
+          <div className="w-14 h-14 rounded-full bg-destructive/10 flex items-center justify-center">
+            <AlertCircle className="w-7 h-7 text-destructive" />
+          </div>
+          <div className="space-y-2">
+            <h2 className="text-lg font-semibold text-foreground">Session verification failed</h2>
+            <p className="text-sm text-muted-foreground">
+              We couldn't verify your session with the server. This may be a temporary issue.
+            </p>
+          </div>
+          <div className="flex flex-col gap-2 w-full">
+            <button
+              onClick={() => retrySessionBootstrap()}
+              className="w-full py-2.5 px-4 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors"
+            >
+              Retry
+            </button>
+            <button
+              onClick={() => logout()}
+              className="w-full py-2.5 px-4 rounded-lg border border-border bg-background text-sm font-medium text-foreground hover:bg-muted transition-colors"
+            >
+              Sign out
+            </button>
+          </div>
         </div>
       </div>
     );

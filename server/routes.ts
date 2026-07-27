@@ -468,18 +468,37 @@ const isAuthenticated: RequestHandler = async (req: any, res, next) => {
     }
 
     // ── Application session-ID gate ───────────────────────────────────────────
-    // If the client sends X-Session-Id, verify it matches the active session
-    // row for this user.  A revoked or replaced session gets 401 session_replaced
-    // so the client can sign out and show "account opened on another device."
+    // X-Session-Id is REQUIRED on every protected endpoint.
     //
-    // WHY here and not in session-check:
-    //   session-check is only called on SIGNED_IN.  Devices that keep their JWT
-    //   but had their session replaced (via another device logging in) would
-    //   otherwise continue calling protected APIs until the JWT expires (~1 h).
+    // NON-NEGOTIABLE: a valid Supabase JWT without a verified active Lulou
+    // session must never grant access to protected APIs.  A missing X-Session-Id
+    // is an immediate 401 — there is no fail-open path.
     //
-    // Fail open on DB errors so transient outages never lock users out.
+    // EXEMPT paths — these endpoints register/bootstrap the application session
+    // and therefore cannot require a prior X-Session-Id:
+    //   POST /api/auth/session-bootstrap — called immediately after every new
+    //     auth event (SIGNED_IN, INITIAL_SESSION with missing ID, PASSWORD_RECOVERY).
+    //     Atomically revokes the previous session and registers the new one.
+    //   POST /api/auth/session-check — legacy alias with the same semantics.
+    //
+    // All other protected endpoints MUST refuse requests that lack a valid ID.
+    // Fail open ONLY on DB errors so transient outages never lock users out.
+    const SESSION_BOOTSTRAP_EXEMPT = new Set([
+      "/api/auth/session-bootstrap",
+      "/api/auth/session-check",
+    ]);
     const clientSessionId = req.headers["x-session-id"] as string | undefined;
-    if (clientSessionId && clientSessionId.length > 4) {
+
+    if (!SESSION_BOOTSTRAP_EXEMPT.has(req.path)) {
+      // Non-bootstrap path: X-Session-Id is required — no exceptions.
+      if (!clientSessionId || clientSessionId.length <= 4) {
+        console.warn(`[SESSION] missing X-Session-Id for ${user.id.slice(0, 8)} path=${req.path}`);
+        return res.status(401).json({
+          message: "invalid_session",
+          reason: "Application session is missing.",
+        });
+      }
+
       const cached = lookupSessionIdCache(user.id, clientSessionId);
       if (cached === false) {
         // Cache says this session is revoked — fast reject
@@ -502,12 +521,6 @@ const isAuthenticated: RequestHandler = async (req: any, res, next) => {
             row.expiresAt > new Date();
           cacheSessionIdValid(user.id, clientSessionId, isValid);
           if (!isValid) {
-            // Distinguish recoverable from non-recoverable 401s:
-            // • invalid_session: no active_sessions row at all — client can re-register
-            //   (e.g. after PASSWORD_RECOVERY or a race before session-check completes)
-            //   and retry the request transparently.
-            // • session_replaced: a row exists but belongs to a different session —
-            //   another device has since logged in; client must force-logout.
             const reason = !row ? "invalid_session" : "session_replaced";
             console.warn(`[SESSION] ${reason} for ${user.id.slice(0, 8)} path=${req.path} sid=${clientSessionId?.slice(0, 8) ?? "none"}`);
             return res.status(401).json({
@@ -521,8 +534,8 @@ const isAuthenticated: RequestHandler = async (req: any, res, next) => {
           // Fail open — DB error never locks legitimate users out
           console.error("[SESSION] session-id check DB error (fail-open):", (e as any)?.message);
         }
+        // cached === true → proceed immediately (no DB hit)
       }
-      // cached === true → proceed immediately (no DB hit)
     }
 
     // Fire-and-forget last_active update (debounced per user, 2 min).
@@ -1373,6 +1386,91 @@ export async function registerRoutes(
       console.error("[SESSION] session-check DB error (fail-open):", e?.message);
       // Fail open — never lock a user out due to a DB error
       res.json({ allowed: true, sessionId });
+    }
+  });
+
+  // ── Bootstrap: register a fresh application session after any new auth event ─
+  // Called immediately after SIGNED_IN, INITIAL_SESSION (missing session ID),
+  // and PASSWORD_RECOVERY.  Like session-check but the session ID is always
+  // generated server-side, so the client never needs to supply one.
+  //
+  // This endpoint is EXEMPT from the X-Session-Id gate (see middleware above)
+  // because by definition no valid session ID exists yet when it is called.
+  // It requires a valid Supabase JWT.
+  //
+  // Returns 500 on DB error — the client must show Retry / Sign out.
+  // Never fails open (fail-open would defeat the purpose of this endpoint).
+  app.post("/api/auth/session-bootstrap", isAuthenticated, async (req: any, res) => {
+    const userId = req.user.id;
+    const { deviceId = "", userAgent = "" } =
+      (req.body as { deviceId?: string; userAgent?: string }) || {};
+
+    // Server always generates the session ID — no client-provided ID accepted.
+    const sessionId = randomUUID();
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + SESSION_EXPIRY_MS);
+
+    try {
+      const existing = await db
+        .select()
+        .from(activeSessions)
+        .where(eq(activeSessions.userId, userId))
+        .limit(1);
+
+      const row = existing[0];
+      const isSameDevice =
+        !!deviceId && !!row?.deviceId && row.deviceId === deviceId;
+      const oldSessionId: string | null =
+        row && row.sessionId !== sessionId ? row.sessionId : null;
+      const oldSessionWasDifferentDevice = !!oldSessionId && !isSameDevice;
+
+      await db
+        .insert(activeSessions)
+        .values({
+          userId,
+          sessionId,
+          deviceId: String(deviceId).slice(0, 200),
+          userAgent: String(userAgent || "").slice(0, 500),
+          createdAt: now,
+          lastSeenAt: now,
+          expiresAt,
+          revokedAt: null,
+          revokedReason: null,
+        })
+        .onConflictDoUpdate({
+          target: activeSessions.userId,
+          set: {
+            sessionId,
+            deviceId: String(deviceId).slice(0, 200),
+            userAgent: String(userAgent || "").slice(0, 500),
+            lastSeenAt: now,
+            expiresAt,
+            revokedAt: null,
+            revokedReason: null,
+          },
+        });
+
+      if (oldSessionId) {
+        cacheSessionIdValid(userId, oldSessionId, false);
+        if (oldSessionWasDifferentDevice) {
+          broadcastViaHttpApi(`private-session:${oldSessionId}`, "session-replaced", {
+            oldSessionId,
+            newSessionId: sessionId,
+          }).catch(() => {});
+          console.log(`[SESSION] BOOTSTRAP: revoked old session for ${userId.slice(0, 8)} — broadcast sent`);
+        } else {
+          console.log(`[SESSION] BOOTSTRAP: replaced own session for ${userId.slice(0, 8)} (same device re-login)`);
+        }
+      }
+
+      cacheSessionIdValid(userId, sessionId, true);
+      if (IS_DEV) console.log(`[SESSION] BOOTSTRAP: registered session for ${userId.slice(0, 8)} expires ${expiresAt.toISOString()}`);
+      res.json({ sessionId });
+    } catch (e: any) {
+      // Fail CLOSED — return 500 so the client shows Retry / Sign out.
+      // A fail-open here would allow unauthenticated access to protected APIs.
+      console.error("[SESSION] session-bootstrap DB error:", e?.message);
+      res.status(500).json({ message: "Failed to register session. Please try again." });
     }
   });
 
