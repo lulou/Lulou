@@ -226,17 +226,29 @@ async function throwIfResNotOk(res: Response, url = "") {
   if (!res.ok) {
     const text = (await res.text()) || res.statusText;
     let message = `${res.status}: ${text}`;
-    try {
-      const parsed = JSON.parse(text);
-      if (parsed.message) message = parsed.message;
-    } catch {}
+    let parsed: any = null;
+    try { parsed = JSON.parse(text); if (parsed.message) message = parsed.message; } catch {}
     if (res.status === 404 && !API_BASE && IS_CROSS_ORIGIN_DEPLOY) {
       message =
         `API unreachable (404): VITE_API_BASE_URL is not set. ` +
         `Add it to Vercel environment variables and redeploy. Attempted: ${url}`;
     }
+    // If the server tells us our session was replaced by another device,
+    // dispatch a window event so AuthProvider can force a local sign-out
+    // and show "This account was signed in on another device."
+    if (res.status === 401 && parsed?.message === "session_replaced") {
+      console.warn("[SESSION] session_replaced detected in API response — dispatching forced-logout event");
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("lulou:session-replaced"));
+      }
+    }
     throw new Error(message);
   }
+}
+
+/** Returns the application session ID stored for this browser, or "". */
+function getAppSessionId(): string {
+  try { return localStorage.getItem("lulou_session_id") ?? ""; } catch { return ""; }
 }
 
 export async function apiRequest(
@@ -248,6 +260,7 @@ export async function apiRequest(
   const authHeaders = await getAuthHeaders();
   // TEMP: latency debugging — remove before production release
   const t0 = PERF_ENABLED ? performance.now() : 0;
+  const sessionId = getAppSessionId();
   let res: Response;
   try {
     res = await fetch(API_BASE + url, {
@@ -255,6 +268,10 @@ export async function apiRequest(
       headers: {
         ...authHeaders,
         ...(data ? { "Content-Type": "application/json" } : {}),
+        // Tell the server which application session this request belongs to.
+        // The isAuthenticated middleware checks this against active_sessions and
+        // returns 401 session_replaced if the session was replaced by another device.
+        ...(sessionId ? { "X-Session-Id": sessionId } : {}),
       },
       body: data ? JSON.stringify(data) : undefined,
       credentials: "include",
@@ -323,6 +340,7 @@ export const getQueryFn: <T>(options: {
     const endQuery = perfStart(`QUERY:${url}`);
 
     const authHeaders = await getAuthHeaders();
+    const sessionId = getAppSessionId();
 
     // TEMP: latency debugging — timer only started when PERF_ENABLED
     const t0 = PERF_ENABLED ? performance.now() : 0;
@@ -330,7 +348,10 @@ export const getQueryFn: <T>(options: {
     try {
       res = await fetch(API_BASE + url, {
         credentials: "include",
-        headers: authHeaders,
+        headers: {
+          ...authHeaders,
+          ...(sessionId ? { "X-Session-Id": sessionId } : {}),
+        },
       });
     } catch (fetchErr) {
       logPrefetchError(API_BASE + url, fetchErr);
@@ -339,9 +360,18 @@ export const getQueryFn: <T>(options: {
 
     if (res.status === 401) {
       endQuery({ status: 401 });
-      console.warn(`[QUERY_FETCH] 401 Unauthorized for ${url}`);
+      // Check for session_replaced — signals that another device logged in
+      let body: any = {};
+      try { body = await res.clone().json(); } catch {}
+      if (body?.message === "session_replaced") {
+        console.warn(`[SESSION] session_replaced on query ${url} — dispatching forced-logout event`);
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(new CustomEvent("lulou:session-replaced"));
+        }
+      }
+      console.warn(`[QUERY_FETCH] 401 Unauthorized for ${url}`, body);
       if (unauthorizedBehavior === "returnNull") return null as any;
-      throw new Error("Unauthorized");
+      throw new Error(body?.message || "Unauthorized");
     }
 
     if (!res.ok) {

@@ -270,6 +270,10 @@ export const activeSessions = pgTable("active_sessions", {
   createdAt: timestamp("created_at").defaultNow(),
   lastSeenAt: timestamp("last_seen_at").defaultNow(),
   expiresAt: timestamp("expires_at").notNull(),
+  // Populated when this session is replaced by a new login on another device,
+  // or explicitly revoked on logout.  Null means the session is still active.
+  revokedAt: timestamp("revoked_at"),
+  revokedReason: text("revoked_reason"), // "new_login" | "logout" | "expired"
 }, (table) => [
   index("idx_active_sessions_user").on(table.userId),
 ]);

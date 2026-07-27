@@ -382,6 +382,126 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
       }
 
+      // ── INITIAL_SESSION: verify application session against active_sessions ──
+      // Root cause of "Forgot password → refresh → Account A appears":
+      //   1. Browser had Account A's Supabase token cached in localStorage.
+      //   2. User clicked "Forgot password" — local session was NOT cleared.
+      //   3. On refresh, INITIAL_SESSION fired with Account A's token.
+      //   4. No server check was performed → app opened silently as Account A.
+      //
+      // Fix: INITIAL_SESSION now verifies the stored lulou_session_id against
+      // the server's active_sessions record before entering the app.  If the
+      // session has been replaced (another device logged in) or the session-id
+      // is absent, the user is signed out locally and the login page is shown.
+      //
+      // Fail-open: network / 5xx errors never sign the user out (same policy as
+      // the existing SIGNED_IN session-check path).
+      if (event === "INITIAL_SESSION" && u && session?.access_token) {
+        const token = session.access_token;
+        setIsLoading(true);
+        console.log("[AUTH] INITIAL_SESSION_VERIFY_START", { userId: newUserId?.slice(0, 8) });
+
+        (async () => {
+          const storedSessionId = localStorage.getItem("lulou_session_id") ?? "";
+          let verified = false;
+
+          try {
+            if (storedSessionId) {
+              // Verify against active_sessions — fast path
+              const r = await fetch(`${API_BASE}/api/auth/session-verify`, {
+                method: "POST",
+                headers: {
+                  Authorization: `Bearer ${token}`,
+                  "Content-Type": "application/json",
+                  // Send the session-id in both the header (for middleware) and body (for endpoint)
+                  "X-Session-Id": storedSessionId,
+                },
+                body: JSON.stringify({ sessionId: storedSessionId }),
+              });
+              if (r.ok) {
+                const d = await r.json();
+                verified = d.valid === true;
+                if (!verified) {
+                  console.warn("[AUTH] INITIAL_SESSION_VERIFY_REJECTED", { reason: d.reason, userId: newUserId?.slice(0, 8) });
+                } else {
+                  console.log("[AUTH] INITIAL_SESSION_VERIFIED — entering app", { userId: newUserId?.slice(0, 8) });
+                }
+              } else if (r.status === 401) {
+                // Middleware rejected: session replaced or expired
+                const body = await r.json().catch(() => ({}));
+                verified = false;
+                console.warn("[AUTH] INITIAL_SESSION_VERIFY_401", { message: body?.message, userId: newUserId?.slice(0, 8) });
+              } else {
+                // 5xx / unexpected — fail open so an outage doesn't sign everyone out
+                verified = true;
+                console.warn("[AUTH] INITIAL_SESSION_VERIFY_FAIL_OPEN (non-2xx, non-401)", { status: r.status });
+              }
+            } else {
+              // No application session ID — register this device via session-check.
+              // Handles devices that were already logged in before this enforcement
+              // code was deployed (they never received a lulou_session_id).
+              const newSessionId =
+                typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+                  ? crypto.randomUUID()
+                  : `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+              const deviceId = localStorage.getItem("lulou_device_id") ?? "";
+              const r = await fetch(`${API_BASE}/api/auth/session-check`, {
+                method: "POST",
+                headers: {
+                  Authorization: `Bearer ${token}`,
+                  "Content-Type": "application/json",
+                },
+                body: JSON.stringify({ sessionId: newSessionId, deviceId, userAgent: navigator.userAgent }),
+              });
+              if (r.ok) {
+                const d = await r.json();
+                if (d.blocked) {
+                  verified = false;
+                  console.warn("[AUTH] INITIAL_SESSION_REGISTER_BLOCKED — another device is active");
+                } else {
+                  localStorage.setItem("lulou_session_id", d.sessionId ?? newSessionId);
+                  verified = true;
+                  console.log("[AUTH] INITIAL_SESSION_REGISTERED — new session_id assigned", { userId: newUserId?.slice(0, 8) });
+                }
+              } else {
+                // Fail open on server errors
+                verified = true;
+                console.warn("[AUTH] INITIAL_SESSION_REGISTER_FAIL_OPEN", { status: r.status });
+              }
+            }
+          } catch (e) {
+            // Network error — fail open
+            verified = true;
+            console.warn("[AUTH] INITIAL_SESSION_VERIFY_NETWORK_ERROR (fail-open)", { error: String(e) });
+          }
+
+          if (!mounted) return;
+
+          if (verified) {
+            setUser(u);
+            setProfileReady(true);
+            setIsLoading(false);
+          } else {
+            // Session replaced or blocked — clear local state and return to login
+            supabase.auth.signOut({ scope: "local" }).catch(() => {});
+            localStorage.removeItem("lulou_session_id");
+            setCachedToken(null);
+            // Flag for landing.tsx to show "signed out because account on another device" toast
+            sessionStorage.setItem("lulou_forced_logout", "session_replaced");
+            setTimeout(() => {
+              if (mounted) setClearingCache(true);
+              setTimeout(() => { queryClient.clear(); if (mounted) setClearingCache(false); }, 0);
+            }, 0);
+            setUser(null);
+            setProfileReady(true);
+            setIsLoading(false);
+            console.log("[AUTH] INITIAL_SESSION_REJECTED — showing login page", { userId: newUserId?.slice(0, 8) });
+          }
+        })();
+
+        return; // async IIFE handles setUser / setIsLoading
+      }
+
       setUser(u);
 
       if (mounted) {
@@ -516,14 +636,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (!session?.access_token) return;
         const sessionId = localStorage.getItem("lulou_session_id") ?? "";
         const deviceId  = localStorage.getItem("lulou_device_id")  ?? "";
-        await fetch(`${API_BASE}/api/auth/heartbeat`, {
+        const r = await fetch(`${API_BASE}/api/auth/heartbeat`, {
           method: "POST",
           headers: {
             Authorization: `Bearer ${session.access_token}`,
             "Content-Type": "application/json",
+            // X-Session-Id lets the middleware reject this heartbeat if our session
+            // was replaced (another device logged in), triggering a forced logout.
+            ...(sessionId ? { "X-Session-Id": sessionId } : {}),
           },
           body: JSON.stringify({ sessionId, deviceId, userAgent: navigator.userAgent }),
         });
+        if (r.status === 401) {
+          const body = await r.json().catch(() => ({}));
+          if (body?.message === "session_replaced") {
+            console.warn("[AUTH] HEARTBEAT_SESSION_REPLACED — dispatching forced-logout event");
+            window.dispatchEvent(new CustomEvent("lulou:session-replaced"));
+          }
+        }
       } catch {}
     };
 
@@ -544,6 +674,72 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       document.removeEventListener("visibilitychange", onVisible);
     };
   }, [user?.id]);
+
+  // ── Realtime session-replaced channel ────────────────────────────────────
+  // Subscribe to a private user channel so when another device logs in and
+  // replaces this session, the server can notify this device immediately via
+  // realtime broadcast.  Falls back to the 401 session_replaced path on the
+  // next API request if the broadcast is missed (e.g. device offline).
+  useEffect(() => {
+    if (!user?.id) return;
+
+    const channelName = `private-user:${user.id}`;
+    const channel = supabase
+      .channel(channelName)
+      .on("broadcast", { event: "session-replaced" }, (msg) => {
+        console.log("[AUTH] SESSION_REPLACED_BROADCAST received", { payload: msg.payload, userId: user.id.slice(0, 8) });
+        window.dispatchEvent(new CustomEvent("lulou:session-replaced"));
+      })
+      .subscribe((status) => {
+        console.log(`[AUTH] PRIVATE_CHANNEL_STATUS ${channelName} → ${status}`);
+      });
+
+    return () => {
+      supabase.removeChannel(channel).catch(() => {});
+    };
+  }, [user?.id]);
+
+  // ── Forced-logout event handler ───────────────────────────────────────────
+  // Fires when either:
+  //   a) The realtime session-replaced broadcast is received (above), or
+  //   b) An API response returns 401 session_replaced (queryClient.ts interception),
+  //      or the heartbeat returns 401 session_replaced.
+  //
+  // Performs a full local sign-out without involving the server (the server's
+  // session row is now owned by the new device).
+  useEffect(() => {
+    let mounted = true;
+
+    const handleSessionReplaced = () => {
+      if (!mounted) return;
+      console.log("[AUTH] SESSION_REPLACED_FORCED_LOGOUT — clearing state and returning to login page");
+      // 1. Stop all call audio and clear call arming state immediately.
+      stopAllCallSounds("[AUTH] SESSION_REPLACED forced logout");
+      clearAllArmedSessions();
+      // 2. Kill the token cache so no in-flight request slips through.
+      setCachedToken(null);
+      // 3. Clear application session key so INITIAL_SESSION won't try to verify it.
+      localStorage.removeItem("lulou_session_id");
+      // 4. Set the flag that landing.tsx reads to show the "signed out on another device" toast.
+      sessionStorage.setItem("lulou_forced_logout", "session_replaced");
+      // 5. Clear React state and query cache.
+      setUser(null);
+      setTimeout(() => {
+        if (mounted) setClearingCache(true);
+        setTimeout(() => { queryClient.clear(); if (mounted) setClearingCache(false); }, 0);
+      }, 0);
+      // 6. Navigate to root (cosmetic — user is already null so Landing renders).
+      window.history.replaceState(null, "", "/");
+      // 7. Revoke the local Supabase session so INITIAL_SESSION doesn't fire again on refresh.
+      supabase.auth.signOut({ scope: "local" }).catch(() => {});
+    };
+
+    window.addEventListener("lulou:session-replaced", handleSessionReplaced);
+    return () => {
+      mounted = false;
+      window.removeEventListener("lulou:session-replaced", handleSessionReplaced);
+    };
+  }, []);
 
   const clearPasswordRecovery = useCallback(() => {
     setPasswordRecovery(false);

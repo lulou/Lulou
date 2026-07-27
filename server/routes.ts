@@ -81,6 +81,34 @@ const _jwtCache = new Map<string, { user: any; expiresAt: number }>();
 const JWT_CACHE_TTL_MS = 2 * 60_000;
 const JWT_CACHE_MAX = 500;
 
+// ── Application session-ID cache ──────────────────────────────────────────────
+// Keyed by "userId:sessionId".  value.valid = false means this session was
+// replaced by another device and requests carrying it must be rejected with 401.
+// TTL = 30 s; max 1000 entries; evicts oldest on overflow.
+const _sessionIdCache = new Map<string, { valid: boolean; expiresAt: number }>();
+const SESSION_ID_CACHE_TTL_MS = 30_000;
+const SESSION_ID_CACHE_MAX = 1_000;
+
+function getSessionIdCacheKey(userId: string, sessionId: string) {
+  return `${userId}:${sessionId}`;
+}
+function cacheSessionIdValid(userId: string, sessionId: string, valid: boolean) {
+  const key = getSessionIdCacheKey(userId, sessionId);
+  const expiresAt = Date.now() + SESSION_ID_CACHE_TTL_MS;
+  if (_sessionIdCache.size >= SESSION_ID_CACHE_MAX) {
+    const oldest = _sessionIdCache.keys().next().value;
+    if (oldest) _sessionIdCache.delete(oldest);
+  }
+  _sessionIdCache.set(key, { valid, expiresAt });
+}
+function lookupSessionIdCache(userId: string, sessionId: string): boolean | null {
+  const key = getSessionIdCacheKey(userId, sessionId);
+  const entry = _sessionIdCache.get(key);
+  if (!entry) return null;
+  if (entry.expiresAt < Date.now()) { _sessionIdCache.delete(key); return null; }
+  return entry.valid;
+}
+
 function parseJwtPayload(token: string): Record<string, any> | null {
   try {
     const parts = token.split(".");
@@ -437,6 +465,55 @@ const isAuthenticated: RequestHandler = async (req: any, res, next) => {
         .eq("user_id", user.id)
         .eq("email_verified", false)
         .then(() => {}, () => {});
+    }
+
+    // ── Application session-ID gate ───────────────────────────────────────────
+    // If the client sends X-Session-Id, verify it matches the active session
+    // row for this user.  A revoked or replaced session gets 401 session_replaced
+    // so the client can sign out and show "account opened on another device."
+    //
+    // WHY here and not in session-check:
+    //   session-check is only called on SIGNED_IN.  Devices that keep their JWT
+    //   but had their session replaced (via another device logging in) would
+    //   otherwise continue calling protected APIs until the JWT expires (~1 h).
+    //
+    // Fail open on DB errors so transient outages never lock users out.
+    const clientSessionId = req.headers["x-session-id"] as string | undefined;
+    if (clientSessionId && clientSessionId.length > 4) {
+      const cached = lookupSessionIdCache(user.id, clientSessionId);
+      if (cached === false) {
+        // Cache says this session is revoked — fast reject
+        return res.status(401).json({
+          message: "session_replaced",
+          reason: "Your account was signed in on another device.",
+        });
+      } else if (cached === null) {
+        // Cache miss — query DB
+        try {
+          const [row] = await db
+            .select({ sessionId: activeSessions.sessionId, revokedAt: activeSessions.revokedAt, expiresAt: activeSessions.expiresAt })
+            .from(activeSessions)
+            .where(eq(activeSessions.userId, user.id))
+            .limit(1);
+          const isValid =
+            !!row &&
+            row.sessionId === clientSessionId &&
+            !row.revokedAt &&
+            row.expiresAt > new Date();
+          cacheSessionIdValid(user.id, clientSessionId, isValid);
+          if (!isValid) {
+            console.warn(`[SESSION] Rejected request with stale session for ${user.id.slice(0, 8)} path=${req.path}`);
+            return res.status(401).json({
+              message: "session_replaced",
+              reason: "Your account was signed in on another device.",
+            });
+          }
+        } catch (e) {
+          // Fail open — DB error never locks legitimate users out
+          console.error("[SESSION] session-id check DB error (fail-open):", (e as any)?.message);
+        }
+      }
+      // cached === true → proceed immediately (no DB hit)
     }
 
     // Fire-and-forget last_active update (debounced per user, 2 min).
@@ -1215,6 +1292,14 @@ export async function registerRoutes(
         return res.json({ blocked: true });
       }
 
+      // Capture old session ID before upserting so we can notify the old device.
+      const oldSessionId: string | null =
+        row && row.expiresAt > now && row.sessionId !== sessionId && !isSameDevice
+          ? null // blocked — shouldn't reach here
+          : (row && row.sessionId !== sessionId && !isSameDevice ? row.sessionId : null);
+      const isReplacingAnotherDevice =
+        !!row && !!row.sessionId && row.sessionId !== sessionId && !isSameDevice && row.expiresAt > now;
+
       // No active session, expired, or same session → register / refresh
       await db
         .insert(activeSessions)
@@ -1226,6 +1311,8 @@ export async function registerRoutes(
           createdAt: now,
           lastSeenAt: now,
           expiresAt,
+          revokedAt: null,
+          revokedReason: null,
         })
         .onConflictDoUpdate({
           target: activeSessions.userId,
@@ -1235,10 +1322,36 @@ export async function registerRoutes(
             userAgent: String(userAgent || "").slice(0, 500),
             lastSeenAt: now,
             expiresAt,
+            revokedAt: null,
+            revokedReason: null,
           },
         });
 
+      // ── Notify the replaced device ───────────────────────────────────────────
+      // If a fresh session from a DIFFERENT device was in active_sessions, that
+      // old device must be signed out immediately.
+      // We do two things:
+      //   1. Broadcast session-replaced to a private user channel so the old
+      //      device's realtime listener signs it out within seconds.
+      //   2. Invalidate the old session in our in-process cache so its very next
+      //      API request hits the session-id gate and receives 401 session_replaced
+      //      (fallback for devices that miss the realtime broadcast).
+      if (isReplacingAnotherDevice && row?.sessionId) {
+        const replacedId = row.sessionId;
+        // Mark old session as invalid in cache
+        cacheSessionIdValid(userId, replacedId, false);
+        // Broadcast to the old device's realtime listener
+        broadcastViaHttpApi(`private-user:${userId}`, "session-replaced", {
+          oldSessionId: replacedId,
+          newSessionId: sessionId,
+        }).catch(() => {});
+        console.log(`[SESSION] REPLACED old session for ${userId.slice(0, 8)} — notified via realtime+cache`);
+      }
+
       if (IS_DEV) console.log(`[SESSION] Registered session for ${userId.slice(0, 8)} expires ${expiresAt.toISOString()}`);
+      // Mark the new session as valid in cache immediately so the first heartbeat
+      // from this device doesn't trigger an unnecessary DB round-trip.
+      cacheSessionIdValid(userId, sessionId, true);
       res.json({ allowed: true, sessionId });
     } catch (e: any) {
       console.error("[SESSION] session-check DB error (fail-open):", e?.message);
@@ -1247,16 +1360,16 @@ export async function registerRoutes(
     }
   });
 
-  // Heartbeat — called every 60 s while the app is open AND on INITIAL_SESSION
-  // (existing logged-in device opening the app).
+  // Heartbeat — called every 60 s while the app is open.
   //
-  // WHY upsert instead of update:
-  //   Devices that were already logged in before this session-enforcement code was
-  //   deployed never have a row in active_sessions (they never triggered SIGNED_IN).
-  //   A plain UPDATE on a missing row is a no-op — the laptop's session is never
-  //   registered, so the phone's session-check finds no row and is allowed in.
-  //   With upsert, every heartbeat (including the first one fired on INITIAL_SESSION)
-  //   ensures the row exists and is fresh.
+  // CHANGED: now uses a conditional UPDATE (only refreshes when the stored
+  // sessionId matches the request's sessionId).  This prevents a stale Device 1
+  // heartbeat from overriding Device 2's session after Device 2 logged in and
+  // replaced the active_sessions row.
+  //
+  // Old devices whose heartbeat sessionId no longer matches the DB row will
+  // receive a no-op response here, and their next API request (which sends
+  // X-Session-Id) will be rejected with 401 session_replaced.
   app.post("/api/auth/heartbeat", isAuthenticated, async (req: any, res) => {
     const userId = req.user.id;
     const { sessionId, deviceId = "", userAgent = "" } =
@@ -1265,28 +1378,16 @@ export async function registerRoutes(
     const expiresAt = new Date(now.getTime() + SESSION_EXPIRY_MS);
     try {
       if (sessionId && typeof sessionId === "string" && sessionId.length > 4) {
-        // Upsert: registers the device if no row exists, refreshes expiry if it does.
+        // Conditional update: only refresh if the sessionId still matches.
+        // If another device replaced the session, this is a no-op — the old
+        // device stops renewing and its session expires naturally (or its next
+        // API request gets 401 from the middleware session-id gate).
         await db
-          .insert(activeSessions)
-          .values({
-            userId,
-            sessionId,
-            deviceId: String(deviceId).slice(0, 200),
-            userAgent: String(userAgent || "").slice(0, 500),
-            createdAt: now,
-            lastSeenAt: now,
-            expiresAt,
-          })
-          .onConflictDoUpdate({
-            target: activeSessions.userId,
-            set: {
-              sessionId,
-              deviceId: String(deviceId).slice(0, 200),
-              userAgent: String(userAgent || "").slice(0, 500),
-              lastSeenAt: now,
-              expiresAt,
-            },
-          });
+          .update(activeSessions)
+          .set({ lastSeenAt: now, expiresAt })
+          .where(and(eq(activeSessions.userId, userId), eq(activeSessions.sessionId, sessionId)));
+        // Refresh cache so the next middleware check on this device is a fast hit.
+        cacheSessionIdValid(userId, sessionId, true);
       } else {
         // Fallback for legacy calls without a sessionId: just extend expiry.
         await db
@@ -1300,10 +1401,69 @@ export async function registerRoutes(
     }
   });
 
+  // Session verify — called by INITIAL_SESSION (page refresh / app reopen) to
+  // confirm the stored application sessionId is still the active session for
+  // this user.  Returns { valid: true } or { valid: false, reason }.
+  //
+  // If isAuthenticated rejects the request (expired JWT or replaced session),
+  // the client treats it as invalid and signs out locally.
+  app.post("/api/auth/session-verify", isAuthenticated, async (req: any, res) => {
+    const userId = req.user.id;
+    const { sessionId } =
+      (req.body as { sessionId?: string }) || {};
+
+    if (!sessionId || typeof sessionId !== "string" || sessionId.length < 8) {
+      return res.json({ valid: false, reason: "no_session_id" });
+    }
+
+    try {
+      const [row] = await db
+        .select({ sessionId: activeSessions.sessionId, revokedAt: activeSessions.revokedAt, expiresAt: activeSessions.expiresAt })
+        .from(activeSessions)
+        .where(eq(activeSessions.userId, userId))
+        .limit(1);
+
+      const isValid =
+        !!row &&
+        row.sessionId === sessionId &&
+        !row.revokedAt &&
+        row.expiresAt > new Date();
+
+      if (isValid) {
+        // Touch last_seen_at so this heartbeat counts
+        await db
+          .update(activeSessions)
+          .set({ lastSeenAt: new Date() })
+          .where(and(eq(activeSessions.userId, userId), eq(activeSessions.sessionId, sessionId)));
+        cacheSessionIdValid(userId, sessionId, true);
+        return res.json({ valid: true });
+      }
+
+      const reason = !row
+        ? "not_found"
+        : row.revokedAt
+          ? "revoked"
+          : row.sessionId !== sessionId
+            ? "session_replaced"
+            : "expired";
+      // Mark as invalid in cache for fast rejection on subsequent requests
+      cacheSessionIdValid(userId, sessionId, false);
+      console.log(`[SESSION] VERIFY_FAILED for ${userId.slice(0, 8)} reason=${reason}`);
+      return res.json({ valid: false, reason });
+    } catch (e: any) {
+      console.error("[SESSION] session-verify DB error (fail-open):", e?.message);
+      // Fail open — DB error never signs users out
+      return res.json({ valid: true });
+    }
+  });
+
   // Logout — clears the active session so another device can log in immediately.
   app.delete("/api/auth/session", isAuthenticated, async (req: any, res) => {
     const userId = req.user.id;
     try {
+      // Invalidate the session in cache before deleting from DB
+      const sessionId = req.headers["x-session-id"] as string | undefined;
+      if (sessionId) cacheSessionIdValid(userId, sessionId, false);
       await db.delete(activeSessions).where(eq(activeSessions.userId, userId));
       if (IS_DEV) console.log(`[SESSION] Cleared session for ${userId.slice(0, 8)}`);
       res.json({ ok: true });

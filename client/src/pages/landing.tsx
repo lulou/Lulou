@@ -347,7 +347,15 @@ export default function Landing() {
     setResetLoading(true);
     setResetError(null);
     try {
-      console.log("[AUTH] RESET_PASSWORD_START", { email: email.trim().slice(0, 4) + "***", redirectTo: window.location.origin + "/auth/callback" });
+      // ── Clear any stored session FIRST ────────────────────────────────────────
+      // Forgot-password must never authenticate the user.  If the browser has a
+      // cached Supabase token for a previous account, removing it here prevents
+      // INITIAL_SESSION from firing on the next page refresh and silently
+      // re-opening that account — the root cause of "forgot-password → refresh →
+      // Account A appears" production bug.
+      await supabase.auth.signOut({ scope: "local" }).catch(() => {});
+      localStorage.removeItem("lulou_session_id");
+      console.log("[AUTH] RESET_PASSWORD_START — cleared local session to prevent INITIAL_SESSION restore", { email: email.trim().slice(0, 4) + "***", redirectTo: window.location.origin + "/auth/callback" });
       const { error } = await supabase.auth.resetPasswordForEmail(email.trim().toLowerCase(), {
         // Point to /auth/callback so password recovery links land on the
         // dedicated callback page which shows a loading state and then
