@@ -1,0 +1,283 @@
+Fix Lulou authentication so one account can only have one active session at a time, and refreshing can never silently sign the browser into a different account than the one the user intended.
+
+PRODUCTION BUG
+
+Observed behaviour:
+
+- Account A was already signed in on one device.
+- On another device/browser, a different email was typed to use “Forgot password”.
+- After refreshing the page, Lulou automatically opened Account A instead.
+- The same Account A was therefore active on two devices at once.
+- The browser appeared to switch to an account the user had not just entered.
+
+This must never happen.
+
+CORE SECURITY RULE
+
+Lulou must enforce:
+
+ONE ACTIVE SESSION PER USER ACCOUNT.
+
+When a user successfully signs in on a new device or browser:
+
+- every older session for that same user must be revoked
+- the older device must be signed out immediately or on its next authenticated request
+- the new session becomes the only valid active session
+- two devices must never remain signed in as the same Lulou account
+
+Do not enforce this only in React state or localStorage.
+
+It must be enforced server-side using a database-backed active-session record.
+
+ACTIVE SESSION TABLE
+
+Create or use a table such as:
+
+user_active_sessions
+
+Fields:
+
+- user_id
+- session_id
+- device_id
+- created_at
+- last_seen_at
+- revoked_at
+- user_agent
+- optional device_name
+
+Requirements:
+
+- one active, non-revoked session per user
+- new successful login replaces/revokes the previous session
+- every protected API request verifies that the current session_id is still the active session for that user
+- if it is not active, return 401 with:
+ {
+   "message": "session_replaced",
+   "reason": "Your account was signed in on another device."
+ }
+
+Do not trust local browser state alone.
+
+LOGIN FLOW
+
+After successful Supabase authentication:
+
+1. Obtain the authenticated user ID.
+2. Generate or obtain a unique application session ID.
+3. Register the new active session on the server.
+4. Atomically revoke the previous active session.
+5. Store only the new session identifier for this browser.
+6. Invalidate auth/profile/query caches from any previous account.
+7. Subscribe to realtime channels only after the active session is confirmed.
+
+If another device is already logged in:
+
+- the new login should succeed
+- the older device must be forced out
+- show the older device:
+ “You were signed out because this account was opened on another device.”
+
+REFRESH BEHAVIOUR
+
+Refreshing the page may restore only the session already stored in that exact browser.
+
+It must never:
+
+- restore a session belonging to another account after the user typed a different email
+- switch accounts because of stale React Query cache
+- use profile data from the previous account
+- reuse realtime subscriptions from the previous account
+- display the app until the restored session has been verified as the active server session
+
+On app boot:
+
+1. Read the local Supabase session.
+2. Verify the session with Supabase.
+3. Verify the application session against user_active_sessions.
+4. If either check fails:
+  - clear the local Supabase session
+  - clear application session storage
+  - clear all user-specific query caches
+  - clear call/message/match state
+  - show the login page
+5. Only render the authenticated app after both checks pass.
+
+SWITCH ACCOUNT FLOW
+
+“Switch Account” must perform a complete logout before showing the login form.
+
+Required order:
+
+1. Stop all call sounds.
+2. Clear incoming call state.
+3. Unsubscribe from all realtime channels.
+4. Clear message, match, profile and call query caches.
+5. Revoke the current application session.
+6. Call Supabase signOut for the current browser session.
+7. Verify Supabase getSession() returns null.
+8. Clear sessionStorage/localStorage keys belonging to the old account.
+9. Then show the blank login form.
+
+The old email, old password, old profile or old session must not remain populated.
+
+FORGOT PASSWORD FLOW
+
+Clicking “Forgot password” must never sign the browser into any account.
+
+It should only:
+
+- normalise the typed email
+- send the password reset request
+- remain on the logged-out screen
+- not restore or hydrate an unrelated stored session
+- not trigger INITIAL_SESSION rendering of the authenticated app
+
+If a valid stored session already exists while the user is on the login page, provide an explicit choice:
+
+- “Continue as [account]”
+- “Sign out and use another account”
+
+Do not silently continue as the stored account after refresh.
+
+ACCOUNT ISOLATION
+
+On every account transition, clear all state belonging to the previous user:
+
+- profile cache
+- matches
+- messages
+- likes
+- Discover results
+- DNA status
+- progression state
+- call state
+- notifications
+- localStorage milestone keys
+- realtime subscriptions
+- WebRTC objects
+- ringtone audio
+- service-worker account state
+
+Cache keys must include the authenticated user ID where appropriate.
+
+Never display cached data from User A after User B signs in.
+
+REALTIME FORCED LOGOUT
+
+Add a realtime mechanism so the old device is signed out promptly when a new session replaces it.
+
+For example:
+
+- broadcast `session-replaced` to a user-specific private channel
+- old device receives it
+- immediately stops calls/audio
+- clears state
+- signs out
+- returns to login with the message:
+ “This account was signed in on another device.”
+
+Do not allow the old device to continue until its next refresh.
+
+RINGING SAFETY
+
+Because stale ringing has also occurred after sign-in:
+
+- session replacement/logout must stop all audio immediately
+- old call subscriptions must be removed
+- call events must be tied to both user_id and active session_id
+- a revoked session must never process incoming call events
+- signing into a different account must not inherit the previous account’s call state
+
+TEST EXACTLY
+
+Use Account A and Account B on two devices.
+
+TEST 1 — SAME ACCOUNT ON TWO DEVICES
+
+1. Sign into Account A on Device 1.
+2. Sign into Account A on Device 2.
+3. Expected:
+  - Device 2 becomes active
+  - Device 1 is signed out
+  - Device 1 shows “account opened on another device”
+  - Device 1 cannot call protected APIs
+  - Device 1 does not ring or receive messages
+
+TEST 2 — REFRESH
+
+1. Sign into Account A on Device 1.
+2. Refresh.
+3. Expected:
+  - remains Account A only if that session is still active
+  - never changes to Account B
+  - never loads stale profile data
+
+TEST 3 — SWITCH ACCOUNT
+
+1. Sign into Account A.
+2. Press Switch Account.
+3. Sign into Account B.
+4. Refresh.
+5. Expected:
+  - remains Account B
+  - no Account A profile, messages or call state
+  - Account A session is no longer active in that browser
+
+TEST 4 — FORGOT PASSWORD
+
+1. Ensure a previous Account A session existed in the browser.
+2. Fully switch account/sign out.
+3. Type Account B’s email.
+4. Click Forgot password.
+5. Refresh.
+6. Expected:
+  - remains logged out
+  - never silently opens Account A
+  - does not sign into Account B
+  - only shows reset-request status
+
+TEST 5 — SESSION REPLACEMENT DURING CALL
+
+1. Account A is signed in on Device 1.
+2. Start or receive a call.
+3. Sign into Account A on Device 2.
+4. Expected:
+  - Device 1 call ends
+  - audio stops immediately
+  - Device 1 signs out
+  - no stale ringing after refresh
+
+TEST 6 — ACCOUNT CACHE ISOLATION
+
+1. View Account A’s profile/messages.
+2. Switch to Account B.
+3. Expected:
+  - no Account A content flashes
+  - all Account B queries refetch cleanly
+  - no shared React Query cache contamination
+
+REPORT
+
+Provide:
+
+- exact reason the refresh restored Account A
+- whether a persisted Supabase session or stale app cache caused it
+- current Supabase session settings
+- files changed
+- database table/migration
+- active-session verification middleware
+- forced logout realtime implementation
+- full logout/cache cleanup implementation
+- commit hash
+- Railway deployment status
+- Vercel deployment status
+- PASS or FAIL for every test
+
+Do not mark this complete until:
+
+- one account cannot remain active on two devices
+- a refresh never switches to another account
+- Forgot password never authenticates a user
+- switching accounts fully clears the previous account
+- a replaced session cannot ring, message or call APIs
