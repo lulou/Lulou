@@ -9,12 +9,26 @@
  * about caching service workers).
  */
 
-const SW_VERSION = "3.3";
+const SW_VERSION = "3.4";
 const ICON  = "/icon-192.png";
 const BADGE = "/favicon-32.png";
 
 // Set false once push-notification reliability is confirmed in production.
 const VERBOSE_LOGGING = true;
+
+// ── Fetch handler ─────────────────────────────────────────────────────────────
+//
+// Explicit network-only pass-through for /api/* requests.
+// Prevents any future caching logic from accidentally intercepting authenticated
+// API requests or serving stale 401 / profile responses.
+// All non-API requests use the browser's default fetch behaviour (no SW caching).
+self.addEventListener("fetch", (event) => {
+  if (event.request.url.includes("/api/")) {
+    // Always fetch from network — never serve a cached authenticated response.
+    event.respondWith(fetch(event.request));
+  }
+  // Non-API requests: do nothing (browser handles normally).
+});
 
 // ── Lifecycle ─────────────────────────────────────────────────────────────────
 

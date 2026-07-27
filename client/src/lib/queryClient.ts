@@ -385,7 +385,12 @@ export const getQueryFn: <T>(options: {
         // gate, so signal the auth layer to show the Retry / Sign out screen.
         // This should only be reached if the boot flow has a race or bug;
         // the normal path blocks all queries until bootstrap completes.
-        console.warn(`[SESSION] invalid_session on query ${url} — dispatching bootstrap-needed event`);
+        const _diagSessionId = getAppSessionId();
+        console.warn(`[SESSION] invalid_session on query ${url}`, {
+          hasSessionId: !!_diagSessionId,
+          sessionIdPrefix: _diagSessionId ? _diagSessionId.slice(0, 8) + "…" : "(none)",
+          serverReason: body?.reason,
+        });
         if (typeof window !== "undefined") {
           window.dispatchEvent(new CustomEvent("lulou:session-bootstrap-needed"));
         }
@@ -491,8 +496,12 @@ export async function batchPrefetchPhotos(userIds: string[]): Promise<void> {
     const headers = await getAuthHeaders();
     // TEMP: latency debugging — timer only started when PERF_ENABLED
     const t0 = PERF_ENABLED ? performance.now() : 0;
+    const batchSessionId = getAppSessionId();
     const res = await fetch(`${API_BASE}/api/profiles/photos/batch?ids=${missing.join(",")}`, {
-      headers,
+      headers: {
+        ...headers,
+        ...(batchSessionId ? { "X-Session-Id": batchSessionId } : {}),
+      },
       credentials: "include",
     });
     if (!res.ok) { endBatch({ error: res.status }); return; }

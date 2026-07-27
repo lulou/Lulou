@@ -1,0 +1,72 @@
+The latest production build is live, but sign-in still fails on the reconnect screen.
+
+Production evidence from the diagnostic panel:
+
+- appCommit: 859c82c
+- endpoint: https://lulou-production.up.railway.app/api/profile
+- response status: 401
+- service worker is active
+
+This means Vercel is serving the new frontend, but Railway is rejecting the first protected request after authentication.
+
+Fix the actual 401 session bootstrap failure.
+
+Investigate and report the exact response body from /api/profile:
+
+- invalid_session
+- session_replaced
+- missing X-Session-Id
+- no active session row
+- another cause
+
+Required fix:
+
+1. After successful Supabase authentication, call POST /api/auth/session-bootstrap.
+2. Confirm it returns a sessionId.
+3. Store it before any protected query starts.
+4. Ensure the central API client sends:
+  Authorization: Bearer <token>
+  X-Session-Id: <sessionId>
+5. Verify /api/profile receives both headers.
+6. Do not render the app until bootstrap succeeds.
+7. Do not let the service worker serve or replay stale authenticated API responses.
+8. Clear any old lulou_session_id before creating the new one.
+9. Confirm the new session row exists in active_sessions for the correct user.
+10. Confirm the new session is not immediately revoked by duplicate auth events.
+
+Add production-safe diagnostics showing:
+
+- auth event
+- user ID
+- bootstrap HTTP status
+- whether a sessionId was returned
+- whether X-Session-Id was attached to /api/profile
+- /api/profile response code and safe response body
+- active_sessions lookup result
+- whether the session was revoked
+
+Do not log tokens or the full session ID.
+
+Also inspect the service worker:
+
+- it must never cache /api/*
+- it must never cache 401 responses
+- it must not replay an old profile response or old auth state
+- unregister or update it if it is serving stale code
+
+Test:
+
+1. Fully sign out.
+2. Clear old local application session data.
+3. Sign in.
+4. Confirm session-bootstrap returns 200.
+5. Confirm /api/profile returns 200.
+6. Confirm Discover loads.
+7. Refresh.
+8. Confirm session-verify returns 200.
+9. Confirm /api/profile still returns 200.
+10. Confirm no reconnect screen appears.
+
+Report the exact root cause, files changed, commit hash, Railway deployment and Vercel deployment.
+
+Do not mark complete while /api/profile returns 401 after a successful login.

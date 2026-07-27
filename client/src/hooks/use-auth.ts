@@ -100,6 +100,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // receive 401 session_replaced → forced logout on the device that just signed in.
   const asyncAuthInProgressRef = useRef(false);
 
+  // Prevents double-bootstrap when Supabase fires both INITIAL_SESSION and
+  // SIGNED_IN for the same auth event (email-verification callback, PWA session
+  // restore, etc.).  Set synchronously at the START of the INITIAL_SESSION async
+  // block — before any await — so a concurrent SIGNED_IN callback (which runs
+  // synchronously right after INITIAL_SESSION returns) sees the lock immediately
+  // and bails out without calling callSessionBootstrap a second time.
+  //
+  // Without this guard the second bootstrap revokes the first session, leaving
+  // in-flight queries with a stale session ID that the middleware rejects → 401.
+  const bootstrapInProgressForUserRef = useRef<string | null>(null);
+
   useEffect(() => {
     let mounted = true;
 
@@ -257,6 +268,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           return;
         }
 
+        // ── Dedup guard: INITIAL_SESSION may be bootstrapping this user already ─
+        // Supabase fires both INITIAL_SESSION (restoring a cached session) and
+        // SIGNED_IN in email-verification callbacks, auth/callback page loads, and
+        // some PWA session-restore flows.  If INITIAL_SESSION already started its
+        // bootstrap for this exact userId, skip this SIGNED_IN entirely — the
+        // INITIAL_SESSION IIFE will call setUser(u) when it finishes.  Starting a
+        // second bootstrap here would revoke the just-granted session and cause the
+        // first protected query to receive 401 session_replaced.
+        if (bootstrapInProgressForUserRef.current === newUserId) {
+          console.log("[AUTH] SIGNED_IN_DEDUPED — INITIAL_SESSION bootstrap in-flight for same user", {
+            userId: newUserId?.slice(0, 8),
+          });
+          return;
+        }
+
         // ── Re-enter loading state BEFORE the async IIFE ─────────────────────
         // INITIAL_SESSION(null) already set isLoading:false and user:null.
         // Without this, navigating from /auth/callback to / while the session-
@@ -273,6 +299,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // Block concurrent TOKEN_REFRESHED / other events from calling setUser
         // or setIsLoading(false) while session-check is still in-flight.
         asyncAuthInProgressRef.current = true;
+        bootstrapInProgressForUserRef.current = newUserId ?? null;
         (async () => {
           let deviceId = localStorage.getItem("lulou_device_id") ?? "";
           if (!deviceId) {
@@ -291,6 +318,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           if (!mounted) return;
 
           if (!grantedSessionId) {
+            bootstrapInProgressForUserRef.current = null;
             asyncAuthInProgressRef.current = false;
             setSessionBootstrapFailed(true);
             setIsLoading(false);
@@ -298,7 +326,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             return;
           }
 
+          // Clear any stale session ID before storing the new one — ensures no
+          // leftover ID from a previous session can slip through between the
+          // removeItem and setItem calls (both are synchronous).
+          localStorage.removeItem("lulou_session_id");
           localStorage.setItem("lulou_session_id", grantedSessionId);
+          console.log("[AUTH] SESSION_STORED", {
+            sessionIdPrefix: grantedSessionId.slice(0, 8) + "…",
+            userId: newUserId?.slice(0, 8),
+          });
           // Record the precise moment this login was accepted so that
           // use-call-signaling.ts can reject rering broadcasts for calls
           // that started before this login (previous session's stale calls).
@@ -316,6 +352,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           }).catch((e) => {
             console.warn("[AUTH] LOGIN_CALL_SWEEP_FAILED (non-fatal)", { error: String(e) });
           });
+          bootstrapInProgressForUserRef.current = null;
           asyncAuthInProgressRef.current = false;
           setUser(u);
           setProfileReady(true);
@@ -435,6 +472,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const token = session.access_token;
         setIsLoading(true);
         asyncAuthInProgressRef.current = true;
+        // Set SYNCHRONOUSLY before the async IIFE so a concurrent SIGNED_IN
+        // event for the same user (which fires synchronously right after this
+        // handler returns) sees the lock and skips its own bootstrap call.
+        bootstrapInProgressForUserRef.current = newUserId ?? null;
         console.log("[AUTH] INITIAL_SESSION_VERIFY_START", { userId: newUserId?.slice(0, 8) });
 
         (async () => {
@@ -476,6 +517,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                     localStorage.setItem("lulou_session_id", newId);
                     verified = true;
                   } else {
+                    bootstrapInProgressForUserRef.current = null;
                     asyncAuthInProgressRef.current = false;
                     if (mounted) { setSessionBootstrapFailed(true); setIsLoading(false); }
                     return;
@@ -497,6 +539,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                     localStorage.setItem("lulou_session_id", newId);
                     verified = true;
                   } else {
+                    bootstrapInProgressForUserRef.current = null;
                     asyncAuthInProgressRef.current = false;
                     if (mounted) { setSessionBootstrapFailed(true); setIsLoading(false); }
                     return;
@@ -517,9 +560,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               console.warn("[AUTH] INITIAL_SESSION_NO_SESSION_ID — bootstrapping", { userId: newUserId?.slice(0, 8) });
               const newId = await callSessionBootstrap(token, deviceId);
               if (newId) {
+                localStorage.removeItem("lulou_session_id");
                 localStorage.setItem("lulou_session_id", newId);
                 verified = true;
               } else {
+                bootstrapInProgressForUserRef.current = null;
                 asyncAuthInProgressRef.current = false;
                 if (mounted) { setSessionBootstrapFailed(true); setIsLoading(false); }
                 return;
@@ -533,6 +578,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
           if (!mounted) return;
 
+          bootstrapInProgressForUserRef.current = null;
           asyncAuthInProgressRef.current = false;
           if (verified) {
             setUser(u);
@@ -621,9 +667,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const { data: { session: _s } } = await supabase.auth.getSession();
       if (_s?.access_token) {
+        // Include X-Session-Id so the middleware accepts this request and
+        // actually deletes the active_sessions row.  Without it the new
+        // middleware returns 401 and the row is never cleaned up, causing the
+        // next bootstrap to find a stale row (harmless but noisy).
+        const _deleteSessionId = localStorage.getItem("lulou_session_id") ?? "";
         await fetch(`${API_BASE}/api/auth/session`, {
           method: "DELETE",
-          headers: { Authorization: `Bearer ${_s.access_token}` },
+          headers: {
+            Authorization: `Bearer ${_s.access_token}`,
+            ...(_deleteSessionId ? { "X-Session-Id": _deleteSessionId } : {}),
+          },
         });
 
         // Remove push subscription before signing out so this device stops
