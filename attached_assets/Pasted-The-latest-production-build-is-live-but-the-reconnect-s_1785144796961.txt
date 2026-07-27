@@ -1,0 +1,96 @@
+The latest production build is live, but the reconnect screen still appears.
+
+Production evidence:
+
+- appCommit: 2d522bd
+- service worker: 3.4
+- endpoint: https://lulou-production.up.railway.app/api/profile
+- status: 401
+
+Do not make another speculative fix.
+
+Capture and report the exact live request and server decision for this failed /api/profile call.
+
+Required diagnostics:
+
+CLIENT
+- Supabase user ID
+- auth event that completed
+- whether session-bootstrap returned 200
+- whether a sessionId was returned
+- stored lulou_session_id prefix only
+- whether Authorization header was attached
+- whether X-Session-Id was attached
+- X-Session-Id prefix only
+- exact safe 401 response body
+
+SERVER
+- authenticated JWT user ID
+- supplied X-Session-Id prefix
+- active_sessions row found or not
+- stored active session prefix
+- revoked_at
+- revoked_reason
+- whether supplied session belongs to the authenticated user
+- exact middleware branch that returned 401
+
+Investigate these possibilities:
+
+1. session-bootstrap creates the row but returns/stores a different ID
+2. active_sessions uses a different column or ID format than middleware expects
+3. the newly created row is immediately revoked
+4. duplicate auth events still occur through a different path
+5. /api/profile fires before localStorage/session state is visible to the API client
+6. the shared API client reads a stale session ID from a closure
+7. Railway and frontend use different Supabase projects or user IDs
+8. session-bootstrap and session middleware use different database connections/tables
+9. session row creation transaction is not committed before /api/profile runs
+10. the session ID is cleared or replaced after bootstrap
+
+Add a temporary authenticated diagnostic endpoint:
+
+GET /api/auth/session-debug
+
+It must return only safe values:
+
+{
+ userId,
+ headerSessionPrefix,
+ activeRowExists,
+ activeSessionPrefix,
+ revoked,
+ matches
+}
+
+Do not return full tokens or full session IDs.
+
+Then test production in this exact order:
+
+1. Sign out fully.
+2. Clear lulou_session_id.
+3. Sign in.
+4. Record session-bootstrap response.
+5. Immediately call /api/auth/session-debug.
+6. Call /api/profile.
+7. Confirm session-debug shows matches: true.
+8. Confirm /api/profile returns 200.
+9. Refresh.
+10. Repeat session-debug and /api/profile.
+
+Do not report success based on bundle inspection or code reasoning.
+
+The live production test must show:
+
+- session-bootstrap 200
+- session-debug matches=true
+- /api/profile 200
+- Discover loads
+
+Report:
+- exact 401 response body
+- exact mismatch found
+- files changed
+- commit hash
+- Railway deployment
+- Vercel deployment
+- real production PASS/FAIL
