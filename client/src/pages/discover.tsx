@@ -242,6 +242,141 @@ const SlideCards = memo(function SlideCards({ items, type, onReply }: { items: s
 // are pruned once the pool exceeds this threshold, bounding the useMemo filter cost.
 const MAX_POOL_SIZE = 60;
 
+// ── Photo grouping ───────────────────────────────────────────────────────────
+// Divides all uploaded photos into balanced groups that are spread throughout
+// the profile.  Each group becomes one swipeable gallery (hero or inline).
+//
+// Rules (n = total photos):
+//   1  → [1]        4 → [2, 2]
+//   2  → [2]        5 → [3, 2]
+//   3  → [3]        6 → [3, 3]
+//   7+ → groups of 3 (last group may have 1–3)
+function computePhotoGroups(photos: string[]): string[][] {
+  const n = photos.length;
+  if (n === 0) return [[]];
+  if (n <= 3)  return [photos];
+  if (n === 4) return [photos.slice(0, 2), photos.slice(2)];
+  if (n === 5) return [photos.slice(0, 3), photos.slice(3)];
+  // 6 and above: groups of 3
+  const groups: string[][] = [];
+  for (let i = 0; i < n; i += 3) groups.push(photos.slice(i, i + 3));
+  return groups;
+}
+
+// Inline swipeable photo gallery — shown between content sections.
+// Uses pointer events (works for touch and mouse) and renders all images in
+// the DOM so the browser can cache them; opacity transition avoids flash.
+function InlinePhotoGallery({ photos, name }: { photos: string[]; name: string }) {
+  const [idx, setIdx] = useState(0);
+  const drag = useRef<{ startX: number; active: boolean }>({ startX: 0, active: false });
+
+  const go = (dir: 1 | -1) =>
+    setIdx(i => Math.max(0, Math.min(photos.length - 1, i + dir)));
+
+  const containerStyle: React.CSSProperties = {
+    position: "relative",
+    width: "100%",
+    borderRadius: "12px",
+    overflow: "hidden",
+    background: "hsl(var(--muted))",
+    aspectRatio: "4 / 5",
+    touchAction: "pan-y",   // allow vertical page scroll; we handle horizontal
+    userSelect: "none",
+    WebkitUserSelect: "none",
+  };
+
+  return (
+    <div
+      style={containerStyle}
+      onPointerDown={e => {
+        drag.current = { startX: e.clientX, active: true };
+        (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+      }}
+      onPointerUp={e => {
+        if (!drag.current.active) return;
+        drag.current.active = false;
+        const dx = e.clientX - drag.current.startX;
+        if (Math.abs(dx) > 28) go(dx < 0 ? 1 : -1);
+      }}
+      onPointerCancel={() => { drag.current.active = false; }}
+    >
+      {/* All images stacked; only the current one is visible */}
+      {photos.map((url, i) => (
+        <img
+          key={url}
+          src={url}
+          alt={`${name} photo ${i + 1} of ${photos.length}`}
+          loading={i === 0 ? "eager" : "lazy"}
+          draggable={false}
+          style={{
+            position: "absolute",
+            inset: 0,
+            width: "100%",
+            height: "100%",
+            objectFit: "cover",
+            display: "block",
+            opacity: i === idx ? 1 : 0,
+            transition: "opacity 0.18s ease",
+          }}
+        />
+      ))}
+
+      {/* "1 / 3" counter — only shown when multiple photos */}
+      {photos.length > 1 && (
+        <div
+          aria-label={`Photo ${idx + 1} of ${photos.length}`}
+          style={{
+            position: "absolute",
+            top: 10,
+            insetInlineEnd: 12,
+            background: "rgba(0,0,0,0.42)",
+            borderRadius: "999px",
+            padding: "2px 10px",
+            color: "#fff",
+            fontSize: 12,
+            fontWeight: 600,
+            lineHeight: 1.6,
+            backdropFilter: "blur(4px)",
+            WebkitBackdropFilter: "blur(4px)",
+            pointerEvents: "none",
+          }}
+        >
+          {idx + 1} / {photos.length}
+        </div>
+      )}
+
+      {/* Dot indicators */}
+      {photos.length > 1 && (
+        <div
+          style={{
+            position: "absolute",
+            bottom: 10,
+            left: 0,
+            right: 0,
+            display: "flex",
+            justifyContent: "center",
+            gap: 5,
+            pointerEvents: "none",
+          }}
+        >
+          {photos.map((_, i) => (
+            <div
+              key={i}
+              style={{
+                width: i === idx ? 18 : 6,
+                height: 6,
+                borderRadius: 3,
+                background: i === idx ? "#fff" : "rgba(255,255,255,0.48)",
+                transition: "width 0.2s ease, background 0.2s ease",
+              }}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Content-section weighting ────────────────────────────────────────────────
 // Weights control how the interleave algorithm groups sections between photos.
 // Large sections (score ≥ 3) each get their own photo slot whenever possible so
@@ -886,56 +1021,29 @@ export default function Discover() {
     },
   ];
 
-  // Hero shows only the primary photo. Remaining photos are distributed inline
-  // between written content groups so the profile stays visually rich throughout.
-  const heroPhoto   = photos.length > 0 ? [photos[0]] : photos;
-  const extraPhotos = photos.slice(1);
-  const nExtra      = extraPhotos.length;
+  // Split all photos into balanced groups (e.g. 6 photos → [[p1,p2,p3],[p4,p5,p6]]).
+  // Group 0 goes to the hero viewer; groups 1+ become inline swipeable galleries.
+  const photoGroups   = computePhotoGroups(photos);
+  const heroPhotos    = photoGroups[0] ?? [];
+  const inlineGroups  = photoGroups.slice(1);
+  const nInlineGroups = inlineGroups.length;
 
-  // Divide written sections into (nExtra + 1) balanced content groups.
+  // Divide written sections into (nInlineGroups + 1) balanced content groups.
   // Large sections (starters / viewerQuestions / questions) each get their own
-  // group so they are always separated by a photo.  Non-large sections fill the
-  // remaining groups with the first and last group prioritised so the profile
-  // opens with identity details and ends with useful information.
-  const groups = buildPhotoGroups(contentSections, nExtra);
+  // group so they are always separated by a photo gallery.
+  const groups = buildPhotoGroups(contentSections, nInlineGroups);
 
-  // Interleave: group[0] → photo → group[1] → photo → … → group[nExtra]
+  // Interleave: contentGroup[0] → gallery → contentGroup[1] → gallery → …
   const renderItems: JSX.Element[] = [];
   groups.forEach((group, gIdx) => {
     group.forEach(sec => renderItems.push(sec.node));
-    if (gIdx < nExtra) {
-      const photoUrl = extraPhotos[gIdx];
-      const photoNum = gIdx + 2; // photo 1 is the hero
+    if (gIdx < nInlineGroups) {
       renderItems.push(
-        <div
-          key={`inline-photo-${gIdx}`}
-          style={{
-            width: "100%",
-            borderRadius: "12px",
-            overflow: "hidden",
-            background: "hsl(var(--muted))",
-            aspectRatio: "4 / 5",
-          }}
-        >
-          <img
-            src={photoUrl}
-            alt={`${displayProfile.firstName} photo ${photoNum} of ${photos.length}`}
-            loading="lazy"
-            draggable={false}
-            onLoad={e => {
-              const parent = (e.currentTarget as HTMLImageElement).parentElement;
-              if (parent) parent.style.background = "transparent";
-            }}
-            style={{
-              width: "100%",
-              height: "100%",
-              objectFit: "cover",
-              display: "block",
-              userSelect: "none",
-              WebkitUserSelect: "none",
-            }}
-          />
-        </div>
+        <InlinePhotoGallery
+          key={`inline-gallery-${gIdx}`}
+          photos={inlineGroups[gIdx]}
+          name={displayProfile.firstName}
+        />,
       );
     }
   });
@@ -973,7 +1081,7 @@ export default function Discover() {
           data-testid="profile-container"
         >
             <PhotoBubbles
-              photos={heroPhoto}
+              photos={heroPhotos}
               name={displayProfile.firstName}
               onOpen={handleOpen}
               isDisabled={interact.isPending || isExiting}
