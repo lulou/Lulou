@@ -487,6 +487,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         (async () => {
           const storedSessionId = localStorage.getItem("lulou_session_id") ?? "";
           let verified = false;
+          // Track the exact reason for a verification failure so we can show the
+          // right message and distinguish a true device-replacement from an expired
+          // or missing session.  Only "session_replaced" ever shows the "another
+          // device" toast; everything else silently re-bootstraps or fails-open.
+          let verifyFailReason = "";
+          let bootstrapCalled = false;
+
+          // ── Diagnostic snapshot ────────────────────────────────────────────
+          try { localStorage.setItem("lulou_diag_verify_start", `${Date.now()}`); } catch {}
+          try { localStorage.setItem("lulou_diag_verify_sid_prefix", storedSessionId ? storedSessionId.slice(0, 8) + "…" : "(none)"); } catch {}
+          console.log("[AUTH_DIAG] INITIAL_SESSION_VERIFY_SNAPSHOT", {
+            storedSessionIdPrefix: storedSessionId ? storedSessionId.slice(0, 8) + "…" : "(none)",
+            userId: newUserId?.slice(0, 8),
+          });
 
           try {
             let deviceId = localStorage.getItem("lulou_device_id") ?? "";
@@ -508,62 +522,118 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 },
                 body: JSON.stringify({ sessionId: storedSessionId }),
               });
+
               if (r.ok) {
                 const d = await r.json();
+                try { localStorage.setItem("lulou_diag_verify_result", `ok:${d.valid}:${d.reason ?? "none"}`); } catch {}
+                console.log("[AUTH_DIAG] INITIAL_SESSION_VERIFY_RESPONSE", { status: r.status, valid: d.valid, reason: d.reason ?? null });
+
                 if (d.valid === true) {
                   verified = true;
-                  console.log("[AUTH] INITIAL_SESSION_VERIFIED — entering app", { userId: newUserId?.slice(0, 8) });
-                } else if (d.reason === "invalid_session") {
-                  // Session expired or deleted (not replaced by another device).
+                  console.log("[AUTH] INITIAL_SESSION_VERIFIED — entering app", {
+                    userId: newUserId?.slice(0, 8),
+                    sessionIdPrefix: storedSessionId.slice(0, 8) + "…",
+                  });
+                } else if (
+                  d.reason === "invalid_session" ||
+                  d.reason === "expired"        ||
+                  d.reason === "not_found"      ||
+                  d.reason === "no_session_id"
+                ) {
+                  // Session aged out or missing — not replaced by another device.
                   // Bootstrap a new session rather than signing the user out.
-                  console.warn("[AUTH] INITIAL_SESSION_VERIFY_EXPIRED — bootstrapping", { userId: newUserId?.slice(0, 8) });
+                  console.warn("[AUTH] INITIAL_SESSION_VERIFY_EXPIRED_OR_MISSING — bootstrapping", {
+                    reason: d.reason, userId: newUserId?.slice(0, 8),
+                  });
+                  bootstrapCalled = true;
                   localStorage.removeItem("lulou_session_id");
                   const newId = await callSessionBootstrap(token, deviceId);
                   if (newId) {
                     localStorage.setItem("lulou_session_id", newId);
                     verified = true;
+                    try { localStorage.setItem("lulou_diag_bootstrap_status", `ok-after-verify-${d.reason}:${newId.slice(0, 8)}…`); } catch {}
                   } else {
                     bootstrapInProgressForUserRef.current = null;
                     asyncAuthInProgressRef.current = false;
                     if (mounted) { setSessionBootstrapFailed(true); setIsLoading(false); }
                     return;
                   }
-                } else {
-                  // session_replaced or unknown reason — sign out
+                } else if (d.reason === "session_replaced" || d.reason === "revoked") {
+                  // A different device explicitly bootstrapped a new session for this
+                  // account (session_replaced), or the session was explicitly revoked.
+                  // Only in these cases do we sign the user out with the "another
+                  // device" toast.
                   verified = false;
-                  console.warn("[AUTH] INITIAL_SESSION_VERIFY_REJECTED", { reason: d.reason, userId: newUserId?.slice(0, 8) });
+                  verifyFailReason = d.reason;
+                  console.warn("[AUTH] INITIAL_SESSION_VERIFY_REJECTED", {
+                    reason: d.reason, userId: newUserId?.slice(0, 8),
+                  });
+                } else {
+                  // Unknown reason from endpoint — treat as expired / fail-open so a
+                  // future endpoint change never causes a spurious sign-out.
+                  console.warn("[AUTH] INITIAL_SESSION_VERIFY_UNKNOWN_REASON — failing open", {
+                    reason: d.reason, userId: newUserId?.slice(0, 8),
+                  });
+                  verified = true;
                 }
               } else if (r.status === 401) {
-                // Middleware rejected the request
+                // Middleware rejected the request.
                 const body = await r.json().catch(() => ({}));
-                if (body?.message === "invalid_session") {
-                  // No active session row in DB — bootstrap rather than sign out
-                  console.warn("[AUTH] INITIAL_SESSION_VERIFY_401_INVALID — bootstrapping", { userId: newUserId?.slice(0, 8) });
+                const msg401 = body?.message ?? "";
+                try { localStorage.setItem("lulou_diag_verify_result", `401:${msg401}`); } catch {}
+                console.log("[AUTH_DIAG] INITIAL_SESSION_VERIFY_401", { message: msg401, userId: newUserId?.slice(0, 8) });
+
+                if (msg401 === "invalid_session") {
+                  // No active session row, OR same session ID but expired/revoked —
+                  // session aged out naturally.  Bootstrap rather than sign out.
+                  console.warn("[AUTH] INITIAL_SESSION_VERIFY_401_INVALID — bootstrapping", {
+                    userId: newUserId?.slice(0, 8),
+                  });
+                  bootstrapCalled = true;
                   localStorage.removeItem("lulou_session_id");
                   const newId = await callSessionBootstrap(token, deviceId);
                   if (newId) {
                     localStorage.setItem("lulou_session_id", newId);
                     verified = true;
+                    try { localStorage.setItem("lulou_diag_bootstrap_status", `ok-after-401-invalid:${newId.slice(0, 8)}…`); } catch {}
                   } else {
                     bootstrapInProgressForUserRef.current = null;
                     asyncAuthInProgressRef.current = false;
                     if (mounted) { setSessionBootstrapFailed(true); setIsLoading(false); }
                     return;
                   }
-                } else {
-                  // session_replaced — another device owns the account → sign out
+                } else if (msg401 === "session_replaced") {
+                  // Middleware confirmed: a DIFFERENT session ID is now active for
+                  // this account — another device genuinely replaced this session.
                   verified = false;
-                  console.warn("[AUTH] INITIAL_SESSION_VERIFY_401_REPLACED", { message: body?.message, userId: newUserId?.slice(0, 8) });
+                  verifyFailReason = "session_replaced";
+                  console.warn("[AUTH] INITIAL_SESSION_VERIFY_401_REPLACED — another device owns account", {
+                    userId: newUserId?.slice(0, 8),
+                  });
+                } else {
+                  // "Unauthorized" (expired JWT before TOKEN_REFRESHED), email not
+                  // verified, or any other transient error.  Fail OPEN — do not sign
+                  // the user out for a condition unrelated to session replacement.
+                  // TOKEN_REFRESHED will arrive shortly and re-enter the app.
+                  verified = true;
+                  console.warn("[AUTH] INITIAL_SESSION_VERIFY_401_FAILOPEN — transient error, not session_replaced", {
+                    message: msg401, userId: newUserId?.slice(0, 8),
+                  });
+                  try { localStorage.setItem("lulou_diag_verify_result", `401-failopen:${msg401}`); } catch {}
                 }
               } else {
                 // 5xx / unexpected — fail open so a DB outage doesn't sign everyone out
                 verified = true;
-                console.warn("[AUTH] INITIAL_SESSION_VERIFY_FAIL_OPEN (non-2xx, non-401)", { status: r.status });
+                console.warn("[AUTH] INITIAL_SESSION_VERIFY_FAIL_OPEN (non-2xx, non-401)", {
+                  status: r.status, userId: newUserId?.slice(0, 8),
+                });
+                try { localStorage.setItem("lulou_diag_verify_result", `failopen:${r.status}`); } catch {}
               }
             } else {
               // No stored session ID — must bootstrap.
               // Fail-CLOSED: if bootstrap fails show Retry / Sign out screen.
               console.warn("[AUTH] INITIAL_SESSION_NO_SESSION_ID — bootstrapping", { userId: newUserId?.slice(0, 8) });
+              bootstrapCalled = true;
               const newId = await callSessionBootstrap(token, deviceId);
               if (newId) {
                 localStorage.removeItem("lulou_session_id");
@@ -579,10 +649,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           } catch (e) {
             // Network error — fail open
             verified = true;
-            console.warn("[AUTH] INITIAL_SESSION_VERIFY_NETWORK_ERROR (fail-open)", { error: String(e) });
+            console.warn("[AUTH] INITIAL_SESSION_VERIFY_NETWORK_ERROR (fail-open)", {
+              error: String(e), userId: newUserId?.slice(0, 8),
+            });
+            try { localStorage.setItem("lulou_diag_verify_result", `network-error-failopen`); } catch {}
           }
 
           if (!mounted) return;
+
+          // ── Diagnostic summary ────────────────────────────────────────────
+          try {
+            localStorage.setItem("lulou_diag_verify_end", JSON.stringify({
+              verified,
+              verifyFailReason: verifyFailReason || null,
+              bootstrapCalled,
+              finalLogoutReason: verified ? null : (verifyFailReason || "unknown"),
+            }));
+          } catch {}
+          console.log("[AUTH_DIAG] INITIAL_SESSION_VERIFY_COMPLETE", {
+            verified, verifyFailReason: verifyFailReason || null,
+            bootstrapCalled,
+            finalLogoutReason: verified ? null : (verifyFailReason || "unknown"),
+          });
 
           bootstrapInProgressForUserRef.current = null;
           asyncAuthInProgressRef.current = false;
@@ -591,12 +679,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             setProfileReady(true);
             setIsLoading(false);
           } else {
-            // Session replaced or blocked — clear local state and return to login
+            // Only reach here when the server explicitly confirmed that a DIFFERENT
+            // session is now active for this account (another device logged in).
+            // Do NOT reach here for expired sessions — those are handled above by
+            // bootstrapping, not signing out.
+            console.log("[AUTH] INITIAL_SESSION_REJECTED — showing login page", {
+              userId: newUserId?.slice(0, 8), reason: verifyFailReason,
+            });
             supabase.auth.signOut({ scope: "local" }).catch(() => {});
             localStorage.removeItem("lulou_session_id");
             setCachedToken(null);
-            // Flag for landing.tsx to show "signed out because account on another device" toast
-            sessionStorage.setItem("lulou_forced_logout", "session_replaced");
+            // Flag for landing.tsx to show "signed out because account on another device" toast.
+            // Only set when the reason is genuinely session_replaced — not for expired/missing
+            // sessions which are handled above by bootstrapping.
+            if (verifyFailReason === "session_replaced") {
+              sessionStorage.setItem("lulou_forced_logout", "session_replaced");
+            }
             setTimeout(() => {
               if (mounted) setClearingCache(true);
               setTimeout(() => { queryClient.clear(); if (mounted) setClearingCache(false); }, 0);
@@ -604,7 +702,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             setUser(null);
             setProfileReady(true);
             setIsLoading(false);
-            console.log("[AUTH] INITIAL_SESSION_REJECTED — showing login page", { userId: newUserId?.slice(0, 8) });
           }
         })();
 

@@ -528,8 +528,29 @@ const isAuthenticated: RequestHandler = async (req: any, res, next) => {
             row.expiresAt > new Date();
           cacheSessionIdValid(user.id, clientSessionId, isValid);
           if (!isValid) {
-            const reason = !row ? "invalid_session" : "session_replaced";
-            console.warn(`[SESSION] ${reason} for ${user.id.slice(0, 8)} path=${req.path} sid=${clientSessionId?.slice(0, 8) ?? "none"}`);
+            // Distinguish precisely so the client reacts correctly:
+            //   session_replaced — row exists but has a DIFFERENT session ID →
+            //     another device bootstrapped and took over the account.
+            //     Client must sign out and show the "another device" message.
+            //   invalid_session  — no row at all, OR same session ID but expired
+            //     or explicitly revoked → the session aged out naturally (> 15 min
+            //     background with no heartbeat) or was cleared during logout.
+            //     Client must re-bootstrap, NOT sign out.
+            //
+            // CRITICAL: do NOT return session_replaced when row.sessionId ===
+            // clientSessionId — that is an expired or revoked session, not a
+            // replaced one.  Returning session_replaced for an expired same-device
+            // session causes a false "signed in on another device" logout every
+            // time the user reopens the app after > 15 min background.
+            const reason = (!!row && row.sessionId !== clientSessionId)
+              ? "session_replaced"
+              : "invalid_session";
+            console.warn(
+              `[SESSION] ${reason} for ${user.id.slice(0, 8)} path=${req.path}` +
+              ` sid=${clientSessionId?.slice(0, 8) ?? "none"}` +
+              ` rowExists=${!!row} sameId=${!!row && row.sessionId === clientSessionId}` +
+              ` revokedAt=${row?.revokedAt ?? null} expired=${!!row && row.expiresAt <= new Date()}`
+            );
             return res.status(401).json({
               message: reason,
               reason: reason === "invalid_session"
