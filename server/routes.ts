@@ -1681,7 +1681,17 @@ export async function registerRoutes(
             : "expired";
       // Mark as invalid in cache for fast rejection on subsequent requests
       cacheSessionIdValid(userId, sessionId, false);
-      console.log(`[SESSION] VERIFY_FAILED for ${userId.slice(0, 8)} reason=${reason}`);
+      console.log(`[SESSION] VERIFY_FAILED`, {
+        userId: userId.slice(0, 8) + "…",
+        suppliedSessionIdPrefix: sessionId.slice(0, 8) + "…",
+        activeRowExists: !!row,
+        storedSessionIdPrefix: row?.sessionId ? row.sessionId.slice(0, 8) + "…" : "(none)",
+        sameId: !!row && row.sessionId === sessionId,
+        revokedAt: row?.revokedAt ?? null,
+        expiresAt: row?.expiresAt?.toISOString() ?? null,
+        expired: !!row && row.expiresAt <= new Date(),
+        reason,
+      });
       return res.json({ valid: false, reason });
     } catch (e: any) {
       console.error("[SESSION] session-verify DB error (fail-open):", e?.message);

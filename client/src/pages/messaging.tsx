@@ -604,22 +604,42 @@ export default function Messaging() {
     // Hard guard: if VN is already unlocked, the teaser is no longer relevant.
     // This can happen if a late/out-of-order broadcast arrives after the unlock
     // threshold was crossed, or if the user sends messages very quickly.
-    if (voiceNotesUnlocked) return;
+    console.log("[PROGRESSION] REALTIME_TEASER received", { matchId: matchId?.slice(0, 8), voiceNotesUnlocked, hasLsKey: !!localStorage.getItem(`vn_teaser_${matchId}`) });
+    if (voiceNotesUnlocked) {
+      console.log("[PROGRESSION] REALTIME_TEASER skipped — VN already unlocked");
+      return;
+    }
     if (!localStorage.getItem(`vn_teaser_${matchId}`)) {
+      console.log("[PROGRESSION] REALTIME_TEASER opening teaser popup (non-sender path)");
       setTeaserPopupOpen(true);
+    } else {
+      console.log("[PROGRESSION] REALTIME_TEASER skipped — already seen", { key: `vn_teaser_${matchId?.slice(0, 8)}` });
     }
   }, [matchId, voiceNotesUnlocked]);
 
   // Realtime VN unlock: instantly mark cache as unlocked when the broadcast fires.
-  // The recovery useEffect then shows the popup if popupSeen is still false.
+  // Sets popupSeen:false unconditionally (both branches) so the recovery useEffect
+  // triggers even when there was prior cache data. Also opens the popup directly
+  // so the NON-sender sees the congratulations modal via the realtime path.
   // Also clears the teaser popup so it cannot re-appear after VN fires.
   const onVoiceNoteUnlock = useCallback(() => {
+    console.log("[PROGRESSION] REALTIME_VN_UNLOCK received", { matchId: matchId?.slice(0, 8), vnPopupSeen: localStorage.getItem(`vn_popup_${matchId}`) });
     queryClient.setQueryData(
       ["/api/voice-notes/entitlement", matchId],
-      (old: any) => old ? { ...old, unlocked: true } : { unlocked: true, popupSeen: false },
+      (old: any) => old
+        ? { ...old, unlocked: true, popupSeen: false }
+        : { unlocked: true, popupSeen: false },
     );
     // Dismiss the teaser if it is open — once VN fires the teaser is superseded.
     setTeaserPopupOpen(false);
+    // Open the popup directly for the non-sender (recovery useEffect covers
+    // the case where the component remounts after the broadcast was missed).
+    if (!localStorage.getItem(`vn_popup_${matchId}`)) {
+      console.log("[PROGRESSION] REALTIME_VN_UNLOCK opening VN popup (non-sender path)");
+      setVoiceNotePopupOpen(true);
+    } else {
+      console.log("[PROGRESSION] REALTIME_VN_UNLOCK skipped — already seen", { key: `vn_popup_${matchId?.slice(0, 8)}` });
+    }
   }, [matchId, queryClient]);
 
   // Realtime first-call unlock: fires on the OTHER user's client when the sender crossed
@@ -749,6 +769,33 @@ export default function Messaging() {
       prewarmMicStream();
     }
   }, [voiceNotesUnlocked]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── iOS keyboard scroll fix ───────────────────────────────────────────────
+  // On iOS Safari the AppLayout uses `position:fixed;inset:0` which is NOT
+  // resized when the software keyboard opens (keyboard overlays instead).
+  // We listen to visualViewport.resize and scroll the latest message into view
+  // after a short delay (keyboard animation is ~250ms on iOS).
+  // Also catches the case where the keyboard closes and messages need to
+  // scroll back to bottom.
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    let prevHeight = vv.height;
+    const handleResize = () => {
+      const newHeight = vv.height;
+      const diff = prevHeight - newHeight;
+      prevHeight = newHeight;
+      if (Math.abs(diff) > 50) {
+        // Viewport height changed significantly → keyboard opened or closed.
+        // Scroll to bottom so the latest message stays above the keyboard.
+        setTimeout(() => {
+          messagesEndRef.current?.scrollIntoView({ behavior: "instant" });
+        }, 80);
+      }
+    };
+    vv.addEventListener("resize", handleResize);
+    return () => vv.removeEventListener("resize", handleResize);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Recovery guard: shows VN popup via polling if the progressionEvent was missed
   // (e.g. a different device sent the threshold message, or browser was briefly offline).
@@ -957,13 +1004,27 @@ export default function Messaging() {
       // the 8-message VN threshold or the 15-message first-call threshold.
       // This fires the celebration immediately — no 60s polling cycle needed.
       const event = (data as any).progressionEvent as { type: string } | null | undefined;
+      const prog2 = (data as any).progression;
+      console.log("[PROGRESSION] SEND_SUCCESS", {
+        matchId: matchId?.slice(0, 8),
+        eventType: event?.type ?? null,
+        myCount: prog2?.myCount ?? null,
+        theirCount: prog2?.theirCount ?? null,
+        voiceNotesUnlocked,
+        teaserLsKey: localStorage.getItem(`vn_teaser_${matchId}`) ?? null,
+        vnPopupLsKey: localStorage.getItem(`vn_popup_${matchId}`) ?? null,
+        fcPopupLsKey: localStorage.getItem(`fc_popup_${matchId}`) ?? null,
+      });
       if (event?.type === "voice_notes_teaser") {
         // Show the teaser popup immediately on the sender's client.
         // The other user gets it via the realtime broadcast → onTeaserEvent callback.
         // Hard guard: VN cannot have fired on this message (different thresholds), but
         // guard anyway for robustness against any future threshold change.
         if (!voiceNotesUnlocked && !localStorage.getItem(`vn_teaser_${matchId}`)) {
+          console.log("[PROGRESSION] OPENING teaser popup (sender path)");
           setTeaserPopupOpen(true);
+        } else {
+          console.log("[PROGRESSION] SKIPPED teaser popup", { voiceNotesUnlocked, hasLsKey: !!localStorage.getItem(`vn_teaser_${matchId}`) });
         }
       } else if (event?.type === "voice_notes_unlocked") {
         // Update entitlement cache so voice-note features unlock immediately.
@@ -976,6 +1037,7 @@ export default function Messaging() {
         // Dismiss the teaser if it happened to be open (e.g. user sends messages
         // very quickly — teaser fires, then immediately crosses VN threshold).
         setTeaserPopupOpen(false);
+        console.log("[PROGRESSION] OPENING VN popup (sender path)");
         setVoiceNotePopupOpen(true);
       } else if (event?.type === "first_call_unlocked") {
         // Update entitlement cache to reflect both milestones.
@@ -987,6 +1049,7 @@ export default function Messaging() {
         );
         // Always route through pendingFirstCallCelebration so the 1.5s delay and
         // VN-open guard apply uniformly for the sender (same as the other user).
+        console.log("[PROGRESSION] QUEUING first-call popup (sender path via pendingFirstCallCelebration)");
         setPendingFirstCallCelebration(true);
       }
     },
@@ -1505,7 +1568,7 @@ export default function Messaging() {
             <button
               onClick={() => {
                 if (!voiceNotesUnlocked) {
-                  toast({ description: "Voice notes unlock after you've both sent 10 messages." });
+                  toast({ description: "Voice notes unlock after you've both sent 8 messages." });
                   return;
                 }
                 if (voicePhase === "idle") startRecording();
@@ -1656,12 +1719,12 @@ export default function Messaging() {
                 <div key={msg.id} className={`flex ${isMe ? "justify-end" : "justify-start"} ${hasReaction ? "mb-2" : ""}`}>
                   <div className="relative">
                     <div
-                      className={`max-w-[75vw] rounded-md text-sm select-none ${
+                      className={`max-w-[75vw] rounded-2xl text-sm select-none ${
                         isVoiceNote
                           ? ""
                           : isMe
-                          ? "bg-primary text-primary-foreground px-4 py-3"
-                          : "bg-card border cursor-pointer px-4 py-3"
+                          ? "bg-primary text-primary-foreground px-3 py-2"
+                          : "bg-card border cursor-pointer px-3 py-2"
                       } ${!isMe && !isVoiceNote ? "active:scale-[0.98] transition-transform" : ""}`}
                       onClick={isVoiceNote ? undefined : () => handleMessageTap(msg)}
                       data-testid={`message-${msg.id}`}
@@ -1799,8 +1862,16 @@ export default function Messaging() {
                       value={message}
                       onChange={e => setMessage(e.target.value.slice(0, MAX_CHARS))}
                       placeholder={t("write_meaningful_placeholder")}
-                      className="resize-none min-h-[44px] max-h-[120px] text-sm pr-8"
-                      onFocus={() => setInputFocused(true)}
+                      className="resize-none min-h-[44px] max-h-[120px] text-sm pr-8 focus-visible:ring-0 focus-visible:ring-offset-0 focus-visible:border-primary/60"
+                      onFocus={() => {
+                        setInputFocused(true);
+                        // Delay scroll until iOS keyboard animation completes (~300ms)
+                        setTimeout(() => {
+                          if (isAtBottomRef.current || forceScrollRef.current) {
+                            messagesEndRef.current?.scrollIntoView({ behavior: "instant" });
+                          }
+                        }, 350);
+                      }}
                       onBlur={() => setInputFocused(false)}
                       onKeyDown={e => {
                         if (e.key === "Enter" && !e.shiftKey) {
@@ -2079,9 +2150,9 @@ export default function Messaging() {
               <div className="mx-auto mb-5 w-20 h-20 rounded-full flex items-center justify-center" style={{ background: "linear-gradient(135deg,#ede9fe,#fce7f3)", boxShadow: "0 0 28px rgba(167,139,250,0.35),0 0 56px rgba(167,139,250,0.15)" }}>
                 <span className="text-4xl" role="img" aria-label="sparkles">✨</span>
               </div>
-              <h2 className="font-serif text-2xl font-bold tracking-tight text-stone-800 mb-2">Something new is getting closer…</h2>
+                      <h2 className="font-serif text-2xl font-bold tracking-tight text-stone-800 mb-2">Something new is getting closer…</h2>
               <p className="text-stone-600 text-sm leading-relaxed mb-7">
-                Keep the conversation flowing.
+                Keep the conversation flowing — soon you'll be able to hear each other.
               </p>
               <button
                 className="w-full py-3.5 rounded-2xl text-sm font-semibold text-white transition-all active:scale-95"
@@ -2116,12 +2187,12 @@ export default function Messaging() {
               <div className="mx-auto mb-5 w-20 h-20 rounded-full flex items-center justify-center" style={{ background: "linear-gradient(135deg,#fce7ef,#fdf2e9)", boxShadow: "0 0 28px rgba(244,114,141,0.35),0 0 56px rgba(244,114,141,0.18)" }}>
                 <span className="text-4xl" role="img" aria-label="microphone">🎙️</span>
               </div>
-              <h2 className="font-serif text-2xl font-bold tracking-tight text-stone-800 mb-2">Voice notes unlocked</h2>
+              <h2 className="font-serif text-2xl font-bold tracking-tight text-stone-800 mb-2">Congratulations — you've unlocked Voice Notes</h2>
               <p className="text-stone-600 text-sm leading-relaxed mb-1.5">
-                You've built enough momentum to hear each other properly.
+                Now you can let them hear the person behind the messages.
               </p>
               <p className="text-stone-400 text-xs leading-relaxed mb-7">
-                Send a voice note and bring more personality into the conversation.
+                Hold the mic button to record, release to send.
               </p>
               <button
                 className="w-full py-3.5 rounded-2xl text-sm font-semibold text-white transition-all active:scale-95"

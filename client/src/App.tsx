@@ -2762,6 +2762,26 @@ function AppContent() {
   // signs out.  A valid Supabase JWT alone never grants access to protected APIs.
   if (sessionBootstrapFailed) {
     console.log("[SETUP] FINAL_APP_GATE: session_bootstrap_failed — showing retry screen");
+    // Read auth-event diagnostics written by use-auth.ts (safe localStorage keys only).
+    let _authDiag: Record<string, string> = {};
+    try {
+      _authDiag = {
+        lastAuthEvent:    localStorage.getItem("lulou_diag_last_auth_event")   ?? "(none)",
+        sessionIdPrefix:  localStorage.getItem("lulou_diag_verify_sid_prefix") ?? "(none)",
+        verifyResult:     localStorage.getItem("lulou_diag_verify_result")     ?? "(none)",
+        bootstrapStatus:  localStorage.getItem("lulou_diag_bootstrap_status")  ?? "(none)",
+        forcedLogout:     sessionStorage.getItem("lulou_forced_logout")        ?? "(none)",
+        verifyEndJson:    localStorage.getItem("lulou_diag_verify_end")        ?? "(none)",
+      };
+    } catch {}
+    const diagLines = [
+      `authEvent: ${_authDiag.lastAuthEvent}`,
+      `sessionIdPrefix: ${_authDiag.sessionIdPrefix}`,
+      `verifyResult: ${_authDiag.verifyResult}`,
+      `bootstrap: ${_authDiag.bootstrapStatus}`,
+      `forcedLogout: ${_authDiag.forcedLogout}`,
+      `verifyEnd: ${_authDiag.verifyEndJson}`,
+    ];
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-5 max-w-sm px-6 text-center">
@@ -2788,6 +2808,15 @@ function AppContent() {
               Sign out
             </button>
           </div>
+          {/* Auth diagnostics — always shown so DevTools are not needed on iPhone */}
+          <details className="w-full text-left" open={false}>
+            <summary className="text-xs text-muted-foreground/60 cursor-pointer select-none">
+              Debug info
+            </summary>
+            <pre className="mt-2 text-[10px] text-muted-foreground/70 font-mono bg-muted/40 rounded-lg p-3 whitespace-pre-wrap break-all leading-relaxed">
+              {diagLines.join("\n")}
+            </pre>
+          </details>
         </div>
       </div>
     );

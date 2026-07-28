@@ -4,7 +4,8 @@ import { type Server } from "http";
 import viteConfig from "../vite.config";
 import fs from "fs";
 import path from "path";
-import { nanoid } from "nanoid";
+// nanoid replaced with built-in crypto to avoid CVE-blocked transitive deps
+const nanoid = () => crypto.randomUUID().replace(/-/g, "").slice(0, 21);
 
 const viteLogger = createLogger();
 
