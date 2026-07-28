@@ -263,119 +263,6 @@ function computePhotoGroups(photos: string[]): string[][] {
   return groups;
 }
 
-// Inline swipeable photo gallery — shown between content sections.
-// Uses pointer events (works for touch and mouse) and renders all images in
-// the DOM so the browser can cache them; opacity transition avoids flash.
-function InlinePhotoGallery({ photos, name }: { photos: string[]; name: string }) {
-  const [idx, setIdx] = useState(0);
-  const drag = useRef<{ startX: number; active: boolean }>({ startX: 0, active: false });
-
-  const go = (dir: 1 | -1) =>
-    setIdx(i => Math.max(0, Math.min(photos.length - 1, i + dir)));
-
-  const containerStyle: React.CSSProperties = {
-    position: "relative",
-    width: "100%",
-    borderRadius: "12px",
-    overflow: "hidden",
-    background: "hsl(var(--muted))",
-    aspectRatio: "4 / 5",
-    touchAction: "pan-y",   // allow vertical page scroll; we handle horizontal
-    userSelect: "none",
-    WebkitUserSelect: "none",
-  };
-
-  return (
-    <div
-      style={containerStyle}
-      onPointerDown={e => {
-        drag.current = { startX: e.clientX, active: true };
-        (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-      }}
-      onPointerUp={e => {
-        if (!drag.current.active) return;
-        drag.current.active = false;
-        const dx = e.clientX - drag.current.startX;
-        if (Math.abs(dx) > 28) go(dx < 0 ? 1 : -1);
-      }}
-      onPointerCancel={() => { drag.current.active = false; }}
-    >
-      {/* All images stacked; only the current one is visible */}
-      {photos.map((url, i) => (
-        <img
-          key={url}
-          src={url}
-          alt={`${name} photo ${i + 1} of ${photos.length}`}
-          loading={i === 0 ? "eager" : "lazy"}
-          draggable={false}
-          style={{
-            position: "absolute",
-            inset: 0,
-            width: "100%",
-            height: "100%",
-            objectFit: "cover",
-            display: "block",
-            opacity: i === idx ? 1 : 0,
-            transition: "opacity 0.18s ease",
-          }}
-        />
-      ))}
-
-      {/* "1 / 3" counter — only shown when multiple photos */}
-      {photos.length > 1 && (
-        <div
-          aria-label={`Photo ${idx + 1} of ${photos.length}`}
-          style={{
-            position: "absolute",
-            top: 10,
-            insetInlineEnd: 12,
-            background: "rgba(0,0,0,0.42)",
-            borderRadius: "999px",
-            padding: "2px 10px",
-            color: "#fff",
-            fontSize: 12,
-            fontWeight: 600,
-            lineHeight: 1.6,
-            backdropFilter: "blur(4px)",
-            WebkitBackdropFilter: "blur(4px)",
-            pointerEvents: "none",
-          }}
-        >
-          {idx + 1} / {photos.length}
-        </div>
-      )}
-
-      {/* Dot indicators */}
-      {photos.length > 1 && (
-        <div
-          style={{
-            position: "absolute",
-            bottom: 10,
-            left: 0,
-            right: 0,
-            display: "flex",
-            justifyContent: "center",
-            gap: 5,
-            pointerEvents: "none",
-          }}
-        >
-          {photos.map((_, i) => (
-            <div
-              key={i}
-              style={{
-                width: i === idx ? 18 : 6,
-                height: 6,
-                borderRadius: 3,
-                background: i === idx ? "#fff" : "rgba(255,255,255,0.48)",
-                transition: "width 0.2s ease, background 0.2s ease",
-              }}
-            />
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
 
 // ── Content-section weighting ────────────────────────────────────────────────
 // Weights control how the interleave algorithm groups sections between photos.
@@ -1039,10 +926,9 @@ export default function Discover() {
     group.forEach(sec => renderItems.push(sec.node));
     if (gIdx < nInlineGroups) {
       renderItems.push(
-        <InlinePhotoGallery
+        <ProfilePhotoViewer
           key={`inline-gallery-${gIdx}`}
           photos={inlineGroups[gIdx]}
-          name={displayProfile.firstName}
         />,
       );
     }
