@@ -1,0 +1,126 @@
+We now have the exact production root cause.
+
+Diagnostic:
+
+[PROFILE_FETCH]
+profileStatus=(no response — pre-fetch failure)
+errorCategory=network
+error=FetchEvent.respondWith received an error: TypeError: Load failed
+
+[ENV]
+endpoint=https://lulou-production.up.railway.app/api/profile
+isCrossOrigin=true
+
+[SERVICE WORKER]
+swControlled=true
+swVersionBundled=3.4
+swState=activated
+
+This is not an active-session mismatch. The Railway request never returned any HTTP response.
+
+The service worker fetch handler is intercepting the cross-origin Railway API request and calling event.respondWith(fetch(request)). When that fetch rejects, the service worker produces:
+
+FetchEvent.respondWith received an error: TypeError: Load failed
+
+Fix the service worker so it does not intercept any API or non-same-origin request.
+
+REQUIRED SERVICE WORKER FIX
+
+At the very start of the fetch handler:
+
+self.addEventListener("fetch", (event) => {
+ const request = event.request;
+ const url = new URL(request.url);
+
+ // Never intercept cross-origin requests
+ if (url.origin !== self.location.origin) {
+   return;
+ }
+
+ // Never intercept API requests
+ if (url.pathname.startsWith("/api/")) {
+   return;
+ }
+
+ // Only handle safe same-origin GET navigation/static assets below
+ if (request.method !== "GET") {
+   return;
+ }
+
+ // existing cache logic...
+});
+
+Important:
+
+- Do not call event.respondWith() at all for Railway requests.
+- Do not intercept:
+ https://lulou-production.up.railway.app/*
+- Do not cache API responses.
+- Do not cache 401, 403, 500 or network failures.
+- Do not intercept POST, PUT, PATCH or DELETE.
+- Only cache same-origin static GET assets and optionally same-origin navigations.
+
+Also inspect all existing fetch handlers and make sure there is only one active fetch listener.
+
+BUMP SERVICE WORKER VERSION
+
+Change:
+
+SW_VERSION 3.4 → 3.5
+
+Also change the service-worker cache name so all clients update.
+
+On activate:
+
+- delete every old Lulou cache
+- call clients.claim()
+
+On install:
+
+- call skipWaiting()
+
+CLIENT RECOVERY
+
+After deployment:
+
+- detect the old service worker
+- call registration.update()
+- reload once when the new worker becomes active
+- do not create a reload loop
+
+TEMPORARY SAFETY OPTION
+
+Until the corrected worker is confirmed, it is acceptable to unregister the service worker entirely. Lulou must work reliably before offline caching is re-enabled.
+
+TEST EXACTLY
+
+1. Open production with DevTools Network.
+2. Sign in.
+3. Confirm /api/auth/session-verify or bootstrap reaches Railway.
+4. Confirm /api/profile reaches Railway directly.
+5. Confirm /api/profile returns an actual HTTP response.
+6. Confirm no “FetchEvent.respondWith received an error”.
+7. Confirm Discover loads.
+8. Refresh.
+9. Confirm Discover still loads.
+10. Test Safari and iPhone Home Screen app.
+11. Confirm no stale service worker 3.4 remains active.
+12. Confirm sw.js reports version 3.5.
+
+Update the diagnostic panel to show:
+
+- serviceWorkerIntercepted=false for cross-origin API requests
+- profileStatus=200
+- errorCategory=(none)
+
+Report:
+
+- exact broken fetch-handler code
+- files changed
+- new service-worker version
+- commit hash
+- Vercel deployment
+- real production /api/profile status
+- PASS or FAIL
+
+Do not investigate active_sessions further unless /api/profile returns a real 401 after the service-worker failure is removed.
