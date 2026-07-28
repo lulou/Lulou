@@ -601,18 +601,25 @@ export default function Messaging() {
   // Realtime teaser: fires when the OTHER user's send crosses TEASER_THRESHOLD.
   // The recovery useEffect handles the opening-while-offline case.
   const onTeaserEvent = useCallback(() => {
+    // Hard guard: if VN is already unlocked, the teaser is no longer relevant.
+    // This can happen if a late/out-of-order broadcast arrives after the unlock
+    // threshold was crossed, or if the user sends messages very quickly.
+    if (voiceNotesUnlocked) return;
     if (!localStorage.getItem(`vn_teaser_${matchId}`)) {
       setTeaserPopupOpen(true);
     }
-  }, [matchId]);
+  }, [matchId, voiceNotesUnlocked]);
 
   // Realtime VN unlock: instantly mark cache as unlocked when the broadcast fires.
   // The recovery useEffect then shows the popup if popupSeen is still false.
+  // Also clears the teaser popup so it cannot re-appear after VN fires.
   const onVoiceNoteUnlock = useCallback(() => {
     queryClient.setQueryData(
       ["/api/voice-notes/entitlement", matchId],
       (old: any) => old ? { ...old, unlocked: true } : { unlocked: true, popupSeen: false },
     );
+    // Dismiss the teaser if it is open — once VN fires the teaser is superseded.
+    setTeaserPopupOpen(false);
   }, [matchId, queryClient]);
 
   // Realtime first-call unlock: fires on the OTHER user's client when the sender crossed
@@ -953,7 +960,9 @@ export default function Messaging() {
       if (event?.type === "voice_notes_teaser") {
         // Show the teaser popup immediately on the sender's client.
         // The other user gets it via the realtime broadcast → onTeaserEvent callback.
-        if (!localStorage.getItem(`vn_teaser_${matchId}`)) {
+        // Hard guard: VN cannot have fired on this message (different thresholds), but
+        // guard anyway for robustness against any future threshold change.
+        if (!voiceNotesUnlocked && !localStorage.getItem(`vn_teaser_${matchId}`)) {
           setTeaserPopupOpen(true);
         }
       } else if (event?.type === "voice_notes_unlocked") {
@@ -964,6 +973,9 @@ export default function Messaging() {
             ? { ...old, unlocked: true, popupSeen: false }
             : { unlocked: true, popupSeen: false, firstCallUnlocked: false, firstCallPromptSeen: false },
         );
+        // Dismiss the teaser if it happened to be open (e.g. user sends messages
+        // very quickly — teaser fires, then immediately crosses VN threshold).
+        setTeaserPopupOpen(false);
         setVoiceNotePopupOpen(true);
       } else if (event?.type === "first_call_unlocked") {
         // Update entitlement cache to reflect both milestones.
