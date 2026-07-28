@@ -282,19 +282,31 @@ const MAX_POOL_SIZE = 60;
 // the profile.  Each group becomes one swipeable gallery (hero or inline).
 //
 // Rules (n = total photos):
-//   1  → [1]        4 → [2, 2]
-//   2  → [2]        5 → [3, 2]
-//   3  → [3]        6 → [3, 3]
-//   7+ → groups of 3 (last group may have 1–3)
+//   1 → [1]
+//   2 → [1, 1]
+//   3 → [2, 1]
+//   4 → [2, 2]
+//   5 → [3, 2]
+//   6 → [3, 3]
+//   7 → [3, 2, 2]
+//   8 → [3, 3, 2]
+//   9 → [3, 3, 3]
+// Never place all photos into one gallery when there are 2 or more.
 function computePhotoGroups(photos: string[]): string[][] {
   const n = photos.length;
   if (n === 0) return [[]];
-  if (n <= 3)  return [photos];
-  if (n === 4) return [photos.slice(0, 2), photos.slice(2)];
-  if (n === 5) return [photos.slice(0, 3), photos.slice(3)];
-  // 6 and above: groups of 3
-  const groups: string[][] = [];
-  for (let i = 0; i < n; i += 3) groups.push(photos.slice(i, i + 3));
+  if (n === 1)  return [photos];
+  if (n === 2)  return [photos.slice(0, 1), photos.slice(1)];
+  if (n === 3)  return [photos.slice(0, 2), photos.slice(2)];
+  if (n === 4)  return [photos.slice(0, 2), photos.slice(2)];
+  if (n === 5)  return [photos.slice(0, 3), photos.slice(3)];
+  if (n === 6)  return [photos.slice(0, 3), photos.slice(3)];
+  if (n === 7)  return [photos.slice(0, 3), photos.slice(3, 5), photos.slice(5)];
+  if (n === 8)  return [photos.slice(0, 3), photos.slice(3, 6), photos.slice(6)];
+  if (n === 9)  return [photos.slice(0, 3), photos.slice(3, 6), photos.slice(6)];
+  // 10+: lead group of 3, then groups of 3 (last may be 1–3)
+  const groups: string[][] = [photos.slice(0, 3)];
+  for (let i = 3; i < n; i += 3) groups.push(photos.slice(i, i + 3));
   return groups;
 }
 
