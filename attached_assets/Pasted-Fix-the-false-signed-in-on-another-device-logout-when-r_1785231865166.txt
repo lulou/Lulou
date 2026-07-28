@@ -1,0 +1,59 @@
+Fix the false “signed in on another device” logout when reopening the iPhone app.
+
+Current production bug:
+- User is signed in on one phone only.
+- User swipes the app away.
+- User reopens Lulou.
+- Lulou signs them out and says the account was signed in elsewhere.
+- No second device or second login occurred.
+
+Required behaviour:
+Closing and reopening the app must restore the same valid session.
+Do not revoke or replace the current app session during normal INITIAL_SESSION or app resume.
+
+Investigate:
+
+1. Whether INITIAL_SESSION is calling session-bootstrap instead of session-verify.
+2. Whether app resume creates a new app-session ID and revokes the existing one.
+3. Whether SIGNED_IN and INITIAL_SESSION still race on reopen.
+4. Whether TOKEN_REFRESHED is incorrectly treated as a new login.
+5. Whether the stored lulou_session_id is missing, cleared or replaced before verification.
+6. Whether stale cache or localStorage timing causes session-verify to use the wrong ID.
+7. Whether “session replaced” is being shown for any generic 401 instead of only the exact replaced-session reason.
+
+Required session flow:
+
+On app reopen / INITIAL_SESSION:
+- read existing lulou_session_id
+- call session-verify with current JWT and existing X-Session-Id
+- if valid: restore user and continue
+- if expired but not replaced: bootstrap a new session
+- if genuinely replaced by another device: sign out and show the replaced-session message
+- if network/server failure: show Retry, not Sign Out
+- do not bootstrap twice
+- do not revoke the current session simply because the app restarted
+
+Only show “signed in on another device” when the server explicitly returns a replaced-session reason for that exact session.
+
+Add safe diagnostics:
+- auth event
+- stored session ID prefix
+- verify status
+- verify reason
+- whether bootstrap was called
+- whether a previous session was revoked
+- final logout reason
+
+Test on one iPhone only:
+
+1. Sign in.
+2. Swipe Lulou away.
+3. Reopen it.
+4. Confirm the same account remains signed in.
+5. Repeat 5 times.
+6. Lock/unlock the phone and reopen.
+7. Background the app for several minutes and reopen.
+8. Confirm no false replaced-session message.
+9. Then sign into the same account on a second device and confirm only that real case replaces the first session.
+
+Report the exact root cause, files changed, commit hash and real production result.
