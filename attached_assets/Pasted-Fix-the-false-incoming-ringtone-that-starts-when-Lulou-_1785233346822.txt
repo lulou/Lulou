@@ -1,0 +1,56 @@
+Fix the false incoming ringtone that starts when Lulou is opened.
+
+Current bug:
+Opening or reopening the app causes an incoming ringtone even though nobody is calling.
+
+Required behaviour:
+The app must only ring for a genuine, current incoming call.
+
+On app startup, sign-in, session restore and app resume:
+
+1. Stop and reset all ringtone audio immediately.
+2. Clear all local incoming-call UI/state.
+3. Remove old call subscriptions before creating new ones.
+4. Run the stale-call expiry/sweep endpoint before listening for calls.
+5. Do not show or ring for any call unless all conditions are true:
+  - recipient_user_id equals the current authenticated user
+  - status is exactly "ringing"
+  - expires_at is in the future
+  - call was created recently
+  - caller user ID is different from recipient user ID
+  - current Lulou app session is verified
+  - the call has not already been declined, ended, answered, expired or processed
+
+Important:
+- Existing call rows from a previous app session must not trigger the ringtone.
+- Realtime subscription initial data must not be treated as a new incoming-call event.
+- Only INSERT or a genuine transition into status="ringing" should trigger ringing.
+- Deduplicate by call ID.
+- Store processed call IDs for the current app session.
+- Stop audio on sign-out, app background, session replacement, call decline, call expiry and component unmount.
+- Ensure only one ringtone Audio instance can exist.
+- Do not auto-redial or restart ringing after refresh.
+
+Add safe diagnostics:
+- call ID prefix
+- caller/recipient ID prefixes
+- status
+- created_at
+- expires_at
+- event type
+- reason ringing was accepted or ignored
+- whether ringtone was already active
+
+Test:
+1. Open Lulou with no active call — no ringtone.
+2. Close and reopen five times — no ringtone.
+3. Refresh — no ringtone.
+4. Sign out and sign back in — no ringtone.
+5. Create a real incoming call — ringtone starts once.
+6. Decline it — ringtone stops and does not restart.
+7. Let a call expire — it never rings again.
+8. Reopen the app after an expired call — no ringtone.
+
+Make the smallest targeted call-state fix. Do not change unrelated session, Likes, Intent or Discover logic.
+
+Report the exact stale-call trigger, files changed, commit hash and production test result.

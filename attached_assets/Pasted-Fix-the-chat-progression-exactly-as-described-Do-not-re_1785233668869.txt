@@ -1,0 +1,74 @@
+Fix the chat progression exactly as described. Do not reinterpret it.
+
+CURRENT PROBLEM:
+Voice notes and call unlocks are appearing at the wrong time and without the correct Lulou interruption flow.
+
+REQUIRED CHAT SEQUENCE:
+
+1. EARLY TEASER
+Before voice notes unlock, Lulou should briefly interrupt the chat with a small premium popup teasing what is coming.
+
+Example:
+“Something new is getting closer…”
+“Keep the conversation flowing.”
+
+This is only a teaser.
+It must not unlock voice notes yet.
+After dismissing it, users return to the normal chat.
+
+2. VOICE NOTES UNLOCK AT 8 OR 7 MESSAGES REMAINING
+When the current message stage reaches either 8 or 7 messages remaining, Lulou must interrupt the chat with a proper modal.
+
+Example:
+“Congratulations — you’ve unlocked Voice Notes.”
+“Now you can let them hear the person behind the messages.”
+
+The modal must:
+- clearly announce the unlock
+- have one Continue button
+- unlock voice notes immediately
+- dismiss and return both users to the normal chat
+- only appear once per conversation
+- not unlock calls at the same time
+
+3. NORMAL CHAT CONTINUES
+After voice notes unlock:
+- users continue sending the remaining messages normally
+- voice notes stay available
+- no call screen appears yet
+- no countdown is skipped
+- no automatic call starts
+
+4. CALLS ONLY UNLOCK WHEN ALL REQUIRED MESSAGES ARE COMPLETE
+Only after the full message quota for that stage has been completed should Lulou interrupt again and announce the call unlock.
+
+Example:
+“You’ve unlocked your first call.”
+“You’ve built the conversation. Now it’s time to hear each other.”
+
+Then show the correct call option.
+
+IMPORTANT:
+- Voice notes and calls must never unlock together.
+- Voice notes unlock first at 8 or 7 messages remaining.
+- Users then return to chat and finish all remaining messages.
+- Calls unlock only when the message counter reaches zero.
+- The voice-note unlock modal and call-unlock modal must each appear once only.
+- Do not replace these with small toast messages.
+- Use proper centred Lulou-branded modals.
+- Do not change the existing message quotas or call durations.
+- Do not auto-start a call.
+
+TEST:
+1. Start a fresh conversation.
+2. Confirm the teaser appears before the unlock point.
+3. Reach 8 or 7 messages remaining.
+4. Confirm the voice-note congratulations modal appears.
+5. Dismiss it and continue chatting normally.
+6. Confirm voice notes are available.
+7. Confirm calls are still locked.
+8. Finish every remaining message.
+9. Confirm the call unlock modal appears only at zero.
+10. Confirm neither modal repeats after refresh.
+
+Report the exact previous logic, files changed and commit hash.
