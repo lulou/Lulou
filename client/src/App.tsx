@@ -1395,7 +1395,9 @@ function DiagPanel() {
       </div>
     );
   }
+  // ── DiagPanel is a React component so it can hold Copy/modal state ──────────
   const swCtrl = typeof navigator !== "undefined" ? navigator.serviceWorker?.controller : null;
+
   // Read auth-event diagnostics written by use-auth.ts (safe localStorage keys)
   let _lastAuthEvent = "(unknown)";
   let _bootstrapStatus = "(unknown)";
@@ -1457,23 +1459,166 @@ function DiagPanel() {
     `error=${d.errorMessage ?? "(none)"}`,
     `capturedAt=${new Date(d.timestamp).toISOString()}`,
   ].join("\n");
+
+  return <DiagPanelInner lines={lines} />;
+}
+
+// Separate inner component so it can use React hooks (useState).
+// DiagPanel() itself is called inside AppContent which conditionally returns —
+// hooks cannot be called after a conditional return, so we keep the data-
+// assembly logic in the plain function above and delegate rendering here.
+function DiagPanelInner({ lines }: { lines: string }) {
+  const [copyState, setCopyState] = useState<"idle" | "ok" | "fail">("idle");
+  const [showModal, setShowModal] = useState(false);
+  const resetTimer = useState<ReturnType<typeof setTimeout> | null>(null);
+
+  // ── Copy with full fallback chain ──────────────────────────────────────────
+  // 1. navigator.clipboard.writeText (modern — Chrome, iOS 13.4+, Safari 13.1+)
+  //    Must be awaited inside the click handler (trusted user gesture).
+  // 2. textarea + document.execCommand("copy") — Safari <13.1, older Chrome,
+  //    any context where clipboard-write permission is denied.
+  // 3. If both fail, show "Copy failed" + leave the modal fallback visible.
+  const handleCopy = async () => {
+    if (!lines || lines.trim() === "") {
+      setCopyState("fail");
+      return;
+    }
+
+    // Clear any previous reset timer
+    if (resetTimer[0]) clearTimeout(resetTimer[0]);
+
+    let succeeded = false;
+
+    // Path 1 — modern Clipboard API
+    if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+      try {
+        await navigator.clipboard.writeText(lines);
+        succeeded = true;
+      } catch {
+        // Permission denied or not available — fall through to execCommand
+      }
+    }
+
+    // Path 2 — textarea + execCommand (Safari fallback)
+    if (!succeeded) {
+      try {
+        const ta = document.createElement("textarea");
+        ta.value = lines;
+        // Off-screen but must be in the DOM and visible for execCommand to work
+        ta.style.position = "fixed";
+        ta.style.top = "0";
+        ta.style.left = "0";
+        ta.style.width = "2em";
+        ta.style.height = "2em";
+        ta.style.padding = "0";
+        ta.style.border = "none";
+        ta.style.outline = "none";
+        ta.style.boxShadow = "none";
+        ta.style.background = "transparent";
+        ta.setAttribute("readonly", "");
+        document.body.appendChild(ta);
+
+        // iOS Safari requires setSelectionRange instead of select()
+        if (typeof ta.setSelectionRange === "function") {
+          ta.focus();
+          ta.setSelectionRange(0, ta.value.length);
+        } else {
+          ta.select();
+        }
+
+        succeeded = document.execCommand("copy");
+        document.body.removeChild(ta);
+      } catch {
+        succeeded = false;
+      }
+    }
+
+    const newState = succeeded ? "ok" : "fail";
+    setCopyState(newState);
+    const t = setTimeout(() => setCopyState("idle"), 3000);
+    resetTimer[1](t);
+  };
+
   return (
-    <div className="mt-6 w-full text-left border-t border-muted-foreground/20 pt-4">
-      <div className="flex items-center justify-between mb-2">
-        <span className="text-xs font-mono font-semibold text-muted-foreground uppercase tracking-wide">
-          Diagnostic info
-        </span>
-        <button
-          className="text-xs px-2 py-0.5 rounded border border-muted-foreground/30 hover:bg-muted transition-colors font-mono"
-          onClick={() => { try { navigator.clipboard.writeText(lines); } catch {} }}
-        >
-          Copy
-        </button>
+    <>
+      <div className="mt-6 w-full text-left border-t border-muted-foreground/20 pt-4">
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-xs font-mono font-semibold text-muted-foreground uppercase tracking-wide">
+            Diagnostic info
+          </span>
+          <div className="flex items-center gap-2">
+            <button
+              className="text-xs px-2 py-0.5 rounded border border-muted-foreground/30 hover:bg-muted transition-colors font-mono"
+              onClick={() => setShowModal(true)}
+            >
+              Show full
+            </button>
+            <button
+              className={[
+                "text-xs px-2 py-0.5 rounded border font-mono transition-colors",
+                copyState === "ok"
+                  ? "border-green-500 text-green-600 bg-green-50"
+                  : copyState === "fail"
+                  ? "border-red-400 text-red-600 bg-red-50"
+                  : "border-muted-foreground/30 hover:bg-muted",
+              ].join(" ")}
+              onClick={handleCopy}
+            >
+              {copyState === "ok" ? "Copied ✓" : copyState === "fail" ? "Copy failed" : "Copy"}
+            </button>
+          </div>
+        </div>
+        <pre className="text-xs font-mono bg-black/5 rounded p-2 overflow-auto max-h-52 whitespace-pre-wrap break-all leading-relaxed">
+          {lines}
+        </pre>
       </div>
-      <pre className="text-xs font-mono bg-black/5 rounded p-2 overflow-auto max-h-52 whitespace-pre-wrap break-all leading-relaxed">
-        {lines}
-      </pre>
-    </div>
+
+      {/* ── Full-text modal — fallback for when clipboard permission is denied ── */}
+      {showModal && (
+        <div
+          className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 p-4"
+          onClick={(e) => { if (e.target === e.currentTarget) setShowModal(false); }}
+        >
+          <div className="bg-background rounded-xl shadow-2xl w-full max-w-lg flex flex-col max-h-[80vh]">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+              <span className="text-sm font-semibold">Full Diagnostic Report</span>
+              <div className="flex items-center gap-2">
+                <button
+                  className={[
+                    "text-xs px-2 py-0.5 rounded border font-mono transition-colors",
+                    copyState === "ok"
+                      ? "border-green-500 text-green-600 bg-green-50"
+                      : copyState === "fail"
+                      ? "border-red-400 text-red-600 bg-red-50"
+                      : "border-muted-foreground/30 hover:bg-muted",
+                  ].join(" ")}
+                  onClick={handleCopy}
+                >
+                  {copyState === "ok" ? "Copied ✓" : copyState === "fail" ? "Copy failed" : "Copy"}
+                </button>
+                <button
+                  className="text-xs px-2 py-0.5 rounded border border-muted-foreground/30 hover:bg-muted font-mono"
+                  onClick={() => setShowModal(false)}
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+            {/* Fully selectable textarea — user can ⌘A + ⌘C if clipboard fails */}
+            <textarea
+              readOnly
+              value={lines}
+              className="flex-1 min-h-0 font-mono text-xs p-3 resize-none bg-black/5 outline-none overflow-auto"
+              onFocus={(e) => e.currentTarget.select()}
+              onClick={(e) => (e.currentTarget as HTMLTextAreaElement).select()}
+            />
+            <p className="text-xs text-muted-foreground/60 px-4 py-2 border-t border-border">
+              Press ⌘A (Mac) or long-press → Select All (iOS) then copy manually if the Copy button fails.
+            </p>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 
