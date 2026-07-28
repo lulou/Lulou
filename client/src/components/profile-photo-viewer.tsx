@@ -65,6 +65,14 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
   const [showSwipeHint, setShowSwipeHint] = useState(false);
   const [hintOpacity, setHintOpacity] = useState(0);
 
+  // Per-photo error tracking — module-level decodedPhotos pattern, but scoped
+  // to the component lifetime.  photoRetriedRef holds URLs that have been tried
+  // once; photoErrors holds URLs that failed permanently (both attempts done).
+  // forceRetryRender triggers a re-render so getImgSrc can return the retry URL.
+  const photoRetriedRef = useRef<Set<string>>(new Set());
+  const [photoErrors, setPhotoErrors] = useState<Set<string>>(new Set());
+  const [, forceRetryRender] = useState(0);
+
   const overlayTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isDraggingRef = useRef(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -118,7 +126,35 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
     setInternalIdx(0);
     setDragX(0);
     setPhotoOverlay(null);
+    // Reset error/retry state whenever a new set of photos is displayed.
+    setPhotoErrors(new Set());
+    photoRetriedRef.current = new Set();
   }, [photos]);
+
+  // Returns the URL to use for a given photo.  On first failure the src gets a
+  // cache-bust suffix so the browser makes a fresh network request.  On second
+  // failure it stays with the busted URL — the onError handler will have moved
+  // the photo into photoErrors, triggering the fallback render instead.
+  const getImgSrc = useCallback((url: string): string => {
+    if (!url) return url;
+    if (photoRetriedRef.current.has(url) && !photoErrors.has(url)) {
+      return url.includes("?") ? `${url}&_r=1` : `${url}?_r=1`;
+    }
+    return url;
+  }, [photoErrors]);
+
+  const handlePhotoError = useCallback((url: string, idx: number) => {
+    if (!url) return;
+    if (!photoRetriedRef.current.has(url)) {
+      console.warn(`[ProfilePhotoViewer] Image load failed, retrying: idx=${idx} url=${url.slice(0, 80)}`);
+      photoRetriedRef.current.add(url);
+      // Force a re-render so getImgSrc switches to the cache-busted URL.
+      forceRetryRender(c => c + 1);
+    } else {
+      console.error(`[ProfilePhotoViewer] Image failed permanently: idx=${idx} url=${url.slice(0, 80)}`);
+      setPhotoErrors(prev => new Set(prev).add(url));
+    }
+  }, []);
 
   // Show "← Swipe to see more →" hint on first visit (once per app lifetime).
   useEffect(() => {
@@ -429,10 +465,11 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
             }}
           >
             <img
-              src={peekPhoto}
+              src={getImgSrc(peekPhoto)}
               alt=""
               draggable={false}
               onLoad={() => decodedPhotos.add(peekPhoto)}
+              onError={() => handlePhotoError(peekPhoto, peekIdx)}
               style={{
                 width: "100%",
                 height: "100%",
@@ -459,31 +496,62 @@ export const ProfilePhotoViewer = memo(function ProfilePhotoViewer({
             willChange: "transform",
           }}
         >
-          <img
-            src={currentPhoto}
-            alt={`Photo ${safeIdx + 1}`}
-            loading="eager"
-            decoding="async"
-            draggable={false}
-            style={{
-              position: "absolute",
-              inset: 0,
-              width: "100%",
-              height: "100%",
-              objectFit: "cover",
-              objectPosition: "center top",
-              opacity: decodedPhotos.has(currentPhoto) ? 1 : 0,
-              transition: "opacity 0.08s ease",
-              display: "block",
-              userSelect: "none",
-              pointerEvents: "none",
-            }}
-            onLoad={e => {
-              decodedPhotos.add(currentPhoto);
-              (e.currentTarget as HTMLImageElement).style.opacity = "1";
-            }}
-            data-testid={`img-carousel-photo-${safeIdx}`}
-          />
+          {photoErrors.has(currentPhoto) ? (
+            /* ── Permanent-error fallback ──────────────────────────────── */
+            <div
+              style={{
+                position: "absolute",
+                inset: 0,
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                justifyContent: "center",
+                background: "hsl(var(--muted))",
+                gap: 10,
+              }}
+              data-testid={`img-error-fallback-${safeIdx}`}
+            >
+              <svg viewBox="0 0 80 80" fill="none" style={{ width: 48, height: 48, opacity: 0.2 }}>
+                <circle cx="40" cy="28" r="14" fill="currentColor" />
+                <ellipse cx="40" cy="62" rx="24" ry="16" fill="currentColor" />
+              </svg>
+              <span style={{ fontSize: 12, color: "hsl(var(--muted-foreground))", textAlign: "center", padding: "0 20px", lineHeight: 1.4 }}>
+                Photo unavailable
+              </span>
+              {n > 1 && (
+                <span style={{ fontSize: 11, color: "hsl(var(--muted-foreground)/0.6)", textAlign: "center" }}>
+                  Swipe to see more
+                </span>
+              )}
+            </div>
+          ) : (
+            <img
+              src={getImgSrc(currentPhoto)}
+              alt={`Photo ${safeIdx + 1}`}
+              loading="eager"
+              decoding="async"
+              draggable={false}
+              style={{
+                position: "absolute",
+                inset: 0,
+                width: "100%",
+                height: "100%",
+                objectFit: "cover",
+                objectPosition: "center top",
+                opacity: decodedPhotos.has(currentPhoto) ? 1 : 0,
+                transition: "opacity 0.08s ease",
+                display: "block",
+                userSelect: "none",
+                pointerEvents: "none",
+              }}
+              onLoad={e => {
+                decodedPhotos.add(currentPhoto);
+                (e.currentTarget as HTMLImageElement).style.opacity = "1";
+              }}
+              onError={() => handlePhotoError(currentPhoto, safeIdx)}
+              data-testid={`img-carousel-photo-${safeIdx}`}
+            />
+          )}
 
           {/* Bottom gradient */}
           <div

@@ -478,6 +478,10 @@ export default function Discover() {
   const lastActedRef = useRef<{ id: string; name: string } | null>(null);
   useEffect(() => { lastActedRef.current = lastActedProfile; }, [lastActedProfile]);
 
+  // Full profile snapshot for undo — stored in a ref (not state) so it never
+  // triggers extra re-renders and is always available synchronously.
+  const undoProfileRef = useRef<Profile | null>(null);
+
   // Track how long the loading skeleton has been visible so we can show a
   // "still loading" fallback after 8 seconds instead of a blank skeleton forever.
   const [loadingTooLong, setLoadingTooLong] = useState(false);
@@ -673,10 +677,28 @@ export default function Discover() {
     },
     onSuccess: (data) => {
       const name = lastActedRef.current?.name ?? "them";
+
+      // Re-inject the snapshotted profile to the FRONT of the pool immediately,
+      // without waiting for the server refetch to resolve.  This guarantees the
+      // restored profile becomes visibleProfiles[0] on the next render.
+      const restoredProfile = undoProfileRef.current;
+      if (restoredProfile) {
+        setAccumulatedProfiles(prev => {
+          if (prev.some(p => p.userId === restoredProfile.userId)) return prev;
+          return [restoredProfile, ...prev];
+        });
+        queryClient.setQueryData<Profile[]>(["/api/discover"], (old) => {
+          if (!old) return [restoredProfile];
+          if (old.some(p => p.userId === restoredProfile.userId)) return old;
+          return [restoredProfile, ...old];
+        });
+        undoProfileRef.current = null;
+      }
+
       setLastActedProfile(null);
-      // Remove the restored profile from shownIds so it reappears immediately
-      // in visibleProfiles without waiting for the refetch to settle.
+      // Remove from shownIds so the re-injected profile is visible immediately.
       setShownIds(prev => { const s = new Set(prev); s.delete(data.restoredProfileId); return s; });
+      // Background refetch to re-sync server state (doesn't disturb the feed).
       queryClient.invalidateQueries({ queryKey: ["/api/discover"] });
       setGuideUndoTriggered(true);
       toast({ title: "↩ Undo", description: t("undo_pass_success").replace("{name}", name) });
@@ -709,6 +731,7 @@ export default function Discover() {
     // Set optimistic undo state immediately — before the 280 ms animation
     // and before the server round-trip — so the undo button is ready instantly.
     if (currentProfile) {
+      undoProfileRef.current = currentProfile; // full snapshot for front-of-pool injection
       setLastActedProfile({ id: currentProfile.userId, name: currentProfile.firstName });
     }
     setIsExiting(true);
@@ -733,6 +756,9 @@ export default function Discover() {
     const capturedId       = currentProfile.userId;
     const capturedName     = currentProfile.firstName;
     const capturedPhoto    = photoData?.photos?.[0];
+
+    // Snapshot full profile for undo before we hide it.
+    undoProfileRef.current = currentProfile;
 
     // Optimistically hide the profile; rolled back below on failure.
     setShownIds(prev => { const s = new Set(prev); s.add(capturedId); return s; });
