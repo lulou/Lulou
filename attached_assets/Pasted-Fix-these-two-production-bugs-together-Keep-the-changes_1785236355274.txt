@@ -1,0 +1,133 @@
+Fix these two production bugs together. Keep the changes targeted and do not alter unrelated features.
+
+BUG 1 — Voice-note progression is still wrong
+
+Observed behaviour:
+- At 5 messages, the popup talked about calls and completing 15 messages.
+- No voice-note teaser appeared.
+- No “Congratulations, you’ve unlocked Voice Notes” popup appeared at 8 messages sent / 7 remaining.
+
+Required sequence:
+
+1. At 5 messages sent by both users:
+Show a teaser about VOICE NOTES only.
+
+Example:
+“Something new is getting closer…”
+“Keep the conversation flowing — soon you’ll be able to hear each other.”
+
+This popup must:
+- mention voice notes, not calls
+- not mention 15 messages
+- not unlock anything
+- appear once only
+
+2. At 8 messages sent by both users / 7 remaining:
+Show a separate congratulations modal:
+
+“Congratulations — you’ve unlocked Voice Notes.”
+“Now you can let them hear the person behind the messages.”
+
+This modal must:
+- unlock voice notes immediately
+- appear once only
+- have a Continue button
+- return users to normal chat
+- leave calls locked
+
+3. At 15 messages sent by both users / 0 remaining:
+Only then show the first-call unlock modal.
+
+Use separate state and separate copy for:
+- teaserPopupOpen
+- voiceNotesUnlockOpen
+- firstCallUnlockOpen
+
+Investigate:
+- wrong modal copy
+- wrong progressionEvent mapping
+- wrong realtime event mapping
+- teaser opening the call modal
+- missing voice_notes_unlocked event
+- threshold crossing not firing at 8
+- localStorage keys suppressing the VN modal
+- recovery logic skipping the VN modal
+- shared modal state overwriting another milestone
+
+Add temporary safe logs:
+- both users’ message counts
+- progressionEvent.type
+- realtime event name
+- modal opened
+- localStorage key checked
+- reason a modal was skipped
+
+Test with a fresh match:
+1. 5 messages each → voice-note teaser only
+2. 8 messages each → voice-note congratulations modal
+3. Voice notes unlocked, calls still locked
+4. 15 messages each → first-call unlock modal
+5. None repeat after refresh
+
+Do not change quotas or call durations.
+
+BUG 2 — False automatic logout on iPhone
+
+Current behaviour:
+- User is signed in on one phone.
+- User does not press Sign Out.
+- Lulou automatically signs them out.
+- No second-device login happened.
+
+Capture the exact logout reason before clearing auth state.
+
+Required diagnostics:
+
+CLIENT
+- auth event before logout
+- stored lulou_session_id prefix
+- session-verify status and reason
+- whether bootstrap was called
+- bootstrap status
+- exact branch that called signOut
+- value written to lulou_forced_logout
+- token expiry
+- whether the app was backgrounded, reopened or refreshed
+
+SERVER
+- user ID prefix
+- supplied session ID prefix
+- active row exists
+- stored session prefix
+- sameId
+- revokedAt
+- expiresAt
+- exact reason returned
+
+Required behaviour:
+- same session expired or missing → bootstrap again, do not sign out
+- temporary network error, generic 401, 500 or timeout → show Retry, do not sign out
+- TOKEN_REFRESHED → keep the same app session
+- app reopen/background resume → verify or bootstrap, do not sign out
+- only explicit session_replaced with a different active session ID may sign out and show the other-device message
+- do not call supabase.auth.signOut() for generic verification failures
+- preserve the existing JWT while retrying
+
+Add the safe diagnostics to the reconnect/login screen so DevTools are not required.
+
+Test on one iPhone:
+1. Sign in
+2. Swipe the app away and reopen 5 times
+3. Background it for over 15 minutes
+4. Lock and unlock the phone
+5. Refresh
+6. Confirm the user stays signed in every time
+7. Then sign in on a real second device and confirm only that case signs out the first device
+
+Report:
+- exact root causes
+- files changed
+- commit hash
+- Railway and Vercel deployment status
+- real production result for all voice-note milestones
+- real production result for the iPhone session test

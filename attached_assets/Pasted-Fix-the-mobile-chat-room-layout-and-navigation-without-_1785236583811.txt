@@ -1,0 +1,85 @@
+Fix the mobile chat-room layout and navigation without changing the existing message progression logic.
+
+Current iPhone problems:
+- Huge empty space appears between the latest messages and the composer.
+- One-letter messages create oversized bubbles.
+- The composer becomes too tall and visually heavy when the keyboard opens.
+- The send button, microphone and 0/500 counter are misaligned.
+- The focused input has a thick/doubled border.
+- The newest messages do not stay directly above the composer.
+- The chat does not resize or scroll correctly when the iPhone keyboard opens.
+
+Required fixes:
+
+1. CHAT LAYOUT
+- Make the chat use the available viewport height correctly.
+- When the keyboard opens, resize the message area instead of leaving a large blank gap.
+- Keep the newest message directly above the composer.
+- Automatically scroll to the latest message:
+ - when opening the chat
+ - when the keyboard opens
+ - when sending or receiving a message
+ - when a progression popup closes
+- Preserve manual scrolling when the user is reading older messages.
+
+2. MESSAGE BUBBLES
+- Size bubbles to their content.
+- Short messages such as “I” or “G” must not create tall square blocks.
+- Use sensible minimum padding, max width and line height.
+- Keep incoming and outgoing bubbles visually consistent.
+
+3. COMPOSER
+- Keep the input compact and stable before and after focus.
+- Remove the doubled focus ring.
+- Keep the send button vertically centred.
+- Align the microphone icon properly.
+- Position the character count neatly beneath or inside the composer without colliding with the send button.
+- Respect iPhone safe-area and keyboard insets.
+- Do not let the keyboard cover the composer.
+
+4. MESSAGE COUNTDOWN MUST ALWAYS BE VISIBLE
+Users must always be able to see how many messages remain in the current stage.
+
+- Add a compact sticky countdown in the chat header.
+- Example: “6 messages left”.
+- It must stay visible while scrolling and while the keyboard is open.
+- Update instantly after either user sends a qualifying message.
+- Make it clear whether the count is:
+ - remaining for the current user, or
+ - remaining for both users to complete the stage
+- Do not hide it behind milestone modals.
+- Do not change the actual quotas or unlock thresholds.
+
+5. EASY EXIT FROM CHAT
+Users must be able to leave the chat room easily.
+
+- Add a clearly visible back/close button in the sticky chat header.
+- Keep it accessible while scrolling and while the keyboard is open.
+- Tapping it should return to Connections without ending, deleting or changing the conversation.
+- Preserve the user’s chat position and draft where appropriate.
+- Do not require a swipe gesture as the only way to leave.
+
+6. TEST ON IPHONE SAFARI
+- Open a chat with short and long messages.
+- Open and close the keyboard repeatedly.
+- Confirm no large blank gap appears.
+- Confirm the latest message stays above the composer.
+- Confirm bubbles fit their content.
+- Confirm the countdown is always visible and updates correctly.
+- Confirm the back button always works.
+- Confirm sending, voice notes, milestone popups and call unlock progression still work.
+
+Do not change:
+- message quotas
+- voice-note threshold
+- call threshold
+- call durations
+- realtime message delivery
+- existing progression rules
+
+Report:
+- exact root causes
+- files changed
+- commit hash
+- Vercel deployment status
+- real iPhone test result
