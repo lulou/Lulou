@@ -240,7 +240,7 @@ const SlideCards = memo(function SlideCards({ items, type, onReply }: { items: s
           pointerEvents: activeIndex !== null ? "auto" : "none",
         }}
       >
-        <div className="flex gap-2 items-end px-1 pt-1">
+        <div className="flex gap-2 items-center px-1 pt-1">
           <Input
             ref={inputRef}
             value={activeIndex !== null ? (replies[activeIndex] ?? "") : ""}
@@ -249,7 +249,8 @@ const SlideCards = memo(function SlideCards({ items, type, onReply }: { items: s
               setReplies(prev => ({ ...prev, [activeIndex]: e.target.value.slice(0, 200) }));
             }}
             placeholder={isStarter ? t("reply_to_this") : t("share_your_answer")}
-            className="text-sm"
+            className="text-sm focus-visible:ring-0 focus-visible:ring-offset-0 focus-visible:border-primary"
+            style={{ fontSize: 16 }}
             disabled={isSending}
             onKeyDown={e => {
               const replyText = activeIndex !== null ? (replies[activeIndex] ?? "").trim() : "";
@@ -710,7 +711,8 @@ export default function Discover() {
         setLastActedProfile(null);
         toast({ title: t("undo_match_conflict"), variant: "destructive" });
       } else if (msg.includes("Free daily undo already used")) {
-        toast({ title: t("undo_daily_used"), variant: "destructive" });
+        // Short auto-dismiss — avoids a full-width red bar lingering at top-0 on iPhone.
+        toast({ title: t("undo_daily_used"), variant: "destructive", duration: 3500 });
       } else if (msg.includes("No undo credits")) {
         toast({ title: t("undo_pass_no_credits"), variant: "destructive" });
       } else if (msg.includes("No recent action") || msg.includes("No recent pass")) {
