@@ -2669,6 +2669,11 @@ export class SupabaseStorage implements IStorage {
         .eq("onboarding_complete", true)
         .in("user_id", sortedIds);
 
+      // Exclude paused accounts — parity with getDiscoverProfiles.
+      if (_hasIsPausedColumn) {
+        query = (query as any).or("is_paused.is.null,is_paused.eq.false");
+      }
+
       if (useDbExclusion && excludedIds.size > 0) {
         query = query.not("user_id", "in", `(${[...excludedIds].join(",")})`);
       }
@@ -2686,6 +2691,8 @@ export class SupabaseStorage implements IStorage {
       allProfiles.sort((a, b) => (orderMap.get(a.userId) ?? 99) - (orderMap.get(b.userId) ?? 99));
     }
 
+    console.log(`[WHEEL_FILTER] after popularity DB query: ${allProfiles.length} candidates`);
+
     // Fill remaining slots from any eligible profile (most recently joined first).
     if (allProfiles.length < limit) {
       const existingIds = allProfiles.map(r => r.userId);
@@ -2694,6 +2701,11 @@ export class SupabaseStorage implements IStorage {
         .select(WHEEL_COLS)
         .eq("onboarding_complete", true)
         .order("created_at", { ascending: false });
+
+      // Exclude paused accounts — parity with getDiscoverProfiles.
+      if (_hasIsPausedColumn) {
+        query = (query as any).or("is_paused.is.null,is_paused.eq.false");
+      }
 
       if (_hasEmailVerifiedColumn) {
         query = (query as any).eq("email_verified", true);
@@ -2753,12 +2765,25 @@ export class SupabaseStorage implements IStorage {
     console.log(`[POOL_DEBUG] after age (wheel): ${ageVerified.length} (removed ${wheelExcludedByAge})`);
 
     // ── POOL_DEBUG: separate outbound vs inbound exclusion counts ────────────
+    // Also emit per-candidate reasons so you can see in production logs exactly
+    // which profile was removed and why when the wheel shows 0 results.
     {
       const nonInboundExcluded = new Set([...excludedIds].filter(id => !inboundOpenerIds.has(id)));
-      const afterLMB = ageVerified.filter(p => !nonInboundExcluded.has(p.userId));
-      console.log(`[POOL_DEBUG] after liked/matched/pass/block (wheel): ${afterLMB.length} (removed ${ageVerified.length - afterLMB.length})`);
-      const afterInbound = afterLMB.filter(p => !inboundOpenerIds.has(p.userId));
-      console.log(`[POOL_DEBUG] after inbound likes (wheel): ${afterInbound.length} (removed ${afterLMB.length - afterInbound.length})`);
+      let removedByLMB = 0, removedByInbound = 0;
+      for (const p of ageVerified) {
+        if (nonInboundExcluded.has(p.userId)) {
+          removedByLMB++;
+          const reason = activeMatchUserIds.has(p.userId) ? "active_match"
+                       : interactedIds.has(p.userId)     ? "already_interacted"
+                       :                                    "blocked";
+          console.log(`[WHEEL_EXCL] ${p.firstName ?? p.userId.slice(0,8)}… excluded reason=${reason}`);
+        } else if (inboundOpenerIds.has(p.userId)) {
+          removedByInbound++;
+          console.log(`[WHEEL_EXCL] ${p.firstName ?? p.userId.slice(0,8)}… excluded reason=inbound_liker (visible on Likes page)`);
+        }
+      }
+      console.log(`[POOL_DEBUG] after liked/matched/pass/block (wheel): ${ageVerified.length - removedByLMB} (removed ${removedByLMB})`);
+      console.log(`[POOL_DEBUG] after inbound likes (wheel): ${ageVerified.length - removedByLMB - removedByInbound} (removed ${removedByInbound})`);
     }
 
     // ── Exclude interacted / matched / inbound-liked profiles (safety pass) ──
@@ -2781,11 +2806,20 @@ export class SupabaseStorage implements IStorage {
     // Mirrors getDiscoverProfiles: null coords excluded when radius is set.
     let wheelExcludedByDistance = 0;
     let distanceFiltered = interactionFiltered;
-    if (_hasLatLngColumns && userLat != null && userLng != null && locationRadius && locationRadius > 0) {
+    const distanceActive = _hasLatLngColumns && userLat != null && userLng != null && locationRadius && locationRadius > 0;
+    if (distanceActive) {
       distanceFiltered = interactionFiltered.filter(p => {
-        if (p.latitude == null || p.longitude == null) return false; // no coords → exclude when radius is set
-        const within = haversineDistanceMiles(userLat!, userLng!, p.latitude, p.longitude) <= locationRadius;
-        if (!within) wheelExcludedByDistance++;
+        if (p.latitude == null || p.longitude == null) {
+          wheelExcludedByDistance++;
+          console.log(`[WHEEL_EXCL] ${p.firstName ?? p.userId.slice(0,8)}… excluded reason=no_coords (distance filter active radius=${locationRadius}mi)`);
+          return false;
+        }
+        const dist = haversineDistanceMiles(userLat!, userLng!, p.latitude, p.longitude);
+        const within = dist <= locationRadius!;
+        if (!within) {
+          wheelExcludedByDistance++;
+          console.log(`[WHEEL_EXCL] ${p.firstName ?? p.userId.slice(0,8)}… excluded reason=distance dist=${dist.toFixed(0)}mi > radius=${locationRadius}mi`);
+        }
         return within;
       });
     }
@@ -2804,6 +2838,11 @@ export class SupabaseStorage implements IStorage {
         .or(`age.is.null,age.lte.${effectiveAgeMax}`)
         .order("created_at", { ascending: false })
         .limit(limit * 3);
+
+      // Exclude paused accounts — parity with getDiscoverProfiles.
+      if (_hasIsPausedColumn) {
+        fallbackQuery = (fallbackQuery as any).or("is_paused.is.null,is_paused.eq.false");
+      }
 
       // Keep gender filter; relax the mutual-compat (dating_preference) filter.
       if (targetGenders && targetGenders.length > 0) {

@@ -874,6 +874,7 @@ export default function IntentPage() {
 
   const { data: profiles, isLoading, isError, refetch: refetchProfiles } = useQuery<Profile[]>({
     queryKey: ["/api/popular"],
+    staleTime: 0,             // always stale → refetchOnWindowFocus fires; overrides global Infinity
     placeholderData: (prev) => prev,
   });
 
@@ -1592,22 +1593,40 @@ export default function IntentPage() {
   }
 
   if (isError) {
+    // Error state: network failure, 401, 403, 500, missing profile row, etc.
+    // Always show a Retry button — never let a transient error look like "no profiles".
     return (
       <div className="flex-1 flex items-center justify-center p-6">
-        <div className="text-center space-y-2">
+        <div className="text-center space-y-4 max-w-sm">
           <LulouFlowerIcon className="w-10 h-10 text-muted-foreground mx-auto opacity-60" />
           <p className="text-muted-foreground text-sm">{t("unable_to_load_profiles")}</p>
+          <button
+            className="px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm font-medium"
+            onClick={() => refetchProfiles()}
+            data-testid="button-retry-intent-error"
+          >
+            {t("retry_btn")}
+          </button>
         </div>
       </div>
     );
   }
 
+  // Empty state: only shown after a SUCCESSFUL 200 response that genuinely
+  // returned no eligible candidates.  Must never appear for errors.
   if (items.length === 0) {
     return (
       <div className="flex-1 flex items-center justify-center p-6">
-        <div className="text-center space-y-2">
+        <div className="text-center space-y-4 max-w-sm">
           <LulouFlowerIcon className="w-10 h-10 text-primary mx-auto opacity-60" />
           <p className="text-muted-foreground text-sm">{t("no_profiles_yet")}</p>
+          <button
+            className="px-4 py-2 rounded-md bg-primary/10 text-primary text-sm font-medium"
+            onClick={() => refetchProfiles()}
+            data-testid="button-refresh-intent-empty"
+          >
+            {t("retry_btn")}
+          </button>
         </div>
       </div>
     );

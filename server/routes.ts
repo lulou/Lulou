@@ -459,11 +459,17 @@ const isAuthenticated: RequestHandler = async (req: any, res, next) => {
 
     // Lazy: mark profile email_verified = true the first time a verified user
     // makes an API call.  Fire-and-forget — never blocks the request.
+    // BUG FIX: previously used .eq("email_verified", false) which never matched
+    // rows where the column is NULL (the Postgres default for new columns and for
+    // profiles created before the backfill cutoff).  In SQL, null = false is null
+    // (not true), so those rows were permanently stuck invisible to the wheel and
+    // Discover queries.  Use .or("email_verified.is.null,email_verified.eq.false")
+    // so BOTH null and false are updated on the first authenticated request.
     if (getHasEmailVerifiedColumn()) {
       supabaseAdmin.from("profiles")
         .update({ email_verified: true })
         .eq("user_id", user.id)
-        .eq("email_verified", false)
+        .or("email_verified.is.null,email_verified.eq.false")
         .then(() => {}, () => {});
     }
 
@@ -3782,13 +3788,26 @@ export async function registerRoutes(
       const myProfile = await storage.getProfileMeta(userId);
       console.log(`[WHEEL] getProfileMeta: ${Date.now() - t0} ms`);
       if (!myProfile) {
-        devPerf("/api/popular", Date.now() - t0, { status: 200, reason: "no-profile-empty" });
-        return res.json([]);
+        // Return 500 (not silently 200 []) so the client shows an error + Retry
+        // rather than "No profiles to show yet".  An empty state should only
+        // appear when the server genuinely found no eligible candidates.
+        console.error(`[WHEEL] no profile row for userId=${userId.slice(0,8)}… — check onboarding`);
+        devPerf("/api/popular", Date.now() - t0, { status: 500, reason: "no-profile-row" });
+        return res.status(500).json({ message: "Profile not found — please complete onboarding or try again." });
       }
       const preference = myProfile.datingPreference;
       const gender = myProfile.gender;
 
-      console.log("[WHEEL] /api/popular called:", { userId, preference, gender });
+      console.log("[WHEEL] /api/popular called:", {
+        userId:          userId.slice(0,8) + "…",
+        gender:          gender   ?? "(unset)",
+        preference:      preference ?? "(unset)",
+        datingIntent:    myProfile.datingIntent ?? "(unset)",
+        ageRange:        `${myProfile.preferredAgeMin ?? 18}–${myProfile.preferredAgeMax ?? 99}`,
+        locationRadius:  myProfile.locationRadius ?? 0,
+        hasLatLng:       myProfile.latitude != null,
+        onboardingComplete: (myProfile as any).onboardingComplete,
+      });
 
       // Inline geocode if the user's own profile is missing coordinates.
       // Existing accounts created before geocoding may have location text but no lat/lng.
