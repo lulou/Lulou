@@ -2543,42 +2543,99 @@ export async function registerRoutes(
       }
 
       const existing = await storage.getInteraction(fromUserId, toUserId);
+
+      // ── Targeted fix: Like Back after a prior Discover pass ──────────────────
+      // Previously any existing interaction row (including type="close") caused an
+      // immediate 400 "Already interacted", blocking the Like Back flow.
+      //
+      // Correct behaviour by case:
+      //   existing=close, new=open  → upgrade the row to open, fall through to match detection
+      //   existing=open,  new=open  → idempotent; fall through to match detection (handles double-tap)
+      //   existing=*,     new=close → idempotent pass; return early success (don't error on re-pass)
+      //   no existing row           → normal INSERT path
+      let interaction: Awaited<ReturnType<typeof storage.createInteraction>>;
       if (existing) {
+        if (type === "open") {
+          if (existing.type === "close") {
+            // B previously passed A in Discover — now B is liking back from the Likes page.
+            // Upgrade the close row to open so mutual-open detection below can fire.
+            await storage.updateInteractionType(existing.id, "open");
+            interaction = { ...existing, type: "open" } as typeof interaction;
+            console.log(
+              `[INTERACT] upgraded close→open id=${existing.id} ` +
+              `sender=${fromUserId.slice(0,8)}… recipient=${toUserId.slice(0,8)}…`
+            );
+          } else if (existing.type === "open") {
+            // Already liked — idempotent.  Fall through to match detection so a
+            // double-tap doesn't lose the match if the first request already matched.
+            interaction = existing as typeof interaction;
+            console.log(
+              `[INTERACT] idempotent open id=${existing.id} ` +
+              `sender=${fromUserId.slice(0,8)}… — continuing to match check`
+            );
+          } else {
+            // Unknown existing type — safe to reject.
+            console.warn(`[INTERACT] unexpected existing type="${existing.type}" id=${existing.id}`);
+            return res.status(400).json({ message: "Already interacted" });
+          }
+        } else {
+          // type === "close": idempotent regardless of existing type.
+          // Never error on a re-pass — just return success so the card disappears.
+          console.log(
+            `[INTERACT] idempotent close id=${existing.id} ` +
+            `sender=${fromUserId.slice(0,8)}… — returning early`
+          );
+          return res.json({ interaction: existing, matched: false });
+        }
+      } else {
+        // No prior row — normal path.
+        if (type === "open") {
+          const matchCount = await storage.getMatchCount(fromUserId);
+          if (matchCount >= 8) {
+            console.log(`[INTERACT] CONNECTION_LIMIT reached for ${fromUserId.slice(0, 8)}… (count=${matchCount})`);
+            return res.json({ matched: false, connectionLimitReached: true });
+          }
+        }
+        interaction = await storage.createInteraction({ fromUserId, toUserId, type });
         console.log(
-          `[INTERACT] DUPLICATE sender=${fromUserId.slice(0,8)}… existingId=${existing.id} ` +
-          `existingType=${existing.type}`
+          `[INTERACT] row inserted id=${interaction.id} type=${interaction.type} ` +
+          `sender=${fromUserId.slice(0,8)}… recipient=${toUserId.slice(0,8)}…`
         );
-        return res.status(400).json({ message: "Already interacted" });
       }
 
-      if (type === "open") {
+      // Connection-limit check for the upgrade path (close→open from Likes page).
+      // The normal INSERT path checks above; this covers the upgrade case.
+      if (type === "open" && existing) {
         const matchCount = await storage.getMatchCount(fromUserId);
         if (matchCount >= 8) {
-          console.log(`[INTERACT] CONNECTION_LIMIT reached for ${fromUserId.slice(0, 8)}… (count=${matchCount})`);
+          console.log(`[INTERACT] CONNECTION_LIMIT reached (upgrade path) for ${fromUserId.slice(0, 8)}… (count=${matchCount})`);
           return res.json({ matched: false, connectionLimitReached: true });
         }
       }
-
-      const interaction = await storage.createInteraction({ fromUserId, toUserId, type });
-      console.log(
-        `[INTERACT] row inserted id=${interaction.id} type=${interaction.type} ` +
-        `sender=${fromUserId.slice(0,8)}… recipient=${toUserId.slice(0,8)}…`
-      );
 
       let matched = false;
       let matchId: string | undefined;
       if (type === "open") {
         const reverseOpen = await storage.getInteraction(toUserId, fromUserId);
         if (reverseOpen && reverseOpen.type === "open") {
-          const fromCount = await storage.getMatchCount(fromUserId);
-          const toCount = await storage.getMatchCount(toUserId);
-          if (fromCount < 8 && toCount < 8) {
-            const newMatch = await storage.createMatch(fromUserId, toUserId);
+          // Guard against duplicate matches on double-tap or idempotent open→open path.
+          // findMatchBetweenUsers checks both user1/user2 orderings.
+          const alreadyMatched = await storage.findMatchBetweenUsers(fromUserId, toUserId);
+          if (alreadyMatched) {
             matched = true;
-            matchId = newMatch.id;
-            console.log(`[INTERACT] MATCHED — matchId=${matchId} between ${fromUserId.slice(0, 8)}… and ${toUserId.slice(0, 8)}…`);
+            matchId = alreadyMatched.id;
+            console.log(`[INTERACT] mutual open — match already exists matchId=${matchId} (idempotent)`);
           } else {
-            console.log(`[INTERACT] mutual open but connection limit blocked match (fromCount=${fromCount} toCount=${toCount})`);
+            const fromCount = await storage.getMatchCount(fromUserId);
+            const toCount = await storage.getMatchCount(toUserId);
+            if (fromCount < 8 && toCount < 8) {
+              const newMatch = await storage.createMatch(fromUserId, toUserId);
+              matched = true;
+              matchId = newMatch.id;
+              console.log(`[INTERACT] MATCHED — matchId=${matchId} between ${fromUserId.slice(0, 8)}… and ${toUserId.slice(0, 8)}…`);
+            } else {
+              console.log(`[INTERACT] mutual open but connection limit blocked match (fromCount=${fromCount} toCount=${toCount})`);
+            }
           }
         } else {
           console.log(`[INTERACT] no reverse open found — like stored, waiting for reciprocal`);

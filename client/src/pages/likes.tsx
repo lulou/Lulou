@@ -97,20 +97,24 @@ function ProfileModal({
 
   const respond = useMutation({
     mutationFn: async (type: "open" | "close") => {
-      try {
-        const res = await apiRequest("POST", "/api/interactions", { toUserId: open.fromUserId, type });
-        return res.json();
-      } catch (err: any) {
-        toast({
-          title: type === "open" ? t("couldnt_send_like") : t("couldnt_close_action"),
-          description: err?.message || t("something_went_wrong"),
-          variant: "destructive",
-        });
-        return { skipped: true };
-      }
+      const res = await apiRequest("POST", "/api/interactions", { toUserId: open.fromUserId, type });
+      return res.json();
+    },
+    onError: (err: any) => {
+      // Brief dismissible toast — never a persistent red block for a Like Back.
+      // Raw "Already interacted" is suppressed: after the server fix this should
+      // never occur for valid Like Back flows; if it does, show a generic retry.
+      const raw = err?.message || "";
+      const isAlreadyInteracted = raw.toLowerCase().includes("already interacted");
+      toast({
+        title: t("couldnt_send_like"),
+        description: isAlreadyInteracted ? t("something_went_wrong") : raw || t("something_went_wrong"),
+        variant: "destructive",
+        duration: 3500,
+      });
+      // Card stays visible because onSuccess is not called on error.
     },
     onSuccess: (data: any) => {
-      if (data?.skipped) return;
       queryClient.invalidateQueries({ queryKey: ["/api/who-liked-you"] });
       queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
       handleClose();
@@ -119,7 +123,7 @@ function ProfileModal({
       } else if (data.connectionLimitReached) {
         onConnectionFull();
       } else {
-        toast({ title: t("passed_title"), description: t("passed_on_name").replace("{name}", profile.firstName) });
+        toast({ title: t("passed_title"), description: t("passed_on_name").replace("{name}", profile.firstName), duration: 2500 });
       }
     },
   });
@@ -410,20 +414,24 @@ function LikeCard({
 
   const respond = useMutation({
     mutationFn: async (type: "open" | "close") => {
-      try {
-        const res = await apiRequest("POST", "/api/interactions", { toUserId: open.fromUserId, type });
-        return res.json();
-      } catch (err: any) {
-        toast({
-          title: type === "open" ? t("couldnt_send_like") : t("couldnt_close_action"),
-          description: err?.message || t("something_went_wrong"),
-          variant: "destructive",
-        });
-        return { skipped: true };
-      }
+      const res = await apiRequest("POST", "/api/interactions", { toUserId: open.fromUserId, type });
+      return res.json();
+    },
+    onError: (err: any, type) => {
+      // Brief dismissible toast — never a persistent red block.
+      // Raw "Already interacted" is suppressed: the server now upgrades close→open
+      // for Like Back so this should never fire; defensive guard for races.
+      const raw = err?.message || "";
+      const isAlreadyInteracted = raw.toLowerCase().includes("already interacted");
+      toast({
+        title: type === "open" ? t("couldnt_send_like") : t("couldnt_close_action"),
+        description: isAlreadyInteracted ? t("something_went_wrong") : raw || t("something_went_wrong"),
+        variant: "destructive",
+        duration: 3500,
+      });
+      // Card stays visible — onSuccess is not called on error.
     },
     onSuccess: (data: any) => {
-      if (data?.skipped) return;
       queryClient.invalidateQueries({ queryKey: ["/api/who-liked-you"] });
       queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
       if (data.matched) {
@@ -431,7 +439,7 @@ function LikeCard({
       } else if (data.connectionLimitReached) {
         onConnectionFull();
       } else {
-        toast({ title: t("passed_title"), description: t("passed_on_name").replace("{name}", open.profile.firstName) });
+        toast({ title: t("passed_title"), description: t("passed_on_name").replace("{name}", open.profile.firstName), duration: 2500 });
       }
     },
   });

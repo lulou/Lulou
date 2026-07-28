@@ -759,6 +759,7 @@ export interface IStorage {
   updateProfile(userId: string, data: Partial<InsertProfile>): Promise<Profile | undefined>;
   getDiscoverProfiles(userId: string, gender: string, preference: string, ageMin?: number, ageMax?: number, locationRadius?: number, userLat?: number | null, userLng?: number | null, userDatingIntent?: string | null, userConnectionStyle?: string | null): Promise<Profile[]>;
   createInteraction(data: InsertInteraction): Promise<Interaction>;
+  updateInteractionType(interactionId: string, newType: string): Promise<void>;
   getInteraction(fromUserId: string, toUserId: string): Promise<Interaction | undefined>;
   getMutualOpen(user1Id: string, user2Id: string): Promise<boolean>;
   createMatch(user1Id: string, user2Id: string): Promise<Match>;
@@ -1796,6 +1797,14 @@ export class SupabaseStorage implements IStorage {
       .single();
     if (error) throw new Error(`Failed to create interaction: ${error.message} (code: ${error.code})`);
     return mapInteraction(result);
+  }
+
+  async updateInteractionType(interactionId: string, newType: string): Promise<void> {
+    const { error } = await this.sb
+      .from("interactions")
+      .update({ type: newType })
+      .eq("id", interactionId);
+    if (error) throw new Error(`Failed to update interaction type: ${error.message}`);
   }
 
   async getInteraction(fromUserId: string, toUserId: string): Promise<Interaction | undefined> {
