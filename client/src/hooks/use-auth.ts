@@ -675,6 +675,34 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           bootstrapInProgressForUserRef.current = null;
           asyncAuthInProgressRef.current = false;
           if (verified) {
+            // Mirror the same post-login guards used by the SIGNED_IN path:
+            //  1. setLoginTime — updates the module-level boundary so that
+            //     use-call-signaling.ts's login-time guard rejects rererings
+            //     for any call that started before this session opened.
+            //     Without this, _loginTime stays at APP_LOAD_TIME (module init)
+            //     which is equivalent for fresh page loads but leaves a gap on
+            //     bfcache-restored sessions where APP_LOAD_TIME is ancient.
+            //  2. sweep-expired — asks the server to clear ringing call rows
+            //     older than 90 s so subsequent /api/matches polls return clean
+            //     data.  The startup sweep handles the client-side cache, but
+            //     the DB row keeps coming back on every 5 s poll until the
+            //     server clears it.
+            setLoginTime(Date.now());
+            const _initSessionId = localStorage.getItem("lulou_session_id") ?? "";
+            if (_initSessionId) {
+              fetch(`${API_BASE}/api/calls/sweep-expired`, {
+                method: "POST",
+                headers: {
+                  Authorization: `Bearer ${token}`,
+                  "X-Session-Id": _initSessionId,
+                },
+              }).then(async (r) => {
+                const j = await r.json().catch(() => ({}));
+                console.log("[AUTH] INITIAL_SESSION_CALL_SWEEP", { cleared: j.cleared ?? 0, userId: newUserId?.slice(0, 8) });
+              }).catch((e) => {
+                console.warn("[AUTH] INITIAL_SESSION_CALL_SWEEP_FAILED (non-fatal)", { error: String(e) });
+              });
+            }
             setUser(u);
             setProfileReady(true);
             setIsLoading(false);

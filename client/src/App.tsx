@@ -66,7 +66,7 @@ if (typeof window !== "undefined") {
 }
 import { useCallSignaling, setCallEndedHandler, setCallRingHandler, clearDedupeForMatch } from "@/hooks/use-call-signaling";
 import { stopAllNonVoiceCallAudio, stopAllCallSounds, registerCallAudioUnlock, unregisterCallAudioUnlock } from "@/lib/call-audio";
-import { isArmedSession, armCallSession, disarmCallSession, clearAllArmedSessions, setOnArmChange, isPaidCallSession, isVideoCallSession, armSessionFromPush, isPushArmedSession } from "@/lib/live-call-sessions";
+import { isArmedSession, armCallSession, disarmCallSession, clearAllArmedSessions, setOnArmChange, isPaidCallSession, isVideoCallSession, armSessionFromPush, isPushArmedSession, setLoginTime } from "@/lib/live-call-sessions";
 import { markStartupSweepComplete, resetStartupSweep } from "@/lib/startup-sweep";
 import { markCallSessionCancelled, markStartupCancelledSession, isCallSessionCancelled, clearCancelledSession, setOnCancelledSessionChange } from "@/lib/cancelled-calls";
 import type { Profile, Match } from "@shared/schema";
@@ -561,7 +561,13 @@ function CallDetectors({ userId }: { userId: string }) {
       startupDoneRef.current = false;
       // 4. Hide overlays until sweep confirms which (if any) call is live.
       setStartupVerified(false);
-      // 5. Force a fresh /api/matches fetch so the startup sweep re-runs immediately.
+      // 5. Refresh the login-time boundary so the call-signaling login-time guard
+      //    uses the current time, not the time of the original SIGNED_IN.  Without
+      //    this, a call that started after the original login (during the bfcached
+      //    session) would pass the loginTime check on the next rering, because
+      //    _loginTime was never updated after the bfcache hide.
+      setLoginTime(Date.now());
+      // 6. Force a fresh /api/matches fetch so the startup sweep re-runs immediately.
       qc.invalidateQueries({ queryKey: ["/api/matches"] });
     };
     window.addEventListener("pageshow", handlePageShow);
@@ -724,7 +730,20 @@ function CallDetectors({ userId }: { userId: string }) {
       if (m.callCompleted) continue;
       if (!m.callInitiatorId) continue;
       // Already handled (either startup-cancelled or user-cancelled) — skip.
-      if (isCallSessionCancelled(m.id, m.callSessionId)) continue;
+      // BUT: if the 5 s poll re-added callStartedAt to the cache (because the
+      // server DB row wasn't cleared yet), the first sweep run called
+      // clearCallFromCache but subsequent runs hit this `continue` and left
+      // the stale data in the cache indefinitely.  Re-clear the cache entry
+      // so stale callStartedAt never persists between polls.
+      if (isCallSessionCancelled(m.id, m.callSessionId)) {
+        if (m.callStartedAt) {
+          clearCallFromCache(qc, m.id);
+          console.log("[CALL_BOOT] re-clearing stale cancelled call from cache", {
+            matchId: m.id, callSessionId: m.callSessionId,
+          });
+        }
+        continue;
+      }
 
       // Only block calls that were ringing BEFORE this browser session started.
       const callStartMs = new Date(m.callStartedAt).getTime();
