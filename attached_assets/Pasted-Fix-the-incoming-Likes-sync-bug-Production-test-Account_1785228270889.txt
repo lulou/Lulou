@@ -1,0 +1,65 @@
+Fix the incoming Likes sync bug.
+
+Production test:
+
+- Account A was open on the laptop.
+- Account B was signed in on the phone.
+- Account A liked Account B.
+- The like never appeared in Account B’s Likes page.
+- Refreshing the phone did not help.
+- Deleting an existing connection did not change anything.
+
+Investigate the complete like flow from write to display.
+
+Required diagnostics:
+
+1. When Account A presses Like/Open:
+  - confirm the API request fires
+  - confirm the authenticated sender user ID
+  - confirm the target profile user ID
+  - confirm the interaction row is created
+  - confirm the stored interaction type and status
+  - confirm it is not accidentally recorded as self-like, close, dismissed or reply-only
+
+2. For Account B’s Likes page:
+  - confirm the incoming-like query uses recipient_id = current user
+  - confirm it is not querying sender_id incorrectly
+  - confirm the new row is returned from the API
+  - confirm it is not filtered out because of an old connection, dismissal, hidden profile or stale cache
+  - confirm the phone is using the correct authenticated user and X-Session-Id
+
+3. Realtime and refresh:
+  - invalidate/refetch the incoming Likes query after a like is created
+  - subscribe Account B to new incoming likes
+  - update the Likes badge immediately
+  - on page focus, app reopen and pull-to-refresh, fetch fresh data from the server
+  - do not rely only on cached results
+  - ensure the service worker never caches Likes API responses
+
+4. Matching logic:
+  - if Account B has already liked Account A, create a match and place it in Connections
+  - otherwise show Account A in Account B’s Likes page
+  - deleting an unrelated connection must not affect incoming likes
+
+Add safe production logs showing:
+
+- senderUserId prefix
+- recipientUserId prefix
+- interaction row ID
+- interaction type
+- insert result
+- incoming Likes API count
+- whether the new row was filtered and why
+- realtime event received or not
+
+Test with two real accounts:
+
+1. Account A likes Account B.
+2. Confirm the database row exists.
+3. Confirm Account B’s Likes badge increases immediately.
+4. Confirm Account A appears in Account B’s Likes page.
+5. Refresh Account B.
+6. Confirm the like remains.
+7. Repeat with both accounts already liking each other and confirm a match is created.
+
+Do not mark complete based only on code inspection. Report the exact root cause, files changed, commit hash and real production result.

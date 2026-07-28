@@ -1,0 +1,63 @@
+Fix the Like Back regression without changing unrelated app behaviour.
+
+Current production bug:
+A profile appears correctly in the Likes page, but pressing “Like Back” returns:
+
+“Couldn’t send like”
+“Already interacted”
+
+This should create a match.
+
+Root issue:
+The interaction endpoint treats any existing interaction row as a duplicate and rejects the new open/like action. It does not distinguish between:
+- an existing close/pass
+- an existing open/like
+- a genuine duplicate request
+- a mutual-like match flow
+
+Required server behaviour:
+
+When User B presses Like Back on User A:
+
+1. Look up the existing interaction from B → A.
+2. If none exists:
+  - create type="open"
+3. If it exists as type="close":
+  - update it to type="open"
+  - do not return “Already interacted”
+4. If it already exists as type="open":
+  - treat the request as idempotent
+  - continue to match detection instead of failing
+5. Check whether A already has type="open" toward B.
+6. If both directions are open:
+  - create or restore the match
+  - remove both users from Likes
+  - add the match to Connections
+  - update badges immediately
+7. Only return an error for a genuinely invalid action.
+
+Also fix the UI:
+- Do not show the raw “Already interacted” error for Like Back.
+- On success, remove the card from Likes and show the new connection.
+- Prevent double taps while processing.
+- Keep the card visible if the request genuinely fails.
+- Use a small temporary toast, not a large persistent red block.
+
+Regression protection:
+Add tests for:
+- close → Like Back
+- open → Like Back
+- duplicate Like Back request
+- mutual open creates one match only
+- no duplicate interaction rows
+- no duplicate matches
+- unrelated Discover, Intent, Likes and Connections behaviour remains unchanged
+
+Do not rewrite the interaction system broadly.
+Make the smallest targeted fix to the duplicate-interaction and match-creation logic.
+
+Report:
+- exact root cause
+- server and client files changed
+- commit hash
+- production test result using these same two accounts
