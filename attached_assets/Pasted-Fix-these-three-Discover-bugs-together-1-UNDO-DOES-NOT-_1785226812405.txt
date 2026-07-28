@@ -1,0 +1,65 @@
+Fix these three Discover bugs together.
+
+1. UNDO DOES NOT RESTORE THE PREVIOUS PROFILE
+
+Current behaviour:
+Pressing Undo does not return to the profile that was just skipped, closed or acted on.
+
+Required:
+- Store the full previous profile and the action taken before removing it.
+- Undo must:
+ - restore that exact profile to the front of Discover
+ - restore its photos and profile content
+ - reverse the local dismissed/shown state
+ - reverse the server interaction where supported
+ - remove it from any temporary hidden-profile set
+- Do not fetch a random profile instead.
+- Disable Undo when there is no valid previous action.
+- Prevent repeated Undo presses from corrupting the stack.
+
+2. PROFILE IMAGE FAILS TO LOAD
+
+Current behaviour:
+A photo section shows a large grey placeholder instead of the user’s image.
+
+Required:
+- Log the safe failed image URL, HTTP status and photo index.
+- Check whether the Supabase storage URL is expired, malformed or missing.
+- Use the same image URL normalisation and fallback logic for every ProfilePhotoViewer instance.
+- Retry the image once with a fresh signed/public URL where applicable.
+- If one image fails, allow swiping to the remaining images.
+- Do not leave a permanent blank grey block.
+- Show a polished fallback message only after retry fails.
+- Do not hide the whole profile because one image failed.
+
+3. ERROR MESSAGE IS CLIPPED
+
+Current behaviour:
+The red error appears near the bottom but is hidden behind the fixed bottom navigation and is only partly visible.
+
+Required:
+- Render errors in a proper toast or fixed banner above the bottom navigation.
+- Respect iPhone safe-area insets.
+- The full message must be readable.
+- It must not overlap:
+ - bottom navigation
+ - Undo button
+ - moon button
+ - reply inputs
+- Allow dismissal and auto-dismiss after a sensible delay.
+- Do not render raw error text inside the profile content flow.
+
+Test on iPhone Safari:
+
+1. Skip a profile.
+2. Press Undo.
+3. Confirm the exact previous profile returns.
+4. Confirm the same profile does not duplicate in the stack.
+5. Open a profile containing a broken or unavailable image.
+6. Confirm retry/fallback works and other images remain swipeable.
+7. Trigger an error.
+8. Confirm the full red error is shown above the bottom navigation.
+
+Do not change the photo grouping, swipe behaviour or profile design.
+
+Report the root causes, files changed and commit hash.
