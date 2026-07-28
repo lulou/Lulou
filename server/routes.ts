@@ -2527,11 +2527,21 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Target user id is required" });
       }
 
-      console.log(`[INTERACT] userId=${fromUserId.slice(0, 8)}… toUserId=${toUserId.slice(0, 8)}… type=${type}`);
+      console.log(
+        `[INTERACT] sender=${fromUserId.slice(0,8)}… recipient=${toUserId.slice(0,8)}… type=${type}`
+      );
+
+      if (fromUserId === toUserId) {
+        console.warn(`[INTERACT] SELF_LIKE rejected sender=recipient=${fromUserId.slice(0,8)}…`);
+        return res.status(400).json({ message: "Cannot interact with yourself" });
+      }
 
       const existing = await storage.getInteraction(fromUserId, toUserId);
       if (existing) {
-        console.log(`[INTERACT] DUPLICATE — already interacted (existingId=${existing.id})`);
+        console.log(
+          `[INTERACT] DUPLICATE sender=${fromUserId.slice(0,8)}… existingId=${existing.id} ` +
+          `existingType=${existing.type}`
+        );
         return res.status(400).json({ message: "Already interacted" });
       }
 
@@ -2544,7 +2554,10 @@ export async function registerRoutes(
       }
 
       const interaction = await storage.createInteraction({ fromUserId, toUserId, type });
-      console.log(`[INTERACT] interaction inserted id=${interaction.id} type=${type}`);
+      console.log(
+        `[INTERACT] row inserted id=${interaction.id} type=${interaction.type} ` +
+        `sender=${fromUserId.slice(0,8)}… recipient=${toUserId.slice(0,8)}…`
+      );
 
       let matched = false;
       let matchId: string | undefined;
@@ -4576,7 +4589,12 @@ export async function registerRoutes(
     try {
       const storage = getStorage(req);
       const userId = req.user.id;
+      console.log(`[WHO_LIKED_YOU] recipientId=${userId.slice(0,8)}… fetching`);
       const incomingOpens = await storage.getIncomingOpens(userId);
+      console.log(
+        `[WHO_LIKED_YOU] recipientId=${userId.slice(0,8)}… ` +
+        `count=${incomingOpens.length} ms=${Date.now() - t0}`
+      );
       const likesJson = IS_DEV ? JSON.stringify(incomingOpens) : "";
       devPerf("/api/who-liked-you", Date.now() - t0, {
         count: incomingOpens.length,

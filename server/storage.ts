@@ -3199,8 +3199,21 @@ export class SupabaseStorage implements IStorage {
     // JavaScript after all results arrive, removing one sequential Supabase
     // round-trip (~150–300 ms) versus the old sequential pattern:
     //   [3 parallel exclusion queries] → opens query → profiles batch
-    const [interactedResult, matchResult1, matchResult2, opensResult] = await Promise.all([
-      this.sb.from("interactions").select("to_user_id").eq("from_user_id", userId),
+    //
+    // EXCLUSION RULE: only exclude senders that the recipient has already
+    // "opened" (liked back) — those either matched already or will the
+    // moment the sender's open is processed.  Senders the recipient merely
+    // "closed" (passed in Discover) must still appear here because they
+    // have since expressed interest and the recipient may want to reconsider.
+    // Previously this query fetched ALL outgoing interactions regardless of
+    // type, which caused every "close" to permanently hide that sender from
+    // the Likes page — even after the sender liked back.  Fixed: .eq("type","open").
+    const [myOpensResult, matchResult1, matchResult2, opensResult] = await Promise.all([
+      this.sb
+        .from("interactions")
+        .select("to_user_id")
+        .eq("from_user_id", userId)
+        .eq("type", "open"),               // ← was missing; "close" no longer silences likes
       this.sb.from("matches").select("user1_id").eq("user2_id", userId).eq("status", "active"),
       this.sb.from("matches").select("user2_id").eq("user1_id", userId).eq("status", "active"),
       this.sb
@@ -3213,14 +3226,33 @@ export class SupabaseStorage implements IStorage {
     ]);
 
     const excludeIds = new Set<string>([
-      ...(interactedResult.data || []).map((r: any) => r.to_user_id as string),
+      ...(myOpensResult.data || []).map((r: any) => r.to_user_id as string),
       ...(matchResult1.data || []).map((r: any) => r.user1_id as string),
       ...(matchResult2.data || []).map((r: any) => r.user2_id as string),
     ]);
 
-    const incomingOpens = (opensResult.data || [])
-      .filter((o: any) => !excludeIds.has(o.from_user_id))
+    const allIncoming = opensResult.data || [];
+    const incomingOpens = allIncoming
+      .filter((o: any) => {
+        const excluded = excludeIds.has(o.from_user_id);
+        if (excluded) {
+          console.log(
+            `[INCOMING_LIKES] filtered sender=${o.from_user_id.slice(0,8)}… reason=` +
+            (matchResult1.data?.some((r: any) => r.user1_id === o.from_user_id) ||
+             matchResult2.data?.some((r: any) => r.user2_id === o.from_user_id)
+              ? "already_matched"
+              : "recipient_already_opened_sender")
+          );
+        }
+        return !excluded;
+      })
       .slice(0, 50);
+
+    console.log(
+      `[INCOMING_LIKES] recipientId=${userId.slice(0,8)}… ` +
+      `rawRows=${allIncoming.length} excluded=${allIncoming.length - incomingOpens.length} ` +
+      `returned=${incomingOpens.length}`
+    );
 
     if (incomingOpens.length === 0) return [];
 
@@ -3237,12 +3269,18 @@ export class SupabaseStorage implements IStorage {
       profileMap.set((row as any).user_id, row);
     }
 
-    return incomingOpens
+    const result = incomingOpens
       .map((open: any) => {
         const profileData = profileMap.get(open.from_user_id);
+        if (!profileData) {
+          console.log(`[INCOMING_LIKES] no profile for sender=${open.from_user_id.slice(0,8)}… — omitted`);
+        }
         return profileData ? { ...mapInteraction(open), profile: mapProfile(profileData) } : null;
       })
       .filter(Boolean) as (Interaction & { profile: Profile })[];
+
+    console.log(`[INCOMING_LIKES] final after profile join=${result.length}`);
+    return result;
   }
 
   async createWheelSpark(fromUserId: string, toUserId: string): Promise<void> {

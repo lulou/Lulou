@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+import { supabase } from "@/lib/supabase";
 import { useLanguageContext } from "@/contexts/language-context";
 import { LANGUAGE_NAME_TO_CODE } from "@/lib/i18n";
 import { useAuth } from "@/hooks/use-auth";
@@ -775,11 +776,42 @@ export default function LikesPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const queryClient = useQueryClient();
+
   const { data: likes, isLoading, isError: isLikesError, refetch: refetchLikes } = useQuery<IncomingOpen[]>({
     queryKey: ["/api/who-liked-you"],
+    staleTime: 0,               // always stale → refetchOnWindowFocus actually fires
     refetchInterval: isActive ? 15000 : false,
     refetchOnWindowFocus: true,
   });
+
+  // Realtime subscription — Supabase postgres_changes on the interactions table
+  // filtered to rows where to_user_id = current user.  When Account A likes
+  // Account B, this fires on B's client immediately, invalidating the cache and
+  // pulling the new row — no need to wait for the 15-second poll.
+  useEffect(() => {
+    if (!user?.id) return;
+    const channel = supabase
+      .channel(`incoming-likes:${user.id}`)
+      .on(
+        "postgres_changes" as any,
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "interactions",
+          filter: `to_user_id=eq.${user.id}`,
+        },
+        (payload: any) => {
+          if (payload?.new?.type !== "open") return; // ignore close/wheel_connection
+          console.log("[LIKES_RT] new incoming open received — invalidating cache");
+          queryClient.invalidateQueries({ queryKey: ["/api/who-liked-you"] });
+        }
+      )
+      .subscribe((status: string) => {
+        console.log(`[LIKES_RT] channel status=${status} userId=${user.id.slice(0,8)}…`);
+      });
+    return () => { supabase.removeChannel(channel); };
+  }, [user?.id, queryClient]);
 
   const { data: sparks } = useQuery<IncomingWheelSpark[]>({
     queryKey: ["/api/wheel/sparks"],
