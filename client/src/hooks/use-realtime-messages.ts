@@ -14,6 +14,7 @@ export function useRealtimeMessages(
   enabled: boolean,
   onVoiceNoteUnlock?: () => void,
   onFirstCallUnlock?: () => void,
+  onTeaserEvent?: () => void,
 ) {
   const queryClient = useQueryClient();
   const broadcastChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
@@ -24,6 +25,8 @@ export function useRealtimeMessages(
   useEffect(() => { onVoiceNoteUnlockRef.current = onVoiceNoteUnlock; }, [onVoiceNoteUnlock]);
   const onFirstCallUnlockRef = useRef(onFirstCallUnlock);
   useEffect(() => { onFirstCallUnlockRef.current = onFirstCallUnlock; }, [onFirstCallUnlock]);
+  const onTeaserEventRef = useRef(onTeaserEvent);
+  useEffect(() => { onTeaserEventRef.current = onTeaserEvent; }, [onTeaserEvent]);
 
   // Shared handler — called by both broadcast and postgres_changes.
   // Writes to TWO caches:
@@ -226,6 +229,12 @@ export function useRealtimeMessages(
         }
         console.log("[FIRST_CALL_REALTIME] unlock event received", { matchId: matchId.slice(0, 8) });
         onFirstCallUnlockRef.current?.();
+      })
+      .on("broadcast", { event: "voice-notes-teaser" }, () => {
+        // Teaser fires when both users have sent ≥ 5 messages.
+        // No cache update needed — it's informational only; localStorage gates the popup.
+        console.log("[TEASER_REALTIME] teaser event received", { matchId: matchId.slice(0, 8) });
+        onTeaserEventRef.current?.();
       })
       .subscribe((status) => {
         console.log("[CHAT_REALTIME] broadcast channel status", { matchId: matchId.slice(0, 8), status });

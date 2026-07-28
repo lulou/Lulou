@@ -28,6 +28,7 @@ import { usePushNotifications } from "@/hooks/use-push-notifications";
 
 const MAX_MESSAGES_PER_USER = 15;
 const MAX_CHARS = 500;
+const TEASER_THRESHOLD = 5; // both sent ≥ 5 → show "something new is coming" teaser
 
 const FALLBACK_STARTERS = [
   "What made you want to try a more intentional approach to dating?",
@@ -585,6 +586,9 @@ export default function Messaging() {
   // Purchase prompt state
   const [purchasePromptFeature, setPurchasePromptFeature] = useState<PurchaseFeature | null>(null);
 
+  // Teaser popup — shown once before voice notes unlock (both ≥ 5 messages sent).
+  // Purely informational; localStorage-gated, no server persistence needed.
+  const [teaserPopupOpen, setTeaserPopupOpen] = useState(false);
   // Voice-note unlock popup — shown once per user per match when the engagement
   // threshold is first crossed (localStorage prevents repeat on reload / device switch)
   const [voiceNotePopupOpen, setVoiceNotePopupOpen] = useState(false);
@@ -593,6 +597,15 @@ export default function Messaging() {
   // Set to true when the first-call milestone fires while the VN popup is still open.
   // After VN is dismissed, this triggers the first-call celebration immediately.
   const [pendingFirstCallCelebration, setPendingFirstCallCelebration] = useState(false);
+
+  // Realtime teaser: fires when the OTHER user's send crosses TEASER_THRESHOLD.
+  // The recovery useEffect handles the opening-while-offline case.
+  const onTeaserEvent = useCallback(() => {
+    if (!localStorage.getItem(`vn_teaser_${matchId}`)) {
+      setTeaserPopupOpen(true);
+    }
+  }, [matchId]);
+
   // Realtime VN unlock: instantly mark cache as unlocked when the broadcast fires.
   // The recovery useEffect then shows the popup if popupSeen is still false.
   const onVoiceNoteUnlock = useCallback(() => {
@@ -839,7 +852,7 @@ export default function Messaging() {
     enabled: !!matchId,
   });
 
-  const { broadcastNewMessage } = useRealtimeMessages(matchId, !!matchId, onVoiceNoteUnlock, onFirstCallUnlock);
+  const { broadcastNewMessage } = useRealtimeMessages(matchId, !!matchId, onVoiceNoteUnlock, onFirstCallUnlock, onTeaserEvent);
 
   const sendMessage = useMutation({
     mutationFn: async (vars: { content: string; tempId: string }) => {
@@ -937,7 +950,13 @@ export default function Messaging() {
       // the 8-message VN threshold or the 15-message first-call threshold.
       // This fires the celebration immediately — no 60s polling cycle needed.
       const event = (data as any).progressionEvent as { type: string } | null | undefined;
-      if (event?.type === "voice_notes_unlocked") {
+      if (event?.type === "voice_notes_teaser") {
+        // Show the teaser popup immediately on the sender's client.
+        // The other user gets it via the realtime broadcast → onTeaserEvent callback.
+        if (!localStorage.getItem(`vn_teaser_${matchId}`)) {
+          setTeaserPopupOpen(true);
+        }
+      } else if (event?.type === "voice_notes_unlocked") {
         // Update entitlement cache so voice-note features unlock immediately.
         queryClient.setQueryData(
           ["/api/voice-notes/entitlement", matchId],
@@ -1199,6 +1218,24 @@ export default function Messaging() {
   const myStageMessageCount = dbStageCount !== null ? dbStageCount + localSentCount : myMessages.length;
   const messagesRemaining = msgLimit - myStageMessageCount;
   const isLimitReached = messagesRemaining <= 0;
+
+  // Recovery guard: shows teaser if the broadcast was missed (different device sent
+  // the crossing message, or browser was briefly offline).  Guards:
+  //   1. callStage must be 0 — teaser is pre-call stage only
+  //   2. VN must NOT be unlocked yet — if VN already fired the teaser is irrelevant
+  //   3. Both users must have sent ≥ TEASER_THRESHOLD messages (from authoritative DB counts)
+  //   4. localStorage key must be absent (not dismissed yet on this device)
+  // matchDetail is null until the query resolves, so the effect is a no-op on first render.
+  useEffect(() => {
+    if (!matchDetail || callStage !== 0) return;
+    if (voiceNotesUnlocked) return; // VN already fired — teaser is no longer relevant
+    if (localStorage.getItem(`vn_teaser_${matchId}`)) return;
+    const count1 = matchDetail.messageCount1 ?? 0;
+    const count2 = matchDetail.messageCount2 ?? 0;
+    if (count1 >= TEASER_THRESHOLD && count2 >= TEASER_THRESHOLD) {
+      setTeaserPopupOpen(true);
+    }
+  }, [matchDetail, matchId, callStage, voiceNotesUnlocked]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Guard the call CTA card when a call is live (ringing or active).
   // messaging.tsx reads matchDetail from ["/api/matches", matchId]; the ring
@@ -2012,6 +2049,43 @@ export default function Messaging() {
         onClose={() => setPurchasePromptFeature(null)}
         returnPath={window.location.pathname}
       />
+
+      {/* ── Coming-soon teaser ── */}
+      {teaserPopupOpen && (
+        <div className="fixed inset-0 z-[200] flex items-end justify-center bg-black/60 backdrop-blur-sm px-4 pb-8" data-testid="dialog-vn-teaser">
+          <div className="relative w-full max-w-sm rounded-3xl overflow-hidden shadow-2xl" style={{ background: "linear-gradient(145deg,#f9f0fd 0%,#fdf5ff 55%,#f5f0fd 100%)" }}>
+            {/* Soft sparkles */}
+            <div className="absolute inset-0 pointer-events-none overflow-hidden" aria-hidden="true">
+              <span className="absolute top-5 right-9 w-1.5 h-1.5 rounded-full bg-violet-300/60 motion-safe:animate-ping" style={{ animationDuration: "2.2s" }} />
+              <span className="absolute top-12 right-5 w-1 h-1 rounded-full bg-rose-300/50 motion-safe:animate-ping" style={{ animationDuration: "2.6s", animationDelay: "0.6s" }} />
+              <span className="absolute top-8 left-8 w-1 h-1 rounded-full bg-violet-200/70 motion-safe:animate-ping" style={{ animationDuration: "2s", animationDelay: "1s" }} />
+              <span className="absolute bottom-20 right-7 w-1.5 h-1.5 rounded-full bg-rose-200/50 motion-safe:animate-ping" style={{ animationDuration: "2.4s", animationDelay: "0.3s" }} />
+              <span className="absolute bottom-12 left-9 w-1 h-1 rounded-full bg-violet-300/40 motion-safe:animate-ping" style={{ animationDuration: "2.8s", animationDelay: "1.2s" }} />
+            </div>
+            <div className="relative px-8 pt-10 pb-8 text-center">
+              {/* Glow icon */}
+              <div className="mx-auto mb-5 w-20 h-20 rounded-full flex items-center justify-center" style={{ background: "linear-gradient(135deg,#ede9fe,#fce7f3)", boxShadow: "0 0 28px rgba(167,139,250,0.35),0 0 56px rgba(167,139,250,0.15)" }}>
+                <span className="text-4xl" role="img" aria-label="sparkles">✨</span>
+              </div>
+              <h2 className="font-serif text-2xl font-bold tracking-tight text-stone-800 mb-2">Something new is getting closer…</h2>
+              <p className="text-stone-600 text-sm leading-relaxed mb-7">
+                Keep the conversation flowing.
+              </p>
+              <button
+                className="w-full py-3.5 rounded-2xl text-sm font-semibold text-white transition-all active:scale-95"
+                style={{ background: "linear-gradient(135deg,#8b5cf6,#7c3aed)" }}
+                onClick={() => {
+                  localStorage.setItem(`vn_teaser_${matchId}`, "1");
+                  setTeaserPopupOpen(false);
+                }}
+                data-testid="button-vn-teaser-dismiss"
+              >
+                Keep chatting
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Voice-note milestone celebration ── */}
       {voiceNotePopupOpen && (
