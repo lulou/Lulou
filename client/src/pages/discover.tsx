@@ -15,7 +15,7 @@ import { apiRequest, batchPrefetchPhotos } from "@/lib/queryClient";
 import { DragScrollRow } from "@/components/drag-scroll-row";
 import { ProfilePhotoViewer } from "@/components/profile-photo-viewer";
 import type { Profile } from "@shared/schema";
-import { MessageCircle, HelpCircle, Send, BadgeCheck } from "lucide-react";
+import { MessageCircle, HelpCircle, Send, BadgeCheck, Loader2 } from "lucide-react";
 import { LulouFlowerIcon } from "@/components/app-layout";
 import { EMPTY_PHOTOS } from "@/lib/image-utils";
 import { ProfileInfoRow } from "@/components/profile-info-row";
@@ -52,7 +52,7 @@ const PhotoBubbles = memo(function PhotoBubbles({ photos, name: _name, onOpen, i
 
 // Memoised: only re-renders when items/type/onReply actually change.
 // Prevents re-render when parent mutation isPending state toggles (2× per tap).
-const SlideCards = memo(function SlideCards({ items, type, onReply }: { items: string[]; type: "starter" | "question"; onReply: (text: string, reply: string) => void }) {
+const SlideCards = memo(function SlideCards({ items, type, onReply }: { items: string[]; type: "starter" | "question"; onReply: (text: string, reply: string) => Promise<void> }) {
   const { t, isRTL, language } = useLanguageContext();
   const langCode = LANGUAGE_NAME_TO_CODE[language] ?? "en";
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -65,7 +65,19 @@ const SlideCards = memo(function SlideCards({ items, type, onReply }: { items: s
   const velocity = useRef(0);
   const animFrame = useRef<number>(0);
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
-  const [reply, setReply] = useState("");
+  // Per-card reply state: keyed by card index so each prompt keeps its own text.
+  // Reset to {} when the items list changes (i.e. a new profile is displayed).
+  const [replies, setReplies] = useState<Record<number, string>>({});
+  const [isSending, setIsSending] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // When the items array changes identity the profile has advanced — clear all
+  // per-card reply state and collapse any open reply box.
+  useEffect(() => {
+    setActiveIndex(null);
+    setReplies({});
+    setIsSending(false);
+  }, [items]);
 
   const startY = useRef(0);
   const committed = useRef(false);
@@ -140,15 +152,30 @@ const SlideCards = memo(function SlideCards({ items, type, onReply }: { items: s
 
   const handleCardClick = (i: number) => {
     if (didDrag.current) return;
+    // Toggle the card open/closed; do NOT clear reply text so each card
+    // preserves what the user typed even after switching between cards.
     setActiveIndex(activeIndex === i ? null : i);
-    setReply("");
   };
 
-  const handleSend = (text: string) => {
-    if (!reply.trim()) return;
-    onReply(text, reply.trim());
-    setReply("");
-    setActiveIndex(null);
+  const handleSend = async (text: string) => {
+    if (activeIndex === null || isSending) return;
+    const replyText = (replies[activeIndex] ?? "").trim();
+    if (!replyText) return;
+
+    // Dismiss keyboard immediately — before the async round-trip.
+    inputRef.current?.blur();
+
+    setIsSending(true);
+    try {
+      await onReply(text, replyText);
+      // Success: clear this card's reply and collapse the reply box.
+      setReplies(prev => { const next = { ...prev }; delete next[activeIndex]; return next; });
+      setActiveIndex(null);
+    } catch {
+      // Failure: leave reply text intact so the user can retry or edit.
+    } finally {
+      setIsSending(false);
+    }
   };
 
   const isStarter = type === "starter";
@@ -215,22 +242,30 @@ const SlideCards = memo(function SlideCards({ items, type, onReply }: { items: s
       >
         <div className="flex gap-2 items-end px-1 pt-1">
           <Input
-            value={reply}
-            onChange={e => setReply(e.target.value.slice(0, 200))}
+            ref={inputRef}
+            value={activeIndex !== null ? (replies[activeIndex] ?? "") : ""}
+            onChange={e => {
+              if (activeIndex === null) return;
+              setReplies(prev => ({ ...prev, [activeIndex]: e.target.value.slice(0, 200) }));
+            }}
             placeholder={isStarter ? t("reply_to_this") : t("share_your_answer")}
             className="text-sm"
+            disabled={isSending}
             onKeyDown={e => {
-              if (e.key === "Enter" && reply.trim() && activeIndex !== null) handleSend(items[activeIndex]);
+              const replyText = activeIndex !== null ? (replies[activeIndex] ?? "").trim() : "";
+              if (e.key === "Enter" && replyText && activeIndex !== null && !isSending) {
+                handleSend(items[activeIndex]);
+              }
             }}
             data-testid={`input-reply-${type}`}
           />
           <Button
             size="icon"
-            disabled={!reply.trim()}
+            disabled={isSending || !(activeIndex !== null && (replies[activeIndex] ?? "").trim())}
             onClick={() => activeIndex !== null && handleSend(items[activeIndex])}
             data-testid={`button-reply-send-${type}`}
           >
-            <Send className="w-4 h-4" />
+            {isSending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
           </Button>
         </div>
       </div>
@@ -675,12 +710,80 @@ export default function Discover() {
   // when parent mutation state changes but these handlers haven't changed.
   const handleOpen = useCallback(() => triggerInteract("open"), [triggerInteract]);
 
-  const handleReply = useCallback((_promptText: string, _reply: string) => {
-    toast({
-      title: t("reply_noted"),
-      description: t("reply_will_be_sent").replace("{name}", currentProfile?.firstName ?? ""),
-    });
-  }, [toast, t, currentProfile?.firstName]);
+  // Sending a reply to a prompt counts as opening the profile.
+  // Returns a Promise so SlideCards can:
+  //   • disable Send and show a spinner while in-flight
+  //   • clear the reply text and advance only on success
+  //   • keep the reply text intact and re-enable Send on failure
+  const handleReply = useCallback(async (_promptText: string, _reply: string): Promise<void> => {
+    if (!currentProfile) throw new Error("no_profile");
+
+    const capturedId       = currentProfile.userId;
+    const capturedName     = currentProfile.firstName;
+    const capturedPhoto    = photoData?.photos?.[0];
+
+    // Optimistically hide the profile; rolled back below on failure.
+    setShownIds(prev => { const s = new Set(prev); s.add(capturedId); return s; });
+
+    try {
+      const res = await apiRequest("POST", "/api/interactions", {
+        toUserId: capturedId,
+        type: "open",
+      });
+
+      if (!res.ok) {
+        const errBody = await res.json().catch(() => ({})) as any;
+        throw new Error(errBody?.message || `HTTP_${res.status}`);
+      }
+
+      const data = await res.json() as any;
+
+      // Permanently remove from cache — same surgery as interact.onSuccess.
+      queryClient.setQueryData<Profile[]>(["/api/discover"], old =>
+        old ? old.filter(p => p.userId !== capturedId) : old
+      );
+      setAccumulatedProfiles(prev => prev.filter(p => p.userId !== capturedId));
+      setLastActedProfile({ id: capturedId, name: capturedName });
+
+      if (data?.matched) {
+        setCelebration({
+          firstName: data.capturedFirstName ?? capturedName,
+          photo: capturedPhoto,
+          matchId: data.matchId,
+        });
+        queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
+      }
+      setGuideOpenTriggered(true);
+
+      // Trigger exit animation (same timing as triggerInteract).
+      if (exitTimerRef.current) clearTimeout(exitTimerRef.current);
+      setIsExiting(true);
+      exitTimerRef.current = setTimeout(() => setIsExiting(false), 280);
+
+    } catch (err: any) {
+      // Roll back the optimistic hide so the profile reappears.
+      setShownIds(prev => { const s = new Set(prev); s.delete(capturedId); return s; });
+      toast({
+        title: t("couldnt_send_like"),
+        description: err?.message || t("something_went_wrong"),
+        variant: "destructive",
+      });
+      throw err; // re-throw so SlideCards keeps the reply text
+    }
+  }, [
+    currentProfile,
+    photoData,
+    queryClient,
+    setAccumulatedProfiles,
+    setLastActedProfile,
+    setCelebration,
+    setGuideOpenTriggered,
+    setShownIds,
+    setIsExiting,
+    exitTimerRef,
+    toast,
+    t,
+  ]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Show skeleton on initial load OR when pool is empty and more are being fetched
   const isLoadingMore = isFetching && accumulatedProfiles.length > 0 && visibleProfiles.length === 0;

@@ -1340,7 +1340,10 @@ function CallDetectors({ userId }: { userId: string }) {
   );
 }
 
-type ProfileCheckResult = { exists: boolean; fetchFailed: boolean };
+// confirmedMissing is only true when the server positively confirms no profile row
+// exists (404 + body verified). It is false for 401/500/network/timeout/malformed
+// responses — those go through TanStack's error path → reconnect screen.
+type ProfileCheckResult = { exists: boolean; fetchFailed: boolean; confirmedMissing: boolean };
 
 // ── Profile-gate diagnostic store ─────────────────────────────────────────────
 // Enabled in dev mode OR when localStorage.lulou_diag === "1".
@@ -1849,11 +1852,28 @@ async function checkProfileExists(
   }
 
   if (res.status === 404) {
-    // Profile row does not exist → user needs to complete onboarding.
+    // Only treat this as "profile missing" when the server body positively
+    // confirms it. A misdirected 404 (CDN edge, wrong route, proxy) must NOT
+    // send an existing user to onboarding — those cases throw so TanStack
+    // routes to the reconnect screen instead.
+    let confirmed = false;
+    try {
+      const body = await res.json() as any;
+      const msg: string = (body?.message ?? body?.error ?? "").toLowerCase();
+      confirmed = msg.includes("not found") || msg.includes("profile");
+    } catch { /* body unreadable — confirmed stays false */ }
+
+    if (!confirmed) {
+      console.error("[RECONNECT_ROOT_CAUSE] 404 but body did not confirm profile missing — treating as server error");
+      diag.errorCategory = "404";
+      diag.errorMessage  = "HTTP_404 — body did not confirm profile missing";
+      throw new Error("HTTP_404_UNCONFIRMED");
+    }
+
     console.log("[AUTH_FLOW] profile missing — route onboarding", { userId });
     console.log("[AUTH] PROFILE_EXISTS_CHECK: no profile found (onboarding needed)");
     writeDebug({ postAuthProfileFetchSucceeded: true, profileRowFound: false });
-    return { exists: false, fetchFailed: false };
+    return { exists: false, fetchFailed: false, confirmedMissing: true };
   }
 
   if (!res.ok) {
@@ -1914,7 +1934,7 @@ async function checkProfileExists(
   console.log("[AUTH_FLOW] profile found — onboarding complete — route main app", { userId });
   console.log("[AUTH] PROFILE_EXISTS_CHECK: profile found");
   writeDebug({ postAuthProfileFetchSucceeded: true, profileRowFound: true });
-  return { exists: true, fetchFailed: false };
+  return { exists: true, fetchFailed: false, confirmedMissing: false };
 }
 
 // How long the loading spinner is allowed to show before we cut it off and
@@ -2461,7 +2481,7 @@ function AppContent() {
   const { data, isPending: profilePending, isError: profileError, error: profileFetchError } = useQuery<ProfileCheckResult>({
     queryKey: ["profile-exists-check"],
     queryFn: () => {
-      if (!user) return Promise.resolve({ exists: false, fetchFailed: false });
+      if (!user) return Promise.resolve({ exists: false, fetchFailed: false, confirmedMissing: false });
       console.log("[SETUP] PROFILE_FETCH_START", { userId: user.id });
       return checkProfileExists(user.id).then(result => {
         console.log("[SETUP] PROFILE_FETCH_SUCCESS", { userId: user.id, profileExists: result.exists });
@@ -2963,13 +2983,50 @@ function AppContent() {
     );
   }
 
-  if (!effectiveProfileExists) {
-    console.log("[AUTH_FLOW] profile missing — route onboarding", { userId: user.id, profileHasData, profileExists });
+  // Only route to onboarding when the server has positively confirmed the profile
+  // is missing (confirmedMissing=true). A 401, 403, 500, timeout, network error or
+  // malformed response all throw in checkProfileExists → fetchFailed=true → reconnect
+  // screen above. An unverified 404 also throws (HTTP_404_UNCONFIRMED) → same path.
+  // confirmedMissing is ONLY set when the 404 body contains "not found"/"profile".
+  if (!effectiveProfileExists && data?.confirmedMissing) {
+    console.log("[AUTH_FLOW] profile missing (confirmed) — route onboarding", { userId: user.id });
     console.log("[SETUP] FINAL_APP_GATE: blocked_by_onboarding_guard", {
-      userId: user.id, profileExists, effectiveProfileExists, fetchFailed, profilePending, profileHasData,
+      userId: user.id, profileExists, effectiveProfileExists, confirmedMissing: data?.confirmedMissing, fetchFailed, profilePending, profileHasData,
     });
     return (
       <Onboarding existingProfile={null} userEmail={user?.email ?? ""} />
+    );
+  }
+
+  // Safety net: if we somehow reach here with no profile and no confirmed-missing
+  // signal, show the reconnect screen rather than rendering a broken app shell.
+  if (!effectiveProfileExists) {
+    console.warn("[SETUP] FINAL_APP_GATE: profile_state_ambiguous — reconnect screen", {
+      userId: user.id, profileExists, confirmedMissing: data?.confirmedMissing, fetchFailed,
+    });
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="flex flex-col items-center gap-4 text-center px-6 max-w-sm w-full">
+          <p className="text-2xl font-serif font-semibold">Taking a little longer than usual.</p>
+          <p className="text-sm text-muted-foreground leading-relaxed">Your account is safe. We&apos;re reconnecting you to Lulou.</p>
+          <div className="flex flex-wrap justify-center gap-3 pt-2">
+            <button
+              className="px-5 py-2.5 rounded-full bg-primary text-primary-foreground text-sm font-medium hover:brightness-110 transition-all"
+              onClick={async () => {
+                const refreshed = await refreshAuthToken();
+                console.log("[SETUP] AMBIGUOUS_RETRY: token refresh", { refreshed });
+                queryClient.resetQueries({ queryKey: ["profile-exists-check"] });
+              }}
+            >
+              Try Again
+            </button>
+            <button className="px-5 py-2.5 rounded-full border text-sm font-medium hover:bg-muted transition-all" onClick={logout}>
+              Sign Out
+            </button>
+          </div>
+          <DiagPanel />
+        </div>
+      </div>
     );
   }
 
