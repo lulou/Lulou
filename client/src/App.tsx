@@ -1454,6 +1454,17 @@ function DiagPanel() {
     `hostname=${d.hostname}`,
     `currentUrl=${typeof window !== "undefined" ? window.location.href : "(server)"}`,
     `isCrossOrigin=${d.isCrossOrigin}`,
+    // serviceWorkerIntercepted: true = SW called respondWith() on a cross-origin
+    // /api/ request (v3.4 bug — root cause of "Load failed" network error).
+    // false = SW correctly returned without calling respondWith() (v3.5+).
+    `serviceWorkerIntercepted=${
+      d.isCrossOrigin &&
+      d.errorCategory === "network" &&
+      typeof d.errorMessage === "string" &&
+      d.errorMessage.includes("FetchEvent")
+        ? "true (SW v3.4 bug — update SW and reload)"
+        : "false"
+    }`,
     `isHtml=${d.isHtml}`,
     `errorCategory=${d.errorCategory ?? "(none)"}`,
     `error=${d.errorMessage ?? "(none)"}`,

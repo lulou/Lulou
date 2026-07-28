@@ -1,5 +1,5 @@
 /**
- * Lulou Service Worker v3.3
+ * Lulou Service Worker v3.5
  * Handles: push notifications, notification clicks, install/activate lifecycle,
  * badge management, version reporting, safe update activation.
  * Served at /sw.js — scope covers the entire PWA origin.
@@ -9,7 +9,9 @@
  * about caching service workers).
  */
 
-const SW_VERSION = "3.4";
+const SW_VERSION = "3.5";
+// Cache name is versioned so activate can delete every prior cache entry.
+const CACHE_NAME = "lulou-static-v3.5";
 const ICON  = "/icon-192.png";
 const BADGE = "/favicon-32.png";
 
@@ -18,16 +20,51 @@ const VERBOSE_LOGGING = true;
 
 // ── Fetch handler ─────────────────────────────────────────────────────────────
 //
-// Explicit network-only pass-through for /api/* requests.
-// Prevents any future caching logic from accidentally intercepting authenticated
-// API requests or serving stale 401 / profile responses.
-// All non-API requests use the browser's default fetch behaviour (no SW caching).
+// ROOT CAUSE OF v3.4 RECONNECT SCREEN:
+//   The previous handler called event.respondWith(fetch(request)) for any URL
+//   containing "/api/".  The Railway backend URL
+//   (https://lulou-production.up.railway.app/api/*) is cross-origin from the
+//   Vercel origin.  When the SW called fetch() on that cross-origin URL, some
+//   environments (iOS Safari PWA, strict CORS) rejected the fetch entirely,
+//   producing "FetchEvent.respondWith received an error: TypeError: Load failed".
+//   Because event.respondWith() had already been called, the browser replaced
+//   the real network response with the SW error — so /api/profile never got an
+//   HTTP response at all, even though Railway was reachable.
+//
+// FIX: NEVER call event.respondWith() for:
+//   1. Cross-origin requests (any origin other than self.location.origin)
+//   2. Non-GET methods (POST/PUT/PATCH/DELETE must always go direct)
+//   3. /api/ paths on any origin
+//   4. Chrome extension or data: URLs
+//
+// Returning without calling event.respondWith() lets the browser handle the
+// request natively — exactly as if no service worker existed for that request.
 self.addEventListener("fetch", (event) => {
-  if (event.request.url.includes("/api/")) {
-    // Always fetch from network — never serve a cached authenticated response.
-    event.respondWith(fetch(event.request));
+  const req = event.request;
+
+  // Guard: only handle http/https
+  if (!req.url.startsWith("http")) return;
+
+  let url;
+  try {
+    url = new URL(req.url);
+  } catch {
+    return; // malformed URL — let browser handle
   }
-  // Non-API requests: do nothing (browser handles normally).
+
+  // 1. Never intercept cross-origin requests.
+  //    This covers ALL Railway API calls from the Vercel frontend.
+  if (url.origin !== self.location.origin) return;
+
+  // 2. Never intercept API paths (same-origin API requests, /api/auth/*, etc.)
+  if (url.pathname.startsWith("/api/")) return;
+
+  // 3. Never intercept non-GET methods (mutations must always reach the server)
+  if (req.method !== "GET") return;
+
+  // 4. Same-origin GET for static assets / navigation — pass through to network.
+  //    We intentionally do NOT cache here; offline support is a future feature.
+  //    Do nothing → browser uses its own HTTP cache + network as normal.
 });
 
 // ── Lifecycle ─────────────────────────────────────────────────────────────────
@@ -35,12 +72,27 @@ self.addEventListener("fetch", (event) => {
 self.addEventListener("install", (event) => {
   console.log("[SW] installed version=" + SW_VERSION);
   // Activate immediately — don't wait for old tabs to close.
+  // Critical for recovery: ensures the broken v3.4 handler is replaced ASAP.
   event.waitUntil(self.skipWaiting());
 });
 
 self.addEventListener("activate", (event) => {
-  console.log("[SW] activated version=" + SW_VERSION + " — claiming clients");
-  event.waitUntil(clients.claim());
+  console.log("[SW] activated version=" + SW_VERSION + " — deleting old caches and claiming clients");
+  event.waitUntil(
+    caches.keys()
+      .then((keys) => {
+        // Delete every Lulou cache from previous versions so stale entries
+        // (including any accidentally cached 401 responses from v3.4) are gone.
+        const deleteOld = keys
+          .filter((k) => k !== CACHE_NAME)
+          .map((k) => {
+            console.log("[SW] deleting old cache: " + k);
+            return caches.delete(k);
+          });
+        return Promise.all(deleteOld);
+      })
+      .then(() => clients.claim())
+  );
 });
 
 // ── Message handler ───────────────────────────────────────────────────────────

@@ -114,6 +114,54 @@ export function usePushNotifications() {
       .then((reg) => {
         setSwReg(reg);
         console.log("[PUSH] SW registered OK — scope:", reg.scope, "| state:", reg.active?.state ?? "no active worker yet");
+
+        // ── One-shot recovery reload for stale SW ────────────────────────────
+        // If the active worker is an old version (< 3.5) that has the broken
+        // fetch handler, trigger an update check.  When the new worker becomes
+        // active (controllerchange fires), reload ONCE so the page runs under
+        // the fixed service worker.
+        //
+        // Guard: sessionStorage flag prevents a reload loop in the unlikely
+        // event that controllerchange fires more than once (e.g. rapid deploys).
+        const RELOAD_GUARD = "lulou_sw_reload_3.5";
+        const alreadyReloaded = (() => { try { return sessionStorage.getItem(RELOAD_GUARD) === "1"; } catch { return false; } })();
+
+        if (!alreadyReloaded) {
+          // Ask the active SW for its version via MessageChannel
+          const askVersion = () => {
+            const active = reg.active;
+            if (!active) return;
+            const mc = new MessageChannel();
+            mc.port1.onmessage = (e) => {
+              const ver: string = e.data?.version ?? "";
+              console.log("[PUSH] Active SW version:", ver);
+              if (ver && ver < "3.5") {
+                // Old (broken) worker — trigger update
+                console.warn("[PUSH] Stale SW detected (v" + ver + ") — requesting update to v3.5");
+                reg.update().catch(() => {});
+              }
+            };
+            active.postMessage({ type: "GET_VERSION" }, [mc.port2]);
+          };
+
+          if (reg.active) {
+            askVersion();
+          } else {
+            // Worker installing — wait for it to activate
+            reg.addEventListener("updatefound", () => {
+              reg.installing?.addEventListener("statechange", () => {
+                if (reg.active) askVersion();
+              });
+            });
+          }
+
+          // Reload once when a new worker takes control
+          navigator.serviceWorker.addEventListener("controllerchange", () => {
+            console.log("[PUSH] SW controllerchange — reloading once for v3.5");
+            try { sessionStorage.setItem(RELOAD_GUARD, "1"); } catch {}
+            window.location.reload();
+          });
+        }
       })
       .catch((err) => {
         console.warn("[PUSH] SW registration FAILED:", err?.name, err?.message);
