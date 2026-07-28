@@ -903,8 +903,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (r.status === 401) {
           const body = await r.json().catch(() => ({}));
           if (body?.message === "session_replaced") {
-            console.warn("[AUTH] HEARTBEAT_SESSION_REPLACED — dispatching forced-logout event");
-            window.dispatchEvent(new CustomEvent("lulou:session-replaced"));
+            // Stale-request guard: if INITIAL_SESSION bootstrap ran while this
+            // heartbeat was in-flight, the localStorage session ID will have
+            // changed to the new value.  In that case do NOT dispatch the
+            // forced-logout event — this is a false positive caused by the old
+            // session being cached as "session_replaced" by the server (the race
+            // between bootstrap completing and an in-flight heartbeat arriving).
+            // Only genuine cross-device replacements leave currentSessionId
+            // unchanged (no bootstrap happened on this device).
+            const currentSessionId = localStorage.getItem("lulou_session_id") ?? "";
+            if (!sessionId || sessionId === currentSessionId) {
+              console.warn("[AUTH] HEARTBEAT_SESSION_REPLACED — dispatching forced-logout event", {
+                sentPrefix: sessionId ? sessionId.slice(0, 8) + "…" : "(none)",
+              });
+              window.dispatchEvent(new CustomEvent("lulou:session-replaced"));
+            } else {
+              console.warn("[AUTH] HEARTBEAT_SESSION_REPLACED_STALE — ignoring (bootstrap completed during flight)", {
+                sentPrefix: sessionId.slice(0, 8) + "…",
+                currentPrefix: currentSessionId ? currentSessionId.slice(0, 8) + "…" : "(none)",
+              });
+            }
           }
         }
       } catch {}

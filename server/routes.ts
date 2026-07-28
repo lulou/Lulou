@@ -82,24 +82,39 @@ const JWT_CACHE_TTL_MS = 2 * 60_000;
 const JWT_CACHE_MAX = 500;
 
 // ── Application session-ID cache ──────────────────────────────────────────────
-// Keyed by "userId:sessionId".  value.valid = false means this session was
-// replaced by another device and requests carrying it must be rejected with 401.
+// Keyed by "userId:sessionId".  value.valid = false means this session is no
+// longer the active session.  value.reason distinguishes WHY:
+//   "session_replaced" — a DIFFERENT device's bootstrap replaced this session.
+//     The old device must be signed out with the "another device" message.
+//   "invalid_session"  — the same device's own bootstrap, or the session aged out.
+//     The client should re-bootstrap silently, NOT sign out.
+//
+// CRITICAL: the middleware fast-reject path must return the correct message.
+// Returning "session_replaced" for an expired same-device session causes false
+// logouts every time the user reopens the app after > 15 min background
+// (the race between INITIAL_SESSION bootstrap and in-flight React Query / heartbeat).
+//
 // TTL = 30 s; max 1000 entries; evicts oldest on overflow.
-const _sessionIdCache = new Map<string, { valid: boolean; expiresAt: number }>();
+const _sessionIdCache = new Map<string, { valid: boolean; reason?: "session_replaced" | "invalid_session"; expiresAt: number }>();
 const SESSION_ID_CACHE_TTL_MS = 30_000;
 const SESSION_ID_CACHE_MAX = 1_000;
 
 function getSessionIdCacheKey(userId: string, sessionId: string) {
   return `${userId}:${sessionId}`;
 }
-function cacheSessionIdValid(userId: string, sessionId: string, valid: boolean) {
+function cacheSessionIdValid(
+  userId: string,
+  sessionId: string,
+  valid: boolean,
+  reason?: "session_replaced" | "invalid_session",
+) {
   const key = getSessionIdCacheKey(userId, sessionId);
   const expiresAt = Date.now() + SESSION_ID_CACHE_TTL_MS;
   if (_sessionIdCache.size >= SESSION_ID_CACHE_MAX) {
     const oldest = _sessionIdCache.keys().next().value;
     if (oldest) _sessionIdCache.delete(oldest);
   }
-  _sessionIdCache.set(key, { valid, expiresAt });
+  _sessionIdCache.set(key, { valid, reason, expiresAt });
 }
 function lookupSessionIdCache(userId: string, sessionId: string): boolean | null {
   const key = getSessionIdCacheKey(userId, sessionId);
@@ -107,6 +122,13 @@ function lookupSessionIdCache(userId: string, sessionId: string): boolean | null
   if (!entry) return null;
   if (entry.expiresAt < Date.now()) { _sessionIdCache.delete(key); return null; }
   return entry.valid;
+}
+/** Returns the cached invalidation reason, or null on cache miss / valid entry. */
+function lookupSessionIdCacheReason(userId: string, sessionId: string): "session_replaced" | "invalid_session" | null {
+  const key = getSessionIdCacheKey(userId, sessionId);
+  const entry = _sessionIdCache.get(key);
+  if (!entry || entry.expiresAt < Date.now() || entry.valid) return null;
+  return entry.reason ?? null;
 }
 
 function parseJwtPayload(token: string): Record<string, any> | null {
@@ -508,10 +530,20 @@ const isAuthenticated: RequestHandler = async (req: any, res, next) => {
 
       const cached = lookupSessionIdCache(user.id, clientSessionId);
       if (cached === false) {
-        // Cache says this session is revoked — fast reject
+        // Fast-reject: use the reason stored when the cache entry was written so
+        // we return the CORRECT message without a DB round-trip.
+        //
+        // CRITICAL: do NOT default to "session_replaced" here — a same-device
+        // bootstrap also caches the old session as false (reason="invalid_session").
+        // Returning "session_replaced" for those entries causes false forced-logouts
+        // every time the user reopens the app after > 15 min background (the race
+        // between INITIAL_SESSION bootstrap and in-flight React Query / heartbeat).
+        const cachedReason = lookupSessionIdCacheReason(user.id, clientSessionId) ?? "invalid_session";
         return res.status(401).json({
-          message: "session_replaced",
-          reason: "Your account was signed in on another device.",
+          message: cachedReason,
+          reason: cachedReason === "session_replaced"
+            ? "Your account was signed in on another device."
+            : "No active session registered — please re-authenticate.",
         });
       } else if (cached === null) {
         // Cache miss — query DB
@@ -526,34 +558,30 @@ const isAuthenticated: RequestHandler = async (req: any, res, next) => {
             row.sessionId === clientSessionId &&
             !row.revokedAt &&
             row.expiresAt > new Date();
-          cacheSessionIdValid(user.id, clientSessionId, isValid);
+          // Distinguish precisely so the client reacts correctly:
+          //   session_replaced — row exists but has a DIFFERENT session ID →
+          //     another device bootstrapped and took over the account.
+          //     Client must sign out and show the "another device" message.
+          //   invalid_session  — no row at all, OR same session ID but expired
+          //     or explicitly revoked → the session aged out naturally (> 15 min
+          //     background with no heartbeat) or was cleared during logout.
+          //     Client must re-bootstrap, NOT sign out.
+          const dbReason: "session_replaced" | "invalid_session" = (!!row && row.sessionId !== clientSessionId)
+            ? "session_replaced"
+            : "invalid_session";
+          // Store the reason alongside validity so subsequent fast-rejects return
+          // the correct message without a DB round-trip.
+          cacheSessionIdValid(user.id, clientSessionId, isValid, isValid ? undefined : dbReason);
           if (!isValid) {
-            // Distinguish precisely so the client reacts correctly:
-            //   session_replaced — row exists but has a DIFFERENT session ID →
-            //     another device bootstrapped and took over the account.
-            //     Client must sign out and show the "another device" message.
-            //   invalid_session  — no row at all, OR same session ID but expired
-            //     or explicitly revoked → the session aged out naturally (> 15 min
-            //     background with no heartbeat) or was cleared during logout.
-            //     Client must re-bootstrap, NOT sign out.
-            //
-            // CRITICAL: do NOT return session_replaced when row.sessionId ===
-            // clientSessionId — that is an expired or revoked session, not a
-            // replaced one.  Returning session_replaced for an expired same-device
-            // session causes a false "signed in on another device" logout every
-            // time the user reopens the app after > 15 min background.
-            const reason = (!!row && row.sessionId !== clientSessionId)
-              ? "session_replaced"
-              : "invalid_session";
             console.warn(
-              `[SESSION] ${reason} for ${user.id.slice(0, 8)} path=${req.path}` +
+              `[SESSION] ${dbReason} for ${user.id.slice(0, 8)} path=${req.path}` +
               ` sid=${clientSessionId?.slice(0, 8) ?? "none"}` +
               ` rowExists=${!!row} sameId=${!!row && row.sessionId === clientSessionId}` +
               ` revokedAt=${row?.revokedAt ?? null} expired=${!!row && row.expiresAt <= new Date()}`
             );
             return res.status(401).json({
-              message: reason,
-              reason: reason === "invalid_session"
+              message: dbReason,
+              reason: dbReason === "invalid_session"
                 ? "No active session registered — please re-authenticate."
                 : "Your account was signed in on another device.",
             });
@@ -1388,8 +1416,15 @@ export async function registerRoutes(
       // old device can sign itself out immediately without waiting for a failed
       // API call or a heartbeat 401.
       if (oldSessionId) {
-        // Mark old session as invalid in cache (fast path for middleware gate)
-        cacheSessionIdValid(userId, oldSessionId, false);
+        // Mark old session as invalid in cache (fast path for middleware gate).
+        // Use the correct reason so the middleware fast-reject returns the right
+        // message and the client reacts correctly (sign-out vs. bootstrap).
+        cacheSessionIdValid(
+          userId,
+          oldSessionId,
+          false,
+          oldSessionWasDifferentDevice ? "session_replaced" : "invalid_session",
+        );
         if (oldSessionWasDifferentDevice) {
           // Broadcast to a SESSION-SCOPED channel — only the old device is subscribed
           // to `private-session:{oldSessionId}`.  The new device subscribes to its own
@@ -1479,7 +1514,17 @@ export async function registerRoutes(
         });
 
       if (oldSessionId) {
-        cacheSessionIdValid(userId, oldSessionId, false);
+        // Same reasoning as session-check: use the correct reason so the middleware
+        // fast-reject and heartbeat handler return the right message to the client.
+        // A same-device bootstrap must NOT be cached as "session_replaced" — doing
+        // so causes false forced-logouts for in-flight requests that arrived after
+        // bootstrap completed (the root cause of the iOS false-logout bug).
+        cacheSessionIdValid(
+          userId,
+          oldSessionId,
+          false,
+          oldSessionWasDifferentDevice ? "session_replaced" : "invalid_session",
+        );
         if (oldSessionWasDifferentDevice) {
           broadcastViaHttpApi(`private-session:${oldSessionId}`, "session-replaced", {
             oldSessionId,
@@ -1679,8 +1724,11 @@ export async function registerRoutes(
           : row.sessionId !== sessionId
             ? "session_replaced"
             : "expired";
-      // Mark as invalid in cache for fast rejection on subsequent requests
-      cacheSessionIdValid(userId, sessionId, false);
+      // Store the correct reason alongside the invalid flag so the middleware
+      // fast-reject path returns the right message without a DB round-trip.
+      const cacheReason: "session_replaced" | "invalid_session" =
+        reason === "session_replaced" ? "session_replaced" : "invalid_session";
+      cacheSessionIdValid(userId, sessionId, false, cacheReason);
       console.log(`[SESSION] VERIFY_FAILED`, {
         userId: userId.slice(0, 8) + "…",
         suppliedSessionIdPrefix: sessionId.slice(0, 8) + "…",

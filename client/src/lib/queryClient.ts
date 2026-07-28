@@ -222,7 +222,7 @@ function assertJsonResponse(res: Response, url: string): void {
   }
 }
 
-async function throwIfResNotOk(res: Response, url = "") {
+async function throwIfResNotOk(res: Response, url = "", sentSessionId = "") {
   if (!res.ok) {
     const text = (await res.text()) || res.statusText;
     let message = `${res.status}: ${text}`;
@@ -236,10 +236,29 @@ async function throwIfResNotOk(res: Response, url = "") {
     // If the server tells us our session was replaced by another device,
     // dispatch a window event so AuthProvider can force a local sign-out
     // and show "This account was signed in on another device."
+    //
+    // STALE-REQUEST GUARD: If the session ID we sent with this request no
+    // longer matches the current localStorage value, INITIAL_SESSION bootstrap
+    // ran and completed while this request was in-flight.  The server cached
+    // the old session as "session_replaced" (even for same-device bootstrap in
+    // older server versions) and fast-rejected this stale request.  Do NOT
+    // dispatch the forced-logout event in this case — it is a false positive.
+    // Only dispatch when sentSessionId === currentSessionId, which means the
+    // session has NOT changed on this device → the replacement was genuine
+    // (another device logged in).
     if (res.status === 401 && parsed?.message === "session_replaced") {
-      console.warn("[SESSION] session_replaced detected in API response — dispatching forced-logout event");
-      if (typeof window !== "undefined") {
-        window.dispatchEvent(new CustomEvent("lulou:session-replaced"));
+      const currentSessionId = getAppSessionId();
+      if (!sentSessionId || sentSessionId === currentSessionId) {
+        console.warn("[SESSION] session_replaced in API response — dispatching forced-logout event", { url });
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(new CustomEvent("lulou:session-replaced"));
+        }
+      } else {
+        console.warn("[SESSION] session_replaced on STALE apiRequest — ignored (bootstrap completed during flight)", {
+          url,
+          sentPrefix: sentSessionId.slice(0, 8) + "…",
+          currentPrefix: currentSessionId ? currentSessionId.slice(0, 8) + "…" : "(none)",
+        });
       }
     }
     throw new Error(message);
@@ -289,7 +308,7 @@ export async function apiRequest(
     logLatency(`${method} ${url}`, Math.round(performance.now() - t0), parseServerTiming(res.headers.get("server-timing")), 0);
   }
   assertJsonResponse(res, url);
-  await throwIfResNotOk(res, url);
+  await throwIfResNotOk(res, url, sessionId);
   return res;
 }
 
@@ -369,11 +388,25 @@ export const getQueryFn: <T>(options: {
       try { body = await res.clone().json(); } catch {}
 
       if (body?.message === "session_replaced") {
-        // Definitive: another device logged in and replaced the session.
-        // Force-logout immediately — no recovery attempt.
-        console.warn(`[SESSION] session_replaced on query ${url} — dispatching forced-logout event`);
-        if (typeof window !== "undefined") {
-          window.dispatchEvent(new CustomEvent("lulou:session-replaced"));
+        // STALE-REQUEST GUARD (mirrors the guard in throwIfResNotOk):
+        // If bootstrap ran while this query was in-flight, the current
+        // localStorage session ID will differ from what was sent (sessionId
+        // was captured before the fetch).  A genuine cross-device replacement
+        // leaves the local session ID unchanged (no bootstrap on this device).
+        const currentSessionId = getAppSessionId();
+        if (!sessionId || sessionId === currentSessionId) {
+          // Session unchanged on this device → genuine replacement.
+          console.warn(`[SESSION] session_replaced on query ${url} — dispatching forced-logout event`);
+          if (typeof window !== "undefined") {
+            window.dispatchEvent(new CustomEvent("lulou:session-replaced"));
+          }
+        } else {
+          // Session changed → stale in-flight query; bootstrap already completed.
+          console.warn(`[SESSION] session_replaced on STALE query — ignored (bootstrap completed during flight)`, {
+            url,
+            sentPrefix: sessionId.slice(0, 8) + "…",
+            currentPrefix: currentSessionId ? currentSessionId.slice(0, 8) + "…" : "(none)",
+          });
         }
         if (unauthorizedBehavior === "returnNull") return null as any;
         throw new Error("session_replaced");
