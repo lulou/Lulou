@@ -119,6 +119,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // in-flight queries with a stale session ID that the middleware rejects → 401.
   const bootstrapInProgressForUserRef = useRef<string | null>(null);
 
+  // ── Auth-attempt generation counter ─────────────────────────────────────────
+  // Incremented synchronously at the start of every SIGNED_IN / INITIAL_SESSION
+  // async flow.  Each flow captures its own `myAttemptId` before the first await.
+  // Failure paths compare their capture against the CURRENT counter before calling
+  // setSessionBootstrapFailed(true) — if they differ, a newer attempt has already
+  // started (or succeeded), so the stale failure is silently discarded.
+  //
+  // This prevents the observed bug:
+  //   SIGNED_IN fires first → bootstrap fails → setSessionBootstrapFailed(true)
+  //   INITIAL_SESSION fires next (lock released) → verify succeeds → clears failure
+  //   ... but if SIGNED_IN's failure path RUNS AFTER INITIAL_SESSION's success it
+  //   would re-set the flag.  The counter makes the SIGNED_IN failure stale.
+  const authAttemptRef = useRef(0);
+
+  // Ref mirror of isSessionReady so the stable event-handler closure (useEffect
+  // with [] deps) can read the current value without a stale closure capture.
+  // Updated by a sync useEffect below instead of manually at every setIsSessionReady
+  // call site — React guarantees the effect runs before the next paint.
+  const isSessionReadyRef = useRef(false);
+
   useEffect(() => {
     let mounted = true;
 
@@ -270,6 +290,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             route: window.location.pathname,
           });
           setCachedToken(token, (session as any).expires_at ?? 0);
+          setSessionBootstrapFailed(false);
           setIsSessionReady(true);
           setUser(u);
           setProfileReady(true);
@@ -311,6 +332,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // or setIsLoading(false) while session-check is still in-flight.
         asyncAuthInProgressRef.current = true;
         bootstrapInProgressForUserRef.current = newUserId ?? null;
+        // Increment generation counter BEFORE the IIFE so a concurrent
+        // INITIAL_SESSION can bump it higher.  If INITIAL_SESSION succeeds while
+        // this SIGNED_IN bootstrap is still in-flight, our failure path will see
+        // authAttemptRef.current > myAttemptId and discard the failure.
+        authAttemptRef.current += 1;
+        const myAttemptId = authAttemptRef.current;
+        try { localStorage.setItem("lulou_diag_auth_attempt_id", String(myAttemptId)); } catch {}
         (async () => {
           let deviceId = localStorage.getItem("lulou_device_id") ?? "";
           if (!deviceId) {
@@ -331,9 +359,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           if (!grantedSessionId) {
             bootstrapInProgressForUserRef.current = null;
             asyncAuthInProgressRef.current = false;
+            // Stale-attempt guard: if a NEWER auth flow (e.g. INITIAL_SESSION that
+            // fired concurrently) has already succeeded, its success path will have
+            // called setSessionBootstrapFailed(false).  If we call it true here we'd
+            // undo that success.  Discard stale failures silently.
+            if (authAttemptRef.current !== myAttemptId) {
+              console.warn("[AUTH] SIGNED_IN_BOOTSTRAP_FAILED — STALE, ignored (newer attempt already ran)", {
+                myAttemptId, currentAttempt: authAttemptRef.current, userId: newUserId?.slice(0, 8),
+              });
+              try { localStorage.setItem("lulou_diag_bootstrap_status", `stale-failure-ignored:attempt-${myAttemptId}`); } catch {}
+              try { localStorage.setItem("lulou_diag_ignored_stale_result", "true"); } catch {}
+              return;
+            }
             setSessionBootstrapFailed(true);
             setIsLoading(false);
             try { localStorage.setItem("lulou_diag_bootstrap_status", "failed-SIGNED_IN"); } catch {}
+            try { localStorage.setItem("lulou_diag_ignored_stale_result", "false"); } catch {}
             console.warn("[AUTH] SIGNED_IN_BOOTSTRAP_FAILED — showing retry screen", { userId: newUserId?.slice(0, 8) });
             return;
           }
@@ -378,6 +419,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               }
             }
           }
+          // Clear any stale failure flag set by an earlier auth attempt (e.g. a
+          // SIGNED_IN bootstrap that failed before this SIGNED_IN succeeded).
+          setSessionBootstrapFailed(false);
+          try { localStorage.setItem("lulou_diag_ignored_stale_result", "false"); } catch {}
           setIsSessionReady(true);
           setUser(u);
           setProfileReady(true);
@@ -423,6 +468,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             return;
           }
           localStorage.setItem("lulou_session_id", recoverySessionId);
+          setSessionBootstrapFailed(false);
           setIsSessionReady(true);
           setPasswordRecovery(true);
           setUser(u);
@@ -510,7 +556,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // event for the same user (which fires synchronously right after this
         // handler returns) sees the lock and skips its own bootstrap call.
         bootstrapInProgressForUserRef.current = newUserId ?? null;
-        console.log("[AUTH] INITIAL_SESSION_VERIFY_START", { userId: newUserId?.slice(0, 8) });
+        // Increment BEFORE the IIFE — makes any already-running SIGNED_IN attempt
+        // stale.  SIGNED_IN's failure path will see authAttemptRef.current > its
+        // myAttemptId and discard the failure instead of showing the retry screen.
+        authAttemptRef.current += 1;
+        const myAttemptId = authAttemptRef.current;
+        try { localStorage.setItem("lulou_diag_auth_attempt_id", String(myAttemptId)); } catch {}
+        console.log("[AUTH] INITIAL_SESSION_VERIFY_START", { userId: newUserId?.slice(0, 8), attemptId: myAttemptId });
 
         (async () => {
           const storedSessionId = localStorage.getItem("lulou_session_id") ?? "";
@@ -583,7 +635,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                   } else {
                     bootstrapInProgressForUserRef.current = null;
                     asyncAuthInProgressRef.current = false;
-                    if (mounted) { setSessionBootstrapFailed(true); setIsLoading(false); }
+                    if (mounted) {
+                      if (authAttemptRef.current !== myAttemptId) {
+                        console.warn("[AUTH] INITIAL_SESSION_BOOTSTRAP_FAILED (STALE — ignored)", { myAttemptId, current: authAttemptRef.current });
+                        try { localStorage.setItem("lulou_diag_ignored_stale_result", "true"); } catch {}
+                        return;
+                      }
+                      setSessionBootstrapFailed(true);
+                      setIsLoading(false);
+                    }
                     return;
                   }
                 } else if (d.reason === "session_replaced" || d.reason === "revoked") {
@@ -627,7 +687,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                   } else {
                     bootstrapInProgressForUserRef.current = null;
                     asyncAuthInProgressRef.current = false;
-                    if (mounted) { setSessionBootstrapFailed(true); setIsLoading(false); }
+                    if (mounted) {
+                      if (authAttemptRef.current !== myAttemptId) {
+                        console.warn("[AUTH] INITIAL_SESSION_401_BOOTSTRAP_FAILED (STALE — ignored)", { myAttemptId, current: authAttemptRef.current });
+                        try { localStorage.setItem("lulou_diag_ignored_stale_result", "true"); } catch {}
+                        return;
+                      }
+                      setSessionBootstrapFailed(true);
+                      setIsLoading(false);
+                    }
                     return;
                   }
                 } else if (msg401 === "session_replaced") {
@@ -670,7 +738,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               } else {
                 bootstrapInProgressForUserRef.current = null;
                 asyncAuthInProgressRef.current = false;
-                if (mounted) { setSessionBootstrapFailed(true); setIsLoading(false); }
+                if (mounted) {
+                  if (authAttemptRef.current !== myAttemptId) {
+                    console.warn("[AUTH] INITIAL_SESSION_NO_SID_BOOTSTRAP_FAILED (STALE — ignored)", { myAttemptId, current: authAttemptRef.current });
+                    try { localStorage.setItem("lulou_diag_ignored_stale_result", "true"); } catch {}
+                    return;
+                  }
+                  setSessionBootstrapFailed(true);
+                  setIsLoading(false);
+                }
                 return;
               }
             }
@@ -741,6 +817,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 }
               }
             }
+            // ── CRITICAL FIX: clear any stale bootstrap failure flag ──────────
+            // SIGNED_IN bootstrap may have failed BEFORE this INITIAL_SESSION
+            // attempt ran, leaving sessionBootstrapFailed=true.  Since this
+            // INITIAL_SESSION succeeded, that stale failure must be cleared so
+            // the app can enter normally instead of staying on the retry screen.
+            setSessionBootstrapFailed(false);
+            try { localStorage.setItem("lulou_diag_ignored_stale_result", "false"); } catch {}
+            // Clear any stale failure diagnostic from an earlier auth attempt.
+            // Without this the debug panel shows the old "failed-SIGNED_IN" text
+            // even though the current attempt succeeded.
+            if (bootstrapCalled) {
+              try { localStorage.setItem("lulou_diag_bootstrap_status", `ok-INITIAL_SESSION:${localStorage.getItem("lulou_session_id")?.slice(0, 8) ?? "?"}…`); } catch {}
+            } else {
+              try { localStorage.setItem("lulou_diag_bootstrap_status", `verified-no-bootstrap`); } catch {}
+            }
             setIsSessionReady(true);
             setUser(u);
             setProfileReady(true);
@@ -795,7 +886,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // Mark the session as ready for all non-SIGNED_OUT events.
         // SIGNED_OUT goes through this path too (u === null), and we must
         // NOT set isSessionReady to true on sign-out — logout sets it false.
-        if (event !== "SIGNED_OUT") setIsSessionReady(true);
+        if (event !== "SIGNED_OUT") {
+          // Clear any stale bootstrap failure left by an earlier auth attempt
+          // (e.g. a SIGNED_IN that failed before this TOKEN_REFRESHED arrived).
+          setSessionBootstrapFailed(false);
+          setIsSessionReady(true);
+        }
         setProfileReady(true);
         setIsLoading(false);
         console.log("[AUTH] AUTH_READY", { event, userId: newUserId });
@@ -1132,12 +1228,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  // Keep isSessionReadyRef in sync so stable event-handler closures (useEffect
+  // with [] deps) can read the current value without stale capture.
+  useEffect(() => {
+    isSessionReadyRef.current = isSessionReady;
+  }, [isSessionReady]);
+
   // ── Session bootstrap needed event (from queryClient belt-and-suspenders) ──
   // Fires when a protected query unexpectedly returns 401 invalid_session.
   // Queries should never reach this state if the boot flow is working, but this
   // provides a fallback that shows the retry screen instead of a broken Discover.
   useEffect(() => {
     const handleBootstrapNeeded = () => {
+      // Guard: if the session is already valid (e.g. an INITIAL_SESSION just
+      // succeeded while this stale query was in-flight), do NOT override the
+      // successful auth state with a failure screen.
+      if (isSessionReadyRef.current) {
+        console.warn("[AUTH] lulou:session-bootstrap-needed IGNORED — session is already ready (isSessionReady=true)");
+        return;
+      }
       console.warn("[AUTH] lulou:session-bootstrap-needed received — showing retry screen");
       setSessionBootstrapFailed(true);
     };
