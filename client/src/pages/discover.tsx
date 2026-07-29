@@ -15,7 +15,7 @@ import { apiRequest, batchPrefetchPhotos } from "@/lib/queryClient";
 import { DragScrollRow } from "@/components/drag-scroll-row";
 import { ProfilePhotoViewer } from "@/components/profile-photo-viewer";
 import type { Profile } from "@shared/schema";
-import { MessageCircle, HelpCircle, Send, BadgeCheck, Loader2 } from "lucide-react";
+import { MessageCircle, HelpCircle, Send, BadgeCheck, Loader2, ChevronDown } from "lucide-react";
 import { LulouFlowerIcon } from "@/components/app-layout";
 import { EMPTY_PHOTOS } from "@/lib/image-utils";
 import { ProfileInfoRow } from "@/components/profile-info-row";
@@ -417,6 +417,43 @@ function buildPhotoGroups(sections: ContentSection[], nExtra: number): ContentSe
   return groups;
 }
 
+// ── Collapsible diagnostics panel shown on the Discover error screen ──────────
+// Only visible to developers / testers — shows raw auth + session state so that
+// bfcache / session-race bugs can be diagnosed from a device screenshot.
+function DiscoverDiagPanel({ rows }: { rows: [string, string | null | undefined][] }) {
+  const [open, setOpen] = useState(false);
+  const hasData = rows.some(([, v]) => v != null && v !== "");
+  if (!hasData) return null;
+  return (
+    <div className="mt-2 text-left">
+      <button
+        className="flex items-center gap-1 text-xs text-muted-foreground/60 hover:text-muted-foreground transition-colors mx-auto"
+        onClick={() => setOpen(o => !o)}
+        aria-expanded={open}
+      >
+        <ChevronDown className={`w-3 h-3 transition-transform ${open ? "rotate-180" : ""}`} />
+        Debug info
+      </button>
+      {open && (
+        <div className="mt-2 rounded-md border border-border/40 bg-muted/30 p-3 text-left overflow-x-auto">
+          <table className="text-xs w-full border-collapse">
+            <tbody>
+              {rows.map(([label, value]) =>
+                value != null && value !== "" ? (
+                  <tr key={label} className="align-top">
+                    <td className="pr-3 py-0.5 text-muted-foreground whitespace-nowrap font-medium">{label}</td>
+                    <td className="py-0.5 font-mono break-all text-foreground/80">{value}</td>
+                  </tr>
+                ) : null
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Discover() {
   const { t, language } = useLanguageContext();
   const langCode = LANGUAGE_NAME_TO_CODE[language] ?? "en";
@@ -488,7 +525,7 @@ export default function Discover() {
   const [loadingTooLong, setLoadingTooLong] = useState(false);
   const loadingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const { data: profilesData, isLoading, isFetching, isError: isDiscoverError, refetch } = useQuery<Profile[]>({
+  const { data: profilesData, isLoading, isFetching, isError: isDiscoverError, error: discoverError, refetch } = useQuery<Profile[]>({
     queryKey: ["/api/discover"],
     staleTime: Infinity, // only refetch on explicit demand
   });
@@ -865,9 +902,39 @@ export default function Discover() {
   }
 
   if (isDiscoverError && accumulatedProfiles.length === 0) {
+    // Collect diagnostics at render time (all reads are synchronous / cheap).
+    const _diagRaw = (() => { try { return sessionStorage.getItem("lulou_diag_discover_error"); } catch { return null; } })();
+    const _diagFetch = _diagRaw ? (() => { try { return JSON.parse(_diagRaw); } catch { return null; } })() : null;
+    const _lastAuthEvent = (() => { try { return localStorage.getItem("lulou_diag_last_auth_event"); } catch { return null; } })();
+    const _storedSidRaw = (() => { try { return localStorage.getItem("lulou_session_id"); } catch { return null; } })();
+    const _storedSidPrefix = _storedSidRaw ? _storedSidRaw.slice(0, 8) + "…" : "(none)";
+    const _verifyResult = (() => { try { return localStorage.getItem("lulou_diag_verify_result"); } catch { return null; } })();
+    const _bootstrapStatus = (() => { try { return localStorage.getItem("lulou_diag_bootstrap_status"); } catch { return null; } })();
+    const _commitHash = (() => { try { return typeof __COMMIT_HASH__ !== "undefined" ? __COMMIT_HASH__ : "(unknown)"; } catch { return "(unknown)"; } })();
+    const _errorMsg = discoverError instanceof Error ? discoverError.message : String(discoverError ?? "");
+
+    const diagRows: [string, string | null | undefined][] = [
+      ["Commit", _commitHash],
+      ["Last auth event", _lastAuthEvent],
+      ["Stored session prefix", _storedSidPrefix],
+      ["Session verify", _verifyResult],
+      ["Bootstrap status", _bootstrapStatus],
+      ["Query error", _errorMsg || null],
+      ...((_diagFetch ? [
+        ["Fetch HTTP status", String(_diagFetch.httpStatus ?? "?")],
+        ["Server message", _diagFetch.serverMessage],
+        ["Server reason", _diagFetch.serverReason],
+        ["Sent session prefix", _diagFetch.sentSessionIdPrefix],
+        ["Current session prefix (post)", _diagFetch.currentSessionIdPrefix],
+        ["Was stale request", _diagFetch.isStaleRequest != null ? String(_diagFetch.isStaleRequest) : null],
+        ["Fetch URL", _diagFetch.url],
+        ["Diag timestamp", _diagFetch.ts ? new Date(_diagFetch.ts).toISOString() : null],
+      ] : []) as [string, string | null][]),
+    ];
+
     return (
       <div className="flex-1 flex items-center justify-center p-6">
-        <div className="text-center space-y-4 max-w-sm">
+        <div className="text-center space-y-4 max-w-sm w-full">
           <div className="w-16 h-16 rounded-full bg-destructive/10 flex items-center justify-center mx-auto">
             <LulouFlowerIcon className="w-8 h-8 text-primary/60" />
           </div>
@@ -880,6 +947,8 @@ export default function Discover() {
           >
             {t("try_again")}
           </button>
+          {/* ── Collapsible diagnostics panel ── */}
+          <DiscoverDiagPanel rows={diagRows} />
         </div>
       </div>
     );

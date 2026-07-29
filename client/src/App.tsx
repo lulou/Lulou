@@ -2362,7 +2362,7 @@ function AppContent() {
     return <LegalComponent />;
   }
 
-  const { user, isLoading: authLoading, profileReady, clearingCache, logout, passwordRecovery, clearPasswordRecovery, sessionBootstrapFailed, retrySessionBootstrap } = useAuth();
+  const { user, isLoading: authLoading, profileReady, clearingCache, logout, passwordRecovery, clearPasswordRecovery, sessionBootstrapFailed, retrySessionBootstrap, isSessionReady } = useAuth();
 
   // ── Push subscription auto-reregistration ────────────────────────────────
   // Fires once per login session (when user id becomes available).
@@ -2549,8 +2549,13 @@ function AppContent() {
   // staleTime:Infinity data is already present (fires at most once per login).
   // NOTE: /api/profile is intentionally omitted — checkProfileExists() fetches
   // /api/profile and seeds that cache entry, so no second round trip is needed.
+  //
+  // isSessionReady gates the prefetch so we never fire with a stale session ID.
+  // On bfcache restore, INITIAL_SESSION sets isSessionReady=false while it
+  // re-verifies, then sets it back to true — this dep change triggers a fresh
+  // prefetch with the new session ID.
   useEffect(() => {
-    if (!user || !profileReady || clearingCache) return;
+    if (!user || !profileReady || clearingCache || !isSessionReady) return;
     queryClient.prefetchQuery({ queryKey: ["/api/discover"] });
     queryClient.prefetchQuery({ queryKey: ["/api/matches"] });
     queryClient.prefetchQuery({ queryKey: ["/api/who-liked-you"] });
@@ -2559,7 +2564,7 @@ function AppContent() {
     queryClient.prefetchQuery({ queryKey: ["/api/popular"] });
     queryClient.prefetchQuery({ queryKey: ["/api/spin-status"] });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.id, profileReady, clearingCache]);
+  }, [user?.id, profileReady, clearingCache, isSessionReady]);
 
   // ── Spinner timeout safeguard ────────────────────────────────────────────────
   // If the spinner has been visible for longer than SPINNER_TIMEOUT_MS, stop it

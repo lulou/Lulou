@@ -46,6 +46,11 @@ type AuthContextType = {
   // Protected queries remain blocked until bootstrap succeeds.
   sessionBootstrapFailed: boolean;
   retrySessionBootstrap: () => Promise<void>;
+  // True once INITIAL_SESSION verify/bootstrap (or SIGNED_IN/PASSWORD_RECOVERY
+  // bootstrap) has completed successfully.  The prefetch effect and any
+  // session-gated query should wait for this before firing to avoid sending
+  // stale session IDs and triggering false invalid_session errors.
+  isSessionReady: boolean;
 };
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -82,6 +87,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [profileReady, setProfileReady] = useState(false);
   const [passwordRecovery, setPasswordRecovery] = useState(false);
   const [sessionBootstrapFailed, setSessionBootstrapFailed] = useState(false);
+  // True once the current auth event's verify/bootstrap has completed, meaning
+  // the lulou_session_id in localStorage is fresh and protected queries may fire.
+  const [isSessionReady, setIsSessionReady] = useState(false);
   // When true, the query cache is being cleared after an account change.
   // AppContent must not start the profile-exists-check query until this is false,
   // otherwise queryClient.clear() fires mid-flight and resets the in-progress
@@ -262,6 +270,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             route: window.location.pathname,
           });
           setCachedToken(token, (session as any).expires_at ?? 0);
+          setIsSessionReady(true);
           setUser(u);
           setProfileReady(true);
           setIsLoading(false);
@@ -358,6 +367,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           });
           bootstrapInProgressForUserRef.current = null;
           asyncAuthInProgressRef.current = false;
+          // After storing the new session ID (line above), reset any protected
+          // queries that may have fired with the old ID during bootstrap, so
+          // they refetch cleanly once the component mounts.
+          {
+            const _PROTECTED_KEYS = [["/api/discover"], ["/api/matches"], ["/api/who-liked-you"]];
+            for (const _k of _PROTECTED_KEYS) {
+              if (queryClient.getQueryState(_k)?.status === "error") {
+                queryClient.resetQueries({ queryKey: _k });
+              }
+            }
+          }
+          setIsSessionReady(true);
           setUser(u);
           setProfileReady(true);
           setIsLoading(false);
@@ -402,6 +423,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             return;
           }
           localStorage.setItem("lulou_session_id", recoverySessionId);
+          setIsSessionReady(true);
           setPasswordRecovery(true);
           setUser(u);
           setProfileReady(true);
@@ -476,6 +498,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (event === "INITIAL_SESSION" && u && session?.access_token) {
         const token = session.access_token;
         setIsLoading(true);
+        // Block protected queries while we re-verify the session ID.  Any
+        // queries that fire with the old ID before this completes will get
+        // invalid_session from the server; the stale-request guard in
+        // getQueryFn suppresses the retry screen for those but we still want
+        // to prevent the queries from firing if possible.
+        setIsSessionReady(false);
         asyncAuthInProgressRef.current = true;
         try { localStorage.setItem("lulou_diag_last_auth_event", `INITIAL_SESSION:${newUserId?.slice(0, 8) ?? "?"}`); } catch {}
         // Set SYNCHRONOUSLY before the async IIFE so a concurrent SIGNED_IN
@@ -703,6 +731,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 console.warn("[AUTH] INITIAL_SESSION_CALL_SWEEP_FAILED (non-fatal)", { error: String(e) });
               });
             }
+            // Reset any protected queries that may have errored during the verify/
+            // bootstrap window with a stale session ID so they refetch cleanly.
+            {
+              const _PROTECTED_KEYS = [["/api/discover"], ["/api/matches"], ["/api/who-liked-you"]];
+              for (const _k of _PROTECTED_KEYS) {
+                if (queryClient.getQueryState(_k)?.status === "error") {
+                  queryClient.resetQueries({ queryKey: _k });
+                }
+              }
+            }
+            setIsSessionReady(true);
             setUser(u);
             setProfileReady(true);
             setIsLoading(false);
@@ -753,6 +792,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(u);
 
       if (mounted) {
+        // Mark the session as ready for all non-SIGNED_OUT events.
+        // SIGNED_OUT goes through this path too (u === null), and we must
+        // NOT set isSessionReady to true on sign-out — logout sets it false.
+        if (event !== "SIGNED_OUT") setIsSessionReady(true);
         setProfileReady(true);
         setIsLoading(false);
         console.log("[AUTH] AUTH_READY", { event, userId: newUserId });
@@ -775,6 +818,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (loggingOutRef.current) return;
     loggingOutRef.current = true;
     setIsLoggingOut(true);
+    setIsSessionReady(false);
     console.log("[LOGOUT_FIX] first click received");
 
     // ── Hard guards: stop audio + clear call arming state FIRST ──────────────
@@ -1061,7 +1105,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       asyncAuthInProgressRef.current = false;
       if (sessionId) {
         localStorage.setItem("lulou_session_id", sessionId);
+        // After retrying bootstrap, reset any protected queries still in error
+        // state so they refetch with the new session ID on next mount.
+        {
+          const _PROTECTED_KEYS = [["/api/discover"], ["/api/matches"], ["/api/who-liked-you"]];
+          for (const _k of _PROTECTED_KEYS) {
+            queryClient.resetQueries({ queryKey: _k });
+          }
+        }
         setLoginTime(Date.now());
+        setIsSessionReady(true);
         setUser(session.user as User);
         setProfileReady(true);
         setIsLoading(false);
@@ -1105,6 +1158,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     clearPasswordRecovery,
     sessionBootstrapFailed,
     retrySessionBootstrap,
+    isSessionReady,
   };
 
   return createElement(AuthContext.Provider, { value }, children);

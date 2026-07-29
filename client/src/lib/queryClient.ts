@@ -413,19 +413,58 @@ export const getQueryFn: <T>(options: {
       }
 
       if (body?.message === "invalid_session") {
-        // A protected query returned 401 invalid_session — the application
-        // session is missing or expired.  Queries must not bypass the session
-        // gate, so signal the auth layer to show the Retry / Sign out screen.
-        // This should only be reached if the boot flow has a race or bug;
-        // the normal path blocks all queries until bootstrap completes.
-        const _diagSessionId = getAppSessionId();
+        // A protected query returned 401 invalid_session.
+        //
+        // STALE-REQUEST GUARD: if bootstrap ran while this query was in-flight,
+        // the sessionId captured before the fetch will differ from what is now
+        // in localStorage.  That means THIS device bootstrapped mid-flight and
+        // the server correctly rejected the old ID.  Dispatching
+        // lulou:session-bootstrap-needed in that case would trigger a spurious
+        // retry screen even though bootstrap already succeeded.  Instead, let
+        // React Query retry silently with the new session ID.
+        const currentSessionId = getAppSessionId();
+        const isStaleRequest =
+          // Old session ID was non-empty and has changed (bootstrap stored new one)
+          (!!sessionId && sessionId !== currentSessionId) ||
+          // OR no session ID at all was sent (empty string means bootstrap was
+          // still in-flight when we captured it)
+          (!sessionId && !!currentSessionId);
+
+        // Capture rich diagnostics to sessionStorage for the Discover error panel,
+        // regardless of whether this is stale.  The panel reads these on render.
+        const _diagKey = url.includes("/discover") ? "lulou_diag_discover_error" : null;
+        if (_diagKey) {
+          try {
+            sessionStorage.setItem(_diagKey, JSON.stringify({
+              ts: Date.now(),
+              url,
+              httpStatus: 401,
+              serverMessage: body?.message,
+              serverReason: body?.reason,
+              sentSessionIdPrefix: sessionId ? sessionId.slice(0, 8) + "…" : "(none)",
+              currentSessionIdPrefix: currentSessionId ? currentSessionId.slice(0, 8) + "…" : "(none)",
+              isStaleRequest,
+              lastAuthEvent: (() => { try { return localStorage.getItem("lulou_diag_last_auth_event"); } catch { return null; } })(),
+              bootstrapStatus: (() => { try { return localStorage.getItem("lulou_diag_bootstrap_status"); } catch { return null; } })(),
+              verifyResult: (() => { try { return localStorage.getItem("lulou_diag_verify_result"); } catch { return null; } })(),
+            }));
+          } catch {}
+        }
+
         console.warn(`[SESSION] invalid_session on query ${url}`, {
-          hasSessionId: !!_diagSessionId,
-          sessionIdPrefix: _diagSessionId ? _diagSessionId.slice(0, 8) + "…" : "(none)",
+          isStaleRequest,
+          sentPrefix: sessionId ? sessionId.slice(0, 8) + "…" : "(none)",
+          currentPrefix: currentSessionId ? currentSessionId.slice(0, 8) + "…" : "(none)",
           serverReason: body?.reason,
         });
-        if (typeof window !== "undefined") {
-          window.dispatchEvent(new CustomEvent("lulou:session-bootstrap-needed"));
+
+        if (!isStaleRequest) {
+          // Genuine invalid session — signal auth layer to show Retry screen.
+          if (typeof window !== "undefined") {
+            window.dispatchEvent(new CustomEvent("lulou:session-bootstrap-needed"));
+          }
+        } else {
+          console.warn(`[SESSION] invalid_session on STALE query — suppressed bootstrap-needed event; React Query will retry with new session ID`, { url });
         }
         if (unauthorizedBehavior === "returnNull") return null as any;
         throw new Error("invalid_session");
