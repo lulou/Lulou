@@ -1,0 +1,70 @@
+Fix the stale sessionBootstrapFailed race shown by this production diagnostic.
+
+Exact evidence:
+
+authEvent: INITIAL_SESSION
+sessionIdPrefix: (none)
+verifyResult: ok:true:none
+bootstrap: failed-SIGNED_IN
+forcedLogout: (none)
+verifyEnd: {"verified":true,"verifyFailReason":null,"bootstrapCalled":false,"finalLogoutReason":null}
+
+The app is showing “Session verification failed” even though INITIAL_SESSION finished with verified:true.
+
+Root cause to investigate:
+A SIGNED_IN bootstrap attempt fails and sets sessionBootstrapFailed=true. Then INITIAL_SESSION succeeds, but the success path does not clear the stale failure flag. App.tsx continues rendering the failure screen from the earlier auth event.
+
+Required fix:
+
+1. Treat auth bootstrap/verification as one serialised state machine per user.
+2. A successful current auth flow must always clear:
+  - sessionBootstrapFailed
+  - stale bootstrap error/reason
+  - reconnect-screen state
+3. Ignore failure results from an older auth attempt if a newer attempt has already succeeded.
+4. Add an auth attempt ID / generation counter:
+  - increment for each SIGNED_IN or INITIAL_SESSION flow
+  - only the latest attempt may update user, loading or failure state
+5. Deduplicate SIGNED_IN and INITIAL_SESSION for the same user.
+6. Do not let SIGNED_IN bootstrap run when INITIAL_SESSION is already verifying or restoring that same user.
+7. If no lulou_session_id exists:
+  - do not report verifyResult ok:true unless the server genuinely verified an app session
+  - bootstrap once, store the session ID, then mark the session ready
+8. On every successful verify/bootstrap:
+  - setSessionBootstrapFailed(false)
+  - clear bootstrap failure diagnostics
+  - set isSessionReady=true
+  - expose the user
+9. On genuine failure:
+  - only the latest active attempt may show the Retry screen
+10. Pressing Retry must clear stale failure state before starting the new attempt.
+
+Also correct the diagnostics so they report one coherent flow:
+- authAttemptId
+- activeAuthEvent
+- verifyCalled
+- bootstrapCalled
+- bootstrapStatus
+- sessionIdStored
+- finalState
+- ignoredStaleResult=true/false
+
+Test on iPhone:
+
+1. Sign in.
+2. Swipe Lulou away and reopen 10 times.
+3. Confirm no Session verification failed screen.
+4. Refresh repeatedly.
+5. Background for over 15 minutes and reopen.
+6. Confirm a successful INITIAL_SESSION clears any earlier SIGNED_IN failure.
+7. Confirm only a genuine latest-attempt failure shows Retry.
+8. Confirm genuine second-device replacement still signs out the first device.
+
+Report:
+- exact stale state branch
+- files changed
+- commit hash
+- Railway and Vercel deployed commit
+- real PASS/FAIL result
+
+Do not mark complete based only on verifyResult=true; prove the failure screen is cleared after the successful auth attempt.
