@@ -463,11 +463,16 @@ export const getQueryFn: <T>(options: {
           if (typeof window !== "undefined") {
             window.dispatchEvent(new CustomEvent("lulou:session-bootstrap-needed"));
           }
-        } else {
-          console.warn(`[SESSION] invalid_session on STALE query — suppressed bootstrap-needed event; React Query will retry with new session ID`, { url });
+          if (unauthorizedBehavior === "returnNull") return null as any;
+          throw new Error("invalid_session");
         }
+        // Stale request: bootstrap completed while this request was in-flight.
+        // Throw a distinct error code so the retryDelay function returns 0 —
+        // React Query will re-run getQueryFn immediately with the fresh session
+        // ID already in localStorage (no 2 s wait, no retry screen, no logout).
+        console.warn(`[SESSION] invalid_session on STALE query — retrying immediately with fresh session ID`, { url });
         if (unauthorizedBehavior === "returnNull") return null as any;
-        throw new Error("invalid_session");
+        throw new Error("invalid_session_stale");
       }
 
       console.warn(`[QUERY_FETCH] 401 Unauthorized for ${url}`, body);
@@ -534,7 +539,12 @@ export const queryClient = new QueryClient({
       refetchOnWindowFocus: false,
       staleTime: Infinity,
       retry: 1,
-      retryDelay: 2000,
+      // Stale invalid_session (bootstrap ran mid-flight): retry immediately so
+      // the user never sees a 2 s delay — the fresh session ID is already in
+      // localStorage by the time this fires.  All other errors keep the 2 s gap
+      // to avoid hammering a server that is genuinely struggling.
+      retryDelay: (_: number, error: unknown) =>
+        error instanceof Error && error.message === "invalid_session_stale" ? 0 : 2000,
     },
     mutations: {
       retry: false,

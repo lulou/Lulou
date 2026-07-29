@@ -459,7 +459,7 @@ export default function Discover() {
   const langCode = LANGUAGE_NAME_TO_CODE[language] ?? "en";
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const { user } = useAuth();
+  const { user, retrySessionBootstrap } = useAuth();
 
   // Dev-only page lifecycle instrumentation — no-op in production
   useRenderCount("Discover");
@@ -525,10 +525,29 @@ export default function Discover() {
   const [loadingTooLong, setLoadingTooLong] = useState(false);
   const loadingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const { data: profilesData, isLoading, isFetching, isError: isDiscoverError, error: discoverError, refetch } = useQuery<Profile[]>({
+  const { data: profilesData, isLoading, isPending, isFetching, isError: isDiscoverError, error: discoverError, refetch } = useQuery<Profile[]>({
     queryKey: ["/api/discover"],
     staleTime: Infinity, // only refetch on explicit demand
   });
+
+  // ── "Try again" handler ──────────────────────────────────────────────────────
+  // Requirement: re-verify/bootstrap the session FIRST, then refetch Discover.
+  // This prevents retrying with an expired session ID which would immediately
+  // produce another invalid_session error.
+  // If session verification fails (server outage), retrySessionBootstrap sets
+  // sessionBootstrapFailed=true → App.tsx shows the Retry/Sign-out screen
+  // covering this component.  The user is never automatically signed out.
+  const [isRetrying, setIsRetrying] = useState(false);
+  const handleTryAgain = useCallback(async () => {
+    if (isRetrying) return;
+    setIsRetrying(true);
+    try {
+      await retrySessionBootstrap(); // re-verify + reset errored queries
+      await refetch();               // explicit re-fetch with fresh session ID
+    } finally {
+      setIsRetrying(false);
+    }
+  }, [isRetrying, retrySessionBootstrap, refetch]);
 
   // Perf: fire DATA_RECEIVED once the profile pool arrives
   useEffect(() => {
@@ -862,9 +881,12 @@ export default function Discover() {
     t,
   ]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Show skeleton on initial load OR when pool is empty and more are being fetched
+  // Show skeleton on initial load OR when pool is empty and more are being fetched.
+  // Also covers the brief "pending/idle" window after a query reset (isPending=true
+  // but isLoading=false) — prevents the "all caught up" empty state from flashing
+  // before the new fetch starts.
   const isLoadingMore = isFetching && accumulatedProfiles.length > 0 && visibleProfiles.length === 0;
-  if (isLoading || isLoadingMore) {
+  if (isLoading || isPending || isLoadingMore) {
     if (loadingTooLong) {
       return (
         <div className="flex-1 flex items-center justify-center p-6">
@@ -941,10 +963,12 @@ export default function Discover() {
           <h2 className="font-serif text-xl font-bold" data-testid="text-discover-error">{t("error_load_profiles")}</h2>
           <p className="text-muted-foreground text-sm">{t("something_went_wrong")}</p>
           <button
-            className="px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm font-medium"
-            onClick={() => refetch()}
+            className="px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm font-medium disabled:opacity-60 flex items-center gap-2 mx-auto"
+            onClick={handleTryAgain}
+            disabled={isRetrying}
             data-testid="button-retry-discover"
           >
+            {isRetrying && <Loader2 className="w-4 h-4 animate-spin" />}
             {t("try_again")}
           </button>
           {/* ── Collapsible diagnostics panel ── */}
@@ -954,6 +978,12 @@ export default function Discover() {
     );
   }
 
+  // "All caught up" — only reached when:
+  //   • server returned data (including []) — error state caught above
+  //   • query is not loading or pending — loading/pending caught above
+  //   • profile pool is drained (user dismissed all visible profiles)
+  // The isPending guard in the loading check above prevents this from
+  // flashing during the brief pending/idle window after a query reset.
   if (!displayProfile) {
     return (
       <div className="flex-1 flex items-center justify-center p-6">
