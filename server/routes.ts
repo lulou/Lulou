@@ -1911,7 +1911,55 @@ export async function registerRoutes(
   // Used by the client's profile-exists-check on every app launch.
   // Avoids transferring up to 5 MB of base64 photos just to determine onboarding status.
   // ── Health check ─────────────────────────────────────────────────────────
-  // No auth required — used by startup diagnostics to test Supabase PostgREST.
+  // No auth required — used by startup diagnostics to test Supabase PostgREST
+  // and Railway's local PostgreSQL database.
+  //
+  // db.errorCategory values:
+  //   compute_quota — DB provider has suspended compute (Neon free-tier quota)
+  //   auth          — wrong credentials / role not found
+  //   network       — TCP connect failed (ECONNREFUSED / ENOTFOUND / timeout)
+  //   schema        — missing column or table (42703 / 42P01)
+  //   unknown       — anything else
+  function classifyDbError(err: any): string {
+    const msg: string = (err?.message ?? err?.toString() ?? "").toLowerCase();
+    const code: string = err?.code ?? "";
+    // Neon / Supabase compute-quota suspension
+    if (msg.includes("compute time quota") || msg.includes("compute quota") ||
+        msg.includes("quota exceeded") || msg.includes("project is paused") ||
+        msg.includes("project paused") || msg.includes("suspended") ||
+        code === "57P03" /* cannot_connect_now */) {
+      return "compute_quota";
+    }
+    // Authentication / role problems
+    if (code === "28000" || code === "28P01" || msg.includes("password authentication failed") ||
+        msg.includes("role") && msg.includes("does not exist")) {
+      return "auth";
+    }
+    // Network-level failures
+    if (msg.includes("econnrefused") || msg.includes("enotfound") ||
+        msg.includes("etimedout") || msg.includes("econnreset") ||
+        msg.includes("ehostunreach") || msg.includes("timeout") ||
+        msg.includes("connect failed")) {
+      return "network";
+    }
+    // Schema problems
+    if (code === "42703" /* undefined_column */ || code === "42P01" /* undefined_table */ ||
+        code === "42601" /* syntax_error */) {
+      return "schema";
+    }
+    return "unknown";
+  }
+
+  // Safe hostname-only fingerprint — no user, password, or database name.
+  function dbHostFingerprint(): string {
+    try {
+      const url = new URL(process.env.DATABASE_URL ?? "");
+      return url.hostname;          // e.g. "ep-xyz.us-east-2.aws.neon.tech"
+    } catch {
+      return "unparseable";
+    }
+  }
+
   app.get("/api/health", async (_req, res) => {
     const t0 = Date.now();
     const results: Record<string, unknown> = {
@@ -1922,6 +1970,9 @@ export async function registerRoutes(
       appVersion:  APP_VERSION,
       startedAt:   SERVER_START_TIME.toISOString(),
     };
+
+    // ── Supabase PostgREST probe ──────────────────────────────────────────────
+    const t1 = Date.now();
     try {
       const { error } = await Promise.race<any>([
         supabaseAdmin.from("profiles").select("user_id").limit(1),
@@ -1929,10 +1980,46 @@ export async function registerRoutes(
           setTimeout(() => reject(new Error("SUPABASE_TIMEOUT_2S")), 2000)
         ),
       ]);
-      results.supabase = { ok: !error, ms: Date.now() - t0, error: error?.message ?? null };
+      results.supabase = { ok: !error, ms: Date.now() - t1, error: error?.message ?? null };
     } catch (err: any) {
-      results.supabase = { ok: false, ms: Date.now() - t0, error: err.message };
+      results.supabase = { ok: false, ms: Date.now() - t1, error: err.message };
     }
+
+    // ── Local PostgreSQL (Railway DATABASE_URL) probe ─────────────────────────
+    // Runs SELECT 1 with a 4-second timeout.  Reports reachable + errorCategory
+    // without exposing credentials or internal connection strings.
+    const t2 = Date.now();
+    try {
+      const { pool: healthPool } = await import("./db");
+      await Promise.race([
+        (healthPool as any).query("SELECT 1 AS ping"),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error("DB_SELECT1_TIMEOUT_4S")), 4000)
+        ),
+      ]);
+      results.db = {
+        reachable:     true,
+        errorCategory: null,
+        errorMessage:  null,
+        dbHost:        dbHostFingerprint(),
+        ms:            Date.now() - t2,
+      };
+    } catch (err: any) {
+      const category = classifyDbError(err);
+      // Omit raw error message in production — it may contain internal details.
+      const safeMsg = process.env.NODE_ENV === "production"
+        ? `[${category}] ${err?.code ?? "no-code"}`
+        : (err?.message ?? String(err));
+      results.db = {
+        reachable:     false,
+        errorCategory: category,
+        errorMessage:  safeMsg,
+        dbHost:        dbHostFingerprint(),
+        ms:            Date.now() - t2,
+      };
+      console.error(`[HEALTH] DB probe failed — category=${category} code=${err?.code ?? "?"} msg=${err?.message}`);
+    }
+
     results.totalMs = Date.now() - t0;
     res.json(results);
   });
