@@ -213,8 +213,9 @@ app.use((req, res, next) => {
 // "connection refused" and report the deployment as failed.
 // Tables already exist on subsequent restarts so this DDL is near-instant then.
 async function initLocalDb() {
+  // Import once at function scope so both try blocks can share the pool.
+  const { pool: localPool } = await import("./db");
   try {
-    const { pool: localPool } = await import("./db");
     await localPool.query(`
       CREATE TABLE IF NOT EXISTS user_benefits (
         id          VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
