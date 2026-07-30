@@ -2767,26 +2767,44 @@ function AppContent() {
   // signs out.  A valid Supabase JWT alone never grants access to protected APIs.
   if (sessionBootstrapFailed) {
     console.log("[SETUP] FINAL_APP_GATE: session_bootstrap_failed — showing retry screen");
-    // Read auth-event diagnostics written by use-auth.ts (safe localStorage keys only).
-    let _authDiag: Record<string, string> = {};
+    // Build comprehensive diagnostic text for the retry screen panel.
+    // All values are safe: localStorage stores prefixes and status codes, never full tokens.
+    let _bootDiag = "";
     try {
-      _authDiag = {
-        lastAuthEvent:    localStorage.getItem("lulou_diag_last_auth_event")   ?? "(none)",
-        sessionIdPrefix:  localStorage.getItem("lulou_diag_verify_sid_prefix") ?? "(none)",
-        verifyResult:     localStorage.getItem("lulou_diag_verify_result")     ?? "(none)",
-        bootstrapStatus:  localStorage.getItem("lulou_diag_bootstrap_status")  ?? "(none)",
-        forcedLogout:     sessionStorage.getItem("lulou_forced_logout")        ?? "(none)",
-        verifyEndJson:    localStorage.getItem("lulou_diag_verify_end")        ?? "(none)",
-      };
+      const _lg = (k: string) => { try { return localStorage.getItem(k) ?? "(none)"; } catch { return "(err)"; } };
+      const _ss = (k: string) => { try { return sessionStorage.getItem(k) ?? "(none)"; } catch { return "(err)"; } };
+      const _sidNow = (() => { try { const s = localStorage.getItem("lulou_session_id"); return s ? s.slice(0, 8) + "…" : "(none)"; } catch { return "(err)"; } })();
+      _bootDiag = [
+        `[SESSION_BOOTSTRAP_FAILURE]`,
+        `appCommit=${__COMMIT_HASH__}`,
+        `authAttemptId=${_lg("lulou_diag_auth_attempt_id")}`,
+        `authEvent=${_lg("lulou_diag_last_auth_event")}`,
+        `[JWT]`,
+        `jwtExp=${_lg("lulou_diag_jwt_exp")}`,
+        `jwtSub=${_lg("lulou_diag_jwt_sub")}`,
+        `[VERIFY]`,
+        `storedSidAtVerify=${_lg("lulou_diag_verify_sid_prefix")}`,
+        `verifyResult=${_lg("lulou_diag_verify_result")}`,
+        `verifyEnd=${_lg("lulou_diag_verify_end")}`,
+        `[BOOTSTRAP]`,
+        `bootstrapCaller=${_lg("lulou_diag_bootstrap_caller")}`,
+        `bootstrapStatus=${_lg("lulou_diag_bootstrap_status")}`,
+        `bootstrapHttp=${_lg("lulou_diag_bootstrap_http")}`,
+        `bootstrapBody=${_lg("lulou_diag_bootstrap_body")}`,
+        `[FAILURE]`,
+        `failureBranch=${_lg("lulou_diag_failure_branch")}`,
+        `ignoredStale=${_lg("lulou_diag_ignored_stale_result")}`,
+        `[SESSION_STATE]`,
+        `currentSidPrefix=${_sidNow}`,
+        `forcedLogout=${_ss("lulou_forced_logout")}`,
+        `[RETRY_ATTEMPT]`,
+        `retryStart=${_lg("lulou_diag_retry_start")}`,
+        `retryJwtExp=${_lg("lulou_diag_retry_jwt_exp")}`,
+        `retryHasSid=${_lg("lulou_diag_retry_has_sid")}`,
+        `retryVerify=${_lg("lulou_diag_retry_verify")}`,
+        `retryOutcome=${_lg("lulou_diag_retry_outcome")}`,
+      ].join("\n");
     } catch {}
-    const diagLines = [
-      `authEvent: ${_authDiag.lastAuthEvent}`,
-      `sessionIdPrefix: ${_authDiag.sessionIdPrefix}`,
-      `verifyResult: ${_authDiag.verifyResult}`,
-      `bootstrap: ${_authDiag.bootstrapStatus}`,
-      `forcedLogout: ${_authDiag.forcedLogout}`,
-      `verifyEnd: ${_authDiag.verifyEndJson}`,
-    ];
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-5 max-w-sm px-6 text-center">
@@ -2813,15 +2831,8 @@ function AppContent() {
               Sign out
             </button>
           </div>
-          {/* Auth diagnostics — always shown so DevTools are not needed on iPhone */}
-          <details className="w-full text-left" open={false}>
-            <summary className="text-xs text-muted-foreground/60 cursor-pointer select-none">
-              Debug info
-            </summary>
-            <pre className="mt-2 text-[10px] text-muted-foreground/70 font-mono bg-muted/40 rounded-lg p-3 whitespace-pre-wrap break-all leading-relaxed">
-              {diagLines.join("\n")}
-            </pre>
-          </details>
+          {/* Comprehensive diagnostics — always visible, copyable on iOS — no DevTools needed */}
+          {_bootDiag && <DiagPanelInner lines={_bootDiag} />}
         </div>
       </div>
     );

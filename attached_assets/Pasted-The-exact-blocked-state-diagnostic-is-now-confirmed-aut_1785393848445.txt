@@ -1,0 +1,78 @@
+The exact blocked-state diagnostic is now confirmed:
+
+authEvent: SIGNED_IN
+sessionIdPrefix: (none)
+verifyResult: ok:true:none
+bootstrap: failed-SIGNED_IN
+forcedLogout: (none)
+verifyEnd: {"verified":true,"verifyFailReason":null,"bootstrapCalled":false,"finalLogoutReason":null}
+
+The app is incorrectly ending in verified:true even though:
+- no lulou_session_id exists
+- SIGNED_IN bootstrap failed
+- the failure screen remains visible
+
+Fix this state-machine contradiction.
+
+Required rules:
+
+1. A Supabase JWT alone is not enough to set isSessionReady=true.
+2. The app may only become ready when one of these is true:
+  - session-verify succeeds using a real stored lulou_session_id
+  - session-bootstrap succeeds and returns a new sessionId that is stored
+3. If sessionIdPrefix is none:
+  - do not call session-verify as if an app session exists
+  - call session-bootstrap exactly once
+4. If bootstrap fails:
+  - final state must be failure/retry
+  - do not record verified:true
+  - do not expose the user to protected pages
+5. If bootstrap succeeds:
+  - store lulou_session_id first
+  - confirm it is present
+  - clear sessionBootstrapFailed
+  - set isSessionReady=true
+  - leave the failure screen immediately
+6. Remove any path where:
+  verified=true + sessionId missing
+7. SIGNED_IN and INITIAL_SESSION must share one serialised recovery promise for the same user, not run separate competing flows.
+8. Retry must:
+  - clear stale failure state
+  - re-read the Supabase session
+  - bootstrap if session ID is missing
+  - verify if session ID exists
+  - only finish when a valid session ID is stored
+
+Add coherent diagnostics:
+- authAttemptId
+- event
+- jwtPresent
+- storedSessionIdBefore
+- verifyCalled
+- verifyStatus
+- bootstrapCalled
+- bootstrapStatus
+- returnedSessionIdPresent
+- storedSessionIdAfter
+- finalState: ready | retry | replaced
+- exact branch
+
+Test this exact account:
+1. Open the current blocked screen.
+2. Press Retry.
+3. Confirm bootstrap returns 200.
+4. Confirm lulou_session_id is stored.
+5. Confirm the failure screen disappears.
+6. Confirm Discover loads.
+7. Reopen the app 10 times.
+8. Confirm no ready state is ever reached with sessionId missing.
+
+Report:
+- exact branch that produced verified:true with no session ID
+- files changed
+- commit hash
+- Railway deployed commit
+- Vercel deployed commit
+- real iPhone PASS/FAIL
+
+Do not mark complete until this exact blocked account can press Retry and enter Lulou without signing out.

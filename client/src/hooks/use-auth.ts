@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, createContext, useContext, createElement } from "react";
+import { useState, useEffect, useLayoutEffect, useCallback, useRef, createContext, useContext, createElement } from "react";
 import type { ReactNode } from "react";
 import { supabase } from "@/lib/supabase";
 import { setCachedToken, queryClient, API_BASE } from "@/lib/queryClient";
@@ -59,24 +59,38 @@ const AuthContext = createContext<AuthContextType | null>(null);
 // Calls POST /api/auth/session-bootstrap — exempt from the X-Session-Id gate.
 // Returns the new sessionId on success, null on failure.
 // Intentionally fail-CLOSED: null means "show retry screen", never "proceed anyway".
-async function callSessionBootstrap(token: string, deviceId: string): Promise<string | null> {
+// caller is a short tag for diagnostics (e.g. "SIGNED_IN", "INITIAL_SESSION", "retry").
+async function callSessionBootstrap(token: string, deviceId: string, caller = ""): Promise<string | null> {
   try {
-    console.log("[AUTH] SESSION_BOOTSTRAP_START");
+    console.log("[AUTH] SESSION_BOOTSTRAP_START", { caller });
+    // Write "pending" immediately so the panel shows something even if we never get a response.
+    try { localStorage.setItem("lulou_diag_bootstrap_http", "pending"); } catch {}
+    try { localStorage.setItem("lulou_diag_bootstrap_body", ""); } catch {}
+    try { localStorage.setItem("lulou_diag_bootstrap_caller", caller); } catch {}
     const r = await fetch(`${API_BASE}/api/auth/session-bootstrap`, {
       method: "POST",
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
       body: JSON.stringify({ deviceId, userAgent: navigator.userAgent }),
     });
+    // Always write the HTTP status — visible on the retry screen even if body read fails.
+    try { localStorage.setItem("lulou_diag_bootstrap_http", String(r.status)); } catch {}
     if (r.ok) {
       const d = await r.json();
       const sid = typeof d.sessionId === "string" ? d.sessionId : null;
-      console.log("[AUTH] SESSION_BOOTSTRAP_OK", { sessionId: (sid ?? "").slice(0, 8) + "…" });
+      try { localStorage.setItem("lulou_diag_bootstrap_body", sid ? `ok:${sid.slice(0, 8)}…` : "ok:no-session-id-in-response"); } catch {}
+      console.log("[AUTH] SESSION_BOOTSTRAP_OK", { sessionId: (sid ?? "").slice(0, 8) + "…", caller });
       return sid;
     }
-    console.warn("[AUTH] SESSION_BOOTSTRAP_FAILED", { status: r.status });
+    // Non-2xx: read the body so we know whether it's a 401 (bad JWT), 500 (DB error), etc.
+    let errBody = "";
+    try { errBody = await r.text(); } catch {}
+    try { localStorage.setItem("lulou_diag_bootstrap_body", errBody.slice(0, 120)); } catch {}
+    console.warn("[AUTH] SESSION_BOOTSTRAP_FAILED", { status: r.status, body: errBody.slice(0, 120), caller });
     return null;
   } catch (e) {
-    console.warn("[AUTH] SESSION_BOOTSTRAP_NETWORK_ERROR", { error: String(e) });
+    try { localStorage.setItem("lulou_diag_bootstrap_http", "network-error"); } catch {}
+    try { localStorage.setItem("lulou_diag_bootstrap_body", String(e).slice(0, 120)); } catch {}
+    console.warn("[AUTH] SESSION_BOOTSTRAP_NETWORK_ERROR", { error: String(e), caller });
     return null;
   }
 }
@@ -581,6 +595,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             storedSessionIdPrefix: storedSessionId ? storedSessionId.slice(0, 8) + "…" : "(none)",
             userId: newUserId?.slice(0, 8),
           });
+          // JWT expiry — needed to diagnose "bootstrap returns 401" for expired tokens.
+          // atob with URL-safe base64 padding for Firefox and WebKit compatibility.
+          try {
+            const _tp = token.split(".");
+            if (_tp.length === 3) {
+              const _pl = JSON.parse(atob(_tp[1].replace(/-/g, "+").replace(/_/g, "/")));
+              localStorage.setItem("lulou_diag_jwt_exp", _pl.exp ? new Date(_pl.exp * 1000).toISOString() : "no-exp");
+              localStorage.setItem("lulou_diag_jwt_sub", (_pl.sub ?? "").slice(0, 8));
+            }
+          } catch {}
 
           try {
             let deviceId = localStorage.getItem("lulou_device_id") ?? "";
@@ -627,7 +651,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                   });
                   bootstrapCalled = true;
                   localStorage.removeItem("lulou_session_id");
-                  const newId = await callSessionBootstrap(token, deviceId);
+                  const newId = await callSessionBootstrap(token, deviceId, `INITIAL_SESSION-verify-${d.reason}`);
                   if (newId) {
                     localStorage.setItem("lulou_session_id", newId);
                     verified = true;
@@ -641,6 +665,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                         try { localStorage.setItem("lulou_diag_ignored_stale_result", "true"); } catch {}
                         return;
                       }
+                      try { localStorage.setItem("lulou_diag_failure_branch", `init-verify-${d.reason ?? "expired"}-bootstrap-fail`); } catch {}
                       setSessionBootstrapFailed(true);
                       setIsLoading(false);
                     }
@@ -679,7 +704,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                   });
                   bootstrapCalled = true;
                   localStorage.removeItem("lulou_session_id");
-                  const newId = await callSessionBootstrap(token, deviceId);
+                  const newId = await callSessionBootstrap(token, deviceId, "INITIAL_SESSION-401-invalid");
                   if (newId) {
                     localStorage.setItem("lulou_session_id", newId);
                     verified = true;
@@ -693,6 +718,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                         try { localStorage.setItem("lulou_diag_ignored_stale_result", "true"); } catch {}
                         return;
                       }
+                      try { localStorage.setItem("lulou_diag_failure_branch", "init-401-invalid-bootstrap-fail"); } catch {}
                       setSessionBootstrapFailed(true);
                       setIsLoading(false);
                     }
@@ -730,7 +756,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               // Fail-CLOSED: if bootstrap fails show Retry / Sign out screen.
               console.warn("[AUTH] INITIAL_SESSION_NO_SESSION_ID — bootstrapping", { userId: newUserId?.slice(0, 8) });
               bootstrapCalled = true;
-              const newId = await callSessionBootstrap(token, deviceId);
+              const newId = await callSessionBootstrap(token, deviceId, "INITIAL_SESSION-no-sid");
               if (newId) {
                 localStorage.removeItem("lulou_session_id");
                 localStorage.setItem("lulou_session_id", newId);
@@ -744,6 +770,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                     try { localStorage.setItem("lulou_diag_ignored_stale_result", "true"); } catch {}
                     return;
                   }
+                  try { localStorage.setItem("lulou_diag_failure_branch", "init-no-sid-bootstrap-fail"); } catch {}
                   setSessionBootstrapFailed(true);
                   setIsLoading(false);
                 }
@@ -1173,64 +1200,157 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   // ── Session bootstrap retry ────────────────────────────────────────────────
-  // Called by the Retry / Sign out screen when the user taps "Retry".
-  // Re-fetches the current Supabase session and calls session-bootstrap again.
-  // Sets sessionBootstrapFailed=true again if it fails a second time.
+  // Called by the "Retry" button on the session-verification-failed screen.
+  //
+  // Recovery strategy (in order):
+  //   1. Concurrency guard — no-op if another auth operation is running.
+  //   2. Get a fresh Supabase session (auto-refreshes JWT if needed).
+  //   3. Verify-FIRST — if there is an existing lulou_session_id, call
+  //      session-verify before touching it.  The failure screen may have
+  //      appeared due to a race (stale SIGNED_IN failure, isSessionReadyRef not
+  //      yet synced when lulou:session-bootstrap-needed fired) while the session
+  //      ID itself is perfectly valid.  If verify returns valid:true, enter the
+  //      app immediately without a new bootstrap.
+  //   4. Bootstrap — only if no session ID exists, or verify returned false.
+  //   5. Success path (verify OR bootstrap): clear failure flag, set isSessionReady,
+  //      expose user, enter app.  Do NOT call Supabase signOut.
   const retrySessionBootstrap = useCallback(async () => {
+    // 1. Concurrency guard
+    if (asyncAuthInProgressRef.current) {
+      console.warn("[AUTH] RETRY_SKIPPED — auth already in progress");
+      return;
+    }
+
     setSessionBootstrapFailed(false);
     setIsLoading(true);
     asyncAuthInProgressRef.current = true;
+
+    // Clear stale retry diagnostics from any previous attempt.
     try {
+      localStorage.removeItem("lulou_diag_retry_verify");
+      localStorage.removeItem("lulou_diag_retry_outcome");
+      localStorage.setItem("lulou_diag_retry_start", new Date().toISOString());
+    } catch {}
+
+    try {
+      // 2. Fresh Supabase session (auto-refreshes JWT)
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.access_token || !session?.user) {
-        // No valid Supabase session — clear state and show landing
         asyncAuthInProgressRef.current = false;
         setIsLoading(false);
         setUser(null);
         setProfileReady(true);
+        try { localStorage.setItem("lulou_diag_retry_outcome", "no-supabase-session→landing"); } catch {}
+        console.warn("[AUTH] RETRY_NO_SUPABASE_SESSION — clearing state, returning to landing");
         return;
       }
+      const retryToken = session.access_token;
+      try {
+        const _ea = (session as any).expires_at;
+        localStorage.setItem("lulou_diag_retry_jwt_exp", _ea ? new Date(_ea * 1000).toISOString() : "no-exp");
+      } catch {}
+
       let deviceId = localStorage.getItem("lulou_device_id") ?? "";
       if (!deviceId) {
         deviceId = typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
           ? crypto.randomUUID() : `${Date.now()}-d`;
         localStorage.setItem("lulou_device_id", deviceId);
       }
-      localStorage.removeItem("lulou_session_id");
-      const sessionId = await callSessionBootstrap(session.access_token, deviceId);
-      asyncAuthInProgressRef.current = false;
-      if (sessionId) {
-        localStorage.setItem("lulou_session_id", sessionId);
-        // After retrying bootstrap, reset any protected queries still in error
-        // state so they refetch with the new session ID on next mount.
-        {
-          const _PROTECTED_KEYS = [["/api/discover"], ["/api/matches"], ["/api/who-liked-you"]];
-          for (const _k of _PROTECTED_KEYS) {
-            queryClient.resetQueries({ queryKey: _k });
+
+      // 3. Verify-first
+      const existingSessionId = localStorage.getItem("lulou_session_id") ?? "";
+      if (existingSessionId) {
+        try { localStorage.setItem("lulou_diag_retry_has_sid", existingSessionId.slice(0, 8) + "…"); } catch {}
+        console.log("[AUTH] RETRY_VERIFY_ATTEMPT", { sessionIdPrefix: existingSessionId.slice(0, 8) + "…" });
+        try {
+          const vr = await fetch(`${API_BASE}/api/auth/session-verify`, {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${retryToken}`,
+              "Content-Type": "application/json",
+              "X-Session-Id": existingSessionId,
+            },
+            body: JSON.stringify({ sessionId: existingSessionId }),
+          });
+          const vd = vr.ok
+            ? await vr.json().catch(() => ({ valid: false, reason: "parse-error" }))
+            : { valid: false, reason: `http-${vr.status}` };
+          try { localStorage.setItem("lulou_diag_retry_verify", `${vr.status}:${vd.valid}:${vd.reason ?? "none"}`); } catch {}
+
+          if (vd.valid === true) {
+            // Session ID is valid — enter the app immediately, no bootstrap needed.
+            try { localStorage.setItem("lulou_diag_retry_outcome", "verify-ok:no-bootstrap-needed"); } catch {}
+            console.log("[AUTH] RETRY_VERIFY_OK — session valid, entering app without bootstrap");
+            asyncAuthInProgressRef.current = false;
+            const _PK = [["/api/discover"], ["/api/matches"], ["/api/who-liked-you"]];
+            for (const _k of _PK) {
+              if (queryClient.getQueryState(_k)?.status === "error") queryClient.resetQueries({ queryKey: _k });
+            }
+            setLoginTime(Date.now());
+            setSessionBootstrapFailed(false);
+            setIsSessionReady(true);
+            setUser(session.user as User);
+            setProfileReady(true);
+            setIsLoading(false);
+            return;
           }
+          // verify returned valid:false — fall through to bootstrap
+          console.warn("[AUTH] RETRY_VERIFY_FALSE — bootstrapping", { reason: vd.reason });
+        } catch (verifyErr) {
+          try { localStorage.setItem("lulou_diag_retry_verify", `network-error:${String(verifyErr).slice(0, 60)}`); } catch {}
+          console.warn("[AUTH] RETRY_VERIFY_NETWORK_ERR — bootstrapping", { error: String(verifyErr) });
         }
+      } else {
+        try { localStorage.setItem("lulou_diag_retry_has_sid", "(none)"); } catch {}
+        console.warn("[AUTH] RETRY_NO_EXISTING_SID — going straight to bootstrap");
+      }
+
+      // 4. Bootstrap (no session ID, or verify returned false)
+      localStorage.removeItem("lulou_session_id");
+      const sessionId = await callSessionBootstrap(retryToken, deviceId, "retry");
+      asyncAuthInProgressRef.current = false;
+
+      if (sessionId) {
+        // 5. Bootstrap success
+        localStorage.setItem("lulou_session_id", sessionId);
+        try { localStorage.setItem("lulou_diag_retry_outcome", `bootstrap-ok:${sessionId.slice(0, 8)}…`); } catch {}
+        const _PK = [["/api/discover"], ["/api/matches"], ["/api/who-liked-you"]];
+        for (const _k of _PK) { queryClient.resetQueries({ queryKey: _k }); }
+        console.log("[AUTH] RETRY_BOOTSTRAP_OK — entering app");
         setLoginTime(Date.now());
+        setSessionBootstrapFailed(false);
         setIsSessionReady(true);
         setUser(session.user as User);
         setProfileReady(true);
         setIsLoading(false);
-        console.log("[AUTH] RETRY_BOOTSTRAP_OK — entering app");
       } else {
+        try { localStorage.setItem("lulou_diag_retry_outcome", "bootstrap-failed"); } catch {}
+        try { localStorage.setItem("lulou_diag_failure_branch", "retry-bootstrap-fail"); } catch {}
         setSessionBootstrapFailed(true);
         setIsLoading(false);
-        console.warn("[AUTH] RETRY_BOOTSTRAP_FAILED — showing retry screen again");
+        console.warn("[AUTH] RETRY_BOOTSTRAP_FAILED — bootstrap returned null, showing retry screen again");
       }
     } catch (e) {
       asyncAuthInProgressRef.current = false;
+      try { localStorage.setItem("lulou_diag_retry_outcome", `exception:${String(e).slice(0, 80)}`); } catch {}
+      try { localStorage.setItem("lulou_diag_failure_branch", "retry-exception"); } catch {}
       setSessionBootstrapFailed(true);
       setIsLoading(false);
       console.warn("[AUTH] RETRY_BOOTSTRAP_ERROR", { error: String(e) });
     }
   }, []);
 
-  // Keep isSessionReadyRef in sync so stable event-handler closures (useEffect
-  // with [] deps) can read the current value without stale capture.
-  useEffect(() => {
+  // Use useLayoutEffect (not useEffect) so isSessionReadyRef.current is updated
+  // synchronously after React's DOM commit — before the browser paint and before
+  // macrotask callbacks (fetch responses) can fire.
+  //
+  // The race this closes: INITIAL_SESSION success calls setIsSessionReady(true).
+  // With useEffect, any fetch callback that arrives between setState and the paint
+  // reads stale isSessionReadyRef.current=false and can dispatch
+  // lulou:session-bootstrap-needed → setSessionBootstrapFailed(true), showing the
+  // retry screen even though the session just became valid.
+  // useLayoutEffect runs synchronously after the commit, before any macrotask.
+  useLayoutEffect(() => {
     isSessionReadyRef.current = isSessionReady;
   }, [isSessionReady]);
 
