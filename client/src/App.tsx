@@ -2364,6 +2364,56 @@ function AppContent() {
 
   const { user, isLoading: authLoading, profileReady, clearingCache, logout, passwordRecovery, clearPasswordRecovery, sessionBootstrapFailed, retrySessionBootstrap, isSessionReady } = useAuth();
 
+  // ── Server bootstrap diagnostic ───────────────────────────────────────────
+  // Fetched from /api/auth/bootstrap-debug when the session-failure screen is
+  // shown.  Populated asynchronously — starts as "" then fills in with the
+  // server-side step/error record so the user can copy the full picture.
+  const [serverBootstrapDiag, setServerBootstrapDiag] = useState<string>("");
+  const _sbDiagFetchedRef = useRef(false);
+  useEffect(() => {
+    if (!sessionBootstrapFailed) { _sbDiagFetchedRef.current = false; return; }
+    if (_sbDiagFetchedRef.current) return;
+    _sbDiagFetchedRef.current = true;
+    setServerBootstrapDiag("[SERVER_BOOTSTRAP]\nfetching…");
+    (async () => {
+      try {
+        const { data: { session: _s } } = await supabase.auth.getSession();
+        const _tok = _s?.access_token;
+        if (!_tok) { setServerBootstrapDiag("[SERVER_BOOTSTRAP]\nno JWT — cannot fetch server diag"); return; }
+        const _r = await fetch(API_BASE + "/api/auth/bootstrap-debug", {
+          headers: { Authorization: `Bearer ${_tok}` },
+        });
+        if (!_r.ok) { setServerBootstrapDiag(`[SERVER_BOOTSTRAP]\nHTTP ${_r.status} from endpoint`); return; }
+        const d = await _r.json() as Record<string, any>;
+        const _lines = [
+          "[SERVER_BOOTSTRAP]",
+          `diagTs=${d.diagTs ?? "(none)"}`,
+          `deployedCommit=${d.deployedCommit ?? "(none)"}`,
+          `activeSessionsColumns=${(d.activeSessionsColumns as string[] | null)?.join(",") ?? "(none)"}`,
+          `revokedColumnsPresent=${d.revokedColumnsPresent ?? "(none)"}`,
+          `databaseFingerprintSafe=${d.databaseFingerprintSafe ?? "(none)"}`,
+          `lastBootstrapStep=${d.lastBootstrapStep ?? "(none)"}`,
+          `existingRowFound=${d.existingRowFound ?? "(none)"}`,
+          `oldSessionPrefix=${d.oldSessionPrefix ?? "(none)"}`,
+          `newSessionPrefix=${d.newSessionPrefix ?? "(none)"}`,
+          `success=${d.success ?? "(none)"}`,
+          ...(d.postgresError ? [
+            `error.message=${d.postgresError.message ?? "(none)"}`,
+            `error.code=${d.postgresError.code ?? "(none)"}`,
+            `error.detail=${d.postgresError.detail ?? "(none)"}`,
+            `error.hint=${d.postgresError.hint ?? "(none)"}`,
+            `error.constraint=${d.postgresError.constraint ?? "(none)"}`,
+            `error.table=${d.postgresError.table ?? "(none)"}`,
+            `error.column=${d.postgresError.column ?? "(none)"}`,
+          ] : ["postgresError=(none)"]),
+        ].join("\n");
+        setServerBootstrapDiag(_lines);
+      } catch (e: any) {
+        setServerBootstrapDiag(`[SERVER_BOOTSTRAP]\nfetch error: ${e?.message ?? "unknown"}`);
+      }
+    })();
+  }, [sessionBootstrapFailed]);
+
   // ── Push subscription auto-reregistration ────────────────────────────────
   // Fires once per login session (when user id becomes available).
   // If the browser has a push subscription, silently re-POSTs it under the
@@ -2829,7 +2879,7 @@ function AppContent() {
         `retryOutcome=${_lg("lulou_diag_retry_outcome")}`,
       ].join("\n");
 
-      _bootDiag = _runSection + "\n\n" + _legacySection;
+      _bootDiag = _runSection + "\n\n" + _legacySection + (serverBootstrapDiag ? "\n\n" + serverBootstrapDiag : "");
     } catch {}
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">

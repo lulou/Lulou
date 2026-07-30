@@ -99,6 +99,29 @@ const _sessionIdCache = new Map<string, { valid: boolean; reason?: "session_repl
 const SESSION_ID_CACHE_TTL_MS = 30_000;
 const SESSION_ID_CACHE_MAX = 1_000;
 
+// ── Bootstrap diagnostic store ─────────────────────────────────────────────────
+// One record per user (full userId key). Written by POST /api/auth/session-bootstrap.
+// Read by GET /api/auth/bootstrap-debug. Never persisted — cleared on restart.
+// Contains no credentials, JWTs, full session IDs, or DATABASE_URL.
+interface _BootstrapDiag {
+  ts: string;
+  lastBootstrapStep: number;
+  existingRowFound: boolean;
+  oldSessionPrefix: string;
+  newSessionPrefix: string;
+  success: boolean;
+  postgresError: {
+    message: string | null;
+    code: string | null;
+    detail: string | null;
+    hint: string | null;
+    constraint: string | null;
+    table: string | null;
+    column: string | null;
+  } | null;
+}
+const _bootstrapDiagStore = new Map<string, _BootstrapDiag>();
+
 function getSessionIdCacheKey(userId: string, sessionId: string) {
   return `${userId}:${sessionId}`;
 }
@@ -514,7 +537,8 @@ const isAuthenticated: RequestHandler = async (req: any, res, next) => {
     const SESSION_BOOTSTRAP_EXEMPT = new Set([
       "/api/auth/session-bootstrap",
       "/api/auth/session-check",
-      "/api/auth/session-debug",  // diagnostic — reads DB but does not write
+      "/api/auth/session-debug",       // diagnostic — reads DB but does not write
+      "/api/auth/bootstrap-debug",     // diagnostic — reads in-memory diag + column list
     ]);
     const clientSessionId = req.headers["x-session-id"] as string | undefined;
 
@@ -1476,6 +1500,20 @@ export async function registerRoutes(
     // Step 1 — auth resolved (we are inside isAuthenticated, so userId is confirmed)
     console.log(`[SESSION_BS] step-1 auth userId=${userId.slice(0, 8)} newSid=${sessionId.slice(0, 8)}`);
 
+    // Initialise per-attempt diagnostic record — stored in _bootstrapDiagStore
+    // so GET /api/auth/bootstrap-debug can return it to the client without
+    // requiring Railway log access.
+    const _bsDiag: _BootstrapDiag = {
+      ts: now.toISOString(),
+      lastBootstrapStep: 1,
+      existingRowFound: false,
+      oldSessionPrefix: "(none)",
+      newSessionPrefix: sessionId.slice(0, 8),
+      success: false,
+      postgresError: null,
+    };
+    _bootstrapDiagStore.set(userId, _bsDiag);
+
     try {
       // Step 2 — look up any existing row for this user
       console.log(`[SESSION_BS] step-2 lookup existing`);
@@ -1492,6 +1530,9 @@ export async function registerRoutes(
         row && row.sessionId !== sessionId ? row.sessionId : null;
       const oldSessionWasDifferentDevice = !!oldSessionId && !isSameDevice;
       console.log(`[SESSION_BS] step-2 done existingRow=${!!row} oldSid=${row?.sessionId?.slice(0, 8) ?? "(none)"} sameDevice=${isSameDevice}`);
+      _bsDiag.lastBootstrapStep = 2;
+      _bsDiag.existingRowFound   = !!row;
+      _bsDiag.oldSessionPrefix   = row?.sessionId?.slice(0, 8) ?? "(none)";
 
       // Step 3 — upsert: insert new session or replace existing
       console.log(`[SESSION_BS] step-3 upsert start`);
@@ -1521,6 +1562,7 @@ export async function registerRoutes(
           },
         });
       console.log(`[SESSION_BS] step-3 done upsert succeeded`);
+      _bsDiag.lastBootstrapStep = 3;
 
       // Step 4 — revoke old session in cache / broadcast if different device
       if (oldSessionId) {
@@ -1547,18 +1589,31 @@ export async function registerRoutes(
       } else {
         console.log(`[SESSION_BS] step-4 no old session to revoke`);
       }
+      _bsDiag.lastBootstrapStep = 4;
 
       // Step 5 — cache new session as valid
       cacheSessionIdValid(userId, sessionId, true);
       console.log(`[SESSION_BS] step-5 cache updated`);
+      _bsDiag.lastBootstrapStep = 5;
 
       // Step 6 — return success
+      _bsDiag.lastBootstrapStep = 6;
+      _bsDiag.success = true;
       res.json({ sessionId });
       console.log(`[SESSION_BS] step-6 response 200 userId=${userId.slice(0, 8)} sid=${sessionId.slice(0, 8)}`);
     } catch (e: any) {
       // Fail CLOSED — return 500 so the client shows Retry / Sign out.
       // A fail-open here would allow unauthenticated access to protected APIs.
-      // Log every available Postgres error field so Railway logs show the exact cause.
+      // Store full Postgres error in the diag record so bootstrap-debug can return it.
+      _bsDiag.postgresError = {
+        message:    e?.message    ?? null,
+        code:       e?.code       ?? null,
+        detail:     e?.detail     ?? null,
+        hint:       e?.hint       ?? null,
+        constraint: e?.constraint ?? null,
+        table:      e?.table      ?? null,
+        column:     e?.column     ?? null,
+      };
       console.error("[SESSION_BS] FAILED", {
         message:    e?.message,
         code:       e?.code,       // Postgres error code (e.g. "42703" = column not found)
@@ -1572,6 +1627,68 @@ export async function registerRoutes(
       });
       res.status(500).json({ message: "Failed to register session. Please try again." });
     }
+  });
+
+  // ── Diagnostic: bootstrap-debug ───────────────────────────────────────────
+  // GET /api/auth/bootstrap-debug
+  //
+  // Returns the most recent session-bootstrap attempt record for this user
+  // (stored in _bootstrapDiagStore by POST /api/auth/session-bootstrap) plus
+  // a live column audit of active_sessions from this process's DB connection.
+  //
+  // Exempt from X-Session-Id gate — must work when bootstrap itself failed.
+  // Requires a valid Supabase JWT (isAuthenticated).
+  //
+  // Never returns: DATABASE_URL, JWT, full session IDs, passwords, API keys.
+  app.get("/api/auth/bootstrap-debug", isAuthenticated, async (req: any, res) => {
+    const userId: string = req.user.id;
+    const diag = _bootstrapDiagStore.get(userId) ?? null;
+
+    // Live column audit from this process's DB connection — confirms whether the
+    // startup DDL ran against the same database that session-bootstrap uses.
+    let activeSessionsColumns: string[] = [];
+    let revokedColumnsPresent = false;
+    let databaseFingerprintSafe = "(unknown)";
+    try {
+      const { pool: _bsPool } = await import("./db");
+      const { rows } = await (_bsPool as any).query<{ column_name: string }>(`
+        SELECT column_name FROM information_schema.columns
+        WHERE table_name = 'active_sessions'
+        ORDER BY ordinal_position;
+      `);
+      activeSessionsColumns = rows.map((r: { column_name: string }) => r.column_name);
+      revokedColumnsPresent =
+        activeSessionsColumns.includes("revoked_at") &&
+        activeSessionsColumns.includes("revoked_reason");
+      // Safe fingerprint: DB host only — no credentials, no full URL
+      try {
+        const rawUrl = process.env.DATABASE_URL ?? "";
+        const m = rawUrl.match(/@([^/:]+)/);
+        databaseFingerprintSafe = m ? m[1] : "(host-not-parseable)";
+      } catch { /* ignore */ }
+    } catch (colErr: any) {
+      databaseFingerprintSafe = `column-query-failed:${colErr?.message?.slice(0, 60) ?? "?"}`;
+    }
+
+    const deployedCommit =
+      process.env.RAILWAY_GIT_COMMIT_SHA ??
+      process.env.BUILD_TIME ??
+      "dev";
+
+    return res.json({
+      ts:                      new Date().toISOString(),
+      deployedCommit,
+      activeSessionsColumns,
+      revokedColumnsPresent,
+      databaseFingerprintSafe,
+      diagTs:                  diag?.ts ?? null,
+      lastBootstrapStep:       diag?.lastBootstrapStep ?? null,
+      existingRowFound:        diag?.existingRowFound ?? null,
+      oldSessionPrefix:        diag?.oldSessionPrefix ?? null,
+      newSessionPrefix:        diag?.newSessionPrefix ?? null,
+      success:                 diag?.success ?? null,
+      postgresError:           diag?.postgresError ?? null,
+    });
   });
 
   // ── Diagnostic: session-debug ─────────────────────────────────────────────
