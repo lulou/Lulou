@@ -1,0 +1,86 @@
+The production diagnostic has identified the exact blocker.
+
+[CURRENT_RUN]
+event=SIGNED_IN
+jwtPresent=true
+storedSessionIdBefore=(none)
+bootstrapCalled=true
+bootstrapStatus=failed:http=500
+returnedSessionIdPresent=false
+finalState=retry
+branch=SIGNED_IN-bootstrap-failed
+
+[CONTEXT]
+appCommit=deab4a6
+bootstrapHttp=500
+bootstrapBody={"message":"Failed to register session. Please try again."}
+
+The Supabase JWT is valid. POST /api/auth/session-bootstrap is failing on Railway while creating the Lulou app session.
+
+Do not change the client auth flow again.
+
+Investigate the exact server/database failure inside session-bootstrap.
+
+Required diagnostics from Railway:
+
+- authenticated user ID prefix
+- generated session ID prefix
+- active_sessions lookup result
+- previous session row found or not
+- revoke/update result
+- new session insert/upsert result
+- exact Supabase/Postgres error:
+ - message
+ - code
+ - details
+ - hint
+- table and column names used
+- whether the failure happened during revoke, insert, cache update or response
+
+Check specifically:
+
+1. active_sessions table exists in the production Supabase project.
+2. The deployed schema matches the code:
+  - user_id
+  - session_id
+  - created_at
+  - expires_at
+  - revoked_at
+  - revoked_reason
+3. No required column is missing or rejecting NULL.
+4. UUID/text types match the generated values.
+5. The server uses the Supabase service-role client, not the anon client, for session writes.
+6. RLS is not blocking the insert/update.
+7. Any unique constraint supports one active session per user.
+8. An existing stale row does not make the new insert fail.
+9. Revoke + insert is not failing because of an incorrect upsert conflict column.
+10. Railway is connected to the same Supabase project as the frontend authentication JWT.
+
+Required fix:
+
+- Make session-bootstrap return 200 with a new sessionId for this user.
+- Revoke the previous active session only when appropriate.
+- Make the operation idempotent and safe to retry.
+- Do not expose raw database errors to the client.
+- Log the full safe server-side database error.
+- Do not change Discover, Likes, Intent, messaging or milestone logic.
+
+Test the exact blocked account:
+
+1. Call session-bootstrap with its valid JWT.
+2. Confirm Railway returns 200.
+3. Confirm an active_sessions row exists.
+4. Confirm sessionId is returned and stored.
+5. Confirm Retry immediately enters Lulou.
+6. Confirm reopening the app verifies that same session successfully.
+
+Report:
+- exact Postgres/Supabase error
+- exact failing statement
+- files or migration changed
+- commit hash
+- Railway deployed commit
+- real production bootstrap status
+- real iPhone PASS/FAIL
+
+Do not mark complete until POST /api/auth/session-bootstrap returns 200 for this exact account.
