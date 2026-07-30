@@ -1473,7 +1473,12 @@ export async function registerRoutes(
     const now = new Date();
     const expiresAt = new Date(now.getTime() + SESSION_EXPIRY_MS);
 
+    // Step 1 — auth resolved (we are inside isAuthenticated, so userId is confirmed)
+    console.log(`[SESSION_BS] step-1 auth userId=${userId.slice(0, 8)} newSid=${sessionId.slice(0, 8)}`);
+
     try {
+      // Step 2 — look up any existing row for this user
+      console.log(`[SESSION_BS] step-2 lookup existing`);
       const existing = await db
         .select()
         .from(activeSessions)
@@ -1486,7 +1491,10 @@ export async function registerRoutes(
       const oldSessionId: string | null =
         row && row.sessionId !== sessionId ? row.sessionId : null;
       const oldSessionWasDifferentDevice = !!oldSessionId && !isSameDevice;
+      console.log(`[SESSION_BS] step-2 done existingRow=${!!row} oldSid=${row?.sessionId?.slice(0, 8) ?? "(none)"} sameDevice=${isSameDevice}`);
 
+      // Step 3 — upsert: insert new session or replace existing
+      console.log(`[SESSION_BS] step-3 upsert start`);
       await db
         .insert(activeSessions)
         .values({
@@ -1512,7 +1520,9 @@ export async function registerRoutes(
             revokedReason: null,
           },
         });
+      console.log(`[SESSION_BS] step-3 done upsert succeeded`);
 
+      // Step 4 — revoke old session in cache / broadcast if different device
       if (oldSessionId) {
         // Same reasoning as session-check: use the correct reason so the middleware
         // fast-reject and heartbeat handler return the right message to the client.
@@ -1530,20 +1540,26 @@ export async function registerRoutes(
             oldSessionId,
             newSessionId: sessionId,
           }).catch(() => {});
-          console.log(`[SESSION] BOOTSTRAP: revoked old session for ${userId.slice(0, 8)} — broadcast sent`);
+          console.log(`[SESSION_BS] step-4 revoked old session broadcast sent userId=${userId.slice(0, 8)}`);
         } else {
-          console.log(`[SESSION] BOOTSTRAP: replaced own session for ${userId.slice(0, 8)} (same device re-login)`);
+          console.log(`[SESSION_BS] step-4 replaced own session (same-device re-login) userId=${userId.slice(0, 8)}`);
         }
+      } else {
+        console.log(`[SESSION_BS] step-4 no old session to revoke`);
       }
 
+      // Step 5 — cache new session as valid
       cacheSessionIdValid(userId, sessionId, true);
-      if (IS_DEV) console.log(`[SESSION] BOOTSTRAP: registered session for ${userId.slice(0, 8)} expires ${expiresAt.toISOString()}`);
+      console.log(`[SESSION_BS] step-5 cache updated`);
+
+      // Step 6 — return success
       res.json({ sessionId });
+      console.log(`[SESSION_BS] step-6 response 200 userId=${userId.slice(0, 8)} sid=${sessionId.slice(0, 8)}`);
     } catch (e: any) {
       // Fail CLOSED — return 500 so the client shows Retry / Sign out.
       // A fail-open here would allow unauthenticated access to protected APIs.
       // Log every available Postgres error field so Railway logs show the exact cause.
-      console.error("[SESSION] session-bootstrap DB error", {
+      console.error("[SESSION_BS] FAILED", {
         message:    e?.message,
         code:       e?.code,       // Postgres error code (e.g. "42703" = column not found)
         detail:     e?.detail,

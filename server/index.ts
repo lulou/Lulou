@@ -453,6 +453,23 @@ async function initLocalDb() {
   } catch (guardErr: any) {
     console.error("[STARTUP] active_sessions guard columns failed:", guardErr?.message, guardErr?.code);
   }
+
+  // ── Column audit: print every active_sessions column from this process's DB ──
+  // Verifies that the DDL above ran against the SAME database that session-bootstrap
+  // uses.  Appears in Railway startup logs — safe (no row data, no credentials).
+  try {
+    const { rows } = await localPool.query<{ column_name: string }>(`
+      SELECT column_name FROM information_schema.columns
+      WHERE table_name = 'active_sessions'
+      ORDER BY ordinal_position;
+    `);
+    const cols = rows.map(r => r.column_name);
+    console.log("[STARTUP] active_sessions column list:", cols.join(", "));
+    const hasRevoked = cols.includes("revoked_at") && cols.includes("revoked_reason");
+    console.log("[STARTUP] active_sessions revoked columns present:", hasRevoked);
+  } catch (auditErr: any) {
+    console.error("[STARTUP] active_sessions column audit failed:", auditErr?.message);
+  }
 }
 
 // ── Background: push subscription maintenance ─────────────────────────────────
