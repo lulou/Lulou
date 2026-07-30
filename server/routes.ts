@@ -1542,7 +1542,18 @@ export async function registerRoutes(
     } catch (e: any) {
       // Fail CLOSED — return 500 so the client shows Retry / Sign out.
       // A fail-open here would allow unauthenticated access to protected APIs.
-      console.error("[SESSION] session-bootstrap DB error:", e?.message);
+      // Log every available Postgres error field so Railway logs show the exact cause.
+      console.error("[SESSION] session-bootstrap DB error", {
+        message:    e?.message,
+        code:       e?.code,       // Postgres error code (e.g. "42703" = column not found)
+        detail:     e?.detail,
+        hint:       e?.hint,
+        constraint: e?.constraint,
+        table:      e?.table,
+        schema:     e?.schema,
+        column:     e?.column,
+        userId:     userId?.slice(0, 8),
+      });
       res.status(500).json({ message: "Failed to register session. Please try again." });
     }
   });

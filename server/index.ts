@@ -437,6 +437,21 @@ async function initLocalDb() {
   } catch (err: any) {
     console.error("[STARTUP] Local DB table migration failed:", err?.message);
   }
+
+  // ── Guard: ensure active_sessions has the single-session-enforcement columns ──
+  // Runs as a SEPARATE pool.query() so it cannot be skipped by a failure earlier
+  // in the large multi-statement CREATE TABLE block above.  Without these two
+  // columns session-bootstrap throws "column does not exist" and returns 500,
+  // blocking every user from entering the app.
+  try {
+    await localPool.query(`
+      ALTER TABLE active_sessions ADD COLUMN IF NOT EXISTS revoked_at    TIMESTAMPTZ;
+      ALTER TABLE active_sessions ADD COLUMN IF NOT EXISTS revoked_reason TEXT;
+    `);
+    console.log("[STARTUP] active_sessions guard columns ensured (revoked_at, revoked_reason)");
+  } catch (guardErr: any) {
+    console.error("[STARTUP] active_sessions guard columns failed:", guardErr?.message, guardErr?.code);
+  }
 }
 
 // ── Background: push subscription maintenance ─────────────────────────────────
