@@ -334,6 +334,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // check is in-flight shows Landing (user:null + isLoading:false).
         // Setting isLoading:true here ensures AppContent shows the auth spinner
         // during the check instead of the Landing page.
+        // Clear ALL diagnostic keys from previous auth events before this attempt
+        // so the debug panel never mixes values from different runs.
+        try {
+          [
+            "lulou_diag_run",
+            "lulou_diag_verify_start", "lulou_diag_verify_sid_prefix",
+            "lulou_diag_verify_result", "lulou_diag_verify_end",
+            "lulou_diag_jwt_exp", "lulou_diag_jwt_sub",
+            "lulou_diag_bootstrap_status", "lulou_diag_bootstrap_http",
+            "lulou_diag_bootstrap_body", "lulou_diag_bootstrap_caller",
+            "lulou_diag_failure_branch", "lulou_diag_ignored_stale_result",
+          ].forEach(k => localStorage.removeItem(k));
+        } catch {}
         setIsLoading(true);
         try { localStorage.setItem("lulou_diag_last_auth_event", `SIGNED_IN:${newUserId?.slice(0, 8) ?? "?"}`); } catch {}
         console.log("[AUTH] SIGNED_IN_RECEIVED — session check starting, isLoading→true", {
@@ -354,94 +367,183 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const myAttemptId = authAttemptRef.current;
         try { localStorage.setItem("lulou_diag_auth_attempt_id", String(myAttemptId)); } catch {}
         (async () => {
-          let deviceId = localStorage.getItem("lulou_device_id") ?? "";
-          if (!deviceId) {
-            deviceId =
-              typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
-                ? crypto.randomUUID()
-                : `${Date.now()}-d`;
-            localStorage.setItem("lulou_device_id", deviceId);
-          }
+          // ── Atomic run record — all fields from THIS auth attempt only ────────
+          // Written incrementally so the panel always shows the latest state even
+          // if the IIFE exits early or throws.  The cleanup block above erased any
+          // values from a previous auth event so nothing can leak across runs.
+          const _rr: Record<string, unknown> = {
+            event: "SIGNED_IN", authAttemptId: myAttemptId, jwtPresent: true,
+            storedSessionIdBefore: "(reading…)", verifyCalled: false, verifyStatus: "N/A",
+            bootstrapCalled: false, bootstrapStatus: "(not started)",
+            returnedSessionIdPresent: false, storedSessionIdAfter: "(none)",
+            finalState: "(in-flight)", branch: "(in-flight)", ignoredStaleResult: false,
+          };
+          const _wr = () => { try { localStorage.setItem("lulou_diag_run", JSON.stringify(_rr)); } catch {} };
+          _wr();
 
-          // Session bootstrap — server generates the session ID and atomically
-          // revokes any prior session.  Fail-CLOSED: if bootstrap fails the app
-          // shows a Retry / Sign out screen instead of entering Discover unverified.
-          const grantedSessionId = await callSessionBootstrap(token, deviceId);
-
-          if (!mounted) return;
-
-          if (!grantedSessionId) {
-            bootstrapInProgressForUserRef.current = null;
-            asyncAuthInProgressRef.current = false;
-            // Stale-attempt guard: if a NEWER auth flow (e.g. INITIAL_SESSION that
-            // fired concurrently) has already succeeded, its success path will have
-            // called setSessionBootstrapFailed(false).  If we call it true here we'd
-            // undo that success.  Discard stale failures silently.
-            if (authAttemptRef.current !== myAttemptId) {
-              console.warn("[AUTH] SIGNED_IN_BOOTSTRAP_FAILED — STALE, ignored (newer attempt already ran)", {
-                myAttemptId, currentAttempt: authAttemptRef.current, userId: newUserId?.slice(0, 8),
-              });
-              try { localStorage.setItem("lulou_diag_bootstrap_status", `stale-failure-ignored:attempt-${myAttemptId}`); } catch {}
-              try { localStorage.setItem("lulou_diag_ignored_stale_result", "true"); } catch {}
-              return;
+          try {
+            let deviceId = localStorage.getItem("lulou_device_id") ?? "";
+            if (!deviceId) {
+              deviceId = typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+                ? crypto.randomUUID() : `${Date.now()}-d`;
+              localStorage.setItem("lulou_device_id", deviceId);
             }
-            setSessionBootstrapFailed(true);
-            setIsLoading(false);
-            try { localStorage.setItem("lulou_diag_bootstrap_status", "failed-SIGNED_IN"); } catch {}
-            try { localStorage.setItem("lulou_diag_ignored_stale_result", "false"); } catch {}
-            console.warn("[AUTH] SIGNED_IN_BOOTSTRAP_FAILED — showing retry screen", { userId: newUserId?.slice(0, 8) });
-            return;
-          }
 
-          // Clear any stale session ID before storing the new one — ensures no
-          // leftover ID from a previous session can slip through between the
-          // removeItem and setItem calls (both are synchronous).
-          localStorage.removeItem("lulou_session_id");
-          localStorage.setItem("lulou_session_id", grantedSessionId);
-          try { localStorage.setItem("lulou_diag_bootstrap_status", `ok:${grantedSessionId.slice(0, 8)}…`); } catch {}
-          console.log("[AUTH] SESSION_STORED", {
-            sessionIdPrefix: grantedSessionId.slice(0, 8) + "…",
-            userId: newUserId?.slice(0, 8),
-          });
-          // Record the precise moment this login was accepted so that
-          // use-call-signaling.ts can reject rering broadcasts for calls
-          // that started before this login (previous session's stale calls).
-          setLoginTime(Date.now());
-          // Fire-and-forget: ask the server to clear any ringing call records
-          // older than 90 s that belong to this user.  This prevents stale
-          // DB rows from triggering rering broadcasts that would otherwise
-          // pass the APP_LOAD_TIME guard (same page load, different login).
-          fetch(`${API_BASE}/api/calls/sweep-expired`, {
-            method: "POST",
-            headers: { Authorization: `Bearer ${token}`, "X-Session-Id": grantedSessionId },
-          }).then(async (r) => {
-            const j = await r.json().catch(() => ({}));
-            console.log("[AUTH] LOGIN_CALL_SWEEP", { cleared: j.cleared ?? 0, userId: newUserId?.slice(0, 8) });
-          }).catch((e) => {
-            console.warn("[AUTH] LOGIN_CALL_SWEEP_FAILED (non-fatal)", { error: String(e) });
-          });
-          bootstrapInProgressForUserRef.current = null;
-          asyncAuthInProgressRef.current = false;
-          // After storing the new session ID (line above), reset any protected
-          // queries that may have fired with the old ID during bootstrap, so
-          // they refetch cleanly once the component mounts.
-          {
-            const _PROTECTED_KEYS = [["/api/discover"], ["/api/matches"], ["/api/who-liked-you"]];
-            for (const _k of _PROTECTED_KEYS) {
-              if (queryClient.getQueryState(_k)?.status === "error") {
-                queryClient.resetQueries({ queryKey: _k });
+            // ── Verify-first ────────────────────────────────────────────────────
+            // On iOS PWA page restores Supabase fires SIGNED_IN before
+            // INITIAL_SESSION.  If a valid lulou_session_id is already stored,
+            // verifying it is faster and safer than bootstrapping: bootstrap
+            // creates a new session (revoking the existing one), and if it fails
+            // transiently (cold-start, JWT timing, network error) the user is
+            // blocked even though their existing session is perfectly valid.
+            // Only bootstrap when: (a) no session ID stored, or (b) verify fails.
+            const storedSessionId = localStorage.getItem("lulou_session_id") ?? "";
+            _rr.storedSessionIdBefore = storedSessionId ? storedSessionId.slice(0, 8) + "…" : "(none)";
+            _wr();
+
+            if (storedSessionId) {
+              _rr.verifyCalled = true;
+              _wr();
+              try {
+                const _vr = await fetch(`${API_BASE}/api/auth/session-verify`, {
+                  method: "POST",
+                  headers: {
+                    Authorization: `Bearer ${token}`,
+                    "Content-Type": "application/json",
+                    "X-Session-Id": storedSessionId,
+                  },
+                  body: JSON.stringify({ sessionId: storedSessionId }),
+                });
+                const _vd = _vr.ok
+                  ? await _vr.json().catch(() => ({ valid: false, reason: "parse-error" }))
+                  : { valid: false, reason: `http-${_vr.status}` };
+                _rr.verifyStatus = `${_vr.status}:${_vd.valid}:${_vd.reason ?? "none"}`;
+                _wr();
+
+                if (_vd.valid === true) {
+                  // ── Verify succeeded — enter app without bootstrap ─────────
+                  if (!mounted) return;
+                  bootstrapInProgressForUserRef.current = null;
+                  asyncAuthInProgressRef.current = false;
+                  if (authAttemptRef.current !== myAttemptId) {
+                    _rr.finalState = "stale-discarded"; _rr.ignoredStaleResult = true;
+                    _rr.branch = "SIGNED_IN-verify-ok-stale"; _wr();
+                    console.warn("[AUTH] SIGNED_IN_VERIFY_OK_STALE — discarded (newer attempt ran)", {
+                      myAttemptId, current: authAttemptRef.current,
+                    });
+                    return;
+                  }
+                  _rr.bootstrapStatus = "N/A (verify succeeded)";
+                  _rr.returnedSessionIdPresent = true;
+                  _rr.storedSessionIdAfter = storedSessionId.slice(0, 8) + "…";
+                  _rr.finalState = "ready"; _rr.branch = "SIGNED_IN-verify-ok"; _wr();
+                  setLoginTime(Date.now());
+                  fetch(`${API_BASE}/api/calls/sweep-expired`, {
+                    method: "POST",
+                    headers: { Authorization: `Bearer ${token}`, "X-Session-Id": storedSessionId },
+                  }).then(async (r) => {
+                    const j = await r.json().catch(() => ({}));
+                    console.log("[AUTH] LOGIN_CALL_SWEEP", { cleared: j.cleared ?? 0, userId: newUserId?.slice(0, 8) });
+                  }).catch((e) => console.warn("[AUTH] LOGIN_CALL_SWEEP_FAILED", { error: String(e) }));
+                  {
+                    const _PK = [["/api/discover"], ["/api/matches"], ["/api/who-liked-you"]];
+                    for (const _k of _PK) {
+                      if (queryClient.getQueryState(_k)?.status === "error") queryClient.resetQueries({ queryKey: _k });
+                    }
+                  }
+                  setSessionBootstrapFailed(false);
+                  setIsSessionReady(true);
+                  setUser(u);
+                  setProfileReady(true);
+                  setIsLoading(false);
+                  console.log("[AUTH] SIGNED_IN_VERIFY_OK — entering app without bootstrap", { userId: newUserId?.slice(0, 8) });
+                  return;
+                }
+                // verify returned valid:false — fall through to bootstrap
+                console.warn("[AUTH] SIGNED_IN_VERIFY_FAILED — will bootstrap", { reason: _vd.reason, userId: newUserId?.slice(0, 8) });
+              } catch (_ve) {
+                _rr.verifyStatus = `network-error:${String(_ve).slice(0, 60)}`;
+                _wr();
+                console.warn("[AUTH] SIGNED_IN_VERIFY_NETWORK_ERR — will bootstrap", { error: String(_ve) });
               }
             }
+
+            // ── Bootstrap ───────────────────────────────────────────────────────
+            // Runs when: (a) no stored session ID (new login or session cleared),
+            //            (b) verify returned valid:false (session replaced/expired),
+            //            (c) verify network error (fall-back to bootstrap).
+            _rr.bootstrapCalled = true; _wr();
+            const grantedSessionId = await callSessionBootstrap(token, deviceId, "SIGNED_IN");
+            _rr.returnedSessionIdPresent = !!grantedSessionId;
+            _rr.bootstrapStatus = grantedSessionId
+              ? `ok:${grantedSessionId.slice(0, 8)}…`
+              : `failed:http=${(() => { try { return localStorage.getItem("lulou_diag_bootstrap_http") ?? "?"; } catch { return "?"; } })()}`;
+            _wr();
+
+            if (!mounted) return;
+
+            if (!grantedSessionId) {
+              bootstrapInProgressForUserRef.current = null;
+              asyncAuthInProgressRef.current = false;
+              if (authAttemptRef.current !== myAttemptId) {
+                _rr.finalState = "stale-discarded"; _rr.ignoredStaleResult = true;
+                _rr.branch = "SIGNED_IN-bootstrap-failed-stale"; _wr();
+                console.warn("[AUTH] SIGNED_IN_BOOTSTRAP_FAILED — STALE, ignored", {
+                  myAttemptId, current: authAttemptRef.current, userId: newUserId?.slice(0, 8),
+                });
+                return;
+              }
+              _rr.storedSessionIdAfter = "(none)";
+              _rr.finalState = "retry"; _rr.branch = "SIGNED_IN-bootstrap-failed"; _wr();
+              setSessionBootstrapFailed(true);
+              setIsLoading(false);
+              console.warn("[AUTH] SIGNED_IN_BOOTSTRAP_FAILED — showing retry screen", { userId: newUserId?.slice(0, 8) });
+              return;
+            }
+
+            // Bootstrap succeeded
+            localStorage.removeItem("lulou_session_id");
+            localStorage.setItem("lulou_session_id", grantedSessionId);
+            _rr.storedSessionIdAfter = grantedSessionId.slice(0, 8) + "…";
+            _rr.finalState = "ready"; _rr.branch = "SIGNED_IN-bootstrap-ok"; _wr();
+            console.log("[AUTH] SESSION_STORED", { sessionIdPrefix: grantedSessionId.slice(0, 8) + "…", userId: newUserId?.slice(0, 8) });
+            setLoginTime(Date.now());
+            fetch(`${API_BASE}/api/calls/sweep-expired`, {
+              method: "POST",
+              headers: { Authorization: `Bearer ${token}`, "X-Session-Id": grantedSessionId },
+            }).then(async (r) => {
+              const j = await r.json().catch(() => ({}));
+              console.log("[AUTH] LOGIN_CALL_SWEEP", { cleared: j.cleared ?? 0, userId: newUserId?.slice(0, 8) });
+            }).catch((e) => console.warn("[AUTH] LOGIN_CALL_SWEEP_FAILED (non-fatal)", { error: String(e) }));
+            bootstrapInProgressForUserRef.current = null;
+            asyncAuthInProgressRef.current = false;
+            {
+              const _PROTECTED_KEYS = [["/api/discover"], ["/api/matches"], ["/api/who-liked-you"]];
+              for (const _k of _PROTECTED_KEYS) {
+                if (queryClient.getQueryState(_k)?.status === "error") {
+                  queryClient.resetQueries({ queryKey: _k });
+                }
+              }
+            }
+            setSessionBootstrapFailed(false);
+            setIsSessionReady(true);
+            setUser(u);
+            setProfileReady(true);
+            setIsLoading(false);
+            console.log("[AUTH] AUTH_READY — user set, isLoading→false", { event, userId: newUserId });
+          } catch (_siErr) {
+            // Catch-all: never leave the user on a blank/spinning screen
+            bootstrapInProgressForUserRef.current = null;
+            asyncAuthInProgressRef.current = false;
+            _rr.finalState = "retry";
+            _rr.branch = `SIGNED_IN-uncaught:${String(_siErr).slice(0, 60)}`;
+            _wr();
+            if (mounted && authAttemptRef.current === myAttemptId) {
+              setSessionBootstrapFailed(true);
+              setIsLoading(false);
+            }
+            console.warn("[AUTH] SIGNED_IN_IIFE_UNCAUGHT_ERROR", { error: String(_siErr) });
           }
-          // Clear any stale failure flag set by an earlier auth attempt (e.g. a
-          // SIGNED_IN bootstrap that failed before this SIGNED_IN succeeded).
-          setSessionBootstrapFailed(false);
-          try { localStorage.setItem("lulou_diag_ignored_stale_result", "false"); } catch {}
-          setIsSessionReady(true);
-          setUser(u);
-          setProfileReady(true);
-          setIsLoading(false);
-          console.log("[AUTH] AUTH_READY — user set, isLoading→false", { event, userId: newUserId });
         })();
 
         // Return WITHOUT calling setUser or setIsLoading.
@@ -557,6 +659,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // the existing SIGNED_IN session-check path).
       if (event === "INITIAL_SESSION" && u && session?.access_token) {
         const token = session.access_token;
+        // Clear all diagnostic keys from previous auth events before this attempt.
+        try {
+          [
+            "lulou_diag_run",
+            "lulou_diag_verify_start", "lulou_diag_verify_sid_prefix",
+            "lulou_diag_verify_result", "lulou_diag_verify_end",
+            "lulou_diag_jwt_exp", "lulou_diag_jwt_sub",
+            "lulou_diag_bootstrap_status", "lulou_diag_bootstrap_http",
+            "lulou_diag_bootstrap_body", "lulou_diag_bootstrap_caller",
+            "lulou_diag_failure_branch", "lulou_diag_ignored_stale_result",
+          ].forEach(k => localStorage.removeItem(k));
+        } catch {}
         setIsLoading(true);
         // Block protected queries while we re-verify the session ID.  Any
         // queries that fire with the old ID before this completes will get
@@ -566,6 +680,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setIsSessionReady(false);
         asyncAuthInProgressRef.current = true;
         try { localStorage.setItem("lulou_diag_last_auth_event", `INITIAL_SESSION:${newUserId?.slice(0, 8) ?? "?"}`); } catch {}
+        // ── Reverse dedup: if SIGNED_IN already holds the lock for this user, skip ─
+        // On iOS PWA page restores Supabase can fire SIGNED_IN before INITIAL_SESSION.
+        // SIGNED_IN now does verify-first, so it handles the recovery correctly.
+        // Starting a second verify/bootstrap here would risk double-bootstrap
+        // (two session rows created, one immediately revoked) and the
+        // setIsSessionReady(false) below would flicker the app even if SIGNED_IN
+        // already succeeded.  Let SIGNED_IN own the flow when it started first.
+        if (bootstrapInProgressForUserRef.current === newUserId) {
+          asyncAuthInProgressRef.current = false;
+          try { localStorage.setItem("lulou_diag_run", JSON.stringify({
+            event: "INITIAL_SESSION", authAttemptId: -1,
+            jwtPresent: true, storedSessionIdBefore: "(N/A)",
+            verifyCalled: false, verifyStatus: "N/A",
+            bootstrapCalled: false, bootstrapStatus: "N/A",
+            returnedSessionIdPresent: false, storedSessionIdAfter: "(N/A)",
+            finalState: "deduped", branch: "INITIAL_SESSION-deduped-SIGNED_IN-in-flight",
+            ignoredStaleResult: false,
+          })); } catch {}
+          console.log("[AUTH] INITIAL_SESSION_DEDUPED — SIGNED_IN already in-flight for this user", { userId: newUserId?.slice(0, 8) });
+          return;
+        }
         // Set SYNCHRONOUSLY before the async IIFE so a concurrent SIGNED_IN
         // event for the same user (which fires synchronously right after this
         // handler returns) sees the lock and skips its own bootstrap call.
@@ -666,6 +801,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                         return;
                       }
                       try { localStorage.setItem("lulou_diag_failure_branch", `init-verify-${d.reason ?? "expired"}-bootstrap-fail`); } catch {}
+                      try { localStorage.setItem("lulou_diag_run", JSON.stringify({
+                        event: "INITIAL_SESSION", authAttemptId: myAttemptId, jwtPresent: true,
+                        storedSessionIdBefore: storedSessionId ? storedSessionId.slice(0, 8) + "…" : "(none)",
+                        verifyCalled: true, verifyStatus: `ok:false:${d.reason ?? "expired"}`,
+                        bootstrapCalled: true,
+                        bootstrapStatus: `failed:http=${(() => { try { return localStorage.getItem("lulou_diag_bootstrap_http") ?? "?"; } catch { return "?"; } })()}`,
+                        returnedSessionIdPresent: false, storedSessionIdAfter: "(none)",
+                        finalState: "retry", branch: `init-verify-${d.reason ?? "expired"}-bootstrap-fail`,
+                        ignoredStaleResult: false,
+                      })); } catch {}
                       setSessionBootstrapFailed(true);
                       setIsLoading(false);
                     }
@@ -719,6 +864,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                         return;
                       }
                       try { localStorage.setItem("lulou_diag_failure_branch", "init-401-invalid-bootstrap-fail"); } catch {}
+                      try { localStorage.setItem("lulou_diag_run", JSON.stringify({
+                        event: "INITIAL_SESSION", authAttemptId: myAttemptId, jwtPresent: true,
+                        storedSessionIdBefore: storedSessionId ? storedSessionId.slice(0, 8) + "…" : "(none)",
+                        verifyCalled: true, verifyStatus: `401:false:${msg401}`,
+                        bootstrapCalled: true,
+                        bootstrapStatus: `failed:http=${(() => { try { return localStorage.getItem("lulou_diag_bootstrap_http") ?? "?"; } catch { return "?"; } })()}`,
+                        returnedSessionIdPresent: false, storedSessionIdAfter: "(none)",
+                        finalState: "retry", branch: "init-401-invalid-bootstrap-fail",
+                        ignoredStaleResult: false,
+                      })); } catch {}
                       setSessionBootstrapFailed(true);
                       setIsLoading(false);
                     }
@@ -771,6 +926,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                     return;
                   }
                   try { localStorage.setItem("lulou_diag_failure_branch", "init-no-sid-bootstrap-fail"); } catch {}
+                  try { localStorage.setItem("lulou_diag_run", JSON.stringify({
+                    event: "INITIAL_SESSION", authAttemptId: myAttemptId, jwtPresent: true,
+                    storedSessionIdBefore: "(none)",
+                    verifyCalled: false, verifyStatus: "N/A (no session ID)",
+                    bootstrapCalled: true,
+                    bootstrapStatus: `failed:http=${(() => { try { return localStorage.getItem("lulou_diag_bootstrap_http") ?? "?"; } catch { return "?"; } })()}`,
+                    returnedSessionIdPresent: false, storedSessionIdAfter: "(none)",
+                    finalState: "retry", branch: "init-no-sid-bootstrap-fail",
+                    ignoredStaleResult: false,
+                  })); } catch {}
                   setSessionBootstrapFailed(true);
                   setIsLoading(false);
                 }
@@ -795,6 +960,34 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               verifyFailReason: verifyFailReason || null,
               bootstrapCalled,
               finalLogoutReason: verified ? null : (verifyFailReason || "unknown"),
+            }));
+            // Coherent atomic run record — one write with all fields from THIS run only.
+            const _finalSid = localStorage.getItem("lulou_session_id") ?? "";
+            localStorage.setItem("lulou_diag_run", JSON.stringify({
+              event: "INITIAL_SESSION",
+              authAttemptId: myAttemptId,
+              jwtPresent: true,
+              storedSessionIdBefore: storedSessionId ? storedSessionId.slice(0, 8) + "…" : "(none)",
+              verifyCalled: !!storedSessionId,
+              verifyStatus: (() => { try { return localStorage.getItem("lulou_diag_verify_result") ?? "N/A"; } catch { return "N/A"; } })(),
+              bootstrapCalled,
+              bootstrapStatus: (() => {
+                try {
+                  if (!bootstrapCalled) return "N/A";
+                  const http = localStorage.getItem("lulou_diag_bootstrap_http");
+                  if (http && http !== "pending") return `http=${http}`;
+                  return localStorage.getItem("lulou_diag_bootstrap_status") ?? "N/A";
+                } catch { return "N/A"; }
+              })(),
+              returnedSessionIdPresent: !!_finalSid,
+              storedSessionIdAfter: _finalSid ? _finalSid.slice(0, 8) + "…" : "(none)",
+              finalState: verified ? "ready" : (verifyFailReason ? "replaced" : "retry"),
+              branch: verified
+                ? (bootstrapCalled ? "INITIAL_SESSION-bootstrap-ok" : "INITIAL_SESSION-verify-ok")
+                : (verifyFailReason === "session_replaced" || verifyFailReason === "revoked"
+                    ? `INITIAL_SESSION-${verifyFailReason}`
+                    : "INITIAL_SESSION-verify-fail"),
+              ignoredStaleResult: false,
             }));
           } catch {}
           console.log("[AUTH_DIAG] INITIAL_SESSION_VERIFY_COMPLETE", {

@@ -2767,33 +2767,57 @@ function AppContent() {
   // signs out.  A valid Supabase JWT alone never grants access to protected APIs.
   if (sessionBootstrapFailed) {
     console.log("[SETUP] FINAL_APP_GATE: session_bootstrap_failed — showing retry screen");
-    // Build comprehensive diagnostic text for the retry screen panel.
-    // All values are safe: localStorage stores prefixes and status codes, never full tokens.
+    // Build diagnostic text for the retry screen panel.
+    // lulou_diag_run is an ATOMIC record written in one JSON.stringify call per
+    // auth attempt — all fields guaranteed to come from the SAME run.
+    // Individual legacy keys are shown in a secondary section as a cross-check.
     let _bootDiag = "";
     try {
       const _lg = (k: string) => { try { return localStorage.getItem(k) ?? "(none)"; } catch { return "(err)"; } };
       const _ss = (k: string) => { try { return sessionStorage.getItem(k) ?? "(none)"; } catch { return "(err)"; } };
       const _sidNow = (() => { try { const s = localStorage.getItem("lulou_session_id"); return s ? s.slice(0, 8) + "…" : "(none)"; } catch { return "(err)"; } })();
-      _bootDiag = [
-        `[SESSION_BOOTSTRAP_FAILURE]`,
+
+      // ── Primary: atomic run record (all fields guaranteed from one attempt) ──
+      const _rawRun = _lg("lulou_diag_run");
+      let _runSection = "";
+      if (_rawRun && _rawRun !== "(none)") {
+        try {
+          const _run = JSON.parse(_rawRun);
+          _runSection = [
+            `[CURRENT_RUN]`,
+            `event=${_run.event ?? "(none)"}`,
+            `authAttemptId=${_run.authAttemptId ?? "(none)"}`,
+            `jwtPresent=${_run.jwtPresent ?? "(none)"}`,
+            `storedSessionIdBefore=${_run.storedSessionIdBefore ?? "(none)"}`,
+            `verifyCalled=${_run.verifyCalled ?? "(none)"}`,
+            `verifyStatus=${_run.verifyStatus ?? "(none)"}`,
+            `bootstrapCalled=${_run.bootstrapCalled ?? "(none)"}`,
+            `bootstrapStatus=${_run.bootstrapStatus ?? "(none)"}`,
+            `returnedSessionIdPresent=${_run.returnedSessionIdPresent ?? "(none)"}`,
+            `storedSessionIdAfter=${_run.storedSessionIdAfter ?? "(none)"}`,
+            `finalState=${_run.finalState ?? "(none)"}`,
+            `branch=${_run.branch ?? "(none)"}`,
+            `ignoredStaleResult=${_run.ignoredStaleResult ?? "(none)"}`,
+          ].join("\n");
+        } catch {
+          _runSection = `[CURRENT_RUN]\n(parse error: ${_rawRun.slice(0, 80)})`;
+        }
+      } else {
+        _runSection = `[CURRENT_RUN]\n(no run record — pre-update code or very early failure)`;
+      }
+
+      // ── Secondary: individual keys — may mix values from different runs ──────
+      const _legacySection = [
+        `[CONTEXT]`,
         `appCommit=${__COMMIT_HASH__}`,
-        `authAttemptId=${_lg("lulou_diag_auth_attempt_id")}`,
         `authEvent=${_lg("lulou_diag_last_auth_event")}`,
-        `[JWT]`,
         `jwtExp=${_lg("lulou_diag_jwt_exp")}`,
-        `jwtSub=${_lg("lulou_diag_jwt_sub")}`,
-        `[VERIFY]`,
-        `storedSidAtVerify=${_lg("lulou_diag_verify_sid_prefix")}`,
         `verifyResult=${_lg("lulou_diag_verify_result")}`,
         `verifyEnd=${_lg("lulou_diag_verify_end")}`,
-        `[BOOTSTRAP]`,
         `bootstrapCaller=${_lg("lulou_diag_bootstrap_caller")}`,
-        `bootstrapStatus=${_lg("lulou_diag_bootstrap_status")}`,
         `bootstrapHttp=${_lg("lulou_diag_bootstrap_http")}`,
         `bootstrapBody=${_lg("lulou_diag_bootstrap_body")}`,
-        `[FAILURE]`,
         `failureBranch=${_lg("lulou_diag_failure_branch")}`,
-        `ignoredStale=${_lg("lulou_diag_ignored_stale_result")}`,
         `[SESSION_STATE]`,
         `currentSidPrefix=${_sidNow}`,
         `forcedLogout=${_ss("lulou_forced_logout")}`,
@@ -2804,6 +2828,8 @@ function AppContent() {
         `retryVerify=${_lg("lulou_diag_retry_verify")}`,
         `retryOutcome=${_lg("lulou_diag_retry_outcome")}`,
       ].join("\n");
+
+      _bootDiag = _runSection + "\n\n" + _legacySection;
     } catch {}
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
