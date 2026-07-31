@@ -1291,6 +1291,12 @@ export default function Messaging() {
   if (!shellProfile) {
     return (
       <div className="flex-1 flex flex-col" style={{ paddingTop: "env(safe-area-inset-top)" }}>
+        {/* TEMP: messaging branch marker — remove after iPhone confirms branch */}
+        <div style={{ position: "fixed", top: "env(safe-area-inset-top, 44px)", left: 4, zIndex: 999998, background: "rgba(180,0,0,0.92)", color: "#fff", fontFamily: "monospace", fontSize: 9, padding: "3px 6px", borderRadius: 4, pointerEvents: "none", whiteSpace: "nowrap" }}>
+          MESSAGING_ENTERED=true<br />
+          matchId={matchId?.slice(0, 8) ?? "none"}<br />
+          renderBranch=no-shell-skeleton
+        </div>
         <div className="p-4 border-b flex items-center gap-3 bg-background flex-shrink-0 z-10">
           <button
             aria-label="Back to Connections"
@@ -1314,6 +1320,12 @@ export default function Messaging() {
   if (!isDetailLoading && !matchDetail) {
     return (
       <div className="flex-1 flex items-center justify-center">
+        {/* TEMP: messaging branch marker */}
+        <div style={{ position: "fixed", top: "env(safe-area-inset-top, 44px)", left: 4, zIndex: 999998, background: "rgba(180,0,0,0.92)", color: "#fff", fontFamily: "monospace", fontSize: 9, padding: "3px 6px", borderRadius: 4, pointerEvents: "none", whiteSpace: "nowrap" }}>
+          MESSAGING_ENTERED=true<br />
+          matchId={matchId?.slice(0, 8) ?? "none"}<br />
+          renderBranch=no-match-found
+        </div>
         <p className="text-muted-foreground">{t("connection_not_found")}</p>
       </div>
     );
@@ -1489,7 +1501,11 @@ export default function Messaging() {
       >
         {/* TEMP: build-identity banner — proves this JSX branch is live */}
         <div style={{ background: "#ff0", color: "#000", fontFamily: "monospace", fontSize: 10, fontWeight: "bold", textAlign: "center", padding: "2px 0", letterSpacing: 1 }}>
-          CHAT_LAYOUT_0645463 · fixed-layers · bundle={typeof document !== "undefined" ? (document.querySelector('script[src*="/assets/index-"]') as HTMLScriptElement | null)?.src?.split("/assets/")[1] ?? "?" : "?"}
+          CHAT_LAYOUT_0645463 · fixed-layers · renderBranch=chat · bundle={typeof document !== "undefined" ? (document.querySelector('script[src*="/assets/index-"]') as HTMLScriptElement | null)?.src?.split("/assets/")[1] ?? "?" : "?"}
+        </div>
+        {/* TEMP: messaging branch marker (left-anchored, survives header clip) */}
+        <div style={{ position: "fixed", top: "calc(env(safe-area-inset-top, 44px) + 36px)", left: 4, zIndex: 999998, background: "rgba(0,100,0,0.92)", color: "#fff", fontFamily: "monospace", fontSize: 9, padding: "3px 6px", borderRadius: 4, pointerEvents: "none", whiteSpace: "nowrap" }}>
+          MESSAGING_ENTERED=true · matchId={matchId?.slice(0, 8) ?? "none"} · renderBranch=chat
         </div>
         <div className="px-4 pt-3 pb-0">
         {/* ── Main header row ── */}

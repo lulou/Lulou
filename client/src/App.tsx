@@ -3280,6 +3280,38 @@ function App() {
             <AuthProvider>
               <TooltipProvider>
                 <Toaster />
+                {/* ── TEMP ROOT BADGE — outside ALL routes, auth, and loading gates.
+                    Visible on every page. Remove after iPhone build identity confirmed. ── */}
+                <div
+                  id="root-build-badge"
+                  style={{
+                    position: "fixed",
+                    top: "env(safe-area-inset-top, 0px)",
+                    left: 4,
+                    zIndex: 999999,
+                    background: "rgba(0,0,128,0.92)",
+                    color: "#fff",
+                    fontFamily: "monospace",
+                    fontSize: 9,
+                    lineHeight: 1.7,
+                    padding: "3px 6px",
+                    borderRadius: 4,
+                    pointerEvents: "none",
+                    whiteSpace: "nowrap",
+                    maxWidth: "calc(100vw - 8px)",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                  }}
+                >
+                  {/* All values read synchronously — no hooks, no auth, renders first frame */}
+                  ROOT_BUILD={__COMMIT_HASH__}<br />
+                  HOST={typeof window !== "undefined" ? window.location.hostname : "?"}<br />
+                  PATH={typeof window !== "undefined" ? window.location.pathname : "?"}<br />
+                  bundle={(typeof document !== "undefined"
+                    ? (document.querySelector('script[src*="/assets/index-"]') as HTMLScriptElement | null)?.src?.split("/assets/")[1] ?? "?"
+                    : "?")}<br />
+                  sw={(typeof navigator !== "undefined" ? navigator.serviceWorker?.controller?.scriptURL ?? "none" : "?")}
+                </div>
                 <AppContent />
                 <CallDiagnosticsButton />
                 <PurchaseDebugPanel />
