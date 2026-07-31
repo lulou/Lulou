@@ -1475,9 +1475,9 @@ export default function Messaging() {
         className="bg-background border-b"
         style={{ position: "fixed", top: 0, left: 0, right: 0, zIndex: 50, paddingTop: "env(safe-area-inset-top)" }}
       >
-        {/* HEADER_RENDERED diagnostic — TEMP remove after iPhone layout confirmed */}
+        {/* HEADER_C — messaging.tsx (NOT the branch shown on iPhone) — TEMP */}
         <div style={{ fontSize: 9, fontFamily: "monospace", background: "#ff0", color: "#000", padding: "2px 4px", lineHeight: 1.4 }}>
-          HEADER_RENDERED · {layerDiag.hdr} · kbH:{Math.round(keyboardHeight)} hdrH:{Math.round(headerHeight)}
+          HEADER_C · messaging.tsx · kbH:{Math.round(keyboardHeight)} hdrH:{Math.round(headerHeight)}
         </div>
         <div className="px-4 pt-3 pb-0">
         {/* ── Main header row ── */}
@@ -1678,10 +1678,10 @@ export default function Messaging() {
         )}
       </div>{/* end fixed header */}
 
-      {/* MESSAGE_VIEWPORT_RENDERED diagnostic — TEMP remove after iPhone layout confirmed */}
+      {/* MESSAGE_BUBBLES_C — messaging.tsx (NOT the branch shown on iPhone) — TEMP */}
       {activeTab === "chat" && (
         <div style={{ position: "fixed", top: headerHeight, left: 0, right: 0, zIndex: 49, fontSize: 9, fontFamily: "monospace", color: "#fff", background: "rgba(0,0,180,0.85)", padding: "2px 4px", lineHeight: 1.4, pointerEvents: "none" }}>
-          MESSAGE_VIEWPORT_RENDERED · {layerDiag.msg} · cmpBot:{Math.round(composerBottom)} vvH:{Math.round(vvHeight)}
+          MESSAGE_BUBBLES_C · messaging.tsx · cmpBot:{Math.round(composerBottom)} vvH:{Math.round(vvHeight)}
         </div>
       )}
 
@@ -1843,9 +1843,9 @@ export default function Messaging() {
             paddingBottom: keyboardHeight > 0 ? 0 : "env(safe-area-inset-bottom, 0px)",
           }}
         >
-          {/* COMPOSER_RENDERED diagnostic — TEMP remove after iPhone layout confirmed */}
+          {/* COMPOSER_C — messaging.tsx (NOT the branch shown on iPhone) — TEMP */}
           <div style={{ fontSize: 9, fontFamily: "monospace", color: "#fff", background: "rgba(0,120,0,0.85)", padding: "2px 4px", lineHeight: 1.4 }}>
-            COMPOSER_RENDERED · {layerDiag.cmp} · kbH:{Math.round(keyboardHeight)} cmpH:{Math.round(composerHeight)}
+            COMPOSER_C · messaging.tsx · kbH:{Math.round(keyboardHeight)} cmpH:{Math.round(composerHeight)}
           </div>
           {(isLimitReached || callStage >= 2) && !allCallsDone && !isCallRinging && !isCallActiveInDetail && !isDeclinedSession && !voiceNotePopupOpen && !firstCallPopupOpen ? (
             <div className="p-4">

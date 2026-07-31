@@ -1639,9 +1639,13 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
   // blur event (which doesn't close the keyboard) won't insert DOM nodes and
   // trigger a flex reflow that drops the composer.
   const [keyboardOpen, setKeyboardOpen] = useState(false);
+  // Numeric keyboard height (px) — used to push composer above the keyboard on iOS.
+  // Derived from window.visualViewport; 0 when keyboard is closed.
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
 
   // ── Voice debug panel state ────────────────────────────────────────────────
-  const voiceDebugEnabled = import.meta.env.DEV || new URLSearchParams(window.location.search).has("voicedebug");
+  // voicedebug panel: dev builds only — never shown in production regardless of URL params
+  const voiceDebugEnabled = import.meta.env.DEV;
   const [debugLog, setDebugLog] = useState<string[]>([]);
   const debugLiveRef = useRef<VoiceDebugLive>({
     composerBefore: "",
@@ -2533,6 +2537,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
     if (vv) {
       const kbActuallyVisible = (window.outerHeight || window.screen.height) - vv.height > 150;
       setKeyboardOpen(kbActuallyVisible);
+      setKeyboardHeight(kbActuallyVisible ? Math.max(0, window.innerHeight - vv.height - vv.offsetTop) : 0);
       console.log(`[VOICE_NOTE_LAYOUT] post-recording keyboard re-sync visible=${kbActuallyVisible} viewport=${Math.round(vv.height)}px`);
     }
   };
@@ -2668,6 +2673,8 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
         return;
       }
       setKeyboardOpen(kbVisible);
+      // Numeric height so the composer can be pushed above the keyboard.
+      setKeyboardHeight(kbVisible ? Math.max(0, window.innerHeight - vv.height - vv.offsetTop) : 0);
       const msg2 = `VP resize h=${Math.round(vv.height)} ot=${Math.round(vv.offsetTop)} → kbOpen=${kbVisible}`;
       console.log(`[VOICE_NOTE_LAYOUT] keyboard visible=${kbVisible} viewport=${Math.round(vv.height)}px`);
       addDbg(msg2);
@@ -3145,8 +3152,10 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
 
   return (
     <div className="flex h-full min-h-0 overflow-hidden" data-testid={`card-match-${match.id}`}>
-      <div className="flex flex-col flex-1 min-w-0 min-h-0">
-      <div className="border-b bg-background/95 backdrop-blur-sm sticky top-0 z-10">
+      {/* keyboardHeight pushes composer above the iOS software keyboard;
+          safe-area-inset-top is applied on the header itself below */}
+      <div className="flex flex-col flex-1 min-w-0 min-h-0" style={keyboardHeight > 0 ? { paddingBottom: keyboardHeight } : undefined}>
+      <div className="border-b bg-background/95 backdrop-blur-sm sticky top-0 z-10" style={{ paddingTop: "env(safe-area-inset-top)" }}>
         {/* ── Main header row ── */}
         <div className="flex items-center gap-3 px-4 pt-3 pb-2">
         <Button
@@ -3373,6 +3382,10 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
       )}
 
       <div ref={messagesContainerRef} onScroll={handleMessagesScroll} className="flex-1 overflow-y-auto min-h-0 p-4 space-y-3" data-testid={`messages-container-${match.id}`}>
+            {/* MESSAGE_BUBBLES_A — matches.tsx _MatchChat — TEMP: remove after iPhone confirms */}
+            <div style={{ fontSize: 9, fontFamily: "monospace", background: "rgba(0,0,180,0.85)", color: "#fff", padding: "2px 5px", borderRadius: 3, display: "inline-block", marginBottom: 4 }}>
+              MESSAGE_BUBBLES_A · matches.tsx
+            </div>
             {expanded && matchLoading && !matchDetail && (
               <div className="flex flex-col items-center justify-center py-10 gap-3" data-testid={`chat-loading-${match.id}`}>
                 <div className="w-8 h-8 rounded-full border-2 border-primary border-t-transparent animate-spin" />
@@ -3524,6 +3537,10 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
               style={{ background: "linear-gradient(160deg, hsl(350 45% 14%) 0%, hsl(350 40% 9%) 100%)" }}
               data-testid={`call-ringing-${match.id}`}
             >
+              {/* COMPOSER_B — matches.tsx call/limit branch — TEMP: remove after iPhone confirms */}
+              <div style={{ fontSize: 9, fontFamily: "monospace", background: "rgba(220,100,0,0.9)", color: "#fff", padding: "2px 5px" }}>
+                COMPOSER_B · matches.tsx · call-ringing
+              </div>
               <div className="flex flex-col items-center gap-4 py-7 px-5">
                 {/* Pulsing icon */}
                 <div className="relative flex items-center justify-center w-20 h-20">
@@ -3943,6 +3960,10 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
             )
           ) : (
             <div ref={composerRef} className="p-3 border-t" style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom, 0.75rem))" }}>
+              {/* COMPOSER_A — matches.tsx normal textarea branch — TEMP: remove after iPhone confirms */}
+              <div style={{ fontSize: 9, fontFamily: "monospace", background: "#ffe000", color: "#000", padding: "2px 5px", marginBottom: 4, lineHeight: 1.5 }}>
+                COMPOSER_A · matches.tsx · kbH:{Math.round(keyboardHeight)}
+              </div>
               {isOtherTyping && (
                 <div className="flex items-center gap-1.5 px-1 pb-2 text-xs text-muted-foreground" data-testid="text-typing-indicator">
                   <span className="flex gap-0.5 items-center">
