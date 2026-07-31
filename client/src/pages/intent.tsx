@@ -896,6 +896,19 @@ export default function IntentPage() {
     refetchInterval: isActive ? 60_000 : false,
   });
 
+  // ── Wheel diagnostics (auto-fetched when Wheel returns 0 profiles) ────────
+  // Fetches /api/popular/debug whenever the profiles query succeeds with an
+  // empty array so the empty state can show a copyable filter breakdown.
+  const showWheelEmpty = !isLoading && !isError && profiles !== undefined && profiles.length === 0;
+  const { data: wheelDiag, isLoading: wheelDiagLoading } = useQuery<any>({
+    queryKey: ["/api/popular/debug"],
+    enabled: showWheelEmpty,
+    staleTime: 0,
+    retry: 1,
+  });
+  const [wheelDiagExpanded, setWheelDiagExpanded] = useState(false);
+  const wheelDiagRef = useRef<HTMLPreElement>(null);
+
   // ── Sound ────────────────────────────────────────────────────────────────
   const [muted, setMuted] = useState(() => {
     try { return localStorage.getItem("wheel_sound_muted") === "true"; } catch { return false; }
@@ -1615,9 +1628,53 @@ export default function IntentPage() {
   // Empty state: only shown after a SUCCESSFUL 200 response that genuinely
   // returned no eligible candidates.  Must never appear for errors.
   if (items.length === 0) {
+    // Build a safe copyable summary of the diagnostic data
+    const diagText = wheelDiag
+      ? (() => {
+          const d = wheelDiag;
+          const fc = d.filterCounts ?? {};
+          const lines: string[] = [
+            "[WHEEL_DIAG]",
+            `user=${d.userIdPrefix}  gender=${d.gender ?? "(unset)"}  normGender=${d.normGender ?? "(unset)"}`,
+            `preference=${d.preference ?? "(unset)"}  normPreference=${d.normPreference ?? "(unset)"}`,
+            `targetGenders=${JSON.stringify(d.targetGenders)}`,
+            `prefsIncludingMyGender=${JSON.stringify(d.prefsIncludingMyGender)}`,
+            `location=${d.location ?? "(unset)"}  hasCoords=${d.hasCoords}  radius=${d.locationRadius}mi`,
+            `ageRange=${d.ageRange}`,
+            "",
+            "[EXCLUSION SETS]",
+            `wheelActedCount=${d.wheelActedCount}  discoverActedCount=${d.discoverActedCount}`,
+            `activeMatchCount=${d.activeMatchCount}  inboundLikerCount=${d.inboundLikerCount}`,
+            `discoverOnlySaved=${d.discoverOnlySaved}  (profiles re-admitted by discover-isolation fix)`,
+            "",
+            "[FILTER COUNTS]",
+            `totalInDb=${fc.totalInDb}`,
+            `afterSelf=${fc.afterSelf}`,
+            `afterPaused=${fc.afterPaused}`,
+            `afterEmailVerified=${fc.afterEmailVerified}`,
+            `afterOnboarding=${fc.afterOnboarding}`,
+            `afterGenderPref=${fc.afterGenderPref}`,
+            `afterAge=${fc.afterAge}`,
+            `afterActiveMatch=${fc.afterActiveMatch}`,
+            `afterWheelActed=${fc.afterWheelActed}`,
+            `afterInboundLiker=${fc.afterInboundLiker}`,
+            `afterDistance=${fc.afterDistance}`,
+            `FINAL=${fc.finalCount}`,
+            "",
+            "[EXCLUSIONS]",
+            ...((d.exclusions ?? []) as any[]).map((e: any) =>
+              `  ${e.candidateIdPrefix} ${e.candidateName}: ${e.excludedReason}`
+            ),
+            "",
+            `diagMs=${d.diagMs}`,
+          ];
+          return lines.join("\n");
+        })()
+      : null;
+
     return (
-      <div className="flex-1 flex items-center justify-center p-6">
-        <div className="text-center space-y-4 max-w-sm">
+      <div className="flex-1 flex flex-col items-center justify-start p-6 overflow-y-auto">
+        <div className="text-center space-y-4 max-w-sm w-full mt-8">
           <LulouFlowerIcon className="w-10 h-10 text-primary mx-auto opacity-60" />
           <p className="text-muted-foreground text-sm">{t("no_profiles_yet")}</p>
           <button
@@ -1627,6 +1684,84 @@ export default function IntentPage() {
           >
             {t("retry_btn")}
           </button>
+
+          {/* ── Wheel diagnostics panel ───────────────────────────────── */}
+          {showWheelEmpty && (
+            <div className="mt-4 text-left">
+              <button
+                className="text-xs text-muted-foreground underline underline-offset-2"
+                onClick={() => setWheelDiagExpanded(v => !v)}
+              >
+                {wheelDiagLoading ? "Loading debug info…" : wheelDiagExpanded ? "Hide debug info ▲" : "Show debug info ▼"}
+              </button>
+
+              {wheelDiagExpanded && !wheelDiagLoading && (
+                <div className="mt-2 rounded-md border border-border bg-muted/40 p-3">
+                  {wheelDiag ? (
+                    <>
+                      {/* Summary row */}
+                      <div className="flex flex-wrap gap-2 mb-3 text-xs">
+                        {([
+                          ["Total in DB", wheelDiag.filterCounts?.totalInDb],
+                          ["Compat", wheelDiag.filterCounts?.afterGenderPref],
+                          ["After age", wheelDiag.filterCounts?.afterAge],
+                          ["After wheel-acted", wheelDiag.filterCounts?.afterWheelActed],
+                          ["After likers", wheelDiag.filterCounts?.afterInboundLiker],
+                          ["Final", wheelDiag.filterCounts?.finalCount],
+                        ] as [string, number | undefined][]).map(([label, val]) => (
+                          <span key={label} className="px-2 py-0.5 rounded bg-muted border border-border font-mono">
+                            {label}: <span className={val === 0 ? "text-red-400" : "text-green-400"}>{val ?? "?"}</span>
+                          </span>
+                        ))}
+                      </div>
+
+                      {/* User context */}
+                      <div className="text-xs text-muted-foreground mb-2 font-mono space-y-0.5">
+                        <div>gender: <span className="text-foreground">{wheelDiag.normGender || "(unset)"}</span>  →  targetGenders: <span className="text-foreground">{JSON.stringify(wheelDiag.targetGenders)}</span></div>
+                        <div>pref: <span className="text-foreground">{wheelDiag.normPreference || "(unset)"}</span>  →  prefsIncludingMe: <span className="text-foreground">{JSON.stringify(wheelDiag.prefsIncludingMyGender)}</span></div>
+                        <div>coords: <span className={wheelDiag.hasCoords ? "text-green-400" : "text-red-400"}>{String(wheelDiag.hasCoords)}</span>  radius: <span className="text-foreground">{wheelDiag.locationRadius}mi</span>  ageRange: <span className="text-foreground">{wheelDiag.ageRange}</span></div>
+                        <div>discoverOnlySaved: <span className={wheelDiag.discoverOnlySaved > 0 ? "text-green-400" : "text-foreground"}>{wheelDiag.discoverOnlySaved}</span>  wheelActed: <span className="text-foreground">{wheelDiag.wheelActedCount}</span>  inboundLikers: <span className="text-foreground">{wheelDiag.inboundLikerCount}</span></div>
+                      </div>
+
+                      {/* Exclusions list */}
+                      {(wheelDiag.exclusions ?? []).length > 0 && (
+                        <pre
+                          ref={wheelDiagRef}
+                          className="text-xs font-mono text-muted-foreground bg-background rounded p-2 overflow-x-auto max-h-48 overflow-y-auto whitespace-pre-wrap break-all"
+                          style={{ fontSize: "10px" }}
+                        >
+                          {(wheelDiag.exclusions as any[]).map((e: any) =>
+                            `${e.candidateIdPrefix} ${e.candidateName}: ${e.excludedReason}`
+                          ).join("\n")}
+                        </pre>
+                      )}
+                      {(wheelDiag.exclusions ?? []).length === 0 && (
+                        <p className="text-xs text-green-400 font-mono">No exclusions — filter chain produced 0 candidates from {wheelDiag.filterCounts?.totalInDb ?? "?"} total profiles</p>
+                      )}
+
+                      {/* Copy button */}
+                      {diagText && (
+                        <button
+                          className="mt-2 w-full px-3 py-1.5 rounded bg-muted border border-border text-xs text-muted-foreground hover:text-foreground"
+                          onClick={() => {
+                            try {
+                              navigator.clipboard.writeText(diagText);
+                            } catch {
+                              /* clipboard not available — user can select-all manually */
+                            }
+                          }}
+                        >
+                          Copy wheel debug info
+                        </button>
+                      )}
+                    </>
+                  ) : (
+                    <p className="text-xs text-red-400 font-mono">Debug query failed — check Railway logs for [WHEEL_DEBUG] error</p>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
     );

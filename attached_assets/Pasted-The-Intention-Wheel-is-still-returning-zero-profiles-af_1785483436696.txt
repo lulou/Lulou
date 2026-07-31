@@ -1,0 +1,71 @@
+The Intention Wheel is still returning zero profiles after commit 5acd2c8.
+
+The Discover-history isolation fix was not enough. Do not guess at another filter.
+
+Add production-visible diagnostics to the Intent empty screen showing the complete /api/popular filter result for the current user.
+
+Required server diagnostics:
+
+- current user ID prefix
+- current gender
+- interested_in
+- location and coordinates present
+- total candidate profiles before filters
+- count remaining after each filter:
+ - self
+ - email_verified
+ - paused/deleted
+ - completed profile
+ - completed DNA
+ - gender/preference compatibility
+ - blocked
+ - active match
+ - wheel_connection history
+ - inbound liker
+ - distance
+ - missing coordinates
+- final returned count
+
+For every excluded candidate, log a safe entry:
+
+{
+ candidateIdPrefix,
+ candidateName,
+ excludedReason
+}
+
+Add a temporary authenticated endpoint:
+
+GET /api/popular/debug
+
+Return only safe diagnostic data for the current user. Do not return private profile fields, tokens or full IDs.
+
+Update the “No profiles to show yet” screen so Debug info automatically displays this result and can be copied.
+
+Also verify:
+
+1. The current user and at least two known test accounts are gender/preference compatible.
+2. Discover open/close rows are not included in the Wheel exclusion set.
+3. Only type="wheel_connection" excludes a profile from Intent.
+4. The frontend actually refetches /api/popular after pressing Retry.
+5. staleTime is 0 and the old empty response is cleared.
+6. A 200 empty response is only shown after the real query completes.
+7. The Wheel is not excluding all profiles because they previously liked the user or appeared in Likes.
+
+Test with one known account that:
+- was previously passed in Discover
+- has a completed profile and DNA
+- is not blocked, paused or matched
+- has compatible preferences
+
+That exact account must appear in Intent.
+
+Report:
+- full filter counts
+- exact exclusion reason for that known account
+- files changed
+- commit hash
+- Railway deployment
+- real production PASS/FAIL
+
+Do not mark fixed until the known account appears in the Wheel.

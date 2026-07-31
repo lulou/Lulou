@@ -4236,6 +4236,210 @@ export async function registerRoutes(
     }
   });
 
+  // ── Wheel diagnostics ────────────────────────────────────────────────────
+  // Authenticated. Returns per-filter-step counts + per-candidate exclusion
+  // reasons for the current user's Intention Wheel pool.
+  // Safe: no full IDs, no private profile fields, no credentials.
+  app.get("/api/popular/debug", isAuthenticated, async (req: any, res) => {
+    const t0 = Date.now();
+    try {
+      const userId = req.user.id as string;
+      const storage = getStorage(req);
+      const myProfile = await storage.getProfileMeta(userId);
+      if (!myProfile) {
+        return res.status(404).json({ error: "No profile found — check onboarding" });
+      }
+
+      const myGender = myProfile.gender ?? null;
+      const myPref   = myProfile.datingPreference ?? null;
+      const myAgeMin = myProfile.preferredAgeMin ?? 18;
+      const myAgeMax = myProfile.preferredAgeMax ?? 99;
+      const myRadius = (myProfile as any).locationRadius ?? 0;
+      const myLat    = (myProfile as any).latitude  ?? null as number | null;
+      const myLng    = (myProfile as any).longitude ?? null as number | null;
+
+      // ── Compat helpers (mirrors storage.ts functions — must stay in sync) ──
+      function _normG(v: string | null | undefined): string {
+        if (!v) return "";
+        const s = v.toLowerCase().trim();
+        if (["male","man"].includes(s)) return "man";
+        if (["female","woman"].includes(s)) return "woman";
+        if (["trans female","trans woman"].includes(s)) return "trans woman";
+        if (["trans male","trans man"].includes(s)) return "trans man";
+        return s;
+      }
+      function _normP(v: string | null | undefined): string {
+        if (!v) return "";
+        const s = v.toLowerCase().trim();
+        if (["men","man","male"].includes(s)) return "men";
+        if (["women","woman","female"].includes(s)) return "women";
+        if (["trans women","trans woman","trans female"].includes(s)) return "trans women";
+        if (["trans men","trans man","trans male"].includes(s)) return "trans men";
+        return s;
+      }
+      function _gendersForPref(p: string): string[] | null {
+        switch (_normP(p)) {
+          case "women": return ["woman","trans woman"];
+          case "men":   return ["man","trans man"];
+          case "non-binary people": return ["non-binary","genderqueer","genderfluid","agender","two-spirit","other"];
+          case "trans women": return ["trans woman"];
+          case "trans men":   return ["trans man"];
+          case "everyone": return null;
+          default: return null;
+        }
+      }
+      function _prefsForGender(g: string): string[] {
+        const p = ["everyone"];
+        switch (_normG(g)) {
+          case "woman":      p.push("women"); break;
+          case "man":        p.push("men"); break;
+          case "trans woman": p.push("women","trans women"); break;
+          case "trans man":   p.push("men","trans men"); break;
+          case "non-binary": case "genderqueer": case "genderfluid":
+          case "agender": case "two-spirit": case "other":
+            p.push("non-binary people"); break;
+        }
+        return p;
+      }
+      function _hav(la1: number, ln1: number, la2: number, ln2: number): number {
+        const R = 3958.8, toR = Math.PI / 180;
+        const dLa = (la2-la1)*toR, dLn = (ln2-ln1)*toR;
+        const a = Math.sin(dLa/2)**2 + Math.cos(la1*toR)*Math.cos(la2*toR)*Math.sin(dLn/2)**2;
+        return R * 2 * Math.asin(Math.sqrt(a));
+      }
+
+      const myNormGender = _normG(myGender);
+      const myNormPref   = _normP(myPref);
+      const targetGenders    = _gendersForPref(myNormPref);   // genders I want to see (null = everyone)
+      const prefsIncludingMe = _prefsForGender(myNormGender); // prefs that include my gender
+
+      // ── Parallel: exclusion sets + all candidate profiles ─────────────────
+      const DIAG_COLS = "user_id,first_name,gender,dating_preference,age,latitude,longitude,onboarding_complete,email_verified,is_paused";
+      const [wheelActedRes, allActedRes, activeMatchRes, inboundLikeRes, candidateRes] = await Promise.all([
+        supabaseAdmin.from("interactions").select("to_user_id").eq("from_user_id", userId).eq("type", "wheel_connection"),
+        supabaseAdmin.from("interactions").select("to_user_id,type").eq("from_user_id", userId),
+        supabaseAdmin.from("matches").select("user1_id,user2_id").eq("status","active").or(`user1_id.eq.${userId},user2_id.eq.${userId}`),
+        supabaseAdmin.from("interactions").select("from_user_id").eq("to_user_id", userId).eq("type","open"),
+        (supabaseAdmin.from("profiles") as any).select(DIAG_COLS).limit(500),
+      ]);
+
+      const wheelActedSet  = new Set<string>((wheelActedRes.data  ?? []).map((r: any) => r.to_user_id as string));
+      const discoverActedSet = new Set<string>((allActedRes.data ?? []).filter((r: any) => r.type !== "wheel_connection").map((r: any) => r.to_user_id as string));
+      const activeMatchSet = new Set<string>();
+      for (const r of (activeMatchRes.data ?? [])) {
+        const other = r.user1_id === userId ? r.user2_id : r.user1_id;
+        if (other) activeMatchSet.add(other as string);
+      }
+      const inboundLikerSet = new Set<string>((inboundLikeRes.data ?? []).map((r: any) => r.from_user_id as string));
+      const candidates: any[] = candidateRes.data ?? [];
+
+      const safeId   = (id: string) => String(id).slice(0, 8) + "…";
+      const safeName = (n: any)     => n ? String(n).slice(0, 16) : "(unnamed)";
+
+      // ── Walk candidates, assigning exclusion reason in priority order ──────
+      type ExclEntry = { candidateIdPrefix: string; candidateName: string; excludedReason: string };
+      const exclusions: ExclEntry[] = [];
+      let discoverOnlySaved = 0; // profiles re-admitted because Discover history is now ignored
+
+      let afterSelf = 0, afterPaused = 0, afterEmailVerified = 0, afterOnboarding = 0;
+      let afterGenderPref = 0, afterAge = 0, afterActiveMatch = 0, afterWheelActed = 0;
+      let afterInboundLiker = 0, afterDistance = 0, finalCount = 0;
+
+      for (const c of candidates) {
+        const cid   = c.user_id as string;
+        const cidp  = safeId(cid);
+        const cname = safeName(c.first_name);
+        const addX  = (reason: string) => exclusions.push({ candidateIdPrefix: cidp, candidateName: cname, excludedReason: reason });
+
+        if (cid === userId)         { continue; } afterSelf++;
+        if (c.is_paused === true)   { addX("paused"); continue; } afterPaused++;
+        if (getHasEmailVerifiedColumn() && c.email_verified === false) { addX("email_not_verified"); continue; } afterEmailVerified++;
+        if (!c.onboarding_complete) { addX("onboarding_incomplete"); continue; } afterOnboarding++;
+
+        // Mutual gender/pref compat
+        const cNG = _normG(c.gender);
+        const cNP = _normP(c.dating_preference);
+        const iWantThem  = !targetGenders || targetGenders.includes(cNG);
+        const theyWantMe = prefsIncludingMe.includes(cNP);
+        if (!iWantThem || !theyWantMe) {
+          addX(`gender_pref_mismatch: myPref=${myNormPref || "(unset)"} theirGender=${cNG || "(unset)"} iWantThem=${iWantThem} | theirPref=${cNP || "(unset)"} myGender=${myNormGender || "(unset)"} theyWantMe=${theyWantMe}`);
+          continue;
+        } afterGenderPref++;
+
+        // Age
+        const age = typeof c.age === "number" ? c.age : null;
+        if (age != null && (age < myAgeMin || age > myAgeMax)) {
+          addX(`age_out_of_range: age=${age} myRange=${myAgeMin}-${myAgeMax}`);
+          continue;
+        } afterAge++;
+
+        // Active match partner
+        if (activeMatchSet.has(cid)) { addX("active_match"); continue; } afterActiveMatch++;
+
+        // Wheel-acted (wheel_connection only — Discover history NOT counted here)
+        if (wheelActedSet.has(cid)) { addX("wheel_acted (wheel_connection row)"); continue; } afterWheelActed++;
+
+        // Count profiles saved by the discover-isolation fix
+        if (discoverActedSet.has(cid)) discoverOnlySaved++;
+
+        // Inbound liker — visible on Likes page, excluded from Wheel
+        if (inboundLikerSet.has(cid)) { addX("inbound_liker (visible on Likes page)"); continue; } afterInboundLiker++;
+
+        // Distance
+        if (myRadius > 0 && myLat != null && myLng != null) {
+          if (c.latitude == null || c.longitude == null) {
+            addX(`no_coords (radius=${myRadius}mi active)`);
+            continue;
+          }
+          const dist = _hav(myLat, myLng, c.latitude as number, c.longitude as number);
+          if (dist > myRadius) {
+            addX(`too_far: ${dist.toFixed(0)}mi > radius ${myRadius}mi`);
+            continue;
+          }
+        }
+        afterDistance++;
+        finalCount++;
+      }
+
+      const filterCounts = {
+        totalInDb: candidates.length, afterSelf, afterPaused, afterEmailVerified,
+        afterOnboarding, afterGenderPref, afterAge, afterActiveMatch,
+        afterWheelActed, afterInboundLiker, afterDistance, finalCount,
+      };
+      console.log("[WHEEL_DEBUG] userId:", safeId(userId), "| filterCounts:", JSON.stringify(filterCounts));
+
+      return res.json({
+        userIdPrefix:       safeId(userId),
+        gender:             myGender,
+        normGender:         myNormGender,
+        preference:         myPref,
+        normPreference:     myNormPref,
+        targetGenders:      targetGenders ?? "all",
+        prefsIncludingMyGender: prefsIncludingMe,
+        location:           myProfile.location ?? null,
+        hasCoords:          myLat != null && myLng != null,
+        locationRadius:     myRadius,
+        ageRange:           `${myAgeMin}–${myAgeMax}`,
+        wheelActedCount:    wheelActedSet.size,
+        discoverActedCount: discoverActedSet.size,
+        activeMatchCount:   activeMatchSet.size,
+        inboundLikerCount:  inboundLikerSet.size,
+        discoverOnlySaved,
+        filterCounts,
+        exclusions,
+        notes: [
+          "Blocked contacts not checked in this endpoint (requires phone/email cross-match)",
+          "Limit 500 — large DBs may undercount totalInDb",
+          "Distance filter only applies when locationRadius > 0 and user has coordinates",
+        ],
+        diagMs: Date.now() - t0,
+      });
+    } catch (err: any) {
+      console.error("[WHEEL_DEBUG] error:", err?.message);
+      return res.status(500).json({ error: "Diagnostic query failed", message: err?.message ?? "unknown" });
+    }
+  });
+
   app.get("/api/spin-status", isAuthenticated, async (req: any, res) => {
     const t0 = Date.now();
     try {
