@@ -1481,11 +1481,16 @@ export default function Messaging() {
   return (
     <>
       {/* ═══ FIXED HEADER — always viewport-pinned, never clipped by keyboard ═══ */}
+      {/* TEMP MARKER — remove after iPhone confirms correct branch */}
       <div
         ref={headerRef}
         className="bg-background border-b"
-        style={{ position: "fixed", top: 0, left: 0, right: 0, zIndex: 50, paddingTop: "env(safe-area-inset-top)" }}
+        style={{ position: "fixed", top: 0, left: 0, right: 0, zIndex: 50, paddingTop: "env(safe-area-inset-top)", outline: "4px solid red" }}
       >
+        {/* TEMP: build-identity banner — proves this JSX branch is live */}
+        <div style={{ background: "#ff0", color: "#000", fontFamily: "monospace", fontSize: 10, fontWeight: "bold", textAlign: "center", padding: "2px 0", letterSpacing: 1 }}>
+          CHAT_LAYOUT_0645463 · fixed-layers · bundle={typeof document !== "undefined" ? (document.querySelector('script[src*="/assets/index-"]') as HTMLScriptElement | null)?.src?.split("/assets/")[1] ?? "?" : "?"}
+        </div>
         <div className="px-4 pt-3 pb-0">
         {/* ── Main header row ── */}
         <div className="flex items-center gap-3 pb-2">
@@ -1699,6 +1704,7 @@ export default function Messaging() {
             bottom: composerBottom,
             overflowY: "auto",
             WebkitOverflowScrolling: "touch",
+            outline: "4px solid blue", // TEMP — remove after iPhone confirms
           }}
         >
           {/* column-reverse: first DOM child = visual bottom. Few messages naturally
@@ -1841,6 +1847,7 @@ export default function Messaging() {
             bottom: keyboardHeight,
             zIndex: 40,
             paddingBottom: keyboardHeight > 0 ? 0 : "env(safe-area-inset-bottom, 0px)",
+            outline: "4px solid green", // TEMP — remove after iPhone confirms
           }}
         >
           {(isLimitReached || callStage >= 2) && !allCallsDone && !isCallRinging && !isCallActiveInDetail && !isDeclinedSession && !voiceNotePopupOpen && !firstCallPopupOpen ? (
