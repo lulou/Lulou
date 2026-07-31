@@ -1,0 +1,59 @@
+The live iPhone chat still looks exactly the same after commit 0645463 and SW v4.0.
+
+Do not make another service-worker or cache change.
+
+The phone is receiving the latest build. The remaining issue is that the wrong chat component/layout branch is being rendered, or another wrapper is overriding the new fixed-layer layout.
+
+Find the exact rendered component from the live route.
+
+Required investigation:
+
+1. Identify the exact route opened when entering chat.
+2. Log the exact component name and source file rendered for that route.
+3. Add a temporary unmistakable marker directly inside the intended chat component:
+  “CHAT_LAYOUT_0645463”
+4. Add a bright temporary 4px border around:
+  - header
+  - message viewport
+  - composer
+5. Confirm whether those markers appear on the iPhone.
+
+Check for:
+- duplicate messaging/chat components
+- old route still pointing to a legacy component
+- conditional mobile-specific chat branch
+- profile modal/chat overlay rendering a different component
+- AppLayout wrapping or clipping fixed children
+- CSS classes from a parent applying transform, filter, perspective, contain or overflow
+- stale JSX branch based on profileTab, loading state or match state
+- another composer rendered on top of the new one
+- header condition returning null on mobile
+
+Required fix:
+
+- Make the actual live chat route render one single chat component.
+- Remove or redirect any legacy duplicate chat component.
+- Ensure the visible header, message list and composer all come from the same fixed-layer implementation.
+- Remove any parent transform/filter/contain/overflow that repositions fixed children.
+- Do not change service worker code again.
+- Do not change message progression, calls, voice notes or realtime logic.
+
+Test on the actual iPhone route:
+1. Open a connection.
+2. Confirm CHAT_LAYOUT_0645463 marker appears.
+3. Confirm the temporary borders show all three layers.
+4. Confirm the header and back button are visible.
+5. Confirm the countdown is visible.
+6. Confirm the composer sits above the keyboard.
+7. Remove the temporary marker and borders after the correct branch is proven.
+
+Report:
+- exact route used
+- exact component actually rendered before the fix
+- duplicate or overriding branch found
+- files changed
+- commit hash
+- Vercel deployed commit
+- real iPhone PASS/FAIL
+
+Do not report success from bundle inspection. Prove which JSX branch is visible on the phone.
