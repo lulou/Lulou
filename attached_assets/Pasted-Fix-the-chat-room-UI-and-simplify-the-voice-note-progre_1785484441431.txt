@@ -1,0 +1,101 @@
+Fix the chat-room UI and simplify the voice-note progression together.
+
+PART 1 — CHAT ROOM UI
+
+Current problems visible on mobile and laptop:
+
+- There is no visible back button to leave the chat.
+- The chat header disappears or is outside the visible area.
+- The composer is too large when the keyboard opens.
+- The focused input has an oversized/doubled border.
+- The send button, microphone and 0/500 counter are misaligned.
+- Messages are left far above the composer with excessive blank space.
+- The newest message is not kept directly above the input.
+
+Required:
+
+1. Add a sticky chat header that is always visible.
+2. Add a clear back arrow in the top-left.
+3. Back must return to Connections without ending or deleting the chat.
+4. Keep the message countdown visible in the header at all times.
+5. Resize the chat correctly when the iPhone keyboard opens.
+6. Keep the latest message directly above the composer.
+7. Keep the composer compact and stable before and after focus.
+8. Remove the doubled focus border.
+9. Align the text input, microphone, send button and character counter properly.
+10. Respect iPhone safe-area and visualViewport keyboard height.
+11. Short messages must remain compact, not tall square blocks.
+12. Test on iPhone Safari and laptop Safari.
+
+PART 2 — SIMPLIFY VOICE-NOTE PROGRESSION
+
+Remove the current voice-note teaser and 8-message unlock logic.
+
+Delete or disable:
+- 5-message voice-note teaser
+- 8-message voice-note unlock
+- old teaser modal
+- old voice-note milestone recovery logic
+- old localStorage keys that can reopen those milestones
+
+New exact sequence:
+
+1. Both users send all 15 required messages.
+2. The first call unlock modal appears.
+3. Users return to chat and can start the first call.
+4. Voice notes remain locked before and during the call.
+5. Only after the first call is successfully completed should voice notes unlock.
+6. Show both users a centred Lulou modal:
+
+Title:
+“Congratulations — you’ve unlocked Voice Notes”
+
+Body:
+“You made it through your first call. Now you can keep the connection going whenever you want to hear each other.”
+
+Button:
+“Continue”
+
+7. After Continue, return users to the normal chat with voice notes enabled.
+8. The modal must appear once per user per match.
+9. Unlock must persist after refresh and across devices.
+10. Both users must receive the unlock through realtime and server state.
+
+A completed call means:
+- the call was answered
+- it genuinely connected
+- it ended normally after connection
+
+Do not unlock voice notes when:
+- the call was missed
+- declined
+- cancelled before connection
+- failed technically
+- expired without being answered
+
+The server must record the successful call completion and grant the voice-note entitlement. Do not rely only on client state.
+
+Test:
+
+1. Send fewer than 15 messages each → calls and voice notes locked.
+2. Complete 15 messages each → first-call modal appears.
+3. Before completing the call → voice notes remain locked.
+4. Complete a genuine first call → both users receive the voice-note congratulations modal.
+5. Continue → microphone becomes available.
+6. Refresh both accounts → voice notes remain unlocked.
+7. Miss or decline a call → voice notes remain locked.
+8. Confirm the modal never repeats once dismissed.
+
+Do not change:
+- the 15-message quota
+- first-call duration
+- later message stages
+- existing match or connection data
+
+Report:
+- exact UI root causes
+- old milestone logic removed
+- files changed
+- commit hash
+- Railway and Vercel deployment status
+- real PASS/FAIL for mobile layout and the new post-call voice-note unlock

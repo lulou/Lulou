@@ -3367,8 +3367,8 @@ export async function registerRoutes(
       // so milestone detection never relies on a locally computed guess.
       // Only genuine text messages increment the counter; system payloads
       // (__VOICE__:, __SCHEDULE__:, __SYS__:, etc.) do not.
-      const TEASER_THRESHOLD = 5; // both users sent ≥ 5 → show coming-soon teaser (informational only, no DB write)
-      const VN_THRESHOLD = 8;
+      // Voice notes now unlock after the first call — no message-count threshold.
+      // The only message-count milestone is FC_THRESHOLD (first-call unlock).
       const FC_THRESHOLD = 15;
       let newCount1 = preCount1;
       let newCount2 = preCount2;
@@ -3393,27 +3393,13 @@ export async function registerRoutes(
         // Uses >= (not ===) so a missed crossing from a prior race is self-healing.
         // Emits the event only when eligibility transitions false → true on this message.
         // Checked in ascending threshold order so only the lowest newly-crossed event fires.
-        const teaserWasEligible = preCount1 >= TEASER_THRESHOLD && preCount2 >= TEASER_THRESHOLD;
-        const teaserNowEligible = newCount1 >= TEASER_THRESHOLD && newCount2 >= TEASER_THRESHOLD;
-        const vnWasEligible = preCount1 >= VN_THRESHOLD && preCount2 >= VN_THRESHOLD;
-        const vnNowEligible = newCount1 >= VN_THRESHOLD && newCount2 >= VN_THRESHOLD;
+        // ── Step 3c: First-call unlock only — voice notes unlock post-call, not here ──
         const fcWasEligible = preCount1 >= FC_THRESHOLD && preCount2 >= FC_THRESHOLD;
         const fcNowEligible = newCount1 >= FC_THRESHOLD && newCount2 >= FC_THRESHOLD;
 
-        if (vnNowEligible && !vnWasEligible) {
-          // Persist unlock row so it survives future call-stage count resets.
-          await db.insert(voiceNoteUnlocks).values({ matchId }).onConflictDoNothing();
-          progressionEvent = { type: "voice_notes_unlocked" };
-          console.log("[PROGRESSION] VN_THRESHOLD_CROSSED", { matchId, userId: userId.slice(0, 8), count1: newCount1, count2: newCount2 });
-        } else if (fcNowEligible && !fcWasEligible) {
-          // VN must already exist (can't reach FC without crossing VN first).
+        if (fcNowEligible && !fcWasEligible) {
           progressionEvent = { type: "first_call_unlocked" };
           console.log("[PROGRESSION] FC_THRESHOLD_CROSSED", { matchId, userId: userId.slice(0, 8), count1: newCount1, count2: newCount2 });
-        } else if (teaserNowEligible && !teaserWasEligible) {
-          // Teaser fires between TEASER_THRESHOLD (5) and VN_THRESHOLD (8).
-          // Informational only — no DB write; client uses localStorage to show once.
-          progressionEvent = { type: "voice_notes_teaser" };
-          console.log("[PROGRESSION] TEASER_THRESHOLD_CROSSED", { matchId, userId: userId.slice(0, 8), count1: newCount1, count2: newCount2 });
         }
 
         // ── Diagnostic log — one line per counted send ──────────────────────────
@@ -3434,7 +3420,7 @@ export async function registerRoutes(
           user2Count:   newCount2,
           myCount:      isUser1Sender ? newCount1 : newCount2,
           theirCount:   isUser1Sender ? newCount2 : newCount1,
-          voiceNotesEligible: vnNowEligible,
+          voiceNotesEligible: false, // VN unlocks post-call, not here
           firstCallEligible:  fcNowEligible,
           callStage,
           currentUserPendingMilestone: progressionEvent?.type ?? null,
@@ -3458,11 +3444,8 @@ export async function registerRoutes(
       // The broadcast delivers it to the other user's realtime channel instantly,
       // removing any dependency on the 60-second entitlement poll.
       if (progressionEvent && progression) {
-        const broadcastEvent = progressionEvent.type === "voice_notes_unlocked"
-          ? "voice-note-unlock"
-          : progressionEvent.type === "first_call_unlocked"
-          ? "first-call-unlock"
-          : "voice-notes-teaser";
+        // Only first-call-unlock is a message-count milestone now.
+        const broadcastEvent = "first-call-unlock";
         // Include the full authoritative progression state so the RECIPIENT's client
         // can update its match-detail cache immediately without waiting for the next
         // 60-second poll.  user1Count/user2Count are absolute — the recipient derives
@@ -4127,6 +4110,25 @@ export async function registerRoutes(
         }).catch(() => {});
       }
 
+
+      // ── Grant voice-note unlock after a genuine first call ────────────────────────────
+      // A genuine call = answered, connected, lasted ≥30 s. result.counted guards
+      // against double-granting (only the first completer wins counted=true).
+      if (
+        result.counted &&
+        typeof options.connectedDurationMs === "number" &&
+        options.connectedDurationMs >= 30_000
+      ) {
+        try {
+          await db.insert(voiceNoteUnlocks).values({ matchId }).onConflictDoNothing();
+          broadcastViaHttpApi(`chat:${matchId}`, "voice-note-post-call-unlock", { matchId }).catch(() => {});
+          console.log("[CALL_COMPLETE] VN_UNLOCKED_POST_CALL", { matchId, connectedDurationMs: options.connectedDurationMs });
+        } catch (vnErr: any) {
+          // Non-fatal — entitlement endpoint retroactively grants it since callStage > 0 after this call.
+          console.error("[CALL_COMPLETE] VN_UNLOCK_ERROR", { matchId, error: vnErr?.message });
+        }
+      }
+
       res.json({ ...result.match, callCounted: result.counted });
     } catch (error: any) {
       const matchId = req.params.matchId;
@@ -4480,7 +4482,6 @@ export async function registerRoutes(
 
   // ── Voice Notes entitlement & upload ─────────────────────────────────────
   // Voice notes unlock threshold — both users must reach this count before voice notes open.
-  const VOICE_NOTE_MSG_THRESHOLD = 8;
   // First-call unlock threshold — both users must reach this count before the first call is possible.
   const FIRST_CALL_MSG_THRESHOLD = 15;
 
@@ -4552,9 +4553,8 @@ export async function registerRoutes(
       // Retroactive: call_stage > 0 proves voice notes should have been unlocked
       // earlier even if message counts were reset by the progression system.
       const shouldUnlockByStage = callStage > 0;
-      const shouldUnlockByCount = count1 >= VOICE_NOTE_MSG_THRESHOLD && count2 >= VOICE_NOTE_MSG_THRESHOLD;
 
-      if (shouldUnlockByStage || shouldUnlockByCount) {
+      if (shouldUnlockByStage) {
         // Persist unlock so it survives future call-stage count resets.
         await db.insert(voiceNoteUnlocks).values({ matchId }).onConflictDoNothing();
         console.log(`[VOICE_NOTE_UNLOCK] match=${matchId} stage=${callStage} count1=${count1} count2=${count2} → unlocked (byStage=${shouldUnlockByStage})`);
@@ -4832,9 +4832,8 @@ export async function registerRoutes(
             const meta = await storage.getMatchMeta(matchId, userId);
             if (!meta) return false;
             // Retroactive: call_stage > 0 means match already earned the unlock
-            if ((meta.callStage ?? 0) > 0) return true;
-            return (meta.messageCount1 ?? 0) >= VOICE_NOTE_MSG_THRESHOLD &&
-              (meta.messageCount2 ?? 0) >= VOICE_NOTE_MSG_THRESHOLD;
+            // Voice notes unlock only after the first call (callStage > 0).
+            return (meta.callStage ?? 0) > 0;
           })(),
         ]);
       } catch (transcodeErr: any) {

@@ -14,7 +14,7 @@ export function useRealtimeMessages(
   enabled: boolean,
   onVoiceNoteUnlock?: () => void,
   onFirstCallUnlock?: () => void,
-  onTeaserEvent?: () => void,
+  // onTeaserEvent removed — 5-msg teaser is no longer part of the progression
 ) {
   const queryClient = useQueryClient();
   const broadcastChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
@@ -25,8 +25,6 @@ export function useRealtimeMessages(
   useEffect(() => { onVoiceNoteUnlockRef.current = onVoiceNoteUnlock; }, [onVoiceNoteUnlock]);
   const onFirstCallUnlockRef = useRef(onFirstCallUnlock);
   useEffect(() => { onFirstCallUnlockRef.current = onFirstCallUnlock; }, [onFirstCallUnlock]);
-  const onTeaserEventRef = useRef(onTeaserEvent);
-  useEffect(() => { onTeaserEventRef.current = onTeaserEvent; }, [onTeaserEvent]);
 
   // Shared handler — called by both broadcast and postgres_changes.
   // Writes to TWO caches:
@@ -198,22 +196,16 @@ export function useRealtimeMessages(
             : { ...old, dateChoiceUser2: choice };
         });
       })
-      .on("broadcast", { event: "voice-note-unlock" }, ({ payload }) => {
-        // Snap the recipient's match-detail cache to the authoritative counts
-        // broadcast by the server.  Without this the recipient sees their own
-        // localSentCount optimistically drifting from the real value until the
-        // next 60-second poll.
-        if (payload?.user1Count !== undefined && payload?.user2Count !== undefined) {
-          queryClient.setQueryData<any>(["/api/matches", matchId], (old: any) =>
-            old ? { ...old, messageCount1: payload.user1Count, messageCount2: payload.user2Count } : old
-          );
-          console.log("[VOICE_NOTE_REALTIME] counts applied from broadcast", {
-            matchId: matchId.slice(0, 8),
-            user1Count: payload.user1Count,
-            user2Count: payload.user2Count,
-          });
-        }
-        console.log("[VOICE_NOTE_REALTIME] unlock event received", { matchId: matchId.slice(0, 8) });
+      .on("broadcast", { event: "voice-note-unlock" }, () => {
+        // Retroactive/legacy path — fired by the entitlement endpoint when it
+        // detects callStage > 0 on a cold cache hit. Reuse the same callback.
+        console.log("[VOICE_NOTE_REALTIME] unlock event received (legacy path)", { matchId: matchId.slice(0, 8) });
+        onVoiceNoteUnlockRef.current?.();
+      })
+      .on("broadcast", { event: "voice-note-post-call-unlock" }, () => {
+        // Fired by POST /api/matches/:matchId/call/complete when the first call
+        // genuinely connected and lasted ≥30 s. Both users get this event.
+        console.log("[VOICE_NOTE_REALTIME] post-call unlock event received", { matchId: matchId.slice(0, 8) });
         onVoiceNoteUnlockRef.current?.();
       })
       .on("broadcast", { event: "first-call-unlock" }, ({ payload }) => {
@@ -230,12 +222,7 @@ export function useRealtimeMessages(
         console.log("[FIRST_CALL_REALTIME] unlock event received", { matchId: matchId.slice(0, 8) });
         onFirstCallUnlockRef.current?.();
       })
-      .on("broadcast", { event: "voice-notes-teaser" }, () => {
-        // Teaser fires when both users have sent ≥ 5 messages.
-        // No cache update needed — it's informational only; localStorage gates the popup.
-        console.log("[TEASER_REALTIME] teaser event received", { matchId: matchId.slice(0, 8) });
-        onTeaserEventRef.current?.();
-      })
+      // voice-notes-teaser event removed — 5-msg teaser is no longer part of the progression
       .subscribe((status) => {
         console.log("[CHAT_REALTIME] broadcast channel status", { matchId: matchId.slice(0, 8), status });
       });
