@@ -67,11 +67,22 @@ async function callSessionBootstrap(token: string, deviceId: string, caller = ""
     try { localStorage.setItem("lulou_diag_bootstrap_http", "pending"); } catch {}
     try { localStorage.setItem("lulou_diag_bootstrap_body", ""); } catch {}
     try { localStorage.setItem("lulou_diag_bootstrap_caller", caller); } catch {}
+    // 10-second hard timeout so a hung server never leaves the user on an
+    // endless spinner.  AbortError is caught by the outer try/catch which
+    // writes "network-error" to the diag key and returns null (fail-closed).
+    const _bsCtrl = new AbortController();
+    const _bsTimeout = setTimeout(() => {
+      console.warn("[AUTH] SESSION_BOOTSTRAP_TIMEOUT — aborting after 10 s", { caller });
+      try { localStorage.setItem("lulou_diag_bootstrap_http", "timeout-10s"); } catch {}
+      _bsCtrl.abort();
+    }, 10_000);
     const r = await fetch(`${API_BASE}/api/auth/session-bootstrap`, {
       method: "POST",
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
       body: JSON.stringify({ deviceId, userAgent: navigator.userAgent }),
+      signal: _bsCtrl.signal,
     });
+    clearTimeout(_bsTimeout);
     // Always write the HTTP status — visible on the retry screen even if body read fails.
     try { localStorage.setItem("lulou_diag_bootstrap_http", String(r.status)); } catch {}
     if (r.ok) {
@@ -405,6 +416,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               _rr.verifyCalled = true;
               _wr();
               try {
+                // 8-second timeout — AbortError is caught by the outer catch
+                // which writes "network-error" to the diag key and falls through
+                // to bootstrap, so the user is never left on an endless spinner.
+                const _siVCtrl = new AbortController();
+                const _siVTimeout = setTimeout(() => {
+                  console.warn("[AUTH] SIGNED_IN_VERIFY_TIMEOUT — aborting after 8 s");
+                  _siVCtrl.abort();
+                }, 8_000);
                 const _vr = await fetch(`${API_BASE}/api/auth/session-verify`, {
                   method: "POST",
                   headers: {
@@ -413,7 +432,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                     "X-Session-Id": storedSessionId,
                   },
                   body: JSON.stringify({ sessionId: storedSessionId }),
+                  signal: _siVCtrl.signal,
                 });
+                clearTimeout(_siVTimeout);
                 const _vd = _vr.ok
                   ? await _vr.json().catch(() => ({ valid: false, reason: "parse-error" }))
                   : { valid: false, reason: `http-${_vr.status}` };
@@ -751,6 +772,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
             if (storedSessionId) {
               // Verify existing session against active_sessions — fast path.
+              // 8-second timeout — AbortError is caught by the outer catch
+              // (line ~945) which fails-open (verified=true) so the user is
+              // never left on an endless spinner when the server is slow.
+              const _isVCtrl = new AbortController();
+              const _isVTimeout = setTimeout(() => {
+                console.warn("[AUTH] INITIAL_SESSION_VERIFY_TIMEOUT — aborting after 8 s");
+                _isVCtrl.abort();
+              }, 8_000);
               const r = await fetch(`${API_BASE}/api/auth/session-verify`, {
                 method: "POST",
                 headers: {
@@ -760,7 +789,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                   "X-Session-Id": storedSessionId,
                 },
                 body: JSON.stringify({ sessionId: storedSessionId }),
+                signal: _isVCtrl.signal,
               });
+              clearTimeout(_isVTimeout);
 
               if (r.ok) {
                 const d = await r.json();
@@ -1456,6 +1487,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         try { localStorage.setItem("lulou_diag_retry_has_sid", existingSessionId.slice(0, 8) + "…"); } catch {}
         console.log("[AUTH] RETRY_VERIFY_ATTEMPT", { sessionIdPrefix: existingSessionId.slice(0, 8) + "…" });
         try {
+          // 8-second timeout — AbortError is caught by the outer catch
+          // which falls through to bootstrap (same recovery as a network error).
+          const _rvCtrl = new AbortController();
+          const _rvTimeout = setTimeout(() => {
+            console.warn("[AUTH] RETRY_VERIFY_TIMEOUT — aborting after 8 s");
+            _rvCtrl.abort();
+          }, 8_000);
           const vr = await fetch(`${API_BASE}/api/auth/session-verify`, {
             method: "POST",
             headers: {
@@ -1464,7 +1502,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               "X-Session-Id": existingSessionId,
             },
             body: JSON.stringify({ sessionId: existingSessionId }),
+            signal: _rvCtrl.signal,
           });
+          clearTimeout(_rvTimeout);
           const vd = vr.ok
             ? await vr.json().catch(() => ({ valid: false, reason: "parse-error" }))
             : { valid: false, reason: `http-${vr.status}` };

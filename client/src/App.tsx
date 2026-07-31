@@ -2342,7 +2342,7 @@ function PasswordRecoveryGate({ onDone }: { onDone: () => void }) {
 }
 
 function AppContent() {
-  const [location] = useLocation();
+  const [location, navigate] = useLocation();
 
   // ── Unauthenticated test route ────────────────────────────────────────────
   if (location === "/drag-test") return <DragTestPage />;
@@ -2413,6 +2413,74 @@ function AppContent() {
       }
     })();
   }, [sessionBootstrapFailed]);
+
+  // ── Auth-loading timeout (8 s) ────────────────────────────────────────────
+  // If authLoading is still true after 8 s, the session-verify or bootstrap
+  // fetch has almost certainly hung (iOS PWA network not ready on cold open,
+  // server cold-start, etc.).  The fetch timeouts in use-auth.ts (8 s verify,
+  // 10 s bootstrap) should resolve the IIFE before this fires; this is the
+  // belt-and-suspenders guard for any case they don't.
+  const [authLoadingTimedOut, setAuthLoadingTimedOut] = useState(false);
+  const _authLoadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (authLoading) {
+      setAuthLoadingTimedOut(false);
+      _authLoadTimerRef.current = setTimeout(() => {
+        console.error("[SETUP] AUTH_LOADING_TIMEOUT — authLoading still true after 8 s");
+        setAuthLoadingTimedOut(true);
+      }, 8_000);
+    } else {
+      if (_authLoadTimerRef.current) { clearTimeout(_authLoadTimerRef.current); _authLoadTimerRef.current = null; }
+      setAuthLoadingTimedOut(false);
+    }
+    return () => { if (_authLoadTimerRef.current) { clearTimeout(_authLoadTimerRef.current); _authLoadTimerRef.current = null; } };
+  }, [authLoading]);
+
+  // Async supabase session presence — populated the moment authLoading becomes
+  // true so the diagnostic panel can show whether the Supabase JWT exists even
+  // though the app-level session-verify is still in-flight.
+  const [_authSupabaseInfo, _setAuthSupabaseInfo] = useState<string>("—");
+  useEffect(() => {
+    if (!authLoading) { _setAuthSupabaseInfo("—"); return; }
+    _setAuthSupabaseInfo("checking…");
+    supabase.auth.getSession().then(({ data: { session: _s } }) => {
+      if (_s?.user) {
+        _setAuthSupabaseInfo(`present:${_s.user.id.slice(0, 8)}… exp:${_s.expires_at ? new Date(_s.expires_at * 1000).toISOString().slice(11, 19) : "?"}`);
+      } else {
+        _setAuthSupabaseInfo("absent");
+      }
+    }).catch((e: unknown) => { _setAuthSupabaseInfo(`error:${String(e).slice(0, 40)}`); });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authLoading]);
+
+  // ── Route preservation — save and restore intended navigation path ────────
+  // Saves the current Wouter path whenever the user visits a meaningful
+  // deep-link route.  On next app open (PWA always opens at "/"), after auth
+  // resolves successfully, navigate back to the saved path automatically.
+  useEffect(() => {
+    if (!location || location === "/" || location.startsWith("/auth") || location.startsWith("/onboarding")) return;
+    const saveable = ["/messages/", "/matches", "/discover", "/profile", "/likes", "/settings", "/connection-dna", "/date-plan"];
+    if (saveable.some(p => location.startsWith(p))) {
+      try { sessionStorage.setItem("lulou_intended_path", location); } catch {}
+    }
+  }, [location]);
+
+  const _authLoadWasRef = useRef(authLoading);
+  useEffect(() => {
+    const wasLoading = _authLoadWasRef.current;
+    _authLoadWasRef.current = authLoading;
+    if (wasLoading && !authLoading && user) {
+      try {
+        const intended = sessionStorage.getItem("lulou_intended_path");
+        if (intended && intended !== "/" && intended !== location) {
+          sessionStorage.removeItem("lulou_intended_path");
+          console.log("[SETUP] ROUTE_RESTORE — navigating to saved path", { intended });
+          navigate(intended);
+        }
+      } catch {}
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authLoading, user?.id]);
 
   // ── Push subscription auto-reregistration ────────────────────────────────
   // Fires once per login session (when user id becomes available).
@@ -2800,11 +2868,63 @@ function AppContent() {
   }
 
   if (authLoading) {
+    // ── Synchronous diagnostic values ────────────────────────────────────────
+    const _dlg = (k: string) => { try { return localStorage.getItem(k) ?? "(none)"; } catch { return "(err)"; } };
+    const _sidPfx = (() => { try { const s = localStorage.getItem("lulou_session_id"); return s ? s.slice(0, 8) + "…" : "(none)"; } catch { return "(err)"; } })();
+    const _runRec = (() => { try { return JSON.parse(_dlg("lulou_diag_run")) as Record<string, unknown>; } catch { return null; } })();
+    const _intendedPath = (() => { try { return sessionStorage.getItem("lulou_intended_path") ?? "(none)"; } catch { return "(err)"; } })();
+    const _authDiagLines = [
+      `authLoading=true`,
+      `userPresent=${!!user}`,
+      `supabaseSessionPresent=${_authSupabaseInfo}`,
+      `isSessionReady=${isSessionReady}`,
+      `sessionBootstrapFailed=${sessionBootstrapFailed}`,
+      `profileCheckLoading=${profilePending}`,
+      `profileExists=${profileExists}`,
+      `confirmedMissing=${data?.confirmedMissing ?? "(none)"}`,
+      `currentPath=${location}`,
+      `intendedPath=${_intendedPath}`,
+      `activeAuthEvent=${_dlg("lulou_diag_last_auth_event")}`,
+      `storedSessionIdPrefix=${_sidPfx}`,
+      `authFinalState=${_runRec?.finalState ?? "(none)"}`,
+      `verifyStatus=${_runRec?.verifyStatus ?? "(none)"}`,
+      `branch=${_runRec?.branch ?? "(none)"}`,
+      `loadingCondition=authLoading=true (session-verify/bootstrap fetch in-flight or hung)`,
+      `appCommit=${__COMMIT_HASH__}`,
+    ].join("\n");
+
+    if (authLoadingTimedOut) {
+      return (
+        <div className="min-h-screen flex items-center justify-center bg-background">
+          <div className="flex flex-col items-center gap-5 max-w-sm px-6 text-center">
+            <div className="w-14 h-14 rounded-full bg-yellow-500/10 flex items-center justify-center">
+              <AlertCircle className="w-7 h-7 text-yellow-600" />
+            </div>
+            <div className="space-y-2">
+              <h2 className="text-lg font-semibold text-foreground">Taking longer than expected</h2>
+              <p className="text-sm text-muted-foreground">
+                The session check did not complete in time. The server may be temporarily slow. Reload to try again.
+              </p>
+            </div>
+            <button
+              onClick={() => window.location.reload()}
+              className="w-full py-2.5 px-4 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors"
+            >
+              Reload App
+            </button>
+            <DiagPanelInner lines={_authDiagLines} />
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-3">
           <Loader2 className="w-8 h-8 text-primary animate-spin" />
           <p className="text-sm text-muted-foreground">Loading…</p>
+          {/* Temporary diagnostic strip — removed once iPhone loading is confirmed working */}
+          <DiagPanelInner lines={_authDiagLines} />
         </div>
       </div>
     );
