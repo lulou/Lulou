@@ -1656,7 +1656,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
   // visualViewport.offsetTop — tracked as state so JSX can use it for header/messages top.
   const [vvOffsetTop, setVvOffsetTop] = useState(0);
   // Diagnostic breakdown of keyboard height calculation (for COMPOSER_A strip).
-  const [kbDiag, setKbDiag] = useState({ heightDelta: 0, offsetCandidate: 0, overlapCandidate: 0 });
+  const [kbDiag, setKbDiag] = useState({ heightDelta: 0, offsetCandidate: 0, overlapCandidate: 0, viewportMode: "visual", detectedKbH: 0 });
 
   // ── Voice debug panel state ────────────────────────────────────────────────
   // voicedebug panel: dev builds only — never shown in production regardless of URL params
@@ -2736,6 +2736,13 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
     const vv = window.visualViewport;
     if (!vv) return;
 
+    // Runtime probe: on iOS PWA, window.innerHeight shrinks WITH the keyboard so
+    // window.innerHeight ≈ vv.height. Fixed elements are already visual-viewport-relative
+    // in that mode — bottom:0 lands just above the keyboard without any explicit offset.
+    const detectViewportMode = (): "visual" | "layout" => {
+      return Math.abs(window.innerHeight - vv.height) < 10 ? "visual" : "layout";
+    };
+
     const computeKbH = () => {
       const baseline = baselineViewportHeightRef.current;
       const outerH = window.outerHeight || window.screen.height;
@@ -2760,6 +2767,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
 
     const update = () => {
       setVvOffsetTop(vv.offsetTop);
+      const viewportMode = detectViewportMode();
       const { kbH, heightDelta, offsetCandidate, overlapCandidate } = computeKbH();
       const kbVisible = kbH > 80;
       // CRITICAL: suppress keyboard-close events during recording to prevent
@@ -2768,10 +2776,10 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
         addDbg(`KB suppressed(rec) vvH=${Math.round(vv.height)}`);
         return;
       }
-      setKbDiag({ heightDelta, offsetCandidate, overlapCandidate });
+      setKbDiag({ heightDelta, offsetCandidate, overlapCandidate, viewportMode, detectedKbH: kbH });
       setKeyboardOpen(kbVisible);
       setKeyboardHeight(kbVisible ? kbH : 0);
-      const msg = `KB vvH=${Math.round(vv.height)} vvOT=${Math.round(vv.offsetTop)} base=${Math.round(baselineViewportHeightRef.current)} hDelta=${Math.round(heightDelta)} oc=${Math.round(offsetCandidate)} kbH=${Math.round(kbH)} open=${kbVisible}`;
+      const msg = `KB mode=${viewportMode} vvH=${Math.round(vv.height)} vvOT=${Math.round(vv.offsetTop)} base=${Math.round(baselineViewportHeightRef.current)} hDelta=${Math.round(heightDelta)} oc=${Math.round(offsetCandidate)} kbH=${Math.round(kbH)} open=${kbVisible}`;
       addDbg(msg);
       console.log(`[KEYBOARD_FIX] ${msg}`);
     };
@@ -3270,7 +3278,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
           The column div is a structural placeholder — flex children are removed from flow. */}
       <div className="flex-1 min-w-0 relative">
       {/* FIXED HEADER — measured via headerRef; zIndex 61 sits above messages */}
-      <div ref={headerRef} style={{ position: "fixed", top: keyboardOpen ? vvOffsetTop : 0, left: 0, right: 0, zIndex: 62, background: "hsl(var(--background) / 0.97)", backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)", paddingTop: keyboardOpen ? 0 : "env(safe-area-inset-top)" }}>
+      <div ref={headerRef} style={{ position: "fixed", top: 0, left: 0, right: 0, zIndex: 62, background: "hsl(var(--background) / 0.97)", backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)", paddingTop: "env(safe-area-inset-top)" }}>
         {/* ── Main header row ── */}
         <div className="flex items-center gap-3 px-4 pt-3 pb-2">
         <Button
@@ -3499,7 +3507,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
 
       {/* FIXED MESSAGE VIEWPORT — fills the gap between header and bottom panel */}
       <div ref={messagesContainerRef} onScroll={handleMessagesScroll}
-        style={{ position: "fixed", top: (keyboardOpen ? vvOffsetTop : 0) + headerHeight, left: 0, right: 0, bottom: composerHeight + keyboardHeight, overflowY: "scroll", overscrollBehavior: "contain" }}
+        style={{ position: "fixed", top: headerHeight, left: 0, right: 0, bottom: composerHeight, overflowY: "scroll", overscrollBehavior: "contain" }}
         className="p-4 space-y-3"
         data-testid={`messages-container-${match.id}`}
       >
@@ -3653,7 +3661,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
           )}
 
       {/* FIXED BOTTOM PANEL — wraps all conditional call/composer states; zIndex 61 */}
-      <div ref={bottomPanelRef} style={{ position: "fixed", bottom: keyboardHeight, left: 0, right: 0, zIndex: 62, background: "hsl(var(--background))" }}>
+      <div ref={bottomPanelRef} style={{ position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 62, background: "hsl(var(--background))" }}>
           {isCallRinging && iAmCaller ? (
             <div
               className="border-t"
@@ -4085,7 +4093,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
             <div ref={composerRef} className="px-2 pt-2 pb-2 border-t" style={{ borderTop: "1px solid hsl(var(--border))" }}>
               {/* COMPOSER_A — matches.tsx normal textarea branch — TEMP: remove after iPhone confirms */}
               <div style={{ fontSize: 9, fontFamily: "monospace", background: "#ffe000", color: "#000", padding: "2px 5px", marginBottom: 4, lineHeight: 1.5, wordBreak: "break-all" }}>
-                {`COMPOSER_A · baseH:${Math.round(baselineViewportHeightRef.current)} innH:${Math.round(window.innerHeight)} vvH:${Math.round(window.visualViewport?.height ?? 0)} vvOT:${Math.round(window.visualViewport?.offsetTop ?? 0)} foc:${inputFocused} hdH:${Math.round(headerHeight)} cpH:${Math.round(composerHeight)} | heightDelta:${Math.round(kbDiag.heightDelta)} offsetCandidate:${Math.round(kbDiag.offsetCandidate)} overlapCandidate:${Math.round(kbDiag.overlapCandidate)} finalKbH:${Math.round(keyboardHeight)}`}
+                {`COMPOSER_A · mode:${kbDiag.viewportMode} baseH:${Math.round(baselineViewportHeightRef.current)} vvH:${Math.round(window.visualViewport?.height ?? 0)} vvOT:${Math.round(window.visualViewport?.offsetTop ?? 0)} innH:${Math.round(window.innerHeight)} foc:${inputFocused} | detectedKbH:${Math.round(kbDiag.detectedKbH)} finalKbH:${Math.round(keyboardHeight)} appliedBottom:0 hdH:${Math.round(headerHeight)} cpH:${Math.round(composerHeight)}`}
               </div>
               {isOtherTyping && (
                 <div className="flex items-center gap-1.5 px-1 pb-2 text-xs text-muted-foreground" data-testid="text-typing-indicator">

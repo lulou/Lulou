@@ -1,0 +1,103 @@
+The latest iPhone screenshot shows the keyboard fix is now overcorrecting the layout.
+
+Observed result:
+- composer has jumped to the top of the visible area
+- header/back button still missing
+- messages are mostly off-screen
+- progress controls are floating incorrectly
+- brown side tab is still visible
+
+Do not rewrite the whole chat again.
+
+Fix _MatchChat in client/src/pages/matches.tsx only.
+
+Exact issue to investigate:
+
+The layout is now applying both visualViewport.offsetTop and keyboardHeight to fixed layers.
+
+On this iPhone, fixed elements are already positioned relative to the visual viewport. Using:
+
+header top = vvOffsetTop
+messages top = vvOffsetTop + headerHeight
+composer bottom = keyboardHeight
+
+causes a double offset and pushes the composer/header into the wrong positions.
+
+Required correction:
+
+1. Use one coordinate system only.
+
+For the live iPhone mode:
+
+- header:
+ top: 0
+- composer:
+ bottom: 0
+- message viewport:
+ top: headerHeight
+ bottom: composerHeight
+
+Do not add vvOffsetTop to header top.
+Do not add keyboardHeight to composer bottom if position:fixed is already relative to the visual viewport.
+
+2. Keep keyboard diagnostics, but separate:
+- keyboard detected
+- layout offset actually applied
+
+Add to COMPOSER_A:
+- detectedKbH
+- appliedBottom
+- vvOffsetTop
+- viewportMode
+
+3. Detect whether fixed elements are already visual-viewport-relative.
+
+Use a small runtime probe:
+- create or measure a fixed test element at bottom:0
+- compare its bottom to visualViewport.height + visualViewport.offsetTop
+- if it already tracks the visible viewport, appliedBottom must be 0
+- otherwise use keyboardHeight
+
+4. Header must always be:
+- fixed top:0
+- left:0
+- right:0
+- z-index above messages
+- padding-top: env(safe-area-inset-top)
+- visible with back button, match name and countdown
+
+5. Message viewport:
+- fixed between header and composer
+- newest message directly above composer
+- no large empty gap
+- no use of vvOffsetTop in top calculation unless runtime probe proves necessary
+
+6. Composer:
+- fixed bottom:0 in visual-viewport mode
+- compact height
+- single clean border
+- counter under input column, not under send button
+
+7. Remove the brown side tab properly:
+- identify the exact component producing it
+- unmount it whenever _MatchChat is open
+- do not rely on z-index only
+
+PASS on this same iPhone requires:
+- header visible
+- back button visible
+- countdown visible
+- composer directly above keyboard, not at top
+- messages directly above composer
+- no large blank area
+- no brown side tab
+
+Keep COMPOSER_A visible and report:
+- detectedKbH
+- appliedBottom
+- viewportMode
+- exact coordinate-system bug
+- files changed
+- commit hash
+- Vercel deployed commit
+- real iPhone PASS/FAIL

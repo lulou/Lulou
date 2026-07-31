@@ -58,7 +58,9 @@ export function PerfOverlay() {
     return () => observer.disconnect();
   }, []);
 
-  if (hidden) return null;
+  // Belt-and-suspenders: also check synchronously every render so there is no
+  // one-frame flash even if the MutationObserver fires slightly late.
+  if (hidden || document.body.classList.contains("chat-open")) return null;
 
   const warnDom  = m.dom > 1500;
   const warnChan = m.channels > 10;

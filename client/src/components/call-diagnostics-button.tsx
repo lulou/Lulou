@@ -163,6 +163,8 @@ export function CallDiagnosticsButton() {
   }, []);
 
   if (!enabled) return null;
+  // Hide during chat so the pill never overlaps the composer or keyboard area.
+  if (document.body.classList.contains("chat-open")) return null;
 
   const rawCount = typeof window !== "undefined" && Array.isArray((window as any).webrtcLogs)
     ? (window as any).webrtcLogs.length
