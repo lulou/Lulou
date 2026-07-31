@@ -1,0 +1,130 @@
+The live iPhone diagnostics identify the exact remaining layout bug:
+
+baseH=797
+innH=421
+vvH=421
+vvOT=376
+foc=true
+kbH=47
+hdH=153
+cpH=159
+
+The keyboard occupies approximately 376px, but final kbH is only 47px.
+
+Do not make another broad rewrite. Fix _MatchChat in client/src/pages/matches.tsx only.
+
+ROOT CAUSE
+
+The keyboard calculation incorrectly subtracts visualViewport.offsetTop:
+
+baselineHeight - visualViewport.height - visualViewport.offsetTop
+
+On this iPhone:
+797 - 421 - 376 = 0
+
+But the real keyboard inset is approximately:
+797 - 421 = 376
+
+visualViewport.offsetTop must not be subtracted from the keyboard height in this standalone/PWA viewport mode.
+
+REQUIRED FIX
+
+1. Calculate candidate keyboard inset primarily as:
+
+baselineViewportHeight - visualViewport.height
+
+2. Use visualViewport.offsetTop only for positioning the visible viewport, not for reducing keyboard height.
+
+3. Detect the iOS mode:
+
+- If input is focused
+- baselineH is much greater than vvH
+- vvOT is approximately baselineH - vvH
+
+Then final keyboard height must use:
+baselineH - vvH
+
+Do not allow the offsetTop subtraction to cancel the keyboard.
+
+4. Use:
+
+const heightDelta = Math.max(0, baselineH - vvH);
+const offsetCandidate = Math.max(0, vvOT);
+const overlapCandidate = measured composer overlap;
+
+finalKbH = inputFocused
+ ? Math.max(heightDelta, offsetCandidate, overlapCandidate)
+ : 0;
+
+Clamp finalKbH to a sensible maximum such as 70% of baseline height.
+
+5. The current finalKbH must become approximately 376px for the exact values shown above, not 47px.
+
+HEADER
+
+The header is still completely missing even though hdH=153.
+
+- Fix the real _MatchChat header layer.
+- Position it relative to the visible viewport:
+ - position: fixed
+ - top: visualViewport.offsetTop when the keyboard is open, otherwise 0
+ - left: 0
+ - right: 0
+ - z-index above messages and composer
+- It must visibly contain:
+ - 44×44px Back to Connections button
+ - match name/photo
+ - current message countdown
+- The header must remain visible while typing.
+
+MESSAGE AREA
+
+- top must equal the actual visible header bottom
+- bottom must equal composer height + finalKbH
+- newest message directly above composer
+- no large empty section
+
+COMPOSER
+
+- bottom must equal finalKbH
+- finalKbH should be about 376px in this screenshot
+- reduce composer height; cpH=159 is still too tall
+- keep input/send row compact
+- move 0/500 beneath the input column and before the send button boundary
+- remove doubled/thick focus border
+
+RIGHT-SIDE TAB
+
+The brown right-side tab is still visible.
+
+It is PerfOverlay or another development overlay.
+Do not merely place chat above it.
+Unmount or hide it whenever:
+- _MatchChat is open, or
+- an input/textarea is focused
+
+Keep COMPOSER_A temporarily and add:
+heightDelta
+offsetCandidate
+overlapCandidate
+finalKbH
+
+PASS on this same iPhone requires:
+
+- foc=true
+- heightDelta≈376
+- finalKbH≈376
+- header/back/countdown visible
+- composer directly above keyboard
+- newest message immediately above composer
+- no large blank gap
+- no right-side tab
+
+Report:
+- exact corrected formula
+- files changed
+- commit hash
+- Vercel deployed commit
+- real iPhone PASS/FAIL
+
+Do not remove diagnostics until this exact device passes.

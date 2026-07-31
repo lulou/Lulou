@@ -41,11 +41,24 @@ function snap(): Metrics {
 export function PerfOverlay() {
   const [open, setOpen] = useState(false);
   const [m, setM] = useState<Metrics>(() => snap());
+  // Hide whenever the chat room is open (body gets .chat-open class) so the
+  // tab never overlaps the composer or keyboard area on mobile.
+  const [hidden, setHidden] = useState(() => document.body.classList.contains("chat-open"));
 
   useEffect(() => {
     const id = setInterval(() => setM(snap()), 2000);
     return () => clearInterval(id);
   }, []);
+
+  useEffect(() => {
+    const observer = new MutationObserver(() => {
+      setHidden(document.body.classList.contains("chat-open"));
+    });
+    observer.observe(document.body, { attributes: true, attributeFilter: ["class"] });
+    return () => observer.disconnect();
+  }, []);
+
+  if (hidden) return null;
 
   const warnDom  = m.dom > 1500;
   const warnChan = m.channels > 10;
