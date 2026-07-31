@@ -456,6 +456,18 @@ export default function Messaging() {
   const initialScrollDoneRef = useRef(false);
   const matchId = params?.matchId;
 
+  // ─── Fixed-layout measurement refs ───────────────────────────────────────────
+  const headerRef = useRef<HTMLDivElement>(null);
+  const composerRef = useRef<HTMLDivElement>(null);
+  const [headerHeight, setHeaderHeight] = useState(60);
+  const [composerHeight, setComposerHeight] = useState(70);
+  // Viewport metrics for keyboard tracking and debug overlay
+  const [vvHeight, setVvHeight] = useState(() => (typeof window !== "undefined" ? window.innerHeight : 800));
+  const [vvOffsetTop, setVvOffsetTop] = useState(0);
+  // Enable layout debug overlay in Safari console:
+  //   localStorage.setItem('lulou_layout_debug','1'); location.reload()
+  const isLayoutDebug = typeof window !== "undefined" && localStorage.getItem("lulou_layout_debug") === "1";
+
   // ── Draft restoration — runs once per matchId so unsent text survives navigation ──
   useEffect(() => {
     if (!matchId) return;
@@ -513,7 +525,8 @@ export default function Messaging() {
   const handleMessagesScroll = useCallback(() => {
     const el = messagesContainerRef.current;
     if (!el) return;
-    isAtBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    // column-reverse: scrollTop=0 = visual bottom (newest). Near bottom ≡ low scrollTop.
+    isAtBottomRef.current = el.scrollTop <= 80;
   }, []);
 
   const closeConnection = useMutation({
@@ -641,20 +654,18 @@ export default function Messaging() {
   const [recordingTime, setRecordingTime] = useState(0);
   const [inputFocused, setInputFocused] = useState(false);
 
-  // ── iOS keyboard height tracking ──────────────────────────────────────────
-  // Do NOT resize the whole container (that pushes the header off-screen when
-  // vv.offsetTop > 0). Instead track the keyboard height here and apply it as
-  // paddingBottom on the composer so the composer pushes up above the keyboard
-  // while the container stays full-screen height.
+  // ── iOS keyboard + viewport metrics ──────────────────────────────────────
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   useEffect(() => {
     const vv = window.visualViewport;
     if (!vv) return;
     const update = () => {
-      // keyboard height = gap between bottom of visual viewport and bottom of layout viewport
       const kh = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
       setKeyboardHeight(kh);
+      setVvHeight(vv.height);
+      setVvOffsetTop(vv.offsetTop);
     };
+    update(); // prime on mount
     vv.addEventListener("resize", update);
     vv.addEventListener("scroll", update);
     return () => {
@@ -663,16 +674,35 @@ export default function Messaging() {
     };
   }, []);
 
-  // When the keyboard opens/closes, scroll to the latest message if already near the bottom.
+  // When keyboard opens, scroll to newest if already near bottom.
+  // column-reverse: scrollTop=0 = visual bottom.
   useEffect(() => {
     if (keyboardHeight > 0 && (isAtBottomRef.current || forceScrollRef.current)) {
-      // Small delay to let the paddingBottom layout paint settle before scrolling
       const id = setTimeout(() => {
-        messagesEndRef.current?.scrollIntoView({ behavior: "instant" });
+        messagesContainerRef.current?.scrollTo({ top: 0, behavior: "instant" });
       }, 60);
       return () => clearTimeout(id);
     }
   }, [keyboardHeight]);
+
+  // ── ResizeObserver — measure header + composer for fixed-position bottom/top ──
+  useEffect(() => {
+    const el = headerRef.current;
+    if (!el) return;
+    const obs = new ResizeObserver(() => setHeaderHeight(el.offsetHeight));
+    obs.observe(el);
+    setHeaderHeight(el.offsetHeight);
+    return () => obs.disconnect();
+  }, []);
+
+  useEffect(() => {
+    const el = composerRef.current;
+    if (!el) return;
+    const obs = new ResizeObserver(() => setComposerHeight(el.offsetHeight));
+    obs.observe(el);
+    setComposerHeight(el.offsetHeight);
+    return () => obs.disconnect();
+  }, []);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -1154,19 +1184,17 @@ export default function Messaging() {
     const el = messagesContainerRef.current;
     if (!el) return;
 
+    // column-reverse: scrollTop=0 = visual bottom (newest message).
     if (!initialScrollDoneRef.current) {
-      // First load — jump instantly to the bottom
-      el.scrollTop = el.scrollHeight;
+      el.scrollTop = 0;
       initialScrollDoneRef.current = true;
       console.log("[CHAT_REALTIME] scrolled to bottom (initial)", { matchId: matchId?.slice(0, 8), count: msgsData?.messages?.length });
     } else if (forceScrollRef.current) {
-      // User just sent a message — jump to bottom
-      el.scrollTop = el.scrollHeight;
+      el.scrollTop = 0;
       forceScrollRef.current = false;
       console.log("[CHAT_REALTIME] scrolled to bottom (force)", { matchId: matchId?.slice(0, 8), count: msgsData?.messages?.length });
     } else if (isAtBottomRef.current) {
-      // New message arrived and user is at the bottom — smooth follow
-      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+      el.scrollTo({ top: 0, behavior: "smooth" });
       console.log("[CHAT_REALTIME] scrolled to bottom (follow)", { matchId: matchId?.slice(0, 8), count: msgsData?.messages?.length });
     }
     // If user is scrolled up reading history: do nothing
@@ -1195,22 +1223,15 @@ export default function Messaging() {
     }
   }, [matchDetail]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Restore scroll position after older messages are prepended ──────────────
-  useEffect(() => {
-    if (scrollAnchorRef.current !== null) {
-      const el = messagesContainerRef.current;
-      if (el) el.scrollTop = el.scrollHeight - scrollAnchorRef.current;
-      scrollAnchorRef.current = null;
-    }
-  }, [olderMessages]);
+  // With column-reverse layout, the browser's native overflow-anchor behaviour
+  // automatically preserves scroll position when older messages are prepended
+  // (they appear at the visual top = DOM end). No manual restoration needed.
 
   // ── Load older messages (cursor pagination) ─────────────────────────────────
   const loadOlderMessages = useCallback(async () => {
     if (!matchId || isLoadingOlder || !hasMoreMessages) return;
     const cursor = oldestCursorRef.current;
     if (!cursor) return;
-    const el = messagesContainerRef.current;
-    const savedScrollHeight = el?.scrollHeight ?? 0;
     setIsLoadingOlder(true);
     console.log("[CHAT_LOAD] load_older_start", { matchId, cursor: cursor.slice(0, 20) });
     try {
@@ -1219,7 +1240,6 @@ export default function Messaging() {
       setOlderMessages(prev => [...older, ...prev]);
       setHasMoreMessages(hasMore);
       if (older.length > 0) oldestCursorRef.current = (older[0].createdAt as string) ?? null;
-      scrollAnchorRef.current = savedScrollHeight;
       console.log("[CHAT_LOAD] load_older_done", { matchId, got: older.length, hasMore });
     } catch (err: any) {
       console.warn("[CHAT_LOAD] load_older_failed", { err: err?.message });
@@ -1421,10 +1441,18 @@ export default function Messaging() {
   // shellProfile is always non-null here (guaranteed by the guard above)
   const profile = shellProfile;
 
+  // Bottom edge of the fixed messages viewport (keyboard offset + measured composer)
+  const composerBottom = keyboardHeight + composerHeight;
+
   return (
-    <div className="flex-1 flex flex-col overflow-hidden" style={{ paddingTop: "env(safe-area-inset-top)" }}>
-      {/* ── Header — flex-shrink-0 + z-10 so it never collapses or scrolls under messages ── */}
-      <div className="px-4 pt-3 pb-0 border-b bg-background flex-shrink-0 z-10">
+    <>
+      {/* ═══ FIXED HEADER — always viewport-pinned, never clipped by keyboard ═══ */}
+      <div
+        ref={headerRef}
+        className="bg-background border-b"
+        style={{ position: "fixed", top: 0, left: 0, right: 0, zIndex: 50, paddingTop: "env(safe-area-inset-top)" }}
+      >
+        <div className="px-4 pt-3 pb-0">
         {/* ── Main header row ── */}
         <div className="flex items-center gap-3 pb-2">
           {/* Back button — always present, 44×44 touch target, explicit label */}
@@ -1613,149 +1641,176 @@ export default function Messaging() {
             {t("tab_profile_view")}
           </button>
         </div>
-      </div>
+        </div>{/* end inner px-4 wrapper */}
+        {showCloseConfirm && (
+          <div className="px-4 py-2 bg-destructive/5 border-t">
+            <p className="text-xs text-center text-muted-foreground">
+              {t("close_connection_confirm").replace("{name}", profile.firstName)}
+            </p>
+          </div>
+        )}
+      </div>{/* end fixed header */}
 
-      {showCloseConfirm && (
-        <div className="px-4 py-2 bg-destructive/5 border-b">
-          <p className="text-xs text-center text-muted-foreground">
-            {t("close_connection_confirm").replace("{name}", profile.firstName)}
-          </p>
+      {/* ═══ FIXED MESSAGES AREA ═══ */}
+      {activeTab === "chat" && (
+        <div
+          ref={messagesContainerRef}
+          onScroll={handleMessagesScroll}
+          data-testid="messages-container"
+          style={{
+            position: "fixed",
+            top: headerHeight,
+            left: 0,
+            right: 0,
+            bottom: composerBottom,
+            overflowY: "auto",
+            WebkitOverflowScrolling: "touch",
+          }}
+        >
+          {/* column-reverse: first DOM child = visual bottom. Few messages naturally
+              sit near the composer — no spacer or justify-end needed.              */}
+          <div style={{ display: "flex", flexDirection: "column-reverse", gap: "12px", padding: "16px" }}>
+          {/* Anchor — DOM-first = visual bottom in column-reverse */}
+          <div ref={messagesEndRef} style={{ height: 1, flexShrink: 0 }} />
+          {/* Single pass — call-event banners AND chat bubbles, newest first in DOM */}
+          {[...allMessages].reverse().map(msg => {
+            if (!msg.content) return null;
+
+            // ── Call event banners ──────────────────────────────────────────
+            if (msg.content.startsWith("__CALL_EVENT__:")) {
+              const isMe = msg.senderId === user?.id;
+              let callText = "";
+              try {
+                const ev = JSON.parse(msg.content.slice("__CALL_EVENT__:".length));
+                if (ev.type === "cancelled" || ev.type === "missed") {
+                  callText = isMe
+                    ? `📞 You called ${matchDetail?.profile?.firstName || "them"}`
+                    : `📞 Missed call from ${ev.callerName || matchDetail?.profile?.firstName || ""}`;
+                }
+                if (ev.type === "declined") {
+                  callText = isMe
+                    ? `📞 ${ev.calleeName || matchDetail?.profile?.firstName || "They"} declined your call`
+                    : `📞 You declined ${ev.callerName || matchDetail?.profile?.firstName || "their"} call`;
+                }
+                if (ev.type === "ended") callText = "📞 Call ended";
+              } catch {}
+              if (!callText) return null;
+              return (
+                <div key={msg.id} className="flex justify-center py-2">
+                  <span className="text-xs text-muted-foreground bg-muted/60 rounded-full px-3 py-1.5" data-testid={`call-event-${msg.id}`}>{callText}</span>
+                </div>
+              );
+            }
+
+            // ── Internal protocol — never shown as chat bubbles ─────────────
+            if (
+              msg.content.startsWith("__SCHEDULE__:") ||
+              msg.content.startsWith("__SYS__:") ||
+              msg.content.startsWith("__SYSTEM__:")
+            ) return null;
+
+            // ── Regular chat bubble ──────────────────────────────────────────
+            const isMe = msg.senderId === user?.id;
+            const hasReaction = msg.reaction && typeof msg.reaction === "string" && msg.reaction.length > 0;
+            const isVoiceNote = msg.content.startsWith("__VOICE__:");
+            if (hasReaction) {
+              console.log("[CHAT] MESSAGE_REACTION_RENDERED", { messageId: msg.id, reaction: msg.reaction });
+            }
+            return (
+              <div key={msg.id} className={`flex ${isMe ? "justify-end" : "justify-start"} ${hasReaction ? "mb-2" : ""}`}>
+                <div className="relative">
+                  <div
+                    className={`w-fit max-w-[75vw] rounded-2xl text-sm select-none ${
+                      isVoiceNote
+                        ? ""
+                        : isMe
+                        ? "bg-primary text-primary-foreground px-3 py-2"
+                        : "bg-card border cursor-pointer px-3 py-2"
+                    } ${!isMe && !isVoiceNote ? "active:scale-[0.98] transition-transform" : ""}`}
+                    onClick={isVoiceNote ? undefined : () => handleMessageTap(msg)}
+                    data-testid={`message-${msg.id}`}
+                  >
+                    {isVoiceNote ? (
+                      <VoiceNotePlayer
+                        url={msg.content.slice("__VOICE__:".length)}
+                        isMe={isMe}
+                        transcript={(msg as any).voiceTranscript ?? null}
+                      />
+                    ) : (
+                      <>
+                        <p className="leading-relaxed">{msg.content.startsWith("__PHONE__:") ? msg.content.slice("__PHONE__:".length) : msg.content.startsWith("__") ? "" : msg.content}</p>
+                        <p className={`text-[10px] mt-1.5 leading-none opacity-60 ${isMe ? "text-primary-foreground" : "text-muted-foreground"}`}>
+                          {msg.createdAt ? new Date(msg.createdAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : ""}
+                        </p>
+                      </>
+                    )}
+                  </div>
+                  {hasReaction && (
+                    <span
+                      className={`absolute -bottom-2.5 ${isMe === isRTL ? "right-1" : "left-1"} text-sm drop-shadow-sm`}
+                      data-testid={`reaction-${msg.id}`}
+                    >
+                      ❤️
+                    </span>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+
+          {/* Empty state — DOM-last = visual top in column-reverse */}
+          {allMessages.length === 0 && !isDetailLoading && (
+            <div className="text-center py-12 space-y-2">
+              <p className="text-muted-foreground text-sm">{t("convo_beginning")}</p>
+              <p className="text-xs text-muted-foreground">{t("initial_messages_info").replace("{n}", String(MAX_MESSAGES_PER_USER))}</p>
+            </div>
+          )}
+          {/* Skeleton during first fetch — visual top */}
+          {isMsgsLoading && allMessages.length === 0 && (
+            <div className="space-y-3 pt-2">
+              {[1, 2, 3].map(i => (
+                <div key={i} className={`flex ${i % 2 === 0 ? "justify-end" : "justify-start"}`}>
+                  <Skeleton className={`h-10 rounded-md ${i % 2 === 0 ? "w-1/2" : "w-2/3"}`} />
+                </div>
+              ))}
+            </div>
+          )}
+          {/* Load older button — DOM-last = visual top in column-reverse */}
+          {hasMoreMessages && (
+            <div className="flex justify-center pt-1 pb-3">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={loadOlderMessages}
+                disabled={isLoadingOlder}
+                data-testid="button-load-older-messages"
+                className="text-xs text-muted-foreground gap-1"
+              >
+                {isLoadingOlder ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
+                {isLoadingOlder ? t("loading_ellipsis") : t("load_older_msgs")}
+              </Button>
+            </div>
+          )}
+          </div>
         </div>
       )}
 
-      {/* ── Chat tab ── */}
+      {/* ═══ FIXED COMPOSER ═══ */}
       {activeTab === "chat" && (
-        <>
-          <div ref={messagesContainerRef} onScroll={handleMessagesScroll} className="flex-1 overflow-y-auto min-h-0" data-testid="messages-container">
-            {/* Inner column fills full container height when few messages (anchors to bottom),
-                and grows naturally when messages overflow (no artificial empty space).     */}
-            <div className="flex flex-col justify-end min-h-full gap-3 p-4">
-            {/* Load older messages button — only visible when there are earlier msgs */}
-            {hasMoreMessages && (
-              <div className="flex justify-center pt-1 pb-3">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={loadOlderMessages}
-                  disabled={isLoadingOlder}
-                  data-testid="button-load-older-messages"
-                  className="text-xs text-muted-foreground gap-1"
-                >
-                  {isLoadingOlder ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
-                  {isLoadingOlder ? t("loading_ellipsis") : t("load_older_msgs")}
-                </Button>
-              </div>
-            )}
-            {/* Messages skeleton while first fetch in progress (no cache) */}
-            {isMsgsLoading && allMessages.length === 0 && (
-              <div className="space-y-3 pt-2">
-                {[1, 2, 3].map(i => (
-                  <div key={i} className={`flex ${i % 2 === 0 ? "justify-end" : "justify-start"}`}>
-                    <Skeleton className={`h-10 rounded-md ${i % 2 === 0 ? "w-1/2" : "w-2/3"}`} />
-                  </div>
-                ))}
-              </div>
-            )}
-            {allMessages.length === 0 && !isDetailLoading && (
-              <div className="text-center py-12 space-y-2">
-                <p className="text-muted-foreground text-sm">{t("convo_beginning")}</p>
-                <p className="text-xs text-muted-foreground">{t("initial_messages_info").replace("{n}", String(MAX_MESSAGES_PER_USER))}</p>
-              </div>
-            )}
-            {allMessages.map(msg => {
-              // Guard: null content must never reach any startsWith call
-              if (!msg.content) return null;
-
-              // ── Call event system messages — rendered as centred banners ──
-              if (msg.content.startsWith("__CALL_EVENT__:")) {
-                const isMe = msg.senderId === user?.id;
-                let callText = "";
-                try {
-                  const ev = JSON.parse(msg.content.slice("__CALL_EVENT__:".length));
-                  if (ev.type === "cancelled" || ev.type === "missed") {
-                    callText = isMe
-                      ? `📞 You called ${matchDetail?.profile?.firstName || "them"}`
-                      : `📞 Missed call from ${ev.callerName || matchDetail?.profile?.firstName || ""}`;
-                  }
-                  if (ev.type === "declined") {
-                    callText = isMe
-                      ? `📞 ${ev.calleeName || matchDetail?.profile?.firstName || "They"} declined your call`
-                      : `📞 You declined ${ev.callerName || matchDetail?.profile?.firstName || "their"} call`;
-                  }
-                  if (ev.type === "ended")    callText = "📞 Call ended";
-                } catch {}
-                if (!callText) return null;
-                return (
-                  <div key={msg.id} className="flex justify-center py-2">
-                    <span className="text-xs text-muted-foreground bg-muted/60 rounded-full px-3 py-1.5" data-testid={`call-event-${msg.id}`}>{callText}</span>
-                  </div>
-                );
-              }
-
-              // Internal protocol messages — never rendered as plain chat bubbles
-              // Bug 3 fix: both __SYS__: and __SYSTEM__: are internal protocol
-              // prefixes — neither should ever render as a plain chat bubble.
-              // Previously each component only filtered one of the two prefixes,
-              // so messages from the other prefix leaked as raw text in that view.
-              if (
-                msg.content.startsWith("__SCHEDULE__:") ||
-                msg.content.startsWith("__SYS__:") ||
-                msg.content.startsWith("__SYSTEM__:")
-              ) return null;
-
-              const isMe = msg.senderId === user?.id;
-              const hasReaction = msg.reaction && typeof msg.reaction === 'string' && msg.reaction.length > 0;
-              const isVoiceNote = msg.content.startsWith("__VOICE__:");
-              if (hasReaction) {
-                console.log("[CHAT] MESSAGE_REACTION_RENDERED", { messageId: msg.id, reaction: msg.reaction });
-              }
-              return (
-                <div key={msg.id} className={`flex ${isMe ? "justify-end" : "justify-start"} ${hasReaction ? "mb-2" : ""}`}>
-                  <div className="relative">
-                    <div
-                      className={`w-fit max-w-[75vw] rounded-2xl text-sm select-none ${
-                        isVoiceNote
-                          ? ""
-                          : isMe
-                          ? "bg-primary text-primary-foreground px-3 py-2"
-                          : "bg-card border cursor-pointer px-3 py-2"
-                      } ${!isMe && !isVoiceNote ? "active:scale-[0.98] transition-transform" : ""}`}
-                      onClick={isVoiceNote ? undefined : () => handleMessageTap(msg)}
-                      data-testid={`message-${msg.id}`}
-                    >
-                      {isVoiceNote ? (
-                        <VoiceNotePlayer
-                          url={msg.content.slice("__VOICE__:".length)}
-                          isMe={isMe}
-                          transcript={(msg as any).voiceTranscript ?? null}
-                        />
-                      ) : (
-                        <>
-                          <p className="leading-relaxed">{msg.content.startsWith("__PHONE__:") ? msg.content.slice("__PHONE__:".length) : msg.content.startsWith("__") ? "" : msg.content}</p>
-                          <p className={`text-[10px] mt-1.5 leading-none opacity-60 ${isMe ? "text-primary-foreground" : "text-muted-foreground"}`}>
-                            {msg.createdAt ? new Date(msg.createdAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : ""}
-                          </p>
-                        </>
-                      )}
-                    </div>
-                    {hasReaction && (
-                      <span
-                        className={`absolute -bottom-2.5 ${isMe === isRTL ? "right-1" : "left-1"} text-sm drop-shadow-sm`}
-                        data-testid={`reaction-${msg.id}`}
-                      >
-                        ❤️
-                      </span>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-            <div ref={messagesEndRef} />
-            </div>{/* end inner flex column */}
-          </div>
-
+        <div
+          ref={composerRef}
+          className="bg-background border-t"
+          style={{
+            position: "fixed",
+            left: 0,
+            right: 0,
+            bottom: keyboardHeight,
+            zIndex: 40,
+            paddingBottom: keyboardHeight > 0 ? 0 : "env(safe-area-inset-bottom, 0px)",
+          }}
+        >
           {(isLimitReached || callStage >= 2) && !allCallsDone && !isCallRinging && !isCallActiveInDetail && !isDeclinedSession && !voiceNotePopupOpen && !firstCallPopupOpen ? (
-            <div className="p-4 border-t">
+            <div className="p-4">
               <Card className="p-5 text-center space-y-3 bg-primary/5 border-primary/20">
                 <callPrompt.icon className="w-6 h-6 text-primary mx-auto" />
                 <p className="font-medium text-sm">{callPrompt.title}</p>
@@ -1770,12 +1825,7 @@ export default function Messaging() {
           ) : allCallsDone && matchDetail ? (
             <ReadyToMeetSection matchDetail={matchDetail} matchId={matchId!} />
           ) : (
-            <div className="border-t flex-shrink-0" style={{
-              padding: "1rem",
-              paddingBottom: keyboardHeight > 0
-                ? `${keyboardHeight + 16}px`
-                : "max(1rem, env(safe-area-inset-bottom, 1rem))",
-            }}>
+            <div style={{ padding: "1rem" }}>
               {/* ── AI Starters panel — hidden while recording ── */}
               {!isRecording && startersVisible && (
                 <div className="mb-3 rounded-2xl border border-primary/15 bg-primary/[0.04] p-3 space-y-2.5" data-testid="ai-starters-panel">
@@ -1866,10 +1916,10 @@ export default function Messaging() {
                       className="resize-none min-h-[44px] max-h-[120px] text-base pr-8 focus-visible:ring-0 focus-visible:ring-offset-0 focus-visible:border-primary/60 focus:outline-none outline-none"
                       onFocus={() => {
                         setInputFocused(true);
-                        // Delay scroll until iOS keyboard animation completes (~300ms)
+                        // Scroll to newest after iOS keyboard animation (~300ms)
                         setTimeout(() => {
                           if (isAtBottomRef.current || forceScrollRef.current) {
-                            messagesEndRef.current?.scrollIntoView({ behavior: "instant" });
+                            messagesContainerRef.current?.scrollTo({ top: 0, behavior: "instant" });
                           }
                         }, 350);
                       }}
@@ -1935,7 +1985,7 @@ export default function Messaging() {
                   </Button>
                 )}
 
-                {/* 📞 Voice call shortcut — hidden while typing */}
+                {/* 📞 Voice call shortcut */}
                 {!allCallsDone && voicePhase === "idle" && !inputFocused && (
                   <button
                     onClick={() => {
@@ -1958,10 +2008,7 @@ export default function Messaging() {
                   </button>
                 )}
 
-                {/* 🎥 Video call shortcut — always shown next to the phone icon.
-                    Grey/locked when no credits; indigo-glow when available.
-                    Root cause of missing icon: it was absent from this file entirely —
-                    previous edits incorrectly targeted matches.tsx (inline chat). */}
+                {/* 🎥 Video call shortcut */}
                 {!allCallsDone && voicePhase === "idle" && !inputFocused && (
                   <button
                     onClick={() => {
@@ -2040,12 +2087,23 @@ export default function Messaging() {
               )}
             </div>
           )}
-        </>
+        </div>
       )}
 
-      {/* ── Profile tab ── */}
+      {/* ═══ FIXED PROFILE TAB ═══ */}
       {activeTab === "profile" && (
-        <div className="flex-1 overflow-y-auto min-h-0" data-testid="profile-tab-content">
+        <div
+          data-testid="profile-tab-content"
+          style={{
+            position: "fixed",
+            top: headerHeight,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            overflowY: "auto",
+            WebkitOverflowScrolling: "touch",
+          }}
+        >
           {profile.photos?.length > 0 && (
             <PhotoCarousel
               photos={profile.photos}
@@ -2223,6 +2281,33 @@ export default function Messaging() {
           </div>
         </div>
       )}
-    </div>
+
+      {/* ── Layout debug overlay (gate: localStorage.setItem('lulou_layout_debug','1') + reload) ── */}
+      {isLayoutDebug && (
+        <div
+          style={{
+            position: "fixed",
+            top: headerHeight + 4,
+            right: 8,
+            zIndex: 9999,
+            background: "rgba(0,0,0,0.85)",
+            color: "#3f3",
+            fontFamily: "monospace",
+            fontSize: 10,
+            padding: "4px 8px",
+            borderRadius: 6,
+            lineHeight: 1.9,
+            pointerEvents: "none",
+            whiteSpace: "nowrap",
+          }}
+        >
+          vvH:{Math.round(vvHeight)} vvOT:{Math.round(vvOffsetTop)}<br />
+          kbInset:{Math.round(keyboardHeight)}<br />
+          hdrH:{Math.round(headerHeight)}<br />
+          compH:{Math.round(composerHeight)}<br />
+          msgVP:{Math.round(Math.max(0, (vvHeight || window.innerHeight) - headerHeight - composerBottom))}
+        </div>
+      )}
+    </>
   );
 }

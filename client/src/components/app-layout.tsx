@@ -144,18 +144,14 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   ];
 
   return (
-    <div className="flex flex-col w-full bg-background" style={isChatRoom ? { position: "fixed", top: 0, left: 0, right: 0, height: "100dvh" } : { height: "100dvh" }}>
-      <header
+    // Chat rooms render their own fixed layers (header, messages, composer) via messaging.tsx.
+    // AppLayout provides a full-screen stacking context and hides its own chrome so there is
+    // no overlap and no containing-block interference.
+    <div className="flex flex-col w-full bg-background" style={isChatRoom ? { position: "fixed", top: 0, left: 0, right: 0, bottom: 0 } : { height: "100dvh" }}>
+      {/* App-level header — hidden completely for chat rooms to avoid any backdrop-filter
+          containment that would re-anchor fixed children from messaging.tsx */}
+      {!isChatRoom && <header
         className="flex items-center justify-between gap-4 px-5 py-3 border-b bg-background/80 backdrop-blur-md z-30 flex-wrap"
-        aria-hidden={isChatRoom}
-        style={{
-          overflow: "hidden",
-          maxHeight: isChatRoom ? 0 : "80px",
-          opacity: isChatRoom ? 0 : 1,
-          borderBottomWidth: isChatRoom ? 0 : undefined,
-          transition: "max-height 0.13s ease, opacity 0.1s ease",
-          pointerEvents: isChatRoom ? "none" : "auto",
-        }}
       >
         <Link href="/discover">
           <div className="flex items-center gap-2 cursor-pointer">
@@ -172,23 +168,16 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           <LogOut className="w-4 h-4" />
           <span className="hidden sm:inline">{t("sign_out")}</span>
         </button>
-      </header>
+      </header>}
 
-      <main className="flex-1 overflow-hidden flex flex-col">
+      <main className={isChatRoom ? "flex-1" : "flex-1 overflow-hidden flex flex-col"}>
         {children}
       </main>
 
-      <nav
+      {!isChatRoom && <nav
         className="border-t bg-background/95 backdrop-blur-md z-30"
-        aria-hidden={isChatRoom}
         style={{
-          overflow: "hidden",
-          maxHeight: isChatRoom ? 0 : "80px",
-          opacity: isChatRoom ? 0 : 1,
-          borderTopWidth: isChatRoom ? 0 : undefined,
-          transition: "max-height 0.13s ease, opacity 0.1s ease",
-          pointerEvents: isChatRoom ? "none" : "auto",
-          paddingBottom: isChatRoom ? 0 : "env(safe-area-inset-bottom, 0px)",
+          paddingBottom: "env(safe-area-inset-bottom, 0px)",
         }}
       >
         {/* Equal-width slots: each Link gets flex-1 so all five tabs share
@@ -234,7 +223,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             );
           })}
         </div>
-      </nav>
+      </nav>}
     </div>
   );
 }

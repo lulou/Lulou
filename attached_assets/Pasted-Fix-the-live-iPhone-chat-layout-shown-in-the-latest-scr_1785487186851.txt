@@ -1,0 +1,118 @@
+Fix the live iPhone chat layout shown in the latest screenshot.
+
+The previous fixes did not work. The header, back button and countdown are still completely missing, and the keyboard-open layout is still broken.
+
+Do not change message progression, calls, voice notes, realtime messaging or server logic. This is a frontend layout fix only.
+
+OBSERVED LIVE BUGS
+
+- No chat header is visible at all.
+- No back button is visible, so the user cannot leave the chat.
+- No message countdown is visible.
+- The newest messages are far above the composer.
+- A huge blank area remains between the messages and the input.
+- The composer is still oversized.
+- The border is still too thick.
+- The 0/500 counter is still awkwardly placed beneath the send button.
+- The keyboard-open layout is still using the wrong viewport positioning.
+
+REQUIRED FIX
+
+1. Stop placing the chat header inside any element whose height or position changes with visualViewport.
+
+2. Render the header as a true fixed layer:
+
+- position: fixed
+- top: 0
+- left: 0
+- right: 0
+- z-index above all chat content
+- padding-top: env(safe-area-inset-top)
+- fixed height after safe-area padding
+
+3. The fixed header must always show:
+
+- 44×44px back button on the left
+- match name/photo
+- current message countdown
+- back button navigates to /matches
+- back button must remain visible with keyboard open
+
+4. Render the composer as a separate fixed layer:
+
+- position: fixed
+- left: 0
+- right: 0
+- bottom equal to the actual keyboard inset
+- z-index below header but above messages
+- never move the header when the keyboard opens
+
+5. The message list must be the only scrollable region.
+
+Its top padding must equal the full header height.
+Its bottom padding must equal the full composer height plus keyboard-safe spacing.
+
+Do not use:
+- a flex spacer
+- justify-end on a min-h-full wrapper
+- resizing the entire chat container
+- visualViewport height as the outer page height
+
+6. When there are only a few messages:
+
+- place them immediately above the composer
+- do not leave hundreds of pixels of blank space
+- use a bottom-anchor element with scrollIntoView, not an expanding spacer
+
+7. Composer design:
+
+- compact single-line input at rest
+- font-size 16px minimum
+- one 1–2px border only
+- no ring
+- no outline
+- no ring offset
+- microphone vertically centred inside input
+- send button same height as input
+- put 0/500 inside the composer column, aligned beneath the input and ending before the send button
+
+8. Auto-scroll behaviour:
+
+- on initial chat open, scroll to bottom
+- after sending, scroll to bottom
+- after receiving while near bottom, scroll to bottom
+- when keyboard opens and user was near bottom, scroll to bottom
+- if user has manually scrolled upward, do not force them down
+
+9. Add temporary visible layout diagnostics in development/debug mode:
+
+- visualViewport.height
+- visualViewport.offsetTop
+- keyboardInset
+- headerHeight
+- composerHeight
+- messageViewportHeight
+
+This is to prove the layout calculations on iPhone.
+
+10. Test the live production build on iPhone Safari with the keyboard open.
+
+PASS requires the screenshot to show:
+
+- header visible
+- back button visible
+- countdown visible
+- latest message directly above composer
+- no large blank gap
+- composer directly above keyboard
+- clean input border
+- correctly aligned counter and send button
+
+Do not report PASS from code inspection.
+
+Report:
+- exact CSS/layout branch causing the header to disappear
+- exact files changed
+- commit hash
+- Vercel deployed commit
+- real iPhone PASS/FAIL
