@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useLayoutEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRoute, useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
@@ -461,15 +461,10 @@ export default function Messaging() {
   const composerRef = useRef<HTMLDivElement>(null);
   const [headerHeight, setHeaderHeight] = useState(60);
   const [composerHeight, setComposerHeight] = useState(70);
-  // Viewport metrics for keyboard tracking and debug overlay
+  // Viewport metrics for keyboard tracking + diagnostic display
   const [vvHeight, setVvHeight] = useState(() => (typeof window !== "undefined" ? window.innerHeight : 800));
-  const [vvOffsetTop, setVvOffsetTop] = useState(0);
-  // Enable layout debug overlay in Safari console:
-  //   localStorage.setItem('lulou_layout_debug','1'); location.reload()
-  const isLayoutDebug = typeof window !== "undefined" && localStorage.getItem("lulou_layout_debug") === "1";
-  // Build-identity state for the debug strip
-  const [swVersion, setSwVersion]     = useState<string>("…");
-  const [cacheNames, setCacheNames]   = useState<string[]>([]);
+  // ── Layer diagnostic state — TEMP, shows computed rect of each fixed layer ──
+  const [layerDiag, setLayerDiag] = useState({ hdr: "…", msg: "…", cmp: "…" });
 
   // ── Draft restoration — runs once per matchId so unsent text survives navigation ──
   useEffect(() => {
@@ -666,7 +661,7 @@ export default function Messaging() {
       const kh = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
       setKeyboardHeight(kh);
       setVvHeight(vv.height);
-      setVvOffsetTop(vv.offsetTop);
+      // vvOffsetTop not currently used in display
     };
     update(); // prime on mount
     vv.addEventListener("resize", update);
@@ -707,35 +702,29 @@ export default function Messaging() {
     return () => obs.disconnect();
   }, []);
 
-  // ── Debug: fetch live SW version + commit via MessageChannel ──────────────
-  useEffect(() => {
-    if (!isLayoutDebug) return;
-    if (!("serviceWorker" in navigator)) { setSwVersion("no-sw"); return; }
-    navigator.serviceWorker.ready.then((reg) => {
-      if (!reg.active) { setSwVersion("no-active"); return; }
-      const { port1, port2 } = new MessageChannel();
-      port1.onmessage = (e) => {
-        if (e.data?.type === "VERSION") {
-          setSwVersion(`v${e.data.version}@${e.data.commit ?? "?"}`);
-        }
-      };
-      reg.active.postMessage({ type: "GET_VERSION" }, [port2]);
-    }).catch(() => setSwVersion("error"));
-  }, [isLayoutDebug]);
+  // ── Sync initial heights BEFORE first paint ────────────────────────────────
+  // Prevents the one-frame flash where messages start at top:60 while the
+  // actual header (with safe-area + banner rows) is 140-180px on iPhone.
+  useLayoutEffect(() => {
+    if (headerRef.current)   setHeaderHeight(headerRef.current.offsetHeight);
+    if (composerRef.current) setComposerHeight(composerRef.current.offsetHeight);
+  }, []); // runs once after DOM commit, before browser paint
 
-  // ── Debug: fetch cache storage key list via MessageChannel ────────────────
-  useEffect(() => {
-    if (!isLayoutDebug) return;
-    if (!("serviceWorker" in navigator)) { setCacheNames(["no-sw"]); return; }
-    navigator.serviceWorker.ready.then((reg) => {
-      if (!reg.active) { setCacheNames(["no-active"]); return; }
-      const { port1, port2 } = new MessageChannel();
-      port1.onmessage = (e) => {
-        if (e.data?.type === "CACHE_NAMES") setCacheNames(e.data.names ?? []);
-      };
-      reg.active.postMessage({ type: "GET_CACHE_NAMES" }, [port2]);
-    }).catch(() => setCacheNames(["error"]));
-  }, [isLayoutDebug]);
+  // ── Diagnostic: live computed rect for each fixed layer ────────────────────
+  // TEMP — remove after iPhone layout confirmed correct.
+  useLayoutEffect(() => {
+    const fmt = (el: HTMLElement | null) => {
+      if (!el) return "(null)";
+      const r = el.getBoundingClientRect();
+      const s = window.getComputedStyle(el);
+      return `T:${Math.round(r.top)} B:${Math.round(r.bottom)} H:${Math.round(r.height)} zi:${s.zIndex}`;
+    };
+    setLayerDiag({
+      hdr: fmt(headerRef.current),
+      msg: fmt(messagesContainerRef.current),
+      cmp: fmt(composerRef.current),
+    });
+  }); // intentionally no deps — fires after every render
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
@@ -1291,12 +1280,6 @@ export default function Messaging() {
   if (!shellProfile) {
     return (
       <div className="flex-1 flex flex-col" style={{ paddingTop: "env(safe-area-inset-top)" }}>
-        {/* TEMP: messaging branch marker — remove after iPhone confirms branch */}
-        <div style={{ position: "fixed", top: "env(safe-area-inset-top, 44px)", left: 4, zIndex: 999998, background: "rgba(180,0,0,0.92)", color: "#fff", fontFamily: "monospace", fontSize: 9, padding: "3px 6px", borderRadius: 4, pointerEvents: "none", whiteSpace: "nowrap" }}>
-          MESSAGING_ENTERED=true<br />
-          matchId={matchId?.slice(0, 8) ?? "none"}<br />
-          renderBranch=no-shell-skeleton
-        </div>
         <div className="p-4 border-b flex items-center gap-3 bg-background flex-shrink-0 z-10">
           <button
             aria-label="Back to Connections"
@@ -1320,12 +1303,6 @@ export default function Messaging() {
   if (!isDetailLoading && !matchDetail) {
     return (
       <div className="flex-1 flex items-center justify-center">
-        {/* TEMP: messaging branch marker */}
-        <div style={{ position: "fixed", top: "env(safe-area-inset-top, 44px)", left: 4, zIndex: 999998, background: "rgba(180,0,0,0.92)", color: "#fff", fontFamily: "monospace", fontSize: 9, padding: "3px 6px", borderRadius: 4, pointerEvents: "none", whiteSpace: "nowrap" }}>
-          MESSAGING_ENTERED=true<br />
-          matchId={matchId?.slice(0, 8) ?? "none"}<br />
-          renderBranch=no-match-found
-        </div>
         <p className="text-muted-foreground">{t("connection_not_found")}</p>
       </div>
     );
@@ -1493,19 +1470,14 @@ export default function Messaging() {
   return (
     <>
       {/* ═══ FIXED HEADER — always viewport-pinned, never clipped by keyboard ═══ */}
-      {/* TEMP MARKER — remove after iPhone confirms correct branch */}
       <div
         ref={headerRef}
         className="bg-background border-b"
-        style={{ position: "fixed", top: 0, left: 0, right: 0, zIndex: 50, paddingTop: "env(safe-area-inset-top)", outline: "4px solid red" }}
+        style={{ position: "fixed", top: 0, left: 0, right: 0, zIndex: 50, paddingTop: "env(safe-area-inset-top)" }}
       >
-        {/* TEMP: build-identity banner — proves this JSX branch is live */}
-        <div style={{ background: "#ff0", color: "#000", fontFamily: "monospace", fontSize: 10, fontWeight: "bold", textAlign: "center", padding: "2px 0", letterSpacing: 1 }}>
-          CHAT_LAYOUT_0645463 · fixed-layers · renderBranch=chat · bundle={typeof document !== "undefined" ? (document.querySelector('script[src*="/assets/index-"]') as HTMLScriptElement | null)?.src?.split("/assets/")[1] ?? "?" : "?"}
-        </div>
-        {/* TEMP: messaging branch marker (left-anchored, survives header clip) */}
-        <div style={{ position: "fixed", top: "calc(env(safe-area-inset-top, 44px) + 36px)", left: 4, zIndex: 999998, background: "rgba(0,100,0,0.92)", color: "#fff", fontFamily: "monospace", fontSize: 9, padding: "3px 6px", borderRadius: 4, pointerEvents: "none", whiteSpace: "nowrap" }}>
-          MESSAGING_ENTERED=true · matchId={matchId?.slice(0, 8) ?? "none"} · renderBranch=chat
+        {/* HEADER_RENDERED diagnostic — TEMP remove after iPhone layout confirmed */}
+        <div style={{ fontSize: 9, fontFamily: "monospace", background: "#ff0", color: "#000", padding: "2px 4px", lineHeight: 1.4 }}>
+          HEADER_RENDERED · {layerDiag.hdr} · kbH:{Math.round(keyboardHeight)} hdrH:{Math.round(headerHeight)}
         </div>
         <div className="px-4 pt-3 pb-0">
         {/* ── Main header row ── */}
@@ -1706,6 +1678,13 @@ export default function Messaging() {
         )}
       </div>{/* end fixed header */}
 
+      {/* MESSAGE_VIEWPORT_RENDERED diagnostic — TEMP remove after iPhone layout confirmed */}
+      {activeTab === "chat" && (
+        <div style={{ position: "fixed", top: headerHeight, left: 0, right: 0, zIndex: 49, fontSize: 9, fontFamily: "monospace", color: "#fff", background: "rgba(0,0,180,0.85)", padding: "2px 4px", lineHeight: 1.4, pointerEvents: "none" }}>
+          MESSAGE_VIEWPORT_RENDERED · {layerDiag.msg} · cmpBot:{Math.round(composerBottom)} vvH:{Math.round(vvHeight)}
+        </div>
+      )}
+
       {/* ═══ FIXED MESSAGES AREA ═══ */}
       {activeTab === "chat" && (
         <div
@@ -1720,7 +1699,6 @@ export default function Messaging() {
             bottom: composerBottom,
             overflowY: "auto",
             WebkitOverflowScrolling: "touch",
-            outline: "4px solid blue", // TEMP — remove after iPhone confirms
           }}
         >
           {/* column-reverse: first DOM child = visual bottom. Few messages naturally
@@ -1863,9 +1841,12 @@ export default function Messaging() {
             bottom: keyboardHeight,
             zIndex: 40,
             paddingBottom: keyboardHeight > 0 ? 0 : "env(safe-area-inset-bottom, 0px)",
-            outline: "4px solid green", // TEMP — remove after iPhone confirms
           }}
         >
+          {/* COMPOSER_RENDERED diagnostic — TEMP remove after iPhone layout confirmed */}
+          <div style={{ fontSize: 9, fontFamily: "monospace", color: "#fff", background: "rgba(0,120,0,0.85)", padding: "2px 4px", lineHeight: 1.4 }}>
+            COMPOSER_RENDERED · {layerDiag.cmp} · kbH:{Math.round(keyboardHeight)} cmpH:{Math.round(composerHeight)}
+          </div>
           {(isLimitReached || callStage >= 2) && !allCallsDone && !isCallRinging && !isCallActiveInDetail && !isDeclinedSession && !voiceNotePopupOpen && !firstCallPopupOpen ? (
             <div className="p-4">
               <Card className="p-5 text-center space-y-3 bg-primary/5 border-primary/20">
@@ -1884,7 +1865,7 @@ export default function Messaging() {
           ) : (
             <div style={{ padding: "1rem" }}>
               {/* ── AI Starters panel — hidden while recording ── */}
-              {!isRecording && startersVisible && (
+              {!isRecording && startersVisible && !inputFocused && (
                 <div className="mb-3 rounded-2xl border border-primary/15 bg-primary/[0.04] p-3 space-y-2.5" data-testid="ai-starters-panel">
                   <div className="flex items-center justify-between">
                     <p className="text-[10px] font-semibold tracking-widest uppercase text-muted-foreground flex items-center gap-1.5">
@@ -2022,7 +2003,7 @@ export default function Messaging() {
                 </div>{/* end relative mic wrapper */}
                 {/* Char counter sits below the input, not beneath the send button */}
                 {voicePhase === "idle" && (
-                  <p className="text-[11px] text-muted-foreground mt-0.5 text-right pr-9 select-none">
+                  <p className="text-[11px] text-muted-foreground mt-0.5 text-right select-none">
                     {message.length}/{MAX_CHARS}
                   </p>
                 )}
@@ -2339,104 +2320,6 @@ export default function Messaging() {
         </div>
       )}
 
-      {/* ── Build-identity + layout debug strip ──────────────────────────────
-           Gate: localStorage.setItem('lulou_layout_debug','1'); location.reload()
-           Shows build commit, bundle file, SW version, cache names, layout metrics.
-      ── */}
-      {isLayoutDebug && (() => {
-        const bundleEl = typeof document !== "undefined"
-          ? (document.querySelector('script[src*="/assets/index-"]') as HTMLScriptElement | null)
-          : null;
-        const bundleFile = bundleEl?.src?.split("/assets/")[1] ?? "(unknown)";
-        const swControlled = typeof navigator !== "undefined" ? String(!!navigator.serviceWorker?.controller) : "?";
-        return (
-          <>
-            {/* Info overlay — non-interactive */}
-            <div
-              style={{
-                position: "fixed",
-                top: headerHeight + 4,
-                right: 8,
-                zIndex: 9999,
-                background: "rgba(0,0,0,0.88)",
-                color: "#3f3",
-                fontFamily: "monospace",
-                fontSize: 10,
-                padding: "5px 8px",
-                borderRadius: 6,
-                lineHeight: 2,
-                pointerEvents: "none",
-                whiteSpace: "nowrap",
-                maxWidth: "calc(100vw - 16px)",
-              }}
-            >
-              {/* Build identity */}
-              <span style={{ color: "#ff0" }}>BUILD</span><br />
-              appCommit={__COMMIT_HASH__}<br />
-              bundle={bundleFile}<br />
-              layoutMode=fixed-layers<br />
-              {/* SW identity */}
-              <span style={{ color: "#ff0" }}>SW</span><br />
-              swVersion={swVersion}<br />
-              swControlled={swControlled}<br />
-              caches={cacheNames.length === 0 ? "(none)" : cacheNames.join(", ")}<br />
-              {/* Layout metrics */}
-              <span style={{ color: "#ff0" }}>LAYOUT</span><br />
-              vvH:{Math.round(vvHeight)} vvOT:{Math.round(vvOffsetTop)}<br />
-              kbInset:{Math.round(keyboardHeight)}<br />
-              hdrH:{Math.round(headerHeight)} compH:{Math.round(composerHeight)}<br />
-              msgVP:{Math.round(Math.max(0, (vvHeight || window.innerHeight) - headerHeight - composerBottom))}
-            </div>
-
-            {/* Refresh App button — interactive */}
-            <div
-              style={{
-                position: "fixed",
-                bottom: composerBottom + 8,
-                right: 8,
-                zIndex: 9999,
-              }}
-            >
-              <button
-                onClick={async () => {
-                  try {
-                    // 1. Unregister all service workers
-                    if ("serviceWorker" in navigator) {
-                      const regs = await navigator.serviceWorker.getRegistrations();
-                      await Promise.all(regs.map((r) => r.unregister()));
-                    }
-                    // 2. Delete all caches
-                    if ("caches" in window) {
-                      const keys = await caches.keys();
-                      await Promise.all(keys.map((k) => caches.delete(k)));
-                    }
-                    // 3. Clear the reload-loop guard so the page can reload freely
-                    sessionStorage.removeItem("sw_reload_done");
-                    // 4. Hard reload (bypasses browser HTTP cache)
-                    window.location.reload();
-                  } catch {
-                    window.location.reload();
-                  }
-                }}
-                style={{
-                  background: "#f00",
-                  color: "#fff",
-                  fontFamily: "monospace",
-                  fontSize: 11,
-                  fontWeight: "bold",
-                  padding: "6px 10px",
-                  borderRadius: 6,
-                  border: "none",
-                  cursor: "pointer",
-                  boxShadow: "0 2px 8px rgba(0,0,0,0.5)",
-                }}
-              >
-                ⟳ Refresh app
-              </button>
-            </div>
-          </>
-        );
-      })()}
     </>
   );
 }
