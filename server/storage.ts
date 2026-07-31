@@ -1355,15 +1355,29 @@ export class SupabaseStorage implements IStorage {
    *
    * All three lookups run in parallel so this method adds ≈0 extra latency.
    */
-  private async buildExcludedUserIds(userId: string): Promise<{
+  /**
+   * @param interactionTypesToExclude  When provided, only outbound interactions of these
+   *   types count as "already acted on".  Omit (or pass undefined) to exclude ALL
+   *   interaction types (Discover behaviour).  Pass ["wheel_connection"] for the
+   *   Intention Wheel so that Discover open/close rows never block Wheel candidates.
+   */
+  private async buildExcludedUserIds(userId: string, interactionTypesToExclude?: string[]): Promise<{
     excludedIds: Set<string>;
     interactedIds: Set<string>;
     activeMatchUserIds: Set<string>;
     inboundOpenerIds: Set<string>;
   }> {
+    // Base outbound-interaction query.  When a type filter is supplied (Wheel path) we
+    // only fetch rows of that specific type, keeping Discover history invisible to the Wheel.
+    let outboundQuery = this.sb.from("interactions").select("to_user_id").eq("from_user_id", userId);
+    if (interactionTypesToExclude && interactionTypesToExclude.length > 0) {
+      outboundQuery = (outboundQuery as any).in("type", interactionTypesToExclude);
+    }
+
     const [interactedResult, activeMatchesResult, inboundOpensResult] = await Promise.all([
-      // 1. Profiles the current user has already interacted with (any type: open or close).
-      this.sb.from("interactions").select("to_user_id").eq("from_user_id", userId),
+      // 1. Profiles the current user has already interacted with (type-filtered for Wheel,
+      //    all types for Discover).
+      outboundQuery,
       // 2. Active match partners (regardless of which side created the match).
       this.sb
         .from("matches")
@@ -2634,11 +2648,14 @@ export class SupabaseStorage implements IStorage {
       return q;
     };
 
-    // Build exclusion set (interacted + active matches) and fetch popularity data in parallel.
+    // Build exclusion set (wheel-acted + active matches) and fetch popularity data in parallel.
+    // IMPORTANT: pass ["wheel_connection"] so only profiles explicitly acted on through the
+    // Intention Wheel are excluded.  Discover open/close rows must NOT exclude Wheel candidates
+    // — the two surfaces are independent (see: wheel-discover-isolation).
     const twPopT0 = Date.now();
     const emptyExclusion = { excludedIds: new Set<string>(), interactedIds: new Set<string>(), activeMatchUserIds: new Set<string>(), inboundOpenerIds: new Set<string>() };
     const [exclusionResult, popularRowsResult] = await Promise.all([
-      userId ? this.buildExcludedUserIds(userId) : Promise.resolve(emptyExclusion),
+      userId ? this.buildExcludedUserIds(userId, ["wheel_connection"]) : Promise.resolve(emptyExclusion),
       this.sb.from("interactions").select("to_user_id").eq("type", "open").limit(2000),
     ]);
     console.log(`[WHEEL] exclusions+popularity queries done in ${Date.now() - twPopT0} ms`);
@@ -2646,9 +2663,11 @@ export class SupabaseStorage implements IStorage {
     const { excludedIds, activeMatchUserIds, interactedIds, inboundOpenerIds } = exclusionResult;
     // Same 300-cap as Discovery: apply exclusion at DB level when set is small enough.
     const useDbExclusion = excludedIds.size <= 300;
-    console.log("[WHEEL_FILTER] exclusion breakdown:", {
-      total: excludedIds.size,
+    console.log("[WHEEL_FILTER] exclusion breakdown (wheel-only history — Discover history excluded):", {
+      wheelActed: interactedIds.size,
       activeMatches: activeMatchUserIds.size,
+      inboundLikers: inboundOpenerIds.size,
+      total: excludedIds.size,
       useDbExclusion,
     });
 

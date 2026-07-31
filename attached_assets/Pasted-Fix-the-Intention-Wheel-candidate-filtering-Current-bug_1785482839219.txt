@@ -1,0 +1,65 @@
+Fix the Intention Wheel candidate filtering.
+
+Current bug:
+The user has gone through everyone in Discover, and now the Intention page shows “No profiles to show yet.”
+
+This is wrong.
+
+Discover and Intention are separate experiences. A profile being viewed, passed, closed or exhausted in Discover must not automatically remove that profile from the Intention Wheel.
+
+Required behaviour:
+
+1. The Intention Wheel must use its own eligibility history.
+2. Do not exclude candidates merely because the current user:
+  - viewed them in Discover
+  - passed them in Discover
+  - closed them in Discover
+  - exhausted the Discover feed
+3. Only exclude a profile from Intention when appropriate, such as:
+  - blocked
+  - paused
+  - deleted
+  - incompatible gender/preference
+  - active match already exists
+  - already acted on through the Intention Wheel itself
+  - any genuine safety or account restriction
+4. Keep separate records for:
+  - Discover interactions
+  - Intention Wheel interactions
+5. A Discover close/pass must not count as an Intention close.
+6. If eligible profiles exist, the wheel must show them even when Discover is empty.
+7. Do not convert API errors into a genuine empty state.
+8. “No profiles to show yet” must only appear after a successful response with zero truly eligible Intention candidates.
+
+Investigate the current filter chain for /api/popular or the Intention candidate query.
+
+Look specifically for shared exclusions based on:
+- all interactions
+- Discover close rows
+- shownIds
+- previouslySeenIds
+- dismissed profiles
+- accumulated Discover history
+
+Remove those Discover-only exclusions from the Intention query.
+
+Test:
+
+1. Create two compatible accounts.
+2. View and pass Account B in Discover from Account A.
+3. Exhaust Account A’s Discover feed.
+4. Open Intent.
+5. Confirm Account B can still appear in the Intention Wheel.
+6. Act on Account B through Intent.
+7. Confirm only then is Account B excluded according to Intention rules.
+8. Refresh and reopen.
+9. Confirm the wheel remains independent from Discover history.
+
+Do not change Discover behaviour.
+
+Report:
+- exact shared filter causing the bug
+- files changed
+- commit hash
+- Railway and Vercel deployment status
+- real production PASS/FAIL
