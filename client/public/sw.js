@@ -1,5 +1,5 @@
 /**
- * Lulou Service Worker v3.5
+ * Lulou Service Worker v4.0
  * Handles: push notifications, notification clicks, install/activate lifecycle,
  * badge management, version reporting, safe update activation.
  * Served at /sw.js — scope covers the entire PWA origin.
@@ -7,11 +7,19 @@
  * IMPORTANT: increment SW_VERSION on every deploy so browsers re-download this
  * file even when the URL doesn't change (iOS Safari is especially aggressive
  * about caching service workers).
+ *
+ * v4.0 changes:
+ *   - APP_COMMIT pinned to ca6e54c (fixed-position chat layout)
+ *   - activate deletes ALL caches (not just non-current Lulou caches)
+ *     so stale HTTP-cached assets are evicted on the client side too
+ *   - GET_CACHE_NAMES message: returns current cache key list for debug strip
+ *   - No fetch caching whatsoever — all requests pass straight to network
  */
 
-const SW_VERSION = "3.5";
+const SW_VERSION = "4.0";
+const APP_COMMIT  = "ca6e54c";
 // Cache name is versioned so activate can delete every prior cache entry.
-const CACHE_NAME = "lulou-static-v3.5";
+const CACHE_NAME = "lulou-static-v4.0";
 const ICON  = "/icon-192.png";
 const BADGE = "/favicon-32.png";
 
@@ -77,19 +85,19 @@ self.addEventListener("install", (event) => {
 });
 
 self.addEventListener("activate", (event) => {
-  console.log("[SW] activated version=" + SW_VERSION + " — deleting old caches and claiming clients");
+  console.log("[SW] activated version=" + SW_VERSION + " commit=" + APP_COMMIT + " — deleting ALL caches and claiming clients");
   event.waitUntil(
     caches.keys()
       .then((keys) => {
-        // Delete every Lulou cache from previous versions so stale entries
-        // (including any accidentally cached 401 responses from v3.4) are gone.
-        const deleteOld = keys
-          .filter((k) => k !== CACHE_NAME)
-          .map((k) => {
-            console.log("[SW] deleting old cache: " + k);
-            return caches.delete(k);
-          });
-        return Promise.all(deleteOld);
+        // Delete EVERY cache — including the current CACHE_NAME — so stale
+        // HTTP-cached assets on the client are fully evicted.  This service
+        // worker does no caching of its own (fetch handler is pass-through),
+        // so there is no risk of evicting live cached data.
+        const deleteAll = keys.map((k) => {
+          console.log("[SW] deleting cache: " + k);
+          return caches.delete(k);
+        });
+        return Promise.all(deleteAll);
       })
       .then(() => clients.claim())
   );
@@ -107,11 +115,19 @@ self.addEventListener("activate", (event) => {
 self.addEventListener("message", (event) => {
   if (!event.data) return;
   if (event.data.type === "GET_VERSION") {
-    event.ports[0]?.postMessage({ type: "VERSION", version: SW_VERSION });
+    event.ports[0]?.postMessage({ type: "VERSION", version: SW_VERSION, commit: APP_COMMIT });
   }
   if (event.data.type === "SKIP_WAITING") {
     console.log("[SW] SKIP_WAITING received — activating v" + SW_VERSION);
     self.skipWaiting();
+  }
+  // GET_CACHE_NAMES — returns the list of cache storage keys for the debug strip.
+  if (event.data.type === "GET_CACHE_NAMES") {
+    caches.keys().then((keys) => {
+      event.ports[0]?.postMessage({ type: "CACHE_NAMES", names: keys });
+    }).catch(() => {
+      event.ports[0]?.postMessage({ type: "CACHE_NAMES", names: [] });
+    });
   }
 });
 

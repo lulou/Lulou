@@ -467,6 +467,9 @@ export default function Messaging() {
   // Enable layout debug overlay in Safari console:
   //   localStorage.setItem('lulou_layout_debug','1'); location.reload()
   const isLayoutDebug = typeof window !== "undefined" && localStorage.getItem("lulou_layout_debug") === "1";
+  // Build-identity state for the debug strip
+  const [swVersion, setSwVersion]     = useState<string>("…");
+  const [cacheNames, setCacheNames]   = useState<string[]>([]);
 
   // ── Draft restoration — runs once per matchId so unsent text survives navigation ──
   useEffect(() => {
@@ -703,6 +706,37 @@ export default function Messaging() {
     setComposerHeight(el.offsetHeight);
     return () => obs.disconnect();
   }, []);
+
+  // ── Debug: fetch live SW version + commit via MessageChannel ──────────────
+  useEffect(() => {
+    if (!isLayoutDebug) return;
+    if (!("serviceWorker" in navigator)) { setSwVersion("no-sw"); return; }
+    navigator.serviceWorker.ready.then((reg) => {
+      if (!reg.active) { setSwVersion("no-active"); return; }
+      const { port1, port2 } = new MessageChannel();
+      port1.onmessage = (e) => {
+        if (e.data?.type === "VERSION") {
+          setSwVersion(`v${e.data.version}@${e.data.commit ?? "?"}`);
+        }
+      };
+      reg.active.postMessage({ type: "GET_VERSION" }, [port2]);
+    }).catch(() => setSwVersion("error"));
+  }, [isLayoutDebug]);
+
+  // ── Debug: fetch cache storage key list via MessageChannel ────────────────
+  useEffect(() => {
+    if (!isLayoutDebug) return;
+    if (!("serviceWorker" in navigator)) { setCacheNames(["no-sw"]); return; }
+    navigator.serviceWorker.ready.then((reg) => {
+      if (!reg.active) { setCacheNames(["no-active"]); return; }
+      const { port1, port2 } = new MessageChannel();
+      port1.onmessage = (e) => {
+        if (e.data?.type === "CACHE_NAMES") setCacheNames(e.data.names ?? []);
+      };
+      reg.active.postMessage({ type: "GET_CACHE_NAMES" }, [port2]);
+    }).catch(() => setCacheNames(["error"]));
+  }, [isLayoutDebug]);
+
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -2282,32 +2316,104 @@ export default function Messaging() {
         </div>
       )}
 
-      {/* ── Layout debug overlay (gate: localStorage.setItem('lulou_layout_debug','1') + reload) ── */}
-      {isLayoutDebug && (
-        <div
-          style={{
-            position: "fixed",
-            top: headerHeight + 4,
-            right: 8,
-            zIndex: 9999,
-            background: "rgba(0,0,0,0.85)",
-            color: "#3f3",
-            fontFamily: "monospace",
-            fontSize: 10,
-            padding: "4px 8px",
-            borderRadius: 6,
-            lineHeight: 1.9,
-            pointerEvents: "none",
-            whiteSpace: "nowrap",
-          }}
-        >
-          vvH:{Math.round(vvHeight)} vvOT:{Math.round(vvOffsetTop)}<br />
-          kbInset:{Math.round(keyboardHeight)}<br />
-          hdrH:{Math.round(headerHeight)}<br />
-          compH:{Math.round(composerHeight)}<br />
-          msgVP:{Math.round(Math.max(0, (vvHeight || window.innerHeight) - headerHeight - composerBottom))}
-        </div>
-      )}
+      {/* ── Build-identity + layout debug strip ──────────────────────────────
+           Gate: localStorage.setItem('lulou_layout_debug','1'); location.reload()
+           Shows build commit, bundle file, SW version, cache names, layout metrics.
+      ── */}
+      {isLayoutDebug && (() => {
+        const bundleEl = typeof document !== "undefined"
+          ? (document.querySelector('script[src*="/assets/index-"]') as HTMLScriptElement | null)
+          : null;
+        const bundleFile = bundleEl?.src?.split("/assets/")[1] ?? "(unknown)";
+        const swControlled = typeof navigator !== "undefined" ? String(!!navigator.serviceWorker?.controller) : "?";
+        return (
+          <>
+            {/* Info overlay — non-interactive */}
+            <div
+              style={{
+                position: "fixed",
+                top: headerHeight + 4,
+                right: 8,
+                zIndex: 9999,
+                background: "rgba(0,0,0,0.88)",
+                color: "#3f3",
+                fontFamily: "monospace",
+                fontSize: 10,
+                padding: "5px 8px",
+                borderRadius: 6,
+                lineHeight: 2,
+                pointerEvents: "none",
+                whiteSpace: "nowrap",
+                maxWidth: "calc(100vw - 16px)",
+              }}
+            >
+              {/* Build identity */}
+              <span style={{ color: "#ff0" }}>BUILD</span><br />
+              appCommit={__COMMIT_HASH__}<br />
+              bundle={bundleFile}<br />
+              layoutMode=fixed-layers<br />
+              {/* SW identity */}
+              <span style={{ color: "#ff0" }}>SW</span><br />
+              swVersion={swVersion}<br />
+              swControlled={swControlled}<br />
+              caches={cacheNames.length === 0 ? "(none)" : cacheNames.join(", ")}<br />
+              {/* Layout metrics */}
+              <span style={{ color: "#ff0" }}>LAYOUT</span><br />
+              vvH:{Math.round(vvHeight)} vvOT:{Math.round(vvOffsetTop)}<br />
+              kbInset:{Math.round(keyboardHeight)}<br />
+              hdrH:{Math.round(headerHeight)} compH:{Math.round(composerHeight)}<br />
+              msgVP:{Math.round(Math.max(0, (vvHeight || window.innerHeight) - headerHeight - composerBottom))}
+            </div>
+
+            {/* Refresh App button — interactive */}
+            <div
+              style={{
+                position: "fixed",
+                bottom: composerBottom + 8,
+                right: 8,
+                zIndex: 9999,
+              }}
+            >
+              <button
+                onClick={async () => {
+                  try {
+                    // 1. Unregister all service workers
+                    if ("serviceWorker" in navigator) {
+                      const regs = await navigator.serviceWorker.getRegistrations();
+                      await Promise.all(regs.map((r) => r.unregister()));
+                    }
+                    // 2. Delete all caches
+                    if ("caches" in window) {
+                      const keys = await caches.keys();
+                      await Promise.all(keys.map((k) => caches.delete(k)));
+                    }
+                    // 3. Clear the reload-loop guard so the page can reload freely
+                    sessionStorage.removeItem("sw_reload_done");
+                    // 4. Hard reload (bypasses browser HTTP cache)
+                    window.location.reload();
+                  } catch {
+                    window.location.reload();
+                  }
+                }}
+                style={{
+                  background: "#f00",
+                  color: "#fff",
+                  fontFamily: "monospace",
+                  fontSize: 11,
+                  fontWeight: "bold",
+                  padding: "6px 10px",
+                  borderRadius: 6,
+                  border: "none",
+                  cursor: "pointer",
+                  boxShadow: "0 2px 8px rgba(0,0,0,0.5)",
+                }}
+              >
+                ⟳ Refresh app
+              </button>
+            </div>
+          </>
+        );
+      })()}
     </>
   );
 }

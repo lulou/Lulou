@@ -3214,11 +3214,31 @@ console.log("[PERF] APP_BUNDLE_EXECUTED", { ms: Math.round(_appStartMs) });
 function App() {
   // Register Service Worker for push notifications (once, at root level).
   useEffect(() => {
-    if ("serviceWorker" in navigator) {
-      navigator.serviceWorker.register("/sw.js", { scope: "/" })
-        .then(reg => console.log("[SW] Registered:", reg.scope))
-        .catch(err => console.warn("[SW] Registration failed:", err?.message));
-    }
+    if (!("serviceWorker" in navigator)) return;
+
+    navigator.serviceWorker.register("/sw.js", { scope: "/" })
+      .then(reg => {
+        console.log("[SW] Registered:", reg.scope);
+        // Force re-check of the SW file immediately after registration.
+        // iOS Safari won't re-download sw.js until the browser decides to
+        // (up to 24 hours). reg.update() bypasses that delay on every page load.
+        reg.update().catch(() => {});
+      })
+      .catch(err => console.warn("[SW] Registration failed:", err?.message));
+
+    // When a new SW takes control (skipWaiting → activate → clients.claim()),
+    // reload the page so the new JS bundle is used.
+    // Loop guard: sessionStorage flag prevents re-triggering on the reloaded page.
+    navigator.serviceWorker.addEventListener("controllerchange", () => {
+      const GUARD_KEY = "sw_reload_done";
+      if (sessionStorage.getItem(GUARD_KEY)) {
+        console.log("[SW] controllerchange — reload already done this session, skipping");
+        return;
+      }
+      console.log("[SW] controllerchange — reloading for new SW version");
+      sessionStorage.setItem(GUARD_KEY, "1");
+      window.location.reload();
+    });
   }, []);
 
   // useEffect must be called unconditionally (Rules of Hooks).
