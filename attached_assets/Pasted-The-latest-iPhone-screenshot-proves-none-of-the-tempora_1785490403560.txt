@@ -1,0 +1,90 @@
+The latest iPhone screenshot proves none of the temporary markers from commit 8483fc7 are rendering:
+
+- no CHAT_LAYOUT_0645463 banner
+- no red header border
+- no blue message-area border
+- no green composer border
+
+Stop changing the chat CSS.
+
+The current proof marker was placed inside messaging.tsx, so it cannot distinguish between:
+- stale frontend code
+- a different route/component branch
+- an early return inside Messaging
+- an error/loading branch rendering before the marked JSX
+- the PWA opening a different deployment/domain
+
+Add an unavoidable production build marker at the App.tsx root level, outside all routes and conditional branches.
+
+Required:
+
+1. In App.tsx, render a temporary fixed badge directly under the root app component:
+
+position: fixed;
+top: env(safe-area-inset-top);
+left: 4px;
+z-index: 999999;
+
+Text:
+ROOT_BUILD=<commit>
+HOST=<window.location.hostname>
+PATH=<window.location.pathname>
+ROUTE_COMPONENT=<current route name>
+
+This marker must render:
+- before authentication gates
+- before AppLayout
+- outside Messaging
+- outside loading/error conditions
+- on every page
+
+2. Add another fixed marker at the very first return of Messaging:
+
+MESSAGING_ENTERED=true
+matchIdPrefix=<safe prefix>
+renderBranch=<loading|error|profile|chat>
+
+It must remain visible even when the header is clipped.
+
+3. Display:
+- import.meta build commit
+- JS bundle filename
+- service-worker version
+- service-worker controller URL
+- current hostname
+- current pathname
+
+4. Do not hide these markers behind a debug setting. Make them temporarily visible for everyone until this issue is identified.
+
+5. Verify which exact domain the iPhone PWA opens:
+- www.luloudating.com
+- luloudating.com
+- lulouapp.vercel.app
+- another saved Home Screen URL
+
+6. Check whether www and non-www domains return different HTML or bundles.
+
+7. Check every early return in messaging.tsx:
+- missing matchId
+- loading
+- match error
+- profile loading
+- auth/session state
+- alternate profile tab
+- call overlay
+
+Add the marker to each branch so the live screenshot identifies the branch.
+
+8. Deploy and confirm the root badge text from the actual HTML/bundle.
+
+Do not make another layout fix yet.
+
+Report:
+- exact domain opened by the iPhone
+- root build shown on the phone
+- exact Messaging render branch
+- whether the phone is using the expected deployment
+- commit hash
+- Vercel deployed commit
+
+Only after the root-level marker is visibly confirmed should the chat layout be changed again.
