@@ -103,21 +103,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   // Hide navigation when inside a chat room — focus mode
   const isChatRoom = location.startsWith("/messages/");
 
-  // ── iOS keyboard resize fix ─────────────────────────────────────────────────
-  // On iOS Safari, `position:fixed; height:100dvh` does NOT shrink when the
-  // software keyboard opens — the keyboard overlays the bottom of the container.
-  // We listen to visualViewport.resize and drive the container height from the
-  // real visible height, so the chat composer always stays above the keyboard.
-  const [chatContainerHeight, setChatContainerHeight] = useState<number | null>(null);
-  useEffect(() => {
-    if (!isChatRoom) return;
-    const vv = window.visualViewport;
-    if (!vv) return;
-    const update = () => setChatContainerHeight(vv.height);
-    update(); // set immediately
-    vv.addEventListener("resize", update);
-    return () => vv.removeEventListener("resize", update);
-  }, [isChatRoom]);
+  // Chat rooms manage their own keyboard-avoidance via keyboardHeight tracked
+  // inside messaging.tsx. AppLayout simply pins the container to full screen.
 
   // [PERF_FIX] Use `select` on both queries so AppLayout only re-renders when
   // a badge COUNT changes — not on every poll response when the underlying
@@ -157,7 +144,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   ];
 
   return (
-    <div className="flex flex-col w-full bg-background" style={isChatRoom ? { position: "fixed", top: 0, left: 0, right: 0, height: chatContainerHeight ? `${chatContainerHeight}px` : "100dvh" } : { height: "100dvh" }}>
+    <div className="flex flex-col w-full bg-background" style={isChatRoom ? { position: "fixed", top: 0, left: 0, right: 0, height: "100dvh" } : { height: "100dvh" }}>
       <header
         className="flex items-center justify-between gap-4 px-5 py-3 border-b bg-background/80 backdrop-blur-md z-30 flex-wrap"
         aria-hidden={isChatRoom}

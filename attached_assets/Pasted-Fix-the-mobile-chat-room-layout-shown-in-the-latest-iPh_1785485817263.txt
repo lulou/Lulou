@@ -1,0 +1,112 @@
+Fix the mobile chat-room layout shown in the latest iPhone screenshot.
+
+Do not change message progression, call logic, voice-note rules or realtime messaging. This task is UI/layout only.
+
+CURRENT PROBLEMS
+
+1. The chat header is completely missing.
+2. There is no visible back button to leave the chat.
+3. The message countdown is missing.
+4. The newest messages sit too high, leaving a huge empty gap above the composer.
+5. The focused composer is too tall and bulky.
+6. The input still has an oversized/doubled focus border.
+7. The microphone, send button and 0/500 counter are misaligned.
+8. The top of the chat appears cut off when the iPhone keyboard is open.
+
+REQUIRED LAYOUT
+
+STICKY HEADER
+
+- Add a fixed/sticky chat header that is always visible at the top.
+- Include:
+ - clear back arrow on the left
+ - match name/photo in the centre area
+ - compact message countdown
+- Back must return to Connections without ending or deleting the conversation.
+- Header must remain visible:
+ - while scrolling
+ - while typing
+ - while the keyboard is open
+ - after visualViewport resize
+- Respect the iPhone top safe-area inset.
+
+MESSAGE COUNTDOWN
+
+- Always show how many messages remain in the current stage.
+- Example:
+ “7 messages left”
+- Update immediately after either user sends a qualifying message.
+- Do not hide it when the keyboard opens.
+- Do not show an incorrect count from another stage.
+
+MESSAGE AREA
+
+- Use the remaining space between the sticky header and composer.
+- Anchor the conversation to the bottom when the user is already near the latest message.
+- The newest message must sit directly above the composer.
+- Do not leave a large blank gap between messages and composer.
+- Preserve manual scroll position when the user is reading older messages.
+- Automatically scroll only when:
+ - opening the chat
+ - sending a message
+ - receiving a message while already near the bottom
+ - opening the keyboard while already near the bottom
+
+Do not use a large flex spacer that creates an artificial empty area.
+
+COMPOSER
+
+- Keep the composer compact and stable when focused.
+- Use a single clean border.
+- Remove all doubled ring, outline and ring-offset styling.
+- Keep font size at least 16px to stop Safari auto-zoom.
+- Keep the microphone inside the input area and vertically centred.
+- Keep the send button the same height as the input.
+- Position the 0/500 counter neatly below the input or inside the composer area.
+- The counter must not sit directly beneath the send button.
+- Respect the keyboard and bottom safe-area inset.
+- The keyboard must never cover the composer.
+
+VIEWPORT HANDLING
+
+Use visualViewport correctly:
+
+- Header remains pinned at the top.
+- Composer remains pinned just above the keyboard.
+- Message area height equals the visible space between them.
+- Do not resize the whole page in a way that pushes the header off-screen.
+- Handle visualViewport resize and scroll events.
+- Prevent layout jumps when the keyboard opens or closes.
+
+MESSAGE BUBBLES
+
+- Keep short messages compact.
+- One-letter messages must not appear as tall square blocks.
+- Use width: fit-content, sensible min-height, padding and line-height.
+- Incoming and outgoing bubbles should be visually consistent.
+
+TEST ON IPHONE SAFARI
+
+1. Open chat with the keyboard closed.
+2. Confirm header, back button and countdown are visible.
+3. Tap the input.
+4. Confirm header stays visible.
+5. Confirm composer stays directly above keyboard.
+6. Confirm latest message sits directly above composer.
+7. Confirm no large empty gap appears.
+8. Send and receive messages.
+9. Confirm auto-scroll works only when already near the bottom.
+10. Scroll up to older messages and confirm incoming messages do not force-scroll.
+11. Confirm back button always returns to Connections.
+12. Confirm 0/500 counter and send button remain aligned.
+
+Also test laptop Safari and Chrome.
+
+Report:
+- exact layout root causes
+- files changed
+- commit hash
+- Vercel deployment status
+- real iPhone PASS/FAIL
+
+Do not mark complete from code inspection alone. The live iPhone layout must match these requirements.

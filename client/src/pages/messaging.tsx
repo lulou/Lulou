@@ -630,6 +630,39 @@ export default function Messaging() {
   const isRecording = voicePhase === "recording";
   const [recordingTime, setRecordingTime] = useState(0);
   const [inputFocused, setInputFocused] = useState(false);
+
+  // ── iOS keyboard height tracking ──────────────────────────────────────────
+  // Do NOT resize the whole container (that pushes the header off-screen when
+  // vv.offsetTop > 0). Instead track the keyboard height here and apply it as
+  // paddingBottom on the composer so the composer pushes up above the keyboard
+  // while the container stays full-screen height.
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const update = () => {
+      // keyboard height = gap between bottom of visual viewport and bottom of layout viewport
+      const kh = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+      setKeyboardHeight(kh);
+    };
+    vv.addEventListener("resize", update);
+    vv.addEventListener("scroll", update);
+    return () => {
+      vv.removeEventListener("resize", update);
+      vv.removeEventListener("scroll", update);
+    };
+  }, []);
+
+  // When the keyboard opens/closes, scroll to the latest message if already near the bottom.
+  useEffect(() => {
+    if (keyboardHeight > 0 && (isAtBottomRef.current || forceScrollRef.current)) {
+      // Small delay to let the paddingBottom layout paint settle before scrolling
+      const id = setTimeout(() => {
+        messagesEndRef.current?.scrollIntoView({ behavior: "instant" });
+      }, 60);
+      return () => clearTimeout(id);
+    }
+  }, [keyboardHeight]);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -1368,9 +1401,9 @@ export default function Messaging() {
   const profile = shellProfile;
 
   return (
-    <div className="flex-1 flex flex-col overflow-hidden">
+    <div className="flex-1 flex flex-col overflow-hidden" style={{ paddingTop: "env(safe-area-inset-top)" }}>
       {/* ── Header ── */}
-      <div className="px-4 pt-3 pb-0 border-b bg-background">
+      <div className="px-4 pt-3 pb-0 border-b bg-background flex-shrink-0">
         {/* ── Main header row ── */}
         <div className="flex items-center gap-3 pb-2">
           <Button variant="ghost" size="icon" onClick={() => navigate("/matches")} data-testid="button-back-to-matches">
@@ -1556,9 +1589,10 @@ export default function Messaging() {
       {/* ── Chat tab ── */}
       {activeTab === "chat" && (
         <>
-          <div ref={messagesContainerRef} onScroll={handleMessagesScroll} className="flex-1 overflow-y-auto p-4 flex flex-col min-h-0 gap-3" data-testid="messages-container">
-            {/* Spacer pushes messages to the bottom when there are few of them */}
-            <div className="flex-1 min-h-0" />
+          <div ref={messagesContainerRef} onScroll={handleMessagesScroll} className="flex-1 overflow-y-auto min-h-0" data-testid="messages-container">
+            {/* Inner column fills full container height when few messages (anchors to bottom),
+                and grows naturally when messages overflow (no artificial empty space).     */}
+            <div className="flex flex-col justify-end min-h-full gap-3 p-4">
             {/* Load older messages button — only visible when there are earlier msgs */}
             {hasMoreMessages && (
               <div className="flex justify-center pt-1 pb-3">
@@ -1680,6 +1714,7 @@ export default function Messaging() {
               );
             })}
             <div ref={messagesEndRef} />
+            </div>{/* end inner flex column */}
           </div>
 
           {(isLimitReached || callStage >= 2) && !allCallsDone && !isCallRinging && !isCallActiveInDetail && !isDeclinedSession && !voiceNotePopupOpen && !firstCallPopupOpen ? (
@@ -1698,7 +1733,12 @@ export default function Messaging() {
           ) : allCallsDone && matchDetail ? (
             <ReadyToMeetSection matchDetail={matchDetail} matchId={matchId!} />
           ) : (
-            <div className="p-4 border-t" style={{ paddingBottom: "max(1rem, env(safe-area-inset-bottom, 1rem))" }}>
+            <div className="border-t flex-shrink-0" style={{
+              padding: "1rem",
+              paddingBottom: keyboardHeight > 0
+                ? `${keyboardHeight + 16}px`
+                : "max(1rem, env(safe-area-inset-bottom, 1rem))",
+            }}>
               {/* ── AI Starters panel — hidden while recording ── */}
               {!isRecording && startersVisible && (
                 <div className="mb-3 rounded-2xl border border-primary/15 bg-primary/[0.04] p-3 space-y-2.5" data-testid="ai-starters-panel">
@@ -1771,8 +1811,9 @@ export default function Messaging() {
                 </div>
               )}
               <div className="flex gap-2 items-end">
-                {/* ── Input wrapper with mic embedded inside ── */}
-                <div className="relative flex-1">
+                {/* ── Input column: textarea + char counter directly beneath ── */}
+                <div className="flex-1 flex flex-col">
+                <div className="relative">
                   {voicePhase === "recording" ? (
                     <div className="flex items-center gap-2 min-h-[44px] px-3 pr-10 rounded-md border border-red-300/50 bg-red-50/40 dark:bg-red-950/20 select-none">
                       <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse shrink-0" />
@@ -1785,7 +1826,7 @@ export default function Messaging() {
                       value={message}
                       onChange={e => setMessage(e.target.value.slice(0, MAX_CHARS))}
                       placeholder={t("write_meaningful_placeholder")}
-                      className="resize-none min-h-[44px] max-h-[120px] text-sm pr-8 focus-visible:ring-0 focus-visible:ring-offset-0 focus-visible:border-primary/60 focus:outline-none"
+                      className="resize-none min-h-[44px] max-h-[120px] text-base pr-8 focus-visible:ring-0 focus-visible:ring-offset-0 focus-visible:border-primary/60 focus:outline-none outline-none"
                       onFocus={() => {
                         setInputFocused(true);
                         // Delay scroll until iOS keyboard animation completes (~300ms)
@@ -1834,7 +1875,14 @@ export default function Messaging() {
                         : { color: "hsl(var(--muted-foreground))", opacity: 0.35 }}
                     />
                   </button>
-                </div>
+                </div>{/* end relative mic wrapper */}
+                {/* Char counter sits below the input, not beneath the send button */}
+                {voicePhase === "idle" && (
+                  <p className="text-[11px] text-muted-foreground mt-0.5 text-right pr-9 select-none">
+                    {message.length}/{MAX_CHARS}
+                  </p>
+                )}
+                </div>{/* end flex-col input column */}
 
                 {/* ✨ Conversation starters — hidden while typing */}
                 {aiStartersEnabled && voicePhase === "idle" && !inputFocused && (
@@ -1919,11 +1967,6 @@ export default function Messaging() {
                   </Button>
                 )}
               </div>
-              {voicePhase === "idle" && (
-                <p className="text-xs text-muted-foreground mt-1 text-right">
-                  {message.length}/{MAX_CHARS}
-                </p>
-              )}
 
               {/* ── Comment filter confirmation ── */}
               {filterConfirm && (
