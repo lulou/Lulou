@@ -456,6 +456,16 @@ export default function Messaging() {
   const initialScrollDoneRef = useRef(false);
   const matchId = params?.matchId;
 
+  // ── Draft restoration — runs once per matchId so unsent text survives navigation ──
+  useEffect(() => {
+    if (!matchId) return;
+    try {
+      const saved = localStorage.getItem(`chat_draft_${matchId}`);
+      if (saved) setMessage(saved);
+    } catch { /* noop */ }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [matchId]);
+
   // ── Badge: mark this match as read and sync badge count ───────────────────
   const { setBadge } = usePushNotifications();
   useEffect(() => {
@@ -1065,6 +1075,11 @@ export default function Messaging() {
   }, [callStageForEffect]);
 
   // ── Comment Filter + send helper ──────────────────────────────────────────
+  // Clears the persisted draft for this match (called after every successful send path)
+  const clearDraft = () => {
+    try { localStorage.removeItem(`chat_draft_${matchId}`); } catch { /* noop */ }
+  };
+
   const doSend = (content: string) => {
     const tempId = `temp-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const commentFilterEnabled = localStorage.getItem("settings_comment_filter") !== "false";
@@ -1084,6 +1099,7 @@ export default function Messaging() {
       }
     }
     setMessage("");
+    clearDraft();
     forceScrollRef.current = true;
     sendMessage.mutate({ content, tempId });
   };
@@ -1220,11 +1236,16 @@ export default function Messaging() {
   // This is rare — usually cache has data from the matches list.
   if (!shellProfile) {
     return (
-      <div className="flex-1 flex flex-col">
-        <div className="p-4 border-b flex items-center gap-3">
-          <Button variant="ghost" size="icon" onClick={() => navigate("/matches")} data-testid="button-back-to-matches">
+      <div className="flex-1 flex flex-col" style={{ paddingTop: "env(safe-area-inset-top)" }}>
+        <div className="p-4 border-b flex items-center gap-3 bg-background flex-shrink-0 z-10">
+          <button
+            aria-label="Back to Connections"
+            data-testid="button-back-to-matches"
+            className="flex-shrink-0 flex items-center justify-center w-11 h-11 -ml-1.5 rounded-full hover:bg-accent transition-colors active:scale-90"
+            onClick={() => navigate("/matches")}
+          >
             <ArrowLeft className="w-5 h-5" />
-          </Button>
+          </button>
           <Skeleton className="w-9 h-9 rounded-full" />
           <Skeleton className="h-5 w-24" />
         </div>
@@ -1402,13 +1423,29 @@ export default function Messaging() {
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden" style={{ paddingTop: "env(safe-area-inset-top)" }}>
-      {/* ── Header ── */}
-      <div className="px-4 pt-3 pb-0 border-b bg-background flex-shrink-0">
+      {/* ── Header — flex-shrink-0 + z-10 so it never collapses or scrolls under messages ── */}
+      <div className="px-4 pt-3 pb-0 border-b bg-background flex-shrink-0 z-10">
         {/* ── Main header row ── */}
         <div className="flex items-center gap-3 pb-2">
-          <Button variant="ghost" size="icon" onClick={() => navigate("/matches")} data-testid="button-back-to-matches">
+          {/* Back button — always present, 44×44 touch target, explicit label */}
+          <button
+            aria-label="Back to Connections"
+            data-testid="button-back-to-matches"
+            className="flex-shrink-0 flex items-center justify-center w-11 h-11 -ml-1.5 rounded-full hover:bg-accent transition-colors active:scale-90"
+            onClick={() => {
+              // Preserve any unsent draft across navigation
+              try {
+                if (message.trim()) {
+                  localStorage.setItem(`chat_draft_${matchId}`, message);
+                } else {
+                  localStorage.removeItem(`chat_draft_${matchId}`);
+                }
+              } catch { /* noop */ }
+              navigate("/matches");
+            }}
+          >
             <ArrowLeft className="w-5 h-5" />
-          </Button>
+          </button>
 
           <Avatar className="w-9 h-9 flex-shrink-0">
             <AvatarImage src={profile.photos?.[0]} alt={profile.firstName} />
@@ -1522,7 +1559,7 @@ export default function Messaging() {
             <button
               onClick={() => {
                 if (!voiceNotesUnlocked) {
-                  toast({ description: "Voice notes unlock after you've both sent 8 messages." });
+                  toast({ description: "Voice notes unlock after your first call." });
                   return;
                 }
                 if (voicePhase === "idle") startRecording();
@@ -1990,6 +2027,7 @@ export default function Messaging() {
                         const { content, tempId } = filterConfirm;
                         setFilterConfirm(null);
                         setMessage("");
+                        clearDraft();
                         forceScrollRef.current = true;
                         sendMessage.mutate({ content, tempId });
                       }}
