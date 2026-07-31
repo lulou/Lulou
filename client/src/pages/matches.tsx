@@ -1642,6 +1642,17 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
   // Numeric keyboard height (px) — used to push composer above the keyboard on iOS.
   // Derived from window.visualViewport; 0 when keyboard is closed.
   const [keyboardHeight, setKeyboardHeight] = useState(0);
+  // Stable viewport height captured BEFORE any keyboard opens.
+  // iOS Safari/PWA: window.innerHeight shrinks WITH visualViewport.height when the keyboard
+  // opens, so (innerHeight - vv.height) = 0 always. Fix: snapshot vv.height at mount.
+  const baselineViewportHeightRef = useRef(0);
+  // Fixed header div — measured to set messages viewport top.
+  const headerRef = useRef<HTMLDivElement>(null);
+  // Fixed bottom panel div — wraps ALL conditional bottom states; measured for messages bottom.
+  const bottomPanelRef = useRef<HTMLDivElement>(null);
+  // Measured pixel heights of the fixed header and bottom panel.
+  const [headerHeight, setHeaderHeight] = useState(60);
+  const [composerHeight, setComposerHeight] = useState(56);
 
   // ── Voice debug panel state ────────────────────────────────────────────────
   // voicedebug panel: dev builds only — never shown in production regardless of URL params
@@ -2535,10 +2546,15 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
     // recording is done, reconcile with the actual viewport state.
     const vv = window.visualViewport;
     if (vv) {
-      const kbActuallyVisible = (window.outerHeight || window.screen.height) - vv.height > 150;
+      const baseline = baselineViewportHeightRef.current;
+      const outerH = window.outerHeight || window.screen.height;
+      const inset1 = baseline > 0 ? Math.max(0, baseline - vv.height - vv.offsetTop) : 0;
+      const inset2 = Math.max(0, outerH - vv.height - vv.offsetTop);
+      const kbH = Math.min(Math.max(inset1, inset2), outerH * 0.75);
+      const kbActuallyVisible = kbH > 80;
       setKeyboardOpen(kbActuallyVisible);
-      setKeyboardHeight(kbActuallyVisible ? Math.max(0, window.innerHeight - vv.height - vv.offsetTop) : 0);
-      console.log(`[VOICE_NOTE_LAYOUT] post-recording keyboard re-sync visible=${kbActuallyVisible} viewport=${Math.round(vv.height)}px`);
+      setKeyboardHeight(kbActuallyVisible ? kbH : 0);
+      console.log(`[KEYBOARD_FIX] post-recording re-sync kbH=${Math.round(kbH)} visible=${kbActuallyVisible} vvH=${Math.round(vv.height)}px`);
     }
   };
 
@@ -2651,37 +2667,117 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
     return () => ro.disconnect();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Track keyboard visibility via visualViewport.
-  // This is the authoritative source — it changes only when the keyboard actually
-  // opens or closes, NOT on spurious iOS focus/blur events. We use keyboardOpen
-  // instead of inputFocused to control button DOM presence so a fake blur (keyboard
-  // stays open) never inserts buttons and reflows the composer.
+  // ── Baseline viewport height ─────────────────────────────────────────────────
+  // iOS Safari/PWA root cause: window.innerHeight shrinks WITH visualViewport.height
+  // when the keyboard opens, so (innerHeight - vv.height) = 0 always (kbH stays 0).
+  // Fix: capture vv.height at mount (keyboard is NEVER open at mount) and update it
+  // on orientation change / resize ONLY while no input is focused.
+  useEffect(() => {
+    const vv = window.visualViewport;
+    const capture = () => {
+      if (inputFocusedRef.current) return; // skip if keyboard might be visible
+      const h = vv ? vv.height : window.innerHeight;
+      if (h > baselineViewportHeightRef.current) {
+        baselineViewportHeightRef.current = h;
+        console.log(`[KEYBOARD_FIX] baseline captured: ${Math.round(h)}px`);
+      }
+    };
+    capture(); // immediate at mount — keyboard never open here
+    window.addEventListener("resize", capture, { passive: true });
+    window.addEventListener("orientationchange", capture, { passive: true });
+    return () => {
+      window.removeEventListener("resize", capture);
+      window.removeEventListener("orientationchange", capture);
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Header height (fixed header) ─────────────────────────────────────────────
+  useEffect(() => {
+    const el = headerRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => {
+      const h = el.getBoundingClientRect().height;
+      if (h > 0) setHeaderHeight(h);
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Bottom panel height (wraps call UI / composer) ───────────────────────────
+  useEffect(() => {
+    const el = bottomPanelRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => {
+      const h = el.getBoundingClientRect().height;
+      if (h > 0) setComposerHeight(h);
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Keyboard height — robust multi-method detection ──────────────────────────
+  // Primary method: baselineViewportHeight - vv.height - vv.offsetTop
+  // Fallback 1: outerHeight - vv.height - vv.offsetTop
+  // Fallback 2: if bottomPanel is below visible viewport, compute the overlap
+  // All three are maxed together and clamped to 75% of screen height.
   useEffect(() => {
     const vv = window.visualViewport;
     if (!vv) return;
-    const handler = () => {
-      const kbVisible = (window.outerHeight || window.screen.height) - vv.height > 150;
-      // CRITICAL: if the keyboard is apparently closing while we are recording,
-      // do NOT update keyboardOpen. This prevents the AI/phone buttons from
-      // being re-inserted into the flex row mid-recording (which causes the
-      // composer to jump). The real keyboard state is checked again when
-      // recording ends.
+
+    const computeKbH = (): number => {
+      const baseline = baselineViewportHeightRef.current;
+      const outerH = window.outerHeight || window.screen.height;
+      // Method 1 (primary): stable baseline vs current visual viewport
+      const inset1 = baseline > 0 ? Math.max(0, baseline - vv.height - vv.offsetTop) : 0;
+      // Method 2 (fallback): outerHeight comparison
+      const inset2 = Math.max(0, outerH - vv.height - vv.offsetTop);
+      // Method 3: if focused, measure whether bottom panel clips below visible area
+      let inset3 = 0;
+      if (inputFocusedRef.current && bottomPanelRef.current) {
+        const rect = bottomPanelRef.current.getBoundingClientRect();
+        const vvBottom = vv.offsetTop + vv.height;
+        inset3 = Math.max(0, rect.bottom - vvBottom);
+      }
+      const raw = Math.max(inset1, inset2, inset3);
+      return Math.min(raw, outerH * 0.75); // clamp to 75% of screen
+    };
+
+    const update = () => {
+      const kbH = computeKbH();
+      const kbVisible = kbH > 80 || (inputFocusedRef.current && kbH > 40);
+      // CRITICAL: suppress keyboard-close events during recording to prevent
+      // AI/phone buttons from re-entering the DOM mid-recording (layout shift).
       if (isRecordingRef.current && !kbVisible) {
-        const msg = `VP resize SUPPRESSED (recording) h=${Math.round(vv.height)} kbVisible=${kbVisible}`;
-        console.log(`[VOICE_NOTE_LAYOUT] keyboard close suppressed during recording viewport=${Math.round(vv.height)}px`);
-        addDbg(msg);
+        addDbg(`KB suppressed(rec) vvH=${Math.round(vv.height)}`);
         return;
       }
       setKeyboardOpen(kbVisible);
-      // Numeric height so the composer can be pushed above the keyboard.
-      setKeyboardHeight(kbVisible ? Math.max(0, window.innerHeight - vv.height - vv.offsetTop) : 0);
-      const msg2 = `VP resize h=${Math.round(vv.height)} ot=${Math.round(vv.offsetTop)} → kbOpen=${kbVisible}`;
-      console.log(`[VOICE_NOTE_LAYOUT] keyboard visible=${kbVisible} viewport=${Math.round(vv.height)}px`);
-      addDbg(msg2);
+      setKeyboardHeight(kbVisible ? kbH : 0);
+      const msg = `KB vvH=${Math.round(vv.height)} vvOT=${Math.round(vv.offsetTop)} base=${Math.round(baselineViewportHeightRef.current)} kbH=${Math.round(kbH)} open=${kbVisible}`;
+      addDbg(msg);
+      console.log(`[KEYBOARD_FIX] ${msg}`);
     };
-    vv.addEventListener("resize", handler);
-    return () => vv.removeEventListener("resize", handler);
-  }, []);
+
+    // Poll with delays after focus: iOS keyboard animates over ~300ms
+    const onFocusIn = () => {
+      setTimeout(update, 100);
+      setTimeout(update, 350);
+      setTimeout(update, 700);
+    };
+
+    vv.addEventListener("resize", update, { passive: true });
+    vv.addEventListener("scroll", update, { passive: true });
+    window.addEventListener("resize", update, { passive: true });
+    window.addEventListener("focusin", onFocusIn, { passive: true });
+    window.addEventListener("focusout", update, { passive: true });
+    return () => {
+      vv.removeEventListener("resize", update);
+      vv.removeEventListener("scroll", update);
+      window.removeEventListener("resize", update);
+      window.removeEventListener("focusin", onFocusIn);
+      window.removeEventListener("focusout", update);
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Log input focus state changes.
   useEffect(() => {
@@ -3152,10 +3248,11 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
 
   return (
     <div className="flex h-full min-h-0 overflow-hidden" data-testid={`card-match-${match.id}`}>
-      {/* keyboardHeight pushes composer above the iOS software keyboard;
-          safe-area-inset-top is applied on the header itself below */}
-      <div className="flex flex-col flex-1 min-w-0 min-h-0" style={keyboardHeight > 0 ? { paddingBottom: keyboardHeight } : undefined}>
-      <div className="border-b bg-background/95 backdrop-blur-sm sticky top-0 z-10" style={{ paddingTop: "env(safe-area-inset-top)" }}>
+      {/* Fixed-layer layout: header, messages, and bottom panel are position:fixed.
+          The column div is a structural placeholder — flex children are removed from flow. */}
+      <div className="flex-1 min-w-0 relative">
+      {/* FIXED HEADER — measured via headerRef; zIndex 61 sits above messages */}
+      <div ref={headerRef} style={{ position: "fixed", top: 0, left: 0, right: 0, zIndex: 61, background: "hsl(var(--background) / 0.95)", backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)", paddingTop: "env(safe-area-inset-top)" }}>
         {/* ── Main header row ── */}
         <div className="flex items-center gap-3 px-4 pt-3 pb-2">
         <Button
@@ -3370,8 +3467,8 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
               </span>
             </button>
           </div>
-      </div>
-
+      {/* SparkProgressBar and post-call hint are inside the fixed header so their height
+          is included in headerHeight — messages never overlap them. */}
       {expanded && <SparkProgressBar sparkStep={sparkStep} />}
       {expanded && postCallProgressReady && eitherKeep && (
         <div className="px-4 py-2 border-b border-border/40 bg-primary/3" data-testid={`date-plan-hint-bar-${match.id}`}>
@@ -3380,8 +3477,14 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
           </p>
         </div>
       )}
+      </div>{/* /fixed header */}
 
-      <div ref={messagesContainerRef} onScroll={handleMessagesScroll} className="flex-1 overflow-y-auto min-h-0 p-4 space-y-3" data-testid={`messages-container-${match.id}`}>
+      {/* FIXED MESSAGE VIEWPORT — fills the gap between header and bottom panel */}
+      <div ref={messagesContainerRef} onScroll={handleMessagesScroll}
+        style={{ position: "fixed", top: headerHeight, left: 0, right: 0, bottom: composerHeight + keyboardHeight, overflowY: "scroll", overscrollBehavior: "contain" }}
+        className="p-4 space-y-3"
+        data-testid={`messages-container-${match.id}`}
+      >
             {/* MESSAGE_BUBBLES_A — matches.tsx _MatchChat — TEMP: remove after iPhone confirms */}
             <div style={{ fontSize: 9, fontFamily: "monospace", background: "rgba(0,0,180,0.85)", color: "#fff", padding: "2px 5px", borderRadius: 3, display: "inline-block", marginBottom: 4 }}>
               MESSAGE_BUBBLES_A · matches.tsx
@@ -3531,6 +3634,8 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
             />
           )}
 
+      {/* FIXED BOTTOM PANEL — wraps all conditional call/composer states; zIndex 61 */}
+      <div ref={bottomPanelRef} style={{ position: "fixed", bottom: keyboardHeight, left: 0, right: 0, zIndex: 61, background: "hsl(var(--background))" }}>
           {isCallRinging && iAmCaller ? (
             <div
               className="border-t"
@@ -3961,8 +4066,8 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
           ) : (
             <div ref={composerRef} className="p-3 border-t" style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom, 0.75rem))" }}>
               {/* COMPOSER_A — matches.tsx normal textarea branch — TEMP: remove after iPhone confirms */}
-              <div style={{ fontSize: 9, fontFamily: "monospace", background: "#ffe000", color: "#000", padding: "2px 5px", marginBottom: 4, lineHeight: 1.5 }}>
-                COMPOSER_A · matches.tsx · kbH:{Math.round(keyboardHeight)}
+              <div style={{ fontSize: 9, fontFamily: "monospace", background: "#ffe000", color: "#000", padding: "2px 5px", marginBottom: 4, lineHeight: 1.5, wordBreak: "break-all" }}>
+                {`COMPOSER_A · baseH:${Math.round(baselineViewportHeightRef.current)} innH:${Math.round(window.innerHeight)} vvH:${Math.round(window.visualViewport?.height ?? 0)} vvOT:${Math.round(window.visualViewport?.offsetTop ?? 0)} foc:${inputFocused} kbH:${Math.round(keyboardHeight)} hdH:${Math.round(headerHeight)} cpH:${Math.round(composerHeight)}`}
               </div>
               {isOtherTyping && (
                 <div className="flex items-center gap-1.5 px-1 pb-2 text-xs text-muted-foreground" data-testid="text-typing-indicator">
@@ -4404,7 +4509,8 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
               )}
             </div>
           )}
-      </div>
+      </div>{/* /fixed bottom panel */}
+      </div>{/* /column */}
 
       {showProfilePanel && (
         <div
@@ -4426,7 +4532,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
 
       {showProfilePanel && (
         <div
-          className="lg:hidden fixed inset-0 z-[60]"
+          className="lg:hidden fixed inset-0 z-[200]"
           data-testid="profile-panel-mobile-sheet"
           style={{ animation: "sheetFadeIn 0.18s ease both" }}
         >
@@ -4927,7 +5033,7 @@ export default function Matches() {
 
   if (selectedMatch) {
     return (
-      <div className="fixed inset-0 z-50 bg-background flex flex-col" data-testid="chat-focused-view">
+      <div className="fixed inset-0 z-[10000] bg-background" data-testid="chat-focused-view">
         <MatchChat
           match={selectedMatch}
           expanded={true}

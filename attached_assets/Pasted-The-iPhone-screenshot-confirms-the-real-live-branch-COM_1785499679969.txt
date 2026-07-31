@@ -1,0 +1,124 @@
+The iPhone screenshot confirms the real live branch:
+
+COMPOSER_A · matches.tsx · kbH:0
+
+The keyboard is visibly open, but keyboardHeight remains 0. This is the exact live bug.
+
+Do not investigate messaging.tsx again. Fix _MatchChat in client/src/pages/matches.tsx only.
+
+ROOT CAUSE TO FIX
+
+The current visualViewport calculation is not detecting the iPhone keyboard.
+
+Likely issue:
+window.innerHeight is shrinking together with visualViewport.height in this PWA/Safari mode, so:
+
+window.innerHeight - visualViewport.height - visualViewport.offsetTop
+
+returns 0 even while the keyboard is open.
+
+REQUIRED FIX
+
+1. Capture a stable baseline viewport height before the keyboard opens.
+
+For example:
+- on initial mount while no input is focused
+- on orientation change while keyboard is closed
+- store baselineViewportHeightRef
+
+2. Calculate keyboard inset using the stable baseline:
+
+keyboardInset =
+max(
+ 0,
+ baselineViewportHeight
+ - visualViewport.height
+ - visualViewport.offsetTop
+)
+
+Do not use the current window.innerHeight as the only baseline while the keyboard is already open.
+
+3. Also support the iOS case where visualViewport does not report correctly:
+- measure the focused input/composer bottom against visualViewport.height
+- use the larger valid inset
+- clamp impossible values
+- treat an input-focused state with a significantly reduced viewport as keyboard open
+
+4. Listen to:
+- visualViewport resize
+- visualViewport scroll
+- window resize
+- focusin
+- focusout
+- orientationchange
+
+5. Update keyboardHeight immediately when the input focuses, not only after one resize event.
+
+6. Add temporary diagnostics to COMPOSER_A:
+
+- baselineH
+- innerH
+- vvH
+- vvOT
+- focused
+- calculatedInset
+- finalKbH
+
+7. Header fix in the same real branch:
+
+The header/back button/countdown are still not visible.
+
+- Render the header inside _MatchChat as a fixed top layer.
+- Give it:
+ - position: fixed
+ - top: 0
+ - left: 0
+ - right: 0
+ - z-index above messages and composer
+ - padding-top: env(safe-area-inset-top)
+- Back button must be visible and return to Connections.
+- Countdown must always be visible.
+- Do not calculate the header position from keyboardHeight.
+
+8. Message viewport:
+
+- top = measured header bottom
+- bottom = composer height + keyboardHeight
+- latest message sits directly above composer
+- no large empty gap
+- preserve manual scroll when reading older messages
+
+9. Composer:
+
+- bottom = keyboardHeight
+- compact height
+- clean single border
+- 0/500 aligned beneath input column, not under send button
+
+10. Remove the right-side black tab from production while chat is open or input is focused. Identify the exact component producing it and hide/unmount it in _MatchChat.
+
+TEST ON THE SAME IPHONE
+
+PASS requires:
+
+- keyboard open
+- finalKbH greater than 0
+- header visible
+- back button visible
+- countdown visible
+- newest message directly above composer
+- composer directly above keyboard
+- no large blank gap
+- no black right-side tab
+
+Keep COMPOSER_A visible until these values are confirmed.
+
+Report:
+- exact reason kbH stayed 0
+- baseline and viewport values from iPhone
+- files changed
+- commit hash
+- Vercel deployed commit
+- real iPhone PASS/FAIL
+
+Do not report PASS from code inspection.
