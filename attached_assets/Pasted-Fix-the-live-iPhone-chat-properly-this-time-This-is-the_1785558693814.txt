@@ -1,0 +1,163 @@
+Fix the live iPhone chat properly this time. This is the final targeted chat-layout task.
+
+Do not add diagnostics.
+Do not change keyboard-height formulas.
+Do not touch auth, sessions, progression, calls, voice notes, realtime, service workers or deployment configuration.
+Do not edit messaging.tsx. The real chat is _MatchChat in client/src/pages/matches.tsx.
+
+CURRENT VERIFIED STATE
+
+With the keyboard closed:
+- header works
+- back button works
+- profile and countdown work
+- messages and composer are correctly positioned
+
+With the keyboard open:
+- Safari moves the entire chat upward
+- header, back button, profile and countdown disappear
+- only the message list and composer remain visible
+
+The remaining bug is page/focus scrolling. Do not redesign the chat again.
+
+REQUIRED IMPLEMENTATION
+
+1. Make the outer _MatchChat overlay the permanent viewport container:
+
+- position: fixed
+- inset: 0
+- width: 100%
+- height: 100%
+- display: flex
+- flex-direction: column
+- overflow: hidden
+- background: existing Lulou background
+- no transform
+- no visualViewport offsets
+- no manual keyboardHeight positioning
+
+2. Lock the actual document while chat is open.
+
+When _MatchChat opens:
+
+- save window.scrollY
+- add chat-open to both document.documentElement and document.body
+- set body position: fixed
+- set body top to -savedScrollY px
+- set body width: 100%
+- set body overflow: hidden
+
+When chat closes:
+
+- remove all temporary html/body styles and classes
+- restore the saved scroll position
+
+Do not use a transform on body.
+
+3. Header must never scroll.
+
+The header must be the first direct child of the chat flex column:
+
+- flex-shrink: 0
+- position: relative
+- z-index above messages
+- width: 100%
+- visible background
+- padding-top: env(safe-area-inset-top)
+
+It must always show:
+
+- 44×44px back button
+- profile photo
+- name
+- message countdown
+
+Do not place the header inside the message scroller.
+
+4. Message list must be the only scrollable element.
+
+Use:
+
+- flex: 1
+- min-height: 0
+- overflow-y: auto
+- overscroll-behavior: contain
+- -webkit-overflow-scrolling: touch
+
+No other chat element or parent may scroll.
+
+Keep the current bottom-aligned messages and do not reintroduce a large spacer.
+
+5. Composer must remain the final direct flex child:
+
+- flex-shrink: 0
+- position: relative
+- no fixed positioning
+- no keyboard offset
+- no visualViewport calculations
+- compact padding
+- 16px input text
+- one clean border
+- mic vertically centred
+- send button aligned
+- 0/500 below the input column
+
+The browser’s resized viewport must naturally keep it above the keyboard.
+
+6. Stop Safari focus-pan.
+
+Search _MatchChat and its parents for:
+
+- scrollIntoView
+- window.scrollTo
+- focus handlers that scroll
+- visualViewport scroll handlers
+- automatic scrolling of the outer chat
+
+Remove any code that scrolls the page or composer.
+
+On textarea focus:
+
+- do not scroll the window
+- do not scroll the outer chat
+- only scroll the messages element when the user was already near its bottom
+
+7. Keep the current working behaviour:
+
+- keyboard-closed layout
+- header design
+- back navigation
+- countdown
+- message anchoring
+- composer position
+- draft preservation
+- no developer side tab
+
+TEST ON THE ACTUAL IPHONE
+
+You must test this exact sequence:
+
+1. Open chat with keyboard closed.
+2. Confirm header/back/profile/countdown are visible.
+3. Tap the textarea.
+4. Confirm the keyboard opens.
+5. Confirm the header remains visible in exactly the same position.
+6. Confirm the back button remains usable.
+7. Confirm only the message list can scroll.
+8. Confirm the composer remains directly above the keyboard.
+9. Confirm the page behind the chat cannot move.
+10. Close and reopen chat and confirm nothing regressed.
+
+Do not report “fixed”, “done” or “PASS” from code inspection.
+
+Report only:
+
+- exact element that Safari was scrolling
+- exact code removed or changed
+- files changed
+- commit hash
+- pushed to origin/main
+- Vercel deployed commit
+- real iPhone PASS/FAIL
+
+PASS requires a live keyboard-open iPhone screenshot that still visibly shows the header, back button, profile and countdown.
