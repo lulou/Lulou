@@ -1,0 +1,76 @@
+Fix only the remaining vertical gap inside _MatchChat in client/src/pages/matches.tsx.
+
+Do not change the working keyboard handling, visualViewport shell, header, back button, countdown, composer positioning, auth, calls, progression, voice notes or realtime.
+
+CURRENT ISSUE
+
+With the keyboard open:
+
+- header is correctly visible
+- composer is correctly above the keyboard
+- messages are still positioned too high
+- there is a large empty space between the newest message and the composer
+
+ROOT CAUSE TO CHECK
+
+The scrollable messages element and the element containing the message bubbles are not using the correct bottom-anchored structure.
+
+Do not apply justify-content:flex-end directly to the overflow-y:auto scroller if it interferes with scrolling.
+
+REQUIRED STRUCTURE
+
+Use two elements:
+
+1. Outer messages viewport:
+
+- flex: 1
+- min-height: 0
+- overflow-y: auto
+- overscroll-behavior: contain
+- -webkit-overflow-scrolling: touch
+
+2. Inner message stack:
+
+- min-height: 100%
+- display: flex
+- flex-direction: column
+- justify-content: flex-end
+- gap: existing message gap
+- padding: existing message padding
+
+Render all message bubbles inside this inner stack.
+
+This ensures:
+
+- when there are only a few messages, they sit at the bottom directly above the composer
+- when there are many messages, the outer viewport scrolls normally
+- no artificial spacer is used
+- older-message scrolling remains functional
+
+Also ensure:
+
+- no margin-bottom, padding-bottom or invisible spacer is adding extra space after the last message
+- remove any flex:1 spacer before or after the message list
+- the final message has no excessive bottom margin
+- the messages viewport ends exactly where the composer begins
+
+TEST ON THE SAME IPHONE
+
+With keyboard open:
+
+- newest message should sit approximately 8–12px above the composer
+- no large blank section between messages and composer
+- header remains unchanged
+- composer remains unchanged
+- scrolling older messages still works
+
+Report:
+
+- exact element creating the empty space
+- files changed
+- commit hash
+- pushed to origin/main
+- Vercel deployed commit
+- real iPhone PASS/FAIL
+
+Do not change anything outside this message-stack alignment fix.
