@@ -1669,9 +1669,12 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
   const composerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [showProfilePanel, setShowProfilePanel] = useState(false);
-  const [sheetDragY, setSheetDragY] = useState(0);
   const [isSheetDragging, setIsSheetDragging] = useState(false);
   const sheetGestureRef = useRef<{ active: boolean; startY: number; velocityBuf: { y: number; t: number }[] }>({ active: false, startY: 0, velocityBuf: [] });
+  const sheetContainerRef = useRef<HTMLDivElement>(null);
+  const backdropRef = useRef<HTMLDivElement>(null);
+  const chatShellRef = useRef<HTMLDivElement>(null);
+  const swipeGestureRef = useRef<{ active: boolean; startX: number; startY: number; cancelled: boolean; velocityBuf: { x: number; t: number }[] }>({ active: false, startX: 0, startY: 0, cancelled: false, velocityBuf: [] });
   const [showAIStarters, setShowAIStarters] = useState(false);
   const hasAutoShownStartersRef = useRef(false);
   const [filterConfirm, setFilterConfirm] = useState<{ content: string; tempId: string; categories: string[] } | null>(null);
@@ -1708,6 +1711,12 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
     if (!el) return;
     isAtBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
   }, []);
+
+  // Shared leave-chat handler — used by back button AND swipe-back gesture
+  const handleLeaveChat = useCallback(() => {
+    textareaRef.current?.blur();
+    onToggleExpand();
+  }, [onToggleExpand]);
 
   const { data: matchDetail, isLoading: matchLoading, error: matchError } = useQuery<MatchDetail>({
     queryKey: ["/api/matches", match.id],
@@ -3113,9 +3122,57 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
 
   return (
     <div
+      ref={chatShellRef}
       className="fixed left-0 right-0 flex flex-col overflow-hidden"
-      style={{ top: vpTop, height: vpHeight, background: "hsl(var(--background))" }}
+      style={{ top: vpTop, height: vpHeight, background: "hsl(var(--background))", touchAction: "pan-y" }}
       data-testid={`card-match-${match.id}`}
+      onPointerDown={e => {
+        // Only activate from left edge; block when modals are open
+        if (e.clientX > 30) return;
+        if (showProfilePanel || !!purchasePromptFeature) return;
+        swipeGestureRef.current = { active: true, startX: e.clientX, startY: e.clientY, cancelled: false, velocityBuf: [] };
+        (e.currentTarget as HTMLDivElement).setPointerCapture(e.pointerId);
+      }}
+      onPointerMove={e => {
+        const g = swipeGestureRef.current;
+        if (!g.active || g.cancelled) return;
+        const dx = e.clientX - g.startX;
+        const dy = e.clientY - g.startY;
+        // Cancel if vertical movement dominates — let native scroll win
+        if (Math.abs(dy) > Math.abs(dx) + 8) {
+          g.cancelled = true;
+          if (chatShellRef.current) { chatShellRef.current.style.transition = "transform 0.2s cubic-bezier(0.22,1,0.36,1)"; chatShellRef.current.style.transform = ""; }
+          return;
+        }
+        if (dx <= 0) return; // rightward only
+        g.velocityBuf.push({ x: e.clientX, t: Date.now() });
+        if (g.velocityBuf.length > 8) g.velocityBuf.shift();
+        if (chatShellRef.current) { chatShellRef.current.style.transition = "none"; chatShellRef.current.style.transform = `translate3d(${dx}px, 0, 0)`; }
+      }}
+      onPointerUp={e => {
+        const g = swipeGestureRef.current;
+        if (!g.active) return;
+        g.active = false;
+        if (g.cancelled) { if (chatShellRef.current) chatShellRef.current.style.transform = ""; return; }
+        const dx = e.clientX - g.startX;
+        const W = window.innerWidth;
+        let vel = 0;
+        const buf = g.velocityBuf;
+        if (buf.length >= 2) { const r = buf.slice(-4); const dt = r[r.length-1].t - r[0].t; const dd = r[r.length-1].x - r[0].x; vel = dt > 0 ? (dd/dt)*1000 : 0; }
+        const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+        if (dx > W * 0.32 || vel > 500) {
+          // Navigate back
+          if (chatShellRef.current) { chatShellRef.current.style.transition = reduced ? "none" : "transform 0.25s cubic-bezier(0.32,0.72,0,1)"; chatShellRef.current.style.transform = `translate3d(${W}px, 0, 0)`; }
+          setTimeout(() => handleLeaveChat(), reduced ? 0 : 220);
+        } else {
+          // Snap back
+          if (chatShellRef.current) { chatShellRef.current.style.transition = reduced ? "none" : "transform 0.3s cubic-bezier(0.22,1,0.36,1)"; chatShellRef.current.style.transform = ""; }
+        }
+      }}
+      onPointerCancel={() => {
+        swipeGestureRef.current.active = false;
+        if (chatShellRef.current) { chatShellRef.current.style.transition = "transform 0.2s cubic-bezier(0.22,1,0.36,1)"; chatShellRef.current.style.transform = ""; }
+      }}
     >
 
       {/* Standard flex-column chat layout. 100dvh shrinks with the keyboard on iOS —
@@ -3131,7 +3188,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
           size="icon"
           variant="ghost"
           className="shrink-0 -ms-1 min-w-[44px] min-h-[44px]"
-          onClick={onToggleExpand}
+          onClick={handleLeaveChat}
           data-testid={`button-back-${match.id}`}
         >
           {isRTL ? <ChevronRight className="w-5 h-5" /> : <ChevronLeft className="w-5 h-5" />}
@@ -4390,26 +4447,24 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
           style={{ animation: "sheetFadeIn 0.18s ease both" }}
         >
           <div
+            ref={backdropRef}
             className="absolute inset-0"
             style={{
               background: "rgba(0,0,0,0.48)",
-              opacity: sheetDragY > 0 ? Math.max(0.1, 1 - sheetDragY / 320) : 1,
-              transition: isSheetDragging ? "none" : "opacity 0.25s ease",
               backdropFilter: isMobile ? undefined : "blur(4px)",
               WebkitBackdropFilter: isMobile ? undefined : "blur(4px)",
             }}
             onClick={() => { if (!isSheetDragging) setShowProfilePanel(false); }}
           />
           <div
+            ref={sheetContainerRef}
             className="absolute inset-x-0 bottom-0 overflow-hidden"
             style={{
               maxHeight: "88dvh",
               borderRadius: "20px 20px 0 0",
               background: "hsl(var(--background))",
               boxShadow: "0 -8px 40px rgba(0,0,0,0.18)",
-              animation: sheetDragY > 0 ? "none" : "sheetSlideUp 0.28s cubic-bezier(0.22,1,0.36,1) both",
-              transform: sheetDragY > 0 ? `translateY(${sheetDragY}px)` : undefined,
-              transition: isSheetDragging ? "none" : "transform 0.3s cubic-bezier(0.32, 0.72, 0, 1)",
+              animation: "sheetSlideUp 0.28s cubic-bezier(0.22,1,0.36,1) both",
             }}
           >
             {/* Drag handle — native-feel iOS sheet dismiss */}
@@ -4417,35 +4472,36 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
               className="flex justify-center pt-2.5 pb-2 flex-shrink-0 cursor-grab active:cursor-grabbing"
               style={{ touchAction: "none" }}
               onPointerDown={e => {
-                sheetGestureRef.current = {
-                  active: true,
-                  startY: e.clientY,
-                  velocityBuf: [{ y: e.clientY, t: Date.now() }],
-                };
-                setIsSheetDragging(false);
+                // Only begin close-gesture when profile body is scrolled to top
+                const profileBody = sheetContainerRef.current?.querySelector(".profile-panel-body") as HTMLElement | null;
+                if ((profileBody?.scrollTop ?? 0) > 8) return;
+                sheetGestureRef.current = { active: true, startY: e.clientY, velocityBuf: [] };
+                // Disable CSS transition for 1:1 finger tracking
+                if (sheetContainerRef.current) sheetContainerRef.current.style.transition = "none";
+                if (backdropRef.current) backdropRef.current.style.transition = "none";
+                setIsSheetDragging(true);
                 (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
               }}
               onPointerMove={e => {
                 const g = sheetGestureRef.current;
                 if (!g.active) return;
                 const dy = e.clientY - g.startY;
-                if (dy > 1) {
-                  if (!isSheetDragging) setIsSheetDragging(true);
-                  // 1:1 tracking up to 160 px, then 25% resistance — matches iOS Maps physics
-                  const translated = dy <= 160 ? dy : 160 + (dy - 160) * 0.25;
-                  setSheetDragY(translated);
-                  // Velocity ring buffer — cap at 8 samples for performance
-                  g.velocityBuf.push({ y: e.clientY, t: Date.now() });
-                  if (g.velocityBuf.length > 8) g.velocityBuf.shift();
-                }
+                if (dy <= 0) return; // downward only
+                // 1:1 up to 160 px then 25% rubber-band resistance
+                const translated = dy <= 160 ? dy : 160 + (dy - 160) * 0.25;
+                // Direct DOM — zero React re-renders per pixel
+                if (sheetContainerRef.current) sheetContainerRef.current.style.transform = `translate3d(0, ${translated}px, 0)`;
+                if (backdropRef.current) backdropRef.current.style.opacity = String(Math.max(0.1, 1 - translated / 320));
+                g.velocityBuf.push({ y: e.clientY, t: Date.now() });
+                if (g.velocityBuf.length > 8) g.velocityBuf.shift();
               }}
               onPointerUp={e => {
                 const g = sheetGestureRef.current;
                 if (!g.active) return;
                 g.active = false;
-                const dy = e.clientY - g.startY;
                 setIsSheetDragging(false);
-                // Velocity from last 4 samples (px/s, positive = downward)
+                const dy = e.clientY - g.startY;
+                const sheetH = sheetContainerRef.current?.offsetHeight ?? 400;
                 let velocity = 0;
                 const buf = g.velocityBuf;
                 if (buf.length >= 2) {
@@ -4454,21 +4510,46 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                   const dd = recent[recent.length - 1].y - recent[0].y;
                   velocity = dt > 0 ? (dd / dt) * 1000 : 0;
                 }
-                // Dismiss: distance threshold OR velocity flick
-                const shouldDismiss = dy > 50 || velocity > 450;
-                setSheetDragY(0);
-                if (shouldDismiss) setShowProfilePanel(false);
+                // Dismiss: >28% of sheet height OR fast flick
+                const shouldDismiss = dy > sheetH * 0.28 || velocity > 400;
+                if (shouldDismiss) {
+                  if (sheetContainerRef.current) {
+                    sheetContainerRef.current.style.transition = "transform 0.25s cubic-bezier(0.32,0.72,0,1)";
+                    sheetContainerRef.current.style.transform = `translate3d(0, ${sheetH + 40}px, 0)`;
+                  }
+                  if (backdropRef.current) {
+                    backdropRef.current.style.transition = "opacity 0.22s ease";
+                    backdropRef.current.style.opacity = "0";
+                  }
+                  setTimeout(() => setShowProfilePanel(false), 260);
+                } else {
+                  if (sheetContainerRef.current) {
+                    sheetContainerRef.current.style.transition = "transform 0.3s cubic-bezier(0.22,1,0.36,1)";
+                    sheetContainerRef.current.style.transform = "translate3d(0, 0, 0)";
+                  }
+                  if (backdropRef.current) {
+                    backdropRef.current.style.transition = "opacity 0.25s ease";
+                    backdropRef.current.style.opacity = "1";
+                  }
+                }
               }}
               onPointerCancel={() => {
                 sheetGestureRef.current.active = false;
                 setIsSheetDragging(false);
-                setSheetDragY(0);
+                if (sheetContainerRef.current) {
+                  sheetContainerRef.current.style.transition = "transform 0.3s cubic-bezier(0.22,1,0.36,1)";
+                  sheetContainerRef.current.style.transform = "translate3d(0, 0, 0)";
+                }
+                if (backdropRef.current) {
+                  backdropRef.current.style.transition = "opacity 0.25s ease";
+                  backdropRef.current.style.opacity = "1";
+                }
               }}
             >
               <div className="w-10 h-1 rounded-full" style={{ background: "hsl(var(--muted-foreground)/0.25)" }} />
             </div>
             <div style={{ height: "calc(88dvh - 24px)", overflow: "hidden", display: "flex", flexDirection: "column" }}>
-              <ProfilePanel profile={match.profile} onClose={() => { setSheetDragY(0); setShowProfilePanel(false); }} />
+              <ProfilePanel profile={match.profile} onClose={() => { setShowProfilePanel(false); }} />
             </div>
           </div>
         </div>
