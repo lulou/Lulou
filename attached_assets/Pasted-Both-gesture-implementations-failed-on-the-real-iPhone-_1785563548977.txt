@@ -1,0 +1,194 @@
+Both gesture implementations failed on the real iPhone.
+
+Do not adjust the existing distance or velocity thresholds.
+Do not claim the gestures are implemented.
+First prove whether the gesture handlers receive events on iPhone, then replace the broken event layer.
+
+Only edit the real chat/profile implementation in:
+
+client/src/pages/matches.tsx
+
+Do not change:
+- chat keyboard layout
+- visualViewport shell
+- header
+- messages
+- composer
+- auth
+- sessions
+- progression
+- calls
+- voice notes
+- realtime
+- service worker
+
+PROBLEM 1 — PROFILE SHEET DRAG DOES NOTHING
+
+The profile bottom sheet still does not smoothly follow the user’s finger or dismiss reliably.
+
+The current Pointer Events implementation is not working correctly on iPhone Safari/PWA.
+
+Replace it with a robust mobile gesture implementation using native touch events:
+
+- touchstart
+- touchmove
+- touchend
+- touchcancel
+
+Use Pointer Events only as an optional desktop fallback.
+
+PROFILE SHEET REQUIREMENTS
+
+1. Attach touch handlers directly to the visible sheet handle/header drag area.
+
+2. On touchstart:
+- record touch.clientY
+- record timestamp
+- confirm profile scroll container scrollTop <= 2
+- disable transition
+- set dragging ref = true
+
+3. On touchmove:
+- read event.touches[0].clientY
+- calculate downward delta
+- ignore upward values
+- call preventDefault only while actively dragging the sheet
+- listener must be registered with { passive: false }
+- update transform directly:
+ translate3d(0, deltaYpx, 0)
+- update backdrop opacity directly
+- use requestAnimationFrame
+- do not use React state per pixel
+
+4. If the user is scrolling profile content:
+- profile scrollTop > 2 means normal vertical scrolling wins
+- do not begin sheet dragging
+- dragging may begin only from the top of the profile content or the grab handle
+
+5. On touchend:
+- calculate distance and velocity
+- close when:
+ distance >= 25% of sheet height
+ OR velocity >= 0.45 px/ms
+- otherwise animate back to translate3d(0,0,0)
+
+6. The close animation must finish before unmounting the sheet.
+
+7. Add a temporary development-only event status—not visible in production—logging:
+- sheet touchstart received
+- sheet touchmove received
+- deltaY
+- scrollTop
+- sheet close/snap decision
+
+PROBLEM 2 — LEFT-EDGE SWIPE BACK DOES NOTHING
+
+The current Pointer Events swipe-back implementation is also not receiving or completing gestures on iPhone.
+
+Important:
+The first few pixels at the left edge may be reserved by Safari/iOS navigation. Do not require the gesture to start at x=0.
+
+Use native touch events on the full chat shell.
+
+SWIPE-BACK REQUIREMENTS
+
+1. Start zone:
+- allow touchstart between x=12px and x=50px
+- do not require x < 30 only
+- avoid the exact system-reserved edge
+
+2. Register:
+- touchstart passive:true
+- touchmove passive:false
+- touchend
+- touchcancel
+
+3. On touchstart:
+- store startX/startY/time
+- do not activate when:
+ profile sheet open
+ modal open
+ call overlay open
+ purchase prompt open
+ textarea selection is active
+- save unsent draft immediately
+
+4. Direction lock:
+- do not decide immediately
+- after at least 8–12px movement:
+ - horizontal wins if abs(dx) > abs(dy) * 1.2
+ - vertical wins otherwise
+- when horizontal wins, call preventDefault and move chat shell
+- when vertical wins, abandon swipe-back and allow normal message scrolling
+
+5. During horizontal drag:
+- translate the entire chat shell:
+ translate3d(dx, 0, 0)
+- clamp dx between 0 and screen width
+- do not update React state per pixel
+- use refs + requestAnimationFrame
+- add a subtle shadow only
+
+6. Completion:
+- leave chat when:
+ dx >= 30% viewport width
+ OR velocity >= 0.5 px/ms
+- otherwise animate back to x=0
+
+7. Successful swipe:
+- blur textarea
+- preserve draft
+- use the exact same shared handleLeaveChat() as the visible back button
+- return to Connections
+- do not alter the match or messages
+
+8. Ensure CSS allows the gesture:
+- chat shell touch-action: pan-y
+- while horizontal swipe is active, prevent horizontal browser handling
+- profile drag handle touch-action: none
+- do not put touch-action:none on the entire message list because vertical scrolling must still work
+
+CRITICAL INVESTIGATION BEFORE CODING
+
+Report whether the current handlers were:
+
+- attached to the actual visible DOM nodes
+- receiving pointerdown/touchstart
+- blocked by an overlay
+- blocked by touch-action CSS
+- using passive listeners that prevented preventDefault
+- losing events because pointer capture is unsupported/unreliable
+- starting inside Safari’s reserved screen-edge gesture area
+
+Remove the broken Pointer Events implementation if it conflicts with the touch implementation. Do not leave two gesture systems firing simultaneously.
+
+REAL IPHONE TEST
+
+Profile:
+1. Open profile sheet.
+2. Slowly drag the handle downward.
+3. Sheet must visibly follow the finger.
+4. Release early → snap back.
+5. Drag farther/flick → close.
+6. Scroll profile content → sheet must not close.
+
+Swipe back:
+1. Begin around 20–40px from the left edge.
+2. Drag slightly → chat follows finger.
+3. Release early → snap back.
+4. Swipe farther → return to Connections.
+5. Repeat with keyboard open.
+6. Confirm draft remains.
+7. Confirm vertical message scrolling remains normal.
+
+Report:
+- why the previous event handlers failed
+- exact touch-action/listener problem
+- files changed
+- commit hash
+- pushed to origin/main
+- Vercel deployed commit
+- real iPhone profile-drag PASS/FAIL
+- real iPhone swipe-back PASS/FAIL
+
+Do not report PASS until both gestures visibly work on the real iPhone.
