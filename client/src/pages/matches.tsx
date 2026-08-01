@@ -3073,9 +3073,9 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
     <div className="flex h-screen overflow-hidden" data-testid={`card-match-${match.id}`}>
       {/* Standard flex-column chat layout. 100dvh shrinks with the keyboard on iOS —
           no manual keyboardHeight tracking needed. Browser handles everything. */}
-      <div className="flex-1 min-w-0 flex flex-col overflow-hidden" style={{ height: "100%" }}>
+      <div className="flex-1 min-w-0 flex flex-col" style={{ height: "100%" }}>
       {/* HEADER — in flow at top, safe-area-aware. Never moves when keyboard opens. */}
-      <div style={{ flexShrink: 0, paddingTop: "env(safe-area-inset-top)", background: "hsl(var(--background))", borderBottom: "1px solid hsl(var(--border)/0.5)" }}>
+      <div style={{ position: "relative", top: 0, zIndex: 10, width: "100%", flexShrink: 0, paddingTop: "env(safe-area-inset-top)", background: "hsl(var(--background))", borderBottom: "1px solid hsl(var(--border)/0.5)" }}>
         {/* ── Main header row ── */}
         <div className="flex items-center gap-3 px-4 pt-3 pb-2">
         <Button
@@ -3947,7 +3947,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                       if (e.target.value.trim()) sendTyping();
                     }}
                     placeholder={t("write_meaningful_placeholder")}
-                    className={`resize-none min-h-[44px] max-h-[80px] text-sm pr-8 transition-none${voicePhase === "recording" ? " opacity-0 pointer-events-none" : ""}`}
+                    className={`resize-none min-h-[44px] max-h-[80px] text-base pr-8 transition-none ring-0 focus-visible:ring-0 focus-visible:ring-offset-0${voicePhase === "recording" ? " opacity-0 pointer-events-none" : ""}`}
                     onFocus={() => setInputFocused(true)}
                     onBlur={() => {
                       // CRITICAL: if iOS fires blur while recording, refocus SYNCHRONOUSLY
@@ -4123,7 +4123,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                     }}
                     onContextMenu={e => e.preventDefault()}
                     onMouseDown={e => e.preventDefault()}
-                    className="absolute right-2 bottom-[10px] flex items-center justify-center select-none"
+                    className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center justify-center select-none"
                     style={{
                       touchAction: "none",
                       WebkitUserSelect: "none" as React.CSSProperties["WebkitUserSelect"],
