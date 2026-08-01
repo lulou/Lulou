@@ -37,7 +37,9 @@ import { EMPTY_PHOTOS } from "@/lib/image-utils";
 import type { Profile, Match, Message, SpinRequest } from "@shared/schema";
 
 const MAX_MESSAGES_PER_USER = 15;
-const POST_CALL_THRESHOLD = 25;
+// Stage 1 (post-first-call) quota per spec: 12 messages each way.
+// This must stay in sync with POST_CALL_LIMIT in server/routes.ts.
+const POST_CALL_THRESHOLD = 12;
 const MAX_CHARS = 500;
 
 const CALL_DURATIONS = [10 * 60, 15 * 60, 10 * 60];

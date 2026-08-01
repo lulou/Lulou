@@ -3332,13 +3332,15 @@ export async function registerRoutes(
           return res.status(400).json({ message: "Message limit reached. Time to call!" });
         }
       } else if (callStage === 1) {
-        // Post-first-call messaging phase: 25 messages each before date planning unlocks.
-        // Once BOTH users have completed 25 messages the date-planning stage is reached and
+        // Post-first-call messaging phase: 12 messages each before date planning unlocks.
+        // Once BOTH users have completed 12 messages the date-planning stage is reached and
         // messaging becomes free — the user may have chosen "Keep Messaging".
+        // Must stay in sync with POST_CALL_THRESHOLD (client/src/pages/matches.tsx) and
+        // msgLimit (client/src/pages/messaging.tsx).
         const tCount1 = Date.now();
         const messageCount = await storage.getUserMessageCount(matchId, userId);
         if (IS_DEV) console.log(`[MSG] post-call count: ${Date.now() - tCount1} ms | count=${messageCount}`);
-        const POST_CALL_LIMIT = 25;
+        const POST_CALL_LIMIT = 12;
         if (messageCount >= POST_CALL_LIMIT) {
           const theirCount = match.user1Id === userId ? (match.messageCount2 || 0) : (match.messageCount1 || 0);
           if (theirCount < POST_CALL_LIMIT) {
@@ -3346,7 +3348,7 @@ export async function registerRoutes(
             console.log("[CONNECTION_STAGE] POST_CALL_LIMIT_REACHED", { matchId, userId, callStage: 1, count: messageCount, limit: POST_CALL_LIMIT, theirCount });
             return res.status(400).json({ message: "Message limit reached. Time to plan your date!" });
           }
-          // Both users completed 25 → free messaging (Keep Messaging mode). Fall through.
+          // Both users completed 12 → free messaging (Keep Messaging mode). Fall through.
           console.log("[CONNECTION_STAGE] POST_CALL_FREE_MESSAGING", { matchId, userId, myCount: messageCount, theirCount });
         }
       }

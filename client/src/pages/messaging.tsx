@@ -1315,8 +1315,9 @@ export default function Messaging() {
   // callStage must be derived before messagesRemaining so the limit is stage-aware.
   const callStage = matchDetail?.callStage ?? 0;
   const allCallsDone = callStage >= 4;
-  // Stage 0: 15 messages → first guided call. Stage 1 (post-call): 25 messages → date planning.
-  const msgLimit = callStage >= 1 ? 25 : MAX_MESSAGES_PER_USER;
+  // Stage 0: 15 messages → first guided call. Stage 1 (post-first-call): 12 messages each.
+  // Must stay in sync with POST_CALL_THRESHOLD (matches.tsx) and POST_CALL_LIMIT (server/routes.ts).
+  const msgLimit = callStage >= 1 ? 12 : MAX_MESSAGES_PER_USER;
 
   // Use the per-stage DB counter (messageCount1/2) which resets to 0 after each call,
   // plus a local optimistic increment for immediate UI feedback when messages are sent.

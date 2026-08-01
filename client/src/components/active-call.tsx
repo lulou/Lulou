@@ -932,6 +932,9 @@ export function ActiveCallOverlay({
     // Compute how long WebRTC was actually live
     const connectedDurationMs = connectedAtRef.current ? Date.now() - connectedAtRef.current : 0;
     const connected = connectedDurationMs > 0;
+    // Must match server MIN_VALID_CALL_MS (server/storage.ts) — 20 seconds
+    const MIN_VALID_CALL_MS = 20_000;
+    const callWillCount = !isCancelRinging && connected && connectedDurationMs >= MIN_VALID_CALL_MS;
 
     // Map reason to a clean call-state label for server-side logging.
     // "timer_expired" = call ran to full duration = counts as completed.
@@ -942,18 +945,65 @@ export function ActiveCallOverlay({
       : reason === "timer_expired" ? "ended"
       : "ended";
 
-    console.log("[CALL_UI] CALL_STATE:ended", {
+    // Read current stage from cache before any mutation so we can log the
+    // before/after transition and build the optimistic patch.
+    const cachedMatch = queryClient.getQueryData<any>(["/api/matches", matchId]);
+    const stageBeforeCall = cachedMatch?.callStage ?? 0;
+    const connectedAt = connectedAtRef.current ? new Date(connectedAtRef.current).toISOString() : null;
+    const endedAt = new Date().toISOString();
+
+    console.log("[CALL_PROGRESSION] call_ending", {
       matchId,
       callSessionId,
-      userId,
-      reason,
-      callState,
-      endpoint,
-      connected,
+      callType: isVideo ? "video" : "phone",
+      connectedAt,
+      endedAt,
       connectedDurationMs,
-      webrtcConnectionState: connectionState,
+      MIN_VALID_CALL_MS,
+      stageBeforeCall,
+      callWillCount,
+      callState,
+      reason,
+    });
+    console.log("[CALL_UI] CALL_STATE:ended", {
+      matchId, callSessionId, userId, reason, callState, endpoint,
+      connected, connectedDurationMs, webrtcConnectionState: connectionState,
     });
     console.log("[CALL_SESSION] CALL_STAGE_EXITED", { matchId, callSessionId, reason, connected, connectedDurationMs });
+
+    // ── Optimistic stage advance ───────────────────────────────────────────
+    // Applied BEFORE onCallEnd() so the chat screen immediately shows the
+    // correct stage and message quota without a stale-data flash.
+    // Root cause of "15 left" bug: the cache was stale between onCallEnd() and
+    // the server response, defaulting callStage to 0 and showing 15 messages.
+    // The server response (below) always overwrites this with authoritative data.
+    if (callWillCount) {
+      const stageAfterOptimistic = stageBeforeCall + 1;
+      const optimisticPatch = {
+        callStage: stageAfterOptimistic,
+        messageCount1: 0,
+        messageCount2: 0,
+        callStartedAt: null,
+        callInitiatorId: null,
+        callAnswered: false,
+        callCompleted: false,
+        callSessionId: null,
+      };
+      queryClient.setQueriesData<any[]>({ queryKey: ["/api/matches"] }, (old) => {
+        if (!Array.isArray(old)) return old;
+        return old.map((m: any) => m.id === matchId ? { ...m, ...optimisticPatch } : m);
+      });
+      queryClient.setQueriesData<any>({ queryKey: ["/api/matches", matchId] }, (old: any) => {
+        if (!old) return old;
+        return { ...old, ...optimisticPatch };
+      });
+      console.log("[CALL_PROGRESSION] optimistic_stage_advance", {
+        matchId,
+        from: stageBeforeCall,
+        to: stageAfterOptimistic,
+        note: "provisional — server response is authoritative",
+      });
+    }
 
     // Hang up WebRTC before UI teardown
     if (webrtcEnabled) {
@@ -970,21 +1020,31 @@ export function ActiveCallOverlay({
       markSelfCancelled(matchId, callSessionId);
     }
 
-    broadcastCallSignal(matchId, {
-      type: signalType as any,
-      matchId,
-      userId,
-      callSessionId,
-    } as any);
+    // ── IMPORTANT: broadcastCallSignal is sent INSIDE .then(), not here ──
+    // Previously this broadcast fired BEFORE the POST, meaning the callee received
+    // call:ended, immediately invalidateQueries, and refetched the match BEFORE
+    // the DB was updated — getting callStage:0 and showing "15 left".
+    // By moving the broadcast to after the HTTP response the callee's refetch
+    // always lands after call_stage is committed to the DB.
 
     // Only /call/complete receives connection quality data; /call/cancel gets no body
     const body = isCancelRinging ? undefined : { connected, connectedDurationMs, callState, callType: isVideo ? "video" : "phone" };
 
     apiRequest("POST", endpoint, body)
       .then(async (res) => {
-        if (!res.ok) return;
+        if (!res.ok) {
+          // Broadcast in error paths so the callee's overlay still dismisses.
+          broadcastCallSignal(matchId, { type: signalType as any, matchId, userId, callSessionId } as any);
+          return;
+        }
         const data = await res.json().catch(() => null);
+
+        // Broadcast NOW — DB is committed, callee's refetch will return correct stage
+        broadcastCallSignal(matchId, { type: signalType as any, matchId, userId, callSessionId } as any);
+
         if (!data) return;
+
+        // Authoritative patch — overrides the optimistic patch above
         const patch = {
           callStartedAt: data.callStartedAt ?? null,
           callInitiatorId: data.callInitiatorId ?? null,
@@ -1003,6 +1063,19 @@ export function ActiveCallOverlay({
           if (!old) return old;
           return { ...old, ...patch };
         });
+
+        // Stage-1 message allowance is 12; stage-2+ is 25; stage-0 is 15
+        const msgAllowance = data.callStage === 1 ? 12 : data.callStage === 0 ? 15 : 25;
+        console.log("[CALL_PROGRESSION] server_response_applied", {
+          matchId,
+          callCounted: data.callCounted,
+          stageBeforeCall,
+          stageAfterCall: data.callStage,
+          messageAllowanceAfterTransition: msgAllowance,
+          messageCount1: data.messageCount1,
+          messageCount2: data.messageCount2,
+          connectedDurationMs,
+        });
         console.log("[CALL_UI] CALL_API_SUCCESS", {
           matchId, endpoint, reason, callState,
           newStage: data.callStage, callCounted: data.callCounted,
@@ -1011,11 +1084,13 @@ export function ActiveCallOverlay({
       })
       .catch((e) => {
         // Overlay is already dismissed — don't show an error toast for user-initiated ends.
-        // Log with full context so we can diagnose any server-side issues.
         console.error("[CALL_UI] CALL_API_ERROR", { matchId, endpoint, reason, callState, connected, connectedDurationMs, error: e.message });
+        console.log("[CALL_PROGRESSION] api_error_cache_invalidated", { matchId, endpoint, error: e.message });
         // Force a cache refresh so the match card reflects the true DB state
         queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
         queryClient.invalidateQueries({ queryKey: ["/api/matches", matchId] });
+        // Still broadcast so the callee's overlay dismisses even on network failure
+        broadcastCallSignal(matchId, { type: signalType as any, matchId, userId, callSessionId } as any);
       });
   }, [matchId, callSessionId, userId, isCaller, isRinging, onCallEnd, queryClient, hangup, webrtcEnabled, connectionState]);
 
