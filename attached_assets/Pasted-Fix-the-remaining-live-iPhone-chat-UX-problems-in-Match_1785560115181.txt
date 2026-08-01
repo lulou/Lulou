@@ -1,0 +1,127 @@
+Fix the remaining live iPhone chat UX problems in _MatchChat inside client/src/pages/matches.tsx, and remove all production diagnostics.
+
+Do not change auth logic, session logic, message progression, call behaviour, voice-note rules, realtime messaging, service workers or the working visualViewport shell positioning.
+
+CURRENT VERIFIED STATE
+
+The keyboard-open viewport now works:
+- header remains visible
+- back button remains visible
+- profile and countdown remain visible
+- composer remains above the keyboard
+
+Remaining problems:
+- too much of the screen is consumed by the chat header and progression controls
+- the user can barely see the actual messages
+- the composer is taller than necessary
+- production diagnostics are still appearing on the Loading screen
+
+IMPORTANT: The arrows and tick directly above the iPhone keyboard are Safari’s native keyboard accessory bar. They are not rendered by Lulou and cannot reliably be removed by webpage CSS or JavaScript. Do not attempt unsafe keyboard hacks. Design the chat around that native bar.
+
+PART 1 — COMPACT KEYBOARD-OPEN CHAT
+
+When the textarea is focused or visualViewport.height indicates the keyboard is open:
+
+1. Keep the essential top header visible:
+- back arrow
+- profile photo
+- match name
+- message countdown
+- compact height
+- safe-area top padding
+
+2. Collapse or hide the secondary chat controls while typing:
+- Hide the Unlock / Unlock / Mic row.
+- Hide the Match / Chat / 1st Call / Meet progression tracker.
+- Hide the “View profile” pill if necessary, but keep the name/photo.
+- Do not delete these controls; restore them when the keyboard closes.
+
+3. The compact keyboard-open header should use no more vertical space than necessary.
+Target:
+- one compact identity row
+- approximately 56–72px plus safe-area inset
+
+4. Give the freed space to the messages viewport.
+The latest messages should remain directly above the composer.
+
+PART 2 — COMPOSER COMPACTION
+
+Keep the composer as the final flex child, but make it smaller:
+
+- one-line minimum height
+- 16px input text
+- grow only when text wraps
+- maximum of approximately 3–4 lines
+- compact vertical padding
+- one clean 1–2px border
+- no focus ring, outline or ring offset
+- microphone vertically centred inside the input
+- send button the same visual height as the input row
+- 0/500 in a compact line beneath the input column
+- do not add extra bottom padding for the Safari accessory bar; the visualViewport shell already accounts for the visible space
+
+PART 3 — MESSAGE AREA
+
+- messages area remains flex: 1 and min-height: 0
+- it must receive all space freed by collapsing the secondary header controls
+- preserve the current bottom anchoring
+- preserve manual scrolling
+- do not reintroduce a spacer or viewport formula
+
+PART 4 — REMOVE PRODUCTION DIAGNOSTICS
+
+Remove all user-visible diagnostics from production, including:
+
+- the large “DIAGNOSTIC INFO” panel
+- “Show full”
+- “Copy”
+- authLoading values
+- session values
+- loading-condition values
+- any build markers
+- any viewport markers
+- any chat diagnostic strips
+- any performance/debug side tabs
+
+Diagnostics may remain in console logs or behind import.meta.env.DEV only.
+
+The normal production Loading screen must show only:
+- Lulou loading indicator
+- friendly loading copy
+- Retry only if a real timeout occurs
+
+No technical data should be visible to normal users.
+
+PART 5 — TEST ON THE SAME IPHONE
+
+Keyboard closed:
+- full header and progression controls visible
+- messages and composer correctly positioned
+
+Keyboard open:
+- compact identity header remains visible
+- back button and countdown remain visible
+- Unlock row hidden
+- progression tracker hidden
+- much more message space visible
+- composer compact and directly above Safari’s native accessory bar
+- arrows/tick may remain because they are native iOS controls
+- no diagnostics anywhere
+
+Also test:
+- close keyboard → secondary controls return
+- back button works while typing
+- message list does not jump
+- no page scrolling behind chat
+
+Report:
+- exact controls collapsed while keyboard is open
+- exact diagnostics removed
+- files changed
+- commit hash
+- pushed to origin/main
+- Vercel deployed commit
+- real iPhone PASS/FAIL
+
+Do not report PASS until a live iPhone screenshot shows the compact keyboard-open header and no diagnostics.
+Sent from my iPhone
