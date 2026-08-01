@@ -1214,14 +1214,19 @@ export function ActiveCallOverlay({
         />
       )}
 
-      {/* Main content — fades with controls on video calls */}
+      {/* Main content — fades with controls on video calls.
+          paddingBottom reserves space for the absolute controls dock so content
+          never scrolls behind the End Call button on tall-content screens. */}
       <div
         className="flex-1 flex flex-col items-center justify-center gap-5 relative z-10 px-6"
-        style={isVideo && isConnected ? {
-          opacity: videoControlsVisible ? 1 : 0,
-          transition: "opacity 0.35s ease",
-          pointerEvents: videoControlsVisible ? "auto" : "none",
-        } : undefined}
+        style={{
+          paddingBottom: 200,
+          ...(isVideo && isConnected ? {
+            opacity: videoControlsVisible ? 1 : 0,
+            transition: "opacity 0.35s ease",
+            pointerEvents: videoControlsVisible ? "auto" : "none",
+          } : {}),
+        }}
       >
         {/* Avatar — hidden when remote video is visible */}
         {(!isVideo || !isConnected) && (
@@ -1366,18 +1371,38 @@ export function ActiveCallOverlay({
 
       </div>
 
-      {/* Controls + end button — fades on video calls, always visible on audio */}
+      {/* Controls dock — position:absolute pins it to the bottom of the fixed
+          call overlay regardless of how tall the flex-1 content grows.
+          Root cause of End Call disappearing: the flex layout let overflow:hidden
+          clip the controls when warning banners + avatar + timer exceeded the
+          viewport height. Absolute positioning bypasses that entirely.
+          Safe-area padding protects against the iPhone home indicator and the
+          Safari browser toolbar. */}
       <div
-        className="relative z-10 pb-14"
-        style={isVideo && isConnected ? {
-          opacity: videoControlsVisible ? 1 : 0,
-          transition: "opacity 0.35s ease",
-          pointerEvents: videoControlsVisible ? "auto" : "none",
-        } : undefined}
+        style={{
+          position: "absolute",
+          bottom: 0,
+          left: 0,
+          right: 0,
+          zIndex: 50,
+          paddingBottom: "max(12px, env(safe-area-inset-bottom))",
+          paddingTop: 20,
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          gap: 28,
+        }}
       >
-        {/* Mute / Speaker (audio only) / Camera — only after the call is answered */}
+        {/* Mute / Speaker / Camera — hidden while ringing; auto-hides on connected video */}
         {!isRinging && (
-          <div className="flex justify-center gap-10 mb-10">
+          <div
+            className="flex justify-center gap-10"
+            style={isVideo && isConnected ? {
+              opacity: videoControlsVisible ? 1 : 0,
+              transition: "opacity 0.35s ease",
+              pointerEvents: videoControlsVisible ? "auto" : "none",
+            } : undefined}
+          >
             <ControlButton
               onClick={toggleMute}
               label={isMuted ? t("call_unmute") : t("call_mute")}
@@ -1388,7 +1413,12 @@ export function ActiveCallOverlay({
                 : <Mic className="w-6 h-6 text-white" />}
             />
 
-            {/* Speaker toggle only shown on audio calls — video is always loudspeaker */}
+            {/* Speaker toggle — audio calls only.
+                On iOS Safari / installed PWA: web cannot force earpiece routing;
+                setSpeaker() calls the Capacitor native AVAudioSession bridge when
+                available (installed app) or is a no-op on plain Safari.
+                The volume-based approximation (0.25 vs 1.0) is the best achievable
+                from a web context without a native Capacitor / React Native wrapper. */}
             {!isVideo && (
               <ControlButton
                 onClick={() => setSpeakerOn(s => {
@@ -1417,7 +1447,8 @@ export function ActiveCallOverlay({
           </div>
         )}
 
-        {/* End / Cancel button */}
+        {/* End / Cancel — ALWAYS visible; not subject to video auto-hide.
+            Minimum 56px ensures usable touch target per spec. */}
         <div className="flex flex-col items-center gap-2.5">
           <button
             className="w-[76px] h-[76px] rounded-full flex items-center justify-center active:scale-90 transition-all"
@@ -1425,6 +1456,7 @@ export function ActiveCallOverlay({
               background: "linear-gradient(145deg, hsl(0 70% 44%), hsl(0 65% 34%))",
               boxShadow: "0 6px 32px hsl(0 65% 38% / 0.55), inset 0 1px 0 hsl(0 0% 100% / 0.12)",
               border: "1.5px solid hsl(0 65% 58% / 0.3)",
+              minWidth: 56, minHeight: 56,
             }}
             onClick={() => finishCall(isRinging && isCaller ? "caller_cancelled" : "user_hangup")}
             data-testid="button-end-call"

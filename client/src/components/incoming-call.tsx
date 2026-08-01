@@ -36,6 +36,18 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss, onAn
   const isReceiver = !isCaller;
   const actedRef = useRef(false);
 
+  // Slide-to-answer gesture refs — all imperative, zero React re-renders per pixel
+  const sliderRef            = useRef<HTMLDivElement>(null); // outer track container
+  const thumbRef             = useRef<HTMLDivElement>(null); // draggable green circle
+  const trackFillRef         = useRef<HTMLDivElement>(null); // fill overlay
+  const sliderActiveRef      = useRef(false);
+  const sliderStartXRef      = useRef(0);
+  const sliderCurrentXRef    = useRef(0);
+  const sliderAnsweredRef    = useRef(false);               // one-way latch: prevent duplicate answer
+  const sliderRafRef         = useRef(0);
+  // Updated every render so the gesture effect always calls the freshest answerCall.mutate
+  const answerLiveRef        = useRef<() => void>(() => {});
+
   // ── Pre-subscribe the WebRTC signalling channel (callee only) ───────────────
   // Subscribe call:${matchId} immediately when this overlay mounts so the channel
   // is SUBSCRIBED (or nearly there) by the time the callee taps Answer.
@@ -316,6 +328,91 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss, onAn
   // this is a live ring before producing any audio.
   useCallRingtone("incoming", ringEnabled, match.callSessionId);
 
+  // Refresh the live ref every render — gesture effect reads this, never the stale closure
+  answerLiveRef.current = () => answerCall.mutate();
+
+  // ── Slide-to-answer touch gesture ─────────────────────────────────────────
+  // Attached once on mount. All visual updates go directly to DOM via RAF —
+  // no React state updates per pixel. answerLiveRef is read at completion time
+  // so it always invokes the latest answerCall.mutate().
+  useEffect(() => {
+    const thumb  = thumbRef.current;
+    const slider = sliderRef.current;
+    const fill   = trackFillRef.current;
+    if (!thumb || !slider || !fill) return;
+
+    const snapBack = () => {
+      cancelAnimationFrame(sliderRafRef.current);
+      sliderActiveRef.current   = false;
+      sliderCurrentXRef.current = 0;
+      thumb.style.transition = "transform 0.32s cubic-bezier(0.22,1,0.36,1)";
+      fill.style.transition  = "width 0.32s cubic-bezier(0.22,1,0.36,1)";
+      thumb.style.transform  = "translate3d(0, 0, 0)";
+      fill.style.width       = "0%";
+    };
+
+    const doAnswer = () => {
+      if (sliderAnsweredRef.current) return; // one-way latch
+      sliderAnsweredRef.current = true;
+      sliderActiveRef.current   = false;
+      cancelAnimationFrame(sliderRafRef.current);
+      const maxDx = Math.max(1, slider.offsetWidth - thumb.offsetWidth - 8);
+      thumb.style.transition = "transform 0.15s ease-out";
+      fill.style.transition  = "width 0.15s ease-out";
+      thumb.style.transform  = `translate3d(${maxDx}px, 0, 0)`;
+      fill.style.width       = "100%";
+      answerLiveRef.current();
+    };
+
+    const onTS = (ev: TouchEvent) => {
+      if (sliderAnsweredRef.current) return;
+      ev.preventDefault();
+      cancelAnimationFrame(sliderRafRef.current);
+      thumb.style.transition = "none";
+      fill.style.transition  = "none";
+      sliderActiveRef.current   = true;
+      sliderCurrentXRef.current = 0;
+      sliderStartXRef.current   = ev.touches[0].clientX;
+    };
+
+    const onTM = (ev: TouchEvent) => {
+      if (!sliderActiveRef.current || sliderAnsweredRef.current) return;
+      ev.preventDefault();
+      const dx    = Math.max(0, ev.touches[0].clientX - sliderStartXRef.current);
+      const maxDx = Math.max(1, slider.offsetWidth - thumb.offsetWidth - 8);
+      const clamped = Math.min(dx, maxDx);
+      sliderCurrentXRef.current = clamped;
+      cancelAnimationFrame(sliderRafRef.current);
+      sliderRafRef.current = requestAnimationFrame(() => {
+        thumb.style.transform = `translate3d(${clamped}px, 0, 0)`;
+        fill.style.width      = `${(clamped / maxDx) * 100}%`;
+      });
+      if (clamped >= maxDx * 0.8) doAnswer();
+    };
+
+    const onTE = () => {
+      if (!sliderActiveRef.current) return;
+      const maxDx = Math.max(1, slider.offsetWidth - thumb.offsetWidth - 8);
+      if (!sliderAnsweredRef.current && sliderCurrentXRef.current >= maxDx * 0.8) {
+        doAnswer();
+      } else {
+        snapBack();
+      }
+    };
+
+    thumb.addEventListener("touchstart",  onTS, { passive: false });
+    thumb.addEventListener("touchmove",   onTM, { passive: false });
+    thumb.addEventListener("touchend",    onTE);
+    thumb.addEventListener("touchcancel", snapBack);
+    return () => {
+      cancelAnimationFrame(sliderRafRef.current);
+      thumb.removeEventListener("touchstart",  onTS);
+      thumb.removeEventListener("touchmove",   onTM);
+      thumb.removeEventListener("touchend",    onTE);
+      thumb.removeEventListener("touchcancel", snapBack);
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   const photo = match.profile.photos?.[0];
 
   return (
@@ -467,74 +564,95 @@ export default function IncomingCallOverlay({ match, isFaceCall, onDismiss, onAn
         </div>
       )}
 
-      {/* Bottom — action buttons.
-          z-[99990]: intentionally very high so these buttons can never be covered
-          by any other overlay (active-call z-[100], debug bars z-[9999]/z-[99999]).
-          position:fixed is viewport-relative on every iOS version — safe for
-          document.body.style.overflow="hidden".
-          bottom uses calc(env() + px) — supported since iOS 11.2. */}
+      {/* Bottom action bar — slide-to-answer track + decline button.
+          z-[99990]: above all overlays. position:fixed is viewport-relative on
+          all iOS versions. bottom uses calc(env()+px) — supported since iOS 11.2. */}
       <div
-        className="fixed left-0 right-0 z-[99990] flex flex-col items-center gap-3"
-        style={{ bottom: "calc(env(safe-area-inset-bottom, 0px) + 40px)" }}
+        className="fixed left-0 right-0 z-[99990] flex flex-col items-center gap-5 px-8"
+        style={{ bottom: "calc(env(safe-area-inset-bottom, 0px) + 32px)" }}
         data-testid="callee-button-bar"
       >
-        <div className="flex items-center justify-center gap-20" data-testid="incoming-call-actions">
-
-          {/* ── DECLINE button (red) ── */}
-          <div className="flex flex-col items-center gap-3">
-            <button
-              className="w-[72px] h-[72px] rounded-full flex items-center justify-center active:scale-90 transition-transform"
-              style={{
-                background: "hsl(0 60% 30%)",
-                border: "2px solid hsl(0 60% 55%)",
-                boxShadow: "0 6px 28px hsl(0 60% 40% / 0.5), inset 0 1px 0 hsl(0 0% 100% / 0.08)",
-              }}
-              onClick={() => declineCall.mutate()}
-              data-testid="button-decline-call"
-            >
-              <PhoneOff className="w-7 h-7 text-white" />
-            </button>
-            <span className="text-white/60 text-xs tracking-wide">
-              {declineCall.isPending ? "Declining…" : "Decline"}
-            </span>
+        {/* ── Slide-to-answer track ── */}
+        <div
+          ref={sliderRef}
+          style={{
+            position: "relative", width: "100%", maxWidth: 300,
+            height: 64, borderRadius: 32,
+            background: "rgba(255,255,255,0.08)",
+            border: "1.5px solid rgba(255,255,255,0.18)",
+            overflow: "hidden", userSelect: "none",
+          }}
+          aria-label={isFaceCall ? "Slide to answer face call" : "Slide to answer audio call"}
+          role="presentation"
+        >
+          {/* Track fill — grows as the thumb moves right */}
+          <div
+            ref={trackFillRef}
+            style={{
+              position: "absolute", top: 0, left: 0, bottom: 0, width: "0%",
+              background: "linear-gradient(90deg, hsl(142 65% 40% / 0.4), hsl(142 65% 52% / 0.6))",
+              borderRadius: 32, pointerEvents: "none",
+            }}
+          />
+          {/* "slide to answer" label — centred, offset right of thumb */}
+          <span style={{
+            position: "absolute", inset: 0,
+            display: "flex", alignItems: "center", justifyContent: "center",
+            paddingLeft: 72, paddingRight: 12,
+            color: "rgba(255,255,255,0.45)", fontSize: 13,
+            letterSpacing: "0.06em", pointerEvents: "none",
+            userSelect: "none", whiteSpace: "nowrap",
+          }}>
+            slide to answer
+          </span>
+          {/* Draggable thumb — touch-action:none so iOS delivers all touches here */}
+          <div
+            ref={thumbRef}
+            style={{
+              position: "absolute", left: 4, top: 4,
+              width: 56, height: 56, borderRadius: "50%",
+              background: "linear-gradient(145deg, hsl(142 70% 45%), hsl(142 70% 32%))",
+              border: "2px solid hsl(142 70% 62%)",
+              boxShadow: "0 4px 20px hsl(142 70% 40% / 0.65)",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              touchAction: "none", zIndex: 1,
+            }}
+          >
+            {isFaceCall
+              ? <Video style={{ width: 22, height: 22, color: "white", flexShrink: 0 }} />
+              : <Phone style={{ width: 22, height: 22, color: "white", flexShrink: 0 }} />}
           </div>
+          {/* Accessible button — visible to assistive technology only.
+              pointer-events:none prevents accidental tap-to-answer on touch devices;
+              keyboard Enter/Space still triggers via onKeyDown for AT users. */}
+          <button
+            style={{ position: "absolute", inset: 0, opacity: 0, pointerEvents: "none" }}
+            aria-label={isFaceCall ? "Answer face call" : "Answer audio call"}
+            tabIndex={0}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") { e.preventDefault(); answerLiveRef.current(); }
+            }}
+            data-testid="button-answer-call"
+          />
+        </div>
 
-          {/* ── ANSWER button (green) — ALWAYS rendered, no conditions ── */}
-          {/* isCaller is logged here; should always be false in IncomingCallOverlay */}
-          {(() => {
-            console.log("[CALL_UI] rendering incoming answer button", {
-              matchId: match.id,
-              callSessionId: match.callSessionId,
-              isFaceCall,
-              isCaller,
-              isReceiver,
-              initiatorId: match.callInitiatorId?.slice(0, 8),
-              myId: user?.id?.slice(0, 8),
-            });
-            return null;
-          })()}
-          <div className="flex flex-col items-center gap-3">
-            <button
-              className="w-[92px] h-[92px] rounded-full flex items-center justify-center active:scale-90 transition-transform"
-              style={{
-                background: "linear-gradient(145deg, hsl(142 70% 45%), hsl(142 70% 32%))",
-                border: "2.5px solid hsl(142 70% 62%)",
-                boxShadow: "0 0 0 6px hsl(142 70% 45% / 0.18), 0 8px 36px hsl(142 70% 40% / 0.7), inset 0 1px 0 hsl(0 0% 100% / 0.2)",
-              }}
-              onClick={() => answerCall.mutate()}
-              data-testid="button-answer-call"
-            >
-              {isFaceCall ? (
-                <Video className="w-9 h-9 text-white" style={{ filter: "drop-shadow(0 1px 2px rgba(0,0,0,0.5))" }} />
-              ) : (
-                <Phone className="w-9 h-9 text-white" style={{ filter: "drop-shadow(0 1px 2px rgba(0,0,0,0.5))" }} />
-              )}
-            </button>
-            <span className="text-white/70 text-xs tracking-wide">
-              {answerCall.isPending ? "Connecting…" : "Answer"}
-            </span>
-          </div>
-
+        {/* ── Decline button ── */}
+        <div className="flex flex-col items-center gap-2.5" data-testid="incoming-call-actions">
+          <button
+            className="w-[68px] h-[68px] rounded-full flex items-center justify-center active:scale-90 transition-transform"
+            style={{
+              background: "hsl(0 60% 30%)",
+              border: "2px solid hsl(0 60% 55%)",
+              boxShadow: "0 6px 28px hsl(0 60% 40% / 0.5), inset 0 1px 0 hsl(0 0% 100% / 0.08)",
+            }}
+            onClick={() => { silenceRing(); declineCall.mutate(); }}
+            data-testid="button-decline-call"
+          >
+            <PhoneOff className="w-7 h-7 text-white" />
+          </button>
+          <span className="text-white/60 text-xs tracking-wide">
+            {declineCall.isPending ? "Declining…" : "Decline"}
+          </span>
         </div>
       </div>
 

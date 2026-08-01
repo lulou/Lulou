@@ -1374,27 +1374,36 @@ export function useWebRTC({ matchId, userId, isCaller, isVideo, enabled, onRemot
   const toggleMute = useCallback(() => {
     const stream = localStreamRef.current;
     if (!stream) {
-      console.warn("[CALL_CONTROLS] toggleMute: no local stream — button pressed too early or stream released", { matchId });
+      console.warn("[CALL_MUTE] requested — no local stream (pressed too early or stream released)", { matchId });
       return;
     }
     const tracks = stream.getAudioTracks();
+    console.log("[CALL_MUTE] requested", {
+      trackCount: tracks.length,
+      tracks: tracks.map(t => ({ enabled: t.enabled, readyState: t.readyState, muted: t.muted })),
+      matchId,
+    });
     if (tracks.length === 0) {
-      console.warn("[CALL_CONTROLS] toggleMute: no audio tracks on local stream", { matchId });
+      console.warn("[CALL_MUTE] no audio tracks on local stream", { matchId });
       return;
     }
-    const audioTrack = tracks[0];
-    // enabled=true → track is live (unmuted); enabled=false → track sends silence (muted)
-    audioTrack.enabled = !audioTrack.enabled;
-    const nowMuted = !audioTrack.enabled;
+    // Determine new muted state from the first track, then apply to ALL tracks.
+    // Using forEach (not just tracks[0]) handles multi-track streams (rare but possible).
+    const nowMuted = tracks[0].enabled; // enabled=true → currently live, will become muted
+    tracks.forEach(track => { track.enabled = !track.enabled; });
     setIsMuted(nowMuted);
-    console.log("[FINAL_CALL_FIX] mute toggled", { muted: nowMuted, trackEnabled: audioTrack.enabled, matchId });
-    console.log("[CALL_CONTROLS]", nowMuted ? "mute on" : "mute off", {
-      trackEnabled: audioTrack.enabled,
-      trackId: audioTrack.id.slice(0, 12),
-      readyState: audioTrack.readyState,
+    console.log("[CALL_MUTE] applied", {
+      muted: nowMuted,
+      tracks: tracks.map(t => ({ enabled: t.enabled, readyState: t.readyState, muted: t.muted })),
       matchId,
     });
   }, [matchId]);
+
+  // Reset muted state when WebRTC is disabled (call ends or new call begins)
+  // so the next call always starts unmuted even if the previous one ended while muted.
+  useEffect(() => {
+    if (!enabled) setIsMuted(false);
+  }, [enabled]);
 
   const toggleCamera = useCallback(() => {
     const stream = localStreamRef.current;
