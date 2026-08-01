@@ -1,0 +1,94 @@
+The latest iPhone screenshot confirms keyboard positioning is now acceptable.
+
+Do not change keyboard, viewport, dvh, visualViewport, safe-area or composer-bottom logic again.
+
+What is now correct:
+- composer sits above keyboard
+- brown debug tab is gone
+- 0/500 is under the input column
+
+What still fails:
+- header completely missing
+- back button missing
+- match name/photo missing
+- message countdown missing
+- messages sit too high
+- huge blank gap remains above composer
+- composer is still taller than necessary
+
+Fix only these remaining issues inside _MatchChat in client/src/pages/matches.tsx.
+
+1. HEADER
+
+Find the exact header JSX already inside _MatchChat and determine why it is not visible.
+
+Do not create another new header until you inspect:
+- whether the header conditional returns false
+- whether its height is zero
+- whether display/visibility/opacity hides it
+- whether it is rendered above the visible scroll area
+- whether another child appears before it
+- whether expanded/profile/call state switches to a branch without the header
+
+Make the existing header render unconditionally whenever chat is open.
+
+It must show:
+- 44×44px back button
+- match photo
+- match name
+- live message countdown
+
+Back must return to Connections without ending or changing the match.
+
+2. MESSAGE LIST
+
+The blank gap is not a keyboard problem.
+
+Make the scrollable messages region:
+- flex: 1
+- min-height: 0
+- display: flex
+- flex-direction: column
+- justify-content: flex-end only when content is shorter than the viewport
+
+Do not use a large spacer element.
+
+When messages overflow, normal scrolling must work.
+
+Newest message must sit directly above the composer.
+
+3. COMPOSER
+
+Reduce the composer height:
+- compact padding
+- textarea single-line height at rest
+- maximum expansion only when text wraps
+- send button same height as input
+- microphone vertically centred
+- keep 0/500 under the input column
+
+4. REMOVE ALL REMAINING TEMPORARY CHAT DIAGNOSTICS
+
+Do not add more markers or viewport values.
+
+5. DO NOT CHANGE
+
+- keyboard behaviour
+- auth
+- sessions
+- progression
+- calls
+- voice notes
+- realtime
+- service worker
+
+Before coding, report the exact reason the existing header is not rendering and the exact DOM element creating the blank gap.
+
+Then make only those targeted edits.
+
+Do not report PASS until a live iPhone screenshot visibly shows:
+- header
+- back button
+- countdown
+- messages directly above composer
+- no large blank gap
