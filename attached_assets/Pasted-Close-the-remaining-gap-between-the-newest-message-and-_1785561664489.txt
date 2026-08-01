@@ -1,0 +1,109 @@
+Close the remaining gap between the newest message and the composer in the real chat.
+
+Only edit _MatchChat in:
+
+client/src/pages/matches.tsx
+
+Do not change:
+- visualViewport shell
+- keyboard behaviour
+- header
+- back button
+- countdown
+- composer positioning
+- auth
+- progression
+- calls
+- voice notes
+- realtime
+- service worker
+
+CURRENT ISSUE
+
+The newest message is still sitting too far above the composer.
+
+The message viewport and keyboard layout are now correct. The remaining space is coming from padding/margins inside the message stack.
+
+REQUIRED FIX
+
+1. Inspect the inner message-stack wrapper added in commit edcde97.
+
+It currently uses spacing such as:
+
+- p-4
+- space-y-3
+- possible bottom margin/padding
+- possible padding on the final message
+
+2. Reduce only the bottom spacing:
+
+- keep horizontal padding
+- keep normal spacing between messages
+- set the message stack bottom padding to approximately 6–8px
+- do not use p-4 on all sides if it creates 16px beneath the final message
+
+Example structure:
+
+padding-left: 16px;
+padding-right: 16px;
+padding-top: 12px;
+padding-bottom: 6px;
+
+3. Ensure the final message bubble has:
+
+- margin-bottom: 0
+- no invisible spacer after it
+- no empty messagesEndRef element with height or margin
+- no extra pb-* class
+- no scroll-padding-bottom larger than necessary
+
+4. Inspect messagesEndRef.
+
+If it renders an empty div after the final message:
+
+- give it height: 0
+- margin: 0
+- padding: 0
+- do not allow it to create visible space
+
+5. Ensure the composer wrapper has no unnecessary top margin.
+
+- margin-top: 0
+- no large pt-* above the input
+- keep only a subtle divider or approximately 4px separation
+
+6. Preserve the two-element structure:
+
+Outer:
+- flex: 1
+- min-height: 0
+- overflow-y: auto
+
+Inner:
+- min-height: 100%
+- display: flex
+- flex-direction: column
+- justify-content: flex-end
+
+Do not remove this structure.
+
+EXPECTED RESULT
+
+With the keyboard open:
+
+- newest message sits approximately 6–10px above the composer
+- no visible blank strip between message content and composer
+- messages still scroll normally
+- header and keyboard behaviour remain unchanged
+
+Report:
+
+- exact element creating the remaining gap
+- exact padding/margin removed
+- files changed
+- commit hash
+- pushed to origin/main
+- Vercel deployed commit
+- real iPhone PASS/FAIL
+
+Do not make any other changes.
