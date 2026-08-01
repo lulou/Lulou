@@ -3927,7 +3927,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
               </div>
             )
           ) : (
-            <div ref={composerRef} className="px-2 pt-2 border-t" style={{ borderTop: "1px solid hsl(var(--border))", paddingBottom: "max(0.5rem, env(safe-area-inset-bottom))" }}>
+            <div ref={composerRef} className="px-2 pt-2 border-t" style={{ borderTop: "1px solid hsl(var(--border))", paddingBottom: inputFocused ? "6px" : "max(0.5rem, env(safe-area-inset-bottom))" }}>
               {isOtherTyping && (
                 <div className="flex items-center gap-1.5 px-1 pb-2 text-xs text-muted-foreground" data-testid="text-typing-indicator">
                   <span className="flex gap-0.5 items-center">
