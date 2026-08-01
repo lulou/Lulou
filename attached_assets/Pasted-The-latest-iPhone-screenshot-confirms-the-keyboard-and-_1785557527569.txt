@@ -1,0 +1,78 @@
+The latest iPhone screenshot confirms the keyboard and message-area layout are now mostly correct.
+
+Do not change the keyboard, viewport height, message anchoring or overall flex layout again.
+
+What is now working:
+- composer sits above the keyboard
+- messages sit close to the composer
+- large blank gap is mostly gone
+- developer side tab is gone
+
+Fix only the remaining header and composer details in _MatchChat inside client/src/pages/matches.tsx.
+
+HEADER — PRIMARY FAILURE
+
+The header still does not appear at all.
+
+Inspect the existing header JSX and its immediate parent. Identify the exact CSS or render condition hiding it.
+
+Required:
+
+- Render the header unconditionally whenever _MatchChat is open.
+- It must be the first flex child.
+- Use:
+ - width: 100%
+ - flex-shrink: 0
+ - position: relative or sticky
+ - top: 0
+ - z-index above messages
+ - padding-top: env(safe-area-inset-top)
+ - visible background
+- Do not use position: fixed.
+- Do not place it inside the scrolling message container.
+- Ensure it is not height: 0, display: none, opacity: 0, translated upward or clipped by overflow.
+
+Header must visibly contain:
+
+- 44×44px back arrow
+- match photo
+- match name
+- current message countdown
+
+Back must return to Connections without ending or changing the match.
+
+MESSAGE VIEWPORT
+
+- Add enough top separation so the first visible message is never clipped underneath the status bar/header.
+- Keep the current bottom anchoring.
+- Do not reintroduce a spacer or large blank gap.
+
+COMPOSER DETAILS
+
+- Reduce the border to one clean 1–2px border.
+- Remove any ring, ring offset and duplicate focus outline.
+- Keep font size at least 16px.
+- Keep microphone vertically centred.
+- Keep send button aligned with the input.
+- Ensure 0/500 remains visible beneath the input column even while the keyboard is open.
+
+Do not change:
+- keyboard behaviour
+- flex-column structure
+- auth
+- progression
+- calls
+- voice notes
+- realtime
+- service worker
+
+Before coding, state the exact reason the existing header is not visible.
+
+Report:
+- exact header DOM/CSS cause
+- files changed
+- commit hash
+- Vercel deployed commit
+- live iPhone PASS/FAIL
+
+Do not report PASS until the live screenshot visibly shows the back button, match identity and countdown.
