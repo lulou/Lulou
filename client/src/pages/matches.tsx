@@ -1670,31 +1670,12 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [showProfilePanel, setShowProfilePanel] = useState(false);
   const [isSheetDragging, setIsSheetDragging] = useState(false);
-  const sheetGestureRef = useRef<{ active: boolean; startY: number; velocityBuf: { y: number; t: number }[] }>({ active: false, startY: 0, velocityBuf: [] });
-  // Profile-sheet gesture refs
-  const sheetContainerRef = useRef<HTMLDivElement>(null); // kept for JSX attachment
-  const backdropRef       = useRef<HTMLDivElement>(null); // kept for JSX attachment
-  const profileSheetRef        = sheetContainerRef;       // alias used by gesture code
-  const profileBackdropRef     = backdropRef;             // alias used by gesture code
-  const profileDragHandleRef   = useRef<HTMLDivElement>(null);
-  const profileDragStartYRef   = useRef(0);
-  const profileDragStartTimeRef = useRef(0);
-  const profileDragCurrentYRef = useRef(0);
-  const profileDragRafRef      = useRef(0);
-  const profileDragActiveRef   = useRef(false);
-  // Swipe-back gesture refs
-  const chatShellRef    = useRef<HTMLDivElement>(null);
-  const swipeEdgeRef    = useRef<HTMLDivElement>(null);
-  const swipeStartXRef  = useRef(0);
-  const swipeStartYRef  = useRef(0);
-  const swipeStartTimeRef = useRef(0);
-  const swipeCurrentXRef = useRef(0);
-  const swipeRafRef     = useRef(0);
-  const swipeActiveRef  = useRef(false);
-  // Live-value ref so gesture effects never close over stale state
-  const swipeLiveRef = useRef<{ showProfilePanel: boolean; hasModal: boolean; handleLeaveChat: () => void }>({
-    showProfilePanel: false, hasModal: false, handleLeaveChat: () => {},
-  });
+  const sheetContainerRef = useRef<HTMLDivElement>(null);
+  const backdropRef       = useRef<HTMLDivElement>(null);
+  const chatShellRef      = useRef<HTMLDivElement>(null);
+  // Gesture diagnostic refs (used only when ?gestureDebug=1)
+  const profileDebugRef = useRef<HTMLDivElement>(null);
+  const swipeDebugRef   = useRef<HTMLDivElement>(null);
   const [showAIStarters, setShowAIStarters] = useState(false);
   const hasAutoShownStartersRef = useRef(false);
   const [filterConfirm, setFilterConfirm] = useState<{ content: string; tempId: string; categories: string[] } | null>(null);
@@ -1738,194 +1719,76 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
     onToggleExpand();
   }, [onToggleExpand]);
 
-  // Keep swipeLiveRef in sync every render so gesture effects never go stale.
+  // ─── Gesture diagnostic — visible only at ?gestureDebug=1 ───────────────
+  // All prior gesture implementations have been removed. These two useEffects
+  // attach touch listeners to the visible diagnostic zones to prove whether
+  // events reach the intended DOM nodes on the real iPhone before any
+  // gesture animation is implemented.
+  const gestureDebug = new URLSearchParams(window.location.search).get("gestureDebug") === "1";
+
+  // Profile red zone — 90px tall, covers top of sheet, z-index:9999
   useEffect(() => {
-    swipeLiveRef.current = { showProfilePanel, hasModal: !!purchasePromptFeature, handleLeaveChat };
-  });
-
-  // ─── Profile-sheet: drag-to-dismiss ──────────────────────────────────────
-  // profileDragHandleRef is a 52px full-width div at the top of the sheet with
-  // touch-action:none. That CSS value is the key fix: iOS Safari guarantees it
-  // will never try to scroll/pan an element marked touch-action:none, so ALL
-  // touch events land on our listeners — no delegation, no passive conflict.
-  useEffect(() => {
-    if (!showProfilePanel) return;
-    const handle = profileDragHandleRef.current;
-    const sheet  = profileSheetRef.current;
-    const bd     = profileBackdropRef.current;
-    if (!handle || !sheet || !bd) return;
-
-    profileDragActiveRef.current = false;
-
-    const onTouchStart = (ev: TouchEvent) => {
-      ev.preventDefault();
-      profileDragActiveRef.current = true;
-      profileDragStartYRef.current   = ev.touches[0].clientY;
-      profileDragStartTimeRef.current = Date.now();
-      profileDragCurrentYRef.current  = 0;
-      sheet.style.transition = "none";
-      bd.style.transition    = "none";
-      if (import.meta.env.DEV) console.log("[PROFILE_DRAG] start");
+    if (!gestureDebug || !showProfilePanel) return;
+    const el = profileDebugRef.current;
+    if (!el) return;
+    let touches = 0;
+    let startY = 0;
+    const render = (status: string, sy: number, cy: number) => {
+      el.innerHTML =
+        `PROFILE TOUCHES: ${touches}<br>` +
+        `START Y: ${sy.toFixed(0)}<br>` +
+        `CURRENT Y: ${cy.toFixed(0)}<br>` +
+        `DELTA Y: ${(cy - sy).toFixed(0)}<br>` +
+        `STATUS: ${status}`;
     };
-
-    const onTouchMove = (ev: TouchEvent) => {
-      if (!profileDragActiveRef.current) return;
-      ev.preventDefault();
-      const dy = Math.max(0, ev.touches[0].clientY - profileDragStartYRef.current);
-      profileDragCurrentYRef.current = dy;
-      if (import.meta.env.DEV) console.log("[PROFILE_DRAG] move dy=", dy.toFixed(1));
-      cancelAnimationFrame(profileDragRafRef.current);
-      profileDragRafRef.current = requestAnimationFrame(() => {
-        sheet.style.transform = `translate3d(0, ${dy}px, 0)`;
-        bd.style.opacity = String(Math.max(0, 1 - dy / (sheet.offsetHeight * 0.6)));
-      });
-    };
-
-    const onTouchEnd = () => {
-      if (!profileDragActiveRef.current) return;
-      profileDragActiveRef.current = false;
-      cancelAnimationFrame(profileDragRafRef.current);
-      const distance = profileDragCurrentYRef.current;
-      const elapsed  = Date.now() - profileDragStartTimeRef.current;
-      const velocity = elapsed > 0 ? distance / elapsed : 0; // px/ms
-      const sheetH   = sheet.offsetHeight;
-      const shouldClose = distance >= sheetH * 0.25 || (velocity >= 0.6 && distance >= 40);
-      if (import.meta.env.DEV) console.log("[PROFILE_DRAG] end distance=", distance.toFixed(1), "velocity=", velocity.toFixed(3), "decision=", shouldClose ? "close" : "snap");
-      if (shouldClose) {
-        sheet.style.transition = "transform 0.25s cubic-bezier(0.32,0.72,0,1)";
-        sheet.style.transform  = "translate3d(0, 100%, 0)";
-        bd.style.transition    = "opacity 0.22s ease";
-        bd.style.opacity       = "0";
-        // Wait for the CSS transition to finish before unmounting
-        let done = false;
-        const finish = () => {
-          if (done) return;
-          done = true;
-          if (import.meta.env.DEV) console.log("[PROFILE_DRAG] transition-complete");
-          setShowProfilePanel(false);
-        };
-        sheet.addEventListener("transitionend", finish, { once: true });
-        setTimeout(finish, 280); // fallback if transitionend never fires
-      } else {
-        sheet.style.transition = "transform 0.3s cubic-bezier(0.22,1,0.36,1)";
-        sheet.style.transform  = "translate3d(0, 0, 0)";
-        bd.style.transition    = "opacity 0.25s ease";
-        bd.style.opacity       = "1";
-      }
-    };
-
-    const onTouchCancel = () => {
-      profileDragActiveRef.current = false;
-      cancelAnimationFrame(profileDragRafRef.current);
-      sheet.style.transition = "transform 0.3s cubic-bezier(0.22,1,0.36,1)";
-      sheet.style.transform  = "translate3d(0, 0, 0)";
-      bd.style.transition    = "opacity 0.25s ease";
-      bd.style.opacity       = "1";
-    };
-
-    handle.addEventListener("touchstart",  onTouchStart,  { passive: false });
-    handle.addEventListener("touchmove",   onTouchMove,   { passive: false });
-    handle.addEventListener("touchend",    onTouchEnd);
-    handle.addEventListener("touchcancel", onTouchCancel);
+    render("idle", 0, 0);
+    const onTS = (ev: TouchEvent) => { ev.preventDefault(); touches++; startY = ev.touches[0].clientY; render("touching", startY, startY); };
+    const onTM = (ev: TouchEvent) => { ev.preventDefault(); render("dragging", startY, ev.touches[0].clientY); };
+    const onTE = (ev: TouchEvent) => { render("ended", startY, ev.changedTouches[0].clientY); };
+    const onTC = () => { render("cancelled", startY, startY); };
+    el.addEventListener("touchstart",  onTS, { passive: false });
+    el.addEventListener("touchmove",   onTM, { passive: false });
+    el.addEventListener("touchend",    onTE);
+    el.addEventListener("touchcancel", onTC);
     return () => {
-      cancelAnimationFrame(profileDragRafRef.current);
-      handle.removeEventListener("touchstart",  onTouchStart);
-      handle.removeEventListener("touchmove",   onTouchMove);
-      handle.removeEventListener("touchend",    onTouchEnd);
-      handle.removeEventListener("touchcancel", onTouchCancel);
+      el.removeEventListener("touchstart",  onTS);
+      el.removeEventListener("touchmove",   onTM);
+      el.removeEventListener("touchend",    onTE);
+      el.removeEventListener("touchcancel", onTC);
     };
-  }, [showProfilePanel]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [gestureDebug, showProfilePanel]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ─── Swipe-back: dedicated left-edge strip ────────────────────────────────
-  // swipeEdgeRef is a 36px wide invisible div (position:absolute left:0 top:0
-  // bottom:0) inside chatShellRef with touch-action:none. Because it has its
-  // own touch-action:none, iOS delivers every touch that starts within those
-  // 36px to our listeners — even though the parent shell has touch-action:pan-y.
+  // Chat blue zone — 80px wide, full height, z-index:9999
   useEffect(() => {
-    if (!expanded) return;
-    const edge  = swipeEdgeRef.current;
-    const shell = chatShellRef.current;
-    if (!edge || !shell) return;
-
-    swipeActiveRef.current = false;
-
-    const onTouchStart = (ev: TouchEvent) => {
-      const live = swipeLiveRef.current;
-      if (live.showProfilePanel || live.hasModal) return;
-      ev.preventDefault();
-      swipeActiveRef.current    = true;
-      swipeStartXRef.current    = ev.touches[0].clientX;
-      swipeStartYRef.current    = ev.touches[0].clientY;
-      swipeStartTimeRef.current = Date.now();
-      swipeCurrentXRef.current  = 0;
-      if (import.meta.env.DEV) console.log("[CHAT_SWIPE] start");
+    if (!gestureDebug || !expanded) return;
+    const el = swipeDebugRef.current;
+    if (!el) return;
+    let touches = 0;
+    let startX = 0;
+    const render = (status: string, sx: number, cx: number) => {
+      el.innerHTML =
+        `SWIPE TOUCHES: ${touches}<br>` +
+        `START X: ${sx.toFixed(0)}<br>` +
+        `CURRENT X: ${cx.toFixed(0)}<br>` +
+        `DELTA X: ${(cx - sx).toFixed(0)}<br>` +
+        `STATUS: ${status}`;
     };
-
-    const onTouchMove = (ev: TouchEvent) => {
-      if (!swipeActiveRef.current) return;
-      ev.preventDefault();
-      const dx = ev.touches[0].clientX - swipeStartXRef.current;
-      const dy = ev.touches[0].clientY - swipeStartYRef.current;
-      // Cancel if vertical movement wins after 8px
-      if (Math.abs(dx) + Math.abs(dy) >= 8 && Math.abs(dy) > Math.abs(dx)) {
-        swipeActiveRef.current = false;
-        cancelAnimationFrame(swipeRafRef.current);
-        shell.style.transition = "transform 0.2s cubic-bezier(0.22,1,0.36,1)";
-        shell.style.transform  = "";
-        return;
-      }
-      if (dx <= 0) return;
-      swipeCurrentXRef.current = dx;
-      if (import.meta.env.DEV) console.log("[CHAT_SWIPE] move dx=", dx.toFixed(1));
-      cancelAnimationFrame(swipeRafRef.current);
-      const clamped = Math.min(dx, window.innerWidth);
-      swipeRafRef.current = requestAnimationFrame(() => {
-        shell.style.transition = "none";
-        shell.style.transform  = `translate3d(${clamped}px, 0, 0)`;
-      });
-    };
-
-    const onTouchEnd = () => {
-      if (!swipeActiveRef.current) return;
-      swipeActiveRef.current = false;
-      cancelAnimationFrame(swipeRafRef.current);
-      const distance = swipeCurrentXRef.current;
-      const elapsed  = Date.now() - swipeStartTimeRef.current;
-      const velocity = elapsed > 0 ? distance / elapsed : 0; // px/ms
-      const W        = window.innerWidth;
-      const shouldLeave = distance >= W * 0.30 || (velocity >= 0.65 && distance >= 60);
-      if (import.meta.env.DEV) console.log("[CHAT_SWIPE] end distance=", distance.toFixed(1), "velocity=", velocity.toFixed(3), "decision=", shouldLeave ? "leave" : "snap");
-      if (shouldLeave) {
-        const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-        shell.style.transition = reduced ? "none" : "transform 0.25s cubic-bezier(0.32,0.72,0,1)";
-        shell.style.transform  = `translate3d(${W}px, 0, 0)`;
-        if (import.meta.env.DEV) console.log("[CHAT_SWIPE] handleLeaveChat");
-        setTimeout(() => swipeLiveRef.current.handleLeaveChat(), reduced ? 0 : 220);
-      } else {
-        shell.style.transition = "transform 0.3s cubic-bezier(0.22,1,0.36,1)";
-        shell.style.transform  = "";
-      }
-    };
-
-    const onTouchCancel = () => {
-      swipeActiveRef.current = false;
-      cancelAnimationFrame(swipeRafRef.current);
-      shell.style.transition = "transform 0.2s cubic-bezier(0.22,1,0.36,1)";
-      shell.style.transform  = "";
-    };
-
-    edge.addEventListener("touchstart",  onTouchStart,  { passive: false });
-    edge.addEventListener("touchmove",   onTouchMove,   { passive: false });
-    edge.addEventListener("touchend",    onTouchEnd);
-    edge.addEventListener("touchcancel", onTouchCancel);
+    render("idle", 0, 0);
+    const onTS = (ev: TouchEvent) => { ev.preventDefault(); touches++; startX = ev.touches[0].clientX; render("touching", startX, startX); };
+    const onTM = (ev: TouchEvent) => { ev.preventDefault(); render("dragging", startX, ev.touches[0].clientX); };
+    const onTE = (ev: TouchEvent) => { render("ended", startX, ev.changedTouches[0].clientX); };
+    const onTC = () => { render("cancelled", startX, startX); };
+    el.addEventListener("touchstart",  onTS, { passive: false });
+    el.addEventListener("touchmove",   onTM, { passive: false });
+    el.addEventListener("touchend",    onTE);
+    el.addEventListener("touchcancel", onTC);
     return () => {
-      cancelAnimationFrame(swipeRafRef.current);
-      edge.removeEventListener("touchstart",  onTouchStart);
-      edge.removeEventListener("touchmove",   onTouchMove);
-      edge.removeEventListener("touchend",    onTouchEnd);
-      edge.removeEventListener("touchcancel", onTouchCancel);
+      el.removeEventListener("touchstart",  onTS);
+      el.removeEventListener("touchmove",   onTM);
+      el.removeEventListener("touchend",    onTE);
+      el.removeEventListener("touchcancel", onTC);
     };
-  }, [expanded]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [gestureDebug, expanded]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const { data: matchDetail, isLoading: matchLoading, error: matchError } = useQuery<MatchDetail>({
     queryKey: ["/api/matches", match.id],
@@ -3336,14 +3199,23 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
       style={{ top: vpTop, height: vpHeight, background: "hsl(var(--background))", touchAction: "pan-y" }}
       data-testid={`card-match-${match.id}`}
     >
-      {/* Invisible left-edge gesture capture strip.
-          touch-action:none on this element overrides the parent's pan-y so iOS
-          delivers every touch that starts here directly to our swipe-back listeners.
-          36px wide, full height, z-index above messages but below header buttons. */}
-      <div
-        ref={swipeEdgeRef}
-        style={{ position: "absolute", top: 0, bottom: 0, left: 0, width: 36, zIndex: 5, touchAction: "none" }}
-      />
+      {/* Blue diagnostic zone — 80px wide, full height, z-index 9999.
+          Only rendered when ?gestureDebug=1. Intentionally covers back button
+          and content — this is required to prove event delivery on the real device. */}
+      {gestureDebug && (
+        <div
+          ref={swipeDebugRef}
+          style={{
+            position: "absolute", top: 0, bottom: 0, left: 0, width: 80,
+            zIndex: 9999, touchAction: "none",
+            background: "rgba(0,80,255,0.45)",
+            display: "flex", flexDirection: "column", justifyContent: "flex-start",
+            padding: "48px 4px 8px",
+            color: "#fff", fontFamily: "monospace", fontSize: 11, lineHeight: 1.6,
+            pointerEvents: "auto",
+          }}
+        />
+      )}
 
       {/* Standard flex-column chat layout. 100dvh shrinks with the keyboard on iOS —
           no manual keyboardHeight tracking needed. Browser handles everything. */}
@@ -4637,27 +4509,27 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
               animation: "sheetSlideUp 0.28s cubic-bezier(0.22,1,0.36,1) both",
             }}
           >
-            {/* Full-width 52px drag zone — touch-action:none is the critical property.
-                iOS Safari guarantees it never scrolls this element, so every touch
-                that starts here lands on our profileDragHandleRef listeners. */}
-            <div
-              ref={profileDragHandleRef}
-              style={{
-                flexShrink: 0,
-                width: "100%",
-                height: 52,
-                touchAction: "none",
-                cursor: "grab",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                position: "relative",
-                zIndex: 2,
-              }}
-            >
+            {/* Grab handle pill */}
+            <div style={{ display: "flex", justifyContent: "center", padding: "10px 0 8px", flexShrink: 0 }}>
               <div style={{ width: 40, height: 4, borderRadius: 2, background: "hsl(var(--muted-foreground)/0.25)" }} />
             </div>
-            <div style={{ height: "calc(88dvh - 52px)", overflow: "hidden", display: "flex", flexDirection: "column" }}>
+            {/* Red diagnostic zone — 90px, position:absolute so it overlays handle + top of content.
+                Only rendered when ?gestureDebug=1. Proves event delivery before any gesture is built. */}
+            {gestureDebug && (
+              <div
+                ref={profileDebugRef}
+                style={{
+                  position: "absolute", top: 0, left: 0, right: 0, height: 90,
+                  zIndex: 9999, touchAction: "none",
+                  background: "rgba(200,0,0,0.45)",
+                  display: "flex", flexDirection: "column", justifyContent: "center",
+                  padding: "8px 12px",
+                  color: "#fff", fontFamily: "monospace", fontSize: 11, lineHeight: 1.6,
+                  pointerEvents: "auto",
+                }}
+              />
+            )}
+            <div style={{ height: "calc(88dvh - 28px)", overflow: "hidden", display: "flex", flexDirection: "column" }}>
               <ProfilePanel profile={match.profile} onClose={() => { setShowProfilePanel(false); }} />
             </div>
           </div>
