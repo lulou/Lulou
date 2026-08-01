@@ -3126,7 +3126,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
           The column gets its height from flex cross-axis stretch (definite), not a percentage. */}
       <div style={{ position: "relative", top: 0, zIndex: 10, width: "100%", flexShrink: 0, paddingTop: "env(safe-area-inset-top)", background: "hsl(var(--background))", borderBottom: "1px solid hsl(var(--border)/0.5)" }}>
         {/* ── Main header row ── */}
-        <div className={"flex items-center gap-3 px-4 " + (inputFocused ? "pt-2 pb-1" : "pt-3 pb-2")}>
+        <div className={"flex items-center gap-3 px-4 " + (inputFocused ? "pt-1 pb-2" : "pt-3 pb-2")}>
         <Button
           size="icon"
           variant="ghost"
