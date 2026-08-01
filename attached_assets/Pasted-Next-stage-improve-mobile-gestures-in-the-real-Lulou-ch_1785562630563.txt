@@ -1,0 +1,179 @@
+Next stage: improve mobile gestures in the real Lulou chat experience.
+
+Only work on the profile sheet and chat navigation shown in the latest iPhone screenshots.
+
+Do not change:
+- keyboard handling
+- visualViewport shell
+- header layout
+- message layout
+- composer layout
+- auth
+- sessions
+- progression
+- calls
+- voice notes
+- realtime
+- service worker
+
+PART 1 — MAKE THE PROFILE PULL-DOWN SMOOTH
+
+Current issue:
+The profile opens as a bottom sheet inside the chat, but dragging it down feels stiff, jumpy and unreliable.
+
+Required behaviour:
+
+1. The sheet must follow the user’s finger smoothly with no lag.
+
+2. Dragging must begin from:
+- the top grab handle
+- the top header area of the sheet
+
+Do not start the close gesture when the user is scrolling profile content further down.
+
+3. Use pointer/touch tracking:
+
+On pointer down:
+- capture the starting Y position
+- capture the current sheet translateY
+- disable CSS transition while actively dragging
+- call setPointerCapture where supported
+
+On pointer move:
+- calculate deltaY
+- only allow downward movement
+- apply transform: translate3d(0, deltaYpx, 0)
+- update on requestAnimationFrame
+- do not trigger React state updates for every pixel if a ref/CSS variable can be used
+
+On pointer up/cancel:
+- calculate distance and velocity
+- close if:
+ - dragged down at least approximately 25–30% of the sheet height, or
+ - downward velocity is fast enough
+- otherwise snap smoothly back to fully open
+
+4. Animation:
+- use transform only
+- use translate3d for GPU acceleration
+- close/snap duration around 220–300ms
+- use an ease-out curve
+- no top/height animation
+- no layout reflow while dragging
+
+5. Backdrop:
+- backdrop opacity should fade as the sheet is dragged downward
+- tapping the backdrop closes the sheet
+- sheet must not accidentally close when the user is scrolling profile content
+
+6. Scroll interaction:
+- when profile scrollTop > 0, downward finger movement must scroll the profile content normally
+- sheet drag-to-close should activate only when profile scrollTop is at or near 0
+- prevent the page behind the sheet from scrolling
+
+7. Final sheet requirements:
+- grab handle remains visible
+- rounded top corners remain
+- sheet closes completely off-screen
+- chat remains underneath unchanged
+- closing the sheet returns immediately to the same chat position
+
+PART 2 — SWIPE BACK OUT OF CHAT
+
+Current issue:
+Users can only leave the chat by pressing the back arrow.
+
+Add a native-feeling swipe-back gesture like iPhone apps.
+
+Required behaviour:
+
+1. Gesture direction:
+- swipe from the LEFT edge toward the right
+- do not trigger from the middle of the screen
+- gesture start zone approximately 20–30px from the left edge
+
+2. During swipe:
+- the entire chat view follows the finger horizontally
+- use transform: translate3d(x, 0, 0)
+- reveal the Connections screen/background underneath
+- optionally fade a subtle shadow as the page moves
+- do not move the keyboard independently from the chat shell
+
+3. Completion:
+- navigate back to Connections if:
+ - horizontal drag is at least approximately 30–35% of screen width, or
+ - swipe velocity is fast enough
+- otherwise animate the chat back to x=0
+
+4. Gesture conflict protection:
+- do not trigger swipe-back when:
+ - the profile bottom sheet is open
+ - a call modal is open
+ - another full-screen modal is open
+ - the user is horizontally interacting with another control
+- vertical scrolling of messages must continue normally
+- cancel the swipe if vertical movement becomes greater than horizontal movement
+- do not block normal text selection or composer use
+
+5. Keyboard behaviour:
+- swipe-back must work while the keyboard is open
+- on successful swipe:
+ - blur the textarea
+ - preserve the unsent draft
+ - return to Connections
+- do not end or alter the match
+- do not delete messages
+- do not sign the user out
+
+6. Navigation:
+- use the same navigation function as the existing back button
+- both the back button and swipe gesture must call the same shared handleLeaveChat()
+- preserve the existing draft-save behaviour
+
+7. Accessibility:
+- keep the existing visible back button
+- swipe-back is an additional gesture, not a replacement
+- respect prefers-reduced-motion by shortening/removing the transition animation
+
+IMPLEMENTATION RULES
+
+- Use Pointer Events where possible, with touch fallback only if needed
+- Use refs and requestAnimationFrame for drag position
+- Avoid state updates on every pointermove
+- Use transform and opacity only during gestures
+- clean up every event listener, pointer capture and RAF on unmount
+- no third-party gesture library unless one is already installed and used in the project
+- do not change unrelated chat logic
+
+TEST ON THE SAME IPHONE
+
+Profile sheet:
+1. Open View profile.
+2. Scroll down through the profile.
+3. Confirm pulling down while scrolled does not close it.
+4. Return to the top.
+5. Drag the handle slowly and confirm it follows the finger.
+6. Release below threshold and confirm it snaps back.
+7. Drag far or flick down and confirm it closes smoothly.
+
+Chat swipe-back:
+1. Open chat with keyboard closed.
+2. Swipe from the left edge and release early — chat snaps back.
+3. Swipe past threshold — returns to Connections.
+4. Reopen chat and confirm messages/draft remain.
+5. Open keyboard and repeat swipe-back.
+6. Confirm keyboard closes and draft is preserved.
+7. Confirm normal vertical message scrolling still works.
+8. Confirm profile sheet and swipe-back gestures do not conflict.
+
+Report:
+- exact files changed
+- shared handleLeaveChat implementation
+- sheet drag threshold and velocity threshold
+- chat swipe threshold and velocity threshold
+- commit hash
+- pushed to origin/main
+- Vercel deployed commit
+- real iPhone PASS/FAIL
+
+Do not report PASS until both gestures are confirmed on a real iPhone.
