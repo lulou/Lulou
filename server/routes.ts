@@ -3613,6 +3613,17 @@ export async function registerRoutes(
               return res.status(403).json({ message: "milestone_pending", milestone: "first_call_unlocked" });
             }
           }
+
+          // Gate 3: both users must have chosen their pre-call availability.
+          // Prevents a call from ringing on the other device while they are still
+          // looking at the availability setup screen.
+          if (!gateMeta.callAvail1 || !gateMeta.callAvail2) {
+            console.log("[CALL_START] BLOCKED_AVAILABILITY_NOT_SET", {
+              matchId, userId: userId.slice(0, 8),
+              avail1: !!gateMeta.callAvail1, avail2: !!gateMeta.callAvail2,
+            });
+            return res.status(403).json({ message: "Both users must choose availability before starting the call." });
+          }
         }
       }
 
@@ -3906,6 +3917,56 @@ export async function registerRoutes(
     }
   });
 
+  // ── Pre-first-call availability selection ────────────────────────────────────
+  // Each user independently records when they're available for the first call.
+  // The call-start endpoint refuses until BOTH users have set their availability.
+  // Pressing the availability picker also inserts firstCallPromptSeen so the
+  // "Call stage unlocked" CTA is not shown again after a refresh.
+  app.post("/api/matches/:matchId/call/set-availability", isAuthenticated, async (req: any, res) => {
+    try {
+      const storage = getStorage(req);
+      const userId = req.user.id;
+      const { matchId } = req.params;
+      const { availableAt } = req.body; // string label ("now","30m","1h","2h","later") or null to clear
+
+      if (availableAt !== null && typeof availableAt !== "string") {
+        return res.status(400).json({ message: "availableAt must be a string or null" });
+      }
+
+      const updated = await storage.setCallAvailability(matchId, userId, availableAt ?? null);
+      if (!updated) {
+        return res.status(404).json({ message: "Match not found or not at call stage 0" });
+      }
+
+      // Mark first-call prompt seen (user has entered the availability flow via "Continue")
+      if (availableAt !== null) {
+        await db.insert(firstCallPromptSeen).values({ matchId, userId }).onConflictDoNothing();
+      }
+
+      // Broadcast so the other user's UI updates immediately without waiting for a poll
+      broadcastViaHttpApi(`chat:${matchId}`, "call-avail-update", { matchId, userId }).catch(() => {});
+
+      // Seed-user auto-response: if the other user is a seed, auto-set their availability
+      const otherUserId = updated.user1Id === userId ? updated.user2Id : updated.user1Id;
+      if (availableAt !== null && isSeedUser(otherUserId)) {
+        setTimeout(async () => {
+          try {
+            await storage.setCallAvailability(matchId, otherUserId, availableAt);
+            await db.insert(firstCallPromptSeen).values({ matchId, userId: otherUserId }).onConflictDoNothing();
+            broadcastViaHttpApi(`chat:${matchId}`, "call-avail-update", { matchId, userId: otherUserId }).catch(() => {});
+            console.log("[CALL_AVAIL] SEED_AUTO_SET", { matchId, otherUserId, availableAt });
+          } catch (e) { console.error("[CALL_AVAIL] SEED_AUTO_SET_ERR", e); }
+        }, 1500 + Math.random() * 1500);
+      }
+
+      console.log("[CALL_AVAIL] SET", { matchId, userId: userId.slice(0, 8), availableAt });
+      res.json(updated);
+    } catch (err: any) {
+      console.error("[CALL_AVAIL] ERROR", err);
+      res.status(500).json({ message: err.message || "Failed to set availability" });
+    }
+  });
+
   app.post("/api/matches/:matchId/call/cancel", isAuthenticated, async (req: any, res) => {
     const userId = req.user.id;
     const matchId = req.params.matchId;
@@ -3938,7 +3999,10 @@ export async function registerRoutes(
       res.json(match);
 
       // Fire-and-forget: insert call event message + push the other user.
-      if (!match.callAnswered) {
+      // Guard: only fire when a real call session was initiated (preCancelInitiatorId
+      // is non-null). If the server rejected the call-start (e.g. availability guard),
+      // no session was created and preCancelInitiatorId is null → skip event entirely.
+      if (!match.callAnswered && preCancelInitiatorId !== null) {
         (async () => {
           try {
             const callerId           = preCancelInitiatorId ?? userId;

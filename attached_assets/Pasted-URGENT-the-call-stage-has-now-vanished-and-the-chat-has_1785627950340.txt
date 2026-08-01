@@ -1,0 +1,237 @@
+URGENT: the call stage has now vanished and the chat has incorrectly returned to normal messaging with “15 left”.
+
+Current production state shown in the screenshot:
+
+- The match had already reached the first-call stage.
+- A call was attempted and declined.
+- The system message says “[name] declined your call”.
+- The call-stage card is now gone.
+- The normal message composer is visible again.
+- The header shows “15 left”.
+
+This is incorrect.
+
+A declined, unanswered, failed or too-short call must NEVER return the match to Stage 1 messaging.
+
+Do not change:
+- the 20-second minimum qualifying duration
+- the 12-message post-call quota
+- slide-to-answer
+- mute
+- End Call UI
+- chat/profile gestures
+- settings persistence work
+- authentication
+- payments
+
+CORRECT STATE RULES
+
+The conversation progression must be monotonic:
+
+STAGE_1_MESSAGES
+→ FIRST_CALL_GATE
+→ STAGE_2_MESSAGES
+→ SECOND_CALL_GATE
+→ STAGE_3_MESSAGES
+→ FINAL_DECISION
+
+It must never move backwards.
+
+For the first call:
+
+- declined call → remain at FIRST_CALL_GATE
+- unanswered call → remain at FIRST_CALL_GATE
+- cancelled call → remain at FIRST_CALL_GATE
+- connection failure → remain at FIRST_CALL_GATE
+- connected under 20 seconds → remain at FIRST_CALL_GATE
+- connected at least 20 seconds → advance to STAGE_2_MESSAGES with 12 messages each
+
+The only valid way to return to a message composer after FIRST_CALL_GATE is a successful qualifying call.
+
+ROOT-CAUSE INVESTIGATION
+
+Trace the exact value used by the chat UI after:
+
+- incoming call decline
+- caller cancellation
+- call:ended realtime signal
+- active-call overlay close
+- query invalidation/refetch
+- optimistic cache updates
+- fallback stage calculation
+
+Inspect:
+
+- match.callStage
+- progression stage enum/value
+- call gate cleared/completed flags
+- availability state
+- call completion response
+- cached match object
+- default/fallback quota logic
+- any code that maps unknown/null/undefined callStage to Stage 1
+- any code that resets callStage to 0 after decline/end
+- any optimistic update that runs even when callCounted is false
+
+CRITICAL LIKELY BUG
+
+The optimistic progression patch added in active-call.tsx must only run when the server confirms:
+
+callCounted === true
+
+It must not advance or reset stage before the server response for:
+
+- decline
+- failed call
+- short call
+- cancelled call
+
+Likewise, the UI must not infer Stage 1 merely because callStage data is temporarily missing during refetch.
+
+REQUIRED FIX
+
+1. Create one canonical server-owned progression state.
+
+Do not derive the entire stage from UI conditions.
+
+Use the existing database source of truth.
+
+2. Add a monotonic guard:
+
+nextStage = max(currentStage, requestedStage)
+
+Never permit:
+
+FIRST_CALL_GATE → STAGE_1_MESSAGES
+
+or any other backwards transition.
+
+3. On declined/failed/short call:
+
+- preserve the current FIRST_CALL_GATE state
+- preserve availability selections
+- keep the call-stage card visible
+- show a retry state such as:
+ “Call not completed — try again”
+- keep “Start call” available only according to the correct availability rules
+- do not show the normal Stage 1 composer
+- do not show 15 left
+
+4. On successful qualifying call:
+
+Only after the server returns callCounted: true:
+
+- advance to STAGE_2_MESSAGES
+- reset both users’ Stage 2 allowance to 12
+- hide the first-call gate
+- show the normal composer
+- display 12 left
+
+5. Fix loading/refetch fallback.
+
+While progression data is loading or refetching:
+
+- keep the last known valid stage
+- show a small loading state if needed
+- do not default to Stage 1
+- do not render 15 left
+- do not flash the normal composer
+
+6. Fix quota fallback.
+
+Do not use:
+
+callStage ?? 0
+
+or any equivalent that turns missing data into Stage 1.
+
+Use:
+- last known server stage
+- explicit loading state
+- safe non-regressive fallback
+
+7. Declined-call handling.
+
+When the receiver presses Decline:
+
+- create the legitimate declined-call event
+- close incoming-call UI
+- notify caller
+- keep both users at FIRST_CALL_GATE
+- invalidate/refetch progression after the decline record is committed
+- do not alter callStage
+- do not grant messages
+- do not reset counters
+
+8. Repair this affected match.
+
+Identify the match from the current test accounts.
+
+Inspect its stored progression state.
+
+If the DB incorrectly says Stage 1:
+- repair it to FIRST_CALL_GATE
+- preserve messages
+- preserve decline event
+- preserve availability data
+- do not grant 12 messages
+
+If the DB already says FIRST_CALL_GATE:
+- fix the client cache/rendering only
+- do not modify the row unnecessarily
+
+DEVELOPMENT LOGGING
+
+Add development-only logs with prefix:
+
+[PROGRESSION_RENDER]
+
+Log:
+
+- match ID
+- raw server callStage
+- canonical progression state
+- cached stage
+- last-known stage
+- callCounted
+- call outcome
+- message quota selected
+- whether composer rendered
+- whether call-stage card rendered
+- reason for any fallback
+
+Do not expose logs in the UI.
+
+REAL TWO-ACCOUNT TEST
+
+1. Reach FIRST_CALL_GATE.
+2. Confirm normal composer is hidden.
+3. Start a legitimate call.
+4. Receiver declines.
+5. Confirm both users remain at FIRST_CALL_GATE.
+6. Confirm call-stage card remains visible.
+7. Confirm no “15 left”.
+8. Refresh both devices.
+9. Confirm the same call-stage state persists.
+10. Make a call under 20 seconds.
+11. Confirm both remain at FIRST_CALL_GATE.
+12. Make a call over 20 seconds.
+13. Confirm both advance to STAGE_2_MESSAGES.
+14. Confirm both show 12 left.
+15. Refresh again and confirm it persists.
+
+Report:
+
+- exact reason the call-stage card disappeared
+- raw DB stage for the affected match
+- exact client fallback causing “15 left”
+- whether optimistic cache logic was firing incorrectly
+- files changed
+- database repair performed or not
+- commit hash
+- pushed to origin/main
+- Vercel/Railway deployed commits
+- real two-account PASS/FAIL
+
+Do not report PASS from code inspection.
+Do not reset this match to the beginning.

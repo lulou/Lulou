@@ -1,0 +1,223 @@
+Fix the first-call stage flow and prevent calls before availability is completed.
+
+Current production problem:
+
+- A user can start a call before choosing availability.
+- This caused the chat to show “Leo declined your call” while the availability options were still underneath.
+- The current UI sequence is confusing:
+ 1. “Start call / End match”
+ 2. Then a green highlighted “Start call”
+ 3. Then availability selection
+
+That order is wrong.
+
+Do not change:
+- message quotas
+- 20-second qualifying-call rule
+- call progression database logic
+- slide-to-answer
+- mute
+- End Call dock
+- chat gestures
+- profile gestures
+- authentication
+- matching
+- payments
+
+REQUIRED CALL-STAGE FLOW
+
+The first-call stage must follow this exact order:
+
+STEP 1 — CALL STAGE UNLOCKED
+
+When both users finish the required Stage 1 messages, show a clear unlocked-stage card:
+
+Title:
+“Call stage unlocked”
+
+Supporting text:
+“You’ve both reached the next step. Continue to arrange your first call, or end the match.”
+
+Actions:
+
+Primary green button:
+“Continue”
+
+Secondary action:
+“End match”
+
+Do not show “Start call” at this point.
+
+The user must explicitly press Continue before entering availability setup.
+
+STEP 2 — AVAILABILITY SETUP
+
+After pressing Continue, show the availability screen.
+
+Heading:
+“Set your availability”
+
+Supporting text:
+“Choose when you’re available for your first 10-minute call.”
+
+Options:
+- Available now
+- In 30 minutes
+- In 1 hour
+- In 2 hours
+- Pick a specific time
+
+At this stage:
+
+- do not show an active Start Call button
+- do not permit any call request
+- do not show call ringing UI
+- do not create a call session
+- do not send WebRTC signalling
+- do not show “declined your call”
+
+Persist the selected availability server-side using the existing availability system.
+
+STEP 3 — WAITING FOR BOTH USERS
+
+If only one user has selected availability, show:
+
+“Waiting for [name] to choose their availability”
+
+Also show the current user’s selection and allow them to change it.
+
+Do not show Start Call yet.
+
+STEP 4 — CALL AVAILABLE
+
+Only when both users have completed the required availability step should the call action unlock.
+
+Show a green state:
+
+“Ready for your first call”
+
+Then show:
+
+Primary green button:
+“Start call”
+
+Secondary action:
+“Change availability”
+
+Optional:
+“End match”
+
+The Start Call button must remain disabled or absent until the server confirms that both users are eligible.
+
+IMPORTANT SERVER-SIDE GUARD
+
+Do not rely only on hiding the button.
+
+The server call-start endpoint must reject a call attempt unless:
+
+- the conversation is currently at the correct call stage
+- both users have completed the required availability step
+- neither user has ended the match
+- there is no existing active call
+- the caller is part of the match
+
+If the client somehow sends a call request too early, return a clear error such as:
+
+“Both users must choose availability before starting the call.”
+
+Do not create a call record or send signalling when rejected.
+
+FIX THE DECLINED-CALL MESSAGE
+
+A “declined your call” system message must only be created when:
+
+- a legitimate incoming call was sent
+- the receiving user actually pressed Decline
+
+Do not create it when:
+
+- availability was incomplete
+- call creation was rejected
+- signalling failed before the receiver received the call
+- the receiver never saw an incoming-call screen
+- the caller cancelled before connection
+- the app returned to the availability screen
+
+For the affected chat shown in the screenshot:
+
+- inspect whether a real incoming-call session existed
+- if no legitimate incoming call reached the other user, remove or correct the false “declined your call” event
+- do not delete unrelated messages
+
+STATE MODEL
+
+Use explicit states rather than inferring everything from button colours:
+
+- CALL_STAGE_UNLOCKED
+- CHOOSING_AVAILABILITY
+- WAITING_FOR_OTHER_USER
+- READY_TO_CALL
+- CALL_RINGING
+- CALL_CONNECTED
+- CALL_RETRY_REQUIRED
+- CALL_COMPLETED
+
+Do not use a generic green “Start call” state before availability is complete.
+
+RELOAD AND REALTIME REQUIREMENTS
+
+After either user selects availability:
+
+- persist it
+- invalidate/refetch the call-stage query
+- update the other user through realtime
+- keep both users on the same state
+
+Refreshing either device must preserve:
+
+- whether Continue was selected
+- each user’s availability
+- whether the call is ready
+- whether a call is already active
+
+REAL TWO-ACCOUNT TEST
+
+1. Reach the first-call stage.
+2. Confirm both users initially see:
+  - Call stage unlocked
+  - Continue
+  - End match
+3. Press Continue on one account.
+4. Confirm availability options appear.
+5. Confirm Start Call is not available.
+6. Try calling through the API/client manually before availability:
+  - server must reject it
+  - no call record
+  - no ringing
+  - no declined message
+7. Select availability on user A.
+8. Confirm A sees waiting for user B.
+9. Select availability on user B.
+10. Confirm both users now see Ready for your first call.
+11. Confirm Start Call appears only now.
+12. Start the call.
+13. Decline it on the receiver.
+14. Confirm “declined your call” appears only after the actual decline.
+15. Refresh both devices and confirm the flow remains consistent.
+
+Report:
+
+- exact reason Start Call was available too early
+- exact client condition changed
+- exact server guard added
+- exact conditions for creating a declined-call message
+- whether the false declined event in the affected chat was repaired
+- files changed
+- database changes, if any
+- commit hash
+- pushed to origin/main
+- Vercel and Railway deployed commits
+- real two-account PASS/FAIL
+
+Do not change the working call-duration and message-quota logic.
+Do not report PASS from code inspection.

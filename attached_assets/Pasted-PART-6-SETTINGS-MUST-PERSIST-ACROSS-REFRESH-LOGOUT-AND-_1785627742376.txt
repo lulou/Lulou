@@ -1,0 +1,286 @@
+PART 6 — SETTINGS MUST PERSIST ACROSS REFRESH, LOGOUT AND DEVICES
+
+Current problem:
+
+User settings appear to reset after the app refreshes or reloads. Push notifications may visually turn off even though the user previously enabled them.
+
+Anything a user changes in Settings must remain saved to their account until they manually change it again.
+
+This applies to:
+
+- Push notifications
+- Last active visibility
+- Pause/Unpause account
+- Conversation-starter AI
+- Comment filter
+- App language
+- Units
+- Audio transcripts
+- Marketing/contact preferences
+- Any other account-level toggle or preference
+
+Do not store account settings only in:
+- React state
+- component defaults
+- sessionStorage
+- localStorage as the source of truth
+- temporary query cache
+
+REQUIRED SOURCE OF TRUTH
+
+Persist all account settings server-side against the authenticated user ID.
+
+Use the existing settings/preferences table if one already exists.
+
+Do not create a duplicate settings system.
+
+If no proper table exists, create one backward-compatible user-settings record with:
+
+- user_id as unique key
+- explicit columns or a validated preferences object
+- created_at
+- updated_at
+
+Every authenticated user should have exactly one current settings record.
+
+SETTINGS LOAD BEHAVIOUR
+
+On app/session startup:
+
+1. Resolve the authenticated user.
+2. Fetch that user’s saved settings.
+3. Hydrate the Settings UI from the server response.
+4. Do not briefly overwrite saved values with hardcoded defaults.
+5. Show a loading/skeleton state until saved settings are known if necessary.
+6. Only use defaults when the user genuinely has no saved value yet.
+
+On refresh:
+
+- the same saved settings must appear
+- toggles must not jump off and then back on
+- settings must not be recreated with defaults
+
+On logout/login:
+
+- settings for one account must not leak into another account
+- logging back into the same account must restore that account’s settings
+
+On another device:
+
+- the same account settings should load there too
+- server data wins over stale local cache
+
+SETTING UPDATE BEHAVIOUR
+
+Whenever the user changes a setting:
+
+1. Apply immediate optimistic UI feedback.
+2. Persist the exact value to the server.
+3. Confirm the saved server result.
+4. Roll back the UI and show an error if persistence fails.
+5. Invalidate/refetch the user-settings query.
+6. Update realtime subscribers if settings are used across active sessions.
+
+Do not silently pretend a setting saved when the request failed.
+
+PUSH NOTIFICATIONS — SEPARATE TWO STATES
+
+Push notifications have two different states and they must not be confused:
+
+1. Account preference:
+  - user wants notifications on/off
+  - stored permanently server-side
+
+2. Device/browser permission and subscription:
+  - Notification.permission
+  - service-worker push subscription for this specific device/browser
+
+The Settings toggle must represent the real combined state clearly.
+
+When the user enables push notifications:
+
+- save account preference = enabled
+- request browser permission only from a user action
+- register/confirm the service worker
+- create or refresh the PushSubscription
+- send the subscription endpoint and keys to the server
+- associate the subscription with the authenticated user and device
+- confirm successful persistence before showing fully enabled
+
+When the app refreshes:
+
+- do not automatically set the account preference to false
+- load the saved preference from the server
+- check Notification.permission
+- check serviceWorker.ready
+- check pushManager.getSubscription()
+- if the saved preference is enabled and a valid subscription exists, show enabled
+- if the saved preference is enabled but this device lost its subscription, show:
+ “Notifications enabled for your account — reconnect this device”
+- provide a clear Reconnect button
+- do not silently overwrite the saved account preference
+
+When the user disables push notifications:
+
+- save account preference = disabled
+- unsubscribe this device’s current PushSubscription
+- remove or deactivate the corresponding server subscription
+- do not affect unrelated devices unless the product explicitly uses account-wide disabling
+
+MULTI-DEVICE PUSH STORAGE
+
+Push subscriptions must not be stored as one field that gets overwritten by the newest device.
+
+Use one subscription record per:
+
+- user
+- endpoint/device/browser subscription
+
+Each record should include:
+
+- user_id
+- endpoint, unique
+- p256dh
+- auth
+- user agent/device label if available
+- enabled
+- created_at
+- updated_at
+- last_seen_at
+
+Expired or invalid subscriptions should be disabled or removed after push-send failures such as 404/410 responses.
+
+IMPORTANT IOS/PWA HANDLING
+
+Inspect how Lulou is being used on iPhone:
+
+- Safari tab
+- Add to Home Screen installed web app
+- native wrapper
+
+Do not claim iPhone web push works in an unsupported context.
+
+If iOS requires the app to be installed to the Home Screen for web push in the current environment:
+
+- explain that in the UI
+- preserve the user’s account preference
+- show the exact setup action required
+- do not turn the toggle off merely because permission/subscription is unavailable in the current browsing context
+
+OTHER SETTINGS
+
+Apply the same persistence rules to every setting:
+
+Language:
+- server value must load before rendering translated UI
+- changing language must persist immediately
+- refresh must remain in the selected language
+
+Units:
+- server value must persist
+- miles/feet or kilometres/metres must apply immediately
+- no refresh should be required
+
+Pause account:
+- persisted server-side
+- discovery visibility must obey the saved value after every login
+
+Last active:
+- persisted server-side
+- privacy behaviour must use the saved value, not a client default
+
+Conversation-starter AI, transcripts and filters:
+- saved server-side
+- feature logic must read the same persisted value used by the Settings screen
+
+MIGRATION AND BACKWARD SAFETY
+
+Before changing schema:
+
+- inspect all current preference columns/tables
+- inspect Supabase/RLS policies
+- inspect existing push-subscription storage
+- do not duplicate existing fields
+- preserve current user choices where data already exists
+- backfill defaults only for null/missing values
+- do not overwrite existing explicit true/false values
+
+Add correct RLS:
+
+- user can read their own settings
+- user can update their own settings
+- user cannot read or modify another user’s settings
+- push-delivery backend can access subscription records through the appropriate server/service role
+
+DEVELOPMENT LOGGING
+
+Add development-only logs:
+
+[SETTINGS_PERSISTENCE]
+- authenticated user ID
+- settings fetch started/completed
+- values loaded
+- setting changed
+- optimistic update
+- persistence success/failure
+- rollback
+- query invalidation/refetch
+
+[PUSH_SUBSCRIPTION]
+- account preference
+- Notification.permission
+- service-worker state
+- existing subscription present/missing
+- subscription persisted
+- reconnect required
+- unsubscribe result
+
+Do not expose raw push keys or sensitive subscription material in logs.
+
+REAL TESTS
+
+Settings persistence:
+
+1. Enable several settings.
+2. Refresh the app.
+3. Confirm all values remain enabled.
+4. Fully close and reopen the app.
+5. Confirm values remain.
+6. Log out and back into the same account.
+7. Confirm values remain.
+8. Log into a different account.
+9. Confirm settings do not leak between accounts.
+10. Log back into the first account.
+11. Confirm its original settings return.
+
+Push notifications:
+
+1. Enable push from a supported device context.
+2. Confirm permission and subscription are created.
+3. Refresh.
+4. Confirm the toggle remains enabled.
+5. Fully close and reopen.
+6. Confirm it remains enabled.
+7. Remove the device subscription without changing the account preference.
+8. Refresh.
+9. Confirm the UI shows reconnect required rather than switching the preference off.
+10. Reconnect and confirm pushes resume.
+11. Disable notifications manually.
+12. Confirm the subscription is removed/deactivated and remains disabled after refresh.
+
+Report:
+
+- exact reason settings reset after refresh
+- which values were client-only
+- existing settings table/schema found
+- existing push-subscription storage found
+- files changed
+- migrations and RLS changes
+- account preference versus device subscription behaviour
+- commit hash
+- pushed to origin/main
+- Vercel/Railway deployed commits
+- real refresh/login/multi-device PASS/FAIL
+
+Do not report PASS from code inspection.
+Do not reset any existing user preferences.

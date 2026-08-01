@@ -2147,6 +2147,44 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
     },
   });
 
+  // Mark "Continue" pressed on the "Call stage unlocked" card → enters availability flow
+  const confirmCallStage = useMutation({
+    mutationFn: async () => {
+      await apiRequest("POST", `/api/first-call/prompt-seen/${match.id}`);
+    },
+    onSuccess: () => {
+      queryClient.setQueryData(["/api/voice-notes/entitlement", match.id], (old: any) =>
+        old ? { ...old, firstCallPromptSeen: true } : old
+      );
+    },
+  });
+
+  // Set (or clear) the current user's pre-first-call availability
+  const setCallAvailMutation = useMutation({
+    mutationFn: async (availableAt: string | null) => {
+      const r = await apiRequest("POST", `/api/matches/${match.id}/call/set-availability`, { availableAt });
+      return r.json();
+    },
+    onSuccess: (data: any) => {
+      // Patch the match cache so callAvail1/2 update immediately without a full refetch
+      const patch = { callAvail1: data.callAvail1, callAvail2: data.callAvail2 };
+      queryClient.setQueriesData<any[]>({ queryKey: ["/api/matches"] }, (old) =>
+        Array.isArray(old) ? old.map((m: any) => m.id === match.id ? { ...m, ...patch } : m) : old
+      );
+      queryClient.setQueryData(["/api/matches", match.id], (old: any) =>
+        old ? { ...old, ...patch } : old
+      );
+      // Also mark firstCallPromptSeen in the entitlement cache (server sets it in set-avail)
+      queryClient.setQueryData(["/api/voice-notes/entitlement", match.id], (old: any) =>
+        old ? { ...old, firstCallPromptSeen: true } : old
+      );
+      setShowAvailPicker(false);
+    },
+    onError: (err: any) => {
+      toast({ title: t("call_failed_title"), description: err?.message || t("something_went_wrong"), variant: "destructive" });
+    },
+  });
+
   const startPaidCall = useMutation({
     mutationFn: async ({ isVideo }: { isVideo: boolean }) => {
       console.log("[CALL_UI] PAID_CALL_REQUESTED", { matchId: match.id, callerId: user?.id, isVideo });
@@ -2589,9 +2627,11 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
   // avoid a flash on re-mount before the query response arrives.
   const [voiceNotePopupOpen, setVoiceNotePopupOpen] = useState(false);
 
-  // First-call unlock popup — shown once per user per match when both users hit 15 messages.
-  // Shown only after the voice-note popup (if any) has been dismissed to prevent overlap.
+  // First-call unlock popup — superseded by the inline "Call stage unlocked" CTA card.
+  // State kept so existing dismiss code compiles; popup JSX is intentionally not rendered.
   const [firstCallPopupOpen, setFirstCallPopupOpen] = useState(false);
+  // Whether to show the availability picker inline (for "Change availability" in WAITING/READY)
+  const [showAvailPicker, setShowAvailPicker] = useState(false);
 
   // Recording state
   const [isRecording, setIsRecording] = useState(false);
@@ -2854,19 +2894,11 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
     }
   }, [voiceNotesUnlocked, voiceNoteData?.popupSeen, match.id]);
 
-  // Show the one-time first-call unlock popup when:
-  //   • firstCallUnlocked is true (both users reached 15 messages each way)
-  //   • firstCallPromptSeen is false (server has not yet recorded this user seeing it)
-  //   • voice-note popup is NOT currently open (no overlapping modals)
+  // First-call popup intentionally disabled: the inline "Call stage unlocked" CTA card
+  // in the chat composer area handles the same moment. No popup overlay is shown.
+  // (setFirstCallPopupOpen kept so the dismiss handler on the existing JSX still compiles.)
   useEffect(() => {
-    if (
-      firstCallUnlocked &&
-      voiceNoteData?.firstCallPromptSeen === false &&
-      !voiceNotePopupOpen &&
-      !localStorage.getItem(`fc_popup_${match.id}`)
-    ) {
-      setFirstCallPopupOpen(true);
-    }
+    // no-op: popup replaced by inline card — do not open firstCallPopupOpen here
   }, [firstCallUnlocked, voiceNoteData?.firstCallPromptSeen, voiceNotePopupOpen, match.id]);
 
   // Clean up the MediaRecorder, waveform, and pending blob URLs on unmount.
@@ -3143,6 +3175,28 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
   const isLimitReached = messagesRemaining <= 0;
   const rawLimitReached = myCurrentStageCount >= MAX_MESSAGES_PER_USER;
   const allMessages = matchDetail?.messages || [];
+
+  // ── Pre-first-call availability state machine ─────────────────────────────
+  // State is driven entirely from server-persisted data so it survives refreshes.
+  //   CALL_STAGE_UNLOCKED    → "Continue" not yet pressed
+  //   CHOOSING_AVAILABILITY  → user hasn't picked their slot yet
+  //   WAITING_FOR_OTHER_USER → this user is ready; other hasn't chosen yet
+  //   READY_TO_CALL          → both ready; Start Call button unlocks
+  const firstCallPromptSeen = voiceNoteData?.firstCallPromptSeen ?? false;
+  const myCallAvail: string | null = ((isUser1 ? (detail as any).callAvail1 : (detail as any).callAvail2) as string | null) ?? null;
+  const theirCallAvail: string | null = ((isUser1 ? (detail as any).callAvail2 : (detail as any).callAvail1) as string | null) ?? null;
+  const callStageState =
+    !firstCallPromptSeen ? 'CALL_STAGE_UNLOCKED' as const :
+    !myCallAvail          ? 'CHOOSING_AVAILABILITY' as const :
+    !theirCallAvail       ? 'WAITING_FOR_OTHER_USER' as const :
+                            'READY_TO_CALL' as const;
+  const availOptions = [
+    { key: "now",   label: t("call_time_now") },
+    { key: "30m",   label: t("call_time_30m") },
+    { key: "1h",    label: t("call_time_1h") },
+    { key: "2h",    label: t("call_time_2h") },
+    { key: "later", label: t("pick_specific_time") },
+  ];
 
   // Auto-show AI starters when chat first opens and has no real user messages yet.
   useEffect(() => {
@@ -4097,27 +4151,8 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
               </div>
             </div>
           ) : callStage === 0 && isLimitReached ? (
-            nextStepChoice === 'call' ? (
-              <div>
-                <div className="px-4 pt-3 pb-1">
-                  <button onClick={() => setNextStepChoice(null)} className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors" data-testid="button-back-to-next-step">
-                    {isRTL ? <ChevronRight className="w-3 h-3" /> : <ChevronLeft className="w-3 h-3" />} {t("back_label")}
-                  </button>
-                </div>
-                <CallSchedulingCard
-                  matchId={match.id}
-                  matchName={match.profile.firstName}
-                  allMessages={allMessages}
-                  callStage={0}
-                  startCallPending={startCall.isPending}
-                  phoneCredits={phoneCredits}
-                  onStartCall={() => {
-                    console.log("[CALL_UI] CALL_REQUEST_STARTED", { matchId: match.id, callStage: 0, callType: "voice_1", role: "caller" });
-                    startCall.mutate();
-                  }}
-                />
-              </div>
-            ) : nextStepChoice === 'end' ? (
+            /* ── End-match confirmation (any sub-state) ──────────────── */
+            nextStepChoice === 'end' ? (
               <div className="p-4 border-t" data-testid={`next-step-end-confirm-${match.id}`}>
                 <div className="rounded-2xl border border-destructive/15 bg-destructive/5 p-4 space-y-3">
                   <button onClick={() => setNextStepChoice(null)} className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors">
@@ -4135,42 +4170,128 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                   </div>
                 </div>
               </div>
-            ) : (
-              <div className="p-4 border-t" data-testid={`next-step-card-${match.id}`}>
+            ) : callStageState === 'CALL_STAGE_UNLOCKED' ? (
+              /* ── Step 1: Call stage just unlocked — press Continue ── */
+              <div className="p-4 border-t" data-testid={`call-stage-unlocked-${match.id}`}>
                 <style>{`
                   @keyframes nextStepIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
                   .next-step-anim { animation: nextStepIn 0.26s ease both; }
                 `}</style>
                 <div className="next-step-anim space-y-3">
-                  <div className="text-center space-y-1">
-                    <Phone className="w-4 h-4 text-primary mx-auto" />
-                    <p className="font-semibold text-sm">{t("time_for_first_call")}</p>
-                    <p className="text-xs text-muted-foreground">{t("reached_message_limit_call").replace("{name}", match.profile.firstName)}</p>
+                  <div className="text-center space-y-1.5">
+                    <div className="w-10 h-10 rounded-full bg-green-100 dark:bg-green-950/40 flex items-center justify-center mx-auto">
+                      <Phone className="w-5 h-5 text-green-600 dark:text-green-400" />
+                    </div>
+                    <p className="font-semibold text-sm">{t("call_stage_unlocked_title")}</p>
+                    <p className="text-xs text-muted-foreground">{t("call_stage_unlocked_desc")}</p>
                   </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <button
-                      onClick={() => setNextStepChoice('call')}
-                      className="flex flex-col items-center gap-1.5 rounded-2xl p-3 text-center transition-all active:scale-[0.97]"
-                      style={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", boxShadow: "0 1px 4px rgba(0,0,0,0.05)" }}
-                      data-testid={`button-next-start-call-${match.id}`}
+                  <Button
+                    className="w-full bg-green-600 hover:bg-green-700 text-white"
+                    onClick={() => confirmCallStage.mutate()}
+                    disabled={confirmCallStage.isPending}
+                    data-testid={`button-call-stage-continue-${match.id}`}
+                  >
+                    {t("continue_label")}
+                  </Button>
+                  <button
+                    onClick={() => setNextStepChoice('end')}
+                    className="w-full text-xs text-muted-foreground hover:text-foreground text-center py-1 transition-colors"
+                    data-testid={`button-call-stage-end-match-${match.id}`}
+                  >
+                    {t("end_match_btn")}
+                  </button>
+                </div>
+              </div>
+            ) : callStageState === 'CHOOSING_AVAILABILITY' || showAvailPicker ? (
+              /* ── Step 2: Pick your availability slot ─────────────── */
+              <div className="p-4 border-t" data-testid={`call-avail-picker-${match.id}`}>
+                <div className="space-y-3">
+                  <div className="text-center space-y-1">
+                    <p className="font-semibold text-sm">{t("set_availability_heading")}</p>
+                    <p className="text-xs text-muted-foreground">{t("set_availability_desc")}</p>
+                  </div>
+                  <div className="space-y-1.5">
+                    {availOptions.map(opt => (
+                      <Button
+                        key={opt.key}
+                        size="sm"
+                        variant="outline"
+                        className="w-full justify-start"
+                        onClick={() => setCallAvailMutation.mutate(opt.key)}
+                        disabled={setCallAvailMutation.isPending}
+                        data-testid={`button-avail-${opt.key}-${match.id}`}
+                      >
+                        {opt.label}
+                      </Button>
+                    ))}
+                  </div>
+                  <button
+                    onClick={() => setNextStepChoice('end')}
+                    className="w-full text-xs text-muted-foreground hover:text-foreground text-center py-1 transition-colors"
+                  >
+                    {t("end_match_btn")}
+                  </button>
+                </div>
+              </div>
+            ) : callStageState === 'WAITING_FOR_OTHER_USER' ? (
+              /* ── Step 3: Waiting for the other user to choose ───── */
+              <div className="p-4 border-t" data-testid={`call-avail-waiting-${match.id}`}>
+                <div className="space-y-3">
+                  <div className="flex items-start gap-2">
+                    <Clock className="w-4 h-4 text-primary shrink-0 mt-0.5" />
+                    <p className="font-medium text-sm">{t("waiting_for_their_avail").replace("{name}", match.profile.firstName)}</p>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    {t("your_avail_selected")}: {availOptions.find(o => o.key === myCallAvail)?.label ?? myCallAvail}
+                  </p>
+                  <Button
+                    size="sm" variant="outline" className="w-full"
+                    onClick={() => setShowAvailPicker(true)}
+                    data-testid={`button-change-avail-waiting-${match.id}`}
+                  >
+                    {t("change_availability_btn")}
+                  </Button>
+                  <button
+                    onClick={() => setNextStepChoice('end')}
+                    className="w-full text-xs text-muted-foreground hover:text-foreground text-center py-1 transition-colors"
+                  >
+                    {t("end_match_btn")}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              /* ── Step 4: Both ready — Start Call unlocked ────────── */
+              <div className="p-4 border-t" data-testid={`call-ready-${match.id}`}>
+                <div className="rounded-2xl bg-green-50/60 dark:bg-green-950/20 border border-green-200/50 dark:border-green-800/40 p-4 space-y-3">
+                  <div className="flex items-center justify-center gap-2">
+                    <Phone className="w-5 h-5 text-green-600 dark:text-green-400" />
+                    <p className="font-semibold text-sm text-green-700 dark:text-green-400">{t("ready_for_first_call_title")}</p>
+                  </div>
+                  <Button
+                    className="w-full bg-green-600 hover:bg-green-700 text-white"
+                    onClick={() => {
+                      console.log("[CALL_UI] CALL_REQUEST_STARTED", { matchId: match.id, callStage: 0, callType: "voice_1", role: "caller" });
+                      startCall.mutate();
+                    }}
+                    disabled={startCall.isPending}
+                    data-testid={`button-start-call-ready-${match.id}`}
+                  >
+                    <Phone className="w-4 h-4 me-2" />
+                    {t("start_first_call")}
+                  </Button>
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm" variant="outline" className="flex-1"
+                      onClick={() => setShowAvailPicker(true)}
+                      data-testid={`button-change-avail-ready-${match.id}`}
                     >
-                      <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center">
-                        <Phone className="w-4 h-4 text-primary" />
-                      </div>
-                      <p className="text-xs font-semibold leading-tight">{t("start_a_call_btn")}</p>
-                      <span className="text-[10px] text-muted-foreground">{t("free_label")}</span>
-                    </button>
+                      {t("change_availability_btn")}
+                    </Button>
                     <button
                       onClick={() => setNextStepChoice('end')}
-                      className="flex flex-col items-center gap-1.5 rounded-2xl p-3 text-center transition-all active:scale-[0.97]"
-                      style={{ background: "hsl(var(--muted))", border: "1px solid hsl(var(--border))" }}
-                      data-testid={`button-next-end-match-${match.id}`}
+                      className="flex-1 text-xs text-muted-foreground hover:text-foreground text-center py-1 transition-colors"
                     >
-                      <div className="w-9 h-9 rounded-full flex items-center justify-center" style={{ background: "hsl(var(--background)/0.6)" }}>
-                        <X className="w-4 h-4 text-muted-foreground" />
-                      </div>
-                      <p className="text-xs font-semibold text-muted-foreground leading-tight">{t("end_match_btn")}</p>
-                      <span className="text-[10px] text-muted-foreground">{t("not_right_fit_label")}</span>
+                      {t("end_match_btn")}
                     </button>
                   </div>
                 </div>

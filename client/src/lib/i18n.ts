@@ -1382,6 +1382,15 @@ export const TRANSLATIONS = {
     checkout_starting:            "Starting checkout…",
     checkout_connecting:          "Connecting to payment provider.",
     checkout_failed:              "Checkout failed",
+    // Pre-first-call availability state machine
+    call_stage_unlocked_title:    "Call stage unlocked",
+    call_stage_unlocked_desc:     "You've both reached the next step. Continue to arrange your first call, or end the match.",
+    set_availability_heading:     "Set your availability",
+    set_availability_desc:        "Choose when you're available for your first 10-minute call.",
+    waiting_for_their_avail:      "Waiting for {name} to choose their availability",
+    your_avail_selected:          "Your availability",
+    change_availability_btn:      "Change availability",
+    ready_for_first_call_title:   "Ready for your first call",
   },
   es: {
     discover:     "Descubrir",

@@ -74,6 +74,8 @@ export const matches = pgTable("matches", {
   faceCallUser2Accepted: boolean("face_call_user2_accepted").default(false),
   meetAvailability1: text("meet_availability_1"),
   meetAvailability2: text("meet_availability_2"),
+  callAvail1: varchar("call_avail_1"),
+  callAvail2: varchar("call_avail_2"),
   numberExchanged1: boolean("number_exchanged_1").default(false),
   numberExchanged2: boolean("number_exchanged_2").default(false),
   dateChoiceUser1: text("date_choice_user1"),

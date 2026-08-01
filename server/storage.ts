@@ -795,6 +795,7 @@ export interface IStorage {
   respondToSpinRequest(requestId: string, userId: string, accept: boolean): Promise<SpinRequest | undefined>;
   getSpinRequest(id: string): Promise<SpinRequest | undefined>;
   setMeetAvailability(matchId: string, userId: string, availability: string): Promise<Match | undefined>;
+  setCallAvailability(matchId: string, userId: string, availableAt: string | null): Promise<Match | undefined>;
   exchangeNumber(matchId: string, userId: string): Promise<Match | undefined>;
   removeMatch(matchId: string, userId: string): Promise<boolean>;
   getMatchCount(userId: string): Promise<number>;
@@ -1119,6 +1120,8 @@ export function mapMatch(row: any): Match {
     faceCallUser2Accepted: row.face_call_user2_accepted,
     meetAvailability1: row.meet_availability_1,
     meetAvailability2: row.meet_availability_2,
+    callAvail1: row.call_avail_1 ?? null,
+    callAvail2: row.call_avail_2 ?? null,
     numberExchanged1: row.number_exchanged_1,
     numberExchanged2: row.number_exchanged_2,
     dateChoiceUser1: row.date_choice_user1 ?? null,
@@ -2066,10 +2069,11 @@ export class SupabaseStorage implements IStorage {
     user1Id: string; user2Id: string;
     callStage: number;
     messageCount1: number; messageCount2: number;
+    callAvail1: string | null; callAvail2: string | null;
   } | null> {
     const { data, error } = await this.sb
       .from("matches")
-      .select("id, user1_id, user2_id, call_stage, message_count_1, message_count_2")
+      .select("id, user1_id, user2_id, call_stage, message_count_1, message_count_2, call_avail_1, call_avail_2")
       .eq("id", matchId)
       .eq("status", "active")
       .maybeSingle();
@@ -2081,6 +2085,8 @@ export class SupabaseStorage implements IStorage {
       callStage: data.call_stage || 0,
       messageCount1: data.message_count_1 || 0,
       messageCount2: data.message_count_2 || 0,
+      callAvail1: data.call_avail_1 ?? null,
+      callAvail2: data.call_avail_2 ?? null,
     };
   }
 
@@ -3161,6 +3167,34 @@ export class SupabaseStorage implements IStorage {
       .eq("id", id)
       .maybeSingle();
     return data ? mapSpinRequest(data) : undefined;
+  }
+
+  async setCallAvailability(matchId: string, userId: string, availableAt: string | null): Promise<Match | undefined> {
+    const { data: matchData } = await this.sb
+      .from("matches")
+      .select("*")
+      .eq("id", matchId)
+      .maybeSingle();
+    if (!matchData) return undefined;
+    const match = mapMatch(matchData);
+    if (match.user1Id !== userId && match.user2Id !== userId) return undefined;
+    // Only valid at call stage 0 (pre-first-call availability)
+    if ((match.callStage || 0) !== 0) return undefined;
+
+    const updates: Record<string, any> = {};
+    if (match.user1Id === userId) {
+      updates.call_avail_1 = availableAt;
+    } else {
+      updates.call_avail_2 = availableAt;
+    }
+
+    const { data: updated } = await this.sb
+      .from("matches")
+      .update(updates)
+      .eq("id", matchId)
+      .select()
+      .single();
+    return updated ? mapMatch(updated) : undefined;
   }
 
   async setMeetAvailability(matchId: string, userId: string, availability: string): Promise<Match | undefined> {
