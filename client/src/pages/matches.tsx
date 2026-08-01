@@ -3354,7 +3354,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
         style={{ flex: 1, minHeight: 0, overflowY: "auto", overscrollBehavior: "contain", WebkitOverflowScrolling: "touch" }}
         data-testid={`messages-container-${match.id}`}
       >
-        <div style={{ minHeight: "100%", display: "flex", flexDirection: "column", justifyContent: "flex-end" }} className="p-4 space-y-3">
+        <div style={{ minHeight: "100%", display: "flex", flexDirection: "column", justifyContent: "flex-end" }} className="px-4 pt-3 pb-1.5 space-y-3">
             {expanded && matchLoading && !matchDetail && (
               <div className="flex flex-col items-center justify-center py-10 gap-3" data-testid={`chat-loading-${match.id}`}>
                 <div className="w-8 h-8 rounded-full border-2 border-primary border-t-transparent animate-spin" />
@@ -3479,7 +3479,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                 </div>
               </div>
             ))}
-            <div ref={messagesEndRef} />
+            <div ref={messagesEndRef} style={{ height: 0, margin: 0, padding: 0 }} />
           </div>{/* end inner message stack */}
         </div>
 
