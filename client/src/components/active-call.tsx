@@ -21,6 +21,7 @@ import {
 } from "@/lib/audio-session";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { PhoneOff, Mic, MicOff, Volume2, Camera, CameraOff, Loader2, WifiOff, AlertTriangle } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
 
 // Duration in seconds for each call stage (guided/free progression).
 // stage 0 = first voice call (10 min), stage 1 = second voice call (15 min),
@@ -128,6 +129,12 @@ export function ActiveCallOverlay({
   onCallEnd,
 }: ActiveCallProps) {
   const { t } = useLanguageContext();
+  const { toast } = useToast();
+  // Live refs so async .then() callbacks can fire toasts after the overlay unmounts
+  const toastRef = useRef(toast);
+  toastRef.current = toast;
+  const tRef = useRef(t);
+  tRef.current = t;
   const queryClient = useQueryClient();
   const endedRef = useRef(false);
   // Speaker defaults to OFF for ALL call types (audio and video).
@@ -154,6 +161,11 @@ export function ActiveCallOverlay({
   const [timerExpiredMsg, setTimerExpiredMsg] = useState("");
   // Track exactly when WebRTC first reached "connected" so we can measure live duration
   const connectedAtRef = useRef<number | null>(null);
+  // Track when the physical WebRTC connection LEFT "connected" state.
+  // spec: connectedDuration = callDisconnectedAt - callConnectedAt
+  // Using Date.now() in finishCall would inflate the duration by any time spent
+  // staring at the "Connection failed" screen before pressing End Call.
+  const disconnectedAtRef = useRef<number | null>(null);
 
   // Update call debug log with session ID and partner context as soon as they are known.
   useEffect(() => {
@@ -544,13 +556,27 @@ export function ActiveCallOverlay({
         connectedAtRef.current = Date.now();
         console.log("[CALL_UI] CALL_STATE:connected", { matchId, callSessionId, isCaller, timestamp: connectedAtRef.current });
         console.log("[CALL_DEBUG] CONNECTED: WebRTC ICE established — call is live", { matchId, isCaller });
+        console.log("[CALL_PROGRESSION] call_connected", { matchId, callSessionId, connectedAt: new Date(connectedAtRef.current).toISOString() });
       }
+      // If the connection recovers after a drop, clear disconnectedAt so we don't
+      // accidentally cap the duration at the moment of the earlier brief interruption.
+      disconnectedAtRef.current = null;
     } else if (connectionState === "failed") {
       console.error("[CALL_UI] CALL_STATE:failed", { matchId, callSessionId, isCaller, hadConnection: connectedAtRef.current !== null });
       console.error("[CALL_DEBUG] FAILED: call never established or was lost", { matchId, isCaller, failureReason });
+      // Stamp the physical disconnection time now — not when the user presses End Call.
+      if (connectedAtRef.current !== null && disconnectedAtRef.current === null) {
+        disconnectedAtRef.current = Date.now();
+        console.log("[CALL_PROGRESSION] call_physically_disconnected", { matchId, connectionState: "failed", disconnectedAt: new Date(disconnectedAtRef.current).toISOString(), connectedDurationSoFar: disconnectedAtRef.current - connectedAtRef.current });
+      }
     } else if (connectionState === "reconnecting") {
       console.warn("[CALL_UI] CALL_STATE:reconnecting", { matchId, callSessionId, connectedDurationSoFar: connectedAtRef.current ? Date.now() - connectedAtRef.current : 0 });
       console.warn("[CALL_DEBUG] RECONNECTING: peer connection temporarily lost", { matchId });
+      // Stamp disconnection time for the reconnecting gap — cleared if connection recovers.
+      if (connectedAtRef.current !== null && disconnectedAtRef.current === null) {
+        disconnectedAtRef.current = Date.now();
+        console.log("[CALL_PROGRESSION] call_physically_disconnected", { matchId, connectionState: "reconnecting", disconnectedAt: new Date(disconnectedAtRef.current).toISOString(), connectedDurationSoFar: disconnectedAtRef.current - connectedAtRef.current });
+      }
     }
   }, [connectionState, webrtcEnabled]);
 
@@ -929,8 +955,12 @@ export function ActiveCallOverlay({
       : `/api/matches/${matchId}/call/complete`;
     const signalType = isCancelRinging ? "call:cancelled" : "call:ended";
 
-    // Compute how long WebRTC was actually live
-    const connectedDurationMs = connectedAtRef.current ? Date.now() - connectedAtRef.current : 0;
+    // Compute how long WebRTC was actually live.
+    // spec: connectedDuration = callDisconnectedAt - callConnectedAt
+    // disconnectedAtRef is stamped the instant WebRTC leaves "connected" state.
+    // Falling back to Date.now() only when the connection is still live at hang-up.
+    const effectiveEnd = disconnectedAtRef.current ?? Date.now();
+    const connectedDurationMs = connectedAtRef.current ? effectiveEnd - connectedAtRef.current : 0;
     const connected = connectedDurationMs > 0;
     // Must match server MIN_VALID_CALL_MS (server/storage.ts) — 20 seconds
     const MIN_VALID_CALL_MS = 20_000;
@@ -1081,6 +1111,27 @@ export function ActiveCallOverlay({
           newStage: data.callStage, callCounted: data.callCounted,
           connected, connectedDurationMs,
         });
+
+        // UI must clearly distinguish three states (spec):
+        //   1. Call completed — 12 messages unlocked
+        //   2. Call did not last long enough — try again
+        //   3. Call required (shown by the chat screen CTA, not here)
+        // Only show a toast when the user was actually in a call (not a cancelled ring).
+        if (!isCancelRinging) {
+          if (data.callCounted && data.callStage === 1) {
+            // State 1: qualifying call completed → Stage 2 unlocked
+            toastRef.current({
+              title: tRef.current("first_call_completed_title"),
+              description: tRef.current("first_call_completed_desc"),
+            });
+          } else if (!data.callCounted && connected) {
+            // State 2: call answered and connected but below MIN_VALID_CALL_MS
+            toastRef.current({
+              title: tRef.current("call_ended_title"),
+              description: tRef.current("call_not_counted_desc"),
+            });
+          }
+        }
       })
       .catch((e) => {
         // Overlay is already dismissed — don't show an error toast for user-initiated ends.
