@@ -2221,7 +2221,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
       console.log("[CHAT_REALTIME] scrolled to bottom (force)", { matchId: match.id.slice(0, 8), count: matchDetail?.messages?.length });
     } else if (isAtBottomRef.current) {
       // New message arrived and user is already at the bottom — smooth follow
-      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+      el.scrollTop = el.scrollHeight; // stay inside messages container; never touch outer page
       console.log("[CHAT_REALTIME] scrolled to bottom (follow)", { matchId: match.id.slice(0, 8), count: matchDetail?.messages?.length });
     }
     // If user has scrolled up to read history: do nothing
@@ -2252,17 +2252,26 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
     }
   }, [expanded]);
 
-  // Lock document scroll while chat is open so iOS Safari cannot scroll the page
-  // underneath the chat overlay when the keyboard opens.
+  // iOS Safari scroll-lock while chat is open.
+  // body.style.position="fixed" is the only technique that reliably prevents Safari from
+  // scrolling the underlying page when the keyboard opens inside a fixed overlay.
+  // Saving and restoring scrollY prevents the page jumping to the top on close.
   useEffect(() => {
     if (!expanded) return;
     const savedScrollY = window.scrollY;
     document.documentElement.classList.add("chat-open");
     document.body.classList.add("chat-open");
+    document.body.style.position = "fixed";
+    document.body.style.top = `-${savedScrollY}px`;
+    document.body.style.width = "100%";
+    document.body.style.overflow = "hidden";
     return () => {
+      document.body.style.position = "";
+      document.body.style.top = "";
+      document.body.style.width = "";
+      document.body.style.overflow = "";
       document.documentElement.classList.remove("chat-open");
       document.body.classList.remove("chat-open");
-      // Restore position in case the browser shifted it while locked
       window.scrollTo(0, savedScrollY);
     };
   }, [expanded]);
@@ -3079,14 +3088,14 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
   if (!expanded) return null;
 
   return (
-    <div className="flex h-screen overflow-hidden" data-testid={`card-match-${match.id}`}>
+    <div className="fixed inset-0 flex overflow-hidden" data-testid={`card-match-${match.id}`}>
       {/* Standard flex-column chat layout. 100dvh shrinks with the keyboard on iOS —
           no manual keyboardHeight tracking needed. Browser handles everything. */}
       <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
       {/* HEADER — sticky at top, safe-area-aware. overflow-hidden on column (no height:100%)
           prevents the Safari BFC+percentage-height bug that caused clipping in earlier builds.
           The column gets its height from flex cross-axis stretch (definite), not a percentage. */}
-      <div style={{ position: "sticky", top: 0, zIndex: 10, width: "100%", flexShrink: 0, paddingTop: "env(safe-area-inset-top)", background: "hsl(var(--background))", borderBottom: "1px solid hsl(var(--border)/0.5)" }}>
+      <div style={{ position: "relative", top: 0, zIndex: 10, width: "100%", flexShrink: 0, paddingTop: "env(safe-area-inset-top)", background: "hsl(var(--background))", borderBottom: "1px solid hsl(var(--border)/0.5)" }}>
         {/* ── Main header row ── */}
         <div className="flex items-center gap-3 px-4 pt-3 pb-2">
         <Button
