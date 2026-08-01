@@ -3070,7 +3070,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
   if (!expanded) return null;
 
   return (
-    <div className="flex h-full min-h-0 overflow-hidden" data-testid={`card-match-${match.id}`}>
+    <div className="flex h-screen overflow-hidden" data-testid={`card-match-${match.id}`}>
       {/* Standard flex-column chat layout. 100dvh shrinks with the keyboard on iOS —
           no manual keyboardHeight tracking needed. Browser handles everything. */}
       <div className="flex-1 min-w-0 flex flex-col overflow-hidden" style={{ height: "100%" }}>
@@ -3302,7 +3302,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
 
       {/* MESSAGES — flex:1 fills the space between header and composer */}
       <div ref={messagesContainerRef} onScroll={handleMessagesScroll}
-        style={{ flex: 1, minHeight: 0, overflowY: "auto", overscrollBehavior: "contain" }}
+        style={{ flex: 1, minHeight: 0, overflowY: "auto", overscrollBehavior: "contain", display: "flex", flexDirection: "column", justifyContent: "flex-end" }}
         className="p-4 space-y-3"
         data-testid={`messages-container-${match.id}`}
       >
@@ -3877,7 +3877,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
               </div>
             )
           ) : (
-            <div ref={composerRef} className="px-3 pt-3 border-t" style={{ borderTop: "1px solid hsl(var(--border))", paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))" }}>
+            <div ref={composerRef} className="px-2 pt-2 border-t" style={{ borderTop: "1px solid hsl(var(--border))", paddingBottom: "max(0.5rem, env(safe-area-inset-bottom))" }}>
               {isOtherTyping && (
                 <div className="flex items-center gap-1.5 px-1 pb-2 text-xs text-muted-foreground" data-testid="text-typing-indicator">
                   <span className="flex gap-0.5 items-center">
