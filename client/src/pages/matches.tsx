@@ -3351,10 +3351,10 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
 
       {/* MESSAGES — flex:1 fills the space between header and composer */}
       <div ref={messagesContainerRef} onScroll={handleMessagesScroll}
-        style={{ flex: 1, minHeight: 0, overflowY: "auto", overscrollBehavior: "contain", WebkitOverflowScrolling: "touch", display: "flex", flexDirection: "column", justifyContent: "flex-end" }}
-        className="p-4 space-y-3"
+        style={{ flex: 1, minHeight: 0, overflowY: "auto", overscrollBehavior: "contain", WebkitOverflowScrolling: "touch" }}
         data-testid={`messages-container-${match.id}`}
       >
+        <div style={{ minHeight: "100%", display: "flex", flexDirection: "column", justifyContent: "flex-end" }} className="p-4 space-y-3">
             {expanded && matchLoading && !matchDetail && (
               <div className="flex flex-col items-center justify-center py-10 gap-3" data-testid={`chat-loading-${match.id}`}>
                 <div className="w-8 h-8 rounded-full border-2 border-primary border-t-transparent animate-spin" />
@@ -3480,7 +3480,8 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
               </div>
             ))}
             <div ref={messagesEndRef} />
-          </div>
+          </div>{/* end inner message stack */}
+        </div>
 
           {/* ── Voice Debug Panel — only in dev mode or ?voicedebug=1 ── */}
           {voiceDebugEnabled && expanded && (
