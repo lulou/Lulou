@@ -3117,10 +3117,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
       style={{ top: vpTop, height: vpHeight, background: "hsl(var(--background))" }}
       data-testid={`card-match-${match.id}`}
     >
-      {/* TEMP DIAG — remove after iPhone screenshot confirms header stays visible */}
-      <div style={{ flexShrink: 0, fontSize: 10, fontFamily: "monospace", background: "rgba(0,0,0,0.65)", color: "#0f0", padding: "2px 6px", whiteSpace: "nowrap", zIndex: 9999 }}>
-        vvTop={Math.round(vpTop)} vvHeight={Math.round(vpHeight)} shellTop={Math.round(vpTop)} shellH={Math.round(vpHeight)}
-      </div>
+
       {/* Standard flex-column chat layout. 100dvh shrinks with the keyboard on iOS —
           no manual keyboardHeight tracking needed. Browser handles everything. */}
       <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
