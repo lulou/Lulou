@@ -1,0 +1,189 @@
+URGENT: fix call-stage progression resetting back to 15 messages.
+
+Current real production behaviour:
+
+- This match had reached the first call stage.
+- A call was just attempted/completed.
+- After leaving the call, the chat now says “15 left”.
+- That incorrectly resets the match back to the first messaging stage.
+
+Correct progression:
+
+Stage 1:
+- 15 messages each way
+
+Then:
+- first audio call
+
+After a successfully completed first call:
+- Stage 2 begins
+- 12 messages each way
+- countdown must show 12 left, not 15
+
+Do not change:
+- chat swipe gestures
+- profile sheet gestures
+- call UI design
+- slide-to-answer
+- mute
+- speaker controls
+- authentication
+- matching
+- payments
+
+INVESTIGATE FIRST
+
+Trace the full progression state before, during and after the call.
+
+Inspect:
+
+- the match/conversation stage stored in the database
+- message quota calculations
+- call completion records
+- minimum successful-call duration logic
+- call ended versus call failed versus call declined handling
+- WebRTC cleanup
+- realtime updates
+- refetch/invalidation after ending a call
+- fallback code that defaults to Stage 1
+- any UI calculation that returns 15 when call-stage data is temporarily missing
+
+Find whether:
+
+1. The call was never marked as successfully completed.
+2. The stage update failed on the server.
+3. The stage updated but the client displayed stale data.
+4. A failed/short call incorrectly reset the stage.
+5. The quota function defaults to 15 for an unknown stage.
+6. Ending the call overwrote the conversation stage with an older match object.
+
+REQUIRED RULES
+
+1. A successfully completed first audio call must atomically update the conversation to Stage 2.
+
+2. Stage 2 quota must be:
+
+- 12 messages for user A
+- 12 messages for user B
+
+3. Do not calculate this as 12 total messages. Each user receives their own allowance of 12 sent messages.
+
+4. The transition must be persisted in the database before the call screen closes or must reliably retry if the first update fails.
+
+5. After the update:
+- invalidate/refetch the match progression query
+- update realtime subscribers
+- immediately show 12 left
+- do not briefly show 15
+
+6. Never reset progression backwards.
+
+Stage order must be monotonic:
+
+Stage 1 messages
+→ First call
+→ Stage 2 messages
+→ Second call
+→ Stage 3 messages
+→ Final decision
+
+A conversation already at or beyond the first-call stage must never return to Stage 1.
+
+7. Failed-call rules:
+
+- declined call: does not advance and does not reset
+- unanswered call: does not advance and does not reset
+- connection failure: does not advance and does not reset
+- successful call below the required minimum duration: does not advance and does not reset
+- successful call meeting the required minimum duration: advances exactly once
+
+8. Prevent duplicate completion:
+- use an idempotent server-side transition
+- repeated end-call events must not advance twice
+- both users must see the same stage
+
+9. Do not use a client-only stage update as the source of truth.
+
+The server/database must own progression.
+
+ADD DEVELOPMENT LOGGING
+
+Add development-only logs for:
+
+- match ID
+- call ID
+- call type
+- call connected timestamp
+- call ended timestamp
+- connected duration
+- stage before call
+- completion qualification result
+- stage after call
+- message allowance after transition
+- server response
+- query invalidation/refetch result
+
+Use a clear prefix:
+
+[CALL_PROGRESSION]
+
+Do not expose logs in the production UI.
+
+DATABASE SAFETY
+
+Inspect the current progression columns and call-history records.
+
+Do not create duplicate columns or a second progression system.
+
+Use the existing source of truth.
+
+If a database migration is genuinely required:
+- explain why
+- make it backward compatible
+- do not reset existing conversations
+- preserve all current matches and messages
+
+REPAIR THIS AFFECTED MATCH
+
+After fixing the general bug, identify the affected test match from the screenshot/account and inspect its stored state.
+
+If the completed call qualifies:
+- repair it to Stage 2
+- set both users’ Stage 2 allowance to 12
+- do not delete messages
+- do not replay the call
+- do not modify unrelated matches
+
+If the call did not meet the completion rule, report the exact connected duration and why it did not advance. It must still remain at the call stage, not reset to 15 messages.
+
+REAL TWO-ACCOUNT TEST
+
+1. Bring a fresh match to 0 messages remaining in Stage 1.
+2. Confirm first-call stage appears.
+3. Make a successful qualifying audio call.
+4. End the call.
+5. Confirm both users immediately see Stage 2.
+6. Confirm both users see 12 messages left.
+7. Send one message from user A:
+  - A shows 11 left
+  - B remains at 12 left
+8. Refresh both devices.
+9. Confirm the same stage and counts persist.
+10. Trigger duplicate end-call cleanup and confirm progression does not advance twice.
+
+Report:
+
+- exact root cause
+- stage value before and after the call
+- whether the call qualified
+- exact connected duration
+- exact files changed
+- any database changes
+- affected match repaired or not
+- commit hash
+- pushed to origin/main
+- Vercel and Railway deployed commits
+- real two-account PASS/FAIL
+
+Do not claim PASS from code inspection.
+Do not reset this match to the beginning.
