@@ -2251,6 +2251,12 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
       onMarkRead();
     }
   }, [expanded]);
+
+  // Keep body.chat-open in sync so PerfOverlay and CallDiagnosticsButton unmount
+  useEffect(() => {
+    document.body.classList.toggle("chat-open", expanded);
+    return () => document.body.classList.remove("chat-open");
+  }, [expanded]);
   const { data: benefits } = useQuery<{
     available: Record<string, number>;
     activated: Record<string, Record<string, number>>;
@@ -3067,7 +3073,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
     <div className="flex h-full min-h-0 overflow-hidden" data-testid={`card-match-${match.id}`}>
       {/* Standard flex-column chat layout. 100dvh shrinks with the keyboard on iOS —
           no manual keyboardHeight tracking needed. Browser handles everything. */}
-      <div className="flex-1 min-w-0 flex flex-col overflow-hidden" style={{ height: "100dvh" }}>
+      <div className="flex-1 min-w-0 flex flex-col overflow-hidden" style={{ height: "100%" }}>
       {/* HEADER — in flow at top, safe-area-aware. Never moves when keyboard opens. */}
       <div style={{ flexShrink: 0, paddingTop: "env(safe-area-inset-top)", background: "hsl(var(--background))", borderBottom: "1px solid hsl(var(--border)/0.5)" }}>
         {/* ── Main header row ── */}
@@ -4247,7 +4253,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                   </Button>
                 )}
               </div>
-              <p className="text-xs text-muted-foreground mt-1 text-end">
+              <p className="text-xs text-muted-foreground mt-1 text-start">
                 {message.length}/{MAX_CHARS}
               </p>
 
