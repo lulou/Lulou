@@ -1673,8 +1673,13 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
   const sheetGestureRef = useRef<{ active: boolean; startY: number; velocityBuf: { y: number; t: number }[] }>({ active: false, startY: 0, velocityBuf: [] });
   const sheetContainerRef = useRef<HTMLDivElement>(null);
   const backdropRef = useRef<HTMLDivElement>(null);
+  const dragHandleRef = useRef<HTMLDivElement>(null);
   const chatShellRef = useRef<HTMLDivElement>(null);
   const swipeGestureRef = useRef<{ active: boolean; startX: number; startY: number; cancelled: boolean; velocityBuf: { x: number; t: number }[] }>({ active: false, startX: 0, startY: 0, cancelled: false, velocityBuf: [] });
+  // Live-value ref so gesture useEffects with [] deps never go stale
+  const swipeLiveRef = useRef<{ showProfilePanel: boolean; hasModal: boolean; handleLeaveChat: () => void }>({
+    showProfilePanel: false, hasModal: false, handleLeaveChat: () => {},
+  });
   const [showAIStarters, setShowAIStarters] = useState(false);
   const hasAutoShownStartersRef = useRef(false);
   const [filterConfirm, setFilterConfirm] = useState<{ content: string; tempId: string; categories: string[] } | null>(null);
@@ -1717,6 +1722,230 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
     textareaRef.current?.blur();
     onToggleExpand();
   }, [onToggleExpand]);
+
+  // Keep swipeLiveRef in sync every render so the [] gesture effects never
+  // close over stale values.
+  useEffect(() => {
+    swipeLiveRef.current = { showProfilePanel, hasModal: !!purchasePromptFeature, handleLeaveChat };
+  });
+
+  // ─── Profile-sheet: native touch drag-to-dismiss ──────────────────────────
+  // Pointer Events were unreliable on iOS (React delegates to root; setPointerCapture
+  // on a plain div is broken on Safari; passive listeners blocked preventDefault).
+  // Native touch events attached directly to the DOM element bypass all of that.
+  useEffect(() => {
+    if (!showProfilePanel) return;
+    const handle = dragHandleRef.current;
+    if (!handle) return;
+    let rafId = 0;
+
+    const onTouchStart = (ev: TouchEvent) => {
+      const profileBody = sheetContainerRef.current?.querySelector(".profile-panel-body") as HTMLElement | null;
+      const scrollTop = profileBody?.scrollTop ?? 0;
+      if (import.meta.env.DEV) console.log("[sheet] touchstart scrollTop=", scrollTop, "y=", ev.touches[0].clientY);
+      if (scrollTop > 2) return;
+      sheetGestureRef.current = { active: true, startY: ev.touches[0].clientY, velocityBuf: [] };
+      if (sheetContainerRef.current) sheetContainerRef.current.style.transition = "none";
+      if (backdropRef.current) backdropRef.current.style.transition = "none";
+      setIsSheetDragging(true);
+    };
+
+    const onTouchMove = (ev: TouchEvent) => {
+      const g = sheetGestureRef.current;
+      if (!g.active) return;
+      const dy = ev.touches[0].clientY - g.startY;
+      if (import.meta.env.DEV) console.log("[sheet] touchmove deltaY=", dy.toFixed(1));
+      if (dy <= 0) return;
+      ev.preventDefault(); // safe: listener registered with passive:false
+      g.velocityBuf.push({ y: ev.touches[0].clientY, t: Date.now() });
+      if (g.velocityBuf.length > 8) g.velocityBuf.shift();
+      cancelAnimationFrame(rafId);
+      const translated = dy <= 160 ? dy : 160 + (dy - 160) * 0.25;
+      rafId = requestAnimationFrame(() => {
+        if (sheetContainerRef.current) sheetContainerRef.current.style.transform = `translate3d(0, ${translated}px, 0)`;
+        if (backdropRef.current) backdropRef.current.style.opacity = String(Math.max(0.1, 1 - translated / 320));
+      });
+    };
+
+    const finishSheet = (finalY: number) => {
+      cancelAnimationFrame(rafId);
+      const g = sheetGestureRef.current;
+      if (!g.active) return;
+      g.active = false;
+      setIsSheetDragging(false);
+      const dy = finalY - g.startY;
+      const sheetH = sheetContainerRef.current?.offsetHeight ?? 400;
+      let velocity = 0;
+      const buf = g.velocityBuf;
+      if (buf.length >= 2) {
+        const recent = buf.slice(-4);
+        const dt = recent[recent.length - 1].t - recent[0].t;
+        const dd = recent[recent.length - 1].y - recent[0].y;
+        velocity = dt > 0 ? (dd / dt) * 1000 : 0;
+      }
+      const shouldDismiss = dy > sheetH * 0.28 || velocity > 400;
+      if (import.meta.env.DEV) console.log("[sheet] touchend dy=", dy.toFixed(1), "vel=", velocity.toFixed(0), "sheetH=", sheetH, "→", shouldDismiss ? "CLOSE" : "SNAP");
+      if (shouldDismiss) {
+        if (sheetContainerRef.current) {
+          sheetContainerRef.current.style.transition = "transform 0.25s cubic-bezier(0.32,0.72,0,1)";
+          sheetContainerRef.current.style.transform = `translate3d(0, ${sheetH + 40}px, 0)`;
+        }
+        if (backdropRef.current) {
+          backdropRef.current.style.transition = "opacity 0.22s ease";
+          backdropRef.current.style.opacity = "0";
+        }
+        setTimeout(() => setShowProfilePanel(false), 260);
+      } else {
+        if (sheetContainerRef.current) {
+          sheetContainerRef.current.style.transition = "transform 0.3s cubic-bezier(0.22,1,0.36,1)";
+          sheetContainerRef.current.style.transform = "translate3d(0, 0, 0)";
+        }
+        if (backdropRef.current) {
+          backdropRef.current.style.transition = "opacity 0.25s ease";
+          backdropRef.current.style.opacity = "1";
+        }
+      }
+    };
+
+    const onTouchEnd = (ev: TouchEvent) => finishSheet(ev.changedTouches[0].clientY);
+    const onTouchCancel = () => {
+      cancelAnimationFrame(rafId);
+      sheetGestureRef.current.active = false;
+      setIsSheetDragging(false);
+      if (sheetContainerRef.current) {
+        sheetContainerRef.current.style.transition = "transform 0.3s cubic-bezier(0.22,1,0.36,1)";
+        sheetContainerRef.current.style.transform = "translate3d(0, 0, 0)";
+      }
+      if (backdropRef.current) {
+        backdropRef.current.style.transition = "opacity 0.25s ease";
+        backdropRef.current.style.opacity = "1";
+      }
+    };
+
+    handle.addEventListener("touchstart", onTouchStart, { passive: true });
+    handle.addEventListener("touchmove", onTouchMove, { passive: false });
+    handle.addEventListener("touchend", onTouchEnd);
+    handle.addEventListener("touchcancel", onTouchCancel);
+    return () => {
+      cancelAnimationFrame(rafId);
+      handle.removeEventListener("touchstart", onTouchStart);
+      handle.removeEventListener("touchmove", onTouchMove);
+      handle.removeEventListener("touchend", onTouchEnd);
+      handle.removeEventListener("touchcancel", onTouchCancel);
+    };
+  }, [showProfilePanel]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ─── Swipe-back: native left-edge touch gesture ───────────────────────────
+  // Activation zone changed from x<=30 to x in [12,50]:
+  //   iOS reserves ~0-12px for its own system back-swipe → almost nothing
+  //   was reachable with the old threshold.
+  // Uses [expanded] deps so the effect re-runs when the shell div enters the DOM.
+  useEffect(() => {
+    if (!expanded) return;
+    const shell = chatShellRef.current;
+    if (!shell) return;
+    let rafId = 0;
+    let lockDir: "horizontal" | "vertical" | null = null;
+
+    const onTouchStart = (ev: TouchEvent) => {
+      const t = ev.touches[0];
+      if (t.clientX < 12 || t.clientX > 50) return;
+      const live = swipeLiveRef.current;
+      if (live.showProfilePanel || live.hasModal) return;
+      const ta = textareaRef.current;
+      if (ta && ta.selectionStart !== ta.selectionEnd) return;
+      lockDir = null;
+      swipeGestureRef.current = { active: true, startX: t.clientX, startY: t.clientY, cancelled: false, velocityBuf: [] };
+      if (import.meta.env.DEV) console.log("[swipe] touchstart x=", t.clientX, "y=", t.clientY);
+    };
+
+    const onTouchMove = (ev: TouchEvent) => {
+      const g = swipeGestureRef.current;
+      if (!g.active) return;
+      const t = ev.touches[0];
+      const dx = t.clientX - g.startX;
+      const dy = t.clientY - g.startY;
+      const moved = Math.max(Math.abs(dx), Math.abs(dy));
+
+      // Direction lock — wait until at least 10px movement before deciding
+      if (lockDir === null && moved >= 10) {
+        lockDir = Math.abs(dx) > Math.abs(dy) * 1.2 ? "horizontal" : "vertical";
+        if (lockDir === "vertical") {
+          g.cancelled = true;
+          cancelAnimationFrame(rafId);
+          rafId = requestAnimationFrame(() => {
+            if (shell) { shell.style.transition = "transform 0.2s cubic-bezier(0.22,1,0.36,1)"; shell.style.transform = ""; }
+          });
+          return;
+        }
+      }
+      if (lockDir !== "horizontal") return;
+      if (dx <= 0) return;
+      // Prevent browser from intercepting once we own the gesture
+      ev.preventDefault();
+      g.velocityBuf.push({ x: t.clientX, t: Date.now() });
+      if (g.velocityBuf.length > 8) g.velocityBuf.shift();
+      cancelAnimationFrame(rafId);
+      const clampedDx = Math.min(dx, window.innerWidth);
+      rafId = requestAnimationFrame(() => {
+        if (shell) { shell.style.transition = "none"; shell.style.transform = `translate3d(${clampedDx}px, 0, 0)`; }
+      });
+    };
+
+    const onTouchEnd = (ev: TouchEvent) => {
+      cancelAnimationFrame(rafId);
+      const g = swipeGestureRef.current;
+      if (!g.active) return;
+      g.active = false;
+      if (g.cancelled || lockDir !== "horizontal") {
+        if (shell) shell.style.transform = "";
+        return;
+      }
+      const t = ev.changedTouches[0];
+      const dx = t.clientX - g.startX;
+      const W = window.innerWidth;
+      let vel = 0;
+      const buf = g.velocityBuf;
+      if (buf.length >= 2) {
+        const r = buf.slice(-4);
+        const dt = r[r.length - 1].t - r[0].t;
+        const dd = r[r.length - 1].x - r[0].x;
+        vel = dt > 0 ? (dd / dt) * 1000 : 0;
+      }
+      if (import.meta.env.DEV) console.log("[swipe] touchend dx=", dx.toFixed(1), "vel=", vel.toFixed(0), "W=", W, "→", (dx > W * 0.32 || vel > 500) ? "LEAVE" : "SNAP");
+      const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      if (dx > W * 0.32 || vel > 500) {
+        if (shell) {
+          shell.style.transition = reduced ? "none" : "transform 0.25s cubic-bezier(0.32,0.72,0,1)";
+          shell.style.transform = `translate3d(${W}px, 0, 0)`;
+        }
+        setTimeout(() => swipeLiveRef.current.handleLeaveChat(), reduced ? 0 : 220);
+      } else {
+        if (shell) {
+          shell.style.transition = reduced ? "none" : "transform 0.3s cubic-bezier(0.22,1,0.36,1)";
+          shell.style.transform = "";
+        }
+      }
+    };
+
+    const onTouchCancel = () => {
+      cancelAnimationFrame(rafId);
+      swipeGestureRef.current.active = false;
+      if (shell) { shell.style.transition = "transform 0.2s cubic-bezier(0.22,1,0.36,1)"; shell.style.transform = ""; }
+    };
+
+    shell.addEventListener("touchstart", onTouchStart, { passive: true });
+    shell.addEventListener("touchmove", onTouchMove, { passive: false });
+    shell.addEventListener("touchend", onTouchEnd);
+    shell.addEventListener("touchcancel", onTouchCancel);
+    return () => {
+      cancelAnimationFrame(rafId);
+      shell.removeEventListener("touchstart", onTouchStart);
+      shell.removeEventListener("touchmove", onTouchMove);
+      shell.removeEventListener("touchend", onTouchEnd);
+      shell.removeEventListener("touchcancel", onTouchCancel);
+    };
+  }, [expanded]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const { data: matchDetail, isLoading: matchLoading, error: matchError } = useQuery<MatchDetail>({
     queryKey: ["/api/matches", match.id],
@@ -3126,53 +3355,6 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
       className="fixed left-0 right-0 flex flex-col overflow-hidden"
       style={{ top: vpTop, height: vpHeight, background: "hsl(var(--background))", touchAction: "pan-y" }}
       data-testid={`card-match-${match.id}`}
-      onPointerDown={e => {
-        // Only activate from left edge; block when modals are open
-        if (e.clientX > 30) return;
-        if (showProfilePanel || !!purchasePromptFeature) return;
-        swipeGestureRef.current = { active: true, startX: e.clientX, startY: e.clientY, cancelled: false, velocityBuf: [] };
-        (e.currentTarget as HTMLDivElement).setPointerCapture(e.pointerId);
-      }}
-      onPointerMove={e => {
-        const g = swipeGestureRef.current;
-        if (!g.active || g.cancelled) return;
-        const dx = e.clientX - g.startX;
-        const dy = e.clientY - g.startY;
-        // Cancel if vertical movement dominates — let native scroll win
-        if (Math.abs(dy) > Math.abs(dx) + 8) {
-          g.cancelled = true;
-          if (chatShellRef.current) { chatShellRef.current.style.transition = "transform 0.2s cubic-bezier(0.22,1,0.36,1)"; chatShellRef.current.style.transform = ""; }
-          return;
-        }
-        if (dx <= 0) return; // rightward only
-        g.velocityBuf.push({ x: e.clientX, t: Date.now() });
-        if (g.velocityBuf.length > 8) g.velocityBuf.shift();
-        if (chatShellRef.current) { chatShellRef.current.style.transition = "none"; chatShellRef.current.style.transform = `translate3d(${dx}px, 0, 0)`; }
-      }}
-      onPointerUp={e => {
-        const g = swipeGestureRef.current;
-        if (!g.active) return;
-        g.active = false;
-        if (g.cancelled) { if (chatShellRef.current) chatShellRef.current.style.transform = ""; return; }
-        const dx = e.clientX - g.startX;
-        const W = window.innerWidth;
-        let vel = 0;
-        const buf = g.velocityBuf;
-        if (buf.length >= 2) { const r = buf.slice(-4); const dt = r[r.length-1].t - r[0].t; const dd = r[r.length-1].x - r[0].x; vel = dt > 0 ? (dd/dt)*1000 : 0; }
-        const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-        if (dx > W * 0.32 || vel > 500) {
-          // Navigate back
-          if (chatShellRef.current) { chatShellRef.current.style.transition = reduced ? "none" : "transform 0.25s cubic-bezier(0.32,0.72,0,1)"; chatShellRef.current.style.transform = `translate3d(${W}px, 0, 0)`; }
-          setTimeout(() => handleLeaveChat(), reduced ? 0 : 220);
-        } else {
-          // Snap back
-          if (chatShellRef.current) { chatShellRef.current.style.transition = reduced ? "none" : "transform 0.3s cubic-bezier(0.22,1,0.36,1)"; chatShellRef.current.style.transform = ""; }
-        }
-      }}
-      onPointerCancel={() => {
-        swipeGestureRef.current.active = false;
-        if (chatShellRef.current) { chatShellRef.current.style.transition = "transform 0.2s cubic-bezier(0.22,1,0.36,1)"; chatShellRef.current.style.transform = ""; }
-      }}
     >
 
       {/* Standard flex-column chat layout. 100dvh shrinks with the keyboard on iOS —
@@ -4467,84 +4649,13 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
               animation: "sheetSlideUp 0.28s cubic-bezier(0.22,1,0.36,1) both",
             }}
           >
-            {/* Drag handle — native-feel iOS sheet dismiss */}
+            {/* Drag handle — native-feel iOS sheet dismiss.
+                Touch listeners are registered in a useEffect (passive:false touchmove
+                so preventDefault works); no Pointer Events here. */}
             <div
+              ref={dragHandleRef}
               className="flex justify-center pt-2.5 pb-2 flex-shrink-0 cursor-grab active:cursor-grabbing"
               style={{ touchAction: "none" }}
-              onPointerDown={e => {
-                // Only begin close-gesture when profile body is scrolled to top
-                const profileBody = sheetContainerRef.current?.querySelector(".profile-panel-body") as HTMLElement | null;
-                if ((profileBody?.scrollTop ?? 0) > 8) return;
-                sheetGestureRef.current = { active: true, startY: e.clientY, velocityBuf: [] };
-                // Disable CSS transition for 1:1 finger tracking
-                if (sheetContainerRef.current) sheetContainerRef.current.style.transition = "none";
-                if (backdropRef.current) backdropRef.current.style.transition = "none";
-                setIsSheetDragging(true);
-                (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-              }}
-              onPointerMove={e => {
-                const g = sheetGestureRef.current;
-                if (!g.active) return;
-                const dy = e.clientY - g.startY;
-                if (dy <= 0) return; // downward only
-                // 1:1 up to 160 px then 25% rubber-band resistance
-                const translated = dy <= 160 ? dy : 160 + (dy - 160) * 0.25;
-                // Direct DOM — zero React re-renders per pixel
-                if (sheetContainerRef.current) sheetContainerRef.current.style.transform = `translate3d(0, ${translated}px, 0)`;
-                if (backdropRef.current) backdropRef.current.style.opacity = String(Math.max(0.1, 1 - translated / 320));
-                g.velocityBuf.push({ y: e.clientY, t: Date.now() });
-                if (g.velocityBuf.length > 8) g.velocityBuf.shift();
-              }}
-              onPointerUp={e => {
-                const g = sheetGestureRef.current;
-                if (!g.active) return;
-                g.active = false;
-                setIsSheetDragging(false);
-                const dy = e.clientY - g.startY;
-                const sheetH = sheetContainerRef.current?.offsetHeight ?? 400;
-                let velocity = 0;
-                const buf = g.velocityBuf;
-                if (buf.length >= 2) {
-                  const recent = buf.slice(-4);
-                  const dt = recent[recent.length - 1].t - recent[0].t;
-                  const dd = recent[recent.length - 1].y - recent[0].y;
-                  velocity = dt > 0 ? (dd / dt) * 1000 : 0;
-                }
-                // Dismiss: >28% of sheet height OR fast flick
-                const shouldDismiss = dy > sheetH * 0.28 || velocity > 400;
-                if (shouldDismiss) {
-                  if (sheetContainerRef.current) {
-                    sheetContainerRef.current.style.transition = "transform 0.25s cubic-bezier(0.32,0.72,0,1)";
-                    sheetContainerRef.current.style.transform = `translate3d(0, ${sheetH + 40}px, 0)`;
-                  }
-                  if (backdropRef.current) {
-                    backdropRef.current.style.transition = "opacity 0.22s ease";
-                    backdropRef.current.style.opacity = "0";
-                  }
-                  setTimeout(() => setShowProfilePanel(false), 260);
-                } else {
-                  if (sheetContainerRef.current) {
-                    sheetContainerRef.current.style.transition = "transform 0.3s cubic-bezier(0.22,1,0.36,1)";
-                    sheetContainerRef.current.style.transform = "translate3d(0, 0, 0)";
-                  }
-                  if (backdropRef.current) {
-                    backdropRef.current.style.transition = "opacity 0.25s ease";
-                    backdropRef.current.style.opacity = "1";
-                  }
-                }
-              }}
-              onPointerCancel={() => {
-                sheetGestureRef.current.active = false;
-                setIsSheetDragging(false);
-                if (sheetContainerRef.current) {
-                  sheetContainerRef.current.style.transition = "transform 0.3s cubic-bezier(0.22,1,0.36,1)";
-                  sheetContainerRef.current.style.transform = "translate3d(0, 0, 0)";
-                }
-                if (backdropRef.current) {
-                  backdropRef.current.style.transition = "opacity 0.25s ease";
-                  backdropRef.current.style.opacity = "1";
-                }
-              }}
             >
               <div className="w-10 h-1 rounded-full" style={{ background: "hsl(var(--muted-foreground)/0.25)" }} />
             </div>
