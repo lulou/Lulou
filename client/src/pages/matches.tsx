@@ -2252,10 +2252,19 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
     }
   }, [expanded]);
 
-  // Keep body.chat-open in sync so PerfOverlay and CallDiagnosticsButton unmount
+  // Lock document scroll while chat is open so iOS Safari cannot scroll the page
+  // underneath the chat overlay when the keyboard opens.
   useEffect(() => {
-    document.body.classList.toggle("chat-open", expanded);
-    return () => document.body.classList.remove("chat-open");
+    if (!expanded) return;
+    const savedScrollY = window.scrollY;
+    document.documentElement.classList.add("chat-open");
+    document.body.classList.add("chat-open");
+    return () => {
+      document.documentElement.classList.remove("chat-open");
+      document.body.classList.remove("chat-open");
+      // Restore position in case the browser shifted it while locked
+      window.scrollTo(0, savedScrollY);
+    };
   }, [expanded]);
   const { data: benefits } = useQuery<{
     available: Record<string, number>;
@@ -3073,9 +3082,11 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
     <div className="flex h-screen overflow-hidden" data-testid={`card-match-${match.id}`}>
       {/* Standard flex-column chat layout. 100dvh shrinks with the keyboard on iOS —
           no manual keyboardHeight tracking needed. Browser handles everything. */}
-      <div className="flex-1 min-w-0 flex flex-col" style={{ height: "100%" }}>
-      {/* HEADER — in flow at top, safe-area-aware. Never moves when keyboard opens. */}
-      <div style={{ position: "relative", top: 0, zIndex: 10, width: "100%", flexShrink: 0, paddingTop: "env(safe-area-inset-top)", background: "hsl(var(--background))", borderBottom: "1px solid hsl(var(--border)/0.5)" }}>
+      <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
+      {/* HEADER — sticky at top, safe-area-aware. overflow-hidden on column (no height:100%)
+          prevents the Safari BFC+percentage-height bug that caused clipping in earlier builds.
+          The column gets its height from flex cross-axis stretch (definite), not a percentage. */}
+      <div style={{ position: "sticky", top: 0, zIndex: 10, width: "100%", flexShrink: 0, paddingTop: "env(safe-area-inset-top)", background: "hsl(var(--background))", borderBottom: "1px solid hsl(var(--border)/0.5)" }}>
         {/* ── Main header row ── */}
         <div className="flex items-center gap-3 px-4 pt-3 pb-2">
         <Button
@@ -3302,7 +3313,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
 
       {/* MESSAGES — flex:1 fills the space between header and composer */}
       <div ref={messagesContainerRef} onScroll={handleMessagesScroll}
-        style={{ flex: 1, minHeight: 0, overflowY: "auto", overscrollBehavior: "contain", display: "flex", flexDirection: "column", justifyContent: "flex-end" }}
+        style={{ flex: 1, minHeight: 0, overflowY: "auto", overscrollBehavior: "contain", WebkitOverflowScrolling: "touch", display: "flex", flexDirection: "column", justifyContent: "flex-end" }}
         className="p-4 space-y-3"
         data-testid={`messages-container-${match.id}`}
       >

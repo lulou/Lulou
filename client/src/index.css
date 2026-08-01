@@ -2,6 +2,15 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Lock document scroll while the chat overlay is open.
+   Prevents iOS Safari from scrolling the page when the keyboard opens,
+   which would shift the fixed overlay upward and hide the header. */
+html.chat-open,
+body.chat-open {
+  overflow: hidden !important;
+  overscroll-behavior: none !important;
+}
+
 .scrollbar-hide {
   -ms-overflow-style: none;
   scrollbar-width: none;
