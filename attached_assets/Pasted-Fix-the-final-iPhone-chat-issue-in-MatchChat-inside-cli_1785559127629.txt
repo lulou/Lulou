@@ -1,0 +1,161 @@
+Fix the final iPhone chat issue in _MatchChat inside client/src/pages/matches.tsx.
+
+Do not change the header design, message layout, composer design, progression, calls, voice notes, realtime, auth or service worker.
+
+VERIFIED CURRENT STATE
+
+Keyboard closed:
+- header visible
+- back button visible
+- profile visible
+- countdown visible
+- messages and composer positioned correctly
+
+Keyboard open:
+- Safari changes visualViewport.offsetTop
+- the entire chat shell remains attached to the layout viewport
+- the visible viewport moves away from the header
+- header/back/profile/countdown disappear
+- composer remains visible
+
+Body scroll locking does not solve this because the movement is the visual viewport, not document scrolling.
+
+FINAL REQUIRED ARCHITECTURE
+
+Use one single chat viewport shell synchronized to visualViewport.
+
+Do not offset the header, messages and composer separately.
+
+1. OUTER CHAT SHELL
+
+The outer _MatchChat element must be:
+
+- position: fixed
+- left: 0
+- right: 0
+- overflow: hidden
+- display: flex
+- flex-direction: column
+
+Set only these two values from visualViewport:
+
+top = visualViewport.offsetTop
+height = visualViewport.height
+
+When visualViewport is unavailable:
+
+top = 0
+height = window.innerHeight
+
+Do not use:
+- bottom
+- keyboardHeight
+- baseline height
+- body translation
+- separate viewport offsets on children
+
+2. UPDATE THE SHELL
+
+Create state for:
+
+- viewportTop
+- viewportHeight
+
+Update both from one function:
+
+const vv = window.visualViewport;
+
+setViewportTop(vv?.offsetTop ?? 0);
+setViewportHeight(vv?.height ?? window.innerHeight);
+
+Listen to:
+
+- visualViewport.resize
+- visualViewport.scroll
+- window.resize
+- orientationchange
+
+Remove listeners on unmount.
+
+Use requestAnimationFrame to batch updates and prevent jumping.
+
+3. INTERNAL CHAT LAYOUT
+
+Inside the synchronized shell, use the existing standard flex layout:
+
+Header:
+- first direct child
+- flex-shrink: 0
+- position: relative
+- no viewport offset
+- back button, profile and countdown always visible
+
+Messages:
+- flex: 1
+- min-height: 0
+- overflow-y: auto
+- only scrollable element
+
+Composer:
+- final direct child
+- flex-shrink: 0
+- position: relative
+- no keyboard offset
+- no fixed positioning
+
+Because the whole shell matches the visible viewport, the browser keyboard naturally sits below the composer.
+
+4. REMOVE CONFLICTING LOGIC
+
+Remove any code in _MatchChat that:
+
+- applies top or bottom offsets to individual header/composer elements
+- uses keyboardHeight for layout
+- restores window.scrollY repeatedly during focus
+- uses scrollIntoView outside the message list
+- gives the outer shell both inset:0 and a visualViewport height
+- sets body top to a negative value that shifts the chat shell
+
+Keep document overflow locked only to stop background scrolling.
+
+5. MESSAGE SCROLLING
+
+When input focuses:
+
+- do not scroll the window
+- do not move the outer shell manually
+- scroll only the message container if the user was already near its bottom
+
+6. TEST ON THE SAME IPHONE
+
+Keyboard closed:
+- header/back/profile/countdown visible
+
+Keyboard open:
+- outer shell top equals visualViewport.offsetTop
+- outer shell height equals visualViewport.height
+- header stays visible
+- back button remains usable
+- composer stays above keyboard
+- messages stay between header and composer
+- no page movement
+- no large gap
+
+Add one temporary compact diagnostic line only:
+
+vvTop=<value>
+vvHeight=<value>
+shellTop=<value>
+shellHeight=<value>
+
+Remove it after the live iPhone screenshot passes.
+
+Do not report PASS from code inspection.
+
+Report:
+- exact old shell positioning
+- exact new visualViewport shell positioning
+- files changed
+- commit hash
+- Vercel deployed commit
+- real iPhone PASS/FAIL
