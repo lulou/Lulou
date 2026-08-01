@@ -1683,6 +1683,11 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
   // Resets when match.id or callStage changes so the badge always starts from the DB value.
   const [localSentCount, setLocalSentCount] = useState(0);
 
+  // Visual-viewport sync — keeps the shell aligned with the visible area when the iOS
+  // keyboard opens (visualViewport.offsetTop becomes non-zero; layout viewport stays put)
+  const [vpTop,    setVpTop]    = useState(() => window.visualViewport?.offsetTop ?? 0);
+  const [vpHeight, setVpHeight] = useState(() => window.visualViewport?.height ?? window.innerHeight);
+
   // Lazy-load the chat header avatar — photos are stripped from /api/matches.
   // Shares the same cache key as ProfilePanel so the photo is loaded at most once.
   const { data: headerPhotosData } = useQuery<{ photos: string[] }>({
@@ -2252,24 +2257,43 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
     }
   }, [expanded]);
 
-  // iOS Safari scroll-lock while chat is open.
-  // body.style.position="fixed" is the only technique that reliably prevents Safari from
-  // scrolling the underlying page when the keyboard opens inside a fixed overlay.
-  // Saving and restoring scrollY prevents the page jumping to the top on close.
+  // Sync chat shell position/height to the visual viewport so the entire shell
+  // (header + messages + composer) tracks the visible area when the iOS keyboard opens.
+  // Uses RAF to batch updates and prevent jank.
+  useEffect(() => {
+    if (!expanded) return;
+    let rafId: number;
+    const update = () => {
+      const vv = window.visualViewport;
+      setVpTop(vv?.offsetTop ?? 0);
+      setVpHeight(vv?.height ?? window.innerHeight);
+    };
+    const schedule = () => { cancelAnimationFrame(rafId); rafId = requestAnimationFrame(update); };
+    update(); // immediate on open
+    window.visualViewport?.addEventListener("resize", schedule);
+    window.visualViewport?.addEventListener("scroll", schedule);
+    window.addEventListener("resize", schedule);
+    window.addEventListener("orientationchange", schedule);
+    return () => {
+      cancelAnimationFrame(rafId);
+      window.visualViewport?.removeEventListener("resize", schedule);
+      window.visualViewport?.removeEventListener("scroll", schedule);
+      window.removeEventListener("resize", schedule);
+      window.removeEventListener("orientationchange", schedule);
+    };
+  }, [expanded]);
+
+  // Lock document overflow while chat is open so the background page cannot scroll.
+  // IMPORTANT: do NOT use body.style.position="fixed" — on iOS Safari, position:fixed on
+  // the body creates a new containing block for position:fixed children, shifting the chat
+  // shell by -scrollY pixels. overflow:hidden is sufficient here; the visualViewport sync
+  // above handles actual positioning.
   useEffect(() => {
     if (!expanded) return;
     const savedScrollY = window.scrollY;
     document.documentElement.classList.add("chat-open");
     document.body.classList.add("chat-open");
-    document.body.style.position = "fixed";
-    document.body.style.top = `-${savedScrollY}px`;
-    document.body.style.width = "100%";
-    document.body.style.overflow = "hidden";
     return () => {
-      document.body.style.position = "";
-      document.body.style.top = "";
-      document.body.style.width = "";
-      document.body.style.overflow = "";
       document.documentElement.classList.remove("chat-open");
       document.body.classList.remove("chat-open");
       window.scrollTo(0, savedScrollY);
@@ -3088,7 +3112,15 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
   if (!expanded) return null;
 
   return (
-    <div className="fixed inset-0 flex overflow-hidden" data-testid={`card-match-${match.id}`}>
+    <div
+      className="fixed left-0 right-0 flex flex-col overflow-hidden"
+      style={{ top: vpTop, height: vpHeight, background: "hsl(var(--background))" }}
+      data-testid={`card-match-${match.id}`}
+    >
+      {/* TEMP DIAG — remove after iPhone screenshot confirms header stays visible */}
+      <div style={{ flexShrink: 0, fontSize: 10, fontFamily: "monospace", background: "rgba(0,0,0,0.65)", color: "#0f0", padding: "2px 6px", whiteSpace: "nowrap", zIndex: 9999 }}>
+        vvTop={Math.round(vpTop)} vvHeight={Math.round(vpHeight)} shellTop={Math.round(vpTop)} shellH={Math.round(vpHeight)}
+      </div>
       {/* Standard flex-column chat layout. 100dvh shrinks with the keyboard on iOS —
           no manual keyboardHeight tracking needed. Browser handles everything. */}
       <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
