@@ -1,0 +1,128 @@
+Fix the remaining bottom gap in the live iPhone chat.
+
+Only edit _MatchChat in:
+
+client/src/pages/matches.tsx
+
+Do not change:
+- visualViewport shell
+- keyboard handling
+- header
+- messages
+- message anchoring
+- auth
+- progression
+- calls
+- voice notes
+- realtime
+- service worker
+
+EXACT ISSUE
+
+The messages are now close enough to the composer.
+
+The remaining large gap is BELOW the composer:
+
+- composer/input ends
+- 0/500 appears
+- then there is a large empty white area
+- then Safari’s native arrow/tick keyboard accessory bar appears
+
+I want the composer positioned much closer to that native accessory bar.
+
+Target spacing:
+The gap from the bottom of the Lulou composer area to the top of Safari’s arrow/tick bar should be approximately the same small spacing as the gap between that arrow/tick bar and the keyboard.
+
+Do not change the native arrows/tick. They belong to iOS.
+
+REQUIRED INVESTIGATION
+
+Inspect the real composer/bottom-panel DOM and find every source of vertical space below 0/500:
+
+- padding-bottom
+- margin-bottom
+- min-height
+- fixed height
+- safe-area padding
+- env(safe-area-inset-bottom)
+- invisible action rows
+- hidden elements still occupying space
+- recording-state height locks
+- empty wrappers
+- flex-grow or justify-content spacing
+- any reserved space for call/video/AI buttons
+- any bottom panel wrapper larger than its visible contents
+
+Report the exact element and CSS creating the empty white area before changing it.
+
+REQUIRED FIX
+
+1. Bottom composer panel must shrink-wrap its visible contents.
+
+Use:
+- flex-shrink: 0
+- height: auto
+- min-height: 0
+- margin-bottom: 0
+- no flex-grow
+- no unnecessary fixed/min height
+
+2. Remove excessive bottom padding.
+
+When the keyboard is open:
+- do not apply env(safe-area-inset-bottom)
+- do not reserve home-indicator space because the keyboard is already open
+- use only approximately 4–8px bottom padding below the 0/500 row
+
+When the keyboard is closed:
+- safe-area bottom padding may remain as needed
+
+3. Any hidden controls must be removed from layout.
+
+When inputFocused is true:
+- use display: none / conditional rendering
+- do not use visibility: hidden or opacity: 0 for rows that still consume height
+
+Check:
+- AI button
+- phone button
+- video button
+- recording controls
+- action tray
+- helper text
+- voice-note tooltip
+- call controls
+
+4. Keep 0/500 directly below the input column.
+
+After the counter, allow only a small bottom padding before Safari’s native accessory bar.
+
+5. Do not move the composer with keyboardHeight or visualViewport offsets.
+
+The working shell already ends at the visible viewport:
+- shell top = visualViewport.offsetTop
+- shell height = visualViewport.height
+
+The composer should naturally be the final flex child at the bottom of that shell.
+
+EXPECTED LIVE RESULT
+
+With the keyboard open:
+
+- composer remains above the Safari arrow/tick bar
+- 0/500 remains visible
+- only approximately 6–10px of Lulou spacing remains below the counter
+- no large white empty block
+- header and messages remain unchanged
+- Safari arrows/tick remain visible because they are native iOS controls
+
+Report:
+- exact element causing the bottom gap
+- exact padding/min-height removed
+- files changed
+- commit hash
+- pushed to origin/main
+- Vercel deployed commit
+- real iPhone PASS/FAIL
+
+Do not modify the message stack again. The problem is the bottom composer panel height, not the messages.
