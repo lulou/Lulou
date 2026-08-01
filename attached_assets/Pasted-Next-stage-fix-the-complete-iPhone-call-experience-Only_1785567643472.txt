@@ -1,0 +1,269 @@
+Next stage: fix the complete iPhone call experience.
+
+Only work on incoming-call UI and active-call controls.
+
+Do not change:
+- chat swipe-back
+- profile-sheet gestures
+- keyboard/visualViewport fixes
+- messages
+- progression quotas
+- authentication
+- matching
+- payments
+- service worker
+
+CURRENT PROBLEMS
+
+1. Incoming calls currently show separate red and green answer buttons.
+2. Replace the green Answer button with a normal slide-to-answer interaction.
+3. During an audio call, switching between earpiece and speakerphone does not work.
+4. The mute button does not work.
+5. During a recent real iPhone call, the red End Call button was completely missing.
+
+PART 1 — SLIDE TO ANSWER
+
+Replace the current green Answer button with a horizontal slide-to-answer control.
+
+Required UI:
+- caller photo
+- caller name
+- “Lulou audio call” or “Lulou video call”
+- ringing status
+- horizontal slider near the bottom
+- draggable circular green phone icon
+- text: “slide to answer”
+- separate red Decline button
+
+Required behaviour:
+
+1. The green phone icon must visibly follow the user’s finger from left to right.
+
+2. Fill or highlight the slider track progressively as the icon moves.
+
+3. Accept the call only when the phone icon reaches at least 80% of the available track distance.
+
+4. When released below the threshold:
+- smoothly return the icon to the starting position
+- keep the call ringing
+
+5. When the threshold is reached:
+- lock the slider to prevent duplicate acceptance
+- stop the ringtone immediately
+- call the existing answer-call function exactly once
+- enter the active call screen
+
+6. Use native touch handling that works on iPhone:
+- dedicated drag element
+- touch-action: none
+- touchstart/touchmove with passive:false where required
+- requestAnimationFrame
+- transform: translate3d(...)
+- do not cause React rerenders for every pixel
+
+7. Decline must:
+- stop the ringtone
+- call the existing decline function
+- reset incoming-call state
+- not consume call quota for declined or failed calls
+
+8. Keep an accessible non-drag Answer action for assistive technology, but do not allow an ordinary short tap to accidentally accept the call.
+
+PART 2 — FIX MUTE
+
+The mute button must control the real current local microphone MediaStreamTrack.
+
+On mute:
+
+localStream.getAudioTracks().forEach(track => {
+ track.enabled = false;
+});
+
+On unmute:
+
+localStream.getAudioTracks().forEach(track => {
+ track.enabled = true;
+});
+
+Requirements:
+- use the current live local stream, not a stale stream captured earlier
+- remote user must stop hearing the local user
+- incoming remote audio must continue
+- icon changes immediately
+- label changes between Mute and Unmute
+- muted state is visually obvious
+- do not renegotiate or restart the call
+- reset to unmuted when a new call begins
+- safely handle missing or ended microphone tracks
+
+Development-only logging:
+- [CALL_MUTE] requested
+- current track count
+- track.enabled
+- track.readyState
+- track.muted
+- [CALL_MUTE] applied
+
+Do not expose diagnostic logs in the production UI.
+
+PART 3 — EARPIECE AND SPEAKERPHONE
+
+Inspect the current remote-audio element and speaker button before changing anything.
+
+Report:
+- what the existing button currently changes
+- whether it changes only UI state or real audio output
+- what iPhone Safari/PWA APIs are actually available for output routing
+- whether the deployed app is running in Safari, installed PWA mode or a native wrapper
+
+Required behaviour:
+- active audio call has one audio-route control
+- states are Earpiece and Speaker
+- selected state is obvious
+- the control must act on the actual remote call audio
+- microphone input must remain unchanged
+- do not restart the WebRTC connection
+- do not stop the remote MediaStream
+- do not falsely show Speaker as active unless the physical output actually changed
+
+Important platform requirement:
+
+If iPhone Safari or the installed web app does not allow JavaScript to force audio between the receiver and loudspeaker:
+- do not fake the feature
+- do not only toggle the icon
+- report the exact restriction
+- implement the best supported behaviour
+- explain whether a Capacitor/native iOS audio-session bridge is required for full earpiece/speaker control
+
+PART 4 — END CALL BUTTON MUST ALWAYS BE VISIBLE
+
+Find why the red End Call button disappeared on iPhone.
+
+Inspect:
+- conditional rendering
+- outgoing ringing, connecting, active and reconnecting states
+- audio-call and video-call branches
+- controls auto-hide logic
+- visual viewport sizing
+- fixed-height wrappers
+- overflow:hidden
+- z-index
+- safe-area padding
+- Safari toolbar resizing
+- whether the control is positioned outside the real visible call viewport
+
+Required fix:
+
+1. Render End Call in all active call states:
+- outgoing ringing
+- connecting
+- active audio
+- active video
+- reconnecting
+
+Do not render it after the call has fully ended.
+
+2. Put active-call controls in a persistent bottom dock inside the real call viewport:
+
+- position: absolute or fixed within the call shell
+- left: 0
+- right: 0
+- bottom: 0
+- padding-bottom: max(12px, env(safe-area-inset-bottom))
+- high z-index above video, images and overlays
+- visible background or blur where required
+
+3. End Call must be:
+- circular
+- red
+- minimum 56px touch target
+- usable without hover
+- always visible during an audio call
+- always visible during a video call
+- never permanently hidden by auto-hide controls
+- visible after Safari viewport changes or device rotation
+
+4. It must use the existing shared end-call cleanup function.
+
+Cleanup must:
+- stop local media tracks
+- detach remote audio/video streams
+- stop ringtone and ringback
+- stop timers
+- close the RTCPeerConnection
+- clear call state
+- notify the other user
+- return both users to the correct chat stage
+- prevent duplicate end-call execution
+
+PART 5 — ACTIVE AUDIO CALL SCREEN
+
+Create a clean active audio-call screen containing:
+- caller image
+- caller name
+- connection status or call timer
+- Mute/Unmute
+- Earpiece/Speaker control
+- red End Call button
+
+All controls must remain visible and usable on iPhone.
+
+For video calls:
+- preserve the existing video layout
+- make Mute work
+- keep End Call visible
+- other controls may auto-hide only when one tap restores them
+- ending the call must not produce a white screen
+
+REAL TWO-PHONE TEST
+
+Use two real accounts and two real phones.
+
+Slide to answer:
+1. Start an audio call.
+2. Receiver sees the slider.
+3. Short drag snaps back.
+4. Full drag answers exactly once.
+5. Decline stops ringing and closes cleanly.
+
+Mute:
+1. Answer the call.
+2. Tap Mute.
+3. Confirm on the other phone that microphone audio stops.
+4. Tap Unmute.
+5. Confirm audio returns.
+
+Audio route:
+1. Confirm the initial physical audio output.
+2. Tap Speaker.
+3. Confirm sound physically moves to the loudspeaker.
+4. Tap Earpiece.
+5. Confirm sound physically returns.
+6. Do not mark PASS because an icon changed.
+
+End Call:
+1. Confirm End Call is visible immediately.
+2. Keep the call open for at least one minute.
+3. Confirm it remains visible.
+4. Allow Safari browser chrome to resize or rotate the phone.
+5. Confirm the button remains visible.
+6. End the call and confirm both phones exit cleanly.
+
+Report:
+- exact files changed
+- existing answer, decline and end functions reused
+- exact reason mute failed
+- exact reason End Call disappeared
+- exact reason speaker switching failed
+- actual supported audio-routing method
+- call-control z-index and safe-area handling
+- commit hash
+- pushed to origin/main
+- Vercel and Railway deployed commits
+- real two-iPhone slide-to-answer PASS/FAIL
+- real two-iPhone mute PASS/FAIL
+- real two-iPhone speaker/earpiece PASS/FAIL
+- real two-iPhone End Call PASS/FAIL
+
+Do not report PASS from code inspection.
+Do not change the working chat or profile gestures.
