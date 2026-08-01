@@ -1,0 +1,308 @@
+Both mobile gestures still fail on the real iPhone.
+
+Do not tweak the current implementation again. Replace it with two isolated gesture handles that cannot conflict with scrolling or Safari.
+
+Only edit the real chat/profile code in:
+
+client/src/pages/matches.tsx
+
+Do not change:
+- keyboard or visualViewport shell
+- header
+- messages
+- composer
+- auth
+- sessions
+- progression
+- calls
+- voice notes
+- realtime
+- service worker
+
+CURRENT FAILURES
+
+1. Chat swipe-back does nothing.
+2. Pulling the profile sheet down makes it abruptly disappear instead of following the finger and animating naturally.
+
+The existing full-shell touch listeners are unreliable and must be removed.
+
+PART 1 — PROFILE SHEET: DRAG ONLY FROM THE HANDLE
+
+Do not attach drag-to-close to the entire profile sheet.
+
+Create a dedicated drag zone at the top:
+
+- full sheet width
+- approximately 44–56px tall
+- includes the visible grab handle
+- position: sticky or fixed at the sheet top
+- touch-action: none
+- z-index above profile content
+
+The profile content below remains a normal scrollable area.
+
+Required implementation:
+
+1. Keep these refs:
+
+- profileSheetRef
+- profileBackdropRef
+- profileDragHandleRef
+- profileDragStartYRef
+- profileDragStartTimeRef
+- profileDragCurrentYRef
+- profileDragRafRef
+- profileDragActiveRef
+
+2. Attach native touch listeners directly to profileDragHandleRef:
+
+- touchstart: passive false
+- touchmove: passive false
+- touchend
+- touchcancel
+
+Do not attach them to the sheet body.
+
+3. touchstart:
+
+- do not close anything
+- do not change showProfilePanel
+- record startY
+- record start time
+- set currentY = 0
+- set active = true
+- remove transition from sheet and backdrop
+
+4. touchmove:
+
+- only run when active
+- call preventDefault()
+- calculate dy = max(0, currentY - startY)
+- update through requestAnimationFrame
+- apply directly:
+
+sheet.style.transform = `translate3d(0, ${dy}px, 0)`
+
+- backdrop opacity decreases gradually
+- sheet must visibly stay under the finger
+- never update React state for every pixel
+- never unmount during touchmove
+
+5. touchend:
+
+Calculate:
+
+- distance = currentY
+- elapsed time
+- velocity = distance / elapsed time
+
+Close only when:
+
+- distance >= 25% of actual sheet height
+OR
+- velocity >= 0.6 px/ms and distance >= 40px
+
+A tiny swipe must never close the sheet.
+
+6. Below threshold:
+
+- animate sheet back to translate3d(0,0,0)
+- restore backdrop opacity
+- keep profile open
+
+7. Above threshold:
+
+- animate sheet to translate3d(0,100%,0)
+- fade backdrop to 0
+- wait for transitionend or a 260ms fallback
+- only then call setShowProfilePanel(false)
+
+This is critical:
+Do not set showProfilePanel=false before the close animation finishes.
+
+8. touchcancel:
+
+- always snap the sheet back open
+- never close it
+
+PART 2 — CHAT SWIPE-BACK: USE A DEDICATED LEFT-EDGE HANDLE
+
+Do not attach swipe-back detection to the whole chat shell.
+
+Add an invisible edge gesture handle:
+
+- position: absolute
+- top: 0
+- bottom: 0
+- left: 0
+- width: 36px
+- z-index above the messages but below visible header buttons/modals
+- touch-action: none
+- background: transparent
+
+This guarantees the gesture receives iPhone touch events and does not conflict with message scrolling.
+
+Keep the visible back button unchanged.
+
+Required implementation:
+
+1. Add refs:
+
+- swipeEdgeRef
+- chatShellRef
+- swipeStartXRef
+- swipeStartYRef
+- swipeStartTimeRef
+- swipeCurrentXRef
+- swipeRafRef
+- swipeActiveRef
+
+2. Attach native listeners directly to swipeEdgeRef:
+
+- touchstart: passive false
+- touchmove: passive false
+- touchend
+- touchcancel
+
+Remove the old swipe listeners from chatShellRef.
+
+3. touchstart:
+
+- do not navigate yet
+- do not move the chat yet
+- reject when:
+ - profile sheet is open
+ - call screen/modal is open
+ - purchase modal is open
+ - another blocking overlay is open
+- save startX, startY and timestamp
+- save the current draft
+- set active = true
+
+4. touchmove:
+
+- calculate dx and dy
+- wait until movement is at least 8px
+- if abs(dy) > abs(dx), cancel the swipe completely
+- if horizontal movement wins:
+ - call preventDefault()
+ - clamp dx between 0 and viewport width
+ - move chatShellRef directly using:
+   translate3d(dx,0,0)
+ - use requestAnimationFrame
+ - add a subtle left-edge shadow
+- the chat must visibly follow the finger
+
+5. touchend:
+
+Calculate distance and velocity.
+
+Navigate only when:
+
+- dx >= 30% of viewport width
+OR
+- velocity >= 0.65 px/ms and dx >= 60px
+
+Below threshold:
+
+- animate the chat back to translate3d(0,0,0)
+- keep chat open
+
+Above threshold:
+
+- blur the textarea
+- animate chat fully to the right
+- after the animation finishes, call the exact same handleLeaveChat() used by the back button
+
+6. touchcancel:
+
+- always animate back to x=0
+- never navigate
+
+7. handleLeaveChat():
+
+Both visible back button and completed swipe must call one shared function that:
+
+- saves unsent draft
+- blurs the textarea
+- closes the inline chat
+- returns to Connections
+- does not alter the match
+- does not delete messages
+- does not end calls or progression
+
+PART 3 — REMOVE THE BROKEN GESTURE CODE
+
+Remove:
+
+- Pointer Event gesture handlers
+- full chat-shell touch handlers
+- profile sheet body drag handlers
+- duplicate touch listeners
+- duplicate leave-chat animations
+- any effect that closes the profile on touchstart
+- any state update that unmounts the profile during dragging
+
+There must be exactly:
+
+- one profile drag implementation on profileDragHandleRef
+- one swipe-back implementation on swipeEdgeRef
+- one shared handleLeaveChat()
+
+PART 4 — DEVELOPMENT LOGS
+
+Console logs in development only:
+
+Profile:
+
+- [PROFILE_DRAG] start
+- [PROFILE_DRAG] move dy=
+- [PROFILE_DRAG] end distance= velocity= decision=snap|close
+- [PROFILE_DRAG] transition-complete
+
+Swipe:
+
+- [CHAT_SWIPE] start
+- [CHAT_SWIPE] move dx=
+- [CHAT_SWIPE] end distance= velocity= decision=snap|leave
+- [CHAT_SWIPE] handleLeaveChat
+
+Do not show diagnostics in the UI.
+
+REAL IPHONE PASS CONDITIONS
+
+Profile sheet:
+
+1. Open View Profile.
+2. Pull the grab handle down slowly.
+3. Sheet visibly follows the finger.
+4. Release early — it smoothly returns open.
+5. Pull farther — it smoothly slides off-screen.
+6. It must never abruptly disappear.
+7. Profile content remains normally scrollable.
+
+Swipe-back:
+
+1. Start from the first 36px at the left edge.
+2. Drag right slowly.
+3. Entire chat visibly follows the finger.
+4. Release early — chat returns to position.
+5. Drag farther — chat exits to Connections.
+6. Works with keyboard open.
+7. Draft remains.
+8. Vertical message scrolling remains unchanged.
+
+Report:
+
+- old conflicting listeners removed
+- exact DOM nodes receiving the new touch listeners
+- profile threshold and velocity
+- swipe threshold and velocity
+- files changed
+- commit hash
+- pushed to origin/main
+- Vercel deployed commit
+- real iPhone profile drag PASS/FAIL
+- real iPhone swipe-back PASS/FAIL
+
+Do not report PASS until both gestures visibly follow the finger on the real iPhone.
