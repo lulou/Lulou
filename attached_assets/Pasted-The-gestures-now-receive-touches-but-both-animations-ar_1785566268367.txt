@@ -1,0 +1,276 @@
+The gestures now receive touches, but both animations are wrong on the real iPhone.
+
+Current behaviour:
+
+1. Chat swipe-back sometimes works, but:
+  - the area behind the moving chat is completely white
+  - it often requires more than one swipe
+  - the first swipe sometimes snaps back or does nothing
+
+2. Profile pull-down does not follow the finger:
+  - it abruptly jumps out/disappears
+  - it does not behave like a draggable bottom sheet
+
+Only edit:
+
+client/src/pages/matches.tsx
+
+Do not change:
+- keyboard/visualViewport fixes
+- header layout
+- messages
+- composer
+- auth
+- progression
+- calls
+- voice notes
+- realtime
+- service worker
+
+PART 1 — FIX CHAT SWIPE-BACK WHITE SCREEN
+
+ROOT PROBLEM
+
+The chat is being translated to the right, but the Connections screen is not actually rendered underneath it. The page background is therefore exposed as white.
+
+Required architecture:
+
+1. While an inline chat is open, keep the Connections page mounted underneath the chat.
+
+Structure:
+
+<div className="connections-layer">
+ existing Connections screen
+</div>
+
+<div ref={chatShellRef} className="chat-layer">
+ existing _MatchChat screen
+</div>
+
+Required styles:
+
+Connections layer:
+- position: absolute
+- inset: 0
+- z-index: 0
+- background must match the real Connections page
+- remain mounted while chat is open
+- pointer-events: none while the chat covers it
+
+Chat layer:
+- position: absolute or fixed inside the existing app viewport
+- inset: 0
+- z-index: 1
+- background must be opaque
+- will receive translate3d during swipe
+
+Do not reveal document.body, a blank wrapper or a fake white background.
+
+2. During swipe:
+
+- translate only the chat layer
+- Connections remains stationary underneath
+- optionally start Connections at translateX(-20px) and interpolate toward 0 for depth
+- add a subtle shadow to the moving chat’s left edge
+- do not navigate or unmount during touchmove
+
+3. On successful swipe:
+
+- animate the chat layer from its current position to 100vw
+- wait for transitionend
+- only then call handleLeaveChat()
+- reset transforms after the chat has closed
+
+4. On cancelled swipe:
+
+- animate chat back to translate3d(0,0,0)
+- clear active gesture refs only after snap-back finishes
+
+PART 2 — MAKE SWIPE WORK ON THE FIRST ATTEMPT
+
+Inspect the current swipe lifecycle.
+
+Fix all of these possible stale-state problems:
+
+- active ref not reset after touchcancel
+- dx value left from previous gesture
+- RAF still pending
+- transition still applied at the next touchstart
+- first touch rejected because a stale modal/profile ref is true
+- touchend reading a stale React state value instead of the latest ref
+- handle element losing listeners after rerender
+- swipe handle covered by the visible back button/header
+
+Required touch lifecycle:
+
+touchstart:
+- cancel any pending RAF
+- remove transition immediately
+- reset current dx to 0
+- reset direction lock
+- reset cancelled flag
+- store start coordinates/time
+- set active true
+
+touchmove:
+- use latest values from refs only
+- once horizontal direction wins, keep it locked
+- update current dx ref on every move
+- render transform from that exact ref
+
+touchend:
+- use current dx ref, not React state
+- decide leave/snap exactly once
+- set active false only after the decision is captured
+
+touchcancel:
+- snap back
+- completely reset all refs
+
+The first valid swipe from the edge must visibly move the chat.
+
+Keep the activation strip wide enough for real use:
+- 44px from the left edge
+- do not place it underneath another element
+- z-index above chat content
+- below blocking modals
+- touch-action: none
+
+PART 3 — FIX PROFILE SHEET JUMPING OUT
+
+ROOT PROBLEM
+
+The profile is being hidden/unmounted or its close callback is firing before the sheet visibly follows the drag and completes its animation.
+
+Required architecture:
+
+There must be two distinct elements:
+
+Backdrop:
+- fixed/absolute
+- covers chat
+- fades independently
+
+Sheet:
+- sheetContainerRef attached to the actual large rounded profile panel
+- the transform must be applied to this exact element
+- not to the tiny grab-handle wrapper
+- not to the profile content image
+- not to a parent that is conditionally removed during dragging
+
+1. During touchstart:
+
+- do not call setShowProfilePanel(false)
+- do not call the profile toggle callback
+- do not alter conditional rendering
+- set drag active
+- remove transition from the actual sheet
+- preserve current open state
+
+2. During touchmove:
+
+Apply directly to sheetContainerRef:
+
+transform: translate3d(0, ${dy}px, 0)
+
+The actual entire sheet must follow the finger continuously.
+
+Apply backdrop opacity separately.
+
+Do not:
+- use React state per pixel
+- change sheet height
+- change top/bottom values
+- set display:none
+- toggle showProfilePanel
+- trigger an onClick close
+- let the drag touch bubble into a backdrop click handler
+
+Call:
+- preventDefault()
+- stopPropagation()
+
+on the drag-zone touch events.
+
+3. On touchend below threshold:
+
+- animate the same sheet back to translate3d(0,0,0)
+- backdrop returns to full opacity
+- keep showProfilePanel true
+
+4. On touchend above threshold:
+
+- animate the sheet from its current translateY to 100%
+- fade backdrop
+- wait for transitionend on sheetContainerRef
+- only after transition completion call setShowProfilePanel(false)
+
+Use a guarded 300ms fallback only if transitionend does not fire.
+
+5. Prevent accidental backdrop closure:
+
+Backdrop close must only run when:
+
+event.target === event.currentTarget
+
+Dragging the handle must never trigger the backdrop click/touch close callback.
+
+6. Do not use velocity alone to close from a tiny movement.
+
+Profile close rule:
+
+- distance >= 25% of actual sheet height
+OR
+- distance >= 80px AND velocity >= 0.75 px/ms
+
+A short touch/flick must not make the profile instantly disappear.
+
+PART 4 — VERIFY THE ACTUAL TRANSFORM TARGETS
+
+Before committing, report the DOM elements attached to:
+
+- chatShellRef
+- sheetContainerRef
+- backdropRef
+- swipeEdgeRef/profile drag zone
+
+For sheetContainerRef, confirm its measured bounding rectangle matches the complete visible bottom sheet, not only the handle or inner content.
+
+For chatShellRef, confirm it covers the complete chat screen.
+
+REAL IPHONE PASS CONDITIONS
+
+Chat:
+
+1. First edge swipe visibly moves the chat.
+2. Connections is visible beneath it — never white.
+3. Release early and chat smoothly snaps back.
+4. Swipe far enough and chat smoothly exits.
+5. Navigation happens only after the exit animation.
+6. Reopening chat allows another successful first swipe.
+7. Works with keyboard open.
+
+Profile:
+
+1. Dragging the top handle moves the entire sheet under the finger.
+2. A short drag snaps smoothly back.
+3. A longer drag slides the sheet off-screen.
+4. The sheet never abruptly disappears.
+5. Backdrop fades with the drag.
+6. Profile content still scrolls normally.
+7. Dragging the handle never triggers backdrop click closure.
+
+Report:
+
+- exact cause of the white background
+- exact stale state causing first-swipe failures
+- exact reason the profile was abruptly unmounting
+- actual DOM node receiving each transform
+- files changed
+- commit hash
+- pushed to origin/main
+- Vercel deployed commit
+- real iPhone chat swipe PASS/FAIL
+- real iPhone profile drag PASS/FAIL
+
+Do not report PASS from code inspection.
