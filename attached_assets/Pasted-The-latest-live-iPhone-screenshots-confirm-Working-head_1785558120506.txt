@@ -1,0 +1,114 @@
+The latest live iPhone screenshots confirm:
+
+Working:
+- header is visible before the keyboard opens
+- back button is visible
+- match name/profile is visible
+- “15 left” countdown is visible
+- composer sits above the keyboard
+- messages sit close to the composer
+- debug side tab is gone
+
+Remaining bug:
+When the input is focused and the keyboard opens, the entire chat page scrolls upward and the header disappears.
+
+Do not change keyboard sizing, viewport calculations, message anchoring or composer-bottom behaviour again.
+
+Fix only the scroll containment in _MatchChat inside client/src/pages/matches.tsx.
+
+REQUIRED STRUCTURE
+
+1. The outer chat overlay must never scroll.
+
+- position: fixed
+- inset: 0
+- overflow: hidden
+- display: flex
+- flex-direction: column
+
+2. Lock document scrolling while chat is open.
+
+On mount:
+- add body class chat-open
+- preserve the current document scroll position
+- prevent html/body from scrolling
+
+On unmount:
+- remove the class
+- restore the previous scroll position
+
+Use CSS such as:
+html.chat-open,
+body.chat-open {
+ overflow: hidden;
+ overscroll-behavior: none;
+}
+
+Do not use a body transform.
+
+3. Header must remain the first non-scrolling flex child.
+
+- flex-shrink: 0
+- position: sticky
+- top: 0
+- z-index above messages
+- visible background
+- safe-area top padding
+- back button, profile and countdown remain visible while typing
+
+4. The message list must be the only scrollable element.
+
+- flex: 1
+- min-height: 0
+- overflow-y: auto
+- overscroll-behavior: contain
+- -webkit-overflow-scrolling: touch
+
+No parent of the message list may scroll.
+
+5. Composer remains the last non-scrolling flex child.
+
+- flex-shrink: 0
+- keep the current keyboard behaviour
+- do not add visualViewport offsets
+- do not change its bottom positioning
+- keep 0/500 beneath the input column
+
+6. Prevent Safari focus scrolling the outer page.
+
+When the textarea receives focus:
+- scroll the message viewport to its bottom only if the user was already near the bottom
+- do not call window.scrollTo
+- do not call scrollIntoView on the textarea or any element outside the message viewport
+- ensure the textarea is already fully inside the visible composer before focus
+
+7. Compact the composer slightly:
+
+- single-line minimum height
+- grow only when text wraps
+- keep the mic vertically centred
+- send button aligned with the input
+- one clean border
+
+TEST ON THE SAME IPHONE
+
+1. Open chat with keyboard closed.
+2. Confirm header/back/profile/countdown visible.
+3. Tap the input.
+4. Confirm the keyboard opens.
+5. Confirm the header remains visible in exactly the same place.
+6. Confirm only the messages viewport changes/scrolls.
+7. Confirm composer remains above keyboard.
+8. Confirm back button still works while keyboard is open.
+9. Confirm the entire page cannot be dragged vertically behind the chat.
+
+Do not touch auth, sessions, progression, calls, voice notes, realtime or service worker.
+
+Report:
+- exact element that was scrolling
+- files changed
+- commit hash
+- Vercel deployed commit
+- real iPhone PASS/FAIL
+
+Do not report PASS until a live keyboard-open screenshot still shows the header and back button.
