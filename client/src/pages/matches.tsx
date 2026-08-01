@@ -3126,7 +3126,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
           The column gets its height from flex cross-axis stretch (definite), not a percentage. */}
       <div style={{ position: "relative", top: 0, zIndex: 10, width: "100%", flexShrink: 0, paddingTop: "env(safe-area-inset-top)", background: "hsl(var(--background))", borderBottom: "1px solid hsl(var(--border)/0.5)" }}>
         {/* ── Main header row ── */}
-        <div className="flex items-center gap-3 px-4 pt-3 pb-2">
+        <div className={"flex items-center gap-3 px-4 " + (inputFocused ? "pt-2 pb-1" : "pt-3 pb-2")}>
         <Button
           size="icon"
           variant="ghost"
@@ -3160,14 +3160,14 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                 <BadgeCheck className="w-4 h-4 text-primary shrink-0" data-testid={`icon-verified-${match.id}`} />
               )}
             </div>
-            {(() => {
+            {!inputFocused && (() => {
               const myShowLastActive = localStorage.getItem("settings_show_last_active") !== "false";
               const lbl = formatLastActive(match.profile.lastActive, (match.profile.showLastActive ?? true) && myShowLastActive);
               return lbl ? (
                 <p className="text-[10px] text-muted-foreground leading-none mt-0.5" data-testid={`text-last-active-${match.id}`}>{lbl}</p>
               ) : null;
             })()}
-            <span
+            {!inputFocused && <span
               className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 mt-0.5 text-[10px] font-semibold transition-all"
               style={showProfilePanel ? {
                 background: "linear-gradient(135deg, hsl(350 45% 52% / 0.18), hsl(350 45% 52% / 0.10))",
@@ -3181,7 +3181,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
             >
               <User className="w-2.5 h-2.5" />
               {showProfilePanel ? t("hide_profile_btn") : t("view_profile_btn")}
-            </span>
+            </span>}
           </div>
         </button>
         <div className="flex items-center gap-1 shrink-0">
@@ -3224,7 +3224,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
         </div>
         </div>
         {/* ── Action tray: phone / video / face-call / mic with credit counts ── */}
-        <div className="flex items-center justify-center gap-6 px-4 pb-2.5 border-t border-border/30">
+        <div className={"flex items-center justify-center gap-6 px-4 pb-2.5 border-t border-border/30" + (inputFocused ? " hidden" : "")}>
             {!allCallsDone && (
               <button
                 onClick={() => {
@@ -3339,8 +3339,8 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
               </span>
             </button>
           </div>
-      {expanded && <SparkProgressBar sparkStep={sparkStep} />}
-      {expanded && postCallProgressReady && eitherKeep && (
+      {expanded && !inputFocused && <SparkProgressBar sparkStep={sparkStep} />}
+      {expanded && !inputFocused && postCallProgressReady && eitherKeep && (
         <div className="px-4 py-2 border-b border-border/40 bg-primary/3" data-testid={`date-plan-hint-bar-${match.id}`}>
           <p className="text-[11px] text-center text-muted-foreground">
             {t("plan_date_cta_hint")}
@@ -3996,7 +3996,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                       if (e.target.value.trim()) sendTyping();
                     }}
                     placeholder={t("write_meaningful_placeholder")}
-                    className={`resize-none min-h-[44px] max-h-[80px] text-base pr-8 transition-none ring-0 focus-visible:ring-0 focus-visible:ring-offset-0${voicePhase === "recording" ? " opacity-0 pointer-events-none" : ""}`}
+                    className={`resize-none min-h-[40px] max-h-[96px] text-base pr-8 transition-none ring-0 focus-visible:ring-0 focus-visible:ring-offset-0${voicePhase === "recording" ? " opacity-0 pointer-events-none" : ""}`}
                     onFocus={() => setInputFocused(true)}
                     onBlur={() => {
                       // CRITICAL: if iOS fires blur while recording, refocus SYNCHRONOUSLY

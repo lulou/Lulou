@@ -2912,7 +2912,7 @@ function AppContent() {
             >
               Reload App
             </button>
-            <DiagPanelInner lines={_authDiagLines} />
+            {import.meta.env.DEV && <DiagPanelInner lines={_authDiagLines} />}
           </div>
         </div>
       );
@@ -2923,8 +2923,7 @@ function AppContent() {
         <div className="flex flex-col items-center gap-3">
           <Loader2 className="w-8 h-8 text-primary animate-spin" />
           <p className="text-sm text-muted-foreground">Loading…</p>
-          {/* Temporary diagnostic strip — removed once iPhone loading is confirmed working */}
-          <DiagPanelInner lines={_authDiagLines} />
+          {import.meta.env.DEV && <DiagPanelInner lines={_authDiagLines} />}
         </div>
       </div>
     );
@@ -3027,8 +3026,7 @@ function AppContent() {
               Sign out
             </button>
           </div>
-          {/* Comprehensive diagnostics — always visible, copyable on iOS — no DevTools needed */}
-          {_bootDiag && <DiagPanelInner lines={_bootDiag} />}
+          {import.meta.env.DEV && _bootDiag && <DiagPanelInner lines={_bootDiag} />}
         </div>
       </div>
     );
@@ -3175,7 +3173,7 @@ function AppContent() {
             <p className="text-xs text-muted-foreground/60 mt-1">
               If this keeps happening, close and reopen the app.
             </p>
-            <DiagPanel />
+            {import.meta.env.DEV && <DiagPanel />}
           </div>
         </div>
       );
@@ -3237,7 +3235,7 @@ function AppContent() {
           <p className="text-xs text-muted-foreground/60 mt-1">
             If this keeps happening, close and reopen the app.
           </p>
-          <DiagPanel />
+          {import.meta.env.DEV && <DiagPanel />}
         </div>
       </div>
     );
@@ -3284,7 +3282,7 @@ function AppContent() {
               Sign Out
             </button>
           </div>
-          <DiagPanel />
+          {import.meta.env.DEV && <DiagPanel />}
         </div>
       </div>
     );
