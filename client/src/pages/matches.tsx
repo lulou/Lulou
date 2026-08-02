@@ -1993,6 +1993,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
 
       // Snapshot current state for error rollback FIRST
       const previous = queryClient.getQueryData<MatchDetail>(["/api/matches", match.id]);
+      const previousLocalSentCount = localSentCount;
 
       // Fire cancel signal immediately (no await) — the abort goes out now,
       // but we don't block on it so the optimistic update renders in the same tick.
@@ -2018,6 +2019,13 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
           matchId: match.id.slice(0, 8), tempId: vars.tempId.slice(0, 12),
         });
       }
+      // Optimistic counter decrement — badge updates immediately on send,
+      // before the server confirms.  onSuccess replaces this with the
+      // server-authoritative count; onError rolls it back.
+      const isTextMsg = !vars.content.trim().startsWith("__");
+      if (isTextMsg && callStage === 0) {
+        setLocalSentCount(c => c + 1);
+      }
       // Optimistically update last-message preview in the matches list
       queryClient.setQueryData<MatchWithProfile[]>(["/api/matches"], (list) => {
         if (!list) return list;
@@ -2027,38 +2035,94 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
             : m
         );
       });
-      return { previous };
+      return { previous, previousLocalSentCount };
     },
     onSuccess: (data: any) => {
       const realMsg = data as Message;
-      // Increment the optimistic per-stage counter so the badge decreases immediately.
-      setLocalSentCount(c => {
-        const newCount = c + 1;
-        // When this message pushes us to/past the post-call threshold in stage 1,
-        // schedule a refetch so theirPostCallCount is fresh and postCallProgressReady
-        // updates as soon as the server has incremented the DB counter.
-        if (callStage >= 1 && (myPostCallCount + newCount) >= POST_CALL_THRESHOLD) {
-          setTimeout(() => {
-            queryClient.invalidateQueries({ queryKey: ["/api/matches", match.id] });
-          }, 700);
-        }
-        return newCount;
-      });
+      const prog = (data as any).progression as {
+        user1Count: number; user2Count: number;
+        myCount: number; theirCount: number;
+        callStage: number;
+      } | null | undefined;
+
+      // ── Patch the detail cache: replace temp message + authoritative counts ──
+      // Combining both writes into one setQueryData avoids an intermediate render
+      // with a mismatched message list / count pair.
+      const cachedBefore = queryClient.getQueryData<MatchDetail>(["/api/matches", match.id]);
       queryClient.setQueryData<MatchDetail>(["/api/matches", match.id], (old) => {
         if (!old) return old;
+
+        // 1. Replace optimistic temp message with the server-confirmed real message.
         const tempIdx = old.messages.findIndex(
           m => typeof m.id === "string" && m.id.startsWith("temp-") &&
                m.content === realMsg.content && m.senderId === realMsg.senderId
         );
+        let messages: typeof old.messages;
         if (tempIdx >= 0) {
-          const updated = [...old.messages];
-          updated[tempIdx] = realMsg;
-          return { ...old, messages: updated };
+          messages = [...old.messages];
+          messages[tempIdx] = realMsg;
+        } else if (old.messages.some(m => m.id === realMsg.id)) {
+          messages = old.messages; // already present (e.g. realtime arrived first)
+        } else {
+          messages = [...old.messages, realMsg];
         }
-        const exists = old.messages.some(m => m.id === realMsg.id);
-        if (exists) return old;
-        return { ...old, messages: [...old.messages, realMsg] };
+
+        // 2. Patch message counts with the server-authoritative values from `progression`.
+        //    This eliminates the double-count that would otherwise occur once the
+        //    background 30 s refetch returns the incremented DB value alongside a
+        //    non-zero localSentCount.
+        const messageCount1 = prog?.user1Count ?? old.messageCount1;
+        const messageCount2 = prog?.user2Count ?? old.messageCount2;
+
+        if (process.env.NODE_ENV !== "production") {
+          console.log("[MESSAGE_COUNTDOWN] cache patch", {
+            matchId: match.id.slice(0, 8),
+            userId: (user?.id ?? "").slice(0, 8),
+            senderPosition: (detail.user1Id === user?.id) ? "user1" : "user2",
+            stage: prog?.callStage ?? callStage,
+            stageLimit: callStage >= 1 ? POST_CALL_THRESHOLD : effectiveLimit,
+            countBefore: (detail.user1Id === user?.id) ? old.messageCount1 : old.messageCount2,
+            serverCountAfter: prog ? ((detail.user1Id === user?.id) ? prog.user1Count : prog.user2Count) : "n/a (non-counted msg)",
+            messagesRemaining: prog
+              ? Math.max(0, (callStage >= 1 ? POST_CALL_THRESHOLD : effectiveLimit) -
+                  ((detail.user1Id === user?.id) ? (prog.user1Count ?? 0) : (prog.user2Count ?? 0)))
+              : "unchanged",
+            cacheCount1Before: old.messageCount1,
+            cacheCount1After: messageCount1,
+            cacheCount2Before: old.messageCount2,
+            cacheCount2After: messageCount2,
+          });
+        }
+
+        return { ...old, messages, messageCount1, messageCount2 };
       });
+
+      // ── Reset localSentCount — cache now holds the authoritative server count ──
+      // If progression is null (non-counted message: __VOICE__, __SCHEDULE__, etc.)
+      // the cache was not patched with new counts, so keep localSentCount as-is.
+      if (prog) {
+        setLocalSentCount(0);
+        // When this message pushes us to/past the post-call threshold in stage 1,
+        // schedule a refetch so theirPostCallCount is fresh and postCallProgressReady
+        // updates as soon as the server has incremented the DB counter.
+        if (callStage >= 1 && (prog.myCount) >= POST_CALL_THRESHOLD) {
+          setTimeout(() => {
+            queryClient.invalidateQueries({ queryKey: ["/api/matches", match.id] });
+          }, 700);
+        }
+      }
+
+      if (process.env.NODE_ENV !== "production") {
+        const patched = queryClient.getQueryData<MatchDetail>(["/api/matches", match.id]);
+        console.log("[MESSAGE_COUNTDOWN] refetch result (cache after patch)", {
+          matchId: match.id.slice(0, 8),
+          messageCount1: patched?.messageCount1,
+          messageCount2: patched?.messageCount2,
+          localSentCountAfterReset: prog ? 0 : localSentCount,
+          cacheCount1Before: cachedBefore?.messageCount1,
+          cacheCount2Before: cachedBefore?.messageCount2,
+        });
+      }
 
       setChatGuideTriggered(true);
       // Broadcast to receiver instantly (~50ms) via the realtime broadcast channel.
@@ -2069,6 +2133,10 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
     onError: (error: Error, _vars: any, context: any) => {
       if (context?.previous) {
         queryClient.setQueryData(["/api/matches", match.id], context.previous);
+      }
+      // Roll back the optimistic localSentCount increment from onMutate.
+      if (typeof context?.previousLocalSentCount === "number") {
+        setLocalSentCount(context.previousLocalSentCount);
       }
       toast({ title: t("could_not_send_title"), description: error.message, variant: "destructive" });
     },
