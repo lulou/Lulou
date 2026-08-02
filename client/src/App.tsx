@@ -2370,6 +2370,11 @@ function AppContent() {
   // shown.  Populated asynchronously — starts as "" then fills in with the
   // server-side step/error record so the user can copy the full picture.
   const [serverBootstrapDiag, setServerBootstrapDiag] = useState<string>("");
+  // Tracks whether the user's explicit "Retry" press is in-flight.
+  // retrySessionBootstrap() immediately calls setSessionBootstrapFailed(false)
+  // which hides this screen, but the disabled state prevents double-clicks in
+  // the brief moment before that re-render propagates.
+  const [isBootstrapRetrying, setIsBootstrapRetrying] = useState(false);
   const _sbDiagFetchedRef = useRef(false);
   useEffect(() => {
     if (!sessionBootstrapFailed) { _sbDiagFetchedRef.current = false; return; }
@@ -3015,10 +3020,26 @@ function AppContent() {
           </div>
           <div className="flex flex-col gap-2 w-full">
             <button
-              onClick={() => retrySessionBootstrap()}
-              className="w-full py-2.5 px-4 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors"
+              onClick={() => {
+                if (isBootstrapRetrying) return;
+                setIsBootstrapRetrying(true);
+                if (import.meta.env.DEV) console.log("[APP_RETRY] screen=session retry=pressed");
+                // retrySessionBootstrap immediately calls setSessionBootstrapFailed(false)
+                // + setIsLoading(true), so this screen transitions to the loading spinner.
+                // setIsBootstrapRetrying(false) is a safety-net for the case where the
+                // retry resolves before React re-renders this component away.
+                retrySessionBootstrap().finally(() => setIsBootstrapRetrying(false));
+              }}
+              disabled={isBootstrapRetrying}
+              className="w-full py-2.5 px-4 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
             >
-              Retry
+              {isBootstrapRetrying && (
+                <svg className="w-4 h-4 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+              )}
+              {isBootstrapRetrying ? "Retrying…" : "Retry"}
             </button>
             <button
               onClick={() => logout()}

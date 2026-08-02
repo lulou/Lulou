@@ -1439,10 +1439,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   //   5. Success path (verify OR bootstrap): clear failure flag, set isSessionReady,
   //      expose user, enter app.  Do NOT call Supabase signOut.
   const retrySessionBootstrap = useCallback(async () => {
-    // 1. Concurrency guard
+    // 1. Concurrency guard — but force-reset any stale "in-progress" flag first.
+    // If a previous bootstrap attempt hung (network timeout) and the ref was
+    // never cleared (edge-case in older code paths), the Retry button would
+    // silently do nothing.  Since this is an explicit user action we always
+    // clear the flag; the guard below only catches genuine concurrent calls
+    // that race within the same event loop turn.
     if (asyncAuthInProgressRef.current) {
-      console.warn("[AUTH] RETRY_SKIPPED — auth already in progress");
-      return;
+      console.warn("[AUTH] RETRY_FORCED — clearing stale asyncAuthInProgress guard for explicit retry");
+      asyncAuthInProgressRef.current = false;
     }
 
     setSessionBootstrapFailed(false);

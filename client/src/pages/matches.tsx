@@ -5385,6 +5385,37 @@ export default function Matches() {
     scheduleIdle(() => setVisibleCount(Infinity));
   }, [matches]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ── Connections retry state ───────────────────────────────────────────────
+  // Tracks whether an explicit "Try Again" refetch is in-flight so the button
+  // can show a spinner and disable itself.  Resets automatically when the
+  // refetch settles (success or failure).
+  const [isConnectionsRetrying, setIsConnectionsRetrying] = useState(false);
+
+  const handleConnectionsRetry = useCallback(async () => {
+    setIsConnectionsRetrying(true);
+    if (import.meta.env.DEV) {
+      console.log("[APP_RETRY] screen=connections retry=pressed queries=[/api/matches, /api/spin-requests]");
+    }
+    try {
+      // refetchQueries forces an immediate network request even when retries
+      // are exhausted; it does not reject on query failure — the query's own
+      // error state handles that.
+      await Promise.all([
+        queryClient.refetchQueries({ queryKey: ["/api/matches"] }),
+        queryClient.refetchQueries({ queryKey: ["/api/spin-requests"] }),
+      ]);
+      if (import.meta.env.DEV) {
+        console.log("[APP_RETRY] screen=connections requests=settled matchesError=", !!matchesError);
+      }
+    } catch (e: any) {
+      if (import.meta.env.DEV) {
+        console.log("[APP_RETRY] screen=connections status=exception", e?.message);
+      }
+    } finally {
+      setIsConnectionsRetrying(false);
+    }
+  }, [queryClient, matchesError]);
+
   // Perf instrumentation — dev-only, no-op in production
   useEffect(() => {
     if (matches) markDataReceived({ count: matches.length });
@@ -5494,24 +5525,35 @@ export default function Matches() {
     return (
       <div className="flex-1 flex flex-col">
         <div className="flex-1 flex items-center justify-center p-6">
-        <div className="text-center space-y-4 max-w-sm">
-          <div className="w-16 h-16 rounded-full bg-destructive/10 flex items-center justify-center mx-auto">
-            <Moon className="w-8 h-8 text-destructive" />
+          <div className="text-center space-y-4 max-w-sm">
+            <div className="w-16 h-16 rounded-full bg-destructive/10 flex items-center justify-center mx-auto">
+              <Moon className="w-8 h-8 text-destructive" />
+            </div>
+            <h2 className="font-serif text-xl font-bold" data-testid="text-matches-error">
+              {t("something_went_wrong")}
+            </h2>
+            <p className="text-muted-foreground text-sm" data-testid="text-matches-error-detail">
+              {t("we_are_having_trouble_loading")}
+            </p>
+            {import.meta.env.DEV && (
+              <p className="text-xs text-muted-foreground/70 font-mono break-all">{errMsg}</p>
+            )}
+            <button
+              className="w-full py-2.5 px-4 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2 mx-auto"
+              onClick={handleConnectionsRetry}
+              disabled={isConnectionsRetrying}
+              data-testid="button-retry-matches"
+            >
+              {isConnectionsRetrying && (
+                <svg className="w-4 h-4 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+              )}
+              {isConnectionsRetrying ? t("trying_again") : t("try_again")}
+            </button>
           </div>
-          <h2 className="font-serif text-xl font-bold" data-testid="text-matches-error">{t("something_went_wrong")}</h2>
-          <p className="text-muted-foreground text-sm" data-testid="text-matches-error-detail">{t("we_are_having_trouble_loading")}</p>
-          <button
-            className="px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:brightness-110 transition-all"
-            onClick={() => {
-              queryClient.invalidateQueries({ queryKey: ["/api/matches"] });
-              queryClient.invalidateQueries({ queryKey: ["/api/spin-requests"] });
-            }}
-            data-testid="button-retry-matches"
-          >
-            Try Again
-          </button>
         </div>
-      </div>
       </div>
     );
   }
