@@ -6,52 +6,67 @@ description: How language, units, audio transcripts, and push account preference
 ## Architecture
 
 `user_settings` table in local Neon PostgreSQL (NOT Supabase). One row per user_id (UUID PK).
-Columns: `preferred_language`, `preferred_units`, `audio_transcripts`, `push_account_enabled`, `created_at`, `updated_at`.
+Columns: `preferred_language`, `preferred_units`, `audio_transcripts`, `push_account_enabled` (NOT NULL DEFAULT false), `created_at`, `updated_at`.
 
 **Routes:** `GET /api/settings` + `PATCH /api/settings` (both require isAuthenticated).
-- GET returns `{ hasRecord: bool, preferredLanguage, preferredUnits, audioTranscripts, pushAccountEnabled }`.
-- `hasRecord: false` means no DB row yet (first time) — client should persist its localStorage values to server instead of overriding them.
+- GET upserts the row on first call (INSERT … ON CONFLICT DO NOTHING) so new users always get a row.
+- PATCH rejects unknown keys and validates types. `pushAccountEnabled` must be boolean (not null).
+- Query key: `["/api/settings", userId]` — scoped per user so Account A and B never share a cache entry.
+
+## Hydration — SettingsHydrationProvider (added 2026-08-02)
+
+`client/src/contexts/settings-hydration-context.tsx` wraps the full app (inside AuthProvider in App.tsx).
+Fires `GET /api/settings` the moment `user` is set — before the Settings page is ever opened.
+React Query deduplicates this with any `useQuery(["/api/settings", userId])` call in settings.tsx.
+
+- Calls `setLanguage` / `setUnits` when the server row arrives, keyed on `serverSettings.userId`.
+- Resets both to defaults ("English" / "miles") when `user` becomes null (logout).
+- Exposes `settingsHydrated: boolean` via `useSettingsHydration()` — false until server row arrives.
+
+**Why needed:** Before this, the hydration effect only ran inside settings.tsx (visited rarely), so French/km users saw English/miles on every other page until they opened Settings.
 
 ## Contexts (language + units)
 
-`language-context.tsx` and `units-context.tsx` no longer use Supabase `auth.updateUser`.
-- State initializes from localStorage (fast, avoids flicker).
-- `setLanguage(lang)` / `setUnits(u)` update state + localStorage + PATCH `/api/settings` (fire-and-forget, silently ignores 401 when unauthenticated).
+`language-context.tsx` and `units-context.tsx`:
+- No localStorage read on init (would leak Account A's preference to Account B on the same device).
+- `setLanguage(lang)` / `setUnits(u)` update in-memory state only.
+- PATCH /api/settings is the caller's responsibility (so optimistic rollback works).
+- `queryClient.clear()` at logout clears the cache; SettingsHydrationProvider resets contexts.
 
-**Why:** Supabase `user_metadata` is per-device/session and lost on token refresh; also blocked by the `auth.updateUser` network call being unreliable.
+## Settings page (settings.tsx)
 
-## Settings page sync (settings.tsx)
+`useQuery(["/api/settings", user?.id], staleTime=30s)` — same cache entry as SettingsHydrationProvider.
+`useMutation(PATCH /api/settings)` with full optimistic update + rollback + error toast for:
+  language, units, audioTranscripts.
 
-`useQuery(["/api/settings"], staleTime=30s)` + `useMutation(PATCH /api/settings)`.
-
-**First-time flow** (`hasRecord: false`): persist current localStorage (language, units, audioTranscripts) to server. Server adopts the user's prior choices.
-
-**Returning flow** (`hasRecord: true`): server values win — call `setLanguage`/`setUnits`/`setAudioTranscripts` with server values if they differ. This covers the multi-device case (changed on device B, now opening on device A).
-
-`audioTranscripts`: was localStorage-only (`useToggle`). Now persisted via PATCH when it changes. Skips write if value matches what was just synced from server (prevents echo-write).
+Profile-stored toggles (show_last_active, comment_filter, conversation_starter_ai):
+- **No longer use useToggle / localStorage** (removed 2026-08-02 — leaked across accounts).
+- Derived directly from the profile query: `profile?.showLastActive ?? true`, etc.
+- `updateProfileSetting` mutation: `POST /api/profile`, optimistic cache update, rollback on error, destructive toast.
 
 ## Push account preference (use-push-notifications.ts)
 
-New state: `accountPreference: boolean | null` (null = never set).
-New computed: `needsReconnect = accountPreference === true && !isSubscribed`.
+State: `accountPreference: boolean | undefined`
+- `undefined` = not yet loaded (before GET /api/settings completes)
+- `false` = loaded, disabled
+- `true` = loaded, enabled
 
-On mount: fetches `/api/settings` to get `pushAccountEnabled` → sets `accountPreference`. This prevents the push toggle from flashing OFF on refresh (account preference is known before the browser's PushManager check).
+`needsReconnect = accountPreference === true && !isSubscribed`
+
+The stale-subscription cleanup gates on `accountPreference !== false`, which skips `undefined` correctly
+so it does not fire prematurely on mount before the server row has been read.
 
 On subscribe: PATCH `{ pushAccountEnabled: true }` + `setAccountPreference(true)`.
 On unsubscribe: PATCH `{ pushAccountEnabled: false }` + `setAccountPreference(false)`.
 
 ## Push toggle UI (settings.tsx)
 
-Toggle `checked = pushAccountPreference === true || (pushAccountPreference === null && pushSubscribed)`.
-When `needsReconnect && !pushLoading`: amber reconnect banner with "Reconnect" button.
+`checked={pushAccountPreference === true}` — false while loading (undefined), correct once loaded.
+Amber reconnect banner when `needsReconnect && !pushLoading`.
 
-**Why:** Old toggle showed `checked={pushSubscribed}` which flashed OFF on refresh until PushManager resolved. New approach shows the account-level intent immediately.
+## Schema / migration files
 
-## Startup guard
-
-`user_settings` CREATE TABLE added to the `server/index.ts` startup block (line ~427). Safe to re-run (`IF NOT EXISTS`). Also manually migrated in prod Neon DB (2026-08-02).
-
-## Dev logging
-
-- `[SETTINGS_PERSISTENCE]` — server fetch/patch logs; client sync and change logs.
-- `[PUSH_SUBSCRIPTION]` — replaces `[PUSH]` prefix in push hook for subscription events.
+- `supabase/migrations/add_user_settings_table.sql` — original table creation
+- `supabase/migrations/amend_push_not_null.sql` — back-fills NULL→false, adds NOT NULL DEFAULT false
+- `server/index.ts` startup DDL updated to match (NOT NULL DEFAULT false)
+- `shared/schema.ts`: `pushAccountEnabled: boolean("push_account_enabled").notNull().default(false)`
