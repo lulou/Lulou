@@ -1,0 +1,183 @@
+Fix every dead Retry / Try Again button across Lulou.
+
+Current production problem:
+
+- Connections shows “Something went wrong”
+- Pressing “Try Again” does nothing
+- The earlier “Session verification failed” screen also had a Retry button that did nothing
+
+This suggests the app has multiple error screens using buttons that either:
+- have no working handler
+- only update visual state
+- retry the wrong query
+- remain disabled
+- are blocked by an overlay
+- or call a stale callback
+
+Do not change:
+- messaging quotas
+- call progression
+- availability
+- chat gestures
+- profile gestures
+- settings
+- authentication rules
+
+REQUIRED INVESTIGATION
+
+Find every error/retry component in the client, including:
+
+- “Something went wrong”
+- “Try Again”
+- “Session verification failed”
+- “Retry”
+- failed Connections loading
+- failed Likes loading
+- failed Intent/Discover loading
+- global error boundary
+- session/bootstrap failure screen
+
+For each button, report:
+
+- component/file
+- exact onClick handler
+- exact query/request it retries
+- whether it is disabled
+- whether an overlay blocks it
+- whether it uses a stale closure
+- whether the request actually fires in the Network tab
+
+FIX THE CONNECTIONS TRY AGAIN BUTTON
+
+When pressed it must:
+
+1. Show a visible loading state:
+  - button text changes to “Trying again…”
+  - button disables only while the request is active
+
+2. Retry the actual failed Connections requests:
+  - selected account/session verification if required
+  - matches/connections list
+  - unread counts
+  - any required profile/session bootstrap dependency
+
+3. Use the exact React Query keys used by the Connections page.
+
+4. Clear only the relevant error state.
+
+5. On success:
+  - render the Connections page immediately
+
+6. On failure:
+  - keep the error screen visible
+  - re-enable the button
+  - show the real error message or status
+  - do not silently do nothing
+
+Do not use only:
+
+window.location.reload()
+
+as the primary fix.
+
+A reload fallback may exist only after the proper retry fails.
+
+FIX SESSION RETRY
+
+The Session verification Retry button must:
+
+- re-run the actual server session verification request
+- refresh the Supabase access token first if necessary
+- use the current authenticated session
+- enter the app on success
+- show the real failure on error
+- never remain stuck in a loading state
+
+FIX SIGN OUT ON ERROR SCREENS
+
+Sign out must work even when Railway is unavailable.
+
+It must:
+
+- call Supabase signOut
+- clear local auth/session state
+- clear React Query cache
+- clear active-session state
+- navigate to the login screen
+
+It must not depend on a successful Railway request.
+
+SHARED RETRY COMPONENT
+
+If multiple screens use duplicated broken retry code, create one shared error-retry component or shared retry helper.
+
+Required props:
+
+- retry callback
+- retrying state
+- title
+- message
+- optional sign-out callback
+
+Do not create a second unrelated error system.
+
+ADD DEVELOPMENT LOGGING
+
+Use:
+
+[APP_RETRY]
+
+Log:
+
+- screen/component
+- retry pressed
+- queries invalidated
+- requests started
+- response status
+- success/failure
+- error message
+
+Do not expose logs in production UI.
+
+CHECK THE BACKEND FIRST
+
+Before assuming it is purely frontend, inspect the exact failed request on this Connections screen.
+
+Report:
+
+- request URL
+- HTTP status
+- response body
+- whether Railway is healthy
+- whether the frontend is pointing at the correct API base URL
+- whether authentication headers are present
+
+If the backend is unavailable, the button must still visibly retry and show that failure—it must never appear dead.
+
+REAL TEST
+
+1. Force the Connections request to fail.
+2. Confirm the error screen appears.
+3. Restore the backend.
+4. Press Try Again.
+5. Confirm the button shows loading.
+6. Confirm the request fires.
+7. Confirm Connections loads without refreshing the page.
+8. Test failure again and confirm the button re-enables.
+9. Test Session verification Retry.
+10. Test Sign out while Railway is unavailable.
+
+Report:
+
+- exact cause of the dead button
+- exact failed request/status
+- files changed
+- shared retry logic used
+- commit hash
+- pushed to origin/main
+- Vercel deployed commit
+- Railway deployed commit
+- live Retry PASS/FAIL
+- live Sign out PASS/FAIL
+
+Do not report PASS from code inspection.
