@@ -1,0 +1,130 @@
+The countdown still fails in production.
+
+Observed real behaviour:
+
+- Start: 15 left
+- Send message: briefly shows 14
+- Then it jumps back to 15
+- After sending 3 messages, it still ends up showing 15
+
+This proves the optimistic decrement works, but the canonical server/refetch data is still returning the old count.
+
+Do not change the UI formula again.
+Do not add another local counter.
+Do not mask the problem with more optimistic state.
+
+Investigate the real persisted count.
+
+REQUIRED LIVE TRACE
+
+For one real message send, capture and report:
+
+1. Before send:
+- match ID
+- authenticated user ID
+- whether user is user1 or user2
+- database message_count_1
+- database message_count_2
+
+2. POST message response:
+- full progression object returned
+- user1Count
+- user2Count
+- stage
+- messagesLeft
+
+3. Immediately after send:
+- database message_count_1
+- database message_count_2
+
+4. Match-detail refetch response:
+- messageCount1
+- messageCount2
+- callStage
+
+5. React Query cache:
+- value before optimistic patch
+- value after optimistic patch
+- value after server response patch
+- value after background refetch
+
+ROOT CAUSE TO FIND
+
+Determine exactly which is happening:
+
+A. Database counter never increments.
+B. Server increments the wrong user column.
+C. POST response returns stale counts.
+D. GET match detail maps the wrong DB fields.
+E. Refetch reads from a different database/environment.
+F. Cache key mismatch causes another stale query to overwrite it.
+G. Message insert succeeds but counter update transaction fails.
+H. The deployed frontend/backend commits are mismatched.
+
+REQUIRED SERVER FIX
+
+The message send route must:
+
+- identify sender from authenticated session
+- identify whether sender is user1 or user2
+- insert message and increment only that sender’s count
+- do both in one transaction
+- use UPDATE ... RETURNING
+- return the updated canonical count from that transaction
+- reject duplicate sends without double incrementing
+
+After commit, a direct DB read for the same match must show the incremented value.
+
+REQUIRED GET/MAPPING FIX
+
+Verify the match-detail endpoint returns:
+
+- DB message_count_1 as messageCount1
+- DB message_count_2 as messageCount2
+
+No stale aliases.
+No fallback to 0.
+No use of old cached list values when detail exists.
+
+DEPLOYMENT CONSISTENCY
+
+Confirm:
+
+- Vercel frontend commit
+- Railway backend commit
+- both are from the same pushed main state
+- Railway is connected to the same production database being inspected
+
+This is important because the current symptom can happen if:
+- frontend has the new optimistic patch
+- backend is still on old code
+
+REAL PASS CONDITION
+
+Send 3 messages from the same account:
+
+- 15 → 14
+- 14 → 13
+- 13 → 12
+
+Then refresh:
+- still 12
+
+Check database:
+- sender count increased by exactly 3
+- recipient count unchanged
+
+Report only:
+
+- exact root cause
+- DB counts before/after
+- POST response counts
+- GET refetch counts
+- deployed Vercel commit
+- deployed Railway commit
+- files changed
+- commit hash
+- pushed to origin/main
+- live PASS/FAIL
+
+Do not make another client-only workaround.
