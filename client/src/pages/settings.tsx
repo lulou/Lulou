@@ -73,7 +73,7 @@ import {
   Cookie,
   Receipt,
 } from "lucide-react";
-import type { Profile, BlockedContact, RefundRecord } from "@shared/schema";
+import type { Profile, BlockedContact, RefundRecord, UserSettings } from "@shared/schema";
 import { useLanguageContext } from "@/contexts/language-context";
 import { LulouGuidePreview } from "@/components/lulou-guide";
 import { GUIDE_KEYS, resetGuide } from "@/lib/guide-store";
@@ -130,48 +130,51 @@ export default function SettingsPage() {
     });
   }, [unreadRefunds, toast]);
 
-  // ── Toggle preferences ────────────────────────────────────────────────────
-  const [showLastActive,    setShowLastActive]    = useToggle("show_last_active", true);
-  const [commentFilter,     setCommentFilter]     = useToggle("comment_filter", true);
-  const [aiStarters,        setAiStarters]        = useToggle("conversation_starter_ai", true);
+  // ── Profile-visibility / AI toggles ──────────────────────────────────────
+  // Derived directly from the server-side profile query — no localStorage.
+  // Using localStorage would leak Account A's values into Account B's session.
+  // The profile query is cleared on logout (queryClient.clear()) so stale values
+  // from a previous account never appear here.
+  const showLastActive = profile?.showLastActive ?? true;
+  const commentFilter  = (profile as any)?.commentFilter    ?? true;
+  const aiStarters     = (profile as any)?.conversationStarterAi ?? true;
 
-  // Sync all three settings from server profile on initial load (overrides stale localStorage).
-  useEffect(() => {
-    if (!profile) return;
-    if (profile.showLastActive !== undefined && profile.showLastActive !== null) {
-      setShowLastActive(profile.showLastActive);
-    }
-    if ((profile as any).commentFilter !== undefined && (profile as any).commentFilter !== null) {
-      setCommentFilter((profile as any).commentFilter);
-    }
-    if ((profile as any).conversationStarterAi !== undefined && (profile as any).conversationStarterAi !== null) {
-      setAiStarters((profile as any).conversationStarterAi);
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [profile?.userId]);
+  // Shared mutation for profile-stored settings (show_last_active, comment_filter,
+  // conversation_starter_ai).  Optimistic update + rollback on failure + error toast.
+  const updateProfileSetting = useMutation<Profile, Error, Record<string, unknown>, { prev: Profile | undefined }>({
+    mutationFn: async (patch) => {
+      const res = await apiRequest("POST", "/api/profile", patch);
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error((body as any).message ?? "Couldn't save setting");
+      }
+      return res.json() as Promise<Profile>;
+    },
+    onMutate: async (patch) => {
+      await qc.cancelQueries({ queryKey: ["/api/profile"] });
+      const prev = qc.getQueryData<Profile>(["/api/profile"]);
+      qc.setQueryData<Profile>(["/api/profile"], (old) =>
+        old ? ({ ...old, ...patch } as Profile) : old,
+      );
+      return { prev };
+    },
+    onSuccess: (saved) => {
+      qc.setQueryData(["/api/profile"], saved);
+    },
+    onError: (err, _patch, ctx) => {
+      if (ctx?.prev) qc.setQueryData(["/api/profile"], ctx.prev);
+      toast({ title: t("failed_toast"), description: (err as Error).message, variant: "destructive" });
+    },
+  });
 
-  // Save settings to server whenever they change.
-  useEffect(() => {
-    if (!user) return;
-    apiRequest("POST", "/api/profile", { showLastActive }).catch(() => {});
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showLastActive]);
-  useEffect(() => {
-    if (!user) return;
-    apiRequest("POST", "/api/profile", { commentFilter }).catch(() => {});
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [commentFilter]);
-  useEffect(() => {
-    if (!user) return;
-    apiRequest("POST", "/api/profile", { conversationStarterAi: aiStarters }).catch(() => {});
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [aiStarters]);
-  const [audioTranscripts,  setAudioTranscripts]  = useToggle("audio_transcripts", false);
+  // audioTranscripts is driven by the server (via settingsQuery) — not localStorage.
   const {
     isSupported:        pushSupported,
     isIosSafari:        pushIsIosSafari,
     permission:         pushPermission,
     isSubscribed:       pushSubscribed,
+    accountPreference:  pushAccountPreference,
+    needsReconnect:     pushNeedsReconnect,
     preferences:        pushPrefs,
     isLoading:          pushLoading,
     error:              pushError,
@@ -180,6 +183,25 @@ export default function SettingsPage() {
     unsubscribe:        pushUnsubscribeRaw,
     updatePreference:   updatePushPref,
   } = usePushNotifications();
+
+  // ── Server settings — source of truth for language, units, audio, push pref ──
+  // Keyed by userId so Account A and Account B never share a React Query cache entry.
+  // enabled: !!user prevents the query firing before auth is resolved.
+  const settingsQuery = useQuery<UserSettings>({
+    queryKey:  ["/api/settings", user?.id],
+    staleTime: 30_000,
+    enabled:   !!user,
+  });
+  const serverSettings = settingsQuery.data;
+  // Block audio-transcripts toggle until the first server load completes.
+  const settingsLoading = !!user && settingsQuery.isPending && !serverSettings;
+  // audioTranscripts: read from server cache (optimistic updates keep it reactive).
+  const audioTranscripts = serverSettings?.audioTranscripts ?? true;
+
+  // Language/units hydration is handled globally by SettingsHydrationProvider
+  // (client/src/contexts/settings-hydration-context.tsx), which fires
+  // GET /api/settings the moment the user authenticates — not only when this
+  // page is open.  No duplicate effect needed here.
 
   // Show any push error as a toast
   useEffect(() => {
@@ -197,13 +219,19 @@ export default function SettingsPage() {
       }
     };
     const ok = await pushSubscribeRaw(onStep);
-    if (ok) toast({ title: "✓ Notifications enabled", description: "You'll receive push notifications on this device." });
-  }, [pushSubscribeRaw]);
+    if (ok) {
+      toast({ title: "✓ Notifications enabled", description: "You'll receive push notifications on this device." });
+      // Refresh settings cache so the confirmed pushAccountEnabled: true is visible.
+      qc.invalidateQueries({ queryKey: ["/api/settings", user?.id] });
+    }
+  }, [pushSubscribeRaw, qc, user?.id]);
 
   const pushUnsubscribe = useCallback(async () => {
     await pushUnsubscribeRaw();
     toast({ title: "Notifications disabled" });
-  }, [pushUnsubscribeRaw]);
+    // Refresh settings cache so the confirmed pushAccountEnabled: false is visible.
+    qc.invalidateQueries({ queryKey: ["/api/settings", user?.id] });
+  }, [pushUnsubscribeRaw, qc, user?.id]);
 
   const PUSH_CATS: Array<{ key: NotifCategory; label: string; Icon: typeof Heart }> = [
     { key: "newMatch"     as NotifCategory, label: "Matches",       Icon: Heart      },
@@ -228,6 +256,49 @@ export default function SettingsPage() {
 
   // ── Units ─────────────────────────────────────────────────────────────────
   const [units, setUnits] = useUnits();
+
+  // ── Unified settings mutation ─────────────────────────────────────────────
+  // Defined here (after setLanguage and setUnits) so the onError rollback can
+  // call both functions.  PATCH sends only the changed field — not the full
+  // stale object — so simultaneous changes from another device are preserved.
+  const updateSetting = useMutation<UserSettings, Error, Record<string, unknown>, { prev: UserSettings | undefined }>({
+    mutationFn: async (data) => {
+      const res = await apiRequest("PATCH", "/api/settings", data);
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error((body as any).message ?? "Couldn't save setting");
+      }
+      return res.json() as Promise<UserSettings>;
+    },
+    onMutate: async (newData) => {
+      // Prevent in-flight refetch from overwriting our optimistic state.
+      await qc.cancelQueries({ queryKey: ["/api/settings", user?.id] });
+      const prev = qc.getQueryData<UserSettings>(["/api/settings", user?.id]);
+      // Apply optimistically so the UI reacts instantly.
+      qc.setQueryData<UserSettings>(["/api/settings", user?.id], (old) =>
+        old ? ({ ...old, ...newData } as UserSettings) : old,
+      );
+      return { prev };
+    },
+    onSuccess: (saved) => {
+      // Replace the cache with the confirmed server row to eliminate any drift.
+      qc.setQueryData<UserSettings>(["/api/settings", user?.id], saved);
+    },
+    onError: (err, newData, ctx) => {
+      // Rollback cache to pre-mutation snapshot.
+      if (ctx?.prev) {
+        qc.setQueryData<UserSettings>(["/api/settings", user?.id], ctx.prev);
+        // Rollback context values that were optimistically updated.
+        if (newData.preferredLanguage != null && ctx.prev.preferredLanguage) {
+          setLanguage(ctx.prev.preferredLanguage);
+        }
+        if (newData.preferredUnits != null && ctx.prev.preferredUnits) {
+          setUnits(ctx.prev.preferredUnits as "miles" | "km");
+        }
+      }
+      toast({ title: "Couldn't save setting", description: err.message, variant: "destructive" });
+    },
+  });
 
   // ── Data export ───────────────────────────────────────────────────────────
   const [isExporting, setIsExporting] = useState(false);
@@ -896,7 +967,7 @@ export default function SettingsPage() {
             trailing={
               <Switch
                 checked={showLastActive}
-                onCheckedChange={setShowLastActive}
+                onCheckedChange={(v) => updateProfileSetting.mutate({ showLastActive: v })}
                 data-testid="switch-last-active"
               />
             }
@@ -927,7 +998,7 @@ export default function SettingsPage() {
             trailing={
               <Switch
                 checked={commentFilter}
-                onCheckedChange={setCommentFilter}
+                onCheckedChange={(v) => updateProfileSetting.mutate({ commentFilter: v })}
                 data-testid="switch-comment-filter"
               />
             }
@@ -944,7 +1015,7 @@ export default function SettingsPage() {
             trailing={
               <Switch
                 checked={aiStarters}
-                onCheckedChange={setAiStarters}
+                onCheckedChange={(v) => updateProfileSetting.mutate({ conversationStarterAi: v })}
                 data-testid="switch-ai-starters"
               />
             }
@@ -958,7 +1029,8 @@ export default function SettingsPage() {
             trailing={
               <Switch
                 checked={audioTranscripts}
-                onCheckedChange={setAudioTranscripts}
+                onCheckedChange={(v) => updateSetting.mutate({ audioTranscripts: v })}
+                disabled={settingsLoading}
                 data-testid="switch-audio-transcripts"
               />
             }
@@ -1066,16 +1138,18 @@ export default function SettingsPage() {
                 description={
                   pushLoading && pushDebugStep
                     ? pushDebugStep
-                    : pushSubscribed
-                      ? t("push_notif_desc")
-                      : "Tap to enable push notifications on this device"
+                    : pushNeedsReconnect
+                      ? "Notifications enabled for your account — reconnect this device"
+                      : pushAccountPreference === true
+                        ? t("push_notif_desc")
+                        : "Tap to enable push notifications on this device"
                 }
                 trailing={
                   pushLoading ? (
                     <span className="text-xs text-muted-foreground px-2 animate-pulse">…</span>
                   ) : (
                     <Switch
-                      checked={pushSubscribed}
+                      checked={pushAccountPreference === true}
                       onCheckedChange={(v) => v ? pushSubscribe() : pushUnsubscribe()}
                       data-testid="switch-push-notifications"
                     />
@@ -1084,6 +1158,23 @@ export default function SettingsPage() {
                 showChevron={false}
                 testId="row-push-notifications"
               />
+              {/* Reconnect banner: account preference is "on" but device lost its subscription */}
+              {pushNeedsReconnect && !pushLoading && (
+                <div className="mx-4 mb-1 px-3 py-2.5 rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 flex items-center justify-between gap-3">
+                  <p className="text-xs text-amber-800 dark:text-amber-300 flex-1">
+                    This device is no longer subscribed. Tap Reconnect to resume notifications here.
+                  </p>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="shrink-0 h-7 text-xs border-amber-300 dark:border-amber-700 text-amber-800 dark:text-amber-300"
+                    onClick={pushSubscribe}
+                    data-testid="button-push-reconnect"
+                  >
+                    Reconnect
+                  </Button>
+                </div>
+              )}
               {pushSubscribed && PUSH_CATS.map(({ key, label, Icon }) => (
                 <SettingRow
                   key={key}
@@ -1878,7 +1969,11 @@ export default function SettingsPage() {
               <button
                 key={lang}
                 className="w-full px-5 py-3.5 flex items-center justify-between text-start hover:bg-muted/50 transition-colors border-b border-border/40"
-                onClick={() => { setLanguage(lang); setActiveSheet(null); }}
+                onClick={() => {
+                  setLanguage(lang);
+                  updateSetting.mutate({ preferredLanguage: lang });
+                  setActiveSheet(null);
+                }}
                 data-testid={`button-language-${lang.toLowerCase().replace(/\s/g, "-")}`}
               >
                 <span className="text-sm">{lang}</span>
@@ -1902,7 +1997,11 @@ export default function SettingsPage() {
               <button
                 key={u}
                 className="w-full px-5 py-4 flex items-center justify-between text-start hover:bg-muted/50 transition-colors border-b border-border/40"
-                onClick={() => { setUnits(u); setActiveSheet(null); }}
+                onClick={() => {
+                  setUnits(u as "miles" | "km");
+                  updateSetting.mutate({ preferredUnits: u });
+                  setActiveSheet(null);
+                }}
                 data-testid={`button-units-${u}`}
               >
                 <div>

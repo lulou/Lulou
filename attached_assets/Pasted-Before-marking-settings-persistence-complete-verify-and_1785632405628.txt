@@ -1,0 +1,128 @@
+Before marking settings persistence complete, verify and fix these remaining issues.
+
+1. SETTINGS HYDRATION
+
+LanguageContext and UnitsContext currently default to English and miles before /api/settings loads.
+
+For an authenticated returning user:
+
+- do not apply those defaults to the rendered application before their server settings are known
+- expose a settingsHydrated/loading state
+- delay rendering settings-dependent UI or show a neutral loading state
+- do not flash English before a saved language loads
+- do not briefly apply miles before saved kilometres load
+- official defaults should only be committed for a genuinely new server settings row
+
+2. PUSH ACCOUNT PREFERENCE TYPE
+
+Make push_account_enabled a strict NOT NULL boolean with an official default.
+
+Do not store null as an account preference.
+
+Represent loading using client query state:
+
+- undefined/loading before GET completes
+- true when enabled
+- false when disabled
+
+Update:
+
+- schema
+- migration
+- GET/PATCH validation
+- push hook
+- Settings toggle
+
+The toggle must never infer loading from a database null value.
+
+Make the migration backward compatible:
+
+- convert existing null values to the official default
+- add NOT NULL safely
+- preserve explicit true and false values
+
+3. VERIFY ALL OTHER SETTINGS SAVE SAFELY
+
+Audit every Settings-page toggle stored outside user_settings:
+
+- profiles.show_last_active
+- profiles.comment_filter
+- profiles.conversation_starter_ai
+- profiles.is_paused
+- notification_preferences fields
+
+For each setting confirm:
+
+- authenticated user ID is derived server-side
+- update is awaited
+- optimistic UI has rollback on failure
+- error toast appears on failure
+- refresh restores the saved value
+- account switching does not leak state
+- feature behaviour reads the same stored value shown in Settings
+
+Do not only fix language, units and audio transcripts.
+
+4. QUERY CACHE CLEANUP ON ACCOUNT CHANGE
+
+When the authenticated user changes or logs out:
+
+- cancel in-flight settings requests for the previous user
+- remove or isolate the previous user’s settings query
+- clear context state before hydrating the next account
+- prevent a late response from Account A overwriting Account B
+
+Keep settings query keys scoped by user ID.
+
+5. PRODUCTION MIGRATION VERIFICATION
+
+Confirm:
+
+- add_user_settings_table.sql is committed
+- the production Railway database has the table
+- all required columns, unique constraints and defaults exist
+- the authenticated API can GET and PATCH a real production row
+- no startup-only table creation is required for correctness
+
+6. REQUIRED TESTS
+
+Test on the same browser:
+
+Account A:
+- set language, units, transcripts, push, paused, last active, AI and comment filter
+- refresh and fully reopen
+- verify all persist
+
+Then:
+- log out
+- log into Account B
+- verify Account A’s values never appear, even briefly
+- change Account B’s settings
+- return to Account A and verify its original values restore
+
+Failure test:
+- force a PATCH failure
+- verify the toggle rolls back and an error appears
+
+Push:
+- enable account preference
+- remove only the device subscription
+- refresh
+- verify toggle remains enabled and Reconnect appears
+- disable preference
+- verify stale subscription is cleaned and toggle remains off
+
+Report:
+
+- hydration/loading implementation
+- push_account_enabled final database type/default
+- migration amendment filename
+- persistence behaviour for every Settings toggle
+- query cleanup on account changes
+- commit hash
+- pushed to origin/main
+- Vercel deployed commit
+- Railway deployed commit
+- real tests PASS/FAIL
+
+Do not report PASS from code inspection.

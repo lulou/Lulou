@@ -1,5 +1,5 @@
 import { sql, relations } from "drizzle-orm";
-import { pgTable, text, varchar, integer, boolean, timestamp, index, doublePrecision, json, primaryKey } from "drizzle-orm/pg-core";
+import { pgTable, text, uuid, varchar, integer, boolean, timestamp, index, doublePrecision, json, primaryKey } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -76,6 +76,9 @@ export const matches = pgTable("matches", {
   meetAvailability2: text("meet_availability_2"),
   callAvail1: varchar("call_avail_1"),
   callAvail2: varchar("call_avail_2"),
+  callAvail1At: timestamp("call_avail_1_at"),
+  callAvail2At: timestamp("call_avail_2_at"),
+  agreedCallAt: timestamp("agreed_call_at"),
   numberExchanged1: boolean("number_exchanged_1").default(false),
   numberExchanged2: boolean("number_exchanged_2").default(false),
   dateChoiceUser1: text("date_choice_user1"),
@@ -310,8 +313,22 @@ export const notificationPreferences = pgTable("notification_preferences", {
   updatedAt:    timestamp("updated_at").defaultNow(),
 });
 
+// ── User Settings (persisted account-level preferences) ───────────────────────
+// One row per authenticated user. Created lazily on first PATCH /api/settings.
+// Stores everything that must survive refresh, logout, and device change.
+export const userSettings = pgTable("user_settings", {
+  userId:              uuid("user_id").primaryKey(),
+  preferredLanguage:   text("preferred_language").default("English"),
+  preferredUnits:      text("preferred_units").default("miles"),
+  audioTranscripts:    boolean("audio_transcripts").default(true),
+  pushAccountEnabled:  boolean("push_account_enabled").notNull().default(false),
+  createdAt:           timestamp("created_at").defaultNow(),
+  updatedAt:           timestamp("updated_at").defaultNow(),
+});
+
 export type PushSubscription     = typeof pushSubscriptions.$inferSelect;
 export type NotificationPrefs    = typeof notificationPreferences.$inferSelect;
+export type UserSettings         = typeof userSettings.$inferSelect;
 
 // ── Active Chat Sessions (push suppression for same-chat recipients) ──────────
 // One row per user — tracks the matchId they are currently viewing.

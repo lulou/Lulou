@@ -1,0 +1,222 @@
+The settings persistence implementation needs production-safety corrections before deployment.
+
+Do not remove the new GET /api/settings and PATCH /api/settings architecture, but fix the following issues.
+
+ISSUE 1 — CREATE A REAL DATABASE MIGRATION
+
+The user_settings table must not rely only on startup auto-creation.
+
+Create and commit a proper migration using the project’s existing migration system.
+
+Requirements:
+
+- one user_settings row per authenticated user
+- user_id must be unique
+- preserve any table/data already created manually
+- use IF NOT EXISTS where supported
+- do not drop or reset existing data
+- ensure Railway and every future environment receive the schema
+- startup verification may remain only as a non-destructive safety check, not as the primary migration mechanism
+
+Report the exact migration filename.
+
+ISSUE 2 — DO NOT COPY SETTINGS BETWEEN ACCOUNTS
+
+The current first-time logic does this:
+
+hasRecord: false
+→ upload current localStorage values to the new user’s server record
+
+This is unsafe on shared devices or after account switching. localStorage may contain the previous account’s language, units or transcript preference.
+
+Required fix:
+
+- namespace any local cache by authenticated user ID
+- never use unscoped keys such as preferred_language as account truth
+- when the authenticated user changes, clear all in-memory settings state from the previous account
+- fetch the new account’s server settings before enabling the Settings controls
+- for a user with no server record, initialise from official product defaults, not arbitrary unscoped localStorage
+- only migrate legacy localStorage values when they can be safely associated with the same authenticated user
+- document and remove legacy keys after successful one-time migration
+
+Account A’s preferences must never appear in Account B.
+
+ISSUE 3 — SERVER MUST BE THE SOURCE OF TRUTH
+
+Do not initialise authenticated account settings from localStorage and silently sync later.
+
+Required startup flow:
+
+1. Resolve authenticated user.
+2. Set settings status to loading.
+3. Fetch /api/settings.
+4. If a record exists, hydrate from the server.
+5. If no record exists, create official defaults server-side and return them.
+6. Only then render interactive settings controls.
+7. Optionally cache the confirmed result under a user-specific key for offline display.
+
+Do not briefly render another account’s values or hardcoded toggle states.
+
+ISSUE 4 — DO NOT USE FIRE-AND-FORGET SAVES
+
+setLanguage, setUnits and every other setting update must await persistence.
+
+Required update behaviour:
+
+- optimistically update the UI
+- PATCH /api/settings
+- confirm the saved server response
+- update the query cache from that response
+- if the request fails:
+ - restore the previous value
+ - show a clear error toast
+ - do not claim the setting was saved
+- prevent stale responses from overwriting newer choices
+- invalidate/refetch where necessary
+
+Add a saving state when repeated interaction could create conflicting writes.
+
+ISSUE 5 — FIX PUSH TOGGLE SEMANTICS
+
+The account preference and the current device subscription must remain separate.
+
+Do not calculate the main toggle using:
+
+accountPreference === true || subscriptionExists
+
+That can show notifications as enabled when the account preference is explicitly false.
+
+Required states:
+
+Account preference:
+- enabled
+- disabled
+- loading
+
+Device state:
+- subscribed
+- permission denied
+- permission prompt
+- subscription missing
+- unsupported context
+
+The primary toggle must reflect only the saved account preference.
+
+Then show device status separately:
+
+- preference enabled + subscribed:
+ “Notifications active on this device”
+
+- preference enabled + subscription missing:
+ “Notifications are enabled for your account. Reconnect this device.”
+
+- preference enabled + unsupported iPhone browser context:
+ preserve the enabled account preference and explain the installation requirement
+
+- preference disabled:
+ toggle is off even if a stale browser subscription still exists; clean up that subscription
+
+When enabling:
+
+1. Save account preference.
+2. Request permission from the direct user action.
+3. Register the service worker.
+4. create/get the device subscription.
+5. persist that subscription.
+6. only show device active after all steps succeed.
+
+If device subscription fails, preserve the account preference and show reconnect required.
+
+When disabling:
+
+- save account preference false
+- unsubscribe this device
+- deactivate/remove its server subscription
+- do not display the toggle as enabled because a stale subscription was found
+
+ISSUE 6 — PERSIST ALL ACCOUNT SETTINGS
+
+The current table only stores:
+
+- preferred_language
+- preferred_units
+- audio_transcripts
+- push_account_enabled
+
+Inspect the real Settings page and persist every account-level preference currently available, including where present:
+
+- paused account
+- last-active visibility
+- conversation-starter AI
+- comment filter
+- notification categories
+- audio transcripts
+- language
+- units
+- marketing/contact preferences
+- other existing toggles
+
+Do not create duplicate fields where preferences already exist in profiles or another table.
+
+Feature logic and the Settings UI must read the same database value.
+
+ISSUE 7 — VALIDATE AND AUTHORISE SERVER UPDATES
+
+GET and PATCH /api/settings must:
+
+- derive user_id from the authenticated session
+- never accept another user ID from the client
+- validate every field
+- reject unknown fields
+- validate allowed language and unit values
+- update updated_at
+- return the complete canonical saved settings object
+
+Use an atomic upsert to ensure only one record exists per user.
+
+ISSUE 8 — CONCURRENT AND MULTI-DEVICE SAFETY
+
+Prevent one stale device from overwriting unrelated newer values.
+
+PATCH must update only fields supplied in the request.
+
+Do not send the entire stale settings object for every toggle.
+
+Test simultaneous changes from two devices and confirm unrelated fields are preserved.
+
+REAL TESTS
+
+1. Account A selects a non-default language, units and transcript setting.
+2. Refresh and fully reopen the app.
+3. Confirm all values persist.
+4. Log out.
+5. Log into Account B on the same browser.
+6. Confirm none of Account A’s values appear.
+7. Change Account B’s settings.
+8. Return to Account A and confirm its original values return.
+9. Simulate a failed PATCH and confirm the UI rolls back with an error.
+10. Enable push and refresh.
+11. Confirm the account preference remains enabled.
+12. Remove only the device subscription.
+13. Confirm the toggle remains enabled and reconnect is shown.
+14. Disable push manually.
+15. Confirm the toggle remains off after refresh, even if a stale subscription had existed.
+16. Test the same account on a second device.
+
+Report:
+
+- exact cross-account localStorage risk fixed
+- official default values used for new users
+- migration filename
+- all settings fields and their source tables
+- PATCH validation schema
+- optimistic rollback behaviour
+- corrected push-toggle calculation
+- files changed
+- commit hash
+- pushed to origin/main
+- Vercel and Railway deployed commits
+- real refresh/logout/account-switch/multi-device PASS/FAIL
+
+Do not report PASS from code inspection.
+Do not overwrite existing explicit user preferences.

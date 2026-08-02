@@ -1,8 +1,14 @@
 import { createContext, useContext, useState, useEffect, type ReactNode } from "react";
 import { getTranslation, RTL_LANGS, LANGUAGE_NAME_TO_CODE, type TranslationKey } from "@/lib/i18n";
-import { supabase } from "@/lib/supabase";
 
-const STORAGE_KEY = "settings_language";
+// NOTE: No localStorage read on init and no server PATCH from this context.
+// Persistence is the responsibility of the settings page, which uses an
+// optimistic mutation with rollback.  Unscoped localStorage is not used
+// because it would leak Account A's language preference into Account B's session.
+//
+// Hydration from the server (GET /api/settings) is handled by
+// SettingsHydrationProvider in contexts/settings-hydration-context.tsx, which
+// fires for every authenticated user — not only those who visit Settings.
 
 interface LanguageContextValue {
   language: string;
@@ -19,29 +25,16 @@ const LanguageContext = createContext<LanguageContextValue>({
 });
 
 export function LanguageProvider({ children }: { children: ReactNode }) {
-  const [language, setLanguageState] = useState<string>(() => {
-    try { return localStorage.getItem(STORAGE_KEY) || "English"; } catch { return "English"; }
-  });
+  // Default to English until the authenticated user's settings load from the server.
+  // Not initialised from localStorage to prevent one account's language appearing
+  // for a different account on the same device.
+  const [language, setLanguageState] = useState<string>("English");
 
-  useEffect(() => {
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      const saved = session?.user?.user_metadata?.preferredLanguage as string | undefined;
-      if (saved && saved !== language) {
-        setLanguageState(saved);
-        try { localStorage.setItem(STORAGE_KEY, saved); } catch {}
-      }
-    });
-    return () => subscription.unsubscribe();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
+  /** Update language in-memory.
+   *  Persistence (PATCH /api/settings) is the caller's responsibility so that
+   *  it can do optimistic rollback on failure. */
   const setLanguage = (lang: string) => {
     setLanguageState(lang);
-    try { localStorage.setItem(STORAGE_KEY, lang); } catch {}
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session?.user) {
-        supabase.auth.updateUser({ data: { preferredLanguage: lang } }).catch(() => {});
-      }
-    }).catch(() => {});
   };
 
   const langCode = LANGUAGE_NAME_TO_CODE[language] ?? "en";

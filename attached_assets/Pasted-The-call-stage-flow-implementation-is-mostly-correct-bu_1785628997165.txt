@@ -1,0 +1,99 @@
+The call-stage flow implementation is mostly correct, but two production issues must be fixed before deployment.
+
+Do not change the new four-step call-stage UI.
+
+ISSUE 1 — REMOVE AUTOMATIC AVAILABILITY
+
+Remove this behaviour completely:
+
+“auto-sets the seed user's availability 1.5–3 seconds later so testing with dev accounts works”
+
+This must never exist in production code.
+
+Availability must only be saved when the actual authenticated user explicitly selects an option.
+
+Required rules:
+
+- never fabricate the other user’s availability
+- never use setTimeout to complete availability
+- never identify or special-case a seed/dev account in the production route
+- never automatically transition to READY_TO_CALL
+- both users must independently submit their own availability
+- the server must verify the authenticated user belongs to the match
+- the server must only update that authenticated user’s availability field
+
+Remove all related:
+- timers
+- seed-user checks
+- development auto-fill logic
+- automatic realtime events
+- fake availability values
+
+Testing must use two real test accounts selecting availability manually.
+
+ISSUE 2 — CREATE A REAL DATABASE MIGRATION
+
+The columns were added using direct SQL:
+
+- call_avail_1
+- call_avail_2
+
+Create and commit a proper backward-compatible migration for these exact columns.
+
+Requirements:
+
+- use the project’s existing migration system
+- do not create duplicate columns
+- use IF NOT EXISTS where supported
+- preserve current production data
+- do not reset the matches table
+- make the migration safe to run where the direct SQL columns already exist
+- ensure Railway and any future environment receive the same schema
+
+Also update the schema definition so it exactly matches the database migration.
+
+ISSUE 3 — SPECIFIC-TIME VALUE
+
+Confirm that “Pick a specific time” stores an actual timestamp with timezone, not only a translated label.
+
+Required:
+
+- preset choices may store normalized values such as:
+ - available_now
+ - in_30_minutes
+ - in_1_hour
+ - in_2_hours
+- specific time must store an ISO timestamp
+- display it in each user’s local timezone
+- do not compare translated display strings in server logic
+
+ISSUE 4 — AVAILABILITY COMPATIBILITY
+
+Do not mark the match READY_TO_CALL merely because both availability fields are non-null.
+
+The server must determine whether the two selections are compatible.
+
+Examples:
+
+- both select Available now → ready
+- one selects Available now and the other In 2 hours → not immediately ready
+- overlapping specific windows → ready at the agreed time
+- non-overlapping selections → show both choices and ask users to update availability
+
+If the current product intentionally treats any two selections as consent to unlock calling, state that explicitly before retaining that behaviour.
+
+REPORT
+
+- automatic seed availability code removed
+- exact files changed
+- committed migration filename
+- migration safe against existing columns
+- normalized availability data format
+- specific-time storage format
+- exact READY_TO_CALL compatibility rule
+- commit hash
+- pushed to origin/main
+- Vercel and Railway deployed commits
+- real two-account PASS/FAIL
+
+Do not report PASS from code inspection.

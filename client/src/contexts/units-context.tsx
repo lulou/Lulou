@@ -1,9 +1,11 @@
-import { createContext, useContext, useState, useEffect, type ReactNode } from "react";
-import { supabase } from "@/lib/supabase";
+import { createContext, useContext, useState, type ReactNode } from "react";
+
+// NOTE: No localStorage read on init and no server PATCH from this context.
+// Persistence is the responsibility of the settings page, which uses an
+// optimistic mutation with rollback.  Unscoped localStorage is not used
+// because it would leak Account A's unit preference into Account B's session.
 
 export type UnitSystem = "miles" | "km";
-
-const STORAGE_KEY = "settings_units";
 
 interface UnitsContextValue {
   units: UnitSystem;
@@ -16,37 +18,16 @@ const UnitsContext = createContext<UnitsContextValue>({
 });
 
 export function UnitsProvider({ children }: { children: ReactNode }) {
-  const [units, setUnitsState] = useState<UnitSystem>(() => {
-    try { return (localStorage.getItem(STORAGE_KEY) as UnitSystem) || "miles"; } catch { return "miles"; }
-  });
+  // Default to miles until the authenticated user's settings load from the server.
+  // Not initialised from localStorage to prevent one account's units appearing
+  // for a different account on the same device.
+  const [units, setUnitsState] = useState<UnitSystem>("miles");
 
-  useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      const saved = session?.user?.user_metadata?.preferredUnits as UnitSystem | undefined;
-      if (saved === "miles" || saved === "km") {
-        setUnitsState(saved);
-        try { localStorage.setItem(STORAGE_KEY, saved); } catch {}
-      }
-    }).catch(() => {});
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      const saved = session?.user?.user_metadata?.preferredUnits as UnitSystem | undefined;
-      if (saved === "miles" || saved === "km") {
-        setUnitsState(saved);
-        try { localStorage.setItem(STORAGE_KEY, saved); } catch {}
-      }
-    });
-    return () => subscription.unsubscribe();
-  }, []);
-
+  /** Update units in-memory.
+   *  Persistence (PATCH /api/settings) is the caller's responsibility so that
+   *  it can do optimistic rollback on failure. */
   const setUnits = (u: UnitSystem) => {
     setUnitsState(u);
-    try { localStorage.setItem(STORAGE_KEY, u); } catch {}
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session?.user) {
-        supabase.auth.updateUser({ data: { preferredUnits: u } }).catch(() => {});
-      }
-    }).catch(() => {});
   };
 
   return (

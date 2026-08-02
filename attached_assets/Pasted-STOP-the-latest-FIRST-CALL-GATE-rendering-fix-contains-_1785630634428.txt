@@ -1,0 +1,193 @@
+STOP: the latest FIRST_CALL_GATE rendering fix contains a progression-breaking mistake.
+
+The affected database state is:
+
+- call_stage = 0
+- message_count_1 = 15
+- message_count_2 = 0
+
+Lulou requires 15 messages EACH WAY before the first call stage unlocks.
+
+Therefore this match has NOT reached FIRST_CALL_GATE as a whole.
+
+The newly added logic is incorrect:
+
+partnerAtLimit = partner message count >= quota
+
+effectiveIsLimitReached =
+ isLimitReached ||
+ partnerAtLimit ||
+ firstCallPromptSeen
+
+This can unlock the call gate for both users as soon as only one person sends 15 messages.
+
+Remove that behaviour.
+
+Do not deploy or retain any logic where either user reaching the quota unlocks the call stage.
+
+CORRECT PROGRESSION RULE
+
+For Stage 1:
+
+user1Complete = message_count_1 >= 15
+user2Complete = message_count_2 >= 15
+
+firstCallGateUnlocked =
+ user1Complete && user2Complete
+
+The call stage unlocks only when BOTH are true.
+
+Correct UI before both are complete:
+
+User who has completed their 15:
+- cannot send additional messages
+- sees:
+ “You’ve completed your messages”
+ “Waiting for [name] to finish”
+- sees the other user’s remaining count
+- must not see Continue, availability or Start Call
+- cannot create a call session
+
+User who has not completed their 15:
+- normal composer remains available
+- sees their real remaining count
+- continues messaging until they reach zero
+- must not see the call-stage gate yet
+
+Once both users reach 15:
+- hide both message composers
+- show “Call stage unlocked”
+- show Continue and End Match
+- then follow the availability flow
+- only show Start Call after both users complete the required availability step
+
+FIX THE EARLY CALL BUG AT ITS SOURCE
+
+The earlier call should never have been possible when message_count_2 was 0.
+
+Add a server-side guard to every first-call creation/start route:
+
+Reject unless:
+
+message_count_1 >= 15
+AND
+message_count_2 >= 15
+AND
+call_stage === 0
+AND
+both required availability values are valid
+AND
+there is no active call
+AND
+the match is active
+
+Return a clear error:
+
+“Both members must complete the messaging stage before the call can begin.”
+
+When rejected:
+
+- do not create a call session
+- do not send WebRTC signalling
+- do not ring the other user
+- do not create a declined-call system event
+- do not change call_stage
+- do not change message counts
+
+REMOVE THESE INCORRECT CLIENT CONDITIONS
+
+Remove:
+
+- partnerAtLimit as a call-gate unlock condition
+- firstCallPromptSeen as authority to unlock progression
+- effectiveIsLimitReached if it allows either user alone to unlock the gate
+
+A client acknowledgement or popup state must never override the database message counts.
+
+Use explicit values:
+
+const myStageComplete = myMessageCount >= stageLimit;
+const partnerStageComplete = partnerMessageCount >= stageLimit;
+const bothStageComplete = myStageComplete && partnerStageComplete;
+
+Call gate rendering must require bothStageComplete.
+
+DECLINED SESSION BEHAVIOUR
+
+Removing !isDeclinedSession from the gate may be correct only after the call gate was legitimately unlocked.
+
+A declined call must leave both users at FIRST_CALL_GATE only when both had completed the message quota before that call.
+
+It must not force an incomplete match into FIRST_CALL_GATE.
+
+For the affected match:
+
+- preserve message_count_1 = 15
+- preserve message_count_2 = 0
+- user 1 waits
+- user 2 continues with 15 remaining
+- remove or mark the false declined-call event if the call was allowed despite incomplete progression
+- do not unlock availability
+- do not grant messages
+- do not alter call_stage
+
+MONOTONIC STAGE GUARD
+
+The lastKnownStageRef guard must not convert incomplete Stage 1 into a call gate.
+
+Also inspect its lifecycle:
+
+- reset it when selected match ID changes
+- reset it on logout/account change
+- do not carry a higher stage from one match into another
+- server/database remains the source of truth
+
+Do not use a client ref to conceal incorrect server data indefinitely.
+
+TESTS
+
+Test these exact cases:
+
+CASE A — 15 versus 0
+- User A sent 15
+- User B sent 0
+- A sees waiting state and cannot send/call
+- B sees composer and 15 left
+- no call-stage gate
+
+CASE B — 15 versus 14
+- A waits
+- B sees 1 left
+- no call can start
+
+CASE C — 15 versus 15
+- both composers disappear
+- both see Call stage unlocked
+- Continue/End Match appears
+- availability flow begins only after Continue
+
+CASE D — attempt API call at 15 versus 0
+- server returns 403
+- no ringing
+- no call record
+- no declined system message
+
+CASE E — legitimate decline after 15 versus 15
+- both remain at FIRST_CALL_GATE
+- retry state appears
+- no return to Stage 1 messaging
+
+Report:
+
+- incorrect partnerAtLimit logic removed
+- exact correct both-users-complete condition
+- server guard location
+- false declined event repaired or not
+- lastKnownStageRef reset behaviour
+- files changed
+- commit hash
+- pushed to origin/main
+- Vercel/Railway deployed commits
+- real two-account PASS/FAIL
+
+Do not report PASS from code inspection.

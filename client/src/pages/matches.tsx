@@ -20,7 +20,7 @@ import { useUnreadCounts } from "@/hooks/use-unread-counts";
 import { usePushNotifications } from "@/hooks/use-push-notifications";
 import { useTypingIndicator } from "@/hooks/use-typing-indicator";
 import { Input } from "@/components/ui/input";
-import { MessageCircle, Send, Phone, Video, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, PhoneOff, Clock, Check, X, Sparkles, Calendar, Heart, PhoneForwarded, Moon, User, Mic, Loader2, Pause, Play, BadgeCheck, RotateCcw } from "lucide-react";
+import { MessageCircle, Send, Phone, Video, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, PhoneOff, Clock, Check, X, Sparkles, Calendar, Heart, PhoneForwarded, Moon, User, Mic, Loader2, Pause, Play, BadgeCheck, RotateCcw, AlertCircle } from "lucide-react";
 import { ProfileInfoRow } from "@/components/profile-info-row";
 import { LANGUAGE_NAME_TO_CODE } from "@/lib/i18n";
 import { translateSignal, translateGreenFlag, translateIntent, translateStyle, translateStarterItem } from "@/lib/profile-i18n";
@@ -2166,8 +2166,14 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
       return r.json();
     },
     onSuccess: (data: any) => {
-      // Patch the match cache so callAvail1/2 update immediately without a full refetch
-      const patch = { callAvail1: data.callAvail1, callAvail2: data.callAvail2 };
+      // Patch the match cache so availability fields update immediately without a full refetch
+      const patch = {
+        callAvail1:   data.callAvail1,
+        callAvail2:   data.callAvail2,
+        callAvail1At: data.callAvail1At,
+        callAvail2At: data.callAvail2At,
+        agreedCallAt: data.agreedCallAt,
+      };
       queryClient.setQueriesData<any[]>({ queryKey: ["/api/matches"] }, (old) =>
         Array.isArray(old) ? old.map((m: any) => m.id === match.id ? { ...m, ...patch } : m) : old
       );
@@ -2632,6 +2638,9 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
   const [firstCallPopupOpen, setFirstCallPopupOpen] = useState(false);
   // Whether to show the availability picker inline (for "Change availability" in WAITING/READY)
   const [showAvailPicker, setShowAvailPicker] = useState(false);
+  // Sub-picker state for "Pick a specific time" inside the availability step
+  const [showSpecificTimePicker, setShowSpecificTimePicker] = useState(false);
+  const [specificTimePending, setSpecificTimePending] = useState("");
 
   // Recording state
   const [isRecording, setIsRecording] = useState(false);
@@ -3174,6 +3183,11 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
   const messagesRemaining = stageLimit - myCurrentStageCount;
   const isLimitReached = messagesRemaining <= 0;
   const rawLimitReached = myCurrentStageCount >= MAX_MESSAGES_PER_USER;
+  // For stage 0: BOTH users must reach their quota before the call gate opens.
+  // Reaching the limit alone (one-sided) shows a waiting state, not the gate.
+  const partnerStageComplete = callStage === 0 ? theirPostCallCount >= MAX_MESSAGES_PER_USER : true;
+  const bothStageComplete    = isLimitReached && partnerStageComplete;
+  const waitingForPartner    = callStage === 0 && isLimitReached && !partnerStageComplete;
   const allMessages = matchDetail?.messages || [];
 
   // ── Pre-first-call availability state machine ─────────────────────────────
@@ -3183,20 +3197,93 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
   //   WAITING_FOR_OTHER_USER → this user is ready; other hasn't chosen yet
   //   READY_TO_CALL          → both ready; Start Call button unlocks
   const firstCallPromptSeen = voiceNoteData?.firstCallPromptSeen ?? false;
-  const myCallAvail: string | null = ((isUser1 ? (detail as any).callAvail1 : (detail as any).callAvail2) as string | null) ?? null;
-  const theirCallAvail: string | null = ((isUser1 ? (detail as any).callAvail2 : (detail as any).callAvail1) as string | null) ?? null;
-  const callStageState =
-    !firstCallPromptSeen ? 'CALL_STAGE_UNLOCKED' as const :
-    !myCallAvail          ? 'CHOOSING_AVAILABILITY' as const :
-    !theirCallAvail       ? 'WAITING_FOR_OTHER_USER' as const :
-                            'READY_TO_CALL' as const;
+
+  // ── Absolute-timestamp availability ──────────────────────────────────────
+  // Preset keys ("available_now" etc.) are converted to UTC timestamps by the
+  // client at click time and stored in call_avail_1_at / call_avail_2_at.
+  // The server computes agreed_call_at when both timestamps are within 10 min.
+  const myCallAvailAt: string | null = (() => {
+    const raw = isUser1 ? (detail as any).callAvail1At : (detail as any).callAvail2At;
+    if (!raw) return null;
+    try { return new Date(raw).toISOString(); } catch { return null; }
+  })();
+  const theirCallAvailAt: string | null = (() => {
+    const raw = isUser1 ? (detail as any).callAvail2At : (detail as any).callAvail1At;
+    if (!raw) return null;
+    try { return new Date(raw).toISOString(); } catch { return null; }
+  })();
+  const agreedCallAtRaw = (detail as any).agreedCallAt;
+  const agreedCallAt: string | null = agreedCallAtRaw
+    ? (() => { try { return new Date(agreedCallAtRaw).toISOString(); } catch { return null; } })()
+    : null;
+
+  // Aliases used in legacy display strings
+  const myCallAvail    = myCallAvailAt;
+  const theirCallAvail = theirCallAvailAt;
+
+  // Availability option list — labels only. Values are converted to absolute
+  // timestamps by toAbsoluteTimestamp() at the moment the user clicks.
   const availOptions = [
-    { key: "now",   label: t("call_time_now") },
-    { key: "30m",   label: t("call_time_30m") },
-    { key: "1h",    label: t("call_time_1h") },
-    { key: "2h",    label: t("call_time_2h") },
-    { key: "later", label: t("pick_specific_time") },
+    { key: "available_now",   label: t("call_time_now") },
+    { key: "in_30_minutes",   label: t("call_time_30m") },
+    { key: "in_1_hour",       label: t("call_time_1h") },
+    { key: "in_2_hours",      label: t("call_time_2h") },
+    { key: "specific_time",   label: t("pick_specific_time") },
   ];
+
+  /** Convert a preset key to an absolute UTC ISO timestamp at the moment of call. */
+  const toAbsoluteTimestamp = (key: string): string => {
+    const now = Date.now();
+    const offsets: Record<string, number> = {
+      available_now:   0,
+      in_30_minutes:  30 * 60_000,
+      in_1_hour:      60 * 60_000,
+      in_2_hours:    120 * 60_000,
+    };
+    if (key in offsets) return new Date(now + offsets[key]).toISOString();
+    return key; // already an ISO timestamp (from specific-time picker)
+  };
+
+  // Format a stored absolute timestamp for display.
+  // Timestamps within 2 min of now show "Available now" so the label feels natural.
+  const formatAvailLabel = (val: string | null): string => {
+    if (!val) return '';
+    try {
+      const dt = new Date(val);
+      if (!isNaN(dt.getTime())) {
+        const diffMin = (dt.getTime() - Date.now()) / 60_000;
+        if (Math.abs(diffMin) <= 2) return t("call_time_now");
+        return dt.toLocaleString(undefined, {
+          weekday: 'short', month: 'short', day: 'numeric',
+          hour: '2-digit', minute: '2-digit',
+        });
+      }
+    } catch { /* fall through */ }
+    return val;
+  };
+
+  // Minutes until the early-start window opens (shown in CALL_SCHEDULED state).
+  const CLIENT_EARLY_START_WINDOW_MIN = 5;
+  const minutesUntilCall = agreedCallAt
+    ? Math.max(0, Math.ceil(
+        (new Date(agreedCallAt).getTime() - Date.now()) / 60_000 - CLIENT_EARLY_START_WINDOW_MIN,
+      ))
+    : null;
+  const agreedCallReady = agreedCallAt
+    ? Date.now() >= new Date(agreedCallAt).getTime() - CLIENT_EARLY_START_WINDOW_MIN * 60_000
+    : false;
+
+  // ── Call stage state machine ─────────────────────────────────────────────
+  // CALL_SCHEDULED: both users agreed on a time but it hasn't arrived yet.
+  // AVAILABILITY_MISMATCH: both users chose times but they differ by > 10 min.
+  // READY_TO_CALL: agreed time has arrived (or within 5-min early-start window).
+  const callStageState =
+    !firstCallPromptSeen  ? 'CALL_STAGE_UNLOCKED'       as const :
+    !myCallAvailAt        ? 'CHOOSING_AVAILABILITY'      as const :
+    !theirCallAvailAt     ? 'WAITING_FOR_OTHER_USER'     as const :
+    !agreedCallAt         ? 'AVAILABILITY_MISMATCH'      as const :
+    !agreedCallReady      ? 'CALL_SCHEDULED'             as const :
+                            'READY_TO_CALL'              as const;
 
   // Auto-show AI starters when chat first opens and has no real user messages yet.
   useEffect(() => {
@@ -4150,7 +4237,20 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                 </div>
               </div>
             </div>
-          ) : callStage === 0 && isLimitReached ? (
+          ) : callStage === 0 && waitingForPartner ? (
+            /* ── Waiting for partner to reach their 15-message quota ─── */
+            /* Must not show Continue, availability picker, or Start Call. */
+            <div className="p-4 border-t" data-testid={`waiting-for-partner-${match.id}`}>
+              <div className="rounded-lg bg-muted/40 border border-muted p-4 text-center space-y-1.5">
+                <Clock className="w-5 h-5 text-muted-foreground mx-auto" />
+                <p className="text-sm font-medium">You&apos;ve completed your messages</p>
+                <p className="text-xs text-muted-foreground">
+                  Waiting for {match.profile.firstName} to finish
+                  {" — "}{Math.max(0, MAX_MESSAGES_PER_USER - theirPostCallCount)}&nbsp;message{(MAX_MESSAGES_PER_USER - theirPostCallCount) !== 1 ? "s" : ""} remaining
+                </p>
+              </div>
+            </div>
+          ) : callStage === 0 && bothStageComplete ? (
             /* ── End-match confirmation (any sub-state) ──────────────── */
             nextStepChoice === 'end' ? (
               <div className="p-4 border-t" data-testid={`next-step-end-confirm-${match.id}`}>
@@ -4217,7 +4317,18 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                         size="sm"
                         variant="outline"
                         className="w-full justify-start"
-                        onClick={() => setCallAvailMutation.mutate(opt.key)}
+                        onClick={() => {
+                          if (opt.key === "specific_time") {
+                            // Open the inline datetime picker — the ISO value is sent on confirm.
+                            setShowSpecificTimePicker(true);
+                          } else {
+                            setShowSpecificTimePicker(false);
+                            setSpecificTimePending("");
+                            // Convert preset key → absolute UTC timestamp at the moment of click.
+                            // "available_now" → now; "in_30_minutes" → now + 30 min; etc.
+                            setCallAvailMutation.mutate(toAbsoluteTimestamp(opt.key));
+                          }
+                        }}
                         disabled={setCallAvailMutation.isPending}
                         data-testid={`button-avail-${opt.key}-${match.id}`}
                       >
@@ -4225,6 +4336,41 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                       </Button>
                     ))}
                   </div>
+                  {/* Inline specific-time picker — shown when user presses "Pick a specific time" */}
+                  {showSpecificTimePicker && (
+                    <div className="space-y-2 pt-2 border-t" data-testid={`specific-time-picker-${match.id}`}>
+                      <p className="text-xs font-medium text-muted-foreground">{t("pick_specific_time")}</p>
+                      <input
+                        type="datetime-local"
+                        min={new Date().toISOString().slice(0, 16)}
+                        value={specificTimePending ? new Date(specificTimePending).toISOString().slice(0, 16) : ""}
+                        onChange={e => e.target.value && setSpecificTimePending(new Date(e.target.value).toISOString())}
+                        className="w-full px-3 py-2 rounded-md border border-border text-sm bg-background"
+                      />
+                      <div className="flex gap-2">
+                        <Button
+                          size="sm" variant="outline" className="flex-1"
+                          onClick={() => { setShowSpecificTimePicker(false); setSpecificTimePending(""); }}
+                        >
+                          {t("cancel")}
+                        </Button>
+                        <Button
+                          size="sm" className="flex-1"
+                          onClick={() => {
+                            if (specificTimePending) {
+                              setCallAvailMutation.mutate(specificTimePending);
+                              setShowSpecificTimePicker(false);
+                              setSpecificTimePending("");
+                            }
+                          }}
+                          disabled={!specificTimePending || setCallAvailMutation.isPending}
+                          data-testid={`button-confirm-specific-time-${match.id}`}
+                        >
+                          {t("confirm")}
+                        </Button>
+                      </div>
+                    </div>
+                  )}
                   <button
                     onClick={() => setNextStepChoice('end')}
                     className="w-full text-xs text-muted-foreground hover:text-foreground text-center py-1 transition-colors"
@@ -4242,7 +4388,7 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                     <p className="font-medium text-sm">{t("waiting_for_their_avail").replace("{name}", match.profile.firstName)}</p>
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    {t("your_avail_selected")}: {availOptions.find(o => o.key === myCallAvail)?.label ?? myCallAvail}
+                    {t("your_avail_selected")}: {formatAvailLabel(myCallAvail)}
                   </p>
                   <Button
                     size="sm" variant="outline" className="w-full"
@@ -4257,6 +4403,59 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                   >
                     {t("end_match_btn")}
                   </button>
+                </div>
+              </div>
+            ) : callStageState === 'CALL_SCHEDULED' ? (
+              /* ── Step 3b: Agreed time set but hasn't arrived yet ─ */
+              <div className="p-4 border-t" data-testid={`call-scheduled-${match.id}`}>
+                <div className="space-y-3">
+                  <div className="flex items-start gap-2">
+                    <Clock className="w-4 h-4 text-primary shrink-0 mt-0.5" />
+                    <div>
+                      <p className="font-medium text-sm">{t("call_scheduled_title")}</p>
+                      <p className="text-xs text-muted-foreground">{formatAvailLabel(agreedCallAt)}</p>
+                    </div>
+                  </div>
+                  {minutesUntilCall !== null && minutesUntilCall > 0 && (
+                    <p className="text-xs text-muted-foreground">
+                      Available in {minutesUntilCall} minute{minutesUntilCall !== 1 ? "s" : ""}
+                    </p>
+                  )}
+                  <Button
+                    size="sm" variant="outline" className="w-full"
+                    onClick={() => { setShowAvailPicker(true); setShowSpecificTimePicker(false); setSpecificTimePending(""); }}
+                    data-testid={`button-change-avail-scheduled-${match.id}`}
+                  >
+                    {t("change_availability_btn")}
+                  </Button>
+                  <button
+                    onClick={() => setNextStepChoice('end')}
+                    className="w-full text-xs text-muted-foreground hover:text-foreground text-center py-1 transition-colors"
+                  >
+                    {t("end_match_btn")}
+                  </button>
+                </div>
+              </div>
+            ) : callStageState === 'AVAILABILITY_MISMATCH' ? (
+              /* ── Step 3c: Times differ by > 10 min — incompatible ─ */
+              <div className="p-4 border-t" data-testid={`call-avail-incompatible-${match.id}`}>
+                <div className="space-y-3">
+                  <div className="flex items-start gap-2">
+                    <AlertCircle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
+                    <p className="font-medium text-sm">{t("avail_incompatible_title")}</p>
+                  </div>
+                  <div className="text-xs text-muted-foreground space-y-0.5">
+                    <p>{t("your_avail_selected")}: {formatAvailLabel(myCallAvail)}</p>
+                    <p>{t("their_avail_selected").replace("{name}", match.profile.firstName)}: {formatAvailLabel(theirCallAvail)}</p>
+                  </div>
+                  <p className="text-xs text-muted-foreground">{t("avail_incompatible_desc")}</p>
+                  <Button
+                    size="sm" variant="outline" className="w-full"
+                    onClick={() => { setShowAvailPicker(true); setShowSpecificTimePicker(false); setSpecificTimePending(""); }}
+                    data-testid={`button-update-avail-incompatible-${match.id}`}
+                  >
+                    {t("change_availability_btn")}
+                  </Button>
                 </div>
               </div>
             ) : (

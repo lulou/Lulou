@@ -519,6 +519,18 @@ export default function Messaging() {
   // previous session ID so the card stays suppressed for that session.
   const [declinedSessionIds, setDeclinedSessionIds] = useState<Set<string>>(() => new Set());
   const lastSeenCallSessionIdRef = useRef<string | null>(null);
+  // Monotonic stage guard — prevents callStage ?? 0 from regressing during refetch.
+  const lastKnownStageRef = useRef<number | null>(null);
+
+  // Reset per-match refs whenever the selected match changes.
+  // Without this, stage N of match A would carry into match B on the same session,
+  // causing match B to show a call gate it hasn't earned.
+  useEffect(() => {
+    lastKnownStageRef.current = null;
+    lastSeenCallSessionIdRef.current = null;
+    setDeclinedSessionIds(new Set());
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [matchId]);
 
   const handleMessagesScroll = useCallback(() => {
     const el = messagesContainerRef.current;
@@ -1313,7 +1325,13 @@ export default function Messaging() {
   const allMessages = [...olderMessages, ...(msgsData?.messages ?? [])];
   const myMessages = allMessages.filter(m => m.senderId === user?.id);
   // callStage must be derived before messagesRemaining so the limit is stage-aware.
-  const callStage = matchDetail?.callStage ?? 0;
+  // Monotonic guard: once we've seen a stage, never regress below it during a refetch
+  // (prevents callStage ?? 0 causing a Stage-1 flash while the query re-fetches).
+  const serverCallStage = matchDetail?.callStage ?? null;
+  if (serverCallStage !== null) {
+    lastKnownStageRef.current = Math.max(lastKnownStageRef.current ?? 0, serverCallStage);
+  }
+  const callStage = lastKnownStageRef.current ?? serverCallStage ?? 0;
   const allCallsDone = callStage >= 4;
   // Stage 0: 15 messages → first guided call. Stage 1 (post-first-call): 12 messages each.
   // Must stay in sync with POST_CALL_THRESHOLD (matches.tsx) and POST_CALL_LIMIT (server/routes.ts).
@@ -1330,6 +1348,29 @@ export default function Messaging() {
   const myStageMessageCount = dbStageCount !== null ? dbStageCount + localSentCount : myMessages.length;
   const messagesRemaining = msgLimit - myStageMessageCount;
   const isLimitReached = messagesRemaining <= 0;
+
+  // ── Call gate progression — BOTH users must complete before gate unlocks ────
+  // The call gate (FIRST_CALL_GATE) opens only when BOTH users have reached their
+  // per-stage message quota.  A single user reaching the limit alone triggers a
+  // "waiting for partner" state — not the gate — so they cannot send more but also
+  // cannot call, set availability, or see the Continue button.
+  //
+  // Removed:
+  //   • partnerAtLimit  — allowed either user alone to unlock the gate (wrong).
+  //   • firstCallPromptSeen — a client acknowledgement must never override DB counts.
+  const partnerMsgCount = matchDetail
+    ? (isUser1 ? (matchDetail.messageCount2 ?? 0) : (matchDetail.messageCount1 ?? 0))
+    : 0;
+  const myStageComplete      = myStageMessageCount >= msgLimit;
+  const partnerStageComplete = partnerMsgCount >= msgLimit;
+  const bothStageComplete    = myStageComplete && partnerStageComplete;
+  // waitingForPartner: I've hit my quota but partner hasn't yet.
+  // Shows a waiting card in place of the composer.  Must not show the call gate.
+  const waitingForPartner    = callStage === 0 && myStageComplete && !partnerStageComplete;
+  // effectiveIsLimitReached: drives the call-gate card.
+  //   Stage 0 → BOTH must be complete (database counts are the source of truth).
+  //   Stage ≥ 1 → server already advanced call_stage; use own isLimitReached as before.
+  const effectiveIsLimitReached = callStage === 0 ? bothStageComplete : isLimitReached;
 
   // Guard the call CTA card when a call is live (ringing or active).
   // messaging.tsx reads matchDetail from ["/api/matches", matchId]; the ring
@@ -1391,15 +1432,41 @@ export default function Messaging() {
 
   const isDeclinedSession = declinedSessionIds.size > 0;
 
-  // Log when the CTA card boundary is evaluated — helps verify suppression on device
+  // [PROGRESSION_RENDER] — full trace of what the UI is showing and why.
+  // This is the canonical audit log for progression-related rendering decisions.
   useEffect(() => {
-    if (!isLimitReached && callStage < 2) return;
-    const blocked = isCallRinging || isCallActiveInDetail || isDeclinedSession;
-    console.log("[CALL_DECLINE_FIX] card render blocked=", String(blocked),
-      "callStartedAt=", matchDetail?.callStartedAt ?? null,
-      "callSessionId=", matchDetail?.callSessionId ?? null,
-      "callStage=", callStage);
-  }, [isLimitReached, callStage, isCallRinging, isCallActiveInDetail, isDeclinedSession]);
+    if (!import.meta.env.DEV) return;
+    const gateWouldShow =
+      (effectiveIsLimitReached || callStage >= 2) && !allCallsDone && !isCallRinging && !isCallActiveInDetail;
+    console.log("[PROGRESSION_RENDER]", {
+      matchId:               matchId?.slice(0, 8),
+      serverCallStage,
+      callStage,
+      lastKnownStage:        lastKnownStageRef.current,
+      myStageMessageCount,
+      partnerMsgCount,
+      msgLimit,
+      myStageComplete,
+      partnerStageComplete,
+      bothStageComplete,
+      waitingForPartner,
+      isLimitReached,
+      effectiveIsLimitReached,
+      isDeclinedSession,
+      messagesRemaining,
+      dbStageCount,
+      callGateRendered:      gateWouldShow,
+      composerRendered:      !gateWouldShow && !allCallsDone && !waitingForPartner,
+      reason:
+        allCallsDone         ? "all_calls_done"
+        : waitingForPartner  ? "waiting_for_partner"
+        : gateWouldShow      ? (isDeclinedSession ? "gate_with_retry_banner" : "gate_normal")
+        : isCallRinging      ? "suppressed_ringing"
+        : isCallActiveInDetail ? "suppressed_active_call"
+        : "stage_not_reached",
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [effectiveIsLimitReached, waitingForPartner, callStage, isCallRinging, isCallActiveInDetail, isDeclinedSession, allCallsDone]);
 
   // ── Starters visibility (pure derivation — no effect needed) ──────────────
   // System messages (those whose content begins with "__") are call-state signals
@@ -1422,7 +1489,7 @@ export default function Messaging() {
     !isMsgsLoading &&
     nonSystemMessages.length === 0 &&
     callStage === 0 &&
-    !isLimitReached;
+    !effectiveIsLimitReached;
   const startersVisible = autoShowStarters || (showAIStarters && !userClosedStarters);
 
   // ── DIAGNOSTICS: trace starters chain on every render ─────────────────────
@@ -1449,6 +1516,9 @@ export default function Messaging() {
   const statusLabel = allCallsDone ? t("status_ready_to_meet")
     : callStage === 3 ? t("status_face_call_stage")
     : callStage === 2 ? t("status_20_msg_stage")
+    : effectiveIsLimitReached ? t("call_time_badge")
+    // Waiting for partner: show how many messages they still need to send.
+    : waitingForPartner ? t("n_msg_left").replace("{n}", String(Math.max(0, msgLimit - partnerMsgCount)))
     : messagesRemaining > 0 ? t("n_msg_left").replace("{n}", String(messagesRemaining))
     : t("call_time_badge");
 
@@ -1848,12 +1918,32 @@ export default function Messaging() {
           <div style={{ fontSize: 9, fontFamily: "monospace", color: "#fff", background: "rgba(0,120,0,0.85)", padding: "2px 4px", lineHeight: 1.4 }}>
             COMPOSER_C · messaging.tsx · kbH:{Math.round(keyboardHeight)} cmpH:{Math.round(composerHeight)}
           </div>
-          {(isLimitReached || callStage >= 2) && !allCallsDone && !isCallRinging && !isCallActiveInDetail && !isDeclinedSession && !voiceNotePopupOpen && !firstCallPopupOpen ? (
+          {waitingForPartner && !isCallRinging && !isCallActiveInDetail && !voiceNotePopupOpen && !firstCallPopupOpen ? (
+            /* ── Waiting-for-partner card ─────────────────────────────────── */
+            /* Shows when I've sent all my Stage-0 messages but partner hasn't. */
+            /* No Continue, no availability picker, no Start Call.             */
+            <div className="p-4">
+              <Card className="p-5 text-center space-y-3 bg-muted/40 border-muted" data-testid="card-waiting-for-partner">
+                <Clock className="w-6 h-6 text-muted-foreground mx-auto" />
+                <p className="font-medium text-sm">You&apos;ve completed your messages</p>
+                <p className="text-xs text-muted-foreground">
+                  Waiting for {profile?.firstName ?? "them"} to finish
+                  {" — "}{Math.max(0, msgLimit - partnerMsgCount)}&nbsp;message{(msgLimit - partnerMsgCount) !== 1 ? "s" : ""} remaining
+                </p>
+              </Card>
+            </div>
+          ) : (effectiveIsLimitReached || callStage >= 2) && !allCallsDone && !isCallRinging && !isCallActiveInDetail && !voiceNotePopupOpen && !firstCallPopupOpen ? (
             <div className="p-4">
               <Card className="p-5 text-center space-y-3 bg-primary/5 border-primary/20">
                 <callPrompt.icon className="w-6 h-6 text-primary mx-auto" />
                 <p className="font-medium text-sm">{callPrompt.title}</p>
                 <p className="text-xs text-muted-foreground">{callPrompt.desc}</p>
+                {/* Retry banner: shows after a declined / cancelled / short call */}
+                {isDeclinedSession && callStage === 0 && (
+                  <p className="text-xs font-medium text-amber-700 dark:text-amber-400" data-testid="text-call-retry">
+                    Call not completed — try again when you're both ready
+                  </p>
+                )}
                 {callPrompt.button ? (
                   <Button size="sm" onClick={() => navigate("/matches")} data-testid="button-call-prompt">
                     <Phone className="w-4 h-4 me-2" /> {callPrompt.button}

@@ -433,8 +433,21 @@ async function initLocalDb() {
       );
       CREATE INDEX IF NOT EXISTS idx_feedback_user  ON private_connection_feedback(user_id);
       CREATE INDEX IF NOT EXISTS idx_feedback_match ON private_connection_feedback(match_id);
+
+      -- user_settings: secondary safety check only.
+      -- Primary migration: supabase/migrations/add_user_settings_table.sql
+      -- push_account_enabled NOT NULL matches amend_push_not_null.sql
+      CREATE TABLE IF NOT EXISTS user_settings (
+        user_id              UUID        PRIMARY KEY,
+        preferred_language   TEXT        NOT NULL DEFAULT 'English',
+        preferred_units      TEXT        NOT NULL DEFAULT 'miles',
+        audio_transcripts    BOOLEAN     NOT NULL DEFAULT true,
+        push_account_enabled BOOLEAN     NOT NULL DEFAULT false,
+        created_at           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at           TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
     `);
-    console.log("[STARTUP] Local DB tables verified/created: user_benefits, user_elevates, call_credits, saved_wheel_profiles, active_sessions, membership_subscriptions, push_subscriptions, notification_preferences, admin_payment_simulations, date_plan_reminders_sent, active_chat_sessions, refund_records, voice_note_unlocks, voice_note_popup_seen, first_call_prompt_seen, connection_dna_responses, connection_dna_profiles, match_compatibility, interaction_signals, private_connection_feedback");
+    console.log("[STARTUP] Local DB tables verified/created: user_benefits, user_elevates, call_credits, saved_wheel_profiles, active_sessions, membership_subscriptions, push_subscriptions, notification_preferences, admin_payment_simulations, date_plan_reminders_sent, active_chat_sessions, refund_records, voice_note_unlocks, voice_note_popup_seen, first_call_prompt_seen, connection_dna_responses, connection_dna_profiles, match_compatibility, interaction_signals, private_connection_feedback, user_settings");
   } catch (err: any) {
     console.error("[STARTUP] Local DB table migration failed:", err?.message);
   }

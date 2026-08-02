@@ -1,0 +1,154 @@
+Before deploying this availability rewrite, complete the production rollout safely.
+
+CRITICAL DEPLOYMENT ORDER
+
+The application code now depends on these new matches columns:
+
+- call_avail_1_at TIMESTAMPTZ
+- call_avail_2_at TIMESTAMPTZ
+- agreed_call_at TIMESTAMPTZ
+
+Do not deploy Railway or Vercel code that reads/writes these columns until the production database migration has completed successfully.
+
+Required order:
+
+1. Commit the migration and all code.
+2. Apply supabase/migrations/add_availability_timestamps.sql to the actual production database.
+3. Verify all three columns exist with TIMESTAMPTZ types.
+4. Verify existing matches and messages remain untouched.
+5. Deploy Railway/backend.
+6. Confirm backend health and availability endpoints.
+7. Deploy Vercel/frontend.
+8. Run the real two-account test.
+
+MIGRATION VERIFICATION
+
+After applying the migration, report the production query result confirming:
+
+- call_avail_1_at exists
+- call_avail_2_at exists
+- agreed_call_at exists
+- all use timestamp with time zone
+- old call_avail_1 and call_avail_2 columns remain
+- no rows were deleted or reset
+
+Do not rely on a local or read-only replica. Confirm the actual production write database used by Railway.
+
+BACKWARD-COMPATIBILITY CHECK
+
+During rollout, old clients or stale browser tabs may still submit the previous text values.
+
+The backend must fail safely:
+
+- return a clear 400 response for legacy values
+- do not crash
+- do not clear existing availability
+- do not partially update one field and then fail
+- client should refetch and ask the user to choose availability again
+
+Confirm the set-availability update and agreed_call_at calculation happen atomically in one database operation or transaction.
+
+CALL-SCHEDULE COUNTDOWN
+
+Verify the CALL_SCHEDULED screen updates while it remains open.
+
+It must not calculate “Available in X minutes” only once during render.
+
+Required:
+
+- update the displayed countdown at least every 30–60 seconds
+- automatically transition from CALL_SCHEDULED to READY_TO_CALL when the 5-minute early-start window begins
+- no manual refresh required
+- clear the interval on unmount or match change
+- use server-derived agreed_call_at as the source of truth
+
+SERVER-TIME SAFETY
+
+Do not trust the phone’s clock for authorising call start.
+
+- client time may only control the displayed countdown
+- the server must use its own current time for Gate 3b
+- if the client believes the call is ready but the server says it is early, show the server error and refetch the match
+- do not create a call session when rejected
+
+AVAILABILITY UPDATE RACE
+
+Test both users selecting or changing availability at nearly the same time.
+
+The final agreed_call_at must be calculated from the latest two persisted timestamps.
+
+Avoid this race:
+
+1. Read partner availability.
+2. Another request changes it.
+3. Write agreed_call_at using the stale value.
+
+Use a transaction, row lock or atomic database calculation so the match cannot retain an agreement based on outdated availability.
+
+CHANGING AVAILABILITY
+
+When either user changes their selection:
+
+- update only their timestamp
+- recompute agreed_call_at immediately
+- broadcast the new state to both users
+- if the new choices mismatch, remove the old agreement
+- if the call was scheduled, the previous scheduled time must no longer remain active
+- do not alter message counts or call_stage
+
+EXPIRED AVAILABILITY
+
+Define behaviour when agreed_call_at is significantly in the past.
+
+Suggested rule:
+
+- allow the call during a reasonable grace window, such as 30 minutes after agreed_call_at
+- after the grace window, show “Availability expired — choose another time”
+- clear or invalidate agreed_call_at
+- require both users to confirm availability again
+- do not leave Start Call permanently available hours or days later
+
+Implement the final agreed grace-window rule server-side and use the same rule for the client display.
+
+REAL TWO-ACCOUNT TEST
+
+Test:
+
+1. Both select Available now.
+  - Ready immediately.
+2. Both select In 30 minutes.
+  - Same agreed timestamp range.
+  - Scheduled screen appears.
+  - Automatically becomes Ready within the early-start window.
+3. Users select different times more than 10 minutes apart.
+  - Mismatch screen.
+  - No Start Call.
+4. Preset and specific time within 10 minutes.
+  - One agreed time.
+5. One user changes availability after agreement.
+  - Agreement recomputes or clears immediately for both.
+6. Attempt Start Call too early through the API.
+  - Server rejects.
+  - No ringing or call session.
+7. Refresh both phones.
+  - Selections and agreed time persist.
+8. Test after the agreed time passes the expiry window.
+  - Availability must expire according to the final rule.
+
+Report:
+
+- migration applied to actual production database
+- production schema verification
+- atomic/transactional agreement calculation
+- countdown refresh implementation
+- early-start window
+- post-agreement grace/expiry window
+- legacy-client handling
+- commit hash
+- pushed to origin/main
+- Railway deployed commit
+- Vercel deployed commit
+- real two-account PASS/FAIL
+
+Do not deploy the dependent application code before the production migration.
+Do not report PASS from code inspection.

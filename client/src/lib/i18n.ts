@@ -1391,6 +1391,10 @@ export const TRANSLATIONS = {
     your_avail_selected:          "Your availability",
     change_availability_btn:      "Change availability",
     ready_for_first_call_title:   "Ready for your first call",
+    their_avail_selected:         "{name}'s availability",
+    call_scheduled_title:         "Call scheduled",
+    avail_incompatible_title:     "Your times don't overlap",
+    avail_incompatible_desc:      "Choose a time closer to theirs, or wait for them to update.",
   },
   es: {
     discover:     "Descubrir",

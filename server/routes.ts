@@ -28,7 +28,7 @@ import { transcodeToM4a } from "./transcoder";
 import { seedDatabase } from "./seed";
 import { z } from "zod";
 import type { Profile } from "@shared/schema";
-import { matches, messages, userBenefits, callCredits, activeSessions, processedStripeSessions, membershipSubscriptions, userElevates, blockedContacts, savedWheelProfiles, sparkBalances, sparkPurchases, pushSubscriptions, notificationPreferences, datePlanRemindersSent, activeChatSessions, refundRecords, voiceNoteUnlocks, voiceNotePopupSeen, firstCallPromptSeen } from "@shared/schema";
+import { matches, messages, userBenefits, callCredits, activeSessions, processedStripeSessions, membershipSubscriptions, userElevates, blockedContacts, savedWheelProfiles, sparkBalances, sparkPurchases, pushSubscriptions, notificationPreferences, datePlanRemindersSent, activeChatSessions, refundRecords, voiceNoteUnlocks, voiceNotePopupSeen, firstCallPromptSeen, userSettings } from "@shared/schema";
 import { sendPushToUser, buildPush, isUserActiveInApp, isUserActiveInChat, getVapidPublicKey, cleanupFailedSubscriptions } from "./pushService";
 import { EXTRAS_ITEMS, ELEVATE_PACKS, type ExtrasItemId, type ElevatePackId, grantExtras, grantElevate, isUniqueViolation } from './purchaseItems';
 import { supabase, supabaseAdmin, createUserClient, hasServiceRoleKey } from "./supabase";
@@ -49,6 +49,40 @@ const LAST_ACTIVE_TTL_MS = 2 * 60 * 1000;
 // Seed user IDs all start with this UUID prefix (see server/seed.ts)
 const SEED_UUID_PREFIX = "10000000-0000-4000-a000-";
 const isSeedUser = (id: string) => id.startsWith(SEED_UUID_PREFIX);
+
+// ── Availability compatibility ─────────────────────────────────────────────
+// Normalised availability keys map to an approximate offset from "right now".
+// Two selections are compatible when their offsets differ by ≤ 45 minutes:
+//   available_now + in_30_minutes → OK (both intend to call very soon)
+//   available_now + in_2_hours    → NOT OK (one hour apart is too wide)
+// ── Availability timing ───────────────────────────────────────────────────────
+// Preset keys are converted to absolute UTC timestamps on the client at the
+// moment of selection and stored as agreed_call_at.  These functions work
+// entirely with Date objects (no moving-offset re-calculation on every request).
+
+/** Two timestamps are compatible when they are within this many minutes of each other. */
+const AVAIL_COMPAT_TOLERANCE_MIN = 10;
+/** Start Call is allowed up to this many minutes before agreed_call_at. */
+const EARLY_START_WINDOW_MIN = 5;
+
+/**
+ * Return the agreed call time if ts1 and ts2 are within AVAIL_COMPAT_TOLERANCE_MIN
+ * of each other, otherwise null (incompatible selections).
+ * Agreed time = the later of the two so both users are ready.
+ * "available_now + available_now": both ≈ NOW() → within tolerance → agreed ≈ NOW() → READY immediately.
+ */
+function computeAgreedCallAt(ts1: Date, ts2: Date): Date | null {
+  const diffMin = Math.abs(ts1.getTime() - ts2.getTime()) / 60_000;
+  if (diffMin > AVAIL_COMPAT_TOLERANCE_MIN) return null;
+  return new Date(Math.max(ts1.getTime(), ts2.getTime()));
+}
+
+/**
+ * True when the agreed call time has arrived or is within the early-start window.
+ */
+function isCallReadyToStart(agreedCallAt: Date): boolean {
+  return Date.now() >= agreedCallAt.getTime() - EARLY_START_WINDOW_MIN * 60_000;
+}
 
 // ── Dev-only server performance logger ───────────────────────────────────────
 // All output is suppressed in production so there is zero log noise for users.
@@ -2145,6 +2179,112 @@ export async function registerRoutes(
     }
   });
 
+  // ── User Settings (persistent account-level preferences) ─────────────────────
+  // One row per user in the local `user_settings` table.
+  // GET creates the row with official defaults on first call (server is authoritative).
+  // PATCH updates only the supplied fields (partial update, concurrent-device safe).
+
+  // Allowed languages — must match client/src/pages/settings.tsx LANGUAGES array.
+  const VALID_LANGUAGE_VALUES = new Set([
+    "English","Spanish","French","German","Portuguese","Italian","Dutch","Polish",
+    "Russian","Arabic","Chinese (Simplified)","Chinese (Traditional)","Japanese",
+    "Korean","Hindi","Swahili",
+  ]);
+  const VALID_UNIT_VALUES     = new Set(["miles", "km"]);
+  // Allowlist of accepted PATCH keys — unknown keys are rejected to prevent
+  // accidental writes from stale or untrusted client code.
+  const ALLOWED_SETTING_KEYS  = new Set([
+    "preferredLanguage", "preferredUnits", "audioTranscripts", "pushAccountEnabled",
+  ]);
+
+  app.get("/api/settings", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      // Ensure a canonical row exists. For a new user this INSERT creates the row
+      // with official schema defaults. Subsequent GET calls skip the INSERT silently.
+      // Never reads unscoped localStorage — the server record is the truth.
+      await db.insert(userSettings).values({ userId }).onConflictDoNothing();
+      const [row] = await db.select().from(userSettings)
+        .where(eq(userSettings.userId, userId)).limit(1);
+      if (!row) throw new Error("Settings row missing after upsert");
+      console.log("[SETTINGS] GET", { userId: userId.slice(0, 8), lang: row.preferredLanguage, units: row.preferredUnits, audio: row.audioTranscripts });
+      res.json(row);
+    } catch (err: any) {
+      console.error("[SETTINGS] GET error", err?.message);
+      res.status(500).json({ message: err?.message || "Failed to get settings" });
+    }
+  });
+
+  app.patch("/api/settings", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const body   = req.body as Record<string, unknown>;
+
+      // ── Reject unknown fields ──────────────────────────────────────────────
+      const unknownKeys = Object.keys(body).filter(k => !ALLOWED_SETTING_KEYS.has(k));
+      if (unknownKeys.length > 0) {
+        return res.status(400).json({ message: `Unknown setting fields: ${unknownKeys.join(", ")}` });
+      }
+
+      // ── Validate each supplied field ───────────────────────────────────────
+      const update: Record<string, unknown> = {};
+
+      if ("preferredLanguage" in body) {
+        const lang = body.preferredLanguage;
+        if (typeof lang !== "string" || !VALID_LANGUAGE_VALUES.has(lang)) {
+          return res.status(400).json({ message: "preferredLanguage must be one of the supported language names" });
+        }
+        update.preferredLanguage = lang;
+      }
+      if ("preferredUnits" in body) {
+        const u = body.preferredUnits;
+        if (!VALID_UNIT_VALUES.has(u as string)) {
+          return res.status(400).json({ message: "preferredUnits must be 'miles' or 'km'" });
+        }
+        update.preferredUnits = u;
+      }
+      if ("audioTranscripts" in body) {
+        const at = body.audioTranscripts;
+        if (typeof at !== "boolean") {
+          return res.status(400).json({ message: "audioTranscripts must be boolean" });
+        }
+        update.audioTranscripts = at;
+      }
+      if ("pushAccountEnabled" in body) {
+        const pae = body.pushAccountEnabled;
+        if (typeof pae !== "boolean") {
+          return res.status(400).json({ message: "pushAccountEnabled must be boolean" });
+        }
+        update.pushAccountEnabled = pae;
+      }
+
+      if (Object.keys(update).length === 0) {
+        return res.status(400).json({ message: "No valid setting keys provided" });
+      }
+      update.updatedAt = new Date();
+
+      // ── Atomic partial update (concurrent-device safe) ─────────────────────
+      // Ensure row exists (creates with defaults on first PATCH, harmless thereafter).
+      await db.insert(userSettings).values({ userId }).onConflictDoNothing();
+      // UPDATE only the supplied fields — other fields from other devices are preserved.
+      const [updated] = await db
+        .update(userSettings)
+        .set(update)
+        .where(eq(userSettings.userId, userId))
+        .returning();
+
+      if (!updated) return res.status(404).json({ message: "Settings not found after upsert" });
+
+      console.log("[SETTINGS] PATCH", { userId: userId.slice(0, 8), keys: Object.keys(update).filter(k => k !== "updatedAt") });
+      // Return the complete saved row so the client can update its cache from the
+      // confirmed server value (not from the optimistic local state).
+      res.json(updated);
+    } catch (err: any) {
+      console.error("[SETTINGS] PATCH error", err?.message);
+      res.status(500).json({ message: err?.message || "Failed to update settings" });
+    }
+  });
+
   // Get notification preferences
   app.get("/api/push/preferences", isAuthenticated, async (req: any, res) => {
     try {
@@ -3590,6 +3730,21 @@ export async function registerRoutes(
           const myCount    = isUser1 ? (gateMeta.messageCount1 ?? 0) : (gateMeta.messageCount2 ?? 0);
           const theirCount = isUser1 ? (gateMeta.messageCount2 ?? 0) : (gateMeta.messageCount1 ?? 0);
 
+          // ── Primary message-count guard ──────────────────────────────────
+          // Both users must have sent at least 15 messages before ANY first call
+          // can start.  This is the authoritative server-side check — the client
+          // UI alone is never sufficient.  A call attempted at (15, 0) is rejected
+          // here with a clear error; no call session is created, no ring is sent,
+          // no call_stage is changed.
+          if (myCount < 15 || theirCount < 15) {
+            console.log("[CALL_START] BLOCKED_INCOMPLETE_MESSAGING", {
+              matchId, userId: userId.slice(0, 8), myCount, theirCount,
+            });
+            return res.status(403).json({
+              message: "Both members must complete the messaging stage before the call can begin.",
+            });
+          }
+
           // Gate 1: voice-note milestone must be acknowledged
           if (myCount >= 8 && theirCount >= 8) {
             const [vnRow] = await db.select({ m: voiceNotePopupSeen.matchId })
@@ -3614,15 +3769,27 @@ export async function registerRoutes(
             }
           }
 
-          // Gate 3: both users must have chosen their pre-call availability.
-          // Prevents a call from ringing on the other device while they are still
-          // looking at the availability setup screen.
-          if (!gateMeta.callAvail1 || !gateMeta.callAvail2) {
-            console.log("[CALL_START] BLOCKED_AVAILABILITY_NOT_SET", {
+          // Gate 3: an agreed_call_at must exist, meaning both users submitted compatible
+          // absolute timestamps.  The server computed agreed_call_at when the second user
+          // set their availability.
+          const agreed = gateMeta.agreedCallAt ? new Date(gateMeta.agreedCallAt) : null;
+          if (!agreed) {
+            console.log("[CALL_START] BLOCKED_NO_AGREED_TIME", {
               matchId, userId: userId.slice(0, 8),
-              avail1: !!gateMeta.callAvail1, avail2: !!gateMeta.callAvail2,
+              avail1At: !!gateMeta.callAvail1At, avail2At: !!gateMeta.callAvail2At,
             });
-            return res.status(403).json({ message: "Both users must choose availability before starting the call." });
+            return res.status(403).json({ message: "Both users must agree on a call time before starting the call." });
+          }
+          // Gate 3b: the agreed window must have arrived (early-start window: 5 min before).
+          if (!isCallReadyToStart(agreed)) {
+            const minsUntil = Math.ceil((agreed.getTime() - Date.now()) / 60_000 - EARLY_START_WINDOW_MIN);
+            console.log("[CALL_START] BLOCKED_TOO_EARLY", {
+              matchId, userId: userId.slice(0, 8),
+              agreedCallAt: agreed.toISOString(), minsUntil,
+            });
+            return res.status(403).json({
+              message: `Your call is scheduled for later. You can join up to ${EARLY_START_WINDOW_MIN} minutes early.`,
+            });
           }
         }
       }
@@ -3927,10 +4094,20 @@ export async function registerRoutes(
       const storage = getStorage(req);
       const userId = req.user.id;
       const { matchId } = req.params;
-      const { availableAt } = req.body; // string label ("now","30m","1h","2h","later") or null to clear
+      const { availableAt } = req.body; // normalized key ("available_now" etc.) or ISO timestamp, or null to clear
 
-      if (availableAt !== null && typeof availableAt !== "string") {
-        return res.status(400).json({ message: "availableAt must be a string or null" });
+      if (availableAt !== null) {
+        if (typeof availableAt !== "string") {
+          return res.status(400).json({ message: "availableAt must be an ISO timestamp string or null" });
+        }
+        // Only accept absolute UTC timestamps.  Preset keys ("available_now" etc.) must
+        // be converted to absolute timestamps by the client before sending.
+        const ts = new Date(availableAt).getTime();
+        if (isNaN(ts) || ts < Date.now() - 5 * 60_000) {
+          return res.status(400).json({
+            message: "availableAt must be a valid ISO timestamp not more than 5 minutes in the past",
+          });
+        }
       }
 
       const updated = await storage.setCallAvailability(matchId, userId, availableAt ?? null);
@@ -3945,19 +4122,6 @@ export async function registerRoutes(
 
       // Broadcast so the other user's UI updates immediately without waiting for a poll
       broadcastViaHttpApi(`chat:${matchId}`, "call-avail-update", { matchId, userId }).catch(() => {});
-
-      // Seed-user auto-response: if the other user is a seed, auto-set their availability
-      const otherUserId = updated.user1Id === userId ? updated.user2Id : updated.user1Id;
-      if (availableAt !== null && isSeedUser(otherUserId)) {
-        setTimeout(async () => {
-          try {
-            await storage.setCallAvailability(matchId, otherUserId, availableAt);
-            await db.insert(firstCallPromptSeen).values({ matchId, userId: otherUserId }).onConflictDoNothing();
-            broadcastViaHttpApi(`chat:${matchId}`, "call-avail-update", { matchId, userId: otherUserId }).catch(() => {});
-            console.log("[CALL_AVAIL] SEED_AUTO_SET", { matchId, otherUserId, availableAt });
-          } catch (e) { console.error("[CALL_AVAIL] SEED_AUTO_SET_ERR", e); }
-        }, 1500 + Math.random() * 1500);
-      }
 
       console.log("[CALL_AVAIL] SET", { matchId, userId: userId.slice(0, 8), availableAt });
       res.json(updated);

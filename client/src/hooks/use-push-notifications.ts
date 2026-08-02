@@ -71,13 +71,23 @@ export function usePushNotifications() {
   const [permission, setPermission] = useState<NotificationPermission>(
     typeof Notification !== "undefined" ? Notification.permission : "default",
   );
-  const [isSubscribed,   setIsSubscribed]   = useState(false);
-  const [preferences,    setPreferences]    = useState<NotifPreferences>(DEFAULT_PREFS);
-  const [isLoading,      setIsLoading]      = useState(false);
-  const [error,          setError]          = useState<string | null>(null);
-  const [debugStep,      setDebugStep]      = useState<string>("");
-  const [swReg,          setSwReg]          = useState<ServiceWorkerRegistration | null>(null);
+  const [isSubscribed,       setIsSubscribed]       = useState(false);
+  const [preferences,        setPreferences]        = useState<NotifPreferences>(DEFAULT_PREFS);
+  const [isLoading,          setIsLoading]          = useState(false);
+  const [error,              setError]              = useState<string | null>(null);
+  const [debugStep,          setDebugStep]          = useState<string>("");
+  const [swReg,              setSwReg]              = useState<ServiceWorkerRegistration | null>(null);
+  // Account-level preference: true=user wants notifications, false=user disabled, null=never set.
+  // Loaded from /api/settings on mount so the toggle doesn't flicker off on refresh.
+  // undefined = not yet loaded; false = loaded, disabled; true = loaded, enabled.
+  // Never null — loading state is represented by undefined so that the stale-
+  // subscription cleanup (which gates on accountPreference === false) does not
+  // fire prematurely on mount before the server row has been read.
+  const [accountPreference,  setAccountPreference]  = useState<boolean | undefined>(undefined);
   const vapidKeyRef = useRef<string | null>(null);
+
+  // needsReconnect: account says "on" but this device has no active subscription
+  const needsReconnect = accountPreference === true && !isSubscribed;
 
   // isSupported: PushManager requires iOS 16.4+ installed PWA, or any modern desktop/Android Chrome
   const isSupported =
@@ -101,6 +111,30 @@ export function usePushNotifications() {
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // ── Clean up stale subscription when account preference is explicitly off ─────
+  // If the user disabled notifications (accountPreference === false) but a browser
+  // subscription still lingers (e.g. from a previous enable on this device), remove
+  // it so the toggle doesn't appear enabled due to a stale subscription.
+  useEffect(() => {
+    if (!isSupported || accountPreference !== false) return;
+    (async () => {
+      try {
+        const sw = await navigator.serviceWorker.ready.catch(() => null);
+        if (!sw) return;
+        const existing = await sw.pushManager.getSubscription();
+        if (existing) {
+          await apiRequest("DELETE", "/api/push/subscribe", { endpoint: existing.endpoint }).catch(() => {});
+          await existing.unsubscribe();
+          setIsSubscribed(false);
+          console.log("[PUSH] Cleaned up stale subscription (account preference is off)");
+        }
+      } catch (e: any) {
+        console.warn("[PUSH] Could not clean up stale subscription:", e?.message);
+      }
+    })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [accountPreference, isSupported]);
 
   // ── Register Service Worker ────────────────────────────────────────────────
   useEffect(() => {
@@ -193,7 +227,7 @@ export function usePushNotifications() {
     }
   }, []);
 
-  // ── Load subscription state + preferences on mount ─────────────────────────
+  // ── Load subscription state + account preference + category prefs on mount ───
   // Also silently re-registers any existing browser subscription under the
   // currently authenticated user. This corrects stale userId→endpoint mappings
   // that can arise when the same device is used with multiple accounts.
@@ -203,8 +237,19 @@ export function usePushNotifications() {
     if (!isSupported || !swReg) return;
     (async () => {
       try {
+        // Load account-level preference from user_settings (independent of device state)
+        try {
+          const settingsRes = await apiRequest("GET", "/api/settings");
+          const settingsData = await settingsRes.json();
+          const acctPref = settingsData?.pushAccountEnabled;
+          setAccountPreference(typeof acctPref === "boolean" ? acctPref : undefined);
+          console.log("[PUSH_SUBSCRIPTION] account preference loaded:", acctPref);
+        } catch (settingsErr: any) {
+          console.log("[PUSH_SUBSCRIPTION] account preference fetch skipped (not auth'd?):", settingsErr?.message);
+        }
+
         const existing = await swReg.pushManager.getSubscription();
-        console.log("[PUSH] Existing subscription on mount:", existing ? "YES" : "none");
+        console.log("[PUSH_SUBSCRIPTION] Existing subscription on mount:", existing ? "YES" : "none", "| Notification.permission:", Notification.permission, "| SW state:", swReg.active?.state ?? "none");
         setIsSubscribed(!!existing);
         if (existing) {
           // Re-register under the current authenticated user (silent — fixes stale mappings)
@@ -215,17 +260,17 @@ export function usePushNotifications() {
               auth:      arrayBufferToBase64(existing.getKey("auth")),
               userAgent: navigator.userAgent.slice(0, 200),
             });
-            console.log("[PUSH] Auto-reregistered existing subscription under current user ✓");
+            console.log("[PUSH_SUBSCRIPTION] subscription persisted: auto-reregistered under current user ✓");
           } catch (reregErr: any) {
             // 401 means not authenticated yet — harmless, subscription stays in browser
-            console.log("[PUSH] Auto-reregister skipped (not authenticated or server error):", reregErr?.message);
+            console.log("[PUSH_SUBSCRIPTION] auto-reregister skipped (not authenticated or server error):", reregErr?.message);
           }
           const res = await apiRequest("GET", "/api/push/preferences");
           const data = await res.json();
           setPreferences({ ...DEFAULT_PREFS, ...data });
         }
       } catch (e: any) {
-        console.warn("[PUSH] getSubscription on mount failed:", e?.message);
+        console.warn("[PUSH_SUBSCRIPTION] getSubscription on mount failed:", e?.message);
       }
     })();
   }, [isSupported, swReg]);
@@ -376,6 +421,16 @@ export function usePushNotifications() {
         return false;
       }
 
+      // Set account-level preference to enabled (await — not fire-and-forget)
+      setAccountPreference(true);
+      try {
+        await apiRequest("PATCH", "/api/settings", { pushAccountEnabled: true });
+        console.log("[PUSH_SUBSCRIPTION] account preference set: enabled ✓");
+      } catch (e: any) {
+        console.error("[PUSH_SUBSCRIPTION] Failed to save account preference enabled:", e?.message);
+        // Non-fatal: the preference will correct itself on next settings fetch.
+      }
+
       setIsSubscribed(true);
       step("Done — push notifications enabled ✓");
       return true;
@@ -400,7 +455,13 @@ export function usePushNotifications() {
         await sub.unsubscribe();
       }
       setIsSubscribed(false);
-      console.log("[PUSH] Unsubscribed from push notifications");
+      setAccountPreference(false);
+      try {
+        await apiRequest("PATCH", "/api/settings", { pushAccountEnabled: false });
+        console.log("[PUSH_SUBSCRIPTION] unsubscribed: account preference set to disabled");
+      } catch (e: any) {
+        console.error("[PUSH_SUBSCRIPTION] Failed to save account preference disabled:", e?.message);
+      }
     } catch (err: any) {
       console.error("[PUSH] Unsubscribe error:", err?.message);
     } finally {
@@ -464,6 +525,8 @@ export function usePushNotifications() {
     isIosSafari,
     permission,
     isSubscribed,
+    accountPreference,
+    needsReconnect,
     preferences,
     isLoading,
     error,

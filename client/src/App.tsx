@@ -92,6 +92,7 @@ if (typeof window !== "undefined") {
 import { TabActiveContext } from "@/hooks/use-tab-active";
 import { LanguageProvider, useLanguageContext } from "@/contexts/language-context";
 import { UnitsProvider } from "@/contexts/units-context";
+import { SettingsHydrationProvider } from "@/contexts/settings-hydration-context";
 
 // ── Per-tab error boundary ────────────────────────────────────────────────────
 // Wraps each persistent tab so a crash in one tab does not kill the others.
@@ -3396,17 +3397,22 @@ function App() {
         <LanguageProvider>
           <UnitsProvider>
             <AuthProvider>
-              <TooltipProvider>
-                <Toaster />
-                <AppContent />
-                <CallDiagnosticsButton />
-                <PurchaseDebugPanel />
-                {import.meta.env.DEV && PerfOverlayLazy && (
-                  <Suspense fallback={null}>
-                    <PerfOverlayLazy />
-                  </Suspense>
-                )}
-              </TooltipProvider>
+              {/* SettingsHydrationProvider fires GET /api/settings for any
+                  authenticated user so language/units are hydrated immediately
+                  on every page — not only when Settings is open. */}
+              <SettingsHydrationProvider>
+                <TooltipProvider>
+                  <Toaster />
+                  <AppContent />
+                  <CallDiagnosticsButton />
+                  <PurchaseDebugPanel />
+                  {import.meta.env.DEV && PerfOverlayLazy && (
+                    <Suspense fallback={null}>
+                      <PerfOverlayLazy />
+                    </Suspense>
+                  )}
+                </TooltipProvider>
+              </SettingsHydrationProvider>
             </AuthProvider>
           </UnitsProvider>
         </LanguageProvider>

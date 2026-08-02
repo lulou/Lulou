@@ -1122,6 +1122,9 @@ export function mapMatch(row: any): Match {
     meetAvailability2: row.meet_availability_2,
     callAvail1: row.call_avail_1 ?? null,
     callAvail2: row.call_avail_2 ?? null,
+    callAvail1At: row.call_avail_1_at ? new Date(row.call_avail_1_at) : null,
+    callAvail2At: row.call_avail_2_at ? new Date(row.call_avail_2_at) : null,
+    agreedCallAt: row.agreed_call_at ? new Date(row.agreed_call_at) : null,
     numberExchanged1: row.number_exchanged_1,
     numberExchanged2: row.number_exchanged_2,
     dateChoiceUser1: row.date_choice_user1 ?? null,
@@ -2070,10 +2073,12 @@ export class SupabaseStorage implements IStorage {
     callStage: number;
     messageCount1: number; messageCount2: number;
     callAvail1: string | null; callAvail2: string | null;
+    callAvail1At: string | null; callAvail2At: string | null;
+    agreedCallAt: string | null;
   } | null> {
     const { data, error } = await this.sb
       .from("matches")
-      .select("id, user1_id, user2_id, call_stage, message_count_1, message_count_2, call_avail_1, call_avail_2")
+      .select("id, user1_id, user2_id, call_stage, message_count_1, message_count_2, call_avail_1, call_avail_2, call_avail_1_at, call_avail_2_at, agreed_call_at")
       .eq("id", matchId)
       .eq("status", "active")
       .maybeSingle();
@@ -2087,6 +2092,9 @@ export class SupabaseStorage implements IStorage {
       messageCount2: data.message_count_2 || 0,
       callAvail1: data.call_avail_1 ?? null,
       callAvail2: data.call_avail_2 ?? null,
+      callAvail1At: data.call_avail_1_at ?? null,
+      callAvail2At: data.call_avail_2_at ?? null,
+      agreedCallAt: data.agreed_call_at ?? null,
     };
   }
 
@@ -3181,11 +3189,49 @@ export class SupabaseStorage implements IStorage {
     // Only valid at call stage 0 (pre-first-call availability)
     if ((match.callStage || 0) !== 0) return undefined;
 
+    const isUser1 = match.user1Id === userId;
     const updates: Record<string, any> = {};
-    if (match.user1Id === userId) {
-      updates.call_avail_1 = availableAt;
+
+    if (availableAt === null) {
+      // Clearing availability: wipe both old text column and new timestamp column,
+      // and clear agreed_call_at since the agreement is no longer valid.
+      if (isUser1) {
+        updates.call_avail_1    = null;
+        updates.call_avail_1_at = null;
+      } else {
+        updates.call_avail_2    = null;
+        updates.call_avail_2_at = null;
+      }
+      updates.agreed_call_at = null;
     } else {
-      updates.call_avail_2 = availableAt;
+      // Setting availability: store absolute timestamp in both old text column (backward
+      // compat) and new timestamp column.
+      const newTs = new Date(availableAt);
+      if (isUser1) {
+        updates.call_avail_1    = availableAt;
+        updates.call_avail_1_at = newTs.toISOString();
+      } else {
+        updates.call_avail_2    = availableAt;
+        updates.call_avail_2_at = newTs.toISOString();
+      }
+
+      // Compute agreed_call_at: the other user's existing timestamp.
+      const otherRaw = isUser1 ? matchData.call_avail_2_at : matchData.call_avail_1_at;
+      if (otherRaw) {
+        const otherTs = new Date(otherRaw);
+        const diffMin = Math.abs(newTs.getTime() - otherTs.getTime()) / 60_000;
+        const COMPAT_TOLERANCE_MIN = 10;
+        if (diffMin <= COMPAT_TOLERANCE_MIN) {
+          // Compatible: agreed time = the later of the two (so both are ready)
+          updates.agreed_call_at = new Date(Math.max(newTs.getTime(), otherTs.getTime())).toISOString();
+        } else {
+          // Incompatible: clear any previous agreed time
+          updates.agreed_call_at = null;
+        }
+      } else {
+        // Other user has not yet chosen — no agreed time yet
+        updates.agreed_call_at = null;
+      }
     }
 
     const { data: updated } = await this.sb

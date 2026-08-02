@@ -1,0 +1,128 @@
+IMPORTANT CORRECTION — AVAILABILITY SHOULD CREATE AN AGREED CALL TIME
+
+Do not unlock Start Call simply because two availability selections are within an arbitrary 45-minute difference.
+
+The current compatibility rule:
+
+abs(offsetA - offsetB) <= 45 minutes
+
+is too broad and can unlock calls before both users are actually ready.
+
+Replace it with an explicit agreed-time model.
+
+CORRECT RULES
+
+1. Available now + Available now
+- READY_TO_CALL immediately
+
+2. Same preset + same preset
+Examples:
+- In 30 minutes + In 30 minutes
+- In 1 hour + In 1 hour
+- In 2 hours + In 2 hours
+
+Result:
+- store one agreed_call_at timestamp
+- READY_TO_CALL only when the agreed time arrives
+- before then show:
+ “Call scheduled for [time]”
+
+3. Different presets
+Examples:
+- Available now + In 30 minutes
+- In 30 minutes + In 1 hour
+- In 1 hour + In 2 hours
+
+Result:
+- not compatible
+- show both choices
+- ask one or both users to change availability
+
+4. Specific times
+- compatible only when both users select the same time or times within a small tolerance such as 10 minutes
+- normalize both to UTC
+- store a single agreed_call_at timestamp
+- display in each user’s local timezone
+
+5. Preset + specific time
+Convert the preset to an absolute timestamp when selected.
+
+Example:
+- User A selects In 30 minutes at 10:00 → 10:30 UTC-normalized timestamp
+- User B selects a specific time of 10:35
+- compatible only if within the allowed 10-minute tolerance
+
+6. Do not keep recalculating presets relative to the current time.
+
+Critical:
+“in_30_minutes” must be converted to an absolute timestamp at the moment the user selects it.
+
+Do not later interpret it as 30 minutes from every subsequent server request, because the target time would keep moving forward.
+
+STORE
+
+Persist:
+
+- call_avail_1_at TIMESTAMPTZ
+- call_avail_2_at TIMESTAMPTZ
+- agreed_call_at TIMESTAMPTZ nullable
+
+Do not use translated labels or moving relative offsets as the source of truth.
+
+START CALL RULE
+
+The server may allow Start Call only when:
+
+- both users completed the messaging quota
+- both users submitted availability
+- an agreed_call_at exists
+- current time is at or within the allowed early-start window
+- no active call exists
+- match is active
+
+Suggested early-start window:
+- allow Start Call up to 5 minutes before agreed_call_at
+
+If both selected Available now:
+- agreed_call_at may be immediate
+
+UI STATES
+
+- WAITING_FOR_OTHER_USER
+- AVAILABILITY_MISMATCH
+- CALL_SCHEDULED
+- READY_TO_CALL
+
+CALL_SCHEDULED must show:
+- agreed local date/time
+- countdown or “Available in X minutes”
+- Change availability
+- End match
+
+READY_TO_CALL must only appear when the agreed time has arrived.
+
+MIGRATION
+
+If changing from TEXT availability values to timestamps:
+
+- create a backward-compatible migration
+- preserve existing values
+- do not drop old columns until data is migrated
+- add new timestamp columns first
+- migrate valid ISO values
+- leave legacy preset values safely handled
+- remove old columns only in a later migration after production verification
+
+REPORT
+
+- final compatibility tolerance
+- exact agreed_call_at calculation
+- whether presets are converted to absolute timestamps on selection
+- early-start window
+- migration filename
+- files changed
+- commit hash
+- deployed commits
+- real two-account PASS/FAIL
+
+Do not report PASS from code inspection.
