@@ -3531,16 +3531,44 @@ export async function registerRoutes(
       const isCountedMessage = callStage === 0 && !content.trim().startsWith("__");
       if (isCountedMessage) {
         const tInc0 = Date.now();
-        const [updated] = await db
-          .update(matches)
-          .set(isUser1Sender
-            ? { messageCount1: sqlExpr`message_count_1 + 1` }
-            : { messageCount2: sqlExpr`message_count_2 + 1` })
-          .where(eq(matches.id, matchId))
-          .returning({ messageCount1: matches.messageCount1, messageCount2: matches.messageCount2 });
-        newCount1 = updated?.messageCount1 ?? preCount1;
-        newCount2 = updated?.messageCount2 ?? preCount2;
-        if (IS_DEV) console.log(`[MSG] atomic-increment: ${Date.now() - tInc0} ms | count1=${newCount1} count2=${newCount2}`);
+        // ── Atomic counter increment via Supabase RPC ──────────────────────────
+        // CRITICAL: must use supabaseAdmin (Supabase DB) not the Drizzle `db`
+        // (Railway/Neon DB via DATABASE_URL).  All reads use Supabase PostgREST.
+        // Writing to a separate DB made every increment invisible to every read:
+        // the 30-second background GET refetch always returned message_count_X = 0
+        // from Supabase and overwrote the client cache, snapping the badge back to 15.
+        //
+        // The RPC function (supabase/migrations/increment_message_count_fn.sql)
+        // issues a single atomic UPDATE ... RETURNING inside Supabase's own Postgres.
+        const { data: rpcResult, error: rpcErr } = await supabaseAdmin.rpc(
+          "increment_message_count",
+          { p_match_id: matchId, p_is_user1: isUser1Sender },
+        );
+        if (rpcErr) {
+          // RPC function not yet deployed in this environment.
+          // Fall back to a Supabase direct update using the pre-read value + 1.
+          // This is not atomic across concurrent sends but at least writes to the
+          // correct database so reads can see it.  Apply the migration to fix this.
+          console.error("[MSG] increment_message_count RPC failed — falling back to direct Supabase update:", rpcErr.message);
+          const updateCol = isUser1Sender
+            ? { message_count_1: preCount1 + 1 }
+            : { message_count_2: preCount2 + 1 };
+          const { data: fbData, error: fbErr } = await supabaseAdmin
+            .from("matches")
+            .update(updateCol)
+            .eq("id", matchId)
+            .select("message_count_1, message_count_2")
+            .single();
+          if (fbErr) console.error("[MSG] fallback Supabase update also failed:", fbErr.message);
+          newCount1 = fbData?.message_count_1 ?? (preCount1 + (isUser1Sender ? 1 : 0));
+          newCount2 = fbData?.message_count_2 ?? (preCount2 + (isUser1Sender ? 0 : 1));
+        } else {
+          // RPC returns a one-row TABLE result; supabase-js wraps it in an array.
+          const row = Array.isArray(rpcResult) ? rpcResult[0] : rpcResult;
+          newCount1 = (row as any)?.out_count1 ?? (preCount1 + (isUser1Sender ? 1 : 0));
+          newCount2 = (row as any)?.out_count2 ?? (preCount2 + (isUser1Sender ? 0 : 1));
+        }
+        if (IS_DEV) console.log(`[MSG] atomic-increment: ${Date.now() - tInc0} ms | count1=${newCount1} count2=${newCount2} rpcErr=${rpcErr?.message ?? "none"}`);
 
         // ── Step 3c: Milestone detection on authoritative post-increment counts ──
         // Uses >= (not ===) so a missed crossing from a prior race is self-healing.
