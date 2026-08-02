@@ -1,0 +1,214 @@
+Fix the live “messages left” countdown in the real chatroom.
+
+Current production problem:
+
+- The header starts at “15 left”.
+- When the user successfully sends a message, it remains stuck on “15 left”.
+- It should immediately change to 14, then 13, 12, and so on.
+- It must remain correct after refreshing and on both users’ devices.
+
+Only fix message-count calculation, persistence and cache/realtime synchronisation.
+
+Do not change:
+- stage quotas
+- 15-messages-each requirement
+- call-stage unlock rules
+- availability flow
+- call duration rules
+- chat/profile gestures
+- composer layout
+- authentication
+- calls
+- settings
+
+CORRECT COUNTDOWN RULE
+
+The header represents how many messages the currently signed-in user can still SEND during the current messaging stage.
+
+Stage limits:
+
+- Stage 1: 15 sent messages per user
+- Stage 2: 12 sent messages per user
+- Stage 3: 20 sent messages per user
+
+Formula:
+
+messagesLeft = max(0, currentStageLimit - mySentMessageCountForCurrentStage)
+
+Examples for Stage 1:
+
+- before sending: 15 left
+- after first successful message: 14 left
+- after second: 13 left
+- after fifteenth: 0 left
+
+The partner sending a message must not reduce my allowance.
+
+INVESTIGATE THE SOURCE OF TRUTH
+
+Trace the successful message-send path through:
+
+- client send mutation
+- server message insertion
+- message_count_1 / message_count_2 update
+- current authenticated user’s position in the match
+- current callStage/stage
+- match-detail response
+- React Query cache
+- realtime message event
+- header countdown render
+
+Find whether:
+
+1. The database count is not incrementing.
+2. The wrong user’s count is being read.
+3. The count includes received messages instead of sent messages.
+4. The message list updates but match-detail cache remains stale.
+5. The optimistic update only adds the message and not the sender count.
+6. A later stale refetch overwrites the updated count.
+7. The UI is reading an old hardcoded/default value of 15.
+8. Stage-relative counts are being calculated incorrectly.
+
+REQUIRED SERVER BEHAVIOUR
+
+When a message is accepted:
+
+1. Insert the message.
+2. Increment only the authenticated sender’s count.
+3. Perform both operations atomically in one database transaction.
+4. Enforce the current stage limit server-side.
+5. Return the canonical updated values:
+
+- message
+- sender message count
+- current stage
+- current stage limit
+- messages left
+
+Do not increment the recipient’s count.
+
+Do not increment when:
+
+- message insertion fails
+- request is duplicated
+- sender has already reached the limit
+- match is at a call gate
+- message is rejected
+
+Prevent duplicate requests from consuming two message allowances.
+
+REQUIRED CLIENT BEHAVIOUR
+
+After a successful send:
+
+- immediately reduce the sender’s displayed countdown by one
+- patch the exact match-detail cache used by the header
+- use the canonical count returned by the server
+- invalidate/refetch the match detail afterward for confirmation
+- keep the optimistic message and counter consistent
+- roll both back if the send fails
+
+Do not wait for a page refresh.
+
+When a realtime message arrives from the partner:
+
+- add the incoming message
+- do not reduce my countdown
+- update the partner’s count in shared match data if needed
+- do not overwrite my current count with stale data
+
+CACHE SAFETY
+
+Identify the exact React Query keys used for:
+
+- messages
+- selected match detail
+- matches/connections list
+- progression state
+
+Patch or invalidate all relevant keys consistently.
+
+Do not have one component read:
+
+messageCount1/messageCount2
+
+while another reads a separately cached calculated value.
+
+The authenticated user-to-counter mapping must be explicit:
+
+- if current user is user1, use message_count_1
+- if current user is user2, use message_count_2
+
+CURRENT-STAGE COUNTING
+
+Confirm whether message_count_1 and message_count_2 are:
+
+- lifetime totals, or
+- reset/stage-relative totals
+
+Use the existing database design correctly.
+
+If they are lifetime totals, calculate the current-stage count using the existing stage offsets. Do not subtract a lifetime count directly from 15/12/20.
+
+Do not reset or alter existing conversations while fixing this.
+
+DEVELOPMENT LOGGING
+
+Add development-only logs:
+
+[MESSAGE_COUNTDOWN]
+
+Include:
+
+- match ID
+- authenticated user ID
+- sender position: user1/user2
+- stage
+- stage limit
+- count before send
+- server count after send
+- calculated messages left
+- cache value before patch
+- cache value after patch
+- refetch result
+
+Do not expose logs in the production UI.
+
+REAL TWO-ACCOUNT TEST
+
+Stage 1:
+
+1. Open the same match on both accounts.
+2. Confirm both initially show their own correct allowance.
+3. User A sends one message.
+4. A immediately changes from 15 to 14.
+5. B’s allowance remains unchanged.
+6. User B sends one message.
+7. B decreases by one.
+8. A remains unchanged.
+9. Refresh both devices.
+10. Confirm both counts persist.
+
+Continue until:
+
+- A reaches 0 while B still has messages remaining
+- A cannot send more
+- B can continue
+- the call stage unlocks only after both reach 0
+
+Also verify Stage 2 counts down from 12 and Stage 3 from 20.
+
+Report:
+
+- exact root cause
+- whether the database count was correct
+- exact cache key patched
+- sender-to-counter mapping
+- files changed
+- commit hash
+- pushed to origin/main
+- Vercel/Railway deployed commits
+- real two-account PASS/FAIL
+
+Do not report PASS from code inspection.
+Do not change the stage limits.
