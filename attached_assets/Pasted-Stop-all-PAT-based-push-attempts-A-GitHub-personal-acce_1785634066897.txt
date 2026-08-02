@@ -1,0 +1,101 @@
+Stop all PAT-based push attempts.
+
+A GitHub personal access token was exposed in command output. Do not print, reuse, store or commit it.
+
+FIRST — SECURITY
+
+1. Confirm no token was written into:
+- git remote URLs
+- .git/config
+- shell history
+- environment files
+- application logs
+- committed files
+
+2. Sanitize the Git remote so it contains no credentials:
+
+git remote set-url origin https://github.com/<OWNER>/<REPO>.git
+
+3. Show only the credential-free output of:
+
+git remote -v
+
+Do not display any token.
+
+SECOND — PRESERVE THE LOCAL COMMITS
+
+Do not reset, amend, squash, rebase or force-push.
+
+Confirm:
+
+git status --short
+git branch --show-current
+git log --oneline -5
+git rev-parse HEAD
+git rev-parse origin/main
+
+Expected local commits include:
+
+- ee09efd — settings persistence fixes
+- ca4e873 — memory update
+
+origin/main is currently at:
+
+d66d4a5
+
+The working tree and local commits must remain intact.
+
+THIRD — USE THE REPLIT/GITHUB INTEGRATION
+
+Do not place a PAT in a Git URL or shell command.
+
+Use the authenticated GitHub connection built into Replit:
+
+- open Version Control
+- confirm the repository is connected to the correct GitHub repository
+- reconnect GitHub through Replit’s secure OAuth flow if authentication expired
+- push the current main branch through the Version Control interface
+
+If Replit provides a secure credential prompt, use that UI only. Do not echo credentials into the terminal.
+
+If the GitHub integration cannot push, report the exact non-sensitive error and stop. Do not attempt another token-in-URL command.
+
+FOURTH — VERIFY THE PUSH
+
+After the secure push succeeds, run:
+
+git fetch origin
+git rev-parse HEAD
+git rev-parse origin/main
+
+The hashes must match.
+
+Confirm GitHub main contains both local commits and provide:
+
+- local HEAD hash
+- origin/main hash
+- latest GitHub main commit
+- confirmation that no credentials remain in the remote URL
+
+FIFTH — DEPLOYMENT
+
+Only after GitHub contains the commits:
+
+1. Confirm Vercel begins deploying the new main commit.
+2. Confirm Railway begins deploying the same commit.
+3. Apply the production settings migrations before marking Railway healthy:
+  - supabase/migrations/add_user_settings_table.sql
+  - supabase/migrations/amend_push_not_null.sql
+4. Verify push_account_enabled is BOOLEAN NOT NULL DEFAULT false.
+5. Verify authenticated GET and PATCH /api/settings work.
+
+Report:
+
+- secure push method used
+- local HEAD
+- origin/main
+- Vercel deployed commit/status
+- Railway deployed commit/status
+- migration results
+
+Do not report the work as deployed until GitHub, Vercel and Railway all contain the same commit.

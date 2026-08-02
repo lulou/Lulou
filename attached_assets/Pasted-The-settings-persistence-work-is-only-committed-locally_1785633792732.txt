@@ -1,0 +1,98 @@
+The settings persistence work is only committed locally as ee09efd.
+
+The GitHub push failed, so none of these changes are deployed to Vercel or Railway yet.
+
+Do not make any more code changes.
+
+Fix the GitHub remote authentication and push the existing commit:
+
+ee09efd
+
+to:
+
+origin/main
+
+REQUIRED STEPS
+
+1. Confirm the current branch is main.
+
+2. Confirm the working tree is clean.
+
+3. Confirm HEAD is exactly:
+
+ee09efd
+
+4. Inspect the Git remote:
+
+git remote -v
+
+5. Fix the remote credential/authentication issue without:
+- creating another repository
+- force-pushing
+- resetting main
+- squashing or rewriting the commit
+- exposing access tokens in logs
+- committing credentials into the repository
+
+6. Push:
+
+git push origin main
+
+7. Verify the remote branch now contains ee09efd:
+
+git fetch origin
+git rev-parse HEAD
+git rev-parse origin/main
+
+Both hashes must match.
+
+8. Confirm GitHub shows commit ee09efd on main.
+
+9. Confirm Vercel starts a deployment from ee09efd.
+
+10. Confirm Railway starts a deployment from ee09efd.
+
+MIGRATION ORDER
+
+The new settings code depends on:
+
+- supabase/migrations/add_user_settings_table.sql
+- supabase/migrations/amend_push_not_null.sql
+
+Before the new backend is considered ready:
+
+1. Apply both migrations to the actual production database used by Railway.
+2. Confirm user_settings exists.
+3. Confirm push_account_enabled is:
+  - BOOLEAN
+  - NOT NULL
+  - DEFAULT false
+4. Confirm existing explicit true/false values were preserved.
+5. Confirm authenticated GET /api/settings works against production.
+6. Confirm authenticated PATCH /api/settings works against production.
+
+Do not rely on startup DDL as the production migration.
+
+DEPLOYMENT VERIFICATION
+
+Report:
+
+- exact reason the GitHub push originally failed
+- how authentication was fixed
+- local HEAD hash
+- origin/main hash
+- GitHub main commit
+- production migration results
+- Vercel deployed commit
+- Railway deployed commit
+- Vercel status
+- Railway status
+
+Do not report the settings work as deployed until:
+
+- origin/main contains ee09efd
+- production migrations are applied
+- Vercel is Ready
+- Railway is healthy
+
+Do not report real-device PASS from code inspection.

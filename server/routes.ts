@@ -84,6 +84,17 @@ function isCallReadyToStart(agreedCallAt: Date): boolean {
   return Date.now() >= agreedCallAt.getTime() - EARLY_START_WINDOW_MIN * 60_000;
 }
 
+/** Availability expires this many minutes after agreed_call_at. */
+const AVAIL_EXPIRY_GRACE_MIN = 30;
+
+/**
+ * True when the agreed call time has passed the expiry grace window.
+ * After this point the users must re-select their availability.
+ */
+function isCallAvailExpired(agreedCallAt: Date): boolean {
+  return Date.now() > agreedCallAt.getTime() + AVAIL_EXPIRY_GRACE_MIN * 60_000;
+}
+
 // ── Dev-only server performance logger ───────────────────────────────────────
 // All output is suppressed in production so there is zero log noise for users.
 const IS_DEV = process.env.NODE_ENV !== "production";
@@ -3790,6 +3801,18 @@ export async function registerRoutes(
             return res.status(403).json({
               message: `Your call is scheduled for later. You can join up to ${EARLY_START_WINDOW_MIN} minutes early.`,
             });
+          }
+          // Gate 3b expiry: after a 30-minute grace window, the agreed time is stale.
+          // Clear it so both users see "Availability expired" and re-select.
+          // Server time is authoritative — client clock is never trusted for this check.
+          if (isCallAvailExpired(agreed)) {
+            console.log("[CALL_START] BLOCKED_AVAIL_EXPIRED", {
+              matchId, userId: userId.slice(0, 8),
+              agreedCallAt: agreed.toISOString(),
+              expiredMinsAgo: Math.round((Date.now() - agreed.getTime()) / 60_000) - AVAIL_EXPIRY_GRACE_MIN,
+            });
+            await getStorage(req).clearAgreedCallAt(matchId).catch(() => {});
+            return res.status(403).json({ message: "availability_expired" });
           }
         }
       }

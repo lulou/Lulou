@@ -796,6 +796,7 @@ export interface IStorage {
   getSpinRequest(id: string): Promise<SpinRequest | undefined>;
   setMeetAvailability(matchId: string, userId: string, availability: string): Promise<Match | undefined>;
   setCallAvailability(matchId: string, userId: string, availableAt: string | null): Promise<Match | undefined>;
+  clearAgreedCallAt(matchId: string): Promise<void>;
   exchangeNumber(matchId: string, userId: string): Promise<Match | undefined>;
   removeMatch(matchId: string, userId: string): Promise<boolean>;
   getMatchCount(userId: string): Promise<number>;
@@ -3178,69 +3179,79 @@ export class SupabaseStorage implements IStorage {
   }
 
   async setCallAvailability(matchId: string, userId: string, availableAt: string | null): Promise<Match | undefined> {
+    // ── Step 1: Validate without reading availability (avoids stale-read race) ──
     const { data: matchData } = await this.sb
       .from("matches")
-      .select("*")
+      .select("id, user1_id, user2_id, call_stage")
       .eq("id", matchId)
       .maybeSingle();
     if (!matchData) return undefined;
-    const match = mapMatch(matchData);
-    if (match.user1Id !== userId && match.user2Id !== userId) return undefined;
-    // Only valid at call stage 0 (pre-first-call availability)
-    if ((match.callStage || 0) !== 0) return undefined;
+    if (matchData.user1_id !== userId && matchData.user2_id !== userId) return undefined;
+    if ((matchData.call_stage || 0) !== 0) return undefined;
 
-    const isUser1 = match.user1Id === userId;
-    const updates: Record<string, any> = {};
+    const isUser1 = matchData.user1_id === userId;
 
+    // ── Step 2: Write ONLY this user's own availability timestamp atomically ──
+    // Separating this write from the agreed_call_at computation means that when
+    // both users write concurrently, each write commits independently before the
+    // agreement is calculated — agreed_call_at is never based on a stale read.
+    const ownUpdate: Record<string, any> = {};
     if (availableAt === null) {
-      // Clearing availability: wipe both old text column and new timestamp column,
-      // and clear agreed_call_at since the agreement is no longer valid.
-      if (isUser1) {
-        updates.call_avail_1    = null;
-        updates.call_avail_1_at = null;
-      } else {
-        updates.call_avail_2    = null;
-        updates.call_avail_2_at = null;
-      }
-      updates.agreed_call_at = null;
+      if (isUser1) { ownUpdate.call_avail_1 = null; ownUpdate.call_avail_1_at = null; }
+      else         { ownUpdate.call_avail_2 = null; ownUpdate.call_avail_2_at = null; }
     } else {
-      // Setting availability: store absolute timestamp in both old text column (backward
-      // compat) and new timestamp column.
       const newTs = new Date(availableAt);
-      if (isUser1) {
-        updates.call_avail_1    = availableAt;
-        updates.call_avail_1_at = newTs.toISOString();
-      } else {
-        updates.call_avail_2    = availableAt;
-        updates.call_avail_2_at = newTs.toISOString();
-      }
+      if (isUser1) { ownUpdate.call_avail_1 = availableAt; ownUpdate.call_avail_1_at = newTs.toISOString(); }
+      else         { ownUpdate.call_avail_2 = availableAt; ownUpdate.call_avail_2_at = newTs.toISOString(); }
+    }
+    const { error: ownWriteErr } = await this.sb.from("matches").update(ownUpdate).eq("id", matchId);
+    if (ownWriteErr) throw new Error(`setCallAvailability own-write error: ${ownWriteErr.message}`);
 
-      // Compute agreed_call_at: the other user's existing timestamp.
-      const otherRaw = isUser1 ? matchData.call_avail_2_at : matchData.call_avail_1_at;
+    // ── Step 3: Re-read BOTH timestamps from the now-committed row ──
+    // Any concurrent write by the partner will already be committed at this
+    // point, so agreed_call_at is computed from the latest persisted values.
+    const { data: fresh } = await this.sb
+      .from("matches")
+      .select("*, call_avail_1_at, call_avail_2_at")
+      .eq("id", matchId)
+      .single();
+    if (!fresh) return undefined;
+
+    // ── Step 4: Compute agreed_call_at from fresh committed values ──
+    const COMPAT_TOLERANCE_MIN = 10;
+    const agreeUpdate: Record<string, any> = {};
+    if (availableAt === null) {
+      // User cleared availability — no agreement possible
+      agreeUpdate.agreed_call_at = null;
+    } else {
+      const myTs     = new Date(availableAt);
+      const otherRaw = isUser1 ? fresh.call_avail_2_at : fresh.call_avail_1_at;
       if (otherRaw) {
         const otherTs = new Date(otherRaw);
-        const diffMin = Math.abs(newTs.getTime() - otherTs.getTime()) / 60_000;
-        const COMPAT_TOLERANCE_MIN = 10;
-        if (diffMin <= COMPAT_TOLERANCE_MIN) {
-          // Compatible: agreed time = the later of the two (so both are ready)
-          updates.agreed_call_at = new Date(Math.max(newTs.getTime(), otherTs.getTime())).toISOString();
-        } else {
-          // Incompatible: clear any previous agreed time
-          updates.agreed_call_at = null;
-        }
+        const diffMin = Math.abs(myTs.getTime() - otherTs.getTime()) / 60_000;
+        agreeUpdate.agreed_call_at = diffMin <= COMPAT_TOLERANCE_MIN
+          ? new Date(Math.max(myTs.getTime(), otherTs.getTime())).toISOString()
+          : null;
       } else {
-        // Other user has not yet chosen — no agreed time yet
-        updates.agreed_call_at = null;
+        agreeUpdate.agreed_call_at = null;
       }
     }
 
+    // ── Step 5: Write agreed_call_at ──
     const { data: updated } = await this.sb
       .from("matches")
-      .update(updates)
+      .update(agreeUpdate)
       .eq("id", matchId)
       .select()
       .single();
     return updated ? mapMatch(updated) : undefined;
+  }
+
+  async clearAgreedCallAt(matchId: string): Promise<void> {
+    await this.sb
+      .from("matches")
+      .update({ agreed_call_at: null })
+      .eq("id", matchId);
   }
 
   async setMeetAvailability(matchId: string, userId: string, availability: string): Promise<Match | undefined> {

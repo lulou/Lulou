@@ -2638,6 +2638,10 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
   const [firstCallPopupOpen, setFirstCallPopupOpen] = useState(false);
   // Whether to show the availability picker inline (for "Change availability" in WAITING/READY)
   const [showAvailPicker, setShowAvailPicker] = useState(false);
+  // Ticker for the CALL_SCHEDULED countdown — updates every 30 s so the
+  // "Available in X minutes" label stays accurate and the component auto-transitions
+  // to READY_TO_CALL when the early-start window opens, without a manual refresh.
+  const [nowMs, setNowMs] = useState(() => Date.now());
   // Sub-picker state for "Pick a specific time" inside the availability step
   const [showSpecificTimePicker, setShowSpecificTimePicker] = useState(false);
   const [specificTimePending, setSpecificTimePending] = useState("");
@@ -3262,26 +3266,45 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
     return val;
   };
 
+  // Keep nowMs current while a call is scheduled so the countdown refreshes
+  // automatically and the component transitions to READY_TO_CALL when the
+  // early-start window opens — no manual refresh needed.
+  useEffect(() => {
+    if (!agreedCallAt) return;
+    const id = setInterval(() => setNowMs(Date.now()), 30_000);
+    return () => clearInterval(id);
+  }, [agreedCallAt]);
+
   // Minutes until the early-start window opens (shown in CALL_SCHEDULED state).
+  // Uses nowMs (updated every 30 s) so the countdown stays live.
   const CLIENT_EARLY_START_WINDOW_MIN = 5;
   const minutesUntilCall = agreedCallAt
     ? Math.max(0, Math.ceil(
-        (new Date(agreedCallAt).getTime() - Date.now()) / 60_000 - CLIENT_EARLY_START_WINDOW_MIN,
+        (new Date(agreedCallAt).getTime() - nowMs) / 60_000 - CLIENT_EARLY_START_WINDOW_MIN,
       ))
     : null;
   const agreedCallReady = agreedCallAt
-    ? Date.now() >= new Date(agreedCallAt).getTime() - CLIENT_EARLY_START_WINDOW_MIN * 60_000
+    ? nowMs >= new Date(agreedCallAt).getTime() - CLIENT_EARLY_START_WINDOW_MIN * 60_000
+    : false;
+
+  // Availability expires 30 minutes after agreed_call_at; mirrors server constant.
+  // Client detects expiry for immediate UI feedback; server enforces it on call-start.
+  const AVAIL_EXPIRY_GRACE_MIN = 30;
+  const agreedCallExpired = agreedCallAt
+    ? nowMs > new Date(agreedCallAt).getTime() + AVAIL_EXPIRY_GRACE_MIN * 60_000
     : false;
 
   // ── Call stage state machine ─────────────────────────────────────────────
-  // CALL_SCHEDULED: both users agreed on a time but it hasn't arrived yet.
-  // AVAILABILITY_MISMATCH: both users chose times but they differ by > 10 min.
-  // READY_TO_CALL: agreed time has arrived (or within 5-min early-start window).
+  // CALL_SCHEDULED:      both agreed a time, not yet in early-start window.
+  // AVAILABILITY_EXPIRED: agreed time has passed the 30-min grace window.
+  // AVAILABILITY_MISMATCH: both chose times but differ by > 10 min.
+  // READY_TO_CALL:       agreed time arrived (or within 5-min early-start window).
   const callStageState =
     !firstCallPromptSeen  ? 'CALL_STAGE_UNLOCKED'       as const :
     !myCallAvailAt        ? 'CHOOSING_AVAILABILITY'      as const :
     !theirCallAvailAt     ? 'WAITING_FOR_OTHER_USER'     as const :
     !agreedCallAt         ? 'AVAILABILITY_MISMATCH'      as const :
+    agreedCallExpired     ? 'AVAILABILITY_EXPIRED'       as const :
     !agreedCallReady      ? 'CALL_SCHEDULED'             as const :
                             'READY_TO_CALL'              as const;
 
@@ -4394,6 +4417,34 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
                     size="sm" variant="outline" className="w-full"
                     onClick={() => setShowAvailPicker(true)}
                     data-testid={`button-change-avail-waiting-${match.id}`}
+                  >
+                    {t("change_availability_btn")}
+                  </Button>
+                  <button
+                    onClick={() => setNextStepChoice('end')}
+                    className="w-full text-xs text-muted-foreground hover:text-foreground text-center py-1 transition-colors"
+                  >
+                    {t("end_match_btn")}
+                  </button>
+                </div>
+              </div>
+            ) : callStageState === 'AVAILABILITY_EXPIRED' ? (
+              /* ── Step 3e: Agreed time passed the 30-min grace window ─ */
+              <div className="p-4 border-t" data-testid={`call-avail-expired-${match.id}`}>
+                <div className="space-y-3">
+                  <div className="flex items-start gap-2">
+                    <AlertCircle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
+                    <div>
+                      <p className="font-medium text-sm">Availability expired</p>
+                      <p className="text-xs text-muted-foreground">
+                        Your scheduled call time has passed. Choose a new time to connect.
+                      </p>
+                    </div>
+                  </div>
+                  <Button
+                    size="sm" variant="outline" className="w-full"
+                    onClick={() => { setShowAvailPicker(true); setShowSpecificTimePicker(false); setSpecificTimePending(""); }}
+                    data-testid={`button-reselect-avail-expired-${match.id}`}
                   >
                     {t("change_availability_btn")}
                   </Button>
