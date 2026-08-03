@@ -1046,14 +1046,20 @@ export default function Messaging() {
         callStage: number; currentUserPendingMilestone: string | null;
       } | null | undefined;
       if (prog) {
+        // Snap the match-detail cache to the server-authoritative counts immediately.
         queryClient.setQueryData(["/api/matches", matchId], (old: any) =>
           old ? { ...old, messageCount1: prog.user1Count, messageCount2: prog.user2Count } : old
         );
         setLocalSentCount(0);
-      } else {
-        // Stage 1 / system messages — no progression block; keep the optimistic increment.
-        setLocalSentCount(c => c + 1);
+        // Background-verify: the RPC wrote to Supabase before responding, so a fresh
+        // fetch should return the same canonical count.  Fires asynchronously — does not
+        // block the chat UI.  Exact:true prevents accidentally refetching the messages
+        // sub-query or the list query, which could overwrite the count we just patched.
+        queryClient.refetchQueries({ queryKey: ["/api/matches", matchId], exact: true });
       }
+      // When prog is absent (system payloads — __VOICE__:, __SCHEDULE__:, etc.),
+      // localSentCount is left unchanged.  System messages do not consume the
+      // message allowance, so the countdown must not move.
 
       queryClient.setQueryData<{ messages: Message[]; hasMore: boolean }>(msgsKey, (old) => {
         if (!old) return old;

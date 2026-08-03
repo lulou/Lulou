@@ -3528,7 +3528,10 @@ export async function registerRoutes(
       let progressionEvent: { type: string } | null = null;
       let progression: object | null = null;
 
-      const isCountedMessage = callStage === 0 && !content.trim().startsWith("__");
+      // Counted messages: stage 0 (pre-call, 15-limit) and stage 1 (post-call, 12-limit).
+      // System payloads (__VOICE__:, __SCHEDULE__:, __SYS__:, etc.) never consume allowance.
+      // callStage >= 2 is free messaging — no counter increment needed.
+      const isCountedMessage = (callStage === 0 || callStage === 1) && !content.trim().startsWith("__");
       if (isCountedMessage) {
         const tInc0 = Date.now();
         // ── Atomic counter increment via Supabase RPC ──────────────────────────
@@ -3540,60 +3543,49 @@ export async function registerRoutes(
         //
         // The RPC function (supabase/migrations/increment_message_count_fn.sql)
         // issues a single atomic UPDATE ... RETURNING inside Supabase's own Postgres.
+        // If the RPC is unavailable the send fails clearly — no silent fallback that
+        // would write to the wrong DB or use a stale read-then-write.
         const { data: rpcResult, error: rpcErr } = await supabaseAdmin.rpc(
           "increment_message_count",
           { p_match_id: matchId, p_is_user1: isUser1Sender },
         );
         if (rpcErr) {
-          // RPC function not yet deployed in this environment.
-          // Fall back to a Supabase direct update using the pre-read value + 1.
-          // This is not atomic across concurrent sends but at least writes to the
-          // correct database so reads can see it.  Apply the migration to fix this.
-          console.error("[MSG] increment_message_count RPC failed — falling back to direct Supabase update:", rpcErr.message);
-          const updateCol = isUser1Sender
-            ? { message_count_1: preCount1 + 1 }
-            : { message_count_2: preCount2 + 1 };
-          const { data: fbData, error: fbErr } = await supabaseAdmin
-            .from("matches")
-            .update(updateCol)
-            .eq("id", matchId)
-            .select("message_count_1, message_count_2")
-            .single();
-          if (fbErr) console.error("[MSG] fallback Supabase update also failed:", fbErr.message);
-          newCount1 = fbData?.message_count_1 ?? (preCount1 + (isUser1Sender ? 1 : 0));
-          newCount2 = fbData?.message_count_2 ?? (preCount2 + (isUser1Sender ? 0 : 1));
-        } else {
-          // RPC returns a one-row TABLE result; supabase-js wraps it in an array.
-          const row = Array.isArray(rpcResult) ? rpcResult[0] : rpcResult;
-          newCount1 = (row as any)?.out_count1 ?? (preCount1 + (isUser1Sender ? 1 : 0));
-          newCount2 = (row as any)?.out_count2 ?? (preCount2 + (isUser1Sender ? 0 : 1));
+          // RPC function not deployed in this Supabase project — fail clearly.
+          // Apply supabase/migrations/increment_message_count_fn.sql to fix.
+          console.error("[MSG] increment_message_count RPC unavailable:", rpcErr.message);
+          return res.status(503).json({
+            message: "Message counter unavailable. Please apply the Supabase migration (increment_message_count_fn.sql) and retry.",
+            detail: rpcErr.message,
+          });
         }
-        if (IS_DEV) console.log(`[MSG] atomic-increment: ${Date.now() - tInc0} ms | count1=${newCount1} count2=${newCount2} rpcErr=${rpcErr?.message ?? "none"}`);
+        // RPC returns a one-row TABLE result; supabase-js wraps it in an array.
+        const row = Array.isArray(rpcResult) ? rpcResult[0] : rpcResult;
+        newCount1 = (row as any)?.out_count1 ?? (preCount1 + (isUser1Sender ? 1 : 0));
+        newCount2 = (row as any)?.out_count2 ?? (preCount2 + (isUser1Sender ? 0 : 1));
+        if (IS_DEV) console.log(`[MSG] atomic-increment: ${Date.now() - tInc0} ms | count1=${newCount1} count2=${newCount2}`);
 
-        // ── Step 3c: Milestone detection on authoritative post-increment counts ──
-        // Uses >= (not ===) so a missed crossing from a prior race is self-healing.
-        // Emits the event only when eligibility transitions false → true on this message.
-        // Checked in ascending threshold order so only the lowest newly-crossed event fires.
-        // ── Step 3c: First-call unlock only — voice notes unlock post-call, not here ──
-        const fcWasEligible = preCount1 >= FC_THRESHOLD && preCount2 >= FC_THRESHOLD;
-        const fcNowEligible = newCount1 >= FC_THRESHOLD && newCount2 >= FC_THRESHOLD;
-
-        if (fcNowEligible && !fcWasEligible) {
-          progressionEvent = { type: "first_call_unlocked" };
-          console.log("[PROGRESSION] FC_THRESHOLD_CROSSED", { matchId, userId: userId.slice(0, 8), count1: newCount1, count2: newCount2 });
+        // ── Step 3c: Milestone detection (stage 0 only) ───────────────────────
+        // FC_THRESHOLD is the pre-call messaging milestone; it cannot fire in stage 1
+        // (both users have already made a call before stage 1 begins).
+        if (callStage === 0) {
+          const fcWasEligible = preCount1 >= FC_THRESHOLD && preCount2 >= FC_THRESHOLD;
+          const fcNowEligible = newCount1 >= FC_THRESHOLD && newCount2 >= FC_THRESHOLD;
+          if (fcNowEligible && !fcWasEligible) {
+            progressionEvent = { type: "first_call_unlocked" };
+            console.log("[PROGRESSION] FC_THRESHOLD_CROSSED", { matchId, userId: userId.slice(0, 8), count1: newCount1, count2: newCount2 });
+          }
         }
 
         // ── Diagnostic log — one line per counted send ──────────────────────────
-        // Makes it immediately obvious why a milestone did or didn't fire.
         console.log("[PROGRESSION_DIAG]", {
           matchId: matchId.slice(0, 8),
           senderId: userId.slice(0, 8),
           messageId: message.id.slice(0, 8),
           counted: true,
+          callStageBefore: callStage,
           count1Before: preCount1, count2Before: preCount2,
           count1After:  newCount1, count2After:  newCount2,
           milestoneEmitted: progressionEvent?.type ?? null,
-          callStageBefore: callStage,
         });
 
         progression = {
@@ -3601,8 +3593,8 @@ export async function registerRoutes(
           user2Count:   newCount2,
           myCount:      isUser1Sender ? newCount1 : newCount2,
           theirCount:   isUser1Sender ? newCount2 : newCount1,
-          voiceNotesEligible: false, // VN unlocks post-call, not here
-          firstCallEligible:  fcNowEligible,
+          voiceNotesEligible: callStage >= 1, // VN unlocks post-call (stage >= 1)
+          firstCallEligible:  callStage === 0 ? (newCount1 >= FC_THRESHOLD && newCount2 >= FC_THRESHOLD) : false,
           callStage,
           currentUserPendingMilestone: progressionEvent?.type ?? null,
         };

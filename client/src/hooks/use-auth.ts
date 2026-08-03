@@ -1193,14 +1193,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // actually deletes the active_sessions row.  Without it the new
         // middleware returns 401 and the row is never cleaned up, causing the
         // next bootstrap to find a stale row (harmless but noisy).
+        // 2-second timeout: sign-out must work even when Railway is offline.
+        // The next successful bootstrap will replace any stale session row.
         const _deleteSessionId = localStorage.getItem("lulou_session_id") ?? "";
+        const _deleteCtrl = new AbortController();
+        const _deleteTimeout = setTimeout(() => _deleteCtrl.abort(), 2000);
         await fetch(`${API_BASE}/api/auth/session`, {
           method: "DELETE",
+          signal: _deleteCtrl.signal,
           headers: {
             Authorization: `Bearer ${_s.access_token}`,
             ...(_deleteSessionId ? { "X-Session-Id": _deleteSessionId } : {}),
           },
-        });
+        }).catch(() => {});
+        clearTimeout(_deleteTimeout);
 
         // Remove push subscription before signing out so this device stops
         // receiving notifications for this account after logout.

@@ -11,6 +11,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, batchPrefetchPhotos, getAuthHeaders, API_BASE } from "@/lib/queryClient";
+import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/use-auth";
 import { useTabActive } from "@/hooks/use-tab-active";
 import { isCallSessionCancelled, markCallSessionCancelled, clearCancelledSession, isSelfCancelled } from "@/lib/cancelled-calls";
@@ -5394,15 +5395,26 @@ export default function Matches() {
   const handleConnectionsRetry = useCallback(async () => {
     setIsConnectionsRetrying(true);
     if (import.meta.env.DEV) {
-      console.log("[APP_RETRY] screen=connections retry=pressed queries=[/api/matches, /api/spin-requests]");
+      console.log("[APP_RETRY] screen=connections retry=pressed");
     }
     try {
-      // refetchQueries forces an immediate network request even when retries
-      // are exhausted; it does not reject on query failure — the query's own
-      // error state handles that.
+      // 1. Refresh the Supabase access token so every subsequent request carries
+      //    a valid JWT.  If the previous failure was an auth expiry this fixes it.
+      //    refreshSession() is a no-op when the token is still fresh.
+      const { error: refreshErr } = await supabase.auth.refreshSession();
+      if (refreshErr) {
+        console.warn("[APP_RETRY] token refresh failed (continuing):", refreshErr.message);
+      } else if (import.meta.env.DEV) {
+        console.log("[APP_RETRY] token refreshed");
+      }
+
+      // 2. Force-refetch all queries this page depends on.
+      //    refetchQueries issues a live network request even after retries are
+      //    exhausted; errors stay in the query's own error state so this call
+      //    itself never rejects.
       await Promise.all([
-        queryClient.refetchQueries({ queryKey: ["/api/matches"] }),
-        queryClient.refetchQueries({ queryKey: ["/api/spin-requests"] }),
+        queryClient.refetchQueries({ queryKey: ["/api/matches"], exact: true }),
+        queryClient.refetchQueries({ queryKey: ["/api/spin-requests"], exact: true }),
       ]);
       if (import.meta.env.DEV) {
         console.log("[APP_RETRY] screen=connections requests=settled matchesError=", !!matchesError);
