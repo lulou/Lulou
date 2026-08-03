@@ -1,0 +1,192 @@
+Fix these two production bugs completely. Do not create another diagnostic-only patch.
+
+BUG 1 — EVERY RETRY / TRY AGAIN BUTTON MUST ACTUALLY RETRY
+
+Current production screen:
+
+“Something went wrong”
+“We’re having trouble loading this right now”
+“Try Again”
+
+Pressing Try Again does nothing.
+
+This also previously happened on the Session verification failed screen.
+
+Required investigation:
+
+1. Open the live production app and inspect the Network tab.
+2. Identify the exact request that caused the current Connections error.
+3. Record:
+  - request URL
+  - HTTP status
+  - response body
+  - frontend commit
+  - Railway commit
+4. Press Try Again and confirm whether a new request appears.
+5. Do not guess from code inspection.
+
+Required fix:
+
+Create one shared retry function used by every error screen.
+
+When Retry is pressed it must:
+
+- immediately show a spinner
+- change text to “Trying again…”
+- prevent duplicate clicks only while retrying
+- refresh the current Supabase access token if authenticated
+- rerun session verification if required
+- force-refetch the exact failed page queries
+- wait for those requests to complete
+- enter the page immediately on success
+- remain on the error screen on failure
+- show the actual returned error
+- re-enable the button after failure
+
+For Connections, force-refetch all required dependencies:
+
+- authenticated session/bootstrap
+- profile
+- matches/connections
+- unread counts
+- progression data required by the page
+
+Use refetchQueries or direct query.refetch(), not only invalidateQueries.
+
+Do not rely on window.location.reload() as the main solution.
+
+If the failed request is caused by Railway, database schema, authentication, or the wrong API URL, fix that root cause as part of this task.
+
+Sign Out must always work even if Railway is offline:
+
+- call Supabase signOut
+- clear React Query
+- clear local auth/session state
+- clear active-session state
+- navigate to login
+- do not wait for Railway
+
+BUG 2 — MESSAGE COUNTDOWN MUST PERSIST CORRECTLY
+
+Current real production behaviour:
+
+- counter begins at 15
+- briefly changes to 14 after sending
+- then returns to 15
+- multiple sent messages do not persist in the counter
+
+Do not add another client-only counter.
+
+The authoritative count must be stored and read from the same production Supabase database.
+
+Required live trace for one message:
+
+Before send:
+- match ID
+- authenticated sender ID
+- whether sender is user1 or user2
+- Supabase message_count_1
+- Supabase message_count_2
+
+After send:
+- message POST response
+- RPC response
+- Supabase message_count_1
+- Supabase message_count_2
+- match-detail GET response
+- final React Query cache values
+
+Verify the production Railway server actually calls:
+
+public.increment_message_count
+
+in Supabase.
+
+Confirm the RPC exists in the same Supabase project used by Railway.
+
+The server must:
+
+1. Authenticate the sender.
+2. Verify the sender belongs to the match.
+3. Check the current-stage limit using Supabase counts.
+4. Insert the message.
+5. Increment only the sender’s Supabase count.
+6. Return the new canonical counts.
+7. Reject duplicate message requests without double-counting.
+
+The message insertion and count increment must be atomic.
+
+Do not use:
+
+- Neon/Drizzle for the counter
+- a non-atomic read-count-plus-one fallback
+- separate databases for insert/count/read
+- localSentCount as permanent truth
+
+Remove the unsafe direct Supabase fallback if the RPC fails.
+
+If the RPC is unavailable, fail the message send clearly rather than silently using a race-prone update.
+
+Client behaviour after success:
+
+- patch messageCount1/messageCount2 using the canonical server response
+- reset temporary optimistic state
+- refetch match detail
+- verify the refetch returns the same count
+- never overwrite the new count with an older list cache
+
+Correct mapping:
+
+- current user === user1Id → use messageCount1
+- current user === user2Id → use messageCount2
+
+Correct countdown:
+
+Stage 1: 15
+Stage 2: 12
+Stage 3: 20
+
+messagesLeft =
+max(0, stageLimit - myCurrentStageSentCount)
+
+Partner messages must not reduce my allowance.
+
+DEPLOYMENT AND TESTING
+
+Do not report completion until all of this is done:
+
+1. Commit the fixes.
+2. Push to origin/main.
+3. Confirm local HEAD and origin/main match.
+4. Confirm Railway deployed the commit.
+5. Confirm Vercel deployed the same commit.
+6. Confirm Railway is connected to the intended Supabase project.
+7. Test Retry on the live Connections error screen.
+8. Test Session Retry.
+9. Test Sign Out while Railway is unavailable.
+10. Send three live messages and confirm:
+
+15 → 14 → 13 → 12
+
+11. Refresh and confirm it remains 12.
+12. Confirm Supabase sender count increased by exactly 3.
+13. Confirm recipient count did not change.
+
+Report only:
+
+- exact failed Retry request/status
+- exact Retry root cause
+- exact countdown root cause
+- Supabase counts before/after
+- files changed
+- commit hash
+- origin/main hash
+- Railway deployed commit
+- Vercel deployed commit
+- live Retry PASS/FAIL
+- live Sign Out PASS/FAIL
+- live countdown PASS/FAIL
+
+Do not claim PASS from code inspection.
+Do not create another follow-up task.
+Do not stop at adding loading text or optimistic UI.
