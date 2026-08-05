@@ -5290,6 +5290,40 @@ export async function registerRoutes(
     }
   });
 
+  // ── Spin result auto-persistence ─────────────────────────────────────────
+  // Unlike POST /api/wheel/save (user-initiated, 409 if already saved),
+  // this endpoint upserts the spin result immediately at pullforward time.
+  // Used by the client to persist the winner across refresh / close / devices.
+  app.post("/api/spin/result", isAuthenticated, async (req: any, res) => {
+    try {
+      const storage = getStorage(req);
+      const { profileId } = req.body;
+      if (!profileId || typeof profileId !== "string") {
+        return res.status(400).json({ message: "profileId required" });
+      }
+      const saved = await storage.saveWheelProfile(req.user.id, profileId);
+      res.json({ saved });
+    } catch (err: any) {
+      console.error("[SPIN_RESULT_SAVE]", err.message);
+      res.status(500).json({ message: err.message || "Failed to save spin result" });
+    }
+  });
+
+  // Returns the full Profile object for the persisted spin result so the client
+  // can restore the detail sheet after refresh / close / device switch.
+  app.get("/api/spin/result", isAuthenticated, async (req: any, res) => {
+    try {
+      const storage = getStorage(req);
+      const saved = await storage.getSavedWheelProfile(req.user.id);
+      if (!saved) return res.json({ profile: null });
+      const profile = await storage.getProfile(saved.savedProfileId);
+      res.json({ profile: profile ?? null });
+    } catch (err: any) {
+      console.error("[SPIN_RESULT_GET]", err.message);
+      res.status(500).json({ message: err.message || "Failed to fetch spin result" });
+    }
+  });
+
   app.post("/api/spin", isAuthenticated, async (req: any, res) => {
     try {
       const storage = getStorage(req);

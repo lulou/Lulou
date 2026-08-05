@@ -12,6 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
+import { pushDebugError } from "@/lib/debug-store";
 import { startPurchase, restorePurchases, subscribeDebug, type PurchaseDebugInfo } from "@/lib/purchase-service";
 import { useTabActive } from "@/hooks/use-tab-active";
 import type { Profile } from "@shared/schema";
@@ -25,8 +26,6 @@ import { clearAllArmedSessions } from "@/lib/live-call-sessions";
 // Wraps the reveal/pause/buttons render inside SpinRoom. If a render crash
 // occurs (null field access, bad URL, stale state), catches it here and shows
 // a safe "Try again" inline state instead of crashing the whole page.
-// sessionStorage key for persisting the spin result so it survives a refresh.
-const SPIN_RESULT_KEY = "lulou_spin_result_v2";
 
 interface IntentResultBoundaryState { hasError: boolean; errorMsg: string; stack: string }
 class IntentResultBoundary extends Component<{ children: ReactNode; onReset: () => void }, IntentResultBoundaryState> {
@@ -40,18 +39,10 @@ class IntentResultBoundary extends Component<{ children: ReactNode; onReset: () 
     return { hasError: true, errorMsg: msg, stack };
   }
   componentDidCatch(error: Error, info: ErrorInfo) {
-    // Read the last persisted spin result so we can include it in the crash report.
-    let savedCandidate: unknown = null;
-    try { savedCandidate = JSON.parse(sessionStorage.getItem(SPIN_RESULT_KEY) ?? "null"); } catch {}
-    console.error(
-      "[INTENTION_WHEEL] render_crash",
-      {
-        message:        error.message,
-        stack:          error.stack,
-        componentStack: info.componentStack,
-        savedCandidate,
-      },
-    );
+    const msg = `[INTENTION_WHEEL] render_crash: ${error.message}`;
+    console.error(msg, { stack: error.stack, componentStack: info.componentStack });
+    // Push to in-app debug store so it appears in "Copy Call Diagnostics" panel.
+    pushDebugError(msg);
   }
   render() {
     if (this.state.hasError) {
@@ -153,36 +144,23 @@ function ProfileAvatarFallback({ className }: { className?: string }) {
 }
 
 /**
- * ProfilePhoto — shows a user's primary verified photo.
+ * ProfilePhoto — shows a user's primary uploaded photo (photos[0]).
  *
- * Photo filtering rule: if `photoVerified` is explicitly false, render the
- * fallback avatar immediately without fetching any photos.  This prevents
- * screenshots, rooms, beds, and other non-person uploads from appearing in the
- * candidate strip or the spinning wheel cards.
- *
- * When `photoVerified` is true or undefined (unknown / not yet loaded), the
- * component fetches the user's photo normally and falls back to the avatar if
- * no photo is available.
+ * Only the first (primary) photo is shown.  Secondary photos are never cycled
+ * through in wheel surfaces — they may contain arbitrary content that has not
+ * been individually moderated.  If the primary photo is absent or fails to
+ * load, the Lulou fallback avatar is rendered instead.
  */
-function ProfilePhoto({ userId, className, photoVerified }: { userId: string; className?: string; photoVerified?: boolean | null }) {
-  // Filter: skip photo fetch entirely for unverified profiles.
-  // null means "not yet known" — treat same as verified (don't filter) so legacy
-  // profiles without the flag still show their photo.
-  const skipFetch = photoVerified === false;
-
+function ProfilePhoto({ userId, className }: { userId: string; className?: string }) {
   const { data, isLoading } = useQuery<{ photos: string[] }>({
     queryKey: ["/api/profiles", userId, "photos"],
     staleTime: 5 * 60 * 1000,
-    enabled: !skipFetch,
   });
-  const [photoIndex, setPhotoIndex] = useState(0);
-  useEffect(() => { setPhotoIndex(0); }, [userId]);
+  const [photoFailed, setPhotoFailed] = useState(false);
+  useEffect(() => { setPhotoFailed(false); }, [userId]);
 
-  // Unverified profile → show fallback avatar immediately (no photo fetch).
-  if (skipFetch) return <ProfileAvatarFallback className={className} />;
-
-  const photos = data?.photos ?? [];
-  const photo = photos[photoIndex] ?? null;
+  // Always show primary (photos[0]) — never rotate to secondary photos.
+  const photo = (data?.photos ?? [])[0] ?? null;
 
   if (isLoading) {
     return (
@@ -197,7 +175,7 @@ function ProfilePhoto({ userId, className, photoVerified }: { userId: string; cl
     );
   }
 
-  if (!photo) return <ProfileAvatarFallback className={className} />;
+  if (!photo || photoFailed) return <ProfileAvatarFallback className={className} />;
 
   return (
     <img
@@ -205,7 +183,7 @@ function ProfilePhoto({ userId, className, photoVerified }: { userId: string; cl
       alt=""
       className={`object-cover ${className ?? ""}`}
       draggable={false}
-      onError={() => setPhotoIndex(pi => pi + 1)}
+      onError={() => setPhotoFailed(true)}
     />
   );
 }
@@ -756,7 +734,7 @@ function CandidatesPreview({ items, onTap }: { items: Profile[]; onTap?: (profil
               cursor: onTap ? "pointer" : "default",
               transition: "transform 0.12s ease",
             }}>
-              <ProfilePhoto userId={profile.userId} photoVerified={profile.photoVerified} className="w-full h-full" />
+              <ProfilePhoto userId={profile.userId} className="w-full h-full" />
               {/* Blur/dim overlay — obscures identity slightly before spin */}
               <div style={{
                 position: "absolute", inset: 0,
@@ -1228,6 +1206,20 @@ export default function IntentPage() {
     },
   });
 
+  // Auto-save the spin result to the server at pullforward time so it persists
+  // across refresh, app close, and other devices.  Uses an upsert route that
+  // bypasses the 409 guard on POST /api/wheel/save (which is for user-initiated saves).
+  const saveSpinResult = useMutation({
+    mutationFn: (profileId: string) => apiRequest("POST", "/api/spin/result", { profileId }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/spin/result"] }),
+  });
+
+  // Delete the server-persisted spin result when the user explicitly acts on it.
+  const deleteSpinResult = useMutation({
+    mutationFn: () => apiRequest("DELETE", "/api/wheel/saved"),
+    onSuccess: () => queryClient.setQueryData(["/api/spin/result"], { profile: null }),
+  });
+
   const saveForLater = useMutation({
     mutationFn: async (profileId: string) => {
       const res = await apiRequest("POST", "/api/wheel/save", { profileId });
@@ -1315,8 +1307,8 @@ export default function IntentPage() {
   };
 
   const closeProfile = () => {
-    // Clear the persisted result when the user explicitly acts (close / send halo).
-    try { sessionStorage.removeItem(SPIN_RESULT_KEY); } catch {}
+    // Delete the server-persisted result when the user explicitly acts on it.
+    deleteSpinResult.mutate();
     setShowSpinRoom(false);
     setSparkSent(false);
     setShowProfile(false);
@@ -1369,9 +1361,9 @@ export default function IntentPage() {
           setSelectedIndex(closestI);
           setSelectedProfile(winner);
           setRevealQuote(LULOU_QUOTE_KEYS[Math.floor(Math.random() * LULOU_QUOTE_KEYS.length)]);
-          // Persist result to sessionStorage so it survives a page refresh.
-          // Cleared in closeProfile() when the user acts on the result.
-          try { sessionStorage.setItem(SPIN_RESULT_KEY, JSON.stringify(winner)); } catch {}
+          // Persist result to the server (saved_wheel_profiles) so it survives
+          // refresh, app close, and other devices.  Cleared in closeProfile().
+          saveSpinResult.mutate(winner.userId);
           // Dedup guard — fire recordSpin only once per spin session
           if (!recordSpinFiredRef.current) {
             recordSpinFiredRef.current = true;
@@ -1703,24 +1695,24 @@ export default function IntentPage() {
   }, []);
 
   // ── Spin result restoration ─────────────────────────────────────────────────
-  // If the user refreshed mid-reveal, restore the selected profile so they can
-  // still act on their result.  We restore into the profile detail sheet
-  // (showProfile=true) without re-playing the SpinRoom animation.
+  // On mount, check the server for a persisted spin result (saved_wheel_profiles
+  // table).  If one exists, fetch the full profile and restore the detail sheet
+  // so the user can still act on their result after refresh, close, or switching
+  // devices.  The query is disabled once a profile is already showing.
+  const { data: savedSpinResultData } = useQuery<{ profile: Profile | null }>({
+    queryKey: ["/api/spin/result"],
+    staleTime: 0,
+    enabled: !selectedProfile && !showSpinRoom,
+  });
   useEffect(() => {
-    try {
-      const raw = sessionStorage.getItem(SPIN_RESULT_KEY);
-      if (!raw) return;
-      const saved = JSON.parse(raw) as Profile;
-      if (!saved?.userId) return;
-      console.log("[INTENTION_WHEEL] result_restored_from_storage", { candidateId: saved.userId });
-      setSelectedProfile(saved);
-      setShowProfile(true);
-    } catch {
-      // Malformed storage entry — ignore and let the user start fresh.
-      try { sessionStorage.removeItem(SPIN_RESULT_KEY); } catch {}
-    }
+    const p = savedSpinResultData?.profile;
+    if (!p?.userId) return;
+    if (selectedProfile || showSpinRoom) return;  // active spin takes precedence
+    console.log("[INTENTION_WHEEL] result_restored_from_server", { candidateId: p.userId });
+    setSelectedProfile(p);
+    setShowProfile(true);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [savedSpinResultData]);
 
   // ── Periodic profile refresh while spin is locked ─────────────────────────
   // Keeps the wheel feeling alive — profiles rotate every 90 s so the user
@@ -2206,7 +2198,7 @@ export default function IntentPage() {
                       transformOrigin: "22px 22px",
                     }}
                   >
-                    <ProfilePhoto userId={profile.userId} photoVerified={profile.photoVerified} className="w-full h-full" />
+                    <ProfilePhoto userId={profile.userId} className="w-full h-full" />
                   </div>
                 );
               })}
@@ -2259,7 +2251,7 @@ export default function IntentPage() {
                   }}
                   data-testid={`intent-profile-${i}`}
                 >
-                  <ProfilePhoto userId={profile.userId} photoVerified={profile.photoVerified} className="w-full h-full pointer-events-none" />
+                  <ProfilePhoto userId={profile.userId} className="w-full h-full pointer-events-none" />
                   {/* Subtle bottom depth gradient */}
                   <div style={{ position: "absolute", inset: 0, background: "linear-gradient(175deg, rgba(0,0,0,0) 55%, rgba(0,0,0,0.06) 78%, rgba(0,0,0,0.22) 100%)", pointerEvents: "none" }} />
                   {/* Mystery frost overlay — obscures face before spin so no one person is spotlighted */}
@@ -2528,7 +2520,7 @@ export default function IntentPage() {
             onClick={e => e.stopPropagation()}
           >
             <div className="relative rounded-2xl overflow-hidden shadow-2xl" style={{ aspectRatio: "3/4" }}>
-              <ProfilePhoto userId={previewProfile.userId} photoVerified={previewProfile.photoVerified} className="w-full h-full" />
+              <ProfilePhoto userId={previewProfile.userId} className="w-full h-full" />
               <div style={{
                 position: "absolute", inset: 0,
                 background: "linear-gradient(175deg, rgba(0,0,0,0) 50%, rgba(0,0,0,0.75) 100%)",
@@ -2643,7 +2635,7 @@ export default function IntentPage() {
 
             {/* ③ Profile picture — single-image, aspect-ratio constrained (not a carousel) */}
             <div data-testid="img-intent-detail-photo" className="w-full aspect-[3/4] max-h-[54vh] overflow-hidden">
-              <ProfilePhoto userId={selectedProfile.userId} photoVerified={selectedProfile.photoVerified} className="w-full h-full" />
+              <ProfilePhoto userId={selectedProfile.userId} className="w-full h-full" />
             </div>
 
             <div className="px-5 pt-4 space-y-4 pb-36">
@@ -2978,7 +2970,7 @@ export default function IntentPage() {
                         willChange: "transform, opacity, box-shadow",
                       }}
                     >
-                      <ProfilePhoto userId={item.userId} photoVerified={item.photoVerified} className="w-full h-full" />
+                      <ProfilePhoto userId={item.userId} className="w-full h-full" />
                       {/* Bottom gradient */}
                       <div style={{
                         position: "absolute", inset: 0,
@@ -3090,7 +3082,7 @@ export default function IntentPage() {
                   animation: "srWinnerIn 1.8s cubic-bezier(0.16, 1, 0.3, 1) forwards",
                   transformOrigin: "center 40%",
                 }}>
-                  <ProfilePhoto userId={selectedProfile.userId} photoVerified={selectedProfile.photoVerified} className="w-full h-full" />
+                  <ProfilePhoto userId={selectedProfile.userId} className="w-full h-full" />
                 </div>
               )}
 
