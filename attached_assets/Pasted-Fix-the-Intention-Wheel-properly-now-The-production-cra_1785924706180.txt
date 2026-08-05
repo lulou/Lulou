@@ -1,0 +1,183 @@
+Fix the Intention Wheel properly now. The production crash root cause is confirmed.
+
+EXACT ERROR
+
+Minified React error #31:
+Objects are not valid as a React child.
+
+The object has keys:
+
+{ key, text }
+
+This happens after the spin animation finishes during the result/reveal render.
+
+PART 1 — FIX THE EXACT CRASH
+
+Search the entire post-spin reveal path for any JSX rendering an object shaped like:
+
+{ key, text }
+
+Likely areas:
+- DNA signals
+- reasons
+- traits
+- badges
+- prompts
+- connection insights
+- selectedProfile fields
+- MatchRevealCard
+- SpinRoom reveal phases
+- final result sheet
+
+Find every instance where an object is rendered directly:
+
+{signal}
+{reason}
+{trait}
+{item}
+
+and replace it with the correct primitive:
+
+{signal.text}
+{reason.text}
+{trait.text}
+{item.text}
+
+Use a safe normaliser where mixed legacy formats exist:
+
+const renderText = (value: unknown): string => {
+ if (typeof value === "string") return value;
+ if (
+   value &&
+   typeof value === "object" &&
+   "text" in value &&
+   typeof (value as any).text === "string"
+ ) {
+   return (value as any).text;
+ }
+ return "";
+};
+
+Do not stringify the object into the UI.
+
+Add stable keys separately:
+
+items.map((item, index) => (
+ <div key={typeof item === "object" && item?.key ? item.key : index}>
+   {renderText(item)}
+ </div>
+))
+
+Remove the error-boundary technical message from the production UI after the real crash is fixed. Keep the boundary only as a silent safety fallback.
+
+PART 2 — FIX THE POOR PHOTOS
+
+The wheel is still showing:
+- televisions
+- laptops
+- beds
+- rooms
+- logos
+- screenshots
+
+This is not acceptable for a dating app.
+
+Do not use arbitrary uploaded photos for:
+- pre-spin cards
+- candidate circles
+- spinning cards
+- winner reveal
+
+Use one authoritative image only:
+
+1. verified primary profile photo
+2. otherwise first approved profile photo
+3. otherwise Lulou fallback avatar
+
+Do not rotate through secondary photos.
+
+Confirm which backend field identifies:
+- primary photo
+- approved/moderated photo
+- photo order
+
+If no approval metadata exists, use only photo index 0 from the profile’s official photo array and fallback if missing.
+
+Never show:
+- room photos
+- device screenshots
+- TVs
+- beds
+- logos
+- blank images
+
+Do not pretend blur fixes bad source images.
+
+PART 3 — IMPROVE THE PRE-SPIN DESIGN
+
+Current pre-spin screen is still a large blurry rectangle with random side cards.
+
+Change it to:
+
+- one elegant frosted mystery card in the centre
+- no recognisable photo before the spin
+- subtle silhouette or abstract Lulou monogram
+- side cards reduced to soft shadows only
+- smaller glow
+- more space between hero, candidate row and Spin button
+- candidate circles all use the authoritative primary image
+- keep the layout premium and clean on iPhone
+
+PART 4 — IMPROVE THE SPINNING SCREEN
+
+Current cards still look messy and low quality.
+
+Required:
+
+- exactly 3 visible cards
+- centre card largest and sharpest
+- side cards smaller, darker and blurred
+- use the same authoritative profile image source
+- no random secondary photos
+- no logos or screenshots
+- consistent card dimensions
+- consistent crop
+- smooth deceleration
+- selected card ends centred
+- side cards fade out before reveal
+
+PART 5 — RESULT FLOW
+
+The result must:
+
+- validate selectedProfile before reveal
+- render only primitive strings
+- persist selected result server-side
+- reveal the profile without crashing
+- survive refresh
+- not consume another spin on retry
+
+TEST ON PRODUCTION IPHONE
+
+1. Open pre-spin screen.
+2. Confirm no laptops, TVs, beds, logos or room photos.
+3. Spin.
+4. Confirm only 3 clean profile cards.
+5. Confirm animation completes.
+6. Confirm no React error #31.
+7. Confirm final profile result opens.
+8. Refresh and confirm result persists.
+
+Report only:
+
+- exact component and line rendering {key,text}
+- exact field that contained the object
+- authoritative profile-photo field used
+- files changed
+- commit hash
+- pushed status
+- Vercel deployed commit
+- real iPhone crash PASS/FAIL
+- real iPhone visual PASS/FAIL
+
+Do not add more diagnostics before fixing the confirmed React error #31.

@@ -41,7 +41,6 @@ class IntentResultBoundary extends Component<{ children: ReactNode; onReset: () 
   componentDidCatch(error: Error, info: ErrorInfo) {
     const msg = `[INTENTION_WHEEL] render_crash: ${error.message}`;
     console.error(msg, { stack: error.stack, componentStack: info.componentStack });
-    // Push to in-app debug store so it appears in "Copy Call Diagnostics" panel.
     pushDebugError(msg);
   }
   render() {
@@ -63,11 +62,6 @@ class IntentResultBoundary extends Component<{ children: ReactNode; onReset: () 
             fontSize: 12, color: "rgba(255,255,255,0.35)",
             textAlign: "center", marginBottom: 24,
           }}>Your spin was recorded. Tap below to continue.</p>
-          {this.state.errorMsg ? (
-            <p style={{ fontSize: 10, color: "rgba(255,255,255,0.18)", fontFamily: "monospace", wordBreak: "break-all", marginBottom: 16, maxWidth: 280, textAlign: "center" }}>
-              {this.state.errorMsg}
-            </p>
-          ) : null}
           <button
             onClick={() => { this.setState({ hasError: false, errorMsg: "" }); this.props.onReset(); }}
             style={{
@@ -96,6 +90,26 @@ function shuffleArray<T>(arr: T[]): T[] {
   }
   return a;
 }
+
+/**
+ * renderText — safe primitive extractor.
+ * Profile fields (signals, greenFlags, etc.) are typed as string[] but some
+ * API paths may return objects with shape { key: string; text: string }.
+ * Rendering an object directly throws React error #31.  This normaliser
+ * always returns a plain string so JSX is safe regardless of format.
+ */
+const renderText = (value: unknown): string => {
+  if (typeof value === "string") return value;
+  if (
+    value !== null &&
+    typeof value === "object" &&
+    "text" in value &&
+    typeof (value as Record<string, unknown>).text === "string"
+  ) {
+    return (value as { text: string }).text;
+  }
+  return "";
+};
 
 /** Small "Restore Purchases" text link shown below Halo packs. */
 function RestorePurchasesButton() {
@@ -1077,16 +1091,20 @@ export default function IntentPage() {
   type SpinPhase = 'idle' | 'accelerate' | 'fast' | 'slow' | 'approach' | 'pullforward' | 'arrive' | 'reveal' | 'pause' | 'buttons';
   const [spinRoomPhase, setSpinRoomPhase] = useState<SpinPhase>('idle');
 
-  // Orbit animation — all RAF-driven via refs (no React re-renders per frame)
-  const orbitBubbles    = useRef<(HTMLDivElement | null)[]>([]);
-  const orbitAngleRef2  = useRef(0);   // current angle °
-  const orbitSpeedRef2  = useRef(0);   // current speed °/s
+  // 3-card carousel index — centre slot shows spinItems[srIdx % N]
+  const [srIdx, setSrIdx] = useState(0);
+  const srIdxRef = useRef(0); // readable in setTimeout without stale-closure
+
+  // Orbit animation refs (glow + speed tracking only; bubble positioning removed)
+  const orbitBubbles    = useRef<(HTMLDivElement | null)[]>([]); // kept for type compat
+  const orbitAngleRef2  = useRef(0);
+  const orbitSpeedRef2  = useRef(0);   // current speed °/s (used for glow intensity)
   const orbitTargetRef  = useRef(0);   // target speed °/s
   const orbitRafRef2    = useRef(0);
   const orbitLastTimeRef = useRef(0);
   const orbitGlowRef    = useRef<HTMLDivElement>(null);
-  const orbitRingRef2   = useRef<HTMLDivElement>(null);
-  const landingMarkerRef = useRef<HTMLDivElement>(null); // 12 o'clock jewel marker
+  const orbitRingRef2   = useRef<HTMLDivElement>(null);  // kept for type compat
+  const landingMarkerRef = useRef<HTMLDivElement>(null); // kept for type compat
   const spinPhaseRef = useRef<SpinPhase>('idle');  // readable inside RAF without stale-closure issues
 
   // Use the last non-empty ref as fallback so the wheel stays visible when the
@@ -1339,17 +1357,10 @@ export default function IntentPage() {
       setTimeout(() => { go('slow',  40);   console.log('[WHEEL] SLOW_PHASE');      },  5000),
       // Approach: decelerate orbit to near-zero so one bubble settles under the marker
       setTimeout(() => { go('approach', 0); console.log('[WHEEL] WINNER_APPROACH'); },  7000),
-      // Pullforward: read which bubble is at 12 o'clock — that IS the winner
+      // Pullforward: whoever is in the centre slot of the 3-card strip wins
       setTimeout(() => {
         const N_orb = Math.min(items.length, 10);
-        const aRad_now = (orbitAngleRef2.current * Math.PI) / 180;
-        let closestI = 0;
-        let minSin = Infinity;
-        for (let ii = 0; ii < N_orb; ii++) {
-          const base = (ii / N_orb) * Math.PI * 2 - Math.PI / 2;
-          const sinVal = Math.sin(base + aRad_now);
-          if (sinVal < minSin) { minSin = sinVal; closestI = ii; }
-        }
+        const closestI = N_orb > 0 ? ((srIdxRef.current % N_orb) + N_orb) % N_orb : 0;
         const winner = items[closestI];
         console.log('[WHEEL] PULL_FORWARD', { winner: winner?.firstName, index: closestI });
         console.log('[INTENTION_WHEEL] selected_candidate', {
@@ -1403,100 +1414,41 @@ export default function IntentPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showSpinRoom]);
 
-  // ── Orbit RAF loop ───────────────────────────────────────────────────────────
-  // Drives 60 fps bubble positions + glow intensity via direct DOM mutation.
+  // ── 3-card carousel index management ─────────────────────────────────────────
+  // Advances the centre-slot index based on the current SpinRoom phase.
+  // srIdxRef stays in sync so the pullforward timeout can read the live value.
+  useEffect(() => {
+    if (!showSpinRoom) { setSrIdx(0); srIdxRef.current = 0; return; }
+    const N = Math.min(items.length, 10);
+    if (N === 0) return;
+    const advance = () => { srIdxRef.current += 1; setSrIdx(v => v + 1); };
+    if (spinRoomPhase === 'accelerate') { const id = setInterval(advance, 90);  return () => clearInterval(id); }
+    if (spinRoomPhase === 'fast')       { const id = setInterval(advance, 55);  return () => clearInterval(id); }
+    if (spinRoomPhase === 'slow')       { const id = setInterval(advance, 190); return () => clearInterval(id); }
+    if (spinRoomPhase === 'approach')   { const id = setInterval(advance, 380); return () => clearInterval(id); }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showSpinRoom, spinRoomPhase]);
+
+  // ── Orbit RAF loop (glow orb only — bubble positioning removed) ───────────
   useEffect(() => {
     if (!showSpinRoom) {
       cancelAnimationFrame(orbitRafRef2.current);
-      spinPhaseRef.current     = 'idle'; // reset so the next open starts fresh
-      orbitAngleRef2.current   = 0;
+      spinPhaseRef.current     = 'idle';
       orbitSpeedRef2.current   = 0;
       orbitLastTimeRef.current = 0;
       return;
     }
-    const N = Math.min(items.length, 10);
-    const R = 108; // orbit radius px
-
     const tick = (now: number) => {
       const dt = orbitLastTimeRef.current === 0
         ? 0.016
         : Math.min((now - orbitLastTimeRef.current) / 1000, 0.05);
       orbitLastTimeRef.current = now;
-
-      // Smooth speed lerp — decelerates slightly faster than it accelerates
       const tgt  = orbitTargetRef.current;
       const cur  = orbitSpeedRef2.current;
       const diff = tgt - cur;
       orbitSpeedRef2.current += diff * Math.min(dt * (diff > 0 ? 1.6 : 2.4), 1);
-
-      // Update each bubble — position + depth effect (front/back opacity & glow)
-      const speedFrac = Math.min(orbitSpeedRef2.current / 360, 1);
-
-      // During winner animation, freeze orbit angle AND skip all bubble DOM mutations
-      // so the CSS transitions on the selected bubble run completely uncontested.
-      if (spinPhaseRef.current === 'pullforward' || spinPhaseRef.current === 'arrive') {
-        orbitRafRef2.current = requestAnimationFrame(tick);
-        return;
-      }
-
-      // Advance orbit angle (only when not in winner phases)
-      orbitAngleRef2.current = (orbitAngleRef2.current + orbitSpeedRef2.current * dt) % 360;
-      const aRad = (orbitAngleRef2.current * Math.PI) / 180;
-
-      // ── 3D Oval carousel positioning ──────────────────────────────────
-      // Viewer is looking slightly DOWN onto a tilted carousel, like a real
-      // prize wheel on a table.
-      //   front card (cosT=+1) → bottom of stage (closest, largest)
-      //   back  card (cosT=-1) → top of stage   (furthest, smallest, blurred)
-      //   sides (cosT=0)       → vertical centre of stage
-      //
-      // rotateX tilt gives genuine 3-D lean: front cards tip toward the
-      // viewer, back cards tip away — so it never looks like a flat circle.
-      const RX_OVAL = 152; // horizontal semi-radius px
-      const RY_OVAL = 75;  // vertical semi-radius px (real oval depth)
-      const carouselCenter = -(aRad / (Math.PI * 2)) * N;
-
-      for (let i = 0; i < N; i++) {
-        const el = orbitBubbles.current[i];
-        if (!el) continue;
-        const rawDist = i - carouselCenter;
-        const wrapped = ((rawDist % N) + N) % N;
-        const t = wrapped > N / 2 ? wrapped - N : wrapped; // signed offset from front card
-
-        // Oval angle: t=0 → front (θ=0, bottom of stage), t=±N/2 → back (θ=π, top)
-        const θ    = (t / N) * Math.PI * 2;
-        const sinT = Math.sin(θ);
-        const cosT = Math.cos(θ);       // +1 = front (bottom), -1 = back (top)
-        const zNorm = (cosT + 1) / 2;   // 0 = back, 1 = front
-
-        const xPx    = RX_OVAL * sinT;
-        const yPx    = RY_OVAL * cosT;   // front→bottom (+RY), back→top (−RY)
-        const rotX   = cosT * 10;        // front leans toward viewer, back tilts away
-        const sc     = 0.28 + 0.72 * zNorm;
-        // Only ~3 cards visible: front (sharp), two side positions (dim), rest hidden
-        const op     = zNorm > 0.55 ? (0.15 + 0.85 * zNorm) : zNorm > 0.20 ? 0.14 : 0;
-        const blurPx = Math.max(0, (1 - zNorm) * 8.0 - 0.5);
-        const rotY   = -sinT * 32;       // cards face centre tangentially
-        const zi     = Math.round(1 + zNorm * 80);
-
-        el.style.transform = `translate(calc(-50% + ${xPx.toFixed(1)}px), calc(-50% + ${yPx.toFixed(1)}px)) perspective(800px) rotateX(${rotX.toFixed(1)}deg) rotateY(${rotY.toFixed(1)}deg) scale(${sc.toFixed(3)})`;
-        el.style.opacity   = op.toFixed(3);
-        el.style.filter    = blurPx > 0.2 ? `blur(${blurPx.toFixed(1)}px)` : '';
-        el.style.zIndex    = String(zi);
-
-        // Front card glow — pulses with spin speed
-        if (zNorm > 0.85 && speedFrac > 0.12) {
-          const gA = (zNorm * speedFrac * 0.80).toFixed(2);
-          el.style.boxShadow = `0 0 ${Math.round(20 + speedFrac * 32)}px rgba(212,92,116,${gA}), 0 8px 28px rgba(0,0,0,0.55)`;
-        } else if (zNorm > 0.85) {
-          el.style.boxShadow = '0 6px 22px rgba(0,0,0,0.40), 0 0 14px rgba(212,92,116,0.20)';
-        } else {
-          el.style.boxShadow = '0 4px 14px rgba(0,0,0,0.32)';
-        }
-      }
-
-      // Glow orb — intensity tracks orbit speed
-      if (orbitGlowRef.current) {
+      // Update ambient glow intensity to track speed
+      if (orbitGlowRef.current && spinPhaseRef.current !== 'pullforward' && spinPhaseRef.current !== 'arrive') {
         const frac   = Math.min(orbitSpeedRef2.current / 360, 1);
         const spread = Math.round(24 + frac * 64);
         const blur   = Math.round(14 + frac * 44);
@@ -1505,108 +1457,29 @@ export default function IntentPage() {
           `0 0 ${blur}px ${Math.round(spread * 0.35)}px rgba(212,92,116,${alpha}),` +
           `0 0 ${blur * 2}px ${Math.round(spread * 0.7)}px rgba(212,92,116,${(+alpha * 0.5).toFixed(2)})`;
       }
-
-      // Orbit ring border — brightens with speed
-      if (orbitRingRef2.current) {
-        const frac = Math.min(orbitSpeedRef2.current / 360, 1);
-        orbitRingRef2.current.style.borderColor =
-          `rgba(212,92,116,${(0.18 + frac * 0.52).toFixed(2)})`;
-        orbitRingRef2.current.style.boxShadow = frac > 0.25
-          ? `0 0 ${Math.round(10 + frac * 26)}px rgba(212,92,116,${(0.08 + frac * 0.22).toFixed(2)})`
-          : 'none';
-      }
-
-      // Landing marker glow — pulses gently during slow, brightens as orbit nears 0
-      if (landingMarkerRef.current) {
-        const phase = spinPhaseRef.current;
-        if (phase === 'slow' || phase === 'approach') {
-          // Proximity: how close the nearest bubble is to 12 o'clock (sin = -1)
-          let minSin = 0;
-          for (let ii = 0; ii < N; ii++) {
-            const base = (ii / N) * Math.PI * 2 - Math.PI / 2;
-            const s = Math.sin(base + aRad);
-            if (s < minSin) minSin = s;
-          }
-          const proximity = (-minSin); // 0..1 where 1 = exactly at top
-          const speedFrac = Math.min(orbitSpeedRef2.current / 40, 1);
-          const opacity = (0.55 + proximity * 0.45 * (1 - speedFrac * 0.4)).toFixed(2);
-          const glowSize = Math.round(4 + proximity * 12);
-          const glowAlpha = (0.40 + proximity * 0.55).toFixed(2);
-          landingMarkerRef.current.style.opacity = opacity;
-          landingMarkerRef.current.style.filter =
-            `drop-shadow(0 0 ${glowSize}px rgba(212,92,116,${glowAlpha}))`;
-        } else if (phase === 'idle' || phase === 'accelerate' || phase === 'fast') {
-          landingMarkerRef.current.style.opacity = '0.45';
-          landingMarkerRef.current.style.filter = 'none';
-        }
-      }
-
       orbitRafRef2.current = requestAnimationFrame(tick);
     };
-
     orbitRafRef2.current = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(orbitRafRef2.current);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showSpinRoom]);
 
-  // ── Pull-forward: winner orbit bubble springs from the ring → centre ────────────
-  // useLayoutEffect fires synchronously before paint, so spinPhaseRef.current is
-  // set to 'pullforward' before the RAF's very next tick — zero race window.
+  // ── Pull-forward: snap the 3-card strip so the winner is in the centre slot ──
   useLayoutEffect(() => {
     if (spinRoomPhase !== 'pullforward') return;
-    if (selectedIndex === null) return;
-
-    // Gate the RAF immediately (must be first, before any DOM write)
     spinPhaseRef.current = 'pullforward';
-
-    const winner = orbitBubbles.current[selectedIndex];
-    if (!winner) return;
-
-    // Highlight the winning carousel card with a rose border
-    winner.style.border = '2px solid rgba(212,92,116,0.60)';
-    winner.style.borderRadius = '16px';
-
-    // Freeze at current DOM position (orbit angle stopped by RAF gate above)
-    winner.style.transition = 'none';
-    winner.style.zIndex = '25';
-
-    // Fade + blur all other orbit bubbles
-    for (let i = 0; i < Math.min(items.length, 10); i++) {
-      const b = orbitBubbles.current[i];
-      if (!b || i === selectedIndex) continue;
-      b.style.transition = 'opacity 0.55s ease, filter 0.55s ease';
-      b.style.opacity = '0';
-      b.style.filter = 'blur(3px)';
+    if (selectedIndex !== null) {
+      srIdxRef.current = selectedIndex;
+      setSrIdx(selectedIndex);
     }
-
-    // Haptic pulse as the winner starts moving
     try { (navigator as any).vibrate?.([20, 10, 40]); } catch {}
-
-    // One RAF tick so the browser commits the frozen position, then spring to centre
-    requestAnimationFrame(() => {
-      winner.style.transition =
-        'transform 1.35s cubic-bezier(0.12, 0.0, 0.08, 1), box-shadow 1.0s ease 0.20s';
-      // rotateX(0deg) eases from the orbit tilt angle → flat as winner centres
-      winner.style.transform = 'translate(-50%, -50%) perspective(800px) rotateX(0deg) rotateY(0deg) scale(2.2)';
-      winner.style.boxShadow = '0 0 60px 18px rgba(212,92,116,0.38), 0 0 120px 40px rgba(212,92,116,0.16)';
-    });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [spinRoomPhase]);
 
-  // ── Arrive: winner settles at centre — halo blooms ────────────────────────────
+  // ── Arrive: winner glow CSS-driven; just update the phase ref ────────────────
   useLayoutEffect(() => {
     if (spinRoomPhase !== 'arrive') return;
-
     spinPhaseRef.current = 'arrive';
-
-    if (selectedIndex === null) return;
-    const winner = orbitBubbles.current[selectedIndex];
-    if (!winner) return;
-    winner.style.transition =
-      'transform 1.1s cubic-bezier(0.18, 0.0, 0.08, 1), box-shadow 1.1s ease';
-    winner.style.transform = 'translate(-50%, -50%) perspective(800px) rotateX(0deg) rotateY(0deg) scale(2.8)';
-    winner.style.boxShadow =
-      '0 0 90px 32px rgba(212,92,116,0.55), 0 0 180px 70px rgba(212,92,116,0.22), 0 0 260px 100px rgba(212,92,116,0.10)';
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [spinRoomPhase]);
 
@@ -2292,9 +2165,8 @@ export default function IntentPage() {
             }} />
           )}
 
-          {/* ── Name + age caption — rendered below the selected card, never on the face ── */}
-          {/* Sits in the wheelBufferY space below the card centre; zIndex 210 keeps it above all cards */}
-          {selectedIndex !== null && items[selectedIndex] && !isSpinning && !dispersed && (
+          {/* ── Name + age caption — only shown during active spin / dispersal ── */}
+          {selectedIndex !== null && items[selectedIndex] && isSpinning && !dispersed && (
             <div
               style={{
                 position: "absolute",
@@ -2324,6 +2196,65 @@ export default function IntentPage() {
                   ? <span style={{ fontWeight: 400, opacity: 0.70 }}>, {items[selectedIndex].age}</span>
                   : null}
               </p>
+            </div>
+          )}
+
+          {/* ── Pre-spin mystery overlay — elegant frosted card, no identifiable photo ── */}
+          {/* Covers the 3D carousel when the user has not yet pressed Spin.            */}
+          {/* zIndex 220 sits above the reticle (200) and name caption (210) so those   */}
+          {/* are suppressed and no photo or name leaks through before the spin.         */}
+          {!isSpinning && !dispersed && (
+            <div style={{ position: "absolute", inset: 0, zIndex: 220, pointerEvents: "none", display: "flex", alignItems: "center", justifyContent: "center" }}>
+              {/* Left soft-shadow card */}
+              <div style={{
+                position: "absolute",
+                left: `calc(50% - ${Math.round(itemWidth / 2) + 14 + Math.round(itemWidth * 0.52)}px)`,
+                top: "50%", transform: "translateY(-50%) scale(0.80)",
+                width: Math.round(itemWidth * 0.52), height: Math.round(itemHeight * 0.52),
+                borderRadius: 14,
+                background: "rgba(255,255,255,0.022)",
+                border: "1px solid rgba(255,255,255,0.055)",
+                boxShadow: "0 8px 22px rgba(0,0,0,0.38)",
+                backdropFilter: "blur(3px)",
+                WebkitBackdropFilter: "blur(3px)",
+                opacity: 0.72,
+              }} />
+              {/* Right soft-shadow card */}
+              <div style={{
+                position: "absolute",
+                left: `calc(50% + ${Math.round(itemWidth / 2) + 14}px)`,
+                top: "50%", transform: "translateY(-50%) scale(0.80)",
+                width: Math.round(itemWidth * 0.52), height: Math.round(itemHeight * 0.52),
+                borderRadius: 14,
+                background: "rgba(255,255,255,0.022)",
+                border: "1px solid rgba(255,255,255,0.055)",
+                boxShadow: "0 8px 22px rgba(0,0,0,0.38)",
+                backdropFilter: "blur(3px)",
+                WebkitBackdropFilter: "blur(3px)",
+                opacity: 0.72,
+              }} />
+              {/* Centre mystery card — frosted glass with Lulou monogram */}
+              <div style={{
+                position: "absolute", left: "50%", top: "50%",
+                transform: "translate(-50%, -50%)",
+                width: itemWidth, height: itemHeight, borderRadius: 20,
+                display: "flex", flexDirection: "column",
+                alignItems: "center", justifyContent: "center", gap: 10,
+                background: "linear-gradient(148deg, rgba(255,255,255,0.052) 0%, rgba(212,92,116,0.055) 52%, rgba(255,255,255,0.022) 100%)",
+                border: "1px solid rgba(255,255,255,0.085)",
+                backdropFilter: "blur(22px)",
+                WebkitBackdropFilter: "blur(22px)",
+                boxShadow: "0 16px 48px rgba(0,0,0,0.44), 0 0 28px rgba(212,92,116,0.07), inset 0 1px 0 rgba(255,255,255,0.07)",
+              }}>
+                <div style={{ width: 36, height: 36, opacity: 0.36 }}>
+                  <LulouFlowerIcon className="w-full h-full text-primary" />
+                </div>
+                <p style={{
+                  fontSize: 8, fontWeight: 800, letterSpacing: "0.40em",
+                  textTransform: "uppercase", color: "rgba(212,92,116,0.50)",
+                  margin: 0,
+                }}>Tonight</p>
+              </div>
             </div>
           )}
         </div>
@@ -2602,7 +2533,7 @@ export default function IntentPage() {
                   marginTop: 6,
                   animation: "profileNameAppear 0.48s 0.22s ease both",
                 }}>
-                  {selectedProfile.signals[0]}
+                  {renderText(selectedProfile.signals[0])}
                 </p>
               )}
               {(selectedProfile.location || selectedProfile.height) && (
@@ -2679,9 +2610,10 @@ export default function IntentPage() {
                 <div className="space-y-2">
                   <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">{t("section_signals")}</p>
                   <div className="flex flex-wrap gap-1.5">
-                    {selectedProfile.signals.map((signal, i) => (
-                      <Badge key={i} variant="outline" data-testid={`badge-detail-signal-${i}`}>{signal}</Badge>
-                    ))}
+                    {selectedProfile.signals.map((signal, i) => {
+                      const key = (signal !== null && typeof signal === "object" && "key" in signal) ? String((signal as Record<string,unknown>).key) : String(i);
+                      return <Badge key={key} variant="outline" data-testid={`badge-detail-signal-${i}`}>{renderText(signal)}</Badge>;
+                    })}
                   </div>
                 </div>
               )}
@@ -2690,9 +2622,10 @@ export default function IntentPage() {
                 <div className="space-y-2">
                   <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">{t("section_green_flags")}</p>
                   <div className="flex flex-wrap gap-1.5">
-                    {selectedProfile.greenFlags.map((flag, i) => (
-                      <Badge key={i} variant="outline" data-testid={`badge-detail-flag-${i}`}>{flag}</Badge>
-                    ))}
+                    {selectedProfile.greenFlags.map((flag, i) => {
+                      const key = (flag !== null && typeof flag === "object" && "key" in flag) ? String((flag as Record<string,unknown>).key) : String(i);
+                      return <Badge key={key} variant="outline" data-testid={`badge-detail-flag-${i}`}>{renderText(flag)}</Badge>;
+                    })}
                   </div>
                 </div>
               )}
@@ -2704,11 +2637,14 @@ export default function IntentPage() {
                     <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">{t("section_conversation_starters")}</p>
                   </div>
                   <div className="space-y-2">
-                    {selectedProfile.conversationStarters.map((starter, i) => (
-                      <div key={i} className="rounded-md p-3 text-sm bg-muted/50" data-testid={`text-detail-starter-${i}`}>
-                        <p className="italic">"{starter}"</p>
-                      </div>
-                    ))}
+                    {selectedProfile.conversationStarters.map((starter, i) => {
+                      const key = (starter !== null && typeof starter === "object" && "key" in starter) ? String((starter as Record<string,unknown>).key) : String(i);
+                      return (
+                        <div key={key} className="rounded-md p-3 text-sm bg-muted/50" data-testid={`text-detail-starter-${i}`}>
+                          <p className="italic">"{renderText(starter)}"</p>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               )}
@@ -2720,11 +2656,14 @@ export default function IntentPage() {
                     <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">{t("section_ask_me")}</p>
                   </div>
                   <div className="space-y-2">
-                    {selectedProfile.questions.map((question, i) => (
-                      <div key={i} className="rounded-md p-3 text-sm border" data-testid={`text-detail-question-${i}`}>
-                        <p>{question}</p>
-                      </div>
-                    ))}
+                    {selectedProfile.questions.map((question, i) => {
+                      const key = (question !== null && typeof question === "object" && "key" in question) ? String((question as Record<string,unknown>).key) : String(i);
+                      return (
+                        <div key={key} className="rounded-md p-3 text-sm border" data-testid={`text-detail-question-${i}`}>
+                          <p>{renderText(question)}</p>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               )}
@@ -2860,181 +2799,110 @@ export default function IntentPage() {
               </p>
             </div>
 
-            {/* ── Carousel area ── */}
+            {/* ── 3-card carousel area ── */}
             <div style={{
               flex: 1, display: "flex", flexDirection: "column",
               alignItems: "center", justifyContent: "center",
               position: "relative", zIndex: 2, width: "100%",
             }}>
-
-              {/* Landing indicator — glowing rose-gold diamond pointer above centre slot */}
-              <div
-                ref={landingMarkerRef}
-                style={{
-                  position: "absolute",
-                  top: "calc(50% + 38px)",
-                  left: "50%",
-                  transform: "translateX(-50%)",
-                  display: "flex", flexDirection: "column", alignItems: "center",
-                  pointerEvents: "none", zIndex: 100,
-                  opacity: 0.45,
-                  transition: "opacity 0.5s ease, filter 0.5s ease",
-                }}
-              >
-                {/* Crown jewel — rose-gold rotated square (diamond) */}
-                <div style={{
-                  width: 11, height: 11,
-                  background: "linear-gradient(135deg, #fce4e9 0%, #d45c74 38%, #9d3550 100%)",
-                  transform: "rotate(45deg)",
-                  boxShadow: "0 0 7px rgba(212,92,116,0.70), 0 0 18px rgba(212,92,116,0.34)",
-                  borderRadius: "2px",
-                  flexShrink: 0,
-                }} />
-                {/* Stem */}
-                <div style={{
-                  width: 1.5, height: 14,
-                  background: "linear-gradient(to bottom, rgba(212,92,116,0.85), rgba(212,92,116,0.12))",
-                  marginTop: -1, flexShrink: 0,
-                }} />
-                {/* Touch-point dot */}
-                <div style={{
-                  width: 6, height: 6, borderRadius: "50%",
-                  background: "rgba(212,92,116,0.90)",
-                  boxShadow: "0 0 6px 2px rgba(212,92,116,0.55)",
-                  flexShrink: 0,
-                }} />
-              </div>
-
-              {/* 3D oval stage — no overflow:hidden so pullforward card can scale freely */}
-              <div style={{
-                position: "relative", width: "100%", height: 340,
-                flexShrink: 0,
-              }}>
-                {/* Ambient glow orb at oval centre — box-shadow driven by RAF */}
+              {/* 3-card flat strip — left / centre / right */}
+              <div style={{ position: "relative", width: "100%", height: 260, flexShrink: 0 }}>
+                {/* Ambient glow orb — intensity driven by orbit RAF */}
                 <div ref={orbitGlowRef} style={{
                   position: "absolute", top: "50%", left: "50%",
-                  width: 160, height: 160, borderRadius: "50%",
+                  width: 180, height: 180, borderRadius: "50%",
                   transform: "translate(-50%,-50%)",
-                  pointerEvents: "none",
+                  pointerEvents: "none", zIndex: 0,
                   animation: "srAmbientPulse 2.8s ease-in-out infinite",
                 }} />
 
-                {/* Outer neon Halo ring — circle tilted via rotateX to look like a horizontal oval hoop */}
-                <div ref={orbitRingRef2} style={{
-                  position: "absolute", top: "50%", left: "50%",
-                  width: 380, height: 380,
-                  marginLeft: -190, marginTop: -190,
-                  borderRadius: "50%",
-                  border: "1px solid rgba(212,92,116,0.28)",
-                  transform: "perspective(800px) rotateX(76deg)",
-                  pointerEvents: "none", zIndex: 1,
-                }} />
-
-                {/* Inner guide ring — slightly smaller, more transparent */}
-                <div style={{
-                  position: "absolute", top: "50%", left: "50%",
-                  width: 300, height: 300,
-                  marginLeft: -150, marginTop: -150,
-                  borderRadius: "50%",
-                  border: "1px solid rgba(212,92,116,0.12)",
-                  transform: "perspective(800px) rotateX(76deg)",
-                  pointerEvents: "none", zIndex: 1,
-                }} />
-
-                {/* Profile cards — RAF-positioned on the 3D oval */}
-                {items.slice(0, Math.min(items.length, 10)).map((item, i) => {
-                  const N2 = Math.min(items.length, 10);
-                  // Static initial oval positions (RAF overwrites on first frame)
-                  // Must stay in sync with the orbit RAF constants: RX=152, RY=80
-                  const t0s   = ((i % N2) + N2) % N2;
-                  const ts    = t0s > N2 / 2 ? t0s - N2 : t0s;
-                  const θ0    = (ts / N2) * Math.PI * 2;
-                  const sinT0 = Math.sin(θ0);
-                  const cosT0 = Math.cos(θ0);
-                  const zN0   = (cosT0 + 1) / 2;
-                  const xPx0  = (152 * sinT0).toFixed(1);
-                  const yPx0  = (75 * cosT0).toFixed(1);   // front→bottom (+RY), back→top (−RY)
-                  const rotX0 = (cosT0 * 10).toFixed(1);   // front leans toward viewer
-                  const sc0   = (0.28 + 0.72 * zN0).toFixed(3);
-                  // Only ~3 cards visible: front sharp, two sides dimmed, rest hidden
-                  const rawOp0 = zN0 > 0.55 ? (0.15 + 0.85 * zN0) : zN0 > 0.20 ? 0.14 : 0;
-                  const op0   = rawOp0.toFixed(3);
-                  const rotY0 = (-sinT0 * 32).toFixed(1);
+                {(() => {
+                  const N = Math.min(items.length, 10);
+                  if (N === 0) return null;
+                  const spinItems = items.slice(0, N);
+                  const cIdx = ((srIdx % N) + N) % N;
+                  const lIdx = ((cIdx - 1 + N) % N);
+                  const rIdx = ((cIdx + 1) % N);
+                  const isWinnerPhase = spinRoomPhase === 'pullforward' || spinRoomPhase === 'arrive';
                   return (
-                    <div
-                      key={item.userId}
-                      ref={el => { orbitBubbles.current[i] = el; }}
-                      style={{
-                        position: "absolute", top: "50%", left: "50%",
-                        transform: `translate(calc(-50% + ${xPx0}px), calc(-50% + ${yPx0}px)) perspective(800px) rotateX(${rotX0}deg) rotateY(${rotY0}deg) scale(${sc0})`,
-                        width: 110, height: 165,
-                        borderRadius: 16,
-                        overflow: "hidden",
-                        opacity: Number(op0),
-                        boxShadow: "0 4px 14px rgba(0,0,0,0.32)",
-                        flexShrink: 0,
-                        willChange: "transform, opacity, box-shadow",
-                      }}
-                    >
-                      <ProfilePhoto userId={item.userId} className="w-full h-full" />
-                      {/* Bottom gradient */}
+                    <>
+                      {/* Left card — smaller, dark overlay, blurred */}
                       <div style={{
-                        position: "absolute", inset: 0,
-                        background: "linear-gradient(to bottom, transparent 50%, rgba(0,0,0,0.65) 100%)",
-                        pointerEvents: "none",
-                      }} />
-                      {/* Rose glass border */}
-                      <div style={{
-                        position: "absolute", inset: 0, borderRadius: 16,
-                        border: "1.5px solid rgba(212,92,116,0.28)",
-                        pointerEvents: "none",
-                      }} />
-                    </div>
-                  );
-                })}
+                        position: "absolute", left: "calc(50% - 176px)", top: "50%",
+                        transform: "translateY(-50%)",
+                        width: 90, height: 135, borderRadius: 14, overflow: "hidden",
+                        opacity: isWinnerPhase ? 0 : 0.42,
+                        filter: isWinnerPhase ? "blur(5px)" : "blur(1.5px)",
+                        transition: "opacity 0.55s ease, filter 0.55s ease",
+                        zIndex: 1, boxShadow: "0 4px 14px rgba(0,0,0,0.36)",
+                      }}>
+                        <ProfilePhoto userId={spinItems[lIdx].userId} className="w-full h-full" />
+                        <div style={{ position: "absolute", inset: 0, background: "rgba(13,8,18,0.52)", pointerEvents: "none" }} />
+                      </div>
 
-                {/* Left / right vignette fades */}
-                <div style={{
-                  position: "absolute", top: 0, left: 0, bottom: 0, width: 70,
-                  background: "linear-gradient(to right, #0d0812 0%, transparent 100%)",
-                  pointerEvents: "none", zIndex: 15,
-                }} />
-                <div style={{
-                  position: "absolute", top: 0, right: 0, bottom: 0, width: 70,
-                  background: "linear-gradient(to left, #0d0812 0%, transparent 100%)",
-                  pointerEvents: "none", zIndex: 15,
-                }} />
+                      {/* Centre card — sharpest, largest, winner highlight */}
+                      <div style={{
+                        position: "absolute", left: "50%", top: "50%",
+                        transform: isWinnerPhase
+                          ? "translate(-50%, -50%) scale(1.07)"
+                          : "translate(-50%, -50%)",
+                        width: 152, height: 228, borderRadius: 18, overflow: "hidden",
+                        opacity: 1, zIndex: 10,
+                        boxShadow: isWinnerPhase
+                          ? "0 0 60px 18px rgba(212,92,116,0.45), 0 8px 32px rgba(0,0,0,0.60)"
+                          : "0 8px 28px rgba(0,0,0,0.55)",
+                        border: isWinnerPhase
+                          ? "2px solid rgba(212,92,116,0.70)"
+                          : "1px solid rgba(255,255,255,0.08)",
+                        transition: "transform 0.9s cubic-bezier(0.12,0,0.08,1), box-shadow 0.9s ease, border-color 0.6s ease",
+                      }}>
+                        <ProfilePhoto userId={spinItems[cIdx].userId} className="w-full h-full" />
+                        <div style={{ position: "absolute", inset: 0, background: "linear-gradient(to bottom, transparent 55%, rgba(0,0,0,0.55) 100%)", pointerEvents: "none" }} />
+                        {isWinnerPhase && (
+                          <div style={{ position: "absolute", inset: 0, borderRadius: 18, boxShadow: "inset 0 0 0 2px rgba(255,255,255,0.14)", pointerEvents: "none" }} />
+                        )}
+                      </div>
+
+                      {/* Right card — smaller, dark overlay, blurred */}
+                      <div style={{
+                        position: "absolute", left: "calc(50% + 86px)", top: "50%",
+                        transform: "translateY(-50%)",
+                        width: 90, height: 135, borderRadius: 14, overflow: "hidden",
+                        opacity: isWinnerPhase ? 0 : 0.42,
+                        filter: isWinnerPhase ? "blur(5px)" : "blur(1.5px)",
+                        transition: "opacity 0.55s ease, filter 0.55s ease",
+                        zIndex: 1, boxShadow: "0 4px 14px rgba(0,0,0,0.36)",
+                      }}>
+                        <ProfilePhoto userId={spinItems[rIdx].userId} className="w-full h-full" />
+                        <div style={{ position: "absolute", inset: 0, background: "rgba(13,8,18,0.52)", pointerEvents: "none" }} />
+                      </div>
+
+                      {/* Edge vignettes */}
+                      <div style={{ position: "absolute", top: 0, left: 0, bottom: 0, width: 56, background: "linear-gradient(to right, #0d0812 0%, transparent 100%)", pointerEvents: "none", zIndex: 15 }} />
+                      <div style={{ position: "absolute", top: 0, right: 0, bottom: 0, width: 56, background: "linear-gradient(to left, #0d0812 0%, transparent 100%)", pointerEvents: "none", zIndex: 15 }} />
+                    </>
+                  );
+                })()}
               </div>
 
               {/* Phase status text */}
               <div style={{ marginTop: 32, textAlign: "center", minHeight: 30 }}>
                 {spinRoomPhase === 'accelerate' && (
-                  <p key="acc" style={{
-                    fontSize: 11, color: "rgba(255,255,255,0.40)",
-                    letterSpacing: "0.16em", textTransform: "uppercase",
-                    animation: "srTextIn 0.5s ease forwards, srSubtitlePulse 2.2s ease-in-out 0.6s infinite",
-                  }}>Finding tonight's connection…</p>
+                  <p key="acc" style={{ fontSize: 11, color: "rgba(255,255,255,0.40)", letterSpacing: "0.16em", textTransform: "uppercase", animation: "srTextIn 0.5s ease forwards, srSubtitlePulse 2.2s ease-in-out 0.6s infinite" }}>
+                    Finding tonight's connection…
+                  </p>
                 )}
                 {spinRoomPhase === 'fast' && (
-                  <p key="fast" style={{
-                    fontSize: 17, color: "rgba(212,92,116,0.72)",
-                    letterSpacing: "0.44em",
-                    animation: "srTextIn 0.4s ease forwards",
-                  }}>✦ ✦ ✦</p>
+                  <p key="fast" style={{ fontSize: 17, color: "rgba(212,92,116,0.72)", letterSpacing: "0.44em", animation: "srTextIn 0.4s ease forwards" }}>✦ ✦ ✦</p>
                 )}
                 {spinRoomPhase === 'slow' && (
-                  <p key="slow" style={{
-                    fontSize: 11, fontStyle: "italic",
-                    color: "rgba(255,255,255,0.40)",
-                    animation: "srTextIn 0.5s ease forwards",
-                  }}>Narrowing down…</p>
+                  <p key="slow" style={{ fontSize: 11, fontStyle: "italic", color: "rgba(255,255,255,0.40)", animation: "srTextIn 0.5s ease forwards" }}>Narrowing down…</p>
                 )}
                 {spinRoomPhase === 'approach' && (
-                  <p key="approach" style={{
-                    fontSize: 11, fontStyle: "italic",
-                    color: "rgba(255,255,255,0.50)",
-                    animation: "srTextIn 0.5s ease forwards",
-                  }}>Almost there…</p>
+                  <p key="approach" style={{ fontSize: 11, fontStyle: "italic", color: "rgba(255,255,255,0.50)", animation: "srTextIn 0.5s ease forwards" }}>Almost there…</p>
+                )}
+                {(spinRoomPhase === 'pullforward' || spinRoomPhase === 'arrive') && (
+                  <p key="pf" style={{ fontSize: 12, fontStyle: "italic", color: "rgba(212,92,116,0.75)", animation: "srTextIn 0.5s ease forwards", letterSpacing: "0.10em" }}>✦ Found ✦</p>
                 )}
               </div>
             </div>
@@ -3207,14 +3075,14 @@ export default function IntentPage() {
                   )}
 
                   {/* Signal word — 2.35 s */}
-                  {selectedProfile.signals && selectedProfile.signals.length > 0 && (
+                  {selectedProfile.signals && selectedProfile.signals.length > 0 && renderText(selectedProfile.signals[0]) && (
                     <p style={{
                       fontFamily: "'Playfair Display', Georgia, serif",
                       fontSize: 14, fontStyle: "italic",
                       color: "rgba(255,255,255,0.58)", margin: "7px 0 0",
                       animation: "srTextIn 0.55s 2.35s ease both",
                     }}>
-                      "{selectedProfile.signals[0]}"
+                      "{renderText(selectedProfile.signals[0])}"
                     </p>
                   )}
 
