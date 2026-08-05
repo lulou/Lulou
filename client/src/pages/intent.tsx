@@ -1371,16 +1371,22 @@ export default function IntentPage() {
           }
           setShowProfile(true);
           console.log('[INTENTION_WHEEL] reveal_started', { name: winner.firstName });
+          // Advance the cinematic phase only when a winner was found.
+          // go('pullforward') must stay inside this block: if it runs with
+          // selectedProfile still null the reveal/pause/buttons phases render
+          // selectedProfile.userId and throw TypeError → boundary crash.
+          if (landingMarkerRef.current) {
+            landingMarkerRef.current.style.opacity = '1';
+            landingMarkerRef.current.style.filter = 'drop-shadow(0 0 10px rgba(212,92,116,1)) drop-shadow(0 2px 18px rgba(212,92,116,0.70))';
+          }
+          try { (navigator as any).vibrate?.([15, 10, 30]); } catch {}
+          go('pullforward', 0);
         } else {
           console.warn('[INTENTION_WHEEL] selected_profile_missing', { closestI, itemCount: items.length });
+          // No winner → close SpinRoom so the remaining phase timers
+          // (arrive / reveal / pause / buttons) never fire against null selectedProfile.
+          setShowSpinRoom(false);
         }
-        // Brighten the landing marker at the moment of selection
-        if (landingMarkerRef.current) {
-          landingMarkerRef.current.style.opacity = '1';
-          landingMarkerRef.current.style.filter = 'drop-shadow(0 0 10px rgba(212,92,116,1)) drop-shadow(0 2px 18px rgba(212,92,116,0.70))';
-        }
-        try { (navigator as any).vibrate?.([15, 10, 30]); } catch {}
-        go('pullforward', 0);
       },  8400),
       setTimeout(() => { go('arrive', 0);   console.log('[WHEEL] WINNER_ARRIVE');   },  9800),
       setTimeout(() => {
@@ -3076,7 +3082,7 @@ export default function IntentPage() {
 
               {/* ── Photo — cinematic entrance at pause phase ── */}
               {/* Mounts only at pause/buttons so srWinnerIn animation plays on entry */}
-              {(spinRoomPhase === 'pause' || spinRoomPhase === 'buttons') && (
+              {(spinRoomPhase === 'pause' || spinRoomPhase === 'buttons') && selectedProfile && (
                 <div style={{
                   position: "absolute", inset: 0,
                   animation: "srWinnerIn 1.8s cubic-bezier(0.16, 1, 0.3, 1) forwards",
@@ -3087,7 +3093,7 @@ export default function IntentPage() {
               )}
 
               {/* ── Rose-gold glow — radial bloom behind the photo ── */}
-              {(spinRoomPhase === 'pause' || spinRoomPhase === 'buttons') && (
+              {(spinRoomPhase === 'pause' || spinRoomPhase === 'buttons') && selectedProfile && (
                 <div style={{
                   position: "absolute", top: "38%", left: "50%",
                   transform: "translate(-50%, -50%)",
@@ -3106,7 +3112,7 @@ export default function IntentPage() {
               }} />
 
               {/* ── Bottom gradient — protects the lower 42% where all text lives ── */}
-              {(spinRoomPhase === 'pause' || spinRoomPhase === 'buttons') && (
+              {(spinRoomPhase === 'pause' || spinRoomPhase === 'buttons') && selectedProfile && (
                 <div style={{
                   position: "absolute", bottom: 0, left: 0, right: 0, height: "44%",
                   background: "linear-gradient(transparent 0%, rgba(13,8,18,0.78) 32%, rgba(13,8,18,0.97) 65%, #0d0812 100%)",
@@ -3115,7 +3121,7 @@ export default function IntentPage() {
               )}
 
               {/* ── Subtle rose bloom over upper photo ── */}
-              {(spinRoomPhase === 'pause' || spinRoomPhase === 'buttons') && (
+              {(spinRoomPhase === 'pause' || spinRoomPhase === 'buttons') && selectedProfile && (
                 <div style={{
                   position: "absolute", inset: 0, zIndex: 3, pointerEvents: "none",
                   background: "radial-gradient(ellipse 80% 50% at 50% 22%, rgba(212,92,116,0.14) 0%, transparent 62%)",
@@ -3154,7 +3160,7 @@ export default function IntentPage() {
 
               {/* ── PHASE 3: PROFILE TEXT + CTA — bottom 33%, appears at buttons phase ── */}
               {/* Mounts fresh at buttons phase so all animation-delays start from zero */}
-              {spinRoomPhase === 'buttons' && (
+              {spinRoomPhase === 'buttons' && selectedProfile && (
                 <div style={{
                   position: "absolute", bottom: 0, left: 0, right: 0, zIndex: 6,
                   display: "flex", flexDirection: "column", alignItems: "center",
