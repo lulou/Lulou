@@ -748,14 +748,8 @@ function CandidatesPreview({ items, onTap }: { items: Profile[]; onTap?: (profil
               cursor: onTap ? "pointer" : "default",
               transition: "transform 0.12s ease",
             }}>
+              {/* Primary photo or Lulou avatar fallback — no blur, no dim */}
               <ProfilePhoto userId={profile.userId} className="w-full h-full" />
-              {/* Blur/dim overlay — obscures identity slightly before spin */}
-              <div style={{
-                position: "absolute", inset: 0,
-                background: "rgba(8,2,14,0.28)",
-                backdropFilter: "blur(3px)",
-                WebkitBackdropFilter: "blur(3px)",
-              }} />
             </div>
           </div>
         ))}
@@ -2084,72 +2078,66 @@ export default function IntentPage() {
             </div>
           )}
 
-          <div
-            className="absolute left-1/2 top-1/2"
-            style={{
-              transformStyle: "preserve-3d",
-              transform: `translateX(-50%) translateY(-50%) rotateY(${-angle}deg)`,
-              width: itemWidth, height: itemHeight,
-            }}
-          >
-            {items.map((profile, i) => {
-              const itemAngle = i * angleStep;
-              const isSelected = i === selectedIndex;
-              const relativeAngle = ((((-angle + itemAngle) % 360) + 360) % 360);
-              const cosVal = Math.cos((relativeAngle * Math.PI) / 180);
-              const depthFactor = (cosVal + 1) / 2;
-              const cardScale = 0.60 + depthFactor * 0.40;
-              const glowAlpha = Math.max(0, Math.pow(cosVal, 2.5));
+          {/* 3D carousel — only mounted once the spin starts; suppressed pre-spin so
+               no ProfilePhoto components exist in the DOM before the user taps Spin */}
+          {(isSpinning || dispersed) && (
+            <div
+              className="absolute left-1/2 top-1/2"
+              style={{
+                transformStyle: "preserve-3d",
+                transform: `translateX(-50%) translateY(-50%) rotateY(${-angle}deg)`,
+                width: itemWidth, height: itemHeight,
+              }}
+            >
+              {items.map((profile, i) => {
+                const itemAngle = i * angleStep;
+                const isSelected = i === selectedIndex;
+                const relativeAngle = ((((-angle + itemAngle) % 360) + 360) % 360);
+                const cosVal = Math.cos((relativeAngle * Math.PI) / 180);
+                const depthFactor = (cosVal + 1) / 2;
+                const cardScale = 0.60 + depthFactor * 0.40;
+                const glowAlpha = Math.max(0, Math.pow(cosVal, 2.5));
 
-              const disperseX = dispersed && !isSelected ? (Math.random() - 0.5) * 900 : 0;
-              const disperseY = dispersed && !isSelected ? (Math.random() - 0.5) * 700 : 0;
+                const disperseX = dispersed && !isSelected ? (Math.random() - 0.5) * 900 : 0;
+                const disperseY = dispersed && !isSelected ? (Math.random() - 0.5) * 700 : 0;
 
-              const boxShadow = isSelected && !dispersed
-                ? undefined
-                : depthFactor > 0.75 && !dispersed
-                ? `0 0 ${Math.round(glowAlpha * 28)}px ${Math.round(glowAlpha * 12)}px rgba(188,78,96,${(glowAlpha * 0.38).toFixed(2)}), 0 8px 24px rgba(0,0,0,0.32)`
-                : "0 4px 18px rgba(0,0,0,0.22)";
+                const boxShadow = isSelected && !dispersed
+                  ? undefined
+                  : depthFactor > 0.75 && !dispersed
+                  ? `0 0 ${Math.round(glowAlpha * 28)}px ${Math.round(glowAlpha * 12)}px rgba(188,78,96,${(glowAlpha * 0.38).toFixed(2)}), 0 8px 24px rgba(0,0,0,0.32)`
+                  : "0 4px 18px rgba(0,0,0,0.22)";
 
-              return (
-                <div
-                  key={profile.id}
-                  style={{
-                    width: itemWidth, height: itemHeight,
-                    borderRadius: 20, overflow: "hidden",
-                    position: "absolute", left: 0, top: 0,
-                    transform: dispersed && !isSelected
-                      ? `rotateY(${itemAngle}deg) translateZ(${radius}px) translate(${disperseX}px, ${disperseY}px) scale(0)`
-                      : isSelected && !dispersed
-                      ? `rotateY(${itemAngle}deg) translateZ(${radius}px) scale(${(cardScale * 1.10).toFixed(3)})`
-                      : `rotateY(${itemAngle}deg) translateZ(${radius}px) scale(${cardScale})`,
-                    opacity: dispersed && !isSelected ? 0 : (0.16 + depthFactor * 0.84),
-                    zIndex: Math.round(depthFactor * 100),
-                    boxShadow,
-                    animation: isSelected && !dispersed ? "winnerGlow 1.6s ease-in-out infinite" : undefined,
-                    transition: dispersed ? "all 0.7s cubic-bezier(0.4, 0, 0.2, 1)" : "box-shadow 0.3s ease",
-                  }}
-                  data-testid={`intent-profile-${i}`}
-                >
-                  <ProfilePhoto userId={profile.userId} className="w-full h-full pointer-events-none" />
-                  {/* Subtle bottom depth gradient */}
-                  <div style={{ position: "absolute", inset: 0, background: "linear-gradient(175deg, rgba(0,0,0,0) 55%, rgba(0,0,0,0.06) 78%, rgba(0,0,0,0.22) 100%)", pointerEvents: "none" }} />
-                  {/* Mystery frost overlay — obscures face before spin so no one person is spotlighted */}
-                  {!isSpinning && !dispersed && (
-                    <div style={{
-                      position: "absolute", inset: 0, borderRadius: 20,
-                      background: "rgba(13,8,22,0.38)",
-                      backdropFilter: "blur(5px)",
-                      WebkitBackdropFilter: "blur(5px)",
-                      pointerEvents: "none",
-                    }} />
-                  )}
-                  {isSelected && !dispersed && (
-                    <div style={{ position: "absolute", inset: 0, borderRadius: 20, boxShadow: "inset 0 0 0 2.5px rgba(255,255,255,0.80)", pointerEvents: "none" }} />
-                  )}
-                </div>
-              );
-            })}
-          </div>
+                return (
+                  <div
+                    key={profile.id}
+                    style={{
+                      width: itemWidth, height: itemHeight,
+                      borderRadius: 20, overflow: "hidden",
+                      position: "absolute", left: 0, top: 0,
+                      transform: dispersed && !isSelected
+                        ? `rotateY(${itemAngle}deg) translateZ(${radius}px) translate(${disperseX}px, ${disperseY}px) scale(0)`
+                        : isSelected && !dispersed
+                        ? `rotateY(${itemAngle}deg) translateZ(${radius}px) scale(${(cardScale * 1.10).toFixed(3)})`
+                        : `rotateY(${itemAngle}deg) translateZ(${radius}px) scale(${cardScale})`,
+                      opacity: dispersed && !isSelected ? 0 : (0.16 + depthFactor * 0.84),
+                      zIndex: Math.round(depthFactor * 100),
+                      boxShadow,
+                      animation: isSelected && !dispersed ? "winnerGlow 1.6s ease-in-out infinite" : undefined,
+                      transition: dispersed ? "all 0.7s cubic-bezier(0.4, 0, 0.2, 1)" : "box-shadow 0.3s ease",
+                    }}
+                    data-testid={`intent-profile-${i}`}
+                  >
+                    <ProfilePhoto userId={profile.userId} className="w-full h-full pointer-events-none" />
+                    {/* Subtle bottom depth gradient */}
+                    <div style={{ position: "absolute", inset: 0, background: "linear-gradient(175deg, rgba(0,0,0,0) 55%, rgba(0,0,0,0.06) 78%, rgba(0,0,0,0.22) 100%)", pointerEvents: "none" }} />
+                    {isSelected && !dispersed && (
+                      <div style={{ position: "absolute", inset: 0, borderRadius: 20, boxShadow: "inset 0 0 0 2.5px rgba(255,255,255,0.80)", pointerEvents: "none" }} />
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
 
           {/* Centre reticle */}
           {!dispersed && (
@@ -2199,60 +2187,75 @@ export default function IntentPage() {
             </div>
           )}
 
-          {/* ── Pre-spin mystery overlay — elegant frosted card, no identifiable photo ── */}
-          {/* Covers the 3D carousel when the user has not yet pressed Spin.            */}
-          {/* zIndex 220 sits above the reticle (200) and name caption (210) so those   */}
-          {/* are suppressed and no photo or name leaks through before the spin.         */}
+          {/* ── Pre-spin mystery hero — fully opaque, no ProfilePhoto in DOM ── */}
+          {/* Carousel is unmounted pre-spin so this is the only thing visible.  */}
           {!isSpinning && !dispersed && (
-            <div style={{ position: "absolute", inset: 0, zIndex: 220, pointerEvents: "none", display: "flex", alignItems: "center", justifyContent: "center" }}>
-              {/* Left soft-shadow card */}
+            <div style={{
+              position: "absolute", inset: 0, zIndex: 10,
+              pointerEvents: "none",
+              display: "flex", alignItems: "center", justifyContent: "center",
+            }}>
+              {/* Left decorative shadow deck — pure CSS gradient, no image */}
               <div style={{
                 position: "absolute",
-                left: `calc(50% - ${Math.round(itemWidth / 2) + 14 + Math.round(itemWidth * 0.52)}px)`,
-                top: "50%", transform: "translateY(-50%) scale(0.80)",
-                width: Math.round(itemWidth * 0.52), height: Math.round(itemHeight * 0.52),
+                left: `calc(50% - ${Math.round(itemWidth / 2) + 10 + Math.round(itemWidth * 0.46)}px)`,
+                top: "50%",
+                transform: "translateY(-48%) rotate(-4deg)",
+                width: Math.round(itemWidth * 0.46),
+                height: Math.round(itemHeight * 0.62),
                 borderRadius: 14,
-                background: "rgba(255,255,255,0.022)",
-                border: "1px solid rgba(255,255,255,0.055)",
-                boxShadow: "0 8px 22px rgba(0,0,0,0.38)",
-                backdropFilter: "blur(3px)",
-                WebkitBackdropFilter: "blur(3px)",
-                opacity: 0.72,
+                background: "linear-gradient(155deg, #2a0e28 0%, #1a0a2e 55%, #26122a 100%)",
+                border: "1px solid rgba(212,92,116,0.10)",
+                boxShadow: "0 12px 32px rgba(0,0,0,0.55)",
+                opacity: 0.52,
               }} />
-              {/* Right soft-shadow card */}
+              {/* Right decorative shadow deck — pure CSS gradient, no image */}
               <div style={{
                 position: "absolute",
-                left: `calc(50% + ${Math.round(itemWidth / 2) + 14}px)`,
-                top: "50%", transform: "translateY(-50%) scale(0.80)",
-                width: Math.round(itemWidth * 0.52), height: Math.round(itemHeight * 0.52),
+                left: `calc(50% + ${Math.round(itemWidth / 2) + 10}px)`,
+                top: "50%",
+                transform: "translateY(-48%) rotate(4deg)",
+                width: Math.round(itemWidth * 0.46),
+                height: Math.round(itemHeight * 0.62),
                 borderRadius: 14,
-                background: "rgba(255,255,255,0.022)",
-                border: "1px solid rgba(255,255,255,0.055)",
-                boxShadow: "0 8px 22px rgba(0,0,0,0.38)",
-                backdropFilter: "blur(3px)",
-                WebkitBackdropFilter: "blur(3px)",
-                opacity: 0.72,
+                background: "linear-gradient(155deg, #26122a 0%, #1a0a2e 55%, #2a0e28 100%)",
+                border: "1px solid rgba(212,92,116,0.10)",
+                boxShadow: "0 12px 32px rgba(0,0,0,0.55)",
+                opacity: 0.52,
               }} />
-              {/* Centre mystery card — frosted glass with Lulou monogram */}
+              {/* Centre mystery card — solid opaque gradient, Lulou monogram, zero photos */}
               <div style={{
                 position: "absolute", left: "50%", top: "50%",
                 transform: "translate(-50%, -50%)",
-                width: itemWidth, height: itemHeight, borderRadius: 20,
+                width: itemWidth, height: itemHeight, borderRadius: 22,
                 display: "flex", flexDirection: "column",
-                alignItems: "center", justifyContent: "center", gap: 10,
-                background: "linear-gradient(148deg, rgba(255,255,255,0.052) 0%, rgba(212,92,116,0.055) 52%, rgba(255,255,255,0.022) 100%)",
-                border: "1px solid rgba(255,255,255,0.085)",
-                backdropFilter: "blur(22px)",
-                WebkitBackdropFilter: "blur(22px)",
-                boxShadow: "0 16px 48px rgba(0,0,0,0.44), 0 0 28px rgba(212,92,116,0.07), inset 0 1px 0 rgba(255,255,255,0.07)",
+                alignItems: "center", justifyContent: "center", gap: 12,
+                /* Fully opaque plum-rose gradient — nothing can show through */
+                background: "linear-gradient(155deg, #2d0f2b 0%, #3d1535 28%, #4a1c3f 52%, #3a1030 78%, #230c22 100%)",
+                border: "1px solid rgba(212,92,116,0.22)",
+                boxShadow: "0 20px 56px rgba(0,0,0,0.68), 0 0 36px rgba(212,92,116,0.10), inset 0 1px 0 rgba(255,255,255,0.06)",
               }}>
-                <div style={{ width: 36, height: 36, opacity: 0.36 }}>
+                {/* Inner glow ring */}
+                <div style={{
+                  position: "absolute", inset: 18, borderRadius: 14,
+                  border: "1px solid rgba(212,92,116,0.10)",
+                  pointerEvents: "none",
+                }} />
+                {/* Lulou monogram */}
+                <div style={{ width: 42, height: 42, opacity: 0.55, position: "relative", zIndex: 1 }}>
                   <LulouFlowerIcon className="w-full h-full text-primary" />
                 </div>
+                {/* Crescent accent */}
+                <div style={{
+                  fontSize: 18, lineHeight: 1, opacity: 0.22,
+                  position: "relative", zIndex: 1, letterSpacing: 0,
+                }}>🌙</div>
+                {/* Label */}
                 <p style={{
-                  fontSize: 8, fontWeight: 800, letterSpacing: "0.40em",
-                  textTransform: "uppercase", color: "rgba(212,92,116,0.50)",
-                  margin: 0,
+                  fontSize: 7, fontWeight: 900, letterSpacing: "0.50em",
+                  textTransform: "uppercase",
+                  color: "rgba(212,92,116,0.55)",
+                  margin: 0, position: "relative", zIndex: 1,
                 }}>Tonight</p>
               </div>
             </div>
@@ -2305,21 +2308,22 @@ export default function IntentPage() {
               <button
                 onClick={() => setShowPurchase(true)}
                 style={{
-                  width: 80, height: 80, borderRadius: "50%",
-                  border: "1.5px solid hsl(var(--border))",
-                  background: "linear-gradient(145deg, hsl(var(--muted)), hsl(var(--muted-foreground)/0.08))",
-                  color: "hsl(var(--muted-foreground))", cursor: "pointer",
-                  display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 4,
-                  boxShadow: "0 4px 14px rgba(0,0,0,0.10)",
-                  transition: "transform 0.12s ease", outline: "none", WebkitTapHighlightColor: "transparent",
+                  display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+                  padding: "11px 22px", borderRadius: 50,
+                  border: "1.5px solid rgba(212,92,116,0.40)",
+                  background: "rgba(212,92,116,0.10)",
+                  color: "rgba(212,92,116,0.90)", cursor: "pointer",
+                  boxShadow: "0 2px 12px rgba(212,92,116,0.14)",
+                  transition: "transform 0.12s ease, background 0.15s ease",
+                  outline: "none", WebkitTapHighlightColor: "transparent", flexShrink: 0,
                 }}
-                onMouseEnter={e => { (e.currentTarget as HTMLElement).style.transform = "scale(1.05)"; }}
-                onMouseLeave={e => { (e.currentTarget as HTMLElement).style.transform = "scale(1)"; }}
+                onMouseEnter={e => { (e.currentTarget as HTMLElement).style.transform = "scale(1.04)"; (e.currentTarget as HTMLElement).style.background = "rgba(212,92,116,0.16)"; }}
+                onMouseLeave={e => { (e.currentTarget as HTMLElement).style.transform = "scale(1)"; (e.currentTarget as HTMLElement).style.background = "rgba(212,92,116,0.10)"; }}
                 data-testid="button-spin-locked"
               >
-                <Lock style={{ width: 20, height: 20 }} />
-                <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.13em", textTransform: "uppercase", opacity: 0.50 }}>
-                  {t("spin_label")}
+                <Lock style={{ width: 14, height: 14, flexShrink: 0 }} />
+                <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.08em" }}>
+                  Tap to unlock spin
                 </span>
               </button>
             )}

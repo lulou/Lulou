@@ -1,0 +1,81 @@
+The pre-spin screen still looks essentially unchanged.
+
+Do not add more blur to the existing cards. The current design still shows:
+- the same giant centre rectangle
+- the same side cards
+- the same candidate row
+- the same overall structure
+- recognisable bad source images underneath the blur
+
+I asked for a real redesign, not a blur layer.
+
+REBUILD THE PRE-SPIN HERO STRUCTURE
+
+Remove the current three visible photo cards entirely before the spin.
+
+Replace them with:
+
+1. One centred premium mystery card
+  - fixed portrait ratio
+  - deep plum/rose gradient
+  - subtle Lulou monogram or crescent
+  - soft frosted border
+  - no profile photo visible underneath
+  - no TV, laptop, bed, room or person visible
+  - no side-photo cards
+
+2. Add only two very subtle decorative shadow cards behind it
+  - abstract gradient only
+  - no images
+  - lower opacity
+  - small horizontal offset
+  - no recognisable content
+
+3. Candidate circles
+  - use authoritative primary profile photos only
+  - if image is invalid/missing, use Lulou avatar
+  - do not just blur unsuitable images
+  - keep maximum 6 plus +N
+
+4. Spacing
+  - reduce hero height slightly
+  - more room between hero, candidate row and Spin button
+  - keep entire layout balanced above bottom navigation on iPhone
+
+LOCKED SPIN STATE
+
+Keep the locked state, but visually refine it:
+- smaller lock button
+- stronger contrast
+- clearer “Tap to buy” interaction
+- do not let it dominate the page
+
+VERIFY THE SPINNER TOO
+
+I cannot test the inside animation because the spin is currently locked.
+
+Inspect the deployed production code and confirm the spinner actually uses:
+- exactly 3 cards
+- one primary profile image per candidate
+- no secondary images
+- no TVs, laptops, beds, rooms or logos
+- centre card largest
+- side cards darker and blurred
+- smooth deceleration
+- selected card centred before reveal
+
+DEPLOYMENT CHECK
+
+Before reporting completion:
+- confirm Vercel is actually running commit 48aab4b or the new commit
+- compare the live DOM to the new JSX
+- prove the live production page changed
+
+Report:
+- exact pre-spin JSX removed
+- exact replacement structure
+- commit hash
+- Vercel deployed commit
+- live iPhone screenshot PASS/FAIL
+
+Do not call this redesigned if the same three-photo hero remains underneath blur.
