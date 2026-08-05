@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect, useLayoutEffect, useMemo } from "react";
+import { useState, useRef, useCallback, useEffect, useLayoutEffect, useMemo, Component, type ReactNode, type ErrorInfo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { Loader2, RotateCw, X, MapPin, Lock, Star, Crown, MessageCircle, HelpCircle, Moon, Volume2, VolumeX, ChevronRight, BadgeCheck } from "lucide-react";
@@ -20,6 +20,62 @@ import { EMPTY_PHOTOS } from "@/lib/image-utils";
 import { useLanguageContext } from "@/contexts/language-context";
 import { stopAllNonVoiceCallAudio } from "@/lib/call-audio";
 import { clearAllArmedSessions } from "@/lib/live-call-sessions";
+
+// ── SpinRoom result error boundary ───────────────────────────────────────────
+// Wraps the reveal/pause/buttons render inside SpinRoom. If a render crash
+// occurs (null field access, bad URL, stale state), catches it here and shows
+// a safe "Try again" inline state instead of crashing the whole page.
+interface IntentResultBoundaryState { hasError: boolean; errorMsg: string }
+class IntentResultBoundary extends Component<{ children: ReactNode; onReset: () => void }, IntentResultBoundaryState> {
+  constructor(props: IntentResultBoundary["props"]) {
+    super(props);
+    this.state = { hasError: false, errorMsg: "" };
+  }
+  static getDerivedStateFromError(err: unknown): IntentResultBoundaryState {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error("[INTENTION_WHEEL] render_error", msg);
+    return { hasError: true, errorMsg: msg };
+  }
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    console.error("[INTENTION_WHEEL] render_error_info", error, info.componentStack);
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{
+          position: "absolute", inset: 0, zIndex: 10,
+          display: "flex", flexDirection: "column",
+          alignItems: "center", justifyContent: "center",
+          padding: "32px 28px",
+          background: "rgba(13,8,18,0.96)",
+        }}>
+          <p style={{ fontSize: 32, marginBottom: 12 }}>🌙</p>
+          <p style={{
+            fontSize: 15, fontWeight: 600, color: "rgba(255,255,255,0.80)",
+            textAlign: "center", marginBottom: 6,
+          }}>Something slipped away</p>
+          <p style={{
+            fontSize: 12, color: "rgba(255,255,255,0.35)",
+            textAlign: "center", marginBottom: 24,
+          }}>Your spin was recorded. Tap below to continue.</p>
+          <button
+            onClick={() => { this.setState({ hasError: false, errorMsg: "" }); this.props.onReset(); }}
+            style={{
+              padding: "14px 32px", borderRadius: 18,
+              background: "linear-gradient(135deg,#d45c74 0%,#9d3550 100%)",
+              border: "none", color: "#fff",
+              fontSize: 14, fontWeight: 700,
+              letterSpacing: "0.10em", cursor: "pointer",
+            }}
+          >
+            Continue
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 /** Fisher-Yates shuffle — returns a new array, does not mutate input. */
 function shuffleArray<T>(arr: T[]): T[] {
@@ -618,9 +674,9 @@ function CandidatesPreview({ items, onTap }: { items: Profile[]; onTap?: (profil
     window.addEventListener("resize", h);
     return () => window.removeEventListener("resize", h);
   }, []);
-  const bubbleSize = vw < 380 ? 30 : 38;
-  const bubbleGap  = vw < 380 ? 4  : 6;
-  const maxCount   = vw < 380 ? 5  : 7;
+  const bubbleSize = vw < 380 ? 30 : 36;
+  const bubbleGap  = vw < 380 ? 5  : 7;
+  const maxCount   = vw < 380 ? 5  : 6;
   const preview = useMemo(() => items.slice(0, Math.min(maxCount, items.length)), [items, maxCount]);
   if (preview.length < 2) return null;
 
@@ -651,16 +707,19 @@ function CandidatesPreview({ items, onTap }: { items: Profile[]; onTap?: (profil
               width: bubbleSize, height: bubbleSize, borderRadius: "50%", overflow: "hidden",
               position: "relative",
               boxShadow: onTap
-                ? "0 2px 12px rgba(188,78,96,0.28), 0 1px 4px rgba(0,0,0,0.18)"
-                : "0 2px 10px rgba(188,78,96,0.18), 0 1px 4px rgba(0,0,0,0.16)",
-              border: "1.5px solid rgba(212,92,116,0.28)",
+                ? "0 2px 10px rgba(188,78,96,0.22), 0 1px 4px rgba(0,0,0,0.18)"
+                : "0 2px 8px rgba(188,78,96,0.14), 0 1px 4px rgba(0,0,0,0.14)",
+              border: "1.5px solid rgba(212,92,116,0.22)",
               cursor: onTap ? "pointer" : "default",
               transition: "transform 0.12s ease",
             }}>
               <ProfilePhoto userId={profile.userId} className="w-full h-full" />
+              {/* Blur/dim overlay — obscures identity slightly before spin */}
               <div style={{
                 position: "absolute", inset: 0,
-                background: "rgba(8,2,14,0.08)",
+                background: "rgba(8,2,14,0.28)",
+                backdropFilter: "blur(3px)",
+                WebkitBackdropFilter: "blur(3px)",
               }} />
             </div>
           </div>
@@ -1084,12 +1143,21 @@ export default function IntentPage() {
     if (Math.abs(velocity.current) > 0.2) animFrame.current = requestAnimationFrame(glide);
   };
 
+  // Dedup guard — prevents a second recordSpin call if the timer fires twice
+  // (e.g. due to a fast re-mount or dev StrictMode double-effect).
+  const recordSpinFiredRef = useRef(false);
+
   const recordSpin = useMutation({
     mutationFn: async (standoutUserId: string) => {
+      console.log("[INTENTION_WHEEL] spin_request_started", { standoutUserId });
       await apiRequest("POST", "/api/spin", { standoutUserId });
     },
     onSuccess: () => {
+      console.log("[INTENTION_WHEEL] result_persisted");
       queryClient.invalidateQueries({ queryKey: ["/api/spin-status"] });
+    },
+    onError: (err: unknown) => {
+      console.error("[INTENTION_WHEEL] spin_record_failed", err);
     },
   });
 
@@ -1141,6 +1209,9 @@ export default function IntentPage() {
     if (isSpinning || count === 0 || !canSpin) return;
     ensureCtx();
     try { (navigator as any).vibrate?.([30]); } catch {}
+    // Reset dedup guard so this fresh spin can record
+    recordSpinFiredRef.current = false;
+    console.log("[INTENTION_WHEEL] spin_request_started", { candidateCount: count });
     setShowSpinRoom(true);
     setIsSpinning(true);
     setSelectedIndex(null);
@@ -1244,12 +1315,24 @@ export default function IntentPage() {
         }
         const winner = items[closestI];
         console.log('[WHEEL] PULL_FORWARD', { winner: winner?.firstName, index: closestI });
-        if (winner) {
+        console.log('[INTENTION_WHEEL] selected_candidate', {
+          candidateId: winner?.userId ?? null,
+          name: winner?.firstName ?? null,
+          found: !!winner,
+        });
+        if (winner && winner.userId) {
           setSelectedIndex(closestI);
           setSelectedProfile(winner);
           setRevealQuote(LULOU_QUOTE_KEYS[Math.floor(Math.random() * LULOU_QUOTE_KEYS.length)]);
-          recordSpin.mutate(winner.userId);
+          // Dedup guard — fire recordSpin only once per spin session
+          if (!recordSpinFiredRef.current) {
+            recordSpinFiredRef.current = true;
+            recordSpin.mutate(winner.userId);
+          }
           setShowProfile(true);
+          console.log('[INTENTION_WHEEL] reveal_started', { name: winner.firstName });
+        } else {
+          console.warn('[INTENTION_WHEEL] selected_profile_missing', { closestI, itemCount: items.length });
         }
         // Brighten the landing marker at the moment of selection
         if (landingMarkerRef.current) {
@@ -1344,8 +1427,9 @@ export default function IntentPage() {
         const yPx    = RY_OVAL * cosT;   // front→bottom (+RY), back→top (−RY)
         const rotX   = cosT * 10;        // front leans toward viewer, back tilts away
         const sc     = 0.28 + 0.72 * zNorm;
-        const op     = Math.max(0.05, 0.05 + 0.95 * zNorm);
-        const blurPx = Math.max(0, (1 - zNorm) * 5.5 - 0.3);
+        // Only ~3 cards visible: front (sharp), two side positions (dim), rest hidden
+        const op     = zNorm > 0.55 ? (0.15 + 0.85 * zNorm) : zNorm > 0.20 ? 0.14 : 0;
+        const blurPx = Math.max(0, (1 - zNorm) * 8.0 - 0.5);
         const rotY   = -sinT * 32;       // cards face centre tangentially
         const zi     = Math.round(1 + zNorm * 80);
 
@@ -1898,6 +1982,10 @@ export default function IntentPage() {
           60%  { transform: scale(1.06); opacity: 1; }
           100% { transform: scale(1);    opacity: 1; }
         }
+        @keyframes srSubtitlePulse {
+          0%, 100% { opacity: 0.40; }
+          50%       { opacity: 0.80; }
+        }
         @keyframes haloRingExpand {
           0%   { transform: translate(-50%,-50%) scale(1);    opacity: 0.85; }
           50%  { transform: translate(-50%,-50%) scale(2.8);  opacity: 0.40; }
@@ -1994,7 +2082,7 @@ export default function IntentPage() {
         dir={isRTL ? "rtl" : "ltr"}
         className={`flex-1 flex flex-col items-center overflow-y-auto ${isCompact ? "justify-start pt-4 gap-3" : "justify-start pt-4 gap-5"} transition-all duration-700`}
         style={isSpinning ? {
-          background: "radial-gradient(ellipse 90% 65% at 50% 40%, hsl(350 45% 52% / 0.28) 0%, hsl(350 45% 52% / 0.08) 45%, transparent 72%)",
+          background: "radial-gradient(ellipse 90% 65% at 50% 40%, hsl(350 45% 52% / 0.16) 0%, hsl(350 45% 52% / 0.05) 45%, transparent 72%)",
           transition: "background 0.5s ease",
         } : { transition: "background 0.5s ease" }}
       >
@@ -2104,8 +2192,18 @@ export default function IntentPage() {
                   data-testid={`intent-profile-${i}`}
                 >
                   <ProfilePhoto userId={profile.userId} className="w-full h-full pointer-events-none" />
-                  {/* Subtle bottom depth gradient — name is now rendered BELOW the card */}
+                  {/* Subtle bottom depth gradient */}
                   <div style={{ position: "absolute", inset: 0, background: "linear-gradient(175deg, rgba(0,0,0,0) 55%, rgba(0,0,0,0.06) 78%, rgba(0,0,0,0.22) 100%)", pointerEvents: "none" }} />
+                  {/* Mystery frost overlay — obscures face before spin so no one person is spotlighted */}
+                  {!isSpinning && !dispersed && (
+                    <div style={{
+                      position: "absolute", inset: 0, borderRadius: 20,
+                      background: "rgba(13,8,22,0.38)",
+                      backdropFilter: "blur(5px)",
+                      WebkitBackdropFilter: "blur(5px)",
+                      pointerEvents: "none",
+                    }} />
+                  )}
                   {isSelected && !dispersed && (
                     <div style={{ position: "absolute", inset: 0, borderRadius: 20, boxShadow: "inset 0 0 0 2.5px rgba(255,255,255,0.80)", pointerEvents: "none" }} />
                   )}
@@ -2182,14 +2280,17 @@ export default function IntentPage() {
                 onClick={spinWheel}
                 disabled={isSpinning || items.length === 0}
                 style={{
-                  width: 96, height: 96, borderRadius: "50%", border: "none",
+                  width: 80, height: 80, borderRadius: "50%", border: "none",
                   background: isSpinning
-                    ? "radial-gradient(circle at 50% 35%, #e06278, #a83c55)"
-                    : "radial-gradient(circle at 50% 35%, #d45c74, #9d3550)",
+                    ? "radial-gradient(circle at 50% 32%, #e06278, #a83c55)"
+                    : "radial-gradient(circle at 50% 32%, #d45c74 0%, #9d3550 100%)",
+                  boxShadow: isSpinning
+                    ? "0 4px 18px rgba(157,53,80,0.30)"
+                    : "0 0 0 1px rgba(255,255,255,0.12) inset, 0 6px 22px rgba(157,53,80,0.42)",
                   color: "#fff", cursor: isSpinning ? "default" : "pointer",
-                  display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 5,
+                  display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 4,
                   animation: !isSpinning && canSpin ? "spinBtnPulse 2.6s ease-in-out infinite" : "none",
-                  transition: "background 0.3s ease, transform 0.15s ease",
+                  transition: "background 0.3s ease, transform 0.12s ease, box-shadow 0.12s ease",
                   outline: "none", WebkitTapHighlightColor: "transparent", flexShrink: 0,
                 }}
                 onMouseEnter={e => { if (!isSpinning) (e.currentTarget as HTMLElement).style.transform = "scale(1.07)"; }}
@@ -2207,13 +2308,13 @@ export default function IntentPage() {
               <button
                 onClick={() => setShowPurchase(true)}
                 style={{
-                  width: 96, height: 96, borderRadius: "50%",
+                  width: 80, height: 80, borderRadius: "50%",
                   border: "1.5px solid hsl(var(--border))",
                   background: "linear-gradient(145deg, hsl(var(--muted)), hsl(var(--muted-foreground)/0.08))",
                   color: "hsl(var(--muted-foreground))", cursor: "pointer",
-                  display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 5,
+                  display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 4,
                   boxShadow: "0 4px 14px rgba(0,0,0,0.10)",
-                  transition: "transform 0.15s ease", outline: "none", WebkitTapHighlightColor: "transparent",
+                  transition: "transform 0.12s ease", outline: "none", WebkitTapHighlightColor: "transparent",
                 }}
                 onMouseEnter={e => { (e.currentTarget as HTMLElement).style.transform = "scale(1.05)"; }}
                 onMouseLeave={e => { (e.currentTarget as HTMLElement).style.transform = "scale(1)"; }}
@@ -2789,7 +2890,9 @@ export default function IntentPage() {
                   const yPx0  = (75 * cosT0).toFixed(1);   // front→bottom (+RY), back→top (−RY)
                   const rotX0 = (cosT0 * 10).toFixed(1);   // front leans toward viewer
                   const sc0   = (0.28 + 0.72 * zN0).toFixed(3);
-                  const op0   = Math.max(0.05, 0.05 + 0.95 * zN0).toFixed(3);
+                  // Only ~3 cards visible: front sharp, two sides dimmed, rest hidden
+                  const rawOp0 = zN0 > 0.55 ? (0.15 + 0.85 * zN0) : zN0 > 0.20 ? 0.14 : 0;
+                  const op0   = rawOp0.toFixed(3);
                   const rotY0 = (-sinT0 * 32).toFixed(1);
                   return (
                     <div
@@ -2841,9 +2944,9 @@ export default function IntentPage() {
               <div style={{ marginTop: 32, textAlign: "center", minHeight: 30 }}>
                 {spinRoomPhase === 'accelerate' && (
                   <p key="acc" style={{
-                    fontSize: 11, color: "rgba(255,255,255,0.36)",
+                    fontSize: 11, color: "rgba(255,255,255,0.40)",
                     letterSpacing: "0.16em", textTransform: "uppercase",
-                    animation: "srTextIn 0.5s ease forwards",
+                    animation: "srTextIn 0.5s ease forwards, srSubtitlePulse 2.2s ease-in-out 0.6s infinite",
                   }}>Finding tonight's connection…</p>
                 )}
                 {spinRoomPhase === 'fast' && (
@@ -2901,6 +3004,7 @@ export default function IntentPage() {
 
           {/* ── REVEAL STAGE — 3 phases: quote → photo → introduction ── */}
           {(spinRoomPhase === 'reveal' || spinRoomPhase === 'pause' || spinRoomPhase === 'buttons') && selectedProfile && (
+          <IntentResultBoundary onReset={() => { setShowSpinRoom(false); setSpinRoomPhase('idle'); }}>
             <div style={{ position: "absolute", inset: 0, zIndex: 10 }}>
 
               {/* ── Dark base — always fills screen ── */}
@@ -3149,6 +3253,7 @@ export default function IntentPage() {
                 }}
               >🌙</button>
             </div>
+          </IntentResultBoundary>
           )}
 
         </div>

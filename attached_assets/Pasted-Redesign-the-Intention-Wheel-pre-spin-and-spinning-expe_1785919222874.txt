@@ -1,0 +1,190 @@
+Redesign the Intention Wheel pre-spin and spinning experience, and fix the crash after the spin completes.
+
+CURRENT PROBLEMS
+
+Pre-spin screen:
+- feels too bright and washed out
+- large central photo looks random rather than premium
+- candidate images include screenshots, rooms and poor-quality photos
+- pink glow is too strong
+- layout feels busy around the candidate row and Spin button
+- overall experience does not feel exclusive or romantic enough
+
+Spinning screen:
+- dark cinematic direction is good
+- profile cards are cluttered and overlap awkwardly
+- too many cards are visible
+- selected candidate is not clearly prioritised
+- transition into the final result is not smooth
+
+After spin:
+- the page crashes and shows:
+ “Something went wrong”
+ “This page crashed. Your other tabs are still working.”
+- Try Again appears after the crash
+
+Do not change:
+- wheel eligibility rules
+- 10-like progress logic
+- daily/weekly spin entitlement
+- candidate-selection algorithm
+- Send Halo behaviour
+- navigation structure
+- authentication
+- profile data
+
+PART 1 — PRE-SPIN VISUAL REDESIGN
+
+Create a premium, romantic “mystery connection” presentation.
+
+Hero area:
+- remove the oversized raw central profile photo
+- replace it with a polished mystery-card composition
+- use a softly blurred candidate silhouette or layered frosted card
+- avoid clearly exposing one person before the spin
+- maintain the Lulou ivory, blush, rose and deep-plum palette
+
+Candidate row:
+- show a maximum of 6 circular candidate thumbnails
+- use only valid profile photos
+- exclude screenshots, televisions, laptops, rooms, beds, blank images and obvious non-person photos
+- if no valid profile photo exists, use the Lulou fallback avatar
+- slightly blur/dim thumbnails before the spin
+- preserve the “+N” overflow bubble
+- keep consistent crop, size and spacing
+
+Background:
+- reduce the large pink halo
+- use a softer radial glow behind the hero card
+- add subtle grain or fine particles only
+- do not make the page look hazy
+
+Spin button:
+- reduce its size slightly
+- use a cleaner rose/plum gradient
+- add a subtle inner highlight and soft shadow
+- press animation should scale down slightly and release smoothly
+- keep the label clear and accessible
+
+Spacing:
+- create more vertical space between title, hero, candidate row and spin button
+- keep the whole layout comfortable on iPhone Safari
+- avoid content touching the bottom navigation
+
+PART 2 — SPINNING ANIMATION REDESIGN
+
+Keep the dark cinematic visual direction but simplify the card stack.
+
+Required composition:
+- maximum 3 visible cards at once
+- centre card largest and sharpest
+- left/right cards smaller, angled and softly blurred
+- deeper cards should fade out instead of forming a messy stack
+- photos must stay properly cropped with rounded corners
+
+Motion:
+- smooth horizontal card cycling
+- subtle depth/parallax
+- slow glow behind the centre card
+- fine particles moving gently
+- no abrupt jumps
+- no React rerender on every animation frame if direct DOM/CSS animation is more appropriate
+- respect prefers-reduced-motion
+
+Text:
+- keep “Tonight’s connection”
+- improve contrast of the subtitle
+- “Finding tonight’s connection…” should pulse softly rather than remain static
+
+Final reveal:
+- slow the animation before selection
+- centre the selected profile
+- fade side cards away
+- add a brief glow/reveal
+- then transition cleanly to the result screen
+
+PART 3 — FIX THE POST-SPIN CRASH
+
+Trace the complete spin completion path:
+
+- spin request
+- selected candidate response
+- selected profile lookup
+- DNA/reasons lookup
+- result-state update
+- route/navigation change
+- final reveal component render
+- missing/null profile fields
+- image URL handling
+- React error boundary
+
+Capture the exact production error and stack trace.
+
+Likely conditions to inspect:
+- selected candidate is null or undefined
+- selected profile missing from candidate cache
+- selected photo array empty
+- profile field assumed to exist
+- result component receives stale state after animation cleanup
+- API response shape differs from the client type
+- navigation occurs before result data is ready
+- animation timer fires after component unmount
+
+Required behaviour:
+- never navigate to the final result until required result data is validated
+- use safe fallbacks for missing optional profile fields
+- use fallback image when selected profile has no usable photo
+- cancel timers and animation frames on unmount
+- prevent duplicate spin-completion callbacks
+- persist the selected result before transitioning
+- if the result API fails, show a retryable inline error without crashing the whole page
+- Try Again must actually rerun the failed result request
+- do not consume a second spin if only the result fetch failed
+
+ADD DEVELOPMENT LOGGING
+
+Use:
+
+[INTENTION_WHEEL]
+
+Log:
+- spin request started
+- candidate count
+- selected candidate ID
+- API response shape
+- selected profile found/missing
+- valid photo count
+- reveal started
+- result persisted
+- navigation started
+- render error
+- retry result
+
+Do not expose logs in production UI.
+
+REAL TESTS
+
+1. Open wheel with at least 10 candidates.
+2. Confirm invalid/non-person photos are excluded.
+3. Confirm pre-spin screen looks balanced on iPhone.
+4. Start spin.
+5. Confirm only 3 cards are visible.
+6. Confirm centre card is clear and side cards are blurred.
+7. Confirm animation slows into a clean reveal.
+8. Confirm result page loads without crashing.
+9. Refresh and confirm the selected result persists.
+10. Force the result-profile request to fail.
+11. Confirm inline retry appears and works.
+12. Confirm retry does not consume another spin.
+
+Report:
+- exact crash root cause
+- exact invalid-photo filtering rule
+- files changed
+- commit hash
+- pushed to origin/main
+- Vercel deployed commit
+- real iPhone visual PASS/FAIL
+- real post-spin crash PASS/FAIL
+
+Do not report PASS from code inspection.
