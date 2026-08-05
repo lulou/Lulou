@@ -1,0 +1,85 @@
+Fix the contradictory first-call stage state shown on the two devices.
+
+Current production behaviour for the same match:
+
+Desktop:
+- “Call stage unlocked”
+- Continue / End Match
+
+iPhone:
+- “You’ve completed your messages”
+- “Waiting for Iana to finish — 1 message remaining”
+
+Both screens cannot be correct simultaneously.
+
+IMPORTANT
+
+Stop calling increment_message_count manually against production matches for testing. Those RPC probes alter real counters without a genuine user message and may have corrupted this test match’s progression.
+
+REQUIRED FIX
+
+1. Identify the exact affected match and read from Supabase:
+- user1_id / user2_id
+- message_count_1 / message_count_2
+- call_stage
+- actual count of genuine user-authored messages sent by each user in the current stage
+
+Exclude:
+- system messages
+- call events
+- scheduling payloads
+- synthetic diagnostic/test inserts
+- failed or duplicated sends
+
+2. Repair the affected match counters to match the genuine messages.
+
+Do not guess that both are complete.
+
+If the real count is:
+- 15 vs 14: one user waits and the other sees 1 remaining
+- 15 vs 15: both devices show Call stage unlocked
+
+3. Use one canonical condition everywhere:
+
+bothStageComplete =
+ messageCount1 >= 15 &&
+ messageCount2 >= 15
+
+Both `matches.tsx` and `messaging.tsx` must use the same Supabase-backed counts and the same condition.
+
+Remove any conflicting unlock logic based on:
+- total message-list length
+- firstCallPromptSeen
+- milestone system messages
+- local optimistic counters
+- one user reaching 15
+- stale list-cache data
+
+4. After each successful message:
+- patch the canonical match-detail count
+- refetch the same match
+- ensure both views receive the identical values through realtime/cache invalidation
+
+5. The “Call time” header and call-stage milestone must only appear when both canonical counts are at least 15.
+
+6. Repair or remove any premature “reached your call stage” system event if it was created while one user still had messages remaining.
+
+REAL PASS CONDITION
+
+For the affected match:
+- both devices show the same progression state
+- refresh both devices
+- state remains identical
+- if one user has 1 remaining, only that user can send
+- after their final genuine message, both devices change to Call stage unlocked
+
+Report:
+- actual genuine counts for both users
+- stored Supabase counts before repair
+- repaired counts
+- exact conflicting condition removed
+- files changed
+- commit and deployed status
+- live two-device PASS/FAIL
+
+Do not create another diagnostic RPC increment on a real production match.
