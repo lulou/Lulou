@@ -3504,24 +3504,16 @@ export async function registerRoutes(
         }
       }
 
-      // ── Step 3: Insert message ──
-      const tInsert0 = Date.now();
-      const message = await adminStorage.createMessage({
-        matchId,
-        senderId: userId,
-        content: content.trim(),
-      });
-      if (IS_DEV) console.log(`[MSG] insert: ${Date.now() - tInsert0} ms`);
-
-      // ── Step 3b: Atomic counter increment — no read-then-write race ──────────
-      // A single SQL UPDATE evaluates `message_count_X + 1` atomically inside
-      // Postgres; two concurrent sends can never both read the same stale value.
-      // RETURNING gives us the authoritative post-increment counts for both users
-      // so milestone detection never relies on a locally computed guess.
-      // Only genuine text messages increment the counter; system payloads
-      // (__VOICE__:, __SCHEDULE__:, __SYS__:, etc.) do not.
-      // Voice notes now unlock after the first call — no message-count threshold.
-      // The only message-count milestone is FC_THRESHOLD (first-call unlock).
+      // ── Step 3: Counter increment (BEFORE insert — eliminates WAL race) ────────
+      // WHY THIS ORDER MATTERS:
+      // Inserting the message triggers a Supabase postgres_changes WAL event that
+      // fires on the client immediately (~100–200 ms).  useUnreadCounts (matches.tsx)
+      // picks it up and calls:
+      //   invalidateQueries({ queryKey: ["/api/matches", matchId], exact: true })
+      // That refetch hits GET /api/matches/:id while the counter update is still in
+      // flight, reads counter=0, and patches the client cache to 0 — snapping the
+      // badge back to 15.  Incrementing FIRST means the counter is already committed
+      // in Supabase by the time any refetch arrives, so it reads the correct value.
       const FC_THRESHOLD = 15;
       let newCount1 = preCount1;
       let newCount2 = preCount2;
@@ -3534,39 +3526,46 @@ export async function registerRoutes(
       const isCountedMessage = (callStage === 0 || callStage === 1) && !content.trim().startsWith("__");
       if (isCountedMessage) {
         const tInc0 = Date.now();
-        // ── Atomic counter increment via Supabase RPC ──────────────────────────
+        // ── Primary path: atomic RPC (requires increment_message_count_fn.sql) ──
         // CRITICAL: must use supabaseAdmin (Supabase DB) not the Drizzle `db`
         // (Railway/Neon DB via DATABASE_URL).  All reads use Supabase PostgREST.
-        // Writing to a separate DB made every increment invisible to every read:
-        // the 30-second background GET refetch always returned message_count_X = 0
-        // from Supabase and overwrote the client cache, snapping the badge back to 15.
-        //
-        // The RPC function (supabase/migrations/increment_message_count_fn.sql)
-        // issues a single atomic UPDATE ... RETURNING inside Supabase's own Postgres.
-        // If the RPC is unavailable the send fails clearly — no silent fallback that
-        // would write to the wrong DB or use a stale read-then-write.
         const { data: rpcResult, error: rpcErr } = await supabaseAdmin.rpc(
           "increment_message_count",
           { p_match_id: matchId, p_is_user1: isUser1Sender },
         );
         if (rpcErr) {
-          // RPC function not deployed in this Supabase project — fail clearly.
-          // Apply supabase/migrations/increment_message_count_fn.sql to fix.
-          console.error("[MSG] increment_message_count RPC unavailable:", rpcErr.message);
-          return res.status(503).json({
-            message: "Message counter unavailable. Please apply the Supabase migration (increment_message_count_fn.sql) and retry.",
-            detail: rpcErr.message,
-          });
+          // ── Fallback: direct Supabase UPDATE (not atomic across concurrent sends) ──
+          // Used when the RPC function has not yet been deployed to this Supabase project.
+          // Apply supabase/migrations/increment_message_count_fn.sql to make it atomic.
+          console.error("[MSG] increment_message_count RPC unavailable, falling back to direct update:", rpcErr.message);
+          const updateCol = isUser1Sender
+            ? { message_count_1: preCount1 + 1 }
+            : { message_count_2: preCount2 + 1 };
+          const { data: fbData, error: fbErr } = await supabaseAdmin
+            .from("matches")
+            .update(updateCol)
+            .eq("id", matchId)
+            .select("message_count_1, message_count_2")
+            .single();
+          if (fbErr) {
+            console.error("[MSG] fallback Supabase update also failed:", fbErr.message);
+            return res.status(503).json({
+              message: "Message counter temporarily unavailable. Please try again.",
+              detail: fbErr.message,
+            });
+          }
+          newCount1 = fbData?.message_count_1 ?? (preCount1 + (isUser1Sender ? 1 : 0));
+          newCount2 = fbData?.message_count_2 ?? (preCount2 + (isUser1Sender ? 0 : 1));
+        } else {
+          // RPC returns a one-row TABLE result; supabase-js wraps it in an array.
+          const row = Array.isArray(rpcResult) ? rpcResult[0] : rpcResult;
+          newCount1 = (row as any)?.out_count1 ?? (preCount1 + (isUser1Sender ? 1 : 0));
+          newCount2 = (row as any)?.out_count2 ?? (preCount2 + (isUser1Sender ? 0 : 1));
         }
-        // RPC returns a one-row TABLE result; supabase-js wraps it in an array.
-        const row = Array.isArray(rpcResult) ? rpcResult[0] : rpcResult;
-        newCount1 = (row as any)?.out_count1 ?? (preCount1 + (isUser1Sender ? 1 : 0));
-        newCount2 = (row as any)?.out_count2 ?? (preCount2 + (isUser1Sender ? 0 : 1));
-        if (IS_DEV) console.log(`[MSG] atomic-increment: ${Date.now() - tInc0} ms | count1=${newCount1} count2=${newCount2}`);
+        if (IS_DEV) console.log(`[MSG] counter-increment: ${Date.now() - tInc0} ms | count1=${newCount1} count2=${newCount2} rpcErr=${rpcErr?.message ?? "none"}`);
 
-        // ── Step 3c: Milestone detection (stage 0 only) ───────────────────────
-        // FC_THRESHOLD is the pre-call messaging milestone; it cannot fire in stage 1
-        // (both users have already made a call before stage 1 begins).
+        // ── Milestone detection (stage 0 only) ────────────────────────────────
+        // FC_THRESHOLD is the pre-call messaging milestone; cannot fire in stage 1.
         if (callStage === 0) {
           const fcWasEligible = preCount1 >= FC_THRESHOLD && preCount2 >= FC_THRESHOLD;
           const fcNowEligible = newCount1 >= FC_THRESHOLD && newCount2 >= FC_THRESHOLD;
@@ -3576,7 +3575,29 @@ export async function registerRoutes(
           }
         }
 
-        // ── Diagnostic log — one line per counted send ──────────────────────────
+        progression = {
+          user1Count:   newCount1,
+          user2Count:   newCount2,
+          myCount:      isUser1Sender ? newCount1 : newCount2,
+          theirCount:   isUser1Sender ? newCount2 : newCount1,
+          voiceNotesEligible: callStage >= 1,
+          firstCallEligible:  callStage === 0 ? (newCount1 >= FC_THRESHOLD && newCount2 >= FC_THRESHOLD) : false,
+          callStage,
+          currentUserPendingMilestone: progressionEvent?.type ?? null,
+        };
+      }
+
+      // ── Step 4: Insert message (AFTER counter so WAL refetch sees updated count) ─
+      const tInsert0 = Date.now();
+      const message = await adminStorage.createMessage({
+        matchId,
+        senderId: userId,
+        content: content.trim(),
+      });
+      if (IS_DEV) console.log(`[MSG] insert: ${Date.now() - tInsert0} ms`);
+
+      // Progression diagnostic — logged here so message.id is available.
+      if (isCountedMessage) {
         console.log("[PROGRESSION_DIAG]", {
           matchId: matchId.slice(0, 8),
           senderId: userId.slice(0, 8),
@@ -3587,17 +3608,6 @@ export async function registerRoutes(
           count1After:  newCount1, count2After:  newCount2,
           milestoneEmitted: progressionEvent?.type ?? null,
         });
-
-        progression = {
-          user1Count:   newCount1,
-          user2Count:   newCount2,
-          myCount:      isUser1Sender ? newCount1 : newCount2,
-          theirCount:   isUser1Sender ? newCount2 : newCount1,
-          voiceNotesEligible: callStage >= 1, // VN unlocks post-call (stage >= 1)
-          firstCallEligible:  callStage === 0 ? (newCount1 >= FC_THRESHOLD && newCount2 >= FC_THRESHOLD) : false,
-          callStage,
-          currentUserPendingMilestone: progressionEvent?.type ?? null,
-        };
       }
 
       // ── Step 4: Broadcast to recipient (awaited so the log appears before response) ──
