@@ -2077,9 +2077,13 @@ export class SupabaseStorage implements IStorage {
     callAvail1At: string | null; callAvail2At: string | null;
     agreedCallAt: string | null;
   } | null> {
+    // NOTE: call_avail_1 / call_avail_2 (legacy TEXT columns) were never applied
+    // to Supabase — only to Neon.  Selecting them causes a PostgREST column-not-found
+    // error → null → 404 on every message POST.  They are replaced by the *_at columns
+    // (call_avail_1_at / call_avail_2_at) which DO exist in Supabase.
     const { data, error } = await this.sb
       .from("matches")
-      .select("id, user1_id, user2_id, call_stage, message_count_1, message_count_2, call_avail_1, call_avail_2, call_avail_1_at, call_avail_2_at, agreed_call_at")
+      .select("id, user1_id, user2_id, call_stage, message_count_1, message_count_2, call_avail_1_at, call_avail_2_at, agreed_call_at")
       .eq("id", matchId)
       .eq("status", "active")
       .maybeSingle();
@@ -2091,8 +2095,8 @@ export class SupabaseStorage implements IStorage {
       callStage: data.call_stage || 0,
       messageCount1: data.message_count_1 || 0,
       messageCount2: data.message_count_2 || 0,
-      callAvail1: data.call_avail_1 ?? null,
-      callAvail2: data.call_avail_2 ?? null,
+      callAvail1: null,   // legacy TEXT col absent from Supabase; use callAvail1At
+      callAvail2: null,   // legacy TEXT col absent from Supabase; use callAvail2At
       callAvail1At: data.call_avail_1_at ?? null,
       callAvail2At: data.call_avail_2_at ?? null,
       agreedCallAt: data.agreed_call_at ?? null,
