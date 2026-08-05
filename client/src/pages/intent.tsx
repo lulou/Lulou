@@ -25,19 +25,33 @@ import { clearAllArmedSessions } from "@/lib/live-call-sessions";
 // Wraps the reveal/pause/buttons render inside SpinRoom. If a render crash
 // occurs (null field access, bad URL, stale state), catches it here and shows
 // a safe "Try again" inline state instead of crashing the whole page.
-interface IntentResultBoundaryState { hasError: boolean; errorMsg: string }
+// sessionStorage key for persisting the spin result so it survives a refresh.
+const SPIN_RESULT_KEY = "lulou_spin_result_v2";
+
+interface IntentResultBoundaryState { hasError: boolean; errorMsg: string; stack: string }
 class IntentResultBoundary extends Component<{ children: ReactNode; onReset: () => void }, IntentResultBoundaryState> {
   constructor(props: IntentResultBoundary["props"]) {
     super(props);
-    this.state = { hasError: false, errorMsg: "" };
+    this.state = { hasError: false, errorMsg: "", stack: "" };
   }
   static getDerivedStateFromError(err: unknown): IntentResultBoundaryState {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.error("[INTENTION_WHEEL] render_error", msg);
-    return { hasError: true, errorMsg: msg };
+    const msg   = err instanceof Error ? err.message : String(err);
+    const stack = err instanceof Error ? (err.stack ?? "") : "";
+    return { hasError: true, errorMsg: msg, stack };
   }
   componentDidCatch(error: Error, info: ErrorInfo) {
-    console.error("[INTENTION_WHEEL] render_error_info", error, info.componentStack);
+    // Read the last persisted spin result so we can include it in the crash report.
+    let savedCandidate: unknown = null;
+    try { savedCandidate = JSON.parse(sessionStorage.getItem(SPIN_RESULT_KEY) ?? "null"); } catch {}
+    console.error(
+      "[INTENTION_WHEEL] render_crash",
+      {
+        message:        error.message,
+        stack:          error.stack,
+        componentStack: info.componentStack,
+        savedCandidate,
+      },
+    );
   }
   render() {
     if (this.state.hasError) {
@@ -58,6 +72,11 @@ class IntentResultBoundary extends Component<{ children: ReactNode; onReset: () 
             fontSize: 12, color: "rgba(255,255,255,0.35)",
             textAlign: "center", marginBottom: 24,
           }}>Your spin was recorded. Tap below to continue.</p>
+          {this.state.errorMsg ? (
+            <p style={{ fontSize: 10, color: "rgba(255,255,255,0.18)", fontFamily: "monospace", wordBreak: "break-all", marginBottom: 16, maxWidth: 280, textAlign: "center" }}>
+              {this.state.errorMsg}
+            </p>
+          ) : null}
           <button
             onClick={() => { this.setState({ hasError: false, errorMsg: "" }); this.props.onReset(); }}
             style={{
@@ -118,13 +137,49 @@ function RestorePurchasesButton() {
 }
 
 // Lazy-loads a single photo for a wheel item or profile card.
-function ProfilePhoto({ userId, className }: { userId: string; className?: string }) {
+// Lulou fallback avatar — shown for unverified profiles and when no photo loads.
+function ProfileAvatarFallback({ className }: { className?: string }) {
+  return (
+    <div
+      className={`flex items-center justify-center ${className ?? ""}`}
+      style={{ background: "linear-gradient(160deg, hsl(var(--muted)) 0%, hsl(var(--muted-foreground)/0.12) 100%)" }}
+    >
+      <svg viewBox="0 0 80 80" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ width: "40%", height: "40%", opacity: 0.22 }}>
+        <circle cx="40" cy="28" r="14" fill="currentColor" />
+        <ellipse cx="40" cy="62" rx="24" ry="16" fill="currentColor" />
+      </svg>
+    </div>
+  );
+}
+
+/**
+ * ProfilePhoto — shows a user's primary verified photo.
+ *
+ * Photo filtering rule: if `photoVerified` is explicitly false, render the
+ * fallback avatar immediately without fetching any photos.  This prevents
+ * screenshots, rooms, beds, and other non-person uploads from appearing in the
+ * candidate strip or the spinning wheel cards.
+ *
+ * When `photoVerified` is true or undefined (unknown / not yet loaded), the
+ * component fetches the user's photo normally and falls back to the avatar if
+ * no photo is available.
+ */
+function ProfilePhoto({ userId, className, photoVerified }: { userId: string; className?: string; photoVerified?: boolean | null }) {
+  // Filter: skip photo fetch entirely for unverified profiles.
+  // null means "not yet known" — treat same as verified (don't filter) so legacy
+  // profiles without the flag still show their photo.
+  const skipFetch = photoVerified === false;
+
   const { data, isLoading } = useQuery<{ photos: string[] }>({
     queryKey: ["/api/profiles", userId, "photos"],
     staleTime: 5 * 60 * 1000,
+    enabled: !skipFetch,
   });
   const [photoIndex, setPhotoIndex] = useState(0);
   useEffect(() => { setPhotoIndex(0); }, [userId]);
+
+  // Unverified profile → show fallback avatar immediately (no photo fetch).
+  if (skipFetch) return <ProfileAvatarFallback className={className} />;
 
   const photos = data?.photos ?? [];
   const photo = photos[photoIndex] ?? null;
@@ -142,19 +197,7 @@ function ProfilePhoto({ userId, className }: { userId: string; className?: strin
     );
   }
 
-  if (!photo) {
-    return (
-      <div
-        className={`flex items-center justify-center ${className ?? ""}`}
-        style={{ background: "linear-gradient(160deg, hsl(var(--muted)) 0%, hsl(var(--muted-foreground)/0.12) 100%)" }}
-      >
-        <svg viewBox="0 0 80 80" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ width: "40%", height: "40%", opacity: 0.22 }}>
-          <circle cx="40" cy="28" r="14" fill="currentColor" />
-          <ellipse cx="40" cy="62" rx="24" ry="16" fill="currentColor" />
-        </svg>
-      </div>
-    );
-  }
+  if (!photo) return <ProfileAvatarFallback className={className} />;
 
   return (
     <img
@@ -162,7 +205,7 @@ function ProfilePhoto({ userId, className }: { userId: string; className?: strin
       alt=""
       className={`object-cover ${className ?? ""}`}
       draggable={false}
-      onError={() => setPhotoIndex(i => i + 1)}
+      onError={() => setPhotoIndex(pi => pi + 1)}
     />
   );
 }
@@ -713,7 +756,7 @@ function CandidatesPreview({ items, onTap }: { items: Profile[]; onTap?: (profil
               cursor: onTap ? "pointer" : "default",
               transition: "transform 0.12s ease",
             }}>
-              <ProfilePhoto userId={profile.userId} className="w-full h-full" />
+              <ProfilePhoto userId={profile.userId} photoVerified={profile.photoVerified} className="w-full h-full" />
               {/* Blur/dim overlay — obscures identity slightly before spin */}
               <div style={{
                 position: "absolute", inset: 0,
@@ -1272,6 +1315,8 @@ export default function IntentPage() {
   };
 
   const closeProfile = () => {
+    // Clear the persisted result when the user explicitly acts (close / send halo).
+    try { sessionStorage.removeItem(SPIN_RESULT_KEY); } catch {}
     setShowSpinRoom(false);
     setSparkSent(false);
     setShowProfile(false);
@@ -1324,6 +1369,9 @@ export default function IntentPage() {
           setSelectedIndex(closestI);
           setSelectedProfile(winner);
           setRevealQuote(LULOU_QUOTE_KEYS[Math.floor(Math.random() * LULOU_QUOTE_KEYS.length)]);
+          // Persist result to sessionStorage so it survives a page refresh.
+          // Cleared in closeProfile() when the user acts on the result.
+          try { sessionStorage.setItem(SPIN_RESULT_KEY, JSON.stringify(winner)); } catch {}
           // Dedup guard — fire recordSpin only once per spin session
           if (!recordSpinFiredRef.current) {
             recordSpinFiredRef.current = true;
@@ -1652,6 +1700,26 @@ export default function IntentPage() {
     stopAllNonVoiceCallAudio("intent_page_mount");
     clearAllArmedSessions();
     console.log("[INTENT] RING_GUARD: stopped audio + cleared armed sessions on mount — stale ring blocked");
+  }, []);
+
+  // ── Spin result restoration ─────────────────────────────────────────────────
+  // If the user refreshed mid-reveal, restore the selected profile so they can
+  // still act on their result.  We restore into the profile detail sheet
+  // (showProfile=true) without re-playing the SpinRoom animation.
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem(SPIN_RESULT_KEY);
+      if (!raw) return;
+      const saved = JSON.parse(raw) as Profile;
+      if (!saved?.userId) return;
+      console.log("[INTENTION_WHEEL] result_restored_from_storage", { candidateId: saved.userId });
+      setSelectedProfile(saved);
+      setShowProfile(true);
+    } catch {
+      // Malformed storage entry — ignore and let the user start fresh.
+      try { sessionStorage.removeItem(SPIN_RESULT_KEY); } catch {}
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // ── Periodic profile refresh while spin is locked ─────────────────────────
@@ -2138,7 +2206,7 @@ export default function IntentPage() {
                       transformOrigin: "22px 22px",
                     }}
                   >
-                    <ProfilePhoto userId={profile.userId} className="w-full h-full" />
+                    <ProfilePhoto userId={profile.userId} photoVerified={profile.photoVerified} className="w-full h-full" />
                   </div>
                 );
               })}
@@ -2191,7 +2259,7 @@ export default function IntentPage() {
                   }}
                   data-testid={`intent-profile-${i}`}
                 >
-                  <ProfilePhoto userId={profile.userId} className="w-full h-full pointer-events-none" />
+                  <ProfilePhoto userId={profile.userId} photoVerified={profile.photoVerified} className="w-full h-full pointer-events-none" />
                   {/* Subtle bottom depth gradient */}
                   <div style={{ position: "absolute", inset: 0, background: "linear-gradient(175deg, rgba(0,0,0,0) 55%, rgba(0,0,0,0.06) 78%, rgba(0,0,0,0.22) 100%)", pointerEvents: "none" }} />
                   {/* Mystery frost overlay — obscures face before spin so no one person is spotlighted */}
@@ -2460,7 +2528,7 @@ export default function IntentPage() {
             onClick={e => e.stopPropagation()}
           >
             <div className="relative rounded-2xl overflow-hidden shadow-2xl" style={{ aspectRatio: "3/4" }}>
-              <ProfilePhoto userId={previewProfile.userId} className="w-full h-full" />
+              <ProfilePhoto userId={previewProfile.userId} photoVerified={previewProfile.photoVerified} className="w-full h-full" />
               <div style={{
                 position: "absolute", inset: 0,
                 background: "linear-gradient(175deg, rgba(0,0,0,0) 50%, rgba(0,0,0,0.75) 100%)",
@@ -2575,7 +2643,7 @@ export default function IntentPage() {
 
             {/* ③ Profile picture — single-image, aspect-ratio constrained (not a carousel) */}
             <div data-testid="img-intent-detail-photo" className="w-full aspect-[3/4] max-h-[54vh] overflow-hidden">
-              <ProfilePhoto userId={selectedProfile.userId} className="w-full h-full" />
+              <ProfilePhoto userId={selectedProfile.userId} photoVerified={selectedProfile.photoVerified} className="w-full h-full" />
             </div>
 
             <div className="px-5 pt-4 space-y-4 pb-36">
@@ -2910,7 +2978,7 @@ export default function IntentPage() {
                         willChange: "transform, opacity, box-shadow",
                       }}
                     >
-                      <ProfilePhoto userId={item.userId} className="w-full h-full" />
+                      <ProfilePhoto userId={item.userId} photoVerified={item.photoVerified} className="w-full h-full" />
                       {/* Bottom gradient */}
                       <div style={{
                         position: "absolute", inset: 0,
@@ -3022,7 +3090,7 @@ export default function IntentPage() {
                   animation: "srWinnerIn 1.8s cubic-bezier(0.16, 1, 0.3, 1) forwards",
                   transformOrigin: "center 40%",
                 }}>
-                  <ProfilePhoto userId={selectedProfile.userId} className="w-full h-full" />
+                  <ProfilePhoto userId={selectedProfile.userId} photoVerified={selectedProfile.photoVerified} className="w-full h-full" />
                 </div>
               )}
 
