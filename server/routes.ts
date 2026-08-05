@@ -3534,28 +3534,11 @@ export async function registerRoutes(
           { p_match_id: matchId, p_is_user1: isUser1Sender },
         );
         if (rpcErr) {
-          // ── Fallback: direct Supabase UPDATE (not atomic across concurrent sends) ──
-          // Used when the RPC function has not yet been deployed to this Supabase project.
-          // Apply supabase/migrations/increment_message_count_fn.sql to make it atomic.
-          console.error("[MSG] increment_message_count RPC unavailable, falling back to direct update:", rpcErr.message);
-          const updateCol = isUser1Sender
-            ? { message_count_1: preCount1 + 1 }
-            : { message_count_2: preCount2 + 1 };
-          const { data: fbData, error: fbErr } = await supabaseAdmin
-            .from("matches")
-            .update(updateCol)
-            .eq("id", matchId)
-            .select("message_count_1, message_count_2")
-            .single();
-          if (fbErr) {
-            console.error("[MSG] fallback Supabase update also failed:", fbErr.message);
-            return res.status(503).json({
-              message: "Message counter temporarily unavailable. Please try again.",
-              detail: fbErr.message,
-            });
-          }
-          newCount1 = fbData?.message_count_1 ?? (preCount1 + (isUser1Sender ? 1 : 0));
-          newCount2 = fbData?.message_count_2 ?? (preCount2 + (isUser1Sender ? 0 : 1));
+          console.error("[MSG] increment_message_count RPC failed:", rpcErr.message);
+          return res.status(503).json({
+            message: "Message counter temporarily unavailable. Please try again.",
+            detail: rpcErr.message,
+          });
         } else {
           // RPC returns a one-row TABLE result; supabase-js wraps it in an array.
           const row = Array.isArray(rpcResult) ? rpcResult[0] : rpcResult;
