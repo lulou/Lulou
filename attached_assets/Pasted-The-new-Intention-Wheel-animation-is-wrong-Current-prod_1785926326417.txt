@@ -1,0 +1,86 @@
+The new Intention Wheel animation is wrong.
+
+Current production behaviour:
+- photos flicker rapidly
+- cards do not visibly travel or spin
+- it looks like image sources are being swapped in place
+- the centre card jumps between candidates
+- the original sense of motion is gone
+
+Do not redesign the pre-spin screen again.
+
+FIX ONLY THE SPINNING ANIMATION
+
+Root problem to inspect:
+The new srIdx/state-driven implementation appears to replace the visible profiles on every interval instead of continuously moving card elements.
+
+Required behaviour:
+
+1. Keep exactly 3 mounted card elements during the spin:
+  - previous candidate
+  - current candidate
+  - next candidate
+
+2. Do not remount or replace the card DOM on every animation tick.
+
+3. Animate the existing cards continuously using:
+  - transform: translate3d(...)
+  - scale(...)
+  - rotate(...)
+  - opacity
+  - filter: blur(...)
+
+4. Use requestAnimationFrame or CSS transitions for movement.
+Do not call React setState every animation frame.
+
+5. Each cycle must visibly move:
+  - centre card slides toward the left
+  - right card moves into the centre
+  - left card fades away
+  - a new right card is prepared only after the transition completes
+
+6. Timing:
+  - start at roughly 500–600 ms per card
+  - accelerate gradually to around 140–180 ms
+  - hold briefly
+  - decelerate smoothly over the final 2–3 seconds
+  - selected winner must finish centred and still
+
+7. Photo source must not change while a card is visibly moving.
+Only update which candidate occupies the hidden/off-screen slot after the completed transition.
+
+8. Keep:
+  - centre card largest and sharp
+  - side cards smaller, darker and blurred
+  - consistent portrait dimensions
+  - no more than 3 cards visible
+
+9. Remove the current rapid srIdx flicker implementation if it swaps JSX content without movement.
+
+10. Winner reveal:
+  - stop all cycling
+  - centre the selected card
+  - fade out side cards
+  - hold winner for at least 900 ms
+  - then proceed to result reveal
+
+REAL IPHONE PASS CONDITION
+
+- cards visibly slide, not flicker
+- no rapid image flashing
+- no sudden source replacement in the centre position
+- animation accelerates and then decelerates
+- winner ends centred
+- result opens without crashing
+
+Report:
+- exact cause of flickering
+- state/timer logic removed
+- animation method used
+- file changed
+- commit hash
+- pushed status
+- Vercel deployed commit
+- real iPhone PASS/FAIL
+
+Do not change the pre-spin design or result UI in this task.

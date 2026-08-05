@@ -82,6 +82,44 @@ class IntentResultBoundary extends Component<{ children: ReactNode; onReset: () 
 }
 
 /** Fisher-Yates shuffle — returns a new array, does not mutate input. */
+// ── SpinRoom 3-slot carousel: direct DOM style helper ──────────────────────
+// Applies position/opacity/filter for a slot's visual role.
+// Defined at module scope — no closure over component state.
+type SrRole = 'L' | 'C' | 'R' | 'offL' | 'offR';
+function applySrStyle(el: HTMLDivElement, role: SrRole, durMs: number) {
+  const s = el.style;
+  s.transition = durMs > 0
+    ? `transform ${durMs}ms cubic-bezier(0.4,0,0.25,1), opacity ${Math.round(durMs * 0.85)}ms ease, filter ${Math.round(durMs * 0.75)}ms ease, box-shadow ${durMs}ms ease`
+    : 'none';
+  switch (role) {
+    case 'C':
+      s.transform = 'translate3d(0,0,0) scale(1)';
+      s.opacity = '1'; s.filter = 'blur(0px)'; s.zIndex = '10';
+      s.boxShadow = '0 8px 28px rgba(0,0,0,0.55)';
+      break;
+    case 'L':
+      s.transform = 'translate3d(-131px,0,0) scale(0.592)';
+      s.opacity = '0.42'; s.filter = 'blur(1.5px)'; s.zIndex = '1';
+      s.boxShadow = '0 4px 14px rgba(0,0,0,0.36)';
+      break;
+    case 'R':
+      s.transform = 'translate3d(131px,0,0) scale(0.592)';
+      s.opacity = '0.42'; s.filter = 'blur(1.5px)'; s.zIndex = '1';
+      s.boxShadow = '0 4px 14px rgba(0,0,0,0.36)';
+      break;
+    case 'offL':
+      s.transform = 'translate3d(-310px,0,0) scale(0.28)';
+      s.opacity = '0'; s.filter = 'blur(6px)'; s.zIndex = '0';
+      s.boxShadow = 'none';
+      break;
+    case 'offR':
+      s.transform = 'translate3d(310px,0,0) scale(0.28)';
+      s.opacity = '0'; s.filter = 'blur(6px)'; s.zIndex = '0';
+      s.boxShadow = 'none';
+      break;
+  }
+}
+
 function shuffleArray<T>(arr: T[]): T[] {
   const a = [...arr];
   for (let i = a.length - 1; i > 0; i--) {
@@ -1085,9 +1123,27 @@ export default function IntentPage() {
   type SpinPhase = 'idle' | 'accelerate' | 'fast' | 'slow' | 'approach' | 'pullforward' | 'arrive' | 'reveal' | 'pause' | 'buttons';
   const [spinRoomPhase, setSpinRoomPhase] = useState<SpinPhase>('idle');
 
-  // 3-card carousel index — centre slot shows spinItems[srIdx % N]
-  const [srIdx, setSrIdx] = useState(0);
-  const srIdxRef = useRef(0); // readable in setTimeout without stale-closure
+  // ── 3-slot carousel refs (replace srIdx/srIdxRef) ──────────────────────────
+  // srCentreIdxRef: candidate array index currently showing in the centre slot.
+  // Read by the pullforward timeout to pick the winner — no React state needed.
+  const srCentreIdxRef = useRef(1);       // slot1 is initialised as centre
+  // 3 stable DOM refs — never unmounted during spin
+  const srSlot0Ref = useRef<HTMLDivElement>(null);
+  const srSlot1Ref = useRef<HTMLDivElement>(null);
+  const srSlot2Ref = useRef<HTMLDivElement>(null);
+  // React state: userId currently mounted in each slot.
+  // Updated ONLY when the slot is off-screen (opacity=0), preventing visible flicker.
+  const [srSlotIds, setSrSlotIds] = useState<[string, string, string]>(['', '', '']);
+  // Current visual role of each slot (no re-render — direct DOM mutation drives position)
+  const srRoleRef = useRef<SrRole[]>(['L', 'C', 'R']); // slot 0=L, 1=C, 2=R
+  // Next candidate index to preload into the newly-hidden slot
+  const srNextCandRef = useRef(3);
+  // Advance-cycle timer
+  const srAdvTimerRef2 = useRef<ReturnType<typeof setTimeout>>();
+  // Guard: prevent overlapping advance calls
+  const srAnimatingRef = useRef(false);
+  // Phase timing ref — always current, avoids stale closure in the animation loop
+  const srPhaseTimingRef = useRef<string>('idle');
 
   // Orbit animation refs (glow + speed tracking only; bubble positioning removed)
   const orbitBubbles    = useRef<(HTMLDivElement | null)[]>([]); // kept for type compat
@@ -1354,7 +1410,7 @@ export default function IntentPage() {
       // Pullforward: whoever is in the centre slot of the 3-card strip wins
       setTimeout(() => {
         const N_orb = Math.min(items.length, 10);
-        const closestI = N_orb > 0 ? ((srIdxRef.current % N_orb) + N_orb) % N_orb : 0;
+        const closestI = N_orb > 0 ? srCentreIdxRef.current : 0;
         const winner = items[closestI];
         console.log('[WHEEL] PULL_FORWARD', { winner: winner?.firstName, index: closestI });
         console.log('[INTENTION_WHEEL] selected_candidate', {
@@ -1408,20 +1464,125 @@ export default function IntentPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showSpinRoom]);
 
-  // ── 3-card carousel index management ─────────────────────────────────────────
-  // Advances the centre-slot index based on the current SpinRoom phase.
-  // srIdxRef stays in sync so the pullforward timeout can read the live value.
+  // ── Keep srPhaseTimingRef in sync with spinRoomPhase (no re-render) ──────────
+  useEffect(() => { srPhaseTimingRef.current = spinRoomPhase; }, [spinRoomPhase]);
+
+  // ── 3-slot carousel: DOM-animated, no React setState per frame ──────────────
+  // Transition durations per phase. The "gap" is the pause after the incoming
+  // card finishes sliding before the next advance begins.
+  const SR_PHASE: Record<string, { transition: number; gap: number }> = {
+    accelerate: { transition: 360, gap: 100 },  // ~460 ms/card — starts slow, feels dramatic
+    fast:       { transition: 110, gap: 30  },  // ~140 ms/card — high speed
+    slow:       { transition: 230, gap: 70  },  // ~300 ms/card — noticeably decelerating
+    approach:   { transition: 380, gap: 100 },  // ~480 ms/card — nearly stopped
+  };
+
   useEffect(() => {
-    if (!showSpinRoom) { setSrIdx(0); srIdxRef.current = 0; return; }
+    if (!showSpinRoom) {
+      clearTimeout(srAdvTimerRef2.current);
+      srAnimatingRef.current = false;
+      return;
+    }
     const N = Math.min(items.length, 10);
     if (N === 0) return;
-    const advance = () => { srIdxRef.current += 1; setSrIdx(v => v + 1); };
-    if (spinRoomPhase === 'accelerate') { const id = setInterval(advance, 90);  return () => clearInterval(id); }
-    if (spinRoomPhase === 'fast')       { const id = setInterval(advance, 55);  return () => clearInterval(id); }
-    if (spinRoomPhase === 'slow')       { const id = setInterval(advance, 190); return () => clearInterval(id); }
-    if (spinRoomPhase === 'approach')   { const id = setInterval(advance, 380); return () => clearInterval(id); }
+    const spinItems = items.slice(0, N);
+
+    // Capture slot DOM elements (must exist — JSX mounts before effect runs)
+    const els = [srSlot0Ref.current, srSlot1Ref.current, srSlot2Ref.current];
+    if (!els[0] || !els[1] || !els[2]) return;
+
+    // ── Initialise 3 slots with candidate 0, 1, 2 ────────────────────────────
+    setSrSlotIds([
+      spinItems[0 % N].userId,
+      spinItems[1 % N].userId,
+      spinItems[2 % N].userId,
+    ]);
+    srRoleRef.current = ['L', 'C', 'R'];
+    srCentreIdxRef.current = 1 % N;          // slot 1 is centred → shows candidate 1
+    srNextCandRef.current = 3 % N;
+
+    // Apply initial positions with NO transition so there is no opening swoosh
+    applySrStyle(els[0] as HTMLDivElement, 'L', 0);
+    applySrStyle(els[1] as HTMLDivElement, 'C', 0);
+    applySrStyle(els[2] as HTMLDivElement, 'R', 0);
+
+    // ── Advance one step: L→offL, C→L, R→C, then prepare new R ──────────────
+    function doAdvance() {
+      const phase = srPhaseTimingRef.current;
+      const cfg = SR_PHASE[phase];
+      if (!cfg) return; // stopped phases: pullforward, arrive, reveal, etc.
+      if (srAnimatingRef.current) return;
+      srAnimatingRef.current = true;
+
+      const roles = srRoleRef.current;
+      const lSlot = roles.indexOf('L') as 0 | 1 | 2;
+      const cSlot = roles.indexOf('C') as 0 | 1 | 2;
+      const rSlot = roles.indexOf('R') as 0 | 1 | 2;
+      const dur   = cfg.transition;
+
+      // Simultaneously slide all 3 visible cards
+      applySrStyle(els[lSlot] as HTMLDivElement, 'offL', dur);   // exits left
+      applySrStyle(els[cSlot] as HTMLDivElement, 'L',    dur);   // moves to left
+      applySrStyle(els[rSlot] as HTMLDivElement, 'C',    dur);   // moves to centre
+
+      // Track which candidate index is now centred
+      srCentreIdxRef.current = (srCentreIdxRef.current + 1) % N;
+
+      // After the main transition completes, prepare the new right card
+      const onDone = () => {
+        // Update roles: oldC→L, oldR→C, oldL→R (will enter from offR)
+        const newRoles: SrRole[] = ['L', 'C', 'R'];
+        newRoles[cSlot] = 'L';
+        newRoles[rSlot] = 'C';
+        newRoles[lSlot] = 'R';
+        srRoleRef.current = newRoles;
+
+        // Load next candidate into the now-hidden slot (off-screen, opacity 0)
+        const nextIdx = srNextCandRef.current;
+        setSrSlotIds(prev => {
+          const n: [string, string, string] = [...prev] as [string, string, string];
+          n[lSlot] = spinItems[nextIdx].userId;
+          return n;
+        });
+        srNextCandRef.current = (nextIdx + 1) % N;
+
+        // Instantly snap old-L to off-right (no transition — it's invisible)
+        applySrStyle(els[lSlot] as HTMLDivElement, 'offR', 0);
+
+        // Two RAF ticks ensure the browser commits the snap before the transition
+        requestAnimationFrame(() => requestAnimationFrame(() => {
+          // Slide new right card in from the right
+          const enterDur = Math.round(dur * 0.60);
+          applySrStyle(els[lSlot] as HTMLDivElement, 'R', enterDur);
+
+          srAnimatingRef.current = false;
+
+          // Schedule next advance after the entering card finishes
+          const phase2 = srPhaseTimingRef.current;
+          const cfg2 = SR_PHASE[phase2];
+          if (cfg2) {
+            clearTimeout(srAdvTimerRef2.current);
+            srAdvTimerRef2.current = setTimeout(doAdvance, enterDur + cfg2.gap);
+          }
+        }));
+      };
+
+      // Listen on the card moving to centre (most reliable — it travels furthest)
+      (els[rSlot] as HTMLDivElement).addEventListener('transitionend', onDone, { once: true });
+    }
+
+    // Start the first advance after a short opening pause
+    const cfg0 = SR_PHASE[srPhaseTimingRef.current];
+    if (cfg0) {
+      srAdvTimerRef2.current = setTimeout(doAdvance, cfg0.transition + cfg0.gap);
+    }
+
+    return () => {
+      clearTimeout(srAdvTimerRef2.current);
+      srAnimatingRef.current = false;
+    };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showSpinRoom, spinRoomPhase]);
+  }, [showSpinRoom]);
 
   // ── Orbit RAF loop (glow orb only — bubble positioning removed) ───────────
   useEffect(() => {
@@ -1458,19 +1619,43 @@ export default function IntentPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showSpinRoom]);
 
-  // ── Pull-forward: snap the 3-card strip so the winner is in the centre slot ──
+  // ── Pull-forward: stop cycling, highlight the winner card in the centre slot ──
   useLayoutEffect(() => {
     if (spinRoomPhase !== 'pullforward') return;
     spinPhaseRef.current = 'pullforward';
-    if (selectedIndex !== null) {
-      srIdxRef.current = selectedIndex;
-      setSrIdx(selectedIndex);
+    clearTimeout(srAdvTimerRef2.current);
+    srAnimatingRef.current = false;
+
+    // Directly style the centre slot for winner highlight (no React state change)
+    const roles = srRoleRef.current;
+    const cSlot = roles.indexOf('C') as 0 | 1 | 2;
+    const lSlot = roles.indexOf('L') as 0 | 1 | 2;
+    const rSlot = roles.indexOf('R') as 0 | 1 | 2;
+    const slotEls = [srSlot0Ref.current, srSlot1Ref.current, srSlot2Ref.current];
+    const dur = 600;
+    if (slotEls[cSlot]) {
+      const el = slotEls[cSlot]!;
+      el.style.transition = `transform ${dur}ms cubic-bezier(0.12,0,0.08,1), box-shadow ${dur}ms ease, border-color ${dur}ms ease`;
+      el.style.transform = 'translate3d(0,0,0) scale(1.06)';
+      el.style.boxShadow = '0 0 60px 18px rgba(212,92,116,0.45), 0 8px 32px rgba(0,0,0,0.60)';
+    }
+    // Fade side cards out
+    const fadeDur = 500;
+    if (slotEls[lSlot]) {
+      slotEls[lSlot]!.style.transition = `opacity ${fadeDur}ms ease, filter ${fadeDur}ms ease`;
+      slotEls[lSlot]!.style.opacity = '0';
+      slotEls[lSlot]!.style.filter = 'blur(4px)';
+    }
+    if (slotEls[rSlot]) {
+      slotEls[rSlot]!.style.transition = `opacity ${fadeDur}ms ease, filter ${fadeDur}ms ease`;
+      slotEls[rSlot]!.style.opacity = '0';
+      slotEls[rSlot]!.style.filter = 'blur(4px)';
     }
     try { (navigator as any).vibrate?.([20, 10, 40]); } catch {}
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [spinRoomPhase]);
 
-  // ── Arrive: winner glow CSS-driven; just update the phase ref ────────────────
+  // ── Arrive: update phase ref only — winner highlight is already applied ───────
   useLayoutEffect(() => {
     if (spinRoomPhase !== 'arrive') return;
     spinPhaseRef.current = 'arrive';
@@ -2809,7 +2994,8 @@ export default function IntentPage() {
               alignItems: "center", justifyContent: "center",
               position: "relative", zIndex: 2, width: "100%",
             }}>
-              {/* 3-card flat strip — left / centre / right */}
+              {/* ── 3-slot flat carousel — positions driven by direct DOM mutation ── */}
+              {/* ProfilePhoto userId only changes when the slot is off-screen       */}
               <div style={{ position: "relative", width: "100%", height: 260, flexShrink: 0 }}>
                 {/* Ambient glow orb — intensity driven by orbit RAF */}
                 <div ref={orbitGlowRef} style={{
@@ -2820,73 +3006,58 @@ export default function IntentPage() {
                   animation: "srAmbientPulse 2.8s ease-in-out infinite",
                 }} />
 
-                {(() => {
-                  const N = Math.min(items.length, 10);
-                  if (N === 0) return null;
-                  const spinItems = items.slice(0, N);
-                  const cIdx = ((srIdx % N) + N) % N;
-                  const lIdx = ((cIdx - 1 + N) % N);
-                  const rIdx = ((cIdx + 1) % N);
-                  const isWinnerPhase = spinRoomPhase === 'pullforward' || spinRoomPhase === 'arrive';
-                  return (
-                    <>
-                      {/* Left card — smaller, dark overlay, blurred */}
-                      <div style={{
-                        position: "absolute", left: "calc(50% - 176px)", top: "50%",
-                        transform: "translateY(-50%)",
-                        width: 90, height: 135, borderRadius: 14, overflow: "hidden",
-                        opacity: isWinnerPhase ? 0 : 0.42,
-                        filter: isWinnerPhase ? "blur(5px)" : "blur(1.5px)",
-                        transition: "opacity 0.55s ease, filter 0.55s ease",
-                        zIndex: 1, boxShadow: "0 4px 14px rgba(0,0,0,0.36)",
-                      }}>
-                        <ProfilePhoto userId={spinItems[lIdx].userId} className="w-full h-full" />
-                        <div style={{ position: "absolute", inset: 0, background: "rgba(13,8,18,0.52)", pointerEvents: "none" }} />
-                      </div>
+                {/* Slot 0 — initial role: LEFT */}
+                <div
+                  ref={srSlot0Ref}
+                  style={{
+                    position: "absolute", left: "50%", top: "50%",
+                    width: 152, height: 228, borderRadius: 18, overflow: "hidden",
+                    /* Initial position applied by useEffect; style here is just a fallback */
+                    transform: "translate3d(-131px,-50%,0) scale(0.592)",
+                    opacity: 0.42, zIndex: 1,
+                    willChange: "transform, opacity, filter, box-shadow",
+                  }}
+                >
+                  <ProfilePhoto userId={srSlotIds[0] || ''} className="w-full h-full pointer-events-none" />
+                  <div style={{ position: "absolute", inset: 0, background: "rgba(13,8,18,0.50)", pointerEvents: "none" }} />
+                  <div style={{ position: "absolute", inset: 0, borderRadius: 18, border: "1px solid rgba(212,92,116,0.18)", pointerEvents: "none" }} />
+                </div>
 
-                      {/* Centre card — sharpest, largest, winner highlight */}
-                      <div style={{
-                        position: "absolute", left: "50%", top: "50%",
-                        transform: isWinnerPhase
-                          ? "translate(-50%, -50%) scale(1.07)"
-                          : "translate(-50%, -50%)",
-                        width: 152, height: 228, borderRadius: 18, overflow: "hidden",
-                        opacity: 1, zIndex: 10,
-                        boxShadow: isWinnerPhase
-                          ? "0 0 60px 18px rgba(212,92,116,0.45), 0 8px 32px rgba(0,0,0,0.60)"
-                          : "0 8px 28px rgba(0,0,0,0.55)",
-                        border: isWinnerPhase
-                          ? "2px solid rgba(212,92,116,0.70)"
-                          : "1px solid rgba(255,255,255,0.08)",
-                        transition: "transform 0.9s cubic-bezier(0.12,0,0.08,1), box-shadow 0.9s ease, border-color 0.6s ease",
-                      }}>
-                        <ProfilePhoto userId={spinItems[cIdx].userId} className="w-full h-full" />
-                        <div style={{ position: "absolute", inset: 0, background: "linear-gradient(to bottom, transparent 55%, rgba(0,0,0,0.55) 100%)", pointerEvents: "none" }} />
-                        {isWinnerPhase && (
-                          <div style={{ position: "absolute", inset: 0, borderRadius: 18, boxShadow: "inset 0 0 0 2px rgba(255,255,255,0.14)", pointerEvents: "none" }} />
-                        )}
-                      </div>
+                {/* Slot 1 — initial role: CENTRE */}
+                <div
+                  ref={srSlot1Ref}
+                  style={{
+                    position: "absolute", left: "50%", top: "50%",
+                    width: 152, height: 228, borderRadius: 18, overflow: "hidden",
+                    transform: "translate3d(-50%,-50%,0) scale(1)",
+                    opacity: 1, zIndex: 10,
+                    willChange: "transform, opacity, filter, box-shadow",
+                  }}
+                >
+                  <ProfilePhoto userId={srSlotIds[1] || ''} className="w-full h-full pointer-events-none" />
+                  <div style={{ position: "absolute", inset: 0, background: "linear-gradient(to bottom, transparent 55%, rgba(0,0,0,0.50) 100%)", pointerEvents: "none" }} />
+                  <div style={{ position: "absolute", inset: 0, borderRadius: 18, border: "1px solid rgba(255,255,255,0.08)", pointerEvents: "none" }} />
+                </div>
 
-                      {/* Right card — smaller, dark overlay, blurred */}
-                      <div style={{
-                        position: "absolute", left: "calc(50% + 86px)", top: "50%",
-                        transform: "translateY(-50%)",
-                        width: 90, height: 135, borderRadius: 14, overflow: "hidden",
-                        opacity: isWinnerPhase ? 0 : 0.42,
-                        filter: isWinnerPhase ? "blur(5px)" : "blur(1.5px)",
-                        transition: "opacity 0.55s ease, filter 0.55s ease",
-                        zIndex: 1, boxShadow: "0 4px 14px rgba(0,0,0,0.36)",
-                      }}>
-                        <ProfilePhoto userId={spinItems[rIdx].userId} className="w-full h-full" />
-                        <div style={{ position: "absolute", inset: 0, background: "rgba(13,8,18,0.52)", pointerEvents: "none" }} />
-                      </div>
+                {/* Slot 2 — initial role: RIGHT */}
+                <div
+                  ref={srSlot2Ref}
+                  style={{
+                    position: "absolute", left: "50%", top: "50%",
+                    width: 152, height: 228, borderRadius: 18, overflow: "hidden",
+                    transform: "translate3d(131px,-50%,0) scale(0.592)",
+                    opacity: 0.42, zIndex: 1,
+                    willChange: "transform, opacity, filter, box-shadow",
+                  }}
+                >
+                  <ProfilePhoto userId={srSlotIds[2] || ''} className="w-full h-full pointer-events-none" />
+                  <div style={{ position: "absolute", inset: 0, background: "rgba(13,8,18,0.50)", pointerEvents: "none" }} />
+                  <div style={{ position: "absolute", inset: 0, borderRadius: 18, border: "1px solid rgba(212,92,116,0.18)", pointerEvents: "none" }} />
+                </div>
 
-                      {/* Edge vignettes */}
-                      <div style={{ position: "absolute", top: 0, left: 0, bottom: 0, width: 56, background: "linear-gradient(to right, #0d0812 0%, transparent 100%)", pointerEvents: "none", zIndex: 15 }} />
-                      <div style={{ position: "absolute", top: 0, right: 0, bottom: 0, width: 56, background: "linear-gradient(to left, #0d0812 0%, transparent 100%)", pointerEvents: "none", zIndex: 15 }} />
-                    </>
-                  );
-                })()}
+                {/* Edge vignettes — clip cards at stage edges */}
+                <div style={{ position: "absolute", top: 0, left: 0, bottom: 0, width: 56, background: "linear-gradient(to right, #0d0812 0%, transparent 100%)", pointerEvents: "none", zIndex: 20 }} />
+                <div style={{ position: "absolute", top: 0, right: 0, bottom: 0, width: 56, background: "linear-gradient(to left, #0d0812 0%, transparent 100%)", pointerEvents: "none", zIndex: 20 }} />
               </div>
 
               {/* Phase status text */}
