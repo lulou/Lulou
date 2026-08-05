@@ -1,29 +1,21 @@
--- increment_message_count_fn.sql
--- Atomic message counter increment for the message-send route.
+-- increment_message_count: atomically increments message_count_1 or message_count_2
+-- for a given match and returns the post-increment values for both columns.
 --
--- WHY THIS EXISTS
--- The message-send route previously used a Drizzle ORM UPDATE against
--- DATABASE_URL (Railway PostgreSQL).  All reads (getMatchMeta, getMatch,
--- getMatchesForUser) use supabaseAdmin, which connects to Supabase's own
--- PostgreSQL via PostgREST.  These are two physically separate databases.
--- Every counter increment was written to the Railway DB and was therefore
--- invisible to every subsequent Supabase read — the match-detail refetch
--- always returned message_count_1/2 = 0, overwriting the client cache and
--- snapping the "messages left" badge back to 15 after each send.
+-- p_match_id is TEXT (not UUID) because the matches.id column is of type TEXT.
+-- Using UUID here would cause "operator does not exist: text = uuid" at runtime.
 --
--- This function runs entirely inside a single Postgres UPDATE statement on
--- the Supabase database, so the incremented value is immediately visible to
--- every subsequent PostgREST read.  The service-role key used by the backend
--- has EXECUTE permission granted below.
---
--- To apply: paste into the Supabase SQL editor (dashboard → SQL → New query)
--- and click Run.
+-- Apply this in the Supabase SQL editor:
+--   https://supabase.com/dashboard/project/bpphntgdpcsecbvoygzt/sql/new
+-- Then reload the PostgREST schema cache so the new function is discoverable:
+--   SELECT pg_notify('pgrst', 'reload schema');
+
+DROP FUNCTION IF EXISTS public.increment_message_count(UUID, BOOLEAN);
 
 CREATE OR REPLACE FUNCTION public.increment_message_count(
-  p_match_id UUID,
-  p_is_user1  BOOLEAN
+  p_match_id TEXT,
+  p_is_user1 BOOLEAN
 )
-RETURNS TABLE (out_count1 INTEGER, out_count2 INTEGER)
+RETURNS TABLE(out_count1 INTEGER, out_count2 INTEGER)
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public
@@ -33,17 +25,21 @@ DECLARE
   v_count2 INTEGER;
 BEGIN
   IF p_is_user1 THEN
-    UPDATE matches
+    UPDATE public.matches
        SET message_count_1 = COALESCE(message_count_1, 0) + 1
      WHERE id = p_match_id
     RETURNING message_count_1, message_count_2
       INTO v_count1, v_count2;
   ELSE
-    UPDATE matches
+    UPDATE public.matches
        SET message_count_2 = COALESCE(message_count_2, 0) + 1
      WHERE id = p_match_id
     RETURNING message_count_1, message_count_2
       INTO v_count1, v_count2;
+  END IF;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Match not found: %', p_match_id;
   END IF;
 
   out_count1 := v_count1;
@@ -52,6 +48,5 @@ BEGIN
 END;
 $$;
 
--- Allow the service-role key (used by the Railway backend) to call this function.
-GRANT EXECUTE ON FUNCTION public.increment_message_count(UUID, BOOLEAN)
+GRANT EXECUTE ON FUNCTION public.increment_message_count(TEXT, BOOLEAN)
   TO service_role;
