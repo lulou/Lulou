@@ -91,29 +91,39 @@ function applySrStyle(el: HTMLDivElement, role: SrRole, durMs: number) {
   s.transition = durMs > 0
     ? `transform ${durMs}ms cubic-bezier(0.4,0,0.25,1), opacity ${Math.round(durMs * 0.85)}ms ease, filter ${Math.round(durMs * 0.75)}ms ease, box-shadow ${durMs}ms ease`
     : 'none';
+  // All slots are anchored at left:50%, top:50% (top-left corner at container centre).
+  // Transforms must include both X and Y centering so the visual card centre lands correctly.
+  //
+  // Card: 152 × 228 px.  Half-width = 76 px, half-height = 114 px.
+  //   Centre card visual centre  → (50%, 50%) → translateX(-50%) translateY(-50%)
+  //   Left  card visual centre   → (50%−131px, 50%) → translateX(calc(−50%−131px)) translateY(−50%)
+  //     proof: card left-edge = 50% + translateX; card centre = 50% + translateX + 76px
+  //            want centre = 50%−131px  →  translateX = −207px = −76px − 131px = calc(−50%−131px) ✓
+  //   Right card visual centre   → (50%+131px, 50%) → translateX(calc(−50%+131px)) translateY(−50%)
+  //     translateX = +55px = −76px + 131px = calc(−50%+131px) ✓
   switch (role) {
     case 'C':
-      s.transform = 'translate3d(0,0,0) scale(1)';
+      s.transform = 'translateX(-50%) translateY(-50%) scale(1)';
       s.opacity = '1'; s.filter = 'blur(0px)'; s.zIndex = '10';
       s.boxShadow = '0 8px 28px rgba(0,0,0,0.55)';
       break;
     case 'L':
-      s.transform = 'translate3d(-131px,0,0) scale(0.592)';
+      s.transform = 'translateX(calc(-50% - 131px)) translateY(-50%) scale(0.592)';
       s.opacity = '0.42'; s.filter = 'blur(1.5px)'; s.zIndex = '1';
       s.boxShadow = '0 4px 14px rgba(0,0,0,0.36)';
       break;
     case 'R':
-      s.transform = 'translate3d(131px,0,0) scale(0.592)';
+      s.transform = 'translateX(calc(-50% + 131px)) translateY(-50%) scale(0.592)';
       s.opacity = '0.42'; s.filter = 'blur(1.5px)'; s.zIndex = '1';
       s.boxShadow = '0 4px 14px rgba(0,0,0,0.36)';
       break;
     case 'offL':
-      s.transform = 'translate3d(-310px,0,0) scale(0.28)';
+      s.transform = 'translateX(calc(-50% - 310px)) translateY(-50%) scale(0.28)';
       s.opacity = '0'; s.filter = 'blur(6px)'; s.zIndex = '0';
       s.boxShadow = 'none';
       break;
     case 'offR':
-      s.transform = 'translate3d(310px,0,0) scale(0.28)';
+      s.transform = 'translateX(calc(-50% + 310px)) translateY(-50%) scale(0.28)';
       s.opacity = '0'; s.filter = 'blur(6px)'; s.zIndex = '0';
       s.boxShadow = 'none';
       break;
@@ -3006,14 +3016,15 @@ export default function IntentPage() {
                   animation: "srAmbientPulse 2.8s ease-in-out infinite",
                 }} />
 
-                {/* Slot 0 — initial role: LEFT */}
+                {/* Slot 0 — initial role: LEFT
+                    Fallback transforms match applySrStyle('L'). useEffect overwrites
+                    them synchronously (transition:none) so there is no layout flash. */}
                 <div
                   ref={srSlot0Ref}
                   style={{
                     position: "absolute", left: "50%", top: "50%",
                     width: 152, height: 228, borderRadius: 18, overflow: "hidden",
-                    /* Initial position applied by useEffect; style here is just a fallback */
-                    transform: "translate3d(-131px,-50%,0) scale(0.592)",
+                    transform: "translateX(calc(-50% - 131px)) translateY(-50%) scale(0.592)",
                     opacity: 0.42, zIndex: 1,
                     willChange: "transform, opacity, filter, box-shadow",
                   }}
@@ -3029,7 +3040,7 @@ export default function IntentPage() {
                   style={{
                     position: "absolute", left: "50%", top: "50%",
                     width: 152, height: 228, borderRadius: 18, overflow: "hidden",
-                    transform: "translate3d(-50%,-50%,0) scale(1)",
+                    transform: "translateX(-50%) translateY(-50%) scale(1)",
                     opacity: 1, zIndex: 10,
                     willChange: "transform, opacity, filter, box-shadow",
                   }}
@@ -3045,7 +3056,7 @@ export default function IntentPage() {
                   style={{
                     position: "absolute", left: "50%", top: "50%",
                     width: 152, height: 228, borderRadius: 18, overflow: "hidden",
-                    transform: "translate3d(131px,-50%,0) scale(0.592)",
+                    transform: "translateX(calc(-50% + 131px)) translateY(-50%) scale(0.592)",
                     opacity: 0.42, zIndex: 1,
                     willChange: "transform, opacity, filter, box-shadow",
                   }}
