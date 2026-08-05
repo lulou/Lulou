@@ -3259,8 +3259,12 @@ function _MatchChat({ match, expanded, onToggleExpand, unreadCount, onMarkRead }
   // For stage 0: BOTH users must reach their quota before the call gate opens.
   // Reaching the limit alone (one-sided) shows a waiting state, not the gate.
   const partnerStageComplete = callStage === 0 ? theirPostCallCount >= MAX_MESSAGES_PER_USER : true;
-  const bothStageComplete    = isLimitReached && partnerStageComplete;
-  const waitingForPartner    = callStage === 0 && isLimitReached && !partnerStageComplete;
+  // Use DB-only counts (never localSentCount) so the call gate opens only after the
+  // server has confirmed both users' 15th message — not during the optimistic window
+  // where one device's localSentCount temporarily makes it look like the limit is hit.
+  // canonical condition: bothStageComplete = messageCount1 >= 15 && messageCount2 >= 15
+  const bothStageComplete    = myPostCallCount >= MAX_MESSAGES_PER_USER && partnerStageComplete;
+  const waitingForPartner    = callStage === 0 && myPostCallCount >= MAX_MESSAGES_PER_USER && !partnerStageComplete;
   const allMessages = matchDetail?.messages || [];
 
   // ── Pre-first-call availability state machine ─────────────────────────────

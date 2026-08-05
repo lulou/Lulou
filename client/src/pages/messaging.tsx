@@ -1367,7 +1367,12 @@ export default function Messaging() {
   const partnerMsgCount = matchDetail
     ? (isUser1 ? (matchDetail.messageCount2 ?? 0) : (matchDetail.messageCount1 ?? 0))
     : 0;
-  const myStageComplete      = myStageMessageCount >= msgLimit;
+  // Gate conditions use DB-only counts (no localSentCount) so the call gate opens
+  // only after the server has confirmed both users' 15th message — not during the
+  // optimistic window before the POST response arrives.
+  // canonical condition: bothStageComplete = messageCount1 >= 15 && messageCount2 >= 15
+  const dbMyCount            = dbStageCount ?? 0;
+  const myStageComplete      = dbMyCount >= msgLimit;
   const partnerStageComplete = partnerMsgCount >= msgLimit;
   const bothStageComplete    = myStageComplete && partnerStageComplete;
   // waitingForPartner: I've hit my quota but partner hasn't yet.
