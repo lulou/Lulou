@@ -1,0 +1,183 @@
+The Intention Wheel is much better now. The orbit finally works.
+
+Do NOT redesign the wheel again.
+
+Fix ONLY the final 25% of the spin and the result transition.
+
+CURRENT PRODUCTION BEHAVIOUR
+
+1. The orbit spins properly now.
+
+2. Near the end, it sometimes slows and lands visually BETWEEN two users.
+Then it suddenly jumps to the selected winner.
+
+3. After the winner is selected, the text phase appears, which I like, but it is far too quick.
+The winner enlarges almost immediately.
+
+4. The winner enlargement/reveal does not build enough momentum or tension.
+
+5. “Something slipped away” STILL appears after the result.
+
+6. If I tap Continue on that fallback, I return to an almost completely blank Intent page and it stays blank.
+
+PART 1 — FIX THE END-OF-SPIN SNAP
+
+Do not let the free-running orbit stop at an arbitrary angle.
+
+At the start of deceleration:
+
+- winner index is already known internally
+- calculate the exact target angle required to put that winner at front-centre
+- deceleration must converge toward that exact target angle
+- do not finish normal deceleration first and then snap afterward
+
+Use angle interpolation toward the winner throughout the final deceleration.
+
+Required:
+
+targetAngle = frontAngle - winnerSlotOffset
+
+During the final 2–3 seconds:
+- continuously reduce velocity
+- continuously reduce remaining angular distance
+- arrive at targetAngle exactly
+- winner must already be centred when velocity reaches zero
+
+No visible jump after stopping.
+No landing between two candidates.
+
+Use shortest signed angular distance so the wheel never rotates backward unexpectedly.
+
+PART 2 — BUILD MORE TENSION AFTER THE WINNER STOPS
+
+Current transition is too fast.
+
+Required timing after winner reaches front-centre:
+
+0.0–0.7 s
+- winner stays normal size
+- side cards remain faintly visible
+- show “Narrowing down…”
+
+0.7–1.6 s
+- side cards fade further
+- winner gets very subtle glow
+- text changes to something like:
+ “There’s something here…”
+
+1.6–2.5 s
+- side cards fully disappear
+- winner slowly scales from 1.0 → approximately 1.06
+- background glow strengthens
+- text changes to:
+ “Tonight’s connection”
+
+2.5–3.3 s
+- winner slowly scales to approximately 1.10
+- hold the winner clearly
+- no abrupt jump
+
+Only after this hold should the actual result/profile reveal begin.
+
+Do NOT enlarge the winner immediately.
+
+Use smooth easing such as cubic-bezier / ease-out.
+No sudden scale jumps.
+
+PART 3 — REMOVE THE SUCCESS-PATH ERROR BOUNDARY
+
+“Something slipped away” still appears even though the spin result is valid.
+
+Trace the exact exception/state transition occurring AFTER winner selection.
+
+The correct successful state machine must be:
+
+SPINNING
+→ DECELERATING_TO_WINNER
+→ WINNER_LOCKED
+→ WINNER_MOMENTUM
+→ RESULT_PERSISTED
+→ RESULT_READY
+→ RESULT_VISIBLE
+
+The result UI must not mount until:
+- selectedProfile exists
+- persisted spin result exists
+- winner data is valid
+- required strings are normalised
+
+Do not:
+- clear selectedProfile during this sequence
+- clear pendingWinnerRef early
+- delete spin result
+- reset Intent state
+- navigate back to base Intent page
+- unmount winner before result is ready
+
+The error boundary must never be part of the normal success flow.
+
+PART 4 — FIX CONTINUE → BLANK INTENT PAGE
+
+Right now Continue closes the fallback and leaves an empty Intent page.
+
+This must be removed.
+
+If a valid persisted spin result exists:
+- Continue should restore/open that result
+- not reset to an empty wheel
+- not clear candidates
+- not clear selected result
+
+If the fallback is ever genuinely needed:
+- first attempt to GET the persisted spin result
+- if found, restore it
+- if not found, return to a fully reloaded normal Intent page
+
+Never leave the page blank.
+
+PART 5 — RESULT PERSISTENCE
+
+Before transitioning away from WINNER_MOMENTUM:
+
+1. Persist selected winner server-side
+2. Await success
+3. Verify returned winner/result
+4. Set RESULT_READY
+5. Then render final result
+
+Do not mount result first and persist afterward.
+
+PART 6 — REAL IPHONE PASS TEST
+
+Test this exact sequence in production:
+
+1. Press Spin
+2. Orbit rotates normally
+3. Orbit decelerates toward the winner
+4. Winner arrives exactly centred — no jump
+5. “Narrowing down…” holds visibly
+6. Additional tension text appears
+7. Winner enlarges gradually, not instantly
+8. Final result opens
+9. No “Something slipped away”
+10. No Continue recovery screen
+11. No blank Intent page
+12. Refresh and confirm the winner/result persists
+
+Report only:
+
+- exact reason the wheel stopped between two candidates
+- exact target-angle/deceleration fix
+- exact previous timing vs new timing
+- exact exception/state causing “Something slipped away”
+- exact reason Continue produced blank Intent page
+- files changed
+- commit hash
+- pushed status
+- Vercel deployed commit
+- real iPhone end-spin PASS/FAIL
+- real iPhone result PASS/FAIL
+
+Do not touch the pre-spin design.
+Do not replace the orbit implementation.
+The orbit is finally correct — only fix its ending and result transition.
