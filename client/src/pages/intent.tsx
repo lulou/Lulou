@@ -1104,6 +1104,13 @@ export default function IntentPage() {
   // Slot index (0–4) of the candidate currently closest to the front (depth peak).
   const orbitFrontCandRef = useRef(0);
 
+  // ── Pre-determined winner (internal only until 'reveal' phase) ───────────────
+  // Chosen in spinWheel() and stored here. Never put into React state until the
+  // reveal phase fires — this prevents ANY winner exposure during the orbit spin.
+  // Read by pullforward to steer the orbit snap, and by the 'reveal' timeout to
+  // set selectedProfile (which is what actually mounts the reveal section).
+  const pendingWinnerRef = useRef<{ index: number; profile: Profile } | null>(null);
+
   // Orbit animation refs (glow + speed tracking only; bubble positioning removed)
   const orbitBubbles    = useRef<(HTMLDivElement | null)[]>([]); // kept for type compat
   const orbitAngleRef2  = useRef(0);
@@ -1218,10 +1225,22 @@ export default function IntentPage() {
       console.log("[WHEEL] SPARK_SENT", { to: selectedProfile?.firstName });
       try { (navigator as any).vibrate?.([40, 20, 80]); } catch {}
       setSparkSent(true);
+      // Pre-clear the saved-result cache so the restoration useEffect cannot
+      // re-mount the profile sheet the moment selectedProfile is cleared below.
+      queryClient.setQueryData(["/api/spin/result"], { profile: null });
       setTimeout(() => {
+        // Batch 1: close the SpinRoom (unmounts boundary + reveal section).
         setShowSpinRoom(false);
         setSparkSent(false);
-        closeProfile();
+        setShowProfile(false);
+        setSelectedIndex(null);
+        setSelectedProfile(null);
+        setDispersed(false);
+        pendingWinnerRef.current = null;
+        recordSpinFiredRef.current = false;
+        // Fire background cleanup — after SpinRoom is already unmounted.
+        deleteSpinResult.mutate();
+        queryClient.invalidateQueries({ queryKey: ["/api/popular"] });
         setTimeout(() => setShowSpinExtras(true), 400);
       }, 2200);
     },
@@ -1273,6 +1292,7 @@ export default function IntentPage() {
     try { (navigator as any).vibrate?.([30]); } catch {}
     // Reset dedup guard so this fresh spin can record
     recordSpinFiredRef.current = false;
+    pendingWinnerRef.current = null;
     console.log("[INTENTION_WHEEL] spin_request_started", { candidateCount: count });
     setShowSpinRoom(true);
     setIsSpinning(true);
@@ -1284,7 +1304,17 @@ export default function IntentPage() {
     setShowConfetti(false);
     setSparkSent(false);
 
-    // Winner is chosen fresh at spin time — preview order has NO influence.
+    // ── Pre-determine winner for the SpinRoom orbit ──────────────────────────
+    // Only orbit-visible candidates (first ORBIT_N items) are eligible so the
+    // winner card is always physically in the orbit ring and can be snapped to.
+    // Stored in a ref — NOT state — so it is never rendered before reveal phase.
+    const spinN = Math.min(count, ORBIT_N);
+    const spinWinnerIdx = Math.floor(Math.random() * spinN);
+    pendingWinnerRef.current = { index: spinWinnerIdx, profile: items[spinWinnerIdx] };
+
+    // ── Background wheel animation (non-SpinRoom) ────────────────────────────
+    // Uses a separate random index for the legacy angle-based wheel display that
+    // plays behind the SpinRoom overlay.  Not connected to winner selection.
     const targetIndex = Math.floor(Math.random() * count);
     const landedProfile = items[targetIndex];
 
@@ -1336,6 +1366,8 @@ export default function IntentPage() {
   const closeProfile = () => {
     // Delete the server-persisted result when the user explicitly acts on it.
     deleteSpinResult.mutate();
+    pendingWinnerRef.current = null;
+    recordSpinFiredRef.current = false;
     setShowSpinRoom(false);
     setSparkSent(false);
     setShowProfile(false);
@@ -1366,11 +1398,15 @@ export default function IntentPage() {
       setTimeout(() => { go('slow', 0.8);   console.log('[WHEEL] SLOW_PHASE');      },  5000),
       // Approach: decelerate orbit to near-zero so one card settles at the front
       setTimeout(() => { go('approach', 0); console.log('[WHEEL] WINNER_APPROACH'); },  7000),
-      // Pullforward: whoever is closest to the front of the orbit wins
+      // Pullforward: commit to the pre-determined winner (pendingWinnerRef), persist
+      // to the server, and advance the phase.  selectedProfile is NOT set here —
+      // that happens atomically with go('reveal') at t=11.2 s so the reveal section
+      // never renders with a non-null profile before reveal phase begins, and can
+      // never crash from null selectedProfile if something clears state early.
       setTimeout(() => {
-        const N_orb = Math.min(items.length, ORBIT_N);
-        const closestI = N_orb > 0 ? orbitFrontCandRef.current : 0;
-        const winner = items[closestI];
+        const pending = pendingWinnerRef.current;
+        const winner  = pending?.profile ?? null;
+        const closestI = pending?.index ?? orbitFrontCandRef.current;
         console.log('[WHEEL] PULL_FORWARD', { winner: winner?.firstName, index: closestI });
         console.log('[INTENTION_WHEEL] selected_candidate', {
           candidateId: winner?.userId ?? null,
@@ -1378,40 +1414,46 @@ export default function IntentPage() {
           found: !!winner,
         });
         if (winner && winner.userId) {
-          setSelectedIndex(closestI);
-          setSelectedProfile(winner);
-          setRevealQuote(LULOU_QUOTE_KEYS[Math.floor(Math.random() * LULOU_QUOTE_KEYS.length)]);
-          // Persist result to the server (saved_wheel_profiles) so it survives
-          // refresh, app close, and other devices.  Cleared in closeProfile().
+          // Persist result NOW (early, while orbit is still showing) so it
+          // survives refresh, app close, and other devices.  Cleared in closeProfile().
           saveSpinResult.mutate(winner.userId);
-          // Dedup guard — fire recordSpin only once per spin session
+          // Dedup guard — fire recordSpin only once per spin session.
           if (!recordSpinFiredRef.current) {
             recordSpinFiredRef.current = true;
             recordSpin.mutate(winner.userId);
           }
-          setShowProfile(true);
-          console.log('[INTENTION_WHEEL] reveal_started', { name: winner.firstName });
-          // Advance the cinematic phase only when a winner was found.
-          // go('pullforward') must stay inside this block: if it runs with
-          // selectedProfile still null the reveal/pause/buttons phases render
-          // selectedProfile.userId and throw TypeError → boundary crash.
+          console.log('[INTENTION_WHEEL] winner_committed', { name: winner.firstName });
           if (landingMarkerRef.current) {
             landingMarkerRef.current.style.opacity = '1';
             landingMarkerRef.current.style.filter = 'drop-shadow(0 0 10px rgba(212,92,116,1)) drop-shadow(0 2px 18px rgba(212,92,116,0.70))';
           }
           try { (navigator as any).vibrate?.([15, 10, 30]); } catch {}
+          // Advance orbit phase — selectedProfile is STILL null here, which is safe:
+          // the reveal section is gated on spinRoomPhase === 'reveal'|'pause'|'buttons',
+          // none of which are active yet.
           go('pullforward', 0);
         } else {
           console.warn('[INTENTION_WHEEL] selected_profile_missing', { closestI, itemCount: items.length });
-          // No winner → close SpinRoom so the remaining phase timers
-          // (arrive / reveal / pause / buttons) never fire against null selectedProfile.
+          // No winner → close SpinRoom so the remaining timers never fire.
           setShowSpinRoom(false);
         }
       },  8400),
       setTimeout(() => { go('arrive', 0);   console.log('[WHEEL] WINNER_ARRIVE');   },  9800),
+      // 'reveal': set selectedProfile and revealQuote in the SAME batch as the phase
+      // transition so the reveal section always mounts with a valid profile on its
+      // first render — eliminates the null-dereference that triggered the boundary.
       setTimeout(() => {
+        const pending = pendingWinnerRef.current;
+        if (!pending?.profile?.userId) {
+          // Safety: winner was cleared externally — abort reveal.
+          setShowSpinRoom(false);
+          return;
+        }
+        setSelectedIndex(pending.index);
+        setSelectedProfile(pending.profile);
+        setRevealQuote(LULOU_QUOTE_KEYS[Math.floor(Math.random() * LULOU_QUOTE_KEYS.length)]);
         go('reveal', 0);
-        console.log('[WHEEL] WINNER_REVEAL');
+        console.log('[WHEEL] WINNER_REVEAL', { name: pending.profile.firstName });
         if (!muted) playChime();
         try { (navigator as any).vibrate?.([60, 40, 120]); } catch {}
       }, 11200),
@@ -1550,7 +1592,11 @@ export default function IntentPage() {
     cancelAnimationFrame(orbitRafRef2.current);
 
     const N = Math.min(items.length, ORBIT_N);
-    const frontI = orbitFrontCandRef.current;
+    // Use the pre-determined winner index (stored at spin start) so the orbit
+    // always snaps to the correct card regardless of where the orbit happened
+    // to stop.  Falls back to orbitFrontCandRef only if pendingWinnerRef is
+    // unset (e.g. direct navigation to pullforward in tests).
+    const frontI = pendingWinnerRef.current?.index ?? orbitFrontCandRef.current;
 
     // Compute the smallest angle correction to land card frontI exactly at front (π/2).
     // theta_front = orbitAngle + (2π/N)*frontI should equal π/2 + 2πk.

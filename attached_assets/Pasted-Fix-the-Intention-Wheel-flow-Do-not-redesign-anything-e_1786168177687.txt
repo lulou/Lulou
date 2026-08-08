@@ -1,0 +1,149 @@
+Fix the Intention Wheel flow. Do not redesign anything else.
+
+CURRENT PRODUCTION BUGS
+
+1. I press Spin and the selected person is effectively revealed immediately.
+The wheel does not visibly spin first.
+
+2. After I tap Match / Send Halo, the app shows:
+“Something slipped away”
+“Your spin was recorded. Tap below to continue.”
+
+Then only after I press Continue does the selected user finally appear, and the Halo was actually sent.
+
+So the backend action succeeds, but the UI state machine is wrong.
+
+PART 1 — WINNER MUST NOT BE EXPOSED BEFORE THE SPIN
+
+The selected winner may be chosen internally at spin start, but must NOT be rendered or visually exposed until the orbit animation finishes.
+
+Inspect all state related to:
+- selectedProfile
+- winner
+- showProfile
+- orbitFrontCandRef
+- reveal phase
+- pullforward
+- result persistence
+- spin response
+
+Required state separation:
+
+selectedWinnerInternal
+- may exist immediately after API response
+- must never render in pre-spin or active-spin UI
+
+visibleWinner
+- must remain null throughout the full spin
+- set only after the orbit deceleration and winner stop animation completes
+
+Do not let selectedProfile drive the spinning JSX before reveal.
+
+Required flow:
+
+IDLE
+→ SPINNING
+→ DECELERATING
+→ WINNER_LOCKED
+→ REVEAL
+→ RESULT
+
+The result/profile component must not mount before REVEAL.
+
+PART 2 — REAL ORBIT MUST START IMMEDIATELY
+
+When Spin is tapped:
+- orbit animation starts immediately
+- no winner card is shown statically first
+- 5 mounted candidate cards rotate continuously
+- selected winner remains hidden as an internal value
+- cards visibly orbit for the full intended duration
+- animation decelerates naturally
+- selected winner lands front-centre
+- hold winner for at least 900 ms
+- only then enter REVEAL
+
+Check for any code that immediately:
+- setSelectedProfile(winner)
+- setShowProfile(true)
+- mounts MatchRevealCard
+- switches phase to result
+- restores persisted result during active spin
+
+Those must not run before the winner lock completes.
+
+PART 3 — FIX THE POST-HALO “SOMETHING SLIPPED AWAY” STATE
+
+The Halo was actually sent, so this is not a backend failure.
+
+Trace what happens after:
+- Send Halo button tap
+- POST /api/spin/result or equivalent
+- Halo/match mutation
+- query invalidation
+- selectedProfile clearing
+- result component unmount
+- error boundary render
+
+Likely bug:
+state is cleared or mutated before the success transition finishes, leaving the reveal component rendering with selectedProfile = null/undefined.
+
+Required success flow:
+
+Send Halo tapped
+→ disable button
+→ await mutation
+→ confirm success
+→ persist result
+→ show success state
+→ then navigate/close cleanly
+
+Do NOT:
+- clear selectedProfile before the component exits
+- set showProfile false before success render completes
+- reset wheel state while the result tree is still mounted
+- throw into the error boundary on a successful mutation
+
+If Halo succeeds, user must never see the crash/fallback screen.
+
+PART 4 — ERROR BOUNDARY
+
+The boundary must only catch a real exception.
+
+Do not use it as a normal transition screen.
+
+If a mutation succeeds:
+- no boundary
+- no “Something slipped away”
+- clean success transition
+
+PART 5 — TEST EXACTLY THIS FLOW
+
+Real iPhone production test:
+
+1. Open wheel
+2. Press Spin
+3. Confirm no winner is visible immediately
+4. Confirm orbit visibly rotates
+5. Confirm it accelerates then decelerates
+6. Confirm winner stops front-centre
+7. Confirm result appears only afterward
+8. Press Send Halo / Match
+9. Confirm no “Something slipped away”
+10. Confirm Halo succeeds
+11. Confirm selected user remains visible until the success transition completes
+12. Refresh and confirm result state is consistent
+
+Report only:
+- exact line/state that exposed winner too early
+- exact state transition causing the post-Halo fallback
+- files changed
+- commit hash
+- pushed status
+- Vercel deployed commit
+- real iPhone spin PASS/FAIL
+- real iPhone Halo PASS/FAIL
+
+Do not change the pre-spin design in this task.
+Do not add another fallback workaround.
+Fix the state machine.
