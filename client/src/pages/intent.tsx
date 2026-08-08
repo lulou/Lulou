@@ -1488,7 +1488,9 @@ export default function IntentPage() {
     // Card 0 starts at the front (sin(angle + 0) = 1 → angle = π/2).
     orbitAngleRef2.current = Math.PI / 2;
 
-    // Apply initial transforms instantly (no animation)
+    // Apply initial transforms instantly (no animation).
+    // IMPORTANT: these DOM mutations happen here in the useEffect, NOT in JSX style,
+    // because React must never overwrite the RAF's values during re-renders.
     for (let i = 0; i < ORBIT_N; i++) {
       const el = orbitCardRefs.current[i];
       if (!el) continue;
@@ -1498,10 +1500,9 @@ export default function IntentPage() {
       const depth  = (sinT + 1) / 2;
       const scale  = (0.55 + depth * 0.45).toFixed(3);
       const x      = (cosT * ORBIT_RX).toFixed(1);
-      const y      = ((sinT - 1) * ORBIT_RY).toFixed(1);  // front stays at y=0
-      const tz     = (depth * 60 - 30).toFixed(1);
+      const y      = (sinT * ORBIT_RY).toFixed(1);
       el.style.transition = 'none';
-      el.style.transform  = `translate3d(calc(-50% + ${x}px), calc(-50% + ${y}px), ${tz}px) scale(${scale})`;
+      el.style.transform  = `translate(calc(-50% + ${x}px), calc(-50% + ${y}px)) scale(${scale})`;
       el.style.opacity    = (0.25 + depth * 0.75).toFixed(3);
       el.style.filter     = depth < 0.92 ? `blur(${((1 - depth) * 8).toFixed(1)}px)` : '';
       el.style.zIndex     = String(Math.round(depth * 100));
@@ -1510,6 +1511,8 @@ export default function IntentPage() {
 
     // Track which candidates have been recently back-loaded so we don't double-set
     const backLoaded = new Set<number>();
+    const orbitStartMs = performance.now();
+    let   logLastSec   = -1;
 
     const tick = (now: number) => {
       const dt = orbitLastTimeRef.current === 0
@@ -1518,7 +1521,9 @@ export default function IntentPage() {
       orbitLastTimeRef.current = now;
 
       const phase = spinPhaseRef.current;
-      // Pause orbit when the winner has been picked; pullforward handles the snap rAF
+      // Pause orbit when the winner has been picked; pullforward handles the snap rAF.
+      // If we returned here without rescheduling, the RAF loop stops permanently —
+      // that is intentional; the pullforward useLayoutEffect owns the DOM after this.
       if (phase === 'pullforward' || phase === 'arrive' || phase === 'reveal' ||
           phase === 'pause' || phase === 'buttons') return;
 
@@ -1528,27 +1533,28 @@ export default function IntentPage() {
       const diff = tgt - cur;
       orbitSpeedRef2.current += diff * Math.min(dt * (diff > 0 ? 1.4 : 2.2), 1);
 
-      // Advance orbit angle
+      // Advance orbit angle — this is the single line that drives all visible motion.
       orbitAngleRef2.current += orbitSpeedRef2.current * dt;
       const angle = orbitAngleRef2.current;
 
-      // Update all card DOM elements
+      // Update all 5 card DOM elements in one batch.
+      // transform/opacity/filter/zIndex are NOT in the JSX style prop so React
+      // never overwrites these mutations between frames.
       let frontI = 0, frontDepth = -1;
       for (let i = 0; i < ORBIT_N; i++) {
         const el = orbitCardRefs.current[i];
         if (!el) continue;
-        const theta  = angle + (2 * Math.PI / N) * i;
-        const sinT   = Math.sin(theta);
-        const cosT   = Math.cos(theta);
-        const depth  = (sinT + 1) / 2;
-        const scale  = (0.55 + depth * 0.45).toFixed(3);
-        const x      = (cosT * ORBIT_RX).toFixed(1);
-        const y      = ((sinT - 1) * ORBIT_RY).toFixed(1);
-        const tz     = (depth * 60 - 30).toFixed(1);
-        el.style.transform  = `translate3d(calc(-50% + ${x}px), calc(-50% + ${y}px), ${tz}px) scale(${scale})`;
-        el.style.opacity    = (0.25 + depth * 0.75).toFixed(3);
-        el.style.filter     = depth < 0.92 ? `blur(${((1 - depth) * 8).toFixed(1)}px)` : '';
-        el.style.zIndex     = String(Math.round(depth * 100));
+        const theta = angle + (2 * Math.PI / N) * i;
+        const sinT  = Math.sin(theta);
+        const cosT  = Math.cos(theta);
+        const depth = (sinT + 1) / 2;
+        const scale = (0.55 + depth * 0.45).toFixed(3);
+        const x     = (cosT * ORBIT_RX).toFixed(1);
+        const y     = (sinT * ORBIT_RY).toFixed(1);
+        el.style.transform = `translate(calc(-50% + ${x}px), calc(-50% + ${y}px)) scale(${scale})`;
+        el.style.opacity   = (0.25 + depth * 0.75).toFixed(3);
+        el.style.filter    = depth < 0.92 ? `blur(${((1 - depth) * 8).toFixed(1)}px)` : '';
+        el.style.zIndex    = String(Math.round(depth * 100));
         if (depth > frontDepth) { frontDepth = depth; frontI = i; }
 
         // When a card reaches deep back (depth < 0.12) we can silently swap its userId.
@@ -1566,6 +1572,23 @@ export default function IntentPage() {
         }
       }
       orbitFrontCandRef.current = frontI;
+
+      // Per-second diagnostic log — confirms baseAngle IS advancing each second.
+      // Logs once per elapsed second; never every frame.
+      const nowSec = Math.floor((now - orbitStartMs) / 1000);
+      if (nowSec > logLastSec) {
+        logLastSec = nowSec;
+        console.log('[INTENTION_WHEEL_ORBIT]', {
+          baseAngle: orbitAngleRef2.current.toFixed(3),
+          elapsedSec: nowSec,
+          velocity: orbitSpeedRef2.current.toFixed(3),
+          frontIndex: frontI,
+          positions: Array.from({ length: N }, (_, ii) => {
+            const th = orbitAngleRef2.current + (2 * Math.PI / N) * ii;
+            return { slot: ii, x: +(Math.cos(th) * ORBIT_RX).toFixed(0), y: +(Math.sin(th) * ORBIT_RY).toFixed(0) };
+          }),
+        });
+      }
 
       // Glow intensity tracks speed
       if (orbitGlowRef.current) {
@@ -1624,24 +1647,23 @@ export default function IntentPage() {
         const depth = (sinT + 1) / 2;
         const scale = (0.55 + depth * 0.45).toFixed(3);
         const x     = (cosT * ORBIT_RX).toFixed(1);
-        const y     = ((sinT - 1) * ORBIT_RY).toFixed(1);
-        const tz    = (depth * 60 - 30).toFixed(1);
-        el.style.transform  = `translate3d(calc(-50% + ${x}px), calc(-50% + ${y}px), ${tz}px) scale(${scale})`;
-        el.style.opacity    = (0.25 + depth * 0.75).toFixed(3);
-        el.style.filter     = depth < 0.92 ? `blur(${((1 - depth) * 8).toFixed(1)}px)` : '';
-        el.style.zIndex     = String(Math.round(depth * 100));
+        const y     = (sinT * ORBIT_RY).toFixed(1);
+        el.style.transform = `translate(calc(-50% + ${x}px), calc(-50% + ${y}px)) scale(${scale})`;
+        el.style.opacity   = (0.25 + depth * 0.75).toFixed(3);
+        el.style.filter    = depth < 0.92 ? `blur(${((1 - depth) * 8).toFixed(1)}px)` : '';
+        el.style.zIndex    = String(Math.round(depth * 100));
       }
 
       if (t < 1) {
         orbitRafRef2.current = requestAnimationFrame(snapTick);
       } else {
-        // Snap complete — apply winner glow + fade losers
+        // Snap complete — winner centred, losers faded
         for (let i = 0; i < ORBIT_N; i++) {
           const el = orbitCardRefs.current[i];
           if (!el) continue;
           if (i === frontI) {
             el.style.transition = 'transform 0.6s cubic-bezier(0.12,0,0.08,1), box-shadow 0.6s ease';
-            el.style.transform  = `translate3d(-50%, -50%, 30px) scale(1.06)`;
+            el.style.transform  = 'translate(-50%, -50%) scale(1.06)';
             el.style.boxShadow  = '0 0 60px 18px rgba(212,92,116,0.45), 0 8px 32px rgba(0,0,0,0.60)';
             el.style.opacity    = '1';
             el.style.filter     = '';
@@ -2998,13 +3020,14 @@ export default function IntentPage() {
               alignItems: "center", justifyContent: "center",
               position: "relative", zIndex: 2, width: "100%",
             }}>
-              {/* ── 5-card orbital stage — cards rotate on an ellipse in 3D ── */}
-              {/* All cards are permanently mounted. Positions are driven by the       */}
-              {/* orbit rAF loop via direct el.style mutations — no React setState.    */}
-              {/* perspective on the container gives genuine depth to the Z-axis.      */}
+              {/* ── 5-card orbital stage — cards rotate on a flat ellipse ── */}
+              {/* All 5 divs stay mounted for the entire spin.  Their transform,       */}
+              {/* opacity, filter, and zIndex are owned EXCLUSIVELY by the orbit RAF   */}
+              {/* (direct el.style mutations).  Those properties are NOT in the JSX    */}
+              {/* style object — React must never overwrite the RAF's values.           */}
+              {/* No CSS perspective: cards face the viewer straight-on at all times.  */}
               <div style={{
                 position: "relative", width: "100%", height: 280, flexShrink: 0,
-                perspective: "700px",
               }}>
                 {/* Ambient glow orb — intensity driven by orbit speed */}
                 <div ref={orbitGlowRef} style={{
@@ -3015,65 +3038,37 @@ export default function IntentPage() {
                   animation: "srAmbientPulse 2.8s ease-in-out infinite",
                 }} />
 
-                {/* 5 orbit cards — initial positions set by the mount useEffect.     */}
-                {/* Card 0 starts at the front (angle = π/2, depth = 1).              */}
-                {Array.from({ length: ORBIT_N }, (_, i) => {
-                  // Pre-compute the initial position for each card so the DOM frame
-                  // before the useEffect fires already looks correct.
-                  // orbitAngle starts at π/2; card i angle = π/2 + (2π/5)*i
-                  const N   = Math.min(items.length, ORBIT_N) || ORBIT_N;
-                  const theta = Math.PI / 2 + (2 * Math.PI / N) * i;
-                  const sinT  = Math.sin(theta);
-                  const cosT  = Math.cos(theta);
-                  const depth = (sinT + 1) / 2;
-                  const scale = (0.55 + depth * 0.45).toFixed(3);
-                  const x     = (cosT * ORBIT_RX).toFixed(1);
-                  const y     = ((sinT - 1) * ORBIT_RY).toFixed(1);
-                  const tz    = (depth * 60 - 30).toFixed(1);
-                  const opacity = (0.25 + depth * 0.75).toFixed(3);
-                  const blur    = depth < 0.92 ? `blur(${((1 - depth) * 8).toFixed(1)}px)` : '';
-                  const zIdx    = Math.round(depth * 100);
-                  return (
-                    <div
-                      key={i}
-                      ref={el => { orbitCardRefs.current[i] = el; }}
-                      style={{
-                        position: "absolute", left: "50%", top: "50%",
-                        width: 152, height: 228, borderRadius: 18, overflow: "hidden",
-                        transform: `translate3d(calc(-50% + ${x}px), calc(-50% + ${y}px), ${tz}px) scale(${scale})`,
-                        opacity: Number(opacity),
-                        filter: blur,
-                        zIndex: zIdx,
-                        willChange: "transform, opacity, filter, box-shadow",
-                        transformStyle: "preserve-3d",
-                      }}
-                    >
-                      <ProfilePhoto
-                        userId={orbitCardIds[i] || ''}
-                        className="w-full h-full pointer-events-none"
-                      />
-                      {/* Depth overlay — darkens back cards, transparent on front */}
-                      <div style={{
-                        position: "absolute", inset: 0,
-                        background: `rgba(13,8,18,${(Math.max(0, 0.55 - depth * 0.55)).toFixed(2)})`,
-                        pointerEvents: "none",
-                      }} />
-                      {/* Bottom gradient for front card readability */}
-                      <div style={{
-                        position: "absolute", inset: 0,
-                        background: "linear-gradient(to bottom, transparent 55%, rgba(0,0,0,0.45) 100%)",
-                        pointerEvents: "none",
-                        opacity: depth,
-                      }} />
-                      {/* Subtle border */}
-                      <div style={{
-                        position: "absolute", inset: 0, borderRadius: 18,
-                        border: `1px solid rgba(212,92,116,${(depth * 0.25).toFixed(2)})`,
-                        pointerEvents: "none",
-                      }} />
-                    </div>
-                  );
-                })}
+                {/* 5 orbit cards — positions driven entirely by the orbit RAF.        */}
+                {/* DO NOT add transform/opacity/filter/zIndex to the style prop here  */}
+                {/* — React would overwrite the RAF's mutations on every re-render.     */}
+                {Array.from({ length: ORBIT_N }, (_, i) => (
+                  <div
+                    key={i}
+                    ref={el => { orbitCardRefs.current[i] = el; }}
+                    style={{
+                      position: "absolute", left: "50%", top: "50%",
+                      width: 152, height: 228, borderRadius: 18, overflow: "hidden",
+                      willChange: "transform, opacity, filter, box-shadow",
+                    }}
+                  >
+                    <ProfilePhoto
+                      userId={orbitCardIds[i] || ''}
+                      className="w-full h-full pointer-events-none"
+                    />
+                    {/* Bottom readability gradient */}
+                    <div style={{
+                      position: "absolute", inset: 0,
+                      background: "linear-gradient(to bottom, transparent 55%, rgba(0,0,0,0.45) 100%)",
+                      pointerEvents: "none",
+                    }} />
+                    {/* Subtle rose border */}
+                    <div style={{
+                      position: "absolute", inset: 0, borderRadius: 18,
+                      border: "1px solid rgba(212,92,116,0.18)",
+                      pointerEvents: "none",
+                    }} />
+                  </div>
+                ))}
 
                 {/* Edge vignettes — let front card bleed, clip periphery */}
                 <div style={{ position: "absolute", top: 0, left: 0, bottom: 0, width: 48, background: "linear-gradient(to right, #0d0812 0%, transparent 100%)", pointerEvents: "none", zIndex: 110 }} />
