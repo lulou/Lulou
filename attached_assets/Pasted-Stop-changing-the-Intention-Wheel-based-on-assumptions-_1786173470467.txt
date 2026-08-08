@@ -1,0 +1,153 @@
+Stop changing the Intention Wheel based on assumptions.
+
+4a43695 is now confirmed on origin/main and production, but ALL of these production iPhone problems still remain:
+
+- wheel still lands between users and jumps
+- “Narrowing down…” is still too fast
+- winner enlargement is still abrupt
+- “Something slipped away” still appears
+- Continue still leads to a blank Intent page
+
+This means the previous diagnosis was not the real production root cause.
+
+DO NOT modify timing, orbit math, or fallback behavior again until you capture the ACTUAL production state from the iPhone.
+
+1. VERIFY BUILD ON DEVICE
+
+Use the visible build marker already added.
+
+Confirm the iPhone actually shows:
+4a43695
+
+If not, stop and fix deployment/cache first.
+
+2. CAPTURE THE REAL PRODUCTION ERROR
+
+The app already records:
+[INTENTION_WHEEL_STATE] boundary_error
+
+Do not ask me for Safari console logs.
+
+Make the in-app debug panel expose the latest Intention Wheel entries clearly, including:
+
+- errorMessage
+- full componentStack
+- firstFrame
+- spinRoomPhase
+- selectedProfile userId
+- pendingWinner userId
+- persisted result userId
+- orbitAngle
+- targetAngle
+- winnerIndex
+
+If the debug panel currently truncates these values, fix the panel display first.
+
+3. DO NOT TOUCH THE ERROR BOUNDARY YET
+
+The fallback keeps appearing because a real render exception is still happening.
+
+Read the exact boundary_error captured on the production iPhone and identify:
+- exact exception
+- exact component
+- exact JSX expression
+- exact bad value
+
+Only then fix that line.
+
+Do not add another null guard blindly.
+
+4. TRACE THE ACTUAL ORBIT VALUES
+
+The jump is still visible, so the current approach-angle fix is not solving the real issue.
+
+Use the existing once-per-second / phase logs and compare these live values:
+
+approach_start:
+- current orbitAngle
+- targetAngle
+- winnerIndex
+- actual frontIndex
+
+approach_complete:
+- current orbitAngle
+- targetAngle
+- angularError
+- actual frontIndex
+
+At winner lock:
+- winner userId
+- card currently at front-centre userId
+
+If winner userId !== front-centre card userId, that is the actual jump source.
+
+Then identify whether the mismatch comes from:
+- candidate array order changing
+- winner index calculated against a different array
+- ProfilePhoto slot userId not matching orbit slot index
+- stale winner index
+- persisted result restoring a different profile
+- React keys causing card identity reuse
+
+Fix the actual mismatch.
+
+5. MEASURE THE REAL MOMENTUM TIME
+
+The text is still too fast.
+
+Do not trust the configured timeout values.
+
+Record timestamps from production:
+
+approach_complete
+momentum_step_1
+momentum_step_2
+momentum_step_3
+reveal_mount
+
+Report the actual millisecond differences seen on iPhone.
+
+If reveal_mount occurs before 4000 ms after winner lock, find why.
+
+6. TRACE CONTINUE → BLANK PAGE
+
+When Continue is pressed, log:
+
+- persisted result GET status
+- returned userId
+- selectedProfile before/after
+- spinRoomPhase before/after
+- showSpinRoom before/after
+- candidates length
+- isLoading / isError for Intent queries
+
+The page must not be allowed to render the normal Intent shell with no wheel/result data.
+
+If persisted result exists:
+restore it and show result.
+
+If no result exists:
+force a complete Intent data refetch before leaving the fallback.
+
+7. PRODUCTION-ONLY PASS
+
+Do not report PASS from code inspection.
+
+Do not report “fixed” after compiling.
+
+Report only after one real production iPhone run with:
+
+- device build hash
+- exact boundary exception
+- exact orbit winner/front-card mismatch
+- actual momentum timestamps
+- exact Continue blank-page cause
+- exact lines changed
+- new commit hash
+- origin/main hash
+- Vercel deployed hash
+- live iPhone PASS/FAIL
+
+Do not redesign anything.
+Do not tweak more numbers.
+Find the real production fault first.
