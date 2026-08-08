@@ -473,6 +473,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                     }
                   }
                   setSessionBootstrapFailed(false);
+                  // ── Clear explicit logout guard — user has voluntarily signed in ──
+                  try {
+                    if (localStorage.getItem("lulou_explicit_logout") === "true") {
+                      localStorage.removeItem("lulou_explicit_logout");
+                      console.log("[AUTH_LOGOUT] fresh_login_cleared_guard", {
+                        branch: "SIGNED_IN-verify-ok", userId: newUserId?.slice(0, 8),
+                      });
+                    }
+                  } catch {}
                   setIsSessionReady(true);
                   setUser(u);
                   setProfileReady(true);
@@ -547,6 +556,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               }
             }
             setSessionBootstrapFailed(false);
+            // ── Clear explicit logout guard — user has voluntarily signed in ──
+            try {
+              if (localStorage.getItem("lulou_explicit_logout") === "true") {
+                localStorage.removeItem("lulou_explicit_logout");
+                console.log("[AUTH_LOGOUT] fresh_login_cleared_guard", {
+                  branch: "SIGNED_IN-bootstrap-ok", userId: newUserId?.slice(0, 8),
+                });
+              }
+            } catch {}
             setIsSessionReady(true);
             setUser(u);
             setProfileReady(true);
@@ -735,6 +753,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         console.log("[AUTH] INITIAL_SESSION_VERIFY_START", { userId: newUserId?.slice(0, 8), attemptId: myAttemptId });
 
         (async () => {
+          // ── Explicit logout guard ─────────────────────────────────────────
+          // If the user explicitly signed out, do NOT auto-bootstrap from a
+          // cached or refreshed Supabase token. Catches the autoRefreshToken
+          // race: even if signOut() lost and the Supabase token survived in
+          // localStorage, this guard blocks INITIAL_SESSION bootstrap so the
+          // user stays on the login page.
+          if (localStorage.getItem("lulou_explicit_logout") === "true") {
+            console.log("[AUTH_LOGOUT] startup_guard_detected — bootstrap_blocked_due_to_explicit_logout", {
+              event: "INITIAL_SESSION", userId: newUserId?.slice(0, 8),
+            });
+            bootstrapInProgressForUserRef.current = null;
+            asyncAuthInProgressRef.current = false;
+            // Clear the Supabase local token so the next INITIAL_SESSION event
+            // does not fire again with stale credentials.
+            supabase.auth.signOut({ scope: "local" }).catch(() => {});
+            if (mounted) { setUser(null); setProfileReady(true); setIsLoading(false); }
+            return;
+          }
+
           const storedSessionId = localStorage.getItem("lulou_session_id") ?? "";
           let verified = false;
           // Track the exact reason for a verification failure so we can show the
@@ -1126,6 +1163,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return;
       }
 
+      // ── Explicit logout guard (TOKEN_REFRESHED / other fast-path events) ──
+      // A TOKEN_REFRESHED tick can complete concurrently with signOut. Without
+      // this guard it would call setUser(u) and setIsSessionReady(true), making
+      // the user appear signed-in until the next render cycle.
+      if (
+        event !== "SIGNED_OUT" &&
+        u !== null &&
+        localStorage.getItem("lulou_explicit_logout") === "true"
+      ) {
+        console.log("[AUTH_LOGOUT] bootstrap_blocked_due_to_explicit_logout", {
+          event, userId: u.id?.slice(0, 8),
+        });
+        supabase.auth.signOut({ scope: "local" }).catch(() => {});
+        if (mounted) { setUser(null); setProfileReady(true); setIsLoading(false); }
+        return;
+      }
+
       // Reset bootstrap failure state on sign-out so the landing page is clean.
       if (event === "SIGNED_OUT") {
         setSessionBootstrapFailed(false);
@@ -1166,7 +1220,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     loggingOutRef.current = true;
     setIsLoggingOut(true);
     setIsSessionReady(false);
-    console.log("[LOGOUT_FIX] first click received");
+    console.log("[AUTH_LOGOUT] logout_pressed");
+
+    // ── Explicit logout guard — set SYNCHRONOUSLY, before any async work ─────
+    // Persists across PWA close / tab swipe. Checked by INITIAL_SESSION on
+    // every subsequent app open. If supabase.auth.signOut() loses a race with
+    // autoRefreshToken and the Supabase token survives in localStorage, this
+    // guard is the only reliable barrier against the user being auto-logged-in.
+    try { localStorage.setItem("lulou_explicit_logout", "true"); } catch {}
+    console.log("[AUTH_LOGOUT] explicit_logout_guard_set");
 
     // ── Hard guards: stop audio + clear call arming state FIRST ──────────────
     // Must run before any React state update so call audio is silenced on the
@@ -1198,15 +1260,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const _deleteSessionId = localStorage.getItem("lulou_session_id") ?? "";
         const _deleteCtrl = new AbortController();
         const _deleteTimeout = setTimeout(() => _deleteCtrl.abort(), 2000);
-        await fetch(`${API_BASE}/api/auth/session`, {
+        const _deleteRes = await fetch(`${API_BASE}/api/auth/session`, {
           method: "DELETE",
           signal: _deleteCtrl.signal,
           headers: {
             Authorization: `Bearer ${_s.access_token}`,
             ...(_deleteSessionId ? { "X-Session-Id": _deleteSessionId } : {}),
           },
-        }).catch(() => {});
+        }).catch((e) => {
+          console.warn("[AUTH_LOGOUT] active_session_delete_result: network-error", String(e));
+          return null;
+        });
         clearTimeout(_deleteTimeout);
+        console.log("[AUTH_LOGOUT] active_session_delete_result:", _deleteRes ? `http-${_deleteRes.status}` : "no-response (timeout or network)");
 
         // Remove push subscription before signing out so this device stops
         // receiving notifications for this account after logout.
@@ -1249,23 +1315,39 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Clear the query cache synchronously — no stale data visible if the user
     // logs in again in the same tab.
     queryClient.clear();
-    console.log("[LOGOUT_FIX] local state cleared immediately");
+    console.log("[AUTH_LOGOUT] local_state_cleared: user=null, session=null, queryClient cleared");
 
     // Navigate to root immediately.  user is already null so AppContent is
     // rendering Landing — replaceState is cosmetic (clean URL bar).
     window.history.replaceState(null, "", "/");
-    console.log("[LOGOUT_FIX] redirected immediately");
 
     // Revoke the Supabase session server-side. This also fires
     // onAuthStateChange(SIGNED_OUT) which calls setUser(null) again (idempotent)
     // and schedules another queryClient.clear() (no-op on an already-cleared
     // cache). Errors here are non-fatal — the user is already on Landing.
+    // scope:"global" invalidates all devices. Even if this call fails or races
+    // with autoRefreshToken, lulou_explicit_logout above is the backstop.
     try {
-      await supabase.auth.signOut();
-      console.log("[AUTH_LOGOUT] supabase signOut complete");
+      console.log("[AUTH_LOGOUT] supabase_signout_started");
+      await supabase.auth.signOut({ scope: "global" });
+      console.log("[AUTH_LOGOUT] supabase_signout_result: ok");
     } catch (err) {
-      console.error("[AUTH_LOGOUT] supabase signOut error (non-fatal, user already logged out locally)", err);
+      console.error("[AUTH_LOGOUT] supabase_signout_result: error (non-fatal, user already logged out locally)", err);
     }
+
+    // Belt-and-suspenders: directly remove the Supabase auth token key from
+    // localStorage in case autoRefreshToken re-wrote it after signOut cleared it.
+    // The lulou_explicit_logout guard above is the primary protection, but
+    // removing the token ensures INITIAL_SESSION doesn't even fire next open.
+    try {
+      const _sbKey = Object.keys(localStorage).find(
+        k => k.startsWith("sb-") && k.endsWith("-auth-token")
+      );
+      if (_sbKey) {
+        localStorage.removeItem(_sbKey);
+        console.log("[AUTH_LOGOUT] supabase localStorage token key removed (belt-and-suspenders) ✓");
+      }
+    } catch {}
 
     loggingOutRef.current = false;
     setIsLoggingOut(false);
