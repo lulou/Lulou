@@ -82,53 +82,14 @@ class IntentResultBoundary extends Component<{ children: ReactNode; onReset: () 
 }
 
 /** Fisher-Yates shuffle — returns a new array, does not mutate input. */
-// ── SpinRoom 3-slot carousel: direct DOM style helper ──────────────────────
-// Applies position/opacity/filter for a slot's visual role.
-// Defined at module scope — no closure over component state.
-type SrRole = 'L' | 'C' | 'R' | 'offL' | 'offR';
-function applySrStyle(el: HTMLDivElement, role: SrRole, durMs: number) {
-  const s = el.style;
-  s.transition = durMs > 0
-    ? `transform ${durMs}ms cubic-bezier(0.4,0,0.25,1), opacity ${Math.round(durMs * 0.85)}ms ease, filter ${Math.round(durMs * 0.75)}ms ease, box-shadow ${durMs}ms ease`
-    : 'none';
-  // All slots are anchored at left:50%, top:50% (top-left corner at container centre).
-  // Transforms must include both X and Y centering so the visual card centre lands correctly.
-  //
-  // Card: 152 × 228 px.  Half-width = 76 px, half-height = 114 px.
-  //   Centre card visual centre  → (50%, 50%) → translateX(-50%) translateY(-50%)
-  //   Left  card visual centre   → (50%−131px, 50%) → translateX(calc(−50%−131px)) translateY(−50%)
-  //     proof: card left-edge = 50% + translateX; card centre = 50% + translateX + 76px
-  //            want centre = 50%−131px  →  translateX = −207px = −76px − 131px = calc(−50%−131px) ✓
-  //   Right card visual centre   → (50%+131px, 50%) → translateX(calc(−50%+131px)) translateY(−50%)
-  //     translateX = +55px = −76px + 131px = calc(−50%+131px) ✓
-  switch (role) {
-    case 'C':
-      s.transform = 'translateX(-50%) translateY(-50%) scale(1)';
-      s.opacity = '1'; s.filter = 'blur(0px)'; s.zIndex = '10';
-      s.boxShadow = '0 8px 28px rgba(0,0,0,0.55)';
-      break;
-    case 'L':
-      s.transform = 'translateX(calc(-50% - 131px)) translateY(-50%) scale(0.592)';
-      s.opacity = '0.42'; s.filter = 'blur(1.5px)'; s.zIndex = '1';
-      s.boxShadow = '0 4px 14px rgba(0,0,0,0.36)';
-      break;
-    case 'R':
-      s.transform = 'translateX(calc(-50% + 131px)) translateY(-50%) scale(0.592)';
-      s.opacity = '0.42'; s.filter = 'blur(1.5px)'; s.zIndex = '1';
-      s.boxShadow = '0 4px 14px rgba(0,0,0,0.36)';
-      break;
-    case 'offL':
-      s.transform = 'translateX(calc(-50% - 310px)) translateY(-50%) scale(0.28)';
-      s.opacity = '0'; s.filter = 'blur(6px)'; s.zIndex = '0';
-      s.boxShadow = 'none';
-      break;
-    case 'offR':
-      s.transform = 'translateX(calc(-50% + 310px)) translateY(-50%) scale(0.28)';
-      s.opacity = '0'; s.filter = 'blur(6px)'; s.zIndex = '0';
-      s.boxShadow = 'none';
-      break;
-  }
-}
+// ── SpinRoom orbit constants ────────────────────────────────────────────────
+// 5 cards on an elliptical orbit.  Front position = angle π/2 (sin = 1, depth = 1).
+// Cards rotate in the positive-angle direction (counter-clockwise in math coords,
+// visually left-to-right across the front).
+const ORBIT_N     = 5;
+const ORBIT_RX    = 130;   // px — horizontal radius
+const ORBIT_RY    = 15;    // px — vertical radius (subtle tilt-plane depth cue)
+const ORBIT_SPEED_FAST = 4.2;  // rad/s — normaliser for glow intensity
 
 function shuffleArray<T>(arr: T[]): T[] {
   const a = [...arr];
@@ -1133,27 +1094,15 @@ export default function IntentPage() {
   type SpinPhase = 'idle' | 'accelerate' | 'fast' | 'slow' | 'approach' | 'pullforward' | 'arrive' | 'reveal' | 'pause' | 'buttons';
   const [spinRoomPhase, setSpinRoomPhase] = useState<SpinPhase>('idle');
 
-  // ── 3-slot carousel refs (replace srIdx/srIdxRef) ──────────────────────────
-  // srCentreIdxRef: candidate array index currently showing in the centre slot.
-  // Read by the pullforward timeout to pick the winner — no React state needed.
-  const srCentreIdxRef = useRef(1);       // slot1 is initialised as centre
-  // 3 stable DOM refs — never unmounted during spin
-  const srSlot0Ref = useRef<HTMLDivElement>(null);
-  const srSlot1Ref = useRef<HTMLDivElement>(null);
-  const srSlot2Ref = useRef<HTMLDivElement>(null);
-  // React state: userId currently mounted in each slot.
-  // Updated ONLY when the slot is off-screen (opacity=0), preventing visible flicker.
-  const [srSlotIds, setSrSlotIds] = useState<[string, string, string]>(['', '', '']);
-  // Current visual role of each slot (no re-render — direct DOM mutation drives position)
-  const srRoleRef = useRef<SrRole[]>(['L', 'C', 'R']); // slot 0=L, 1=C, 2=R
-  // Next candidate index to preload into the newly-hidden slot
-  const srNextCandRef = useRef(3);
-  // Advance-cycle timer
-  const srAdvTimerRef2 = useRef<ReturnType<typeof setTimeout>>();
-  // Guard: prevent overlapping advance calls
-  const srAnimatingRef = useRef(false);
-  // Phase timing ref — always current, avoids stale closure in the animation loop
-  const srPhaseTimingRef = useRef<string>('idle');
+  // ── Orbit carousel: 5 stable card slots rotating on an ellipse ─────────────
+  // 5 DOM divs are mounted once and never unmounted during the spin.
+  // Their transforms are mutated directly by the rAF loop — zero React setState per frame.
+  // orbitFrontCandRef tracks which slot (= candidate index) is currently at the front.
+  // It is read by the pullforward timeout to choose the winner.
+  const orbitCardRefs = useRef<(HTMLDivElement | null)[]>(Array(ORBIT_N).fill(null));
+  const [orbitCardIds, setOrbitCardIds] = useState<string[]>(Array(ORBIT_N).fill(''));
+  // Slot index (0–4) of the candidate currently closest to the front (depth peak).
+  const orbitFrontCandRef = useRef(0);
 
   // Orbit animation refs (glow + speed tracking only; bubble positioning removed)
   const orbitBubbles    = useRef<(HTMLDivElement | null)[]>([]); // kept for type compat
@@ -1410,17 +1359,17 @@ export default function IntentPage() {
       setSpinRoomPhase(p);
       orbitTargetRef.current = speed;
     };
-    go('accelerate', 180);
+    go('accelerate', 1.6);    // rad/s  ≈ 1 orbit per 4 s — slow start
     console.log('[WHEEL] SPIN_START');
     const ts = [
-      setTimeout(() => { go('fast', 360);   console.log('[WHEEL] FAST_PHASE');      },  2000),
-      setTimeout(() => { go('slow',  40);   console.log('[WHEEL] SLOW_PHASE');      },  5000),
-      // Approach: decelerate orbit to near-zero so one bubble settles under the marker
+      setTimeout(() => { go('fast', 4.2);   console.log('[WHEEL] FAST_PHASE');      },  2000),
+      setTimeout(() => { go('slow', 0.8);   console.log('[WHEEL] SLOW_PHASE');      },  5000),
+      // Approach: decelerate orbit to near-zero so one card settles at the front
       setTimeout(() => { go('approach', 0); console.log('[WHEEL] WINNER_APPROACH'); },  7000),
-      // Pullforward: whoever is in the centre slot of the 3-card strip wins
+      // Pullforward: whoever is closest to the front of the orbit wins
       setTimeout(() => {
-        const N_orb = Math.min(items.length, 10);
-        const closestI = N_orb > 0 ? srCentreIdxRef.current : 0;
+        const N_orb = Math.min(items.length, ORBIT_N);
+        const closestI = N_orb > 0 ? orbitFrontCandRef.current : 0;
         const winner = items[closestI];
         console.log('[WHEEL] PULL_FORWARD', { winner: winner?.firstName, index: closestI });
         console.log('[INTENTION_WHEEL] selected_candidate', {
@@ -1474,154 +1423,119 @@ export default function IntentPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showSpinRoom]);
 
-  // ── Keep srPhaseTimingRef in sync with spinRoomPhase (no re-render) ──────────
-  useEffect(() => { srPhaseTimingRef.current = spinRoomPhase; }, [spinRoomPhase]);
-
-  // ── 3-slot carousel: DOM-animated, no React setState per frame ──────────────
-  // Transition durations per phase. The "gap" is the pause after the incoming
-  // card finishes sliding before the next advance begins.
-  const SR_PHASE: Record<string, { transition: number; gap: number }> = {
-    accelerate: { transition: 360, gap: 100 },  // ~460 ms/card — starts slow, feels dramatic
-    fast:       { transition: 110, gap: 30  },  // ~140 ms/card — high speed
-    slow:       { transition: 230, gap: 70  },  // ~300 ms/card — noticeably decelerating
-    approach:   { transition: 380, gap: 100 },  // ~480 ms/card — nearly stopped
-  };
-
-  useEffect(() => {
-    if (!showSpinRoom) {
-      clearTimeout(srAdvTimerRef2.current);
-      srAnimatingRef.current = false;
-      return;
-    }
-    const N = Math.min(items.length, 10);
-    if (N === 0) return;
-    const spinItems = items.slice(0, N);
-
-    // Capture slot DOM elements (must exist — JSX mounts before effect runs)
-    const els = [srSlot0Ref.current, srSlot1Ref.current, srSlot2Ref.current];
-    if (!els[0] || !els[1] || !els[2]) return;
-
-    // ── Initialise 3 slots with candidate 0, 1, 2 ────────────────────────────
-    setSrSlotIds([
-      spinItems[0 % N].userId,
-      spinItems[1 % N].userId,
-      spinItems[2 % N].userId,
-    ]);
-    srRoleRef.current = ['L', 'C', 'R'];
-    srCentreIdxRef.current = 1 % N;          // slot 1 is centred → shows candidate 1
-    srNextCandRef.current = 3 % N;
-
-    // Apply initial positions with NO transition so there is no opening swoosh
-    applySrStyle(els[0] as HTMLDivElement, 'L', 0);
-    applySrStyle(els[1] as HTMLDivElement, 'C', 0);
-    applySrStyle(els[2] as HTMLDivElement, 'R', 0);
-
-    // ── Advance one step: L→offL, C→L, R→C, then prepare new R ──────────────
-    function doAdvance() {
-      const phase = srPhaseTimingRef.current;
-      const cfg = SR_PHASE[phase];
-      if (!cfg) return; // stopped phases: pullforward, arrive, reveal, etc.
-      if (srAnimatingRef.current) return;
-      srAnimatingRef.current = true;
-
-      const roles = srRoleRef.current;
-      const lSlot = roles.indexOf('L') as 0 | 1 | 2;
-      const cSlot = roles.indexOf('C') as 0 | 1 | 2;
-      const rSlot = roles.indexOf('R') as 0 | 1 | 2;
-      const dur   = cfg.transition;
-
-      // Simultaneously slide all 3 visible cards
-      applySrStyle(els[lSlot] as HTMLDivElement, 'offL', dur);   // exits left
-      applySrStyle(els[cSlot] as HTMLDivElement, 'L',    dur);   // moves to left
-      applySrStyle(els[rSlot] as HTMLDivElement, 'C',    dur);   // moves to centre
-
-      // Track which candidate index is now centred
-      srCentreIdxRef.current = (srCentreIdxRef.current + 1) % N;
-
-      // After the main transition completes, prepare the new right card
-      const onDone = () => {
-        // Update roles: oldC→L, oldR→C, oldL→R (will enter from offR)
-        const newRoles: SrRole[] = ['L', 'C', 'R'];
-        newRoles[cSlot] = 'L';
-        newRoles[rSlot] = 'C';
-        newRoles[lSlot] = 'R';
-        srRoleRef.current = newRoles;
-
-        // Load next candidate into the now-hidden slot (off-screen, opacity 0)
-        const nextIdx = srNextCandRef.current;
-        setSrSlotIds(prev => {
-          const n: [string, string, string] = [...prev] as [string, string, string];
-          n[lSlot] = spinItems[nextIdx].userId;
-          return n;
-        });
-        srNextCandRef.current = (nextIdx + 1) % N;
-
-        // Instantly snap old-L to off-right (no transition — it's invisible)
-        applySrStyle(els[lSlot] as HTMLDivElement, 'offR', 0);
-
-        // Two RAF ticks ensure the browser commits the snap before the transition
-        requestAnimationFrame(() => requestAnimationFrame(() => {
-          // Slide new right card in from the right
-          const enterDur = Math.round(dur * 0.60);
-          applySrStyle(els[lSlot] as HTMLDivElement, 'R', enterDur);
-
-          srAnimatingRef.current = false;
-
-          // Schedule next advance after the entering card finishes
-          const phase2 = srPhaseTimingRef.current;
-          const cfg2 = SR_PHASE[phase2];
-          if (cfg2) {
-            clearTimeout(srAdvTimerRef2.current);
-            srAdvTimerRef2.current = setTimeout(doAdvance, enterDur + cfg2.gap);
-          }
-        }));
-      };
-
-      // Listen on the card moving to centre (most reliable — it travels furthest)
-      (els[rSlot] as HTMLDivElement).addEventListener('transitionend', onDone, { once: true });
-    }
-
-    // Start the first advance after a short opening pause
-    const cfg0 = SR_PHASE[srPhaseTimingRef.current];
-    if (cfg0) {
-      srAdvTimerRef2.current = setTimeout(doAdvance, cfg0.transition + cfg0.gap);
-    }
-
-    return () => {
-      clearTimeout(srAdvTimerRef2.current);
-      srAnimatingRef.current = false;
-    };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showSpinRoom]);
-
-  // ── Orbit RAF loop (glow orb only — bubble positioning removed) ───────────
+  // ── Orbit RAF — drives all 5 card positions + glow ──────────────────────────
+  // One rAF loop handles everything: angle advance, per-card depth math, DOM mutation.
+  // Zero React setState per frame — only setOrbitCardIds fires, and only when a card
+  // passes through its back position (depth < 0.12) and needs a new userId loaded.
   useEffect(() => {
     if (!showSpinRoom) {
       cancelAnimationFrame(orbitRafRef2.current);
       spinPhaseRef.current     = 'idle';
       orbitSpeedRef2.current   = 0;
+      orbitAngleRef2.current   = 0;
       orbitLastTimeRef.current = 0;
       return;
     }
+    const N = Math.min(items.length, ORBIT_N);
+    if (N === 0) return;
+    const spinItems = items.slice(0, N);
+
+    // Initialise card userIds — slot i shows candidate i initially
+    setOrbitCardIds(Array.from({ length: ORBIT_N }, (_, i) => spinItems[i % N].userId));
+
+    // Card 0 starts at the front (sin(angle + 0) = 1 → angle = π/2).
+    orbitAngleRef2.current = Math.PI / 2;
+
+    // Apply initial transforms instantly (no animation)
+    for (let i = 0; i < ORBIT_N; i++) {
+      const el = orbitCardRefs.current[i];
+      if (!el) continue;
+      const theta  = orbitAngleRef2.current + (2 * Math.PI / N) * i;
+      const sinT   = Math.sin(theta);
+      const cosT   = Math.cos(theta);
+      const depth  = (sinT + 1) / 2;
+      const scale  = (0.55 + depth * 0.45).toFixed(3);
+      const x      = (cosT * ORBIT_RX).toFixed(1);
+      const y      = ((sinT - 1) * ORBIT_RY).toFixed(1);  // front stays at y=0
+      const tz     = (depth * 60 - 30).toFixed(1);
+      el.style.transition = 'none';
+      el.style.transform  = `translate3d(calc(-50% + ${x}px), calc(-50% + ${y}px), ${tz}px) scale(${scale})`;
+      el.style.opacity    = (0.25 + depth * 0.75).toFixed(3);
+      el.style.filter     = depth < 0.92 ? `blur(${((1 - depth) * 8).toFixed(1)}px)` : '';
+      el.style.zIndex     = String(Math.round(depth * 100));
+    }
+    orbitFrontCandRef.current = 0; // card 0 is at front initially
+
+    // Track which candidates have been recently back-loaded so we don't double-set
+    const backLoaded = new Set<number>();
+
     const tick = (now: number) => {
       const dt = orbitLastTimeRef.current === 0
         ? 0.016
         : Math.min((now - orbitLastTimeRef.current) / 1000, 0.05);
       orbitLastTimeRef.current = now;
+
+      const phase = spinPhaseRef.current;
+      // Pause orbit when the winner has been picked; pullforward handles the snap rAF
+      if (phase === 'pullforward' || phase === 'arrive' || phase === 'reveal' ||
+          phase === 'pause' || phase === 'buttons') return;
+
+      // Smooth speed toward target
       const tgt  = orbitTargetRef.current;
       const cur  = orbitSpeedRef2.current;
       const diff = tgt - cur;
-      orbitSpeedRef2.current += diff * Math.min(dt * (diff > 0 ? 1.6 : 2.4), 1);
-      // Update ambient glow intensity to track speed
-      if (orbitGlowRef.current && spinPhaseRef.current !== 'pullforward' && spinPhaseRef.current !== 'arrive') {
-        const frac   = Math.min(orbitSpeedRef2.current / 360, 1);
+      orbitSpeedRef2.current += diff * Math.min(dt * (diff > 0 ? 1.4 : 2.2), 1);
+
+      // Advance orbit angle
+      orbitAngleRef2.current += orbitSpeedRef2.current * dt;
+      const angle = orbitAngleRef2.current;
+
+      // Update all card DOM elements
+      let frontI = 0, frontDepth = -1;
+      for (let i = 0; i < ORBIT_N; i++) {
+        const el = orbitCardRefs.current[i];
+        if (!el) continue;
+        const theta  = angle + (2 * Math.PI / N) * i;
+        const sinT   = Math.sin(theta);
+        const cosT   = Math.cos(theta);
+        const depth  = (sinT + 1) / 2;
+        const scale  = (0.55 + depth * 0.45).toFixed(3);
+        const x      = (cosT * ORBIT_RX).toFixed(1);
+        const y      = ((sinT - 1) * ORBIT_RY).toFixed(1);
+        const tz     = (depth * 60 - 30).toFixed(1);
+        el.style.transform  = `translate3d(calc(-50% + ${x}px), calc(-50% + ${y}px), ${tz}px) scale(${scale})`;
+        el.style.opacity    = (0.25 + depth * 0.75).toFixed(3);
+        el.style.filter     = depth < 0.92 ? `blur(${((1 - depth) * 8).toFixed(1)}px)` : '';
+        el.style.zIndex     = String(Math.round(depth * 100));
+        if (depth > frontDepth) { frontDepth = depth; frontI = i; }
+
+        // When a card reaches deep back (depth < 0.12) we can silently swap its userId.
+        // backLoaded guards against thrashing while it stays at the back.
+        if (depth < 0.12 && !backLoaded.has(i)) {
+          backLoaded.add(i);
+          const nextCand = (i + N) % N; // keeps within the candidate pool
+          setOrbitCardIds(prev => {
+            const n = [...prev];
+            n[i] = spinItems[nextCand].userId;
+            return n;
+          });
+        } else if (depth >= 0.12) {
+          backLoaded.delete(i);
+        }
+      }
+      orbitFrontCandRef.current = frontI;
+
+      // Glow intensity tracks speed
+      if (orbitGlowRef.current) {
+        const frac   = Math.min(orbitSpeedRef2.current / ORBIT_SPEED_FAST, 1);
         const spread = Math.round(24 + frac * 64);
-        const blur   = Math.round(14 + frac * 44);
+        const blurG  = Math.round(14 + frac * 44);
         const alpha  = (0.12 + frac * 0.44).toFixed(2);
         orbitGlowRef.current.style.boxShadow =
-          `0 0 ${blur}px ${Math.round(spread * 0.35)}px rgba(212,92,116,${alpha}),` +
-          `0 0 ${blur * 2}px ${Math.round(spread * 0.7)}px rgba(212,92,116,${(+alpha * 0.5).toFixed(2)})`;
+          `0 0 ${blurG}px ${Math.round(spread * 0.35)}px rgba(212,92,116,${alpha}),` +
+          `0 0 ${blurG * 2}px ${Math.round(spread * 0.7)}px rgba(212,92,116,${(+alpha * 0.5).toFixed(2)})`;
       }
+
       orbitRafRef2.current = requestAnimationFrame(tick);
     };
     orbitRafRef2.current = requestAnimationFrame(tick);
@@ -1629,43 +1543,77 @@ export default function IntentPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showSpinRoom]);
 
-  // ── Pull-forward: stop cycling, highlight the winner card in the centre slot ──
+  // ── Pull-forward: stop the orbit, snap winner to front, fade losers ──────────
   useLayoutEffect(() => {
     if (spinRoomPhase !== 'pullforward') return;
     spinPhaseRef.current = 'pullforward';
-    clearTimeout(srAdvTimerRef2.current);
-    srAnimatingRef.current = false;
+    cancelAnimationFrame(orbitRafRef2.current);
 
-    // Directly style the centre slot for winner highlight (no React state change)
-    const roles = srRoleRef.current;
-    const cSlot = roles.indexOf('C') as 0 | 1 | 2;
-    const lSlot = roles.indexOf('L') as 0 | 1 | 2;
-    const rSlot = roles.indexOf('R') as 0 | 1 | 2;
-    const slotEls = [srSlot0Ref.current, srSlot1Ref.current, srSlot2Ref.current];
-    const dur = 600;
-    if (slotEls[cSlot]) {
-      const el = slotEls[cSlot]!;
-      el.style.transition = `transform ${dur}ms cubic-bezier(0.12,0,0.08,1), box-shadow ${dur}ms ease, border-color ${dur}ms ease`;
-      el.style.transform = 'translate3d(0,0,0) scale(1.06)';
-      el.style.boxShadow = '0 0 60px 18px rgba(212,92,116,0.45), 0 8px 32px rgba(0,0,0,0.60)';
-    }
-    // Fade side cards out
-    const fadeDur = 500;
-    if (slotEls[lSlot]) {
-      slotEls[lSlot]!.style.transition = `opacity ${fadeDur}ms ease, filter ${fadeDur}ms ease`;
-      slotEls[lSlot]!.style.opacity = '0';
-      slotEls[lSlot]!.style.filter = 'blur(4px)';
-    }
-    if (slotEls[rSlot]) {
-      slotEls[rSlot]!.style.transition = `opacity ${fadeDur}ms ease, filter ${fadeDur}ms ease`;
-      slotEls[rSlot]!.style.opacity = '0';
-      slotEls[rSlot]!.style.filter = 'blur(4px)';
-    }
+    const N = Math.min(items.length, ORBIT_N);
+    const frontI = orbitFrontCandRef.current;
+
+    // Compute the smallest angle correction to land card frontI exactly at front (π/2).
+    // theta_front = orbitAngle + (2π/N)*frontI should equal π/2 + 2πk.
+    const thetaFront = orbitAngleRef2.current + (2 * Math.PI / N) * frontI;
+    let correction = (Math.PI / 2 - thetaFront) % (2 * Math.PI);
+    if (correction > Math.PI)  correction -= 2 * Math.PI;
+    if (correction < -Math.PI) correction += 2 * Math.PI;
+
+    const snapDur   = 700;   // ms
+    const startAngle = orbitAngleRef2.current;
+    const snapStart  = performance.now();
+
+    const snapTick = (now: number) => {
+      const t    = Math.min((now - snapStart) / snapDur, 1);
+      const ease = 1 - Math.pow(1 - t, 3); // cubic ease-out
+      const a    = startAngle + correction * ease;
+      orbitAngleRef2.current = a;
+
+      for (let i = 0; i < ORBIT_N; i++) {
+        const el = orbitCardRefs.current[i];
+        if (!el) continue;
+        const theta = a + (2 * Math.PI / N) * i;
+        const sinT  = Math.sin(theta);
+        const cosT  = Math.cos(theta);
+        const depth = (sinT + 1) / 2;
+        const scale = (0.55 + depth * 0.45).toFixed(3);
+        const x     = (cosT * ORBIT_RX).toFixed(1);
+        const y     = ((sinT - 1) * ORBIT_RY).toFixed(1);
+        const tz    = (depth * 60 - 30).toFixed(1);
+        el.style.transform  = `translate3d(calc(-50% + ${x}px), calc(-50% + ${y}px), ${tz}px) scale(${scale})`;
+        el.style.opacity    = (0.25 + depth * 0.75).toFixed(3);
+        el.style.filter     = depth < 0.92 ? `blur(${((1 - depth) * 8).toFixed(1)}px)` : '';
+        el.style.zIndex     = String(Math.round(depth * 100));
+      }
+
+      if (t < 1) {
+        orbitRafRef2.current = requestAnimationFrame(snapTick);
+      } else {
+        // Snap complete — apply winner glow + fade losers
+        for (let i = 0; i < ORBIT_N; i++) {
+          const el = orbitCardRefs.current[i];
+          if (!el) continue;
+          if (i === frontI) {
+            el.style.transition = 'transform 0.6s cubic-bezier(0.12,0,0.08,1), box-shadow 0.6s ease';
+            el.style.transform  = `translate3d(-50%, -50%, 30px) scale(1.06)`;
+            el.style.boxShadow  = '0 0 60px 18px rgba(212,92,116,0.45), 0 8px 32px rgba(0,0,0,0.60)';
+            el.style.opacity    = '1';
+            el.style.filter     = '';
+          } else {
+            el.style.transition = 'opacity 0.5s ease, filter 0.5s ease';
+            el.style.opacity    = '0';
+            el.style.filter     = 'blur(6px)';
+          }
+        }
+      }
+    };
+    orbitRafRef2.current = requestAnimationFrame(snapTick);
+
     try { (navigator as any).vibrate?.([20, 10, 40]); } catch {}
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [spinRoomPhase]);
 
-  // ── Arrive: update phase ref only — winner highlight is already applied ───────
+  // ── Arrive: update phase ref only (winner state already applied by pullforward) ─
   useLayoutEffect(() => {
     if (spinRoomPhase !== 'arrive') return;
     spinPhaseRef.current = 'arrive';
@@ -3004,71 +2952,86 @@ export default function IntentPage() {
               alignItems: "center", justifyContent: "center",
               position: "relative", zIndex: 2, width: "100%",
             }}>
-              {/* ── 3-slot flat carousel — positions driven by direct DOM mutation ── */}
-              {/* ProfilePhoto userId only changes when the slot is off-screen       */}
-              <div style={{ position: "relative", width: "100%", height: 260, flexShrink: 0 }}>
-                {/* Ambient glow orb — intensity driven by orbit RAF */}
+              {/* ── 5-card orbital stage — cards rotate on an ellipse in 3D ── */}
+              {/* All cards are permanently mounted. Positions are driven by the       */}
+              {/* orbit rAF loop via direct el.style mutations — no React setState.    */}
+              {/* perspective on the container gives genuine depth to the Z-axis.      */}
+              <div style={{
+                position: "relative", width: "100%", height: 280, flexShrink: 0,
+                perspective: "700px",
+              }}>
+                {/* Ambient glow orb — intensity driven by orbit speed */}
                 <div ref={orbitGlowRef} style={{
                   position: "absolute", top: "50%", left: "50%",
-                  width: 180, height: 180, borderRadius: "50%",
+                  width: 220, height: 220, borderRadius: "50%",
                   transform: "translate(-50%,-50%)",
                   pointerEvents: "none", zIndex: 0,
                   animation: "srAmbientPulse 2.8s ease-in-out infinite",
                 }} />
 
-                {/* Slot 0 — initial role: LEFT
-                    Fallback transforms match applySrStyle('L'). useEffect overwrites
-                    them synchronously (transition:none) so there is no layout flash. */}
-                <div
-                  ref={srSlot0Ref}
-                  style={{
-                    position: "absolute", left: "50%", top: "50%",
-                    width: 152, height: 228, borderRadius: 18, overflow: "hidden",
-                    transform: "translateX(calc(-50% - 131px)) translateY(-50%) scale(0.592)",
-                    opacity: 0.42, zIndex: 1,
-                    willChange: "transform, opacity, filter, box-shadow",
-                  }}
-                >
-                  <ProfilePhoto userId={srSlotIds[0] || ''} className="w-full h-full pointer-events-none" />
-                  <div style={{ position: "absolute", inset: 0, background: "rgba(13,8,18,0.50)", pointerEvents: "none" }} />
-                  <div style={{ position: "absolute", inset: 0, borderRadius: 18, border: "1px solid rgba(212,92,116,0.18)", pointerEvents: "none" }} />
-                </div>
+                {/* 5 orbit cards — initial positions set by the mount useEffect.     */}
+                {/* Card 0 starts at the front (angle = π/2, depth = 1).              */}
+                {Array.from({ length: ORBIT_N }, (_, i) => {
+                  // Pre-compute the initial position for each card so the DOM frame
+                  // before the useEffect fires already looks correct.
+                  // orbitAngle starts at π/2; card i angle = π/2 + (2π/5)*i
+                  const N   = Math.min(items.length, ORBIT_N) || ORBIT_N;
+                  const theta = Math.PI / 2 + (2 * Math.PI / N) * i;
+                  const sinT  = Math.sin(theta);
+                  const cosT  = Math.cos(theta);
+                  const depth = (sinT + 1) / 2;
+                  const scale = (0.55 + depth * 0.45).toFixed(3);
+                  const x     = (cosT * ORBIT_RX).toFixed(1);
+                  const y     = ((sinT - 1) * ORBIT_RY).toFixed(1);
+                  const tz    = (depth * 60 - 30).toFixed(1);
+                  const opacity = (0.25 + depth * 0.75).toFixed(3);
+                  const blur    = depth < 0.92 ? `blur(${((1 - depth) * 8).toFixed(1)}px)` : '';
+                  const zIdx    = Math.round(depth * 100);
+                  return (
+                    <div
+                      key={i}
+                      ref={el => { orbitCardRefs.current[i] = el; }}
+                      style={{
+                        position: "absolute", left: "50%", top: "50%",
+                        width: 152, height: 228, borderRadius: 18, overflow: "hidden",
+                        transform: `translate3d(calc(-50% + ${x}px), calc(-50% + ${y}px), ${tz}px) scale(${scale})`,
+                        opacity: Number(opacity),
+                        filter: blur,
+                        zIndex: zIdx,
+                        willChange: "transform, opacity, filter, box-shadow",
+                        transformStyle: "preserve-3d",
+                      }}
+                    >
+                      <ProfilePhoto
+                        userId={orbitCardIds[i] || ''}
+                        className="w-full h-full pointer-events-none"
+                      />
+                      {/* Depth overlay — darkens back cards, transparent on front */}
+                      <div style={{
+                        position: "absolute", inset: 0,
+                        background: `rgba(13,8,18,${(Math.max(0, 0.55 - depth * 0.55)).toFixed(2)})`,
+                        pointerEvents: "none",
+                      }} />
+                      {/* Bottom gradient for front card readability */}
+                      <div style={{
+                        position: "absolute", inset: 0,
+                        background: "linear-gradient(to bottom, transparent 55%, rgba(0,0,0,0.45) 100%)",
+                        pointerEvents: "none",
+                        opacity: depth,
+                      }} />
+                      {/* Subtle border */}
+                      <div style={{
+                        position: "absolute", inset: 0, borderRadius: 18,
+                        border: `1px solid rgba(212,92,116,${(depth * 0.25).toFixed(2)})`,
+                        pointerEvents: "none",
+                      }} />
+                    </div>
+                  );
+                })}
 
-                {/* Slot 1 — initial role: CENTRE */}
-                <div
-                  ref={srSlot1Ref}
-                  style={{
-                    position: "absolute", left: "50%", top: "50%",
-                    width: 152, height: 228, borderRadius: 18, overflow: "hidden",
-                    transform: "translateX(-50%) translateY(-50%) scale(1)",
-                    opacity: 1, zIndex: 10,
-                    willChange: "transform, opacity, filter, box-shadow",
-                  }}
-                >
-                  <ProfilePhoto userId={srSlotIds[1] || ''} className="w-full h-full pointer-events-none" />
-                  <div style={{ position: "absolute", inset: 0, background: "linear-gradient(to bottom, transparent 55%, rgba(0,0,0,0.50) 100%)", pointerEvents: "none" }} />
-                  <div style={{ position: "absolute", inset: 0, borderRadius: 18, border: "1px solid rgba(255,255,255,0.08)", pointerEvents: "none" }} />
-                </div>
-
-                {/* Slot 2 — initial role: RIGHT */}
-                <div
-                  ref={srSlot2Ref}
-                  style={{
-                    position: "absolute", left: "50%", top: "50%",
-                    width: 152, height: 228, borderRadius: 18, overflow: "hidden",
-                    transform: "translateX(calc(-50% + 131px)) translateY(-50%) scale(0.592)",
-                    opacity: 0.42, zIndex: 1,
-                    willChange: "transform, opacity, filter, box-shadow",
-                  }}
-                >
-                  <ProfilePhoto userId={srSlotIds[2] || ''} className="w-full h-full pointer-events-none" />
-                  <div style={{ position: "absolute", inset: 0, background: "rgba(13,8,18,0.50)", pointerEvents: "none" }} />
-                  <div style={{ position: "absolute", inset: 0, borderRadius: 18, border: "1px solid rgba(212,92,116,0.18)", pointerEvents: "none" }} />
-                </div>
-
-                {/* Edge vignettes — clip cards at stage edges */}
-                <div style={{ position: "absolute", top: 0, left: 0, bottom: 0, width: 56, background: "linear-gradient(to right, #0d0812 0%, transparent 100%)", pointerEvents: "none", zIndex: 20 }} />
-                <div style={{ position: "absolute", top: 0, right: 0, bottom: 0, width: 56, background: "linear-gradient(to left, #0d0812 0%, transparent 100%)", pointerEvents: "none", zIndex: 20 }} />
+                {/* Edge vignettes — let front card bleed, clip periphery */}
+                <div style={{ position: "absolute", top: 0, left: 0, bottom: 0, width: 48, background: "linear-gradient(to right, #0d0812 0%, transparent 100%)", pointerEvents: "none", zIndex: 110 }} />
+                <div style={{ position: "absolute", top: 0, right: 0, bottom: 0, width: 48, background: "linear-gradient(to left, #0d0812 0%, transparent 100%)", pointerEvents: "none", zIndex: 110 }} />
               </div>
 
               {/* Phase status text */}

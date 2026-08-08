@@ -1,0 +1,84 @@
+The animation is still wrong.
+
+I do not want cards sliding left and right like a carousel.
+
+It must rotate like a real wheel/orbit around a central point.
+
+FIX ONLY THE SPIN MOTION
+
+Required motion:
+
+- profiles move around a circular or elliptical orbit
+- cards travel through depth, not just sideways
+- front card becomes largest and sharpest
+- cards moving to the back become smaller, darker and more blurred
+- cards pass behind the centre point and reappear on the other side
+- the wheel rotates continuously in one direction
+- no hard image swapping in the visible centre position
+- no flat left-to-right slider motion
+
+Use stable mounted card elements and animate orbital position with:
+
+- angle
+- translate3d(x, y, z)
+- scale based on depth
+- opacity based on depth
+- blur based on depth
+- z-index based on depth
+
+Suggested geometry:
+
+x = cos(angle) * radiusX
+y = sin(angle) * radiusY
+depth = (sin(angle) + 1) / 2
+
+Then derive:
+
+scale = 0.55 + depth * 0.45
+opacity = 0.25 + depth * 0.75
+blur = (1 - depth) * 8px
+zIndex = round(depth * 100)
+
+Animation requirements:
+
+1. Use requestAnimationFrame.
+2. Do not use React state every frame.
+3. Keep candidate cards mounted.
+4. Rotate the orbit continuously.
+5. Start slower.
+6. Accelerate smoothly.
+7. Maintain speed briefly.
+8. Decelerate naturally.
+9. Stop with the selected winner exactly at the front-centre position.
+10. Fade all non-winner cards away before the final reveal.
+
+Visual composition:
+
+- 5 cards may exist in the orbit
+- only about 3 should be clearly visible at once
+- one front card dominant
+- two side cards partially visible
+- rear cards very dim or hidden
+- consistent portrait card size
+- no flat carousel strip
+
+Do not change:
+- pre-spin design
+- photo source rules
+- result screen
+- spin entitlement logic
+- selected winner logic
+
+Remove the current translate-left/translate-centre/translate-right slot system entirely.
+
+Report:
+- exact carousel code removed
+- orbit formula used
+- winner stop-angle logic
+- file changed
+- commit hash
+- pushed status
+- Vercel deployed commit
+- real iPhone PASS/FAIL
+
+Do not call this complete unless the cards visibly rotate around a centre like a wheel.
