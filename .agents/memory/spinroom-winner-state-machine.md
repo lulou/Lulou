@@ -3,6 +3,12 @@ name: SpinRoom winner state machine
 description: How the intention-wheel SpinRoom stores and reveals the winner without exposing them early or crashing the error boundary.
 ---
 
+## Orbit RAF / React style conflict rule
+
+**Never put `transform`, `opacity`, `filter`, or `zIndex` in the JSX `style` prop of an RAF-animated element.** React only updates properties that appear in the rendered `style` object. If those properties ARE in the JSX, React overwrites the RAF's DOM mutations on every re-render (phase changes, query completions, setOrbitCardIds calls) — snapping the animation back to its initial position every frame. The fix: remove them from JSX entirely; set them only via the RAF (and the mount useEffect for initial positions). React never touches properties that don't appear in its virtual DOM tree.
+
+Also: remove CSS `perspective` from the container and `translateZ` from card transforms. With perspective + translateZ, cards appear tilted/skewed from off-center positions. Use only `translate(x, y) scale(s)` with `zIndex` for depth ordering — cards always face straight-on.
+
 ## Rule
 The spin winner is stored in `pendingWinnerRef` (a `useRef`, never `useState`) from the moment `spinWheel()` runs. React state (`selectedProfile`, `selectedIndex`, `revealQuote`) is only set **atomically with `go('reveal', 0)`** at t=11.2 s inside the phase-timeline useEffect.
 

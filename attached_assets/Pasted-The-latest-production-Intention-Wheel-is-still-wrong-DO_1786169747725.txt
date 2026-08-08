@@ -1,0 +1,163 @@
+The latest production Intention Wheel is still wrong.
+
+DO NOT redesign anything else.
+
+There are TWO remaining bugs.
+
+BUG 1 — THE WHEEL DOES NOT ACTUALLY SPIN
+
+Production behaviour:
+- the front card stays in effectively the same position for the whole spin
+- side cards barely move
+- the wheel does not visibly rotate around a centre
+- the card angle/perspective looks skewed
+- the front winner card should be straight-on, not tilted
+- this still does not look like a spinning wheel
+
+Fix the orbit implementation itself.
+
+Required behaviour:
+
+1. Front card must always face the viewer straight-on.
+  - no rotateY on the front card
+  - no skewed perspective on the winner
+  - portrait card remains vertical
+
+2. Cards must visibly travel around a circular/elliptical orbit.
+  Each frame must update every mounted card using angle-based position.
+
+Use a real orbital transform:
+theta = baseAngle + slotOffset
+
+x = cos(theta) * radiusX
+y = sin(theta) * radiusY
+
+depth = (sin(theta) + 1) / 2
+
+Then apply:
+translate3d(x, y, z)
+scale(...)
+opacity(...)
+blur(...)
+zIndex(...)
+
+The important part:
+baseAngle MUST visibly change every animation frame.
+
+3. Verify the RAF loop is actually mutating DOM every frame.
+Add dev-only logs once per second:
+[INTENTION_WHEEL_ORBIT]
+- baseAngle
+- elapsed
+- velocity
+- frontIndex
+- x/y of each slot
+
+Do NOT log every frame.
+
+4. Remove any code that freezes:
+- orbitAngleRef
+- phase angle
+- winner angle
+- transform after first render
+
+5. The orbit must:
+- begin moving immediately after Spin tap
+- accelerate
+- maintain speed
+- decelerate
+- stop with winner at exact front-centre
+
+6. Keep 5 cards mounted.
+Only about 3 should be visibly prominent.
+
+7. Front card:
+- scale 1
+- blur 0
+- opacity 1
+- straight-on
+
+8. Side/back cards:
+- smaller
+- darker
+- blurred
+- behind the front card
+
+9. Winner stop:
+- snap only at the very end
+- do not lock the front card early
+- winner must not sit in centre during the whole spin
+
+BUG 2 — “SOMETHING SLIPPED AWAY” STILL APPEARS AFTER SPIN
+
+Current production behaviour:
+- spin completes
+- fallback screen appears
+- tapping Continue then shows the result correctly
+
+This proves the result exists and is recoverable.
+The boundary is catching an invalid transitional render.
+
+Trace the exact transition between:
+- winner lock
+- reveal
+- selectedProfile assignment
+- result persistence
+- showProfile
+- SpinRoom unmount
+- result sheet mount
+
+The correct sequence must be:
+
+SPINNING
+→ DECELERATING
+→ WINNER_LOCKED
+→ result persisted
+→ selectedProfile set
+→ REVEAL
+→ result UI mounted
+
+Never mount result JSX while selectedProfile is null/undefined.
+
+Do not clear:
+- selectedProfile
+- winner
+- revealQuote
+- result data
+
+until the result component has fully unmounted.
+
+If the result is valid, the error boundary must never appear.
+
+Also:
+- keep the boundary as backup only
+- do not route normal success through the boundary
+- remove any manual Continue recovery path used for successful spins
+
+REAL PRODUCTION PASS CONDITIONS
+
+1. Tap Spin.
+2. Cards visibly orbit around the centre.
+3. Front card changes continuously.
+4. Front card always faces straight-on.
+5. Winner is not parked in front for the entire spin.
+6. Orbit accelerates and decelerates.
+7. Winner stops front-centre.
+8. No “Something slipped away”.
+9. Result appears automatically.
+10. Refresh preserves the result.
+
+Report:
+- exact reason orbitAngle/baseAngle was not visibly updating
+- exact transform formula after fix
+- exact state transition causing the fallback screen
+- files changed
+- commit hash
+- pushed status
+- Vercel deployed commit
+- real iPhone spin PASS/FAIL
+- real iPhone result PASS/FAIL
+
+Do not change the pre-spin design in this task.
+Do not replace the wheel with a carousel.
+Fix the actual orbit and the invalid result transition.
