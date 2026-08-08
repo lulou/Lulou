@@ -1,0 +1,155 @@
+Fix logout persistence properly.
+
+CURRENT BUG
+
+A user taps Sign out.
+
+They appear logged out.
+
+Then they fully close the app/browser tab by swiping it away and reopen Lulou.
+
+They are automatically signed back in.
+
+That is wrong.
+
+EXPECTED BEHAVIOUR
+
+Once a user explicitly signs out:
+
+- their Supabase session must be cleared
+- refresh token must be removed
+- local cached auth state must be cleared
+- React Query user-specific caches must be cleared
+- any active-session record used by Railway must be invalidated
+- reopening the app must show the Login / Sign Up screen
+- the user must authenticate again
+
+Do NOT automatically restore a user after an explicit logout.
+
+TRACE THE FULL LOGOUT PATH
+
+Inspect:
+
+- Supabase auth.signOut()
+- use-auth.ts logout()
+- App.tsx auth bootstrap
+- retrySessionBootstrap()
+- localStorage/sessionStorage auth keys
+- Supabase persisted session storage
+- active_sessions table / X-Session-Id
+- React Query cache
+- any “remember me” or session recovery logic
+- any code calling getSession(), refreshSession(), or setSession() on app startup
+
+ROOT CAUSE TO FIND
+
+Determine whether logout is currently:
+
+1. only clearing React/local UI state while the Supabase refresh token survives
+2. timing out/aborting before supabase.auth.signOut() finishes
+3. calling signOut with the wrong scope
+4. restoring a stale session during startup before logout state is known
+5. leaving a session token in browser storage
+6. recreating the session from active_sessions after restart
+
+FIX REQUIREMENTS
+
+On explicit logout:
+
+1. Mark logout as user-initiated immediately.
+
+2. Clear app auth state synchronously:
+- current user = null
+- current session = null
+- session verification state reset
+- queryClient.clear()
+
+3. Await Supabase sign-out.
+
+Use the correct scope so the current browser/device session is actually revoked.
+
+4. Remove any persisted local auth/session markers that belong to Lulou.
+
+Do not indiscriminately wipe unrelated browser storage.
+
+5. Invalidate/delete the active_sessions row for the current Lulou session.
+
+Railway failure must NOT block logout.
+
+Use timeout/fail-safe logic if needed, but local/Supabase logout must still complete.
+
+6. Add an explicit persisted logout guard such as:
+
+lulou_explicit_logout = true
+
+On startup:
+
+- if explicit logout guard is true:
+ - do NOT auto-bootstrap an old cached session
+ - confirm Supabase has no valid session
+ - remain on Login
+ - clear the guard only after a successful fresh login
+
+Do not clear this guard merely because the app reloads.
+
+7. LOGIN SUCCESS
+
+After the user enters credentials and successfully signs in again:
+
+- clear lulou_explicit_logout
+- create/update the normal active session
+- continue into the app
+
+8. SUPABASE SESSION RESTORE
+
+Normal users who did NOT explicitly log out may still benefit from persisted sessions.
+
+Do not disable normal session persistence globally.
+
+The rule is:
+
+App closed without logging out
+→ may restore session
+
+User explicitly pressed Sign out
+→ must NOT restore session
+
+REAL TEST CASES
+
+A. Sign out → stay on login
+B. Refresh page → still login
+C. Fully close Safari/PWA → reopen → still login
+D. Wait several minutes → reopen → still login
+E. Sign in manually → app opens normally
+F. Close app without signing out → reopen → session may restore normally
+G. Account A signs out → Account B can log in without Account A briefly flashing
+H. Railway offline during logout → user still remains logged out locally
+
+ADD DEV LOGGING
+
+[AUTH_LOGOUT]
+
+Log:
+- logout_pressed
+- local_state_cleared
+- supabase_signout_started
+- supabase_signout_result
+- active_session_delete_result
+- explicit_logout_guard_set
+- startup_guard_detected
+- bootstrap_blocked_due_to_explicit_logout
+- fresh_login_cleared_guard
+
+Do not expose secrets or tokens.
+
+REPORT
+
+- exact root cause
+- exact persisted session source that was restoring the user
+- files changed
+- commit hash
+- pushed status
+- Vercel/Railway deployed commit
+- real iPhone sign-out/reopen PASS/FAIL
+
+Do not call this fixed from code inspection alone.
