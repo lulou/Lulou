@@ -39,9 +39,19 @@ class IntentResultBoundary extends Component<{ children: ReactNode; onReset: () 
     return { hasError: true, errorMsg: msg, stack };
   }
   componentDidCatch(error: Error, info: ErrorInfo) {
-    const msg = `[INTENTION_WHEEL] render_crash: ${error.message}`;
-    console.error(msg, { stack: error.stack, componentStack: info.componentStack });
-    pushDebugError(msg);
+    const firstFrame = (error.stack ?? '').split('\n')
+      .find(l => l.includes('.tsx') || l.includes('.ts'))?.trim() ?? 'unknown';
+    const compStackTop = (info.componentStack ?? '').split('\n').slice(1, 5).join(' → ').trim();
+    console.error('[INTENTION_WHEEL_STATE]', {
+      event: 'boundary_error',
+      errorMessage: error.message,
+      firstFrame,
+      componentStack: compStackTop,
+    });
+    // Two pushDebugError entries so the exact exception is visible in the
+    // in-app debug panel without needing Safari console access on device.
+    pushDebugError(`[spin_boundary] ${error.message} | ${firstFrame}`);
+    pushDebugError(`[spin_boundary_tree] ${compStackTop}`);
   }
   render() {
     if (this.state.hasError) {
@@ -1129,6 +1139,7 @@ export default function IntentPage() {
   const orbitApproachCorrectionRef  = useRef(0);  // total angular distance (always positive/forward)
   const orbitApproachStartAngleRef  = useRef(0);  // orbit angle at approach start
   const orbitApproachStartTimeRef   = useRef(0);  // RAF timestamp when approach began (0 = not yet)
+  const winnerMomentStartRef        = useRef(0);  // performance.now() at pullforward; momentum RAF derives elapsed from this
 
   // Use the last non-empty ref as fallback so the wheel stays visible when the
   // current query result is empty (e.g. test environment, post-spin refetch).
@@ -1387,19 +1398,19 @@ export default function IntentPage() {
 
   // ── SpinRoom phase timeline ─────────────────────────────────────────────────
   // Runs entirely independently of the underlying wheel animation so the
-  // cinematic 18-20 s experience never collapses to 2-3 s.
+  // Timeline: velocity phases up to approach.
+  // After approach (t=7000 ms), the approach RAF fires 'pullforward' when the
+  // orbit converges (angular error < 0.01 rad).  All subsequent timing
+  // (momentum labels, reveal, pause, buttons) runs from the pullforward
+  // useLayoutEffect via a single winnerMomentStart RAF — not from here.
   //
   // Timeline (ms from spin start):
   //   0      accelerate → 1.6 rad/s
   //   2000   fast       → 4.2 rad/s
   //   5000   slow       → 0.8 rad/s
-  //   7000   approach   → guided cubic-ease deceleration toward winner angle (2.5 s)
-  //   9500   pullforward → orbit stops; winner centred; tension build starts (3.3 s)
-  //   10200  momentumLabel update #2
-  //   11100  momentumLabel update #3  +  momentum phase (for JSX gate)
-  //   12800  reveal     → selectedProfile set; quote screen mounts
-  //   15100  pause      → photo screen
-  //   18100  buttons    → name / CTA
+  //   7000   approach   → RAF switches to guided cubic-ease deceleration
+  //   ~9400  approach RAF detects angularError<0.01 → fires 'pullforward' automatically
+  //   then → pullforward useLayoutEffect drives all timing via winnerMomentStart RAF
   useEffect(() => {
     if (!showSpinRoom) {
       setSpinRoomPhase('idle');
@@ -1411,74 +1422,13 @@ export default function IntentPage() {
       setSpinRoomPhase(p);
       orbitTargetRef.current = speed;
     };
-    go('accelerate', 1.6);    // rad/s  ≈ 1 orbit per 4 s — slow start
+    go('accelerate', 1.6);
     console.log('[WHEEL] SPIN_START');
     const ts = [
-      setTimeout(() => { go('fast', 4.2);   console.log('[WHEEL] FAST_PHASE');  },  2000),
-      setTimeout(() => { go('slow', 0.8);   console.log('[WHEEL] SLOW_PHASE');  },  5000),
-      // Approach: approach useLayoutEffect computes the exact correction angle
-      // so the orbit's cubic ease-out lands the winner perfectly at front-centre.
-      // orbitTargetRef is set to 0 but the RAF ignores it during approach phase
-      // (it uses angle interpolation instead of velocity-based motion).
+      setTimeout(() => { go('fast', 4.2); console.log('[WHEEL] FAST_PHASE');  }, 2000),
+      setTimeout(() => { go('slow', 0.8); console.log('[WHEEL] SLOW_PHASE');  }, 5000),
+      // Approach: RAF computes correction from live angle on first tick (no stale snapshot).
       setTimeout(() => { go('approach', 0); console.log('[WHEEL] WINNER_APPROACH'); }, 7000),
-      // Pullforward: orbit has landed; persist winner; start tension build.
-      // selectedProfile is NOT set here — that only happens at reveal (t=12800)
-      // so the reveal section never mounts with stale/null profile data.
-      setTimeout(() => {
-        const pending = pendingWinnerRef.current;
-        const winner  = pending?.profile ?? null;
-        const closestI = pending?.index ?? orbitFrontCandRef.current;
-        console.log('[WHEEL] PULL_FORWARD', { winner: winner?.firstName, index: closestI });
-        console.log('[INTENTION_WHEEL] selected_candidate', {
-          candidateId: winner?.userId ?? null,
-          name: winner?.firstName ?? null,
-          found: !!winner,
-        });
-        if (winner && winner.userId) {
-          // Persist NOW (3.3 s before reveal) so the result is already on the server
-          // by the time the reveal section mounts — Part 5 guarantee.
-          saveSpinResult.mutate(winner.userId);
-          if (!recordSpinFiredRef.current) {
-            recordSpinFiredRef.current = true;
-            recordSpin.mutate(winner.userId);
-          }
-          console.log('[INTENTION_WHEEL] winner_committed', { name: winner.firstName });
-          try { (navigator as any).vibrate?.([15, 10, 30]); } catch {}
-          // First tension label shown simultaneously with pullforward phase
-          setMomentumLabel('Narrowing down\u2026');
-          go('pullforward', 0);
-        } else {
-          console.warn('[INTENTION_WHEEL] selected_profile_missing', { closestI, itemCount: items.length });
-          setShowSpinRoom(false);
-        }
-      }, 9500),
-      // Tension text step 2 (+700 ms after pullforward)
-      setTimeout(() => setMomentumLabel('There\u2019s something here\u2026'), 10200),
-      // Tension text step 3 + momentum phase gate (+1600 ms)
-      setTimeout(() => {
-        setMomentumLabel('Tonight\u2019s connection');
-        go('momentum', 0);
-        console.log('[WHEEL] WINNER_MOMENTUM');
-      }, 11100),
-      // Reveal: set selectedProfile + revealQuote atomically with phase so the
-      // reveal section always mounts with a valid profile on its very first render.
-      setTimeout(() => {
-        const pending = pendingWinnerRef.current;
-        if (!pending?.profile?.userId) {
-          // Winner was cleared externally (user closed early) — abort.
-          setShowSpinRoom(false);
-          return;
-        }
-        setSelectedIndex(pending.index);
-        setSelectedProfile(pending.profile);
-        setRevealQuote(LULOU_QUOTE_KEYS[Math.floor(Math.random() * LULOU_QUOTE_KEYS.length)]);
-        go('reveal', 0);
-        console.log('[WHEEL] WINNER_REVEAL', { name: pending.profile.firstName });
-        if (!muted) playChime();
-        try { (navigator as any).vibrate?.([60, 40, 120]); } catch {}
-      }, 12800),
-      setTimeout(() => go('pause',   0), 15100),
-      setTimeout(() => { go('buttons', 0); console.log('[WHEEL] BUTTONS_VISIBLE'); }, 18100),
     ];
     return () => ts.forEach(clearTimeout);
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1542,17 +1492,39 @@ export default function IntentPage() {
       const phase = spinPhaseRef.current;
 
       // ── Approach phase: guided cubic-ease interpolation toward winner ─────
-      // Replaces velocity-based motion for the final 2.5 s.
-      // Winner was pre-determined in spinWheel(); the approach useLayoutEffect
-      // computed orbitApproachCorrectionRef (always-forward angular distance).
+      // On the FIRST tick after approach begins, we capture the live orbit angle
+      // (orbitAngleRef2) as the start and compute the exact correction from it.
+      // This prevents the stale-angle jump that occurred when the useLayoutEffect
+      // computed correction from a React-render snapshot (a few ms behind the RAF).
       if (phase === 'approach') {
         if (orbitApproachStartTimeRef.current === 0) {
-          orbitApproachStartTimeRef.current = now;
+          // First approach tick — initialise from live RAF state.
+          orbitApproachStartTimeRef.current  = now;
+          orbitApproachStartAngleRef.current = orbitAngleRef2.current;
+          // Compute always-forward angular distance to place winner at front (θ = π/2).
+          const winnerIdxA = pendingWinnerRef.current?.index ?? 0;
+          const thetaWinA  = orbitAngleRef2.current + (2 * Math.PI / N) * winnerIdxA;
+          let corrA = (Math.PI / 2 - thetaWinA) % (2 * Math.PI);
+          if (corrA < 0) corrA += 2 * Math.PI;
+          if (corrA < 1.0) corrA += 2 * Math.PI; // guarantee ≥1 rad of visible deceleration
+          orbitApproachCorrectionRef.current = corrA;
+          const targetA = orbitApproachStartAngleRef.current + corrA;
+          console.log('[INTENTION_WHEEL_STATE]', {
+            event: 'approach_start',
+            orbitAngle: orbitAngleRef2.current.toFixed(4),
+            targetAngle: targetA.toFixed(4),
+            correctionRad: corrA.toFixed(4),
+            winnerIndex: winnerIdxA,
+            pendingWinnerUserId: pendingWinnerRef.current?.profile?.userId ?? null,
+          });
         }
-        const APPROACH_DUR = 2400; // ms (t=7000 → t=9400; pullforward fires at t=9500)
-        const tApproach = Math.min((now - orbitApproachStartTimeRef.current) / APPROACH_DUR, 1);
+
+        const APPROACH_DUR = 2400; // ms — enough for visible cubic-ease deceleration
+        const tApproach    = Math.min((now - orbitApproachStartTimeRef.current) / APPROACH_DUR, 1);
         const easeApproach = 1 - Math.pow(1 - tApproach, 3); // cubic ease-out
-        const approachAngle = orbitApproachStartAngleRef.current + orbitApproachCorrectionRef.current * easeApproach;
+        const targetAngleA = orbitApproachStartAngleRef.current + orbitApproachCorrectionRef.current;
+        const approachAngle = orbitApproachStartAngleRef.current +
+                              orbitApproachCorrectionRef.current * easeApproach;
         orbitAngleRef2.current = approachAngle;
 
         let frontI2 = 0, frontDepth2 = -1;
@@ -1579,6 +1551,34 @@ export default function IntentPage() {
           orbitGlowRef.current.style.boxShadow =
             `0 0 ${Math.round(14 + frac2 * 44)}px ${Math.round(8 + frac2 * 22)}px rgba(212,92,116,${(0.08 + frac2 * 0.32).toFixed(2)})`;
         }
+
+        // ── Convergence gate: do NOT advance to pullforward until the angular
+        // error is < 0.01 rad.  At tApproach=1, approachAngle==targetAngle exactly
+        // (floating-point delta ≈ 0), so this also fires when the duration ends.
+        const angularError = Math.abs(targetAngleA - approachAngle);
+        if (angularError < 0.01) {
+          // Snap to exact target, then hand off to pullforward.
+          orbitAngleRef2.current = targetAngleA;
+          // Apply exact final position to winner card
+          const wIdxFinal = pendingWinnerRef.current?.index ?? frontI2;
+          const elFinal   = orbitCardRefs.current[wIdxFinal];
+          if (elFinal) {
+            elFinal.style.transform = 'translate(-50%, -50%) scale(1.0)';
+            elFinal.style.opacity   = '1';
+            elFinal.style.filter    = '';
+          }
+          console.log('[INTENTION_WHEEL_STATE]', {
+            event: 'approach_complete',
+            angularError: angularError.toFixed(6),
+            winnerIndex: wIdxFinal,
+            orbitAngle: targetAngleA.toFixed(4),
+          });
+          // Fire pullforward — pullforward useLayoutEffect drives all subsequent timing.
+          setSpinRoomPhase('pullforward');
+          setMomentumLabel('Narrowing down\u2026');
+          return; // stop RAF; pullforward useLayoutEffect cancels the handle
+        }
+
         orbitRafRef2.current = requestAnimationFrame(tick);
         return;
       }
@@ -1669,47 +1669,78 @@ export default function IntentPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showSpinRoom]);
 
-  // ── Approach phase: sync spinPhaseRef + compute correction ──────────────────
-  // Fires synchronously before the next paint when spinRoomPhase becomes 'approach'.
-  // Sets orbitApproachCorrectionRef so the orbit RAF tick can switch to guided
-  // angle interpolation instead of velocity-based motion.
+  // ── Approach phase: only set spinPhaseRef; RAF computes correction on 1st tick ──
+  // Correction MUST be computed from the live orbit angle inside the RAF (not here)
+  // to avoid a stale-angle jump: the useLayoutEffect fires at React-render time, but
+  // orbitAngleRef2 was last written in the previous RAF frame — a few ms earlier.
+  // Computing in the RAF's first approach tick guarantees start angle == last RAF frame.
   useLayoutEffect(() => {
     if (spinRoomPhase !== 'approach') return;
     spinPhaseRef.current = 'approach';
-    const N2 = Math.min(items.length, ORBIT_N);
-    const winnerI = pendingWinnerRef.current?.index ?? 0;
-    // Compute how far (in radians, always positive/forward) the orbit must rotate
-    // to place the winner card exactly at front-centre (sin = 1 → θ = π/2).
-    const thetaWinner = orbitAngleRef2.current + (2 * Math.PI / N2) * winnerI;
-    let correction = (Math.PI / 2 - thetaWinner) % (2 * Math.PI);
-    if (correction < 0) correction += 2 * Math.PI;  // always rotate forward
-    // Guarantee at least 1 radian of visible deceleration travel.
-    // If the winner is already nearly at front, add one extra orbit so the
-    // approach animation has enough distance to look like proper deceleration.
-    if (correction < 1.0) correction += 2 * Math.PI;
-    orbitApproachCorrectionRef.current = correction;
-    orbitApproachStartAngleRef.current = orbitAngleRef2.current;
-    orbitApproachStartTimeRef.current  = 0;  // RAF sets this on first tick
-    console.log('[WHEEL] APPROACH_COMPUTED', { winnerI, correctionRad: correction.toFixed(2) });
+    // Reset start time so the RAF knows to initialise on its first tick.
+    orbitApproachStartTimeRef.current = 0;
+    orbitApproachStartAngleRef.current = 0;
+    orbitApproachCorrectionRef.current = 0;
+    console.log('[WHEEL] APPROACH_PHASE_SET');
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [spinRoomPhase]);
 
-  // ── Pull-forward: orbit has already landed; instantly centre winner; tension ─
-  // The approach RAF has placed the winner at front-centre.  This effect:
-  //  1. Stops the orbit RAF (it already stopped itself when 'pullforward' fired)
-  //  2. Snaps the winner to an exact centred position (removes any sub-pixel drift)
-  //  3. Fades the loser cards immediately
-  //  4. Runs a 3-step card-scale sequence over 3.3 s to build momentum tension
+  // ── Pull-forward: orbit converged; winner centred; drive ALL subsequent timing ─
+  // This effect owns every milestone from "winner locked" to "buttons visible".
+  // A single winnerMomentStart RAF replaces chained timeouts so elapsed time is
+  // derived from a real timestamp — not assumed from stacked setTimeout durations.
+  //
+  // Required timing (user spec):
+  //   0–900 ms:     "Narrowing down…"   (set by approach RAF before firing this phase)
+  //   900–1900 ms:  "There's something here…" + scale 1.04
+  //   1900–3100 ms: "Tonight's connection" + scale 1.07 + go('momentum')
+  //   3100–4000 ms: scale 1.10, hold
+  //   4000 ms:      reveal mounts (selectedProfile set, revealQuote set, go('reveal'))
+  //   6300 ms:      go('pause')
+  //   9300 ms:      go('buttons')
+  //
+  // CLEANUP: The RAF is self-terminating (stops when all milestones fire) and is
+  // also cancelled by the orbit RAF useEffect's cleanup when showSpinRoom = false.
+  // We intentionally do NOT return a cleanup here — a cleanup would cancel the
+  // momentum RAF the moment setSpinRoomPhase('momentum') fires at milestone t=1900
+  // (because spinRoomPhase dep change re-runs this effect's cleanup).
   useLayoutEffect(() => {
     if (spinRoomPhase !== 'pullforward') return;
     spinPhaseRef.current = 'pullforward';
     cancelAnimationFrame(orbitRafRef2.current);
-    orbitApproachStartTimeRef.current = 0;  // reset for next spin
+    orbitApproachStartTimeRef.current = 0; // reset for next spin
 
-    const frontI = pendingWinnerRef.current?.index ?? orbitFrontCandRef.current;
+    const pending  = pendingWinnerRef.current;
+    const winner   = pending?.profile ?? null;
+    const frontI   = pending?.index ?? orbitFrontCandRef.current;
     const winnerEl = orbitCardRefs.current[frontI];
 
-    // ── Step 0 (instant): set exact centred position; no transition ────────
+    if (!winner?.userId) {
+      // Approach RAF should have guarded this; abort safely if it slipped through.
+      console.warn('[INTENTION_WHEEL_STATE]', { event: 'pullforward_no_winner', frontI });
+      setShowSpinRoom(false);
+      return;
+    }
+
+    console.log('[INTENTION_WHEEL_STATE]', {
+      event: 'pullforward',
+      winnerIndex: frontI,
+      pendingWinnerUserId: winner.userId,
+      orbitAngle: orbitAngleRef2.current.toFixed(4),
+    });
+
+    // Persist result NOW — 4 s before reveal mounts (Part 5: server-side before reveal)
+    console.log('[INTENTION_WHEEL_STATE]', { event: 'persist_start', pendingWinnerUserId: winner.userId });
+    saveSpinResult.mutate(winner.userId, {
+      onSuccess: () => console.log('[INTENTION_WHEEL_STATE]', {
+        event: 'persist_success', persistedUserId: winner.userId }),
+    });
+    if (!recordSpinFiredRef.current) {
+      recordSpinFiredRef.current = true;
+      recordSpin.mutate(winner.userId);
+    }
+
+    // ── Step 0 (instant): winner centred, losers fade ─────────────────────
     for (let i = 0; i < ORBIT_N; i++) {
       const el = orbitCardRefs.current[i];
       if (!el) continue;
@@ -1727,45 +1758,97 @@ export default function IntentPage() {
       }
     }
     if (orbitGlowRef.current) {
-      orbitGlowRef.current.style.boxShadow = '0 0 18px 4px rgba(212,92,116,0.08)';
+      orbitGlowRef.current.style.transition = '';
+      orbitGlowRef.current.style.boxShadow  = '0 0 18px 4px rgba(212,92,116,0.08)';
     }
-
-    // ── Step 1 (+700 ms): winner gets subtle glow, scale → 1.04 ───────────
-    const t1 = setTimeout(() => {
-      if (!winnerEl) return;
-      winnerEl.style.transition = 'transform 0.9s cubic-bezier(0.16,1,0.3,1), box-shadow 0.9s ease';
-      winnerEl.style.transform  = 'translate(-50%, -50%) scale(1.04)';
-      winnerEl.style.boxShadow  = '0 0 30px 8px rgba(212,92,116,0.22), 0 6px 24px rgba(0,0,0,0.50)';
-      if (orbitGlowRef.current) {
-        orbitGlowRef.current.style.transition = 'box-shadow 0.9s ease';
-        orbitGlowRef.current.style.boxShadow  = '0 0 44px 14px rgba(212,92,116,0.22), 0 0 88px 28px rgba(212,92,116,0.10)';
-      }
-    }, 700);
-
-    // ── Step 2 (+1 600 ms): stronger glow, scale → 1.07 ──────────────────
-    const t2 = setTimeout(() => {
-      if (!winnerEl) return;
-      winnerEl.style.transition = 'transform 0.9s cubic-bezier(0.16,1,0.3,1), box-shadow 0.9s ease';
-      winnerEl.style.transform  = 'translate(-50%, -50%) scale(1.07)';
-      winnerEl.style.boxShadow  = '0 0 60px 18px rgba(212,92,116,0.38), 0 8px 32px rgba(0,0,0,0.60)';
-      if (orbitGlowRef.current) {
-        orbitGlowRef.current.style.boxShadow = '0 0 60px 20px rgba(212,92,116,0.32), 0 0 120px 40px rgba(212,92,116,0.14)';
-      }
-    }, 1600);
-
-    // ── Step 3 (+2 500 ms): full glow, scale → 1.10, hold clearly ─────────
-    const t3 = setTimeout(() => {
-      if (!winnerEl) return;
-      winnerEl.style.transition = 'transform 1.0s cubic-bezier(0.12,0,0.08,1), box-shadow 0.9s ease';
-      winnerEl.style.transform  = 'translate(-50%, -50%) scale(1.10)';
-      winnerEl.style.boxShadow  = '0 0 80px 24px rgba(212,92,116,0.52), 0 10px 40px rgba(0,0,0,0.68)';
-      if (orbitGlowRef.current) {
-        orbitGlowRef.current.style.boxShadow = '0 0 80px 28px rgba(212,92,116,0.46), 0 0 160px 56px rgba(212,92,116,0.20)';
-      }
-    }, 2500);
-
     try { (navigator as any).vibrate?.([20, 10, 40]); } catch {}
-    return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); };
+
+    // ── Momentum RAF — single winnerMomentStart, elapsed-derived milestones ─
+    winnerMomentStartRef.current = performance.now();
+    type Milestone = { t: number; fn: () => void };
+    const milestones: Milestone[] = [
+      // t=900: label step 2 + scale 1.04
+      { t: 900, fn: () => {
+        setMomentumLabel('There\u2019s something here\u2026');
+        if (winnerEl) {
+          winnerEl.style.transition = 'transform 0.9s cubic-bezier(0.16,1,0.3,1), box-shadow 0.9s ease';
+          winnerEl.style.transform  = 'translate(-50%, -50%) scale(1.04)';
+          winnerEl.style.boxShadow  = '0 0 30px 8px rgba(212,92,116,0.22), 0 6px 24px rgba(0,0,0,0.50)';
+        }
+        if (orbitGlowRef.current) {
+          orbitGlowRef.current.style.transition = 'box-shadow 0.9s ease';
+          orbitGlowRef.current.style.boxShadow  = '0 0 44px 14px rgba(212,92,116,0.22), 0 0 88px 28px rgba(212,92,116,0.10)';
+        }
+        console.log('[INTENTION_WHEEL_STATE]', { event: 'momentum_step_1', elapsed: 900 });
+      }},
+      // t=1900: label step 3 + scale 1.07 + momentum phase
+      { t: 1900, fn: () => {
+        setMomentumLabel('Tonight\u2019s connection');
+        setSpinRoomPhase('momentum');
+        if (winnerEl) {
+          winnerEl.style.transition = 'transform 0.9s cubic-bezier(0.16,1,0.3,1), box-shadow 0.9s ease';
+          winnerEl.style.transform  = 'translate(-50%, -50%) scale(1.07)';
+          winnerEl.style.boxShadow  = '0 0 60px 18px rgba(212,92,116,0.38), 0 8px 32px rgba(0,0,0,0.60)';
+        }
+        if (orbitGlowRef.current) {
+          orbitGlowRef.current.style.boxShadow = '0 0 60px 20px rgba(212,92,116,0.32), 0 0 120px 40px rgba(212,92,116,0.14)';
+        }
+        console.log('[INTENTION_WHEEL_STATE]', { event: 'momentum_step_2', elapsed: 1900 });
+      }},
+      // t=3100: scale 1.10, hold
+      { t: 3100, fn: () => {
+        if (winnerEl) {
+          winnerEl.style.transition = 'transform 1.0s cubic-bezier(0.12,0,0.08,1), box-shadow 0.9s ease';
+          winnerEl.style.transform  = 'translate(-50%, -50%) scale(1.10)';
+          winnerEl.style.boxShadow  = '0 0 80px 24px rgba(212,92,116,0.52), 0 10px 40px rgba(0,0,0,0.68)';
+        }
+        if (orbitGlowRef.current) {
+          orbitGlowRef.current.style.boxShadow = '0 0 80px 28px rgba(212,92,116,0.46), 0 0 160px 56px rgba(212,92,116,0.20)';
+        }
+        console.log('[INTENTION_WHEEL_STATE]', { event: 'momentum_step_3', elapsed: 3100 });
+      }},
+      // t=4000: reveal — selectedProfile + quote set atomically with phase change
+      { t: 4000, fn: () => {
+        const pendingNow = pendingWinnerRef.current;
+        if (!pendingNow?.profile?.userId) {
+          console.warn('[INTENTION_WHEEL_STATE]', { event: 'reveal_aborted_no_winner' });
+          setShowSpinRoom(false);
+          return;
+        }
+        console.log('[INTENTION_WHEEL_STATE]', {
+          event: 'reveal_mount',
+          selectedProfileUserId: pendingNow.profile.userId,
+          pendingWinnerUserId: pendingNow.profile.userId,
+        });
+        setSelectedIndex(pendingNow.index);
+        setSelectedProfile(pendingNow.profile);
+        setRevealQuote(LULOU_QUOTE_KEYS[Math.floor(Math.random() * LULOU_QUOTE_KEYS.length)]);
+        setSpinRoomPhase('reveal');
+        if (!muted) playChime();
+        try { (navigator as any).vibrate?.([60, 40, 120]); } catch {}
+      }},
+      // t=6300: photo phase
+      { t: 6300, fn: () => setSpinRoomPhase('pause') },
+      // t=9300: CTA buttons
+      { t: 9300, fn: () => {
+        setSpinRoomPhase('buttons');
+        console.log('[WHEEL] BUTTONS_VISIBLE');
+      }},
+    ];
+    let mI = 0;
+    const momentumTick = (now: number) => {
+      const elapsed = now - winnerMomentStartRef.current;
+      while (mI < milestones.length && elapsed >= milestones[mI].t) {
+        milestones[mI].fn();
+        mI++;
+      }
+      if (mI < milestones.length) {
+        // Store handle in orbitRafRef2 so the orbit-RAF useEffect cleanup cancels it
+        // on showSpinRoom=false (e.g. user closes the SpinRoom mid-momentum).
+        orbitRafRef2.current = requestAnimationFrame(momentumTick);
+      }
+    };
+    orbitRafRef2.current = requestAnimationFrame(momentumTick);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [spinRoomPhase]);
 
@@ -3068,6 +3151,24 @@ export default function IntentPage() {
             transition: "opacity 1.4s cubic-bezier(0.4,0,0.2,1)",
             pointerEvents: (spinRoomPhase === 'reveal' || spinRoomPhase === 'pause' || spinRoomPhase === 'buttons') ? "none" : "auto",
           }}>
+            {/* ── Build marker — always visible during spin to confirm live build ── */}
+            {/* Shows commit, phase, and winner IDs so any device can self-report */}
+            <div style={{
+              position: "absolute",
+              top: "max(env(safe-area-inset-top, 0px), 6px)",
+              right: 6, zIndex: 9999,
+              padding: "3px 6px",
+              background: "rgba(0,0,0,0.72)",
+              fontFamily: "monospace", fontSize: 8, color: "rgba(212,92,116,0.85)",
+              lineHeight: 1.5, borderRadius: 3,
+              pointerEvents: "none", userSelect: "none",
+            }}>
+              <div>🔧 {__COMMIT_HASH__}</div>
+              <div>phase: {spinRoomPhase}</div>
+              <div>winner: {pendingWinnerRef.current?.profile?.userId?.slice(-6) ?? '—'}</div>
+              <div>selected: {selectedProfile?.userId?.slice(-6) ?? '—'}</div>
+            </div>
+
             {/* Deep ambient radial glow behind carousel */}
             <div style={{
               position: "absolute", top: "48%", left: "50%",
@@ -3224,16 +3325,31 @@ export default function IntentPage() {
           {/* ── REVEAL STAGE — 3 phases: quote → photo → introduction ── */}
           {(spinRoomPhase === 'reveal' || spinRoomPhase === 'pause' || spinRoomPhase === 'buttons') && selectedProfile && (
           <IntentResultBoundary onReset={() => {
-            // If a valid profile is still in state, keep the result visible by
-            // staying in 'buttons' phase after closing the SpinRoom overlay.
-            // This prevents the blank Intent page that appeared when onReset
-            // called setSpinRoomPhase('idle') and the result gate became false.
+            console.log('[INTENTION_WHEEL_STATE]', {
+              event: 'continue_pressed',
+              selectedProfileUserId: selectedProfile?.userId ?? null,
+              pendingWinnerUserId: pendingWinnerRef.current?.profile?.userId ?? null,
+            });
             setShowSpinRoom(false);
             setSparkSent(false);
             if (selectedProfile) {
+              // Profile is still in state — keep result visible without a server round-trip.
               setSpinRoomPhase('buttons');
             } else {
-              setSpinRoomPhase('idle');
+              // Profile was cleared — restore from the server-persisted result.
+              // GET /api/spin/result returns the last saved winner for this user.
+              queryClient.fetchQuery<{ profile: Profile | null }>({
+                queryKey: ["/api/spin/result"],
+                staleTime: 0,
+              }).then((data) => {
+                const p = data?.profile;
+                if (p?.userId) {
+                  setSelectedProfile(p);
+                  setSpinRoomPhase('buttons');
+                } else {
+                  setSpinRoomPhase('idle');
+                }
+              }).catch(() => setSpinRoomPhase('idle'));
             }
           }}>
             <div style={{ position: "absolute", inset: 0, zIndex: 10 }}>
