@@ -12,7 +12,12 @@ import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
-import { pushDebugError } from "@/lib/debug-store";
+import {
+  pushDebugError,
+  pushWheelEntry, getWheelEntries, subscribeWheelEntries,
+  _dbg, _dbgListeners,
+  type WheelEntry,
+} from "@/lib/debug-store";
 import { startPurchase, restorePurchases, subscribeDebug, type PurchaseDebugInfo } from "@/lib/purchase-service";
 import { useTabActive } from "@/hooks/use-tab-active";
 import type { Profile } from "@shared/schema";
@@ -21,6 +26,16 @@ import { EMPTY_PHOTOS } from "@/lib/image-utils";
 import { useLanguageContext } from "@/contexts/language-context";
 import { stopAllNonVoiceCallAudio } from "@/lib/call-audio";
 import { clearAllArmedSessions } from "@/lib/live-call-sessions";
+
+// ── Module-level wheel-state logger ──────────────────────────────────────────
+// Callable from RAF closures, class methods, and useLayoutEffect — anything
+// that cannot use React hooks. Writes to both the browser console AND the
+// in-app WheelDebugPanel ring buffer so a production iPhone can self-report
+// without needing Safari console access.
+function logWheelState(entry: Record<string, unknown>): void {
+  console.log('[INTENTION_WHEEL_STATE]', entry);
+  pushWheelEntry(entry);
+}
 
 // ── SpinRoom result error boundary ───────────────────────────────────────────
 // Wraps the reveal/pause/buttons render inside SpinRoom. If a render crash
@@ -868,6 +883,75 @@ function spinEase(t: number): number {
   return 0.820 + 0.180 * (Vr * p + (3 - 2 * Vr) * p * p + (Vr - 2) * p * p * p);
 }
 
+// ── Wheel Debug Panel ─────────────────────────────────────────────────────────
+// Always visible inside the SpinRoom overlay — no DEV gate, no Safari console.
+// Shows the last 12 [INTENTION_WHEEL_STATE] events and last 4 pushDebugError
+// entries so any production device can self-report the exact state at failure.
+function WheelDebugPanel() {
+  const [entries, setEntries] = useState<WheelEntry[]>(() => getWheelEntries().slice());
+  const [errors,  setErrors]  = useState<string[]>(() => _dbg.errors.slice());
+
+  useEffect(() => {
+    const u1 = subscribeWheelEntries(() => setEntries(getWheelEntries().slice()));
+    // Also show boundary/pushDebugError entries which go to _dbgListeners
+    const u2 = () => setErrors(_dbg.errors.slice());
+    _dbgListeners.add(u2);
+    return () => { u1(); _dbgListeners.delete(u2); };
+  }, []);
+
+  const hasData = entries.length > 0 || errors.length > 0;
+
+  return (
+    <div
+      data-testid="wheel-debug-panel"
+      style={{
+        position: "absolute", bottom: 0, left: 0, right: 0,
+        zIndex: 10001,
+        background: "rgba(0,0,0,0.88)",
+        maxHeight: "45vh", overflowY: "auto",
+        padding: "6px 8px",
+        paddingBottom: "max(env(safe-area-inset-bottom, 0px), 8px)",
+        fontFamily: "monospace", fontSize: 9, lineHeight: 1.45,
+        color: "#ccc",
+        WebkitOverflowScrolling: "touch" as React.CSSProperties["WebkitOverflowScrolling"],
+      }}
+    >
+      <div style={{ color: "rgba(212,92,116,0.9)", fontWeight: 700, marginBottom: 3 }}>
+        🔧 WHEEL LOG · {__COMMIT_HASH__} · {entries.length} events
+      </div>
+      {!hasData && (
+        <div style={{ color: "#555", fontStyle: "italic" }}>— no events yet —</div>
+      )}
+      {errors.slice(0, 4).map((e, i) => (
+        <div key={`err-${i}`} style={{
+          color: "#f99", borderBottom: "1px solid rgba(255,80,80,0.18)",
+          paddingBottom: 2, marginBottom: 2,
+        }}>
+          {e}
+        </div>
+      ))}
+      {entries.slice(0, 12).map((entry, i) => (
+        <div key={i} style={{
+          borderBottom: "1px solid rgba(255,255,255,0.07)",
+          paddingBottom: 3, marginBottom: 3,
+        }}>
+          <div style={{ color: "rgba(212,92,116,0.85)" }}>
+            {entry._ts} <strong>{String(entry.event)}</strong>
+          </div>
+          {Object.entries(entry).filter(([k]) => k !== 'event' && k !== '_ts').map(([k, v]) => (
+            <div key={k} style={{ paddingLeft: 8 }}>
+              <span style={{ color: "#777" }}>{k}: </span>
+              <span style={{ color: "#fff", wordBreak: "break-all" }}>
+                {v == null ? 'null' : String(v)}
+              </span>
+            </div>
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ── CheckoutDiagPanel ─────────────────────────────────────────────────────────
 // Subscribes to purchase-service debug state and renders a visible on-screen
 // banner showing exactly what the server returned:  URL (success) or error msg.
@@ -1509,7 +1593,7 @@ export default function IntentPage() {
           if (corrA < 1.0) corrA += 2 * Math.PI; // guarantee ≥1 rad of visible deceleration
           orbitApproachCorrectionRef.current = corrA;
           const targetA = orbitApproachStartAngleRef.current + corrA;
-          console.log('[INTENTION_WHEEL_STATE]', {
+          logWheelState({
             event: 'approach_start',
             orbitAngle: orbitAngleRef2.current.toFixed(4),
             targetAngle: targetA.toFixed(4),
@@ -1567,7 +1651,7 @@ export default function IntentPage() {
             elFinal.style.opacity   = '1';
             elFinal.style.filter    = '';
           }
-          console.log('[INTENTION_WHEEL_STATE]', {
+          logWheelState({
             event: 'approach_complete',
             angularError: angularError.toFixed(6),
             winnerIndex: wIdxFinal,
@@ -1717,12 +1801,12 @@ export default function IntentPage() {
 
     if (!winner?.userId) {
       // Approach RAF should have guarded this; abort safely if it slipped through.
-      console.warn('[INTENTION_WHEEL_STATE]', { event: 'pullforward_no_winner', frontI });
+      logWheelState({ event: 'pullforward_no_winner', frontI });
       setShowSpinRoom(false);
       return;
     }
 
-    console.log('[INTENTION_WHEEL_STATE]', {
+    logWheelState({
       event: 'pullforward',
       winnerIndex: frontI,
       pendingWinnerUserId: winner.userId,
@@ -1730,9 +1814,9 @@ export default function IntentPage() {
     });
 
     // Persist result NOW — 4 s before reveal mounts (Part 5: server-side before reveal)
-    console.log('[INTENTION_WHEEL_STATE]', { event: 'persist_start', pendingWinnerUserId: winner.userId });
+    logWheelState({ event: 'persist_start', pendingWinnerUserId: winner.userId });
     saveSpinResult.mutate(winner.userId, {
-      onSuccess: () => console.log('[INTENTION_WHEEL_STATE]', {
+      onSuccess: () => logWheelState({
         event: 'persist_success', persistedUserId: winner.userId }),
     });
     if (!recordSpinFiredRef.current) {
@@ -1779,7 +1863,7 @@ export default function IntentPage() {
           orbitGlowRef.current.style.transition = 'box-shadow 0.9s ease';
           orbitGlowRef.current.style.boxShadow  = '0 0 44px 14px rgba(212,92,116,0.22), 0 0 88px 28px rgba(212,92,116,0.10)';
         }
-        console.log('[INTENTION_WHEEL_STATE]', { event: 'momentum_step_1', elapsed: 900 });
+        logWheelState({ event: 'momentum_step_1', elapsed: 900 });
       }},
       // t=1900: label step 3 + scale 1.07 + momentum phase
       { t: 1900, fn: () => {
@@ -1793,7 +1877,7 @@ export default function IntentPage() {
         if (orbitGlowRef.current) {
           orbitGlowRef.current.style.boxShadow = '0 0 60px 20px rgba(212,92,116,0.32), 0 0 120px 40px rgba(212,92,116,0.14)';
         }
-        console.log('[INTENTION_WHEEL_STATE]', { event: 'momentum_step_2', elapsed: 1900 });
+        logWheelState({ event: 'momentum_step_2', elapsed: 1900 });
       }},
       // t=3100: scale 1.10, hold
       { t: 3100, fn: () => {
@@ -1805,17 +1889,17 @@ export default function IntentPage() {
         if (orbitGlowRef.current) {
           orbitGlowRef.current.style.boxShadow = '0 0 80px 28px rgba(212,92,116,0.46), 0 0 160px 56px rgba(212,92,116,0.20)';
         }
-        console.log('[INTENTION_WHEEL_STATE]', { event: 'momentum_step_3', elapsed: 3100 });
+        logWheelState({ event: 'momentum_step_3', elapsed: 3100 });
       }},
       // t=4000: reveal — selectedProfile + quote set atomically with phase change
       { t: 4000, fn: () => {
         const pendingNow = pendingWinnerRef.current;
         if (!pendingNow?.profile?.userId) {
-          console.warn('[INTENTION_WHEEL_STATE]', { event: 'reveal_aborted_no_winner' });
+          logWheelState({ event: 'reveal_aborted_no_winner' });
           setShowSpinRoom(false);
           return;
         }
-        console.log('[INTENTION_WHEEL_STATE]', {
+        logWheelState({
           event: 'reveal_mount',
           selectedProfileUserId: pendingNow.profile.userId,
           pendingWinnerUserId: pendingNow.profile.userId,
@@ -3325,7 +3409,7 @@ export default function IntentPage() {
           {/* ── REVEAL STAGE — 3 phases: quote → photo → introduction ── */}
           {(spinRoomPhase === 'reveal' || spinRoomPhase === 'pause' || spinRoomPhase === 'buttons') && selectedProfile && (
           <IntentResultBoundary onReset={() => {
-            console.log('[INTENTION_WHEEL_STATE]', {
+            logWheelState({
               event: 'continue_pressed',
               selectedProfileUserId: selectedProfile?.userId ?? null,
               pendingWinnerUserId: pendingWinnerRef.current?.profile?.userId ?? null,
@@ -3799,6 +3883,11 @@ export default function IntentPage() {
             </div>
           </div>
           </div>{/* end drag-transform wrapper */}
+
+          {/* ── Wheel debug panel — always visible, no DEV gate ── */}
+          {/* Surfaces every [INTENTION_WHEEL_STATE] event + boundary errors   */}
+          {/* on any device without Safari console access.                     */}
+          <WheelDebugPanel />
         </div>
       )}
 

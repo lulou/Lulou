@@ -205,3 +205,25 @@ export function pushDebugError(msg: string): void {
   _dbg.errors = [`${ts} ${msg}`, ..._dbg.errors].slice(0, 12);
   _dbgListeners.forEach(fn => fn());
 }
+
+// ── Intention Wheel event log ──────────────────────────────────────────────
+// Ring buffer for [INTENTION_WHEEL_STATE] events written by logWheelState()
+// in intent.tsx. Read by WheelDebugPanel without going through React props,
+// so RAF closures and class methods can write to it at any time.
+export interface WheelEntry { event: string; _ts: string; [key: string]: unknown }
+const _wheelEntries: WheelEntry[] = [];
+const _wheelListeners2 = new Set<() => void>();
+
+export function pushWheelEntry(entry: Record<string, unknown>): void {
+  const e = { ...entry, _ts: new Date().toISOString().slice(11, 23) } as WheelEntry;
+  _wheelEntries.unshift(e);
+  if (_wheelEntries.length > 20) _wheelEntries.length = 20;
+  queueMicrotask(() => _wheelListeners2.forEach(fn => fn()));
+}
+
+export function getWheelEntries(): WheelEntry[] { return _wheelEntries; }
+
+export function subscribeWheelEntries(fn: () => void): () => void {
+  _wheelListeners2.add(fn);
+  return () => _wheelListeners2.delete(fn);
+}
