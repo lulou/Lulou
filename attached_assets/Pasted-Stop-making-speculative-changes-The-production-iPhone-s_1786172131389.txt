@@ -1,0 +1,148 @@
+Stop making speculative changes.
+
+The production iPhone still has ALL the same problems after d0a030c:
+
+- wheel still ends between two users and jumps
+- “Narrowing down…” is still too fast
+- winner enlargement still happens too abruptly
+- “Something slipped away” still appears
+- Continue still leads to a blank Intent page
+
+Before changing code again, prove which build is actually live and capture the real production state.
+
+1. DEPLOYMENT VERIFICATION
+
+Confirm the exact Vercel production commit currently serving luloudating.com.
+
+Do not assume d0a030c is live.
+
+Report:
+- local HEAD
+- origin/main
+- Vercel production commit
+- production build timestamp
+
+If Vercel is not on d0a030c, stop and deploy the correct commit first.
+
+2. ADD A VISIBLE DEV-ONLY BUILD MARKER
+
+In development/debug mode only, expose:
+- git commit hash
+- spin phase
+- selectedProfile userId
+- pendingWinner userId
+- persistedResult userId
+
+This is to prove the iPhone is actually running the code being inspected.
+
+Do not show this in normal production UI.
+
+3. CAPTURE THE REAL END-SPIN STATE
+
+Instrument only these transitions:
+
+[INTENTION_WHEEL_STATE]
+- approach_start
+- approach_target_angle
+- approach_complete
+- pullforward
+- momentum_step_1
+- momentum_step_2
+- momentum_step_3
+- persist_start
+- persist_success
+- reveal_mount
+- boundary_error
+- continue_pressed
+
+Log:
+- timestamp
+- spinRoomPhase
+- orbitAngle
+- targetAngle
+- winner index
+- selectedProfile?.userId
+- pendingWinnerRef?.userId
+- persisted result userId
+
+4. FIX THE JUMP BASED ON REAL VALUES
+
+The final orbit must not:
+- coast to zero
+- then snap
+- then replace the winner
+
+At approach start, calculate the exact winner target angle.
+
+During the final deceleration:
+- interpolate the actual orbit angle toward that target
+- verify the angular error goes to ~0 before phase changes
+- do not advance to pullforward until abs(target-current) < 0.01 rad
+
+If the winner card still jumps, identify whether:
+- the wrong winner index is used
+- candidate order changed
+- the DOM card userId changed
+- React rerender overwrote the transform
+- target angle is computed from stale orbit state
+
+Report the actual one found.
+
+5. FIX THE TOO-FAST MOMENTUM USING REAL ELAPSED TIME
+
+Do not rely only on chained timeouts.
+
+Use a single winnerMomentStart timestamp and derive the visual phase from elapsed time.
+
+Required:
+0–900ms: “Narrowing down…”
+900–1900ms: “There’s something here…”
+1900–3100ms: “Tonight’s connection”
+3100–4000ms: winner hold
+
+Do not reveal the result before 4000ms after winner lock.
+
+6. FIX THE REAL ERROR, NOT THE FALLBACK
+
+The fallback still appears, so componentDidCatch must capture the exact current exception and componentStack.
+
+Surface it to the app debug panel / server diagnostic endpoint so it can be read without Safari console access.
+
+Do not change the boundary behavior until the exact exception is known.
+
+Report:
+- exact error message
+- exact component stack
+- exact file/line
+- exact value that was null/invalid
+
+7. FIX CONTINUE → BLANK PAGE
+
+When Continue is pressed:
+- GET the persisted spin result from the server
+- if valid, restore selectedProfile and show the result
+- if not valid, fully reload the normal Intent page data
+
+Never just set phase to idle/buttons and leave an empty tree.
+
+8. REAL PASS
+
+Do not report PASS from code inspection.
+
+Production iPhone must prove:
+- correct build live
+- orbit lands exactly on winner
+- no jump
+- momentum lasts ~4 seconds
+- result opens automatically
+- no fallback
+- Continue never produces blank page
+
+Report only:
+- deployed commit
+- exact production error
+- exact jump root cause
+- exact blank-page root cause
+- files changed
+- new commit
+- real iPhone PASS/FAIL

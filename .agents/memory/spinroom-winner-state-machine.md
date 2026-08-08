@@ -3,37 +3,56 @@ name: SpinRoom winner state machine
 description: How the intention-wheel SpinRoom stores and reveals the winner without exposing them early or crashing the error boundary.
 ---
 
+## gitPush callback silent failure pattern
+
+`gitPush({})` returns `{ success: true }` even when commits DO NOT reach GitHub. Always verify with `git fetch origin && git log --oneline origin/main -3` after any push. If origin/main still shows the pre-push commit, the push silently failed and must be retried.
+
 ## Orbit RAF / React style conflict rule
 
-**Never put `transform`, `opacity`, `filter`, or `zIndex` in the JSX `style` prop of an RAF-animated element.** React only updates properties that appear in the rendered `style` object. If those properties ARE in the JSX, React overwrites the RAF's DOM mutations on every re-render (phase changes, query completions, setOrbitCardIds calls) — snapping the animation back to its initial position every frame. The fix: remove them from JSX entirely; set them only via the RAF (and the mount useEffect for initial positions). React never touches properties that don't appear in its virtual DOM tree.
+**Never put `transform`, `opacity`, `filter`, or `zIndex` in the JSX `style` prop of an RAF-animated element.** React overwrites the RAF's DOM mutations on every re-render — snapping the animation back to its initial position. Remove them from JSX entirely; set them only via the RAF and the mount useEffect.
 
-Also: remove CSS `perspective` from the container and `translateZ` from card transforms. With perspective + translateZ, cards appear tilted/skewed from off-center positions. Use only `translate(x, y) scale(s)` with `zIndex` for depth ordering — cards always face straight-on.
+Also: remove CSS `perspective` from the container and `translateZ` from card transforms. Use only `translate(x, y) scale(s)` with `zIndex`.
 
-## Rule
-The spin winner is stored in `pendingWinnerRef` (a `useRef`, never `useState`) from the moment `spinWheel()` runs. React state (`selectedProfile`, `selectedIndex`, `revealQuote`) is only set **atomically with `go('reveal', 0)`** at t=11.2 s inside the phase-timeline useEffect.
+## Approach-phase guided deceleration pattern
 
-**Why:** Setting `selectedProfile` early (at pullforward t=8.4 s) caused two bugs:
-1. The `{showProfile && selectedProfile}` detail sheet mounted at zIndex 4000 during the spin — on iOS this bled above the zIndex-9999 SpinRoom overlay.
-2. If `selectedProfile` was later cleared (e.g. via `closeProfile`) while `spinRoomPhase` was still `'buttons'` or `'pause'`, the phase-timeline useEffect (a microtask) hadn't yet called `setSpinRoomPhase('idle')`, leaving the reveal section in a state where it tried to render with null profile → boundary crash.
+To make the orbit land exactly on the winner without a visible jump:
 
-**How to apply:**
-- `spinWheel()` → `pendingWinnerRef.current = { index, profile }` immediately; clears to null.
-- Pullforward timeout (t=8.4 s): read `pendingWinnerRef.current` for winner identity; call `saveSpinResult.mutate` + `recordSpin.mutate`; call `go('pullforward', 0)`. Do NOT touch selectedProfile.
-- Reveal timeout (t=11.2 s): `setSelectedIndex`, `setSelectedProfile`, `setRevealQuote`, `go('reveal', 0)` — all in one synchronous block so they batch into a single render.
-- Pullforward `useLayoutEffect`: snap orbit to `pendingWinnerRef.current?.index ?? orbitFrontCandRef.current` (pre-determined winner, not whoever happens to be at front).
-- `closeProfile()` and `sendSpark.onSuccess` both set `pendingWinnerRef.current = null`.
+1. The approach `useLayoutEffect` **only** sets `spinPhaseRef.current = 'approach'` and resets the start-time/start-angle/correction refs to 0. It does NOT compute the correction angle — doing so captures a stale `orbitAngleRef2` from React render time (a few ms behind the last RAF frame), which causes a visible jump at approach start.
 
-## sendSpark.onSuccess ordering rule
-Pre-clear `/api/spin/result` query cache **before** closing the SpinRoom:
-```
-queryClient.setQueryData(["/api/spin/result"], { profile: null });
-setTimeout(() => {
-  setShowSpinRoom(false);   // unmounts boundary
-  setSelectedProfile(null); // batched — no intermediate render
-  ...
-  deleteSpinResult.mutate(); // background cleanup
-}, 2200);
-```
-**Why:** Without the pre-clear, after `setSelectedProfile(null)` the query's `enabled` gate flips true, the stale result immediately refetches, and the restoration useEffect re-mounts the profile sheet — creating a ghost result after Send Halo.
+2. The orbit RAF tick, on the **FIRST approach tick** (when `orbitApproachStartTimeRef.current === 0`), captures the live `orbitAngleRef2.current` and computes the always-forward correction (`+= 2π if negative; += 2π again if < 1.0 rad`). Both start angle and correction are computed from the same live RAF state.
 
-Do NOT call `closeProfile()` from inside `sendSpark.onSuccess`; it fires `deleteSpinResult.mutate()` which races with the restoration refetch.
+3. **Angular convergence gate**: the approach RAF checks `Math.abs(targetAngle - approachAngle) < 0.01 rad` each frame. At `tApproach = 1.0`, floating-point delta ≈ 0 so the gate fires at approach end. pullforward is NOT fired from a fixed timeout — it is fired by the approach RAF directly via `setSpinRoomPhase('pullforward')`.
+
+4. The approach RAF calls `setSpinRoomPhase('pullforward')` + `setMomentumLabel('Narrowing down…')` when converged. The pullforward `useLayoutEffect` handles all subsequent timing.
+
+## Momentum RAF pattern (single-timestamp, no chained timeouts)
+
+The pullforward `useLayoutEffect` uses a **momentum RAF** instead of chained `setTimeout`s. A single `winnerMomentStartRef.current = performance.now()` is captured at pullforward time. Each RAF frame checks `elapsed = now - winnerMomentStartRef.current` and fires milestones:
+
+| elapsed | action |
+|---------|--------|
+| 0 ms | "Narrowing down…" (set by approach RAF before firing pullforward) |
+| 900 ms | label 2 + `scale(1.04)` |
+| 1900 ms | label 3 + `scale(1.07)` + `setSpinRoomPhase('momentum')` |
+| 3100 ms | `scale(1.10)` hold |
+| 4000 ms | reveal: `setSelectedProfile` + `setRevealQuote` + `setSpinRoomPhase('reveal')` |
+| 6300 ms | `setSpinRoomPhase('pause')` |
+| 9300 ms | `setSpinRoomPhase('buttons')` |
+
+**CRITICAL — no cleanup return from pullforward useLayoutEffect**: A cleanup would cancel `orbitRafRef2.current` the moment `setSpinRoomPhase('momentum')` fires at milestone t=1900 (because the `spinRoomPhase` dep change re-runs the effect cleanup). Milestones t=3100+ would never fire. The momentum RAF is self-terminating (stops when `mI >= milestones.length`) and is cancelled by the orbit RAF useEffect cleanup on `showSpinRoom = false`.
+
+## Winner state machine rules
+
+`pendingWinnerRef` holds the winner from `spinWheel()` until reveal. `selectedProfile` (React state) is only set atomically with `setSpinRoomPhase('reveal')` at milestone t=4000 ms.
+
+**Why:** Setting `selectedProfile` early caused: iOS detail sheet bleeding above SpinRoom overlay; boundary crashes when `closeProfile()` cleared it before the phase timeline reached idle.
+
+**sendSpark.onSuccess ordering**: pre-clear `/api/spin/result` query cache before closing SpinRoom. Without this, the restoration useEffect re-mounts the profile sheet after Send Halo.
+
+## Error boundary — Continue → blank page fix
+
+`onReset` in `IntentResultBoundary`: if `selectedProfile` is still in state → `setSpinRoomPhase('buttons')` (keep result visible). If profile was cleared → `queryClient.fetchQuery('/api/spin/result', { staleTime: 0 })` to restore from server. Only fall back to `'idle'` if server also returns null.
+
+## Boundary error surfacing
+
+`componentDidCatch` pushes two `pushDebugError` entries: one with `errorMessage + firstFrame`, one with the top-4 componentStack. Visible in the in-app debug panel without needing Safari console access on production devices.
