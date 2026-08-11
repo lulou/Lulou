@@ -1,0 +1,194 @@
+The last change made the WRONG thing slower.
+
+CURRENT PRODUCTION PROBLEMS
+
+1. The actual wheel/orbit spin itself is now slower.
+I did NOT ask for that.
+
+2. The selected winner still enlarges too quickly after the wheel has stopped.
+
+3. “Something slipped away” still appears.
+
+4. The fallback is now WORSE:
+Continue no longer gets me out.
+The screen is stuck.
+
+FIX ONLY THESE THINGS.
+
+DO NOT CHANGE THE ORBIT SPEED AGAIN.
+
+PART 1 — RESTORE THE WHEEL SPIN SPEED
+
+Restore the actual spinning/orbit timing to the exact production behaviour from before commit afa87f3.
+
+Do not alter:
+- acceleration
+- fast-spin velocity
+- approach timing
+- deceleration timing
+- winner target-angle logic
+
+The wheel itself was finally moving at an acceptable speed.
+
+Compare afa87f3 against its parent and revert ONLY the orbit-speed/timing changes.
+
+Report exactly which orbit timing values were changed and restore them.
+
+PART 2 — SLOW ONLY THE WINNER ENLARGEMENT
+
+The winner build-up begins only AFTER:
+- orbit has fully stopped
+- winner is exactly front-centre
+- WINNER_LOCKED is reached
+
+From that moment onward, use a completely separate winnerRevealStart timestamp.
+
+Do NOT reuse:
+- spin start timestamp
+- approach elapsed
+- orbit elapsed
+- phase elapsed
+
+Required post-stop timing:
+
+0–1200 ms
+- winner stays scale 1.00
+- no enlargement yet
+- side cards remain faintly visible
+- text: “Narrowing down…”
+
+1200–2600 ms
+- winner slowly scales 1.00 → 1.025
+- subtle glow starts
+- text: “There’s something here…”
+
+2600–4200 ms
+- winner slowly scales 1.025 → 1.06
+- side cards fade out
+- text: “Tonight’s connection”
+
+4200–6000 ms
+- winner slowly scales 1.06 → 1.10
+- hold centred
+- glow builds
+- no result screen yet
+
+Only after 6000 ms from WINNER_LOCKED:
+- mount/show final result
+
+This 6-second period must not affect orbit speed whatsoever.
+
+Use direct DOM/CSS interpolation or a dedicated RAF that only modifies:
+- winner scale
+- winner glow
+- loser opacity
+- status text
+
+Do NOT touch orbitAngle or orbit velocity during this period.
+
+PART 3 — FIX THE REAL ERROR
+
+“Something slipped away” still appears, so the last diagnosis was wrong or incomplete.
+
+Do NOT add more null guards blindly.
+
+Use the WheelDebugPanel already added.
+
+Read the production boundary_error entry and report:
+- exact errorMessage
+- exact firstFrame
+- exact componentStack
+- spinRoomPhase
+- selectedProfile userId
+- pendingWinner userId
+- persisted result userId
+
+Then fix the exact throwing JSX/value.
+
+Do not claim this fixed without the actual boundary error.
+
+PART 4 — FIX THE STUCK FALLBACK
+
+The fallback screen is now non-recoverable.
+
+Continue MUST always work.
+
+Required Continue behaviour:
+
+1. Disable button only while recovery is actually running.
+
+2. On tap:
+- fetch persisted spin result from server
+- if result exists:
+ - restore selectedProfile
+ - set result phase
+ - keep SpinRoom open
+ - show final result
+- if result does not exist:
+ - reset SpinRoom cleanly
+ - refetch Intent candidates/data
+ - return to a fully populated Intent page
+
+3. Add a 5-second timeout.
+If recovery request hangs:
+- stop loading
+- allow user to retry
+- never leave Continue permanently disabled
+
+4. Never leave user trapped on:
+“Something slipped away”
+
+5. Never produce a blank Intent page.
+
+PART 5 — SEPARATE THE TWO STATE MACHINES
+
+Keep these independent:
+
+A. ORBIT
+idle
+→ spinning
+→ approach
+→ winner_locked
+
+B. WINNER REVEAL
+winner_locked
+→ reveal_build
+→ result_ready
+→ result_visible
+
+Orbit state must stop changing once winner_locked is reached.
+
+Winner reveal state must not affect orbit speed.
+
+PART 6 — PRODUCTION TEST
+
+Test on iPhone after deploy.
+
+PASS requires:
+
+- wheel spin speed back to previous acceptable speed
+- winner lands cleanly
+- winner remains normal size for ~1.2 seconds
+- enlargement takes ~6 seconds total
+- enlargement is smooth
+- no effect on wheel speed
+- no “Something slipped away”
+- if fallback appears, Continue always recovers
+- no stuck screen
+- no blank Intent page
+
+Report only:
+- exact orbit-speed change reverted
+- exact winner enlargement timing
+- exact production boundary error
+- exact stuck-Continue root cause
+- files changed
+- commit hash
+- origin/main hash
+- Vercel deployed hash
+- real iPhone PASS/FAIL
+
+Do not redesign anything else.
+Do not change pre-spin.
+Do not change selection logic.
+Do not touch orbit timing except restoring it to the previous working speed.
