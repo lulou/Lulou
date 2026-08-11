@@ -43,7 +43,10 @@ function logWheelState(entry: Record<string, unknown>): void {
 // a safe "Try again" inline state instead of crashing the whole page.
 
 interface IntentResultBoundaryState { hasError: boolean; errorMsg: string; stack: string }
-class IntentResultBoundary extends Component<{ children: ReactNode; onReset: () => void }, IntentResultBoundaryState> {
+class IntentResultBoundary extends Component<
+  { children: ReactNode; onReset: () => void; recovering?: boolean },
+  IntentResultBoundaryState
+> {
   constructor(props: IntentResultBoundary["props"]) {
     super(props);
     this.state = { hasError: false, errorMsg: "", stack: "" };
@@ -88,16 +91,22 @@ class IntentResultBoundary extends Component<{ children: ReactNode; onReset: () 
             textAlign: "center", marginBottom: 24,
           }}>Your spin was recorded. Tap below to continue.</p>
           <button
-            onClick={() => { this.setState({ hasError: false, errorMsg: "" }); this.props.onReset(); }}
+            disabled={!!this.props.recovering}
+            onClick={() => { if (!this.props.recovering) this.props.onReset(); }}
             style={{
               padding: "14px 32px", borderRadius: 18,
-              background: "linear-gradient(135deg,#d45c74 0%,#9d3550 100%)",
+              background: this.props.recovering
+                ? "rgba(212,92,116,0.38)"
+                : "linear-gradient(135deg,#d45c74 0%,#9d3550 100%)",
               border: "none", color: "#fff",
               fontSize: 14, fontWeight: 700,
-              letterSpacing: "0.10em", cursor: "pointer",
+              letterSpacing: "0.10em",
+              cursor: this.props.recovering ? "default" : "pointer",
+              opacity: this.props.recovering ? 0.65 : 1,
+              transition: "opacity 0.2s, background 0.2s",
             }}
           >
-            Continue
+            {this.props.recovering ? "Recovering\u2026" : "Continue"}
           </button>
         </div>
       );
@@ -146,17 +155,27 @@ const renderText = (value: unknown): string => {
 };
 
 /**
- * normaliseProfileForRender — sanitise API profile fields before setting as React state.
- * Some API paths return string[] fields (signals, greenFlags, dealBreakers) as
- * objects { key: string; text: string }.  Rendering an object throws React error #31.
- * This function converts every string-array field through renderText so JSX is safe.
+ * normaliseProfileForRender — sanitise ALL API profile fields before setting React state.
+ *
+ * Several fields are rendered directly as JSX text (firstName, location).
+ * If the API returns { key, text } objects instead of plain strings, React throws
+ * error #31 ("Objects are not valid as a React child").
+ *
+ * This function converts every directly-rendered field through renderText so JSX is
+ * always given a plain string, and converts string[] fields (signals, etc.) the same way.
  */
 function normaliseProfileForRender(p: Profile): Profile {
+  const safeStr = (v: unknown): string => (typeof v === 'string' ? v : renderText(v));
   const safeArr = (v: unknown): string[] =>
     Array.isArray(v) ? (v as unknown[]).map(renderText) : [];
   const raw = p as Record<string, unknown>;
   return {
     ...p,
+    // Scalar string fields rendered directly as JSX children
+    firstName: safeStr(raw.firstName),
+    lastName:  safeStr(raw.lastName),
+    ...(raw.location != null ? { location: safeStr(raw.location) } : {}),
+    // String-array fields: each element rendered via renderText in JSX
     ...(Array.isArray(raw.signals)      ? { signals:      safeArr(raw.signals) }      : {}),
     ...(Array.isArray(raw.greenFlags)   ? { greenFlags:   safeArr(raw.greenFlags) }   : {}),
     ...(Array.isArray(raw.dealBreakers) ? { dealBreakers: safeArr(raw.dealBreakers) } : {}),
@@ -1187,6 +1206,10 @@ export default function IntentPage() {
   // Spin room + Halo state
   const [showSpinRoom, setShowSpinRoom] = useState(false);
   const [sparkSent, setSparkSent] = useState(false);
+  // boundaryKey: incrementing remounts IntentResultBoundary with fresh hasError=false state.
+  // boundaryRecovering: true while onReset fetch is in-flight — disables Continue button.
+  const [boundaryKey,        setBoundaryKey]        = useState(0);
+  const [boundaryRecovering, setBoundaryRecovering] = useState(false);
   // Quote shown in reveal stage — picked once when winner lands
   const [revealQuote, setRevealQuote] = useState<string>("");
   // Tension-build label shown during pullforward/momentum phases
@@ -1835,7 +1858,7 @@ export default function IntentPage() {
       orbitAngle: orbitAngleRef2.current.toFixed(4),
     });
 
-    // ── Persist NOW — 5 s before reveal mounts, giving server time to save ──
+    // ── Persist NOW — 6 s before reveal mounts, giving server time to save ──
     saveSpinSucceededRef.current = false;
     logWheelState({ event: 'persist_start', pendingWinnerUserId: winner.userId });
     saveSpinResult.mutate(winner.userId, {
@@ -1849,24 +1872,27 @@ export default function IntentPage() {
       recordSpin.mutate(winner.userId);
     }
 
-    // ── Step 0: winner centred + straight; losers faintly visible ─────────────
-    // Side cards start at 0.28 opacity — the RAF fades them to 0 over 2200 ms.
-    // No CSS transition on winner transform — the RAF owns it every frame.
+    // ── Step 0: lock winner card; capture loser opacities from approach ────────
+    // The approach RAF's final tick left each card at its per-depth opacity.
+    // We read those values here so the momentum RAF can fade FROM there (not from
+    // a hardcoded 0.28), preventing the "cards jump brighter" artifact that made
+    // the orbit look still-active at pullforward start.
+    if (winnerEl) {
+      winnerEl.style.transition = 'none';
+      winnerEl.style.transform  = 'translate(-50%, -50%) scale(1.0)';
+      winnerEl.style.opacity    = '1';
+      winnerEl.style.filter     = '';
+      winnerEl.style.zIndex     = '100';
+      winnerEl.style.boxShadow  = '0 0 18px 4px rgba(212,92,116,0.08)';
+    }
+    // Capture loser starting opacities; disable any residual CSS transitions.
+    const loserStartAlpha: number[] = new Array(ORBIT_N).fill(0);
     for (let i = 0; i < ORBIT_N; i++) {
+      if (i === frontI) continue;
       const el = orbitCardRefs.current[i];
-      if (!el) continue;
-      if (i === frontI) {
-        el.style.transition = 'none';
-        el.style.transform  = 'translate(-50%, -50%) scale(1.0)';
-        el.style.opacity    = '1';
-        el.style.filter     = '';
-        el.style.zIndex     = '100';
-        el.style.boxShadow  = '0 0 18px 4px rgba(212,92,116,0.08)';
-      } else {
-        el.style.transition = 'none';
-        el.style.opacity    = '0.28'; // faintly visible; RAF fades to 0 over 2200 ms
-        el.style.filter     = 'blur(3px)';
-        el.style.zIndex     = '1';
+      if (el) {
+        loserStartAlpha[i] = parseFloat(el.style.opacity || '0');
+        el.style.transition = 'none'; // RAF owns opacity/filter from here
       }
     }
     if (orbitGlowRef.current) {
@@ -1875,57 +1901,60 @@ export default function IntentPage() {
     }
     try { (navigator as any).vibrate?.([20, 10, 40]); } catch {}
 
-    // ── Momentum RAF — all values continuously derived from elapsed time ───────
+    // ── Winner-reveal RAF — 6 s total from WINNER_LOCKED ──────────────────────
+    //
+    // This RAF is completely separate from the orbit RAF.  It does NOT touch
+    // orbitAngle or orbit velocity — those have already stopped.
     //
     // Scale (ease-out quadratic, RAF sets transform directly — no CSS transition):
-    //   0–1000 ms    → 1.000               (hold at natural size)
-    //   1000–2200 ms → 1.000 … 1.025       (very subtle first grow)
-    //   2200–3600 ms → 1.025 … 1.060       (background glow builds)
-    //   3600–5000 ms → 1.060 … 1.100       (final hold)
+    //   0–1200 ms    → 1.000               (hold; "Narrowing down…")
+    //   1200–2600 ms → 1.000 … 1.025       ("There's something here…")
+    //   2600–4200 ms → 1.025 … 1.060       ("Tonight's connection")
+    //   4200–6000 ms → 1.060 … 1.100       (hold; glow builds)
     //
-    // Loser-card opacity: 0.28 → 0 over first 2200 ms
-    // Card + orb glow:    dim  → bright    over 0–5000 ms
+    // Loser-card opacity: fade from approach-residual → 0 over first 1200 ms
+    // Card + orb glow:    dim → bright over 0–6000 ms
     //
-    // Text / phase milestones (fired once at their t):
-    //   t = 1000: "There's something here…"
-    //   t = 2200: "Tonight's connection" + go('momentum')
-    //   t = 3600: log only (RAF continues to scale 1.10)
-    //   t = 5000: reveal — guarded by persist + profile validity + field normalisation
-    //   t = 7300: go('pause')
-    //   t =10300: go('buttons')
+    // Milestones (text / phase — fired once):
+    //   t = 1200: "There's something here…"
+    //   t = 2600: "Tonight's connection" + go('momentum')
+    //   t = 4200: log only
+    //   t = 6000: reveal — guarded by persist + profile + field normalisation
+    //   t = 8300: go('pause')
+    //   t =11300: go('buttons')
     winnerMomentStartRef.current = performance.now();
 
     // Ease-out quadratic: fast start, decelerates to target
     const _eo = (t: number) => 1 - (1 - Math.min(1, Math.max(0, t))) ** 2;
 
     const _scale = (elapsed: number): number => {
-      if (elapsed < 1000) return 1.0;
-      if (elapsed < 2200) return 1.0   + _eo((elapsed - 1000) / 1200) * 0.025;
-      if (elapsed < 3600) return 1.025 + _eo((elapsed - 2200) / 1400) * 0.035;
-      return                     1.06  + _eo((elapsed - 3600) / 1400) * 0.04;
+      if (elapsed < 1200) return 1.0;
+      if (elapsed < 2600) return 1.0   + _eo((elapsed - 1200) / 1400) * 0.025;
+      if (elapsed < 4200) return 1.025 + _eo((elapsed - 2600) / 1600) * 0.035;
+      return                     1.06  + _eo((elapsed - 4200) / 1800) * 0.04;
     };
 
     type Milestone = { t: number; fn: () => void };
     const milestones: Milestone[] = [
-      // t=1000: "There's something here…"
-      { t: 1000, fn: () => {
+      // t=1200: "There's something here…"
+      { t: 1200, fn: () => {
         setMomentumLabel('There\u2019s something here\u2026');
-        logWheelState({ event: 'momentum_step_1', elapsed: 1000 });
+        logWheelState({ event: 'momentum_step_1', elapsed: 1200 });
       }},
-      // t=2200: "Tonight's connection" + go('momentum') so orbit RAF stops gating
-      { t: 2200, fn: () => {
+      // t=2600: "Tonight's connection" + go('momentum') so orbit RAF stops gating
+      { t: 2600, fn: () => {
         setMomentumLabel('Tonight\u2019s connection');
         setSpinRoomPhase('momentum');
-        logWheelState({ event: 'momentum_step_2', elapsed: 2200 });
+        logWheelState({ event: 'momentum_step_2', elapsed: 2600 });
       }},
-      // t=3600: final hold begins (scale continues to 1.10 via RAF; log only)
-      { t: 3600, fn: () => {
-        logWheelState({ event: 'momentum_step_3', elapsed: 3600 });
+      // t=4200: glow reaches ≈65% — log only; scale continues to 1.10
+      { t: 4200, fn: () => {
+        logWheelState({ event: 'momentum_step_3', elapsed: 4200 });
       }},
-      // t=5000: reveal — guarded by persistence + profile + field normalisation
-      { t: 5000, fn: () => {
-        // Retry up to 15 × 200 ms (3 s extra) if server persist hasn't completed.
-        // After 15 attempts we proceed anyway — never block the user forever.
+      // t=6000: reveal — guarded by persistence + profile + field normalisation
+      { t: 6000, fn: () => {
+        // Retry up to 15 × 200 ms (3 s extra) if persist hasn't confirmed yet.
+        // After 15 attempts proceed anyway — never block the user indefinitely.
         const revealAttempt = (attempt: number) => {
           if (!saveSpinSucceededRef.current && attempt < 15) {
             logWheelState({ event: 'reveal_waiting_for_persist', attempt });
@@ -1938,8 +1967,8 @@ export default function IntentPage() {
             setShowSpinRoom(false);
             return;
           }
-          // Normalise string-array fields — prevents React error #31
-          // (API may return { key, text } objects instead of plain strings)
+          // Normalise ALL directly-rendered fields (firstName, location, arrays)
+          // before setting state — prevents React error #31.
           const normProfile = normaliseProfileForRender(profileNow);
           logWheelState({
             event: 'reveal_mount',
@@ -1956,10 +1985,10 @@ export default function IntentPage() {
         };
         revealAttempt(0);
       }},
-      // t=7300: photo phase (2300 ms after reveal — same gap as before)
-      { t: 7300, fn: () => setSpinRoomPhase('pause') },
-      // t=10300: CTA buttons (5300 ms after reveal — same gap as before)
-      { t: 10300, fn: () => {
+      // t=8300: photo phase (2300 ms after reveal — same relative gap)
+      { t: 8300, fn: () => setSpinRoomPhase('pause') },
+      // t=11300: CTA buttons (3000 ms after photo — same relative gap)
+      { t: 11300, fn: () => {
         setSpinRoomPhase('buttons');
         console.log('[WHEEL] BUTTONS_VISIBLE');
       }},
@@ -1969,31 +1998,33 @@ export default function IntentPage() {
     const momentumTick = (now: number) => {
       const elapsed = now - winnerMomentStartRef.current;
 
-      // ── Per-frame interpolation — RAF owns transform/glow/loserOpacity ──────
+      // ── Per-frame interpolation — RAF exclusively owns these DOM properties ──
       if (winnerEl) {
-        // Scale: continuous ease-out; no CSS transition so there are no snap-jumps
+        // Scale: continuous ease-out quadratic; no CSS transition → no snap-jumps
         winnerEl.style.transform = `translate(-50%, -50%) scale(${_scale(elapsed).toFixed(4)})`;
-        // Card glow: dim (t=0) → bright (t=5000)
-        const gt  = Math.min(1, elapsed / 5000);
+        // Card glow: dim (t=0) → bright (t=6000)
+        const gt  = Math.min(1, elapsed / 6000);
         const gr  = Math.round(18 + gt * 62);
         const gsp = Math.round(4  + gt * 20);
         winnerEl.style.boxShadow = `0 0 ${gr}px ${gsp}px rgba(212,92,116,${(0.08 + gt * 0.44).toFixed(3)}), 0 6px ${Math.round(24 + gt * 16)}px rgba(0,0,0,${(0.50 + gt * 0.18).toFixed(3)})`;
       }
       // Ambient orb glow
       if (orbitGlowRef.current) {
-        const gt  = Math.min(1, elapsed / 5000);
+        const gt  = Math.min(1, elapsed / 6000);
         const gr  = Math.round(18 + gt * 62);
         const gsp = Math.round(4  + gt * 24);
         orbitGlowRef.current.style.boxShadow = `0 0 ${gr}px ${gsp}px rgba(212,92,116,${(0.08 + gt * 0.38).toFixed(3)}), 0 0 ${gr * 2}px ${gsp * 2}px rgba(212,92,116,${(0.0 + gt * 0.20).toFixed(3)})`;
       }
-      // Loser cards: 0.28 → 0 over first 2200 ms
-      const loserAlpha = elapsed < 2200 ? (0.28 * Math.max(0, 1 - elapsed / 2200)) : 0;
+      // Loser cards: fade from approach-residual opacity → 0 over first 1200 ms.
+      // loserStartAlpha[i] was captured from the DOM at pullforward start.
+      const loserT = elapsed < 1200 ? Math.max(0, 1 - elapsed / 1200) : 0;
       for (let i = 0; i < ORBIT_N; i++) {
         if (i === frontI) continue;
         const loserEl = orbitCardRefs.current[i];
         if (loserEl) {
-          loserEl.style.opacity = loserAlpha.toFixed(3);
-          loserEl.style.filter  = loserAlpha > 0.05 ? 'blur(3px)' : 'blur(6px)';
+          const alpha = loserStartAlpha[i] * loserT;
+          loserEl.style.opacity = alpha.toFixed(3);
+          loserEl.style.filter  = alpha > 0.05 ? `blur(${(3 * loserT).toFixed(1)}px)` : 'blur(6px)';
         }
       }
 
@@ -3484,41 +3515,49 @@ export default function IntentPage() {
 
           {/* ── REVEAL STAGE — 3 phases: quote → photo → introduction ── */}
           {(spinRoomPhase === 'reveal' || spinRoomPhase === 'pause' || spinRoomPhase === 'buttons') && selectedProfile && (
-          <IntentResultBoundary onReset={() => {
+          <IntentResultBoundary
+            key={boundaryKey}
+            recovering={boundaryRecovering}
+            onReset={() => {
             logWheelState({
               event: 'continue_pressed',
               selectedProfileUserId: selectedProfile?.userId ?? null,
               pendingWinnerUserId: pendingWinnerRef.current?.profile?.userId ?? null,
             });
             setSparkSent(false);
-            if (selectedProfile) {
-              // Profile is still in state — stay in SpinRoom, jump to CTA buttons.
-              // Do NOT close the SpinRoom here: the reveal stage is rendered inside
-              // it, and setShowSpinRoom(false) would unmount the overlay entirely,
-              // leaving a blank Intent page.
-              setSpinRoomPhase('buttons');
-            } else {
-              // Profile was cleared — restore from the server-persisted result.
-              // GET /api/spin/result returns the last saved winner for this user.
-              queryClient.fetchQuery<{ profile: Profile | null }>({
-                queryKey: ["/api/spin/result"],
-                staleTime: 0,
-              }).then((data) => {
+            setBoundaryRecovering(true);
+            // ALWAYS fetch fresh from server — never re-use the profile that caused
+            // the boundary (it may still have bad data and would throw again on render,
+            // causing the stuck-Continue loop).
+            const ac = new AbortController();
+            const timer = setTimeout(() => ac.abort(), 5000);
+            fetch('/api/spin/result', { credentials: 'include', signal: ac.signal })
+              .then(r => { if (!r.ok) throw new Error(`status ${r.status}`); return r.json(); })
+              .then((data: { profile: Profile | null }) => {
+                clearTimeout(timer);
+                setBoundaryRecovering(false);
                 const p = data?.profile;
                 if (p?.userId) {
+                  // Normalise ALL renderable fields, then bump key to remount the
+                  // boundary fresh (hasError=false) with the clean profile data.
                   setSelectedProfile(normaliseProfileForRender(p));
                   setSpinRoomPhase('buttons');
-                  // SpinRoom stays open — reveal section now renders correctly.
+                  setBoundaryKey(k => k + 1);
                 } else {
-                  // No persisted result — fall back to the wheel so user can spin again.
+                  // No persisted result — close SpinRoom, return to Intent wheel
+                  setSelectedProfile(null);
                   setSpinRoomPhase('idle');
                   setShowSpinRoom(false);
+                  setBoundaryKey(k => k + 1);
                 }
-              }).catch(() => {
-                setSpinRoomPhase('idle');
-                setShowSpinRoom(false);
+              })
+              .catch(() => {
+                clearTimeout(timer);
+                setBoundaryRecovering(false);
+                // Network error or 5 s timeout — re-enable button so user can retry.
+                // Do not close SpinRoom; never trap the user on a blank page.
+                logWheelState({ event: 'continue_fetch_failed' });
               });
-            }
           }}>
             <div style={{ position: "absolute", inset: 0, zIndex: 10 }}>
 
