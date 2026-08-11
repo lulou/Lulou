@@ -145,6 +145,24 @@ const renderText = (value: unknown): string => {
   return "";
 };
 
+/**
+ * normaliseProfileForRender — sanitise API profile fields before setting as React state.
+ * Some API paths return string[] fields (signals, greenFlags, dealBreakers) as
+ * objects { key: string; text: string }.  Rendering an object throws React error #31.
+ * This function converts every string-array field through renderText so JSX is safe.
+ */
+function normaliseProfileForRender(p: Profile): Profile {
+  const safeArr = (v: unknown): string[] =>
+    Array.isArray(v) ? (v as unknown[]).map(renderText) : [];
+  const raw = p as Record<string, unknown>;
+  return {
+    ...p,
+    ...(Array.isArray(raw.signals)      ? { signals:      safeArr(raw.signals) }      : {}),
+    ...(Array.isArray(raw.greenFlags)   ? { greenFlags:   safeArr(raw.greenFlags) }   : {}),
+    ...(Array.isArray(raw.dealBreakers) ? { dealBreakers: safeArr(raw.dealBreakers) } : {}),
+  } as Profile;
+}
+
 /** Small "Restore Purchases" text link shown below Halo packs. */
 function RestorePurchasesButton() {
   const [loading, setLoading] = useState(false);
@@ -1303,6 +1321,9 @@ export default function IntentPage() {
   // Dedup guard — prevents a second recordSpin call if the timer fires twice
   // (e.g. due to a fast re-mount or dev StrictMode double-effect).
   const recordSpinFiredRef = useRef(false);
+  // Set true in saveSpinResult.onSuccess; checked by the reveal guard at t=5000 ms
+  // to confirm the result is server-persisted before mounting the result UI.
+  const saveSpinSucceededRef = useRef(false);
 
   const recordSpin = useMutation({
     mutationFn: async (standoutUserId: string) => {
@@ -1394,6 +1415,7 @@ export default function IntentPage() {
     try { (navigator as any).vibrate?.([30]); } catch {}
     // Reset dedup guard so this fresh spin can record
     recordSpinFiredRef.current = false;
+    saveSpinSucceededRef.current = false;
     pendingWinnerRef.current = null;
     console.log("[INTENTION_WHEEL] spin_request_started", { candidateCount: count });
     setShowSpinRoom(true);
@@ -1813,18 +1835,23 @@ export default function IntentPage() {
       orbitAngle: orbitAngleRef2.current.toFixed(4),
     });
 
-    // Persist result NOW — 4 s before reveal mounts (Part 5: server-side before reveal)
+    // ── Persist NOW — 5 s before reveal mounts, giving server time to save ──
+    saveSpinSucceededRef.current = false;
     logWheelState({ event: 'persist_start', pendingWinnerUserId: winner.userId });
     saveSpinResult.mutate(winner.userId, {
-      onSuccess: () => logWheelState({
-        event: 'persist_success', persistedUserId: winner.userId }),
+      onSuccess: () => {
+        saveSpinSucceededRef.current = true;
+        logWheelState({ event: 'persist_success', persistedUserId: winner.userId });
+      },
     });
     if (!recordSpinFiredRef.current) {
       recordSpinFiredRef.current = true;
       recordSpin.mutate(winner.userId);
     }
 
-    // ── Step 0 (instant): winner centred, losers fade ─────────────────────
+    // ── Step 0: winner centred + straight; losers faintly visible ─────────────
+    // Side cards start at 0.28 opacity — the RAF fades them to 0 over 2200 ms.
+    // No CSS transition on winner transform — the RAF owns it every frame.
     for (let i = 0; i < ORBIT_N; i++) {
       const el = orbitCardRefs.current[i];
       if (!el) continue;
@@ -1834,11 +1861,12 @@ export default function IntentPage() {
         el.style.opacity    = '1';
         el.style.filter     = '';
         el.style.zIndex     = '100';
-        el.style.boxShadow  = '';
+        el.style.boxShadow  = '0 0 18px 4px rgba(212,92,116,0.08)';
       } else {
-        el.style.transition = 'opacity 0.45s ease, filter 0.45s ease';
-        el.style.opacity    = '0';
-        el.style.filter     = 'blur(8px)';
+        el.style.transition = 'none';
+        el.style.opacity    = '0.28'; // faintly visible; RAF fades to 0 over 2200 ms
+        el.style.filter     = 'blur(3px)';
+        el.style.zIndex     = '1';
       }
     }
     if (orbitGlowRef.current) {
@@ -1847,88 +1875,136 @@ export default function IntentPage() {
     }
     try { (navigator as any).vibrate?.([20, 10, 40]); } catch {}
 
-    // ── Momentum RAF — single winnerMomentStart, elapsed-derived milestones ─
+    // ── Momentum RAF — all values continuously derived from elapsed time ───────
+    //
+    // Scale (ease-out quadratic, RAF sets transform directly — no CSS transition):
+    //   0–1000 ms    → 1.000               (hold at natural size)
+    //   1000–2200 ms → 1.000 … 1.025       (very subtle first grow)
+    //   2200–3600 ms → 1.025 … 1.060       (background glow builds)
+    //   3600–5000 ms → 1.060 … 1.100       (final hold)
+    //
+    // Loser-card opacity: 0.28 → 0 over first 2200 ms
+    // Card + orb glow:    dim  → bright    over 0–5000 ms
+    //
+    // Text / phase milestones (fired once at their t):
+    //   t = 1000: "There's something here…"
+    //   t = 2200: "Tonight's connection" + go('momentum')
+    //   t = 3600: log only (RAF continues to scale 1.10)
+    //   t = 5000: reveal — guarded by persist + profile validity + field normalisation
+    //   t = 7300: go('pause')
+    //   t =10300: go('buttons')
     winnerMomentStartRef.current = performance.now();
+
+    // Ease-out quadratic: fast start, decelerates to target
+    const _eo = (t: number) => 1 - (1 - Math.min(1, Math.max(0, t))) ** 2;
+
+    const _scale = (elapsed: number): number => {
+      if (elapsed < 1000) return 1.0;
+      if (elapsed < 2200) return 1.0   + _eo((elapsed - 1000) / 1200) * 0.025;
+      if (elapsed < 3600) return 1.025 + _eo((elapsed - 2200) / 1400) * 0.035;
+      return                     1.06  + _eo((elapsed - 3600) / 1400) * 0.04;
+    };
+
     type Milestone = { t: number; fn: () => void };
     const milestones: Milestone[] = [
-      // t=900: label step 2 + scale 1.04
-      { t: 900, fn: () => {
+      // t=1000: "There's something here…"
+      { t: 1000, fn: () => {
         setMomentumLabel('There\u2019s something here\u2026');
-        if (winnerEl) {
-          winnerEl.style.transition = 'transform 0.9s cubic-bezier(0.16,1,0.3,1), box-shadow 0.9s ease';
-          winnerEl.style.transform  = 'translate(-50%, -50%) scale(1.04)';
-          winnerEl.style.boxShadow  = '0 0 30px 8px rgba(212,92,116,0.22), 0 6px 24px rgba(0,0,0,0.50)';
-        }
-        if (orbitGlowRef.current) {
-          orbitGlowRef.current.style.transition = 'box-shadow 0.9s ease';
-          orbitGlowRef.current.style.boxShadow  = '0 0 44px 14px rgba(212,92,116,0.22), 0 0 88px 28px rgba(212,92,116,0.10)';
-        }
-        logWheelState({ event: 'momentum_step_1', elapsed: 900 });
+        logWheelState({ event: 'momentum_step_1', elapsed: 1000 });
       }},
-      // t=1900: label step 3 + scale 1.07 + momentum phase
-      { t: 1900, fn: () => {
+      // t=2200: "Tonight's connection" + go('momentum') so orbit RAF stops gating
+      { t: 2200, fn: () => {
         setMomentumLabel('Tonight\u2019s connection');
         setSpinRoomPhase('momentum');
-        if (winnerEl) {
-          winnerEl.style.transition = 'transform 0.9s cubic-bezier(0.16,1,0.3,1), box-shadow 0.9s ease';
-          winnerEl.style.transform  = 'translate(-50%, -50%) scale(1.07)';
-          winnerEl.style.boxShadow  = '0 0 60px 18px rgba(212,92,116,0.38), 0 8px 32px rgba(0,0,0,0.60)';
-        }
-        if (orbitGlowRef.current) {
-          orbitGlowRef.current.style.boxShadow = '0 0 60px 20px rgba(212,92,116,0.32), 0 0 120px 40px rgba(212,92,116,0.14)';
-        }
-        logWheelState({ event: 'momentum_step_2', elapsed: 1900 });
+        logWheelState({ event: 'momentum_step_2', elapsed: 2200 });
       }},
-      // t=3100: scale 1.10, hold
-      { t: 3100, fn: () => {
-        if (winnerEl) {
-          winnerEl.style.transition = 'transform 1.0s cubic-bezier(0.12,0,0.08,1), box-shadow 0.9s ease';
-          winnerEl.style.transform  = 'translate(-50%, -50%) scale(1.10)';
-          winnerEl.style.boxShadow  = '0 0 80px 24px rgba(212,92,116,0.52), 0 10px 40px rgba(0,0,0,0.68)';
-        }
-        if (orbitGlowRef.current) {
-          orbitGlowRef.current.style.boxShadow = '0 0 80px 28px rgba(212,92,116,0.46), 0 0 160px 56px rgba(212,92,116,0.20)';
-        }
-        logWheelState({ event: 'momentum_step_3', elapsed: 3100 });
+      // t=3600: final hold begins (scale continues to 1.10 via RAF; log only)
+      { t: 3600, fn: () => {
+        logWheelState({ event: 'momentum_step_3', elapsed: 3600 });
       }},
-      // t=4000: reveal — selectedProfile + quote set atomically with phase change
-      { t: 4000, fn: () => {
-        const pendingNow = pendingWinnerRef.current;
-        if (!pendingNow?.profile?.userId) {
-          logWheelState({ event: 'reveal_aborted_no_winner' });
-          setShowSpinRoom(false);
-          return;
-        }
-        logWheelState({
-          event: 'reveal_mount',
-          selectedProfileUserId: pendingNow.profile.userId,
-          pendingWinnerUserId: pendingNow.profile.userId,
-        });
-        setSelectedIndex(pendingNow.index);
-        setSelectedProfile(pendingNow.profile);
-        setRevealQuote(LULOU_QUOTE_KEYS[Math.floor(Math.random() * LULOU_QUOTE_KEYS.length)]);
-        setSpinRoomPhase('reveal');
-        if (!muted) playChime();
-        try { (navigator as any).vibrate?.([60, 40, 120]); } catch {}
+      // t=5000: reveal — guarded by persistence + profile + field normalisation
+      { t: 5000, fn: () => {
+        // Retry up to 15 × 200 ms (3 s extra) if server persist hasn't completed.
+        // After 15 attempts we proceed anyway — never block the user forever.
+        const revealAttempt = (attempt: number) => {
+          if (!saveSpinSucceededRef.current && attempt < 15) {
+            logWheelState({ event: 'reveal_waiting_for_persist', attempt });
+            setTimeout(() => revealAttempt(attempt + 1), 200);
+            return;
+          }
+          const profileNow = pendingWinnerRef.current?.profile;
+          if (!profileNow?.userId) {
+            logWheelState({ event: 'reveal_aborted_no_winner' });
+            setShowSpinRoom(false);
+            return;
+          }
+          // Normalise string-array fields — prevents React error #31
+          // (API may return { key, text } objects instead of plain strings)
+          const normProfile = normaliseProfileForRender(profileNow);
+          logWheelState({
+            event: 'reveal_mount',
+            selectedProfileUserId: profileNow.userId,
+            pendingWinnerUserId: profileNow.userId,
+            saveSucceeded: saveSpinSucceededRef.current,
+          });
+          setSelectedIndex(pendingWinnerRef.current?.index ?? frontI);
+          setSelectedProfile(normProfile);
+          setRevealQuote(LULOU_QUOTE_KEYS[Math.floor(Math.random() * LULOU_QUOTE_KEYS.length)]);
+          setSpinRoomPhase('reveal');
+          if (!muted) playChime();
+          try { (navigator as any).vibrate?.([60, 40, 120]); } catch {}
+        };
+        revealAttempt(0);
       }},
-      // t=6300: photo phase
-      { t: 6300, fn: () => setSpinRoomPhase('pause') },
-      // t=9300: CTA buttons
-      { t: 9300, fn: () => {
+      // t=7300: photo phase (2300 ms after reveal — same gap as before)
+      { t: 7300, fn: () => setSpinRoomPhase('pause') },
+      // t=10300: CTA buttons (5300 ms after reveal — same gap as before)
+      { t: 10300, fn: () => {
         setSpinRoomPhase('buttons');
         console.log('[WHEEL] BUTTONS_VISIBLE');
       }},
     ];
+
     let mI = 0;
     const momentumTick = (now: number) => {
       const elapsed = now - winnerMomentStartRef.current;
+
+      // ── Per-frame interpolation — RAF owns transform/glow/loserOpacity ──────
+      if (winnerEl) {
+        // Scale: continuous ease-out; no CSS transition so there are no snap-jumps
+        winnerEl.style.transform = `translate(-50%, -50%) scale(${_scale(elapsed).toFixed(4)})`;
+        // Card glow: dim (t=0) → bright (t=5000)
+        const gt  = Math.min(1, elapsed / 5000);
+        const gr  = Math.round(18 + gt * 62);
+        const gsp = Math.round(4  + gt * 20);
+        winnerEl.style.boxShadow = `0 0 ${gr}px ${gsp}px rgba(212,92,116,${(0.08 + gt * 0.44).toFixed(3)}), 0 6px ${Math.round(24 + gt * 16)}px rgba(0,0,0,${(0.50 + gt * 0.18).toFixed(3)})`;
+      }
+      // Ambient orb glow
+      if (orbitGlowRef.current) {
+        const gt  = Math.min(1, elapsed / 5000);
+        const gr  = Math.round(18 + gt * 62);
+        const gsp = Math.round(4  + gt * 24);
+        orbitGlowRef.current.style.boxShadow = `0 0 ${gr}px ${gsp}px rgba(212,92,116,${(0.08 + gt * 0.38).toFixed(3)}), 0 0 ${gr * 2}px ${gsp * 2}px rgba(212,92,116,${(0.0 + gt * 0.20).toFixed(3)})`;
+      }
+      // Loser cards: 0.28 → 0 over first 2200 ms
+      const loserAlpha = elapsed < 2200 ? (0.28 * Math.max(0, 1 - elapsed / 2200)) : 0;
+      for (let i = 0; i < ORBIT_N; i++) {
+        if (i === frontI) continue;
+        const loserEl = orbitCardRefs.current[i];
+        if (loserEl) {
+          loserEl.style.opacity = loserAlpha.toFixed(3);
+          loserEl.style.filter  = loserAlpha > 0.05 ? 'blur(3px)' : 'blur(6px)';
+        }
+      }
+
+      // ── Milestone triggers (text + phase changes) ─────────────────────────
       while (mI < milestones.length && elapsed >= milestones[mI].t) {
         milestones[mI].fn();
         mI++;
       }
       if (mI < milestones.length) {
-        // Store handle in orbitRafRef2 so the orbit-RAF useEffect cleanup cancels it
-        // on showSpinRoom=false (e.g. user closes the SpinRoom mid-momentum).
+        // Store handle in orbitRafRef2 so the orbit-RAF useEffect cleanup cancels
+        // it when showSpinRoom = false (user closes SpinRoom mid-momentum).
         orbitRafRef2.current = requestAnimationFrame(momentumTick);
       }
     };
@@ -3414,10 +3490,12 @@ export default function IntentPage() {
               selectedProfileUserId: selectedProfile?.userId ?? null,
               pendingWinnerUserId: pendingWinnerRef.current?.profile?.userId ?? null,
             });
-            setShowSpinRoom(false);
             setSparkSent(false);
             if (selectedProfile) {
-              // Profile is still in state — keep result visible without a server round-trip.
+              // Profile is still in state — stay in SpinRoom, jump to CTA buttons.
+              // Do NOT close the SpinRoom here: the reveal stage is rendered inside
+              // it, and setShowSpinRoom(false) would unmount the overlay entirely,
+              // leaving a blank Intent page.
               setSpinRoomPhase('buttons');
             } else {
               // Profile was cleared — restore from the server-persisted result.
@@ -3428,12 +3506,18 @@ export default function IntentPage() {
               }).then((data) => {
                 const p = data?.profile;
                 if (p?.userId) {
-                  setSelectedProfile(p);
+                  setSelectedProfile(normaliseProfileForRender(p));
                   setSpinRoomPhase('buttons');
+                  // SpinRoom stays open — reveal section now renders correctly.
                 } else {
+                  // No persisted result — fall back to the wheel so user can spin again.
                   setSpinRoomPhase('idle');
+                  setShowSpinRoom(false);
                 }
-              }).catch(() => setSpinRoomPhase('idle'));
+              }).catch(() => {
+                setSpinRoomPhase('idle');
+                setShowSpinRoom(false);
+              });
             }
           }}>
             <div style={{ position: "absolute", inset: 0, zIndex: 10 }}>
