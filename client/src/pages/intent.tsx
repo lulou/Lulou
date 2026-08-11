@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, API_BASE } from "@/lib/queryClient";
 import {
   pushDebugError,
   pushWheelEntry, getWheelEntries, subscribeWheelEntries,
@@ -35,6 +35,24 @@ import { clearAllArmedSessions } from "@/lib/live-call-sessions";
 function logWheelState(entry: Record<string, unknown>): void {
   console.log('[INTENTION_WHEEL_STATE]', entry);
   pushWheelEntry(entry);
+}
+
+// ── Telemetry transport — sends critical events to Railway production logs ────
+// Callable from RAF closures and class methods (no hooks needed).
+// Uses API_BASE so the request reaches Railway when served from Vercel:
+//   • Vercel deploy: API_BASE = "https://lulou-production.up.railway.app"
+//   • Replit dev:    API_BASE = "" (same-origin relative URL)
+// The previous fetch('/api/debug/...') used a relative URL which Vercel's SPA
+// rewrite handled with HTTP 405 — it never reached Railway. This fixes that.
+function postWheelDiag(type: 'boundary' | 'scale' | 'orbit', data: Record<string, unknown>): void {
+  try {
+    fetch(`${API_BASE}/api/debug/intention-wheel-error`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ type, ...data }),
+    }).catch(() => {}); // fire-and-forget; never throw or block caller
+  } catch { /* guard against any sync error */ }
 }
 
 // ── SpinRoom result error boundary ───────────────────────────────────────────
@@ -70,22 +88,15 @@ class IntentResultBoundary extends Component<
     // in-app debug panel without needing Safari console access on device.
     pushDebugError(`[spin_boundary] ${error.message} | ${firstFrame}`);
     pushDebugError(`[spin_boundary_tree] ${compStackTop}`);
-    // POST to server so the exact exception is readable from Replit logs
-    // without needing Safari console access on device.
-    try {
-      fetch('/api/debug/intention-wheel-error', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({
-          errorMessage: error.message,
-          stack: (error.stack ?? '').split('\n').slice(0, 8).join('\n'),
-          componentStack: (info.componentStack ?? '').split('\n').slice(0, 10).join('\n'),
-          firstFrame,
-          recentWheelLog: getWheelEntries().slice(-8),
-        }),
-      }).catch(() => {}); // fire-and-forget; never throw or block render
-    } catch { /* guard against any sync throw */ }
+    // POST to Railway via postWheelDiag so it reaches the backend even on
+    // Vercel (relative URL was hitting Vercel's SPA rewrite → HTTP 405).
+    postWheelDiag('boundary', {
+      errorMessage: error.message,
+      stack: (error.stack ?? '').split('\n').slice(0, 8).join('\n'),
+      componentStack: (info.componentStack ?? '').split('\n').slice(0, 10).join('\n'),
+      firstFrame,
+      recentWheelLog: getWheelEntries().slice(-8),
+    });
   }
   render() {
     if (this.state.hasError) {
@@ -1687,6 +1698,16 @@ export default function IntentPage() {
             orbitSpeedRads: currentSpeed.toFixed(3),
             pendingWinnerUserId: pendingWinnerRef.current?.profile?.userId ?? null,
           });
+          // Transport to Railway so production orbit trace is readable without Safari console.
+          postWheelDiag('orbit', {
+            event: 'approach_start',
+            currentAngle: orbitAngleRef2.current.toFixed(4),
+            targetAngle: targetA.toFixed(4),
+            correctionRad: corrA.toFixed(4),
+            approachDuration: dynamicDur,
+            orbitSpeed: currentSpeed.toFixed(3),
+            winnerLocked: false,
+          });
         }
 
         const APPROACH_DUR = orbitApproachDurationRef.current; // ms — matched to current orbit speed
@@ -1743,6 +1764,12 @@ export default function IntentPage() {
             winnerIndex: wIdxFinal,
             orbitAngle: targetAngleA.toFixed(4),
           });
+          postWheelDiag('orbit', {
+            event: 'approach_complete',
+            currentAngle: targetAngleA.toFixed(4),
+            angularError: angularError.toFixed(6),
+            winnerLocked: false,
+          });
           // Fire pullforward — pullforward useLayoutEffect drives all subsequent timing.
           setSpinRoomPhase('pullforward');
           setMomentumLabel('Narrowing down\u2026');
@@ -1769,6 +1796,13 @@ export default function IntentPage() {
       if (orbitLockedRef.current) {
         console.warn('[INTENTION_WHEEL_BUG]', 'orbit_changed_after_lock', {
           phase, speed: orbitSpeedRef2.current.toFixed(3) });
+        postWheelDiag('orbit', {
+          event: 'orbit_changed_after_lock',
+          phase,
+          currentAngle: orbitAngleRef2.current.toFixed(4),
+          speed: orbitSpeedRef2.current.toFixed(3),
+          winnerLocked: true,
+        });
       }
       orbitAngleRef2.current += orbitSpeedRef2.current * dt;
       const angle = orbitAngleRef2.current;
@@ -1904,6 +1938,12 @@ export default function IntentPage() {
       winnerIndex: frontI,
       pendingWinnerUserId: winner.userId,
       orbitAngle: orbitAngleRef2.current.toFixed(4),
+    });
+    postWheelDiag('orbit', {
+      event: 'pullforward',
+      currentAngle: orbitAngleRef2.current.toFixed(4),
+      winnerUserId: winner.userId,
+      winnerLocked: true,
     });
 
     // ── Persist NOW — 6 s before reveal mounts, giving server time to save ──
@@ -2073,6 +2113,14 @@ export default function IntentPage() {
             elapsed: Math.round(elapsed),
             computedScale: computedScale.toFixed(4),
             actualComputedTransform: actualT,
+          });
+          // Transport scale sample to Railway — console.log is device-only.
+          postWheelDiag('scale', {
+            elapsed: Math.round(elapsed),
+            computedScale: computedScale.toFixed(4),
+            actualComputedTransform: actualT,
+            phase: spinPhaseRef.current,
+            winnerUserId: winner.userId,
           });
         }
       }

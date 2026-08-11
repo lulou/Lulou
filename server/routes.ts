@@ -5292,34 +5292,51 @@ export async function registerRoutes(
 
   // ── Spin result auto-persistence ─────────────────────────────────────────
   // Unlike POST /api/wheel/save (user-initiated, 409 if already saved),
-  // ── Client-side crash diagnostics — readable from Replit logs without Safari console ──
-  // componentDidCatch in IntentResultBoundary POSTs here so we can see the exact
-  // exception that caused "Something slipped away" without needing device console access.
+  // ── Wheel telemetry — three types, all fire-and-forget from the client ──────
+  // type "boundary" : componentDidCatch crash in IntentResultBoundary
+  // type "scale"    : winner-card computed transform sample every 500 ms
+  // type "orbit"    : approach/pullforward/post-lock angle events
+  //
+  // No auth required — the boundary fires in a broken state and other events
+  // must reach the server even if the session is in an unknown state.
+  // No sensitive data is accepted: no emails, names, photos, or payment info.
   app.post("/api/debug/intention-wheel-error", async (req: any, res) => {
     try {
-      const { errorMessage, stack, componentStack, firstFrame, recentWheelLog } = req.body ?? {};
-      console.error(
-        '[INTENTION_WHEEL_BOUNDARY_ERROR]',
-        JSON.stringify(
-          {
-            errorMessage:      errorMessage ?? '(none)',
-            firstFrame:        firstFrame   ?? '(none)',
-            componentStack:    typeof componentStack === 'string'
-              ? componentStack.split('\n').slice(0, 8).join(' ↳ ')
-              : '(none)',
-            stack:             typeof stack === 'string'
-              ? stack.split('\n').slice(0, 6).join('\n')
-              : '(none)',
-            recentWheelLog:    recentWheelLog ?? [],
-            timestamp:         new Date().toISOString(),
-          },
-          null,
-          2,
-        ),
-      );
+      const { type = 'boundary', ...rest } = req.body ?? {};
+      const ts = new Date().toISOString();
+
+      if (type === 'boundary') {
+        const { errorMessage, stack, componentStack, firstFrame, recentWheelLog } = rest;
+        console.error(
+          '[INTENTION_WHEEL_BOUNDARY_ERROR]',
+          JSON.stringify(
+            {
+              errorMessage:   errorMessage ?? '(none)',
+              firstFrame:     firstFrame   ?? '(none)',
+              componentStack: typeof componentStack === 'string'
+                ? componentStack.split('\n').slice(0, 8).join(' ↳ ')
+                : '(none)',
+              stack: typeof stack === 'string'
+                ? stack.split('\n').slice(0, 6).join('\n')
+                : '(none)',
+              recentWheelLog: recentWheelLog ?? [],
+              timestamp: ts,
+            },
+            null, 2,
+          ),
+        );
+      } else if (type === 'scale') {
+        // One line per sample for easy grep
+        console.log('[INTENTION_WHEEL_SCALE]', JSON.stringify({ ...rest, timestamp: ts }));
+      } else if (type === 'orbit') {
+        console.log('[INTENTION_WHEEL_ORBIT_TRACE]', JSON.stringify({ ...rest, timestamp: ts }));
+      } else {
+        console.log('[INTENTION_WHEEL_DIAG]', JSON.stringify({ type, ...rest, timestamp: ts }));
+      }
+
       return res.status(204).end();
     } catch (err) {
-      console.error('[INTENTION_WHEEL_BOUNDARY_ERROR] handler threw:', err);
+      console.error('[INTENTION_WHEEL_DIAG] handler threw:', err);
       return res.status(204).end();
     }
   });
