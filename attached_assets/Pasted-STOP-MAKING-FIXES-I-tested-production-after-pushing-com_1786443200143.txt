@@ -1,0 +1,218 @@
+STOP MAKING FIXES.
+
+I tested production after pushing commit 598646b and ALL THREE problems are still happening:
+
+1. The wheel slows down, then suddenly jumps/spins further before stopping.
+2. The selected winner still jumps/enlarges too quickly instead of slowly building up.
+3. “Something slipped away” still appears afterward.
+
+We have now made multiple code changes without changing the real production behaviour.
+
+DO NOT MODIFY ANY CODE YET.
+
+FIRST PROVE WHAT PRODUCTION IS ACTUALLY RUNNING AND READ THE TELEMETRY WE ALREADY ADDED.
+
+STEP 1 — VERIFY DEPLOYED CLIENT COMMIT
+
+Confirm the exact commit currently served by the PRODUCTION Vercel deployment for luloudating.com.
+
+Expected latest GitHub main:
+598646b
+
+Do not assume Vercel deployed it because GitHub contains it.
+
+Report:
+- GitHub origin/main hash
+- Vercel production deployment hash
+- Vercel deployment status
+- whether luloudating.com is actually serving that deployment
+
+If the production client is NOT 598646b:
+STOP.
+Do not change animation code.
+Fix/deploy the correct commit first.
+
+STEP 2 — VERIFY THE NEW SERVER ENDPOINT IS DEPLOYED
+
+Commit 598646b added:
+
+POST /api/debug/intention-wheel-error
+
+Confirm the Railway production backend currently contains this endpoint.
+
+Make a safe test request if necessary and prove whether the route exists.
+
+Report:
+- Railway deployed commit
+- route HTTP status
+- whether the request reaches the Railway application
+
+If Railway is running an older commit:
+STOP.
+Deploy the correct backend before changing code.
+
+STEP 3 — READ THE ACTUAL BOUNDARY ERROR
+
+I just reproduced “Something slipped away” on the real iPhone.
+
+The boundary should have POSTed:
+
+[INTENTION_WHEEL_BOUNDARY_ERROR]
+
+Search the Railway production logs NOW.
+
+Find the most recent intention-wheel boundary error.
+
+Give me the exact:
+- timestamp
+- errorMessage
+- firstFrame
+- componentStack
+- stack
+- phase
+- selectedProfile userId
+- pendingWinner userId
+- persistedResult userId
+- last wheel-state events before the crash
+
+Do not guess the React error.
+
+If there is NO boundary POST in Railway logs despite the error appearing on the phone, investigate why the telemetry itself did not reach Railway:
+- wrong API base URL
+- request blocked
+- endpoint not deployed
+- CORS
+- client running old build
+- fetch failing
+
+Prove which one.
+
+STEP 4 — READ THE SCALE TELEMETRY
+
+We added:
+
+[INTENTION_WHEEL_SCALE]
+
+Find the production logs/debug output from the spin I just performed.
+
+I need the actual values around:
+
+0ms
+500ms
+1000ms
+1500ms
+2000ms
+3000ms
+4000ms
+5000ms
+6000ms+
+
+For each available point report:
+- elapsed
+- computedScale
+- actualComputedTransform
+
+This determines whether:
+
+A. the RAF itself is calculating the wrong scale
+
+OR
+
+B. the RAF calculates gradual scaling but another render/CSS transform overrides it
+
+Do not touch scale code until you prove A or B.
+
+STEP 5 — TRACE THE ACTUAL ORBIT ANGLE
+
+The extra final movement STILL happens.
+
+Instrument/read one complete production spin with:
+
+[INTENTION_WHEEL_ORBIT_TRACE]
+
+At minimum record:
+
+- fast-spin angle immediately before approach
+- approachStartAngle
+- correctionRad
+- calculated approach duration
+- angle at 25%
+- angle at 50%
+- angle at 75%
+- angle at 100%
+- exact angle when WINNER_LOCKED fires
+- every orbit-angle write AFTER WINNER_LOCKED
+
+Also identify EVERY code location that can mutate:
+- orbitAngleRef.current
+- card transform
+- winner card position
+
+after approach begins.
+
+The visual behaviour proves some second movement path still exists OR the production client isn't running this code.
+
+Find which.
+
+STEP 6 — CHECK FOR MULTIPLE ANIMATION OWNERS
+
+Search intent.tsx for every write to:
+
+.style.transform
+transform:
+scale(
+translate(
+orbitAngleRef
+requestAnimationFrame
+setSpinRoomPhase
+pullforward
+momentum
+reveal
+
+Create a short ownership map:
+
+SPIN:
+owner = ?
+
+APPROACH:
+owner = ?
+
+WINNER_LOCKED:
+owner = ?
+
+WINNER_BUILD:
+owner = ?
+
+RESULT:
+owner = ?
+
+There must not be two systems writing the same card transform during the same phase.
+
+DO NOT REFACTOR YET.
+Just report what currently owns each transform.
+
+STEP 7 — NO MORE CLAIMED FIXES
+
+Your next response to me must contain ONLY DIAGNOSIS.
+
+Do not edit code.
+
+Report:
+
+1. GitHub hash
+2. Vercel production hash
+3. Railway production hash
+4. Whether /api/debug/intention-wheel-error is live
+5. Exact production boundary exception
+6. Production scale telemetry
+7. Production orbit trace
+8. Every transform/orbit writer
+9. Your proven root cause of the extra spin
+10. Your proven root cause of the enlargement jump
+11. Your proven root cause of “Something slipped away”
+
+Do not say “likely”.
+Do not say “appears to”.
+Do not make another timing change.
+
+We are not changing another line until the production evidence explains all three failures.
