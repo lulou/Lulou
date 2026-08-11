@@ -1,0 +1,173 @@
+Fix ONLY the post-spin winner build-up and the result transition.
+
+CURRENT PRODUCTION BEHAVIOUR
+
+After the wheel finishes spinning and lands on the selected user:
+
+- the selected user’s photo enlarges too quickly
+- there is not enough suspense or momentum
+- it feels like the UI jumps straight into the winner
+- after that, “Something slipped away” still appears
+- tapping Continue can leave the Intent page blank
+
+I want the winner reveal to feel slower, deliberate and premium.
+
+DO NOT:
+- change the pre-spin design
+- change the orbit math
+- change candidate selection
+- change Halo logic
+- replace the wheel animation
+
+PART 1 — SLOW WINNER BUILD-UP
+
+Once the wheel has fully stopped with the winner exactly front-centre:
+
+0.0–1.0 s
+- keep winner at normal size
+- keep side cards faintly visible
+- show:
+ “Narrowing down…”
+- do not enlarge winner yet
+
+1.0–2.2 s
+- side cards fade further
+- winner gets a very subtle glow
+- scale only from 1.00 → 1.025
+- text changes to:
+ “There’s something here…”
+
+2.2–3.6 s
+- side cards fully fade away
+- winner slowly scales 1.025 → 1.06
+- background glow builds gradually
+- text changes to:
+ “Tonight’s connection”
+
+3.6–5.0 s
+- winner slowly scales 1.06 → 1.10
+- keep it centred and straight-on
+- hold the final winner clearly
+- no sudden enlargement
+- no jump to result UI
+
+Only after 5 full seconds from WINNER_LOCKED should the final result/profile reveal begin.
+
+Use one continuous elapsed-time animation from winnerMomentStart.
+
+Do NOT use multiple unrelated setTimeouts that can fire early or bunch together.
+
+Use:
+const elapsed = performance.now() - winnerMomentStart
+
+Derive text, scale, glow and loser opacity entirely from elapsed time.
+
+PART 2 — SMOOTH SCALE
+
+The winner must not jump between scale values.
+
+Interpolate continuously.
+
+Example:
+0–1000ms:
+scale = 1.0
+
+1000–2200ms:
+scale lerps 1.0 → 1.025
+
+2200–3600ms:
+scale lerps 1.025 → 1.06
+
+3600–5000ms:
+scale lerps 1.06 → 1.10
+
+Use smooth ease-out interpolation.
+
+No discrete scale jumps.
+
+PART 3 — KEEP WINNER LOCKED
+
+During this 5-second build-up:
+
+- winner userId must never change
+- winner card DOM must remain mounted
+- winner stays exactly centre
+- front card must not be replaced
+- candidate array must not reorder
+- selectedProfile must not clear
+- pendingWinnerRef must not clear
+
+PART 4 — FIX “SOMETHING SLIPPED AWAY”
+
+The fallback still appears after the winner moment.
+
+Do not treat this as a normal success transition.
+
+Before mounting the final result UI:
+
+1. ensure persisted spin result exists
+2. ensure selectedProfile exists
+3. ensure winner userId matches persisted result userId
+4. ensure all renderable fields are normalised to primitive strings
+5. only then set result phase visible
+
+If any of those are not ready:
+- stay on the winner hold screen
+- do not throw
+- do not mount result JSX yet
+
+The successful flow must be:
+
+WINNER_LOCKED
+→ WINNER_BUILDUP
+→ RESULT_PERSISTING
+→ RESULT_READY
+→ RESULT_VISIBLE
+
+The error boundary must never appear in a successful spin.
+
+PART 5 — FIX CONTINUE → BLANK INTENT PAGE
+
+If the boundary ever does appear:
+
+Continue must:
+- fetch persisted spin result
+- restore selectedProfile
+- restore the result phase
+- show the selected user
+
+If no persisted result exists:
+- refetch the full Intent page data
+- render the normal wheel again
+
+Never leave the Intent shell blank.
+
+PART 6 — PRODUCTION TEST
+
+Test one full iPhone spin after deploy.
+
+PASS requires:
+
+- wheel lands cleanly
+- winner remains normal size for ~1 second
+- build-up lasts about 5 seconds total
+- text progresses slowly
+- winner enlarges continuously, not abruptly
+- no visual jump
+- result opens only after build-up
+- no “Something slipped away”
+- no blank Intent screen
+
+Report:
+- previous actual winner-build duration
+- new actual winner-build duration
+- exact animation method used
+- exact cause of fallback after winner
+- exact cause of blank Intent page
+- file changed
+- commit hash
+- pushed status
+- Vercel deployed commit
+- real iPhone PASS/FAIL
+
+Do not call this fixed from code inspection alone.
