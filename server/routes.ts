@@ -5292,6 +5292,38 @@ export async function registerRoutes(
 
   // ── Spin result auto-persistence ─────────────────────────────────────────
   // Unlike POST /api/wheel/save (user-initiated, 409 if already saved),
+  // ── Client-side crash diagnostics — readable from Replit logs without Safari console ──
+  // componentDidCatch in IntentResultBoundary POSTs here so we can see the exact
+  // exception that caused "Something slipped away" without needing device console access.
+  app.post("/api/debug/intention-wheel-error", async (req: any, res) => {
+    try {
+      const { errorMessage, stack, componentStack, firstFrame, recentWheelLog } = req.body ?? {};
+      console.error(
+        '[INTENTION_WHEEL_BOUNDARY_ERROR]',
+        JSON.stringify(
+          {
+            errorMessage:      errorMessage ?? '(none)',
+            firstFrame:        firstFrame   ?? '(none)',
+            componentStack:    typeof componentStack === 'string'
+              ? componentStack.split('\n').slice(0, 8).join(' ↳ ')
+              : '(none)',
+            stack:             typeof stack === 'string'
+              ? stack.split('\n').slice(0, 6).join('\n')
+              : '(none)',
+            recentWheelLog:    recentWheelLog ?? [],
+            timestamp:         new Date().toISOString(),
+          },
+          null,
+          2,
+        ),
+      );
+      return res.status(204).end();
+    } catch (err) {
+      console.error('[INTENTION_WHEEL_BOUNDARY_ERROR] handler threw:', err);
+      return res.status(204).end();
+    }
+  });
+
   // this endpoint upserts the spin result immediately at pullforward time.
   // Used by the client to persist the winner across refresh / close / devices.
   app.post("/api/spin/result", isAuthenticated, async (req: any, res) => {

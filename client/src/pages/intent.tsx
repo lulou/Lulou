@@ -70,6 +70,22 @@ class IntentResultBoundary extends Component<
     // in-app debug panel without needing Safari console access on device.
     pushDebugError(`[spin_boundary] ${error.message} | ${firstFrame}`);
     pushDebugError(`[spin_boundary_tree] ${compStackTop}`);
+    // POST to server so the exact exception is readable from Replit logs
+    // without needing Safari console access on device.
+    try {
+      fetch('/api/debug/intention-wheel-error', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          errorMessage: error.message,
+          stack: (error.stack ?? '').split('\n').slice(0, 8).join('\n'),
+          componentStack: (info.componentStack ?? '').split('\n').slice(0, 10).join('\n'),
+          firstFrame,
+          recentWheelLog: getWheelEntries().slice(-8),
+        }),
+      }).catch(() => {}); // fire-and-forget; never throw or block render
+    } catch { /* guard against any sync throw */ }
   }
   render() {
     if (this.state.hasError) {
@@ -1264,6 +1280,10 @@ export default function IntentPage() {
   const orbitApproachCorrectionRef  = useRef(0);  // total angular distance (always positive/forward)
   const orbitApproachStartAngleRef  = useRef(0);  // orbit angle at approach start
   const orbitApproachStartTimeRef   = useRef(0);  // RAF timestamp when approach began (0 = not yet)
+  // Computed on approach first tick to match current orbit speed — prevents jump.
+  const orbitApproachDurationRef    = useRef(2400); // ms; overwritten per-spin
+  // Set true when pullforward fires; any subsequent orbit angle change is a bug.
+  const orbitLockedRef              = useRef(false);
   const winnerMomentStartRef        = useRef(0);  // performance.now() at pullforward; momentum RAF derives elapsed from this
 
   // Use the last non-empty ref as fallback so the wheel stays visible when the
@@ -1440,6 +1460,7 @@ export default function IntentPage() {
     recordSpinFiredRef.current = false;
     saveSpinSucceededRef.current = false;
     pendingWinnerRef.current = null;
+    orbitLockedRef.current = false;
     console.log("[INTENTION_WHEEL] spin_request_started", { candidateCount: count });
     setShowSpinRoom(true);
     setIsSpinning(true);
@@ -1574,6 +1595,7 @@ export default function IntentPage() {
       orbitSpeedRef2.current   = 0;
       orbitAngleRef2.current   = 0;
       orbitLastTimeRef.current = 0;
+      orbitLockedRef.current   = false;
       return;
     }
     const N = Math.min(items.length, ORBIT_N);
@@ -1628,6 +1650,8 @@ export default function IntentPage() {
       if (phase === 'approach') {
         if (orbitApproachStartTimeRef.current === 0) {
           // First approach tick — initialise from live RAF state.
+          // IMPORTANT: read angle and speed from refs (RAF values), NOT from React state
+          // (which is a few ms stale at render time).
           orbitApproachStartTimeRef.current  = now;
           orbitApproachStartAngleRef.current = orbitAngleRef2.current;
           // Compute always-forward angular distance to place winner at front (θ = π/2).
@@ -1635,8 +1659,23 @@ export default function IntentPage() {
           const thetaWinA  = orbitAngleRef2.current + (2 * Math.PI / N) * winnerIdxA;
           let corrA = (Math.PI / 2 - thetaWinA) % (2 * Math.PI);
           if (corrA < 0) corrA += 2 * Math.PI;
-          if (corrA < 1.0) corrA += 2 * Math.PI; // guarantee ≥1 rad of visible deceleration
+          // ── ROOT CAUSE OF "SECOND SPIN/JUMP" ──────────────────────────────────
+          // The old guard `if (corrA < 1.0) corrA += 2π` was here.  When the winner
+          // was near front-centre (corrA ≈ 0.3 rad), it added a full extra rotation,
+          // making corrA ≈ 6.58 rad.  With APPROACH_DUR = 2400 ms, the cubic-ease-out
+          // initial velocity = 3 * 6.58 / 2.4 s = 8.2 rad/s — 10× the orbit's ~0.8 rad/s.
+          // That caused the visible acceleration jump.  Guard removed.
+          // ──────────────────────────────────────────────────────────────────────
           orbitApproachCorrectionRef.current = corrA;
+          // Compute approach duration so its initial cubic-ease velocity exactly matches
+          // the current orbit speed — guaranteeing ONE continuous deceleration.
+          // cubic-ease-out d/dt at t=0 = 3 * corrA / (dur_ms / 1000)
+          // → dur_ms = 3000 * corrA / currentSpeed
+          const currentSpeed = Math.max(0.05, orbitSpeedRef2.current); // rad/s
+          const dynamicDur   = corrA < 0.05
+            ? 50   // winner already at front — micro-snap, fires pullforward immediately
+            : Math.max(1500, Math.min(5000, Math.round(3000 * corrA / currentSpeed)));
+          orbitApproachDurationRef.current = dynamicDur;
           const targetA = orbitApproachStartAngleRef.current + corrA;
           logWheelState({
             event: 'approach_start',
@@ -1644,11 +1683,13 @@ export default function IntentPage() {
             targetAngle: targetA.toFixed(4),
             correctionRad: corrA.toFixed(4),
             winnerIndex: winnerIdxA,
+            approachDurMs: dynamicDur,
+            orbitSpeedRads: currentSpeed.toFixed(3),
             pendingWinnerUserId: pendingWinnerRef.current?.profile?.userId ?? null,
           });
         }
 
-        const APPROACH_DUR = 2400; // ms — enough for visible cubic-ease deceleration
+        const APPROACH_DUR = orbitApproachDurationRef.current; // ms — matched to current orbit speed
         const tApproach    = Math.min((now - orbitApproachStartTimeRef.current) / APPROACH_DUR, 1);
         const easeApproach = 1 - Math.pow(1 - tApproach, 3); // cubic ease-out
         const targetAngleA = orbitApproachStartAngleRef.current + orbitApproachCorrectionRef.current;
@@ -1724,6 +1765,11 @@ export default function IntentPage() {
       orbitSpeedRef2.current += diff * Math.min(dt * (diff > 0 ? 1.4 : 2.2), 1);
 
       // Advance orbit angle — this is the single line that drives all visible motion.
+      // Invariant: orbitAngle must NOT change after WINNER_LOCKED (pullforward).
+      if (orbitLockedRef.current) {
+        console.warn('[INTENTION_WHEEL_BUG]', 'orbit_changed_after_lock', {
+          phase, speed: orbitSpeedRef2.current.toFixed(3) });
+      }
       orbitAngleRef2.current += orbitSpeedRef2.current * dt;
       const angle = orbitAngleRef2.current;
 
@@ -1851,6 +1897,8 @@ export default function IntentPage() {
       return;
     }
 
+    // ── WINNER_LOCKED — orbit angle must not change after this point ─────────
+    orbitLockedRef.current = true;
     logWheelState({
       event: 'pullforward',
       winnerIndex: frontI,
@@ -1995,18 +2043,38 @@ export default function IntentPage() {
     ];
 
     let mI = 0;
+    let _scaleLogBucket = -1; // tracks last 500ms bucket we logged a scale sample
     const momentumTick = (now: number) => {
       const elapsed = now - winnerMomentStartRef.current;
 
       // ── Per-frame interpolation — RAF exclusively owns these DOM properties ──
       if (winnerEl) {
+        const computedScale = _scale(elapsed);
         // Scale: continuous ease-out quadratic; no CSS transition → no snap-jumps
-        winnerEl.style.transform = `translate(-50%, -50%) scale(${_scale(elapsed).toFixed(4)})`;
+        winnerEl.style.transform = `translate(-50%, -50%) scale(${computedScale.toFixed(4)})`;
         // Card glow: dim (t=0) → bright (t=6000)
         const gt  = Math.min(1, elapsed / 6000);
         const gr  = Math.round(18 + gt * 62);
         const gsp = Math.round(4  + gt * 20);
         winnerEl.style.boxShadow = `0 0 ${gr}px ${gsp}px rgba(212,92,116,${(0.08 + gt * 0.44).toFixed(3)}), 0 6px ${Math.round(24 + gt * 16)}px rgba(0,0,0,${(0.50 + gt * 0.18).toFixed(3)})`;
+        // ── Scale diagnostic: log every 500 ms so we can compare computedScale
+        // against actualComputedTransform to find any override ─────────────────
+        const scaleBucket = Math.floor(elapsed / 500);
+        if (scaleBucket > _scaleLogBucket) {
+          _scaleLogBucket = scaleBucket;
+          const actualT = getComputedStyle(winnerEl).transform;
+          console.log('[INTENTION_WHEEL_SCALE]', {
+            elapsed: Math.round(elapsed),
+            computedScale: computedScale.toFixed(4),
+            actualComputedTransform: actualT,
+          });
+          logWheelState({
+            event: 'scale_sample',
+            elapsed: Math.round(elapsed),
+            computedScale: computedScale.toFixed(4),
+            actualComputedTransform: actualT,
+          });
+        }
       }
       // Ambient orb glow
       if (orbitGlowRef.current) {

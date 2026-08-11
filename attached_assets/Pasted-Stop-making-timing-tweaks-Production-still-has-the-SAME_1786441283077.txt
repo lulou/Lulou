@@ -1,0 +1,241 @@
+Stop making timing tweaks.
+
+Production still has the SAME three failures:
+
+1. During final deceleration, the wheel slows down, then suddenly jumps and spins further before stopping.
+2. After the connection text appears, the winner photo does NOT slowly enlarge. It still jumps too quickly to full size.
+3. “Something slipped away” STILL appears afterward.
+
+Do not change pre-spin design.
+Do not change candidate selection.
+Do not change Halo logic.
+Do not guess again.
+
+FIX THESE THREE ROOT CAUSES ONLY.
+
+PART 1 — REMOVE THE FINAL EXTRA SPIN/JUMP
+
+The current final approach is clearly doing two motions:
+
+A. natural deceleration
+THEN
+B. a second correction/spin to land on winner
+
+That is why it slows, then suddenly moves again.
+
+There must be exactly ONE continuous final deceleration.
+
+Required implementation:
+
+At the instant final deceleration begins:
+
+- freeze candidate order
+- determine winner slot/index once
+- read the current live orbit angle
+- calculate the exact absolute target angle for that winner to land front-centre
+- calculate the remaining FORWARD angular distance to that target
+- construct one easing curve from:
+ currentAngle → finalTargetAngle
+
+Do not continue velocity integration after this point.
+
+During final approach:
+- orbit position must be derived ONLY from interpolation progress
+- no velocity-based spin
+- no second snap
+- no correction RAF afterward
+- no pullforward transform that moves the orbit again
+
+Pseudo-flow:
+
+approachStartAngle = liveOrbitAngle
+approachTargetAngle = exact winner front angle
+approachStartTime = performance.now()
+
+progress = clamp((now - startTime) / APPROACH_DURATION, 0, 1)
+eased = cubicEaseOut(progress)
+orbitAngle = startAngle + forwardCorrection * eased
+
+When progress === 1:
+- orbitAngle = targetAngle exactly
+- stop RAF orbit movement
+- set WINNER_LOCKED
+- never mutate orbitAngle again
+
+Add a hard invariant:
+
+Once WINNER_LOCKED is true:
+orbitAngle must never change again.
+
+Dev log if it does:
+[INTENTION_WHEEL_BUG] orbit_changed_after_lock
+
+Remove any code in:
+- pullforward
+- momentum
+- reveal
+- winner styling
+
+that changes orbit angle or card position after WINNER_LOCKED.
+
+PART 2 — WINNER ENLARGEMENT MUST BE VISIBLY SLOW
+
+The winner scale is still jumping because some later render/style update is overriding the RAF scale.
+
+Find every place that writes winner transform/scale after WINNER_LOCKED:
+
+- JSX style prop
+- RAF
+- CSS animation
+- CSS transition
+- pullforward effect
+- reveal effect
+- phase change
+- winner className
+- inline transform
+
+There must be ONE owner of winner scale during the reveal build.
+
+Required scale timeline AFTER winner lock:
+
+0–1500ms:
+scale = 1.000
+text = “Narrowing down…”
+
+1500–3000ms:
+scale continuously 1.000 → 1.020
+text = “There’s something here…”
+
+3000–4800ms:
+scale continuously 1.020 → 1.055
+text = “Tonight’s connection”
+
+4800–7000ms:
+scale continuously 1.055 → 1.100
+
+7000–8000ms:
+hold scale 1.100
+
+Only after 8000ms:
+mount final result UI
+
+This must be driven by one RAF and one winnerRevealStart timestamp.
+
+Every frame:
+- calculate scale from elapsed time
+- write transform directly to winner card DOM
+
+React JSX must NOT include transform/scale for that card while reveal RAF owns it.
+
+Also log once every 500ms:
+
+[INTENTION_WHEEL_SCALE]
+elapsed=
+computedScale=
+actualComputedTransform=
+
+Use getComputedStyle(winnerEl).transform to prove the DOM is actually scaling gradually.
+
+If computedScale is gradual but actual transform jumps:
+find the exact CSS/React owner overwriting it.
+
+PART 3 — CAPTURE AND FIX THE REAL ERROR
+
+“Something slipped away” still appears, so previous guesses about firstName/location/signals were incomplete.
+
+The WheelDebugPanel already exists.
+
+On boundary_error, persist the full crash record to the SERVER so Replit can read it without my Safari console.
+
+Create a small debug endpoint or reuse existing debug infrastructure:
+
+POST /api/debug/intention-wheel-error
+
+Send:
+- errorMessage
+- stack
+- componentStack
+- phase
+- selectedProfile userId
+- pendingWinner userId
+- persistedResult userId
+- build hash
+
+Do not send tokens or sensitive data.
+
+Then reproduce the production spin once and read the server log.
+
+Fix the exact throwing line only after the actual production error is captured.
+
+Do not add more blanket normalisers before seeing the real exception.
+
+PART 4 — RESULT MUST NOT MOUNT UNTIL VALID
+
+The final result tree may mount only when:
+
+winnerLocked === true
+AND winnerRevealElapsed >= 8000
+AND selectedProfile is valid
+AND persisted result succeeded
+
+If persistence is still pending:
+stay on the winner hold screen.
+
+Do not throw.
+Do not enter the boundary.
+Do not clear winner state.
+
+PART 5 — CONTINUE MUST NEVER BE REQUIRED ON SUCCESS
+
+A successful spin must go automatically:
+
+SPIN
+→ ONE continuous deceleration
+→ WINNER_LOCKED
+→ 8-second winner build
+→ RESULT_READY
+→ RESULT_VISIBLE
+
+No fallback.
+No Continue button.
+No blank screen.
+
+PART 6 — PROVE IT WITH REAL VALUES
+
+Before reporting fixed, provide one production trace:
+
+Final deceleration:
+- startAngle
+- targetAngle
+- correctionRad
+- angle at 25%
+- angle at 50%
+- angle at 75%
+- finalAngle
+- verify no angle changes after WINNER_LOCKED
+
+Winner scale:
+- scale at 0ms
+- 1500ms
+- 3000ms
+- 4800ms
+- 7000ms
+- actual computed DOM transform at each point
+
+Crash:
+- exact production errorMessage
+- exact component/file/line
+- exact bad value
+
+Report:
+- exact source of second spin/jump
+- exact source overriding gradual scale
+- exact production boundary exception
+- files changed
+- commit hash
+- origin/main hash
+- Vercel deployed hash
+- live iPhone PASS/FAIL
+
+Do not report PASS from code inspection.
+Do not make another speculative timing patch.
