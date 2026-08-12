@@ -1,0 +1,428 @@
+Fix the Intention Wheel end-to-end based on the exact production behaviour below.
+
+CRITICAL: THIS TASK MUST NOT BREAK ANY OTHER PART OF LULOU.
+
+Do not redesign or refactor unrelated systems.
+Do not touch shared infrastructure unless absolutely required.
+Do not change APIs, auth, messaging, calls, profiles, settings, navigation, payments, notifications, onboarding, matching logic, or database schema unless this exact wheel bug cannot be fixed without it.
+
+CURRENT PRODUCTION PROBLEMS
+
+The wheel no longer spins smoothly.
+As it slows down near the end, it suddenly jumps and spins further before stopping.
+After the winner is selected, the connection text appears but it is rushed.
+There is not enough tension or build-up.
+The final line of text gets skipped because the winner photo starts enlarging too soon.
+The winner photo jumps toward full size instead of slowly and continuously enlarging.
+After the photo enlarges and I proceed to Match / Send Halo, “Something slipped away” appears and I cannot dismiss/recover from it properly.
+These six issues must be fixed together as one deterministic state machine.
+
+STRICT CHANGE BOUNDARY
+
+Preferred scope:
+
+client/src/pages/intent.tsx
+existing Intention Wheel-specific debug helpers
+existing Intention Wheel-specific server debug endpoint only if needed
+Do NOT modify unrelated files unless absolutely necessary.
+
+Do NOT change:
+
+authentication or logout
+Supabase auth configuration
+session bootstrap
+messaging
+message limits
+call progression
+call scheduling
+WebRTC/calls
+Connections
+Likes
+Discover
+profile editing
+Settings
+push notifications
+payments/Stripe
+onboarding
+DNA quiz
+match creation
+Halo business logic
+navigation/routes
+service worker
+Vercel config
+Railway config
+environment variables
+database migrations/schema
+shared API request behaviour
+Do NOT rename or alter existing shared API response shapes.
+
+Do NOT change candidate-selection or eligibility logic.
+
+Do NOT change how many spins a user receives or when spins are consumed.
+
+PRESERVE EXISTING WORKING WHEEL BEHAVIOUR
+
+Keep working:
+
+current pre-spin design
+current candidate source
+primary-photo rules
+current wheel eligibility
+spin entitlement
+winner-selection result
+Send Halo semantics
+persisted result behaviour
+navigation after a successful result
+Do not solve an animation bug by changing product logic.
+
+PART 1 — ONE OWNER FOR WHEEL MOTION
+
+There must be exactly ONE system controlling orbit movement.
+
+Search intent.tsx for every write to:
+
+orbitAngle
+orbitAngleRef
+.style.transform on orbit cards
+requestAnimationFrame
+CSS transform / animation
+approach
+pullforward
+winner lock
+Remove overlapping animation owners ONLY inside the Intention Wheel animation.
+
+Required wheel phases:
+
+IDLE
+→ SPINNING
+→ DECELERATING_TO_WINNER
+→ WINNER_LOCKED
+
+During SPINNING:
+
+one RAF owns orbitAngle
+motion is smooth
+no React state update every frame
+During DECELERATING_TO_WINNER:
+
+stop normal velocity integration
+freeze candidate order
+winner index is fixed
+read the live current orbit angle once
+calculate the exact forward target angle once
+interpolate continuously from currentAngle to targetAngle
+no second correction
+no snap
+no pullforward movement after that
+Once WINNER_LOCKED:
+
+orbitAngle must never change again
+orbit-card positions must never move again
+Add a hard invariant:
+if orbitAngle changes after WINNER_LOCKED:
+log [INTENTION_WHEEL_BUG] orbit_changed_after_lock
+
+PART 2 — FIX THE END-OF-SPIN JUMP
+
+At the exact start of deceleration:
+
+approachStartAngle = live orbit angle
+approachTargetAngle = exact angle required for the winner to be front-centre
+
+Use shortest positive forward angular distance.
+
+Then:
+
+progress = clamp((now - approachStartTime) / approachDuration, 0, 1)
+eased = smooth ease-out
+orbitAngle = approachStartAngle + correction * eased
+
+When progress reaches 1:
+
+orbitAngle = approachTargetAngle
+WINNER_LOCKED = true
+
+Do not:
+
+add another 2π rotation near the end
+continue velocity integration during approach
+snap again afterward
+mutate orbitAngle in pullforward
+mutate orbitAngle in momentum
+mutate orbitAngle in reveal
+The winner must already be perfectly centred when the wheel reaches zero movement.
+
+PART 3 — SEPARATE ORBIT FROM WINNER REVEAL
+
+After WINNER_LOCKED, start a completely separate winnerRevealStart timestamp.
+
+The reveal animation must NEVER affect orbit speed or orbit position.
+
+Required reveal phases:
+
+WINNER_LOCKED
+→ TEXT_1
+→ TEXT_2
+→ TEXT_3
+→ PHOTO_BUILD
+→ RESULT_READY
+→ RESULT_VISIBLE
+
+PART 4 — SLOW THE WORDS DOWN AND BUILD TENSION
+
+Use this timing AFTER WINNER_LOCKED:
+
+0–1500 ms
+
+winner stays exactly scale 1.00
+side cards remain faintly visible
+text:
+“Narrowing down…”
+do not enlarge the photo yet
+1500–3200 ms
+
+text:
+“There’s something here…”
+scale 1.00 → 1.015
+subtle glow begins
+3200–5200 ms
+
+text:
+“Tonight’s connection”
+this line MUST remain clearly visible
+scale 1.015 → 1.04
+side cards fade gradually
+5200–7200 ms
+
+keep “Tonight’s connection”
+scale 1.04 → 1.075
+glow builds gently
+7200–9000 ms
+
+scale 1.075 → 1.10
+hold selected person clearly
+no result screen yet
+Only AFTER 9000 ms from WINNER_LOCKED may the final profile/result UI begin.
+
+The final line of text must never be skipped.
+
+PART 5 — ONE OWNER FOR WINNER SCALE
+
+Find every code path that can write the winner card transform after WINNER_LOCKED.
+
+There must be exactly ONE owner.
+
+Use one winner-reveal RAF.
+
+Every frame:
+
+elapsed = performance.now() - winnerRevealStart
+
+Derive scale continuously from elapsed.
+
+Do not:
+
+switch between fixed scale values
+set scale from React state
+mount a different winner card mid-animation
+use another CSS transform that overwrites the RAF
+Keep the same winner DOM node mounted from WINNER_LOCKED until RESULT_VISIBLE.
+
+The winner userId must never change during this sequence.
+
+PART 6 — RESULT MUST WAIT UNTIL EVERYTHING IS READY
+
+RESULT_READY requires all of:
+
+WINNER_LOCKED true
+winner reveal elapsed >= 9000 ms
+persisted server spin result exists
+selectedProfile exists
+persisted userId === selectedProfile.userId
+all renderable values are valid primitives
+If persistence is not finished:
+
+stay on the enlarged winner screen.
+
+Do not:
+
+throw
+clear winner
+reset wheel
+enter the error boundary
+PART 7 — FIX “SOMETHING SLIPPED AWAY”
+
+Use the REAL production Railway telemetry.
+
+Read:
+
+[INTENTION_WHEEL_BOUNDARY_ERROR]
+
+Report the exact:
+
+errorMessage
+stack
+firstFrame
+componentStack
+phase
+selectedProfile userId
+pendingWinner userId
+persisted result userId
+Fix the exact throwing expression.
+
+Do not guess another field.
+Do not add blanket normalisers without the actual exception.
+
+The error boundary must not be part of the normal success flow.
+
+PART 8 — FIX THE UNDISMISSABLE ERROR
+
+If a genuine error occurs, fallback must contain:
+
+Retry Result
+Back to Intention Wheel
+Retry Result:
+
+fetch persisted spin result
+5-second timeout
+if valid:
+
+normalise data
+restore selectedProfile
+restore RESULT_VISIBLE
+remount result boundary cleanly
+if failed:
+
+re-enable Retry
+Back to Intention Wheel:
+
+reset ONLY Intention Wheel local state
+refetch wheel candidates
+restore a complete usable Intent page
+Do not:
+
+clear global app state
+clear auth
+clear React Query globally
+clear unrelated caches
+navigate away from Intent unnecessarily
+leave a blank page
+leave an undismissable fallback
+PART 9 — REGRESSION SAFETY
+
+Before committing, compare the diff.
+
+Reject your own change if it unexpectedly touches unrelated systems.
+
+Run tests/checks confirming these still behave exactly as before:
+
+login/session restore
+logout
+Discover loads
+Likes loads
+Connections loads
+chat opens
+sending messages works
+message countdown still works
+calls can still start
+Settings loads
+profile opens
+bottom navigation works
+Halo mutation/API shape unchanged
+spin eligibility unchanged
+Do not alter data or run destructive test actions on real production matches/users.
+
+Do not manually increment production counters or mutate unrelated production records.
+
+PART 10 — FILE SAFETY
+
+Before commit, report:
+
+files changed
+why each file had to change
+If more than these are changed without a compelling reason, stop before committing:
+
+client/src/pages/intent.tsx
+existing Intention Wheel debug helper
+existing Intention Wheel debug route
+No migrations.
+No schema changes.
+No auth changes.
+No shared API rewrites.
+
+PART 11 — PRODUCTION TELEMETRY
+
+Use the existing telemetry endpoint.
+
+For one production spin, collect:
+
+ORBIT:
+
+spin start
+approach start angle
+target angle
+correction
+approach duration
+angle at 25%
+angle at 50%
+angle at 75%
+final angle
+winnerLocked timestamp
+any angle write after lock
+SCALE:
+
+elapsed
+computedScale
+actualComputedTransform
+at approximately:
+
+0
+1500
+3200
+5200
+7200
+9000 ms
+
+BOUNDARY:
+
+exact production exception if it occurs
+PART 12 — REAL IPHONE PASS CONDITIONS
+
+Do not report PASS from code inspection.
+
+PASS requires:
+
+Wheel spins smoothly.
+No stuttering.
+Wheel decelerates once.
+No second jump-spin.
+Winner lands exactly front-centre.
+Winner initially remains normal size.
+“Narrowing down…” is clearly readable.
+“There’s something here…” is clearly readable.
+“Tonight’s connection” remains visible long enough.
+Photo enlarges slowly and continuously.
+No jump to full size.
+Result opens only after the full build-up.
+No “Something slipped away” on success.
+Genuine error recovery works.
+No blank screen.
+FINAL REPORT
+
+Report:
+
+exact extra-spin root cause
+exact scale-jump root cause
+exact boundary exception
+files changed
+confirmation no unrelated files/systems were modified
+commit hash
+origin/main hash
+Vercel deployed hash
+Railway deployed hash
+regression-test results
+real iPhone PASS/FAIL
+Do not redesign anything else.
+Do not create another carousel.
+Do not make another speculative timing tweak.
+Do not fix this by touching unrelated Lulou functionality.
