@@ -1,0 +1,402 @@
+Fix ONLY the final Intention Wheel stop/reveal/result flow.
+
+Do not redesign the pre-spin screen.
+Do not change candidate selection.
+Do not change Halo business logic.
+Do not touch auth, messaging, calls, settings, payments, navigation, database schema, Vercel config, Railway config, or unrelated shared code.
+
+CURRENT PRODUCTION PROBLEMS
+
+The wheel is still jittery at the end.
+After the winner is selected, the connection words appear but they are rushed.
+The last line of text gets skipped because the winner photo jumps ahead too quickly.
+The selected winner photo does not slowly grow — it jumps to full size.
+After the photo enlargement/result flow, “Something slipped away” still appears.
+The fallback/error state can become stuck.
+THE CORE RULE
+
+DO NOT MOUNT A SECOND WINNER PHOTO DURING THE TEXT OR ENLARGEMENT PHASE.
+
+THE SAME WINNER CARD DOM NODE THAT STOPS AT FRONT-CENTRE MUST REMAIN MOUNTED AND MUST BE THE CARD THAT SLOWLY ENLARGES.
+
+Do not replace it with:
+
+selectedProfile result card
+profile sheet photo
+reveal photo
+MatchRevealCard
+another ProfilePhoto instance
+until the entire text + enlargement sequence has finished.
+
+PART 1 — FREEZE THE ORBIT COMPLETELY AT WINNER LOCK
+
+Once the winner reaches front-centre:
+
+WINNER_LOCKED = true
+
+From that moment:
+
+freeze candidate order
+freeze winner index
+freeze winner userId
+freeze orbit angle
+freeze every orbit-card position
+stop the orbit RAF from changing angle/position
+No code after WINNER_LOCKED may write to:
+
+orbitAngle
+orbitAngleRef
+winner x/y position
+orbit-card translate position
+Add a hard invariant:
+
+If orbitAngle changes after WINNER_LOCKED:
+
+[INTENTION_WHEEL_BUG] orbit_changed_after_lock
+
+The wheel must not:
+
+jump
+spin again
+snap
+correct itself
+reorder cards
+after WINNER_LOCKED.
+
+PART 2 — REMOVE ALL SECONDARY WINNER PHOTO MOUNTS DURING BUILD-UP
+
+Search intent.tsx for every place that mounts/renders the selected winner photo.
+
+Create a clear ownership map.
+
+During:
+
+WINNER_LOCKED
+→ TEXT_1
+→ TEXT_2
+→ TEXT_3
+→ PHOTO_BUILD
+
+there must be exactly ONE visible winner image:
+
+the original orbit winner card.
+
+Do not mount the final profile/result photo behind it or above it.
+
+Do not set showProfile/resultVisible in a way that mounts another winner card early.
+
+The final result component may only mount after PHOTO_BUILD is completely finished.
+
+PART 3 — ONE OWNER FOR WINNER SCALE
+
+Find every code path writing winner transform/scale after WINNER_LOCKED:
+
+JSX style transform
+CSS animation
+CSS transition
+requestAnimationFrame
+phase effect
+pullforward
+momentum
+reveal
+className transform utilities
+There must be exactly ONE owner.
+
+Use a dedicated winnerReveal RAF.
+
+React JSX must NOT contain a transform/scale for this winner card while the RAF owns it.
+
+Do not swap DOM nodes.
+
+Do not change the winner card key.
+
+Do not change its userId.
+
+PART 4 — SLOW TEXT SEQUENCE AND BUILD TENSION
+
+Start:
+
+winnerRevealStart = performance.now()
+
+ONLY AFTER WINNER_LOCKED.
+
+Use elapsed time from this timestamp.
+
+Required timing:
+
+0–1800 ms
+
+winner scale stays exactly 1.00
+no enlargement
+side cards remain faintly visible
+display:
+“Narrowing down…”
+This text must be fully readable and not skipped.
+
+1800–3800 ms
+
+display:
+“There’s something here…”
+winner scale slowly changes:
+1.00 → 1.015
+very subtle glow begins
+no result UI
+3800–6200 ms
+
+display:
+“Tonight’s connection”
+winner scale slowly:
+1.015 → 1.04
+side cards fade away gradually
+IMPORTANT:
+“Tonight’s connection” must remain visible for this entire phase.
+
+It must NOT disappear because the full-size photo/result mounts.
+
+6200–8500 ms
+
+keep:
+“Tonight’s connection”
+winner scale slowly:
+1.04 → 1.075
+glow strengthens gradually
+8500–10500 ms
+
+winner scale slowly:
+1.075 → 1.10
+hold winner clearly
+text may gently fade only near the END of this period
+10500–11500 ms
+
+hold winner at 1.10
+no movement
+no result mount yet
+Only AFTER 11500 ms from WINNER_LOCKED may RESULT_READY begin.
+
+PART 5 — CONTINUOUS SCALE ONLY
+
+Do not jump between preset scale values.
+
+Each frame calculate continuous interpolation.
+
+Example:
+
+scale = interpolateFromElapsed(elapsed)
+
+Use smooth easing.
+
+Every RAF frame:
+
+winnerEl.style.transform =
+translate(-50%, -50%) scale(currentScale)
+
+Do not use React state for the scale itself.
+
+Do not use multiple CSS transitions on the same transform.
+
+PART 6 — PROVE THE SAME DOM NODE IS USED
+
+Add dev-only diagnostics:
+
+[INTENTION_WHEEL_WINNER_NODE]
+
+Log at:
+
+winner_locked
+text_1
+text_2
+text_3
+photo_build
+result_ready
+Include:
+
+winner userId
+DOM element identifier
+React key if available
+current transform
+current scale
+whether node.isConnected
+The DOM identifier must remain the same from winner_locked through photo_build.
+
+If it changes, that is the jump-to-full-size root cause.
+
+PART 7 — RESULT UI MUST NOT MOUNT EARLY
+
+The final result/profile UI may mount only when ALL are true:
+
+WINNER_LOCKED
+winnerRevealElapsed >= 11500 ms
+persisted spin result succeeded
+selectedProfile exists
+persisted winner userId matches selectedProfile.userId
+renderable fields are valid primitives
+Until then:
+
+keep the original winner orbit card visible.
+
+Do not:
+
+clear winner card
+mount result behind it
+replace it
+navigate
+reset phase
+PART 8 — FIX THE REAL “SOMETHING SLIPPED AWAY” ERROR
+
+Use the existing production telemetry endpoint.
+
+Read the latest:
+
+[INTENTION_WHEEL_BOUNDARY_ERROR]
+
+from Railway from the real iPhone failure.
+
+Report the exact:
+
+errorMessage
+stack
+firstFrame
+componentStack
+phase
+selectedProfile userId
+pendingWinner userId
+persisted result userId
+Fix the EXACT throwing line/value.
+
+Do not guess another field.
+Do not add another blanket null guard without the actual exception.
+
+The boundary must not appear during a successful spin.
+
+PART 9 — ERROR RECOVERY MUST NEVER GET STUCK
+
+If a genuine error occurs, fallback must always have:
+
+Retry Result
+Back to Intention Wheel
+
+Retry Result:
+
+fetch persisted spin result using API_BASE
+maximum 5-second timeout
+if result exists:
+
+normalise it
+restore selectedProfile
+restore RESULT_VISIBLE
+remount boundary cleanly
+if request fails:
+
+re-enable Retry
+Back to Intention Wheel:
+
+reset ONLY Intention Wheel local state
+refetch wheel candidates
+restore normal Intent page
+Never:
+
+trap user on fallback
+leave button permanently disabled
+render blank page
+clear global auth/query state
+PART 10 — END-SPIN JITTER
+
+The wheel still jitters near stopping.
+
+During DECELERATING_TO_WINNER there must be one transform owner only.
+
+At the start of approach:
+
+freeze candidate order
+freeze winner index
+capture live current angle ONCE
+capture target angle ONCE
+Then continuously interpolate currentAngle → targetAngle.
+
+Do not:
+
+continue normal velocity integration
+recalculate target during approach
+add another rotation
+snap at end
+run a second correction RAF
+When approach reaches target:
+
+WINNER_LOCKED
+
+and orbit movement permanently stops.
+
+PART 11 — STRICT FILE SAFETY
+
+Preferred file scope:
+
+client/src/pages/intent.tsx
+existing Intention Wheel debug helper
+existing Intention Wheel debug route ONLY if needed
+Do not touch unrelated files/systems.
+
+Before commit, report every changed file and why.
+
+Reject your own diff if it unexpectedly modifies unrelated functionality.
+
+PART 12 — REGRESSION SAFETY
+
+Confirm unchanged:
+
+login/logout
+Discover
+Likes
+Connections
+chat/messages
+message countdown
+calls
+settings
+profile
+payments
+bottom navigation
+Halo API semantics
+wheel eligibility
+winner-selection logic
+Do not mutate unrelated production data during testing.
+
+PART 13 — REAL IPHONE PASS
+
+Do not report PASS from code inspection.
+
+PASS requires:
+
+Wheel spins smoothly.
+No jitter near stop.
+No second jump/spin.
+Winner lands front-centre.
+Same winner DOM node stays mounted.
+“Narrowing down…” is not rushed.
+“There’s something here…” is not rushed.
+“Tonight’s connection” is fully visible and not skipped.
+Winner starts enlargement only after text build begins.
+Winner enlarges continuously.
+No jump to full size.
+Final result mounts only after enlargement completes.
+No “Something slipped away” on successful flow.
+Error fallback is recoverable if a genuine error occurs.
+No blank page.
+FINAL REPORT
+
+Report only:
+
+exact jitter root cause
+exact winner-node replacement/scale-jump root cause
+exact production boundary exception
+exact same-node verification
+files changed
+confirmation unrelated systems untouched
+commit hash
+origin/main hash
+Vercel deployed hash
+Railway deployed hash
+real iPhone PASS/FAIL
+Do not redesign anything.
+Do not alter spin entitlement or winner selection.
+Do not make another speculative timing tweak.
+Fix the animation ownership and result transition properly.
+
