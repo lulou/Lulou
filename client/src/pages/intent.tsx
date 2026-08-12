@@ -1821,6 +1821,8 @@ export default function IntentPage() {
           speed: orbitSpeedRef2.current.toFixed(3),
           winnerLocked: true,
         });
+        // Hard stop — do NOT write to orbitAngle after WINNER_LOCKED.
+        return;
       }
       orbitAngleRef2.current += orbitSpeedRef2.current * dt;
       const angle = orbitAngleRef2.current;
@@ -2008,77 +2010,114 @@ export default function IntentPage() {
     }
     try { (navigator as any).vibrate?.([20, 10, 40]); } catch {}
 
-    // ── Winner-reveal RAF — 6 s total from WINNER_LOCKED ──────────────────────
+    // ── Winner-reveal RAF — sole owner of winner card transform 0–11500 ms ──────
     //
     // This RAF is completely separate from the orbit RAF.  It does NOT touch
     // orbitAngle or orbit velocity — those have already stopped.
     //
+    // THE SAME ORBIT CARD DOM NODE is the only winner photo on screen during this
+    // entire sequence.  The result UI (IntentResultBoundary / selectedProfile) must
+    // NOT mount before t=11500 ms — see RESULT_READY milestone below.
+    //
     // Scale (ease-out quadratic, RAF sets transform directly — no CSS transition):
-    //   0–1500 ms    → 1.000               (hold; "Narrowing down…")
-    //   1500–3200 ms → 1.000 … 1.015       ("There's something here…")
-    //   3200–5200 ms → 1.015 … 1.040       ("Tonight's connection")
-    //   5200–7200 ms → 1.040 … 1.075       (keep "Tonight's connection"; glow builds)
-    //   7200–9000 ms → 1.075 … 1.100       (hold; glow at peak)
+    //   0–1800 ms     → 1.000                (hold; "Narrowing down…")
+    //   1800–3800 ms  → 1.000 … 1.015        ("There's something here…")
+    //   3800–6200 ms  → 1.015 … 1.040        ("Tonight's connection")
+    //   6200–8500 ms  → 1.040 … 1.075        (keep "Tonight's connection"; glow builds)
+    //   8500–10500 ms → 1.075 … 1.100        (PHOTO_BUILD; glow peaks)
+    //  10500–11500 ms → hold at 1.100        (PHOTO_HOLD; no result yet)
     //
-    // Loser-card opacity: fade from approach-residual → 0 over first 1500 ms
-    // Card + orb glow:    dim → bright over 0–9000 ms
+    // Loser-card opacity: fade from approach-residual → 0 over first 1800 ms
+    // Card + orb glow:    dim → bright over 0–10500 ms
     //
-    // Milestones (text / phase — fired once):
-    //   t = 1500: "There's something here…"
-    //   t = 3200: "Tonight's connection" + go('momentum')
-    //   t = 5200: log only
-    //   t = 7200: log only
-    //   t = 9000: reveal — guarded by persist + profile + field normalisation
-    //   t =11300: go('pause')
-    //   t =14300: go('buttons')
+    // Milestones (text labels — fired once; result mounts ONLY at RESULT_READY):
+    //   t =  1800: "There's something here…"       [TEXT_1]
+    //   t =  3800: "Tonight's connection"           [TEXT_2] + go('momentum')
+    //   t =  6200: log only                         [TEXT_3 still visible]
+    //   t =  8500: log only                         [PHOTO_BUILD start]
+    //   t = 10500: log only                         [PHOTO_HOLD start]
+    //   t = 11500: RESULT_READY — mount result UI   [orbit card hidden by overlay]
+    //              pause fires +2300 ms after reveal confirms
+    //              buttons fires +5300 ms after reveal confirms
     winnerMomentStartRef.current = performance.now();
 
     // Ease-out quadratic: fast start, decelerates to target
     const _eo = (t: number) => 1 - (1 - Math.min(1, Math.max(0, t))) ** 2;
 
     const _scale = (elapsed: number): number => {
-      if (elapsed < 1500) return 1.0;
-      if (elapsed < 3200) return 1.000 + _eo((elapsed - 1500) / 1700) * 0.015;
-      if (elapsed < 5200) return 1.015 + _eo((elapsed - 3200) / 2000) * 0.025;
-      if (elapsed < 7200) return 1.040 + _eo((elapsed - 5200) / 2000) * 0.035;
-      return                     1.075 + _eo((elapsed - 7200) / 1800) * 0.025;
+      if (elapsed < 1800)  return 1.000;
+      if (elapsed < 3800)  return 1.000 + _eo((elapsed - 1800)  / 2000) * 0.015;
+      if (elapsed < 6200)  return 1.015 + _eo((elapsed - 3800)  / 2400) * 0.025;
+      if (elapsed < 8500)  return 1.040 + _eo((elapsed - 6200)  / 2300) * 0.035;
+      if (elapsed < 10500) return 1.075 + _eo((elapsed - 8500)  / 2000) * 0.025;
+      return                      1.100; // hold
+    };
+
+    // Helper: log [INTENTION_WHEEL_WINNER_NODE] diagnostics per spec Part 6.
+    // The DOM identifier (slot index + userId) must remain unchanged from
+    // winner_locked through photo_build; any change means DOM-node replacement.
+    const logWinnerNode = (checkpoint: string) => {
+      const el  = orbitCardRefs.current[frontI];
+      const xfm = el?.style.transform ?? '(none)';
+      const scaleMatch = xfm.match(/scale\(([\d.]+)\)/);
+      console.log('[INTENTION_WHEEL_WINNER_NODE]', {
+        checkpoint,
+        userId:      winner.userId,
+        slot:        frontI,
+        reactKey:    frontI, // JSX key={i} where i===frontI
+        transform:   xfm,
+        scale:       scaleMatch ? scaleMatch[1] : '?',
+        isConnected: el?.isConnected ?? false,
+      });
     };
 
     type Milestone = { t: number; fn: () => void };
     const milestones: Milestone[] = [
-      // t=1500: "There's something here…"
-      { t: 1500, fn: () => {
+      // t=1800: TEXT_1 — "There's something here…"
+      { t: 1800, fn: () => {
         setMomentumLabel('There\u2019s something here\u2026');
-        logWheelState({ event: 'momentum_step_1', elapsed: 1500 });
+        logWheelState({ event: 'text_1', elapsed: 1800 });
+        logWinnerNode('text_1');
       }},
-      // t=3200: "Tonight's connection" + go('momentum') so orbit RAF stops gating
-      { t: 3200, fn: () => {
+      // t=3800: TEXT_2 — "Tonight's connection" + go('momentum')
+      // go('momentum') keeps the orbit RAF's early-return guard active while
+      // freeing spinRoomPhase for the text-display JSX check.
+      { t: 3800, fn: () => {
         setMomentumLabel('Tonight\u2019s connection');
         setSpinRoomPhase('momentum');
-        logWheelState({ event: 'momentum_step_2', elapsed: 3200 });
+        logWheelState({ event: 'text_2', elapsed: 3800 });
+        logWinnerNode('text_2');
       }},
-      // t=5200: keep "Tonight's connection" — log only; scale continues to 1.075
-      { t: 5200, fn: () => {
-        logWheelState({ event: 'momentum_step_3', elapsed: 5200 });
+      // t=6200: TEXT_3 still showing — log only (scale 1.04 → 1.075 building)
+      { t: 6200, fn: () => {
+        logWheelState({ event: 'text_3', elapsed: 6200 });
+        logWinnerNode('text_3');
       }},
-      // t=7200: scale nearing 1.10 — log only
-      { t: 7200, fn: () => {
-        logWheelState({ event: 'momentum_step_4', elapsed: 7200 });
+      // t=8500: PHOTO_BUILD start — scale reaches 1.04; glow strengthening
+      { t: 8500, fn: () => {
+        logWheelState({ event: 'photo_build', elapsed: 8500 });
+        logWinnerNode('photo_build');
       }},
-      // t=9000: reveal — guarded by persistence + profile + field normalisation.
-      // Per spec: only after 9000 ms from WINNER_LOCKED may result UI begin.
-      { t: 9000, fn: () => {
+      // t=10500: PHOTO_HOLD — scale at 1.10; hold; no result mount yet
+      { t: 10500, fn: () => {
+        logWheelState({ event: 'photo_hold', elapsed: 10500 });
+      }},
+      // t=11500: RESULT_READY — all guards must pass before result UI mounts.
+      // Per spec Part 7: WINNER_LOCKED ∧ elapsed≥11500 ∧ persist succeeded
+      //                  ∧ selectedProfile ∧ userId match ∧ fields valid.
+      // pause fires +2300 ms after reveal confirms; buttons fires +5300 ms.
+      { t: 11500, fn: () => {
         // Retry up to 15 × 200 ms (3 s extra) if persist hasn't confirmed yet.
         // After 15 attempts proceed anyway — never block the user indefinitely.
         const revealAttempt = (attempt: number) => {
           if (!saveSpinSucceededRef.current && attempt < 15) {
-            logWheelState({ event: 'reveal_waiting_for_persist', attempt });
+            logWheelState({ event: 'result_waiting_for_persist', attempt });
             setTimeout(() => revealAttempt(attempt + 1), 200);
             return;
           }
           const profileNow = pendingWinnerRef.current?.profile;
           if (!profileNow?.userId) {
-            logWheelState({ event: 'reveal_aborted_no_winner' });
+            logWheelState({ event: 'result_aborted_no_winner' });
             setShowSpinRoom(false);
             return;
           }
@@ -2086,26 +2125,27 @@ export default function IntentPage() {
           // before setting state — prevents React error #31.
           const normProfile = normaliseProfileForRender(profileNow);
           logWheelState({
-            event: 'reveal_mount',
+            event: 'result_ready',
             selectedProfileUserId: profileNow.userId,
-            pendingWinnerUserId: profileNow.userId,
-            saveSucceeded: saveSpinSucceededRef.current,
+            pendingWinnerUserId:   profileNow.userId,
+            saveSucceeded:         saveSpinSucceededRef.current,
           });
+          logWinnerNode('result_ready');
           setSelectedIndex(pendingWinnerRef.current?.index ?? frontI);
           setSelectedProfile(normProfile);
           setRevealQuote(LULOU_QUOTE_KEYS[Math.floor(Math.random() * LULOU_QUOTE_KEYS.length)]);
+          // Mount the result overlay — orbit card is now hidden behind it.
           setSpinRoomPhase('reveal');
           if (!muted) playChime();
           try { (navigator as any).vibrate?.([60, 40, 120]); } catch {}
+          // Schedule subsequent phase transitions; no more RAF milestones needed.
+          setTimeout(() => setSpinRoomPhase('pause'),   2300);
+          setTimeout(() => {
+            setSpinRoomPhase('buttons');
+            console.log('[WHEEL] BUTTONS_VISIBLE');
+          }, 5300);
         };
         revealAttempt(0);
-      }},
-      // t=11300: photo phase (2300 ms after reveal — same relative gap as before)
-      { t: 11300, fn: () => setSpinRoomPhase('pause') },
-      // t=14300: CTA buttons (3000 ms after photo — same relative gap as before)
-      { t: 14300, fn: () => {
-        setSpinRoomPhase('buttons');
-        console.log('[WHEEL] BUTTONS_VISIBLE');
       }},
     ];
 
@@ -2119,8 +2159,8 @@ export default function IntentPage() {
         const computedScale = _scale(elapsed);
         // Scale: continuous ease-out quadratic; no CSS transition → no snap-jumps
         winnerEl.style.transform = `translate(-50%, -50%) scale(${computedScale.toFixed(4)})`;
-        // Card glow: dim (t=0) → bright (t=9000)
-        const gt  = Math.min(1, elapsed / 9000);
+        // Card glow: dim (t=0) → bright (t=10500, when scale peaks)
+        const gt  = Math.min(1, elapsed / 10500);
         const gr  = Math.round(18 + gt * 62);
         const gsp = Math.round(4  + gt * 20);
         winnerEl.style.boxShadow = `0 0 ${gr}px ${gsp}px rgba(212,92,116,${(0.08 + gt * 0.44).toFixed(3)}), 0 6px ${Math.round(24 + gt * 16)}px rgba(0,0,0,${(0.50 + gt * 0.18).toFixed(3)})`;
@@ -2153,14 +2193,14 @@ export default function IntentPage() {
       }
       // Ambient orb glow
       if (orbitGlowRef.current) {
-        const gt  = Math.min(1, elapsed / 9000);
+        const gt  = Math.min(1, elapsed / 10500);
         const gr  = Math.round(18 + gt * 62);
         const gsp = Math.round(4  + gt * 24);
         orbitGlowRef.current.style.boxShadow = `0 0 ${gr}px ${gsp}px rgba(212,92,116,${(0.08 + gt * 0.38).toFixed(3)}), 0 0 ${gr * 2}px ${gsp * 2}px rgba(212,92,116,${(0.0 + gt * 0.20).toFixed(3)})`;
       }
       // Loser cards: fade from approach-residual opacity → 0 over first 1500 ms.
       // loserStartAlpha[i] was captured from the DOM at pullforward start.
-      const loserT = elapsed < 1500 ? Math.max(0, 1 - elapsed / 1500) : 0;
+      const loserT = elapsed < 1800 ? Math.max(0, 1 - elapsed / 1800) : 0;
       for (let i = 0; i < ORBIT_N; i++) {
         if (i === frontI) continue;
         const loserEl = orbitCardRefs.current[i];
